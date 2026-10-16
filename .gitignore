@@ -5,8 +5,8 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
-build/
-out/
+/build/
+/out/
 
 # Rust / Cargo / Tauri
 target/
