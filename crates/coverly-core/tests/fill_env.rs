@@ -417,7 +417,7 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
 }
 
 #[test]
-fn a_cancel_is_not_marked_in_the_plan_or_the_report() {
+fn a_cancel_is_marked_in_the_report_but_not_in_the_plan() {
     let w = world();
     let profile = common::profile("anbernic-stock");
     let db = SystemDb::builtin();
@@ -449,6 +449,7 @@ fn a_cancel_is_not_marked_in_the_plan_or_the_report() {
         )
         .unwrap();
     assert_eq!(r.paused, None);
+    assert!(r.cancelled);
     assert!(r.items.iter().all(|i| i.status == ItemStatus::NotAttempted));
     assert!(!w.lib.path().join("ROMS/GBA/Imgs").exists());
 }

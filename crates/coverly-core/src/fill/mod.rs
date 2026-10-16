@@ -195,8 +195,8 @@ impl FillEnv<'_> {
     }
 
     /// Phase two: applies `plan`, then keeps the newest [`KEEP_JOBS`] journals.
-    /// A cancel is not marked in the report either (`paused` stays `None`,
-    /// the items left are `not-attempted`): check the `cancel` flag.
+    /// A cancel is `report.cancelled` (never `paused`; the items left are
+    /// `not-attempted`).
     pub fn apply(
         &self,
         plan: &Plan,
