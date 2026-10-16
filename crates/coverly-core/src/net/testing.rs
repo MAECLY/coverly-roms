@@ -110,6 +110,17 @@ impl MockServer {
     }
 }
 
+impl MockServer {
+    /// Serves `text` at the libretro-database path `repo_path`
+    /// (percent-encoded like `DatStore` requests it).
+    pub fn serve_dat(&self, repo_path: &str, text: &str) {
+        self.mock(
+            &format!("/{}", crate::identify::dat::encode_path(repo_path)),
+            MockResponse::ok(text.as_bytes().to_vec()),
+        );
+    }
+}
+
 impl Drop for MockServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
