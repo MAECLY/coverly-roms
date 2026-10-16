@@ -6369,7 +6369,7 @@ async function image(
       call<string | null>('export_job_report', { job, format }),
 ```
 
-`src/ipc/errors.ts` — `ERROR_CODES` gains, before `'art-unreadable'`: `'job-running'`, `'no-job'`, `'stale-job'`, `'bad-request'`, `'nothing-to-undo'`, `'network'`, `'bad-image'`, `'write-denied'`, `'disk-full'`, `'name-invalid'`.
+`src/ipc/errors.ts` — `ERROR_CODES` gains, before `'art-unreadable'`: `'job-running'`, `'no-job'`, `'stale-job'`, `'bad-request'`, `'nothing-to-undo'`, `'network'`, `'bad-image'`, `'write-denied'`, `'disk-full'`, `'name-invalid'`, `'volume-gone'` (added in the Task 7 review: a drawer change whose SD is pulled mid-write).
 
 `locales/en/ui.json` → `errors` gains:
 
@@ -6383,7 +6383,8 @@ async function image(
     "bad-image": "This file is not a usable image: {detail}",
     "write-denied": "Coverly ROMs cannot write to the library (read-only or no permission): {detail}",
     "disk-full": "The library disk is full.",
-    "name-invalid": "This file name is not valid on SD cards: {detail}"
+    "name-invalid": "This file name is not valid on SD cards: {detail}",
+    "volume-gone": "The library volume was removed or is no longer reachable: {detail}"
 ```
 
 `locales/es/ui.json` → `errors` gains:
@@ -6398,7 +6399,8 @@ async function image(
     "bad-image": "Este archivo no es una imagen válida: {detail}",
     "write-denied": "Coverly ROMs no puede escribir en la biblioteca (solo lectura o sin permiso): {detail}",
     "disk-full": "El disco de la biblioteca está lleno.",
-    "name-invalid": "Este nombre de archivo no es válido en tarjetas SD: {detail}"
+    "name-invalid": "Este nombre de archivo no es válido en tarjetas SD: {detail}",
+    "volume-gone": "El volumen de la biblioteca se ha retirado o ya no está accesible: {detail}"
 ```
 
 - [ ] **Step 4: CSV helper**
@@ -11114,7 +11116,7 @@ Any bug found: write the failing test, fix it, commit `fix(…)`, re-run the ste
 `docs/04-architecture/desktop-app.md`:
 - TL;DR: add one sentence: "Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview."
 - Layers table: add `Jobs | src-tauri/src/jobs/ | JobManager (one job), worker threads, JobEvents, wire views` and stores row `jobStore`.
-- IPC table: add the rows of Tasks 6–7 (`start_fill`, `fill_job`, `fill_job_items`, `decide_fill`, `run_fill`, `resume_fill`, `cancel_fill`, `candidate_art`, `undo_last_job`, `job_history`, `entry_candidates`, `entry_candidate_art`, `set_entry_art`, `set_entry_art_from_file`, `remove_entry_art`, `export_audit`, `export_job_report`) with their arguments, results and error codes (`job-running`, `no-job`, `stale-job`, `bad-request`, `nothing-to-undo`, `network`, `bad-image`, `write-denied`, `disk-full`, `name-invalid`), and the events `fill-job-progress`, `fill-job-changed`, `library-entries-updated`.
+- IPC table: add the rows of Tasks 6–7 (`start_fill`, `fill_job`, `fill_job_items`, `decide_fill`, `run_fill`, `resume_fill`, `cancel_fill`, `candidate_art`, `undo_last_job`, `job_history`, `entry_candidates`, `entry_candidate_art`, `set_entry_art`, `set_entry_art_from_file`, `remove_entry_art`, `export_audit`, `export_job_report`) with their arguments, results and error codes (`job-running`, `no-job`, `stale-job`, `bad-request`, `nothing-to-undo`, `network`, `bad-image`, `write-denied`, `disk-full`, `name-invalid`, `volume-gone`), and the events `fill-job-progress`, `fill-job-changed`, `library-entries-updated`.
 - New section "Fill jobs": the state machine (copy it from Task 5), one job at a time, throttled progress (~20/s), `written` before `changed`, decisions recorded before Run, undecided review items skipped (D20), resume into the same journal (D21), undo = newest not-undone journal of the open library, refused while a job gathers, applies or is paused; a panicking worker ends the job `failed`; "Re-scan of touched entries" (`subset_scan` + `resolve_art`, `refresh_entries` installs a new `Session` for the same generation).
 - Security: add "The image picker and the save dialog run in Rust (`DialogExt`); the webview never sends a path. Picked files are read up to 20 MiB and always decoded and re-encoded."
 - Mock adapter: add the job rules (Task 8 "Mock rules"), `pauseAfter`, `pick`, exports through Blob downloads.
