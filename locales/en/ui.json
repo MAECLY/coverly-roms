@@ -126,8 +126,7 @@
     "layout": "Layout",
     "grid": "Grid",
     "list": "List",
-    "fill": "Fill missing art",
-    "fillHint": "Filling art arrives in a later version."
+    "fill": "Fill missing art"
   },
   "filters": {
     "art": "Art",
@@ -206,5 +205,67 @@
     "revealMac": "Reveal in Finder",
     "revealWin": "Show in Explorer",
     "revealOther": "Show in folder"
+  },
+  "fill": {
+    "title": "Fill missing art",
+    "stepOf": "Step {n} of {total}",
+    "next": "Next",
+    "back": "Back",
+    "close": "Close",
+    "scope": {
+      "title": "What to fill",
+      "selection": "Selected ROM ({n})",
+      "filter": "Current filter ({n} ROMs)",
+      "library": "Whole library ({n} ROMs)"
+    },
+    "media": {
+      "title": "Which art"
+    },
+    "strategy": {
+      "title": "How to choose the image",
+      "rom-region": "ROM region",
+      "priority": "Source priority",
+      "popularity": "Most common variant"
+    },
+    "strategyHint": {
+      "rom-region": "Prefers the ROM's own region, then the order below.",
+      "priority": "Prefers the first source, then the order below.",
+      "popularity": "Prefers the variant that has box, screenshot and title, then source priority."
+    },
+    "regions": "Region order",
+    "regionRom": "The ROM's own region",
+    "moveUp": "Move {region} up",
+    "moveDown": "Move {region} down",
+    "overwrite": {
+      "title": "Existing art",
+      "never": "Only missing art",
+      "backup": "Also replace existing art (with a backup)",
+      "backupHint": "Replaced images are kept in the app's data folder and come back with Undo."
+    },
+    "batocera": "Batocera and Knulli read art from gamelist.xml, which Coverly ROMs does not update yet: new images may not show until it does.",
+    "preview": "Preview (dry run)",
+    "gathering": "Looking for art… {done} of {total}",
+    "summary": "Dry run",
+    "summaryHint": "Nothing has been written yet.",
+    "system": "System",
+    "auto": "Automatic",
+    "review": "To review",
+    "none": "No art",
+    "total": "Total",
+    "samples": "Sample images",
+    "imageFailed": "Image not available",
+    "nothingToDo": "Nothing to fill here.",
+    "run": "Run ({n})",
+    "discard": "Discard the plan",
+    "failed": "The dry run failed: {detail}",
+    "pausedHint": "The dry run paused. Resume it when the connection is back."
+  },
+  "jobs": {
+    "resume": "Resume",
+    "pause": {
+      "rate-limit": "Paused: the art server is limiting requests. Wait a few minutes and resume.",
+      "offline": "Paused: no connection to the art server. Resume when you are back online.",
+      "volume": "Paused: the SD card is full, read-only or was removed. Fix it and resume."
+    }
   }
 }

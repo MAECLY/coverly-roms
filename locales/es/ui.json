@@ -126,8 +126,7 @@
     "layout": "Vista",
     "grid": "Cuadrícula",
     "list": "Lista",
-    "fill": "Rellenar arte que falta",
-    "fillHint": "El relleno de arte llegará en una versión posterior."
+    "fill": "Rellenar arte que falta"
   },
   "filters": {
     "art": "Arte",
@@ -206,5 +205,67 @@
     "revealMac": "Mostrar en Finder",
     "revealWin": "Mostrar en el Explorador",
     "revealOther": "Mostrar en la carpeta"
+  },
+  "fill": {
+    "title": "Rellenar arte que falta",
+    "stepOf": "Paso {n} de {total}",
+    "next": "Siguiente",
+    "back": "Atrás",
+    "close": "Cerrar",
+    "scope": {
+      "title": "Qué rellenar",
+      "selection": "ROM seleccionada ({n})",
+      "filter": "Filtro actual ({n} ROMs)",
+      "library": "Toda la biblioteca ({n} ROMs)"
+    },
+    "media": {
+      "title": "Qué arte"
+    },
+    "strategy": {
+      "title": "Cómo elegir la imagen",
+      "rom-region": "Región de la ROM",
+      "priority": "Prioridad de fuentes",
+      "popularity": "Variante más común"
+    },
+    "strategyHint": {
+      "rom-region": "Prefiere la región de la propia ROM y después el orden de abajo.",
+      "priority": "Prefiere la primera fuente y después el orden de abajo.",
+      "popularity": "Prefiere la variante que tiene caja, captura y título; después, la prioridad de fuentes."
+    },
+    "regions": "Orden de regiones",
+    "regionRom": "La región de la propia ROM",
+    "moveUp": "Subir {region}",
+    "moveDown": "Bajar {region}",
+    "overwrite": {
+      "title": "Arte existente",
+      "never": "Solo el arte que falta",
+      "backup": "Sustituir también el arte existente (con copia de seguridad)",
+      "backupHint": "Las imágenes sustituidas se guardan en la carpeta de datos de la app y vuelven con Deshacer."
+    },
+    "batocera": "Batocera y Knulli leen el arte de gamelist.xml, que Coverly ROMs aún no actualiza: puede que las imágenes nuevas no se vean hasta entonces.",
+    "preview": "Vista previa (simulación)",
+    "gathering": "Buscando arte… {done} de {total}",
+    "summary": "Simulación",
+    "summaryHint": "Todavía no se ha escrito nada.",
+    "system": "Sistema",
+    "auto": "Automáticas",
+    "review": "Por revisar",
+    "none": "Sin arte",
+    "total": "Total",
+    "samples": "Imágenes de muestra",
+    "imageFailed": "Imagen no disponible",
+    "nothingToDo": "No hay nada que rellenar aquí.",
+    "run": "Ejecutar ({n})",
+    "discard": "Descartar el plan",
+    "failed": "La simulación ha fallado: {detail}",
+    "pausedHint": "La simulación se ha pausado. Reanúdala cuando vuelva la conexión."
+  },
+  "jobs": {
+    "resume": "Reanudar",
+    "pause": {
+      "rate-limit": "En pausa: el servidor de arte está limitando las peticiones. Espera unos minutos y reanuda.",
+      "offline": "En pausa: no hay conexión con el servidor de arte. Reanuda cuando vuelvas a tener conexión.",
+      "volume": "En pausa: la tarjeta SD está llena, en solo lectura o se ha extraído. Corrígelo y reanuda."
+    }
   }
 }

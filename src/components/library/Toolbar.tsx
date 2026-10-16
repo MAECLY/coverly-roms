@@ -12,10 +12,12 @@ export function Toolbar({
   view,
   searchRef,
   onSettings,
+  onFill,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
   onSettings(): void;
+  onFill(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -75,19 +77,9 @@ export function Toolbar({
         </button>
       </div>
       <span className="toolbar-spacer" />
-      <span title={t('toolbar.fillHint')}>
-        <button
-          type="button"
-          className="primary-button"
-          disabled
-          aria-describedby="fill-hint"
-        >
-          {t('toolbar.fill')}
-        </button>
-      </span>
-      <span id="fill-hint" className="sr-only">
-        {t('toolbar.fillHint')}
-      </span>
+      <button type="button" className="primary-button" onClick={onFill}>
+        {t('toolbar.fill')}
+      </button>
       <button type="button" className="ghost-button" onClick={onSettings}>
         {t('start.settings')}
       </button>
