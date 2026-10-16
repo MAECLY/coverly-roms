@@ -56,6 +56,19 @@ pub enum NetError {
     Insecure(String),
 }
 
+impl NetError {
+    /// Whether this error pauses a whole phase or job instead of failing
+    /// one item (spec §10): a rate limit, or a transport failure after the
+    /// retries (offline, unreachable, timed out). Pausing errors are never
+    /// remembered as permanent failures, so a re-run retries them.
+    pub fn pauses(&self) -> bool {
+        matches!(
+            self,
+            NetError::RateLimited { .. } | NetError::Offline(_) | NetError::Timeout
+        )
+    }
+}
+
 /// Blocking HTTP GET, injectable so tests and sources can wrap or fake it.
 pub trait Http: Send + Sync {
     fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError>;

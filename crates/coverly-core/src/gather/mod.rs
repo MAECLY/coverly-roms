@@ -1,8 +1,8 @@
 //! Phase one of a fill (spec §7 steps 3–5, §16.1): pick the ROMs and media
 //! to fill, identify each ROM and gather art candidates from every enabled
 //! source into the SQLite cache. Nothing is downloaded but indexes and DATs;
-//! nothing is written to the library. A rate limit or going offline pauses
-//! the phase (spec §10).
+//! nothing is written to the library. A rate limit or a transport failure
+//! (offline, timed out) pauses the phase (spec §10).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -15,7 +15,6 @@ use crate::cache::{now_unix, Cache};
 use crate::identify::dat::DatError;
 use crate::identify::names;
 use crate::identify::{IdMethod, Identifier, Identity};
-use crate::net::NetError;
 use crate::profiles::Media;
 use crate::progress::{Phase, ProgressEvent, ProgressSink};
 use crate::scan::RomEntry;
@@ -165,14 +164,9 @@ pub struct Gathered {
     pub cancelled: bool,
 }
 
-/// Whether `e` pauses the phase instead of failing one item (spec §10).
-fn pauses(e: &NetError) -> bool {
-    matches!(e, NetError::RateLimited { .. } | NetError::Offline(_))
-}
-
 /// Identifies each target and gathers its candidates from `sources`,
-/// caching each candidate list. Stops at a cancel, a rate limit or going
-/// offline; the items before it are kept.
+/// caching each candidate list. Stops at a cancel, a rate limit or a
+/// transport failure; the items before it are kept.
 #[allow(clippy::too_many_arguments)]
 pub fn gather(
     targets: &[GatherTarget],
@@ -206,7 +200,7 @@ pub fn gather(
         });
         let identity = match identifier.identify(&t.rom, system, t.strip_numbering) {
             Ok(i) => i,
-            Err(DatError::Net(e)) if pauses(&e) => {
+            Err(DatError::Net(e)) if e.pauses() => {
                 out.paused = Some(e.to_string());
                 break;
             }
@@ -235,7 +229,7 @@ pub fn gather(
             for &src in sources {
                 match source_candidates(src, system, media, &item.identity, t, cache, opts) {
                     Ok(found) => all.extend(found),
-                    Err(SourceError::Net(e)) if pauses(&e) => {
+                    Err(SourceError::Net(e)) if e.pauses() => {
                         // "rate limited by … (HTTP 429)" / "offline or unreachable: …"
                         paused = Some(e.to_string());
                         break 'media;
@@ -338,7 +332,7 @@ fn add_consensus(
             match src.has_name(system, other, &c.name) {
                 Ok(true) => n = n.saturating_add(1),
                 Ok(false) => {}
-                Err(SourceError::Net(e)) if pauses(&e) => return Err(SourceError::Net(e)),
+                Err(SourceError::Net(e)) if e.pauses() => return Err(SourceError::Net(e)),
                 Err(_) => {}
             }
         }

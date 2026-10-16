@@ -3,8 +3,8 @@ use coverly_core::identify::dat::{
     dat_sources, encode_path, parse_clrmamepro, DatStatus, DatStore,
 };
 use coverly_core::identify::hash::{Digests, HashOutcome, RomHashes};
-use coverly_core::net::testing::{MockResponse, MockServer};
-use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::net::testing::{HangingServer, MockResponse, MockServer};
+use coverly_core::net::{NetConfig, NetError, PoliteHttp, UreqHttp};
 use coverly_core::systems::SystemDb;
 
 const NES_DAT: &str = r#"clrmamepro (
@@ -312,4 +312,29 @@ fn an_unsafe_libretro_name_derives_no_dat() {
             .unwrap();
         assert!(dat_sources(db.get("gba").unwrap()).is_empty(), "{bad}");
     }
+}
+
+#[test]
+fn a_timeout_is_not_remembered_so_the_job_can_pause_and_resume() {
+    let hang = HangingServer::start();
+    let cfg = NetConfig {
+        retries: 0,
+        timeout: std::time::Duration::from_millis(300),
+        ..NetConfig::default()
+    };
+    let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+    let cache = Cache::in_memory().unwrap();
+    let store = DatStore::new(&http, &cache, hang.base());
+    let dat = "metadat/no-intro/Nintendo - Game Boy Advance.dat";
+    for _ in 0..2 {
+        let err = store.ensure(dat).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                coverly_core::identify::dat::DatError::Net(NetError::Timeout)
+            ),
+            "{err}"
+        );
+    }
+    assert_eq!(hang.connections(), 2);
 }

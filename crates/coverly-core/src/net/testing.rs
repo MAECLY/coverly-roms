@@ -238,3 +238,51 @@ fn serve(
     out.write_all(&resp.body)?;
     out.flush()
 }
+
+/// A server on 127.0.0.1 that accepts connections and never answers: every
+/// request through it times out. Counts the connections it accepted.
+pub struct HangingServer {
+    addr: SocketAddr,
+    accepted: Arc<Mutex<Vec<TcpStream>>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl HangingServer {
+    pub fn start() -> HangingServer {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind hanging server");
+        let addr = listener.local_addr().unwrap();
+        let accepted: Arc<Mutex<Vec<TcpStream>>> = Arc::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (a, s) = (accepted.clone(), stop.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if s.load(Ordering::SeqCst) {
+                    break;
+                }
+                if let Ok(stream) = stream {
+                    // Kept open and never written to.
+                    a.lock().unwrap().push(stream);
+                }
+            }
+        });
+        HangingServer {
+            addr,
+            accepted,
+            stop,
+        }
+    }
+    pub fn base(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+    /// Connections accepted so far.
+    pub fn connections(&self) -> usize {
+        self.accepted.lock().unwrap().len()
+    }
+}
+
+impl Drop for HangingServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(self.addr); // unblock accept
+    }
+}

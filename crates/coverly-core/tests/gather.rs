@@ -7,7 +7,7 @@ use coverly_core::cache::Cache;
 use coverly_core::gather::{gather, select_targets, GatherOptions, Scope, TargetFilter};
 use coverly_core::identify::dat::DatStore;
 use coverly_core::identify::{IdMethod, Identifier, IdentifyOptions, MatchMethod};
-use coverly_core::net::testing::{MockResponse, MockServer};
+use coverly_core::net::testing::{HangingServer, MockResponse, MockServer};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
@@ -488,4 +488,60 @@ fn hash_only_without_a_dat_never_falls_back_to_the_name() {
         default.identify(&rom, pico, false).unwrap().method,
         IdMethod::Name
     );
+}
+
+#[test]
+fn a_hanging_network_pauses_gathering_after_the_first_rom() {
+    let lib = library();
+    let hang = HangingServer::start();
+    let cfg = NetConfig {
+        retries: 0,
+        timeout: std::time::Duration::from_millis(300),
+        ..NetConfig::default()
+    };
+    let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+    let cache = Cache::in_memory().unwrap();
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(
+        &art,
+        &TargetFilter {
+            systems: vec!["GBA".into()],
+            media: vec![Media::Cover],
+            scope: Scope::Missing,
+        },
+    );
+    assert_eq!(targets.len(), 2);
+    let dats = DatStore::new(&http, &cache, hang.base());
+    let id = Identifier::new(&cache, &dats, IdentifyOptions::default());
+    let src = LibretroSource::new(
+        &http,
+        &cache,
+        LibretroConfig {
+            base: hang.base(),
+            raw_base: hang.base(),
+            ..Default::default()
+        },
+    );
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let g = gather(
+        &targets,
+        &db,
+        &sources,
+        &id,
+        &cache,
+        &GatherOptions::default(),
+        &NoProgress,
+        &AtomicBool::new(false),
+    );
+    // A timeout is a transport failure: pause, do not wait it out per ROM.
+    assert!(
+        g.paused.as_deref().unwrap_or("").contains("timed out"),
+        "{:?}",
+        g.paused
+    );
+    assert!(g.items.is_empty() && g.warnings.is_empty(), "{g:?}");
+    assert_eq!(hang.connections(), 1, "the second ROM never asks again");
 }

@@ -290,8 +290,9 @@ impl<'a> DatStore<'a> {
 
     /// Makes `dat`'s rows available, at most one check per process per DAT.
     /// A failure is remembered too (later calls return
-    /// [`DatError::Unavailable`] without a request), except a rate limit or
-    /// being offline, which pause the job and are retried on resume.
+    /// [`DatError::Unavailable`] without a request), except a rate limit, being
+    /// offline or timing out ([`NetError::pauses`]), which pause the job and
+    /// are retried on resume.
     pub fn ensure(&self, dat: &str) -> Result<DatStatus, DatError> {
         if let Some(m) = self.memo.lock().unwrap().get(dat) {
             return m.clone().map_err(|reason| DatError::Unavailable {
@@ -302,7 +303,7 @@ impl<'a> DatStore<'a> {
         let result = self.refresh(dat);
         let remembered = match &result {
             Ok(status) => Some(Ok(*status)),
-            Err(DatError::Net(NetError::RateLimited { .. } | NetError::Offline(_))) => None,
+            Err(DatError::Net(e)) if e.pauses() => None,
             Err(e) => Some(Err(e.to_string())),
         };
         if let Some(m) = remembered {
