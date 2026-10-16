@@ -1,6 +1,6 @@
 # System Architecture
 
-> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. Today (M1) the core scans a library read-only and reports which ROMs lack cover, screenshot or title art. Identification, art sources, plans and writes arrive in M2. Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
+> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. M1 built the read-only scan and audit. M2 adds identification, the libretro-thumbnails source, strategies, plans and safe writes, which together are `coverly fill` and `coverly undo`. Details: [identification](./identification.md), [art sources](./art-sources.md), [fill pipeline](./fill-pipeline.md). Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
 
 ## Containers
 
@@ -8,8 +8,9 @@
 ┌───────────────────────────────┐     ┌─────────────────────────────┐
 │ Tauri app  (src-tauri + src/) │     │ coverly CLI (crates/        │
 │ React 19 + TS + Tailwind +    │     │ coverly-cli, clap)          │
-│ zustand, i18n en/es           │     │ audit · profiles · systems  │
-│ IPC commands + events         │     │ table / JSON / CSV output   │
+│ zustand, i18n en/es           │     │ audit · fill · undo ·       │
+│ IPC commands + events         │     │ profiles · systems          │
+│                               │     │ table / JSON / CSV output   │
 └──────────────┬────────────────┘     └──────────────┬──────────────┘
                │  Rust calls (no Tauri types cross)   │
                └──────────────────┬───────────────────┘
@@ -17,20 +18,22 @@
                ┌──────────────────────────────────────┐
                │ coverly-core (library, no UI)        │
                │ systems · profiles · scan · art ·    │
-               │ audit  (M2+: identify · sources ·    │
-               │ matching · plan/jobs · image · write │
-               │ · cache · net · settings)            │
+               │ audit · identify · cache · net ·     │
+               │ sources · gather · matching · plan · │
+               │ image · write · jobs                 │
+               │ (M5+: settings)                      │
                └──────────────────┬───────────────────┘
                                   ▼
           ROM library on disk (SD card, ES-DE, RetroArch, folder)
-          M2+: thumbnails.libretro.com, SteamGridDB, ScreenScraper
+          thumbnails.libretro.com + raw.githubusercontent.com (M2)
+          SteamGridDB, ScreenScraper (M6)
 ```
 
 Rules:
 
-- `coverly-core` **never depends on Tauri** and has no UI strings. Until M2 it has no network code.
+- `coverly-core` **never depends on Tauri** and has no UI strings. Network code lives only in `net` (HTTPS only, one global limiter) and is reached through the `Http` trait.
 - The app and the CLI only parse input, call the core and present results.
-- Long work runs on worker threads and reports progress through a `ProgressSink` trait (Tauri events in the app, a progress bar in the CLI) — from M2.
+- Long work runs on worker threads and reports progress through a `ProgressSink` trait (`progress.rs`; Tauri events in the app from M3/M4, stderr in the CLI).
 - Everything that touches network or disk is behind a trait so tests can fake it.
 
 ## Workspace layout
@@ -47,13 +50,15 @@ coverly-roms/
 │  │  ├─ audit/               report model, JSON (serde) and CSV                    [M1]
 │  │  ├─ paths.rs             app directory identity (qualifier, org, app)          [M1]
 │  │  ├─ identify/            CRC32/MD5/SHA1, header skip, DAT index, arcade map    [M2]
-│  │  ├─ sources/             trait ArtSource: libretro, SteamGridDB, ScreenScraper [M2/M6]
-│  │  ├─ matching/            scoring, regions, strategies                          [M2]
-│  │  ├─ plan/ jobs/          plan, execution, journal, undo, resume                [M2]
-│  │  ├─ image/               decode, resize, re-encode png/jpg                     [M2]
-│  │  ├─ write/               atomic writes, backups, FAT-safe names                [M2]
-│  │  ├─ cache/               SQLite: scan cache, source indexes                    [M2]
-│  │  ├─ net/                 HTTP client, retries, rate limit, proxy               [M2]
+│  │  ├─ sources/             trait ArtSource: libretro [M2]; SteamGridDB, ScreenScraper [M6]
+│  │  ├─ gather/              targets, identify + candidates into the cache         [M2]
+│  │  ├─ matching/            regions, strategies (Priority, ROM region, Popularity) [M2]
+│  │  ├─ plan/ jobs/          plan (auto/review/none), apply, art store, pause      [M2]
+│  │  ├─ image/               decode with limits, resize, re-encode                 [M2]
+│  │  ├─ write/               atomic writes, backups, journal, undo, FAT-safe names [M2]
+│  │  ├─ cache/               SQLite: quick ids, DAT rows, indexes, candidates      [M2]
+│  │  ├─ net/                 HTTPS client, global limiter, retries, proxy, mock    [M2]
+│  │  ├─ progress.rs time.rs  progress events, time helpers                         [M2]
 │  │  └─ settings/            typed settings, defaults, migration                   [M5]
 │  └─ coverly-cli/            binary `coverly`
 ├─ src-tauri/                 Tauri 2 app, IPC commands (today: app_info)
@@ -84,13 +89,13 @@ coverly-roms/
 
 The audit is **read-only**: no code path in `scan`, `art` or `audit` opens a file for writing.
 
-### Fill (M2+, designed)
+### Fill (M2, implemented)
 
-Two phases, after Skyscraper (spec §16.1):
+Two phases, after Skyscraper (spec §16.1, [ADR-0009](../adr/0009-two-phase-fill-with-sqlite-cache.md)). The full flow, thresholds, writer guarantees and the end-to-end evidence are in [fill-pipeline.md](./fill-pipeline.md):
 
 1. **Gather** — identify each selected ROM (hash → DAT, then name, arcade translation; [ADR-0006](../adr/0006-hash-then-name-identification.md)), fetch candidates from enabled sources ([ADR-0005](../adr/0005-libretro-primary-source.md)) into a content-addressed art cache.
 2. **Choose** — a strategy picks one candidate per ROM and media ([ADR-0007](../adr/0007-pluggable-strategies.md)); the result is a plan: `auto`, `review` or `none`, shown as a dry run.
-3. **Apply** — download → decode and re-encode per profile → back up existing art if overwriting → atomic write (temp + rename) inside the library root → journal for undo → re-scan affected entries.
+3. **Apply** — download (through the art store) → decode and re-encode per profile → back up existing art if overwriting → atomic write (temp + rename) inside the library root → journal for undo ([ADR-0010](../adr/0010-safe-writes-backups-and-journal.md)) → re-audit with `coverly audit`.
 
 ## Performance (M1 evidence)
 
@@ -106,6 +111,8 @@ At this speed a scan cache is not needed for auditing, so the SQLite scan cache 
 ## Testing
 
 - **Core:** unit tests per module on fixture libraries generated in temp dirs (case variants, `._*` twins, multi-file sets, unknown folders, unreadable dirs, broken symlinks); `insta` snapshots for JSON and CSV reports.
-- **CLI:** `assert_cmd` integration tests for output formats and exit codes (0 ok, 2 usage, 3 bad root, 4 no profile).
+- **Network:** never real in tests. `coverly_core::net::testing::MockServer` (std `TcpListener`, feature `test-util`) serves Apache listings, DATs, images, 404/403/429 and garbage.
+- **CLI:** `assert_cmd` integration tests for output formats and exit codes (0 ok, 2 usage, 3 bad root, 4 no profile, 5 paused).
+- **End to end:** M2 ran against the real servers on a copy of the SD and on a FAT32 disk image (see [fill-pipeline.md](./fill-pipeline.md#end-to-end-evidence)).
 - **App:** Vitest + Testing Library.
 - **CI:** `ci.yml` runs fmt, clippy and the workspace tests on Linux, Windows and macOS ([CI/CD](../07-build-and-release/ci-cd.md)).
