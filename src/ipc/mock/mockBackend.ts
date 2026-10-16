@@ -117,6 +117,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     revealed,
     async openLibrary(path) {
       const gen = (generation += 1);
+      const emit = (p: Omit<ScanProgress, 'generation'>) =>
+        listeners.forEach((cb) => cb({ generation: gen, ...p }));
+      // Like the real backend: announce the generation before any work.
+      emit({ done: 0, total: 0, folder: '', roms: 0 });
       const lib = MOCK_LIBRARIES.find((l) => l.path === path);
       if (!lib) throw new BackendError('not-found', path);
       const view = generateLibrary({
@@ -127,9 +131,6 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         now,
       });
       let roms = 0;
-      const emit = (p: Omit<ScanProgress, 'generation'>) =>
-        listeners.forEach((cb) => cb({ generation: gen, ...p }));
-      emit({ done: 0, total: view.systems.length, folder: '', roms: 0 });
       for (const [i, s] of view.systems.entries()) {
         await sleep(delayMs);
         roms += s.roms;

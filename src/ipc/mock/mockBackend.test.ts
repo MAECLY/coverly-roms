@@ -36,6 +36,15 @@ describe('mock backend', () => {
     expect((await b.recentLibraries())[0]?.path).toBe(BIG);
   });
 
+  it('announces the new generation before the open can fail', async () => {
+    const b = backend();
+    const seen: number[] = [];
+    const off = await b.onScanProgress((p) => seen.push(p.generation));
+    await b.openLibrary('/mock/Broken').catch(() => undefined);
+    off();
+    expect(seen).toEqual([1]);
+  });
+
   it('rejects unknown folders as not-found', async () => {
     await expect(backend().openLibrary('/mock/Broken')).rejects.toMatchObject({
       code: 'not-found',

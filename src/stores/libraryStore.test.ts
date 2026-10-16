@@ -98,6 +98,42 @@ describe('library store', () => {
     expect(useLibraryStore.getState().progress?.folder).toBe('NEW');
   });
 
+  it('old_scan_progress_after_a_reopen_is_ignored', async () => {
+    const mock = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    const listeners = new Set<(p: ScanProgress) => void>();
+    const emit = (p: ScanProgress) => listeners.forEach((cb) => cb(p));
+    const hung: Backend = {
+      ...mock,
+      onScanProgress: (cb) => {
+        listeners.add(cb);
+        return Promise.resolve(() => listeners.delete(cb));
+      },
+      openLibrary: () => new Promise<LibraryView>(() => undefined),
+    };
+    setBackend(hung);
+    const progress = (generation: number, done: number, folder: string) => ({
+      generation,
+      done,
+      total: 55,
+      folder,
+      roms: 0,
+    });
+    void useLibraryStore.getState().open('/a');
+    await new Promise((r) => setTimeout(r, 0));
+    emit(progress(1, 5, 'OLD-A'));
+    void useLibraryStore.getState().open('/b');
+    await new Promise((r) => setTimeout(r, 0));
+    // The old scan keeps going before the new one reports anything.
+    emit(progress(1, 6, 'OLD-A'));
+    expect(useLibraryStore.getState().progress).toBeNull();
+    emit(progress(2, 0, ''));
+    emit(progress(1, 7, 'OLD-A'));
+    expect(useLibraryStore.getState().progress).toMatchObject({
+      generation: 2,
+      done: 0,
+    });
+  });
+
   it('a_failing_progress_listener_becomes_an_error', async () => {
     const mock = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
     setBackend({

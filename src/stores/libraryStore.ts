@@ -46,8 +46,11 @@ const initial = {
 };
 
 let requestSeq = 0;
-/** Highest scan generation seen by the current open's progress listener. */
-let maxProgressGen = 0;
+/**
+ * Highest scan generation ever seen. Never reset: a superseded scan keeps
+ * emitting after a re-open, and its generation is at most this value.
+ */
+let maxSeenGen = 0;
 
 export const useLibraryStore = create<LibraryState>()((set, get) => ({
   ...initial,
@@ -61,15 +64,17 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   },
   async open(path) {
     const seq = (requestSeq += 1);
-    maxProgressGen = 0;
+    // Every scan started before this open has a generation <= floor.
+    const floor = maxSeenGen;
     set({ status: 'opening', openingPath: path, progress: null, error: null });
     let unlisten: (() => void) | undefined;
     try {
       const backend = await getBackend();
       unlisten = await backend.onScanProgress((progress) => {
+        maxSeenGen = Math.max(maxSeenGen, progress.generation);
         // A superseded scan may keep emitting; its generation is lower.
-        if (seq !== requestSeq || progress.generation < maxProgressGen) return;
-        maxProgressGen = progress.generation;
+        if (seq !== requestSeq || progress.generation <= floor) return;
+        if (progress.generation < maxSeenGen) return;
         set({ progress });
       });
       const view = await backend.openLibrary(path);
@@ -114,7 +119,6 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   },
   close() {
     requestSeq += 1;
-    maxProgressGen = 0;
     useSelectionStore.getState().select(null);
     useViewStore.getState().closeDrawer();
     set({ ...initial, recents: get().recents });
@@ -124,7 +128,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
 /** Test helper: back to the initial state. */
 export function resetLibraryStore(): void {
   requestSeq += 1;
-  maxProgressGen = 0;
+  maxSeenGen = 0;
   useLibraryStore.setState(initial);
   useFilterStore.getState().reset();
   useViewStore.getState().reset();
