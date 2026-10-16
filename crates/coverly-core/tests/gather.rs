@@ -545,3 +545,69 @@ fn a_hanging_network_pauses_gathering_after_the_first_rom() {
     assert!(g.items.is_empty() && g.warnings.is_empty(), "{g:?}");
     assert_eq!(hang.connections(), 1, "the second ROM never asks again");
 }
+
+#[test]
+fn two_roms_with_one_dat_identity_do_not_share_a_name_match() {
+    // A misnamed dump: the file says "Golden Adventure (USA)", the bytes are
+    // Golden Sun. Its exact-name candidate must not leak to the other ROM.
+    let lib = tempfile::TempDir::new().unwrap();
+    common::mkdir(lib.path(), "anbernic");
+    common::write(
+        lib.path(),
+        "ROMS/GBA/Golden Adventure (USA).gba",
+        "golden-sun-bytes",
+    );
+    common::write(lib.path(), "ROMS/GBA/Golden Sun.gba", "golden-sun-bytes");
+    let (s, e) = (server(), env());
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(
+        &art,
+        &TargetFilter {
+            systems: vec!["GBA".into()],
+            media: vec![Media::Cover],
+            scope: Scope::Missing,
+        },
+    );
+    let dats = DatStore::new(&e.http, &e.cache, s.base());
+    let id = Identifier::new(&e.cache, &dats, IdentifyOptions::default());
+    let src = LibretroSource::new(
+        &e.http,
+        &e.cache,
+        LibretroConfig {
+            base: s.base(),
+            raw_base: s.url("/raw"),
+            ..Default::default()
+        },
+    );
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let g = gather(
+        &targets,
+        &db,
+        &sources,
+        &id,
+        &e.cache,
+        &GatherOptions::default(),
+        &NoProgress,
+        &AtomicBool::new(false),
+    );
+    let names = |stem: &str| -> Vec<String> {
+        let item = g.items.iter().find(|i| i.target.stem == stem).unwrap();
+        assert_eq!(
+            item.identity.canonical.as_deref(),
+            Some("Golden Sun (USA, Europe)")
+        );
+        item.candidates[&Media::Cover]
+            .iter()
+            .map(|c| c.name.clone())
+            .collect()
+    };
+    assert!(names("Golden Adventure (USA)").contains(&"Golden Adventure (USA)".to_string()));
+    assert!(
+        !names("Golden Sun").contains(&"Golden Adventure (USA)".to_string()),
+        "{:?}",
+        names("Golden Sun")
+    );
+}

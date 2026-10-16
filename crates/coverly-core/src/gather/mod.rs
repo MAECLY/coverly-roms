@@ -306,8 +306,10 @@ fn cache_key(
     stem: &str,
     opts: &GatherOptions,
 ) -> String {
+    // The stem is always part of it: a source also matches the file name
+    // itself, so two ROMs with one DAT identity can get different lists.
     let who = match &identity.canonical {
-        Some(c) => c.clone(),
+        Some(c) => format!("{c}|{stem}"),
         None => format!("{}|{stem}", identity.parsed.key),
     };
     format!(
