@@ -1,0 +1,17 @@
+{
+  "app": {
+    "name": "Coverly ROMs",
+    "tagline": "Find and add the missing cover art in your ROMs"
+  },
+  "start": {
+    "openLibrary": "Open library…",
+    "openLibraryHint": "Choosing a library arrives in a later version."
+  },
+  "library": {
+    "count": "{n} ROMs"
+  },
+  "footer": {
+    "version": "Version {version}",
+    "coreVersion": "Core {version}"
+  }
+}
