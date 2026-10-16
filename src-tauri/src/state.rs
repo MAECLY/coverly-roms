@@ -69,6 +69,15 @@ impl AppState {
     ) -> Result<LibraryView, IpcError> {
         let mut settings = self.settings();
         let generation = self.begin_open();
+        // Announce the new generation at once so the UI can drop progress
+        // from a superseded scan that is still running.
+        emit(ScanProgressEvent {
+            generation,
+            done: 0,
+            total: 0,
+            folder: String::new(),
+            roms: 0,
+        });
         let (session, view) = open_session(
             &OpenRequest {
                 path,

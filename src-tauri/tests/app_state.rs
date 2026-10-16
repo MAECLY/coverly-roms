@@ -134,3 +134,20 @@ fn ignored_dirs_are_saved_normalised() {
     assert_eq!(view.ignored_dirs, ["bios", "Saves"]);
     assert_eq!(st.library_settings().ignored_dirs, ["bios", "Saves"]);
 }
+
+#[test]
+fn open_announces_its_generation_before_scanning() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let mut events: Vec<ScanProgressEvent> = Vec::new();
+    // Even an open that fails at once first tells the UI its generation.
+    let missing = PathBuf::from("/definitely/not/here");
+    assert!(st
+        .open(&missing, None, &SystemDb::builtin(), &mut |e| events
+            .push(e))
+        .is_err());
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].generation, 1);
+    assert_eq!(events[0].done, 0);
+    assert_eq!(events[0].roms, 0);
+}
