@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
-import type { LibraryView } from '@/ipc/types';
+import type { LibraryView, ScanProgress } from '@/ipc/types';
 
 import { useFilterStore } from './filterStore';
 import { resetLibraryStore, useLibraryStore } from './libraryStore';
@@ -68,6 +68,49 @@ describe('library store', () => {
     await Promise.all([first, second]);
     expect(useLibraryStore.getState().view?.name).toBe('b');
     expect(useLibraryStore.getState().path).toBe('/b');
+  });
+
+  it('stale_scan_progress_does_not_leak', async () => {
+    const mock = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    const listeners = new Set<(p: ScanProgress) => void>();
+    const emit = (p: ScanProgress) => listeners.forEach((cb) => cb(p));
+    const hung: Backend = {
+      ...mock,
+      onScanProgress: (cb) => {
+        listeners.add(cb);
+        return Promise.resolve(() => listeners.delete(cb));
+      },
+      openLibrary: () => new Promise<LibraryView>(() => undefined),
+    };
+    setBackend(hung);
+    void useLibraryStore.getState().open('/a');
+    void useLibraryStore.getState().open('/b');
+    await new Promise((r) => setTimeout(r, 0));
+    const progress = (generation: number, folder: string): ScanProgress => ({
+      generation,
+      done: 1,
+      total: 2,
+      folder,
+      roms: 0,
+    });
+    emit(progress(2, 'NEW'));
+    emit(progress(1, 'OLD'));
+    expect(useLibraryStore.getState().progress?.folder).toBe('NEW');
+  });
+
+  it('a_failing_progress_listener_becomes_an_error', async () => {
+    const mock = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    setBackend({
+      ...mock,
+      onScanProgress: () => Promise.reject(new Error('listen failed')),
+    });
+    await expect(
+      useLibraryStore.getState().open(SMALL),
+    ).resolves.toBeUndefined();
+    const s = useLibraryStore.getState();
+    expect(s.status).toBe('error');
+    expect(s.error?.code).toBe('unknown');
+    expect(s.openingPath).toBeNull();
   });
 
   it('closes back to idle', async () => {

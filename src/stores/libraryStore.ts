@@ -29,6 +29,8 @@ interface LibraryState {
   loadRecents(): Promise<void>;
   open(path: string): Promise<void>;
   forget(path: string): Promise<void>;
+  /** Shows an error raised outside `open()` (e.g. the folder picker). */
+  fail(e: unknown): void;
   close(): void;
 }
 
@@ -44,6 +46,8 @@ const initial = {
 };
 
 let requestSeq = 0;
+/** Highest scan generation seen by the current open's progress listener. */
+let maxProgressGen = 0;
 
 export const useLibraryStore = create<LibraryState>()((set, get) => ({
   ...initial,
@@ -57,12 +61,17 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   },
   async open(path) {
     const seq = (requestSeq += 1);
+    maxProgressGen = 0;
     set({ status: 'opening', openingPath: path, progress: null, error: null });
-    const backend = await getBackend();
-    const unlisten = await backend.onScanProgress((progress) => {
-      if (seq === requestSeq) set({ progress });
-    });
+    let unlisten: (() => void) | undefined;
     try {
+      const backend = await getBackend();
+      unlisten = await backend.onScanProgress((progress) => {
+        // A superseded scan may keep emitting; its generation is lower.
+        if (seq !== requestSeq || progress.generation < maxProgressGen) return;
+        maxProgressGen = progress.generation;
+        set({ progress });
+      });
       const view = await backend.openLibrary(path);
       if (seq !== requestSeq) return;
       useFilterStore.getState().reset();
@@ -82,9 +91,18 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
       if (error.code === 'superseded') return;
       set({ status: 'error', error, progress: null, openingPath: null });
     } finally {
-      unlisten();
+      unlisten?.();
       if (seq === requestSeq) await get().loadRecents();
     }
+  },
+  fail(e) {
+    requestSeq += 1;
+    set({
+      status: 'error',
+      error: toBackendError(e),
+      progress: null,
+      openingPath: null,
+    });
   },
   async forget(path) {
     try {
@@ -96,6 +114,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
   },
   close() {
     requestSeq += 1;
+    maxProgressGen = 0;
     useSelectionStore.getState().select(null);
     useViewStore.getState().closeDrawer();
     set({ ...initial, recents: get().recents });
@@ -105,6 +124,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
 /** Test helper: back to the initial state. */
 export function resetLibraryStore(): void {
   requestSeq += 1;
+  maxProgressGen = 0;
   useLibraryStore.setState(initial);
   useFilterStore.getState().reset();
   useViewStore.getState().reset();
