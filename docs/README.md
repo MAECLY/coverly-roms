@@ -101,7 +101,7 @@ Numbered folders give the reading order (`02-research`, `04-architecture`, `07-b
 
 ## Status
 
-**Pre-alpha · M2 (identify and fill) delivered on `feat/m2-fill`.** `coverly audit` reports missing art on real libraries (validated read-only on an Anbernic SD with 7,473 ROMs). `coverly fill` identifies ROMs (hash → libretro-database DATs, arcade short names, names), gathers art from libretro-thumbnails, shows a dry-run plan and, with `--apply`, writes covers atomically with backups and `coverly undo` (validated end to end on a copy of the SD and on a FAT32 image). The [tracker](./TRACKER.md) is the source of truth for what is done.
+**Pre-alpha · M0–M6 merged into `main`; M7 (release and updates) prepared on `feat/m7-release`.** The CLI audits and fills missing cover art (`coverly audit`, `coverly fill`, `coverly undo`) and the desktop app explores a library, fills it in bulk with review, undo and reports, and has full settings, layout profiles, OS-keychain credentials and secondary sources (SteamGridDB, popularity). M7 adds one version source, the in-app updater and `coverly update`, connected drives on the Start screen and the signed release pipeline ([RELEASING.md](../RELEASING.md)); nothing has been released yet. The owner's steps are pending: the signing key and its two secrets, committing `crates/coverly-core/updater.pub`, making the repository public, the final icons and tagging v0.1.0. The [tracker](./TRACKER.md) is the source of truth for what is done.
 
 ## Licence of this documentation
 
