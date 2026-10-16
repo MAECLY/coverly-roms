@@ -77,12 +77,19 @@ fn changelog_follows_keep_a_changelog() {
     assert!(log.contains("## [Unreleased]"));
 }
 
+/// The script tests run `bash` and `python3`: never on Windows (its `bash`
+/// may be WSL's, which cannot see this checkout), and only where bash finds
+/// a python3.
+fn scripts_runnable() -> bool {
+    !cfg!(windows)
+        && Command::new("bash")
+            .args(["-c", "command -v python3"])
+            .output()
+            .is_ok_and(|o| o.status.success())
+}
+
 fn bash() -> Option<&'static str> {
-    Command::new("bash")
-        .arg("--version")
-        .output()
-        .ok()
-        .map(|_| "bash")
+    scripts_runnable().then_some("bash")
 }
 
 /// A scratch checkout with just the files the script edits.
@@ -97,7 +104,7 @@ fn scratch_checkout() -> tempfile::TempDir {
 #[test]
 fn bump_version_writes_every_source_and_check_agrees() {
     let Some(bash) = bash() else {
-        eprintln!("no bash on this machine; bump-version.sh not exercised");
+        eprintln!("no bash with python3 here (or Windows); bump-version.sh not exercised");
         return;
     };
     let dir = scratch_checkout();
@@ -172,12 +179,7 @@ fn bump_version_refuses_a_non_semver_and_check_catches_drift() {
 }
 
 fn python() -> Option<&'static str> {
-    ["python3", "python"].into_iter().find(|p| {
-        Command::new(p)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
-    })
+    scripts_runnable().then_some("python3")
 }
 
 fn tool(args: &[&str]) -> std::process::Output {
