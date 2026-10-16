@@ -3,13 +3,14 @@
 
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 use coverly_core::net::UreqHttp;
 use coverly_core::settings::UpdateChannel;
 use coverly_core::update::{
-    check, cli_platform_key, download_verified, resolve_endpoint, Check, UpdateError, ENDPOINT_ENV,
+    artifact_net_config, check, cli_platform_key, download_verified, resolve_endpoint, Check,
+    UpdateError, ENDPOINT_ENV,
 };
 
 use crate::{print_stdout, Failure};
@@ -82,6 +83,12 @@ fn pubkey() -> Option<String> {
 }
 
 pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
+    // Windows: the binary an earlier update moved aside, now that it no
+    // longer runs.
+    #[cfg(windows)]
+    if let Ok(exe) = std::env::current_exe() {
+        remove_stale_old(&install_target(&exe));
+    }
     let cli = crate::settings::load_cli_settings();
     let common = match &args.action {
         UpdateAction::Check(c) => c,
@@ -94,7 +101,8 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
     };
     let url =
         resolve_endpoint(std::env::var(ENDPOINT_ENV).ok().as_deref(), channel).map_err(failure)?;
-    let http = UreqHttp::new(&cli.settings.net_config());
+    let net = cli.settings.net_config();
+    let http = UreqHttp::new(&net);
     let outcome = check(&http, &url, CURRENT).map_err(failure)?;
     match (&args.action, outcome) {
         (UpdateAction::Check(c), outcome) => report(c.json, &outcome),
@@ -105,7 +113,10 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
             let key = pubkey().ok_or_else(|| failure(UpdateError::NoKey))?;
             let platform = cli_platform_key()
                 .ok_or_else(|| failure(UpdateError::NoPlatform(std::env::consts::OS.into())))?;
-            let bytes = download_verified(&http, &m, &platform, &key).map_err(failure)?;
+            // The settings' timeout is sized for small answers; the binary
+            // gets at least MIN_ARTIFACT_TIMEOUT.
+            let artifact_http = UreqHttp::new(&artifact_net_config(&net));
+            let bytes = download_verified(&artifact_http, &m, &platform, &key).map_err(failure)?;
             if i.dry_run {
                 return print_stdout(&format!(
                     "{} {} verified ({} bytes); not installed (dry run).\n",
@@ -114,7 +125,7 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
                     bytes.len()
                 ));
             }
-            let exe = std::env::current_exe()?;
+            let exe = install_target(&std::env::current_exe()?);
             replace_executable(&exe, &bytes).map_err(|e| Failure {
                 code: 1,
                 message: format!(
@@ -122,6 +133,10 @@ pub fn run(args: &UpdateArgs) -> Result<(), Failure> {
                     exe.display()
                 ),
             })?;
+            // Usually refused right now (it is this running process); the
+            // next `coverly update` removes it.
+            #[cfg(windows)]
+            remove_stale_old(&exe);
             print_stdout(&format!("Updated to {} (was {CURRENT}).\n", m.version))
         }
     }
@@ -143,6 +158,28 @@ fn report(json: bool, outcome: &Check) -> Result<(), Failure> {
     } else {
         print_stdout(&format!("coverly is up to date ({CURRENT}).\n"))
     }
+}
+
+/// The file to replace: `exe` with every symlink resolved, so an update
+/// through a link (`/usr/local/bin/coverly` → the real binary) replaces the
+/// real file and keeps the link.
+pub fn install_target(exe: &Path) -> PathBuf {
+    fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf())
+}
+
+/// Where Windows parks the running binary while it is replaced.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn old_path(exe: &Path) -> PathBuf {
+    exe.with_extension("old.exe")
+}
+
+/// Deletes the `coverly.old.exe` an earlier update left next to `exe`.
+/// Best effort: Windows refuses while that file still runs. True when one
+/// was removed.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn remove_stale_old(exe: &Path) -> bool {
+    let old = old_path(exe);
+    old.is_file() && fs::remove_file(&old).is_ok()
 }
 
 /// Writes `bytes` next to `exe` and renames it over `exe` (Windows: moves the
@@ -171,7 +208,7 @@ pub fn replace_executable(exe: &Path, bytes: &[u8]) -> io::Result<()> {
         }
         #[cfg(windows)]
         {
-            let old = exe.with_extension("old.exe");
+            let old = old_path(exe);
             let _ = fs::remove_file(&old);
             fs::rename(exe, &old)?;
             if let Err(e) = fs::rename(&tmp, exe) {
@@ -187,4 +224,38 @@ pub fn replace_executable(exe: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stale_old_binary_is_removed_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("coverly.exe");
+        fs::write(&exe, b"new").unwrap();
+        assert_eq!(old_path(&exe), dir.path().join("coverly.old.exe"));
+        assert!(!remove_stale_old(&exe), "nothing to remove");
+        fs::write(old_path(&exe), b"old").unwrap();
+        assert!(remove_stale_old(&exe));
+        assert!(!old_path(&exe).exists());
+        assert_eq!(fs::read(&exe).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_install_target_is_the_real_file_behind_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real").join("coverly");
+        fs::create_dir(real.parent().unwrap()).unwrap();
+        fs::write(&real, b"x").unwrap();
+        let hop = dir.path().join("hop");
+        let link = dir.path().join("coverly");
+        std::os::unix::fs::symlink(&real, &hop).unwrap();
+        std::os::unix::fs::symlink(&hop, &link).unwrap();
+        assert_eq!(install_target(&link), fs::canonicalize(&real).unwrap());
+        let missing = dir.path().join("missing");
+        assert_eq!(install_target(&missing), missing, "unresolvable: as given");
+    }
 }

@@ -48,7 +48,11 @@ fn fx(version: &str, body: &[u8], signed_for: Option<&str>) -> Fx {
 }
 
 fn run(f: &Fx) -> Command {
-    let mut c = Command::new(&f.exe);
+    run_at(f, &f.exe)
+}
+
+fn run_at(f: &Fx, exe: &Path) -> Command {
+    let mut c = Command::new(exe);
     c.env("COVERLY_SETTINGS", "")
         .env("COVERLY_UPDATE_ENDPOINT", f.server.url("/latest.json"))
         .env("COVERLY_UPDATE_PUBKEY", f.key.public_b64());
@@ -202,4 +206,31 @@ fn install_keeps_the_old_binary_when_the_folder_is_read_only() {
     out.stderr(contains("could not replace"));
     assert!(same_as_built(&f.exe));
     Command::new(&f.exe).arg("--version").assert().success();
+}
+
+#[cfg(unix)]
+#[test]
+fn install_through_a_symlink_replaces_the_real_file_and_keeps_the_link() {
+    let f = fx("9.9.9", NEW, Some("9.9.9"));
+    let links = TempDir::new().unwrap();
+    let link = links.path().join("coverly");
+    std::os::unix::fs::symlink(&f.exe, &link).unwrap();
+    run_at(&f, &link)
+        .args(["update", "install"])
+        .assert()
+        .success()
+        .stdout(contains("Updated to 9.9.9"));
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the link is still a link"
+    );
+    assert_eq!(fs::read(&f.exe).unwrap(), NEW, "the real file was replaced");
+    assert_eq!(
+        fs::read_dir(links.path()).unwrap().count(),
+        1,
+        "nothing left next to the link"
+    );
 }
