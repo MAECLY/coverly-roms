@@ -3,7 +3,8 @@
 //! Exit codes: 0 ok, 1 I/O, cache or job error (or no app folders), 2 bad
 //! usage, 3 library root not found or not a folder, 4 no layout profile
 //! detected and none given, 5 paused: offline, rate limited, or the library
-//! volume is full / read-only.
+//! volume is full / read-only, 6 an update was refused (bad or missing
+//! signature, or this build has no update key).
 //!
 //! Defaults come from the app's settings file (read-only; see
 //! [`settings::SETTINGS_ENV`]); flags override them.
@@ -14,6 +15,7 @@ mod profile;
 mod settings;
 mod table;
 mod undo;
+mod update;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -43,6 +45,8 @@ enum Command {
     Systems,
     /// Undo the last fill job.
     Undo(undo::UndoArgs),
+    /// Check for a newer coverly, or install it (verified with minisign).
+    Update(update::UpdateArgs),
 }
 
 /// A failure with its exit code and a message for stderr.
@@ -80,6 +84,7 @@ fn main() -> ExitCode {
         Command::Audit(args) => audit::run(&args),
         Command::Fill(args) => fill::run(&args),
         Command::Undo(args) => undo::run(&args),
+        Command::Update(args) => update::run(&args),
         Command::Profiles => print_stdout(&profiles_table()),
         Command::Systems => print_stdout(&systems_table()),
     };
