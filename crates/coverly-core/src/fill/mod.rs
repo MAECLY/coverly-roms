@@ -268,8 +268,7 @@ pub fn write_local_image(
     precheck(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.write(target, &img.bytes, OverwritePolicy::Backup);
-    let job = close(writer, data_dir)?;
-    Ok((job, outcome?))
+    settle(close(writer, data_dir), outcome.map_err(ArtError::from))
 }
 
 /// Removes the art file `target` (backed up, journaled) in a job of its
@@ -283,8 +282,7 @@ pub fn remove_art(
     ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
-    let job = close(writer, data_dir)?;
-    Ok((job, outcome?))
+    settle(close(writer, data_dir), outcome)
 }
 
 /// The checks `Writer::write` makes before touching anything, made before
@@ -301,6 +299,16 @@ fn precheck(root: &Path, target: &Path) -> Result<(), WriteError> {
     Ok(())
 }
 
+/// The result of a manual write: its own error first (the real cause, e.g.
+/// `Denied` or `DiskFull`), then the error of closing its job.
+fn settle<T, E: From<WriteError>>(
+    closed: Result<Option<String>, WriteError>,
+    outcome: Result<T, E>,
+) -> Result<(Option<String>, T), E> {
+    let value = outcome?;
+    Ok((closed?, value))
+}
+
 /// Finishes (and prunes old journals after) a job that changed the
 /// library; discards one that did not.
 fn close(writer: Writer, data_dir: &Path) -> Result<Option<String>, WriteError> {
@@ -312,4 +320,30 @@ fn close(writer: Writer, data_dir: &Path) -> Result<Option<String>, WriteError> 
     // Pruning only frees space: failing to prune is not an error.
     let _ = prune_jobs(data_dir, KEEP_JOBS);
     Ok(Some(job))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_write_error_wins_over_a_failed_close() {
+        let closed: Result<Option<String>, WriteError> = Err(WriteError::Journal("discard".into()));
+        let outcome: Result<(), WriteError> = Err(WriteError::DiskFull);
+        assert!(matches!(settle(closed, outcome), Err(WriteError::DiskFull)));
+    }
+
+    #[test]
+    fn a_failed_close_after_a_good_write_is_an_error() {
+        let closed: Result<Option<String>, WriteError> = Err(WriteError::DiskFull);
+        assert!(matches!(
+            settle(closed, Ok::<_, WriteError>(())),
+            Err(WriteError::DiskFull)
+        ));
+        let closed: Result<Option<String>, WriteError> = Ok(Some("job".into()));
+        assert_eq!(
+            settle(closed, Ok::<_, WriteError>(7)).unwrap(),
+            (Some("job".into()), 7)
+        );
+    }
 }
