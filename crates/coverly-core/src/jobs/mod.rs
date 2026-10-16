@@ -7,7 +7,7 @@
 //! the journal kept, so `undo` and a re-run both work.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -15,6 +15,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::cache::Cache;
+use crate::csv_util::{media_name, write_row};
 use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec};
 use crate::plan::{Plan, PlanAction, PlanItem};
 use crate::profiles::{Media, Profile};
@@ -128,6 +129,23 @@ pub enum ItemErrorKind {
     Io,
 }
 
+impl ItemErrorKind {
+    /// The stable name used on the wire and in reports (`no-art`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ItemErrorKind::NoArt => "no-art",
+            ItemErrorKind::Network => "network",
+            ItemErrorKind::Decode => "decode",
+            ItemErrorKind::WriteDenied => "write-denied",
+            ItemErrorKind::DiskFull => "disk-full",
+            ItemErrorKind::NameInvalid => "name-invalid",
+            ItemErrorKind::OutsideRoot => "outside-root",
+            ItemErrorKind::VolumeGone => "volume-gone",
+            ItemErrorKind::Io => "io",
+        }
+    }
+}
+
 /// What happened to one plan item.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
@@ -180,6 +198,46 @@ pub struct JobReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
+}
+
+/// Writes one row per item of `report`:
+/// `folder,rel_path,media,status,source,name,error,message`, quoted and
+/// formula-neutralised like the audit CSV (names are hostile).
+pub fn write_report_csv<W: Write>(report: &JobReport, mut w: W) -> io::Result<()> {
+    let header = [
+        "folder", "rel_path", "media", "status", "source", "name", "error", "message",
+    ]
+    .map(String::from);
+    write_row(&mut w, &header)?;
+    for item in &report.items {
+        let (status, source, name, error, message) = match &item.status {
+            ItemStatus::Filled { source, name } => {
+                ("filled", source.as_str(), name.as_str(), "", "")
+            }
+            ItemStatus::Replaced { source, name, .. } => {
+                ("replaced", source.as_str(), name.as_str(), "", "")
+            }
+            ItemStatus::SkippedExists => ("skipped-exists", "", "", "", ""),
+            ItemStatus::SkippedReview => ("skipped-review", "", "", "", ""),
+            ItemStatus::SkippedNoMatch => ("skipped-no-match", "", "", "", ""),
+            ItemStatus::NotAttempted => ("not-attempted", "", "", "", ""),
+            ItemStatus::Failed { kind, message } => {
+                ("failed", "", "", kind.as_str(), message.as_str())
+            }
+        };
+        let row = [
+            item.folder.clone(),
+            item.rel_path.to_string_lossy().into_owned(),
+            media_name(item.media),
+            status.to_string(),
+            source.to_string(),
+            name.to_string(),
+            error.to_string(),
+            message.to_string(),
+        ];
+        write_row(&mut w, &row)?;
+    }
+    w.flush()
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
