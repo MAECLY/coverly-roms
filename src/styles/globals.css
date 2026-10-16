@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Colour tokens. Components reference them through var(--cr-*). */
+:root {
+  --cr-bg: #f7f7f5;
+  --cr-surface: #ffffff;
+  --cr-text: #1c1b1a;
+  --cr-text-muted: #5f5c58;
+  --cr-accent: #4338ca;
+  --cr-accent-text: #ffffff;
+  --cr-border: #e3e1dd;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cr-bg: #141413;
+    --cr-surface: #1f1e1c;
+    --cr-text: #f2f1ee;
+    --cr-text-muted: #a8a49e;
+    --cr-accent: #818cf8;
+    --cr-accent-text: #141413;
+    --cr-border: #33312e;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--cr-text-muted);
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--cr-accent);
+  color: var(--cr-accent-text);
+  cursor: pointer;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--cr-text-muted);
+}
+
+.footer {
+  border-top: 1px solid var(--cr-border);
+  font-size: 0.8125rem;
+  color: var(--cr-text-muted);
+}
