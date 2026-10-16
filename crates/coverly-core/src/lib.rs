@@ -6,6 +6,7 @@
 pub mod art;
 pub mod audit;
 pub mod cache;
+pub mod credentials;
 mod csv_util;
 pub mod fill;
 pub mod gamelist;
