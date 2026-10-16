@@ -356,6 +356,9 @@ impl FillEnv<'_> {
             fuzzy: true,
             min_score: SEARCH_MIN_SCORE,
             max_candidates: SEARCH_LIMIT,
+            hash: None,
+            size: 0,
+            file_name: &q,
         };
         let mut found = libretro.candidates(&query)?;
         sort_candidates(&mut found);

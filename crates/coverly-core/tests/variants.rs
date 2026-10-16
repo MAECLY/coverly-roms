@@ -30,6 +30,7 @@ fn cand(name: &str, regions: &[Region], kind: MatchKind, score: u8) -> Candidate
         score,
         votes: None,
         consensus: 0,
+        origin: None,
     }
 }
 

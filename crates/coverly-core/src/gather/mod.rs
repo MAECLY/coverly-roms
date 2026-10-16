@@ -23,8 +23,10 @@ use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceErro
 use crate::systems::{System, SystemDb};
 
 /// Cache namespace of gathered candidate lists; bumped with the libretro
-/// listing namespaces so lists built from older parsed names are not reused.
-const NS: &str = "candidates-2";
+/// listing namespaces so lists built from older parsed names are not reused,
+/// and bumped for M6: votes became `Votes`, `origin` added, consensus counts
+/// other sources.
+const NS: &str = "candidates-3";
 
 /// Which ROMs get art: only those missing it, or every one (overwrite).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,6 +301,14 @@ fn source_candidates(
         fuzzy: opts.fuzzy,
         min_score: opts.min_score,
         max_candidates: opts.max_candidates,
+        hash: identity.hash.as_ref(),
+        size: t.rom.size,
+        file_name: t
+            .rom
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&t.rom.stem),
     };
     let mut found = src.candidates(&q)?;
     if opts.consensus {

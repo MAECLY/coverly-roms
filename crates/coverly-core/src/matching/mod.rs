@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 use crate::identify::names::Region;
-use crate::sources::Candidate;
+use crate::sources::{Candidate, Votes};
 
 /// Largest score gap below the best candidate that is still eligible.
 pub const ELIGIBLE_SCORE_GAP: u8 = 5;
@@ -257,8 +257,8 @@ impl Strategy for Popularity {
     fn rank(&self, ctx: &RankContext, cands: &[Candidate]) -> Vec<usize> {
         rank_with(ctx, cands, |a, b| {
             b.votes
-                .unwrap_or(0)
-                .cmp(&a.votes.unwrap_or(0))
+                .map_or(0, Votes::score)
+                .cmp(&a.votes.map_or(0, Votes::score))
                 .then(b.consensus.cmp(&a.consensus))
                 .then(source_rank(a, ctx).cmp(&source_rank(b, ctx)))
                 .then(region_rank(a, ctx, false).cmp(&region_rank(b, ctx, false)))

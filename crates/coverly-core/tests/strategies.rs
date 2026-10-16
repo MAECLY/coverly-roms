@@ -3,7 +3,7 @@ use coverly_core::matching::{
     default_region_order, parse_region_order, strategy_for, RankContext, RegionPref, StrategyKind,
 };
 use coverly_core::profiles::Media;
-use coverly_core::sources::{Candidate, MatchKind};
+use coverly_core::sources::{Candidate, MatchKind, Votes};
 
 fn c(source: &str, name: &str, regions: &[Region], kind: MatchKind, score: u8) -> Candidate {
     Candidate {
@@ -17,6 +17,7 @@ fn c(source: &str, name: &str, regions: &[Region], kind: MatchKind, score: u8) -
         score,
         votes: None,
         consensus: 0,
+        origin: None,
     }
 }
 
@@ -101,8 +102,8 @@ fn popularity_uses_votes_then_consensus_then_priority() {
         pick(StrategyKind::Popularity, &[], &cands),
         "Golden Sun (Japan)"
     );
-    cands[0].votes = Some(2);
-    cands[1].votes = Some(10);
+    cands[0].votes = Some(Votes { up: 2, down: 0 });
+    cands[1].votes = Some(Votes { up: 10, down: 0 });
     assert_eq!(
         pick(StrategyKind::Popularity, &[], &cands),
         "Golden Sun (USA, Europe)"

@@ -61,6 +61,9 @@ fn query<'a>(
         fuzzy: true,
         min_score: 65,
         max_candidates: 5,
+        hash: None,
+        size: 0,
+        file_name: stem,
     }
 }
 

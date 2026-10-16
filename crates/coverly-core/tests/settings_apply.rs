@@ -15,7 +15,7 @@ use coverly_core::plan::{build_plan, PlanAction, PlanOptions};
 use coverly_core::profiles::{ImageFormat, Media};
 use coverly_core::scan::scan_library;
 use coverly_core::settings::{MaxSize, OutputFormat, OverwriteSetting, Settings};
-use coverly_core::sources::{Candidate, MatchKind};
+use coverly_core::sources::{Candidate, MatchKind, Votes};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
 
@@ -125,6 +125,7 @@ fn cand(name: &str) -> Candidate {
         score: 100,
         votes: None,
         consensus: 0,
+        origin: None,
     }
 }
 
@@ -324,9 +325,9 @@ fn popularity_consensus_beats_the_preferred_language() {
 fn popularity_votes_beat_the_preferred_language() {
     let root = tempfile::tempdir().unwrap();
     let mut popular = cand("Final Fantasy (Europe) (De,Fr)");
-    popular.votes = Some(10);
+    popular.votes = Some(Votes { up: 10, down: 0 });
     let mut rare = cand("Final Fantasy (Europe) (Es,It)");
-    rare.votes = Some(2);
+    rare.votes = Some(Votes { up: 2, down: 0 });
     let opts = PlanOptions {
         strategy: StrategyKind::Popularity,
         languages: vec!["it".into()],
