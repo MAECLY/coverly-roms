@@ -24,6 +24,7 @@ coverly-core = { path = "../crates/coverly-core" }
 thiserror = { workspace = true }
 tauri-plugin-dialog = "~2.8"
 tauri-plugin-opener = "2"
+tauri-plugin-updater = "~2.14"
 keyring = { workspace = true }
 log = { workspace = true, features = ["std"] }
 

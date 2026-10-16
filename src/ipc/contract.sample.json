@@ -282,6 +282,23 @@
     "code": "not-found",
     "detail": "/Volumes/SD"
   },
+  "update_check_available": {
+    "kind": "available",
+    "current": "0.1.0",
+    "offer": {
+      "version": "0.2.0",
+      "notes": "Faster scans.",
+      "date": "2026-10-16T00:00:00Z"
+    }
+  },
+  "update_check_up_to_date": {
+    "kind": "up-to-date",
+    "current": "0.2.0",
+    "latest": "0.2.0"
+  },
+  "update_check_skipped": { "kind": "skipped" },
+  "update_progress": { "downloaded": 512, "total": 1024 },
+  "update_install": { "restart_required": true },
   "item_error_kinds": [
     "no-art",
     "network",

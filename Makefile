@@ -61,8 +61,8 @@ dev: ## Run the full Tauri dev loop (Rust backend + Vite + WebView).
 	pnpm tauri dev
 
 .PHONY: build
-build: ## Build a release Tauri bundle (unsigned).
-	pnpm tauri build
+build: ## Build a release Tauri bundle (unsigned, no updater artifacts).
+	pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 # ───────────────────────────────────────────────────────────────────────
 # Quality gates

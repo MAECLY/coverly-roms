@@ -10,6 +10,7 @@ pub mod prefs;
 pub mod profiles;
 pub mod sources;
 pub mod state;
+pub mod update;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
@@ -21,6 +22,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let config = config_dir().ok_or("cannot find the app config folder")?;
             let dirs = AppDirs::resolve(None, None).ok_or("cannot find the app data folders")?;
@@ -29,6 +31,16 @@ pub fn run() {
             logging::init(&state.logs_dir(), state.settings().advanced.log_level);
             log::info!("Coverly ROMs {} started", env!("CARGO_PKG_VERSION"));
             app.manage(state);
+            // The key comes from crates/coverly-core/updater.pub, never from
+            // tauri.conf.json (which only holds CONF_PUBKEY_MARKER).
+            let updates = update::UpdateManager::new(
+                Box::new(update::PluginDriver::new(app.handle().clone())),
+                coverly_core::update::release_pubkey().map(String::from),
+                std::env::var(coverly_core::update::ENDPOINT_ENV)
+                    .ok()
+                    .filter(|v| !v.trim().is_empty()),
+            );
+            app.manage(updates);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,6 +91,10 @@ pub fn run() {
             ipc::entry_search_art,
             ipc::set_entry_art_from_search,
             ipc::clear_identity_override,
+            ipc::check_update,
+            ipc::download_update,
+            ipc::install_update,
+            ipc::restart_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

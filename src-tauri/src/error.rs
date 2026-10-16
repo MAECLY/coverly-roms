@@ -64,6 +64,18 @@ pub enum IpcError {
     KeychainLocked,
     #[error("keychain error: {0}")]
     KeychainFailed(String),
+    #[error("the update server could not be reached: {0}")]
+    UpdateOffline(String),
+    #[error("the update failed its signature check and was not installed: {0}")]
+    UpdateSignature(String),
+    #[error("no update is published for this channel and system: {0}")]
+    UpdateUnavailable(String),
+    #[error("this build has no update key")]
+    UpdateNoKey,
+    #[error("the update could not be installed: {0}")]
+    UpdateFailed(String),
+    #[error("check for updates first")]
+    UpdateNotReady,
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {
