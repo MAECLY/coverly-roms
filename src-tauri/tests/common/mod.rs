@@ -65,8 +65,29 @@ pub fn open(path: &Path, profile_id: Option<&str>) -> Result<(Session, LibraryVi
             profile_id,
             scan: &ScanOptions::default(),
             generation: 7,
+            custom: &[],
+            default_profile: None,
+            settings: None,
         },
         &SystemDb::builtin(),
         &mut |_| {},
     )
+}
+
+/// A small Anbernic-stock SD: `anbernic/` and
+/// `ROMS/GBA/{001 Golden Sun,002 Gldn Rsh}.gba`.
+pub fn small_library() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("anbernic")).unwrap();
+    write(dir.path(), "ROMS/GBA/001 Golden Sun.gba", b"x");
+    write(dir.path(), "ROMS/GBA/002 Gldn Rsh.gba", b"y");
+    dir
+}
+
+/// No retries: tests against a mock server fail fast.
+pub fn fast(st: &coverly_roms_lib::state::AppState) {
+    let out = st
+        .update_settings(&serde_json::json!({"network": {"retries": 0}}))
+        .unwrap();
+    assert!(out.errors.is_empty(), "{:?}", out.errors);
 }

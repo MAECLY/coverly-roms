@@ -14,8 +14,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use coverly_core::art::resolve_art;
 use coverly_core::identify::names::parse_name;
-use coverly_core::profiles::{builtin_profiles, detect, fit_to_root, Media, Profile};
+use coverly_core::profiles::custom::{find_profile, ProfileFile};
+use coverly_core::profiles::{detect, fit_to_root, Media, Profile};
 use coverly_core::scan::{scan_library_with_progress, RomEntry, ScanOptions, ScanProgress};
+use coverly_core::settings::Settings;
 use coverly_core::systems::SystemDb;
 
 use crate::error::IpcError;
@@ -49,7 +51,9 @@ pub struct Session {
     pub root: PathBuf,
     /// `root` canonicalised: nothing outside it is ever read.
     pub root_canon: PathBuf,
-    /// The profile fitted to `root` (what the scan used).
+    /// The profile fitted to `root` with the Art settings of the open
+    /// applied (what the scan used): jobs, the drawer, refreshes and the art
+    /// status all use it; art setting changes need a reopen.
     pub profile: Profile,
     pub systems: Vec<SessionSystem>,
     pub entries: Vec<SessionEntry>,
@@ -58,10 +62,17 @@ pub struct Session {
 /// What to open.
 pub struct OpenRequest<'a> {
     pub path: &'a Path,
-    /// A built-in profile id, or `None` to auto-detect.
+    /// A built-in or custom profile id, or `None` for the default profile
+    /// (else auto-detection).
     pub profile_id: Option<&'a str>,
     pub scan: &'a ScanOptions,
     pub generation: u64,
+    /// The custom profiles that may be chosen.
+    pub custom: &'a [ProfileFile],
+    /// The settings' default profile, used when `profile_id` is `None`.
+    pub default_profile: Option<&'a str>,
+    /// Settings whose Art group adjusts the profile (`None` = as built).
+    pub settings: Option<&'a Settings>,
 }
 
 /// Checks the folder, picks (or detects) the profile, fits it to the
@@ -81,9 +92,14 @@ pub fn open_session(
         Err(_) => return Err(IpcError::Unreadable(shown)),
     }
     let root_canon = fs::canonicalize(root).map_err(|_| IpcError::Unreadable(shown.clone()))?;
-    let (base, detected, evidence) = choose_profile(root, req.profile_id)?;
-    let profile = fit_to_root(&base, root, systems);
-    let fitted = profile.roms_root != base.roms_root;
+    let (base, detected, evidence) =
+        choose_profile(root, req.profile_id, req.custom, req.default_profile)?;
+    let fitted_profile = fit_to_root(&base, root, systems);
+    let fitted = fitted_profile.roms_root != base.roms_root;
+    let profile = req.settings.map_or_else(
+        || fitted_profile.clone(),
+        |s| s.art_profile(&fitted_profile),
+    );
 
     let started = Instant::now();
     let scan = scan_library_with_progress(root, &profile, systems, req.scan, progress);
@@ -180,24 +196,28 @@ pub fn open_session(
     Ok((session, view))
 }
 
-/// The requested built-in profile, or the best detected one.
-fn choose_profile(root: &Path, id: Option<&str>) -> Result<(Profile, bool, Vec<String>), IpcError> {
-    let all = builtin_profiles();
+/// The requested profile (built-in or custom), else the default profile
+/// when it still exists, else the best detected one.
+fn choose_profile(
+    root: &Path,
+    id: Option<&str>,
+    custom: &[ProfileFile],
+    default: Option<&str>,
+) -> Result<(Profile, bool, Vec<String>), IpcError> {
     if let Some(id) = id {
-        return all
-            .into_iter()
-            .find(|p| p.id.eq_ignore_ascii_case(id))
+        return find_profile(custom, id)
             .map(|p| (p, false, Vec::new()))
             .ok_or_else(|| IpcError::UnknownProfile(id.to_string()));
+    }
+    if let Some(p) = default.and_then(|d| find_profile(custom, d)) {
+        return Ok((p, false, Vec::new()));
     }
     let found = detect(root);
     let best = found
         .first()
         .ok_or_else(|| IpcError::NoProfile(root.display().to_string()))?;
-    let profile = all
-        .into_iter()
-        .find(|p| p.id == best.profile_id)
-        .expect("detect only returns built-in profile ids");
+    let profile =
+        find_profile(custom, &best.profile_id).expect("detect only returns built-in profile ids");
     Ok((profile, true, best.evidence.clone()))
 }
 

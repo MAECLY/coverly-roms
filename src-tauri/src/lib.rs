@@ -5,6 +5,8 @@ pub mod ipc;
 pub mod jobs;
 pub mod keychain;
 pub mod library;
+pub mod logging;
+pub mod prefs;
 pub mod state;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
@@ -20,10 +22,11 @@ pub fn run() {
         .setup(|app| {
             let config = config_dir().ok_or("cannot find the app config folder")?;
             let dirs = AppDirs::resolve(None, None).ok_or("cannot find the app data folders")?;
-            app.manage(state::AppState::new(
-                config,
-                jobs::FillConfig::new(dirs.cache, dirs.data),
-            ));
+            let state = state::AppState::new(config, jobs::FillConfig::new(dirs.cache, dirs.data))
+                .with_credentials(std::sync::Arc::new(keychain::KeychainStore::new()));
+            logging::init(&state.logs_dir(), state.settings().advanced.log_level);
+            log::info!("Coverly ROMs {} started", env!("CARGO_PKG_VERSION"));
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -53,6 +56,14 @@ pub fn run() {
             ipc::remove_entry_art,
             ipc::export_audit,
             ipc::export_job_report,
+            ipc::get_settings,
+            ipc::update_settings,
+            ipc::reset_settings,
+            ipc::open_config_folder,
+            ipc::open_logs_folder,
+            ipc::open_link,
+            ipc::cache_usage,
+            ipc::clear_cache,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

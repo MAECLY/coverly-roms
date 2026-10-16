@@ -21,6 +21,7 @@ use crate::jobs::JobEvents;
 use crate::library::art::{entry_path, read_art_bytes};
 use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
+use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::state::AppState;
 
 /// Product name shown in the UI and reported over IPC.
@@ -33,6 +34,8 @@ pub const JOB_PROGRESS_EVENT: &str = "fill-job-progress";
 pub const JOB_CHANGED_EVENT: &str = "fill-job-changed";
 /// Event carrying `EntriesUpdatedEvent` after art was written.
 pub const ENTRIES_UPDATED_EVENT: &str = "library-entries-updated";
+/// Event carrying the saved `Settings` after an update or a reset.
+pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
 
 /// Name and versions of the app and of the core library it is built on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -133,7 +136,7 @@ pub async fn identify_entry(
         let state = app.state::<AppState>();
         let session = state.session(generation)?;
         let cache = state.cache()?;
-        let net = coverly_core::net::NetConfig::default();
+        let net = state.fill_config().net.clone();
         let http = coverly_core::net::PoliteHttp::new(coverly_core::net::UreqHttp::new(&net), &net);
         crate::library::identify::identify_entry(
             &session,
@@ -234,7 +237,7 @@ pub fn decide_fill(
 /// Applies a planned job (progress and the result arrive as events).
 #[tauri::command]
 pub fn run_fill(app: AppHandle, state: State<'_, AppState>, job: u64) -> Result<JobView, IpcError> {
-    state.jobs().run(state.fill_config(), job, job_events(&app))
+    state.jobs().run(job, job_events(&app))
 }
 
 /// Continues a paused job into the same journal.
@@ -244,9 +247,7 @@ pub fn resume_fill(
     state: State<'_, AppState>,
     job: u64,
 ) -> Result<JobView, IpcError> {
-    state
-        .jobs()
-        .resume(state.fill_config(), job, job_events(&app))
+    state.jobs().resume(job, job_events(&app))
 }
 
 /// Stops a running job or ends a planned or paused one.
@@ -440,4 +441,81 @@ pub async fn export_job_report(
         Ok(Some(shown_name(&path)))
     })
     .await
+}
+
+/// The settings with what loading them had to do (a one-time notice).
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> SettingsView {
+    state.settings_view()
+}
+
+/// Validates and saves a JSON merge patch of the settings; field problems
+/// come back as data. Emits `settings-changed` and applies the log level
+/// when something was saved.
+#[tauri::command]
+pub async fn update_settings(
+    app: AppHandle,
+    patch: serde_json::Value,
+) -> Result<SettingsUpdateView, IpcError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let out = state.update_settings(&patch)?;
+        if out.errors.is_empty() {
+            crate::logging::set_level(out.settings.advanced.log_level);
+            let _ = app.emit(SETTINGS_CHANGED_EVENT, &out.settings);
+        }
+        Ok(out)
+    })
+    .await
+}
+
+/// Defaults again (recent libraries kept, a backup copy first).
+#[tauri::command]
+pub async fn reset_settings(app: AppHandle) -> Result<SettingsView, IpcError> {
+    blocking(move || {
+        let view = app.state::<AppState>().reset_settings()?;
+        crate::logging::set_level(view.settings.advanced.log_level);
+        let _ = app.emit(SETTINGS_CHANGED_EVENT, &view.settings);
+        Ok(view)
+    })
+    .await
+}
+
+fn open_dir(app: &AppHandle, dir: &Path) -> Result<(), IpcError> {
+    std::fs::create_dir_all(dir).map_err(|e| IpcError::Io(e.to_string()))?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| IpcError::Io(e.to_string()))
+}
+
+/// Shows the settings folder (chosen here, never by the webview).
+#[tauri::command]
+pub fn open_config_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), IpcError> {
+    open_dir(&app, state.config_dir())
+}
+
+/// Shows the logs folder.
+#[tauri::command]
+pub fn open_logs_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), IpcError> {
+    open_dir(&app, &state.logs_dir())
+}
+
+/// Opens one of the fixed project links in the browser.
+#[tauri::command]
+pub fn open_link(app: AppHandle, link: LinkId) -> Result<(), IpcError> {
+    app.opener()
+        .open_url(link_url(link), None::<&str>)
+        .map_err(|e| IpcError::Io(e.to_string()))
+}
+
+/// Bytes used by the cache.
+#[tauri::command]
+pub async fn cache_usage(app: AppHandle) -> Result<u64, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().cache_usage())).await
+}
+
+/// Clears the cache (refused while a job runs); returns the bytes freed.
+#[tauri::command]
+pub async fn clear_cache(app: AppHandle) -> Result<u64, IpcError> {
+    blocking(move || app.state::<AppState>().clear_cache()).await
 }

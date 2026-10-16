@@ -170,7 +170,7 @@ fn fills_a_copy_auto_only_and_undo_restores_it() {
     }
 
     let t1 = Instant::now();
-    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    st.jobs().run(id, ev.clone()).unwrap();
     let done = wait(&ev.rec, JobState::Done, Duration::from_secs(1800));
     let result = done.result.unwrap();
     println!(

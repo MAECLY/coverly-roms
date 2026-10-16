@@ -809,6 +809,7 @@ version = "0.0.1"
 dependencies = [
  "coverly-core",
  "keyring",
+ "log",
  "serde",
  "serde_json",
  "tauri",

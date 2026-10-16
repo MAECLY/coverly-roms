@@ -39,6 +39,7 @@ impl JobEvents for Refreshing {
 
 fn opened(w: &FillWorld, cfg: FillConfig) -> (Arc<AppState>, Arc<Refreshing>, u64) {
     let st = Arc::new(AppState::new(w.dirs.path().to_path_buf(), cfg));
+    common::fast(&st);
     let view = st
         .open(w.lib.path(), None, &SystemDb::builtin(), &mut |_| {})
         .unwrap();
@@ -68,7 +69,7 @@ fn a_finished_job_updates_the_library_and_undo_restores_it() {
         .unwrap()
         .id;
     wait_for(&ev.rec, JobState::Planned);
-    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    st.jobs().run(id, ev.clone()).unwrap();
     wait_for(&ev.rec, JobState::Done);
     let session = st.session(generation).unwrap();
     assert!(read_art_bytes(&session, 0, Media::Cover).is_ok());
@@ -110,6 +111,10 @@ fn undo_is_refused_while_a_job_runs() {
         ..(*w.cfg).clone()
     };
     let (st, ev, generation) = opened(&w, slow);
+    // The shortest timeout the settings allow (the job's network comes
+    // from the settings).
+    st.update_settings(&serde_json::json!({"network": {"timeout_secs": 5}}))
+        .unwrap();
     let id = st
         .start_fill(generation, &request(None), ev.clone())
         .unwrap()
@@ -131,6 +136,9 @@ fn undo_is_refused_while_a_job_is_paused() {
         ..(*w.cfg).clone()
     };
     let (st, ev, generation) = opened(&w, serial);
+    // The job's network comes from the settings (the base keeps timings).
+    st.update_settings(&serde_json::json!({"network": {"concurrency": 1}}))
+        .unwrap();
     let id = st
         .start_fill(generation, &request(None), ev.clone())
         .unwrap()
@@ -140,7 +148,7 @@ fn undo_is_refused_while_a_job_is_paused() {
         ADVENTURE_USA,
         MockResponse::status(429).header("Retry-After", "0"),
     );
-    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    st.jobs().run(id, ev.clone()).unwrap();
     wait_for(&ev.rec, JobState::Paused);
     // Resume appends to this journal: undoing it now would break the resume.
     assert_eq!(st.undo_last_job(generation), Err(IpcError::JobRunning));
@@ -157,7 +165,7 @@ fn undo_only_touches_the_open_library() {
         .unwrap()
         .id;
     wait_for(&ev.rec, JobState::Planned);
-    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    st.jobs().run(id, ev.clone()).unwrap();
     wait_for(&ev.rec, JobState::Done);
     let cover = w.lib.path().join("ROMS/GBA/Imgs/001 Golden Sun.png");
     assert!(cover.exists());
