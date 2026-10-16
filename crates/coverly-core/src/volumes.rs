@@ -51,14 +51,20 @@ const MACOS_SYSTEM_NAMES: [&str; 7] = [
 ];
 
 /// Whether a mount named `name` (resolving to `real`) belongs to the system
-/// rather than to the user: hidden names, `com.apple.*` (Time Machine local
-/// snapshots), the APFS helper volumes in [`MACOS_SYSTEM_NAMES`] and
-/// anything under `/System/Volumes`.
+/// rather than to the user, on this OS ([`is_system_mount_on`]).
 pub fn is_system_mount(name: &str, real: &Path) -> bool {
+    is_system_mount_on(cfg!(target_os = "macos"), name, real)
+}
+
+/// [`is_system_mount`] for a given OS. Everywhere: hidden names and
+/// `com.apple.*` (Time Machine local snapshots). On macOS only: the APFS
+/// helper volumes in [`MACOS_SYSTEM_NAMES`] and anything under
+/// `/System/Volumes`, so a Linux or Windows drive labelled `Update` or `VM`
+/// is still listed.
+pub fn is_system_mount_on(macos: bool, name: &str, real: &Path) -> bool {
     name.starts_with('.')
         || name.starts_with("com.apple.")
-        || MACOS_SYSTEM_NAMES.contains(&name)
-        || real.starts_with("/System/Volumes")
+        || (macos && (MACOS_SYSTEM_NAMES.contains(&name) || real.starts_with("/System/Volumes")))
 }
 
 /// The child folders of `parents`: system mounts ([`is_system_mount`]),

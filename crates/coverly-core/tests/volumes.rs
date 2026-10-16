@@ -2,7 +2,7 @@ use std::fs;
 
 use std::path::Path;
 
-use coverly_core::volumes::{is_system_mount, list_volumes, Volume};
+use coverly_core::volumes::{is_system_mount, is_system_mount_on, list_volumes, Volume};
 
 #[test]
 fn lists_child_folders_of_the_mount_parents() {
@@ -59,17 +59,74 @@ const MACOS_MOUNTS: [&str; 12] = [
 fn macos_system_mounts_are_not_connected_drives() {
     let user: Vec<&str> = MACOS_MOUNTS
         .into_iter()
-        .filter(|n| !is_system_mount(n, &Path::new("/Volumes").join(n)))
+        .filter(|n| !is_system_mount_on(true, n, &Path::new("/Volumes").join(n)))
         .collect();
     assert_eq!(user, ["ANBERNIC", "SD CARD"]);
-    assert!(is_system_mount("Data", Path::new("/System/Volumes/Data")));
-    assert!(is_system_mount(
+    assert!(is_system_mount_on(
+        true,
+        "Data",
+        Path::new("/System/Volumes/Data")
+    ));
+    assert!(is_system_mount_on(
+        true,
         "Macintosh HD - Data",
         Path::new("/System/Volumes/Data")
     ));
-    assert!(!is_system_mount("Data", Path::new("/Volumes/Data")));
-    assert!(!is_system_mount("Updates", Path::new("/Volumes/Updates")));
+    assert!(!is_system_mount_on(
+        true,
+        "Data",
+        Path::new("/Volumes/Data")
+    ));
+    assert!(!is_system_mount_on(
+        true,
+        "Updates",
+        Path::new("/Volumes/Updates")
+    ));
+    assert_eq!(
+        is_system_mount("VM", Path::new("/Volumes/VM")),
+        cfg!(target_os = "macos"),
+        "is_system_mount applies the macOS names only on macOS"
+    );
+}
 
+#[test]
+fn other_systems_keep_drives_named_like_macos_helpers() {
+    // A Linux or Windows drive the user labelled "Update" or "VM" is theirs.
+    for name in [
+        "Recovery",
+        "Preboot",
+        "VM",
+        "Update",
+        "xarts",
+        "iSCPreboot",
+        "Hardware",
+    ] {
+        assert!(
+            !is_system_mount_on(false, name, &Path::new("/media/me").join(name)),
+            "{name}"
+        );
+    }
+    assert!(!is_system_mount_on(
+        false,
+        "Data",
+        Path::new("/System/Volumes/Data")
+    ));
+    // Hidden names and com.apple.* stay hidden everywhere.
+    assert!(is_system_mount_on(
+        false,
+        ".Trash-1000",
+        Path::new("/media/me/.Trash-1000")
+    ));
+    assert!(is_system_mount_on(
+        false,
+        "com.apple.TimeMachine.localsnapshots",
+        Path::new("/media/me/x")
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn list_volumes_skips_the_macos_helpers_on_macos() {
     let parent = tempfile::tempdir().unwrap();
     for name in MACOS_MOUNTS {
         fs::create_dir(parent.path().join(name)).unwrap();
