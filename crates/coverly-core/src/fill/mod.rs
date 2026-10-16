@@ -394,6 +394,7 @@ impl FillEnv<'_> {
             canonical: Some(c.name.clone()),
             replaces_existing: target.exists(),
             note: None,
+            reason: Some(crate::matching::PickReason::User),
             system_dir: rom.system_dir.to_path_buf(),
             action: PlanAction::Auto {
                 chosen: c.clone(),

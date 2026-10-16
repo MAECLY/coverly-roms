@@ -12,8 +12,8 @@ use crate::art::target_path;
 use crate::gather::Gathered;
 use crate::identify::IdMethod;
 use crate::matching::{
-    default_region_order, is_unreleased_variant, strategy_for, RankContext, RegionPref,
-    StrategyKind,
+    default_region_order, explain, is_unreleased_variant, language_rank, strategy_for, PickReason,
+    RankContext, RegionPref, StrategyKind,
 };
 use crate::profiles::{Media, Profile};
 use crate::progress::PauseKind;
@@ -80,14 +80,9 @@ fn prefer_languages(order: &mut [usize], cands: &[Candidate], langs: &[String]) 
         })
         .count();
     let rank = |i: usize| {
-        let have = cands
+        cands
             .get(i)
-            .map(|c| crate::identify::names::languages(&c.name))
-            .unwrap_or_default();
-        langs
-            .iter()
-            .position(|l| have.contains(l))
-            .unwrap_or(langs.len())
+            .map_or(langs.len(), |c| language_rank(c, langs))
     };
     order[..tied].sort_by_key(|&i| rank(i));
 }
@@ -171,6 +166,9 @@ pub struct PlanItem {
     /// Why this item is in review although its confidence may be high.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<PlanNote>,
+    /// Why the chosen image won (D9/D33); `None` when nothing is chosen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PickReason>,
     /// The system folder (where a gamelist lives).
     #[serde(skip)]
     pub system_dir: PathBuf,
@@ -271,6 +269,11 @@ impl Plan {
                 } => (chosen.clone(), alternatives.clone()),
                 PlanAction::None { .. } => continue,
             };
+            let reason = match *decision {
+                Decision::Accept => item.reason.clone(),
+                Decision::Pick { .. } => Some(PickReason::User),
+                Decision::Skip => None,
+            };
             item.action = match *decision {
                 Decision::Accept => PlanAction::Auto {
                     confidence: confidence(&chosen),
@@ -295,6 +298,7 @@ impl Plan {
                 },
             };
             item.note = None;
+            item.reason = reason;
         }
         self.recount();
     }
@@ -356,11 +360,12 @@ pub fn build_plan(
                 media,
             );
             let cands = g.candidates.get(&media).map(Vec::as_slice).unwrap_or(&[]);
-            let (action, note) = match &target {
+            let (action, note, reason) = match &target {
                 None => (
                     PlanAction::None {
                         reason: NoneReason::NoTarget,
                     },
+                    None,
                     None,
                 ),
                 Some(_) if cands.is_empty() => (
@@ -375,6 +380,7 @@ pub fn build_plan(
                         },
                     },
                     None,
+                    None,
                 ),
                 Some(_) => {
                     let ctx = RankContext {
@@ -384,7 +390,7 @@ pub fn build_plan(
                     };
                     let mut order = strategy.rank(&ctx, cands);
                     prefer_languages(&mut order, cands, &opts.languages);
-                    choose(cands, &order, opts, &t.stem)
+                    choose(cands, &order, opts, &t.stem, &ctx)
                 }
             };
             totals.add(&action);
@@ -402,6 +408,7 @@ pub fn build_plan(
                 media,
                 replaces_existing: target.as_deref().is_some_and(Path::exists),
                 note,
+                reason,
                 target: target.unwrap_or_default(),
                 identity_method: g.identity.method,
                 canonical: g.identity.canonical.clone(),
@@ -441,7 +448,8 @@ fn choose(
     order: &[usize],
     opts: &PlanOptions,
     rom_stem: &str,
-) -> (PlanAction, Option<PlanNote>) {
+    ctx: &RankContext,
+) -> (PlanAction, Option<PlanNote>, Option<PickReason>) {
     let mut order: Vec<usize> = order.iter().copied().filter(|&i| i < cands.len()).collect();
     if order.is_empty() {
         order = (0..cands.len()).collect();
@@ -456,6 +464,13 @@ fn choose(
             order.insert(0, release);
         }
     }
+    let reason = explain(
+        opts.strategy,
+        ctx,
+        &cands[order[0]],
+        order.get(1).map(|&i| &cands[i]),
+        &opts.languages,
+    );
     let chosen = cands[order[0]].clone();
     let alternatives: Vec<Candidate> = order[1..]
         .iter()
@@ -471,6 +486,7 @@ fn choose(
                 alternatives,
             },
             None,
+            Some(reason),
         )
     } else if c >= opts.review_threshold {
         (
@@ -480,12 +496,14 @@ fn choose(
                 alternatives,
             },
             note,
+            Some(reason),
         )
     } else {
         (
             PlanAction::None {
                 reason: NoneReason::BelowThreshold { best: c },
             },
+            None,
             None,
         )
     }

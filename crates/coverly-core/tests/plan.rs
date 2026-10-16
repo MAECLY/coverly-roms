@@ -208,3 +208,73 @@ fn plan_serialises_with_flat_actions() {
         .iter()
         .any(|i| i["reason"] == "no-candidates"));
 }
+
+use coverly_core::matching::{PickReason, StrategyKind};
+use coverly_core::plan::Decision;
+
+#[test]
+fn every_chosen_item_says_why_and_none_items_do_not() {
+    let dir = lib();
+    let g = gathered(dir.path());
+    let plan = build_plan(
+        dir.path(),
+        &common::profile("anbernic-stock"),
+        &SystemDb::builtin(),
+        &g,
+        &PlanOptions::default(),
+    );
+    for item in &plan.items {
+        match &item.action {
+            PlanAction::None { .. } => assert_eq!(item.reason, None, "{}", item.stem),
+            _ => assert_eq!(item.reason, Some(PickReason::Only), "{}", item.stem),
+        }
+    }
+    let json = serde_json::to_value(&plan).unwrap();
+    let golden = json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["stem"] == "001 Golden Sun")
+        .unwrap();
+    assert_eq!(golden["reason"], serde_json::json!({ "why": "only" }));
+}
+
+#[test]
+fn popularity_items_explain_votes_and_a_pick_becomes_the_users() {
+    let dir = lib();
+    let mut g = gathered(dir.path());
+    let golden = g
+        .items
+        .iter_mut()
+        .find(|i| i.target.stem == "001 Golden Sun")
+        .unwrap();
+    let mut grid = cand("Golden Sun", MatchKind::TitleExact, 95);
+    grid.source = "steamgriddb".into();
+    grid.regions = vec![];
+    grid.url = "https://cdn2.steamgriddb.com/grid/1.png".into();
+    grid.votes = Some(coverly_core::sources::Votes { up: 8, down: 1 });
+    golden.candidates.get_mut(&Media::Cover).unwrap().push(grid);
+    let opts = PlanOptions {
+        strategy: StrategyKind::Popularity,
+        sources: vec!["libretro".into(), "steamgriddb".into()],
+        ..PlanOptions::default()
+    };
+    let mut plan = build_plan(
+        dir.path(),
+        &common::profile("anbernic-stock"),
+        &SystemDb::builtin(),
+        &g,
+        &opts,
+    );
+    let n = plan
+        .items
+        .iter()
+        .position(|i| i.stem == "001 Golden Sun")
+        .unwrap();
+    assert_eq!(
+        plan.items[n].reason,
+        Some(PickReason::Votes { score: 7, next: 0 })
+    );
+    plan.decide(&BTreeMap::from([(n, Decision::Pick { candidate: 1 })]));
+    assert_eq!(plan.items[n].reason, Some(PickReason::User));
+}
