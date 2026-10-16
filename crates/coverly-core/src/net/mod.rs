@@ -62,6 +62,10 @@ pub enum NetError {
     TooLarge { limit: u64 },
     #[error("refused non-HTTPS URL {0}")]
     Insecure(String),
+    /// The request could not be built (a malformed URL or header value):
+    /// a fault of this request, never a pause.
+    #[error("invalid request: {0}")]
+    Invalid(String),
 }
 
 impl NetError {
@@ -192,13 +196,55 @@ pub fn host_of(url: &str) -> String {
     host.to_lowercase()
 }
 
+/// Whether the URL's authority is a plain `host[:port]`: a host of ASCII
+/// letters, digits, `.` and `-` (or a bracketed IPv6 literal) and an
+/// optional numeric port. Rejects userinfo (`@`), `\\`, `%`, whitespace and
+/// control characters, which parsers read differently (spec §11).
+pub fn plain_authority(url: &str) -> bool {
+    let Some((_, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+        let Some((inner, after)) = v6.split_once(']') else {
+            return false;
+        };
+        let ok = !inner.is_empty()
+            && inner
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+        if !ok {
+            return false;
+        }
+        match after {
+            "" => return true,
+            p => match p.strip_prefix(':') {
+                Some(port) => ("v6", Some(port)),
+                None => return false,
+            },
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    let host_ok = !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    let port_ok =
+        port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()));
+    host_ok && port_ok
+}
+
 fn url_kind(url: &str) -> UrlKind {
     let lower = url.to_ascii_lowercase();
     let authority = lower
         .split_once("://")
         .map(|(_, r)| r.split(['/', '?', '#']).next().unwrap_or(""))
         .unwrap_or("");
-    if authority.contains('@') || authority.is_empty() {
+    if authority.contains('@') || authority.is_empty() || !plain_authority(url) {
         return UrlKind::Refused;
     }
     if lower.starts_with("https://") {
@@ -343,6 +389,8 @@ fn read_capped(body: &mut ureq::Body, max: u64) -> Result<Vec<u8>, NetError> {
 fn transport(e: ureq::Error) -> NetError {
     match e {
         ureq::Error::Timeout(_) => NetError::Timeout,
+        // Faults of the request itself: retrying or pausing cannot help.
+        e @ (ureq::Error::BadUri(_) | ureq::Error::Http(_)) => NetError::Invalid(e.to_string()),
         other => NetError::Offline(other.to_string()),
     }
 }

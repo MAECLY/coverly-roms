@@ -312,3 +312,36 @@ fn serve_json_substitutes_the_base_url() {
         format!(r#"{{"url":"{}/img.png"}}"#, server.base())
     );
 }
+
+#[test]
+fn an_authority_with_odd_characters_is_refused_before_connecting() {
+    for url in [
+        "https://evil.com\\.steamgriddb.com/a.png",
+        "https://ev%69l.com/a.png",
+        "https://evil.com .steamgriddb.com/a.png",
+        "https://evil.com\t.steamgriddb.com/a.png",
+        "https://host:po rt/a.png",
+        "https://host:/a.png",
+    ] {
+        let err = UreqHttp::new(&cfg())
+            .get(&HttpRequest::get(url))
+            .unwrap_err();
+        assert!(matches!(err, NetError::Insecure(_)), "{url:?} → {err:?}");
+        assert!(!err.pauses());
+    }
+}
+
+#[test]
+fn a_request_that_cannot_be_built_fails_without_pausing() {
+    let server = MockServer::start();
+    server.mock("/k", MockResponse::ok("x"));
+    let err = client()
+        .get(
+            &HttpRequest::get(server.url("/k"))
+                .bearer(coverly_core::credentials::Secret::new("a\r\nX")),
+        )
+        .unwrap_err();
+    assert!(matches!(err, NetError::Invalid(_)), "{err:?}");
+    assert!(!err.pauses());
+    assert_eq!(err.pause_kind(), None);
+}
