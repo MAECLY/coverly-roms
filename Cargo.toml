@@ -28,3 +28,5 @@ crc32fast = "1.5"
 md-5 = "0.10"
 sha1 = "0.10"
 zip = { version = "9", default-features = false }
+rusqlite = { version = "0.40", features = ["bundled"] }
+directories = "6"

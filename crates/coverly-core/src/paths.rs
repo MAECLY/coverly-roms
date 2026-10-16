@@ -11,6 +11,35 @@ pub const ORG: &str = "Maecly";
 /// Application name of the app directories.
 pub const APP: &str = "CoverlyROMs";
 
+/// Where the app keeps its cache (indexes, DATs, downloaded art) and its
+/// data (job journals, backups).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppDirs {
+    pub cache: std::path::PathBuf,
+    pub data: std::path::PathBuf,
+}
+
+impl AppDirs {
+    /// The platform dirs for `(QUALIFIER, ORG, APP)`, each replaced by its
+    /// override when given. `None` only when no home dir is known and an
+    /// override is missing.
+    pub fn resolve(
+        cache: Option<&std::path::Path>,
+        data: Option<&std::path::Path>,
+    ) -> Option<AppDirs> {
+        let project = directories::ProjectDirs::from(QUALIFIER, ORG, APP);
+        let cache = match cache {
+            Some(p) => p.to_path_buf(),
+            None => project.as_ref()?.cache_dir().to_path_buf(),
+        };
+        let data = match data {
+            Some(p) => p.to_path_buf(),
+            None => project.as_ref()?.data_dir().to_path_buf(),
+        };
+        Some(AppDirs { cache, data })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -18,5 +47,12 @@ mod tests {
     #[test]
     fn app_dir_triple() {
         assert_eq!((ORG, QUALIFIER, APP), ("Maecly", "com", "CoverlyROMs"));
+    }
+
+    #[test]
+    fn platform_dirs_are_used_without_overrides() {
+        let dirs = AppDirs::resolve(None, Some(std::path::Path::new("/d"))).unwrap();
+        assert!(dirs.cache.to_string_lossy().contains(APP), "{dirs:?}");
+        assert_eq!(dirs.data, std::path::Path::new("/d"));
     }
 }
