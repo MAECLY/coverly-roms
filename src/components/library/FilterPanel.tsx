@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { useT } from '@/i18n/useT';
 import { REGIONS, type LibraryView } from '@/ipc/types';
@@ -18,6 +18,40 @@ const toMb = (bytes: number | null) =>
 function toBytes(value: string): number | null {
   const n = Number.parseFloat(value);
   return Number.isFinite(n) && n >= 0 ? Math.round(n * MB) : null;
+}
+
+/**
+ * A size bound in MB. Keeps the text being typed ("1.0", "0.0") instead of
+ * echoing back the rounded store value, which would rewrite the field
+ * mid-entry; re-syncs only when the store changes from elsewhere (Clear).
+ */
+function SizeField({
+  label,
+  bytes,
+  onChange,
+}: {
+  label: string;
+  bytes: number | null;
+  onChange(bytes: number | null): void;
+}) {
+  const [draft, setDraft] = useState(() => toMb(bytes));
+  const shown = toBytes(draft) === bytes ? draft : toMb(bytes);
+  return (
+    <label className="filter-field">
+      {label}
+      <input
+        type="number"
+        min={0}
+        step="any"
+        className="text-input"
+        value={shown}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange(toBytes(e.target.value));
+        }}
+      />
+    </label>
+  );
 }
 
 /** Art filters for media this layout can store. */
@@ -148,28 +182,16 @@ export function FilterPanel({
       </fieldset>
       <fieldset>
         <legend>{t('filters.size')}</legend>
-        <label className="filter-field">
-          {t('filters.min')}
-          <input
-            type="number"
-            min={0}
-            step="any"
-            className="text-input"
-            value={toMb(f.sizeMin)}
-            onChange={(e) => setSizes(toBytes(e.target.value), f.sizeMax)}
-          />
-        </label>
-        <label className="filter-field">
-          {t('filters.max')}
-          <input
-            type="number"
-            min={0}
-            step="any"
-            className="text-input"
-            value={toMb(f.sizeMax)}
-            onChange={(e) => setSizes(f.sizeMin, toBytes(e.target.value))}
-          />
-        </label>
+        <SizeField
+          label={t('filters.min')}
+          bytes={f.sizeMin}
+          onChange={(b) => setSizes(b, f.sizeMax)}
+        />
+        <SizeField
+          label={t('filters.max')}
+          bytes={f.sizeMax}
+          onChange={(b) => setSizes(f.sizeMin, b)}
+        />
       </fieldset>
       <button type="button" className="ghost-button" onClick={clear}>
         {t('filters.clear')}

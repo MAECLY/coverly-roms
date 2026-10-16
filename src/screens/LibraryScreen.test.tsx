@@ -9,6 +9,7 @@ import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import { applyFilters, EMPTY_FILTERS } from '@/lib/filters';
 import { dateBucket } from '@/lib/scope';
+import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { stubLayout } from '@/test/layout';
 
@@ -150,6 +151,33 @@ describe('Library screen', () => {
     expect(
       screen.getByRole('searchbox', { name: 'Search by name' }),
     ).toHaveFocus();
+  });
+
+  it('keeps a decimal size as typed and filters by it', async () => {
+    const view = await openLibrary();
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = screen.getByRole('region', { name: 'Filters' });
+    const min = within(panel).getByRole('spinbutton', { name: 'Min' });
+    // Each partial text the browser reports while typing must survive.
+    for (const text of ['1', '1.0', '1.05']) {
+      fireEvent.change(min, { target: { value: text } });
+      expect(min).toHaveDisplayValue(text);
+    }
+    expect(useFilterStore.getState().filters.sizeMin).toBe(
+      Math.round(1.05 * 1024 * 1024),
+    );
+    const expected = applyFilters(
+      view.entries,
+      useLibraryStore.getState().keys,
+      { ...EMPTY_FILTERS, sizeMin: Math.round(1.05 * 1024 * 1024) },
+    ).length;
+    expect(
+      await screen.findByText(`${expected} of 240 ROMs`),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Clear filters' }),
+    );
+    expect(min).toHaveValue(null);
   });
 
   it('offers to clear when nothing matches', async () => {
