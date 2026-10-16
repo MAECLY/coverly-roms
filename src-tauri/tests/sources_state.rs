@@ -175,3 +175,23 @@ fn a_failing_keychain_read_is_not_remembered() {
         "asked again: it may be unlocked now"
     );
 }
+
+#[test]
+fn test_key_uses_a_short_timeout() {
+    use coverly_core::net::NetConfig;
+    use coverly_roms_lib::sources::key_check_net;
+    use std::time::Duration;
+    let long = NetConfig {
+        timeout: Duration::from_secs(120),
+        retries: 3,
+        ..NetConfig::default()
+    };
+    let net = key_check_net(&long);
+    assert_eq!(net.timeout, Duration::from_secs(10));
+    assert_eq!(net.retries, 0);
+    let short = NetConfig {
+        timeout: Duration::from_secs(5),
+        ..NetConfig::default()
+    };
+    assert_eq!(key_check_net(&short).timeout, Duration::from_secs(5));
+}

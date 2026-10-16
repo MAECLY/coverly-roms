@@ -2,6 +2,8 @@
 //! answers are presence flags and a `KeyCheck`.
 
 use coverly_core::credentials::{CredentialKey, DevCredentials};
+use std::time::Duration;
+
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::settings::KNOWN_SOURCES;
 use coverly_core::sources::screenscraper::{check_account, SsConfig};
@@ -10,6 +12,19 @@ use serde::Serialize;
 
 use crate::error::IpcError;
 use crate::state::AppState;
+
+/// The longest a "Test key" request waits: the settings timeout is for
+/// slow downloads, not for a button the user is watching.
+pub const KEY_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The network settings of a key check: one try, a short timeout.
+pub fn key_check_net(net: &NetConfig) -> NetConfig {
+    NetConfig {
+        retries: 0,
+        timeout: net.timeout.min(KEY_CHECK_TIMEOUT),
+        ..net.clone()
+    }
+}
 
 /// One source as the Sources settings show it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -58,10 +73,7 @@ impl AppState {
     /// Only the verdict comes back; the key is never returned or logged.
     pub fn test_source_key(&self, source: &str) -> Result<KeyCheck, IpcError> {
         let cfg = self.fill_config();
-        let net = NetConfig {
-            retries: 0,
-            ..cfg.net.clone()
-        };
+        let net = key_check_net(&cfg.net);
         let http = PoliteHttp::new(UreqHttp::new(&net), &net);
         let check = match source {
             "steamgriddb" => steamgriddb::check_key(
