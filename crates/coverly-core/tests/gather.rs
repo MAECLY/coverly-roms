@@ -337,6 +337,16 @@ fn rate_limit_pauses_gathering() {
         g.paused
     );
     assert!(g.items.len() < targets.len());
+    // The ROM it paused on says so: no media looks like "no art exists".
+    let last = g.items.last().expect("the paused ROM is kept");
+    assert!(!last.candidates.contains_key(&Media::Cover));
+    assert!(
+        last.errors
+            .get(&Media::Cover)
+            .is_some_and(|e| e.contains("paused") && e.contains("rate limited")),
+        "{:?}",
+        last.errors
+    );
 }
 
 #[test]

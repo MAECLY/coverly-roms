@@ -150,7 +150,8 @@ pub struct GatherItem {
     pub identity: Identity,
     /// Candidates of every source, sorted strongest first.
     pub candidates: BTreeMap<Media, Vec<Candidate>>,
-    /// Why a source could not answer for a media.
+    /// Why a source could not answer for a media. A media with no
+    /// `candidates` entry was not searched to the end (`paused: …`).
     pub errors: BTreeMap<Media, String>,
 }
 
@@ -242,7 +243,15 @@ pub fn gather(
             sort_candidates(&mut all);
             item.candidates.insert(media, all);
         }
-        // A paused item keeps what was gathered before the pause.
+        // A paused item keeps what was gathered before the pause; the media
+        // not searched to the end say so, so they never read as "no art".
+        if let Some(reason) = &paused {
+            for &media in &t.media {
+                if !item.candidates.contains_key(&media) {
+                    item.errors.insert(media, format!("paused: {reason}"));
+                }
+            }
+        }
         out.items.push(item);
         if paused.is_some() {
             out.paused = paused;
