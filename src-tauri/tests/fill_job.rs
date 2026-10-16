@@ -111,6 +111,26 @@ fn a_selection_matches_like_the_whole_library() {
 }
 
 #[test]
+fn decisions_the_plan_would_ignore_are_refused() {
+    let w = fill_world();
+    let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));
+    let id = planned(&w, &jobs, &rec, None);
+    let review = jobs.items(id, ItemFilter::Review).unwrap();
+    let past = review[0].candidates.len();
+    assert!(matches!(
+        jobs.decide(
+            id,
+            &[DecisionIn {
+                index: review[0].index,
+                decision: Decision::Pick { candidate: past },
+            }]
+        ),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert_eq!(jobs.current().unwrap().decided, 0);
+}
+
+#[test]
 fn review_decisions_feed_the_apply_and_touched_entries_are_reported() {
     let w = fill_world();
     let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));

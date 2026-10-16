@@ -515,9 +515,28 @@ impl JobManager {
                     "decisions are taken before the job runs".into(),
                 ));
             }
-            let n = d.plan.as_ref().map_or(0, |p| p.items.len());
-            if let Some(bad) = decisions.iter().find(|x| x.index as usize >= n) {
-                return Err(IpcError::BadRequest(format!("no item {}", bad.index)));
+            let items = d.plan.as_ref().map_or(&[][..], |p| &p.items[..]);
+            for x in decisions {
+                let item = items
+                    .get(x.index as usize)
+                    .ok_or_else(|| IpcError::BadRequest(format!("no item {}", x.index)))?;
+                // Decisions the plan would drop silently (a `none` item, a
+                // pick past the last candidate) are refused instead.
+                let candidates = candidates_of(item).len();
+                if candidates == 0 {
+                    return Err(IpcError::BadRequest(format!(
+                        "item {} has nothing to decide",
+                        x.index
+                    )));
+                }
+                if let Decision::Pick { candidate } = x.decision {
+                    if candidate >= candidates {
+                        return Err(IpcError::BadRequest(format!(
+                            "no candidate {candidate} for item {}",
+                            x.index
+                        )));
+                    }
+                }
             }
             for x in decisions {
                 d.decisions.insert(x.index as usize, x.decision);
