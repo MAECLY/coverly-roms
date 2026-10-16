@@ -9,7 +9,7 @@
 
 - **Fecha:** 2026-10-15
 - **Fase:** Brainstorming → spec escrita + refinada con investigación (§16), **pendiente de revisión de Miguel** y de decidir pregunta abierta 5 (estrategia Popularidad).
-- **Siguiente paso:** Miguel revisa la spec → plan de implementación (skill writing-plans) → M0.
+- **Siguiente paso:** ejecutar plan M0+M1 con workflow (rama `feat/m0-foundation` → PR → CI → merge; luego `feat/m1-audit`).
 - **En curso:** nada en segundo plano. Investigación terminada y en `docs/02-research/`.
 
 ## Contexto clave (para no perderlo)
@@ -32,6 +32,9 @@
 | D6 | UI en español + inglés | 2026-10-15 | Miguel |
 | D7 | Arquitectura A: núcleo Rust compartido + app Tauri + CLI | 2026-10-15 | Miguel |
 | D8 | Documentar todo primero; TRACKER como memoria anti-compact | 2026-10-15 | Miguel |
+| D9 | Estrategia Popularidad = (a) votos SteamGridDB donde existan + (b) consenso entre fuentes/regiones para consolas; fallback a Prioridad | 2026-10-15 | Claude (recomendación; Miguel dijo EMPIEZA sin objetar) |
+| D10 | PRs en inglés, sin firma Claude; auto-merge autorizado tras verificar; E2E con Chrome DevTools MCP / Claude-in-Chrome | 2026-10-15 | Miguel |
+| D11 | Caché SQLite (M1-05) se mueve a M2 (no necesaria para auditar) | 2026-10-15 | Claude |
 
 ## Fase 0 — Descubrimiento y diseño
 
@@ -47,8 +50,8 @@
 | P0-08 | Mostrar evidencia de investigación a Miguel | 🟡 | resumen en chat 2026-10-15 |
 | P0-09 | Volcar investigación en `docs/02-research/*.md` | ✅ | commit `3d6e1f1`; spec §16 con refinamientos |
 | P0-10 | Completar docs 01–09 + ADRs desde la spec | ⬜ | |
-| P0-11 | Revisión de spec por Miguel | ⬜ | |
-| P0-12 | Plan de implementación (writing-plans) | ⬜ | |
+| P0-11 | Revisión de spec por Miguel | ✅ | "EMPIEZA" 2026-10-15 |
+| P0-12 | Plan de implementación M0+M1 (writing-plans) | ✅ | `docs/superpowers/plans/2026-10-15-m0-m1-foundation-and-audit.md` |
 | P0-13 | Diseño de marca (wordmark + mark/icono) | ⬜ | |
 
 ## M0 — Fundación del repo
