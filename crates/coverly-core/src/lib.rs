@@ -8,6 +8,7 @@ pub mod audit;
 pub mod cache;
 pub mod gather;
 pub mod identify;
+pub mod image;
 pub mod matching;
 pub mod net;
 pub mod paths;
