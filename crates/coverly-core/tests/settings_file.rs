@@ -693,3 +693,67 @@ fn with_patch_refuses_a_patch_that_is_not_an_object() {
     );
     assert!(s.with_patch(&json!({}), &known()).is_ok());
 }
+
+#[test]
+fn a_utf8_bom_is_not_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "\u{feff}{\"general\":{\"theme\":\"dark\"}}";
+    write(dir.path(), text);
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.general.theme, ThemeChoice::Dark);
+    assert_eq!(report.notice, None, "a BOM is not a problem");
+    assert_eq!(
+        files(dir.path()),
+        [SETTINGS_FILE],
+        "nothing set aside or copied"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join(SETTINGS_FILE)).unwrap(),
+        text
+    );
+    let (read, problem) = read_settings_checked(&dir.path().join(SETTINGS_FILE), &known());
+    assert_eq!(read.general.theme, ThemeChoice::Dark);
+    assert_eq!(problem, None);
+}
+
+#[test]
+fn a_broken_legacy_file_is_set_aside_once() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(LEGACY_LIBRARY_FILE), "garbage").unwrap();
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s, Settings::default());
+    assert_eq!(report.notice, Some(LoadNotice::ResetCorrupt));
+    let backup = report.backup.expect("the old file is kept aside");
+    assert!(backup
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .starts_with("library.json.bad-"));
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "garbage");
+    assert!(!dir.path().join(LEGACY_LIBRARY_FILE).exists());
+    assert!(dir.path().join(SETTINGS_FILE).exists(), "defaults saved");
+    let (_, again) = load_settings(dir.path(), &known());
+    assert_eq!(again.notice, None, "no warning on the next start");
+}
+
+#[test]
+fn read_settings_checked_names_the_problem_without_touching_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "{ not json");
+    assert_eq!(
+        read_settings_checked(&path, &known()),
+        (Settings::default(), Some(ReadProblem::NotSettings))
+    );
+    assert_eq!(files(dir.path()), [SETTINGS_FILE]);
+    let missing = dir.path().join("none.json");
+    assert_eq!(
+        read_settings_checked(&missing, &known()),
+        (Settings::default(), None)
+    );
+    let folder = dir.path().join("folder.json");
+    fs::create_dir(&folder).unwrap();
+    assert_eq!(
+        read_settings_checked(&folder, &known()).1,
+        Some(ReadProblem::Unreadable)
+    );
+}
