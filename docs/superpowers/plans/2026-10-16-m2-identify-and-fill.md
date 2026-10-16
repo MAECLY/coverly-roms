@@ -4598,6 +4598,8 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add crat
 - Modify: `crates/coverly-core/src/lib.rs` (`pub mod jobs;`)
 - Test: `crates/coverly-core/tests/apply.rs`
 
+**Pause rule (from the Task 7 review):** classify network errors with `NetError::pauses()` (rate limit, offline **or timed out** after the retries), as `gather` and `DatStore` do. A timeout pauses the job; it must not fail each item in turn with full retries. Test it with `net::testing::HangingServer` and a short `NetConfig.timeout`.
+
 **Interfaces:**
 - Consumes: `Plan`, `PlanItem`, `PlanAction` (Task 9); `ArtSource`, `Candidate`, `SourceError` (Task 6); `process_image`, `OutputSpec`, `Fit`, `ImageLimits` (Task 10); `Writer`, `OverwritePolicy`, `WriteOutcome`, `WriteError`, `sha1_hex` (Task 11); `Cache` (Task 3); `ProgressSink` (Task 7).
 - Produces:
