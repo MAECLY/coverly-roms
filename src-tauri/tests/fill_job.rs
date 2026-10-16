@@ -79,6 +79,37 @@ fn a_selection_only_plans_those_entries() {
     assert_eq!(all[0].entry_id, Some(0));
 }
 
+fn actions(jobs: &JobManager, id: u64) -> Vec<(Option<u32>, ActionKind, usize)> {
+    jobs.items(id, ItemFilter::All)
+        .unwrap()
+        .into_iter()
+        .map(|i| (i.entry_id, i.action, i.candidates.len()))
+        .collect()
+}
+
+#[test]
+fn a_selection_matches_like_the_whole_library() {
+    // Numbering is decided from the whole folder, not from the selection:
+    // `001 Golden Sun` alone still has its prefix stripped.
+    let w = fill_world();
+    let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));
+    let id = planned(&w, &jobs, &rec, None);
+    let whole = actions(&jobs, id);
+    for ids in [vec![0], vec![3], vec![2, 3]] {
+        let rec = Arc::new(Recorder::default());
+        let id = planned(&w, &jobs, &rec, Some(ids.clone()));
+        let expected: Vec<_> = whole
+            .iter()
+            .filter(|(e, _, _)| e.is_some_and(|e| ids.contains(&e)))
+            .cloned()
+            .collect();
+        assert_eq!(actions(&jobs, id), expected, "selection {ids:?}");
+    }
+    assert_eq!(whole[0].1, ActionKind::Auto);
+    assert_eq!(whole[3].1, ActionKind::Review);
+    assert!(whole[3].2 >= 1);
+}
+
 #[test]
 fn review_decisions_feed_the_apply_and_touched_entries_are_reported() {
     let w = fill_world();

@@ -8,13 +8,13 @@
 
 pub mod view;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use coverly_core::art::resolve_art;
+use coverly_core::art::{resolve_art, RomArt, SystemArt};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
@@ -259,6 +259,27 @@ fn guarded<T>(f: impl FnOnce() -> Result<T, IpcError>) -> Result<T, IpcError> {
         .unwrap_or_else(|_| Err(IpcError::Io("the fill job stopped unexpectedly".into())))
 }
 
+/// Adds the unselected ROMs of each selected folder to `art`, with no art
+/// states so they are never targets. The core decides per folder whether
+/// its ROMs are numbered (`001 Name`) from every stem of the folder; a
+/// selection must not change that decision, or a selected ROM would match
+/// worse than in a whole-library fill.
+fn add_folder_peers(session: &Session, wanted: &[u32], art: &mut [SystemArt]) {
+    let selected: BTreeSet<u32> = wanted.iter().copied().collect();
+    for (id, entry) in session.entries.iter().enumerate() {
+        if selected.contains(&(id as u32)) {
+            continue;
+        }
+        let dir = &session.systems[entry.system as usize].dir;
+        if let Some(system) = art.iter_mut().find(|s| &s.scan.dir == dir) {
+            system.roms.push(RomArt {
+                rom: entry.rom.clone(),
+                art: BTreeMap::new(),
+            });
+        }
+    }
+}
+
 fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>) {
     std::thread::spawn(move || {
         let planned = guarded(|| {
@@ -269,8 +290,9 @@ fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>)
                     Some(ids) => ids.clone(),
                     None => (0..session.entries.len() as u32).collect(),
                 };
-                let (scan, _) = subset_scan(session, &ids);
-                let art = resolve_art(&scan, &session.profile, &db, &job.settings.media);
+                let (scan, wanted) = subset_scan(session, &ids);
+                let mut art = resolve_art(&scan, &session.profile, &db, &job.settings.media);
+                add_folder_peers(session, &wanted, &mut art);
                 let root =
                     std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
                 let sink = Bridge::new(&job, events.as_ref());
