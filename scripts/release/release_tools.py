@@ -28,8 +28,8 @@ Subcommands:
   updater-artifacts --dir D
       Print the update artifacts among the bundles in D, one per line: the
       macOS .app.tar.gz, the Windows NSIS -setup.exe and .msi, the Linux
-      .AppImage. These are the files the finalize job signs for latest.json;
-      the .dmg and .deb are only downloaded by people.
+      .AppImage and .deb. These are the files the finalize job signs for
+      latest.json; the .dmg is only downloaded by people.
 
   updater-manifest --dir D --version V --base-url URL --output F
                    [--changelog CHANGELOG.md] [--pub-date DATE]
@@ -40,7 +40,8 @@ Subcommands:
       NSIS installer, as tauri-action's updaterJsonPreferNsis);
       linux-x86_64 / linux-aarch64 -> the .AppImage of that architecture;
       plus a bundle-specific key for each (darwin-aarch64-app,
-      windows-x86_64-msi, windows-x86_64-nsis, linux-x86_64-appimage, ...),
+      windows-x86_64-msi, windows-x86_64-nsis, linux-x86_64-appimage,
+      linux-x86_64-deb, ...),
       which the updater prefers for the bundle a copy was installed from.
       The notes are CHANGELOG.md's `## [V]` section; pub_date is now (UTC)
       unless given. Fails (and writes nothing) on a missing .sig, two
@@ -244,13 +245,15 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
 
 
 # Update artifacts the app's updater installs, by file name suffix:
-# (suffix, os, bundle). Every other bundle (.dmg, .deb) is only downloaded
-# by people, so it is uploaded and listed in SHA256SUMS but not in latest.json.
+# (suffix, os, bundle). The .deb only serves its own bundle key (a copy
+# installed from it); the .dmg is only downloaded by people, so it is
+# uploaded and listed in SHA256SUMS but not in latest.json.
 UPDATER_KINDS = (
     (".app.tar.gz", "darwin", "app"),
     ("-setup.exe", "windows", "nsis"),
     (".msi", "windows", "msi"),
     (".AppImage", "linux", "appimage"),
+    (".deb", "linux", "deb"),
 )
 
 # The architecture token Tauri puts in a bundle name, and the manifest

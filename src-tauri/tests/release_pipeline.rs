@@ -349,6 +349,7 @@ fn the_app_job_stages_bundles_that_finalize_can_map() {
         updater_artifacts(&d.join("staged")),
         [
             "Coverly.ROMs_0.2.0_amd64.AppImage",
+            "Coverly.ROMs_0.2.0_amd64.deb",
             "Coverly.ROMs_0.2.0_universal.app.tar.gz",
             "Coverly.ROMs_0.2.0_x64-setup.exe",
             "Coverly.ROMs_0.2.0_x64_en-US.msi",
@@ -850,13 +851,15 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
     let bundles = dir.path().join("bundles");
     std::fs::create_dir(&bundles).unwrap();
     write_bundles(&bundles, &BUNDLES);
-    // Only these are signed for latest.json; the .dmg and .deb are not.
+    // Only these are signed for latest.json; the .dmg is not.
     let artifacts = updater_artifacts(&bundles);
     assert_eq!(
         artifacts,
         [
             "Coverly.ROMs_0.2.0_aarch64.AppImage",
             "Coverly.ROMs_0.2.0_amd64.AppImage",
+            "Coverly.ROMs_0.2.0_amd64.deb",
+            "Coverly.ROMs_0.2.0_arm64.deb",
             "Coverly.ROMs_0.2.0_universal.app.tar.gz",
             "Coverly.ROMs_0.2.0_x64-setup.exe",
             "Coverly.ROMs_0.2.0_x64_en-US.msi",
@@ -906,13 +909,13 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
         ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
         ("linux-aarch64", "Coverly.ROMs_0.2.0_aarch64.AppImage"),
         ("linux-x86_64-appimage", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+        ("linux-x86_64-deb", "Coverly.ROMs_0.2.0_amd64.deb"),
+        ("linux-aarch64-deb", "Coverly.ROMs_0.2.0_arm64.deb"),
     ] {
         assert_eq!(file(k), name, "{k}");
     }
-    assert!(!m
-        .platforms
-        .values()
-        .any(|e| e.url.ends_with(".deb") || e.url.ends_with(".dmg")));
+    assert!(!m.platforms.values().any(|e| e.url.ends_with(".dmg")));
+    assert_eq!(m.platforms.len(), 13, "5 generic + 8 bundle-specific keys");
     // Each entry carries the real signature of its own file.
     for (k, e) in &m.platforms {
         let name = file(k);
