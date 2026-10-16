@@ -22,6 +22,15 @@ describe('i18n', () => {
     ).toBeInTheDocument();
   });
 
+  it('sets <html lang> to the active locale', () => {
+    render(
+      <I18nProvider locale="es">
+        <Probe k="app.tagline" />
+      </I18nProvider>,
+    );
+    expect(document.documentElement.lang).toBe('es');
+  });
+
   it('renders the English tagline', () => {
     render(
       <I18nProvider locale="en">
