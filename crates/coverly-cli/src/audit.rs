@@ -90,7 +90,10 @@ pub fn run(args: &AuditArgs) -> Result<(), Failure> {
 
     if args.format != Format::Table {
         if let Some(evidence) = &chosen.detected {
-            eprintln!("{}", detection_note(&chosen, evidence));
+            eprintln!(
+                "{}",
+                table::terminal_safe(&detection_note(&chosen, evidence))
+            );
         }
     }
 
@@ -102,7 +105,10 @@ pub fn run(args: &AuditArgs) -> Result<(), Failure> {
         &media,
     );
     for w in &report.warnings {
-        eprintln!("warning: {}: {}", w.path.display(), w.message);
+        eprintln!(
+            "{}",
+            table::terminal_safe(&format!("warning: {}: {}", w.path.display(), w.message))
+        );
     }
 
     let mut buf: Vec<u8> = Vec::new();

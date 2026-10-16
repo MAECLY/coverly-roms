@@ -30,9 +30,33 @@ pub fn render(rows: &[Vec<String>]) -> String {
     out
 }
 
+/// `text` with every control character except `\n` (ESC, BEL, CR, C1
+/// CSI…) replaced by U+FFFD, so a hostile file name cannot move the
+/// cursor, rewrite earlier lines or retitle the terminal when printed.
+pub fn terminal_safe(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c != '\n' && c.is_control() {
+                '\u{FFFD}'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_safe_strips_escape_sequences() {
+        assert_eq!(
+            terminal_safe("Game\u{1b}]0;pwned\u{7}\r(USA)\u{9b}2J\nnext"),
+            "Game\u{FFFD}]0;pwned\u{FFFD}\u{FFFD}(USA)\u{FFFD}2J\nnext"
+        );
+        assert_eq!(terminal_safe("Pokémon (Japón)"), "Pokémon (Japón)");
+    }
 
     fn row(cells: &[&str]) -> Vec<String> {
         cells.iter().map(|s| s.to_string()).collect()

@@ -70,7 +70,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
-            eprintln!("error: {}", failure.message);
+            eprintln!("error: {}", table::terminal_safe(&failure.message));
             ExitCode::from(failure.code)
         }
     }
@@ -80,6 +80,7 @@ fn main() -> ExitCode {
 /// error.
 pub fn print_stdout(text: &str) -> Result<(), Failure> {
     let mut out = io::stdout().lock();
+    let text = table::terminal_safe(text);
     match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
         Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(e.into()),
         _ => Ok(()),
