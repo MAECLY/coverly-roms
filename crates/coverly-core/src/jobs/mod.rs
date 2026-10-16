@@ -96,6 +96,12 @@ pub struct ApplyOptions {
     pub max_alternatives: usize,
     /// Continue this paused job's journal instead of starting a new one (D21).
     pub resume_job: Option<String>,
+    /// A one-shot manual apply (the drawer's "Change…"): when nothing was
+    /// written, its journal is dropped instead of finished (and
+    /// `report.job_id` is `None`), so a failed or paused change is never
+    /// undone in place of a real job nor pushes one out of the history.
+    /// Ignored when resuming. Fill jobs keep the journal to resume into.
+    pub discard_empty: bool,
 }
 
 impl Default for ApplyOptions {
@@ -109,6 +115,7 @@ impl Default for ApplyOptions {
             jpeg_quality: 90,
             max_alternatives: 2,
             resume_job: None,
+            discard_empty: false,
         }
     }
 }
@@ -342,10 +349,13 @@ pub fn apply_plan(
         progress.event(ProgressEvent::Finished {
             phase: Phase::Apply,
         });
-        writer
-            .into_inner()
-            .unwrap_or_else(|p| p.into_inner())
-            .finish()?;
+        let writer = writer.into_inner().unwrap_or_else(|p| p.into_inner());
+        if opts.discard_empty && opts.resume_job.is_none() && !writer.has_entries() {
+            writer.discard()?;
+            report.job_id = None;
+        } else {
+            writer.finish()?;
+        }
     }
     for (item, st) in plan.items.iter().zip(results) {
         report.items.push(ItemResult {

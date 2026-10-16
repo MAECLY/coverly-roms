@@ -18,7 +18,7 @@ use coverly_core::plan::{build_plan, Plan, PlanAction, PlanOptions};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{NoProgress, PauseKind};
 use coverly_core::scan::{scan_library, ScanOptions};
-use coverly_core::sources::libretro::{LibretroConfig, LibretroSource};
+use coverly_core::sources::libretro::{encode_segment, LibretroConfig, LibretroSource};
 use coverly_core::sources::ArtSource;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{list_jobs, undo_last};
@@ -708,4 +708,48 @@ fn a_volume_ejected_mid_write_pauses_and_the_item_is_resumable() {
     );
     assert!(r.resumable_items().contains(&0), "{r:?}");
     assert_eq!(status(&r, "004"), &ItemStatus::NotAttempted);
+}
+
+#[test]
+fn a_one_shot_apply_that_writes_nothing_leaves_no_job() {
+    let w = world();
+    let p = plan(&w);
+    let missing = p.subset(&[2]);
+    let one_shot = ApplyOptions {
+        concurrency: 1,
+        discard_empty: true,
+        ..ApplyOptions::default()
+    };
+    let r = apply(&w, &missing, &one_shot, false);
+    assert!(
+        matches!(status(&r, "003"), ItemStatus::Failed { .. }),
+        "{r:?}"
+    );
+    assert_eq!(r.job_id, None);
+    assert!(list_jobs(w.data.path()).unwrap().is_empty());
+
+    let path = format!(
+        "/{}/{BOX}/{}",
+        encode_segment(GBA),
+        encode_segment("Golden Sun (USA, Europe).png")
+    );
+    w.server
+        .mock(&path, MockResponse::status(429).header("Retry-After", "0"));
+    let r = apply(&w, &p.subset(&[0]), &one_shot, false);
+    assert_eq!(r.pause_kind, Some(PauseKind::RateLimit), "{r:?}");
+    assert_eq!(r.job_id, None);
+    assert!(list_jobs(w.data.path()).unwrap().is_empty());
+
+    // A fill job keeps its journal (it may resume into it).
+    let r = apply(
+        &w,
+        &missing,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    assert!(r.job_id.is_some());
+    assert_eq!(list_jobs(w.data.path()).unwrap().len(), 1);
 }
