@@ -265,7 +265,7 @@ fn only_draft_and_finalize_can_write_and_neither_builds_third_party_code() {
     ] {
         assert!(!finalize.contains(needle), "finalize runs {needle}");
     }
-    assert!(finalize.contains("pattern: app-*") && finalize.contains("pattern: cli-*"));
+    assert!(finalize.contains("actions/download-artifact@") && finalize.contains("stage-builds"));
     assert!(finalize.contains("updater-manifest") && finalize.contains("add-cli"));
     assert!(finalize.contains("gh release upload"));
     assert!(wf.contains("universal-apple-darwin"));
@@ -1446,4 +1446,229 @@ fn the_guard_checks_the_signing_key_without_reading_it() {
             .unwrap();
         assert_eq!(out.status.success(), ok, "{set}");
     }
+}
+
+/// Lays out what `actions/download-artifact` writes (one folder per build
+/// artifact) for version `v`, with or without the Windows `.msi`.
+fn downloaded_builds(root: &Path, v: &str, msi: bool) {
+    let mut files: Vec<(String, String)> = vec![
+        (
+            "app-macos-universal".into(),
+            format!("Coverly.ROMs_{v}_universal.app.tar.gz"),
+        ),
+        (
+            "app-macos-universal".into(),
+            format!("Coverly.ROMs_{v}_universal.dmg"),
+        ),
+        (
+            "app-windows-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64-setup.exe"),
+        ),
+        (
+            "app-linux-x86_64".into(),
+            format!("Coverly.ROMs_{v}_amd64.AppImage"),
+        ),
+        (
+            "app-linux-x86_64".into(),
+            format!("Coverly.ROMs_{v}_amd64.deb"),
+        ),
+        (
+            "app-linux-aarch64".into(),
+            format!("Coverly.ROMs_{v}_aarch64.AppImage"),
+        ),
+        (
+            "app-linux-aarch64".into(),
+            format!("Coverly.ROMs_{v}_arm64.deb"),
+        ),
+    ];
+    if msi {
+        files.push((
+            "app-windows-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64_en-US.msi"),
+        ));
+    }
+    for (os, arch) in [
+        ("darwin", "aarch64"),
+        ("darwin", "x86_64"),
+        ("windows", "x86_64"),
+        ("linux", "x86_64"),
+        ("linux", "aarch64"),
+    ] {
+        let ext = if os == "windows" { ".exe" } else { "" };
+        files.push((
+            format!("cli-{os}-{arch}"),
+            format!("coverly-{v}-{os}-{arch}{ext}"),
+        ));
+    }
+    for (artifact, name) in files {
+        let d = root.join(artifact);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(&name), &name).unwrap();
+    }
+}
+
+fn stage_builds(root: &Path, version: &str) -> std::process::Output {
+    tool(&[
+        "stage-builds",
+        "--from",
+        root.join("downloads").to_str().unwrap(),
+        "--bundles",
+        root.join("bundles").to_str().unwrap(),
+        "--cli",
+        root.join("cli").to_str().unwrap(),
+        "--version",
+        version,
+    ])
+}
+
+fn listing(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .map(|it| {
+            it.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[test]
+fn release_tools_stage_each_build_only_from_its_own_artifact() {
+    if python().is_none() {
+        return;
+    }
+    // A stable release: every artifact holds exactly its platform's files.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0", true);
+    let out = stage_builds(dir.path(), "1.0.0");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(listing(&dir.path().join("bundles")).len(), 8);
+    assert_eq!(
+        listing(&dir.path().join("cli")),
+        [
+            "coverly-1.0.0-darwin-aarch64",
+            "coverly-1.0.0-darwin-x86_64",
+            "coverly-1.0.0-linux-aarch64",
+            "coverly-1.0.0-linux-x86_64",
+            "coverly-1.0.0-windows-x86_64.exe",
+        ]
+    );
+
+    // A beta has no .msi (WiX), and stages fine without it.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0-beta.1", false);
+    let out = stage_builds(dir.path(), "1.0.0-beta.1");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(listing(&dir.path().join("bundles")).len(), 7);
+
+    // Each tampering fails and stages nothing.
+    type Tamper = fn(&Path);
+    let cases: [(&str, Tamper, &str); 7] = [
+        (
+            "an extra artifact",
+            |d| {
+                std::fs::create_dir(d.join("app-zzz")).unwrap();
+                std::fs::write(d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), "evil").unwrap();
+            },
+            "app-zzz",
+        ),
+        (
+            "another platform's file in an artifact",
+            |d| {
+                std::fs::write(
+                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_universal.app.tar.gz"),
+                    "evil",
+                )
+                .unwrap();
+            },
+            "app-linux-x86_64",
+        ),
+        (
+            "a missing artifact",
+            |d| std::fs::remove_dir_all(d.join("cli-linux-aarch64")).unwrap(),
+            "cli-linux-aarch64",
+        ),
+        (
+            "a missing file",
+            |d| {
+                std::fs::remove_file(d.join("app-linux-aarch64/Coverly.ROMs_1.0.0_arm64.deb"))
+                    .unwrap()
+            },
+            "app-linux-aarch64",
+        ),
+        (
+            "a second file of one kind",
+            |d| {
+                std::fs::write(
+                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.x.deb"),
+                    "x",
+                )
+                .unwrap()
+            },
+            "app-linux-x86_64",
+        ),
+        (
+            "a signature handed over",
+            |d| {
+                std::fs::write(
+                    d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64-setup.exe.sig"),
+                    "x",
+                )
+                .unwrap()
+            },
+            "app-windows-x86_64",
+        ),
+        (
+            "a CLI of another version",
+            |d| {
+                std::fs::rename(
+                    d.join("cli-linux-x86_64/coverly-1.0.0-linux-x86_64"),
+                    d.join("cli-linux-x86_64/coverly-0.9.0-linux-x86_64"),
+                )
+                .unwrap()
+            },
+            "cli-linux-x86_64",
+        ),
+    ];
+    for (what, tamper, names) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = dir.path().join("downloads");
+        downloaded_builds(&downloads, "1.0.0", true);
+        tamper(&downloads);
+        let out = stage_builds(dir.path(), "1.0.0");
+        assert!(!out.status.success(), "{what}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("::error::") && err.contains(names),
+            "{what}: {err}"
+        );
+        assert!(!err.contains("Traceback"), "{what}");
+        assert!(listing(&dir.path().join("bundles")).is_empty(), "{what}");
+        assert!(listing(&dir.path().join("cli")).is_empty(), "{what}");
+    }
+
+    // A stable release must ship its .msi.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0", false);
+    let out = stage_builds(dir.path(), "1.0.0");
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains(".msi"));
+}
+
+#[test]
+fn finalize_downloads_every_build_separately_and_stages_them_by_name() {
+    let finalize = job(&read(".github/workflows/release.yml"), "finalize");
+    assert!(
+        !finalize.contains("merge-multiple"),
+        "one artifact must not overwrite another's files"
+    );
+    assert!(finalize.contains("stage-builds --from downloads"));
 }

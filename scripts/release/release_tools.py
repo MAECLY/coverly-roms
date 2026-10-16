@@ -64,6 +64,17 @@ Subcommands:
       D/<file>.sig and the url <URL>/<file>. Creates the manifest when F does
       not exist. Fails on an unexpected file, a missing .sig or no binary.
 
+  stage-builds --from DL --bundles B --cli C --version V
+      Check the build artifacts finalize downloaded (DL/<artifact>/<file>,
+      never merged) and copy their files into B (app bundles) and C (CLI
+      binaries). DL must hold exactly the artifacts the app and cli jobs
+      upload, and each one exactly its own platform's files for version V
+      (the Windows .msi only for a stable V: WiX refuses a non-numeric
+      prerelease). Anything else (an extra artifact, another platform's
+      file, a .sig, a missing or second file of one kind) fails, and
+      nothing is copied: a build cannot slip a file into, or replace,
+      another platform's bundles.
+
   pubkey --file crates/coverly-core/updater.pub
       Print the updater public key committed in the file (its first line that
       is neither blank nor a `#` comment), or fail while it is the
@@ -82,6 +93,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sys
 import urllib.parse
 
@@ -329,6 +341,74 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
     return platforms, errors
 
 
+def build_artifacts(version: str) -> dict[str, tuple[str, dict[str, str]]]:
+    """artifact name -> (destination: "bundles" or "cli", {label: pattern}
+    of the files it must hold, each pattern matched by exactly one file)."""
+    v = re.escape(version.lstrip("v"))
+    app = r"[A-Za-z0-9._-]+_" + v + "_"
+    windows = {"-setup.exe": app + r"x64-setup\.exe"}
+    if "-" not in version.lstrip("v"):
+        windows[".msi"] = app + r"x64_[A-Za-z0-9-]+\.msi"
+    out = {
+        "app-macos-universal": ("bundles", {
+            ".app.tar.gz": app + r"universal\.app\.tar\.gz",
+            ".dmg": app + r"universal\.dmg"}),
+        "app-windows-x86_64": ("bundles", windows),
+        "app-linux-x86_64": ("bundles", {
+            ".AppImage": app + r"amd64\.AppImage",
+            ".deb": app + r"amd64\.deb"}),
+        "app-linux-aarch64": ("bundles", {
+            ".AppImage": app + r"aarch64\.AppImage",
+            ".deb": app + r"arm64\.deb"}),
+    }
+    for os_name, arch in (("darwin", "aarch64"), ("darwin", "x86_64"),
+                          ("windows", "x86_64"), ("linux", "x86_64"),
+                          ("linux", "aarch64")):
+        ext = ".exe" if os_name == "windows" else ""
+        out[f"cli-{os_name}-{arch}"] = (
+            "cli", {"CLI binary": f"coverly-{v}-{os_name}-{arch}{re.escape(ext)}"})
+    return out
+
+
+def stage_builds(source: str, bundles: str, cli: str, version: str) -> list[str]:
+    """Check every downloaded build artifact, then copy all their files (or
+    none) into `bundles` and `cli`."""
+    expected = build_artifacts(version)
+    found = sorted(os.listdir(source))
+    errors = [f"unexpected build artifact {name}" for name in found
+              if name not in expected]
+    errors += [f"build artifact {name} is missing" for name in expected
+               if name not in found]
+    copies: list[tuple[str, str]] = []
+    for artifact, (dest, patterns) in sorted(expected.items()):
+        folder = os.path.join(source, artifact)
+        if not os.path.isdir(folder):
+            continue
+        matched: dict[str, list[str]] = {label: [] for label in patterns}
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
+            label = next((k for k, p in patterns.items() if re.fullmatch(p, name)), None)
+            if label is None or os.path.islink(path) or not os.path.isfile(path):
+                errors.append(f"{artifact}: unexpected file {name}")
+                continue
+            matched[label].append(name)
+            copies.append((path, os.path.join(bundles if dest == "bundles" else cli, name)))
+        for label, names in matched.items():
+            if not names:
+                errors.append(f"{artifact}: no {label} file for {version.lstrip('v')}")
+            elif len(names) > 1:
+                errors.append(f"{artifact}: more than one {label} file: {', '.join(names)}")
+    if errors:
+        return errors
+    if any(os.path.exists(dst) for _src, dst in copies):
+        return [f"{bundles} or {cli} is not empty"]
+    os.makedirs(bundles, exist_ok=True)
+    os.makedirs(cli, exist_ok=True)
+    for src, dst in copies:
+        shutil.copyfile(src, dst)
+    return []
+
+
 def changelog_notes(text: str, version: str) -> str | None:
     """The body of CHANGELOG.md's `## [version]` section, or None."""
     lines = text.splitlines()
@@ -453,6 +533,12 @@ def main(argv: list[str]) -> int:
     p.add_argument("--version", required=True)
     p.add_argument("--base-url", required=True)
 
+    p = sub.add_parser("stage-builds")
+    p.add_argument("--from", dest="source", required=True)
+    p.add_argument("--bundles", required=True)
+    p.add_argument("--cli", required=True)
+    p.add_argument("--version", required=True)
+
     p = sub.add_parser("pubkey")
     p.add_argument("--file", required=True)
 
@@ -547,6 +633,9 @@ def run(args) -> int:
             return report(errors)
         write_manifest(args.manifest, manifest)
         return 0
+
+    if args.cmd == "stage-builds":
+        return report(stage_builds(args.source, args.bundles, args.cli, args.version))
 
     if args.cmd == "pubkey":
         try:

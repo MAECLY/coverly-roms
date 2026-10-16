@@ -326,16 +326,17 @@ jobs:
           package-manager-cache: false
       - name: Install the tauri CLI (no install scripts)
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Every artifact of the run, each in its own folder (never merged, so
+      # one build cannot overwrite another platform's files); stage-builds
+      # then refuses an unexpected artifact or a file outside its platform.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: app-*
-          path: bundles
-          merge-multiple: true
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: cli-*
-          path: cli
-          merge-multiple: true
+          path: downloads
+      - name: Check each build artifact and stage its files
+        run: |
+          set -euo pipefail
+          python3 -I scripts/release/release_tools.py stage-builds --from downloads \
+            --bundles bundles --cli cli --version "${GITHUB_REF_NAME#v}"
       - name: List the update artifacts
         run: |
           set -euo pipefail
