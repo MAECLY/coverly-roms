@@ -4,8 +4,10 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::Path;
 
+use coverly_core::profiles::custom::{all_profiles, find_profile, ProfileFile};
 use coverly_core::profiles::{builtin_profiles, detect, Profile};
 
+use crate::settings::CliSettings;
 use crate::Failure;
 
 /// How the profile was chosen, for the report header.
@@ -30,26 +32,30 @@ pub(crate) fn check_root(root: &Path) -> Result<(), Failure> {
     Err(Failure { code: 3, message })
 }
 
-pub(crate) fn profile_ids() -> String {
-    builtin_profiles()
+/// Built-in then custom profile ids, comma-separated.
+pub(crate) fn profile_ids(custom: &[ProfileFile]) -> String {
+    all_profiles(custom)
         .into_iter()
-        .map(|p| p.id)
+        .map(|(p, _)| p.id)
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-/// The profile named `id`, or the best detected one for `auto`.
-pub(crate) fn choose_profile(root: &Path, id: &str) -> Result<Chosen, Failure> {
-    if !id.eq_ignore_ascii_case("auto") {
-        let profile = builtin_profiles()
-            .into_iter()
-            .find(|p| p.id.eq_ignore_ascii_case(id))
-            .ok_or_else(|| {
-                Failure::usage(format!(
-                    "unknown profile `{id}`; expected `auto` or one of: {}",
-                    profile_ids()
-                ))
-            })?;
+/// The profile named by the flag `id`, else by the `default_profile`
+/// setting (built-in or custom), else the best detected one (`auto`).
+pub(crate) fn choose_profile(
+    root: &Path,
+    id: Option<&str>,
+    cli: &CliSettings,
+) -> Result<Chosen, Failure> {
+    let id = id.or(cli.settings.library.default_profile.as_deref());
+    if let Some(id) = id.filter(|id| !id.eq_ignore_ascii_case("auto")) {
+        let profile = find_profile(&cli.custom, id).ok_or_else(|| {
+            Failure::usage(format!(
+                "unknown profile `{id}`; expected `auto` or one of: {}",
+                profile_ids(&cli.custom)
+            ))
+        })?;
         return Ok(Chosen {
             profile,
             detected: None,
@@ -64,7 +70,7 @@ pub(crate) fn choose_profile(root: &Path, id: &str) -> Result<Chosen, Failure> {
             message: format!(
                 "no layout profile detected in {}; pass --profile <ID> with one of: {}",
                 root.display(),
-                profile_ids()
+                profile_ids(&cli.custom)
             ),
         });
     };

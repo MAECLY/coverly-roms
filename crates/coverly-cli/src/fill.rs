@@ -21,7 +21,7 @@ use coverly_core::paths::AppDirs;
 use coverly_core::plan::{NoneReason, Plan, PlanAction, PlanItem};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{Phase, ProgressEvent, ProgressSink};
-use coverly_core::scan::{scan_library, ScanOptions};
+use coverly_core::scan::scan_library;
 use coverly_core::sources::libretro::{LIBRETRO_BASE, LIBRETRO_RAW_BASE};
 use coverly_core::sources::MatchKind;
 use coverly_core::systems::SystemDb;
@@ -38,56 +38,64 @@ const PREVIEW: usize = 20;
 pub struct FillArgs {
     /// Library root (e.g. the SD card), the folder holding `ROMS`, `Roms`…
     root: PathBuf,
-    /// Layout profile id (see `coverly profiles`), or `auto` to detect it.
-    #[arg(long, default_value = "auto", value_name = "ID|auto")]
-    profile: String,
+    /// Layout profile id (see `coverly profiles`), or `auto` to detect it
+    /// (default: the `default_profile` setting, else `auto`).
+    #[arg(long, value_name = "ID|auto")]
+    profile: Option<String>,
     /// System folders or ids to fill, comma-separated (default: all).
     #[arg(long, value_delimiter = ',')]
     system: Vec<String>,
-    /// Media to fill, comma-separated (default: every media the profile
-    /// can store).
+    /// Media to fill, comma-separated (default: the media setting, kept to
+    /// what the profile can store).
     #[arg(long, value_enum, value_delimiter = ',')]
     media: Vec<MediaArg>,
-    /// How the art is picked when several images match.
-    #[arg(long, value_enum, default_value_t = StrategyArg::RomRegion)]
-    strategy: StrategyArg,
-    /// Region preference order (`rom` = the ROM's own regions).
-    #[arg(long, default_value = "rom,world,usa,europe,japan")]
-    regions: String,
-    /// How ROMs are identified.
-    #[arg(long = "match", value_enum, default_value_t = MatchArg::HashThenName)]
-    match_method: MatchArg,
+    /// How the art is picked when several images match (default: the
+    /// strategy setting, `rom-region` out of the box).
+    #[arg(long, value_enum)]
+    strategy: Option<StrategyArg>,
+    /// Region preference order (`rom` = the ROM's own regions; default:
+    /// the regions setting, `rom,world,usa,europe,japan` out of the box).
+    #[arg(long)]
+    regions: Option<String>,
+    /// How ROMs are identified (default: the matching method setting,
+    /// `hash-then-name` out of the box).
+    #[arg(long = "match", value_enum)]
+    match_method: Option<MatchArg>,
     /// Fill only missing art, or replace all art (needs --overwrite backup).
     #[arg(long, value_enum, default_value_t = ScopeArg::Missing)]
     scope: ScopeArg,
-    /// Show the plan only (the default).
+    /// Show the plan only (the default unless the "dry run by default"
+    /// setting is off).
     #[arg(long, conflicts_with = "apply")]
     dry_run: bool,
-    /// Download and write the art.
+    /// Download and write the art (the default when the "dry run by
+    /// default" setting is off).
     #[arg(long)]
     apply: bool,
     /// With --apply, skip items that need review.
     #[arg(long)]
     auto_only: bool,
-    /// What to do with existing art.
-    #[arg(long, value_enum, default_value_t = OverwriteArg::Never)]
-    overwrite: OverwriteArg,
+    /// What to do with existing art (default: the overwrite setting;
+    /// `ask` reads as `never`).
+    #[arg(long, value_enum)]
+    overwrite: Option<OverwriteArg>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = ReportArg::Table)]
     report: ReportArg,
     /// Write the report to this file instead of stdout.
     #[arg(long, value_name = "FILE")]
     output: Option<PathBuf>,
-    /// Concurrent requests (1-6).
-    #[arg(long, default_value_t = 4)]
-    concurrency: usize,
+    /// Concurrent requests (1-6; default: the concurrency setting).
+    #[arg(long)]
+    concurrency: Option<usize>,
     /// Ignore cached candidates and indexes younger than their TTL.
     #[arg(long)]
     refresh: bool,
     /// Cache folder (indexes, DATs, downloaded art).
     #[arg(long, value_name = "DIR")]
     cache_dir: Option<PathBuf>,
-    /// Data folder (job journals and backups for `coverly undo`).
+    /// Data folder (job journals and backups for `coverly undo`; default:
+    /// the backup location setting, else the app data folder).
     #[arg(long, value_name = "DIR")]
     data_dir: Option<PathBuf>,
     #[arg(long, hide = true)]
@@ -217,18 +225,36 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     // Absolute (not canonical: no `\\?\` on Windows) so the journal's root
     // and targets stay valid for `coverly undo` from any working directory.
     let root = std::path::absolute(&args.root)?;
-    if args.scope == ScopeArg::All && args.overwrite != OverwriteArg::Backup {
+    let cli = crate::settings::load_cli_settings();
+    let s = &cli.settings;
+    let overwrite: OverwritePolicy = args
+        .overwrite
+        .map(Into::into)
+        .unwrap_or_else(|| s.overwrite_policy());
+    if args.scope == ScopeArg::All && overwrite != OverwritePolicy::Backup {
         return Err(Failure::usage(
             "--scope all replaces existing art and needs --overwrite backup",
         ));
     }
-    if !(1..=6).contains(&args.concurrency) {
+    let concurrency = args.concurrency.unwrap_or(s.network.concurrency as usize);
+    if !(1..=6).contains(&concurrency) {
         return Err(Failure::usage("--concurrency must be between 1 and 6"));
     }
-    let regions = parse_region_order(&args.regions).map_err(Failure::usage)?;
-    let chosen = choose_profile(&root, &args.profile)?;
+    let mut fill = s.fill_settings();
+    if let Some(r) = &args.regions {
+        fill.regions = parse_region_order(r).map_err(Failure::usage)?;
+    }
+    if let Some(st) = args.strategy {
+        fill.strategy = st.into();
+    }
+    if let Some(m) = args.match_method {
+        fill.match_method = m.into();
+    }
+    let apply = args.apply || (!args.dry_run && !s.safety.dry_run_default);
+    let mut chosen = choose_profile(&root, args.profile.as_deref(), &cli)?;
+    chosen.profile = s.art_profile(&chosen.profile);
     let profile = &chosen.profile;
-    let media = chosen_media(args, &chosen)?;
+    let media = chosen_media(args, &s.art.media, &chosen)?;
     if args.report != ReportArg::Table {
         if let Some(evidence) = &chosen.detected {
             eprintln!(
@@ -238,13 +264,13 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         }
     }
     let db = SystemDb::builtin();
-    let scan = scan_library(&root, profile, &db, &ScanOptions::default());
+    let scan = scan_library(&root, profile, &db, &s.scan_options());
     let art = resolve_art(&scan, profile, &db, &media);
 
-    let dirs =
-        AppDirs::resolve(args.cache_dir.as_deref(), args.data_dir.as_deref()).ok_or_else(|| {
-            fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
-        })?;
+    let data = crate::settings::data_dir(args.data_dir.as_deref(), s);
+    let dirs = AppDirs::resolve(args.cache_dir.as_deref(), data.as_deref()).ok_or_else(|| {
+        fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
+    })?;
     std::fs::create_dir_all(&dirs.cache).map_err(|e| {
         fail(format!(
             "cannot create the cache folder {}: {e}",
@@ -253,8 +279,8 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     })?;
     let cache = Cache::open(&dirs.cache.join(CACHE_FILE)).map_err(fail)?;
     let net = NetConfig {
-        concurrency: args.concurrency,
-        ..NetConfig::default()
+        concurrency,
+        ..s.net_config()
     };
     let http = PoliteHttp::new(UreqHttp::new(&net), &net);
     let endpoints = Endpoints {
@@ -278,15 +304,20 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         cache_dir: &dirs.cache,
         data_dir: &dirs.data,
     };
+    // Manual identities live in the app data dir even when the backup
+    // location moves the journals (D32); an explicit --data-dir (tests,
+    // portable runs) keeps everything in that folder.
+    let overrides_dir = match args.data_dir {
+        Some(_) => None,
+        None => AppDirs::resolve(None, None).map(|d| d.data),
+    };
     let settings = FillSettings {
         systems: args.system.clone(),
         media: media.clone(),
         scope: args.scope.into(),
-        strategy: args.strategy.into(),
-        regions,
-        match_method: args.match_method.into(),
         refresh: args.refresh,
-        ..FillSettings::default()
+        overrides_dir,
+        ..fill
     };
     let cancel = AtomicBool::new(false);
     let progress = StderrProgress::new();
@@ -303,15 +334,15 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
             ),
         });
     }
-    if !args.apply {
+    if !apply {
         return emit(args, &chosen, &plan, None);
     }
 
     let aopts = ApplyOptions {
-        overwrite: args.overwrite.into(),
+        overwrite,
         include_review: !args.auto_only,
-        concurrency: args.concurrency,
-        ..ApplyOptions::default()
+        concurrency,
+        ..s.apply_options(&root)
     };
     let report = env
         .apply(&plan, profile, &aopts, &progress, &cancel)
@@ -331,11 +362,15 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     }
 }
 
-/// `--media` deduplicated, or every media the profile can store; media the
+/// `--media` deduplicated, or the media setting (`default`); media the
 /// profile cannot store are dropped (none left is a usage error).
-fn chosen_media(args: &FillArgs, chosen: &Chosen) -> Result<Vec<Media>, Failure> {
+fn chosen_media(
+    args: &FillArgs,
+    default: &[Media],
+    chosen: &Chosen,
+) -> Result<Vec<Media>, Failure> {
     let wanted: Vec<Media> = if args.media.is_empty() {
-        Media::ALL.to_vec()
+        default.to_vec()
     } else {
         args.media.iter().map(|m| Media::from(*m)).collect()
     };
