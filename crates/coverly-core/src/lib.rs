@@ -11,6 +11,7 @@ pub mod identify;
 pub mod matching;
 pub mod net;
 pub mod paths;
+pub mod plan;
 pub mod profiles;
 pub mod progress;
 pub mod scan;

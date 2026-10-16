@@ -288,6 +288,63 @@ struct Expected {
     claims: Vec<String>,
 }
 
+/// Where the profile stores `media` for the ROM `rel_dir`/`stem` of
+/// `system` (whose folder is `system_dir`), or `None` when the profile
+/// cannot store that media or the template needs a libretro name the
+/// system lacks. The path is rendered, not checked against the disk.
+pub fn target_path(
+    root: &Path,
+    profile: &Profile,
+    system_dir: &Path,
+    system: &System,
+    rel_dir: &Path,
+    stem: &str,
+    media: Media,
+) -> Option<PathBuf> {
+    render_slot(
+        root,
+        profile,
+        system_dir,
+        system,
+        profile.slot(media)?,
+        rel_dir,
+        stem,
+    )
+}
+
+/// Renders `slot` for the ROM `rel_dir`/`stem`: `None` when the template
+/// needs a libretro name the system lacks. `rel_dir` is used only when the
+/// profile mirrors subfolders.
+fn render_slot(
+    root: &Path,
+    profile: &Profile,
+    system_dir: &Path,
+    system: &System,
+    slot: &MediaSlot,
+    rel_dir: &Path,
+    stem: &str,
+) -> Option<PathBuf> {
+    if slot.template.contains("{libretro}") && system.libretro.is_none() {
+        return None;
+    }
+    let rel_dir = if profile.mirror_subdirs {
+        rel_dir
+    } else {
+        Path::new("")
+    };
+    Some(render(
+        &slot.template,
+        &TemplateVars {
+            root,
+            system_dir,
+            rel_dir,
+            stem,
+            system_id: &system.id,
+            libretro: system.libretro.as_deref(),
+        },
+    ))
+}
+
 /// Renders `slot` for a ROM at `rel_dir`/`stem`, or `None` when the
 /// template needs a libretro name the system lacks.
 fn expected(
@@ -299,25 +356,15 @@ fn expected(
     rel_dir: &Path,
     stem: &str,
 ) -> Option<Expected> {
-    if slot.template.contains("{libretro}") && system.libretro.is_none() {
-        return None;
-    }
-    let rel_dir = if profile.mirror_subdirs {
-        rel_dir
-    } else {
-        Path::new("")
-    };
-    let path = render(
-        &slot.template,
-        &TemplateVars {
-            root: &scan.root,
-            system_dir: &system_scan.dir,
-            rel_dir,
-            stem,
-            system_id: &system.id,
-            libretro: system.libretro.as_deref(),
-        },
-    );
+    let path = render_slot(
+        &scan.root,
+        profile,
+        &system_scan.dir,
+        system,
+        slot,
+        rel_dir,
+        stem,
+    )?;
     let dir = path.parent()?.to_path_buf();
     let file_stem = key(&path.file_stem()?.to_string_lossy());
     let mut stems = vec![file_stem.clone()];
