@@ -25,6 +25,7 @@ pub mod settings;
 pub mod sources;
 pub mod systems;
 mod time;
+pub mod update;
 pub mod write;
 
 /// Version of the core library, taken from the workspace package version.

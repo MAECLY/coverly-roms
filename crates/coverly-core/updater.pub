@@ -1,0 +1,8 @@
+# Coverly ROMs updater public key — THE ONE PLACE for it (ADR-0011, D38).
+#
+# The line below is the base64 public key printed by
+#   pnpm tauri signer generate -w ~/.coverly-release/updater.key
+# (the contents of updater.key.pub). Until the owner replaces it, it is the
+# placeholder UNSET and both the app and `coverly update install` refuse to
+# install anything ("this build cannot update itself"). See RELEASING.md §2.
+UNSET
