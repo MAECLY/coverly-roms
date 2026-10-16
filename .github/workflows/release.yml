@@ -55,9 +55,10 @@ jobs:
           persist-credentials: false
       - name: Signing key must be configured
         env:
-          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Only whether it is set: this step never sees the key itself.
+          SIGNING_KEY_SET: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: |
-          if [ -z "$SIGNING_KEY" ]; then
+          if [ "$SIGNING_KEY_SET" != true ]; then
             echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. See RELEASING.md section 2."
             exit 1
           fi

@@ -390,8 +390,8 @@ fn the_real_signing_key_reaches_only_the_finalize_sign_step() {
     let wf = read(".github/workflows/release.yml");
     assert_eq!(
         wf.matches("secrets.TAURI_SIGNING_PRIVATE_KEY }}").count(),
-        2,
-        "guard check + finalize sign"
+        1,
+        "only the finalize sign step (guard checks `!= ''`, not the value)"
     );
     let finalize = job(&wf, "finalize");
     assert!(finalize.contains("secrets.TAURI_SIGNING_PRIVATE_KEY }}"));
@@ -1273,4 +1273,25 @@ fn bump_version_writes_nothing_unless_every_source_matched() {
         before,
         "Cargo.toml and package.json are untouched when Cargo.lock does not match"
     );
+}
+
+#[test]
+fn the_guard_checks_the_signing_key_without_reading_it() {
+    let wf = read(".github/workflows/release.yml");
+    let guard = job(&wf, "guard");
+    assert!(guard.contains("${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}"));
+    assert!(!guard.contains("secrets.TAURI_SIGNING_PRIVATE_KEY }}"));
+    if !scripts_runnable() {
+        return;
+    }
+    let script = step_script(&guard, "Signing key must be configured");
+    for (set, ok) in [("true", true), ("false", false)] {
+        let out = Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .env("SIGNING_KEY_SET", set)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.success(), ok, "{set}");
+    }
 }
