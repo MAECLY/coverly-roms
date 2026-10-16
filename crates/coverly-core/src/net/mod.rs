@@ -67,6 +67,16 @@ impl NetError {
             NetError::RateLimited { .. } | NetError::Offline(_) | NetError::Timeout
         )
     }
+
+    /// The kind of pause this error causes, if it pauses (see [`pauses`](Self::pauses)).
+    pub fn pause_kind(&self) -> Option<crate::progress::PauseKind> {
+        use crate::progress::PauseKind;
+        match self {
+            NetError::RateLimited { .. } => Some(PauseKind::RateLimit),
+            NetError::Offline(_) | NetError::Timeout => Some(PauseKind::Offline),
+            _ => None,
+        }
+    }
 }
 
 /// Blocking HTTP GET, injectable so tests and sources can wrap or fake it.

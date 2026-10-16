@@ -16,7 +16,7 @@ use crate::identify::dat::DatError;
 use crate::identify::names;
 use crate::identify::{IdMethod, Identifier, Identity};
 use crate::profiles::Media;
-use crate::progress::{Phase, ProgressEvent, ProgressSink};
+use crate::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
 use crate::scan::RomEntry;
 use crate::sources::libretro::INDEX_TTL_SECS;
 use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError};
@@ -163,6 +163,9 @@ pub struct Gathered {
     pub warnings: Vec<String>,
     /// Why the phase paused (rate limit, offline); resume by running again.
     pub paused: Option<String>,
+    /// The kind of `paused`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
 }
 
@@ -207,6 +210,7 @@ pub fn gather(
             Ok(i) => i,
             Err(DatError::Net(e)) if e.pauses() => {
                 out.paused = Some(e.to_string());
+                out.pause_kind = e.pause_kind();
                 break;
             }
             Err(e) => {
@@ -232,7 +236,7 @@ pub fn gather(
                     Ok(found) => all.extend(found),
                     Err(SourceError::Net(e)) if e.pauses() => {
                         // "rate limited by … (HTTP 429)" / "offline or unreachable: …"
-                        paused = Some(e.to_string());
+                        paused = Some((e.to_string(), e.pause_kind()));
                         break 'media;
                     }
                     Err(e) => {
@@ -245,7 +249,7 @@ pub fn gather(
         }
         // A paused item keeps what was gathered before the pause; the media
         // not searched to the end say so, so they never read as "no art".
-        if let Some(reason) = &paused {
+        if let Some((reason, _)) = &paused {
             for &media in &t.media {
                 if !item.candidates.contains_key(&media) {
                     item.errors.insert(media, format!("paused: {reason}"));
@@ -253,8 +257,9 @@ pub fn gather(
             }
         }
         out.items.push(item);
-        if paused.is_some() {
-            out.paused = paused;
+        if let Some((reason, kind)) = paused {
+            out.paused = Some(reason);
+            out.pause_kind = kind;
             break;
         }
     }

@@ -18,7 +18,7 @@ use crate::cache::Cache;
 use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec};
 use crate::plan::{Plan, PlanAction, PlanItem};
 use crate::profiles::{Media, Profile};
-use crate::progress::{Phase, ProgressEvent, ProgressSink};
+use crate::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
 use crate::sources::{ArtSource, Candidate, SourceError};
 use crate::write::{sha1_hex, OverwritePolicy, WriteError, WriteOutcome, Writer};
 
@@ -93,6 +93,8 @@ pub struct ApplyOptions {
     pub jpeg_quality: u8,
     /// How many alternatives are tried after the chosen candidate fails.
     pub max_alternatives: usize,
+    /// Continue this paused job's journal instead of starting a new one (D21).
+    pub resume_job: Option<String>,
 }
 
 impl Default for ApplyOptions {
@@ -105,6 +107,7 @@ impl Default for ApplyOptions {
             fit: Fit::Contain,
             jpeg_quality: 90,
             max_alternatives: 2,
+            resume_job: None,
         }
     }
 }
@@ -171,6 +174,9 @@ pub struct JobReport {
     pub items: Vec<ItemResult>,
     /// Why the job stopped early, when it did.
     pub paused: Option<String>,
+    /// The kind of `paused`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
 }
 
@@ -221,10 +227,14 @@ pub fn apply_plan(
     if cancel.load(Ordering::SeqCst) {
         report.cancelled = true;
     } else if !todo.is_empty() {
-        let writer = Mutex::new(Writer::begin(&plan.root, data_dir)?);
+        let started = match &opts.resume_job {
+            Some(job) => Writer::resume(&plan.root, data_dir, job)?,
+            None => Writer::begin(&plan.root, data_dir)?,
+        };
+        let writer = Mutex::new(started);
         report.job_id = Some(lock(&writer).job_id().to_string());
         let next = AtomicUsize::new(0);
-        let stop: Mutex<Option<String>> = Mutex::new(None);
+        let stop: Mutex<Option<(String, PauseKind)>> = Mutex::new(None);
         let done = Mutex::new(Vec::<(usize, ItemStatus)>::new());
         let total = todo.len();
         progress.event(ProgressEvent::Started {
@@ -265,7 +275,9 @@ pub fn apply_plan(
             results[n] = Some(st);
         }
         report.cancelled = cancel.load(Ordering::SeqCst);
-        report.paused = stop.into_inner().unwrap_or_else(|p| p.into_inner());
+        let stopped = stop.into_inner().unwrap_or_else(|p| p.into_inner());
+        report.paused = stopped.as_ref().map(|(why, _)| why.clone());
+        report.pause_kind = stopped.map(|(_, kind)| kind);
         progress.event(ProgressEvent::Finished {
             phase: Phase::Apply,
         });
@@ -275,26 +287,76 @@ pub fn apply_plan(
             .finish()?;
     }
     for (item, st) in plan.items.iter().zip(results) {
-        let status = st.unwrap_or(ItemStatus::NotAttempted);
-        match &status {
-            ItemStatus::Filled { .. } => report.filled += 1,
-            ItemStatus::Replaced { .. } => report.replaced += 1,
-            ItemStatus::Failed {
-                kind: ItemErrorKind::NoArt,
-                ..
-            } => report.no_art += 1,
-            ItemStatus::Failed { .. } => report.failed += 1,
-            _ => report.skipped += 1,
-        }
         report.items.push(ItemResult {
             folder: item.folder.clone(),
             rel_path: item.rel_path.clone(),
             media: item.media,
             target: item.target.clone(),
-            status,
+            status: st.unwrap_or(ItemStatus::NotAttempted),
         });
     }
+    report.recount();
     Ok(report)
+}
+
+impl JobReport {
+    /// Items a resumed job must still try: never attempted, or stopped by
+    /// a full or read-only volume.
+    pub fn resumable_items(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                matches!(
+                    i.status,
+                    ItemStatus::NotAttempted
+                        | ItemStatus::Failed {
+                            kind: ItemErrorKind::WriteDenied | ItemErrorKind::DiskFull,
+                            ..
+                        }
+                )
+            })
+            .map(|(n, _)| n)
+            .collect()
+    }
+
+    /// Puts the outcomes of a resumed run (`other.items[k]` is item
+    /// `indices[k]` of this report) into this report and recounts.
+    pub fn merge_resumed(&mut self, indices: &[usize], other: JobReport) {
+        for (&n, item) in indices.iter().zip(other.items) {
+            if let Some(slot) = self.items.get_mut(n) {
+                *slot = item;
+            }
+        }
+        self.paused = other.paused;
+        self.pause_kind = other.pause_kind;
+        self.cancelled = other.cancelled;
+        if self.job_id.is_none() {
+            self.job_id = other.job_id;
+        }
+        self.recount();
+    }
+
+    fn recount(&mut self) {
+        let (mut filled, mut replaced, mut skipped, mut no_art, mut failed) = (0, 0, 0, 0, 0);
+        for item in &self.items {
+            match &item.status {
+                ItemStatus::Filled { .. } => filled += 1,
+                ItemStatus::Replaced { .. } => replaced += 1,
+                ItemStatus::Failed {
+                    kind: ItemErrorKind::NoArt,
+                    ..
+                } => no_art += 1,
+                ItemStatus::Failed { .. } => failed += 1,
+                _ => skipped += 1,
+            }
+        }
+        self.filled = filled;
+        self.replaced = replaced;
+        self.skipped = skipped;
+        self.no_art = no_art;
+        self.failed = failed;
+    }
 }
 
 /// What every worker shares.
@@ -305,7 +367,7 @@ struct Ctx<'a, 's> {
     writer: &'a Mutex<Writer>,
     opts: &'a ApplyOptions,
     /// Why the queue stopped (the first reason wins).
-    stop: &'a Mutex<Option<String>>,
+    stop: &'a Mutex<Option<(String, PauseKind)>>,
     cancel: &'a AtomicBool,
 }
 
@@ -314,8 +376,8 @@ impl Ctx<'_, '_> {
         self.cancel.load(Ordering::SeqCst) || lock(self.stop).is_some()
     }
 
-    fn pause(&self, why: String) {
-        lock(self.stop).get_or_insert(why);
+    fn pause(&self, why: String, kind: PauseKind) {
+        lock(self.stop).get_or_insert((why, kind));
     }
 
     fn apply_item(&self, item: &PlanItem) -> ItemStatus {
@@ -358,7 +420,7 @@ impl Ctx<'_, '_> {
                 None => match src.fetch(c) {
                     Ok(b) => (b, false),
                     Err(SourceError::Net(e)) if e.pauses() => {
-                        self.pause(e.to_string());
+                        self.pause(e.to_string(), e.pause_kind().unwrap_or(PauseKind::Offline));
                         return ItemStatus::NotAttempted;
                     }
                     Err(e @ SourceError::NotFound(_)) => {
@@ -402,7 +464,10 @@ impl Ctx<'_, '_> {
             },
             Ok(WriteOutcome::SkippedExists { .. }) => ItemStatus::SkippedExists,
             Err(e @ (WriteError::DiskFull | WriteError::Denied(_))) => {
-                self.pause(format!("the library volume is full or read-only: {e}"));
+                self.pause(
+                    format!("the library volume is full or read-only: {e}"),
+                    PauseKind::Volume,
+                );
                 let kind = if matches!(e, WriteError::DiskFull) {
                     ItemErrorKind::DiskFull
                 } else {

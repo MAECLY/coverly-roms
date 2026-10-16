@@ -16,6 +16,7 @@ use crate::matching::{
     StrategyKind,
 };
 use crate::profiles::{Media, Profile};
+use crate::progress::PauseKind;
 use crate::sources::{Candidate, MatchKind};
 use crate::systems::SystemDb;
 
@@ -150,6 +151,39 @@ pub struct Plan {
     pub warnings: Vec<String>,
     /// Why gathering paused, when it did (the plan is partial).
     pub paused: Option<String>,
+    /// The kind of `paused`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_kind: Option<PauseKind>,
+}
+
+impl Plan {
+    /// A plan with only `indices` (in that order; out-of-range ones are
+    /// skipped) and recomputed counts: what a resumed job still has to do.
+    pub fn subset(&self, indices: &[usize]) -> Plan {
+        let mut plan = Plan {
+            items: indices
+                .iter()
+                .filter_map(|&n| self.items.get(n).cloned())
+                .collect(),
+            ..self.clone()
+        };
+        plan.recount();
+        plan
+    }
+
+    fn recount(&mut self) {
+        let mut totals = Counts::default();
+        let mut per_system = BTreeMap::<String, Counts>::new();
+        for item in &self.items {
+            totals.add(&item.action);
+            per_system
+                .entry(item.folder.clone())
+                .or_default()
+                .add(&item.action);
+        }
+        self.totals = totals;
+        self.per_system = per_system;
+    }
 }
 
 /// How sure the plan is of a candidate: 1.0 for a canonical or exact file
@@ -256,6 +290,7 @@ pub fn build_plan(
         per_system,
         warnings: gathered.warnings.clone(),
         paused: gathered.paused.clone(),
+        pause_kind: gathered.pause_kind,
     }
 }
 

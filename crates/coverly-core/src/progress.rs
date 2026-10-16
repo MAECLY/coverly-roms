@@ -13,6 +13,19 @@ pub enum Phase {
     Apply,
 }
 
+/// Why a phase or a job paused (spec §10). The app shows a reason and a
+/// Resume button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PauseKind {
+    /// HTTP 403 / 429 from a source.
+    RateLimit,
+    /// Offline, unreachable or timed out after the retries.
+    Offline,
+    /// The library volume is full, read-only or gone.
+    Volume,
+}
+
 /// One progress event.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]

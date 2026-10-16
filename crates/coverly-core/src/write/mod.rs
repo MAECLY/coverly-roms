@@ -46,6 +46,18 @@ pub enum WriteOutcome {
     SkippedExists { existing: PathBuf },
 }
 
+/// Result of one [`Writer::remove`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum RemoveOutcome {
+    Removed {
+        path: PathBuf,
+        backup: PathBuf,
+    },
+    /// Nothing at the target.
+    Missing,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
     #[error("refusing to write outside the library: {0}")]
@@ -58,6 +70,8 @@ pub enum WriteError {
     DiskFull,
     #[error("nothing to undo")]
     NothingToUndo,
+    #[error("not a regular file: {0}")]
+    NotAFile(PathBuf),
     #[error("job journal is damaged: {0}")]
     Journal(String),
     #[error(transparent)]
@@ -163,6 +177,7 @@ enum Line {
 enum Op {
     Created,
     Replaced { backup: PathBuf },
+    Removed { backup: PathBuf },
 }
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -217,6 +232,51 @@ impl Writer {
         };
         writer.append(&header)?;
         Ok(writer)
+    }
+
+    /// Continues the journal of job `job` (paused earlier), so one undo
+    /// reverts every run of it (D21). The journal must exist, not be
+    /// undone and belong to `root`. A torn last line is cut off first.
+    pub fn resume(root: &Path, data_dir: &Path, job: &str) -> Result<Writer, WriteError> {
+        if !valid_job_id(job) {
+            return Err(WriteError::Journal(format!("not a job id: {job}")));
+        }
+        let path = data_dir.join("jobs").join(format!("{job}.jsonl"));
+        let text = fs::read_to_string(&path).map_err(|e| map_io(e, &path))?;
+        if !text.is_empty() && !text.ends_with('\n') {
+            let keep = text.rfind('\n').map_or(0, |i| i + 1);
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .map_err(|e| map_io(e, &path))?;
+            file.set_len(keep as u64).map_err(|e| map_io(e, &path))?;
+            file.sync_all()?;
+        }
+        let (header, entries, _) = parse(&path)?;
+        let Line::Header {
+            root: journal_root, ..
+        } = header
+        else {
+            unreachable!("parse returns a header first")
+        };
+        if journal_root != root {
+            return Err(WriteError::Journal(format!(
+                "{} belongs to {}",
+                path.display(),
+                journal_root.display()
+            )));
+        }
+        let journal = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| map_io(e, &path))?;
+        Ok(Writer {
+            root: root.to_path_buf(),
+            job: job.to_string(),
+            backups: data_dir.join("backups").join(job),
+            journal,
+            counter: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+        })
     }
 
     pub fn job_id(&self) -> &str {
@@ -282,6 +342,35 @@ impl Writer {
             sha1: sha1_hex(bytes),
         })?;
         Ok(outcome)
+    }
+
+    /// Deletes the art file `target`: backed up first and journaled before
+    /// the delete, so undo restores it. A missing target is
+    /// [`RemoveOutcome::Missing`]; folders and symlinks are never removed.
+    pub fn remove(&mut self, target: &Path) -> Result<RemoveOutcome, WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let meta = match fs::symlink_metadata(&target) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(RemoveOutcome::Missing),
+            Err(e) => return Err(map_io(e, &target)),
+        };
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(target));
+        }
+        let bytes = fs::read(&target).map_err(|e| map_io(e, &target))?;
+        let backup = self.back_up(&target)?;
+        self.append(&Line::Entry {
+            target: target.clone(),
+            op: Op::Removed {
+                backup: backup.clone(),
+            },
+            sha1: sha1_hex(&bytes),
+        })?;
+        fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
+        Ok(RemoveOutcome::Removed {
+            path: target,
+            backup,
+        })
     }
 
     /// Marks the job complete and returns its id.
@@ -618,6 +707,19 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             // Already gone: nothing to remove.
             (Op::Created, None) => {}
             (Op::Replaced { .. }, None) => report.skipped_modified.push(target),
+            (Op::Removed { backup }, None) => {
+                let backup = ensure_within(&backups, &backup)?;
+                let old = fs::read(&backup).map_err(|e| map_io(e, &backup))?;
+                if let Some(parent) = target.parent() {
+                    remove_apple_doubles(&create_dirs(parent)?);
+                }
+                let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
+                atomic_write(&target, &old, &tmp)?;
+                report.restored.push(target);
+            }
+            // The delete never happened (crash between journal and delete).
+            (Op::Removed { .. }, Some(bytes)) if sha1_hex(&bytes) == sha1 => {}
+            (Op::Removed { .. }, Some(_)) => report.skipped_modified.push(target),
             (_, Some(bytes)) if sha1_hex(&bytes) != sha1 => report.skipped_modified.push(target),
             (Op::Created, Some(_)) => {
                 fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
