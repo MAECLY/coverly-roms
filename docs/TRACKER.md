@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-15
-- **Fase:** Brainstorming → spec escrita, **pendiente de revisión de Miguel**.
+- **Fase:** Brainstorming → spec escrita + refinada con investigación (§16), **pendiente de revisión de Miguel** y de decidir pregunta abierta 5 (estrategia Popularidad).
 - **Siguiente paso:** Miguel revisa la spec → plan de implementación (skill writing-plans) → M0.
-- **En curso:** workflow de investigación `wf_46f73971-0a2` (Skraper, Skyscraper, libretro, ScreenScraper, layouts, updater) → resultados a `docs/02-research/`.
+- **En curso:** nada en segundo plano. Investigación terminada y en `docs/02-research/`.
 
 ## Contexto clave (para no perderlo)
 
@@ -39,13 +39,13 @@
 |---|---|---|---|
 | P0-01 | Investigar herramientas existentes para Mac | ✅ | Workflow `wf_d783f84f-48a` (69 agentes, 63 herramientas verificadas) |
 | P0-02 | Crear carpeta y repo privado vacío | ✅ | `gh repo view MAECLY/coverly-roms` → PRIVATE, isEmpty:true |
-| P0-03 | Estudiar Top1 Windows (Skraper) y Linux (Skyscraper) con evidencia | 🟡 | Workflow `wf_46f73971-0a2` |
-| P0-04 | Documentar fuentes: libretro-thumbnails, ScreenScraper API, SteamGridDB | 🟡 | Workflow `wf_46f73971-0a2` |
-| P0-05 | Documentar layouts de firmwares/frontends | 🟡 | Workflow `wf_46f73971-0a2` |
-| P0-06 | Stack de updater cross-platform (repo privado vs público) | 🟡 | Workflow `wf_46f73971-0a2` |
+| P0-03 | Estudiar Top1 Windows (Skraper) y Linux (Skyscraper) con evidencia | ✅ | `docs/02-research/skraper.md` (30 claims), `skyscraper-architecture.md` (34), `skyscraper-output-config.md` (33) |
+| P0-04 | Documentar fuentes: libretro-thumbnails, ScreenScraper API, SteamGridDB | ✅ | `docs/02-research/libretro-thumbnails.md`, `screenscraper-api.md` |
+| P0-05 | Documentar layouts de firmwares/frontends | ✅ | `docs/02-research/layouts.md` |
+| P0-06 | Stack de updater cross-platform (repo privado vs público) | ✅ | `docs/02-research/desktop-stack-updater.md` → releases requieren repo público |
 | P0-07 | Escribir spec maestra | ✅ | `docs/superpowers/specs/2026-10-15-coverly-roms-design.md` |
-| P0-08 | Mostrar evidencia de investigación a Miguel | ⬜ | |
-| P0-09 | Volcar investigación en `docs/02-research/*.md` | ⬜ | |
+| P0-08 | Mostrar evidencia de investigación a Miguel | 🟡 | resumen en chat 2026-10-15 |
+| P0-09 | Volcar investigación en `docs/02-research/*.md` | ✅ | commit `3d6e1f1`; spec §16 con refinamientos |
 | P0-10 | Completar docs 01–09 + ADRs desde la spec | ⬜ | |
 | P0-11 | Revisión de spec por Miguel | ⬜ | |
 | P0-12 | Plan de implementación (writing-plans) | ⬜ | |
@@ -135,3 +135,4 @@
 ## Bitácora
 
 - **2026-10-15** — Investigación de herramientas Mac; repo creado; decisiones D1–D8; spec maestra y tracker escritos; investigación Top1 en curso.
+- **2026-10-15** — Investigación Top1 terminada (14 agentes, ~270 claims verificados) → `docs/02-research/`; spec §16 refinamientos + pregunta abierta 5 (Popularidad/SteamGridDB solo PC).

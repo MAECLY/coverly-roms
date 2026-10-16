@@ -211,9 +211,27 @@ AGPL-3.0-only + TRADEMARKS.md (name **Coverly ROMs**, wordmark, mark — to desi
 | M6 | SteamGridDB + Popularity strategy (+ ScreenScraper v1.1) | Popularity strategy picks by votes |
 | M7 | Release pipeline + updater + brand + public repo + v0.1.0 | App updates itself from a published release |
 
-## 16. Open questions
+## 16. Research-driven refinements (2026-10-15)
+
+Verified in `docs/02-research/` (workflow `wf_46f73971-0a2`). These refine §5–§13 and win on conflict.
+
+1. **Two-phase model** (Skyscraper): *gather* candidates into a content-addressed art cache (source, type, region, timestamp), then *apply* to the layout. Changing profile re-applies without re-downloading. Per-type source priority, newest wins as fallback.
+2. **Identity key**: content hash (CRC32+MD5+SHA1 in one streaming pass); for single-file zip/7z read the inner CRC from the archive header (no decompression); filename hash for multi-file formats (`cue`, `gdi`, `m3u`…). Extensions compared **case-insensitively** (Skyscraper bug). Quick-id memo `path+size+mtime → hash`.
+3. **Matching method is a setting** (Skraper): `hash then name` (default) · `hash only` · `name only`. Hash only computed when the method needs it.
+4. **Name normalisation** (Skyscraper `getCompareTitle`/`getUrlQueryName`): strip brackets, rev/version suffixes, `_`→space, `, The` → front, numeral equivalence, fallback without subtitle; score `100*(L-lev)/L` on Unicode chars (not bytes); reject candidates with different sequel numeral or year.
+5. **libretro specifics**: system list from the **live** `thumbnails.libretro.com` root listing (names differ from the GitHub repos); parse the Apache index per system/type, cache on disk **TTL ≈ 2 days**; sanitise `& * / : \` " < > ? \ |` → `_` (mini-scraper misses `\`, Skyscraper misses `` ` ``); remove `.png` before scoring; case-insensitive keys; deterministic region ranking (mini-scraper picks alphabetically); fallback host `raw.githubusercontent.com/libretro-thumbnails/<repo>/master/…`; **global** token bucket, 4–6 concurrent requests, backoff.
+6. **Arcade**: short name → description from libretro-database `metadat/mame` and `metadat/fbneo-split` (no existing Mac tool does this).
+7. **Regions**: configurable list, default `ROM's own region > World > USA > Europe > Japan`; parse both No-Intro `(USA, Europe)` and GoodTools `(U)(E)(J)(JUE)` codes.
+8. **Layouts**: each profile declares whether art **mirrors subfolders**; warn on stem collisions in flat layouts (Batocera `images/`, muOS `box/`). Onion/Garlic/Anbernic defaults: **PNG, max 250×360, folder `Imgs` with capital I**. muOS reads `catalogue=` from `MUOS/info/assign/<system>/global.ini`. Onion: honour `Emu/*/config.json` `extlist`/`hidebios`; skip `PORTS/Shortcuts`. Batocera/Knulli: create/update `gamelist.xml` with backup. RetroArch: write PNG only. "Has art" check accepts png/jpg/jpeg/webp twins and Batocera `-thumb`/`-image` postfixes.
+9. **Sources**: ScreenScraper API may only be used by **free** apps → OK for Coverly (AGPL, free); request devid/devpassword early; ≥1.2 s between requests, honour `maxthreads`, handle 429/430/431. **TheGamesDB** has `/v1/Games/ByGameHash` (exact match by md5/crc) → good secondary source. **SteamGridDB is PC-storefront oriented** → see open question 5.
+10. **Safety**: default "only missing"; dry-run preview; backup gamelists; export "missing art" report and "retry only these".
+11. **Updater**: pin Tauri 2.12.x / plugin-updater 2.14.x / tauri-action v1 (a v3 alpha holds GitHub's "Latest" flag); `createUpdaterArtifacts: true`; `updaterJsonPreferNsis: true`; releases must be in a **public** repo; public repos get free `ubuntu-22.04-arm` runners. Skraper itself ships a static-manifest updater with mandatory/optional updates and rollback — we match it with signed artifacts.
+12. **Later (not v1)**: Skraper-style mix composition (XML `ImageComposition`, fallback chain Screenshot > Title > Wallpaper > Text).
+
+## 17. Open questions
 
 1. Brand mark (icon) design for Coverly ROMs.
 2. ScreenScraper developer credentials (application process) — research R-05.
 3. libretro-database DAT licences / redistribution vs download-at-runtime — research.
-4. Whether to cache libretro indexes via HTTP listing or GitHub tree API (rate limits) — research.
+4. ~~libretro index method~~ → resolved: Apache listing of `thumbnails.libretro.com`, TTL 2 days (§16.5).
+5. **Popularity strategy coverage**: SteamGridDB (votes) covers PC titles mostly, not consoles. Options: (a) keep it PC-only and fall back to Priority elsewhere; (b) define "popularity" for consoles as the variant most commonly used across sources/regions; (c) drop it. Needs Miguel's decision.
