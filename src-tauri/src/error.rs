@@ -56,6 +56,8 @@ pub enum IpcError {
     DiskFull,
     #[error("file name not valid on FAT/exFAT: {0}")]
     NameInvalid(String),
+    #[error("the library volume is gone: {0}")]
+    VolumeGone(String),
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {

@@ -60,7 +60,8 @@ fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
         ItemErrorKind::DiskFull => IpcError::DiskFull,
         ItemErrorKind::NameInvalid => IpcError::NameInvalid(m),
         ItemErrorKind::OutsideRoot => IpcError::OutsideLibrary(m),
-        ItemErrorKind::VolumeGone | ItemErrorKind::Io => IpcError::Io(m),
+        ItemErrorKind::VolumeGone => IpcError::VolumeGone(m),
+        ItemErrorKind::Io => IpcError::Io(m),
     }
 }
 
@@ -583,4 +584,20 @@ fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pulled_volume_is_its_own_error() {
+        let e = item_error(ItemErrorKind::VolumeGone, "/sd gone");
+        assert_eq!(e, IpcError::VolumeGone("/sd gone".into()));
+        assert_eq!(
+            serde_json::to_value(e).unwrap(),
+            serde_json::json!({ "code": "volume-gone", "detail": "/sd gone" })
+        );
+        assert_eq!(item_error(ItemErrorKind::Io, "x"), IpcError::Io("x".into()));
+    }
 }
