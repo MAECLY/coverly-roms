@@ -5,6 +5,7 @@
 
 pub mod paths;
 pub mod profiles;
+pub mod scan;
 pub mod systems;
 
 /// Version of the core library, taken from the workspace package version.
