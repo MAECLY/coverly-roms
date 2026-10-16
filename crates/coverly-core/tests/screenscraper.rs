@@ -286,8 +286,11 @@ fn a_reached_quota_skips_screenscraper_for_the_run() {
     }
     // requeststoday ≥ maxrequestsperday stops before the server says so.
     let w = w();
-    let full = fixture("jeu_infos_golden_sun.json")
-        .replace("\"requeststoday\":\"10\"", "\"requeststoday\":\"20000\"");
+    // Edited as JSON, so the fixture's formatting does not matter.
+    let mut full: serde_json::Value =
+        serde_json::from_str(&fixture("jeu_infos_golden_sun.json")).unwrap();
+    full["response"]["ssuser"]["requeststoday"] = "20000".into();
+    let full = full.to_string();
     w.server.serve_json(&jeu_infos_path(), &full);
     let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
     let db = SystemDb::builtin();
