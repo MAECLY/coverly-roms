@@ -10,7 +10,7 @@
 - **Fecha:** 2026-10-16
 - **Fase:** M4 mergeado ([PR #5](https://github.com/MAECLY/coverly-roms/pull/5), `980b085`). Siguiente: M5 (configuración, i18n, keychain; + M4-05 y M2-10).
 - **Siguiente paso:** escribir y ejecutar el plan de M5. Pendiente de Miguel (no bloqueante): en la app real (Tauri), abrir una **copia** de la SD, rellenar portadas desde el asistente y deshacer («Evidencia M4»); y lo pendiente de M3 (diálogo nativo, scroll, drawer, Reveal).
-- **En curso:** plan de M5.
+- **En curso:** M5 en `feat/m5-settings` (workflow `wf_0cfb50c2-1fa`: plan + implementador y revisor por tarea). Alcance: M5-01..04 + M4-05 (buscar por título) + M2-10 (`gamelist.xml`).
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
