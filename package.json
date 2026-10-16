@@ -28,6 +28,7 @@
     "icons": "node scripts/icons/generate.mjs"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-dialog": "^2.8.1",
     "react": "^19.3.0",

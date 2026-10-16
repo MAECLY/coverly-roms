@@ -1,0 +1,153 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
+import { CoverGrid } from '@/components/library/CoverGrid';
+import { DetailDrawer } from '@/components/library/DetailDrawer';
+import { EntryTable } from '@/components/library/EntryTable';
+import { FilterPanel } from '@/components/library/FilterPanel';
+import { Sidebar } from '@/components/library/Sidebar';
+import { StatusBar } from '@/components/library/StatusBar';
+import { Toolbar } from '@/components/library/Toolbar';
+import { useT } from '@/i18n/useT';
+import { useFilterStore } from '@/stores/filterStore';
+import { useLibraryStore } from '@/stores/libraryStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { useVisibleEntries } from '@/stores/useVisibleEntries';
+import { useViewStore } from '@/stores/viewStore';
+
+const TEXT_INPUTS = new Set(['text', 'search', 'number', 'date']);
+
+/** Text entry where '/' is a character, not the search shortcut. */
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type)) ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
+}
+
+function Notice({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="notice">
+      <p className="notice-title">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+export function LibraryScreen() {
+  const t = useT();
+  const view = useLibraryStore((s) => s.view);
+  const { visible, facets, now } = useVisibleEntries();
+  const layout = useViewStore((s) => s.layout);
+  const filtersOpen = useViewStore((s) => s.filtersOpen);
+  const drawerOpen = useViewStore((s) => s.drawerOpen);
+  const sort = useViewStore((s) => s.sort);
+  const toggleSort = useViewStore((s) => s.toggleSort);
+  const openDrawer = useViewStore((s) => s.openDrawer);
+  const closeDrawer = useViewStore((s) => s.closeDrawer);
+  const selectedId = useSelectionStore((s) => s.selectedId);
+  const select = useSelectionStore((s) => s.select);
+  const clearFilters = useFilterStore((s) => s.clear);
+  const setQuery = useFilterStore((s) => s.setQuery);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      // The modal owns the keyboard; the search sits behind it.
+      if (settingsOpen) return;
+      const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
+      if (find || (ev.key === '/' && !isTyping(ev.target))) {
+        ev.preventDefault();
+        searchRef.current?.focus();
+      } else if (ev.key === 'Escape') {
+        closeDrawer();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeDrawer, settingsOpen]);
+
+  if (!view) return null;
+
+  // Entry ids are indexes into `view.entries`.
+  const selected =
+    selectedId === null ? null : (view.entries[selectedId] ?? null);
+
+  const onOpen = (id: number) => {
+    select(id);
+    openDrawer();
+  };
+  const list = {
+    entries: visible,
+    systems: view.systems,
+    generation: view.generation,
+    selectedId,
+    onSelect: select,
+    onOpen,
+  };
+
+  let content: ReactNode;
+  if (view.entries.length === 0) {
+    content = (
+      <Notice title={t('library.empty')}>
+        <p className="hint">
+          {t('library.emptyHint', { n: view.warnings.length })}
+        </p>
+      </Notice>
+    );
+  } else if (visible.length === 0) {
+    content = (
+      <Notice title={t('library.noMatch')}>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => {
+            clearFilters();
+            setQuery('');
+          }}
+        >
+          {t('filters.clear')}
+        </button>
+      </Notice>
+    );
+  } else if (layout === 'grid') {
+    content = <CoverGrid {...list} />;
+  } else {
+    content = <EntryTable {...list} sort={sort} onSort={toggleSort} />;
+  }
+
+  return (
+    <div className="library-shell">
+      <Toolbar
+        view={view}
+        searchRef={searchRef}
+        onSettings={() => setSettingsOpen(true)}
+      />
+      <div className="library-body">
+        <Sidebar key={view.generation} view={view} now={now} />
+        <main className="library-main">
+          {filtersOpen && <FilterPanel view={view} facets={facets} />}
+          <div className="library-content">{content}</div>
+        </main>
+        {drawerOpen && selected && (
+          <DetailDrawer view={view} entry={selected} onClose={closeDrawer} />
+        )}
+      </div>
+      <StatusBar
+        visible={visible}
+        total={view.entries.length}
+        scanMs={view.scan_ms}
+      />
+      {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
+    </div>
+  );
+}

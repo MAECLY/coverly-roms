@@ -65,6 +65,22 @@ pub struct ScanWarning {
     pub message: String,
 }
 
+/// Progress of [`scan_library_with_progress`]: one event before the first
+/// folder (`done == 0`, empty `folder`) and one after each folder of the
+/// ROMs root, known or not. No event is sent when the ROMs folder is
+/// missing or unreadable (the scan then only holds a warning).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ScanProgress {
+    /// Folders of the ROMs root scanned so far.
+    pub done: usize,
+    /// Folders of the ROMs root to scan (hidden and skipped ones excluded).
+    pub total: usize,
+    /// Name of the folder just scanned (empty in the first event).
+    pub folder: String,
+    /// ROMs found so far.
+    pub roms: usize,
+}
+
 /// Result of [`scan_library`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibraryScan {
@@ -124,6 +140,18 @@ pub fn scan_library(
     systems: &SystemDb,
     opts: &ScanOptions,
 ) -> LibraryScan {
+    scan_library_with_progress(root, profile, systems, opts, &mut |_| {})
+}
+
+/// [`scan_library`], calling `progress` before the first system folder and
+/// after each one (see [`ScanProgress`]).
+pub fn scan_library_with_progress(
+    root: &Path,
+    profile: &Profile,
+    systems: &SystemDb,
+    opts: &ScanOptions,
+    progress: &mut dyn FnMut(ScanProgress),
+) -> LibraryScan {
     let mut scan = LibraryScan {
         root: root.to_path_buf(),
         profile_id: profile.id.clone(),
@@ -145,6 +173,7 @@ pub fn scan_library(
         }
     };
 
+    let mut dirs: Vec<(String, PathBuf)> = Vec::new();
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -164,10 +193,29 @@ pub fn scan_library(
         if !matches!(kind(&dir, file_type, opts, &mut scan.warnings), Kind::Dir) {
             continue;
         }
+        dirs.push((folder_name, dir));
+    }
+
+    let total = dirs.len();
+    let mut found = 0;
+    progress(ScanProgress {
+        done: 0,
+        total,
+        folder: String::new(),
+        roms: 0,
+    });
+    for (index, (folder_name, dir)) in dirs.into_iter().enumerate() {
         let system = systems.resolve_folder(&folder_name);
         let roms = system
             .map(|s| scan_system(&dir, s, profile, opts, &mut scan.warnings))
             .unwrap_or_default();
+        found += roms.len();
+        progress(ScanProgress {
+            done: index + 1,
+            total,
+            folder: folder_name.clone(),
+            roms: found,
+        });
         scan.systems.push(SystemScan {
             dir,
             folder_name,
@@ -320,7 +368,7 @@ fn kind(
 
 /// Finds `rel` (`/`-separated, may be empty) below `root`, matching each
 /// component case-insensitively and preferring the exact spelling.
-fn find_dir_ignoring_case(root: &Path, rel: &str) -> Option<PathBuf> {
+pub(crate) fn find_dir_ignoring_case(root: &Path, rel: &str) -> Option<PathBuf> {
     let mut current = root.to_path_buf();
     for component in rel.split(['/', '\\']).filter(|c| !c.is_empty()) {
         let exact = current.join(component);

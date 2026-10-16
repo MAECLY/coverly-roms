@@ -17,6 +17,7 @@ pub mod plan;
 pub mod profiles;
 pub mod progress;
 pub mod scan;
+pub mod settings;
 pub mod sources;
 pub mod systems;
 mod time;

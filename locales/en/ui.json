@@ -3,15 +3,197 @@
     "name": "Coverly ROMs",
     "tagline": "Find and add the missing cover art in your ROMs"
   },
+  "language": {
+    "label": "Language",
+    "auto": "System language",
+    "en": "English",
+    "es": "Español"
+  },
   "start": {
-    "openLibrary": "Open library…",
-    "openLibraryHint": "Choosing a library arrives in a later version."
+    "openFolder": "Open folder…",
+    "dropHint": "Or drop a folder or SD card here.",
+    "recent": "Recent libraries",
+    "noRecent": "No recent libraries yet.",
+    "notConnected": "Not connected",
+    "forget": "Forget {name}",
+    "roms": "{n} ROMs",
+    "scanning": "Scanning {folder}… {done} of {total} folders",
+    "scanningStart": "Reading the folder…",
+    "romsFound": "{n} ROMs found",
+    "progressLabel": "Scan progress",
+    "settings": "Library settings"
+  },
+  "settings": {
+    "title": "Library settings",
+    "ignoredDirs": "Ignored folders",
+    "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "library": {
-    "count": "{n} ROMs"
+    "count": "{n} ROMs",
+    "close": "Close library",
+    "grid": {
+      "label": "ROM covers"
+    },
+    "table": {
+      "label": "ROM list"
+    },
+    "empty": "No ROMs found in this folder.",
+    "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
+    "noMatch": "No ROMs match the search and filters."
   },
   "footer": {
     "version": "Version {version}",
     "coreVersion": "Core {version}"
+  },
+  "columns": {
+    "name": "Name",
+    "system": "System",
+    "size": "Size",
+    "modified": "Modified"
+  },
+  "art": {
+    "status": "{media}: {state}",
+    "media": {
+      "cover": "Cover",
+      "screenshot": "Screenshot",
+      "title": "Title screen"
+    },
+    "mark": {
+      "present": "present",
+      "missing": "missing",
+      "unsupported": "not supported by this layout"
+    },
+    "none": {
+      "cover": "No cover",
+      "screenshot": "No screenshot",
+      "title": "No title screen"
+    }
+  },
+  "errors": {
+    "not-found": "This folder does not exist: {detail}",
+    "not-a-folder": "This is a file, not a folder: {detail}",
+    "unreadable": "Coverly ROMs cannot read {detail}. Check its permissions.",
+    "no-profile": "No known layout was found in {detail}. Pick the SD card root or its ROMs folder.",
+    "unknown-profile": "Unknown layout profile: {detail}",
+    "no-library": "No library is open.",
+    "stale-library": "The library was reopened. Try again.",
+    "superseded": "Another library was opened meanwhile.",
+    "unknown-entry": "This ROM is no longer in the library.",
+    "art-missing": "There is no image for this ROM.",
+    "outside-library": "This image is outside the library and was not opened.",
+    "art-too-large": "This image is too large to show.",
+    "io": "Something went wrong: {detail}",
+    "settings": "The settings could not be saved: {detail}",
+    "art-unreadable": "This image cannot be shown.",
+    "unknown": "Unexpected error: {detail}"
+  },
+  "sidebar": {
+    "label": "Views",
+    "expand": "Expand {name}",
+    "collapse": "Collapse {name}"
+  },
+  "views": {
+    "folders": "Folders",
+    "systems": "Systems",
+    "date": "Date",
+    "all": "All",
+    "allRoms": "All ROMs"
+  },
+  "date": {
+    "week": "This week",
+    "month": "This month",
+    "year": "This year",
+    "older": "Older"
+  },
+  "toolbar": {
+    "search": "Search by name",
+    "searchPlaceholder": "Search… ( / )",
+    "filters": "Filters",
+    "filtersActive": "Filters ({n})",
+    "layout": "Layout",
+    "grid": "Grid",
+    "list": "List",
+    "fill": "Fill missing art",
+    "fillHint": "Filling art arrives in a later version."
+  },
+  "filters": {
+    "art": "Art",
+    "artOptions": {
+      "all": "All",
+      "missing-any": "Missing any art",
+      "missing-cover": "Missing cover",
+      "missing-screenshot": "Missing screenshot",
+      "missing-title": "Missing title screen",
+      "complete": "Has all art"
+    },
+    "systems": "System",
+    "exts": "Extension",
+    "regions": "Region",
+    "date": "Modified",
+    "from": "From",
+    "to": "To",
+    "size": "Size (MB)",
+    "min": "Min",
+    "max": "Max",
+    "clear": "Clear filters"
+  },
+  "regions": {
+    "world": "World",
+    "usa": "USA",
+    "europe": "Europe",
+    "japan": "Japan",
+    "asia": "Asia",
+    "australia": "Australia",
+    "brazil": "Brazil",
+    "canada": "Canada",
+    "china": "China",
+    "france": "France",
+    "germany": "Germany",
+    "hong-kong": "Hong Kong",
+    "italy": "Italy",
+    "korea": "Korea",
+    "netherlands": "Netherlands",
+    "spain": "Spain",
+    "sweden": "Sweden",
+    "taiwan": "Taiwan",
+    "united-kingdom": "United Kingdom"
+  },
+  "status": {
+    "shown": "{shown} of {total} ROMs",
+    "missingCover": "{n} without cover",
+    "scan": "Scanned in {ms} ms"
+  },
+  "drawer": {
+    "close": "Close details",
+    "art": "Art",
+    "file": "File",
+    "path": "Path",
+    "ext": "Extension",
+    "identity": "Identity",
+    "identify": "Identify",
+    "identifying": "Identifying…",
+    "identifyHint": "Look this ROM up in the game databases.",
+    "canonical": "Database name",
+    "notIdentified": "Not found in the databases",
+    "methodLabel": "Method",
+    "method": {
+      "hash": "Content hash",
+      "arcade-dat": "Arcade set name",
+      "name": "File name",
+      "unknown": "Unknown"
+    },
+    "confidenceLabel": "Confidence",
+    "offline": "Offline: identified by its file name only.",
+    "actions": "Actions",
+    "change": "Change…",
+    "search": "Search…",
+    "fromFile": "From file…",
+    "remove": "Remove",
+    "laterHint": "Changing art arrives in a later version.",
+    "revealMac": "Reveal in Finder",
+    "revealWin": "Show in Explorer",
+    "revealOther": "Show in folder"
   }
 }

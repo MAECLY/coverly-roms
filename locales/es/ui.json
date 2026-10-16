@@ -3,15 +3,197 @@
     "name": "Coverly ROMs",
     "tagline": "Encuentra y añade las portadas que faltan en tus ROMs"
   },
+  "language": {
+    "label": "Idioma",
+    "auto": "Idioma del sistema",
+    "en": "English",
+    "es": "Español"
+  },
   "start": {
-    "openLibrary": "Abrir biblioteca…",
-    "openLibraryHint": "La elección de biblioteca llegará en una versión posterior."
+    "openFolder": "Abrir carpeta…",
+    "dropHint": "O suelta aquí una carpeta o tarjeta SD.",
+    "recent": "Bibliotecas recientes",
+    "noRecent": "Todavía no hay bibliotecas recientes.",
+    "notConnected": "No conectada",
+    "forget": "Olvidar {name}",
+    "roms": "{n} ROMs",
+    "scanning": "Escaneando {folder}… {done} de {total} carpetas",
+    "scanningStart": "Leyendo la carpeta…",
+    "romsFound": "{n} ROMs encontradas",
+    "progressLabel": "Progreso del escaneo",
+    "settings": "Ajustes de biblioteca"
+  },
+  "settings": {
+    "title": "Ajustes de biblioteca",
+    "ignoredDirs": "Carpetas ignoradas",
+    "ignoredDirsHint": "Un nombre de carpeta por línea. Se omiten a cualquier profundidad.",
+    "save": "Guardar",
+    "cancel": "Cancelar"
   },
   "library": {
-    "count": "{n} ROMs"
+    "count": "{n} ROMs",
+    "close": "Cerrar biblioteca",
+    "grid": {
+      "label": "Portadas de las ROMs"
+    },
+    "table": {
+      "label": "Lista de ROMs"
+    },
+    "empty": "No se han encontrado ROMs en esta carpeta.",
+    "emptyHint": "Comprueba que has elegido la tarjeta SD o su carpeta de ROMs. Avisos: {n}.",
+    "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros."
   },
   "footer": {
     "version": "Versión {version}",
     "coreVersion": "Núcleo {version}"
+  },
+  "columns": {
+    "name": "Nombre",
+    "system": "Sistema",
+    "size": "Tamaño",
+    "modified": "Modificado"
+  },
+  "art": {
+    "status": "{media}: {state}",
+    "media": {
+      "cover": "Portada",
+      "screenshot": "Captura",
+      "title": "Pantalla de título"
+    },
+    "mark": {
+      "present": "presente",
+      "missing": "falta",
+      "unsupported": "no admitida por este formato"
+    },
+    "none": {
+      "cover": "Sin portada",
+      "screenshot": "Sin captura",
+      "title": "Sin pantalla de título"
+    }
+  },
+  "errors": {
+    "not-found": "Esta carpeta no existe: {detail}",
+    "not-a-folder": "Esto es un archivo, no una carpeta: {detail}",
+    "unreadable": "Coverly ROMs no puede leer {detail}. Revisa sus permisos.",
+    "no-profile": "No se reconoce ningún formato en {detail}. Elige la raíz de la SD o su carpeta de ROMs.",
+    "unknown-profile": "Perfil de formato desconocido: {detail}",
+    "no-library": "No hay ninguna biblioteca abierta.",
+    "stale-library": "La biblioteca se ha vuelto a abrir. Inténtalo de nuevo.",
+    "superseded": "Mientras tanto se abrió otra biblioteca.",
+    "unknown-entry": "Esta ROM ya no está en la biblioteca.",
+    "art-missing": "No hay imagen para esta ROM.",
+    "outside-library": "Esta imagen está fuera de la biblioteca y no se ha abierto.",
+    "art-too-large": "Esta imagen es demasiado grande para mostrarla.",
+    "io": "Algo ha fallado: {detail}",
+    "settings": "No se han podido guardar los ajustes: {detail}",
+    "art-unreadable": "No se puede mostrar esta imagen.",
+    "unknown": "Error inesperado: {detail}"
+  },
+  "sidebar": {
+    "label": "Vistas",
+    "expand": "Desplegar {name}",
+    "collapse": "Plegar {name}"
+  },
+  "views": {
+    "folders": "Carpetas",
+    "systems": "Sistemas",
+    "date": "Fecha",
+    "all": "Todo",
+    "allRoms": "Todas las ROMs"
+  },
+  "date": {
+    "week": "Esta semana",
+    "month": "Este mes",
+    "year": "Este año",
+    "older": "Más antiguas"
+  },
+  "toolbar": {
+    "search": "Buscar por nombre",
+    "searchPlaceholder": "Buscar… ( / )",
+    "filters": "Filtros",
+    "filtersActive": "Filtros ({n})",
+    "layout": "Vista",
+    "grid": "Cuadrícula",
+    "list": "Lista",
+    "fill": "Rellenar arte que falta",
+    "fillHint": "El relleno de arte llegará en una versión posterior."
+  },
+  "filters": {
+    "art": "Arte",
+    "artOptions": {
+      "all": "Todas",
+      "missing-any": "Le falta algún arte",
+      "missing-cover": "Sin portada",
+      "missing-screenshot": "Sin captura",
+      "missing-title": "Sin pantalla de título",
+      "complete": "Con todo el arte"
+    },
+    "systems": "Sistema",
+    "exts": "Extensión",
+    "regions": "Región",
+    "date": "Modificado",
+    "from": "Desde",
+    "to": "Hasta",
+    "size": "Tamaño (MB)",
+    "min": "Mín.",
+    "max": "Máx.",
+    "clear": "Quitar filtros"
+  },
+  "regions": {
+    "world": "Mundo",
+    "usa": "EE. UU.",
+    "europe": "Europa",
+    "japan": "Japón",
+    "asia": "Asia",
+    "australia": "Australia",
+    "brazil": "Brasil",
+    "canada": "Canadá",
+    "china": "China",
+    "france": "Francia",
+    "germany": "Alemania",
+    "hong-kong": "Hong Kong",
+    "italy": "Italia",
+    "korea": "Corea",
+    "netherlands": "Países Bajos",
+    "spain": "España",
+    "sweden": "Suecia",
+    "taiwan": "Taiwán",
+    "united-kingdom": "Reino Unido"
+  },
+  "status": {
+    "shown": "{shown} de {total} ROMs",
+    "missingCover": "{n} sin portada",
+    "scan": "Escaneado en {ms} ms"
+  },
+  "drawer": {
+    "close": "Cerrar detalles",
+    "art": "Arte",
+    "file": "Archivo",
+    "path": "Ruta",
+    "ext": "Extensión",
+    "identity": "Identidad",
+    "identify": "Identificar",
+    "identifying": "Identificando…",
+    "identifyHint": "Busca esta ROM en las bases de datos de juegos.",
+    "canonical": "Nombre en la base de datos",
+    "notIdentified": "No está en las bases de datos",
+    "methodLabel": "Método",
+    "method": {
+      "hash": "Hash del contenido",
+      "arcade-dat": "Nombre de set arcade",
+      "name": "Nombre de archivo",
+      "unknown": "Desconocido"
+    },
+    "confidenceLabel": "Confianza",
+    "offline": "Sin conexión: identificada solo por su nombre de archivo.",
+    "actions": "Acciones",
+    "change": "Cambiar…",
+    "search": "Buscar…",
+    "fromFile": "Desde archivo…",
+    "remove": "Quitar",
+    "laterHint": "Cambiar el arte llegará en una versión posterior.",
+    "revealMac": "Mostrar en Finder",
+    "revealWin": "Mostrar en el Explorador",
+    "revealOther": "Mostrar en la carpeta"
   }
 }
