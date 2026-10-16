@@ -805,11 +805,18 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         restored: Vec::new(),
         skipped_modified: Vec::new(),
     };
+    // A target replaced twice in one job (a gamelist written by a run and
+    // its resume) shares one backup holding the original bytes: once the
+    // last write is restored, the earlier replace entries are done too.
+    let mut restored_here: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for (n, entry) in entries.into_iter().rev().enumerate() {
         let Line::Entry { target, op, sha1 } = entry else {
             continue;
         };
         let target = ensure_within(&root, &target)?;
+        if matches!(op, Op::Replaced { .. }) && restored_here.contains(&target) {
+            continue;
+        }
         let current = match fs::read(&target) {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == ErrorKind::NotFound => None,
@@ -827,6 +834,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 }
                 let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
                 atomic_write(&target, &old, &tmp)?;
+                restored_here.insert(target.clone());
                 report.restored.push(target);
             }
             // The delete never happened (crash between journal and delete).
@@ -842,6 +850,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 let old = fs::read(&backup).map_err(|e| map_io(e, &backup))?;
                 let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
                 atomic_write(&target, &old, &tmp)?;
+                restored_here.insert(target.clone());
                 report.restored.push(target);
             }
         }
