@@ -1,5 +1,7 @@
-//! `coverly fill`: identify ROMs, gather art from libretro-thumbnails, show
-//! the plan and (with `--apply`) write the art.
+//! `coverly fill`: identify ROMs, gather art from the enabled sources
+//! (libretro-thumbnails, SteamGridDB with a key, …), show the plan and
+//! (with `--apply`) write the art. Source keys come from the environment:
+//! the CLI has no keychain.
 
 use std::fmt::Write as _;
 use std::fs::File;
@@ -10,6 +12,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Args, ValueEnum};
 use coverly_core::art::resolve_art;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::credentials::{SourceKeys, SGDB_KEY_ENV};
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::identify::dat::DATABASE_BASE;
@@ -22,7 +25,10 @@ use coverly_core::plan::{NoneReason, Plan, PlanAction, PlanItem};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{Phase, ProgressEvent, ProgressSink};
 use coverly_core::scan::scan_library;
+use coverly_core::settings::KNOWN_SOURCES;
 use coverly_core::sources::libretro::{LIBRETRO_BASE, LIBRETRO_RAW_BASE};
+use coverly_core::sources::screenscraper::SCREENSCRAPER_BASE;
+use coverly_core::sources::steamgriddb::STEAMGRIDDB_BASE;
 use coverly_core::sources::MatchKind;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
@@ -35,6 +41,7 @@ use crate::{media_name, print_stdout, table, Failure};
 const PREVIEW: usize = 20;
 
 #[derive(Debug, Args)]
+#[command(after_help = "SteamGridDB key: COVERLY_SGDB_KEY (the CLI has no keychain).")]
 pub struct FillArgs {
     /// Library root (e.g. the SD card), the folder holding `ROMS`, `Roms`…
     root: PathBuf,
@@ -88,6 +95,10 @@ pub struct FillArgs {
     /// Concurrent requests (1-6; default: the concurrency setting).
     #[arg(long)]
     concurrency: Option<usize>,
+    /// Sources to ask, preferred first, comma-separated (overrides the
+    /// sources setting), e.g. `libretro,steamgriddb`.
+    #[arg(long, value_delimiter = ',', value_name = "IDS")]
+    sources: Option<Vec<String>>,
     /// Ignore cached candidates and indexes younger than their TTL.
     #[arg(long)]
     refresh: bool,
@@ -104,6 +115,10 @@ pub struct FillArgs {
     libretro_raw_url: Option<String>,
     #[arg(long, hide = true)]
     database_url: Option<String>,
+    #[arg(long, hide = true)]
+    steamgriddb_url: Option<String>,
+    #[arg(long, hide = true)]
+    screenscraper_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -250,6 +265,9 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     if let Some(m) = args.match_method {
         fill.match_method = m.into();
     }
+    if let Some(ids) = &args.sources {
+        fill.sources = chosen_sources(ids)?;
+    }
     let apply = args.apply || (!args.dry_run && !s.safety.dry_run_default);
     let mut chosen = choose_profile(&root, args.profile.as_deref(), &cli)?;
     chosen.profile = s.art_profile(&chosen.profile);
@@ -296,13 +314,23 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
             .database_url
             .clone()
             .unwrap_or_else(|| DATABASE_BASE.into()),
+        steamgriddb: args
+            .steamgriddb_url
+            .clone()
+            .unwrap_or_else(|| STEAMGRIDDB_BASE.into()),
+        screenscraper: args
+            .screenscraper_url
+            .clone()
+            .unwrap_or_else(|| SCREENSCRAPER_BASE.into()),
     };
+    let keys = SourceKeys::from_env(|name| std::env::var(name).ok());
     let env = FillEnv {
         cache: &cache,
         http: &http,
         endpoints: &endpoints,
         cache_dir: &dirs.cache,
         data_dir: &dirs.data,
+        keys: &keys,
     };
     // Manual identities live in the app data dir even when the backup
     // location moves the journals (D32); an explicit --data-dir (tests,
@@ -360,6 +388,32 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         }),
         None => Ok(()),
     }
+}
+
+/// `--sources` trimmed and deduplicated; an id the app does not know is a
+/// usage error (one this build cannot use is skipped with a warning by
+/// the plan). None left is a usage error too.
+fn chosen_sources(ids: &[String]) -> Result<Vec<String>, Failure> {
+    let mut out: Vec<String> = Vec::new();
+    for id in ids {
+        let id = id.trim().to_ascii_lowercase();
+        if id.is_empty() {
+            continue;
+        }
+        if !KNOWN_SOURCES.contains(&id.as_str()) {
+            return Err(Failure::usage(format!(
+                "unknown source `{id}` (known: {}; the SteamGridDB key comes from {SGDB_KEY_ENV})",
+                KNOWN_SOURCES.join(", ")
+            )));
+        }
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    if out.is_empty() {
+        return Err(Failure::usage("--sources needs at least one source"));
+    }
+    Ok(out)
 }
 
 /// `--media` deduplicated, or the media setting (`default`); media the

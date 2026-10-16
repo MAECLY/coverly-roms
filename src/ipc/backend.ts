@@ -19,6 +19,7 @@ import type {
   JobItemView,
   JobProgressEvent,
   JobView,
+  KeyCheck,
   LibrarySettings,
   LibraryView,
   LinkId,
@@ -34,6 +35,8 @@ import type {
   SettingsPatch,
   SettingsUpdate,
   SettingsView,
+  SourceId,
+  SourceInfo,
   UndoView,
 } from './types';
 
@@ -131,6 +134,10 @@ export interface Backend {
   credentialStatus(): Promise<CredentialStatus>;
   setCredential(key: CredentialKey, value: string): Promise<CredentialStatus>;
   clearCredential(key: CredentialKey): Promise<CredentialStatus>;
+
+  /* Sources (M6): which are built/ready, and a cheap key check; keys never come back. */
+  sourcesInfo(): Promise<SourceInfo[]>;
+  testSourceKey(source: SourceId): Promise<KeyCheck>;
 
   /* Drawer "Search by title" (manual identity, D32). */
   searchEntryArt(

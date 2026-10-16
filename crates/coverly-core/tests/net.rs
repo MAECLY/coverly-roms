@@ -256,3 +256,92 @@ fn proxy_from_environment_values() {
     assert!(proxy_from(|_| Some("socks5://proxy:1080".to_string())).is_none());
     assert!(proxy_from(|_| Some("  ".to_string())).is_none());
 }
+
+use coverly_core::credentials::Secret;
+
+#[test]
+fn a_bearer_key_is_sent_and_never_debug_printed() {
+    let server = MockServer::start();
+    server.mock("/api", MockResponse::ok("{}"));
+    let http = UreqHttp::new(&NetConfig::default());
+    let req = HttpRequest::get(server.url("/api")).bearer(Secret::new("sk-123"));
+    assert_eq!(http.get(&req).unwrap().status, 200);
+    assert_eq!(
+        server.requests()[0].header("Authorization"),
+        Some("Bearer sk-123")
+    );
+    assert!(!format!("{req:?}").contains("sk-123"));
+}
+
+#[test]
+fn no_authorization_header_without_a_key() {
+    let server = MockServer::start();
+    server.mock("/api", MockResponse::ok("{}"));
+    let http = UreqHttp::new(&NetConfig::default());
+    http.get(&HttpRequest::get(server.url("/api"))).unwrap();
+    assert_eq!(server.requests()[0].header("Authorization"), None);
+}
+
+#[test]
+fn a_403_pauses_unless_the_request_passes_it_through() {
+    let server = MockServer::start();
+    server.mock("/x", MockResponse::status(403));
+    let cfg = NetConfig {
+        retries: 0,
+        ..NetConfig::default()
+    };
+    let polite = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+    assert!(matches!(
+        polite.get(&HttpRequest::get(server.url("/x"))),
+        Err(NetError::RateLimited { status: 403, .. })
+    ));
+    let r = polite
+        .get(&HttpRequest::get(server.url("/x")).forbidden_passes())
+        .unwrap();
+    assert_eq!(r.status, 403);
+}
+
+#[test]
+fn serve_json_substitutes_the_base_url() {
+    let server = MockServer::start();
+    server.serve_json("/j", r#"{"url":"{{BASE}}/img.png"}"#);
+    let http = UreqHttp::new(&NetConfig::default());
+    let body = http.get(&HttpRequest::get(server.url("/j"))).unwrap().body;
+    assert_eq!(
+        String::from_utf8(body).unwrap(),
+        format!(r#"{{"url":"{}/img.png"}}"#, server.base())
+    );
+}
+
+#[test]
+fn an_authority_with_odd_characters_is_refused_before_connecting() {
+    for url in [
+        "https://evil.com\\.steamgriddb.com/a.png",
+        "https://ev%69l.com/a.png",
+        "https://evil.com .steamgriddb.com/a.png",
+        "https://evil.com\t.steamgriddb.com/a.png",
+        "https://host:po rt/a.png",
+        "https://host:/a.png",
+    ] {
+        let err = UreqHttp::new(&cfg())
+            .get(&HttpRequest::get(url))
+            .unwrap_err();
+        assert!(matches!(err, NetError::Insecure(_)), "{url:?} → {err:?}");
+        assert!(!err.pauses());
+    }
+}
+
+#[test]
+fn a_request_that_cannot_be_built_fails_without_pausing() {
+    let server = MockServer::start();
+    server.mock("/k", MockResponse::ok("x"));
+    let err = client()
+        .get(
+            &HttpRequest::get(server.url("/k"))
+                .bearer(coverly_core::credentials::Secret::new("a\r\nX")),
+        )
+        .unwrap_err();
+    assert!(matches!(err, NetError::Invalid(_)), "{err:?}");
+    assert!(!err.pauses());
+    assert_eq!(err.pause_kind(), None);
+}

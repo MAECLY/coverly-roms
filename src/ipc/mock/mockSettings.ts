@@ -4,10 +4,18 @@
  * them, like the app's settings file. Whatever storage holds is untrusted:
  * garbage or wrong shapes fall back to defaults. Credential VALUES are
  * never stored: only whether each key is set.
+ *
+ * Sources (M6): the mock "build" has libretro and SteamGridDB, not
+ * ScreenScraper (no developer credentials). "Test key" for SteamGridDB:
+ * no key stored → `missing`; a key whose value started with `bad` →
+ * `invalid` (only that boolean is remembered, in memory, never the value);
+ * otherwise `ok`. ScreenScraper answers `unavailable`; libretro (no key)
+ * is a `bad-request`.
  */
 import { previewProfile, validateProfile } from '@/lib/profileTemplate';
 import {
   DEFAULT_SETTINGS,
+  KNOWN_SOURCES,
   cloneSettings,
   mergePatch,
   needsReopen,
@@ -25,10 +33,13 @@ import {
   MEDIA,
   type CredentialKey,
   type CredentialStatus,
+  type KeyCheck,
   type ProfileFile,
   type ProfileInfo,
   type Settings,
   type SettingsNotice,
+  type SourceId,
+  type SourceInfo,
 } from '../types';
 
 export const MOCK_STORAGE_KEYS = {
@@ -55,11 +66,32 @@ export type MockSettingsApi = Pick<
   | 'credentialStatus'
   | 'setCredential'
   | 'clearCredential'
+  | 'sourcesInfo'
+  | 'testSourceKey'
 > & {
   /** Folders and links "opened", in order (`folder:logs`, `link:repo`). */
   readonly opened: string[];
   /** The current settings, for the other mock parts. */
   current(): Settings;
+  /**
+   * Built, every needed credential stored, enabled in the settings, and
+   * its key not refused (a fill skips a source whose key is refused).
+   */
+  isSourceReady(id: SourceId): boolean;
+  /** Enabled, but a stored key the fake API refuses (`bad…`). */
+  isSourceRefused(id: SourceId): boolean;
+};
+
+/** What the mock build carries (ScreenScraper needs dev credentials). */
+const BUILT: Record<SourceId, boolean> = {
+  libretro: true,
+  steamgriddb: true,
+  screenscraper: false,
+};
+const NEEDS: Record<SourceId, readonly CredentialKey[]> = {
+  libretro: [],
+  steamgriddb: ['steamgriddb-api-key'],
+  screenscraper: [],
 };
 
 const CORRUPT = Symbol('corrupt');
@@ -174,6 +206,8 @@ export function createMockSettings(opts: {
       isObject(storedCreds) && storedCreds[k] === true,
     ]),
   ) as Record<CredentialKey, boolean>;
+  /** Keys whose stored value would be refused by the source (memory only). */
+  const rejected = new Set<CredentialKey>();
   let cacheBytes = 48 * 1024 * 1024;
 
   const save = () => write(storage, MOCK_STORAGE_KEYS.settings, settings);
@@ -190,6 +224,13 @@ export function createMockSettings(opts: {
       mirror_subdirs: mirrors(p),
     })),
   ];
+  const sources = (): SourceInfo[] =>
+    KNOWN_SOURCES.map((id) => ({
+      id,
+      built: BUILT[id],
+      needs: [...NEEDS[id]],
+      ready: BUILT[id] && NEEDS[id].every((k) => creds[k]),
+    }));
   const credentialKey = (key: string): CredentialKey => {
     const k = CREDENTIAL_KEYS.find((c) => c === key);
     if (!k) throw new BackendError('bad-request', 'unknown credential key');
@@ -218,6 +259,13 @@ export function createMockSettings(opts: {
   return {
     opened,
     current: () => cloneSettings(settings),
+    isSourceReady: (id) =>
+      sources().some((i) => i.id === id && i.ready) &&
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      !NEEDS[id].some((k) => rejected.has(k)),
+    isSourceRefused: (id) =>
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      NEEDS[id].some((k) => creds[k] && rejected.has(k)),
     getSettings: () =>
       Promise.resolve({
         settings: cloneSettings(settings),
@@ -344,13 +392,34 @@ export function createMockSettings(opts: {
         throw new BackendError('bad-request', 'credential value');
       }
       creds[k] = v.length > 0;
+      if (v.startsWith('bad')) rejected.add(k);
+      else rejected.delete(k);
       write(storage, MOCK_STORAGE_KEYS.credentials, creds);
       return status();
     },
     async clearCredential(key) {
-      creds[credentialKey(key)] = false;
+      const k = credentialKey(key);
+      creds[k] = false;
+      rejected.delete(k);
       write(storage, MOCK_STORAGE_KEYS.credentials, creds);
       return status();
+    },
+    sourcesInfo: () => Promise.resolve(sources()),
+    async testSourceKey(source): Promise<KeyCheck> {
+      switch (source) {
+        case 'steamgriddb': {
+          const k: CredentialKey = 'steamgriddb-api-key';
+          if (!creds[k]) return 'missing';
+          return rejected.has(k) ? 'invalid' : 'ok';
+        }
+        case 'screenscraper':
+          return 'unavailable';
+        default:
+          throw new BackendError(
+            'bad-request',
+            `no key to test for \`${String(source)}\``,
+          );
+      }
     },
   };
 }

@@ -392,7 +392,7 @@ fn normalise_cleans_lists_and_keeps_unavailable_sources_off() {
     ]);
     s.sources.order = vec![
         SourceEntry {
-            id: "steamgriddb".into(),
+            id: "screenscraper".into(),
             enabled: true,
         },
         SourceEntry {
@@ -419,12 +419,14 @@ fn normalise_cleans_lists_and_keeps_unavailable_sources_off() {
         .iter()
         .map(|e| (e.id.as_str(), e.enabled))
         .collect();
+    // ScreenScraper stays on only in a build with developer credentials.
+    let ss = available_sources().contains(&"screenscraper");
     assert_eq!(
         order,
         [
-            ("steamgriddb", false),
+            ("screenscraper", ss),
             ("libretro", true),
-            ("screenscraper", false)
+            ("steamgriddb", false)
         ]
     );
     assert_eq!(s.art.media, [Media::Cover, Media::Title]);
@@ -473,12 +475,16 @@ fn with_patch_names_the_field_of_a_type_error_and_of_a_range_error() {
 
 #[test]
 fn with_patch_refuses_a_change_that_only_enables_an_unavailable_source() {
-    // Normalising turns sources that are not available yet off; a patch
-    // whose only enabled source is one of them would leave none enabled.
+    // Normalising turns sources this build cannot use off; a patch whose
+    // only enabled source is one of them would leave none enabled.
+    if available_sources().contains(&"screenscraper") {
+        eprintln!("skipped: this build carries ScreenScraper dev credentials");
+        return;
+    }
     let errors = Settings::default()
         .with_patch(
             &json!({"sources": {"order": [
-                {"id": "steamgriddb", "enabled": true},
+                {"id": "screenscraper", "enabled": true},
                 {"id": "libretro", "enabled": false}
             ]}}),
             &known(),

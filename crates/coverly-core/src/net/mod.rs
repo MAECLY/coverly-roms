@@ -14,18 +14,26 @@ use std::time::Duration;
 
 pub use limiter::{Limiter, Permit};
 
+use crate::credentials::Secret;
+
 pub const USER_AGENT: &str = concat!("CoverlyROMs/", env!("CARGO_PKG_VERSION"));
 pub const DEFAULT_MAX_BYTES: u64 = 32 * 1024 * 1024;
 const PROXY_ENV: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"];
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-/// A GET request: URL, optional conditional ETag and a body size cap.
+/// A GET request: URL, optional conditional ETag, a body size cap, an
+/// optional Bearer key (redacted in `Debug`) and whether a 403 pauses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequest {
     pub url: String,
     pub if_none_match: Option<String>,
     pub max_bytes: u64,
+    /// Sent as `Authorization: Bearer …` (SteamGridDB).
+    pub bearer: Option<Secret>,
+    /// A 403 pauses the phase (libretro/GitHub rate limit, spec §10)
+    /// unless an API source answers 403 for a bad key: then `false`.
+    pub forbidden_pauses: bool,
 }
 
 /// Any HTTP response, including error statuses such as 404 or 304.
@@ -54,6 +62,10 @@ pub enum NetError {
     TooLarge { limit: u64 },
     #[error("refused non-HTTPS URL {0}")]
     Insecure(String),
+    /// The request could not be built (a malformed URL or header value):
+    /// a fault of this request, never a pause.
+    #[error("invalid request: {0}")]
+    Invalid(String),
 }
 
 impl NetError {
@@ -109,6 +121,8 @@ impl HttpRequest {
             url: url.into(),
             if_none_match: None,
             max_bytes: DEFAULT_MAX_BYTES,
+            bearer: None,
+            forbidden_pauses: true,
         }
     }
     pub fn max_bytes(mut self, n: u64) -> HttpRequest {
@@ -117,6 +131,15 @@ impl HttpRequest {
     }
     pub fn if_none_match(mut self, etag: Option<String>) -> HttpRequest {
         self.if_none_match = etag;
+        self
+    }
+    pub fn bearer(mut self, key: Secret) -> HttpRequest {
+        self.bearer = Some(key);
+        self
+    }
+    /// A 403 comes back as a response (the source decides what it means).
+    pub fn forbidden_passes(mut self) -> HttpRequest {
+        self.forbidden_pauses = false;
         self
     }
 }
@@ -173,13 +196,59 @@ pub fn host_of(url: &str) -> String {
     host.to_lowercase()
 }
 
+/// Whether the URL's authority is a plain `host[:port]`: a host of ASCII
+/// letters, digits, `.` and `-` (or a bracketed IPv6 literal) and an
+/// optional numeric port. Rejects userinfo (`@`), `\\`, `%`, whitespace and
+/// control characters, which parsers read differently (spec §11).
+pub fn plain_authority(url: &str) -> bool {
+    let Some((_, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+        let Some((inner, after)) = v6.split_once(']') else {
+            return false;
+        };
+        let ok = !inner.is_empty()
+            && inner
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
+        if !ok {
+            return false;
+        }
+        match after {
+            "" => return true,
+            p => match p.strip_prefix(':') {
+                Some(port) => ("v6", Some(port)),
+                None => return false,
+            },
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    let host_ok = !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    let port_ok = port.is_none_or(|p| {
+        !p.is_empty()
+            && p.len() <= 5
+            && p.chars().all(|c| c.is_ascii_digit())
+            && p.parse::<u16>().is_ok()
+    });
+    host_ok && port_ok
+}
+
 fn url_kind(url: &str) -> UrlKind {
     let lower = url.to_ascii_lowercase();
     let authority = lower
         .split_once("://")
         .map(|(_, r)| r.split(['/', '?', '#']).next().unwrap_or(""))
         .unwrap_or("");
-    if authority.contains('@') || authority.is_empty() {
+    if authority.contains('@') || authority.is_empty() || !plain_authority(url) {
         return UrlKind::Refused;
     }
     if lower.starts_with("https://") {
@@ -212,13 +281,16 @@ impl UreqHttp {
             },
         };
         // Loopback (tests, local setups) never follows redirects, so a
-        // local URL cannot bounce to a remote plain-HTTP host.
+        // local URL cannot bounce to a remote plain-HTTP host. A redirect
+        // never carries the Authorization header (the ureq 3 default, made
+        // explicit): a key sent to an API never reaches its CDN.
         let build = |https_only: bool, redirects: u32, proxy: Option<ureq::Proxy>| {
             ureq::Agent::config_builder()
                 .timeout_global(Some(cfg.timeout))
                 .http_status_as_error(false)
                 .https_only(https_only)
                 .max_redirects(redirects)
+                .redirect_auth_headers(ureq::config::RedirectAuthHeaders::Never)
                 .user_agent(USER_AGENT)
                 .proxy(proxy)
                 .build()
@@ -245,6 +317,9 @@ impl Http for UreqHttp {
         let mut builder = agent.get(&req.url);
         if let Some(tag) = &req.if_none_match {
             builder = builder.header("If-None-Match", tag);
+        }
+        if let Some(key) = &req.bearer {
+            builder = builder.header("Authorization", format!("Bearer {}", key.expose()));
         }
         let mut resp = builder.call().map_err(transport)?;
         let status = resp.status().as_u16();
@@ -318,6 +393,8 @@ fn read_capped(body: &mut ureq::Body, max: u64) -> Result<Vec<u8>, NetError> {
 fn transport(e: ureq::Error) -> NetError {
     match e {
         ureq::Error::Timeout(_) => NetError::Timeout,
+        // Faults of the request itself: retrying or pausing cannot help.
+        e @ (ureq::Error::BadUri(_) | ureq::Error::Http(_)) => NetError::Invalid(e.to_string()),
         other => NetError::Offline(other.to_string()),
     }
 }
@@ -361,7 +438,7 @@ impl<H: Http> Http for PoliteHttp<H> {
                 self.inner.get(req)
             };
             let wait = match &result {
-                Ok(r) if r.status == 403 => {
+                Ok(r) if r.status == 403 && req.forbidden_pauses => {
                     return Err(NetError::RateLimited {
                         host: host_of(&req.url),
                         status: 403,
@@ -399,6 +476,17 @@ mod tests {
         fn get(&self, _: &HttpRequest) -> Result<HttpResponse, NetError> {
             Err(NetError::Timeout)
         }
+    }
+
+    #[test]
+    fn plain_authority_refuses_ports_out_of_range() {
+        assert!(plain_authority("https://cdn2.steamgriddb.com/a.png"));
+        assert!(plain_authority("http://127.0.0.1:65535/a.png"));
+        assert!(plain_authority("http://[::1]:8080/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:65536/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:99999/a.png"));
+        assert!(!plain_authority("http://[::1]:70000/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:/a.png"));
     }
 
     #[test]

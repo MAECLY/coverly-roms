@@ -8,6 +8,7 @@ pub mod library;
 pub mod logging;
 pub mod prefs;
 pub mod profiles;
+pub mod sources;
 pub mod state;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
@@ -72,6 +73,8 @@ pub fn run() {
             ipc::credential_status,
             ipc::set_credential,
             ipc::clear_credential,
+            ipc::sources_info,
+            ipc::test_source_key,
             ipc::search_entry_art,
             ipc::entry_search_art,
             ipc::set_entry_art_from_search,

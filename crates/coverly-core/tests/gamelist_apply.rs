@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 
 use coverly_core::art::resolve_art;
 use coverly_core::cache::Cache;
+use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::ApplyOptions;
@@ -87,6 +88,7 @@ fn run_with(
         libretro: server.base(),
         libretro_raw: server.url("/raw"),
         database: server.base(),
+        ..Endpoints::default()
     };
     let cache_dir = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
@@ -96,6 +98,7 @@ fn run_with(
         endpoints: &endpoints,
         cache_dir: cache_dir.path(),
         data_dir: data.path(),
+        keys: &SourceKeys::default(),
     };
     let profile = common::profile("batocera");
     let db = SystemDb::builtin();
@@ -233,6 +236,7 @@ fn a_profile_without_the_gamelist_flag_never_touches_one() {
             libretro: server.base(),
             libretro_raw: server.url("/raw"),
             database: server.base(),
+            ..Endpoints::default()
         };
         let cache_dir = tempfile::tempdir().unwrap();
         let data = tempfile::tempdir().unwrap();
@@ -242,6 +246,7 @@ fn a_profile_without_the_gamelist_flag_never_touches_one() {
             endpoints: &endpoints,
             cache_dir: cache_dir.path(),
             data_dir: data.path(),
+            keys: &SourceKeys::default(),
         };
         let mut profile = common::profile("batocera");
         profile.gamelist = false;
@@ -310,6 +315,7 @@ fn a_symlinked_gamelist_is_never_followed() {
             libretro: server.base(),
             libretro_raw: server.url("/raw"),
             database: server.base(),
+            ..Endpoints::default()
         };
         let cache_dir = tempfile::tempdir().unwrap();
         let data = tempfile::tempdir().unwrap();
@@ -319,6 +325,7 @@ fn a_symlinked_gamelist_is_never_followed() {
             endpoints: &endpoints,
             cache_dir: cache_dir.path(),
             data_dir: data.path(),
+            keys: &SourceKeys::default(),
         };
         let profile = common::profile("batocera");
         let db = SystemDb::builtin();

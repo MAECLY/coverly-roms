@@ -235,7 +235,31 @@ export interface CandidateView {
   kind: MatchKind;
   score: number;
   confidence: number;
+  /** Community votes (SteamGridDB), when the source has them. */
+  votes: Votes | null;
+  /** Where in the source it came from (ids, never a credential). */
+  origin: string | null;
+  /** Why it was chosen: only on index 0 of a plan item. */
+  reason: PickReason | null;
 }
+
+export interface Votes {
+  up: number;
+  down: number;
+}
+
+/** Why the chosen image beat the next one (the UI localises it). */
+export type PickReason =
+  | { why: 'only' }
+  | { why: 'better-match' }
+  | { why: 'release' }
+  | { why: 'votes'; score: number; next: number }
+  | { why: 'consensus'; count: number; next: number }
+  | { why: 'source-order'; source: string }
+  | { why: 'region'; rom: boolean }
+  | { why: 'language' }
+  | { why: 'tie' }
+  | { why: 'user' };
 
 export type ActionKind = 'auto' | 'review' | 'none';
 export type NoneKind =
@@ -471,6 +495,29 @@ export const CREDENTIAL_KEYS: readonly CredentialKey[] = [
   'screenscraper-user',
   'screenscraper-password',
 ];
+
+/** What "Test key" found (never the key itself). */
+export type KeyCheck =
+  'ok' | 'invalid' | 'missing' | 'offline' | 'rate-limited' | 'unavailable';
+export const KEY_CHECKS: readonly KeyCheck[] = [
+  'ok',
+  'invalid',
+  'missing',
+  'offline',
+  'rate-limited',
+  'unavailable',
+];
+
+/** One source as the Sources settings show it. */
+export interface SourceInfo {
+  id: SourceId;
+  /** This build can use it (ScreenScraper needs developer credentials). */
+  built: boolean;
+  /** Credentials it needs before it can run. */
+  needs: CredentialKey[];
+  /** Built and every needed credential stored. */
+  ready: boolean;
+}
 
 export interface CredentialStatus {
   available: boolean;

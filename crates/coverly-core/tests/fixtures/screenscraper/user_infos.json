@@ -1,0 +1,10 @@
+{
+  "response": {
+    "ssuser": {
+      "id": "me",
+      "maxthreads": "1",
+      "requeststoday": "0",
+      "maxrequestsperday": "20000"
+    }
+  }
+}

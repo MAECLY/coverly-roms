@@ -809,6 +809,9 @@ body {
 
 .candidate {
   display: grid;
+  /* Cards in a row share the tallest height: keep the rows at the top
+     instead of stretching them (which stretched the source badge). */
+  align-content: start;
   gap: 0.25rem;
   min-width: 0;
   padding: 0.5rem;
@@ -821,6 +824,33 @@ body {
 
 .candidate[aria-pressed='true'] {
   border-color: var(--cr-accent, rgb(59 130 246));
+}
+
+/* Which source a candidate comes from: a small pill tinted per source,
+   text in the theme colour so it stays readable in light and dark. */
+.source-badge {
+  --badge: var(--cr-text-muted);
+  justify-self: start;
+  max-width: 100%;
+  padding: 0 0.4rem;
+  border: 1px solid var(--badge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--badge) 14%, transparent);
+  color: var(--cr-text);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.source-badge[data-source='libretro'] {
+  --badge: #0e7490;
+}
+
+.source-badge[data-source='steamgriddb'] {
+  --badge: #7c3aed;
+}
+
+.source-badge[data-source='screenscraper'] {
+  --badge: #b45309;
 }
 
 .jobs {

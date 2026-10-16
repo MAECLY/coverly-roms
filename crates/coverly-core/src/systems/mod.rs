@@ -33,6 +33,9 @@ pub struct System {
     /// libretro-database files (repo-relative) to identify ROMs with;
     /// empty = derived from the libretro name.
     pub dats: Vec<String>,
+    /// ScreenScraper system id (`systemesListe.php`); `None` = not
+    /// available on ScreenScraper.
+    pub screenscraper: Option<u32>,
 }
 
 /// Errors loading a systems TOML file.
@@ -86,6 +89,7 @@ struct RawSystem {
     multi_file: Option<bool>,
     header: Option<String>,
     dats: Option<Vec<String>>,
+    screenscraper: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,7 +117,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade`, `multi_file`, `header` and `dats` replace the current values when given;
+    /// `arcade`, `multi_file`, `header`, `dats` and `screenscraper` replace the current values when given;
     /// `aliases` and `extensions` are added to the current lists. An alias
     /// claimed by an override is removed from any other system, so the user
     /// file always wins. An entry with a new `id` is appended and must have a
@@ -187,6 +191,7 @@ impl SystemDb {
                     multi_file: false,
                     header: HeaderRule::Plain,
                     dats: Vec::new(),
+                    screenscraper: None,
                 });
                 self.systems.len() - 1
             }
@@ -209,6 +214,9 @@ impl SystemDb {
         }
         if let Some(dats) = raw.dats {
             system.dats = dats;
+        }
+        if raw.screenscraper.is_some() {
+            system.screenscraper = raw.screenscraper;
         }
         for alias in aliases {
             let key = alias.to_lowercase();
@@ -446,6 +454,20 @@ mod tests {
             .with_overrides("[[system]]\nid = \"neogeo\"\ndats = [\"dat/One.dat\"]\n")
             .unwrap();
         assert_eq!(db.get("neogeo").unwrap().dats, ["dat/One.dat"]);
+    }
+
+    #[test]
+    fn screenscraper_ids_are_built_in_and_overridable() {
+        let db = SystemDb::builtin();
+        assert_eq!(db.get("gba").unwrap().screenscraper, Some(12));
+        assert_eq!(db.get("snes").unwrap().screenscraper, Some(4));
+        assert_eq!(db.get("neogeo").unwrap().screenscraper, Some(142));
+        assert_eq!(db.get("pico8").unwrap().screenscraper, None);
+        let db = db
+            .with_overrides("[[system]]\nid = \"pico8\"\nscreenscraper = 234\n")
+            .unwrap();
+        assert_eq!(db.get("pico8").unwrap().screenscraper, Some(234));
+        assert_eq!(db.get("gba").unwrap().screenscraper, Some(12), "kept");
     }
 
     #[test]

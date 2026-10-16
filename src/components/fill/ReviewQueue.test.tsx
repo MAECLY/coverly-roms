@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -15,19 +16,22 @@ import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import { mockClass, mockFailure } from '@/ipc/mock/mockJobs';
-import type { JobItemView } from '@/ipc/types';
+import type { JobItemView, StrategyKind } from '@/ipc/types';
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
+import { MemoryStorage } from '@/test/storage';
 
-async function planned(locale: 'en' | 'es' = 'en') {
-  const backend = createMockBackend({
-    delayMs: 0,
-    now: FIXTURE_NOW,
-    pauseAfter: null,
-  });
+type Backend = ReturnType<typeof createMockBackend>;
+
+/** Opens library 1 with `backend`, plans a cover fill and waits for the plan. */
+async function start(
+  backend: Backend,
+  strategy: StrategyKind = 'rom-region',
+  locale: 'en' | 'es' = 'en',
+) {
   setBackend(backend);
   resetLibraryStore();
   useJobStore.getState().reset();
@@ -41,17 +45,41 @@ async function planned(locale: 'en' | 'es' = 'en') {
   await useJobStore.getState().start(view.generation, {
     entry_ids: null,
     media: ['cover'],
-    strategy: 'rom-region',
+    strategy,
     regions: [...DEFAULT_REGION_ORDER],
     overwrite: 'never',
   });
   await waitFor(() =>
     expect(useJobStore.getState().job?.state).toBe('planned'),
   );
+  return view;
+}
+
+async function planned(locale: 'en' | 'es' = 'en') {
+  const backend = createMockBackend({
+    delayMs: 0,
+    now: FIXTURE_NOW,
+    pauseAfter: null,
+  });
+  const view = await start(backend, 'rom-region', locale);
   const review = view.entries.filter(
     (e) => e.art.cover === 'missing' && mockClass(e.id, 'cover') === 'review',
   );
   return { backend, view, review };
+}
+
+/** `start` + open the queue in the locale's own words. */
+async function startAndOpen(
+  backend: Backend,
+  strategy: StrategyKind,
+  locale: 'en' | 'es',
+) {
+  await start(backend, strategy, locale);
+  return openQueue(
+    locale === 'en'
+      ? 'Review doubtful matches'
+      : 'Revisar coincidencias dudosas',
+  );
 }
 
 function openQueue(name = 'Review doubtful matches') {
@@ -84,10 +112,57 @@ describe('Review queue', () => {
     const buttons = within(group).getAllByRole('button');
     expect(buttons.length).toBeGreaterThanOrEqual(2);
     expect(buttons[0]).toHaveAttribute('aria-pressed', 'true');
-    expect(within(group).getByText(/^1\. libretro · /)).toBeInTheDocument();
+    expect(
+      within(group).getByText(/^1\. libretro-thumbnails · /),
+    ).toBeInTheDocument();
     expect(
       within(dialog).getByText(`1 of ${review.length} · 0 decided`),
     ).toBeInTheDocument();
+  });
+
+  it('shows the source, the votes and why the first image was chosen', async () => {
+    await planned();
+    const dialog = await openQueue();
+    const group = within(dialog).getByRole('group', { name: 'Candidates' });
+    expect(
+      within(group).getAllByText('libretro-thumbnails').length,
+    ).toBeGreaterThan(0);
+    expect(within(group).getByText(/^Why: /)).toBeInTheDocument();
+    expect(
+      group.querySelector('.source-badge[data-source="libretro"]'),
+    ).not.toBeNull();
+  });
+
+  it('popularity with SteamGridDB shows votes and a votes reason, in Spanish too', async () => {
+    for (const locale of ['en', 'es'] as const) {
+      const backend = createMockBackend({
+        delayMs: 0,
+        now: FIXTURE_NOW,
+        pauseAfter: null,
+        storage: new MemoryStorage(),
+      });
+      await backend.updateSettings({
+        sources: {
+          order: [
+            { id: 'libretro', enabled: true },
+            { id: 'steamgriddb', enabled: true },
+            { id: 'screenscraper', enabled: false },
+          ],
+        },
+      });
+      await backend.setCredential('steamgriddb-api-key', 'sk');
+      const dialog = await startAndOpen(backend, 'popularity', locale);
+      const group = await within(dialog).findByRole('group');
+      const text = group.textContent ?? '';
+      expect(text).toMatch(
+        locale === 'en' ? /SteamGridDB.*votes \(▲/ : /SteamGridDB.*votos \(▲/,
+      );
+      expect(text).toContain(
+        locale === 'en' ? 'most SteamGridDB votes' : 'más votos en SteamGridDB',
+      );
+      cleanup();
+      setBackend(null);
+    }
   });
 
   it('opens from the wizard summary', async () => {
@@ -322,6 +397,9 @@ describe('Review queue', () => {
           kind: 'title-exact',
           score: 95,
           confidence: 0.95,
+          votes: null,
+          origin: null,
+          reason: null,
         },
       ],
       replaces_existing: false,

@@ -1,0 +1,49 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "url": "http://cdn2.steamgriddb.com/grid/1.png",
+      "mime": "image/png",
+      "width": 600,
+      "height": 900
+    },
+    {
+      "id": 2,
+      "url": "https://evil.example/grid/2.png",
+      "mime": "image/png",
+      "width": 600,
+      "height": 900
+    },
+    {
+      "id": 3,
+      "url": "https://user@cdn2.steamgriddb.com/grid/3.png",
+      "mime": "image/png"
+    },
+    { "id": 4, "url": "{{BASE}}/cdn/grid/4.png", "mime": "text/html" },
+    {
+      "id": 5,
+      "url": "{{BASE}}/cdn/grid/5.png",
+      "mime": "image/png",
+      "nsfw": true
+    },
+    {
+      "id": 6,
+      "url": "{{BASE}}/cdn/grid/6.png",
+      "mime": "image/png",
+      "upvotes": 99999999999
+    },
+    { "id": "seven", "url": "{{BASE}}/cdn/grid/7.png", "mime": "image/png" },
+    "not an object",
+    {
+      "id": 8,
+      "url": "{{BASE}}/cdn/grid/8.png",
+      "mime": "image/png",
+      "style": "alt‮\u0007",
+      "width": 600,
+      "height": 900,
+      "upvotes": 1,
+      "downvotes": 0
+    }
+  ]
+}

@@ -205,6 +205,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const revealed: number[] = [];
   let generation = 0;
   let current: LibraryView | null = null;
+  const settings = createMockSettings({
+    storage: opts.storage === undefined ? defaultStorage() : opts.storage,
+    builtins: [...MOCK_BUILTIN_PROFILES],
+  });
   const jobs = createMockJobs(
     {
       current: () => current,
@@ -221,16 +225,14 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       },
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
+      sgdbReady: () => settings.isSourceReady('steamgriddb'),
+      sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
     },
     {
       pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
       pick: opts.pick ?? 'image',
     },
   );
-  const settings = createMockSettings({
-    storage: opts.storage === undefined ? defaultStorage() : opts.storage,
-    builtins: [...MOCK_BUILTIN_PROFILES],
-  });
   let recents: RecentLibrary[] = [
     ...MOCK_LIBRARIES.map((l, i) => ({
       path: l.path,

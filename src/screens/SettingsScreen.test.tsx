@@ -253,6 +253,37 @@ describe('Settings screen', () => {
     );
   });
 
+  it('ignores a key test that ends after the key was saved or removed', async () => {
+    await start();
+    act(() => useNavStore.getState().openSettings('sources'));
+    await backend.setCredential('steamgriddb-api-key', 'sk-old');
+    const pending: ((v: 'ok' | 'invalid') => void)[] = [];
+    backend.testSourceKey = () =>
+      new Promise((resolve) => pending.push(resolve));
+    const field = await screen.findByLabelText('SteamGridDB API key');
+    const testButton = await screen.findByRole('button', {
+      name: 'Test the SteamGridDB API key',
+    });
+    await waitFor(() => expect(testButton).toBeEnabled());
+    // Test the old key, then save a new one before the answer comes.
+    await userEvent.click(testButton);
+    await userEvent.type(field, 'sk-new');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Save SteamGridDB API key' }),
+    );
+    await act(async () => pending.shift()!('invalid'));
+    expect(screen.queryByText('The key was refused.')).not.toBeInTheDocument();
+    // Test again, then remove the key before the answer comes.
+    await waitFor(() => expect(testButton).toBeEnabled());
+    await userEvent.click(testButton);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove SteamGridDB API key' }),
+    );
+    await act(async () => pending.shift()!('ok'));
+    expect(screen.queryByText('The key works.')).not.toBeInTheDocument();
+    expect(testButton).not.toHaveTextContent('Testing…');
+  });
+
   it('shows About with the licence and opens fixed links only', async () => {
     await start();
     act(() => useNavStore.getState().openSettings('about'));

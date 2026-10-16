@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "data": [
+    { "id": 1, "name": "DOOM", "types": ["steam"], "verified": true },
+    { "id": 2, "name": "Doom", "types": ["steam"], "verified": true }
+  ]
+}

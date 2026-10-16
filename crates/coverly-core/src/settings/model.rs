@@ -16,8 +16,22 @@ pub const SETTINGS_VERSION: u32 = 2;
 pub const MAX_RECENT: usize = 10;
 /// Every art source the settings know, in default order.
 pub const KNOWN_SOURCES: [&str; 3] = ["libretro", "steamgriddb", "screenscraper"];
-/// Sources this build can use; the others stay off until they ship (M6).
-pub const AVAILABLE_SOURCES: [&str; 1] = ["libretro"];
+
+/// Sources this build can use: libretro and SteamGridDB always (SteamGridDB
+/// is skipped at fill time without a key), ScreenScraper only with
+/// developer credentials (D36).
+pub fn available_sources() -> Vec<&'static str> {
+    available_sources_with(crate::credentials::DevCredentials::from_build().is_some())
+}
+
+/// [`available_sources`] for a build with (`true`) or without ScreenScraper.
+pub fn available_sources_with(screenscraper: bool) -> Vec<&'static str> {
+    let mut v = vec!["libretro", "steamgriddb"];
+    if screenscraper {
+        v.push("screenscraper");
+    }
+    v
+}
 
 macro_rules! choice {
     ($(#[$doc:meta])* $name:ident { $(#[$d:meta])* $default:ident $(, $other:ident)* }) => {
@@ -255,7 +269,7 @@ impl Default for SourcesSettings {
                 .iter()
                 .map(|id| SourceEntry {
                     id: (*id).to_string(),
-                    enabled: AVAILABLE_SOURCES.contains(id),
+                    enabled: *id == "libretro",
                 })
                 .collect(),
         }
@@ -402,12 +416,13 @@ impl Settings {
             }
         }
         self.matching.languages = langs;
+        let available = available_sources();
         let mut order: Vec<SourceEntry> = Vec::new();
         for e in &self.sources.order {
             if KNOWN_SOURCES.contains(&e.id.as_str()) && !order.iter().any(|o| o.id == e.id) {
                 order.push(SourceEntry {
                     id: e.id.clone(),
-                    enabled: e.enabled && AVAILABLE_SOURCES.contains(&e.id.as_str()),
+                    enabled: e.enabled && available.contains(&e.id.as_str()),
                 });
             }
         }

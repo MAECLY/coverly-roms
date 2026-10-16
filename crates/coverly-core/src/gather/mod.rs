@@ -1,6 +1,8 @@
 //! Phase one of a fill (spec §7 steps 3–5, §16.1): pick the ROMs and media
 //! to fill, identify each ROM and gather art candidates from every enabled
-//! source into the SQLite cache. Nothing is downloaded but indexes and DATs;
+//! source, in the user's order, merged per ROM and media (D34), into the
+//! SQLite cache. A source whose key, account or quota is refused is skipped
+//! for the rest of the run with one warning. Nothing is downloaded but indexes and DATs;
 //! nothing is written to the library. A rate limit or a transport failure
 //! (offline, timed out) pauses the phase (spec §10).
 
@@ -13,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::art::{ArtState, SystemArt};
 use crate::cache::{now_unix, Cache};
 use crate::identify::dat::DatError;
-use crate::identify::names;
+use crate::identify::names::{self, Region};
 use crate::identify::{IdMethod, Identifier, Identity};
 use crate::profiles::Media;
 use crate::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
@@ -23,8 +25,10 @@ use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceErro
 use crate::systems::{System, SystemDb};
 
 /// Cache namespace of gathered candidate lists; bumped with the libretro
-/// listing namespaces so lists built from older parsed names are not reused.
-const NS: &str = "candidates-2";
+/// listing namespaces so lists built from older parsed names are not reused,
+/// and bumped for M6: votes became `Votes`, `origin` added, consensus counts
+/// other sources.
+const NS: &str = "candidates-3";
 
 /// Which ROMs get art: only those missing it, or every one (overwrite).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,6 +191,8 @@ pub fn gather(
     // Systems whose identification failure was already reported: a DAT that
     // cannot be read fails every ROM of the system the same way.
     let mut warned = BTreeSet::new();
+    // Sources that refused the run (key, account, quota): source id → why.
+    let mut skipped: BTreeMap<String, String> = BTreeMap::new();
     let total = targets.len();
     progress.event(ProgressEvent::Started {
         phase: Phase::Gather,
@@ -231,7 +237,13 @@ pub fn gather(
         let mut paused = None;
         'media: for &media in &t.media {
             let mut all = Vec::new();
+            let mut errors: Vec<String> = Vec::new();
             for &src in sources {
+                if let Some(why) = skipped.get(src.id()) {
+                    // Said again per item, so a plan with nothing else says why.
+                    errors.push(why.clone());
+                    continue;
+                }
                 match source_candidates(src, system, media, &item.identity, t, cache, opts) {
                     Ok(found) => all.extend(found),
                     Err(SourceError::Net(e)) if e.pauses() => {
@@ -239,12 +251,20 @@ pub fn gather(
                         paused = Some((e.to_string(), e.pause_kind()));
                         break 'media;
                     }
-                    Err(e) => {
-                        item.errors.insert(media, e.to_string());
+                    Err(e) if e.is_source_wide() => {
+                        let w = e.to_string();
+                        progress.event(ProgressEvent::Warning(w.clone()));
+                        out.warnings.push(w.clone());
+                        errors.push(w.clone());
+                        skipped.insert(src.id().to_string(), w);
                     }
+                    Err(e) => errors.push(e.to_string()),
                 }
             }
-            sort_candidates(&mut all);
+            if !errors.is_empty() {
+                item.errors.insert(media, errors.join("; "));
+            }
+            merge_candidates(&mut all, opts.consensus);
             item.candidates.insert(media, all);
         }
         // A paused item keeps what was gathered before the pause; the media
@@ -267,6 +287,44 @@ pub fn gather(
         phase: Phase::Gather,
     });
     out
+}
+
+/// Merges the candidates every source offered for one ROM and media:
+/// drops repeats of one image (same source and URL; the strongest kept),
+/// adds cross-source agreement to `consensus` when `consensus` is on
+/// (D34: another source with the same title in an overlapping region,
+/// each source counted once), and sorts strongest first. `source` and
+/// `origin` stay on each candidate.
+pub fn merge_candidates(all: &mut Vec<Candidate>, consensus: bool) {
+    sort_candidates(all);
+    let mut seen = BTreeSet::new();
+    all.retain(|c| seen.insert((c.source.clone(), c.url.clone())));
+    if consensus {
+        let info: Vec<(String, String, Vec<Region>)> = all
+            .iter()
+            .map(|c| {
+                (
+                    c.source.clone(),
+                    names::parse_name(&c.name, false).key,
+                    c.regions.clone(),
+                )
+            })
+            .collect();
+        for (i, c) in all.iter_mut().enumerate() {
+            let (src, key, regions) = &info[i];
+            if key.is_empty() || regions.is_empty() {
+                continue;
+            }
+            let agreeing: BTreeSet<&str> = info
+                .iter()
+                .filter(|(s, k, r)| s != src && k == key && r.iter().any(|x| regions.contains(x)))
+                .map(|(s, _, _)| s.as_str())
+                .collect();
+            let n = u8::try_from(agreeing.len()).unwrap_or(u8::MAX);
+            c.consensus = c.consensus.saturating_add(n);
+        }
+    }
+    sort_candidates(all);
 }
 
 /// The candidates of one source for one ROM and media: from the cache when
@@ -299,6 +357,14 @@ fn source_candidates(
         fuzzy: opts.fuzzy,
         min_score: opts.min_score,
         max_candidates: opts.max_candidates,
+        hash: identity.hash.as_ref(),
+        size: t.rom.size,
+        file_name: t
+            .rom
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&t.rom.stem),
     };
     let mut found = src.candidates(&q)?;
     if opts.consensus {

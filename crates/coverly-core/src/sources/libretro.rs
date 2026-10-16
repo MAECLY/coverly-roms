@@ -357,6 +357,7 @@ impl<'a> LibretroSource<'a> {
             score,
             votes: None,
             consensus: 0,
+            origin: None,
         }
     }
 }

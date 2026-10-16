@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 
 use coverly_core::art::resolve_art;
 use coverly_core::cache::Cache;
+use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{
     remove_art, write_local_image, ArtError, Endpoints, FillEnv, FillSettings, ManualOptions,
     RomRef, KEEP_JOBS,
@@ -36,6 +37,7 @@ struct World {
     http: PoliteHttp<UreqHttp>,
     cache: Cache,
     endpoints: Endpoints,
+    keys: SourceKeys,
 }
 
 fn world() -> World {
@@ -72,6 +74,7 @@ fn world() -> World {
             libretro: server.base(),
             libretro_raw: server.url("/raw"),
             database: server.base(),
+            ..Endpoints::default()
         },
         http: PoliteHttp::new(UreqHttp::new(&cfg), &cfg),
         cache: Cache::in_memory().unwrap(),
@@ -79,6 +82,7 @@ fn world() -> World {
         cache_dir: TempDir::new().unwrap(),
         data: TempDir::new().unwrap(),
         server,
+        keys: SourceKeys::default(),
     }
 }
 
@@ -90,6 +94,7 @@ impl World {
             endpoints: &self.endpoints,
             cache_dir: self.cache_dir.path(),
             data_dir: self.data.path(),
+            keys: &self.keys,
         }
     }
 

@@ -26,8 +26,12 @@ export const KNOWN_SOURCES: readonly SourceId[] = [
   'steamgriddb',
   'screenscraper',
 ];
-/** Sources this build can use; the others stay off until they ship. */
-export const AVAILABLE_SOURCES: readonly SourceId[] = ['libretro'];
+/** Sources the mock build can use (mirrors Rust without ScreenScraper dev
+ * credentials); the others are normalised off. */
+export const AVAILABLE_SOURCES: readonly SourceId[] = [
+  'libretro',
+  'steamgriddb',
+];
 
 export const DEFAULT_SETTINGS: Settings = {
   version: 2,

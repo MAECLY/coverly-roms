@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use coverly_core::art::{resolve_art, RomArt, SystemArt};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::{ApplyOptions, ItemStatus, JobReport};
@@ -50,6 +51,9 @@ pub struct FillConfig {
     /// Where manual identities live: the app's own data dir, so moving the
     /// backup location never forgets them (D32).
     pub overrides_dir: PathBuf,
+    /// Source credentials read when the job started (never re-read by
+    /// workers; redacted in `Debug`).
+    pub keys: SourceKeys,
 }
 
 impl FillConfig {
@@ -62,6 +66,7 @@ impl FillConfig {
             endpoints: Endpoints::default(),
             net: NetConfig::default(),
             settings: Settings::default(),
+            keys: SourceKeys::default(),
         }
     }
 }
@@ -100,6 +105,7 @@ pub fn with_env<T>(
         endpoints: &cfg.endpoints,
         cache_dir: &cfg.cache_dir,
         data_dir: &cfg.data_dir,
+        keys: &cfg.keys,
     };
     f(&env)
 }

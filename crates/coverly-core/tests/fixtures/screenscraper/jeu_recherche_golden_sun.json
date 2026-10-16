@@ -1,0 +1,12 @@
+{
+  "response": {
+    "jeux": [
+      {},
+      {
+        "id": "3",
+        "noms": [{ "region": "wor", "text": "Golden Sun" }],
+        "medias": [{ "type": "box-2D", "parent": "jeu", "region": "us" }]
+      }
+    ]
+  }
+}

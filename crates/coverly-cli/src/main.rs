@@ -35,8 +35,8 @@ enum Command {
     /// Report which ROMs of a library lack cover, screenshot or title art
     /// (read-only).
     Audit(audit::AuditArgs),
-    /// Fill missing art from libretro-thumbnails (dry run unless --apply).
-    Fill(fill::FillArgs),
+    /// Fill missing art from the enabled sources (dry run unless --apply).
+    Fill(Box<fill::FillArgs>),
     /// List the built-in and custom layout profiles.
     Profiles,
     /// List the known systems and their folder aliases.

@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::art::SystemArt;
 use crate::cache::Cache;
+use crate::credentials::SourceKeys;
 use crate::gamelist::{merge_into, rel_slash, GameArt};
 use crate::gather::{gather, select_targets, GatherOptions, Scope, TargetFilter};
 use crate::identify::dat::{DatStore, DATABASE_BASE};
@@ -25,6 +26,10 @@ use crate::progress::{NoProgress, ProgressSink};
 use crate::sources::libretro::{
     LibretroConfig, LibretroSource, INDEX_TTL_SECS, LIBRETRO_BASE, LIBRETRO_RAW_BASE,
 };
+use crate::sources::screenscraper::{
+    self, ScreenScraperSource, SsConfig, GAME_TTL_SECS, SCREENSCRAPER_BASE,
+};
+use crate::sources::steamgriddb::{self, SgdbConfig, SteamGridDbSource, STEAMGRIDDB_BASE};
 use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError};
 use crate::systems::{System, SystemDb};
 use crate::write::{
@@ -49,6 +54,8 @@ pub struct Endpoints {
     pub libretro: String,
     pub libretro_raw: String,
     pub database: String,
+    pub steamgriddb: String,
+    pub screenscraper: String,
 }
 
 impl Default for Endpoints {
@@ -57,6 +64,8 @@ impl Default for Endpoints {
             libretro: LIBRETRO_BASE.to_string(),
             libretro_raw: LIBRETRO_RAW_BASE.to_string(),
             database: DATABASE_BASE.to_string(),
+            steamgriddb: STEAMGRIDDB_BASE.to_string(),
+            screenscraper: SCREENSCRAPER_BASE.to_string(),
         }
     }
 }
@@ -154,6 +163,74 @@ pub struct FillEnv<'a> {
     pub cache_dir: &'a Path,
     /// Holds journals and backups.
     pub data_dir: &'a Path,
+    /// The credentials snapshot of this job (read once by the host: the
+    /// keychain in the app, the environment in the CLI).
+    pub keys: &'a SourceKeys,
+}
+
+/// Warning of a plan whose enabled SteamGridDB has no key.
+pub const SGDB_NO_KEY_WARNING: &str = "steamgriddb: no API key stored; skipped";
+/// Warning of a plan whose enabled ScreenScraper this build cannot use.
+pub const SS_UNAVAILABLE_WARNING: &str = "screenscraper: not available in this build; skipped";
+
+/// The sources one fill can use: libretro and SteamGridDB always (its
+/// images come from the CDN without the key, so a plan made with a key can
+/// still be applied or previewed after the key is removed), ScreenScraper
+/// only with this build's developer credentials. Only *asking* SteamGridDB
+/// for candidates needs the key: [`Sources::enabled`] leaves it out
+/// without one.
+pub struct Sources<'e> {
+    libretro: LibretroSource<'e>,
+    steamgriddb: SteamGridDbSource<'e>,
+    sgdb_has_key: bool,
+    screenscraper: Option<ScreenScraperSource<'e>>,
+}
+
+impl Sources<'_> {
+    /// Any source this build has (fetching, previews, apply).
+    pub fn by_id(&self, id: &str) -> Option<&dyn ArtSource> {
+        match id {
+            "libretro" => Some(&self.libretro),
+            steamgriddb::SOURCE_ID => Some(&self.steamgriddb),
+            screenscraper::SOURCE_ID => self.screenscraper.as_ref().map(|s| s as &dyn ArtSource),
+            _ => None,
+        }
+    }
+
+    /// The sources to *ask* for candidates, in `ids` order (each once), and
+    /// one warning per enabled source that cannot run.
+    pub fn enabled(&self, ids: &[String]) -> (Vec<&dyn ArtSource>, Vec<String>) {
+        let mut on: Vec<&dyn ArtSource> = Vec::new();
+        let mut warnings = Vec::new();
+        let mut seen: Vec<&str> = Vec::new();
+        for id in ids {
+            if seen.contains(&id.as_str()) {
+                continue;
+            }
+            seen.push(id);
+            let usable = id != steamgriddb::SOURCE_ID || self.sgdb_has_key;
+            match self.by_id(id).filter(|_| usable) {
+                Some(s) => on.push(s),
+                None => warnings.push(match id.as_str() {
+                    steamgriddb::SOURCE_ID => SGDB_NO_KEY_WARNING.to_string(),
+                    screenscraper::SOURCE_ID => SS_UNAVAILABLE_WARNING.to_string(),
+                    other => format!(
+                        "{}: unknown source; skipped",
+                        crate::sources::clean_text(other, 40).unwrap_or_default()
+                    ),
+                }),
+            }
+        }
+        (on, warnings)
+    }
+
+    /// Every source this build has, in default order.
+    pub fn all(&self) -> Vec<&dyn ArtSource> {
+        ["libretro", steamgriddb::SOURCE_ID, screenscraper::SOURCE_ID]
+            .iter()
+            .filter_map(|id| self.by_id(id))
+            .collect()
+    }
 }
 
 /// One ROM, for writes outside a plan.
@@ -208,6 +285,43 @@ fn spec_for(
 }
 
 impl FillEnv<'_> {
+    /// The sources of this job; `refresh` ignores cached listings and
+    /// `ttl_secs` is how long a libretro index stays fresh.
+    pub fn sources(&self, refresh: bool, ttl_secs: i64) -> Sources<'_> {
+        let mut sg = SgdbConfig {
+            base: self.endpoints.steamgriddb.clone(),
+            ..SgdbConfig::default()
+        };
+        if refresh {
+            sg.search_ttl_secs = 0;
+            sg.grids_ttl_secs = 0;
+        }
+        Sources {
+            libretro: self.libretro(refresh, ttl_secs),
+            steamgriddb: SteamGridDbSource::new(
+                self.http,
+                self.cache,
+                self.keys.steamgriddb.clone(),
+                sg,
+            ),
+            sgdb_has_key: self.keys.steamgriddb.is_some(),
+            screenscraper: self.keys.screenscraper_dev.clone().map(|dev| {
+                let cfg = SsConfig {
+                    base: self.endpoints.screenscraper.clone(),
+                    ttl_secs: if refresh { 0 } else { GAME_TTL_SECS },
+                    ..SsConfig::default()
+                };
+                ScreenScraperSource::new(
+                    self.http,
+                    self.cache,
+                    dev,
+                    self.keys.screenscraper_user.clone(),
+                    cfg,
+                )
+            }),
+        }
+    }
+
     fn libretro(&self, refresh: bool, ttl_secs: i64) -> LibretroSource<'_> {
         let cfg = LibretroConfig {
             base: self.endpoints.libretro.clone(),
@@ -254,12 +368,8 @@ impl FillEnv<'_> {
             },
         )
         .with_overrides(&overrides);
-        let libretro = self.libretro(settings.refresh, settings.index_ttl_secs);
-        let sources: Vec<&dyn ArtSource> = if settings.sources.iter().any(|s| s == libretro.id()) {
-            vec![&libretro]
-        } else {
-            Vec::new()
-        };
+        let all = self.sources(settings.refresh, settings.index_ttl_secs);
+        let (sources, skipped) = all.enabled(&settings.sources);
         let gopts = GatherOptions {
             consensus: settings.strategy == StrategyKind::Popularity,
             refresh: settings.refresh,
@@ -277,7 +387,7 @@ impl FillEnv<'_> {
             progress,
             cancel,
         );
-        build_plan(
+        let mut plan = build_plan(
             root,
             profile,
             systems,
@@ -291,7 +401,9 @@ impl FillEnv<'_> {
                 languages: settings.languages.clone(),
                 ..PlanOptions::default()
             },
-        )
+        );
+        plan.warnings.splice(0..0, skipped);
+        plan
     }
 
     /// Phase two: applies `plan`, then keeps the newest `opts.keep_jobs`
@@ -309,8 +421,8 @@ impl FillEnv<'_> {
         progress: &dyn ProgressSink,
         cancel: &AtomicBool,
     ) -> Result<JobReport, WriteError> {
-        let libretro = self.libretro(false, INDEX_TTL_SECS);
-        let sources: Vec<&dyn ArtSource> = vec![&libretro];
+        let all = self.sources(false, INDEX_TTL_SECS);
+        let sources = all.all();
         let store = ArtStore::new(self.cache_dir, self.cache);
         let report = apply_plan(
             plan,
@@ -341,8 +453,9 @@ impl FillEnv<'_> {
         settings: &FillSettings,
     ) -> Result<Vec<Candidate>, ArtError> {
         let q = clean_query(query)?;
-        let libretro = self.libretro(settings.refresh, settings.index_ttl_secs);
-        if !settings.sources.iter().any(|s| s == libretro.id()) {
+        let all = self.sources(settings.refresh, settings.index_ttl_secs);
+        let (sources, _) = all.enabled(&settings.sources);
+        if sources.is_empty() {
             return Ok(Vec::new());
         }
         let parsed = crate::identify::names::parse_name(&q, false);
@@ -356,11 +469,25 @@ impl FillEnv<'_> {
             fuzzy: true,
             min_score: SEARCH_MIN_SCORE,
             max_candidates: SEARCH_LIMIT,
+            hash: None,
+            size: 0,
+            file_name: &q,
         };
-        let mut found = libretro.candidates(&query)?;
+        let mut found = Vec::new();
+        for source in &sources {
+            match source.candidates(&query) {
+                Ok(c) => found.extend(c),
+                Err(SourceError::Net(e)) if e.pauses() => {
+                    return Err(ArtError::Paused(e.to_string()))
+                }
+                // A refused key, a bad answer or a missing listing only
+                // loses that source's candidates.
+                Err(_) => {}
+            }
+        }
         sort_candidates(&mut found);
         let mut seen = std::collections::BTreeSet::new();
-        found.retain(|c| seen.insert((c.source.clone(), c.name.clone())));
+        found.retain(|c| seen.insert((c.source.clone(), c.url.clone())));
         found.truncate(SEARCH_LIMIT);
         Ok(found)
     }
@@ -391,6 +518,7 @@ impl FillEnv<'_> {
             canonical: Some(c.name.clone()),
             replaces_existing: target.exists(),
             note: None,
+            reason: Some(crate::matching::PickReason::User),
             system_dir: rom.system_dir.to_path_buf(),
             action: PlanAction::Auto {
                 chosen: c.clone(),
@@ -419,14 +547,14 @@ impl FillEnv<'_> {
         c: &Candidate,
     ) -> Result<ProcessedImage, ArtError> {
         let spec = spec_for(profile, c.media, Fit::Contain, 90)?;
-        let libretro = self.libretro(false, INDEX_TTL_SECS);
-        if c.source != libretro.id() {
-            return Err(ArtError::UnknownSource(c.source.clone()));
-        }
+        let all = self.sources(false, INDEX_TTL_SECS);
+        let src = all
+            .by_id(&c.source)
+            .ok_or_else(|| ArtError::UnknownSource(c.source.clone()))?;
         let store = ArtStore::new(self.cache_dir, self.cache);
         let (bytes, cached) = match store.get(&c.url) {
             Some(bytes) => (bytes, true),
-            None => (libretro.fetch(c)?, false),
+            None => (src.fetch(c)?, false),
         };
         let img = process_image(&bytes, &spec, &ImageLimits::default())?;
         if !cached {

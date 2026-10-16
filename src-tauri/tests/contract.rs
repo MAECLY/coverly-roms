@@ -1,14 +1,15 @@
 //! The wire contract shared with `src/ipc/types.ts`: Rust must serialise
 //! exactly `src/ipc/contract.sample.json`.
 
+use coverly_core::credentials::CredentialKey;
 use coverly_core::identify::names::Region;
 use coverly_core::identify::IdMethod;
 use coverly_core::jobs::ItemErrorKind;
-use coverly_core::matching::StrategyKind;
+use coverly_core::matching::{PickReason, StrategyKind};
 use coverly_core::plan::{Counts, Decision, PlanNote};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
-use coverly_core::sources::MatchKind;
+use coverly_core::sources::{KeyCheck, MatchKind, Votes};
 use coverly_core::write::OverwritePolicy;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::view::{
@@ -23,6 +24,7 @@ use coverly_roms_lib::library::view::{
     ArtMark, ArtMarks, EntryView, LibrarySettingsView, LibraryView, ProfileView, RecentView,
     ScanProgressEvent, SystemView, WarningView,
 };
+use coverly_roms_lib::sources::SourceInfoView;
 use serde_json::{json, Value};
 
 /// Every item error kind, in declaration order.
@@ -159,6 +161,9 @@ fn rust_serialises_the_shared_sample() {
                 kind: MatchKind::TitleExact,
                 score: 95,
                 confidence: 0.5,
+                votes: Some(Votes { up: 8, down: 1 }),
+                origin: Some("game 5248 · grid 80211".into()),
+                reason: Some(PickReason::Votes { score: 7, next: 2 }),
             }],
             replaces_existing: false,
             decision: Some(Decision::Pick { candidate: 0 }),
@@ -187,6 +192,9 @@ fn rust_serialises_the_shared_sample() {
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,
+        "source_info": SourceInfoView { id: "steamgriddb".into(), built: true, needs: vec![CredentialKey::SteamgriddbApiKey], ready: false },
+        "key_checks": [KeyCheck::Ok, KeyCheck::Invalid, KeyCheck::Missing, KeyCheck::Offline, KeyCheck::RateLimited, KeyCheck::Unavailable],
+        "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::Region { rom: true }, PickReason::User],
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();

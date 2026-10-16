@@ -226,7 +226,10 @@
         "regions": ["usa"],
         "kind": "title-exact",
         "score": 95,
-        "confidence": 0.5
+        "confidence": 0.5,
+        "votes": { "up": 8, "down": 1 },
+        "origin": "game 5248 · grid 80211",
+        "reason": { "why": "votes", "score": 7, "next": 2 }
       }
     ],
     "replaces_existing": false,
@@ -591,5 +594,26 @@
       "builtin": true,
       "mirror_subdirs": false
     }
+  ],
+  "source_info": {
+    "id": "steamgriddb",
+    "built": true,
+    "needs": ["steamgriddb-api-key"],
+    "ready": false
+  },
+  "key_checks": [
+    "ok",
+    "invalid",
+    "missing",
+    "offline",
+    "rate-limited",
+    "unavailable"
+  ],
+  "pick_reasons": [
+    { "why": "only" },
+    { "why": "consensus", "count": 3, "next": 1 },
+    { "why": "source-order", "source": "libretro" },
+    { "why": "region", "rom": true },
+    { "why": "user" }
   ]
 }

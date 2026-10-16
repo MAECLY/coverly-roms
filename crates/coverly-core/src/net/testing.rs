@@ -111,6 +111,16 @@ impl MockServer {
 }
 
 impl MockServer {
+    /// JSON at `path`; `{{BASE}}` in `body` becomes this server's base URL
+    /// (recorded fixtures point their image URLs at the mock).
+    pub fn serve_json(&self, path: &str, body: &str) {
+        self.mock(
+            path,
+            MockResponse::ok(body.replace("{{BASE}}", &self.base()).into_bytes())
+                .header("Content-Type", "application/json"),
+        );
+    }
+
     /// Serves `text` at the libretro-database path `repo_path`
     /// (percent-encoded like `DatStore` requests it).
     pub fn serve_dat(&self, repo_path: &str, text: &str) {

@@ -3,7 +3,7 @@ use coverly_core::matching::{
     default_region_order, parse_region_order, strategy_for, RankContext, RegionPref, StrategyKind,
 };
 use coverly_core::profiles::Media;
-use coverly_core::sources::{Candidate, MatchKind};
+use coverly_core::sources::{Candidate, MatchKind, Votes};
 
 fn c(source: &str, name: &str, regions: &[Region], kind: MatchKind, score: u8) -> Candidate {
     Candidate {
@@ -17,6 +17,7 @@ fn c(source: &str, name: &str, regions: &[Region], kind: MatchKind, score: u8) -
         score,
         votes: None,
         consensus: 0,
+        origin: None,
     }
 }
 
@@ -101,8 +102,8 @@ fn popularity_uses_votes_then_consensus_then_priority() {
         pick(StrategyKind::Popularity, &[], &cands),
         "Golden Sun (Japan)"
     );
-    cands[0].votes = Some(2);
-    cands[1].votes = Some(10);
+    cands[0].votes = Some(Votes { up: 2, down: 0 });
+    cands[1].votes = Some(Votes { up: 10, down: 0 });
     assert_eq!(
         pick(StrategyKind::Popularity, &[], &cands),
         "Golden Sun (USA, Europe)"
@@ -228,4 +229,323 @@ fn region_order_parsing() {
         default_region_order()
     );
     assert!(parse_region_order("usa,mars").unwrap_err().contains("mars"));
+}
+
+use coverly_core::matching::{explain, PickReason};
+
+fn sgdb(name: &str, up: u32, down: u32, kind: MatchKind, score: u8) -> Candidate {
+    Candidate {
+        votes: Some(Votes { up, down }),
+        origin: Some("game 1 · grid 2".into()),
+        url: format!("https://cdn2.steamgriddb.com/{name}-{up}-{down}.png"),
+        ..c("steamgriddb", name, &[], kind, score)
+    }
+}
+
+fn pick_with(
+    kind: StrategyKind,
+    rom: &[Region],
+    cands: &[Candidate],
+    sources: &[&str],
+) -> Candidate {
+    let regions = default_region_order();
+    let sources: Vec<String> = sources.iter().map(|s| s.to_string()).collect();
+    let ctx = RankContext {
+        rom_regions: rom,
+        regions: &regions,
+        sources: &sources,
+    };
+    cands[strategy_for(kind).rank(&ctx, cands)[0]].clone()
+}
+
+const BOTH: [&str; 2] = ["libretro", "steamgriddb"];
+
+#[test]
+fn popularity_lets_votes_beat_an_exact_libretro_name() {
+    let cands = vec![
+        c(
+            "libretro",
+            "Golden Sun (USA, Europe)",
+            &[Usa, Europe],
+            MatchKind::Canonical,
+            100,
+        ),
+        sgdb("Golden Sun", 12, 2, MatchKind::TitleExact, 95),
+    ];
+    assert_eq!(
+        pick_with(StrategyKind::Popularity, &[], &cands, &BOTH).source,
+        "steamgriddb"
+    );
+    // Priority and RomRegion never look at votes.
+    assert_eq!(
+        pick_with(StrategyKind::Priority, &[], &cands, &BOTH).source,
+        "libretro"
+    );
+    assert_eq!(
+        pick_with(StrategyKind::RomRegion, &[], &cands, &BOTH).source,
+        "libretro"
+    );
+}
+
+#[test]
+fn popularity_ignores_votes_of_a_fuzzy_match() {
+    let cands = vec![
+        c("libretro", "Doom (USA)", &[Usa], MatchKind::TitleExact, 95),
+        sgdb("Doom", 500, 0, MatchKind::Fuzzy, 85),
+    ];
+    assert_eq!(
+        pick_with(StrategyKind::Popularity, &[], &cands, &BOTH).source,
+        "libretro"
+    );
+}
+
+#[test]
+fn unvoted_or_downvoted_grids_lose_to_the_stronger_exact_name() {
+    for (up, down) in [(0, 0), (1, 4)] {
+        let cands = vec![
+            sgdb("Golden Sun", up, down, MatchKind::TitleExact, 95),
+            c(
+                "libretro",
+                "Golden Sun (USA, Europe)",
+                &[Usa, Europe],
+                MatchKind::Canonical,
+                100,
+            ),
+        ];
+        assert_eq!(
+            pick_with(StrategyKind::Popularity, &[], &cands, &BOTH).source,
+            "libretro",
+            "{up}/{down}"
+        );
+    }
+}
+
+#[test]
+fn popularity_between_grids_is_by_net_votes() {
+    let cands = vec![
+        sgdb("Golden Sun", 9, 8, MatchKind::TitleExact, 95),
+        sgdb("Golden Sun", 4, 0, MatchKind::TitleExact, 95),
+    ];
+    let won = pick_with(StrategyKind::Popularity, &[], &cands, &BOTH);
+    assert_eq!(won.votes, Some(Votes { up: 4, down: 0 }));
+}
+
+#[test]
+fn popularity_without_votes_or_consensus_follows_the_source_order() {
+    let mut cands = vec![
+        c(
+            "libretro",
+            "Golden Sun (USA)",
+            &[Usa],
+            MatchKind::TitleExact,
+            95,
+        ),
+        c(
+            "screenscraper",
+            "Golden Sun",
+            &[Usa],
+            MatchKind::TitleExact,
+            95,
+        ),
+    ];
+    assert_eq!(
+        pick_with(
+            StrategyKind::Popularity,
+            &[],
+            &cands,
+            &["screenscraper", "libretro"]
+        )
+        .source,
+        "screenscraper"
+    );
+    cands.reverse();
+    assert_eq!(
+        pick_with(
+            StrategyKind::Popularity,
+            &[],
+            &cands,
+            &["libretro", "screenscraper"]
+        )
+        .source,
+        "libretro"
+    );
+}
+
+#[test]
+fn popularity_is_deterministic_for_any_input_order() {
+    let base = vec![
+        c(
+            "libretro",
+            "Golden Sun (USA, Europe)",
+            &[Usa, Europe],
+            MatchKind::Canonical,
+            100,
+        ),
+        c(
+            "libretro",
+            "Golden Sun (Japan)",
+            &[Japan],
+            MatchKind::TitleExact,
+            95,
+        ),
+        sgdb("Golden Sun", 3, 1, MatchKind::TitleExact, 95),
+        sgdb("Golden Sun", 3, 1, MatchKind::TitleExact, 95),
+        sgdb("Golden Sum", 50, 0, MatchKind::Fuzzy, 80),
+    ];
+    let names = |cands: &[Candidate]| {
+        let regions = default_region_order();
+        let sources: Vec<String> = BOTH.iter().map(|s| s.to_string()).collect();
+        let ctx = RankContext {
+            rom_regions: &[],
+            regions: &regions,
+            sources: &sources,
+        };
+        strategy_for(StrategyKind::Popularity)
+            .rank(&ctx, cands)
+            .into_iter()
+            .map(|i| cands[i].url.clone())
+            .collect::<Vec<_>>()
+    };
+    let want = names(&base);
+    let mut rev = base.clone();
+    rev.reverse();
+    assert_eq!(names(&rev), want);
+    let mut rot = base.clone();
+    rot.rotate_left(2);
+    assert_eq!(names(&rot), want);
+}
+
+fn why(kind: StrategyKind, rom: &[Region], cands: &[Candidate], sources: &[&str]) -> PickReason {
+    let regions = default_region_order();
+    let sources: Vec<String> = sources.iter().map(|s| s.to_string()).collect();
+    let ctx = RankContext {
+        rom_regions: rom,
+        regions: &regions,
+        sources: &sources,
+    };
+    let order = strategy_for(kind).rank(&ctx, cands);
+    explain(
+        kind,
+        &ctx,
+        &cands[order[0]],
+        order.get(1).map(|&i| &cands[i]),
+        &[],
+    )
+}
+
+#[test]
+fn explain_names_the_deciding_rule() {
+    let lib = |n: &str, r: &[Region], k, s| c("libretro", n, r, k, s);
+    assert_eq!(
+        why(
+            StrategyKind::Popularity,
+            &[],
+            &[lib("A (USA)", &[Usa], MatchKind::Canonical, 100)],
+            &BOTH
+        ),
+        PickReason::Only
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Popularity,
+            &[],
+            &[
+                lib("A (USA)", &[Usa], MatchKind::Canonical, 100),
+                sgdb("A", 7, 2, MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::Votes { score: 5, next: 0 }
+    );
+    let mut a = lib("A (USA)", &[Usa], MatchKind::TitleExact, 95);
+    a.consensus = 3;
+    let mut b = lib("A (Japan)", &[Japan], MatchKind::TitleExact, 95);
+    b.consensus = 1;
+    assert_eq!(
+        why(
+            StrategyKind::Popularity,
+            &[],
+            &[b.clone(), a.clone()],
+            &BOTH
+        ),
+        PickReason::Consensus { count: 3, next: 1 }
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Popularity,
+            &[],
+            &[
+                lib("A (USA)", &[Usa], MatchKind::Canonical, 100),
+                lib("A (Japan)", &[Japan], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::BetterMatch
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Priority,
+            &[],
+            &[
+                c("steamgriddb", "A", &[], MatchKind::TitleExact, 95),
+                lib("A (USA)", &[Usa], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::SourceOrder {
+            source: "libretro".into()
+        }
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Priority,
+            &[],
+            &[
+                lib("A (Japan)", &[Japan], MatchKind::TitleExact, 95),
+                lib("A (USA)", &[Usa], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::Region { rom: false }
+    );
+    assert_eq!(
+        why(
+            StrategyKind::RomRegion,
+            &[Japan],
+            &[
+                lib("A (USA)", &[Usa], MatchKind::TitleExact, 95),
+                lib("A (Japan)", &[Japan], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::Region { rom: true }
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Priority,
+            &[],
+            &[
+                lib("A (USA) (Beta)", &[Usa], MatchKind::TitleExact, 95),
+                lib("A (USA)", &[Usa], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::Release
+    );
+    assert_eq!(
+        why(
+            StrategyKind::Priority,
+            &[],
+            &[
+                lib("A (USA) (v1)", &[Usa], MatchKind::TitleExact, 95),
+                lib("A (USA) (v2)", &[Usa], MatchKind::TitleExact, 95)
+            ],
+            &BOTH
+        ),
+        PickReason::Tie
+    );
+    assert_eq!(
+        serde_json::to_value(PickReason::Votes { score: 5, next: 0 }).unwrap(),
+        serde_json::json!({"why":"votes","score":5,"next":0})
+    );
 }

@@ -1,0 +1,412 @@
+use std::time::{Duration, Instant};
+
+use coverly_core::cache::Cache;
+use coverly_core::credentials::{DevCredentials, Secret, UserCredentials};
+use coverly_core::identify::hash::{Digests, HashOutcome, RomHashes};
+use coverly_core::identify::names::{parse_name, Region};
+use coverly_core::net::testing::{png_bytes, MockResponse, MockServer};
+use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::profiles::Media;
+use coverly_core::sources::screenscraper::{
+    check_account, media_type, ScreenScraperSource, SsConfig, QUERY_VALUE, SOFTNAME,
+};
+use coverly_core::sources::{ArtQuery, ArtSource, KeyCheck, MatchKind, SourceError};
+use coverly_core::systems::SystemDb;
+use percent_encoding::utf8_percent_encode;
+
+const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/screenscraper/");
+fn fixture(n: &str) -> String {
+    std::fs::read_to_string(format!("{FIX}{n}")).unwrap()
+}
+fn enc(v: &str) -> String {
+    utf8_percent_encode(v, QUERY_VALUE).to_string()
+}
+
+fn dev() -> DevCredentials {
+    DevCredentials::from_values(Some("dev"), Some("devpw")).unwrap()
+}
+fn user() -> UserCredentials {
+    UserCredentials {
+        user: Secret::new("me"),
+        password: Secret::new("mypw"),
+    }
+}
+fn creds() -> String {
+    format!(
+        "devid=dev&devpassword=devpw&softname={}&output=json&ssid=me&sspassword=mypw",
+        enc(SOFTNAME)
+    )
+}
+
+fn hashes() -> HashOutcome {
+    HashOutcome::Content(RomHashes {
+        full: Digests {
+            crc32: "abcd1234".into(),
+            md5: "0123456789abcdef0123456789abcdef".into(),
+            sha1: "0123456789abcdef0123456789abcdef01234567".into(),
+            size: 16,
+        },
+        headerless: None,
+    })
+}
+
+fn jeu_infos_path() -> String {
+    format!(
+        "/ss/jeuInfos.php?{}&systemeid=12&romtype=rom&romnom={}&romtaille=16&crc=ABCD1234&md5={}&sha1={}",
+        creds(), enc("Golden Sun (USA, Europe).gba"),
+        "0123456789ABCDEF0123456789ABCDEF", "0123456789ABCDEF0123456789ABCDEF01234567"
+    )
+}
+
+struct W {
+    server: MockServer,
+    http: PoliteHttp<UreqHttp>,
+    cache: Cache,
+    cfg: SsConfig,
+}
+
+fn w() -> W {
+    let server = MockServer::start();
+    let net = NetConfig {
+        retries: 0,
+        ..NetConfig::default()
+    };
+    let cfg = SsConfig {
+        base: server.url("/ss"),
+        min_interval: Duration::from_millis(1),
+        ..SsConfig::default()
+    };
+    W {
+        http: PoliteHttp::new(UreqHttp::new(&net), &net),
+        cache: Cache::in_memory().unwrap(),
+        server,
+        cfg,
+    }
+}
+
+fn run(
+    w: &W,
+    media: Media,
+    hash: Option<&HashOutcome>,
+) -> Result<Vec<coverly_core::sources::Candidate>, SourceError> {
+    let db = SystemDb::builtin();
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let rom = parse_name("Golden Sun (USA, Europe)", false);
+    src.candidates(&ArtQuery {
+        system: db.get("gba").unwrap(),
+        media,
+        canonical: None,
+        rom: &rom,
+        stem: "Golden Sun (USA, Europe)",
+        by_name: true,
+        fuzzy: true,
+        min_score: 65,
+        max_candidates: 5,
+        hash,
+        size: 16,
+        file_name: "Golden Sun (USA, Europe).gba",
+    })
+}
+
+#[test]
+fn jeu_infos_url_carries_every_hash_the_size_the_name_and_the_system() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let c = run(&w, Media::Cover, Some(&hashes())).unwrap();
+    assert_eq!(w.server.requests()[0].path, jeu_infos_path());
+    assert!(c
+        .iter()
+        .all(|c| c.kind == MatchKind::Canonical && c.score == 100 && c.name == "Golden Sun"));
+}
+
+#[test]
+fn maps_box_2d_ss_and_sstitle_per_region_and_drops_hostile_entries() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let covers = run(&w, Media::Cover, Some(&hashes())).unwrap();
+    let regions: Vec<Vec<Region>> = covers.iter().map(|c| c.regions.clone()).collect();
+    assert_eq!(
+        covers.len(),
+        3,
+        "us, eu, jp; duplicate, bad region, bad type and support dropped"
+    );
+    assert!(
+        regions.contains(&vec![Region::Usa])
+            && regions.contains(&vec![Region::Europe])
+            && regions.contains(&vec![Region::Japan])
+    );
+    assert_eq!(
+        run(&w, Media::Screenshot, Some(&hashes())).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        run(&w, Media::Title, Some(&hashes())).unwrap()[0].regions,
+        vec![Region::World]
+    );
+    assert_eq!(media_type(Media::Cover, true), "flyer");
+    assert_eq!(media_type(Media::Cover, false), "box-2D");
+}
+
+#[test]
+fn candidate_urls_never_carry_credentials_and_fetch_adds_them() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let c = run(&w, Media::Cover, Some(&hashes())).unwrap();
+    let us = c.iter().find(|c| c.regions == [Region::Usa]).unwrap();
+    assert_eq!(
+        us.url,
+        format!(
+            "{}/mediaJeu.php?systemeid=12&jeuid=3&media={}",
+            w.cfg.base,
+            enc("box-2D(us)")
+        )
+    );
+    let json = serde_json::to_string(&c).unwrap();
+    for secret in ["devpw", "mypw", "devid=", "ssid="] {
+        assert!(!json.contains(secret), "{secret}");
+    }
+    let image_path = format!(
+        "/ss/mediaJeu.php?systemeid=12&jeuid=3&media={}&{}",
+        enc("box-2D(us)"),
+        creds()
+    );
+    w.server
+        .mock(&image_path, MockResponse::ok(png_bytes(10, 10)));
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    assert!(!src.fetch(us).unwrap().is_empty());
+}
+
+#[test]
+fn without_hashes_it_searches_by_title() {
+    let w = w();
+    let path = format!(
+        "/ss/jeuRecherche.php?{}&systemeid=12&recherche={}",
+        creds(),
+        enc("Golden Sun")
+    );
+    w.server
+        .serve_json(&path, &fixture("jeu_recherche_golden_sun.json"));
+    let c = run(&w, Media::Cover, None).unwrap();
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].kind, MatchKind::TitleExact);
+}
+
+fn jeu_infos_path_for(file: &str) -> String {
+    jeu_infos_path().replace(&enc("Golden Sun (USA, Europe).gba"), &enc(file))
+}
+
+#[test]
+fn requests_are_spaced_by_the_min_interval() {
+    let mut w = w();
+    w.cfg.min_interval = Duration::from_millis(150);
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let db = SystemDb::builtin();
+    let rom = parse_name("x", false);
+    let h = hashes();
+    let started = Instant::now();
+    for file in ["a.gba", "b.gba", "c.gba"] {
+        w.server.serve_json(
+            &jeu_infos_path_for(file),
+            &fixture("jeu_infos_golden_sun.json"),
+        );
+        src.candidates(&ArtQuery {
+            system: db.get("gba").unwrap(),
+            media: Media::Cover,
+            canonical: None,
+            rom: &rom,
+            stem: "x",
+            by_name: true,
+            fuzzy: false,
+            min_score: 65,
+            max_candidates: 5,
+            hash: Some(&h),
+            size: 16,
+            file_name: file,
+        })
+        .unwrap();
+    }
+    assert_eq!(w.server.requests().len(), 3);
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        SsConfig::default().min_interval,
+        Duration::from_millis(1200)
+    );
+}
+
+#[test]
+fn maxthreads_from_ssuser_set_the_thread_count() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    assert_eq!(src.threads(), 1);
+    let db = SystemDb::builtin();
+    let rom = parse_name("x", false);
+    let h = hashes();
+    src.candidates(&ArtQuery {
+        system: db.get("gba").unwrap(),
+        media: Media::Cover,
+        canonical: None,
+        rom: &rom,
+        stem: "x",
+        by_name: true,
+        fuzzy: false,
+        min_score: 65,
+        max_candidates: 5,
+        hash: Some(&h),
+        size: 16,
+        file_name: "Golden Sun (USA, Europe).gba",
+    })
+    .unwrap();
+    assert_eq!(src.threads(), 3);
+}
+
+#[test]
+fn a_reached_quota_skips_screenscraper_for_the_run() {
+    for status in [430u16, 431] {
+        let w = w();
+        w.server
+            .mock(&jeu_infos_path(), MockResponse::status(status));
+        let e = run(&w, Media::Cover, Some(&hashes())).unwrap_err();
+        assert!(
+            matches!(e, SourceError::Exhausted { status: s, .. } if s == status),
+            "{e:?}"
+        );
+        assert!(
+            e.is_source_wide(),
+            "a quota never pauses: a resume would hit it again"
+        );
+    }
+    // requeststoday ≥ maxrequestsperday stops before the server says so.
+    let w = w();
+    // Edited as JSON, so the fixture's formatting does not matter.
+    let mut full: serde_json::Value =
+        serde_json::from_str(&fixture("jeu_infos_golden_sun.json")).unwrap();
+    full["response"]["ssuser"]["requeststoday"] = "20000".into();
+    let full = full.to_string();
+    w.server.serve_json(&jeu_infos_path(), &full);
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let db = SystemDb::builtin();
+    let rom = parse_name("x", false);
+    let h = hashes();
+    let q = ArtQuery {
+        system: db.get("gba").unwrap(),
+        media: Media::Cover,
+        canonical: None,
+        rom: &rom,
+        stem: "x",
+        by_name: true,
+        fuzzy: false,
+        min_score: 65,
+        max_candidates: 5,
+        hash: Some(&h),
+        size: 16,
+        file_name: "Golden Sun (USA, Europe).gba",
+    };
+    src.candidates(&q).unwrap();
+    // A cached game needs no request; a title search does, and is refused.
+    let mut q2 = q.clone();
+    q2.hash = None;
+    assert!(matches!(
+        src.candidates(&q2),
+        Err(SourceError::Exhausted { status: 430, .. })
+    ));
+    assert_eq!(w.server.requests().len(), 1);
+}
+
+#[test]
+fn closed_servers_pause_and_refused_credentials_do_not() {
+    for (status, pauses) in [(401u16, true), (423, true), (403, false), (426, false)] {
+        let w = w();
+        w.server
+            .mock(&jeu_infos_path(), MockResponse::status(status));
+        let e = run(&w, Media::Cover, Some(&hashes())).unwrap_err();
+        let paused = matches!(&e, SourceError::Net(n) if n.pauses());
+        assert_eq!(paused, pauses, "{status}: {e}");
+        if !pauses {
+            assert!(e.is_source_wide());
+        }
+    }
+}
+
+#[test]
+fn errors_never_show_secrets() {
+    let w = w();
+    w.server.mock(&jeu_infos_path(), MockResponse::status(500));
+    let e = run(&w, Media::Cover, Some(&hashes()))
+        .unwrap_err()
+        .to_string();
+    assert!(!e.contains("devpw") && !e.contains("mypw"), "{e}");
+    let dbg = format!("{:?}", dev());
+    assert!(!dbg.contains("devpw") && !dbg.contains("\"dev\""), "{dbg}");
+}
+
+#[test]
+fn hostile_ids_regions_and_media_types_are_dropped() {
+    let w = w();
+    w.server.serve_json(&jeu_infos_path(),
+        r#"{"response":{"jeu":{"id":"../3","noms":[{"region":"wor","text":"Golden Sun"}],"medias":[{"type":"box-2D","parent":"jeu","region":"us"}]}}}"#);
+    assert!(run(&w, Media::Cover, Some(&hashes())).unwrap().is_empty());
+    let w2 = self::w();
+    w2.server
+        .mock(&jeu_infos_path(), MockResponse::ok("not json"));
+    assert!(matches!(
+        run(&w2, Media::Cover, Some(&hashes())),
+        Err(SourceError::BadResponse { .. })
+    ));
+}
+
+#[test]
+fn a_system_without_a_screenscraper_id_is_unavailable() {
+    let w = w();
+    let db = SystemDb::builtin();
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), None, w.cfg.clone());
+    let rom = parse_name("x", false);
+    let pico = db.get("pico8").unwrap();
+    let e = src
+        .candidates(&ArtQuery {
+            system: pico,
+            media: Media::Cover,
+            canonical: None,
+            rom: &rom,
+            stem: "x",
+            by_name: true,
+            fuzzy: false,
+            min_score: 65,
+            max_candidates: 5,
+            hash: None,
+            size: 0,
+            file_name: "x.p8",
+        })
+        .unwrap_err();
+    assert!(matches!(e, SourceError::SystemUnavailable { .. }));
+}
+
+#[test]
+fn the_user_account_is_sent_only_when_complete_and_checked_cheaply() {
+    let w = w();
+    let path = format!("/ss/ssuserInfos.php?{}", creds());
+    w.server.serve_json(&path, &fixture("user_infos.json"));
+    assert_eq!(
+        check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+        KeyCheck::Ok
+    );
+    assert_eq!(
+        check_account(&w.http, &w.cfg, &dev(), None),
+        KeyCheck::Missing
+    );
+    w.server.mock(&path, MockResponse::status(403));
+    assert_eq!(
+        check_account(&w.http, &w.cfg, &dev(), Some(&user())),
+        KeyCheck::Invalid
+    );
+    assert_eq!(DevCredentials::from_values(Some(" "), Some("x")), None);
+    assert_eq!(DevCredentials::from_values(Some("a"), None), None);
+}
