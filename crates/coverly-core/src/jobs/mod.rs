@@ -123,6 +123,8 @@ pub enum ItemErrorKind {
     DiskFull,
     NameInvalid,
     OutsideRoot,
+    /// The library volume was ejected or went away.
+    VolumeGone,
     Io,
 }
 
@@ -242,6 +244,7 @@ pub fn apply_plan(
             total,
         });
         let ctx = Ctx {
+            root: &plan.root,
             profile,
             sources,
             store,
@@ -301,7 +304,7 @@ pub fn apply_plan(
 
 impl JobReport {
     /// Items a resumed job must still try: never attempted, or stopped by
-    /// a full or read-only volume.
+    /// a full, read-only or ejected volume.
     pub fn resumable_items(&self) -> Vec<usize> {
         self.items
             .iter()
@@ -311,7 +314,9 @@ impl JobReport {
                     i.status,
                     ItemStatus::NotAttempted
                         | ItemStatus::Failed {
-                            kind: ItemErrorKind::WriteDenied | ItemErrorKind::DiskFull,
+                            kind: ItemErrorKind::WriteDenied
+                                | ItemErrorKind::DiskFull
+                                | ItemErrorKind::VolumeGone,
                             ..
                         }
                 )
@@ -361,6 +366,7 @@ impl JobReport {
 
 /// What every worker shares.
 struct Ctx<'a, 's> {
+    root: &'a Path,
     profile: &'a Profile,
     sources: &'a [&'a dyn ArtSource],
     store: &'a ArtStore<'s>,
@@ -380,7 +386,34 @@ impl Ctx<'_, '_> {
         lock(self.stop).get_or_insert((why, kind));
     }
 
+    /// Pauses the job when the library root is gone or unreachable (an
+    /// ejected volume, spec §10).
+    fn volume_gone(&self) -> bool {
+        match fs::metadata(self.root) {
+            Ok(meta) if meta.is_dir() => false,
+            Ok(_) => {
+                self.pause_gone("not a folder".into());
+                true
+            }
+            Err(e) => {
+                self.pause_gone(e.to_string());
+                true
+            }
+        }
+    }
+
+    fn pause_gone(&self, why: String) {
+        self.pause(
+            format!("the library volume is gone: {}: {why}", self.root.display()),
+            PauseKind::Volume,
+        );
+    }
+
     fn apply_item(&self, item: &PlanItem) -> ItemStatus {
+        if self.volume_gone() {
+            // Nothing is downloaded for a library that is not there.
+            return ItemStatus::NotAttempted;
+        }
         let (chosen, alternatives) = match &item.action {
             PlanAction::Auto {
                 chosen,
@@ -481,6 +514,7 @@ impl Ctx<'_, '_> {
             Err(e @ WriteError::OutsideRoot(_)) => {
                 failed(ItemErrorKind::OutsideRoot, e.to_string())
             }
+            Err(e) if self.volume_gone() => failed(ItemErrorKind::VolumeGone, e.to_string()),
             Err(e) => failed(ItemErrorKind::Io, e.to_string()),
         }
     }

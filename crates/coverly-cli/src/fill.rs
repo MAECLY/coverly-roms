@@ -473,6 +473,7 @@ fn error_kind_name(kind: ItemErrorKind) -> &'static str {
         ItemErrorKind::DiskFull => "disk-full",
         ItemErrorKind::NameInvalid => "name-invalid",
         ItemErrorKind::OutsideRoot => "outside-root",
+        ItemErrorKind::VolumeGone => "volume-gone",
         ItemErrorKind::Io => "io",
     }
 }

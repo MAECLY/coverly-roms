@@ -574,3 +574,138 @@ fn a_read_only_volume_reports_the_volume_kind() {
     // The item that met the read-only folder is retried on resume.
     assert!(r.resumable_items().contains(&0));
 }
+
+/// Moves the library root away (an ejected volume) and back on drop.
+struct Ejected {
+    root: std::path::PathBuf,
+    away: std::path::PathBuf,
+}
+
+impl Ejected {
+    fn new(root: &std::path::Path) -> Ejected {
+        let away = root.with_extension("ejected");
+        Ejected {
+            root: root.to_path_buf(),
+            away,
+        }
+    }
+
+    fn eject(&self) {
+        if self.root.exists() {
+            fs::rename(&self.root, &self.away).unwrap();
+        }
+    }
+}
+
+impl Drop for Ejected {
+    fn drop(&mut self) {
+        if self.away.exists() {
+            let _ = fs::rename(&self.away, &self.root);
+        }
+    }
+}
+
+#[test]
+fn an_ejected_volume_pauses_the_job_and_every_item_stays_resumable() {
+    let w = world();
+    let p = plan(&w);
+    let wanted: Vec<usize> = p
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| !matches!(i.action, PlanAction::None { .. }))
+        .map(|(n, _)| n)
+        .collect();
+    let ejected = Ejected::new(w.lib.path());
+    ejected.eject();
+    let r = apply(
+        &w,
+        &p,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    drop(ejected);
+    assert_eq!(r.pause_kind, Some(PauseKind::Volume), "{r:?}");
+    assert!(r.paused.as_deref().unwrap_or("").contains("gone"), "{r:?}");
+    assert_eq!(r.failed, 0, "{r:?}");
+    assert_eq!(r.resumable_items(), wanted);
+}
+
+/// Ejects the library volume while the first download is in flight.
+struct EjectOnFetch<'a> {
+    inner: LibretroSource<'a>,
+    ejected: &'a Ejected,
+}
+
+impl ArtSource for EjectOnFetch<'_> {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    fn candidates(
+        &self,
+        q: &coverly_core::sources::ArtQuery,
+    ) -> Result<Vec<coverly_core::sources::Candidate>, coverly_core::sources::SourceError> {
+        self.inner.candidates(q)
+    }
+    fn has_name(
+        &self,
+        system: &coverly_core::systems::System,
+        media: Media,
+        name: &str,
+    ) -> Result<bool, coverly_core::sources::SourceError> {
+        self.inner.has_name(system, media, name)
+    }
+    fn fetch(
+        &self,
+        c: &coverly_core::sources::Candidate,
+    ) -> Result<Vec<u8>, coverly_core::sources::SourceError> {
+        let bytes = self.inner.fetch(c);
+        self.ejected.eject();
+        bytes
+    }
+}
+
+#[test]
+fn a_volume_ejected_mid_write_pauses_and_the_item_is_resumable() {
+    let w = world();
+    let p = plan(&w);
+    let ejected = Ejected::new(w.lib.path());
+    let src = EjectOnFetch {
+        inner: libretro(&w),
+        ejected: &ejected,
+    };
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let store = ArtStore::new(w.cache_dir.path(), &w.cache);
+    let r = apply_plan(
+        &p,
+        &common::profile("anbernic-stock"),
+        &sources,
+        &store,
+        w.data.path(),
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        &NoProgress,
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    drop(ejected);
+    assert_eq!(r.pause_kind, Some(PauseKind::Volume), "{r:?}");
+    assert!(
+        matches!(
+            status(&r, "001"),
+            ItemStatus::Failed {
+                kind: ItemErrorKind::VolumeGone,
+                ..
+            }
+        ),
+        "{:?}",
+        status(&r, "001")
+    );
+    assert!(r.resumable_items().contains(&0), "{r:?}");
+    assert_eq!(status(&r, "004"), &ItemStatus::NotAttempted);
+}
