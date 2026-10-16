@@ -220,7 +220,7 @@
   },
   "about": {
     "license": "Licence: AGPL-3.0-only. Coverly ROMs is free software; its name and logo are trademarks (see Trademarks).",
-    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable.",
+    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable and, unless you turn it off, the update server.",
     "updates": "Update channel: {channel}.",
     "link": {
       "repo": "Source code",
