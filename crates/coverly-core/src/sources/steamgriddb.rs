@@ -81,7 +81,9 @@ pub fn grids_path(game_id: u64, cfg: &SgdbConfig) -> String {
 }
 
 /// One cheap authenticated request ("Test key" in Settings): `GET
-/// {base}/search/autocomplete/mario`. 2xx → `Ok`, 401/403 → `Invalid`, a
+/// {base}/search/autocomplete/mario`. A 2xx JSON answer with `"success":
+/// true` → `Ok` (any other 2xx, such as a captive portal page, cannot
+/// confirm the key → `Unavailable`), 401/403 → `Invalid`, a
 /// rate limit → `RateLimited`, offline/timeout → `Offline`, anything else
 /// → `Unavailable`; no key → `Missing` without any request. Never returns
 /// or logs the key; a key that cannot be sent as a header is `Invalid`
@@ -100,7 +102,16 @@ pub fn check_key(http: &dyn Http, base: &str, key: Option<&Secret>) -> KeyCheck 
         .forbidden_passes()
         .max_bytes(MAX_JSON_BYTES);
     match http.get(&req) {
-        Ok(r) if (200..300).contains(&r.status) => KeyCheck::Ok,
+        Ok(r) if (200..300).contains(&r.status) => {
+            let success = serde_json::from_slice::<Value>(&r.body)
+                .ok()
+                .and_then(|v| v.get("success").and_then(Value::as_bool));
+            if success == Some(true) {
+                KeyCheck::Ok
+            } else {
+                KeyCheck::Unavailable
+            }
+        }
         Ok(r) if r.status == 401 || r.status == 403 => KeyCheck::Invalid,
         Ok(_) => KeyCheck::Unavailable,
         Err(e) => KeyCheck::of_error(&SourceError::Net(e)),

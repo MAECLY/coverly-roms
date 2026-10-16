@@ -508,3 +508,26 @@ fn test_key_reports_ok_invalid_missing_and_offline_without_echoing_the_key() {
         KeyCheck::Offline
     );
 }
+
+#[test]
+fn test_key_trusts_a_2xx_only_when_it_is_a_successful_api_answer() {
+    let w = world();
+    let base = w.cfg.base.clone();
+    let mario = format!("/sgdb{}", search_path("mario"));
+    // A captive portal page, an unsuccessful answer and an empty body all
+    // come back 200 but do not prove the key works.
+    for body in [
+        "<html>Sign in to the Wi-Fi</html>",
+        r#"{"success":false,"errors":["x"]}"#,
+        r#"{"data":[]}"#,
+        "",
+    ] {
+        w.server
+            .mock(&mario, MockResponse::ok(body.as_bytes().to_vec()));
+        assert_eq!(
+            check_key(&w.http, &base, Some(&Secret::new("k"))),
+            KeyCheck::Unavailable,
+            "{body:?}"
+        );
+    }
+}
