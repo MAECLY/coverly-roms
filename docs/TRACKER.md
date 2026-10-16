@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M4 implementado en `feat/m4-fill-app` (pendiente de PR). M3 mergeado ([PR #4](https://github.com/MAECLY/coverly-roms/pull/4), `910618e`).
-- **Siguiente paso:** PR M4 + verificación independiente. Pendiente de Miguel (no bloqueante): en la app real (Tauri), abrir una **copia** de la SD, rellenar portadas desde el asistente y deshacer («Evidencia M4»); y lo pendiente de M3 (diálogo nativo, scroll, drawer, Reveal).
-- **En curso:** cierre de M4 (tarea 13 hecha: E2E, docs y tracker).
+- **Fase:** M4 mergeado ([PR #5](https://github.com/MAECLY/coverly-roms/pull/5), `980b085`). Siguiente: M5 (configuración, i18n, keychain; + M4-05 y M2-10).
+- **Siguiente paso:** escribir y ejecutar el plan de M5. Pendiente de Miguel (no bloqueante): en la app real (Tauri), abrir una **copia** de la SD, rellenar portadas desde el asistente y deshacer («Evidencia M4»); y lo pendiente de M3 (diálogo nativo, scroll, drawer, Reveal).
+- **En curso:** plan de M5.
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
@@ -249,3 +249,4 @@ Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelang
 - **2026-10-16** — M3 implementado en `feat/m3-explorer` (plan tareas 1–13): explorador con vistas, grid/tabla virtualizados, filtros y búsqueda, panel de detalle, mock de navegador; E2E en Chrome (12k entradas) y biblioteca real en solo lectura (7473 ROMs, 367 ms en frío). El E2E destapó 2 bugs menores (recuentos sin formato, campos sin `name`). D16–D19.
 - **2026-10-16** — M3 mergeado (PR #4, `910618e`; Actions bloqueado por facturación → gates locales: 312 tests Rust + 156 Vitest, clippy/fmt/lint limpios). Comprobación independiente con Chrome DevTools MCP sobre `pnpm dev`: inicio con recientes, fixture 12k abre el grid virtualizado («12.000 de 12.000 ROMs · 4553 sin portada»), 0 errores/avisos de consola.
 - **2026-10-16** — M4 implementado en `feat/m4-fill-app` (plan tareas 1–13): asistente de relleno, cola de revisión por teclado, jobs con pausa/reanudación/cancelación/deshacer, acciones del panel (cambiar, desde archivo, quitar), informes CSV/JSON; M2-11 resuelto (D22). Ejecución real por el camino de la app sobre copia (122 portadas, undo idéntico) y E2E en Chrome (3 bugs arreglados). D20–D23.
+- **2026-10-16** — M4 mergeado (PR #5, `980b085`; Actions bloqueado por facturación → gates locales: 389 tests Rust + 241 Vitest, clippy/fmt/lint limpios). Fix previo al PR `fix(app): carry the skipped review count on the job` (hallazgo del revisor: re-decidir un ítem no actualizaba «Ejecutar (n)»; ahora `JobView.skipped`). Verificación independiente: `real_fill` sobre la copia de nuevo (122 rellenadas, 0 fallos, undo 122, `find -cnewer` en la fuente = 0); Chrome DevTools sobre la biblioteca pequeña del mock: simulación 64/15/10, aceptar todo + saltar uno → «Ejecutar (78)», ejecución 71+3+4 = 78, sin portada 89 → 18, 0 errores de consola.
