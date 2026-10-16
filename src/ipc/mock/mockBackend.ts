@@ -6,14 +6,15 @@ import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
   EntryView,
-  LibrarySettings,
   LibraryView,
   Media,
+  ProfileInfo,
   RecentLibrary,
   ScanProgress,
 } from '../types';
 import { generateLibrary } from './fixture';
-import { createMockJobs, type MockExport } from './mockJobs';
+import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
+import { createMockSettings } from './mockSettings';
 import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
@@ -35,6 +36,9 @@ export interface MockOptions {
   pauseAfter?: number | null;
   /** What "From file…" picks (default: an image). */
   pick?: 'image' | 'cancel' | 'not-image';
+  /** Where settings, custom profiles and credential presence persist
+   * (default: `window.localStorage` when usable; null = memory only). */
+  storage?: Storage | null;
 }
 
 export interface MockBackend extends Backend {
@@ -42,6 +46,8 @@ export interface MockBackend extends Backend {
   readonly revealed: number[];
   /** Files "saved" by the exports, for tests. */
   readonly exports: MockExport[];
+  /** Folders and links "opened" (`folder:logs`, `link:repo`), for tests. */
+  readonly opened: string[];
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -59,15 +65,133 @@ export function mockArtSvg(e: EntryView, media: Media): string {
   );
 }
 
-function normaliseDirs(dirs: readonly string[]): string[] {
-  const out: string[] = [];
-  for (const raw of dirs) {
-    const d = raw.trim();
-    if (!d || d === '.' || d === '..' || /[\\/]/.test(d)) continue;
-    if (out.some((o) => o.toLowerCase() === d.toLowerCase())) continue;
-    out.push(d);
+const handheld = (id: string, name: string, romsRoot: string): ProfileInfo => ({
+  profile: {
+    id,
+    name,
+    roms_root: romsRoot,
+    art_dirs: ['Imgs'],
+    gamelist: false,
+    slots: {
+      cover: {
+        template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
+        format: 'png',
+        max_width: 250,
+        max_height: 360,
+      },
+    },
+  },
+  builtin: true,
+  mirror_subdirs: true,
+});
+
+const png = (template: string) => ({
+  template,
+  format: 'png' as const,
+  max_width: null,
+  max_height: null,
+});
+
+/** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
+ * them (pinned to the Rust ones by the contract sample). */
+export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
+  handheld('anbernic-stock', 'Anbernic stock', 'ROMS'),
+  handheld('garlicos', 'GarlicOS', 'Roms'),
+  handheld('onion', 'Onion OS', 'Roms'),
+  {
+    profile: {
+      id: 'muos',
+      name: 'muOS',
+      roms_root: 'ROMS',
+      art_dirs: [],
+      gamelist: false,
+      slots: {
+        cover: png('{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png'),
+        screenshot: png(
+          '{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png',
+        ),
+      },
+    },
+    builtin: true,
+    mirror_subdirs: false,
+  },
+  {
+    profile: {
+      id: 'minui',
+      name: 'MinUI / NextUI',
+      roms_root: 'Roms',
+      art_dirs: ['.media', '.res'],
+      gamelist: false,
+      slots: { cover: png('{system_dir}/{rel_dir}/.media/{stem}.png') },
+    },
+    builtin: true,
+    mirror_subdirs: true,
+  },
+  {
+    profile: {
+      id: 'esde',
+      name: 'ES-DE',
+      roms_root: 'ROMs',
+      art_dirs: [],
+      gamelist: false,
+      slots: {
+        cover: png(
+          '{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png',
+        ),
+        screenshot: png(
+          '{root}/downloaded_media/{system_id}/screenshots/{rel_dir}/{stem}.png',
+        ),
+        title: png(
+          '{root}/downloaded_media/{system_id}/titlescreens/{rel_dir}/{stem}.png',
+        ),
+      },
+    },
+    builtin: true,
+    mirror_subdirs: true,
+  },
+  {
+    profile: {
+      id: 'batocera',
+      name: 'Batocera / Knulli / EmulationStation',
+      roms_root: 'roms',
+      art_dirs: ['images', 'videos', 'manuals', 'magazines'],
+      gamelist: true,
+      slots: {
+        cover: png('{system_dir}/images/{stem}-image.png'),
+        screenshot: png('{system_dir}/images/{stem}-screenshot.png'),
+        title: png('{system_dir}/images/{stem}-titleshot.png'),
+      },
+    },
+    builtin: true,
+    mirror_subdirs: false,
+  },
+  {
+    profile: {
+      id: 'retroarch',
+      name: 'RetroArch',
+      roms_root: '',
+      art_dirs: ['thumbnails'],
+      gamelist: false,
+      slots: {
+        cover: png('{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png'),
+        screenshot: png('{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png'),
+        title: png('{root}/thumbnails/{libretro}/Named_Titles/{stem}.png'),
+      },
+    },
+    builtin: true,
+    mirror_subdirs: false,
+  },
+];
+
+/** `window.localStorage` when the page may use it, else null. */
+function defaultStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' && window.localStorage
+      ? window.localStorage
+      : null;
+  } catch {
+    return null;
   }
-  return out;
 }
 
 const DAY = 86_400;
@@ -103,9 +227,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       pick: opts.pick ?? 'image',
     },
   );
-  let settings: LibrarySettings = {
-    ignored_dirs: ['bios', 'saves', 'states', 'Shortcuts'],
-  };
+  const settings = createMockSettings({
+    storage: opts.storage === undefined ? defaultStorage() : opts.storage,
+    builtins: [...MOCK_BUILTIN_PROFILES],
+  });
   let recents: RecentLibrary[] = [
     ...MOCK_LIBRARIES.map((l, i) => ({
       path: l.path,
@@ -135,6 +260,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
 
   return {
     ...jobs,
+    ...settings,
     kind: 'mock',
     revealed,
     async openLibrary(path) {
@@ -189,10 +315,19 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       recents = recents.filter((r) => r.path !== path);
       return Promise.resolve([...recents]);
     },
-    librarySettings: () => Promise.resolve({ ...settings }),
-    setLibrarySettings(s) {
-      settings = { ignored_dirs: normaliseDirs(s.ignored_dirs) };
-      return Promise.resolve({ ...settings });
+    librarySettings: () =>
+      Promise.resolve({
+        ignored_dirs: settings.current().library.ignored_dirs,
+      }),
+    async setLibrarySettings(s) {
+      // Like Rust: saved (normalised) through the settings update.
+      const out = await settings.updateSettings({
+        library: { ignored_dirs: s.ignored_dirs },
+      });
+      const first = out.errors[0];
+      if (first)
+        throw new BackendError('bad-request', `${first.field} is not valid`);
+      return { ignored_dirs: out.settings.library.ignored_dirs };
     },
     async readArt(gen, id, media) {
       const e = entryOf(gen, id);
@@ -207,6 +342,17 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     async identifyEntry(gen, id) {
       const e = entryOf(gen, id);
       await sleep(delayMs);
+      const manual = jobs.manualIdentity(gen, id);
+      if (manual !== null) {
+        return {
+          canonical: manual,
+          method: 'manual',
+          confidence: 1,
+          title: mockTitle(manual),
+          regions: [],
+          offline: false,
+        };
+      }
       const title = e.name.replace(/\s*\([^)]*\)/g, '').trim();
       return e.id % 3 === 0
         ? {

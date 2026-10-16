@@ -3,7 +3,6 @@ mod common;
 use std::path::PathBuf;
 
 use common::anbernic_tree;
-use coverly_core::settings::{LibrarySettings, LIBRARY_SETTINGS_FILE};
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::FillConfig;
@@ -14,7 +13,7 @@ use tempfile::TempDir;
 
 fn state(config: &TempDir) -> AppState {
     AppState::new(
-        config.path().join(LIBRARY_SETTINGS_FILE),
+        config.path().to_path_buf(),
         FillConfig::new(config.path().join("cache"), config.path().join("data")),
     )
 }
@@ -39,8 +38,11 @@ fn open_installs_the_session_and_remembers_the_library() {
     assert_eq!(recent[0].path, tree.path().display().to_string());
     assert_eq!(recent[0].roms, 3);
     assert!(recent[0].available);
-    let saved = LibrarySettings::load(&config.path().join(LIBRARY_SETTINGS_FILE));
-    assert_eq!(saved.recent.len(), 1);
+    let saved = coverly_core::settings::read_settings(
+        &config.path().join(coverly_core::settings::SETTINGS_FILE),
+        &[],
+    );
+    assert_eq!(saved.library.recent.len(), 1);
 }
 
 #[test]
@@ -71,6 +73,9 @@ fn a_newer_open_supersedes_an_older_one() {
                 profile_id: None,
                 scan: &Default::default(),
                 generation,
+                custom: &[],
+                default_profile: None,
+                settings: None,
             },
             &SystemDb::builtin(),
             &mut |_| {},
@@ -86,11 +91,11 @@ fn a_newer_open_supersedes_an_older_one() {
 #[test]
 fn open_succeeds_when_settings_cannot_be_saved() {
     let config = TempDir::new().unwrap();
-    // The settings "file" is a folder: saving fails, opening must not.
-    let settings_path = config.path().join("as-dir");
-    std::fs::create_dir_all(&settings_path).unwrap();
+    // The config "folder" is a file: saving fails, opening must not.
+    let config_dir = config.path().join("as-file");
+    std::fs::write(&config_dir, "not a folder").unwrap();
     let st = AppState::new(
-        settings_path,
+        config_dir,
         FillConfig::new(config.path().join("cache"), config.path().join("data")),
     );
     let tree = anbernic_tree(&["GBA"], 1, 0);

@@ -15,4 +15,10 @@ describe('locales', () => {
   it('English and Spanish have exactly the same keys', () => {
     expect(flatten(es).sort()).toEqual(flatten(en).sort());
   });
+
+  it('never puts a capitalised art name mid-sentence in Spanish', () => {
+    const p = es.profiles;
+    for (const v of [p.slot, p.template, p.max_width, p.max_height])
+      expect(v.startsWith('{media}')).toBe(true);
+  });
 });

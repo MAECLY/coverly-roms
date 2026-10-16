@@ -8,8 +8,9 @@ import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import { Root } from '@/Root';
-import { useLocaleStore } from '@/stores/localeStore';
 import { resetLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
+import { resetSettingsStore } from '@/stores/settingsStore';
 
 let backend: MockBackend;
 
@@ -26,8 +27,13 @@ describe('Start screen', () => {
     backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
     setBackend(backend);
     resetLibraryStore();
+    resetSettingsStore();
+    useNavStore.getState().closeSettings();
   });
-  afterEach(() => setBackend(null));
+  afterEach(() => {
+    useNavStore.getState().closeSettings();
+    setBackend(null);
+  });
 
   it('lists recent libraries with their ROM counts', async () => {
     renderApp();
@@ -107,25 +113,12 @@ describe('Start screen', () => {
     );
   });
 
-  it('edits the ignored folders', async () => {
+  it('opens the Settings screen', async () => {
     renderApp();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Library settings' }),
-    );
-    const box = await screen.findByLabelText('Ignored folders');
-    await waitFor(() =>
-      expect(box).toHaveValue('bios\nsaves\nstates\nShortcuts'),
-    );
-    await userEvent.clear(box);
-    await userEvent.type(box, 'bios{enter}Saves{enter}bios');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
-    );
-    expect((await backend.librarySettings()).ignored_dirs).toEqual([
-      'bios',
-      'Saves',
-    ]);
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(
+      screen.getByRole('tabpanel', { name: 'General' }),
+    ).toBeInTheDocument();
   });
 
   it('reports_a_failing_folder_picker', async () => {
@@ -138,35 +131,14 @@ describe('Start screen', () => {
     ).not.toBeDisabled();
   });
 
-  it('settings_dialog_traps_and_restores_focus', async () => {
-    renderApp();
-    const trigger = screen.getByRole('button', { name: 'Library settings' });
-    await userEvent.click(trigger);
-    const dialog = await screen.findByRole('dialog');
-    const box = await screen.findByLabelText('Ignored folders');
-    await waitFor(() => expect(box).not.toBeDisabled());
-    await waitFor(() =>
-      expect(dialog).toContainElement(document.activeElement as HTMLElement),
-    );
-    for (let i = 0; i < 6; i += 1) {
-      await userEvent.tab();
-      expect(dialog).toContainElement(document.activeElement as HTMLElement);
-    }
-    await userEvent.tab({ shift: true });
-    expect(dialog).toContainElement(document.activeElement as HTMLElement);
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
-    );
-    expect(trigger).toHaveFocus();
-  });
-
   it('switches the language', async () => {
     render(<Root />);
-    await userEvent.selectOptions(screen.getByLabelText('Language'), 'es');
+    const select = screen.getByLabelText('Language');
+    await waitFor(() => expect(select).not.toBeDisabled());
+    await userEvent.selectOptions(select, 'es');
     expect(
-      screen.getByRole('button', { name: 'Abrir carpeta…' }),
+      await screen.findByRole('button', { name: 'Abrir carpeta…' }),
     ).toBeInTheDocument();
-    useLocaleStore.getState().setChoice('auto');
+    expect((await backend.getSettings()).settings.general.language).toBe('es');
   });
 });

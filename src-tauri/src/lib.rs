@@ -3,13 +3,16 @@
 pub mod error;
 pub mod ipc;
 pub mod jobs;
+pub mod keychain;
 pub mod library;
+pub mod logging;
+pub mod prefs;
+pub mod profiles;
 pub mod state;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
 use coverly_core::paths::{config_dir, AppDirs};
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use tauri::Manager;
 
 /// Builds and runs the Tauri application.
@@ -18,14 +21,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let settings_path = config_dir()
-                .ok_or("cannot find the app config folder")?
-                .join(LIBRARY_SETTINGS_FILE);
+            let config = config_dir().ok_or("cannot find the app config folder")?;
             let dirs = AppDirs::resolve(None, None).ok_or("cannot find the app data folders")?;
-            app.manage(state::AppState::new(
-                settings_path,
-                jobs::FillConfig::new(dirs.cache, dirs.data),
-            ));
+            let state = state::AppState::new(config, jobs::FillConfig::new(dirs.cache, dirs.data))
+                .with_credentials(std::sync::Arc::new(keychain::KeychainStore::new()));
+            logging::init(&state.logs_dir(), state.settings().advanced.log_level);
+            log::info!("Coverly ROMs {} started", env!("CARGO_PKG_VERSION"));
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -55,6 +57,25 @@ pub fn run() {
             ipc::remove_entry_art,
             ipc::export_audit,
             ipc::export_job_report,
+            ipc::get_settings,
+            ipc::update_settings,
+            ipc::reset_settings,
+            ipc::open_config_folder,
+            ipc::open_logs_folder,
+            ipc::open_link,
+            ipc::cache_usage,
+            ipc::clear_cache,
+            ipc::list_profiles,
+            ipc::save_profile,
+            ipc::delete_profile,
+            ipc::preview_profile,
+            ipc::credential_status,
+            ipc::set_credential,
+            ipc::clear_credential,
+            ipc::search_entry_art,
+            ipc::entry_search_art,
+            ipc::set_entry_art_from_search,
+            ipc::clear_identity_override,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

@@ -20,7 +20,6 @@ use common::fill::Recorder;
 use coverly_core::image::probe_dimensions;
 use coverly_core::matching::StrategyKind;
 use coverly_core::profiles::Media;
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{sha1_hex, OverwritePolicy};
 use coverly_roms_lib::jobs::view::{
@@ -100,7 +99,7 @@ fn fills_a_copy_auto_only_and_undo_restores_it() {
     }
     let before = tree(&copy);
     let st = Arc::new(AppState::new(
-        work.join(LIBRARY_SETTINGS_FILE),
+        work.to_path_buf(),
         FillConfig::new(work.join("cache"), work.join("data")),
     ));
     let view = st
@@ -171,7 +170,7 @@ fn fills_a_copy_auto_only_and_undo_restores_it() {
     }
 
     let t1 = Instant::now();
-    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    st.jobs().run(id, ev.clone()).unwrap();
     let done = wait(&ev.rec, JobState::Done, Duration::from_secs(1800));
     let result = done.result.unwrap();
     println!(

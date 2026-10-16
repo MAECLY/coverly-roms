@@ -14,10 +14,46 @@
     "overwrite": "backup"
   },
   "decisions": [
-    { "index": 0, "choice": "accept" },
-    { "index": 1, "choice": "pick", "candidate": 2 },
-    { "index": 2, "choice": "skip" }
+    {
+      "index": 0,
+      "choice": "accept"
+    },
+    {
+      "index": 1,
+      "choice": "pick",
+      "candidate": 2
+    },
+    {
+      "index": 2,
+      "choice": "skip"
+    }
   ],
   "item_filters": ["all", "auto", "review", "failed"],
-  "export_formats": ["csv", "json"]
+  "export_formats": ["csv", "json"],
+  "settings_patch": {
+    "network": {
+      "timeout_secs": 60
+    },
+    "safety": {
+      "backup_dir": null
+    }
+  },
+  "link_ids": [
+    "repo",
+    "license",
+    "notices",
+    "trademarks",
+    "releases",
+    "issues"
+  ],
+  "credential_keys": [
+    "steamgriddb-api-key",
+    "screenscraper-user",
+    "screenscraper-password"
+  ],
+  "preview_example": {
+    "system_folder": "SFC",
+    "rel_dir": "",
+    "file_name": "Zelda.sfc"
+  }
 }

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use coverly_core::write::{
-    list_jobs, undo_last, OverwritePolicy, RemoveOutcome, WriteError, Writer,
+    list_jobs, undo_job, undo_last, OverwritePolicy, RemoveOutcome, WriteError, Writer,
 };
 use tempfile::TempDir;
 
@@ -197,4 +197,43 @@ fn a_resumed_run_that_crashes_is_not_complete() {
     let jobs = list_jobs(data.path()).unwrap();
     assert_eq!(jobs[0].entries, 2);
     assert!(!jobs[0].complete);
+}
+
+#[test]
+fn undo_restores_a_gamelist_written_twice_in_one_job() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("lib");
+    let data = tmp.path().join("data");
+    fs::create_dir_all(root.join("roms/snes")).unwrap();
+    let gl = root.join("roms/snes/gamelist.xml");
+    fs::write(&gl, b"ORIGINAL").unwrap();
+    let mut w = Writer::begin(&root, &data).unwrap();
+    w.write(&gl, b"FIRST", OverwritePolicy::Backup).unwrap();
+    let job = w.job_id().to_string();
+    w.finish().unwrap();
+    let mut w = Writer::resume(&root, &data, &job).unwrap();
+    w.write(&gl, b"SECOND", OverwritePolicy::Backup).unwrap();
+    w.finish().unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(fs::read(&gl).unwrap(), b"ORIGINAL");
+    assert!(report.skipped_modified.is_empty(), "{report:?}");
+}
+
+#[test]
+fn undo_removes_a_file_created_then_replaced_in_one_job() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("lib");
+    let data = tmp.path().join("data");
+    fs::create_dir_all(root.join("roms/snes")).unwrap();
+    let gl = root.join("roms/snes/gamelist.xml");
+    let mut w = Writer::begin(&root, &data).unwrap();
+    w.write(&gl, b"FIRST", OverwritePolicy::Backup).unwrap();
+    let job = w.job_id().to_string();
+    w.finish().unwrap();
+    let mut w = Writer::resume(&root, &data, &job).unwrap();
+    w.write(&gl, b"SECOND", OverwritePolicy::Backup).unwrap();
+    w.finish().unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert!(!gl.exists());
+    assert!(report.skipped_modified.is_empty(), "{report:?}");
 }

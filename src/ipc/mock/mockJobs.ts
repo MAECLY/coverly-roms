@@ -156,7 +156,30 @@ type JobsApi = Pick<
   | 'removeEntryArt'
   | 'exportAudit'
   | 'exportJobReport'
-> & { readonly exports: MockExport[] };
+  | 'searchEntryArt'
+  | 'entrySearchArt'
+  | 'setEntryArtFromSearch'
+  | 'clearIdentityOverride'
+> & {
+  readonly exports: MockExport[];
+  /** The manual identity ("Search by title" pick) of an entry, if any. */
+  manualIdentity(generation: number, id: number): string | null;
+};
+
+/** Longest title "Search by title" accepts (`MAX_QUERY_CHARS` in Rust). */
+export const MAX_QUERY_CHARS = 120;
+
+/** Like `fill::clean_query`: trimmed, 1–120 characters, no control characters. */
+function cleanQuery(q: string): string {
+  const t = q.trim();
+  if (!t || [...t].length > MAX_QUERY_CHARS || /\p{Cc}/u.test(t)) {
+    throw new BackendError(
+      'bad-request',
+      `type a title of 1 to ${MAX_QUERY_CHARS} characters`,
+    );
+  }
+  return t;
+}
 
 interface Journal {
   job: string;
@@ -195,6 +218,26 @@ export function createMockJobs(
     media: Media;
     candidates: CandidateView[];
   } | null = null;
+  let searches: {
+    generation: number;
+    id: number;
+    media: Media;
+    candidates: CandidateView[];
+  } | null = null;
+  /** Manual identities by ROM (library root + relative path), like
+   * Rust's `identity-overrides.json` keyed by the ROM's path. */
+  const manual = new Map<string, string>();
+  const romKey = (generation: number, id: number) => {
+    const view = library(generation);
+    const e = entry(generation, id);
+    return `${view.root}\u0000${e.rel_path}`;
+  };
+  const searched = (generation: number, id: number, media: Media) => {
+    const s = searches;
+    return s && s.generation === generation && s.id === id && s.media === media
+      ? s.candidates
+      : [];
+  };
 
   const running = () =>
     job !== null &&
@@ -706,6 +749,51 @@ export function createMockJobs(
       journal.complete = true;
       const art = entry(generation, id).art;
       return merged([write(journal, generation, art, id, media, 'present')]);
+    },
+    manualIdentity(generation, id) {
+      return manual.get(romKey(generation, id)) ?? null;
+    },
+    async searchEntryArt(generation, id, media, query) {
+      notRunning();
+      entry(generation, id);
+      if (!library(generation).profile.media.includes(media)) {
+        throw new BackendError(
+          'bad-request',
+          'this layout cannot store that media',
+        );
+      }
+      const q = cleanQuery(query);
+      const candidates = [
+        cand(0, `${q} (USA)`, ['usa'], 'title-exact', 95),
+        cand(1, `${q} (Europe)`, ['europe'], 'title-exact', 95),
+        cand(2, `${q} (Japan)`, ['japan'], 'fuzzy', 80),
+      ];
+      searches = { generation, id, media, candidates };
+      await host.tick();
+      return candidates.map((c) => ({ ...c }));
+    },
+    async entrySearchArt(generation, id, media, candidate) {
+      entry(generation, id);
+      const c = searched(generation, id, media)[candidate];
+      if (!c) throw new BackendError('bad-request', 'search first');
+      return svgImage(c.name, media, (id * 17 + candidate * 61) % 360);
+    },
+    async setEntryArtFromSearch(generation, id, media, candidate) {
+      notRunning();
+      const view = library(generation);
+      const c = searched(generation, id, media)[candidate];
+      if (!c) throw new BackendError('bad-request', 'search first');
+      const journal = newJournal(view.root);
+      journal.complete = true;
+      const art = entry(generation, id).art;
+      const out = merged([
+        write(journal, generation, art, id, media, 'present'),
+      ]);
+      manual.set(romKey(generation, id), c.name);
+      return out;
+    },
+    async clearIdentityOverride(generation, id) {
+      manual.delete(romKey(generation, id));
     },
     async setEntryArtFromFile(generation, id, media) {
       notRunning();

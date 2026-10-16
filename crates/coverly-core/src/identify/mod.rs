@@ -3,6 +3,7 @@
 pub mod dat;
 pub mod hash;
 pub mod names;
+pub mod overrides;
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,8 @@ pub enum IdMethod {
     /// Hash-only and not identified by a DAT (arcade sets included):
     /// never matched by name.
     Unknown,
+    /// The user picked it in "Search by title" (D32).
+    Manual,
 }
 
 /// What is known about one ROM.
@@ -81,14 +84,27 @@ pub struct Identifier<'a> {
     cache: &'a Cache,
     dats: &'a DatStore<'a>,
     opts: IdentifyOptions,
+    overrides: Option<&'a overrides::Overrides>,
 }
 
 impl<'a> Identifier<'a> {
     pub fn new(cache: &'a Cache, dats: &'a DatStore<'a>, opts: IdentifyOptions) -> Self {
-        Identifier { cache, dats, opts }
+        Identifier {
+            cache,
+            dats,
+            opts,
+            overrides: None,
+        }
     }
 
-    /// Arcade: short name → description (no hashing). Otherwise, unless
+    /// Manual identities (D32) win over every other method.
+    pub fn with_overrides(mut self, overrides: &'a overrides::Overrides) -> Self {
+        self.overrides = Some(overrides);
+        self
+    }
+
+    /// A manual identity (D32) first. Arcade: short name → description (no
+    /// hashing). Otherwise, unless
     /// name-only: hash (memoised by path + size + mtime) → DAT game. A miss
     /// falls back to the parsed name; under hash-only every miss (arcade,
     /// no DAT, not in the DAT) is `Unknown` and never matched by name.
@@ -98,6 +114,15 @@ impl<'a> Identifier<'a> {
         system: &System,
         strip_numbering: bool,
     ) -> Result<Identity, DatError> {
+        if let Some(m) = self.overrides.and_then(|o| o.get(&rom.path)) {
+            return Ok(Identity {
+                parsed: names::parse_name(&m.name, false),
+                canonical: Some(m.name.clone()),
+                method: IdMethod::Manual,
+                confidence: 1.0,
+                hash: None,
+            });
+        }
         let parsed = names::parse_name(&rom.stem, strip_numbering);
         let dats = dat::dat_sources(system);
         if system.arcade {

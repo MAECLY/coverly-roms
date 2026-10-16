@@ -83,6 +83,8 @@ export interface ProfileView {
   detected: boolean;
   evidence: string[];
   fitted: boolean;
+  /** Fills also merge the art paths into `gamelist.xml` (D31). */
+  gamelist: boolean;
 }
 
 export interface WarningView {
@@ -122,7 +124,7 @@ export interface LibrarySettings {
   ignored_dirs: string[];
 }
 
-export type IdMethod = 'hash' | 'arcade-dat' | 'name' | 'unknown';
+export type IdMethod = 'hash' | 'arcade-dat' | 'name' | 'unknown' | 'manual';
 
 export interface IdentityView {
   canonical: string | null;
@@ -326,3 +328,189 @@ export interface JobHistoryItem {
 }
 
 export type ExportFormat = 'csv' | 'json';
+
+/* Settings, profiles and credentials — mirror of coverly_core::settings,
+ * coverly_core::profiles::custom, coverly_core::credentials and
+ * src-tauri/src/{prefs,profiles}.rs. */
+
+export type LanguageChoice = 'auto' | 'en' | 'es';
+export type ThemeChoice = 'system' | 'light' | 'dark';
+export type UpdateChannel = 'stable' | 'beta';
+export type OverwriteSetting = 'never' | 'ask' | 'backup';
+export type OutputFormat = 'profile' | 'png' | 'jpg';
+export type ProxyChoice = 'system' | 'env' | 'manual';
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
+export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';
+
+export interface RecentEntry {
+  path: string;
+  name: string;
+  profile_id: string;
+  roms: number;
+  opened_at: number;
+}
+
+export interface MaxSize {
+  width: number;
+  height: number;
+}
+
+export interface SourceEntry {
+  id: SourceId;
+  enabled: boolean;
+}
+
+export interface Settings {
+  version: number;
+  general: {
+    language: LanguageChoice;
+    theme: ThemeChoice;
+    check_updates_on_launch: boolean;
+    update_channel: UpdateChannel;
+  };
+  library: {
+    default_profile: string | null;
+    ignored_dirs: string[];
+    ignored_exts: string[];
+    include_hidden: boolean;
+    follow_symlinks: boolean;
+    recent: RecentEntry[];
+  };
+  art: {
+    media: Media[];
+    single_slot_media: Media;
+    output_format: OutputFormat;
+    max_size: Record<string, MaxSize>;
+    keep_aspect: boolean;
+    jpeg_quality: number;
+    overwrite: OverwriteSetting;
+  };
+  matching: {
+    strategy: StrategyKind;
+    regions: RegionPref[];
+    languages: string[];
+    auto_threshold: number;
+    review_threshold: number;
+    fuzzy: boolean;
+    arcade_translation: boolean;
+    match_method: MatchMethod;
+    max_hash_mb: number;
+  };
+  sources: { order: SourceEntry[] };
+  network: {
+    concurrency: number;
+    timeout_secs: number;
+    retries: number;
+    proxy: ProxyChoice;
+    proxy_url: string;
+    cache_max_mb: number;
+    index_refresh_hours: number;
+  };
+  safety: {
+    backup_before_overwrite: boolean;
+    backup_dir: string | null;
+    dry_run_default: boolean;
+    clean_apple_double: boolean;
+    undo_depth: number;
+  };
+  advanced: { log_level: LogLevel; custom_dir: string | null };
+}
+
+export type SettingsGroup = Exclude<keyof Settings, 'version'>;
+
+/** A merge patch: maps merge key by key, so removing a per-profile max
+ * size takes an explicit `null` for that key. */
+export type SettingsPatch = {
+  [G in SettingsGroup]?: G extends 'art'
+    ? Partial<Omit<Settings['art'], 'max_size'>> & {
+        max_size?: Record<string, MaxSize | null>;
+      }
+    : Partial<Settings[G]>;
+};
+
+export type FieldErrorCode =
+  | 'range'
+  | 'required'
+  | 'invalid'
+  | 'order'
+  | 'unknown'
+  | 'duplicate'
+  | 'not-absolute';
+
+export interface FieldError {
+  field: string;
+  code: FieldErrorCode;
+  min: number | null;
+  max: number | null;
+}
+
+export type SettingsNotice =
+  'migrated' | 'reset-corrupt' | 'fixed' | 'future-version';
+
+export interface SettingsView {
+  settings: Settings;
+  notice: SettingsNotice | null;
+  backup: string | null;
+  fixed: string[];
+}
+
+export interface SettingsUpdate {
+  settings: Settings;
+  errors: FieldError[];
+  reopen: boolean;
+}
+
+export type LinkId =
+  'repo' | 'license' | 'notices' | 'trademarks' | 'releases' | 'issues';
+
+export type CredentialKey =
+  'steamgriddb-api-key' | 'screenscraper-user' | 'screenscraper-password';
+export const CREDENTIAL_KEYS: readonly CredentialKey[] = [
+  'steamgriddb-api-key',
+  'screenscraper-user',
+  'screenscraper-password',
+];
+
+export interface CredentialStatus {
+  available: boolean;
+  set: Record<CredentialKey, boolean>;
+}
+
+export interface SlotFile {
+  template: string;
+  format: 'png' | 'jpg';
+  max_width: number | null;
+  max_height: number | null;
+}
+
+export interface ProfileFile {
+  id: string;
+  name: string;
+  roms_root: string;
+  art_dirs: string[];
+  gamelist: boolean;
+  slots: Partial<Record<Media, SlotFile>>;
+}
+
+export interface ProfileInfo {
+  profile: ProfileFile;
+  builtin: boolean;
+  mirror_subdirs: boolean;
+}
+
+export interface ProfileSaveOutcome {
+  profiles: ProfileInfo[];
+  errors: FieldError[];
+}
+
+export interface PreviewExample {
+  system_folder: string;
+  rel_dir: string;
+  file_name: string;
+}
+
+export interface ProfilePreview {
+  paths: Partial<Record<Media, string>>;
+  errors: FieldError[];
+}

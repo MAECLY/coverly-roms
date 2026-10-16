@@ -21,6 +21,7 @@ import {
 } from '@/stores/identityStore';
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import { ArtThumb } from './ArtThumb';
 
@@ -31,8 +32,26 @@ function revealLabel(): string {
   return 'drawer.revealOther';
 }
 
-function IdentityBlock({ state }: { state: IdentityState | undefined }) {
+/** A title to start a search from: the identified title, else the file
+ * name without its `(…)`/`[…]` tags. */
+function searchTitle(state: IdentityState | undefined, name: string): string {
+  if (state?.status === 'done' && state.identity.title.trim()) {
+    return state.identity.title;
+  }
+  return name.replace(/\s*[([][^)\]]*[)\]]/g, '').trim() || name;
+}
+
+function IdentityBlock({
+  state,
+  generation,
+  entryId,
+}: {
+  state: IdentityState | undefined;
+  generation: number;
+  entryId: number;
+}) {
   const t = useT();
+  const [forgetError, setForgetError] = useState<BackendError | null>(null);
   if (!state) return <p className="hint">{t('drawer.identifyHint')}</p>;
   if (state.status === 'loading')
     return <p role="status">{t('drawer.identifying')}</p>;
@@ -45,6 +64,20 @@ function IdentityBlock({ state }: { state: IdentityState | undefined }) {
   }
   const { identity } = state;
   const pct = Math.round(identity.confidence * 100);
+
+  /** M4-05: drop the manual identity; the next identification is automatic. */
+  async function forget() {
+    setForgetError(null);
+    try {
+      const b = await getBackend();
+      await b.clearIdentityOverride(generation, entryId);
+    } catch (e) {
+      setForgetError(toBackendError(e));
+      return;
+    }
+    await useIdentityStore.getState().identify(generation, entryId);
+  }
+
   return (
     <>
       <dl className="drawer-facts">
@@ -64,6 +97,20 @@ function IdentityBlock({ state }: { state: IdentityState | undefined }) {
         </dd>
       </dl>
       {identity.offline && <p className="hint">{t('drawer.offline')}</p>}
+      {identity.method === 'manual' && (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => void forget()}
+        >
+          {t('drawer.forgetManual')}
+        </button>
+      )}
+      {forgetError && (
+        <p role="alert" className="error-banner">
+          {t(errorKey(forgetError.code), { detail: forgetError.detail ?? '' })}
+        </p>
+      )}
     </>
   );
 }
@@ -85,6 +132,20 @@ function DrawerActions({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [error, setError] = useState<BackendError | null>(null);
+  const overwrite = useSettingsStore(
+    (s) => s.settings?.art.overwrite ?? 'never',
+  );
+  const identity = useIdentityStore(
+    (s) => s.byKey[identityKey(view.generation, entry.id)],
+  );
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<CandidateView[] | null>(null);
+  const [pending, setPending] = useState<{
+    kind: 'entry' | 'search';
+    candidate: CandidateView;
+  } | null>(null);
+  const [matched, setMatched] = useState<string | null>(null);
   const busy = isRunning(job);
 
   async function attempt(
@@ -92,6 +153,7 @@ function DrawerActions({
   ): Promise<boolean> {
     setError(null);
     setUpdated(false);
+    setMatched(null);
     try {
       const b = await getBackend();
       const updates = await f(b);
@@ -110,6 +172,9 @@ function DrawerActions({
     setUpdated(false);
     setLoading(true);
     setCandidates(null);
+    setSearching(false);
+    setResults(null);
+    setPending(null);
     try {
       const b = await getBackend();
       setCandidates(await b.entryCandidates(view.generation, entry.id, media));
@@ -120,14 +185,59 @@ function DrawerActions({
     }
   }
 
-  async function choose(candidate: number) {
-    if (
-      await attempt((b) =>
-        b.setEntryArt(view.generation, entry.id, media, candidate),
-      )
-    ) {
-      setCandidates(null);
+  function openSearch() {
+    setSearching(true);
+    setCandidates(null);
+    setResults(null);
+    setPending(null);
+    setQuery(searchTitle(identity, entry.name));
+  }
+
+  async function runSearch() {
+    if (!query.trim()) return;
+    setError(null);
+    setUpdated(false);
+    setLoading(true);
+    setResults(null);
+    setPending(null);
+    try {
+      const b = await getBackend();
+      setResults(
+        await b.searchEntryArt(view.generation, entry.id, media, query),
+      );
+    } catch (e) {
+      setError(toBackendError(e));
+    } finally {
+      setLoading(false);
     }
+  }
+
+  /** D25: replacing an existing image is confirmed unless the setting
+   * says to replace (with a backup). */
+  function pick(kind: 'entry' | 'search', candidate: CandidateView) {
+    if (entry.art[media] === 'present' && overwrite !== 'backup') {
+      setPending({ kind, candidate });
+    } else {
+      void write(kind, candidate);
+    }
+  }
+
+  async function write(kind: 'entry' | 'search', c: CandidateView) {
+    setPending(null);
+    const ok = await attempt((b) =>
+      kind === 'entry'
+        ? b.setEntryArt(view.generation, entry.id, media, c.index)
+        : b.setEntryArtFromSearch(view.generation, entry.id, media, c.index),
+    );
+    if (!ok) return;
+    if (kind === 'entry') {
+      setCandidates(null);
+      return;
+    }
+    setResults(null);
+    setSearching(false);
+    setMatched(c.name);
+    void useIdentityStore.getState().identify(view.generation, entry.id);
   }
 
   async function remove() {
@@ -147,6 +257,8 @@ function DrawerActions({
             onChange={(e) => {
               setMedia(e.target.value as Media);
               setCandidates(null);
+              setResults(null);
+              setPending(null);
               setConfirmRemove(false);
             }}
           >
@@ -170,8 +282,8 @@ function DrawerActions({
         <button
           type="button"
           className="ghost-button"
-          disabled
-          aria-describedby="drawer-search-later"
+          disabled={busy || loading}
+          onClick={openSearch}
         >
           {t('drawer.search')}
         </button>
@@ -196,9 +308,6 @@ function DrawerActions({
           {t('drawer.remove')}
         </button>
       </div>
-      <p id="drawer-search-later" className="hint">
-        {t('drawer.searchLater')}
-      </p>
       {busy && <p className="hint">{t('drawer.busy')}</p>}
       {confirmRemove && (
         <div className="undo-confirm">
@@ -236,7 +345,7 @@ function DrawerActions({
                 key={c.index}
                 type="button"
                 className="candidate"
-                onClick={() => void choose(c.index)}
+                onClick={() => pick('entry', c)}
               >
                 <CandidateImage
                   source={{
@@ -264,9 +373,117 @@ function DrawerActions({
             ))}
           </div>
         ))}
+      {searching && (
+        <form
+          className="drawer-search"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void runSearch();
+          }}
+        >
+          <label className="field-label">
+            {t('drawer.searchLabel')}{' '}
+            <input
+              type="search"
+              name="drawer-search"
+              className="text-input"
+              value={query}
+              maxLength={120}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          <div className="drawer-actions">
+            <button
+              type="submit"
+              className="ghost-button"
+              disabled={!query.trim() || loading || busy}
+            >
+              {t('drawer.searchGo')}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setSearching(false);
+                setResults(null);
+                setPending(null);
+              }}
+            >
+              {t('drawer.removeNo')}
+            </button>
+          </div>
+        </form>
+      )}
+      {results &&
+        (results.length === 0 ? (
+          <p>{t('drawer.searchNone')}</p>
+        ) : (
+          <div
+            role="group"
+            aria-label={t('drawer.searchResults')}
+            className="candidate-grid drawer-candidates"
+          >
+            {results.map((c) => (
+              <button
+                key={c.index}
+                type="button"
+                className="candidate"
+                disabled={busy}
+                onClick={() => pick('search', c)}
+              >
+                <CandidateImage
+                  source={{
+                    kind: 'search',
+                    generation: view.generation,
+                    entryId: entry.id,
+                    media,
+                    candidate: c.index,
+                  }}
+                  label={c.name}
+                />
+                <span className="truncate" title={c.name}>
+                  {c.name}
+                </span>
+                <span className="hint">
+                  {t('review.meta', {
+                    key: c.index + 1,
+                    source: c.source,
+                    regions:
+                      c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
+                    score: Math.round(c.confidence * 100),
+                  })}
+                </span>
+              </button>
+            ))}
+          </div>
+        ))}
+      {pending && (
+        <div className="undo-confirm">
+          <p>{t('drawer.replaceConfirm', { name: pending.candidate.name })}</p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setPending(null)}
+            >
+              {t('drawer.removeNo')}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void write(pending.kind, pending.candidate)}
+            >
+              {t('drawer.replaceYes')}
+            </button>
+          </div>
+        </div>
+      )}
       {updated && (
         <p role="status" className="hint">
-          {t('drawer.updated')}
+          {matched
+            ? t('drawer.searchUpdated', { name: matched })
+            : t('drawer.updated')}
         </p>
       )}
       {error && (
@@ -359,7 +576,11 @@ export function DetailDrawer({
       </section>
       <section className="drawer-section">
         <h3 className="section-title">{t('drawer.identity')}</h3>
-        <IdentityBlock state={identity} />
+        <IdentityBlock
+          state={identity}
+          generation={view.generation}
+          entryId={entry.id}
+        />
         <button
           type="button"
           className="ghost-button"

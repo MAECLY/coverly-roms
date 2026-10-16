@@ -22,15 +22,200 @@
     "scanning": "Scanning {folder}… {done} of {total} folders",
     "scanningStart": "Reading the folder…",
     "romsFound": "{n} ROMs found",
-    "progressLabel": "Scan progress",
-    "settings": "Library settings"
+    "progressLabel": "Scan progress"
   },
   "settings": {
-    "title": "Library settings",
-    "ignoredDirs": "Ignored folders",
-    "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
-    "save": "Save",
-    "cancel": "Cancel"
+    "open": "Settings",
+    "title": "Settings",
+    "back": "Back",
+    "sections": "Settings sections",
+    "loading": "Loading settings…",
+    "retry": "Try again",
+    "dismiss": "Dismiss",
+    "reopen": "Reopen the library to apply these changes.",
+    "reopenNow": "Reopen now",
+    "saved": "Saved.",
+    "notice": {
+      "migrated": "Your earlier library settings were moved into the new settings file.",
+      "reset-corrupt": "The settings file could not be read, so the defaults are in use. The old file was kept: {backup}",
+      "fixed": "Some settings were not valid and went back to their defaults ({fields}). A copy of the file was kept: {backup}",
+      "future-version": "These settings were saved by a newer version; what this version does not know is ignored. A copy was kept: {backup}"
+    },
+    "section": {
+      "general": "General",
+      "library": "Library",
+      "art": "Art",
+      "matching": "Matching",
+      "sources": "Sources",
+      "network": "Network",
+      "safety": "Safety",
+      "advanced": "Advanced",
+      "profiles": "Profiles",
+      "about": "About"
+    },
+    "general": {
+      "language": "Language",
+      "theme": "Theme",
+      "themes": {
+        "system": "Same as the system",
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "checkUpdates": "Check for updates when the app starts",
+      "channel": "Update channel",
+      "channels": {
+        "stable": "Stable",
+        "beta": "Beta"
+      },
+      "updatesLater": "Automatic updates arrive in a later version; these choices are kept for then."
+    },
+    "library": {
+      "defaultProfile": "Default layout profile",
+      "defaultProfileAuto": "Detect automatically",
+      "ignoredDirs": "Ignored folders",
+      "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
+      "ignoredExts": "Ignored extensions",
+      "ignoredExtsHint": "Comma-separated, without dots. Files with these extensions are never taken as ROMs.",
+      "includeHidden": "Include hidden files",
+      "followSymlinks": "Follow symbolic links",
+      "followSymlinksHint": "Art is never written outside the library folder: ROMs in a linked folder that points elsewhere are listed, but their art is skipped with an error.",
+      "recent": "Recent libraries",
+      "recentEmpty": "No recent libraries.",
+      "forget": "Forget"
+    },
+    "art": {
+      "media": "Art to fill",
+      "singleSlot": "Image for single-slot layouts",
+      "singleSlotHint": "Anbernic, GarlicOS, Onion and MinUI show one image per game.",
+      "format": "Output format",
+      "formatHint": "RetroArch always uses PNG.",
+      "formats": {
+        "profile": "As the layout says",
+        "png": "PNG",
+        "jpg": "JPEG"
+      },
+      "keepAspect": "Keep the aspect ratio",
+      "jpegQuality": "JPEG quality",
+      "overwrite": "When art already exists",
+      "overwrites": {
+        "never": "Keep it (fill only missing art)",
+        "ask": "Ask every time",
+        "backup": "Replace it (with a backup)"
+      },
+      "maxSize": "Largest image per layout",
+      "maxSizeHint": "Leave empty to use the layout's own limit.",
+      "profile": "Layout",
+      "width": "Width",
+      "height": "Height",
+      "noLimit": "No limit",
+      "maxWidth": "{profile}: maximum width",
+      "maxHeight": "{profile}: maximum height"
+    },
+    "matching": {
+      "strategy": "How the art is picked",
+      "regions": "Region order",
+      "addRegion": "Add region",
+      "remove": "Remove {region}",
+      "languages": "Preferred languages",
+      "languagesHint": "Two-letter codes, comma-separated (en, es, fr…). Used to break ties.",
+      "auto": "Auto-accept threshold (%)",
+      "review": "Review threshold (%)",
+      "fuzzy": "Fuzzy name matching",
+      "arcade": "Translate arcade short names",
+      "method": "How ROMs are identified",
+      "methods": {
+        "hash-then-name": "Content hash, then file name",
+        "hash-only": "Content hash only",
+        "name-only": "File name only (no hashing)"
+      },
+      "maxHash": "Largest file to hash (MB)"
+    },
+    "sources": {
+      "name": {
+        "libretro": "libretro-thumbnails",
+        "steamgriddb": "SteamGridDB",
+        "screenscraper": "ScreenScraper"
+      },
+      "later": "Coming in a later version",
+      "up": "Move {name} up",
+      "down": "Move {name} down",
+      "credentials": "Accounts",
+      "credentialsHint": "Stored in the system keychain, never in the settings file. They are used when these sources arrive.",
+      "credential": {
+        "steamgriddb-api-key": "SteamGridDB API key",
+        "screenscraper-user": "ScreenScraper user",
+        "screenscraper-password": "ScreenScraper password"
+      },
+      "save": "Save {what}",
+      "saveShort": "Save",
+      "remove": "Remove {what}",
+      "removeShort": "Remove",
+      "stored": "Saved in the system keychain.",
+      "notStored": "Not set."
+    },
+    "network": {
+      "concurrency": "Simultaneous downloads",
+      "timeout": "Timeout (seconds)",
+      "retries": "Retries",
+      "proxy": "Proxy",
+      "proxies": {
+        "system": "System",
+        "env": "Environment variables",
+        "manual": "Manual"
+      },
+      "proxyHint": "System uses the standard HTTPS_PROXY / HTTP_PROXY variables.",
+      "proxyUrl": "Proxy URL",
+      "cacheMax": "Cache size limit (MB)",
+      "refresh": "Refresh source lists every (hours)",
+      "inUse": "In use: {size}",
+      "clear": "Clear cache…",
+      "clearTitle": "Clear the cache?",
+      "clearBody": "The downloaded art and source lists are deleted. Manual matches and undo history are kept.",
+      "clearYes": "Clear cache",
+      "cancel": "Cancel",
+      "freed": "Freed {size}."
+    },
+    "safety": {
+      "backup": "Back up files before replacing them",
+      "backupHint": "Always on: Undo needs the backups.",
+      "backupDir": "Backup folder",
+      "backupDirHint": "Empty: the app's own folder. Changing it hides the jobs kept in the previous folder from Undo.",
+      "choose": "Choose…",
+      "dryRun": "Simulate before writing (dry run first)",
+      "appleDouble": "Delete macOS ._ files on removable drives",
+      "undoDepth": "Jobs kept for undo"
+    },
+    "advanced": {
+      "logLevel": "Log level",
+      "levels": {
+        "error": "Errors only",
+        "warn": "Warnings",
+        "info": "Information",
+        "debug": "Debug"
+      },
+      "openLogs": "Open logs folder",
+      "openConfig": "Open settings folder",
+      "customDir": "Custom profiles folder",
+      "customDirHint": "Empty: the profiles folder inside the settings folder.",
+      "reset": "Reset all settings…",
+      "resetTitle": "Reset all settings?",
+      "resetBody": "Every setting goes back to its default. Recent libraries are kept and a copy of the current settings is saved.",
+      "resetYes": "Reset settings",
+      "cancel": "Cancel"
+    }
+  },
+  "about": {
+    "license": "Licence: AGPL-3.0-only. Coverly ROMs is free software; its name and logo are trademarks (see Trademarks).",
+    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable.",
+    "updates": "Update channel: {channel}. Automatic updates arrive in a later version.",
+    "link": {
+      "repo": "Source code",
+      "license": "Licence",
+      "notices": "Third-party notices",
+      "trademarks": "Trademarks",
+      "releases": "Releases",
+      "issues": "Report a problem"
+    }
   },
   "library": {
     "count": "{n} ROMs",
@@ -99,8 +284,20 @@
     "disk-full": "The library disk is full.",
     "name-invalid": "This file name is not valid on SD cards: {detail}",
     "volume-gone": "The library volume was removed or is no longer reachable: {detail}",
+    "keychain-unavailable": "This system has no credential store (keychain) Coverly ROMs can use.",
+    "keychain-locked": "The keychain is locked. Unlock it and try again.",
+    "keychain-failed": "The keychain refused the request: {detail}",
     "art-unreadable": "This image cannot be shown.",
-    "unknown": "Unexpected error: {detail}"
+    "unknown": "Unexpected error: {detail}",
+    "field": {
+      "range": "Use a value from {min} to {max}.",
+      "required": "This cannot be empty.",
+      "invalid": "This value is not valid.",
+      "order": "This must not be higher than the auto-accept threshold.",
+      "unknown": "This does not exist.",
+      "duplicate": "This is already used.",
+      "not-absolute": "Use a full path (starting with / or a drive letter)."
+    }
   },
   "sidebar": {
     "label": "Views",
@@ -198,19 +395,27 @@
       "hash": "Content hash",
       "arcade-dat": "Arcade set name",
       "name": "File name",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "manual": "Chosen by you"
     },
     "confidenceLabel": "Confidence",
     "offline": "Offline: identified by its file name only.",
     "actions": "Actions",
     "change": "Change…",
     "search": "Search…",
+    "searchLabel": "Title to search",
+    "searchGo": "Search",
+    "searchResults": "Search results",
+    "searchNone": "Nothing found for that title.",
+    "searchUpdated": "Art updated. This ROM now matches “{name}”.",
+    "replaceConfirm": "Use “{name}”? The current image is backed up and Undo brings it back. The file keeps the ROM's name.",
+    "replaceYes": "Use this image",
+    "forgetManual": "Forget manual match",
     "fromFile": "From file…",
     "remove": "Remove",
     "revealMac": "Reveal in Finder",
     "revealWin": "Show in Explorer",
     "revealOther": "Show in folder",
-    "searchLater": "Searching by title arrives in a later version.",
     "mediaLabel": "Art to change",
     "candidates": "Candidates",
     "loadingCandidates": "Looking for images…",
@@ -255,9 +460,10 @@
       "title": "Existing art",
       "never": "Only missing art",
       "backup": "Also replace existing art (with a backup)",
-      "backupHint": "Replaced images are kept in the app's data folder and come back with Undo."
+      "backupHint": "Replaced images are kept in the app's data folder and come back with Undo.",
+      "askHint": "Your settings ask every time: choose one to continue."
     },
-    "batocera": "Batocera and Knulli read art from gamelist.xml, which Coverly ROMs does not update yet: new images may not show until it does.",
+    "gamelist": "gamelist.xml in each system folder is updated too (backed up first; Undo restores it).",
     "preview": "Preview (dry run)",
     "gathering": "Looking for art… {done} of {total}",
     "summary": "Dry run",
@@ -374,5 +580,42 @@
     "jobReport": "Last job report",
     "noJob": "No job has run yet.",
     "close": "Close"
+  },
+  "profiles": {
+    "hint": "Built-in layouts cannot be changed; duplicate one to adapt it. Custom layouts are saved as files in the profiles folder.",
+    "list": "Layout profiles",
+    "new": "New profile",
+    "builtin": "Built-in (read-only)",
+    "duplicate": "Duplicate {name}",
+    "copyName": "{name} (copy)",
+    "duplicateShort": "Duplicate",
+    "edit": "Edit {name}",
+    "editShort": "Edit",
+    "delete": "Delete {name}",
+    "deleteShort": "Delete",
+    "deleteTitle": "Delete {name}?",
+    "deleteBody": "The profile file is deleted. Libraries opened with it fall back to detection.",
+    "deleteYes": "Delete profile",
+    "cancel": "Cancel",
+    "save": "Save profile",
+    "editTitle": "Edit layout profile",
+    "id": "Profile id",
+    "name": "Name",
+    "romsRoot": "ROMs folder (inside the library)",
+    "artDirs": "Art folders (never scanned as ROMs)",
+    "gamelist": "Update gamelist.xml (Batocera / Knulli)",
+    "slot": "{media} slot",
+    "template": "{media} path template",
+    "format": "Format",
+    "max_width": "{media} maximum width",
+    "max_height": "{media} maximum height",
+    "preview": "Preview",
+    "exampleFolder": "Example system folder",
+    "exampleSub": "Example subfolder",
+    "exampleFile": "Example ROM file",
+    "errors": {
+      "slotsOrder": "Either every slot template uses {rel_dir} or none does.",
+      "slotsRequired": "Turn on at least one slot."
+    }
   }
 }

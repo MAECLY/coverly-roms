@@ -280,3 +280,61 @@ describe('mock fill jobs', () => {
     expect(JSON.parse(b.exports[1]!.text)).toHaveProperty('items');
   });
 });
+describe('mock drawer search', () => {
+  it('lists candidates for a typed title, writes the pick and remembers it', async () => {
+    const b = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: null,
+    });
+    const view = await b.openLibrary(MOCK_LIBRARIES[1].path);
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const found = await b.searchEntryArt(
+      view.generation,
+      entry.id,
+      'cover',
+      '  Golden Sun ',
+    );
+    expect(found.map((c) => c.name)).toEqual([
+      'Golden Sun (USA)',
+      'Golden Sun (Europe)',
+      'Golden Sun (Japan)',
+    ]);
+    const art = await b.entrySearchArt(view.generation, entry.id, 'cover', 1);
+    expect(art.mime).toBe('image/svg+xml');
+    const updates = await b.setEntryArtFromSearch(
+      view.generation,
+      entry.id,
+      'cover',
+      1,
+    );
+    expect(updates[0]!.art.cover).toBe('present');
+    const id = await b.identifyEntry(view.generation, entry.id);
+    expect(id).toMatchObject({
+      method: 'manual',
+      canonical: 'Golden Sun (Europe)',
+      confidence: 1,
+    });
+    await b.clearIdentityOverride(view.generation, entry.id);
+    expect((await b.identifyEntry(view.generation, entry.id)).method).not.toBe(
+      'manual',
+    );
+  });
+
+  it('refuses empty, control-character and overlong queries', async () => {
+    const b = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: null,
+    });
+    const view = await b.openLibrary(MOCK_LIBRARIES[1].path);
+    for (const q of ['', '   ', 'a\u0007b', 'x'.repeat(121)]) {
+      await expect(
+        b.searchEntryArt(view.generation, 0, 'cover', q),
+      ).rejects.toMatchObject({ code: 'bad-request' });
+    }
+    await expect(
+      b.setEntryArtFromSearch(view.generation, 0, 'cover', 0),
+    ).rejects.toMatchObject({ code: 'bad-request' });
+  });
+});

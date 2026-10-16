@@ -9,6 +9,7 @@ import { sniffImageMime } from './sniff';
 import type {
   ArtImage,
   CandidateView,
+  CredentialStatus,
   EntriesUpdated,
   EntryArtUpdate,
   IdentityView,
@@ -18,8 +19,14 @@ import type {
   JobView,
   LibrarySettings,
   LibraryView,
+  ProfileInfo,
+  ProfilePreview,
+  ProfileSaveOutcome,
   RecentLibrary,
   ScanProgress,
+  Settings,
+  SettingsUpdate,
+  SettingsView,
   UndoView,
 } from './types';
 
@@ -27,6 +34,7 @@ export const SCAN_PROGRESS_EVENT = 'library-scan-progress';
 export const JOB_PROGRESS_EVENT = 'fill-job-progress';
 export const JOB_CHANGED_EVENT = 'fill-job-changed';
 export const ENTRIES_UPDATED_EVENT = 'library-entries-updated';
+export const SETTINGS_CHANGED_EVENT = 'settings-changed';
 
 async function call<T>(
   cmd: string,
@@ -130,5 +138,45 @@ export function createTauriBackend(): Backend {
       call<string | null>('export_audit', { generation, format }),
     exportJobReport: (job, format) =>
       call<string | null>('export_job_report', { job, format }),
+    getSettings: () => call<SettingsView>('get_settings'),
+    updateSettings: (patch) =>
+      call<SettingsUpdate>('update_settings', { patch }),
+    resetSettings: () => call<SettingsView>('reset_settings'),
+    onSettingsChanged: (cb) =>
+      listen<Settings>(SETTINGS_CHANGED_EVENT, (e) => cb(e.payload)),
+    openConfigFolder: () => call<void>('open_config_folder'),
+    openLogsFolder: () => call<void>('open_logs_folder'),
+    openLink: (link) => call<void>('open_link', { link }),
+    cacheUsage: () => call<number>('cache_usage'),
+    clearCache: () => call<number>('clear_cache'),
+    listProfiles: () => call<ProfileInfo[]>('list_profiles'),
+    saveProfile: (profile, replaces) =>
+      call<ProfileSaveOutcome>('save_profile', { profile, replaces }),
+    deleteProfile: (id) => call<ProfileInfo[]>('delete_profile', { id }),
+    previewProfile: (profile, example) =>
+      call<ProfilePreview>('preview_profile', { profile, example }),
+    credentialStatus: () => call<CredentialStatus>('credential_status'),
+    setCredential: (key, value) =>
+      call<CredentialStatus>('set_credential', { key, value }),
+    clearCredential: (key) =>
+      call<CredentialStatus>('clear_credential', { key }),
+    searchEntryArt: (generation, entryId, media, query) =>
+      call<CandidateView[]>('search_entry_art', {
+        generation,
+        entryId,
+        media,
+        query,
+      }),
+    entrySearchArt: (generation, entryId, media, candidate) =>
+      image('entry_search_art', { generation, entryId, media, candidate }),
+    setEntryArtFromSearch: (generation, entryId, media, candidate) =>
+      call<EntryArtUpdate[]>('set_entry_art_from_search', {
+        generation,
+        entryId,
+        media,
+        candidate,
+      }),
+    clearIdentityOverride: (generation, entryId) =>
+      call<void>('clear_identity_override', { generation, entryId }),
   };
 }

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use common::{anbernic_tree, open, write};
 use coverly_core::profiles::Media;
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::FillConfig;
@@ -71,7 +70,7 @@ fn app_state_refreshes_the_open_generation_only() {
     let tree = anbernic_tree(&["GBA"], 2, 0);
     let config = TempDir::new().unwrap();
     let st = AppState::new(
-        config.path().join(LIBRARY_SETTINGS_FILE),
+        config.path().to_path_buf(),
         FillConfig::new(config.path().join("cache"), config.path().join("data")),
     );
     let db = SystemDb::builtin();

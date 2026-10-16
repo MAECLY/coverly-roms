@@ -15,7 +15,10 @@ import { mockClass, mockFailure } from '@/ipc/mock/mockJobs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
+import { MemoryStorage } from '@/test/storage';
 
 import { FillWizard } from './FillWizard';
 
@@ -52,6 +55,7 @@ describe('Fill wizard', () => {
   let restore: () => void;
   beforeEach(() => {
     restore = stubLayout(1280, 800);
+    resetSettingsStore();
   });
   afterEach(() => {
     restore();
@@ -179,7 +183,7 @@ describe('Fill wizard', () => {
     expect(run).toBeEnabled();
   });
 
-  it('warns that Batocera gamelists are not updated', () => {
+  it('notes that gamelist layouts update gamelist.xml with a backup', () => {
     const view = generateLibrary({
       seed: 3,
       count: 12,
@@ -190,14 +194,98 @@ describe('Fill wizard', () => {
     render(
       <I18nProvider locale="en">
         <FillWizard
-          view={{ ...view, profile: { ...view.profile, id: 'batocera' } }}
+          view={{
+            ...view,
+            profile: { ...view.profile, id: 'batocera', gamelist: true },
+          }}
           visible={view.entries}
           selectedId={null}
           onClose={() => undefined}
         />
       </I18nProvider>,
     );
-    expect(screen.getByText(/gamelist\.xml/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/gamelist\.xml in each system folder is updated too/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/does not update yet/)).not.toBeInTheDocument();
+  });
+
+  it('starts from the settings and asks for the overwrite choice when the setting is "ask"', async () => {
+    await setup({ storage: new MemoryStorage() });
+    await useSettingsStore.getState().load();
+    await useSettingsStore.getState().update({
+      art: { overwrite: 'ask', media: ['cover'] },
+      matching: { strategy: 'priority' },
+    });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).getByRole('checkbox', { name: 'Cover' }),
+    ).toBeChecked();
+    expect(
+      within(dialog).getByRole('checkbox', { name: 'Title screen' }),
+    ).not.toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).getByRole('radio', { name: /Source priority/ }),
+    ).toBeChecked();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).getByRole('radio', { name: 'Only missing art' }),
+    ).not.toBeChecked();
+    expect(
+      within(dialog).getByRole('radio', { name: /Also replace existing art/ }),
+    ).not.toBeChecked();
+    const preview = within(dialog).getByRole('button', {
+      name: 'Preview (dry run)',
+    });
+    expect(preview).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: 'Only missing art' }),
+    );
+    expect(preview).toBeEnabled();
+  });
+
+  it('runs a plan with nothing to review by itself when dry-run-first is off', async () => {
+    const { view } = await setup({ storage: new MemoryStorage() });
+    await useSettingsStore.getState().load();
+    await useSettingsStore.getState().update({
+      safety: { dry_run_default: false },
+    });
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'missing' && mockClass(e.id, 'cover') === 'auto',
+    )!;
+    act(() => useSelectionStore.getState().select(entry.id));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await toPreview(dialog, /Selected ROM/);
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+  });
+
+  it('keeps the dry run waiting when dry-run-first is on', async () => {
+    const { view } = await setup({ storage: new MemoryStorage() });
+    await useSettingsStore.getState().load();
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'missing' && mockClass(e.id, 'cover') === 'auto',
+    )!;
+    act(() => useSelectionStore.getState().select(entry.id));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await toPreview(dialog, /Selected ROM/);
+    expect(
+      await within(dialog).findByRole('button', { name: /^Run \(/ }),
+    ).toBeInTheDocument();
+    expect(useJobStore.getState().job?.state).toBe('planned');
   });
 
   it('speaks Spanish', async () => {

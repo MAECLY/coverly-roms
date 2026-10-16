@@ -1,9 +1,11 @@
 import type {
   EntryView,
   FillRequest,
+  JobView,
   Media,
   OverwritePolicy,
   RegionPref,
+  Settings,
   StrategyKind,
 } from '@/ipc/types';
 
@@ -65,4 +67,49 @@ export function buildFillRequest(o: FillChoices): FillRequest {
     regions: [...o.regions],
     overwrite: o.overwrite,
   };
+}
+
+export interface WizardDefaults {
+  media: Media[];
+  strategy: StrategyKind;
+  regions: RegionPref[];
+  /** `null` = the setting is "ask": the user must choose (D25). */
+  overwrite: OverwritePolicy | null;
+}
+
+/** The wizard's first answers, from the settings (spec §9 Art and
+ * Matching) restricted to the media the layout stores; without settings,
+ * the M4 defaults (first media, ROM region, only missing art). */
+export function wizardDefaults(
+  settings: Settings | null,
+  profileMedia: readonly Media[],
+): WizardDefaults {
+  const wanted =
+    settings?.art.media.filter((m) => profileMedia.includes(m)) ?? [];
+  const overwrite = settings?.art.overwrite ?? 'never';
+  return {
+    media: wanted.length > 0 ? [...wanted] : profileMedia.slice(0, 1),
+    strategy: settings?.matching.strategy ?? 'rom-region',
+    regions: [...(settings?.matching.regions ?? DEFAULT_REGION_ORDER)],
+    overwrite: overwrite === 'ask' ? null : overwrite,
+  };
+}
+
+/** "Dry run by default" off (D27): the wizard runs a planned job by
+ * itself, once, when there is something to write and nothing to review. */
+export function shouldAutoRun(
+  job: JobView | null,
+  settings: Settings | null,
+  alreadyRan: boolean,
+): boolean {
+  return Boolean(
+    job &&
+    job.state === 'planned' &&
+    !alreadyRan &&
+    settings &&
+    !settings.safety.dry_run_default &&
+    job.plan &&
+    job.plan.totals.review === 0 &&
+    job.plan.totals.auto > 0,
+  );
 }

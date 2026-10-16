@@ -1,4 +1,11 @@
 import '@testing-library/jest-dom/vitest';
+import { beforeEach } from 'vitest';
+
+// The mock backend persists settings in `localStorage`: every test starts
+// from an empty one.
+beforeEach(() => {
+  localStorage.clear();
+});
 
 // jsdom lacks these browser APIs used by the explorer.
 class ResizeObserverStub {

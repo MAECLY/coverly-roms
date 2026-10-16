@@ -10,7 +10,6 @@ use clap::{Args, ValueEnum};
 use coverly_core::art::ArtState;
 use coverly_core::audit::{build_report, write_csv, AuditReport, SystemReport};
 use coverly_core::profiles::Media;
-use coverly_core::scan::ScanOptions;
 use coverly_core::systems::SystemDb;
 
 use crate::profile::{check_root, choose_profile, detection_note, Chosen};
@@ -23,9 +22,10 @@ const MISSING_PREVIEW: usize = 20;
 pub struct AuditArgs {
     /// Library root (e.g. the SD card), the folder holding `ROMS`, `Roms`…
     root: PathBuf,
-    /// Layout profile id (see `coverly profiles`), or `auto` to detect it.
-    #[arg(long, default_value = "auto", value_name = "ID|auto")]
-    profile: String,
+    /// Layout profile id (see `coverly profiles`), or `auto` to detect it
+    /// (default: the `default_profile` setting, else `auto`).
+    #[arg(long, value_name = "ID|auto")]
+    profile: Option<String>,
     /// Media to audit, comma-separated.
     #[arg(
         long,
@@ -72,7 +72,9 @@ enum Format {
 
 pub fn run(args: &AuditArgs) -> Result<(), Failure> {
     check_root(&args.root)?;
-    let chosen = choose_profile(&args.root, &args.profile)?;
+    let cli = crate::settings::load_cli_settings();
+    let mut chosen = choose_profile(&args.root, args.profile.as_deref(), &cli)?;
+    chosen.profile = cli.settings.art_profile(&chosen.profile);
     let mut media: Vec<Media> = Vec::new();
     for m in args.media.iter().map(|m| Media::from(*m)) {
         if !media.contains(&m) {
@@ -93,7 +95,7 @@ pub fn run(args: &AuditArgs) -> Result<(), Failure> {
         &args.root,
         &chosen.profile,
         &SystemDb::builtin(),
-        &ScanOptions::default(),
+        &cli.settings.scan_options(),
         &media,
     );
     for w in &report.warnings {

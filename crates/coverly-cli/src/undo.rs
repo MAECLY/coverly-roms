@@ -18,7 +18,8 @@ pub struct UndoArgs {
     /// List recent jobs instead of undoing.
     #[arg(long, conflicts_with = "job")]
     list: bool,
-    /// Data folder (job journals and backups).
+    /// Data folder (job journals and backups; default: the backup location
+    /// setting, else the app data folder).
     #[arg(long, value_name = "DIR")]
     data_dir: Option<PathBuf>,
 }
@@ -31,7 +32,9 @@ fn fail(e: impl std::fmt::Display) -> Failure {
 }
 
 pub fn run(args: &UndoArgs) -> Result<(), Failure> {
-    let dirs = AppDirs::resolve(None, args.data_dir.as_deref())
+    let cli = crate::settings::load_cli_settings();
+    let data = crate::settings::data_dir(args.data_dir.as_deref(), &cli.settings);
+    let dirs = AppDirs::resolve(None, data.as_deref())
         .ok_or_else(|| fail("cannot find the app data folder; pass --data-dir"))?;
     if args.list {
         return print_stdout(&jobs_table(&list_jobs(&dirs.data).map_err(fail)?));

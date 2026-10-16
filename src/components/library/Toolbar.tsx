@@ -96,8 +96,13 @@ export function Toolbar({
       <button type="button" className="ghost-button" onClick={onReports}>
         {t('toolbar.reports')}
       </button>
-      <button type="button" className="ghost-button" onClick={onSettings}>
-        {t('start.settings')}
+      <button
+        type="button"
+        className="ghost-button"
+        data-settings-opener
+        onClick={onSettings}
+      >
+        {t('settings.open')}
       </button>
       <LanguageSwitch />
       <button type="button" className="ghost-button" onClick={close}>

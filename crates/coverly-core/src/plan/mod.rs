@@ -34,6 +34,9 @@ pub struct PlanOptions {
     pub review_threshold: f32,
     /// How many runner-up candidates each item keeps.
     pub max_alternatives: usize,
+    /// Preferred languages (D28), two-letter lowercase codes; empty = no
+    /// preference.
+    pub languages: Vec<String>,
 }
 
 impl Default for PlanOptions {
@@ -45,8 +48,48 @@ impl Default for PlanOptions {
             auto_threshold: 0.90,
             review_threshold: 0.65,
             max_alternatives: 4,
+            languages: Vec::new(),
         }
     }
+}
+
+/// D28: among the leading candidates the strategy ranks equal, the one
+/// carrying the earliest preferred language comes first. "Equal" means the
+/// same value for every key a strategy orders by: kind, score, regions,
+/// source, votes, consensus and release-vs-variant (`rank_with`). Only the
+/// name/url tail may differ. Stable, so ties keep the strategy order.
+fn prefer_languages(order: &mut [usize], cands: &[Candidate], langs: &[String]) {
+    if langs.is_empty() || order.len() < 2 {
+        return;
+    }
+    let Some(top) = order.first().and_then(|&i| cands.get(i)) else {
+        return;
+    };
+    let tied = order
+        .iter()
+        .take_while(|&&i| {
+            cands.get(i).is_some_and(|c| {
+                c.kind == top.kind
+                    && c.score == top.score
+                    && c.regions == top.regions
+                    && c.source == top.source
+                    && c.votes == top.votes
+                    && c.consensus == top.consensus
+                    && is_unreleased_variant(&c.name) == is_unreleased_variant(&top.name)
+            })
+        })
+        .count();
+    let rank = |i: usize| {
+        let have = cands
+            .get(i)
+            .map(|c| crate::identify::names::languages(&c.name))
+            .unwrap_or_default();
+        langs
+            .iter()
+            .position(|l| have.contains(l))
+            .unwrap_or(langs.len())
+    };
+    order[..tied].sort_by_key(|&i| rank(i));
 }
 
 /// Why an item gets no art.
@@ -128,6 +171,9 @@ pub struct PlanItem {
     /// Why this item is in review although its confidence may be high.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<PlanNote>,
+    /// The system folder (where a gamelist lives).
+    #[serde(skip)]
+    pub system_dir: PathBuf,
     #[serde(flatten)]
     pub action: PlanAction,
 }
@@ -171,6 +217,24 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// A plan of one item (the drawer's manual pick).
+    pub fn single(root: &Path, profile: &Profile, item: PlanItem) -> Plan {
+        let mut plan = Plan {
+            root: root.to_path_buf(),
+            profile_id: profile.id.clone(),
+            created_at: crate::time::rfc3339_utc(std::time::SystemTime::now()),
+            strategy: StrategyKind::Priority,
+            items: vec![item],
+            totals: Counts::default(),
+            per_system: BTreeMap::new(),
+            warnings: Vec::new(),
+            paused: None,
+            pause_kind: None,
+        };
+        plan.recount();
+        plan
+    }
+
     /// A plan with only `indices` (in that order; out-of-range ones are
     /// skipped) and recomputed counts: what a resumed job still has to do.
     pub fn subset(&self, indices: &[usize]) -> Plan {
@@ -318,7 +382,8 @@ pub fn build_plan(
                         regions: &opts.regions,
                         sources: &opts.sources,
                     };
-                    let order = strategy.rank(&ctx, cands);
+                    let mut order = strategy.rank(&ctx, cands);
+                    prefer_languages(&mut order, cands, &opts.languages);
                     choose(cands, &order, opts, &t.stem)
                 }
             };
@@ -340,6 +405,7 @@ pub fn build_plan(
                 target: target.unwrap_or_default(),
                 identity_method: g.identity.method,
                 canonical: g.identity.canonical.clone(),
+                system_dir: t.system_dir.clone(),
                 action,
             });
         }

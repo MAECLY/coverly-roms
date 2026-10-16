@@ -26,6 +26,9 @@ export const ERROR_CODES = [
   'disk-full',
   'name-invalid',
   'volume-gone',
+  'keychain-unavailable',
+  'keychain-locked',
+  'keychain-failed',
   'art-unreadable',
   'unknown',
 ] as const;

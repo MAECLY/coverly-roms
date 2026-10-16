@@ -66,44 +66,50 @@ pub fn builtin_profiles() -> Vec<Profile> {
             ],
             None,
         ),
-        profile(
-            "batocera",
-            "Batocera / Knulli / EmulationStation",
-            "roms",
-            &["images", "videos", "manuals", "magazines"],
-            false,
-            &[
-                (Media::Cover, "{system_dir}/images/{stem}-image.png"),
-                (
-                    Media::Screenshot,
-                    "{system_dir}/images/{stem}-screenshot.png",
-                ),
-                (Media::Title, "{system_dir}/images/{stem}-titleshot.png"),
-            ],
-            None,
-        ),
-        profile(
-            "retroarch",
-            "RetroArch",
-            "",
-            &["thumbnails"],
-            false,
-            &[
-                (
-                    Media::Cover,
-                    "{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png",
-                ),
-                (
-                    Media::Screenshot,
-                    "{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png",
-                ),
-                (
-                    Media::Title,
-                    "{root}/thumbnails/{libretro}/Named_Titles/{stem}.png",
-                ),
-            ],
-            None,
-        ),
+        Profile {
+            gamelist: true,
+            ..profile(
+                "batocera",
+                "Batocera / Knulli / EmulationStation",
+                "roms",
+                &["images", "videos", "manuals", "magazines"],
+                false,
+                &[
+                    (Media::Cover, "{system_dir}/images/{stem}-image.png"),
+                    (
+                        Media::Screenshot,
+                        "{system_dir}/images/{stem}-screenshot.png",
+                    ),
+                    (Media::Title, "{system_dir}/images/{stem}-titleshot.png"),
+                ],
+                None,
+            )
+        },
+        Profile {
+            fixed_format: true,
+            ..profile(
+                "retroarch",
+                "RetroArch",
+                "",
+                &["thumbnails"],
+                false,
+                &[
+                    (
+                        Media::Cover,
+                        "{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png",
+                    ),
+                    (
+                        Media::Screenshot,
+                        "{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png",
+                    ),
+                    (
+                        Media::Title,
+                        "{root}/thumbnails/{libretro}/Named_Titles/{stem}.png",
+                    ),
+                ],
+                None,
+            )
+        },
     ]
 }
 
@@ -148,6 +154,8 @@ fn profile(
                 (media, slot)
             })
             .collect::<HashMap<_, _>>(),
+        fixed_format: false,
+        gamelist: false,
     }
 }
 
@@ -262,6 +270,13 @@ mod tests {
             .unwrap()
             .template
             .ends_with("-titleshot.png"));
+    }
+
+    #[test]
+    fn only_retroarch_has_a_fixed_format() {
+        for p in builtin_profiles() {
+            assert_eq!(p.fixed_format, p.id == "retroarch", "{}", p.id);
+        }
     }
 
     #[test]

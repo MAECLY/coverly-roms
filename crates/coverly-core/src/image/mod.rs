@@ -42,6 +42,8 @@ pub enum Fit {
     Contain,
     /// Contain, then centre on a canvas of exactly the box size.
     Pad { rgba: [u8; 4] },
+    /// Resize to exactly the box, ignoring the aspect ratio ("keep aspect" off).
+    Stretch,
 }
 
 /// What the re-encoded image must look like.
@@ -150,14 +152,25 @@ pub fn process_image(
         if mw == 0 || mh == 0 {
             return Err(ImageError::Encode(format!("empty target box {mw}x{mh}")));
         }
-        if img.width() > mw || img.height() > mh {
-            img = img.resize(mw, mh, FilterType::Lanczos3);
-        }
-        if let Fit::Pad { rgba } = spec.fit {
-            let mut canvas = RgbaImage::from_pixel(mw, mh, Rgba(rgba));
-            let (x, y) = ((mw - img.width()) / 2, (mh - img.height()) / 2);
-            ::image::imageops::overlay(&mut canvas, &img.to_rgba8(), i64::from(x), i64::from(y));
-            img = DynamicImage::ImageRgba8(canvas);
+        if spec.fit == Fit::Stretch {
+            if (img.width(), img.height()) != (mw, mh) {
+                img = img.resize_exact(mw, mh, FilterType::Lanczos3);
+            }
+        } else {
+            if img.width() > mw || img.height() > mh {
+                img = img.resize(mw, mh, FilterType::Lanczos3);
+            }
+            if let Fit::Pad { rgba } = spec.fit {
+                let mut canvas = RgbaImage::from_pixel(mw, mh, Rgba(rgba));
+                let (x, y) = ((mw - img.width()) / 2, (mh - img.height()) / 2);
+                ::image::imageops::overlay(
+                    &mut canvas,
+                    &img.to_rgba8(),
+                    i64::from(x),
+                    i64::from(y),
+                );
+                img = DynamicImage::ImageRgba8(canvas);
+            }
         }
     }
     let mut out = Cursor::new(Vec::new());

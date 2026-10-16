@@ -1,6 +1,7 @@
 //! App-wide state behind the IPC commands: the open library session, the
 //! generation counter that lets a newer open supersede an older one, and
-//! the library settings file. Free of Tauri types so it is unit-testable.
+//! the settings (loaded once, saved on every change; each job keeps the
+//! snapshot it started with). Free of Tauri types so it is unit-testable.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -13,34 +14,62 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::fill::{remove_art, write_local_image, FillSettings};
+use coverly_core::credentials::{
+    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore,
+};
+use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
+use coverly_core::identify::overrides::{
+    forget_manual, remember_manual, Overrides, OVERRIDES_FILE,
+};
 use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
+use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::plan::{Decision, Plan};
-use coverly_core::profiles::Media;
+use coverly_core::profiles::custom::{
+    all_profiles, preview_paths, validate_profile, PreviewExample, ProfileFile, ProfileStore,
+    PROFILES_DIR,
+};
+use coverly_core::profiles::{builtin_profiles, Media};
 use coverly_core::progress::NoProgress;
-use coverly_core::settings::{LibrarySettings, RecentLibrary};
+use coverly_core::settings::{
+    backup_settings, load_settings, save_settings, FieldError, FieldErrorCode, LoadReport,
+    RecentLibrary, Settings,
+};
+use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
 
 use crate::error::IpcError;
 use crate::jobs::view::{
-    candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest, JobHistoryView,
-    JobState, JobView, UndoView,
+    candidate_view, candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest,
+    JobHistoryView, JobState, JobView, UndoView,
 };
 use crate::jobs::{with_env, FillConfig, JobEvents, JobManager, ManualWrite};
 use crate::library::art::{inside_root, media_name, MAX_ART_BYTES};
+use crate::library::identify::IdentityView;
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
+use crate::prefs::{SettingsUpdateView, SettingsView};
+use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 
 pub struct AppState {
     latest: AtomicU64,
     session: Mutex<Option<Arc<Session>>>,
-    settings_path: PathBuf,
-    fill: Arc<FillConfig>,
+    config_dir: PathBuf,
+    prefs: Mutex<Prefs>,
+    /// Folders, endpoints and test timings; the settings complete it.
+    base: FillConfig,
     jobs: JobManager,
     picks: Mutex<Option<EntryPick>>,
+    searches: Mutex<Option<EntrySearch>>,
+    credentials: Arc<dyn CredentialStore>,
+}
+
+/// The settings in use and what loading them had to do.
+struct Prefs {
+    settings: Settings,
+    report: LoadReport,
 }
 
 /// The candidates last listed in the drawer, so a pick names one of them.
@@ -49,6 +78,14 @@ struct EntryPick {
     id: u32,
     media: Media,
     plan: Plan,
+}
+
+/// The candidates last found by "Search by title", so a pick names one of them.
+struct EntrySearch {
+    generation: u64,
+    id: u32,
+    media: Media,
+    candidates: Vec<Candidate>,
 }
 
 fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
@@ -107,6 +144,54 @@ fn read_capped(file: &Path) -> Result<Vec<u8>, IpcError> {
     Ok(bytes)
 }
 
+/// Refuses a job data folder inside the library (backups would become
+/// library files, and a scan would list them).
+fn check_data_dir(cfg: &FillConfig, session: &Session) -> Result<(), IpcError> {
+    let root = absolute_root(session)?;
+    let data = std::path::absolute(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+    let canon = fs::canonicalize(&data).ok();
+    if data.starts_with(&root)
+        || data.starts_with(&session.root_canon)
+        || canon.is_some_and(|c| c.starts_with(&session.root_canon))
+    {
+        return Err(IpcError::BadRequest(
+            "the backup folder is inside the library".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Built-in and custom profile ids.
+fn known_ids(custom: &[ProfileFile]) -> Vec<String> {
+    builtin_profiles()
+        .into_iter()
+        .map(|p| p.id)
+        .chain(custom.iter().map(|c| c.id.clone()))
+        .collect()
+}
+
+/// The custom profiles folder: the setting, else `<config>/profiles`.
+fn custom_dir_store(config_dir: &Path, custom_dir: Option<&Path>) -> ProfileStore {
+    ProfileStore::new(custom_dir.map_or_else(|| config_dir.join(PROFILES_DIR), Path::to_path_buf))
+}
+
+/// The top-level groups that differ (never values: they may be paths).
+fn changed_groups(before: &Settings, after: &Settings) -> Vec<String> {
+    let (Ok(serde_json::Value::Object(a)), Ok(serde_json::Value::Object(b))) =
+        (serde_json::to_value(before), serde_json::to_value(after))
+    else {
+        return Vec::new();
+    };
+    b.iter()
+        .filter(|(k, v)| a.get(*k) != Some(*v))
+        .map(|(k, _)| k.clone())
+        .collect()
+}
+
 fn write_export(
     dest: &Path,
     f: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
@@ -118,15 +203,157 @@ fn write_export(
 }
 
 impl AppState {
-    pub fn new(settings_path: PathBuf, fill: FillConfig) -> AppState {
+    /// Loads the settings of `config_dir` once (a broken file never fails:
+    /// defaults for the bad parts, a backup, a notice in [`Self::settings_view`]).
+    pub fn new(config_dir: PathBuf, base: FillConfig) -> AppState {
+        let custom = custom_dir_store(&config_dir, None).load().0;
+        let (mut settings, mut report) = load_settings(&config_dir, &known_ids(&custom));
+        // Custom profiles elsewhere: the default profile may be one of them.
+        if let Some(dir) = settings.advanced.custom_dir.clone() {
+            let custom = ProfileStore::new(dir).load().0;
+            let (s, r) = load_settings(&config_dir, &known_ids(&custom));
+            settings = s;
+            if r.notice.is_some() {
+                report = r;
+            }
+        }
         AppState {
             latest: AtomicU64::new(0),
             session: Mutex::new(None),
-            settings_path,
-            fill: Arc::new(fill),
+            config_dir,
+            prefs: Mutex::new(Prefs { settings, report }),
+            base,
             jobs: JobManager::default(),
             picks: Mutex::new(None),
+            searches: Mutex::new(None),
+            credentials: Arc::new(MemoryStore::default()),
         }
+    }
+
+    /// Uses `store` for source credentials (the OS keychain in the app).
+    pub fn with_credentials(mut self, store: Arc<dyn CredentialStore>) -> AppState {
+        self.credentials = store;
+        self
+    }
+
+    /// Where source credentials are kept.
+    pub fn credentials(&self) -> &dyn CredentialStore {
+        self.credentials.as_ref()
+    }
+
+    /// The settings in use.
+    pub fn settings(&self) -> Settings {
+        lock(&self.prefs).settings.clone()
+    }
+
+    /// The settings with what loading them had to do.
+    pub fn settings_view(&self) -> SettingsView {
+        let p = lock(&self.prefs);
+        SettingsView::new(p.settings.clone(), &p.report)
+    }
+
+    /// The custom profiles folder.
+    pub fn custom_store(&self) -> ProfileStore {
+        custom_dir_store(
+            &self.config_dir,
+            self.settings().advanced.custom_dir.as_deref(),
+        )
+    }
+
+    /// The custom profiles that load (bad files are skipped).
+    pub fn custom_profiles(&self) -> Vec<ProfileFile> {
+        self.custom_store().load().0
+    }
+
+    /// Built-in and custom profile ids.
+    pub fn known_profiles(&self) -> Vec<String> {
+        known_ids(&self.custom_profiles())
+    }
+
+    /// Validates and saves `patch`; field problems come back as data and
+    /// nothing is saved then.
+    pub fn update_settings(
+        &self,
+        patch: &serde_json::Value,
+    ) -> Result<SettingsUpdateView, IpcError> {
+        let known = self.known_profiles();
+        let mut p = lock(&self.prefs);
+        match p.settings.with_patch(patch, &known) {
+            Err(errors) => Ok(SettingsUpdateView {
+                settings: p.settings.clone(),
+                errors,
+                reopen: false,
+            }),
+            Ok(next) => {
+                save_settings(&self.config_dir, &next)
+                    .map_err(|e| IpcError::Settings(e.to_string()))?;
+                let reopen = p.settings.needs_reopen(&next);
+                log::info!(
+                    "settings saved: {}",
+                    changed_groups(&p.settings, &next).join(", ")
+                );
+                p.settings = next.clone();
+                p.report = LoadReport::default();
+                Ok(SettingsUpdateView {
+                    settings: next,
+                    errors: Vec::new(),
+                    reopen,
+                })
+            }
+        }
+    }
+
+    /// Defaults again (recent libraries kept), after a backup copy.
+    pub fn reset_settings(&self) -> Result<SettingsView, IpcError> {
+        let mut p = lock(&self.prefs);
+        backup_settings(&self.config_dir, "reset")
+            .map_err(|e| IpcError::Settings(e.to_string()))?;
+        let mut next = Settings::default();
+        next.library.recent = p.settings.library.recent.clone();
+        save_settings(&self.config_dir, &next).map_err(|e| IpcError::Settings(e.to_string()))?;
+        log::info!("settings reset to defaults");
+        p.settings = next;
+        p.report = LoadReport::default();
+        Ok(SettingsView::new(p.settings.clone(), &p.report))
+    }
+
+    pub fn config_dir(&self) -> &Path {
+        &self.config_dir
+    }
+
+    /// `<app data dir>/logs` (never the backup location).
+    pub fn logs_dir(&self) -> PathBuf {
+        self.base.data_dir.join("logs")
+    }
+
+    /// The fill configuration with the current settings: each job keeps
+    /// the snapshot it started with.
+    pub fn fill_config(&self) -> Arc<FillConfig> {
+        let s = self.settings();
+        Arc::new(FillConfig {
+            cache_dir: self.base.cache_dir.clone(),
+            data_dir: s.data_dir(&self.base.data_dir),
+            endpoints: self.base.endpoints.clone(),
+            net: NetConfig {
+                min_interval: self.base.net.min_interval,
+                backoff_base: self.base.net.backoff_base,
+                ..s.net_config()
+            },
+            overrides_dir: self.base.overrides_dir.clone(),
+            settings: s,
+        })
+    }
+
+    /// Bytes used by the cache (database and downloaded art).
+    pub fn cache_usage(&self) -> u64 {
+        coverly_core::cache::cache_usage(&self.base.cache_dir)
+    }
+
+    /// Clears the cache; refused while a job or a manual write runs.
+    pub fn clear_cache(&self) -> Result<u64, IpcError> {
+        let _writing = self.jobs.begin_manual()?;
+        coverly_core::cache::clear_cache(&self.base.cache_dir)
+            .map_err(|e| IpcError::Io(e.to_string()))
     }
 
     /// Reserves the generation of a new open; any older open in flight
@@ -155,11 +382,6 @@ impl AppState {
         }
     }
 
-    /// The fill settings shared with job threads.
-    pub fn fill_config(&self) -> Arc<FillConfig> {
-        Arc::clone(&self.fill)
-    }
-
     /// The one fill job of the app.
     pub fn jobs(&self) -> &JobManager {
         &self.jobs
@@ -173,7 +395,11 @@ impl AppState {
         events: Arc<dyn JobEvents>,
     ) -> Result<JobView, IpcError> {
         let session = self.session(generation)?;
-        self.jobs.start(self.fill_config(), session, req, events)
+        let cfg = self.fill_config();
+        check_data_dir(&cfg, &session)?;
+        let view = self.jobs.start(cfg, session, req, events)?;
+        log::info!("fill job {} started", view.id);
+        Ok(view)
     }
 
     /// Undoes the newest not-undone journal of the open library
@@ -193,11 +419,12 @@ impl AppState {
         let _writing = self.jobs.begin_manual()?;
         let session = self.session(generation)?;
         let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
-        let job = list_jobs(&self.fill.data_dir)?
+        let data_dir = self.fill_config().data_dir.clone();
+        let job = list_jobs(&data_dir)?
             .into_iter()
             .find(|j| !j.undone && j.root == root)
             .ok_or(IpcError::NothingToUndo)?;
-        let report = undo_job(&self.fill.data_dir, &job.job)?;
+        let report = undo_job(&data_dir, &job.job)?;
         let paths: Vec<PathBuf> = report
             .removed
             .iter()
@@ -225,14 +452,18 @@ impl AppState {
     }
 
     /// [`Self::known_entry`], marked as the one writer of the library
-    /// until the guard drops.
+    /// until the guard drops, with the settings snapshot of the write. The
+    /// job data folder is checked first.
     fn writable_entry(
         &self,
         generation: u64,
         id: u32,
-    ) -> Result<(ManualWrite<'_>, Arc<Session>), IpcError> {
+    ) -> Result<(ManualWrite<'_>, Arc<Session>, Arc<FillConfig>), IpcError> {
         let writing = self.jobs.begin_manual()?;
-        Ok((writing, self.known_entry(generation, id)?))
+        let session = self.known_entry(generation, id)?;
+        let cfg = self.fill_config();
+        check_data_dir(&cfg, &session)?;
+        Ok((writing, session, cfg))
     }
 
     fn picked(&self, generation: u64, id: u32, media: Media) -> Result<Plan, IpcError> {
@@ -259,14 +490,16 @@ impl AppState {
                 "this layout cannot store that media".into(),
             ));
         }
-        let plan = with_env(&self.fill, |env| {
+        let cfg = self.fill_config();
+        let plan = with_env(&cfg, |env| {
             let db = SystemDb::builtin();
             let (scan, _) = subset_scan(&session, &[id]);
             let art = resolve_art(&scan, &session.profile, &db, &[media]);
             let settings = FillSettings {
                 media: vec![media],
                 scope: Scope::All,
-                ..FillSettings::default()
+                overrides_dir: Some(cfg.overrides_dir.clone()),
+                ..cfg.settings.fill_settings()
             };
             Ok(env.plan(
                 &absolute_root(&session)?,
@@ -310,7 +543,7 @@ impl AppState {
                     .map(|c| (*c).clone())
             })
             .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}")))?;
-        with_env(&self.fill, |env| {
+        with_env(&self.fill_config(), |env| {
             Ok(env.candidate_image(&session.profile, &c)?.bytes)
         })
     }
@@ -323,7 +556,7 @@ impl AppState {
         media: Media,
         candidate: u32,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let (_writing, session) = self.writable_entry(generation, id)?;
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
         let mut plan = self.picked(generation, id, media)?;
         let known = plan
             .items
@@ -344,9 +577,10 @@ impl AppState {
             concurrency: 1,
             // A failed or paused change leaves no job (like a local image).
             discard_empty: true,
-            ..ApplyOptions::default()
+            resume_job: None,
+            ..cfg.settings.apply_options(&absolute_root(&session)?)
         };
-        let report = with_env(&self.fill, |env| {
+        let report = with_env(&cfg, |env| {
             env.apply(
                 &plan,
                 &session.profile,
@@ -374,16 +608,32 @@ impl AppState {
         media: Media,
         file: &Path,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let (_writing, session) = self.writable_entry(generation, id)?;
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
         let target = art_target(&session, id, media)?;
         let bytes = read_capped(file)?;
+        let entry = &session.entries[id as usize];
+        let sys = &session.systems[entry.system as usize];
+        let rel_path = entry
+            .rom
+            .path
+            .strip_prefix(&sys.dir)
+            .unwrap_or(&entry.rom.path);
+        let rom = RomRef {
+            system_id: &entry.system_id,
+            folder: &sys.folder,
+            system_dir: &sys.dir,
+            rel_path,
+            stem: &entry.rom.stem,
+        };
         write_local_image(
             &absolute_root(&session)?,
             &session.profile,
+            &rom,
             media,
             &target,
             &bytes,
-            &self.fill.data_dir,
+            &cfg.data_dir,
+            &cfg.settings.manual_options(),
         )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
@@ -395,14 +645,19 @@ impl AppState {
         id: u32,
         media: Media,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let (_writing, session) = self.writable_entry(generation, id)?;
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
         let path = session.entries[id as usize]
             .art
             .get(&media)
             .cloned()
             .ok_or_else(|| IpcError::ArtMissing(media_name(media)))?;
         inside_root(&session, &path)?;
-        remove_art(&absolute_root(&session)?, &path, &self.fill.data_dir)?;
+        remove_art(
+            &absolute_root(&session)?,
+            &path,
+            &cfg.data_dir,
+            cfg.settings.manual_options().keep_jobs,
+        )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
 
@@ -451,7 +706,7 @@ impl AppState {
 
     /// Every journal kept, newest first.
     pub fn job_history(&self) -> Result<Vec<JobHistoryView>, IpcError> {
-        Ok(list_jobs(&self.fill.data_dir)?
+        Ok(list_jobs(&self.fill_config().data_dir)?
             .into_iter()
             .map(JobHistoryView::from)
             .collect())
@@ -485,7 +740,8 @@ impl AppState {
         systems: &SystemDb,
         emit: &mut dyn FnMut(ScanProgressEvent),
     ) -> Result<LibraryView, IpcError> {
-        let mut settings = self.settings();
+        let settings = self.settings();
+        let custom = self.custom_profiles();
         let generation = self.begin_open();
         // Announce the new generation at once so the UI can drop progress
         // from a superseded scan that is still running.
@@ -502,32 +758,47 @@ impl AppState {
                 profile_id,
                 scan: &settings.scan_options(),
                 generation,
+                custom: &custom,
+                default_profile: settings.library.default_profile.as_deref(),
+                settings: Some(&settings),
             },
             systems,
             &mut |p| emit(ScanProgressEvent::new(generation, p)),
         )?;
         self.install(session)?;
-        settings.remember(RecentLibrary {
+        log::info!(
+            "library opened: {} ({} ROMs)",
+            view.name,
+            view.entries.len()
+        );
+        let mut p = lock(&self.prefs);
+        let mut next = p.settings.clone();
+        next.remember(RecentLibrary {
             path: path.to_path_buf(),
             name: view.name.clone(),
             profile_id: view.profile.id.clone(),
             roms: u32::try_from(view.entries.len()).unwrap_or(u32::MAX),
             opened_at: now_unix(),
         });
-        if let Err(e) = settings.save(&self.settings_path) {
-            eprintln!("warning: cannot save {}: {e}", self.settings_path.display());
+        match save_settings(&self.config_dir, &next) {
+            Ok(()) => p.settings = next,
+            Err(e) => {
+                // Remembered for this session anyway.
+                p.settings = next;
+                log::warn!("cannot save settings in {}: {e}", self.config_dir.display());
+            }
         }
         Ok(view)
     }
 
-    pub fn settings(&self) -> LibrarySettings {
-        LibrarySettings::load(&self.settings_path)
-    }
-
-    fn save(&self, settings: &LibrarySettings) -> Result<(), IpcError> {
-        settings
-            .save(&self.settings_path)
-            .map_err(|e| IpcError::Settings(e.to_string()))
+    /// Applies `edit` to the settings and saves them.
+    fn edit(&self, edit: impl FnOnce(&mut Settings)) -> Result<Settings, IpcError> {
+        let mut p = lock(&self.prefs);
+        let mut next = p.settings.clone();
+        edit(&mut next);
+        save_settings(&self.config_dir, &next).map_err(|e| IpcError::Settings(e.to_string()))?;
+        p.settings = next.clone();
+        Ok(next)
     }
 
     /// Recent libraries, most recent first, with their availability.
@@ -536,36 +807,339 @@ impl AppState {
     }
 
     pub fn forget(&self, path: &Path) -> Result<Vec<RecentView>, IpcError> {
-        let mut settings = self.settings();
-        settings.forget(path);
-        self.save(&settings)?;
+        let settings = self.edit(|s| s.forget(path))?;
         Ok(recent_views(&settings))
     }
 
     pub fn library_settings(&self) -> LibrarySettingsView {
         LibrarySettingsView {
-            ignored_dirs: self.settings().ignored_dirs,
+            ignored_dirs: self.settings().library.ignored_dirs,
         }
     }
 
+    /// Saves the ignored folders (normalised) through the settings update.
     pub fn set_ignored_dirs(&self, dirs: Vec<String>) -> Result<LibrarySettingsView, IpcError> {
-        let mut settings = self.settings();
-        settings.set_ignored_dirs(dirs);
-        self.save(&settings)?;
+        let out =
+            self.update_settings(&serde_json::json!({ "library": { "ignored_dirs": dirs } }))?;
+        if let Some(e) = out.errors.first() {
+            return Err(IpcError::BadRequest(format!("{} is not valid", e.field)));
+        }
         Ok(LibrarySettingsView {
-            ignored_dirs: settings.ignored_dirs,
+            ignored_dirs: out.settings.library.ignored_dirs,
         })
     }
 
     /// The shared SQLite cache (hash memo, DATs), created on first use.
     pub fn cache(&self) -> Result<Cache, IpcError> {
-        std::fs::create_dir_all(&self.fill.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
-        Cache::open(&self.fill.cache_dir.join(CACHE_FILE)).map_err(|e| IpcError::Io(e.to_string()))
+        let dir = &self.base.cache_dir;
+        std::fs::create_dir_all(dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        Cache::open(&dir.join(CACHE_FILE)).map_err(|e| IpcError::Io(e.to_string()))
     }
 }
 
-fn recent_views(settings: &LibrarySettings) -> Vec<RecentView> {
+/// Profiles, credentials and "Search by title".
+impl AppState {
+    /// Built-ins (read-only) first, then the custom profiles that load.
+    pub fn list_profiles(&self) -> Vec<ProfileInfoView> {
+        all_profiles(&self.custom_profiles())
+            .iter()
+            .map(|(p, builtin)| ProfileInfoView::of(p, *builtin))
+            .collect()
+    }
+
+    /// Saves custom profile `p`, replacing custom profile `replaces` (a
+    /// rename moves the default profile and the max size with it). Problems
+    /// come back as field errors and nothing is saved then.
+    pub fn save_profile(
+        &self,
+        p: ProfileFile,
+        replaces: Option<String>,
+    ) -> Result<ProfileSaveView, IpcError> {
+        let store = self.custom_store();
+        let customs = store.load().0;
+        if let Some(old) = &replaces {
+            if !customs.iter().any(|c| &c.id == old) {
+                return Err(IpcError::BadRequest(format!("no custom profile `{old}`")));
+            }
+        }
+        let builtin_ids: Vec<String> = builtin_profiles().into_iter().map(|b| b.id).collect();
+        let mut errors = validate_profile(&p, &builtin_ids);
+        let taken = customs.iter().any(|c| {
+            c.id.eq_ignore_ascii_case(&p.id) && replaces.as_deref() != Some(c.id.as_str())
+        });
+        if taken && !errors.iter().any(|e| e.field == "id") {
+            errors.push(FieldError::new("id", FieldErrorCode::Duplicate));
+        }
+        if !errors.is_empty() {
+            return Ok(ProfileSaveView {
+                profiles: self.list_profiles(),
+                errors,
+            });
+        }
+        store
+            .save(&p, replaces.as_deref())
+            .map_err(|e| IpcError::Settings(e.to_string()))?;
+        log::info!("custom profile saved: {}", p.id);
+        if let Some(old) = replaces.filter(|o| *o != p.id) {
+            self.rename_profile_refs(&old, Some(&p.id))?;
+        }
+        Ok(ProfileSaveView {
+            profiles: self.list_profiles(),
+            errors: Vec::new(),
+        })
+    }
+
+    /// Deletes custom profile `id`; the default profile falls back to
+    /// detection and its max size goes with it. Built-ins are read-only.
+    pub fn delete_profile(&self, id: &str) -> Result<Vec<ProfileInfoView>, IpcError> {
+        if builtin_profiles()
+            .iter()
+            .any(|b| b.id.eq_ignore_ascii_case(id))
+        {
+            return Err(IpcError::BadRequest(
+                "built-in profiles are read-only".into(),
+            ));
+        }
+        let deleted = self
+            .custom_store()
+            .delete(id)
+            .map_err(|_| IpcError::UnknownProfile(id.to_string()))?;
+        if !deleted {
+            return Err(IpcError::UnknownProfile(id.to_string()));
+        }
+        log::info!("custom profile deleted: {id}");
+        self.rename_profile_refs(id, None)?;
+        Ok(self.list_profiles())
+    }
+
+    /// The default profile and the per-profile max size follow a rename
+    /// (or are dropped with a delete).
+    fn rename_profile_refs(&self, old: &str, new: Option<&str>) -> Result<(), IpcError> {
+        let s = self.settings();
+        let mut patch = serde_json::Map::new();
+        if s.library.default_profile.as_deref() == Some(old) {
+            patch.insert(
+                "library".into(),
+                serde_json::json!({ "default_profile": new }),
+            );
+        }
+        if let Some(size) = s.art.max_size.get(old) {
+            // A merge patch merges maps: the old key is removed with an
+            // explicit null, or it stays (and fails validation as an
+            // unknown profile once the file is gone).
+            let mut sizes = serde_json::Map::new();
+            sizes.insert(old.to_string(), serde_json::Value::Null);
+            if let Some(n) = new {
+                sizes.insert(n.to_string(), serde_json::json!(size));
+            }
+            patch.insert("art".into(), serde_json::json!({ "max_size": sizes }));
+        }
+        if patch.is_empty() {
+            return Ok(());
+        }
+        let out = self.update_settings(&serde_json::Value::Object(patch))?;
+        match out.errors.first() {
+            None => Ok(()),
+            Some(e) => Err(IpcError::Settings(format!("{} is not valid", e.field))),
+        }
+    }
+
+    /// Where `p` puts the art of `ex`, with its layout problems (the id of
+    /// a profile being created may still be empty: id errors are left out).
+    pub fn preview_profile(&self, p: &ProfileFile, ex: &PreviewExample) -> ProfilePreviewView {
+        let builtin_ids: Vec<String> = builtin_profiles().into_iter().map(|b| b.id).collect();
+        ProfilePreviewView {
+            paths: preview_paths(p, ex, &SystemDb::builtin()),
+            errors: validate_profile(p, &builtin_ids)
+                .into_iter()
+                .filter(|e| e.field != "id")
+                .collect(),
+        }
+    }
+
+    /// Whether the keychain works and which keys are set (never values).
+    pub fn credential_status(&self) -> CredentialStatus {
+        coverly_core::credentials::status(self.credentials.as_ref())
+    }
+
+    /// Stores a credential (an empty value clears it); only the status comes back.
+    pub fn set_credential(&self, key: &str, value: &str) -> Result<CredentialStatus, IpcError> {
+        let key = credential_key(key)?;
+        store_secret(self.credentials.as_ref(), key, value)?;
+        log::info!("credential set: {}", key.account());
+        Ok(self.credential_status())
+    }
+
+    pub fn clear_credential(&self, key: &str) -> Result<CredentialStatus, IpcError> {
+        let key = credential_key(key)?;
+        if !self.credentials.available() {
+            return Err(IpcError::KeychainUnavailable);
+        }
+        self.credentials.clear(key)?;
+        log::info!("credential cleared: {}", key.account());
+        Ok(self.credential_status())
+    }
+
+    /// Identifies entry `id`: a manual identity (kept in the app data dir,
+    /// never the backup folder) first, else hash → DAT, else the name.
+    pub fn identify_entry(
+        &self,
+        generation: u64,
+        id: u32,
+        systems: &SystemDb,
+    ) -> Result<IdentityView, IpcError> {
+        let session = self.session(generation)?;
+        let cache = self.cache()?;
+        let cfg = self.fill_config();
+        let http = PoliteHttp::new(UreqHttp::new(&cfg.net), &cfg.net);
+        let overrides = Overrides::read(&cfg.overrides_dir.join(OVERRIDES_FILE));
+        crate::library::identify::identify_entry(
+            &session,
+            id,
+            systems,
+            &cache,
+            &http,
+            &cfg.endpoints.database,
+            &overrides,
+        )
+    }
+
+    /// "Search by title": candidates for a typed title (untrusted: empty,
+    /// over-long or control-character queries are refused), best first.
+    pub fn search_entry_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        query: &str,
+    ) -> Result<Vec<CandidateView>, IpcError> {
+        let session = self.known_entry(generation, id)?;
+        if session.profile.slot(media).is_none() {
+            return Err(IpcError::BadRequest(
+                "this layout cannot store that media".into(),
+            ));
+        }
+        let cfg = self.fill_config();
+        let db = SystemDb::builtin();
+        let system = db
+            .get(&session.entries[id as usize].system_id)
+            .ok_or(IpcError::UnknownEntry(id))?;
+        let settings = cfg.settings.fill_settings();
+        let found = with_env(&cfg, |env| {
+            Ok(env.search_title(system, media, query, &settings)?)
+        })?;
+        let views = found
+            .iter()
+            .enumerate()
+            .map(|(i, c)| candidate_view(i, c))
+            .collect();
+        *lock(&self.searches) = Some(EntrySearch {
+            generation,
+            id,
+            media,
+            candidates: found,
+        });
+        Ok(views)
+    }
+
+    fn searched(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Candidate, IpcError> {
+        match lock(&self.searches).as_ref() {
+            Some(s) if s.generation == generation && s.id == id && s.media == media => s
+                .candidates
+                .get(candidate as usize)
+                .cloned()
+                .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}"))),
+            _ => Err(IpcError::BadRequest("search first".into())),
+        }
+    }
+
+    /// Found candidate `candidate`, re-encoded as it would be written.
+    pub fn entry_search_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<u8>, IpcError> {
+        let session = self.session(generation)?;
+        let c = self.searched(generation, id, media, candidate)?;
+        with_env(&self.fill_config(), |env| {
+            Ok(env.candidate_image(&session.profile, &c)?.bytes)
+        })
+    }
+
+    /// Writes found candidate `candidate` to the ROM's own art target
+    /// (never renamed; existing art backed up, undoable) and remembers the
+    /// pick as the ROM's manual identity.
+    pub fn set_entry_art_from_search(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
+        let c = self.searched(generation, id, media, candidate)?;
+        let target = art_target(&session, id, media)?;
+        let root = absolute_root(&session)?;
+        let entry = &session.entries[id as usize];
+        let sys = &session.systems[entry.system as usize];
+        let rel_path = entry
+            .rom
+            .path
+            .strip_prefix(&sys.dir)
+            .unwrap_or(&entry.rom.path);
+        let rom = RomRef {
+            system_id: &entry.system_id,
+            folder: &sys.folder,
+            system_dir: &sys.dir,
+            rel_path,
+            stem: &entry.rom.stem,
+        };
+        let keep_jobs = cfg.settings.manual_options().keep_jobs;
+        let report = with_env(&cfg, |env| {
+            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, keep_jobs)
+                .map_err(IpcError::from)
+        })?;
+        if let Some(ItemStatus::Failed { kind, message }) = report.items.first().map(|i| &i.status)
+        {
+            return Err(item_error(*kind, message));
+        }
+        if let Some(why) = report.paused {
+            return Err(IpcError::Network(why));
+        }
+        remember_manual(&cfg.overrides_dir, &entry.rom.path, &c.name, &c.source)
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        self.refresh_entries(generation, &[id], &SystemDb::builtin())
+    }
+
+    /// "Forget manual match": entry `id` is identified as before again.
+    pub fn clear_identity_override(&self, generation: u64, id: u32) -> Result<(), IpcError> {
+        let session = self.known_entry(generation, id)?;
+        forget_manual(
+            &self.fill_config().overrides_dir,
+            &session.entries[id as usize].rom.path,
+        )
+        .map(|_| ())
+        .map_err(|e| IpcError::Io(e.to_string()))
+    }
+}
+
+/// Only the closed set of credential names.
+fn credential_key(name: &str) -> Result<CredentialKey, IpcError> {
+    CredentialKey::parse(name)
+        .ok_or_else(|| IpcError::BadRequest(format!("unknown credential `{name}`")))
+}
+
+fn recent_views(settings: &Settings) -> Vec<RecentView> {
     settings
+        .library
         .recent
         .iter()
         .map(|r| RecentView {

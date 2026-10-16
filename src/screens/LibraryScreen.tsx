@@ -1,12 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
-import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
@@ -22,6 +15,7 @@ import { useT } from '@/i18n/useT';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
 import { useViewStore } from '@/stores/viewStore';
@@ -65,10 +59,8 @@ export function LibraryScreen() {
   const clearFilters = useFilterStore((s) => s.clear);
   const setQuery = useFilterStore((s) => s.setQuery);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
-  // Job events for as long as the library screen lives.
+  // Job events while this screen lives (shared with App's subscription).
   useEffect(() => {
     let alive = true;
     let off: (() => void) | undefined;
@@ -88,7 +80,7 @@ export function LibraryScreen() {
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
       // A modal owns the keyboard; the search sits behind it.
-      if (settingsOpen || overlay !== 'none') return;
+      if (overlay !== 'none') return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();
@@ -99,7 +91,7 @@ export function LibraryScreen() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closeDrawer, settingsOpen, overlay]);
+  }, [closeDrawer, overlay]);
 
   if (!view) return null;
 
@@ -155,7 +147,7 @@ export function LibraryScreen() {
       <Toolbar
         view={view}
         searchRef={searchRef}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => useNavStore.getState().openSettings()}
         onFill={() => setOverlay('wizard')}
         onJobs={() => setOverlay('jobs')}
         onReports={() => setOverlay('reports')}
@@ -190,7 +182,6 @@ export function LibraryScreen() {
       {overlay === 'reports' && (
         <ReportsPanel view={view} onClose={closeOverlay} />
       )}
-      {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>
   );
 }

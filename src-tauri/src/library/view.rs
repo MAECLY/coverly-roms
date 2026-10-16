@@ -95,6 +95,8 @@ pub struct ProfileView {
     pub evidence: Vec<String>,
     /// The picked folder is the ROMs folder itself (see `fit_to_root`).
     pub fitted: bool,
+    /// Fills also merge the art paths into `gamelist.xml` (D31).
+    pub gamelist: bool,
 }
 
 /// A problem met while scanning.

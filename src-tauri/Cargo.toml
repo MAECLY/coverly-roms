@@ -24,6 +24,8 @@ coverly-core = { path = "../crates/coverly-core" }
 thiserror = { workspace = true }
 tauri-plugin-dialog = "~2.8"
 tauri-plugin-opener = "2"
+keyring = { workspace = true }
+log = { workspace = true, features = ["std"] }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.

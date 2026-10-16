@@ -150,6 +150,51 @@ pub fn ensure_within(root: &Path, target: &Path) -> Result<PathBuf, WriteError> 
     Ok(target.to_path_buf())
 }
 
+/// The first bytes of an AppleDouble file.
+const APPLE_DOUBLE_MAGIC: [u8; 4] = [0x00, 0x05, 0x16, 0x07];
+
+/// Deletes the AppleDouble files (`._*` regular files starting with the
+/// AppleDouble magic) directly in `dir`; returns how many. Never recurses,
+/// never touches anything else; errors only skip files.
+pub fn clean_apple_doubles(dir: &Path) -> usize {
+    let Ok(read) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in read.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("._") {
+            continue;
+        }
+        let path = entry.path();
+        let is_file = fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file());
+        let mut head = [0u8; 4];
+        let magic = is_file
+            && File::open(&path)
+                .and_then(|mut f| io::Read::read_exact(&mut f, &mut head))
+                .is_ok()
+            && head == APPLE_DOUBLE_MAGIC;
+        if magic && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// Whether `root` is on a removable volume by its mount point (macOS
+/// `/Volumes/…`; Linux `/media`, `/run/media`, `/mnt`). Other systems: no.
+pub fn on_removable_volume(root: &Path) -> bool {
+    let prefixes: &[&str] = if cfg!(target_os = "macos") {
+        &["/Volumes/"]
+    } else if cfg!(target_os = "linux") {
+        &["/media/", "/run/media/", "/mnt/"]
+    } else {
+        &[]
+    };
+    let text = root.to_string_lossy();
+    prefixes.iter().any(|p| text.starts_with(p))
+}
+
 /// Upper-case hex SHA-1 of `bytes`.
 pub fn sha1_hex(bytes: &[u8]) -> String {
     hex_upper(&Sha1::digest(bytes))
@@ -760,11 +805,18 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         restored: Vec::new(),
         skipped_modified: Vec::new(),
     };
+    // A target replaced twice in one job (a gamelist written by a run and
+    // its resume) shares one backup holding the original bytes: once the
+    // last write is restored, the earlier replace entries are done too.
+    let mut restored_here: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for (n, entry) in entries.into_iter().rev().enumerate() {
         let Line::Entry { target, op, sha1 } = entry else {
             continue;
         };
         let target = ensure_within(&root, &target)?;
+        if matches!(op, Op::Replaced { .. }) && restored_here.contains(&target) {
+            continue;
+        }
         let current = match fs::read(&target) {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == ErrorKind::NotFound => None,
@@ -782,6 +834,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 }
                 let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
                 atomic_write(&target, &old, &tmp)?;
+                restored_here.insert(target.clone());
                 report.restored.push(target);
             }
             // The delete never happened (crash between journal and delete).
@@ -797,6 +850,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 let old = fs::read(&backup).map_err(|e| map_io(e, &backup))?;
                 let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
                 atomic_write(&target, &old, &tmp)?;
+                restored_here.insert(target.clone());
                 report.restored.push(target);
             }
         }

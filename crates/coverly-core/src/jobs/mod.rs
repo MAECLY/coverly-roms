@@ -6,6 +6,7 @@
 //! timeout, a full or read-only volume, or a cancel stop it cleanly with
 //! the journal kept, so `undo` and a re-run both work.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ use serde::Serialize;
 
 use crate::cache::Cache;
 use crate::csv_util::{media_name, write_row};
+use crate::gamelist::{merge_into, rel_slash, GameArt, GAMELIST_FILE};
 use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec};
 use crate::plan::{Plan, PlanAction, PlanItem};
 use crate::profiles::{Media, Profile};
@@ -102,6 +104,12 @@ pub struct ApplyOptions {
     /// undone in place of a real job nor pushes one out of the history.
     /// Ignored when resuming. Fill jobs keep the journal to resume into.
     pub discard_empty: bool,
+    /// Journals kept after the job (spec §9 undo history depth).
+    pub keep_jobs: usize,
+    /// Trim the downloaded-art store to this size after the job.
+    pub cache_max_bytes: Option<u64>,
+    /// Delete AppleDouble junk in the folders the job wrote to.
+    pub clean_apple_double: bool,
 }
 
 impl Default for ApplyOptions {
@@ -116,6 +124,9 @@ impl Default for ApplyOptions {
             max_alternatives: 2,
             resume_job: None,
             discard_empty: false,
+            keep_jobs: crate::fill::KEEP_JOBS,
+            cache_max_bytes: None,
+            clean_apple_double: false,
         }
     }
 }
@@ -165,6 +176,10 @@ pub enum ItemStatus {
         source: String,
         name: String,
         backup: PathBuf,
+        /// The file actually replaced: a case/NFC twin of the target keeps
+        /// its own spelling (the gamelist must name it).
+        #[serde(skip)]
+        path: PathBuf,
     },
     SkippedExists,
     SkippedReview,
@@ -205,6 +220,9 @@ pub struct JobReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
+    /// Problems that did not fail an item (e.g. a gamelist left as it was).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Writes one row per item of `report`:
@@ -349,6 +367,20 @@ pub fn apply_plan(
         progress.event(ProgressEvent::Finished {
             phase: Phase::Apply,
         });
+        if opts.clean_apple_double {
+            let mut dirs: Vec<PathBuf> = done_targets(&plan.items, &results)
+                .filter_map(|t| t.parent().map(Path::to_path_buf))
+                .collect();
+            dirs.sort();
+            dirs.dedup();
+            for d in dirs {
+                crate::write::clean_apple_doubles(&d);
+            }
+        }
+        if profile.gamelist {
+            let replace = opts.overwrite == OverwritePolicy::Backup;
+            report.warnings = merge_gamelists(&plan.items, &results, &mut lock(&writer), replace);
+        }
         let writer = writer.into_inner().unwrap_or_else(|p| p.into_inner());
         if opts.discard_empty && opts.resume_job.is_none() && !writer.has_entries() {
             writer.discard()?;
@@ -368,6 +400,111 @@ pub fn apply_plan(
     }
     report.recount();
     Ok(report)
+}
+
+/// Merges the art written by this run into the `gamelist.xml` of each
+/// system folder (D31) through `writer`; returns one warning per gamelist
+/// left as it was.
+fn merge_gamelists(
+    items: &[PlanItem],
+    results: &[Option<ItemStatus>],
+    writer: &mut Writer,
+    replace: bool,
+) -> Vec<String> {
+    let mut by_dir: BTreeMap<PathBuf, BTreeMap<String, GameArt>> = BTreeMap::new();
+    for (item, st) in items.iter().zip(results) {
+        // The path written: the target, or the twin (same folder, its own
+        // spelling) the writer replaced.
+        let written = match st {
+            Some(ItemStatus::Filled { .. }) => item.target.clone(),
+            Some(ItemStatus::Replaced { path, .. }) => match path.file_name() {
+                Some(twin) => item.target.with_file_name(twin),
+                None => item.target.clone(),
+            },
+            _ => continue,
+        };
+        // `strip_prefix("")` succeeds: an item without a system dir (a
+        // hand-built plan) never reaches a gamelist.
+        if item.system_dir.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(art_rel) = written.strip_prefix(&item.system_dir) else {
+            continue;
+        };
+        let rom = rel_slash(&item.rel_path);
+        by_dir
+            .entry(item.system_dir.clone())
+            .or_default()
+            .entry(rom.clone())
+            .or_insert_with(|| GameArt {
+                rom,
+                name: item.stem.clone(),
+                art: Vec::new(),
+            })
+            .art
+            .push((item.media, rel_slash(art_rel)));
+    }
+    let mut warnings = Vec::new();
+    for (dir, games) in by_dir {
+        let games: Vec<GameArt> = games.into_values().collect();
+        if let Err(w) = merge_into(writer, &dir, &games, replace) {
+            warnings.push(format!("{}: {w}", dir.join(GAMELIST_FILE).display()));
+        }
+    }
+    warnings
+}
+
+/// Targets of the items written (filled or replaced) so far.
+fn done_targets<'a>(
+    items: &'a [PlanItem],
+    results: &'a [Option<ItemStatus>],
+) -> impl Iterator<Item = &'a Path> + 'a {
+    items.iter().zip(results).filter_map(|(item, st)| {
+        matches!(
+            st,
+            Some(ItemStatus::Filled { .. } | ItemStatus::Replaced { .. })
+        )
+        .then_some(item.target.as_path())
+    })
+}
+
+/// Deletes the oldest files (by modification time) of the art store until
+/// it holds at most `max_bytes`; returns the bytes removed. A removed
+/// file is a cache miss next time (`ArtStore::get` checks the bytes).
+pub fn trim_art_store(cache_dir: &Path, max_bytes: u64) -> io::Result<u64> {
+    let mut files = Vec::new();
+    let art = cache_dir.join("art");
+    let shards = match fs::read_dir(&art) {
+        Ok(r) => r,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    for shard in shards.flatten() {
+        let Ok(read) = fs::read_dir(shard.path()) else {
+            continue;
+        };
+        for f in read.flatten() {
+            if let Ok(meta) = f.metadata() {
+                if meta.is_file() {
+                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                    files.push((mtime, meta.len(), f.path()));
+                }
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
+    files.sort();
+    let mut removed = 0;
+    for (_, len, path) in files {
+        if total <= max_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total -= len;
+            removed += len;
+        }
+    }
+    Ok(removed)
 }
 
 impl JobReport {
@@ -404,6 +541,7 @@ impl JobReport {
         self.paused = other.paused;
         self.pause_kind = other.pause_kind;
         self.cancelled = other.cancelled;
+        self.warnings.extend(other.warnings);
         if self.job_id.is_none() {
             self.job_id = other.job_id;
         }
@@ -558,10 +696,11 @@ impl Ctx<'_, '_> {
                 source: c.source.clone(),
                 name: c.name.clone(),
             },
-            Ok(WriteOutcome::Replaced { backup, .. }) => ItemStatus::Replaced {
+            Ok(WriteOutcome::Replaced { backup, path }) => ItemStatus::Replaced {
                 source: c.source.clone(),
                 name: c.name.clone(),
                 backup,
+                path,
             },
             Ok(WriteOutcome::SkippedExists { .. }) => ItemStatus::SkippedExists,
             Err(e @ (WriteError::DiskFull | WriteError::Denied(_))) => {

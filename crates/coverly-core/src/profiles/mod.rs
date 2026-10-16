@@ -7,6 +7,7 @@
 //! guesses the profile of a library from marker folders.
 
 mod builtin;
+pub mod custom;
 mod detect;
 mod fit;
 mod template;
@@ -79,6 +80,12 @@ pub struct Profile {
     /// One slot per media the profile can store; absent media cannot be
     /// stored by this layout.
     pub slots: HashMap<Media, MediaSlot>,
+    /// The frontend reads one format only (RetroArch: PNG); the output
+    /// format setting does not apply.
+    pub fixed_format: bool,
+    /// The frontend reads art paths from `<system dir>/gamelist.xml`
+    /// (Batocera/Knulli): fills merge them in (spec §16.8, D31).
+    pub gamelist: bool,
 }
 
 impl Profile {

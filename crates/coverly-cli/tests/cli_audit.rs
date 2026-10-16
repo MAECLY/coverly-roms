@@ -50,7 +50,9 @@ fn library() -> TempDir {
 }
 
 fn coverly() -> Command {
-    Command::cargo_bin("coverly").unwrap()
+    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    cmd.env("COVERLY_SETTINGS", "");
+    cmd
 }
 
 fn stdout_of(cmd: &mut Command) -> String {

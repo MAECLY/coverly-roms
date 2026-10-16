@@ -92,6 +92,8 @@ pub fn fill_world() -> FillWorld {
             retries: 0,
             ..NetConfig::default()
         },
+        settings: Default::default(),
+        overrides_dir: dirs.path().join("data"),
     };
     FillWorld {
         lib,

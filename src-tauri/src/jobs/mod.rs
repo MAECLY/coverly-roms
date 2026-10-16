@@ -19,11 +19,12 @@ use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::{ApplyOptions, ItemStatus, JobReport};
-use coverly_core::matching::{default_region_order, parse_region_order};
+use coverly_core::matching::parse_region_order;
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::plan::{Decision, Plan, PlanAction};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
+use coverly_core::settings::Settings;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
 
@@ -35,13 +36,20 @@ use view::{
     JobProgressView, JobState, JobTotalsView, JobView, PauseView, PlanSummaryView,
 };
 
-/// Where fills keep their cache and journals, and how they reach the network.
+/// Where fills keep their cache and journals, how they reach the network,
+/// and the settings they run with: a snapshot taken when a job starts, kept
+/// by the job for its dry run, its run and every resume.
 #[derive(Clone, Debug)]
 pub struct FillConfig {
     pub cache_dir: PathBuf,
+    /// Journals and backups (the settings' backup location, D27).
     pub data_dir: PathBuf,
     pub endpoints: Endpoints,
     pub net: NetConfig,
+    pub settings: Settings,
+    /// Where manual identities live: the app's own data dir, so moving the
+    /// backup location never forgets them (D32).
+    pub overrides_dir: PathBuf,
 }
 
 impl FillConfig {
@@ -49,9 +57,11 @@ impl FillConfig {
     pub fn new(cache_dir: PathBuf, data_dir: PathBuf) -> FillConfig {
         FillConfig {
             cache_dir,
+            overrides_dir: data_dir.clone(),
             data_dir,
             endpoints: Endpoints::default(),
             net: NetConfig::default(),
+            settings: Settings::default(),
         }
     }
 }
@@ -97,6 +107,9 @@ pub fn with_env<T>(
 struct Job {
     id: u64,
     session: Arc<Session>,
+    /// The settings snapshot the job started with (data folder, network,
+    /// output): the dry run, the run and every resume share it.
+    cfg: Arc<FillConfig>,
     /// `None` = the whole library.
     entry_filter: Option<Vec<u32>>,
     settings: FillSettings,
@@ -224,7 +237,13 @@ impl ProgressSink for Bridge<'_> {
     }
 }
 
-fn settings_for(session: &Session, req: &FillRequest) -> Result<FillSettings, IpcError> {
+/// The job's fill settings: the snapshot's matching and sources, with the
+/// wizard's media, scope, strategy and regions (empty = the settings' order).
+fn settings_for(
+    session: &Session,
+    req: &FillRequest,
+    cfg: &FillConfig,
+) -> Result<FillSettings, IpcError> {
     let mut media: Vec<Media> = Vec::new();
     for &m in &req.media {
         if session.profile.slot(m).is_some() && !media.contains(&m) {
@@ -236,9 +255,10 @@ fn settings_for(session: &Session, req: &FillRequest) -> Result<FillSettings, Ip
             "this layout cannot store the chosen art".into(),
         ));
     }
+    let base = cfg.settings.fill_settings();
     let mut regions = parse_region_order(&req.regions.join(",")).map_err(IpcError::BadRequest)?;
     if regions.is_empty() {
-        regions = default_region_order();
+        regions = base.regions.clone();
     }
     Ok(FillSettings {
         media,
@@ -249,7 +269,8 @@ fn settings_for(session: &Session, req: &FillRequest) -> Result<FillSettings, Ip
         },
         strategy: req.strategy,
         regions,
-        ..FillSettings::default()
+        overrides_dir: Some(cfg.overrides_dir.clone()),
+        ..base
     })
 }
 
@@ -289,10 +310,10 @@ fn add_folder_peers(session: &Session, wanted: &[u32], art: &mut [SystemArt]) {
     }
 }
 
-fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>) {
+fn spawn_gather(job: Arc<Job>, events: Arc<dyn JobEvents>) {
     std::thread::spawn(move || {
         let planned = guarded(|| {
-            with_env(&cfg, |env| {
+            with_env(&job.cfg, |env| {
                 let db = SystemDb::builtin();
                 let session = &job.session;
                 let ids: Vec<u32> = match &job.entry_filter {
@@ -356,21 +377,23 @@ fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>)
 /// the journal to continue.
 fn spawn_apply(
     job: Arc<Job>,
-    cfg: Arc<FillConfig>,
     events: Arc<dyn JobEvents>,
     plan: Plan,
     resumed: Option<(Vec<usize>, String)>,
 ) {
     std::thread::spawn(move || {
         let applied = guarded(|| {
-            with_env(&cfg, |env| {
+            let cfg = &job.cfg;
+            with_env(cfg, |env| {
+                let root = std::path::absolute(&job.session.root)
+                    .map_err(|e| IpcError::Io(e.to_string()))?;
                 let opts = ApplyOptions {
                     overwrite: job.overwrite,
                     // Only auto items and accepted/picked review items (D20).
                     include_review: false,
                     concurrency: cfg.net.concurrency.clamp(1, 6),
                     resume_job: resumed.as_ref().map(|(_, journal)| journal.clone()),
-                    ..ApplyOptions::default()
+                    ..cfg.settings.apply_options(&root)
                 };
                 let sink = Bridge::new(&job, events.as_ref());
                 env.apply(&plan, &job.session.profile, &opts, &sink, &job.cancel)
@@ -420,7 +443,20 @@ fn spawn_apply(
         if !touched.is_empty() {
             events.written(job.session.generation, touched);
         }
-        events.changed(job.view());
+        let view = job.view();
+        if let Some(t) = &view.result {
+            log::info!(
+                "fill job {} {:?}: {} filled, {} replaced, {} skipped, {} without art, {} failed",
+                view.id,
+                view.state,
+                t.filled,
+                t.replaced,
+                t.skipped,
+                t.no_art,
+                t.failed
+            );
+        }
+        events.changed(view);
     });
 }
 
@@ -496,7 +532,7 @@ impl JobManager {
         req: &FillRequest,
         events: Arc<dyn JobEvents>,
     ) -> Result<JobView, IpcError> {
-        let settings = settings_for(&session, req)?;
+        let settings = settings_for(&session, req, &cfg)?;
         let job = {
             let mut slot = lock(&self.current);
             if self.manual_running() || slot.as_ref().is_some_and(|j| j.running()) {
@@ -505,6 +541,7 @@ impl JobManager {
             let job = Arc::new(Job {
                 id: self.seq.fetch_add(1, Ordering::SeqCst) + 1,
                 session,
+                cfg,
                 entry_filter: req.entry_ids.clone(),
                 settings,
                 overwrite: req.overwrite,
@@ -514,7 +551,7 @@ impl JobManager {
             *slot = Some(Arc::clone(&job));
             job
         };
-        spawn_gather(Arc::clone(&job), cfg, events);
+        spawn_gather(Arc::clone(&job), events);
         Ok(job.view())
     }
 
@@ -595,13 +632,9 @@ impl JobManager {
         Ok(job.view())
     }
 
-    /// Applies the decided plan on a worker thread.
-    pub fn run(
-        &self,
-        cfg: Arc<FillConfig>,
-        job: u64,
-        events: Arc<dyn JobEvents>,
-    ) -> Result<JobView, IpcError> {
+    /// Applies the decided plan on a worker thread, with the settings
+    /// snapshot the job started with.
+    pub fn run(&self, job: u64, events: Arc<dyn JobEvents>) -> Result<JobView, IpcError> {
         let job = self.job(job)?;
         let plan = {
             let mut d = lock(&job.data);
@@ -615,18 +648,13 @@ impl JobManager {
             d.state = JobState::Applying;
             plan
         };
-        spawn_apply(Arc::clone(&job), cfg, events, plan, None);
+        spawn_apply(Arc::clone(&job), events, plan, None);
         Ok(job.view())
     }
 
     /// Continues a paused job: the dry run again, or the items not done yet
-    /// into the same journal.
-    pub fn resume(
-        &self,
-        cfg: Arc<FillConfig>,
-        job: u64,
-        events: Arc<dyn JobEvents>,
-    ) -> Result<JobView, IpcError> {
+    /// into the same journal (in the data folder the job started with).
+    pub fn resume(&self, job: u64, events: Arc<dyn JobEvents>) -> Result<JobView, IpcError> {
         let job = self.job(job)?;
         let mut d = lock(&job.data);
         if self.manual_running() {
@@ -640,7 +668,7 @@ impl JobManager {
             d.paused = None;
             d.state = JobState::Gathering;
             drop(d);
-            spawn_gather(Arc::clone(&job), cfg, events);
+            spawn_gather(Arc::clone(&job), events);
         } else {
             let plan = d.decided_plan().ok_or(IpcError::NoJob)?;
             let report = d.report.as_ref().ok_or(IpcError::NoJob)?;
@@ -653,7 +681,7 @@ impl JobManager {
             d.paused = None;
             d.state = JobState::Applying;
             drop(d);
-            spawn_apply(Arc::clone(&job), cfg, events, todo, resumed);
+            spawn_apply(Arc::clone(&job), events, todo, resumed);
         }
         Ok(job.view())
     }

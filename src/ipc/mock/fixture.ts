@@ -299,6 +299,8 @@ export function generateLibrary(o: FixtureOptions): LibraryView {
       detected: true,
       evidence: ['mock fixture'],
       fitted: false,
+      // Only the `batocera` layout reads gamelist.xml; the fixture is ES-DE.
+      gamelist: false,
     },
     systems,
     entries,

@@ -9,7 +9,8 @@
       "media": ["cover"],
       "detected": true,
       "evidence": ["anbernic/ folder"],
-      "fitted": false
+      "fitted": false,
+      "gamelist": false
     },
     "systems": [
       {
@@ -40,7 +41,10 @@
       }
     ],
     "warnings": [
-      { "path": "/Volumes/SD/ROMS/BAD", "message": "permission denied" }
+      {
+        "path": "/Volumes/SD/ROMS/BAD",
+        "message": "permission denied"
+      }
     ],
     "scan_ms": 42
   },
@@ -59,7 +63,100 @@
     "opened_at": 1700000000,
     "available": true
   },
-  "settings": { "ignored_dirs": ["bios"] },
+  "library_settings": { "ignored_dirs": ["bios"] },
+  "settings": {
+    "version": 2,
+    "general": {
+      "language": "auto",
+      "theme": "system",
+      "check_updates_on_launch": true,
+      "update_channel": "stable"
+    },
+    "library": {
+      "default_profile": null,
+      "ignored_dirs": ["bios", "saves", "states", "Shortcuts"],
+      "ignored_exts": [
+        "txt",
+        "xml",
+        "json",
+        "cfg",
+        "ini",
+        "db",
+        "png",
+        "jpg",
+        "jpeg",
+        "webp",
+        "bmp",
+        "srm",
+        "sav",
+        "state",
+        "pdf",
+        "md",
+        "nfo",
+        "log",
+        "dat"
+      ],
+      "include_hidden": false,
+      "follow_symlinks": false,
+      "recent": []
+    },
+    "art": {
+      "media": ["cover", "screenshot", "title"],
+      "single_slot_media": "cover",
+      "output_format": "profile",
+      "max_size": {},
+      "keep_aspect": true,
+      "jpeg_quality": 90,
+      "overwrite": "never"
+    },
+    "matching": {
+      "strategy": "rom-region",
+      "regions": ["rom", "world", "usa", "europe", "japan"],
+      "languages": ["en"],
+      "auto_threshold": 0.9,
+      "review_threshold": 0.65,
+      "fuzzy": true,
+      "arcade_translation": true,
+      "match_method": "hash-then-name",
+      "max_hash_mb": 64
+    },
+    "sources": {
+      "order": [
+        {
+          "id": "libretro",
+          "enabled": true
+        },
+        {
+          "id": "steamgriddb",
+          "enabled": false
+        },
+        {
+          "id": "screenscraper",
+          "enabled": false
+        }
+      ]
+    },
+    "network": {
+      "concurrency": 4,
+      "timeout_secs": 30,
+      "retries": 3,
+      "proxy": "system",
+      "proxy_url": "",
+      "cache_max_mb": 2048,
+      "index_refresh_hours": 48
+    },
+    "safety": {
+      "backup_before_overwrite": true,
+      "backup_dir": null,
+      "dry_run_default": true,
+      "clean_apple_double": true,
+      "undo_depth": 10
+    },
+    "advanced": {
+      "log_level": "info",
+      "custom_dir": null
+    }
+  },
   "identity": {
     "canonical": "Legend of Zelda, The (USA)",
     "method": "hash",
@@ -84,8 +181,19 @@
       "detail": "rate limited by thumbnails.libretro.com (HTTP 429)"
     },
     "plan": {
-      "totals": { "auto": 3, "review": 1, "none": 1 },
-      "per_system": [{ "folder": "SFC", "auto": 3, "review": 1, "none": 1 }],
+      "totals": {
+        "auto": 3,
+        "review": 1,
+        "none": 1
+      },
+      "per_system": [
+        {
+          "folder": "SFC",
+          "auto": 3,
+          "review": 1,
+          "none": 1
+        }
+      ],
       "warnings": []
     },
     "decided": 1,
@@ -122,7 +230,10 @@
       }
     ],
     "replaces_existing": false,
-    "decision": { "choice": "pick", "candidate": 0 },
+    "decision": {
+      "choice": "pick",
+      "candidate": 0
+    },
     "outcome": {
       "status": "failed",
       "error": "write-denied",
@@ -164,7 +275,10 @@
     "complete": true,
     "undone": false
   },
-  "error": { "code": "not-found", "detail": "/Volumes/SD" },
+  "error": {
+    "code": "not-found",
+    "detail": "/Volumes/SD"
+  },
   "item_error_kinds": [
     "no-art",
     "network",
@@ -175,5 +289,307 @@
     "outside-root",
     "volume-gone",
     "io"
+  ],
+  "ranges": [
+    {
+      "field": "art.jpeg_quality",
+      "min": 1.0,
+      "max": 100.0
+    },
+    {
+      "field": "art.max_size.width",
+      "min": 16.0,
+      "max": 4096.0
+    },
+    {
+      "field": "art.max_size.height",
+      "min": 16.0,
+      "max": 4096.0
+    },
+    {
+      "field": "matching.auto_threshold",
+      "min": 0.3,
+      "max": 1.0
+    },
+    {
+      "field": "matching.review_threshold",
+      "min": 0.3,
+      "max": 1.0
+    },
+    {
+      "field": "matching.max_hash_mb",
+      "min": 1.0,
+      "max": 4096.0
+    },
+    {
+      "field": "network.concurrency",
+      "min": 1.0,
+      "max": 6.0
+    },
+    {
+      "field": "network.timeout_secs",
+      "min": 5.0,
+      "max": 300.0
+    },
+    {
+      "field": "network.retries",
+      "min": 0.0,
+      "max": 10.0
+    },
+    {
+      "field": "network.cache_max_mb",
+      "min": 64.0,
+      "max": 102400.0
+    },
+    {
+      "field": "network.index_refresh_hours",
+      "min": 1.0,
+      "max": 720.0
+    },
+    {
+      "field": "safety.undo_depth",
+      "min": 1.0,
+      "max": 100.0
+    }
+  ],
+  "field_error": {
+    "field": "network.timeout_secs",
+    "code": "range",
+    "min": 5.0,
+    "max": 300.0
+  },
+  "settings_view_meta": {
+    "notice": "fixed",
+    "backup": "/config/settings.json.bak-1",
+    "fixed": ["network.timeout_secs"]
+  },
+  "credential_status": {
+    "available": true,
+    "set": {
+      "steamgriddb-api-key": true,
+      "screenscraper-user": false,
+      "screenscraper-password": false
+    }
+  },
+  "profile_info": {
+    "profile": {
+      "id": "mine",
+      "name": "Mine",
+      "roms_root": "Roms",
+      "art_dirs": ["Imgs"],
+      "gamelist": false,
+      "slots": {
+        "cover": {
+          "template": "{system_dir}/{rel_dir}/Imgs/{stem}.png",
+          "format": "png",
+          "max_width": 250,
+          "max_height": 360
+        }
+      }
+    },
+    "builtin": false,
+    "mirror_subdirs": true
+  },
+  "profile_preview": {
+    "paths": {
+      "cover": "Roms/SFC/Imgs/Zelda.png"
+    },
+    "errors": []
+  },
+  "builtin_profiles": [
+    {
+      "profile": {
+        "id": "anbernic-stock",
+        "name": "Anbernic stock",
+        "roms_root": "ROMS",
+        "art_dirs": ["Imgs"],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/{rel_dir}/Imgs/{stem}.png",
+            "format": "png",
+            "max_width": 250,
+            "max_height": 360
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
+    },
+    {
+      "profile": {
+        "id": "garlicos",
+        "name": "GarlicOS",
+        "roms_root": "Roms",
+        "art_dirs": ["Imgs"],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/{rel_dir}/Imgs/{stem}.png",
+            "format": "png",
+            "max_width": 250,
+            "max_height": 360
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
+    },
+    {
+      "profile": {
+        "id": "onion",
+        "name": "Onion OS",
+        "roms_root": "Roms",
+        "art_dirs": ["Imgs"],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/{rel_dir}/Imgs/{stem}.png",
+            "format": "png",
+            "max_width": 250,
+            "max_height": 360
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
+    },
+    {
+      "profile": {
+        "id": "muos",
+        "name": "muOS",
+        "roms_root": "ROMS",
+        "art_dirs": [],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "screenshot": {
+            "template": "{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": false
+    },
+    {
+      "profile": {
+        "id": "minui",
+        "name": "MinUI / NextUI",
+        "roms_root": "Roms",
+        "art_dirs": [".media", ".res"],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/{rel_dir}/.media/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
+    },
+    {
+      "profile": {
+        "id": "esde",
+        "name": "ES-DE",
+        "roms_root": "ROMs",
+        "art_dirs": [],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "screenshot": {
+            "template": "{root}/downloaded_media/{system_id}/screenshots/{rel_dir}/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "title": {
+            "template": "{root}/downloaded_media/{system_id}/titlescreens/{rel_dir}/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": true
+    },
+    {
+      "profile": {
+        "id": "batocera",
+        "name": "Batocera / Knulli / EmulationStation",
+        "roms_root": "roms",
+        "art_dirs": ["images", "videos", "manuals", "magazines"],
+        "gamelist": true,
+        "slots": {
+          "cover": {
+            "template": "{system_dir}/images/{stem}-image.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "screenshot": {
+            "template": "{system_dir}/images/{stem}-screenshot.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "title": {
+            "template": "{system_dir}/images/{stem}-titleshot.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": false
+    },
+    {
+      "profile": {
+        "id": "retroarch",
+        "name": "RetroArch",
+        "roms_root": "",
+        "art_dirs": ["thumbnails"],
+        "gamelist": false,
+        "slots": {
+          "cover": {
+            "template": "{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "screenshot": {
+            "template": "{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          },
+          "title": {
+            "template": "{root}/thumbnails/{libretro}/Named_Titles/{stem}.png",
+            "format": "png",
+            "max_width": null,
+            "max_height": null
+          }
+        }
+      },
+      "builtin": true,
+      "mirror_subdirs": false
+    }
   ]
 }

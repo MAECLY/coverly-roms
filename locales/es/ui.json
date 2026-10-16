@@ -22,15 +22,200 @@
     "scanning": "Escaneando {folder}… {done} de {total} carpetas",
     "scanningStart": "Leyendo la carpeta…",
     "romsFound": "{n} ROMs encontradas",
-    "progressLabel": "Progreso del escaneo",
-    "settings": "Ajustes de biblioteca"
+    "progressLabel": "Progreso del escaneo"
   },
   "settings": {
-    "title": "Ajustes de biblioteca",
-    "ignoredDirs": "Carpetas ignoradas",
-    "ignoredDirsHint": "Un nombre de carpeta por línea. Se omiten a cualquier profundidad.",
-    "save": "Guardar",
-    "cancel": "Cancelar"
+    "open": "Configuración",
+    "title": "Configuración",
+    "back": "Volver",
+    "sections": "Secciones de la configuración",
+    "loading": "Cargando la configuración…",
+    "retry": "Reintentar",
+    "dismiss": "Cerrar aviso",
+    "reopen": "Vuelve a abrir la biblioteca para aplicar estos cambios.",
+    "reopenNow": "Reabrir ahora",
+    "saved": "Guardado.",
+    "notice": {
+      "migrated": "Tu configuración de biblioteca anterior se ha pasado al nuevo archivo de configuración.",
+      "reset-corrupt": "No se pudo leer el archivo de configuración, así que se usan los valores por defecto. El archivo anterior se ha guardado: {backup}",
+      "fixed": "Algunos ajustes no eran válidos y han vuelto a su valor por defecto ({fields}). Se ha guardado una copia del archivo: {backup}",
+      "future-version": "Esta configuración la guardó una versión más nueva; lo que esta versión no conoce se ignora. Se ha guardado una copia: {backup}"
+    },
+    "section": {
+      "general": "General",
+      "library": "Biblioteca",
+      "art": "Arte",
+      "matching": "Coincidencias",
+      "sources": "Fuentes",
+      "network": "Red",
+      "safety": "Seguridad",
+      "advanced": "Avanzado",
+      "profiles": "Perfiles",
+      "about": "Acerca de"
+    },
+    "general": {
+      "language": "Idioma",
+      "theme": "Tema",
+      "themes": {
+        "system": "El del sistema",
+        "light": "Claro",
+        "dark": "Oscuro"
+      },
+      "checkUpdates": "Buscar actualizaciones al abrir la app",
+      "channel": "Canal de actualizaciones",
+      "channels": {
+        "stable": "Estable",
+        "beta": "Beta"
+      },
+      "updatesLater": "Las actualizaciones automáticas llegan en una versión posterior; estas opciones se guardan para entonces."
+    },
+    "library": {
+      "defaultProfile": "Perfil de estructura por defecto",
+      "defaultProfileAuto": "Detectar automáticamente",
+      "ignoredDirs": "Carpetas ignoradas",
+      "ignoredDirsHint": "Un nombre de carpeta por línea. Se saltan a cualquier profundidad.",
+      "ignoredExts": "Extensiones ignoradas",
+      "ignoredExtsHint": "Separadas por comas, sin punto. Los archivos con estas extensiones nunca se toman como ROMs.",
+      "includeHidden": "Incluir archivos ocultos",
+      "followSymlinks": "Seguir enlaces simbólicos",
+      "followSymlinksHint": "Nunca se escribe arte fuera de la carpeta de la biblioteca: las ROMs de una carpeta enlazada que apunta a otro sitio se muestran, pero su arte se omite con un error.",
+      "recent": "Bibliotecas recientes",
+      "recentEmpty": "No hay bibliotecas recientes.",
+      "forget": "Olvidar"
+    },
+    "art": {
+      "media": "Arte que rellenar",
+      "singleSlot": "Imagen para estructuras de un solo hueco",
+      "singleSlotHint": "Anbernic, GarlicOS, Onion y MinUI muestran una sola imagen por juego.",
+      "format": "Formato de salida",
+      "formatHint": "RetroArch siempre usa PNG.",
+      "formats": {
+        "profile": "El que indique la estructura",
+        "png": "PNG",
+        "jpg": "JPEG"
+      },
+      "keepAspect": "Mantener la proporción",
+      "jpegQuality": "Calidad JPEG",
+      "overwrite": "Cuando ya hay arte",
+      "overwrites": {
+        "never": "Conservarlo (rellenar solo lo que falta)",
+        "ask": "Preguntar cada vez",
+        "backup": "Sustituirlo (con copia de seguridad)"
+      },
+      "maxSize": "Imagen más grande por estructura",
+      "maxSizeHint": "Déjalo vacío para usar el límite propio de la estructura.",
+      "profile": "Estructura",
+      "width": "Ancho",
+      "height": "Alto",
+      "noLimit": "Sin límite",
+      "maxWidth": "{profile}: ancho máximo",
+      "maxHeight": "{profile}: alto máximo"
+    },
+    "matching": {
+      "strategy": "Cómo se elige el arte",
+      "regions": "Orden de regiones",
+      "addRegion": "Añadir región",
+      "remove": "Quitar {region}",
+      "languages": "Idiomas preferidos",
+      "languagesHint": "Códigos de dos letras separados por comas (en, es, fr…). Sirven para desempatar.",
+      "auto": "Umbral de aceptación automática (%)",
+      "review": "Umbral de revisión (%)",
+      "fuzzy": "Coincidencia aproximada de nombres",
+      "arcade": "Traducir nombres cortos de arcade",
+      "method": "Cómo se identifican las ROMs",
+      "methods": {
+        "hash-then-name": "Hash del contenido y después nombre de archivo",
+        "hash-only": "Solo hash del contenido",
+        "name-only": "Solo nombre de archivo (sin hash)"
+      },
+      "maxHash": "Archivo más grande para calcular el hash (MB)"
+    },
+    "sources": {
+      "name": {
+        "libretro": "libretro-thumbnails",
+        "steamgriddb": "SteamGridDB",
+        "screenscraper": "ScreenScraper"
+      },
+      "later": "Llegará en una versión posterior",
+      "up": "Subir {name}",
+      "down": "Bajar {name}",
+      "credentials": "Cuentas",
+      "credentialsHint": "Se guardan en el llavero del sistema, nunca en el archivo de configuración. Se usarán cuando lleguen estas fuentes.",
+      "credential": {
+        "steamgriddb-api-key": "Clave de API de SteamGridDB",
+        "screenscraper-user": "Usuario de ScreenScraper",
+        "screenscraper-password": "Contraseña de ScreenScraper"
+      },
+      "save": "Guardar {what}",
+      "saveShort": "Guardar",
+      "remove": "Quitar {what}",
+      "removeShort": "Quitar",
+      "stored": "Guardada en el llavero del sistema.",
+      "notStored": "Sin configurar."
+    },
+    "network": {
+      "concurrency": "Descargas simultáneas",
+      "timeout": "Tiempo de espera (segundos)",
+      "retries": "Reintentos",
+      "proxy": "Proxy",
+      "proxies": {
+        "system": "Sistema",
+        "env": "Variables de entorno",
+        "manual": "Manual"
+      },
+      "proxyHint": "Sistema usa las variables estándar HTTPS_PROXY / HTTP_PROXY.",
+      "proxyUrl": "URL del proxy",
+      "cacheMax": "Límite de la caché (MB)",
+      "refresh": "Actualizar las listas de las fuentes cada (horas)",
+      "inUse": "En uso: {size}",
+      "clear": "Vaciar caché…",
+      "clearTitle": "¿Vaciar la caché?",
+      "clearBody": "Se borran el arte descargado y las listas de las fuentes. Se conservan las coincidencias manuales y el historial para deshacer.",
+      "clearYes": "Vaciar caché",
+      "cancel": "Cancelar",
+      "freed": "Liberados {size}."
+    },
+    "safety": {
+      "backup": "Hacer copia antes de sustituir archivos",
+      "backupHint": "Siempre activado: Deshacer necesita las copias.",
+      "backupDir": "Carpeta de copias",
+      "backupDirHint": "Vacío: la carpeta propia de la app. Si la cambias, Deshacer deja de ver los trabajos guardados en la carpeta anterior.",
+      "choose": "Elegir…",
+      "dryRun": "Simular antes de escribir (primero en seco)",
+      "appleDouble": "Borrar los archivos ._ de macOS en unidades extraíbles",
+      "undoDepth": "Trabajos guardados para deshacer"
+    },
+    "advanced": {
+      "logLevel": "Nivel de registro",
+      "levels": {
+        "error": "Solo errores",
+        "warn": "Avisos",
+        "info": "Información",
+        "debug": "Depuración"
+      },
+      "openLogs": "Abrir la carpeta de registros",
+      "openConfig": "Abrir la carpeta de configuración",
+      "customDir": "Carpeta de perfiles personalizados",
+      "customDirHint": "Vacío: la carpeta de perfiles dentro de la carpeta de configuración.",
+      "reset": "Restablecer toda la configuración…",
+      "resetTitle": "¿Restablecer toda la configuración?",
+      "resetBody": "Todos los ajustes vuelven a su valor predeterminado. Se conservan las bibliotecas recientes y se guarda una copia de la configuración actual.",
+      "resetYes": "Restablecer configuración",
+      "cancel": "Cancelar"
+    }
+  },
+  "about": {
+    "license": "Licencia: AGPL-3.0-only. Coverly ROMs es software libre; su nombre y su logotipo son marcas (ver Marcas).",
+    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives.",
+    "updates": "Canal de actualizaciones: {channel}. Las actualizaciones automáticas llegan en una versión posterior.",
+    "link": {
+      "repo": "Código fuente",
+      "license": "Licencia",
+      "notices": "Avisos de terceros",
+      "trademarks": "Marcas",
+      "releases": "Versiones publicadas",
+      "issues": "Informar de un problema"
+    }
   },
   "library": {
     "count": "{n} ROMs",
@@ -99,8 +284,20 @@
     "disk-full": "El disco de la biblioteca está lleno.",
     "name-invalid": "Este nombre de archivo no es válido en tarjetas SD: {detail}",
     "volume-gone": "El volumen de la biblioteca se ha retirado o ya no está accesible: {detail}",
+    "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
+    "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
+    "keychain-failed": "El llavero rechazó la petición: {detail}",
     "art-unreadable": "No se puede mostrar esta imagen.",
-    "unknown": "Error inesperado: {detail}"
+    "unknown": "Error inesperado: {detail}",
+    "field": {
+      "range": "Usa un valor entre {min} y {max}.",
+      "required": "No puede quedar vacío.",
+      "invalid": "Este valor no es válido.",
+      "order": "No puede ser mayor que el umbral de aceptación automática.",
+      "unknown": "No existe.",
+      "duplicate": "Ya está en uso.",
+      "not-absolute": "Usa una ruta completa (que empiece por / o por una letra de unidad)."
+    }
   },
   "sidebar": {
     "label": "Vistas",
@@ -198,19 +395,27 @@
       "hash": "Hash del contenido",
       "arcade-dat": "Nombre de set arcade",
       "name": "Nombre de archivo",
-      "unknown": "Desconocido"
+      "unknown": "Desconocido",
+      "manual": "Elegida por ti"
     },
     "confidenceLabel": "Confianza",
     "offline": "Sin conexión: identificada solo por su nombre de archivo.",
     "actions": "Acciones",
     "change": "Cambiar…",
     "search": "Buscar…",
+    "searchLabel": "Título que buscar",
+    "searchGo": "Buscar",
+    "searchResults": "Resultados de la búsqueda",
+    "searchNone": "No se ha encontrado nada con ese título.",
+    "searchUpdated": "Arte actualizado. Esta ROM ahora corresponde a «{name}».",
+    "replaceConfirm": "¿Usar «{name}»? La imagen actual se guarda como copia y Deshacer la recupera. El archivo conserva el nombre de la ROM.",
+    "replaceYes": "Usar esta imagen",
+    "forgetManual": "Olvidar la coincidencia manual",
     "fromFile": "Desde archivo…",
     "remove": "Quitar",
     "revealMac": "Mostrar en Finder",
     "revealWin": "Mostrar en el Explorador",
     "revealOther": "Mostrar en la carpeta",
-    "searchLater": "Buscar por título llegará en una versión posterior.",
     "mediaLabel": "Arte que cambiar",
     "candidates": "Candidatas",
     "loadingCandidates": "Buscando imágenes…",
@@ -255,9 +460,10 @@
       "title": "Arte existente",
       "never": "Solo el arte que falta",
       "backup": "Sustituir también el arte existente (con copia de seguridad)",
-      "backupHint": "Las imágenes sustituidas se guardan en la carpeta de datos de la app y vuelven con Deshacer."
+      "backupHint": "Las imágenes sustituidas se guardan en la carpeta de datos de la app y vuelven con Deshacer.",
+      "askHint": "Tus ajustes piden preguntar cada vez: elige una opción para continuar."
     },
-    "batocera": "Batocera y Knulli leen el arte de gamelist.xml, que Coverly ROMs aún no actualiza: puede que las imágenes nuevas no se vean hasta entonces.",
+    "gamelist": "También se actualiza el gamelist.xml de cada carpeta de sistema (con copia previa; Deshacer lo restaura).",
     "preview": "Vista previa (simulación)",
     "gathering": "Buscando arte… {done} de {total}",
     "summary": "Simulación",
@@ -374,5 +580,42 @@
     "jobReport": "Informe del último trabajo",
     "noJob": "Todavía no se ha ejecutado ningún trabajo.",
     "close": "Cerrar"
+  },
+  "profiles": {
+    "hint": "Las estructuras integradas no se pueden cambiar; duplica una para adaptarla. Las personalizadas se guardan como archivos en la carpeta de perfiles.",
+    "list": "Perfiles de estructura",
+    "new": "Nuevo perfil",
+    "builtin": "Integrado (solo lectura)",
+    "duplicate": "Duplicar {name}",
+    "copyName": "{name} (copia)",
+    "duplicateShort": "Duplicar",
+    "edit": "Editar {name}",
+    "editShort": "Editar",
+    "delete": "Eliminar {name}",
+    "deleteShort": "Eliminar",
+    "deleteTitle": "¿Eliminar {name}?",
+    "deleteBody": "Se borra el archivo del perfil. Las bibliotecas abiertas con él vuelven a la detección automática.",
+    "deleteYes": "Eliminar perfil",
+    "cancel": "Cancelar",
+    "save": "Guardar perfil",
+    "editTitle": "Editar perfil de estructura",
+    "id": "Id del perfil",
+    "name": "Nombre",
+    "romsRoot": "Carpeta de ROMs (dentro de la biblioteca)",
+    "artDirs": "Carpetas de arte (nunca se escanean como ROMs)",
+    "gamelist": "Actualizar gamelist.xml (Batocera / Knulli)",
+    "slot": "{media}: hueco activo",
+    "template": "{media}: plantilla de ruta",
+    "format": "Formato",
+    "max_width": "{media}: ancho máximo",
+    "max_height": "{media}: alto máximo",
+    "preview": "Vista previa",
+    "exampleFolder": "Carpeta de sistema de ejemplo",
+    "exampleSub": "Subcarpeta de ejemplo",
+    "exampleFile": "Archivo ROM de ejemplo",
+    "errors": {
+      "slotsOrder": "O todas las plantillas usan {rel_dir} o ninguna.",
+      "slotsRequired": "Activa al menos un hueco."
+    }
   }
 }

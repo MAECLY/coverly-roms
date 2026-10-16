@@ -146,7 +146,7 @@ fn review_decisions_feed_the_apply_and_touched_entries_are_reported() {
         )
         .unwrap();
     assert_eq!(v.decided, 1);
-    jobs.run(w.cfg.clone(), id, rec.clone()).unwrap();
+    jobs.run(id, rec.clone()).unwrap();
     let done = wait_for(&rec, JobState::Done);
     let result = done.result.unwrap();
     assert_eq!((result.filled, result.no_art, result.failed), (3, 1, 0));
@@ -169,7 +169,7 @@ fn undecided_review_items_are_not_written() {
     let w = fill_world();
     let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));
     let id = planned(&w, &jobs, &rec, None);
-    jobs.run(w.cfg.clone(), id, rec.clone()).unwrap();
+    jobs.run(id, rec.clone()).unwrap();
     assert_eq!(wait_for(&rec, JobState::Done).result.unwrap().filled, 2);
     assert!(!cover(&w, "004 Gldn Rsh").exists());
     let review = jobs.items(id, ItemFilter::Review).unwrap();
@@ -192,7 +192,7 @@ fn a_skipped_item_is_not_written() {
         }],
     )
     .unwrap();
-    jobs.run(w.cfg.clone(), id, rec.clone()).unwrap();
+    jobs.run(id, rec.clone()).unwrap();
     wait_for(&rec, JobState::Done);
     assert!(!cover(&w, "001 Golden Sun").exists());
     assert!(cover(&w, "002 Golden Adventure").exists());
@@ -202,12 +202,8 @@ fn a_skipped_item_is_not_written() {
 fn resume_after_a_rate_limit_finishes_the_same_journal() {
     let w = fill_world();
     let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));
-    let id = planned(&w, &jobs, &rec, None);
-    w.server.mock(
-        ADVENTURE_USA,
-        MockResponse::status(429).header("Retry-After", "0"),
-    );
-    // One worker: 001 is written, then 002 meets the rate limit.
+    // One worker: 001 is written, then 002 meets the rate limit. The job
+    // keeps the configuration it started with for the run and the resume.
     let serial = Arc::new(FillConfig {
         net: NetConfig {
             concurrency: 1,
@@ -216,7 +212,14 @@ fn resume_after_a_rate_limit_finishes_the_same_journal() {
         },
         ..(*w.cfg).clone()
     });
-    jobs.run(serial.clone(), id, rec.clone()).unwrap();
+    jobs.start(serial, session(&w), &request(None), rec.clone())
+        .unwrap();
+    let id = wait_for(&rec, JobState::Planned).id;
+    w.server.mock(
+        ADVENTURE_USA,
+        MockResponse::status(429).header("Retry-After", "0"),
+    );
+    jobs.run(id, rec.clone()).unwrap();
     let paused = wait_for(&rec, JobState::Paused);
     let why = paused.paused.clone().unwrap();
     assert_eq!((why.phase, why.kind), (Phase::Apply, PauseKind::RateLimit));
@@ -225,7 +228,7 @@ fn resume_after_a_rate_limit_finishes_the_same_journal() {
         ADVENTURE_USA,
         MockResponse::ok(b"<html>oops</html>".to_vec()),
     );
-    jobs.resume(serial, id, rec.clone()).unwrap();
+    jobs.resume(id, rec.clone()).unwrap();
     let done = wait_for(&rec, JobState::Done);
     assert_eq!(done.journal, Some(journal));
     assert_eq!(done.result.unwrap().filled, 2);
@@ -275,9 +278,9 @@ fn run_twice_is_refused_and_decisions_need_a_planned_job() {
     let w = fill_world();
     let (jobs, rec) = (JobManager::default(), Arc::new(Recorder::default()));
     let id = planned(&w, &jobs, &rec, None);
-    jobs.run(w.cfg.clone(), id, rec.clone()).unwrap();
+    jobs.run(id, rec.clone()).unwrap();
     assert!(matches!(
-        jobs.run(w.cfg.clone(), id, rec.clone()),
+        jobs.run(id, rec.clone()),
         Err(IpcError::BadRequest(_))
     ));
     assert!(matches!(
@@ -373,7 +376,7 @@ fn cancelling_a_planned_job_ends_it() {
     let id = planned(&w, &jobs, &rec, None);
     assert_eq!(jobs.cancel(id).unwrap().state, JobState::Cancelled);
     assert!(matches!(
-        jobs.run(w.cfg.clone(), id, rec.clone()),
+        jobs.run(id, rec.clone()),
         Err(IpcError::BadRequest(_))
     ));
 }

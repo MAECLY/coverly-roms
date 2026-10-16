@@ -4,10 +4,14 @@
 //! usage, 3 library root not found or not a folder, 4 no layout profile
 //! detected and none given, 5 paused: offline, rate limited, or the library
 //! volume is full / read-only.
+//!
+//! Defaults come from the app's settings file (read-only; see
+//! [`settings::SETTINGS_ENV`]); flags override them.
 
 mod audit;
 mod fill;
 mod profile;
+mod settings;
 mod table;
 mod undo;
 
@@ -15,7 +19,8 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use coverly_core::profiles::{builtin_profiles, Media};
+use coverly_core::profiles::custom::all_profiles;
+use coverly_core::profiles::Media;
 use coverly_core::systems::SystemDb;
 
 #[derive(Debug, Parser)]
@@ -32,7 +37,7 @@ enum Command {
     Audit(audit::AuditArgs),
     /// Fill missing art from libretro-thumbnails (dry run unless --apply).
     Fill(fill::FillArgs),
-    /// List the built-in layout profiles.
+    /// List the built-in and custom layout profiles.
     Profiles,
     /// List the known systems and their folder aliases.
     Systems,
@@ -113,8 +118,9 @@ fn profiles_table() -> String {
         "NAME".to_string(),
         "ROMS-ROOT".to_string(),
         "MEDIA".to_string(),
+        "KIND".to_string(),
     ]];
-    for p in builtin_profiles() {
+    for (p, builtin) in all_profiles(&settings::load_cli_settings().custom) {
         let media: Vec<&str> = Media::ALL
             .iter()
             .filter(|m| p.slot(**m).is_some())
@@ -125,7 +131,8 @@ fn profiles_table() -> String {
         } else {
             p.roms_root.clone()
         };
-        rows.push(vec![p.id, p.name, roms_root, media.join(",")]);
+        let kind = if builtin { "built-in" } else { "custom" };
+        rows.push(vec![p.id, p.name, roms_root, media.join(","), kind.into()]);
     }
     table::render(&rows)
 }

@@ -101,13 +101,13 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
   });
 
-  it('reveals the file; searching by title stays for later', async () => {
+  it('reveals the file and offers every art action', async () => {
     const view = await setup();
     const entry = view.entries[5]!;
     const drawer = show(entry);
     expect(
       within(drawer).getByRole('button', { name: 'Search…' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     expect(
       within(drawer).getByRole('button', { name: 'Change…' }),
     ).toBeEnabled();

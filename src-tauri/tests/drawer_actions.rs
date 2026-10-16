@@ -9,7 +9,6 @@ use common::write;
 use coverly_core::image::probe_dimensions;
 use coverly_core::net::testing::{png_bytes, MockResponse};
 use coverly_core::profiles::Media;
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use coverly_core::sources::libretro::encode_segment;
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
@@ -18,7 +17,8 @@ use coverly_roms_lib::library::view::ArtMark;
 use coverly_roms_lib::state::AppState;
 
 fn opened(w: &FillWorld) -> (AppState, u64) {
-    let st = AppState::new(w.dirs.path().join(LIBRARY_SETTINGS_FILE), (*w.cfg).clone());
+    let st = AppState::new(w.dirs.path().to_path_buf(), (*w.cfg).clone());
+    common::fast(&st);
     let view = st
         .open(w.lib.path(), None, &SystemDb::builtin(), &mut |_| {})
         .unwrap();
@@ -218,7 +218,7 @@ fn job_report_export_lists_every_item() {
         st.export_job_report(id, ExportFormat::Csv, &w.dirs.path().join("early.csv")),
         Err(IpcError::BadRequest(_))
     ));
-    st.jobs().run(st.fill_config(), id, rec.clone()).unwrap();
+    st.jobs().run(id, rec.clone()).unwrap();
     wait_for(&rec, JobState::Done);
     let csv = w.dirs.path().join("job.csv");
     st.export_job_report(id, ExportFormat::Csv, &csv).unwrap();
@@ -268,10 +268,10 @@ fn a_drawer_write_and_a_fill_never_write_at_once() {
     {
         let _writing = st.jobs().begin_manual().unwrap();
         assert!(matches!(
-            st.jobs().run(st.fill_config(), id, rec.clone()),
+            st.jobs().run(id, rec.clone()),
             Err(IpcError::JobRunning)
         ));
     }
-    st.jobs().run(st.fill_config(), id, rec.clone()).unwrap();
+    st.jobs().run(id, rec.clone()).unwrap();
     wait_for(&rec, JobState::Done);
 }
