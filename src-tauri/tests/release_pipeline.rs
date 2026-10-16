@@ -170,3 +170,164 @@ fn bump_version_refuses_a_non_semver_and_check_catches_drift() {
     assert_eq!(check.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&check.stderr).contains("disagree"));
 }
+
+fn python() -> Option<&'static str> {
+    ["python3", "python"].into_iter().find(|p| {
+        Command::new(p)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    })
+}
+
+fn tool(args: &[&str]) -> std::process::Output {
+    Command::new(python().unwrap())
+        .arg("-I")
+        .arg(repo().join("scripts/release/release_tools.py"))
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn release_tools_build_and_check_a_signed_manifest() {
+    if python().is_none() {
+        eprintln!("no python; release_tools.py not exercised");
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    // tauri-action's manifest with throwaway signatures.
+    let manifest = serde_json::json!({
+        "version": "0.2.0", "notes": "n", "pub_date": "2026-10-16T00:00:00Z",
+        "platforms": { "darwin-aarch64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0/Coverly%20ROMs.app.tar.gz", "signature": "throwaway" } }
+    });
+    std::fs::write(d.join("latest.json"), manifest.to_string()).unwrap();
+    let out = tool(&[
+        "list-artifacts",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+    ]);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "Coverly ROMs.app.tar.gz"
+    );
+    // Re-signed with the "real" key, bound to the version.
+    let sigdir = d.join("sigs");
+    std::fs::create_dir(&sigdir).unwrap();
+    std::fs::write(
+        sigdir.join("Coverly ROMs.app.tar.gz.sig"),
+        key.sign(b"app", "app", Some("0.2.0")),
+    )
+    .unwrap();
+    assert!(tool(&[
+        "resign-manifest",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+        "--sigdir",
+        sigdir.to_str().unwrap()
+    ])
+    .status
+    .success());
+    // CLI entries.
+    let cli = d.join("cli");
+    std::fs::create_dir(&cli).unwrap();
+    for (name, body) in [
+        ("coverly-0.2.0-darwin-aarch64", "a"),
+        ("coverly-0.2.0-windows-x86_64.exe", "w"),
+    ] {
+        std::fs::write(cli.join(name), body).unwrap();
+        std::fs::write(
+            cli.join(format!("{name}.sig")),
+            key.sign(body.as_bytes(), name, Some("0.2.0")),
+        )
+        .unwrap();
+    }
+    let add = tool(&[
+        "add-cli",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+        "--dir",
+        cli.to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--base-url",
+        "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0",
+    ]);
+    assert!(
+        add.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let m: coverly_core::update::Manifest =
+        serde_json::from_slice(&std::fs::read(d.join("latest.json")).unwrap()).unwrap();
+    assert_eq!(m.platforms["cli-windows-x86_64"].url, "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0/coverly-0.2.0-windows-x86_64.exe");
+    coverly_core::update::verify::verify_signed(
+        b"a",
+        &m.platforms["cli-darwin-aarch64"].signature,
+        &key.public_b64(),
+        "0.2.0",
+    )
+    .unwrap();
+    let ok = tool(&[
+        "check-manifest",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--signed-version",
+        "0.2.0",
+        "--require",
+        "darwin-aarch64",
+        "--require",
+        "cli-darwin-aarch64",
+    ]);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+    let wrong = tool(&[
+        "check-manifest",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--signed-version",
+        "0.3.0",
+        "--require",
+        "cli-darwin-aarch64",
+    ]);
+    assert!(!wrong.status.success());
+    let missing = tool(&[
+        "check-manifest",
+        "--manifest",
+        d.join("latest.json").to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--require",
+        "linux-x86_64",
+    ]);
+    assert!(!missing.status.success());
+}
+
+#[test]
+fn release_tools_semver_and_pubkey() {
+    if python().is_none() {
+        return;
+    }
+    assert!(tool(&["semver-gt", "0.2.0", "0.2.0-beta.3"])
+        .status
+        .success());
+    assert!(!tool(&["semver-gt", "0.1.5", "0.2.0-beta.3"])
+        .status
+        .success());
+    let key_file = repo().join("crates/coverly-core/updater.pub");
+    let out = tool(&["pubkey", "--file", key_file.to_str().unwrap()]);
+    assert_eq!(
+        out.status.success(),
+        coverly_core::update::release_pubkey().is_some()
+    );
+}
