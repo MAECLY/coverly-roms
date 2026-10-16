@@ -146,6 +146,88 @@ describe('Review queue', () => {
     );
   });
 
+  it('Enter on a focused Skip button skips, not accepts', async () => {
+    const { backend, review } = await planned();
+    const spy = vi.spyOn(backend, 'decideFill');
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    const items = await backend.fillJobItems(
+      useJobStore.getState().job!.id,
+      'review',
+    );
+    within(dialog).getByRole('button', { name: 'Skip' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenLastCalledWith(expect.any(Number), [
+      { choice: 'skip', index: items[0]!.index },
+    ]);
+  });
+
+  it('Enter on a focused Done button closes without deciding', async () => {
+    const { backend, review } = await planned();
+    const spy = vi.spyOn(backend, 'decideFill');
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    within(dialog).getByRole('button', { name: 'Done' }).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(useViewStore.getState().overlay).toBe('wizard'));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('Enter on a focused candidate selects it without accepting', async () => {
+    const { backend, review } = await planned();
+    const spy = vi.spyOn(backend, 'decideFill');
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    const group = within(dialog).getByRole('group', { name: 'Candidates' });
+    const second = within(group).getAllByRole('button')[1]!;
+    second.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(second).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      within(dialog).getByRole('heading', { level: 3, name: review[0]!.name }),
+    ).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('ignores auto-repeated decision keys', async () => {
+    const { backend, review } = await planned();
+    const spy = vi.spyOn(backend, 'decideFill');
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+    fireEvent.keyDown(window, { key: 's', repeat: true });
+    fireEvent.keyDown(window, { key: 'a', repeat: true });
+    await act(async () => {});
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('leaves the up and down arrows to scroll the dialog', async () => {
+    const { review } = await planned();
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    expect(fireEvent.keyDown(window, { key: 'ArrowDown' })).toBe(true);
+    expect(fireEvent.keyDown(window, { key: 'ArrowUp' })).toBe(true);
+    expect(
+      within(dialog).getByText(`1 of ${review.length} · 0 decided`),
+    ).toBeInTheDocument();
+  });
+
   it('a double Enter decides one item, not two', async () => {
     const { backend, review } = await planned();
     const spy = vi.spyOn(backend, 'decideFill');

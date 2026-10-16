@@ -121,13 +121,23 @@ export function ReviewQueue({
     function onKey(ev: KeyboardEvent) {
       if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
       const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
-      if (key === 'ArrowRight' || key === 'ArrowDown' || key === 'j') {
+      // Enter and Space belong to the focused control (Skip, Done, a candidate…):
+      // taking them here would accept an item the user meant to skip.
+      if (
+        (key === 'Enter' || key === ' ') &&
+        ev.target instanceof Element &&
+        ev.target.closest('button, a, input, select, textarea')
+      )
+        return;
+      // Up and Down are left to scroll the dialog at small window heights.
+      if (key === 'ArrowRight' || key === 'j') {
         ev.preventDefault();
         move(1);
-      } else if (key === 'ArrowLeft' || key === 'ArrowUp' || key === 'k') {
+      } else if (key === 'ArrowLeft' || key === 'k') {
         ev.preventDefault();
         move(-1);
-      } else if (!editable) {
+      } else if (!editable || ev.repeat) {
+        // A held key must not decide item after item.
         return;
       } else if (key === 'Enter') {
         ev.preventDefault();
