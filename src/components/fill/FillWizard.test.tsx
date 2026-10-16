@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import { setBackend } from '@/ipc/backend';
+import { getBackend, setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import {
   createMockBackend,
@@ -100,6 +100,33 @@ describe('Fill wizard', () => {
     const written = auto.filter((e) => mockFailure(e.id) === null).length;
     expect(
       await screen.findByText(`${missing.length - written} without cover`),
+    ).toBeInTheDocument();
+  });
+
+  it('run_counts_accepted_review_items_but_not_skipped_ones', async () => {
+    const { view } = await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await toPreview(dialog, /Whole library/);
+    await within(dialog).findByRole('table', { name: 'Dry run' });
+    const missing = view.entries.filter((e) => e.art.cover === 'missing');
+    const auto = missing.filter(
+      (e) => mockClass(e.id, 'cover') === 'auto',
+    ).length;
+    const job = useJobStore.getState().job!;
+    const review = await (await getBackend()).fillJobItems(job.id, 'review');
+    expect(review.length).toBeGreaterThan(2);
+    await act(() =>
+      useJobStore.getState().decide([
+        { index: review[0]!.index, choice: 'accept' },
+        { index: review[1]!.index, choice: 'skip' },
+        { index: review[2]!.index, choice: 'pick', candidate: 1 },
+      ]),
+    );
+    expect(
+      await within(dialog).findByRole('button', { name: `Run (${auto + 2})` }),
     ).toBeInTheDocument();
   });
 
