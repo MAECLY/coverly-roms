@@ -30,6 +30,9 @@ pub struct System {
     pub multi_file: bool,
     /// Header rule for content hashing.
     pub header: HeaderRule,
+    /// libretro-database files (repo-relative) to identify ROMs with;
+    /// empty = derived from the libretro name.
+    pub dats: Vec<String>,
 }
 
 /// Errors loading a systems TOML file.
@@ -72,6 +75,7 @@ struct RawSystem {
     arcade: Option<bool>,
     multi_file: Option<bool>,
     header: Option<String>,
+    dats: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,7 +103,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade`, `multi_file` and `header` replace the current values when given;
+    /// `arcade`, `multi_file`, `header` and `dats` replace the current values when given;
     /// `aliases` and `extensions` are added to the current lists. An alias
     /// claimed by an override is removed from any other system, so the user
     /// file always wins. An entry with a new `id` is appended and must have a
@@ -165,6 +169,7 @@ impl SystemDb {
                     arcade: false,
                     multi_file: false,
                     header: HeaderRule::Plain,
+                    dats: Vec::new(),
                 });
                 self.systems.len() - 1
             }
@@ -184,6 +189,9 @@ impl SystemDb {
         }
         if let Some(header) = header {
             system.header = header;
+        }
+        if let Some(dats) = raw.dats {
+            system.dats = dats;
         }
         for alias in aliases {
             let key = alias.to_lowercase();
@@ -393,6 +401,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn dats_are_explicit_for_arcade_and_replaced_by_overrides() {
+        let db = SystemDb::builtin();
+        assert_eq!(db.get("mame").unwrap().dats, ["metadat/mame/MAME.dat"]);
+        assert_eq!(
+            db.get("neogeo").unwrap().dats,
+            [
+                "metadat/fbneo-split/FBNeo - Arcade Games.dat",
+                "metadat/mame/MAME.dat"
+            ]
+        );
+        assert!(db.get("gba").unwrap().dats.is_empty(), "derived");
+        let db = db
+            .with_overrides("[[system]]\nid = \"neogeo\"\ndats = [\"dat/One.dat\"]\n")
+            .unwrap();
+        assert_eq!(db.get("neogeo").unwrap().dats, ["dat/One.dat"]);
     }
 
     #[test]

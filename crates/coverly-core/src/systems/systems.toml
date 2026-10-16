@@ -12,6 +12,10 @@
 #   header      header rule for content hashing: plain (default), nes, fds,
 #               snes-copier, lynx or a7800; the digest without the header is
 #               also computed so headerless DAT entries match
+#   dats        libretro-database files (paths relative to the repo root) used
+#               to identify ROMs by hash or arcade short name; replaces the
+#               derived default (metadat/no-intro/<libretro>.dat, or
+#               metadat/redump/<libretro>.dat for disc systems)
 #
 # Users can extend or override entries by id with a file in the same format.
 
@@ -80,6 +84,7 @@ aliases = ["CPS1"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "cps2"
@@ -88,6 +93,7 @@ aliases = ["CPS2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "cps3"
@@ -96,6 +102,7 @@ aliases = ["CPS3"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "dos"
@@ -126,6 +133,7 @@ aliases = ["FBNEO", "fba", "fbalpha", "finalburn"]
 extensions = ["zip", "7z"]
 libretro = "FBNeo - Arcade Games"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat"]
 
 [[system]]
 id = "nes"
@@ -185,6 +193,7 @@ aliases = ["HBMAME"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["dat/HBMAME.dat"]
 
 [[system]]
 id = "lynx"
@@ -201,6 +210,7 @@ aliases = ["MAME", "arcade", "mame2003", "mame2003plus", "mame2010"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/mame/MAME.dat"]
 
 [[system]]
 id = "megadrive"
@@ -261,6 +271,7 @@ aliases = ["NEOGEO", "Neo Geo"]
 extensions = ["zip", "7z"]
 libretro = "SNK - Neo Geo"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "ngp"
