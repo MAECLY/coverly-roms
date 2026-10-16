@@ -590,3 +590,23 @@ fn bad_list_and_map_entries_are_dropped_one_by_one() {
     assert!(report.fixed.contains(&"library.recent".to_string()));
     assert!(report.fixed.contains(&"art.max_size".to_string()));
 }
+
+#[test]
+fn concurrent_saves_never_fail_or_leave_temp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::thread::scope(|scope| {
+        for t in 0..8u32 {
+            let dir = dir.path();
+            scope.spawn(move || {
+                for i in 0..50u32 {
+                    let mut s = Settings::default();
+                    s.network.timeout_secs = 5 + t * 30 + i % 30;
+                    save_settings(dir, &s).expect("every save succeeds");
+                }
+            });
+        }
+    });
+    assert_eq!(files(dir.path()), [SETTINGS_FILE]);
+    let (_, report) = load_settings(dir.path(), &known());
+    assert_eq!(report.notice, None);
+}

@@ -3,6 +3,7 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -114,7 +115,10 @@ pub fn save_settings(dir: &Path, s: &Settings) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let mut text = serde_json::to_string_pretty(s).map_err(io::Error::other)?;
     text.push('\n');
-    let tmp = dir.join(format!(".{SETTINGS_FILE}.tmp"));
+    // A name of its own per save: concurrent saves never share a temp file.
+    static SAVES: AtomicU64 = AtomicU64::new(0);
+    let n = SAVES.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!(".{SETTINGS_FILE}.{}-{n}.tmp", std::process::id()));
     if let Err(e) =
         write_synced(&tmp, text.as_bytes()).and_then(|()| fs::rename(&tmp, dir.join(SETTINGS_FILE)))
     {
