@@ -28,7 +28,7 @@ use crate::jobs::view::{
     candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest, JobHistoryView,
     JobState, JobView, UndoView,
 };
-use crate::jobs::{with_env, FillConfig, JobEvents, JobManager};
+use crate::jobs::{with_env, FillConfig, JobEvents, JobManager, ManualWrite};
 use crate::library::art::{inside_root, media_name, MAX_ART_BYTES};
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
@@ -186,9 +186,10 @@ impl AppState {
             .jobs
             .current()
             .is_some_and(|j| j.state == JobState::Paused);
-        if self.jobs.busy() || paused {
+        if paused {
             return Err(IpcError::JobRunning);
         }
+        let _writing = self.jobs.begin_manual()?;
         let session = self.session(generation)?;
         let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
         let job = list_jobs(&self.fill.data_dir)?
@@ -211,7 +212,7 @@ impl AppState {
     }
 
     /// The open session, if entry `id` exists and no job is writing.
-    fn writable_entry(&self, generation: u64, id: u32) -> Result<Arc<Session>, IpcError> {
+    fn known_entry(&self, generation: u64, id: u32) -> Result<Arc<Session>, IpcError> {
         if self.jobs.busy() {
             return Err(IpcError::JobRunning);
         }
@@ -220,6 +221,17 @@ impl AppState {
             return Err(IpcError::UnknownEntry(id));
         }
         Ok(session)
+    }
+
+    /// [`Self::known_entry`], marked as the one writer of the library
+    /// until the guard drops.
+    fn writable_entry(
+        &self,
+        generation: u64,
+        id: u32,
+    ) -> Result<(ManualWrite<'_>, Arc<Session>), IpcError> {
+        let writing = self.jobs.begin_manual()?;
+        Ok((writing, self.known_entry(generation, id)?))
     }
 
     fn picked(&self, generation: u64, id: u32, media: Media) -> Result<Plan, IpcError> {
@@ -240,7 +252,7 @@ impl AppState {
         id: u32,
         media: Media,
     ) -> Result<Vec<CandidateView>, IpcError> {
-        let session = self.writable_entry(generation, id)?;
+        let session = self.known_entry(generation, id)?;
         if session.profile.slot(media).is_none() {
             return Err(IpcError::BadRequest(
                 "this layout cannot store that media".into(),
@@ -310,7 +322,7 @@ impl AppState {
         media: Media,
         candidate: u32,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let session = self.writable_entry(generation, id)?;
+        let (_writing, session) = self.writable_entry(generation, id)?;
         let mut plan = self.picked(generation, id, media)?;
         let known = plan
             .items
@@ -361,7 +373,7 @@ impl AppState {
         media: Media,
         file: &Path,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let session = self.writable_entry(generation, id)?;
+        let (_writing, session) = self.writable_entry(generation, id)?;
         let target = art_target(&session, id, media)?;
         let bytes = read_capped(file)?;
         write_local_image(
@@ -382,7 +394,7 @@ impl AppState {
         id: u32,
         media: Media,
     ) -> Result<Vec<EntryArtUpdate>, IpcError> {
-        let session = self.writable_entry(generation, id)?;
+        let (_writing, session) = self.writable_entry(generation, id)?;
         let path = session.entries[id as usize]
             .art
             .get(&media)

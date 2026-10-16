@@ -424,9 +424,47 @@ fn spawn_apply(
 pub struct JobManager {
     seq: AtomicU64,
     current: Mutex<Option<Arc<Job>>>,
+    /// A manual write (drawer change, local image, removal, undo) runs.
+    manual: AtomicBool,
+}
+
+/// A manual write in progress; dropping it ends it.
+#[must_use]
+pub struct ManualWrite<'a>(&'a AtomicBool);
+
+impl Drop for ManualWrite<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 impl JobManager {
+    /// Marks a manual write in progress until the guard drops, so the
+    /// library never has two writers: refused while a job gathers or
+    /// applies or another manual write runs, and `start`, `run` and
+    /// `resume` are refused while it is held. The check and the mark are
+    /// made under the locks those take.
+    pub fn begin_manual(&self) -> Result<ManualWrite<'_>, IpcError> {
+        let slot = lock(&self.current);
+        let data = slot.as_ref().map(|j| lock(&j.data));
+        let running = data
+            .as_ref()
+            .is_some_and(|d| matches!(d.state, JobState::Gathering | JobState::Applying));
+        if running
+            || self
+                .manual
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            return Err(IpcError::JobRunning);
+        }
+        Ok(ManualWrite(&self.manual))
+    }
+
+    fn manual_running(&self) -> bool {
+        self.manual.load(Ordering::SeqCst)
+    }
+
     /// Whether the job is gathering or applying.
     pub fn busy(&self) -> bool {
         lock(&self.current).as_ref().is_some_and(|j| j.running())
@@ -456,7 +494,7 @@ impl JobManager {
         let settings = settings_for(&session, req)?;
         let job = {
             let mut slot = lock(&self.current);
-            if slot.as_ref().is_some_and(|j| j.running()) {
+            if self.manual_running() || slot.as_ref().is_some_and(|j| j.running()) {
                 return Err(IpcError::JobRunning);
             }
             let job = Arc::new(Job {
@@ -514,6 +552,9 @@ impl JobManager {
         let job = self.job(job)?;
         {
             let mut d = lock(&job.data);
+            if self.manual_running() {
+                return Err(IpcError::JobRunning);
+            }
             if d.state != JobState::Planned {
                 return Err(IpcError::BadRequest(
                     "decisions are taken before the job runs".into(),
@@ -559,6 +600,9 @@ impl JobManager {
         let job = self.job(job)?;
         let plan = {
             let mut d = lock(&job.data);
+            if self.manual_running() {
+                return Err(IpcError::JobRunning);
+            }
             if d.state != JobState::Planned {
                 return Err(IpcError::BadRequest("the job is not ready to run".into()));
             }
@@ -580,6 +624,9 @@ impl JobManager {
     ) -> Result<JobView, IpcError> {
         let job = self.job(job)?;
         let mut d = lock(&job.data);
+        if self.manual_running() {
+            return Err(IpcError::JobRunning);
+        }
         if d.state != JobState::Paused {
             return Err(IpcError::BadRequest("the job is not paused".into()));
         }

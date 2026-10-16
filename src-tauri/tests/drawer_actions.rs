@@ -233,3 +233,45 @@ fn job_report_export_lists_every_item() {
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&json).unwrap()).unwrap();
     assert_eq!(v["filled"], 2);
 }
+
+#[test]
+fn a_drawer_write_and_a_fill_never_write_at_once() {
+    let w = fill_world();
+    write(w.lib.path(), "ROMS/GBA/Imgs/001 Golden Sun.png", b"old art");
+    let (st, generation) = opened(&w);
+    let rec = Arc::new(Recorder::default());
+    {
+        let _writing = st.jobs().begin_manual().unwrap();
+        assert!(matches!(
+            st.jobs().begin_manual(),
+            Err(IpcError::JobRunning)
+        ));
+        assert!(matches!(
+            st.remove_entry_art(generation, 0, Media::Cover),
+            Err(IpcError::JobRunning)
+        ));
+        assert!(matches!(
+            st.undo_last_job(generation),
+            Err(IpcError::JobRunning)
+        ));
+        assert!(matches!(
+            st.start_fill(generation, &request(None), rec.clone()),
+            Err(IpcError::JobRunning)
+        ));
+    }
+    assert!(cover(&w, "001 Golden Sun").exists());
+    let id = st
+        .start_fill(generation, &request(None), rec.clone())
+        .unwrap()
+        .id;
+    wait_for(&rec, JobState::Planned);
+    {
+        let _writing = st.jobs().begin_manual().unwrap();
+        assert!(matches!(
+            st.jobs().run(st.fill_config(), id, rec.clone()),
+            Err(IpcError::JobRunning)
+        ));
+    }
+    st.jobs().run(st.fill_config(), id, rec.clone()).unwrap();
+    wait_for(&rec, JobState::Done);
+}
