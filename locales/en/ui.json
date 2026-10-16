@@ -22,15 +22,80 @@
     "scanning": "Scanning {folder}… {done} of {total} folders",
     "scanningStart": "Reading the folder…",
     "romsFound": "{n} ROMs found",
-    "progressLabel": "Scan progress",
-    "settings": "Library settings"
+    "progressLabel": "Scan progress"
   },
   "settings": {
-    "title": "Library settings",
-    "ignoredDirs": "Ignored folders",
-    "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
-    "save": "Save",
-    "cancel": "Cancel"
+    "open": "Settings",
+    "title": "Settings",
+    "back": "Back",
+    "sections": "Settings sections",
+    "loading": "Loading settings…",
+    "retry": "Try again",
+    "dismiss": "Dismiss",
+    "reopen": "Reopen the library to apply these changes.",
+    "reopenNow": "Reopen now",
+    "saved": "Saved.",
+    "notice": {
+      "migrated": "Your earlier library settings were moved into the new settings file.",
+      "reset-corrupt": "The settings file could not be read, so the defaults are in use. The old file was kept: {backup}",
+      "fixed": "Some settings were not valid and went back to their defaults ({fields}). A copy of the file was kept: {backup}",
+      "future-version": "These settings were saved by a newer version; what this version does not know is ignored. A copy was kept: {backup}"
+    },
+    "section": {
+      "general": "General",
+      "library": "Library",
+      "art": "Art",
+      "matching": "Matching",
+      "sources": "Sources",
+      "network": "Network",
+      "safety": "Safety",
+      "advanced": "Advanced",
+      "profiles": "Profiles",
+      "about": "About"
+    },
+    "general": {
+      "language": "Language",
+      "theme": "Theme",
+      "themes": {
+        "system": "Same as the system",
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "checkUpdates": "Check for updates when the app starts",
+      "channel": "Update channel",
+      "channels": {
+        "stable": "Stable",
+        "beta": "Beta"
+      },
+      "updatesLater": "Automatic updates arrive in a later version; these choices are kept for then."
+    },
+    "library": {
+      "defaultProfile": "Default layout profile",
+      "defaultProfileAuto": "Detect automatically",
+      "ignoredDirs": "Ignored folders",
+      "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
+      "ignoredExts": "Ignored extensions",
+      "ignoredExtsHint": "Comma-separated, without dots. Files with these extensions are never taken as ROMs.",
+      "includeHidden": "Include hidden files",
+      "followSymlinks": "Follow symbolic links",
+      "followSymlinksHint": "Art for ROMs inside a linked folder is saved through the link, which can be outside the library folder.",
+      "recent": "Recent libraries",
+      "recentEmpty": "No recent libraries.",
+      "forget": "Forget"
+    }
+  },
+  "about": {
+    "license": "Licence: AGPL-3.0-only. Coverly ROMs is free software; its name and logo are trademarks (see Trademarks).",
+    "noTelemetry": "No telemetry: Coverly ROMs only contacts the art sources you enable.",
+    "updates": "Update channel: {channel}. Automatic updates arrive in a later version.",
+    "link": {
+      "repo": "Source code",
+      "license": "Licence",
+      "notices": "Third-party notices",
+      "trademarks": "Trademarks",
+      "releases": "Releases",
+      "issues": "Report a problem"
+    }
   },
   "library": {
     "count": "{n} ROMs",

@@ -22,15 +22,80 @@
     "scanning": "Escaneando {folder}… {done} de {total} carpetas",
     "scanningStart": "Leyendo la carpeta…",
     "romsFound": "{n} ROMs encontradas",
-    "progressLabel": "Progreso del escaneo",
-    "settings": "Ajustes de biblioteca"
+    "progressLabel": "Progreso del escaneo"
   },
   "settings": {
-    "title": "Ajustes de biblioteca",
-    "ignoredDirs": "Carpetas ignoradas",
-    "ignoredDirsHint": "Un nombre de carpeta por línea. Se omiten a cualquier profundidad.",
-    "save": "Guardar",
-    "cancel": "Cancelar"
+    "open": "Configuración",
+    "title": "Configuración",
+    "back": "Volver",
+    "sections": "Secciones de la configuración",
+    "loading": "Cargando la configuración…",
+    "retry": "Reintentar",
+    "dismiss": "Cerrar aviso",
+    "reopen": "Vuelve a abrir la biblioteca para aplicar estos cambios.",
+    "reopenNow": "Reabrir ahora",
+    "saved": "Guardado.",
+    "notice": {
+      "migrated": "Tu configuración de biblioteca anterior se ha pasado al nuevo archivo de configuración.",
+      "reset-corrupt": "No se pudo leer el archivo de configuración, así que se usan los valores por defecto. El archivo anterior se ha guardado: {backup}",
+      "fixed": "Algunos ajustes no eran válidos y han vuelto a su valor por defecto ({fields}). Se ha guardado una copia del archivo: {backup}",
+      "future-version": "Esta configuración la guardó una versión más nueva; lo que esta versión no conoce se ignora. Se ha guardado una copia: {backup}"
+    },
+    "section": {
+      "general": "General",
+      "library": "Biblioteca",
+      "art": "Arte",
+      "matching": "Coincidencias",
+      "sources": "Fuentes",
+      "network": "Red",
+      "safety": "Seguridad",
+      "advanced": "Avanzado",
+      "profiles": "Perfiles",
+      "about": "Acerca de"
+    },
+    "general": {
+      "language": "Idioma",
+      "theme": "Tema",
+      "themes": {
+        "system": "El del sistema",
+        "light": "Claro",
+        "dark": "Oscuro"
+      },
+      "checkUpdates": "Buscar actualizaciones al abrir la app",
+      "channel": "Canal de actualizaciones",
+      "channels": {
+        "stable": "Estable",
+        "beta": "Beta"
+      },
+      "updatesLater": "Las actualizaciones automáticas llegan en una versión posterior; estas opciones se guardan para entonces."
+    },
+    "library": {
+      "defaultProfile": "Perfil de estructura por defecto",
+      "defaultProfileAuto": "Detectar automáticamente",
+      "ignoredDirs": "Carpetas ignoradas",
+      "ignoredDirsHint": "Un nombre de carpeta por línea. Se saltan a cualquier profundidad.",
+      "ignoredExts": "Extensiones ignoradas",
+      "ignoredExtsHint": "Separadas por comas, sin punto. Los archivos con estas extensiones nunca se toman como ROMs.",
+      "includeHidden": "Incluir archivos ocultos",
+      "followSymlinks": "Seguir enlaces simbólicos",
+      "followSymlinksHint": "Las imágenes de las ROMs de una carpeta enlazada se guardan a través del enlace, que puede estar fuera de la carpeta de la biblioteca.",
+      "recent": "Bibliotecas recientes",
+      "recentEmpty": "No hay bibliotecas recientes.",
+      "forget": "Olvidar"
+    }
+  },
+  "about": {
+    "license": "Licencia: AGPL-3.0-only. Coverly ROMs es software libre; su nombre y su logotipo son marcas (ver Marcas).",
+    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives.",
+    "updates": "Canal de actualizaciones: {channel}. Las actualizaciones automáticas llegan en una versión posterior.",
+    "link": {
+      "repo": "Código fuente",
+      "license": "Licencia",
+      "notices": "Avisos de terceros",
+      "trademarks": "Marcas",
+      "releases": "Versiones publicadas",
+      "issues": "Informar de un problema"
+    }
   },
   "library": {
     "count": "{n} ROMs",

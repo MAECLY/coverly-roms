@@ -11,6 +11,7 @@ import { applyFilters, EMPTY_FILTERS } from '@/lib/filters';
 import { dateBucket } from '@/lib/scope';
 import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
 import { stubLayout } from '@/test/layout';
 
 const SMALL = MOCK_LIBRARIES[1].path;
@@ -35,6 +36,7 @@ describe('Library screen', () => {
   });
   afterEach(() => {
     restore();
+    useNavStore.getState().closeSettings();
     setBackend(null);
   });
 
@@ -192,16 +194,16 @@ describe('Library screen', () => {
     ).toHaveFocus();
   });
 
-  it('leaves focus in the settings dialog on Ctrl+F', async () => {
+  it('opens the Settings screen from the toolbar and comes back', async () => {
     await openLibrary();
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Library settings' }),
-    );
-    const dialog = screen.getByRole('dialog');
-    fireEvent.keyDown(dialog, { key: 'f', ctrlKey: true });
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(
-      screen.getByRole('searchbox', { name: 'Search by name' }),
-    ).not.toHaveFocus();
+      screen.getByRole('tabpanel', { name: 'General' }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Small library' }),
+    ).toBeInTheDocument();
   });
 
   it('shows unfiltered library totals in every sidebar view', async () => {

@@ -11,11 +11,30 @@
   --cr-accent: #4338ca;
   --cr-accent-text: #ffffff;
   --cr-border: #e3e1dd;
+  --cr-error: #b91c1c;
   color-scheme: light dark;
 }
 
+/* The theme setting marks <html data-theme> (see src/lib/theme.ts). */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --cr-bg: #141413;
+  --cr-surface: #1f1e1c;
+  --cr-text: #f2f1ee;
+  --cr-text-muted: #a8a49e;
+  --cr-accent: #818cf8;
+  --cr-accent-text: #141413;
+  --cr-border: #33312e;
+  --cr-error: #fca5a5;
+  color-scheme: dark;
+}
+
+/* Before the settings load: follow the OS. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --cr-bg: #141413;
     --cr-surface: #1f1e1c;
     --cr-text: #f2f1ee;
@@ -23,6 +42,7 @@
     --cr-accent: #818cf8;
     --cr-accent-text: #141413;
     --cr-border: #33312e;
+    --cr-error: #fca5a5;
   }
 }
 
@@ -855,4 +875,156 @@ body {
   padding: 0.75rem;
   border-radius: 0.5rem;
   background: rgb(127 127 127 / 0.12);
+}
+
+/* Settings screen (spec §9). */
+.settings-screen {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.settings-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-nav {
+  flex: 0 0 12rem;
+  padding: 1rem 0.5rem;
+  border-right: 1px solid var(--cr-border);
+}
+
+.settings-nav [role='tablist'] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.settings-tab {
+  padding: 0.375rem 0.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--cr-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--cr-accent) 14%, var(--cr-surface));
+  color: var(--cr-accent);
+  font-weight: 600;
+}
+
+.settings-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 1.25rem 1.5rem 2rem;
+  overflow-y: auto;
+}
+
+.settings-group {
+  display: flex;
+  max-width: 40rem;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.setting-label {
+  padding: 0;
+  font-weight: 600;
+}
+
+.setting-number {
+  max-width: 10rem;
+}
+
+.setting textarea {
+  font-family: ui-monospace, monospace;
+}
+
+.checkbox-row,
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--cr-error);
+  font-size: 0.875rem;
+}
+
+.notice-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.75rem 1.5rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--cr-border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--cr-accent) 10%, var(--cr-surface));
+}
+
+.notice-banner p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wordmark-small {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 40rem) {
+  .settings-body {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    flex-basis: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--cr-border);
+  }
+
+  .settings-nav [role='tablist'] {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }

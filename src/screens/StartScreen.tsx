@@ -1,14 +1,14 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo } from 'react';
 
 import { AppFooter } from '@/components/AppFooter';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
-import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { ScanProgressView } from '@/components/ScanProgressView';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey } from '@/ipc/errors';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
 
 export function StartScreen() {
   const t = useT();
@@ -23,8 +23,6 @@ export function StartScreen() {
   const open = useLibraryStore((s) => s.open);
   const forget = useLibraryStore((s) => s.forget);
   const fail = useLibraryStore((s) => s.fail);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const opening = status === 'opening';
 
   useEffect(() => {
@@ -67,9 +65,9 @@ export function StartScreen() {
         <button
           type="button"
           className="ghost-button"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => useNavStore.getState().openSettings()}
         >
-          {t('start.settings')}
+          {t('settings.open')}
         </button>
         <LanguageSwitch />
       </header>
@@ -137,7 +135,6 @@ export function StartScreen() {
         </section>
       </main>
       <AppFooter />
-      {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>
   );
 }

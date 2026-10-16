@@ -97,7 +97,7 @@ export function Toolbar({
         {t('toolbar.reports')}
       </button>
       <button type="button" className="ghost-button" onClick={onSettings}>
-        {t('start.settings')}
+        {t('settings.open')}
       </button>
       <LanguageSwitch />
       <button type="button" className="ghost-button" onClick={close}>
