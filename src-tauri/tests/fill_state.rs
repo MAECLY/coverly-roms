@@ -8,7 +8,6 @@ use coverly_core::fill::Endpoints;
 use coverly_core::net::testing::{HangingServer, MockResponse};
 use coverly_core::net::NetConfig;
 use coverly_core::profiles::Media;
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::view::{JobProgressEvent, JobState, JobView};
@@ -39,10 +38,7 @@ impl JobEvents for Refreshing {
 }
 
 fn opened(w: &FillWorld, cfg: FillConfig) -> (Arc<AppState>, Arc<Refreshing>, u64) {
-    let st = Arc::new(AppState::new(
-        w.dirs.path().join(LIBRARY_SETTINGS_FILE),
-        cfg,
-    ));
+    let st = Arc::new(AppState::new(w.dirs.path().to_path_buf(), cfg));
     let view = st
         .open(w.lib.path(), None, &SystemDb::builtin(), &mut |_| {})
         .unwrap();

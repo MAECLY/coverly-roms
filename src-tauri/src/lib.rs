@@ -9,7 +9,6 @@ pub mod state;
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
 use coverly_core::paths::{config_dir, AppDirs};
-use coverly_core::settings::LIBRARY_SETTINGS_FILE;
 use tauri::Manager;
 
 /// Builds and runs the Tauri application.
@@ -18,12 +17,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let settings_path = config_dir()
-                .ok_or("cannot find the app config folder")?
-                .join(LIBRARY_SETTINGS_FILE);
+            let config = config_dir().ok_or("cannot find the app config folder")?;
             let dirs = AppDirs::resolve(None, None).ok_or("cannot find the app data folders")?;
             app.manage(state::AppState::new(
-                settings_path,
+                config,
                 jobs::FillConfig::new(dirs.cache, dirs.data),
             ));
             Ok(())

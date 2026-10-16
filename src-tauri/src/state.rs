@@ -19,7 +19,8 @@ use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStat
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
-use coverly_core::settings::{LibrarySettings, RecentLibrary};
+use coverly_core::scan::ScanOptions;
+use coverly_core::settings::{load_settings, save_settings, RecentLibrary, Settings};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
 
@@ -37,7 +38,7 @@ use crate::library::{open_session, OpenRequest, Session};
 pub struct AppState {
     latest: AtomicU64,
     session: Mutex<Option<Arc<Session>>>,
-    settings_path: PathBuf,
+    config_dir: PathBuf,
     fill: Arc<FillConfig>,
     jobs: JobManager,
     picks: Mutex<Option<EntryPick>>,
@@ -118,11 +119,11 @@ fn write_export(
 }
 
 impl AppState {
-    pub fn new(settings_path: PathBuf, fill: FillConfig) -> AppState {
+    pub fn new(config_dir: PathBuf, fill: FillConfig) -> AppState {
         AppState {
             latest: AtomicU64::new(0),
             session: Mutex::new(None),
-            settings_path,
+            config_dir,
             fill: Arc::new(fill),
             jobs: JobManager::default(),
             picks: Mutex::new(None),
@@ -422,7 +423,7 @@ impl AppState {
             &session.root,
             &session.profile,
             &SystemDb::builtin(),
-            &self.settings().scan_options(),
+            &scan_options(&self.settings()),
             &media,
         );
         write_export(dest, |w| match format {
@@ -500,7 +501,7 @@ impl AppState {
             &OpenRequest {
                 path,
                 profile_id,
-                scan: &settings.scan_options(),
+                scan: &scan_options(&settings),
                 generation,
             },
             systems,
@@ -514,20 +515,21 @@ impl AppState {
             roms: u32::try_from(view.entries.len()).unwrap_or(u32::MAX),
             opened_at: now_unix(),
         });
-        if let Err(e) = settings.save(&self.settings_path) {
-            eprintln!("warning: cannot save {}: {e}", self.settings_path.display());
+        if let Err(e) = save_settings(&self.config_dir, &settings) {
+            eprintln!(
+                "warning: cannot save settings in {}: {e}",
+                self.config_dir.display()
+            );
         }
         Ok(view)
     }
 
-    pub fn settings(&self) -> LibrarySettings {
-        LibrarySettings::load(&self.settings_path)
+    pub fn settings(&self) -> Settings {
+        load_settings(&self.config_dir, &builtin_ids()).0
     }
 
-    fn save(&self, settings: &LibrarySettings) -> Result<(), IpcError> {
-        settings
-            .save(&self.settings_path)
-            .map_err(|e| IpcError::Settings(e.to_string()))
+    fn save(&self, settings: &Settings) -> Result<(), IpcError> {
+        save_settings(&self.config_dir, settings).map_err(|e| IpcError::Settings(e.to_string()))
     }
 
     /// Recent libraries, most recent first, with their availability.
@@ -544,16 +546,16 @@ impl AppState {
 
     pub fn library_settings(&self) -> LibrarySettingsView {
         LibrarySettingsView {
-            ignored_dirs: self.settings().ignored_dirs,
+            ignored_dirs: self.settings().library.ignored_dirs,
         }
     }
 
     pub fn set_ignored_dirs(&self, dirs: Vec<String>) -> Result<LibrarySettingsView, IpcError> {
         let mut settings = self.settings();
-        settings.set_ignored_dirs(dirs);
+        settings.library.set_ignored_dirs(dirs);
         self.save(&settings)?;
         Ok(LibrarySettingsView {
-            ignored_dirs: settings.ignored_dirs,
+            ignored_dirs: settings.library.ignored_dirs,
         })
     }
 
@@ -564,8 +566,26 @@ impl AppState {
     }
 }
 
-fn recent_views(settings: &LibrarySettings) -> Vec<RecentView> {
+/// Built-in profile ids (custom profiles arrive in a later task).
+fn builtin_ids() -> Vec<String> {
+    coverly_core::profiles::builtin_profiles()
+        .into_iter()
+        .map(|p| p.id)
+        .collect()
+}
+
+/// Scan options with the ignored folders of `settings` and the other
+/// defaults (the full mapping arrives with `Settings::scan_options`).
+fn scan_options(settings: &Settings) -> ScanOptions {
+    ScanOptions {
+        ignored_dirs: settings.library.ignored_dirs.clone(),
+        ..ScanOptions::default()
+    }
+}
+
+fn recent_views(settings: &Settings) -> Vec<RecentView> {
     settings
+        .library
         .recent
         .iter()
         .map(|r| RecentView {
