@@ -1057,3 +1057,142 @@ fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles()
         "missing dir",
     );
 }
+
+/// Runs release-channels.yml's script against a fake `gh` that serves
+/// `<tag>.json` files from `releases` and logs what it is asked to do.
+fn run_beta_pointer(current: Option<&str>) -> (std::process::Output, String) {
+    use coverly_core::update::testing::TestKey;
+    let script = step_script(
+        &job(
+            &read(".github/workflows/release-channels.yml"),
+            "beta-pointer",
+        ),
+        "Copy latest.json to the channel-beta release",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::create_dir_all(d.join("scripts/release")).unwrap();
+    std::fs::copy(
+        repo().join("scripts/release/release_tools.py"),
+        d.join("scripts/release/release_tools.py"),
+    )
+    .unwrap();
+    let releases = d.join("releases");
+    std::fs::create_dir(&releases).unwrap();
+    let key = TestKey::generate();
+    let mut platforms = serde_json::Map::new();
+    for k in [
+        "darwin-aarch64",
+        "darwin-x86_64",
+        "windows-x86_64",
+        "linux-x86_64",
+        "linux-aarch64",
+        "cli-darwin-aarch64",
+        "cli-darwin-x86_64",
+        "cli-windows-x86_64",
+        "cli-linux-x86_64",
+        "cli-linux-aarch64",
+    ] {
+        platforms.insert(
+            k.into(),
+            serde_json::json!({ "url": format!("https://example.invalid/{k}"), "signature": key.sign(k.as_bytes(), k, Some("0.3.0")) }),
+        );
+    }
+    let new = serde_json::json!({ "version": "0.3.0", "platforms": platforms });
+    std::fs::write(releases.join("v0.3.0.json"), new.to_string()).unwrap();
+    if let Some(body) = current {
+        std::fs::write(releases.join("channel-beta.json"), body).unwrap();
+    }
+    let bin = d.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let gh = bin.join("gh");
+    std::fs::write(
+        &gh,
+        r#"#!/usr/bin/env bash
+echo "gh $*" >> "$FAKE_LOG"
+case "$1 $2" in
+  "release view") exit 0 ;;
+  "release create") exit 0 ;;
+  "release upload") exit 0 ;;
+  "release download")
+    tag="$3"; shift 3; dir=""
+    while [ $# -gt 0 ]; do [ "$1" = --dir ] && dir="$2"; shift; done
+    [ -f "$FAKE_RELEASES/$tag.json" ] || exit 1
+    mkdir -p "$dir" && cp "$FAKE_RELEASES/$tag.json" "$dir/latest.json" ;;
+  *) exit 3 ;;
+esac
+"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let log = d.join("gh.log");
+    std::fs::write(&log, "").unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = Command::new("bash")
+        .args(["-e", "-c", &script])
+        .current_dir(d)
+        .env("PATH", path)
+        .env("FAKE_LOG", &log)
+        .env("FAKE_RELEASES", &releases)
+        .env("TAG", "v0.3.0")
+        .env("REPO", "MAECLY/coverly-roms")
+        .env("BETA_TAG", coverly_core::update::BETA_TAG)
+        .env("GITHUB_SHA", "0000000")
+        .env("GITHUB_STEP_SUMMARY", d.join("summary.md"))
+        .output()
+        .unwrap();
+    let log = std::fs::read_to_string(&log).unwrap();
+    (out, log)
+}
+
+#[test]
+fn the_beta_pointer_moves_forward_only_and_past_a_broken_manifest() {
+    if !scripts_runnable() {
+        return;
+    }
+    let uploaded = |log: &str| log.contains("gh release upload channel-beta new/latest.json");
+    // Newer: moves. Older or equal: stays, with a notice.
+    let (out, log) = run_beta_pointer(Some(r#"{"version": "0.2.0", "platforms": {}}"#));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(uploaded(&log), "{log}");
+    let (out, log) = run_beta_pointer(Some(r#"{"version": "0.4.0", "platforms": {}}"#));
+    assert!(out.status.success());
+    assert!(!uploaded(&log), "{log}");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("::notice::beta stays on 0.4.0"));
+    // No current manifest yet: moves.
+    let (out, log) = run_beta_pointer(None);
+    assert!(out.status.success());
+    assert!(uploaded(&log), "{log}");
+    // A current manifest whose version is missing or not SemVer (or that is
+    // not JSON at all) cannot be compared: the pointer moves, with a warning.
+    for broken in [
+        r#"{"platforms": {}}"#,
+        r#"{"version": "latest", "platforms": {}}"#,
+        r#"{"version": 3}"#,
+        "not json",
+    ] {
+        let (out, log) = run_beta_pointer(Some(broken));
+        assert!(
+            out.status.success(),
+            "{broken}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(uploaded(&log), "{broken}: {log}");
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("::warning::"),
+            "{broken}"
+        );
+    }
+}

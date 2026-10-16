@@ -13,7 +13,8 @@
 # a beta user also moves on to the stable release of the same version (SemVer
 # ranks 0.2.0 above 0.2.0-beta.3). The pointer only ever moves forward: a
 # stable hotfix 0.1.5 published while beta is on 0.2.0-beta.3 leaves beta
-# where it is (no downgrade).
+# where it is (no downgrade). A current beta manifest with a missing or
+# non-SemVer version cannot be compared: the pointer moves, with a warning.
 #
 # It runs when a person publishes the draft that release.yml built. Drafts and
 # the `channel-beta` release itself are ignored.
@@ -59,6 +60,7 @@ jobs:
           mkdir -p new current
           gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir new
           new_version=$(python3 -I -c "import json;print(json.load(open('new/latest.json'))['version'])")
+          python3 -I scripts/release/release_tools.py semver-check "$new_version"
           python3 -I scripts/release/release_tools.py check-manifest \
             --manifest new/latest.json --version "$new_version" --signed-version "$new_version" \
             --require darwin-aarch64 --require darwin-x86_64 --require windows-x86_64 \
@@ -73,11 +75,29 @@ jobs:
           fi
 
           if gh release download "$BETA_TAG" --repo "$REPO" --pattern latest.json --dir current 2>/dev/null; then
-            current_version=$(python3 -I -c "import json;print(json.load(open('current/latest.json'))['version'])")
-            if ! python3 -I scripts/release/release_tools.py semver-gt "$new_version" "$current_version"; then
-              echo "::notice::beta stays on $current_version; $new_version is not newer"
-              exit 0
-            fi
+            # A current manifest that is not JSON, or has no version, reads as "".
+            current_version=$(python3 -I -c "
+          import json
+          try:
+              v = json.load(open('current/latest.json', encoding='utf-8-sig')).get('version')
+          except Exception:
+              v = None
+          print(v if isinstance(v, str) else '')
+          ")
+            rc=0
+            python3 -I scripts/release/release_tools.py semver-gt "$new_version" "$current_version" || rc=$?
+            case "$rc" in
+              0) ;;
+              1)
+                echo "::notice::beta stays on $current_version; $new_version is not newer"
+                exit 0
+                ;;
+              *)
+                # new_version passed semver-check, so the current one is broken:
+                # replacing it is the only way to repair the channel.
+                echo "::warning::the beta manifest's version '$current_version' is missing or not SemVer; moving the pointer to $new_version"
+                ;;
+            esac
           fi
 
           gh release upload "$BETA_TAG" new/latest.json --repo "$REPO" --clobber
