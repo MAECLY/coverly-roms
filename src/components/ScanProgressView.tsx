@@ -1,3 +1,6 @@
+import { useContext, useMemo } from 'react';
+
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import type { ScanProgress } from '@/ipc/types';
 
@@ -9,14 +12,16 @@ export function ScanProgressView({
   progress: ScanProgress | null;
 }) {
   const t = useT();
+  const locale = useContext(LocaleContext);
+  const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   return (
     <div role="status" className="scan-progress">
       <p>
         {progress && progress.done > 0
           ? t('start.scanning', {
               folder: progress.folder,
-              done: progress.done,
-              total: progress.total,
+              done: n.format(progress.done),
+              total: n.format(progress.total),
             })
           : t('start.scanningStart')}
       </p>
@@ -26,7 +31,9 @@ export function ScanProgressView({
         value={progress?.done ?? 0}
       />
       {progress && (
-        <p className="hint">{t('start.romsFound', { n: progress.roms })}</p>
+        <p className="hint">
+          {t('start.romsFound', { n: n.format(progress.roms) })}
+        </p>
       )}
       {path && (
         <p className="hint truncate" title={path}>

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { AppFooter } from '@/components/AppFooter';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { ScanProgressView } from '@/components/ScanProgressView';
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey } from '@/ipc/errors';
@@ -11,6 +12,8 @@ import { useLibraryStore } from '@/stores/libraryStore';
 
 export function StartScreen() {
   const t = useT();
+  const locale = useContext(LocaleContext);
+  const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const status = useLibraryStore((s) => s.status);
   const recents = useLibraryStore((s) => s.recents);
   const progress = useLibraryStore((s) => s.progress);
@@ -115,7 +118,7 @@ export function StartScreen() {
                     </span>
                     <span className="recent-meta">
                       {r.available
-                        ? t('start.roms', { n: r.roms })
+                        ? t('start.roms', { n: n.format(r.roms) })
                         : t('start.notConnected')}
                     </span>
                   </button>

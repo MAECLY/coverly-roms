@@ -35,6 +35,14 @@ describe('Start screen', () => {
     expect(within(small).getByText('240 ROMs')).toBeInTheDocument();
   });
 
+  it('formats recent ROM counts for the locale', async () => {
+    renderApp('es');
+    const fixture = await screen.findByRole('button', {
+      name: /^Fixture SD \(12k\)/,
+    });
+    expect(within(fixture).getByText('12.000 ROMs')).toBeInTheDocument();
+  });
+
   it('ejected_recent_is_disabled', async () => {
     renderApp();
     const ejected = await screen.findByRole('button', { name: /^EJECTED/ });
