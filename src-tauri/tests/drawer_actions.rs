@@ -4,12 +4,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use common::fill::{fill_world, request, wait_for, FillWorld, Recorder};
+use common::fill::{fill_world, request, wait_for, FillWorld, Recorder, BOX, GBA};
 use common::write;
 use coverly_core::image::probe_dimensions;
-use coverly_core::net::testing::png_bytes;
+use coverly_core::net::testing::{png_bytes, MockResponse};
 use coverly_core::profiles::Media;
 use coverly_core::settings::LIBRARY_SETTINGS_FILE;
+use coverly_core::sources::libretro::encode_segment;
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::view::{ExportFormat, JobState};
@@ -48,6 +49,72 @@ fn change_art_writes_the_picked_candidate_and_undo_removes_it() {
     assert_eq!(updates.len(), 1);
     assert_eq!((updates[0].id, updates[0].art.cover), (1, ArtMark::Present));
     assert!(cover(&w, "002 Golden Adventure").exists());
+    assert_eq!(st.undo_last_job(generation).unwrap().removed, 1);
+    assert!(!cover(&w, "002 Golden Adventure").exists());
+}
+
+/// Writes the Japanese cover of entry 1, then makes the Golden Sun box
+/// (entry 0) answer `broken` and tries to change entry 0 to it.
+fn failed_change_after_a_real_one(broken: MockResponse) -> (FillWorld, AppState, u64, IpcError) {
+    let w = fill_world();
+    let (st, generation) = opened(&w);
+    let cands = st.entry_candidates(generation, 1, Media::Cover).unwrap();
+    let japan = cands
+        .iter()
+        .find(|c| c.name == "Golden Adventure (Japan)")
+        .unwrap()
+        .index;
+    st.set_entry_art(generation, 1, Media::Cover, japan)
+        .unwrap();
+    let before: Vec<String> = st
+        .job_history()
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect();
+    assert_eq!(before.len(), 1);
+    let cands = st.entry_candidates(generation, 0, Media::Cover).unwrap();
+    let sun = cands
+        .iter()
+        .find(|c| c.name == "Golden Sun (USA, Europe)")
+        .unwrap()
+        .index;
+    w.server.mock(
+        &format!(
+            "/{}/{BOX}/{}",
+            encode_segment(GBA),
+            encode_segment("Golden Sun (USA, Europe).png")
+        ),
+        broken,
+    );
+    let err = st
+        .set_entry_art(generation, 0, Media::Cover, sun)
+        .unwrap_err();
+    let after: Vec<String> = st
+        .job_history()
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect();
+    assert_eq!(after, before, "a change that wrote nothing leaves no job");
+    (w, st, generation, err)
+}
+
+#[test]
+fn a_change_to_a_bad_image_leaves_no_job_and_undo_reverts_the_real_one() {
+    let (w, st, generation, err) =
+        failed_change_after_a_real_one(MockResponse::ok(b"<html>oops</html>".to_vec()));
+    assert!(matches!(err, IpcError::BadImage(_)), "{err:?}");
+    assert!(!cover(&w, "001 Golden Sun").exists());
+    let undo = st.undo_last_job(generation).unwrap();
+    assert_eq!(undo.removed, 1);
+    assert!(!cover(&w, "002 Golden Adventure").exists());
+}
+
+#[test]
+fn a_rate_limited_change_leaves_no_job_and_undo_reverts_the_real_one() {
+    let (w, st, generation, err) = failed_change_after_a_real_one(MockResponse::status(429));
+    assert!(matches!(err, IpcError::Network(_)), "{err:?}");
     assert_eq!(st.undo_last_job(generation).unwrap().removed, 1);
     assert!(!cover(&w, "002 Golden Adventure").exists());
 }

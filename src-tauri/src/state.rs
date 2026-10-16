@@ -329,6 +329,8 @@ impl AppState {
             overwrite: OverwritePolicy::Backup,
             include_review: false,
             concurrency: 1,
+            // A failed or paused change leaves no job (like a local image).
+            discard_empty: true,
             ..ApplyOptions::default()
         };
         let report = with_env(&self.fill, |env| {
