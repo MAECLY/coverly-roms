@@ -189,6 +189,176 @@ fn tool(args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
+/// A job key line: exactly two spaces of indent, then `name:`.
+fn is_job_key(line: &str) -> bool {
+    line.starts_with("  ")
+        && !line.starts_with("   ")
+        && line.trim_end().ends_with(':')
+        && !line.trim_start().starts_with('#')
+}
+
+/// The text of job `name` in a workflow (its key line up to the next job key).
+fn job(workflow: &str, name: &str) -> String {
+    let key = format!("  {name}:");
+    let mut lines = workflow.lines().skip_while(|l| l.trim_end() != key);
+    let first = lines.next().unwrap_or_else(|| panic!("no job {name}"));
+    let mut out = vec![first];
+    out.extend(lines.take_while(|l| !is_job_key(l)));
+    out.join("\n")
+}
+
+#[test]
+fn release_pins_tauri_action_v1_and_prefers_nsis() {
+    let wf = read(".github/workflows/release.yml");
+    assert!(wf.contains(
+        "tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0"
+    ));
+    assert!(wf.contains("updaterJsonPreferNsis: true"));
+    assert!(wf.contains("uploadUpdaterJson: true"));
+    assert!(
+        wf.contains("uploadUpdaterSignatures: false"),
+        "throwaway signatures never reach the release"
+    );
+    assert!(wf.contains("universal-apple-darwin"));
+    assert!(wf.contains("ubuntu-22.04-arm"));
+}
+
+#[test]
+fn every_action_is_pinned_and_checkouts_keep_no_credentials() {
+    for name in ["release.yml", "release-channels.yml", "ci.yml"] {
+        let wf = read(&format!(".github/workflows/{name}"));
+        for line in wf.lines().filter(|l| {
+            l.trim_start().starts_with("- uses:") || l.trim_start().starts_with("uses:")
+        }) {
+            let r = line.split("uses:").nth(1).unwrap().trim();
+            let sha = r
+                .split('@')
+                .nth(1)
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("");
+            assert!(
+                sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+                "{name}: {line}"
+            );
+        }
+        assert_eq!(
+            wf.matches("actions/checkout@").count(),
+            wf.matches("persist-credentials: false").count(),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn the_real_signing_key_reaches_only_the_finalize_sign_step() {
+    let wf = read(".github/workflows/release.yml");
+    assert_eq!(
+        wf.matches("secrets.TAURI_SIGNING_PRIVATE_KEY }}").count(),
+        2,
+        "guard check + finalize sign"
+    );
+    let finalize = job(&wf, "finalize");
+    assert!(finalize.contains("secrets.TAURI_SIGNING_PRIVATE_KEY }}"));
+    assert!(finalize.contains("secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"));
+    assert!(!finalize.contains("tauri build") && !finalize.contains("cargo build"));
+    for name in ["app", "cli"] {
+        assert!(!job(&wf, name).contains("secrets.TAURI_SIGNING"), "{name}");
+    }
+    assert!(
+        job(&wf, "app").contains("signer generate"),
+        "the build signs with a throwaway key"
+    );
+    assert!(
+        job(&wf, "app").contains("--config ${{ runner.temp }}/updater-overlay.json"),
+        "tauri build decodes plugins.updater.pubkey: overlay the throwaway public key"
+    );
+    assert!(wf.contains("permissions: {}"));
+}
+
+#[test]
+fn guard_refuses_what_the_updater_would_reject() {
+    let guard = job(&read(".github/workflows/release.yml"), "guard");
+    for needle in [
+        "TAURI_SIGNING_PRIVATE_KEY",
+        "bump-version.sh",
+        "CHANGELOG.md",
+        "updater.pub",
+        "private",
+    ] {
+        assert!(guard.contains(needle), "guard does not check {needle}");
+    }
+}
+
+#[test]
+fn finalize_requires_every_platform_and_writes_sha256sums() {
+    let finalize = job(&read(".github/workflows/release.yml"), "finalize");
+    for key in [
+        "darwin-aarch64",
+        "darwin-x86_64",
+        "windows-x86_64",
+        "linux-x86_64",
+        "linux-aarch64",
+        "cli-darwin-aarch64",
+        "cli-darwin-x86_64",
+        "cli-windows-x86_64",
+        "cli-linux-x86_64",
+        "cli-linux-aarch64",
+    ] {
+        assert!(finalize.contains(&format!("--require {key}")), "{key}");
+    }
+    assert!(finalize.contains("--app-version"));
+    assert!(finalize.contains("--signed-version"));
+    assert!(finalize.contains("SHA256SUMS"));
+    assert!(
+        finalize.contains("others/"),
+        "SHA256SUMS covers every asset, the .dmg included"
+    );
+    assert!(finalize.contains("minisign -V"));
+    assert!(finalize.contains("tampered"));
+}
+
+#[test]
+fn the_beta_channel_tag_is_the_one_the_app_reads() {
+    let wf = read(".github/workflows/release-channels.yml");
+    assert!(wf.contains(&format!("BETA_TAG: {}", coverly_core::update::BETA_TAG)));
+    assert!(wf.contains("semver-gt"));
+}
+
+#[test]
+fn bundle_targets_and_macos_signing() {
+    let conf: serde_json::Value = serde_json::from_str(&read("src-tauri/tauri.conf.json")).unwrap();
+    let targets: Vec<&str> = conf["bundle"]["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t.as_str())
+        .collect();
+    for t in ["app", "dmg", "nsis", "msi", "appimage", "deb"] {
+        assert!(targets.contains(&t), "{t}");
+    }
+    assert_eq!(
+        conf["bundle"]["macOS"]["signingIdentity"], "-",
+        "ad hoc: universal apps must run on Apple silicon"
+    );
+}
+
+#[test]
+fn release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
+    let notes = read(".github/release-notes.md");
+    for needle in [
+        "Open Anyway",
+        "Abrir igualmente",
+        "Run anyway",
+        "Ejecutar de todas formas",
+        "SHA256SUMS",
+        "<version>",
+    ] {
+        assert!(notes.contains(needle), "{needle}");
+    }
+}
+
 #[test]
 fn release_tools_build_and_check_a_signed_manifest() {
     if python().is_none() {
