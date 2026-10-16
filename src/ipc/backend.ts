@@ -5,12 +5,24 @@
 import { hasTauriIpc } from './appInfo';
 import type {
   ArtImage,
+  CandidateView,
+  DecisionIn,
+  EntriesUpdated,
+  EntryArtUpdate,
+  ExportFormat,
+  FillRequest,
   IdentityView,
+  ItemFilter,
+  JobHistoryItem,
+  JobItemView,
+  JobProgressEvent,
+  JobView,
   LibrarySettings,
   LibraryView,
   Media,
   RecentLibrary,
   ScanProgress,
+  UndoView,
 } from './types';
 
 export interface Backend {
@@ -26,6 +38,54 @@ export interface Backend {
   revealEntry(generation: number, entryId: number): Promise<void>;
   pickFolder(): Promise<string | null>;
   onFolderDrop(cb: (path: string) => void): Promise<() => void>;
+  startFill(generation: number, request: FillRequest): Promise<JobView>;
+  fillJob(): Promise<JobView | null>;
+  fillJobItems(job: number, filter: ItemFilter): Promise<JobItemView[]>;
+  decideFill(job: number, decisions: DecisionIn[]): Promise<JobView>;
+  runFill(job: number): Promise<JobView>;
+  resumeFill(job: number): Promise<JobView>;
+  cancelFill(job: number): Promise<JobView>;
+  candidateArt(
+    job: number,
+    index: number,
+    candidate: number,
+  ): Promise<ArtImage>;
+  undoLastJob(generation: number): Promise<UndoView>;
+  jobHistory(): Promise<JobHistoryItem[]>;
+  onJobProgress(cb: (e: JobProgressEvent) => void): Promise<() => void>;
+  onJobChanged(cb: (v: JobView) => void): Promise<() => void>;
+  onEntriesUpdated(cb: (e: EntriesUpdated) => void): Promise<() => void>;
+  entryCandidates(
+    generation: number,
+    entryId: number,
+    media: Media,
+  ): Promise<CandidateView[]>;
+  entryCandidateArt(
+    generation: number,
+    entryId: number,
+    media: Media,
+    candidate: number,
+  ): Promise<ArtImage>;
+  setEntryArt(
+    generation: number,
+    entryId: number,
+    media: Media,
+    candidate: number,
+  ): Promise<EntryArtUpdate[]>;
+  /** Opens a native image picker; null when the user cancels. */
+  setEntryArtFromFile(
+    generation: number,
+    entryId: number,
+    media: Media,
+  ): Promise<EntryArtUpdate[] | null>;
+  removeEntryArt(
+    generation: number,
+    entryId: number,
+    media: Media,
+  ): Promise<EntryArtUpdate[]>;
+  /** Saves through a native dialog; the file name, or null when cancelled. */
+  exportAudit(generation: number, format: ExportFormat): Promise<string | null>;
+  exportJobReport(job: number, format: ExportFormat): Promise<string | null>;
 }
 
 let current: Backend | null = null;

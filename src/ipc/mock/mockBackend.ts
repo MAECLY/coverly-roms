@@ -13,6 +13,11 @@ import type {
   ScanProgress,
 } from '../types';
 import { generateLibrary } from './fixture';
+import { createMockJobs, type MockExport } from './mockJobs';
+import { escapeXml } from './svg';
+
+export { escapeXml } from './svg';
+export type { MockExport } from './mockJobs';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -26,23 +31,17 @@ export interface MockOptions {
   delayMs?: number;
   /** Unix seconds that fixture dates are relative to. */
   now?: number;
+  /** The first apply of each job pauses (rate limit) after this many items; null = never (default 25). */
+  pauseAfter?: number | null;
+  /** What "From file…" picks (default: an image). */
+  pick?: 'image' | 'cancel' | 'not-image';
 }
 
 export interface MockBackend extends Backend {
   /** Entry ids passed to `revealEntry`, for tests. */
   readonly revealed: number[];
-}
-
-const XML: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&apos;',
-};
-
-export function escapeXml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => XML[c] ?? c);
+  /** Files "saved" by the exports, for tests. */
+  readonly exports: MockExport[];
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -82,6 +81,28 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const revealed: number[] = [];
   let generation = 0;
   let current: LibraryView | null = null;
+  const jobs = createMockJobs(
+    {
+      current: () => current,
+      patch(updates) {
+        if (!current) return;
+        const byId = new Map(updates.map((u) => [u.id, u.art]));
+        current = {
+          ...current,
+          entries: current.entries.map((e) => {
+            const art = byId.get(e.id);
+            return art ? { ...e, art } : e;
+          }),
+        };
+      },
+      tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
+      now,
+    },
+    {
+      pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
+      pick: opts.pick ?? 'image',
+    },
+  );
   let settings: LibrarySettings = {
     ignored_dirs: ['bios', 'saves', 'states', 'Shortcuts'],
   };
@@ -113,6 +134,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   };
 
   return {
+    ...jobs,
     kind: 'mock',
     revealed,
     async openLibrary(path) {

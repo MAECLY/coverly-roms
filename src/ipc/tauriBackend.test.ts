@@ -19,7 +19,12 @@ vi.mock('@tauri-apps/api/event', async (importOriginal) => ({
   }),
 }));
 
-import { createTauriBackend, SCAN_PROGRESS_EVENT } from './tauriBackend';
+import {
+  createTauriBackend,
+  ENTRIES_UPDATED_EVENT,
+  JOB_CHANGED_EVENT,
+  SCAN_PROGRESS_EVENT,
+} from './tauriBackend';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -103,5 +108,72 @@ describe('Tauri backend', () => {
     });
     dialog.open.mockResolvedValueOnce(null);
     await expect(createTauriBackend().pickFolder()).resolves.toBeNull();
+  });
+
+  it('starts a fill with the request object and forwards job events', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return sample.job_view;
+    });
+    const b = createTauriBackend();
+    const request = {
+      entry_ids: null,
+      media: ['cover'] as const,
+      strategy: 'rom-region' as const,
+      regions: ['rom', 'usa'] as const,
+      overwrite: 'never' as const,
+    };
+    await b.startFill(3, {
+      ...request,
+      media: [...request.media],
+      regions: [...request.regions],
+    });
+    await b.decideFill(4, [{ index: 0, choice: 'accept' }]);
+    await b.fillJobItems(4, 'review');
+    expect(calls).toEqual([
+      [
+        'start_fill',
+        {
+          generation: 3,
+          request: { ...request, media: ['cover'], regions: ['rom', 'usa'] },
+        },
+      ],
+      ['decide_fill', { job: 4, decisions: [{ index: 0, choice: 'accept' }] }],
+      ['fill_job_items', { job: 4, filter: 'review' }],
+    ]);
+    const seen: unknown[] = [];
+    await b.onJobChanged((v) => seen.push(v));
+    await b.onEntriesUpdated((u) => seen.push(u));
+    events.handlers.get(JOB_CHANGED_EVENT)!({ payload: sample.job_view });
+    events.handlers.get(ENTRIES_UPDATED_EVENT)!({
+      payload: sample.entries_updated,
+    });
+    expect(seen).toEqual([sample.job_view, sample.entries_updated]);
+  });
+
+  it('sniffs candidate art and passes drawer arguments in camelCase', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return cmd.endsWith('_art') ? PNG.buffer : null;
+    });
+    const b = createTauriBackend();
+    expect((await b.candidateArt(4, 2, 1)).mime).toBe('image/png');
+    expect((await b.entryCandidateArt(3, 9, 'cover', 0)).mime).toBe(
+      'image/png',
+    );
+    await expect(b.setEntryArtFromFile(3, 9, 'cover')).resolves.toBeNull();
+    expect(calls).toEqual([
+      ['candidate_art', { job: 4, index: 2, candidate: 1 }],
+      [
+        'entry_candidate_art',
+        { generation: 3, entryId: 9, media: 'cover', candidate: 0 },
+      ],
+      [
+        'set_entry_art_from_file',
+        { generation: 3, entryId: 9, media: 'cover' },
+      ],
+    ]);
   });
 });
