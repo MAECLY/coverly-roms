@@ -3,12 +3,36 @@
     "name": "Coverly ROMs",
     "tagline": "Encuentra y añade las portadas que faltan en tus ROMs"
   },
+  "language": {
+    "label": "Idioma",
+    "auto": "Idioma del sistema",
+    "en": "English",
+    "es": "Español"
+  },
   "start": {
-    "openLibrary": "Abrir biblioteca…",
-    "openLibraryHint": "La elección de biblioteca llegará en una versión posterior."
+    "openFolder": "Abrir carpeta…",
+    "dropHint": "O suelta aquí una carpeta o tarjeta SD.",
+    "recent": "Bibliotecas recientes",
+    "noRecent": "Todavía no hay bibliotecas recientes.",
+    "notConnected": "No conectada",
+    "forget": "Olvidar {name}",
+    "roms": "{n} ROMs",
+    "scanning": "Escaneando {folder}… {done} de {total} carpetas",
+    "scanningStart": "Leyendo la carpeta…",
+    "romsFound": "{n} ROMs encontradas",
+    "progressLabel": "Progreso del escaneo",
+    "settings": "Ajustes de biblioteca"
+  },
+  "settings": {
+    "title": "Ajustes de biblioteca",
+    "ignoredDirs": "Carpetas ignoradas",
+    "ignoredDirsHint": "Un nombre de carpeta por línea. Se omiten a cualquier profundidad.",
+    "save": "Guardar",
+    "cancel": "Cancelar"
   },
   "library": {
-    "count": "{n} ROMs"
+    "count": "{n} ROMs",
+    "close": "Cerrar biblioteca"
   },
   "footer": {
     "version": "Versión {version}",

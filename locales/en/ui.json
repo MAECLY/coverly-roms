@@ -3,12 +3,36 @@
     "name": "Coverly ROMs",
     "tagline": "Find and add the missing cover art in your ROMs"
   },
+  "language": {
+    "label": "Language",
+    "auto": "System language",
+    "en": "English",
+    "es": "Español"
+  },
   "start": {
-    "openLibrary": "Open library…",
-    "openLibraryHint": "Choosing a library arrives in a later version."
+    "openFolder": "Open folder…",
+    "dropHint": "Or drop a folder or SD card here.",
+    "recent": "Recent libraries",
+    "noRecent": "No recent libraries yet.",
+    "notConnected": "Not connected",
+    "forget": "Forget {name}",
+    "roms": "{n} ROMs",
+    "scanning": "Scanning {folder}… {done} of {total} folders",
+    "scanningStart": "Reading the folder…",
+    "romsFound": "{n} ROMs found",
+    "progressLabel": "Scan progress",
+    "settings": "Library settings"
+  },
+  "settings": {
+    "title": "Library settings",
+    "ignoredDirs": "Ignored folders",
+    "ignoredDirsHint": "One folder name per line. They are skipped at any depth.",
+    "save": "Save",
+    "cancel": "Cancel"
   },
   "library": {
-    "count": "{n} ROMs"
+    "count": "{n} ROMs",
+    "close": "Close library"
   },
   "footer": {
     "version": "Version {version}",
