@@ -311,3 +311,200 @@ fn a_404_search_is_not_cached() {
         2
     );
 }
+
+// ---- Task 7: refused keys, rate limits, hostile answers, "test key" ----
+
+use coverly_core::net::testing::HangingServer;
+use coverly_core::net::NetError;
+use coverly_core::sources::steamgriddb::check_key;
+use coverly_core::sources::{Candidate, KeyCheck, SourceError};
+
+fn gba_query_run(w: &World, key: Option<&str>) -> Result<Vec<Candidate>, SourceError> {
+    let src = SteamGridDbSource::new(&w.http, &w.cache, key.map(Secret::new), w.cfg.clone());
+    let db = SystemDb::builtin();
+    let rom = parse_name("Golden Sun (USA)", false);
+    src.candidates(&cover_query(
+        db.get("gba").unwrap(),
+        &rom,
+        "Golden Sun (USA)",
+    ))
+}
+
+#[test]
+fn a_refused_key_is_a_per_source_error_not_a_pause() {
+    let w = world();
+    w.server.mock(
+        &format!("/sgdb{}", search_path("Golden Sun")),
+        MockResponse::status(401).header("Content-Type", "application/json"),
+    );
+    let e = gba_query_run(&w, Some("bad")).unwrap_err();
+    assert!(matches!(e, SourceError::Auth { status: 401, .. }), "{e:?}");
+    assert!(e.is_source_wide());
+    // The same with the recorded body of a refused key, and with a 403.
+    let w = world();
+    let mut refused = MockResponse::ok(fixture("error_401.json").into_bytes());
+    refused.status = 403;
+    w.server
+        .mock(&format!("/sgdb{}", search_path("Golden Sun")), refused);
+    let e = gba_query_run(&w, Some("bad")).unwrap_err();
+    assert!(matches!(e, SourceError::Auth { status: 403, .. }), "{e:?}");
+    assert!(!format!("{e:?} {e}").contains("bad"));
+}
+
+#[test]
+fn no_key_asks_nothing() {
+    let w = world();
+    assert!(matches!(
+        gba_query_run(&w, None),
+        Err(SourceError::MissingKey { .. })
+    ));
+    assert!(w.server.requests().is_empty());
+}
+
+#[test]
+fn a_429_after_the_retries_pauses() {
+    let w = world();
+    w.server.mock(
+        &format!("/sgdb{}", search_path("Golden Sun")),
+        MockResponse::status(429).header("Retry-After", "0"),
+    );
+    match gba_query_run(&w, Some("k")) {
+        Err(SourceError::Net(e)) => assert!(e.pauses(), "{e}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_body_that_is_not_json_or_not_successful_is_a_bad_response() {
+    let w = world();
+    let path = format!("/sgdb{}", search_path("Golden Sun"));
+    w.server.mock(&path, MockResponse::ok("<html>"));
+    assert!(matches!(
+        gba_query_run(&w, Some("k")),
+        Err(SourceError::BadResponse { .. })
+    ));
+    let w = world();
+    w.server
+        .serve_json(&path, r#"{"success":false,"errors":["x"]}"#);
+    assert!(matches!(
+        gba_query_run(&w, Some("k")),
+        Err(SourceError::BadResponse { .. })
+    ));
+    let w = world();
+    w.server
+        .serve_json(&path, r#"{"success":true,"data":{"id":1}}"#);
+    assert!(matches!(
+        gba_query_run(&w, Some("k")),
+        Err(SourceError::BadResponse { .. })
+    ));
+}
+
+#[test]
+fn an_oversized_answer_fails_this_rom_only() {
+    let w = world();
+    w.server.mock(
+        &format!("/sgdb{}", search_path("Golden Sun")),
+        MockResponse::ok(vec![b' '; 3 * 1024 * 1024]),
+    );
+    match gba_query_run(&w, Some("k")) {
+        Err(e @ SourceError::Net(NetError::TooLarge { .. })) => {
+            assert!(!e.is_source_wide());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn hostile_grids_are_dropped_one_by_one() {
+    let w = world();
+    w.server.serve_json(
+        &format!("/sgdb{}", grids_path(5248, &w.cfg)),
+        &fixture("grids_hostile.json"),
+    );
+    let c = gba_query_run(&w, Some("k")).unwrap();
+    assert_eq!(c.len(), 1, "{c:#?}");
+    assert!(c[0].url.ends_with("/cdn/grid/8.png"));
+    assert_eq!(
+        c[0].origin.as_deref(),
+        Some("game 5248 · grid 8 · 600x900 alt")
+    );
+    assert_eq!(c[0].votes, Some(Votes { up: 1, down: 0 }));
+    // Nothing was asked of a foreign host.
+    assert!(w
+        .server
+        .requests()
+        .iter()
+        .all(|r| r.path.starts_with("/sgdb/")));
+}
+
+#[test]
+fn hostile_game_names_are_cleaned_or_dropped() {
+    let w = world();
+    w.server.serve_json(
+        &format!("/sgdb{}", search_path("Golden Sun")),
+        r#"{"success":true,"data":[{"id":5248,"name":"Golden Sun\u202e"},{"id":9,"name":"\u0000"},{"id":"x","name":"Golden Sun"},7]}"#,
+    );
+    let c = gba_query_run(&w, Some("k")).unwrap();
+    assert!(!c.is_empty());
+    assert!(c.iter().all(|c| c.name == "Golden Sun"), "{c:#?}");
+    assert!(c
+        .iter()
+        .all(|c| c.kind == MatchKind::TitleExact && c.score == 95));
+}
+
+#[test]
+fn test_key_reports_ok_invalid_missing_and_offline_without_echoing_the_key() {
+    let w = world();
+    let base = w.cfg.base.clone();
+    let mario = format!("/sgdb{}", search_path("mario"));
+    w.server.serve_json(&mario, r#"{"success":true,"data":[]}"#);
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("good"))),
+        KeyCheck::Ok
+    );
+    let sent = w.server.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].header("Authorization"), Some("Bearer good"));
+    assert_eq!(check_key(&w.http, &base, None), KeyCheck::Missing);
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new(""))),
+        KeyCheck::Missing
+    );
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("a\r\nX-Evil: 1"))),
+        KeyCheck::Invalid
+    );
+    assert_eq!(w.server.requests().len(), 1, "no usable key, no request");
+    w.server.mock(&mario, MockResponse::status(401));
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("bad"))),
+        KeyCheck::Invalid
+    );
+    w.server.mock(&mario, MockResponse::status(403));
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("bad"))),
+        KeyCheck::Invalid
+    );
+    w.server
+        .mock(&mario, MockResponse::status(429).header("Retry-After", "0"));
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("k"))),
+        KeyCheck::RateLimited
+    );
+    w.server.mock(&mario, MockResponse::status(500));
+    assert_eq!(
+        check_key(&w.http, &base, Some(&Secret::new("k"))),
+        KeyCheck::Unavailable
+    );
+    let hang = HangingServer::start();
+    let quick = NetConfig {
+        retries: 0,
+        timeout: std::time::Duration::from_millis(200),
+        ..NetConfig::default()
+    };
+    let http = PoliteHttp::new(UreqHttp::new(&quick), &quick);
+    assert_eq!(
+        check_key(&http, &hang.base(), Some(&Secret::new("k"))),
+        KeyCheck::Offline
+    );
+}

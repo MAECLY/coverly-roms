@@ -11,7 +11,8 @@ use serde_json::Value;
 
 use super::libretro::encode_segment;
 use super::{
-    clean_text, sort_candidates, ArtQuery, ArtSource, Candidate, MatchKind, SourceError, Votes,
+    clean_text, sort_candidates, ArtQuery, ArtSource, Candidate, KeyCheck, MatchKind, SourceError,
+    Votes,
 };
 use crate::cache::{now_unix, Cache};
 use crate::credentials::Secret;
@@ -77,6 +78,33 @@ pub fn grids_path(game_id: u64, cfg: &SgdbConfig) -> String {
         cfg.humor,
         cfg.epilepsy
     )
+}
+
+/// One cheap authenticated request ("Test key" in Settings): `GET
+/// {base}/search/autocomplete/mario`. 2xx → `Ok`, 401/403 → `Invalid`, a
+/// rate limit → `RateLimited`, offline/timeout → `Offline`, anything else
+/// → `Unavailable`; no key → `Missing` without any request. Never returns
+/// or logs the key; a key that cannot be sent as a header is `Invalid`
+/// without a request, like [`SteamGridDbSource`] does.
+pub fn check_key(http: &dyn Http, base: &str, key: Option<&Secret>) -> KeyCheck {
+    let key = match key {
+        Some(k) if !k.expose().is_empty() => k,
+        _ => return KeyCheck::Missing,
+    };
+    if !key.expose().chars().all(|c| c.is_ascii_graphic()) {
+        return KeyCheck::Invalid;
+    }
+    let url = format!("{}{}", base.trim_end_matches('/'), search_path("mario"));
+    let req = HttpRequest::get(url)
+        .bearer(key.clone())
+        .forbidden_passes()
+        .max_bytes(MAX_JSON_BYTES);
+    match http.get(&req) {
+        Ok(r) if (200..300).contains(&r.status) => KeyCheck::Ok,
+        Ok(r) if r.status == 401 || r.status == 403 => KeyCheck::Invalid,
+        Ok(_) => KeyCheck::Unavailable,
+        Err(e) => KeyCheck::of_error(&SourceError::Net(e)),
+    }
 }
 
 /// One search result (only what is used is kept, and cached).
