@@ -53,6 +53,22 @@ describe('profiles editor', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('names a duplicate in the UI language', async () => {
+    await backend.updateSettings({ general: { language: 'es' } });
+    render(<Root />);
+    await screen.findByRole('button', { name: 'Configuración' });
+    act(() => useNavStore.getState().openSettings('profiles'));
+    const list = await screen.findByRole('list', {
+      name: 'Perfiles de estructura',
+    });
+    await userEvent.click(
+      within(list).getByRole('button', { name: 'Duplicar Onion OS' }),
+    );
+    expect(screen.getByRole('textbox', { name: 'Nombre' })).toHaveValue(
+      'Onion OS (copia)',
+    );
+  });
+
   it('duplicates, previews live, saves and keeps the profile after a reload', async () => {
     const list = await openProfiles();
     await userEvent.click(

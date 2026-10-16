@@ -219,11 +219,15 @@ export function previewProfile(
   return out;
 }
 
-/** A built-in profile as an editable copy named `id`. */
-export function profileFromBuiltin(info: ProfileInfo, id: string): ProfileFile {
+/** A built-in profile as an editable copy with `id` and display `name`. */
+export function profileFromBuiltin(
+  info: ProfileInfo,
+  id: string,
+  name: string,
+): ProfileFile {
   return {
     ...structuredClone(info.profile),
     id,
-    name: `${info.profile.name} (copy)`,
+    name,
   };
 }

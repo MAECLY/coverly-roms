@@ -587,6 +587,7 @@
     "new": "New profile",
     "builtin": "Built-in (read-only)",
     "duplicate": "Duplicate {name}",
+    "copyName": "{name} (copy)",
     "duplicateShort": "Duplicate",
     "edit": "Edit {name}",
     "editShort": "Edit",

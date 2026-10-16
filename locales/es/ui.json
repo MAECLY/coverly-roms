@@ -587,6 +587,7 @@
     "new": "Nuevo perfil",
     "builtin": "Integrado (solo lectura)",
     "duplicate": "Duplicar {name}",
+    "copyName": "{name} (copia)",
     "duplicateShort": "Duplicar",
     "edit": "Editar {name}",
     "editShort": "Editar",

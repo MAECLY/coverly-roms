@@ -83,7 +83,11 @@ export function ProfilesSection() {
                   aria-label={t('profiles.duplicate', { name: p.profile.name })}
                   onClick={() =>
                     setEditing({
-                      initial: profileFromBuiltin(p, `${p.profile.id}-copy`),
+                      initial: profileFromBuiltin(
+                        p,
+                        `${p.profile.id}-copy`,
+                        t('profiles.copyName', { name: p.profile.name }),
+                      ),
                       replaces: null,
                     })
                   }
