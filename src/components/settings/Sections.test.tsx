@@ -169,12 +169,15 @@ describe('settings sections', () => {
     expect((await saved()).matching.review_threshold).toBe(0.65);
   });
 
-  it('sources: later sources are shown as coming soon and credentials are stored without coming back', async () => {
+  it('sources: SteamGridDB can be enabled, ScreenScraper is coming soon and credentials are stored without coming back', async () => {
     const panel = await open('sources');
     const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
-    expect(sgdb).toBeDisabled();
+    expect(sgdb).toBeEnabled();
+    expect(
+      within(panel).getByRole('checkbox', { name: /ScreenScraper/ }),
+    ).toBeDisabled();
     expect(within(panel).getAllByText('Coming in a later version').length).toBe(
-      2,
+      1,
     );
     const key = within(panel).getByLabelText('SteamGridDB API key');
     expect(key).toHaveAttribute('type', 'password');

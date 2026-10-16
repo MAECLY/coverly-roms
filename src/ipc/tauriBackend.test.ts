@@ -177,6 +177,21 @@ describe('Tauri backend', () => {
     ]);
   });
 
+  it('asks Rust for source info and key checks with camelCase args', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return cmd === 'sources_info' ? [sample.source_info] : 'ok';
+    });
+    const b = createTauriBackend();
+    expect(await b.sourcesInfo()).toEqual([sample.source_info]);
+    expect(await b.testSourceKey('steamgriddb')).toBe('ok');
+    expect(calls).toEqual([
+      ['sources_info', {}],
+      ['test_source_key', { source: 'steamgriddb' }],
+    ]);
+  });
+
   it('sends the settings, profile, credential and search commands', async () => {
     const calls: [string, unknown][] = [];
     mockIPC((cmd, args) => {

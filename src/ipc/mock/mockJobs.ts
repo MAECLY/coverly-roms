@@ -2,6 +2,18 @@
  * Fake fill jobs for the browser mock (`pnpm dev`, tests): deterministic
  * plans, review items, failures and one rate-limit pause per job, drawer
  * writes and exports, so the whole fill flow runs end to end in Chrome.
+ *
+ * Sources (M6): when SteamGridDB is enabled and has a key
+ * (`MockJobsHost.sgdbReady`), every review/auto item also gets two
+ * SteamGridDB grids (votes `{up: 9 + id % 7, down: 1}` and `{up: 2,
+ * down: 0}`). Under `popularity` the list is ranked like Rust's Popularity
+ * (exact matches one tier, releases before betas, then net votes), so the
+ * most voted grid is chosen with `reason: votes`; the other strategies
+ * keep libretro first (a simplification: the mock does not rank by source
+ * order or region). Index 0 carries the reason: `only` for one candidate,
+ * `release` when a release beat a beta, `votes` when votes decided, else
+ * `consensus` (popularity), `source-order` (priority) or `region`
+ * (rom-region).
  */
 import { csvText } from '@/lib/csv';
 
@@ -27,8 +39,10 @@ import {
   type LibraryView,
   type Media,
   type Phase,
+  type PickReason,
   type PlanSummary,
   type Region,
+  type StrategyKind,
 } from '../types';
 import { labelSvg } from './svg';
 
@@ -63,6 +77,7 @@ function cand(
   regions: Region[],
   kind: CandidateView['kind'],
   score: number,
+  extra: Partial<Pick<CandidateView, 'source' | 'votes' | 'origin'>> = {},
 ): CandidateView {
   const confidence =
     kind === 'canonical' || kind === 'name-exact'
@@ -81,10 +96,60 @@ function cand(
     votes: null,
     origin: null,
     reason: null,
+    ...extra,
   };
 }
 
-function candidatesFor(e: EntryView, media: Media) {
+/** A beta/proto/demo/hack name (like `is_unreleased_variant`). */
+const isVariant = (name: string) =>
+  /[([](?:beta|proto|prototype|demo|sample|hack)\b[^)\]]*[)\]]/i.test(name);
+const net = (c: CandidateView) => (c.votes ? c.votes.up - c.votes.down : 0);
+const exact = (c: CandidateView) => (c.kind === 'fuzzy' ? 0 : 1);
+
+/** The two SteamGridDB grids of entry `e` (no region, title match). */
+function grids(e: EntryView): CandidateView[] {
+  const t = mockTitle(e.name);
+  const grid = (n: number, up: number, down: number) =>
+    cand(0, t, [], 'title-exact', 95, {
+      source: 'steamgriddb',
+      votes: { up, down },
+      origin: `game ${1000 + e.id} · grid ${e.id * 10 + n}`,
+    });
+  return [grid(1, 9 + (e.id % 7), 1), grid(2, 2, 0)];
+}
+
+/** Why index 0 beat index 1 (a simplified `matching::explain`). */
+function reasonFor(
+  list: readonly CandidateView[],
+  strategy: StrategyKind,
+  romRegions: readonly Region[],
+): PickReason | null {
+  const [a, b] = list;
+  if (!a) return null;
+  if (!b) return { why: 'only' };
+  if (!isVariant(a.name) && isVariant(b.name)) return { why: 'release' };
+  if (strategy === 'popularity' && net(a) !== net(b)) {
+    return { why: 'votes', score: net(a), next: net(b) };
+  }
+  switch (strategy) {
+    case 'popularity':
+      return { why: 'consensus', count: 3, next: 1 };
+    case 'priority':
+      return { why: 'source-order', source: a.source };
+    case 'rom-region':
+      return {
+        why: 'region',
+        rom: a.regions.some((r) => romRegions.includes(r)),
+      };
+  }
+}
+
+function candidatesFor(
+  e: EntryView,
+  media: Media,
+  strategy: StrategyKind,
+  sgdb: boolean,
+) {
   const t = mockTitle(e.name);
   const action = mockClass(e.id, media);
   const variant = (e.id + MEDIA.indexOf(media)) % 10 === 8;
@@ -106,11 +171,39 @@ function candidatesFor(e: EntryView, media: Media) {
               cand(1, `${t} (Japan)`, ['japan'], 'fuzzy', 78),
               cand(2, `${t} (USA) (Beta)`, ['usa'], 'title-exact', 95),
             ];
+  let ranked = candidates;
+  if (sgdb && action !== 'none') {
+    ranked = [...candidates, ...grids(e)];
+    if (strategy === 'popularity') {
+      // Stable: equal candidates keep the libretro order.
+      ranked = ranked
+        .map((c, n) => ({ c, n }))
+        .sort(
+          (x, y) =>
+            exact(y.c) - exact(x.c) ||
+            Number(isVariant(x.c.name)) - Number(isVariant(y.c.name)) ||
+            net(y.c) - net(x.c) ||
+            x.n - y.n,
+        )
+        .map(({ c }) => c);
+    }
+  }
+  const out: CandidateView[] = ranked.map((c, index) => ({
+    ...c,
+    index,
+    reason: null,
+  }));
+  const reason = reasonFor(out, strategy, e.regions);
+  if (out[0]) out[0].reason = reason;
+  // The beta stays first only when nothing better ranked above it.
+  const betaFirst = out[0] !== undefined && isVariant(out[0].name);
   return {
     action,
-    candidates,
+    candidates: out,
     note:
-      action === 'review' && variant ? ('unreleased-variant' as const) : null,
+      action === 'review' && variant && betaFirst
+        ? ('unreleased-variant' as const)
+        : null,
   };
 }
 
@@ -138,6 +231,8 @@ export interface MockJobsHost {
   /** One fake unit of work (a macrotask, so callers see `gathering`). */
   tick(): Promise<void>;
   now: number;
+  /** SteamGridDB is enabled and has a key (read when a fill starts). */
+  sgdbReady(): boolean;
 }
 
 export interface MockJobsOptions {
@@ -541,6 +636,8 @@ export function createMockJobs(
       ].sort((a, b) => a - b);
       const items: JobItemView[] = [];
       const marks = new Map<number, ArtMarks>();
+      // Like Rust's per-job snapshot of settings and keys.
+      const sgdb = host.sgdbReady();
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;
@@ -549,7 +646,7 @@ export function createMockJobs(
           const mark = e.art[m];
           const replace = request.overwrite === 'backup' && mark === 'present';
           if (mark !== 'missing' && !replace) continue;
-          const c = candidatesFor(e, m);
+          const c = candidatesFor(e, m, request.strategy, sgdb);
           items.push({
             index: items.length,
             entry_id: e.id,
@@ -738,6 +835,8 @@ export function createMockJobs(
         cand(1, `${t} (Europe)`, ['europe'], 'title-exact', 95),
         cand(2, `${t} (Japan)`, ['japan'], 'fuzzy', 80),
       ];
+      // Like Rust: the plan's reason on index 0 (canonical beat a title match).
+      candidates[0]!.reason = { why: 'better-match' };
       picks = { generation, id, media, candidates };
       await host.tick();
       return candidates.map((c) => ({ ...c }));
@@ -905,7 +1004,7 @@ export function createMockJobs(
             i.name,
             i.media,
             i.outcome?.status ?? 'not-attempted',
-            wrote ? 'libretro' : '',
+            wrote ? (i.candidates[0]?.source ?? '') : '',
             wrote ? (i.candidates[0]?.name ?? '') : '',
             i.outcome?.error ?? '',
             i.outcome?.message ?? '',

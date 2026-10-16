@@ -73,15 +73,17 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     const s = cloneSettings(DEFAULT_SETTINGS);
     s.library.ignored_exts = ['.PNG', 'png', ' txt '];
     s.sources.order = [
+      { id: 'screenscraper', enabled: true },
       { id: 'steamgriddb', enabled: true },
       { id: 'libretro', enabled: true },
     ];
     const n = normaliseSettings(s);
     expect(n.library.ignored_exts).toEqual(['png', 'txt']);
+    // SteamGridDB ships (M6); ScreenScraper is not in this build.
     expect(n.sources.order).toEqual([
-      { id: 'steamgriddb', enabled: false },
-      { id: 'libretro', enabled: true },
       { id: 'screenscraper', enabled: false },
+      { id: 'steamgriddb', enabled: true },
+      { id: 'libretro', enabled: true },
     ]);
   });
 

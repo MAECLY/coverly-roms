@@ -17,6 +17,7 @@ import type {
   JobItemView,
   JobProgressEvent,
   JobView,
+  KeyCheck,
   LibrarySettings,
   LibraryView,
   ProfileInfo,
@@ -27,6 +28,7 @@ import type {
   Settings,
   SettingsUpdate,
   SettingsView,
+  SourceInfo,
   UndoView,
 } from './types';
 
@@ -160,6 +162,8 @@ export function createTauriBackend(): Backend {
       call<CredentialStatus>('set_credential', { key, value }),
     clearCredential: (key) =>
       call<CredentialStatus>('clear_credential', { key }),
+    sourcesInfo: () => call<SourceInfo[]>('sources_info'),
+    testSourceKey: (source) => call<KeyCheck>('test_source_key', { source }),
     searchEntryArt: (generation, entryId, media, query) =>
       call<CandidateView[]>('search_entry_art', {
         generation,

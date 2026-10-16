@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { MemoryStorage } from '@/test/storage';
+
 import type { FillRequest, JobState, JobView } from '../types';
 import { FIXTURE_NOW } from './fixture';
 import {
@@ -336,5 +338,97 @@ describe('mock drawer search', () => {
     await expect(
       b.setEntryArtFromSearch(view.generation, 0, 'cover', 0),
     ).rejects.toMatchObject({ code: 'bad-request' });
+  });
+});
+
+describe('mock fill sources', () => {
+  it('popularity with SteamGridDB ready picks voted grids and says why', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    await b.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    await b.setCredential('steamgriddb-api-key', 'sk');
+    const v = await planned(b, view.generation, {
+      ...REQUEST,
+      strategy: 'popularity',
+    });
+    const items = await b.fillJobItems(v.id, 'all');
+    // Variant (beta) items keep their own reason, as in Rust (D22).
+    const chosen = items
+      .filter((i) => i.action !== 'none' && i.note === null)
+      .map((i) => i.candidates[0]!);
+    expect(chosen.length).toBeGreaterThan(0);
+    expect(
+      chosen.every((c) => c.source === 'steamgriddb' && c.votes !== null),
+    ).toBe(true);
+    expect(chosen.every((c) => c.reason?.why === 'votes')).toBe(true);
+    const first = items.find((i) => i.action !== 'none')!;
+    expect(first.candidates.map((c) => c.index)).toEqual(
+      first.candidates.map((_, n) => n),
+    );
+    expect(first.candidates.slice(1).every((c) => c.reason === null)).toBe(
+      true,
+    );
+    expect(first.candidates[0]!.origin).toMatch(/^game \d+ · grid \d+$/);
+  });
+
+  it('without a SteamGridDB key, popularity explains consensus and priority explains source order', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    // Enabled but no key stored: not ready, so libretro only.
+    await b.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    const cases = [
+      ['popularity', 'consensus'],
+      ['priority', 'source-order'],
+      ['rom-region', 'region'],
+    ] as const;
+    for (const [strategy, why] of cases) {
+      const v = await planned(b, view.generation, { ...REQUEST, strategy });
+      const items = await b.fillJobItems(v.id, 'all');
+      const chosen = items
+        .filter((i) => i.action !== 'none' && i.note === null)
+        .map((i) => i.candidates[0]!);
+      expect(chosen.length).toBeGreaterThan(0);
+      expect(
+        chosen.every((c) => c.source === 'libretro' && c.votes === null),
+      ).toBe(true);
+      expect(chosen.some((c) => c.reason?.why === why)).toBe(true);
+      await b.cancelFill(v.id);
+    }
+  });
+
+  it('the drawer list explains its first candidate only', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    const list = await b.entryCandidates(view.generation, 0, 'cover');
+    expect(list[0]!.reason).toEqual({ why: 'better-match' });
+    expect(list.slice(1).every((c) => c.reason === null)).toBe(true);
+    const found = await b.searchEntryArt(view.generation, 0, 'cover', 'Zelda');
+    expect(found.every((c) => c.reason === null)).toBe(true);
+  });
+
+  it('a key but SteamGridDB disabled keeps the grids out', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    await b.setCredential('steamgriddb-api-key', 'sk');
+    const v = await planned(b, view.generation, {
+      ...REQUEST,
+      strategy: 'popularity',
+    });
+    const items = await b.fillJobItems(v.id, 'all');
+    expect(
+      items.every((i) => i.candidates.every((c) => c.source === 'libretro')),
+    ).toBe(true);
   });
 });

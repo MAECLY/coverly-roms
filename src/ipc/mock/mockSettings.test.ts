@@ -60,6 +60,39 @@ describe('mock settings', () => {
     expect((await m.resetSettings()).settings.art.jpeg_quality).toBe(90);
   });
 
+  it('reports SteamGridDB ready only with a key and tests it without keeping the value', async () => {
+    const storage = new MemoryStorage();
+    const m = make(storage);
+    const info = await m.sourcesInfo();
+    expect(info.map((i) => [i.id, i.built, i.ready])).toEqual([
+      ['libretro', true, true],
+      ['steamgriddb', true, false],
+      ['screenscraper', false, false],
+    ]);
+    expect(info[1]!.needs).toEqual(['steamgriddb-api-key']);
+    expect(await m.testSourceKey('steamgriddb')).toBe('missing');
+    await m.setCredential('steamgriddb-api-key', 'bad-key');
+    expect(await m.testSourceKey('steamgriddb')).toBe('invalid');
+    await m.setCredential('steamgriddb-api-key', 'sk-good');
+    expect(await m.testSourceKey('steamgriddb')).toBe('ok');
+    expect((await m.sourcesInfo())[1]!.ready).toBe(true);
+    for (let i = 0; i < storage.length; i++) {
+      const v = storage.getItem(storage.key(i)!) ?? '';
+      expect(v).not.toContain('sk-good');
+      expect(v).not.toContain('bad-key');
+    }
+    await m.setCredential('steamgriddb-api-key', 'bad-again');
+    await m.clearCredential('steamgriddb-api-key');
+    expect(await m.testSourceKey('steamgriddb')).toBe('missing');
+    expect(await m.testSourceKey('screenscraper')).toBe('unavailable');
+    await expect(m.testSourceKey('libretro')).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await expect(m.testSourceKey('nope' as never)).rejects.toBeInstanceOf(
+      BackendError,
+    );
+  });
+
   it('never stores secret values', async () => {
     const storage = new MemoryStorage();
     const m = make(storage);
