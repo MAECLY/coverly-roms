@@ -299,6 +299,7 @@
   "update_check_skipped": { "kind": "skipped" },
   "update_progress": { "downloaded": 512, "total": 1024 },
   "update_install": { "restart_required": true },
+  "volume": { "path": "/Volumes/SD", "name": "SD" },
   "item_error_kinds": [
     "no-art",
     "network",

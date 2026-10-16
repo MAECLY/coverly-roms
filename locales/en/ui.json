@@ -22,7 +22,10 @@
     "scanning": "Scanning {folder}… {done} of {total} folders",
     "scanningStart": "Reading the folder…",
     "romsFound": "{n} ROMs found",
-    "progressLabel": "Scan progress"
+    "progressLabel": "Scan progress",
+    "volumes": "Connected drives",
+    "noVolumes": "No drives or SD cards found.",
+    "openVolume": "Open {name}"
   },
   "settings": {
     "open": "Settings",

@@ -10,6 +10,7 @@ use coverly_core::plan::{Counts, Decision, PlanNote};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
 use coverly_core::sources::{KeyCheck, MatchKind, Votes};
+use coverly_core::volumes::Volume;
 use coverly_core::write::OverwritePolicy;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::view::{
@@ -205,6 +206,7 @@ fn rust_serialises_the_shared_sample() {
         "update_check_skipped": UpdateCheckView::Skipped,
         "update_progress": UpdateProgressEvent { downloaded: 512, total: Some(1024) },
         "update_install": UpdateInstallView { restart_required: true },
+        "volume": Volume { path: "/Volumes/SD".into(), name: "SD".into() },
         "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::Region { rom: true }, PickReason::User],
     });
     let expected: Value =

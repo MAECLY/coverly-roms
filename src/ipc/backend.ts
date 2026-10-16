@@ -42,6 +42,7 @@ import type {
   UpdateInstall,
   UpdateProgress,
   UpdateTrigger,
+  Volume,
 } from './types';
 
 export interface Backend {
@@ -52,6 +53,8 @@ export interface Backend {
   onScanProgress(cb: (p: ScanProgress) => void): Promise<() => void>;
   recentLibraries(): Promise<RecentLibrary[]>;
   forgetRecentLibrary(path: string): Promise<RecentLibrary[]>;
+  /** Drives and SD cards connected now (a read-only listing). */
+  mountedVolumes(): Promise<Volume[]>;
   librarySettings(): Promise<LibrarySettings>;
   setLibrarySettings(s: LibrarySettings): Promise<LibrarySettings>;
   readArt(generation: number, entryId: number, media: Media): Promise<ArtImage>;

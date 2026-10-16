@@ -24,6 +24,16 @@ describe('mock backend', () => {
     expect(recents.find((r) => r.path === MOCK_EJECTED)?.available).toBe(false);
   });
 
+  it('lists one connected drive that opens as a library', async () => {
+    const b = backend();
+    const drives = await b.mountedVolumes();
+    expect(drives).toEqual([
+      { path: '/mock/Small library', name: 'Small library' },
+    ]);
+    const view = await b.openLibrary(drives[0]!.path);
+    expect(view.name).toBe('Small library');
+  });
+
   it('opens the 12k library with progress per system', async () => {
     const b = backend();
     const progress: number[] = [];

@@ -34,6 +34,7 @@ import type {
   UpdateCheck,
   UpdateInstall,
   UpdateProgress,
+  Volume,
 } from './types';
 
 export const SCAN_PROGRESS_EVENT = 'library-scan-progress';
@@ -77,6 +78,7 @@ export function createTauriBackend(): Backend {
     recentLibraries: () => call<RecentLibrary[]>('recent_libraries'),
     forgetRecentLibrary: (path) =>
       call<RecentLibrary[]>('forget_recent_library', { path }),
+    mountedVolumes: () => call<Volume[]>('mounted_volumes'),
     librarySettings: () => call<LibrarySettings>('library_settings'),
     setLibrarySettings: (s) =>
       call<LibrarySettings>('set_library_settings', {

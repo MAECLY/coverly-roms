@@ -337,6 +337,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       recents = recents.filter((r) => r.path !== path);
       return Promise.resolve([...recents]);
     },
+    mountedVolumes: () =>
+      Promise.resolve([{ path: '/mock/Small library', name: 'Small library' }]),
     librarySettings: () =>
       Promise.resolve({
         ignored_dirs: settings.current().library.ignored_dirs,

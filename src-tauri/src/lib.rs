@@ -48,6 +48,7 @@ pub fn run() {
             ipc::open_library,
             ipc::recent_libraries,
             ipc::forget_recent_library,
+            ipc::mounted_volumes,
             ipc::library_settings,
             ipc::set_library_settings,
             ipc::read_art,

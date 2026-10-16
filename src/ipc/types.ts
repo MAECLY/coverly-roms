@@ -588,3 +588,9 @@ export interface UpdateProgress {
 export interface UpdateInstall {
   restart_required: boolean;
 }
+
+/** Rust `coverly_core::volumes::Volume`: a connected drive or SD card. */
+export interface Volume {
+  path: string;
+  name: string;
+}

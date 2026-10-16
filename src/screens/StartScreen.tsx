@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { AppFooter } from '@/components/AppFooter';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
@@ -8,6 +8,7 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey } from '@/ipc/errors';
+import type { Volume } from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 
@@ -25,10 +26,37 @@ export function StartScreen() {
   const forget = useLibraryStore((s) => s.forget);
   const fail = useLibraryStore((s) => s.fail);
   const opening = status === 'opening';
+  const [volumes, setVolumes] = useState<Volume[]>([]);
 
   useEffect(() => {
     void loadRecents();
   }, [loadRecents]);
+
+  // Drives come and go: list them now and again whenever the window
+  // regains focus (after plugging in an SD card). Only the newest answer
+  // counts; a failed or malformed listing shows as no drives.
+  useEffect(() => {
+    let latest = 0;
+    function reload() {
+      const ask = ++latest;
+      void getBackend()
+        .then((b) => b.mountedVolumes())
+        .then(
+          (list) => {
+            if (ask === latest) setVolumes(Array.isArray(list) ? list : []);
+          },
+          () => {
+            if (ask === latest) setVolumes([]);
+          },
+        );
+    }
+    reload();
+    window.addEventListener('focus', reload);
+    return () => {
+      latest = -1;
+      window.removeEventListener('focus', reload);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +120,38 @@ export function StartScreen() {
             {t(errorKey(error.code), { detail: error.detail ?? '' })}
           </p>
         )}
+        <section
+          aria-labelledby="volumes-heading"
+          className="recent w-full max-w-2xl text-left"
+        >
+          <h2 id="volumes-heading" className="section-title">
+            {t('start.volumes')}
+          </h2>
+          {volumes.length === 0 ? (
+            <p className="hint">{t('start.noVolumes')}</p>
+          ) : (
+            <ul className="recent-list">
+              {volumes.map((v) => (
+                <li key={v.path} className="recent-item">
+                  <button
+                    type="button"
+                    className="recent-open"
+                    aria-label={t('start.openVolume', { name: v.name })}
+                    disabled={opening}
+                    onClick={() => void open(v.path)}
+                  >
+                    <span className="recent-name truncate" title={v.name}>
+                      {v.name}
+                    </span>
+                    <span className="recent-path truncate" title={v.path}>
+                      {v.path}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section
           aria-labelledby="recent-heading"
           className="recent w-full max-w-2xl text-left"

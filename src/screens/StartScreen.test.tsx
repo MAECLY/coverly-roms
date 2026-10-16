@@ -131,6 +131,53 @@ describe('Start screen', () => {
     ).not.toBeDisabled();
   });
 
+  it('lists connected drives and opens one', async () => {
+    render(<Root />);
+    const section = await screen.findByRole('region', {
+      name: 'Connected drives',
+    });
+    await userEvent.click(
+      await within(section).findByRole('button', {
+        name: 'Open Small library',
+      }),
+    );
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Small library' }),
+    ).toBeInTheDocument();
+  });
+
+  it('says so when no drive is connected', async () => {
+    backend.mountedVolumes = () => Promise.resolve([]);
+    renderApp('es');
+    const section = await screen.findByRole('region', {
+      name: 'Unidades conectadas',
+    });
+    expect(
+      await within(section).findByText(
+        'No se encontraron unidades ni tarjetas SD.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('reloads the drives when the window regains focus', async () => {
+    let calls = 0;
+    backend.mountedVolumes = () => {
+      calls += 1;
+      return Promise.resolve(
+        calls === 1 ? [] : [{ path: '/mock/Small library', name: 'Card' }],
+      );
+    };
+    renderApp();
+    const section = await screen.findByRole('region', {
+      name: 'Connected drives',
+    });
+    await within(section).findByText('No drives or SD cards found.');
+    window.dispatchEvent(new Event('focus'));
+    expect(
+      await within(section).findByRole('button', { name: 'Open Card' }),
+    ).toBeInTheDocument();
+  });
+
   it('switches the language', async () => {
     render(<Root />);
     const select = screen.getByLabelText('Language');

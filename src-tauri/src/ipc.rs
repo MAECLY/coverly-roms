@@ -100,6 +100,12 @@ pub async fn recent_libraries(app: AppHandle) -> Result<Vec<RecentView>, IpcErro
     blocking(move || Ok(app.state::<AppState>().recent())).await
 }
 
+/// The drives and SD cards connected now (only lists folders, never writes).
+#[tauri::command]
+pub async fn mounted_volumes() -> Result<Vec<coverly_core::volumes::Volume>, IpcError> {
+    blocking(|| Ok(coverly_core::volumes::mounted_volumes())).await
+}
+
 #[tauri::command]
 pub fn forget_recent_library(
     state: State<'_, AppState>,

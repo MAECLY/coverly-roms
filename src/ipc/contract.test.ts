@@ -35,6 +35,7 @@ import {
   type UpdateInstall,
   type UpdateOffer,
   type UpdateProgress,
+  type Volume,
 } from './types';
 
 /** Compiles only when `K` lists every key of `T`. */
@@ -157,6 +158,7 @@ const HISTORY_KEYS = [
 const UPDATE_OFFER_KEYS = ['version', 'notes', 'date'] as const;
 const UPDATE_PROGRESS_KEYS = ['downloaded', 'total'] as const;
 const UPDATE_INSTALL_KEYS = ['restart_required'] as const;
+const VOLUME_KEYS = ['path', 'name'] as const;
 const REQUEST_KEYS = [
   'entry_ids',
   'media',
@@ -275,6 +277,11 @@ const checks: [string, readonly string[], object][] = [
       typeof UPDATE_INSTALL_KEYS
     >,
     sample.update_install,
+  ],
+  [
+    'Volume',
+    VOLUME_KEYS satisfies AllKeys<Volume, typeof VOLUME_KEYS>,
+    sample.volume,
   ],
   [
     'FillRequest',

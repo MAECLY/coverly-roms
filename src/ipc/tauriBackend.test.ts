@@ -296,6 +296,18 @@ describe('Tauri backend', () => {
     expect(events.handlers.has(UPDATE_PROGRESS_EVENT)).toBe(false);
   });
 
+  it('lists the connected drives', async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      return [sample.volume];
+    });
+    await expect(createTauriBackend().mountedVolumes()).resolves.toEqual([
+      sample.volume,
+    ]);
+    expect(calls).toEqual(['mounted_volumes']);
+  });
+
   it('maps an update refusal to its code', async () => {
     mockIPC(() => Promise.reject({ code: 'update-signature', detail: 'bad' }));
     await expect(createTauriBackend().downloadUpdate()).rejects.toMatchObject({

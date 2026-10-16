@@ -22,7 +22,10 @@
     "scanning": "Escaneando {folder}… {done} de {total} carpetas",
     "scanningStart": "Leyendo la carpeta…",
     "romsFound": "{n} ROMs encontradas",
-    "progressLabel": "Progreso del escaneo"
+    "progressLabel": "Progreso del escaneo",
+    "volumes": "Unidades conectadas",
+    "noVolumes": "No se encontraron unidades ni tarjetas SD.",
+    "openVolume": "Abrir {name}"
   },
   "settings": {
     "open": "Configuración",
