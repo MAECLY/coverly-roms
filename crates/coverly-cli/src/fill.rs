@@ -237,12 +237,6 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
             );
         }
     }
-    if profile.id == "batocera" {
-        eprintln!(
-            "warning: gamelist.xml is not updated yet; Batocera may not show the new images until it is"
-        );
-    }
-
     let db = SystemDb::builtin();
     let scan = scan_library(&root, profile, &db, &ScanOptions::default());
     let art = resolve_art(&scan, profile, &db, &media);
@@ -322,6 +316,9 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     let report = env
         .apply(&plan, profile, &aopts, &progress, &cancel)
         .map_err(fail)?;
+    for w in &report.warnings {
+        eprintln!("{}", table::terminal_safe(&format!("warning: {w}")));
+    }
     emit(args, &chosen, &plan, Some(&report))?;
     match &report.paused {
         Some(reason) => Err(Failure {

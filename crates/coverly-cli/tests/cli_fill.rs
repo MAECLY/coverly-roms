@@ -6,6 +6,7 @@ use std::fs;
 use assert_cmd::Command;
 use coverly_core::image::probe_dimensions;
 use coverly_core::net::testing::{png_bytes, MockResponse, MockServer};
+use predicates::prelude::*;
 use predicates::str::contains;
 use tempfile::TempDir;
 
@@ -238,7 +239,7 @@ fn fill_never_touches_paths_outside_the_library() {
 }
 
 #[test]
-fn batocera_warns_that_gamelist_is_not_updated() {
+fn batocera_merges_the_gamelist_without_the_old_warning() {
     let lib = TempDir::new().unwrap();
     fs::create_dir_all(lib.path().join("roms/gba")).unwrap();
     fs::write(
@@ -255,8 +256,17 @@ fn batocera_warns_that_gamelist_is_not_updated() {
         server,
     };
     fill(&f)
-        .args(["--profile", "batocera", "--media", "cover"])
+        .args(["--profile", "batocera", "--media", "cover", "--apply"])
         .assert()
         .success()
-        .stderr(contains("gamelist.xml is not updated yet"));
+        .stderr(contains("gamelist.xml is not updated yet").not());
+    let gamelist = fs::read_to_string(f.lib.path().join("roms/gba/gamelist.xml")).unwrap();
+    assert!(
+        gamelist.contains("<path>./Golden Sun.gba</path>"),
+        "{gamelist}"
+    );
+    assert!(
+        gamelist.contains("<thumbnail>./images/Golden Sun-image.png</thumbnail>"),
+        "{gamelist}"
+    );
 }

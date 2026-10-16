@@ -6,6 +6,7 @@
 //! timeout, a full or read-only volume, or a cancel stop it cleanly with
 //! the journal kept, so `undo` and a re-run both work.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ use serde::Serialize;
 
 use crate::cache::Cache;
 use crate::csv_util::{media_name, write_row};
+use crate::gamelist::{merge_into, rel_slash, GameArt, GAMELIST_FILE};
 use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec};
 use crate::plan::{Plan, PlanAction, PlanItem};
 use crate::profiles::{Media, Profile};
@@ -214,6 +216,9 @@ pub struct JobReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
+    /// Problems that did not fail an item (e.g. a gamelist left as it was).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Writes one row per item of `report`:
@@ -368,6 +373,10 @@ pub fn apply_plan(
                 crate::write::clean_apple_doubles(&d);
             }
         }
+        if profile.gamelist {
+            let replace = opts.overwrite == OverwritePolicy::Backup;
+            report.warnings = merge_gamelists(&plan.items, &results, &mut lock(&writer), replace);
+        }
         let writer = writer.into_inner().unwrap_or_else(|p| p.into_inner());
         if opts.discard_empty && opts.resume_job.is_none() && !writer.has_entries() {
             writer.discard()?;
@@ -387,6 +396,54 @@ pub fn apply_plan(
     }
     report.recount();
     Ok(report)
+}
+
+/// Merges the art written by this run into the `gamelist.xml` of each
+/// system folder (D31) through `writer`; returns one warning per gamelist
+/// left as it was.
+fn merge_gamelists(
+    items: &[PlanItem],
+    results: &[Option<ItemStatus>],
+    writer: &mut Writer,
+    replace: bool,
+) -> Vec<String> {
+    let mut by_dir: BTreeMap<PathBuf, BTreeMap<String, GameArt>> = BTreeMap::new();
+    for (item, st) in items.iter().zip(results) {
+        if !matches!(
+            st,
+            Some(ItemStatus::Filled { .. } | ItemStatus::Replaced { .. })
+        ) {
+            continue;
+        }
+        // `strip_prefix("")` succeeds: an item without a system dir (a
+        // hand-built plan) never reaches a gamelist.
+        if item.system_dir.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(art_rel) = item.target.strip_prefix(&item.system_dir) else {
+            continue;
+        };
+        let rom = rel_slash(&item.rel_path);
+        by_dir
+            .entry(item.system_dir.clone())
+            .or_default()
+            .entry(rom.clone())
+            .or_insert_with(|| GameArt {
+                rom,
+                name: item.stem.clone(),
+                art: Vec::new(),
+            })
+            .art
+            .push((item.media, rel_slash(art_rel)));
+    }
+    let mut warnings = Vec::new();
+    for (dir, games) in by_dir {
+        let games: Vec<GameArt> = games.into_values().collect();
+        if let Err(w) = merge_into(writer, &dir, &games, replace) {
+            warnings.push(format!("{}: {w}", dir.join(GAMELIST_FILE).display()));
+        }
+    }
+    warnings
 }
 
 /// Targets of the items written (filled or replaced) so far.
@@ -476,6 +533,7 @@ impl JobReport {
         self.paused = other.paused;
         self.pause_kind = other.pause_kind;
         self.cancelled = other.cancelled;
+        self.warnings.extend(other.warnings);
         if self.job_id.is_none() {
             self.job_id = other.job_id;
         }

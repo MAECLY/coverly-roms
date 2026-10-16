@@ -171,6 +171,9 @@ pub struct PlanItem {
     /// Why this item is in review although its confidence may be high.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<PlanNote>,
+    /// The system folder (where a gamelist lives).
+    #[serde(skip)]
+    pub system_dir: PathBuf,
     #[serde(flatten)]
     pub action: PlanAction,
 }
@@ -384,6 +387,7 @@ pub fn build_plan(
                 target: target.unwrap_or_default(),
                 identity_method: g.identity.method,
                 canonical: g.identity.canonical.clone(),
+                system_dir: t.system_dir.clone(),
                 action,
             });
         }
