@@ -2,7 +2,7 @@
  * The one door from the UI to a backend: the Tauri app, or — in a plain
  * browser (`pnpm dev`) — the deterministic mock.
  */
-import { hasTauriIpc } from './appInfo';
+import { hasTauriIpc, type AppInfo } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
@@ -42,6 +42,8 @@ import type {
 
 export interface Backend {
   readonly kind: 'tauri' | 'mock';
+  /** Product name and the app and core versions. */
+  appInfo(): Promise<AppInfo>;
   openLibrary(path: string, profileId?: string): Promise<LibraryView>;
   onScanProgress(cb: (p: ScanProgress) => void): Promise<() => void>;
   recentLibraries(): Promise<RecentLibrary[]>;

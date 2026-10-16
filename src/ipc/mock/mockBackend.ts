@@ -2,6 +2,7 @@
  * Browser stand-in for the Tauri backend (`pnpm dev` in Chrome, tests):
  * deterministic fixture libraries, fake progress, SVG art, fake identity.
  */
+import { version as APP_VERSION } from '../../../package.json';
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
@@ -264,6 +265,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     ...jobs,
     ...settings,
     kind: 'mock',
+    appInfo: () =>
+      Promise.resolve({
+        name: 'Coverly ROMs',
+        version: APP_VERSION,
+        core_version: APP_VERSION,
+      }),
     revealed,
     async openLibrary(path) {
       const gen = (generation += 1);

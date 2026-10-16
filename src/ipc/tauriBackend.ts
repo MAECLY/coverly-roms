@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open } from '@tauri-apps/plugin-dialog';
 
+import type { AppInfo } from './appInfo';
 import type { Backend } from './backend';
 import { BackendError, toBackendError } from './errors';
 import { sniffImageMime } from './sniff';
@@ -64,6 +65,7 @@ async function image(
 export function createTauriBackend(): Backend {
   return {
     kind: 'tauri',
+    appInfo: () => call<AppInfo>('app_info'),
     openLibrary: (path, profileId) =>
       call<LibraryView>('open_library', { path, profileId: profileId ?? null }),
     onScanProgress: (cb) =>
