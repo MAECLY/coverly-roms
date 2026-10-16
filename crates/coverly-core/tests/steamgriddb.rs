@@ -531,3 +531,44 @@ fn test_key_trusts_a_2xx_only_when_it_is_a_successful_api_answer() {
         );
     }
 }
+
+#[test]
+fn grid_urls_with_spaces_controls_or_bidi_in_the_path_are_dropped() {
+    let w = world();
+    w.server.serve_json(
+        &format!("/sgdb{}", grids_path(5248, &w.cfg)),
+        r#"{"success":true,"data":[
+            {"id":1,"url":"{{BASE}}/cdn/grid/a b.png","mime":"image/png"},
+            {"id":2,"url":"{{BASE}}/cdn/grid/a\tb.png","mime":"image/png"},
+            {"id":3,"url":"{{BASE}}/cdn/grid/a\u202eb.png","mime":"image/png"},
+            {"id":4,"url":"{{BASE}}/cdn/grid/a\u2067b.png","mime":"image/png"},
+            {"id":5,"url":"{{BASE}}/cdn/grid/ok.png","mime":"image/png"}
+        ]}"#,
+    );
+    let c = gba_query_run(&w, Some("k")).unwrap();
+    assert_eq!(c.len(), 1, "{c:#?}");
+    assert!(c[0].url.ends_with("/cdn/grid/ok.png"));
+}
+
+#[test]
+fn a_long_grids_list_is_capped_before_it_is_cached() {
+    let w = world();
+    let grids: Vec<String> = (1..=500)
+        .map(|i| {
+            format!(r#"{{"id":{i},"url":"{{{{BASE}}}}/cdn/grid/{i}.png","mime":"image/png"}}"#)
+        })
+        .collect();
+    let path = grids_path(5248, &w.cfg);
+    w.server.serve_json(
+        &format!("/sgdb{path}"),
+        &format!(r#"{{"success":true,"data":[{}]}}"#, grids.join(",")),
+    );
+    gba_query_run(&w, Some("k")).unwrap();
+    let cached: Vec<serde_json::Value> = w
+        .cache
+        .get_json("sgdb-grids-2", &format!("{}{path}", w.cfg.base))
+        .unwrap()
+        .expect("the grids are cached")
+        .value;
+    assert_eq!(cached.len(), coverly_core::sources::steamgriddb::MAX_GRIDS);
+}

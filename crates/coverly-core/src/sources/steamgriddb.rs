@@ -34,6 +34,9 @@ pub const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_GAMES: usize = 2;
 /// Most search results kept (and cached) per term.
 const MAX_SEARCH_RESULTS: usize = 20;
+/// Most grids kept (and cached) per game: a hostile answer with thousands
+/// of entries never fills the cache.
+pub const MAX_GRIDS: usize = 50;
 const MAX_NAME_CHARS: usize = 200;
 const MAX_STYLE_CHARS: usize = 32;
 // Keys carry the base and the request path (with the filters), so a
@@ -177,6 +180,16 @@ impl Grid {
     }
 }
 
+/// Whitespace, control and bidi characters never belong in an image URL
+/// that is shown, cached and fetched.
+fn unsafe_url_char(c: char) -> bool {
+    c.is_whitespace()
+        || c.is_control()
+        || ('\u{202A}'..='\u{202E}').contains(&c)
+        || ('\u{2066}'..='\u{2069}').contains(&c)
+        || matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}')
+}
+
 pub struct SteamGridDbSource<'a> {
     http: &'a dyn Http,
     cache: &'a Cache,
@@ -301,6 +314,8 @@ impl<'a> SteamGridDbSource<'a> {
         let grids: Vec<Grid> = data
             .into_iter()
             .filter_map(|v| serde_json::from_value::<Grid>(v).ok())
+            .filter(|g| self.allowed_image_url(&g.url))
+            .take(MAX_GRIDS)
             .collect();
         let _ = self.cache.put_json(NS_GRIDS, &key, &grids, None);
         Ok(grids)
@@ -311,13 +326,17 @@ impl<'a> SteamGridDbSource<'a> {
     /// so only then are images on the base's own host accepted (tests).
     /// The authority must be a plain `host[:port]` ([`plain_authority`]):
     /// `evil.com\\.steamgriddb.com` would otherwise pass the suffix test.
+    /// Whitespace, control or bidi characters anywhere drop the URL.
     fn allowed_image_url(&self, url: &str) -> bool {
         let host = host_of(url);
         let https = url.to_ascii_lowercase().starts_with("https://");
         let sgdb = host == "steamgriddb.com" || host.ends_with(".steamgriddb.com");
         let mock_base = !self.cfg.base.to_ascii_lowercase().starts_with("https://")
             && host == host_of(&self.cfg.base);
-        plain_authority(url) && !host.is_empty() && ((https && sgdb) || mock_base)
+        plain_authority(url)
+            && !host.is_empty()
+            && !url.chars().any(unsafe_url_char)
+            && ((https && sgdb) || mock_base)
     }
 
     fn grid_candidate(
