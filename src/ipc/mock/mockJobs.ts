@@ -14,6 +14,10 @@
  * `release` when a release beat a beta, `votes` when votes decided, else
  * `consensus` (popularity), `source-order` (priority) or `region`
  * (rom-region).
+ *
+ * A stored key that "Test key" calls invalid (one starting with `bad`)
+ * is refused by the fake API: the fill skips SteamGridDB and the plan
+ * carries Rust's one warning for it ([`MOCK_SGDB_REFUSED_WARNING`]).
  */
 import { csvText } from '@/lib/csv';
 
@@ -224,6 +228,10 @@ export interface MockExport {
   text: string;
 }
 
+/** Rust's warning when SteamGridDB refuses the key (`SourceError::Auth`). */
+export const MOCK_SGDB_REFUSED_WARNING =
+  'steamgriddb refused access (HTTP 401): check the key or account';
+
 export interface MockJobsHost {
   /** The open library, with the latest art marks. */
   current(): LibraryView | null;
@@ -234,6 +242,8 @@ export interface MockJobsHost {
   now: number;
   /** SteamGridDB is enabled and has a key (read when a fill starts). */
   sgdbReady(): boolean;
+  /** SteamGridDB is enabled but its stored key is refused. */
+  sgdbRefused(): boolean;
 }
 
 export interface MockJobsOptions {
@@ -306,6 +316,8 @@ interface Job {
   cancel: boolean;
   pausedOnce: boolean;
   journal: Journal | null;
+  /** Said once per job, like Rust's source-wide errors. */
+  warnings: string[];
 }
 
 export function createMockJobs(
@@ -430,7 +442,7 @@ export function createMockJobs(
     for (const u of updates) if (u) byId.set(u.id, u);
     return [...byId.values()];
   }
-  function summary(items: JobItemView[]): PlanSummary {
+  function summary(items: JobItemView[], warnings: string[]): PlanSummary {
     const totals = { auto: 0, review: 0, none: 0 };
     const bySystem = new Map<
       string,
@@ -445,7 +457,7 @@ export function createMockJobs(
     const per_system = [...bySystem.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([folder, c]) => ({ folder, ...c }));
-    return { totals, per_system, warnings: [] };
+    return { totals, per_system, warnings: [...warnings] };
   }
   function totals(items: JobItemView[]): JobTotals {
     const t = { filled: 0, replaced: 0, skipped: 0, no_art: 0, failed: 0 };
@@ -473,7 +485,7 @@ export function createMockJobs(
     }
     await host.tick();
     j.view.progress = null;
-    j.view.plan = summary(j.items);
+    j.view.plan = summary(j.items, j.warnings);
     j.view.state = j.cancel ? 'cancelled' : 'planned';
     emitChanged(j);
   }
@@ -639,6 +651,7 @@ export function createMockJobs(
       const marks = new Map<number, ArtMarks>();
       // Like Rust's per-job snapshot of settings and keys.
       const sgdb = host.sgdbReady();
+      const warnings = host.sgdbRefused() ? [MOCK_SGDB_REFUSED_WARNING] : [];
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;
@@ -686,6 +699,7 @@ export function createMockJobs(
         cancel: false,
         pausedOnce: false,
         journal: null,
+        warnings,
       };
       job = j;
       void gather(j);

@@ -73,8 +73,13 @@ export type MockSettingsApi = Pick<
   readonly opened: string[];
   /** The current settings, for the other mock parts. */
   current(): Settings;
-  /** Built, every needed credential stored, and enabled in the settings. */
+  /**
+   * Built, every needed credential stored, enabled in the settings, and
+   * its key not refused (a fill skips a source whose key is refused).
+   */
   isSourceReady(id: SourceId): boolean;
+  /** Enabled, but a stored key the fake API refuses (`bad…`). */
+  isSourceRefused(id: SourceId): boolean;
 };
 
 /** What the mock build carries (ScreenScraper needs dev credentials). */
@@ -256,7 +261,11 @@ export function createMockSettings(opts: {
     current: () => cloneSettings(settings),
     isSourceReady: (id) =>
       sources().some((i) => i.id === id && i.ready) &&
-      settings.sources.order.some((e) => e.id === id && e.enabled),
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      !NEEDS[id].some((k) => rejected.has(k)),
+    isSourceRefused: (id) =>
+      settings.sources.order.some((e) => e.id === id && e.enabled) &&
+      NEEDS[id].some((k) => creds[k] && rejected.has(k)),
     getSettings: () =>
       Promise.resolve({
         settings: cloneSettings(settings),

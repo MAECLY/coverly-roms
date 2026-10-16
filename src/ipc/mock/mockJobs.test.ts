@@ -10,7 +10,12 @@ import {
   type MockBackend,
   type MockOptions,
 } from './mockBackend';
-import { MOCK_PAUSE_DETAIL, mockClass, mockFailure } from './mockJobs';
+import {
+  MOCK_PAUSE_DETAIL,
+  MOCK_SGDB_REFUSED_WARNING,
+  mockClass,
+  mockFailure,
+} from './mockJobs';
 
 const SMALL = MOCK_LIBRARIES[1].path;
 const REQUEST: FillRequest = {
@@ -408,6 +413,42 @@ describe('mock fill sources', () => {
       expect(chosen.some((c) => c.reason?.why === why)).toBe(true);
       await b.cancelFill(v.id);
     }
+  });
+
+  it('a refused SteamGridDB key skips the source with one warning, like Rust', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    await b.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    await b.setCredential('steamgriddb-api-key', 'bad-key');
+    expect(await b.testSourceKey('steamgriddb')).toBe('invalid');
+    const v = await planned(b, view.generation, {
+      ...REQUEST,
+      strategy: 'popularity',
+    });
+    expect(v.plan?.warnings).toEqual([MOCK_SGDB_REFUSED_WARNING]);
+    const items = await b.fillJobItems(v.id, 'all');
+    expect(
+      items.every((i) => i.candidates.every((c) => c.source !== 'steamgriddb')),
+    ).toBe(true);
+    await b.cancelFill(v.id);
+    // A good key again: the grids are back and nothing is said.
+    await b.setCredential('steamgriddb-api-key', 'sk');
+    const ok = await planned(b, view.generation, {
+      ...REQUEST,
+      strategy: 'popularity',
+    });
+    expect(ok.plan?.warnings).toEqual([]);
+    const again = await b.fillJobItems(ok.id, 'all');
+    expect(
+      again.some((i) => i.candidates.some((c) => c.source === 'steamgriddb')),
+    ).toBe(true);
   });
 
   it('the drawer list explains its first candidate only', async () => {

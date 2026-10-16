@@ -226,6 +226,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
+      sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
     },
     {
       pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
