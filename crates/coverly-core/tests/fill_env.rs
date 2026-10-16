@@ -415,3 +415,40 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
         .unwrap_or_default();
     assert!(backups.is_empty(), "{backups:?}");
 }
+
+#[test]
+fn a_cancel_is_not_marked_in_the_plan_or_the_report() {
+    let w = world();
+    let profile = common::profile("anbernic-stock");
+    let db = SystemDb::builtin();
+    let scan = scan_library(w.lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let cancel = AtomicBool::new(true);
+    let p = w.env().plan(
+        w.lib.path(),
+        &profile,
+        &db,
+        &art,
+        &FillSettings::default(),
+        &NoProgress,
+        &cancel,
+    );
+    // The caller tells a cancel apart by its own flag (FillEnv::plan doc).
+    assert_eq!(p.paused, None);
+    assert!(p.items.is_empty());
+
+    let full = w.plan();
+    let r = w
+        .env()
+        .apply(
+            &full,
+            &profile,
+            &ApplyOptions::default(),
+            &NoProgress,
+            &cancel,
+        )
+        .unwrap();
+    assert_eq!(r.paused, None);
+    assert!(r.items.iter().all(|i| i.status == ItemStatus::NotAttempted));
+    assert!(!w.lib.path().join("ROMS/GBA/Imgs").exists());
+}

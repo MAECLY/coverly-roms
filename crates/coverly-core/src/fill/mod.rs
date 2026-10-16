@@ -132,7 +132,10 @@ impl FillEnv<'_> {
     }
 
     /// Phase one and the plan of `art` (the dry run). Never writes to the
-    /// library. A pause or a cancel gives a partial plan (`plan.paused`).
+    /// library. A pause gives a partial plan (`plan.paused`). A cancel
+    /// does not mark the plan: the items not gathered yet are just missing
+    /// (a cancel before the start gives an empty plan), so the caller tells
+    /// a cancel apart by its own `cancel` flag.
     #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
@@ -192,6 +195,8 @@ impl FillEnv<'_> {
     }
 
     /// Phase two: applies `plan`, then keeps the newest [`KEEP_JOBS`] journals.
+    /// A cancel is not marked in the report either (`paused` stays `None`,
+    /// the items left are `not-attempted`): check the `cancel` flag.
     pub fn apply(
         &self,
         plan: &Plan,
