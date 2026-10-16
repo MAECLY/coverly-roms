@@ -9,6 +9,7 @@ export function LanguageSwitch() {
   const setChoice = useLocaleStore((s) => s.setChoice);
   return (
     <select
+      name="language"
       aria-label={t('language.label')}
       className="select"
       value={choice}

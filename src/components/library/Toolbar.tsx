@@ -38,6 +38,7 @@ export function Toolbar({
       <input
         ref={searchRef}
         type="search"
+        name="search"
         className="text-input toolbar-search"
         aria-label={t('toolbar.search')}
         placeholder={t('toolbar.searchPlaceholder')}

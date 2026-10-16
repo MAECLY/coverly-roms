@@ -28,10 +28,12 @@ function toBytes(value: string): number | null {
  * mid-entry; re-syncs only when the store changes from elsewhere (Clear).
  */
 function SizeField({
+  name,
   label,
   bytes,
   onChange,
 }: {
+  name: string;
   label: string;
   bytes: number | null;
   onChange(bytes: number | null): void;
@@ -43,6 +45,7 @@ function SizeField({
       {label}
       <input
         type="number"
+        name={name}
         min={0}
         step="any"
         className="text-input"
@@ -125,6 +128,8 @@ export function FilterPanel({
             <label key={s.index} className="filter-option">
               <input
                 type="checkbox"
+                name="system"
+                value={s.folder}
                 checked={f.systems.includes(s.index)}
                 onChange={() => toggleSystem(s.index)}
               />
@@ -141,6 +146,8 @@ export function FilterPanel({
           <label key={x} className="filter-option">
             <input
               type="checkbox"
+              name="extension"
+              value={x}
               checked={f.exts.includes(x)}
               onChange={() => toggleExt(x)}
             />
@@ -157,6 +164,8 @@ export function FilterPanel({
           <label key={r} className="filter-option">
             <input
               type="checkbox"
+              name="region"
+              value={r}
               checked={f.regions.includes(r)}
               onChange={() => toggleRegion(r)}
             />
@@ -173,6 +182,7 @@ export function FilterPanel({
           {t('filters.from')}
           <input
             type="date"
+            name="modified-from"
             className="text-input"
             value={toDateInput(f.modifiedFrom)}
             onChange={(e) => setDates(dayStart(e.target.value), f.modifiedTo)}
@@ -182,6 +192,7 @@ export function FilterPanel({
           {t('filters.to')}
           <input
             type="date"
+            name="modified-to"
             className="text-input"
             value={toDateInput(f.modifiedTo)}
             onChange={(e) => setDates(f.modifiedFrom, dayEnd(e.target.value))}
@@ -191,11 +202,13 @@ export function FilterPanel({
       <fieldset>
         <legend>{t('filters.size')}</legend>
         <SizeField
+          name="size-min"
           label={t('filters.min')}
           bytes={f.sizeMin}
           onChange={(b) => setSizes(b, f.sizeMax)}
         />
         <SizeField
+          name="size-max"
           label={t('filters.max')}
           bytes={f.sizeMax}
           onChange={(b) => setSizes(f.sizeMin, b)}

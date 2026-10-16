@@ -243,6 +243,17 @@ describe('Library screen', () => {
     expect(within(panel).getAllByText('12.000').length).toBeGreaterThan(0);
   });
 
+  it('names every form field so autofill and devtools can identify it', async () => {
+    await openLibrary();
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const fields = document.querySelectorAll('input, select, textarea');
+    expect(fields.length).toBeGreaterThan(5);
+    const unnamed = [...fields].filter(
+      (f) => !f.getAttribute('name') && !f.getAttribute('id'),
+    );
+    expect(unnamed.map((f) => f.outerHTML)).toEqual([]);
+  });
+
   it('offers to clear when nothing matches', async () => {
     await openLibrary();
     await userEvent.type(
