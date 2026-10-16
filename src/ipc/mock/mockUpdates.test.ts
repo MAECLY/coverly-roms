@@ -71,4 +71,26 @@ describe('mock updates', () => {
     await u.restartApp();
     expect(log).toEqual(['check:manual', 'download', 'install', 'restart']);
   });
+
+  it('like Rust, a check never drops a downloaded or installed update', async () => {
+    const log: string[] = [];
+    const u = createMockUpdates({
+      scenario: 'available',
+      tick: () => Promise.resolve(),
+      log,
+      jobBusy: () => false,
+    });
+    await u.checkForUpdates('manual');
+    await u.downloadUpdate();
+    await expect(u.checkForUpdates('manual')).rejects.toMatchObject({
+      code: 'update-failed',
+    });
+    await expect(u.installUpdate()).resolves.toEqual({
+      restart_required: true,
+    });
+    await expect(u.checkForUpdates('startup')).rejects.toMatchObject({
+      code: 'update-failed',
+    });
+    await expect(u.restartApp()).resolves.toBeUndefined();
+  });
 });

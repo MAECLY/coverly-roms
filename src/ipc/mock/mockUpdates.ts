@@ -77,6 +77,12 @@ export function createMockUpdates(opts: {
     async checkForUpdates(trigger) {
       opts.log.push(`check:${trigger}`);
       await opts.tick();
+      // As Rust: a check would drop the update already on its way.
+      if (phase === 'downloaded' || phase === 'installed')
+        throw new BackendError(
+          'update-failed',
+          'an update is already being installed',
+        );
       if (opts.scenario === 'offline')
         throw new BackendError('update-offline', 'mock: no connection');
       if (opts.scenario === 'no-key') throw new BackendError('update-no-key');
