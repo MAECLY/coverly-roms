@@ -360,7 +360,11 @@ fn remove_apple_doubles(paths: &[PathBuf]) {
 fn create_dirs(dir: &Path) -> Result<Vec<PathBuf>, WriteError> {
     let mut missing = Vec::new();
     let mut probe = Some(dir);
-    while let Some(p) = probe.filter(|p| fs::symlink_metadata(p).is_err()) {
+    // Only a NotFound folder counts as ours: one we cannot stat may already
+    // exist, and its sidecar must survive.
+    while let Some(p) = probe.filter(|p| {
+        fs::symlink_metadata(p).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    }) {
         missing.push(p.to_path_buf());
         probe = p.parent();
     }
