@@ -20,9 +20,12 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
 import { useViewStore } from '@/stores/viewStore';
 
+const TEXT_INPUTS = new Set(['text', 'search', 'number', 'date']);
+
+/** Text entry where '/' is a character, not the search shortcut. */
 function isTyping(target: EventTarget | null): boolean {
   return (
-    target instanceof HTMLInputElement ||
+    (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type)) ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement
   );
@@ -57,11 +60,13 @@ export function LibraryScreen() {
 
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
+      // The modal owns the keyboard; the search sits behind it.
+      if (settingsOpen) return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();
         searchRef.current?.focus();
-      } else if (ev.key === 'Escape' && !settingsOpen) {
+      } else if (ev.key === 'Escape') {
         closeDrawer();
       }
     }

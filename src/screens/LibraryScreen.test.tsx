@@ -180,6 +180,30 @@ describe('Library screen', () => {
     expect(min).toHaveValue(null);
   });
 
+  it('focuses the search with slash from a filter checkbox', async () => {
+    await openLibrary();
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    const panel = screen.getByRole('region', { name: 'Filters' });
+    const box = within(panel).getAllByRole('checkbox')[0]!;
+    box.focus();
+    fireEvent.keyDown(box, { key: '/' });
+    expect(
+      screen.getByRole('searchbox', { name: 'Search by name' }),
+    ).toHaveFocus();
+  });
+
+  it('leaves focus in the settings dialog on Ctrl+F', async () => {
+    await openLibrary();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Library settings' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    fireEvent.keyDown(dialog, { key: 'f', ctrlKey: true });
+    expect(
+      screen.getByRole('searchbox', { name: 'Search by name' }),
+    ).not.toHaveFocus();
+  });
+
   it('offers to clear when nothing matches', async () => {
     await openLibrary();
     await userEvent.type(
