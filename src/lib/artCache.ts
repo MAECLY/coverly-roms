@@ -4,7 +4,7 @@
  * per image at a time, failures never cached.
  */
 import { getBackend } from '@/ipc/backend';
-import type { Media } from '@/ipc/types';
+import { MEDIA, type Media } from '@/ipc/types';
 
 export const ART_CACHE_SIZE = 400;
 
@@ -72,4 +72,19 @@ export function clearArtCache(): void {
   for (const url of urls.values()) URL.revokeObjectURL(url);
   urls.clear();
   inflight.clear();
+}
+
+/** Forgets (and revokes) the images of `ids`: their art was rewritten. */
+export function dropArtUrls(generation: number, ids: readonly number[]): void {
+  for (const id of ids) {
+    for (const media of MEDIA) {
+      const key = artKey(generation, id, media);
+      const url = urls.get(key);
+      if (url !== undefined) {
+        URL.revokeObjectURL(url);
+        urls.delete(key);
+      }
+      inflight.delete(key);
+    }
+  }
 }
