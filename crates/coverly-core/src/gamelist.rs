@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 use quick_xml::events::Event;
@@ -580,7 +580,17 @@ pub fn merge_into(
             if m.len() > MAX_GAMELIST_BYTES as u64 {
                 return Err(MergeError::TooLarge.to_string());
             }
-            let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+            // Bounded even if the file grows or is swapped after the check.
+            let mut bytes = Vec::new();
+            fs::File::open(&path)
+                .and_then(|f| {
+                    f.take(MAX_GAMELIST_BYTES as u64 + 1)
+                        .read_to_end(&mut bytes)
+                })
+                .map_err(|e| e.to_string())?;
+            if bytes.len() > MAX_GAMELIST_BYTES {
+                return Err(MergeError::TooLarge.to_string());
+            }
             Some(String::from_utf8(bytes).map_err(|_| MergeError::NotUtf8.to_string())?)
         }
         Ok(_) => return Err(MergeError::NotAFile.to_string()),
