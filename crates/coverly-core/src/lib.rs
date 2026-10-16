@@ -3,6 +3,7 @@
 //! Pure Rust, no Tauri and no network code: everything the app and the
 //! `coverly` CLI share lives here.
 
+pub mod art;
 pub mod paths;
 pub mod profiles;
 pub mod scan;

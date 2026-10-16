@@ -525,6 +525,7 @@ name = "coverly-core"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
