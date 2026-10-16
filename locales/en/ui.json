@@ -38,7 +38,10 @@
     },
     "table": {
       "label": "ROM list"
-    }
+    },
+    "empty": "No ROMs found in this folder.",
+    "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
+    "noMatch": "No ROMs match the search and filters."
   },
   "footer": {
     "version": "Version {version}",
@@ -85,5 +88,81 @@
     "settings": "The settings could not be saved: {detail}",
     "art-unreadable": "This image cannot be shown.",
     "unknown": "Unexpected error: {detail}"
+  },
+  "sidebar": {
+    "label": "Views",
+    "expand": "Expand {name}",
+    "collapse": "Collapse {name}"
+  },
+  "views": {
+    "folders": "Folders",
+    "systems": "Systems",
+    "date": "Date",
+    "all": "All",
+    "allRoms": "All ROMs"
+  },
+  "date": {
+    "week": "This week",
+    "month": "This month",
+    "year": "This year",
+    "older": "Older"
+  },
+  "toolbar": {
+    "search": "Search by name",
+    "searchPlaceholder": "Search… ( / )",
+    "filters": "Filters",
+    "filtersActive": "Filters ({n})",
+    "layout": "Layout",
+    "grid": "Grid",
+    "list": "List",
+    "fill": "Fill missing art",
+    "fillHint": "Filling art arrives in a later version."
+  },
+  "filters": {
+    "art": "Art",
+    "artOptions": {
+      "all": "All",
+      "missing-any": "Missing any art",
+      "missing-cover": "Missing cover",
+      "missing-screenshot": "Missing screenshot",
+      "missing-title": "Missing title screen",
+      "complete": "Has all art"
+    },
+    "systems": "System",
+    "exts": "Extension",
+    "regions": "Region",
+    "date": "Modified",
+    "from": "From",
+    "to": "To",
+    "size": "Size (MB)",
+    "min": "Min",
+    "max": "Max",
+    "clear": "Clear filters"
+  },
+  "regions": {
+    "world": "World",
+    "usa": "USA",
+    "europe": "Europe",
+    "japan": "Japan",
+    "asia": "Asia",
+    "australia": "Australia",
+    "brazil": "Brazil",
+    "canada": "Canada",
+    "china": "China",
+    "france": "France",
+    "germany": "Germany",
+    "hong-kong": "Hong Kong",
+    "italy": "Italy",
+    "korea": "Korea",
+    "netherlands": "Netherlands",
+    "spain": "Spain",
+    "sweden": "Sweden",
+    "taiwan": "Taiwan",
+    "united-kingdom": "United Kingdom"
+  },
+  "status": {
+    "shown": "{shown} of {total} ROMs",
+    "missingCover": "{n} without cover",
+    "scan": "Scanned in {ms} ms"
   }
 }

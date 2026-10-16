@@ -22,6 +22,7 @@ interface ViewState {
   filtersOpen: boolean;
   setScope(scope: Scope): void;
   setLayout(layout: Layout): void;
+  setSort(sort: Sort): void;
   /** Same key flips the direction; another key sorts ascending. */
   toggleSort(key: SortKey): void;
   openDrawer(): void;
@@ -46,6 +47,7 @@ export const useViewStore = create<ViewState>()((set) => ({
     }
     set({ layout });
   },
+  setSort: (sort) => set({ sort }),
   toggleSort: (key) =>
     set((s) => ({
       sort:
