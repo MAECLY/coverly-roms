@@ -9,7 +9,8 @@
       "media": ["cover"],
       "detected": true,
       "evidence": ["anbernic/ folder"],
-      "fitted": false
+      "fitted": false,
+      "gamelist": false
     },
     "systems": [
       {

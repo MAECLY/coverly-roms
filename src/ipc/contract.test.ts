@@ -71,6 +71,7 @@ const PROFILE_KEYS = [
   'detected',
   'evidence',
   'fitted',
+  'gamelist',
 ] as const;
 const PROGRESS_KEYS = [
   'generation',

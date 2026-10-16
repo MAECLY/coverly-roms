@@ -179,6 +179,7 @@ pub fn open_session(
             detected,
             evidence,
             fitted,
+            gamelist: profile.gamelist,
         },
         systems: system_views,
         entries: entry_views,

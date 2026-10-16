@@ -83,6 +83,8 @@ export interface ProfileView {
   detected: boolean;
   evidence: string[];
   fitted: boolean;
+  /** Fills also merge the art paths into `gamelist.xml` (D31). */
+  gamelist: boolean;
 }
 
 export interface WarningView {

@@ -68,6 +68,7 @@ fn rust_serialises_the_shared_sample() {
             detected: true,
             evidence: vec!["anbernic/ folder".into()],
             fitted: false,
+            gamelist: false,
         },
         systems: vec![SystemView {
             index: 0,
