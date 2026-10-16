@@ -5,6 +5,7 @@ mod common;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use coverly_core::credentials::DevCredentials;
 use coverly_core::gather::{GatherItem, GatherTargetSummary, Gathered};
 use coverly_core::identify::names::{languages, parse_name, Region};
 use coverly_core::identify::{IdMethod, Identity, MatchMethod};
@@ -14,7 +15,9 @@ use coverly_core::net::testing::png_bytes;
 use coverly_core::plan::{build_plan, PlanAction, PlanOptions};
 use coverly_core::profiles::{ImageFormat, Media};
 use coverly_core::scan::scan_library;
-use coverly_core::settings::{MaxSize, OutputFormat, OverwriteSetting, Settings};
+use coverly_core::settings::{
+    available_sources, available_sources_with, MaxSize, OutputFormat, OverwriteSetting, Settings,
+};
 use coverly_core::sources::{Candidate, MatchKind, Votes};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::OverwritePolicy;
@@ -400,4 +403,53 @@ fn an_uppercase_image_extension_follows_the_output_format() {
     for slot in s.art_profile(&jpeg).slots.values() {
         assert!(slot.template.ends_with(".png"), "{}", slot.template);
     }
+}
+
+#[test]
+fn steamgriddb_can_now_be_enabled_and_survives_normalise() {
+    let mut s = Settings::default();
+    assert_eq!(
+        s.sources
+            .order
+            .iter()
+            .filter(|e| e.enabled)
+            .map(|e| e.id.as_str())
+            .collect::<Vec<_>>(),
+        ["libretro"]
+    );
+    s.sources.order.iter_mut().for_each(|e| e.enabled = true);
+    s.normalise();
+    let on: Vec<&str> = s
+        .sources
+        .order
+        .iter()
+        .filter(|e| e.enabled)
+        .map(|e| e.id.as_str())
+        .collect();
+    assert!(on.contains(&"steamgriddb"));
+    assert_eq!(available_sources_with(false), ["libretro", "steamgriddb"]);
+    assert_eq!(
+        available_sources_with(true),
+        ["libretro", "steamgriddb", "screenscraper"]
+    );
+}
+
+#[test]
+fn normalise_turns_screenscraper_off_in_a_build_without_dev_credentials() {
+    if DevCredentials::from_build().is_some() {
+        eprintln!("skipped: this build carries ScreenScraper dev credentials");
+        return;
+    }
+    let mut s = Settings::default();
+    s.sources.order.iter_mut().for_each(|e| e.enabled = true);
+    s.normalise();
+    assert!(
+        !s.sources
+            .order
+            .iter()
+            .find(|e| e.id == "screenscraper")
+            .unwrap()
+            .enabled
+    );
+    assert!(!available_sources().contains(&"screenscraper"));
 }

@@ -214,6 +214,65 @@ pub struct UserCredentials {
     pub password: Secret,
 }
 
+/// Environment variables the CLI reads keys from (it has no keychain).
+pub const SGDB_KEY_ENV: &str = "COVERLY_SGDB_KEY";
+pub const SS_USER_ENV: &str = "COVERLY_SS_USER";
+pub const SS_PASSWORD_ENV: &str = "COVERLY_SS_PASSWORD";
+
+/// Every credential a fill may use, read once when the job starts (the
+/// app: keychain; the CLI: environment). Workers never touch the keychain.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceKeys {
+    pub steamgriddb: Option<Secret>,
+    pub screenscraper_user: Option<UserCredentials>,
+    pub screenscraper_dev: Option<DevCredentials>,
+}
+
+/// A stored or typed value worth sending: trimmed, not empty, not too
+/// long, no control characters (anything else counts as not set).
+fn usable(v: Option<String>) -> Option<Secret> {
+    let v = v?;
+    let v = v.trim();
+    (!v.is_empty() && v.chars().count() <= MAX_SECRET_CHARS && !v.chars().any(char::is_control))
+        .then(|| Secret::new(v))
+}
+
+impl SourceKeys {
+    /// The keys in `store`; a store that fails counts as empty.
+    pub fn from_store(store: &dyn CredentialStore) -> SourceKeys {
+        let get = |k| usable(store.get(k).ok().flatten());
+        SourceKeys::assemble(
+            get(CredentialKey::SteamgriddbApiKey),
+            get(CredentialKey::ScreenscraperUser),
+            get(CredentialKey::ScreenscraperPassword),
+        )
+    }
+
+    /// The keys in the environment (`lookup` is `std::env::var` in the CLI).
+    pub fn from_env(lookup: impl Fn(&str) -> Option<String>) -> SourceKeys {
+        SourceKeys::assemble(
+            usable(lookup(SGDB_KEY_ENV)),
+            usable(lookup(SS_USER_ENV)),
+            usable(lookup(SS_PASSWORD_ENV)),
+        )
+    }
+
+    fn assemble(
+        sgdb: Option<Secret>,
+        user: Option<Secret>,
+        password: Option<Secret>,
+    ) -> SourceKeys {
+        SourceKeys {
+            steamgriddb: sgdb,
+            screenscraper_user: match (user, password) {
+                (Some(user), Some(password)) => Some(UserCredentials { user, password }),
+                _ => None,
+            },
+            screenscraper_dev: DevCredentials::from_build(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +294,49 @@ mod tests {
         );
         assert_eq!(DevCredentials::from_values(Some(""), Some("pw")), None);
         assert_eq!(DevCredentials::from_values(None, Some("pw")), None);
+    }
+
+    #[test]
+    fn source_keys_come_from_the_store_or_the_environment_without_blanks() {
+        let store = MemoryStore::default();
+        store.set(CredentialKey::SteamgriddbApiKey, "sk").unwrap();
+        store.set(CredentialKey::ScreenscraperUser, "me").unwrap();
+        let k = SourceKeys::from_store(&store);
+        assert_eq!(k.steamgriddb, Some(Secret::new("sk")));
+        assert_eq!(
+            k.screenscraper_user, None,
+            "user without password is not an account"
+        );
+        assert_eq!(
+            SourceKeys::from_store(&MemoryStore::unavailable()).steamgriddb,
+            None
+        );
+        let env = |n: &str| match n {
+            "COVERLY_SGDB_KEY" => Some("  sk2 ".to_string()),
+            "COVERLY_SS_USER" => Some("".into()),
+            _ => None,
+        };
+        let k = SourceKeys::from_env(env);
+        assert_eq!(k.steamgriddb, Some(Secret::new("sk2")));
+        assert_eq!(k.screenscraper_user, None);
+        assert!(!format!("{k:?}").contains("sk2"));
+    }
+
+    #[test]
+    fn a_full_account_is_kept_and_odd_values_are_dropped() {
+        let env = |n: &str| match n {
+            SS_USER_ENV => Some("me".to_string()),
+            SS_PASSWORD_ENV => Some("pw".to_string()),
+            SGDB_KEY_ENV => Some("bad\nkey".to_string()),
+            _ => None,
+        };
+        let k = SourceKeys::from_env(env);
+        assert_eq!(
+            k.steamgriddb, None,
+            "a key with a control character is dropped"
+        );
+        let user = k.screenscraper_user.clone().unwrap();
+        assert_eq!((user.user.expose(), user.password.expose()), ("me", "pw"));
+        assert!(!format!("{k:?}").contains("pw"));
     }
 }
