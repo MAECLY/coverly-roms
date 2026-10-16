@@ -2,6 +2,7 @@ import { useT } from '@/i18n/useT';
 import type { LanguageChoice, ThemeChoice, UpdateChannel } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+import { UpdatePanel } from '../update/UpdatePanel';
 import { Field, settingId } from './Field';
 
 const THEMES: readonly ThemeChoice[] = ['system', 'light', 'dark'];
@@ -64,7 +65,7 @@ export function GeneralSection() {
       <Field
         id={settingId('general.update_channel')}
         label={t('settings.general.channel')}
-        hint={t('settings.general.updatesLater')}
+        hint={t('update.channelHint')}
       >
         <select
           id={settingId('general.update_channel')}
@@ -84,6 +85,7 @@ export function GeneralSection() {
           ))}
         </select>
       </Field>
+      <UpdatePanel compact />
     </div>
   );
 }

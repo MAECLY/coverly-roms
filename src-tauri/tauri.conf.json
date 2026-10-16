@@ -27,7 +27,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "nsis", "msi", "appimage", "deb"],
+    "macOS": { "minimumSystemVersion": "11.0", "signingIdentity": "-" },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Spanish"],
+        "displayLanguageSelector": false
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,6 +51,17 @@
     "shortDescription": "ROM cover art auditor",
     "longDescription": "Find and add the missing cover art in your ROM library.",
     "copyright": "Copyright (C) 2026 Miguel Angel Esparza Calero (MAECLY). Licensed under AGPL-3.0-only.",
-    "publisher": "Maecly"
+    "publisher": "Maecly",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "set at runtime from crates/coverly-core/updater.pub",
+      "endpoints": [
+        "https://github.com/MAECLY/coverly-roms/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
   }
 }

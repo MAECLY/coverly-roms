@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implementation: milestone M7)
+Accepted (implemented in M7; see ADR-0011)
 
 ## Date
 

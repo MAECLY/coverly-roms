@@ -10,6 +10,7 @@ use coverly_core::plan::{Counts, Decision, PlanNote};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
 use coverly_core::sources::{KeyCheck, MatchKind, Votes};
+use coverly_core::volumes::Volume;
 use coverly_core::write::OverwritePolicy;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::jobs::view::{
@@ -25,6 +26,9 @@ use coverly_roms_lib::library::view::{
     ScanProgressEvent, SystemView, WarningView,
 };
 use coverly_roms_lib::sources::SourceInfoView;
+use coverly_roms_lib::update::{
+    UpdateCheckView, UpdateInstallView, UpdateOfferView, UpdateProgressEvent,
+};
 use serde_json::{json, Value};
 
 /// Every item error kind, in declaration order.
@@ -194,6 +198,15 @@ fn rust_serialises_the_shared_sample() {
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,
         "source_info": SourceInfoView { id: "steamgriddb".into(), built: true, needs: vec![CredentialKey::SteamgriddbApiKey], ready: false },
         "key_checks": [KeyCheck::Ok, KeyCheck::Invalid, KeyCheck::Missing, KeyCheck::Offline, KeyCheck::RateLimited, KeyCheck::Unavailable],
+        "update_check_available": UpdateCheckView::Available {
+            current: "0.1.0".into(),
+            offer: UpdateOfferView { version: "0.2.0".into(), notes: Some("Faster scans.".into()), date: Some("2026-10-16T00:00:00Z".into()) },
+        },
+        "update_check_up_to_date": UpdateCheckView::UpToDate { current: "0.2.0".into(), latest: "0.2.0".into() },
+        "update_check_skipped": UpdateCheckView::Skipped,
+        "update_progress": UpdateProgressEvent { downloaded: 512, total: Some(1024) },
+        "update_install": UpdateInstallView { restart_required: true },
+        "volume": Volume { path: "/Volumes/SD".into(), name: "SD".into() },
         "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::Region { rom: true }, PickReason::User],
     });
     let expected: Value =

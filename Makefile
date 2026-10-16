@@ -61,8 +61,8 @@ dev: ## Run the full Tauri dev loop (Rust backend + Vite + WebView).
 	pnpm tauri dev
 
 .PHONY: build
-build: ## Build a release Tauri bundle (unsigned).
-	pnpm tauri build
+build: ## Build a release Tauri bundle (unsigned, no updater artifacts).
+	pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 # ───────────────────────────────────────────────────────────────────────
 # Quality gates
@@ -99,6 +99,10 @@ check: ## Run every quality gate without writing (CI equivalent).
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
+
+.PHONY: version-check
+version-check: ## Check that Cargo.toml, package.json and Cargo.lock agree on the version.
+	@scripts/bump-version.sh --check
 
 # ───────────────────────────────────────────────────────────────────────
 # CLI

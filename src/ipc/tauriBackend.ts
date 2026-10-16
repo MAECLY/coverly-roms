@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open } from '@tauri-apps/plugin-dialog';
 
+import type { AppInfo } from './appInfo';
 import type { Backend } from './backend';
 import { BackendError, toBackendError } from './errors';
 import { sniffImageMime } from './sniff';
@@ -30,6 +31,10 @@ import type {
   SettingsView,
   SourceInfo,
   UndoView,
+  UpdateCheck,
+  UpdateInstall,
+  UpdateProgress,
+  Volume,
 } from './types';
 
 export const SCAN_PROGRESS_EVENT = 'library-scan-progress';
@@ -37,6 +42,7 @@ export const JOB_PROGRESS_EVENT = 'fill-job-progress';
 export const JOB_CHANGED_EVENT = 'fill-job-changed';
 export const ENTRIES_UPDATED_EVENT = 'library-entries-updated';
 export const SETTINGS_CHANGED_EVENT = 'settings-changed';
+export const UPDATE_PROGRESS_EVENT = 'update-progress';
 
 async function call<T>(
   cmd: string,
@@ -64,6 +70,7 @@ async function image(
 export function createTauriBackend(): Backend {
   return {
     kind: 'tauri',
+    appInfo: () => call<AppInfo>('app_info'),
     openLibrary: (path, profileId) =>
       call<LibraryView>('open_library', { path, profileId: profileId ?? null }),
     onScanProgress: (cb) =>
@@ -71,6 +78,7 @@ export function createTauriBackend(): Backend {
     recentLibraries: () => call<RecentLibrary[]>('recent_libraries'),
     forgetRecentLibrary: (path) =>
       call<RecentLibrary[]>('forget_recent_library', { path }),
+    mountedVolumes: () => call<Volume[]>('mounted_volumes'),
     librarySettings: () => call<LibrarySettings>('library_settings'),
     setLibrarySettings: (s) =>
       call<LibrarySettings>('set_library_settings', {
@@ -182,5 +190,12 @@ export function createTauriBackend(): Backend {
       }),
     clearIdentityOverride: (generation, entryId) =>
       call<void>('clear_identity_override', { generation, entryId }),
+    checkForUpdates: (trigger) =>
+      call<UpdateCheck>('check_update', { trigger }),
+    downloadUpdate: () => call<void>('download_update'),
+    onUpdateProgress: (cb) =>
+      listen<UpdateProgress>(UPDATE_PROGRESS_EVENT, (e) => cb(e.payload)),
+    installUpdate: () => call<UpdateInstall>('install_update'),
+    restartApp: () => call<void>('restart_app'),
   };
 }

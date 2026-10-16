@@ -1,12 +1,16 @@
 # CI/CD
 
-> **TL;DR.** `ci.yml` is the pull-request gate: frontend lint, typecheck, format, tests and a production build on ubuntu, and Rust `fmt`, `clippy` and the full workspace test suite on Linux, Windows and macOS. It builds no installer, reads no secret and publishes nothing. There is no release workflow yet (it arrives with the first packaged build).
+> **TL;DR.** `ci.yml` is the pull-request gate: frontend lint, typecheck, format, tests and a production build on ubuntu, and Rust `fmt`, `clippy` and the full workspace test suite on Linux, Windows and macOS. It builds no installer, reads no secret and publishes nothing. `release.yml` (on a version tag) builds every platform into a **draft** release signed with the project's minisign key, and `release-channels.yml` (on publish) moves the beta channel's manifest. The owner's procedure is [RELEASING.md](../../RELEASING.md); the design is [ADR-0011](../adr/0011-release-pipeline-and-update-key.md).
 
 ## Workflows that exist
 
 | Workflow | File | Trigger | Signs? | Publishes? |
 |---|---|---|---|---|
 | **CI** | `.github/workflows/ci.yml` | `pull_request`, `push` → `main`, `workflow_dispatch` | No | No |
+| **Release** | `.github/workflows/release.yml` | `push` of a tag `vX.Y.Z` or `vX.Y.Z-*` | Yes: a throwaway key in `app`, the real key only in `finalize` | A **draft** release (a person publishes it) |
+| **Release channels** | `.github/workflows/release-channels.yml` | `release: published` | No | Replaces `latest.json` on the `channel-beta` prerelease (forward only) |
+
+`ci.yml` cancels superseded runs:
 
 ```yaml
 concurrency:
@@ -44,6 +48,28 @@ Node 24, pnpm from `package.json` → `packageManager`. `pnpm install --frozen-l
 6. `cargo clippy --workspace --all-targets -- -D warnings`
 7. `cargo test --workspace` — the full suite, never filtered.
 
+## `release.yml` job by job
+
+Top-level `permissions: {}`; each job asks for what it needs. `concurrency: release-<ref>` without cancelling, so a tag's run is never cut in half. Every action is pinned to a full SHA. Only `draft` and `finalize` hold `contents: write`, and neither compiles third-party code; the build jobs are read-only and hand their files to `finalize` as workflow artifacts (ADR-0011).
+
+| Job | Needs | Runs on | Permissions | Secrets | What it does |
+|---|---|---|---|---|---|
+| `guard` | — | ubuntu-latest | `contents: read` | reads whether `TAURI_SIGNING_PRIVATE_KEY` is set | Refuses a missing secret, a private repository, `updater.pub` still `UNSET`, versions that disagree (`scripts/bump-version.sh --check`), a tag ≠ `Cargo.toml`, or no `## [X.Y.Z]` in `CHANGELOG.md`. |
+| `draft` | guard | ubuntu-latest | `contents: write` | `GITHUB_TOKEN` | Runs only `gh`. Creates the draft (prerelease for a `-pre` tag) with `.github/release-notes.md`, or reuses the draft on a re-run; refuses an already published tag. |
+| `app` | guard | macos-latest (universal: `--target universal-apple-darwin`), windows-latest, ubuntu-22.04, ubuntu-22.04-arm | `contents: read` | none | Generates a throwaway updater key and a `--config` overlay with its public half (`tauri build` decodes `plugins.updater.pubkey`, which is only a marker in the repo), runs `pnpm tauri build`, stages the bundles under their release names (no spaces; the macOS `.app.tar.gz` gets the version and `universal`; the throwaway `.sig` files stay behind) and uploads them as the workflow artifact `app-<platform>`. |
+| `cli` | guard | the same 5 targets | `contents: read` | none | `cargo build --release --locked -p coverly-cli`, staged as `coverly-<version>-<os>-<arch>[.exe]` workflow artifacts. |
+| `finalize` | draft, app, cli | ubuntu-latest | `contents: write` | the two signing secrets, in one step | Compiles nothing. Downloads the `app-*` and `cli-*` workflow artifacts; signs every update artifact (`release_tools.py updater-artifacts`) and CLI binary with `tauri signer sign --app-version`; writes `latest.json` with `release_tools.py updater-manifest` and `add-cli`, then `check-manifest` (10 keys, signatures bound to the version); `minisign -V` of every file against the committed `updater.pub` and a tampered copy that must fail; `SHA256SUMS` over every file (the `.dmg`, `.msi` and `.deb` included); uploads the bundles, their `.sig` files, the CLI binaries, `latest.json` and `SHA256SUMS` to the draft. |
+
+macOS is signed ad hoc (`signingIdentity: "-"`) and Windows installers are not Authenticode-signed (ADR-0008); the release notes explain "Open Anyway" and "Run anyway".
+
+## `release-channels.yml`
+
+Runs when a release is published (drafts and `channel-beta` itself are ignored). One job, `beta-pointer`, with `contents: write`: it downloads the published release's `latest.json`, checks it with `release_tools.py check-manifest` (10 keys, signed version), creates the `channel-beta` prerelease the first time (`--latest=false`), and replaces its `latest.json` only when the new version is higher (`release_tools.py semver-gt`). Stable needs no workflow: `releases/latest` is GitHub's newest published non-prerelease.
+
+## The release helper
+
+`scripts/release/release_tools.py` (Python 3.9+ standard library, run with `python3 -I`) holds every rule the workflows depend on — `semver-gt`, `semver-check`, `updater-artifacts`, `updater-manifest`, `check-manifest`, `add-cli`, `pubkey`, and `list-artifacts`/`resign-manifest` for recovery — so `src-tauri/tests/release_pipeline.rs` tests them on a developer machine, together with workflow invariants (pins, permissions, which job sees the secrets) and the docs this page links.
+
 ## Running the same checks locally
 
 `make check` runs every gate CI runs, without writing:
@@ -59,6 +85,6 @@ cargo test --workspace
 
 | Check | Status |
 |---|---|
-| Installers / bundles (`pnpm tauri build`) | Not in CI; arrives with the release workflow |
+| Installers / bundles (`pnpm tauri build`) | Only in `release.yml`, on a tag; locally `make build` (no update artifacts) or RELEASING.md §7 |
 | Dependency audits (`pnpm audit`, `cargo audit`) | Not in CI yet |
 | Coverage (`pnpm test:coverage`) | Local only |

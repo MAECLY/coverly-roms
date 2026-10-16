@@ -2,7 +2,7 @@
  * The one door from the UI to a backend: the Tauri app, or — in a plain
  * browser (`pnpm dev`) — the deterministic mock.
  */
-import { hasTauriIpc } from './appInfo';
+import { hasTauriIpc, type AppInfo } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
@@ -38,14 +38,23 @@ import type {
   SourceId,
   SourceInfo,
   UndoView,
+  UpdateCheck,
+  UpdateInstall,
+  UpdateProgress,
+  UpdateTrigger,
+  Volume,
 } from './types';
 
 export interface Backend {
   readonly kind: 'tauri' | 'mock';
+  /** Product name and the app and core versions. */
+  appInfo(): Promise<AppInfo>;
   openLibrary(path: string, profileId?: string): Promise<LibraryView>;
   onScanProgress(cb: (p: ScanProgress) => void): Promise<() => void>;
   recentLibraries(): Promise<RecentLibrary[]>;
   forgetRecentLibrary(path: string): Promise<RecentLibrary[]>;
+  /** Drives and SD cards connected now (a read-only listing). */
+  mountedVolumes(): Promise<Volume[]>;
   librarySettings(): Promise<LibrarySettings>;
   setLibrarySettings(s: LibrarySettings): Promise<LibrarySettings>;
   readArt(generation: number, entryId: number, media: Media): Promise<ArtImage>;
@@ -159,6 +168,18 @@ export interface Backend {
     candidate: number,
   ): Promise<EntryArtUpdate[]>;
   clearIdentityOverride(generation: number, entryId: number): Promise<void>;
+
+  /* In-app updates (M7): driven from Rust, never from the webview. */
+  /** Checks the channel's manifest; a `startup` check with "check on start"
+   * off requests nothing and answers `skipped`. */
+  checkForUpdates(trigger: UpdateTrigger): Promise<UpdateCheck>;
+  /** Downloads and verifies the offered update (progress via `onUpdateProgress`). */
+  downloadUpdate(): Promise<void>;
+  onUpdateProgress(cb: (p: UpdateProgress) => void): Promise<() => void>;
+  /** Installs the downloaded update; `job-running` while a fill job runs or is paused. */
+  installUpdate(): Promise<UpdateInstall>;
+  /** Restarts into the installed update; `job-running` while a fill job runs or is paused. */
+  restartApp(): Promise<void>;
 }
 
 let current: Backend | null = null;

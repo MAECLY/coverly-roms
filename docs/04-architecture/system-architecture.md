@@ -1,6 +1,6 @@
 # System Architecture
 
-> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. M1 built the read-only scan and audit. M2 adds identification, the libretro-thumbnails source, strategies, plans and safe writes, which together are `coverly fill` and `coverly undo`. M3/M4 put the explorer and the fill jobs in the app. M5 adds one typed settings file read by the app and the CLI, custom layout profiles, OS-keychain credentials, manual identities and the Batocera `gamelist.xml` merge ([settings](./settings.md)). Details: [identification](./identification.md), [art sources](./art-sources.md), [fill pipeline](./fill-pipeline.md), [desktop app](./desktop-app.md), [settings](./settings.md). Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
+> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. M1 built the read-only scan and audit. M2 adds identification, the libretro-thumbnails source, strategies, plans and safe writes, which together are `coverly fill` and `coverly undo`. M3/M4 put the explorer and the fill jobs in the app. M5 adds one typed settings file read by the app and the CLI, custom layout profiles, OS-keychain credentials, manual identities and the Batocera `gamelist.xml` merge ([settings](./settings.md)). M7 adds signed self-updates for the app and the CLI from GitHub Releases and the release pipeline ([updates](./updates.md)). Details: [identification](./identification.md), [art sources](./art-sources.md), [fill pipeline](./fill-pipeline.md), [desktop app](./desktop-app.md), [settings](./settings.md), [updates](./updates.md). Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
 
 ## Containers
 
@@ -9,7 +9,7 @@
 │ Tauri app  (src-tauri + src/) │     │ coverly CLI (crates/        │
 │ React 19 + TS + Tailwind +    │     │ coverly-cli, clap)          │
 │ zustand, i18n en/es           │     │ audit · fill · undo ·       │
-│ IPC commands + events         │     │ profiles · systems          │
+│ IPC commands + events         │     │ profiles · systems · update │
 │                               │     │ table / JSON / CSV output   │
 └──────────────┬────────────────┘     └──────────────┬──────────────┘
                │  Rust calls (no Tauri types cross)   │
@@ -21,12 +21,14 @@
                │ audit · identify · cache · net ·     │
                │ sources · gather · matching · plan · │
                │ image · write · jobs · fill ·        │
-               │ settings · credentials · gamelist    │
+               │ settings · credentials · gamelist ·  │
+               │ update · volumes                     │
                └──────────────────┬───────────────────┘
                                   ▼
           ROM library on disk (SD card, ES-DE, RetroArch, folder)
           thumbnails.libretro.com + raw.githubusercontent.com (M2)
           SteamGridDB, ScreenScraper (M6)
+          GitHub Releases latest.json + signed artifacts (M7 updates)
 ```
 
 Rules:
@@ -103,6 +105,10 @@ Two phases, after Skyscraper (spec §16.1, [ADR-0009](../adr/0009-two-phase-fill
 1. **Gather** — identify each selected ROM (hash → DAT, then name, arcade translation; [ADR-0006](../adr/0006-hash-then-name-identification.md)), fetch candidates from enabled sources ([ADR-0005](../adr/0005-libretro-primary-source.md)) into a content-addressed art cache.
 2. **Choose** — a strategy picks one candidate per ROM and media ([ADR-0007](../adr/0007-pluggable-strategies.md)); the result is a plan: `auto`, `review` or `none`, shown as a dry run.
 3. **Apply** — download (through the art store) → decode and re-encode per profile → back up existing art if overwriting → atomic write (temp + rename) inside the library root → journal for undo ([ADR-0010](../adr/0010-safe-writes-backups-and-journal.md)) → re-audit with `coverly audit`.
+
+### Updates (M7, implemented)
+
+One `latest.json` per channel (stable: GitHub's `releases/latest`; beta: the `channel-beta` release) lists the app's five platforms and the CLI's five `cli-<os>-<arch>` binaries, each signed with minisign and bound to its version. `coverly-core::update` resolves the endpoint, parses the manifest, compares SemVer and verifies downloads against the one committed key (`crates/coverly-core/updater.pub`). The CLI (`coverly update check|install`) uses it end to end and replaces its own binary atomically; the app drives `tauri-plugin-updater` from Rust with the same endpoint and key, never interrupts a fill job, and requests nothing at startup when "check on start" is off. Details: [updates.md](./updates.md), [ADR-0011](../adr/0011-release-pipeline-and-update-key.md), [RELEASING.md](../../RELEASING.md).
 
 ## Performance (M1 evidence)
 

@@ -22,7 +22,10 @@
     "scanning": "Escaneando {folder}… {done} de {total} carpetas",
     "scanningStart": "Leyendo la carpeta…",
     "romsFound": "{n} ROMs encontradas",
-    "progressLabel": "Progreso del escaneo"
+    "progressLabel": "Progreso del escaneo",
+    "volumes": "Unidades conectadas",
+    "noVolumes": "No se encontraron unidades ni tarjetas SD.",
+    "openVolume": "Abrir {name}"
   },
   "settings": {
     "open": "Configuración",
@@ -66,8 +69,7 @@
       "channels": {
         "stable": "Estable",
         "beta": "Beta"
-      },
-      "updatesLater": "Las actualizaciones automáticas llegan en una versión posterior; estas opciones se guardan para entonces."
+      }
     },
     "library": {
       "defaultProfile": "Perfil de estructura por defecto",
@@ -218,8 +220,8 @@
   },
   "about": {
     "license": "Licencia: AGPL-3.0-only. Coverly ROMs es software libre; su nombre y su logotipo son marcas (ver Marcas).",
-    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives.",
-    "updates": "Canal de actualizaciones: {channel}. Las actualizaciones automáticas llegan en una versión posterior.",
+    "noTelemetry": "Sin telemetría: Coverly ROMs solo contacta con las fuentes de arte que actives y, salvo que lo desactives, con el servidor de actualizaciones.",
+    "updates": "Canal de actualizaciones: {channel}.",
     "link": {
       "repo": "Código fuente",
       "license": "Licencia",
@@ -228,6 +230,29 @@
       "releases": "Versiones publicadas",
       "issues": "Informar de un problema"
     }
+  },
+  "update": {
+    "checkNow": "Buscar actualizaciones",
+    "checking": "Buscando actualizaciones…",
+    "neverChecked": "Aún no se ha comprobado.",
+    "upToDate": "Coverly ROMs está al día ({version}).",
+    "available": "La versión {version} está disponible.",
+    "notes": "Novedades",
+    "install": "Descargar e instalar",
+    "downloading": "Descargando… {percent} %",
+    "downloadingSize": "Descargando… {size}",
+    "progressLabel": "Descarga de la actualización",
+    "waitingForJob": "La actualización está descargada. Se instalará cuando termine el trabajo de relleno.",
+    "installing": "Instalando…",
+    "ready": "La versión {version} está instalada. Reinicia Coverly ROMs para usarla.",
+    "restart": "Reiniciar ahora",
+    "restartAfterJob": "Reinicia cuando termine el trabajo de relleno.",
+    "restarting": "Reiniciando Coverly ROMs…",
+    "retry": "Reintentar",
+    "banner": "Coverly ROMs {version} está disponible.",
+    "bannerDetails": "Ver novedades",
+    "bannerLater": "Más tarde",
+    "channelHint": "Beta recibe antes las versiones nuevas; pueden tener más fallos."
   },
   "library": {
     "count": "{n} ROMs",
@@ -299,6 +324,12 @@
     "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
     "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
     "keychain-failed": "El llavero rechazó la petición: {detail}",
+    "update-offline": "No se pudo contactar con el servidor de actualizaciones. Comprueba la conexión y reinténtalo.",
+    "update-signature": "La actualización descargada no superó la comprobación de firma y NO se instaló. No se cambió nada.",
+    "update-unavailable": "No se encontró ninguna actualización para este canal y sistema: todavía no hay ninguna publicada o el servidor de actualizaciones no pudo darla.",
+    "update-no-key": "Esta compilación no puede actualizarse sola. Descarga las versiones nuevas desde la página de versiones.",
+    "update-failed": "No se pudo instalar la actualización: {detail}",
+    "update-not-ready": "Busca actualizaciones primero.",
     "art-unreadable": "No se puede mostrar esta imagen.",
     "unknown": "Error inesperado: {detail}",
     "field": {

@@ -23,6 +23,12 @@ export function isRunning(job: JobView | null): boolean {
   return job?.state === 'gathering' || job?.state === 'applying';
 }
 
+/** A fill job an update must wait for: running, or paused with work left
+ * (mirrors Rust `job_blocks_update`). */
+export function blocksUpdate(job: JobView | null): boolean {
+  return isRunning(job) || job?.state === 'paused';
+}
+
 interface JobStore {
   job: JobView | null;
   progress: JobProgressEvent | null;

@@ -10,8 +10,8 @@ in bulk, by default from the free libretro-thumbnails collection, without
 breaking anything on the card. The reference tools are Windows-only or need
 heavy setup; Coverly ROMs aims to be the polished, safe, multi-platform option.
 
-> **Status: pre-alpha.** Nothing is released yet. The first milestone is the
-> read-only audit (`coverly audit`); the app and the art download come next.
+> **Status: pre-release** — v0.1.0 is being prepared; see
+> [RELEASING.md](RELEASING.md).
 
 ## Features
 
@@ -36,6 +36,39 @@ Planned for v1 (see [the design spec](docs/superpowers/specs/2026-10-15-coverly-
   GitHub Releases.
 
 Coverly ROMs does not include ROMs, BIOS files or game art.
+
+## Install
+
+Download the file for your computer from the
+[latest release](https://github.com/MAECLY/coverly-roms/releases/latest):
+
+| System                                      | File                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| macOS 11 or newer (Apple silicon and Intel) | `Coverly ROMs_<version>_universal.dmg`                                              |
+| Windows 10/11 (x64)                         | `Coverly ROMs_<version>_x64-setup.exe` (recommended) or `.msi`                      |
+| Linux (x64, ARM64)                          | `.AppImage` or `.deb`                                                               |
+| Command line (`coverly`)                    | `coverly-<version>-<os>-<arch>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
+
+Check the file against `SHA256SUMS` from the same release, for example
+`shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS),
+`sha256sum -c SHA256SUMS --ignore-missing` (Linux) or
+`Get-FileHash <file>` (Windows PowerShell).
+
+- **macOS:** the app is not signed with an Apple certificate, so the first
+  time macOS says it cannot check it. Open **System Settings → Privacy &
+  Security**, scroll down, click **Open Anyway** and confirm.
+- **Windows:** the installer is not signed with a Windows certificate, so
+  SmartScreen may warn. Click **More info → Run anyway**.
+- **Linux:** make the AppImage executable (`chmod +x Coverly*.AppImage`) and
+  run it, or install the `.deb` (`sudo apt install ./Coverly*.deb`).
+- **CLI:** rename the binary to `coverly` (`coverly.exe` on Windows), make it
+  executable (`chmod +x`) and put it on your `PATH`.
+
+**Updates.** The app checks for updates on start (Settings → General; turn it
+off and it requests nothing) and from Settings → About, and never restarts
+while a fill job is running. The CLI: `coverly update check` and
+`coverly update install`. Every update is verified with the project's minisign
+key before it is installed; a download that fails the check is not installed.
 
 ## Build from source
 

@@ -45,6 +45,15 @@ describe('settings sections', () => {
     setBackend(null);
   });
 
+  it('about: the no-telemetry line names the update server too', async () => {
+    const panel = await open('about');
+    expect(
+      within(panel).getByText(
+        'No telemetry: Coverly ROMs only contacts the art sources you enable and, unless you turn it off, the update server.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('art: media, single slot, format, aspect, quality, overwrite and a per-profile size', async () => {
     await open('art');
     await userEvent.click(

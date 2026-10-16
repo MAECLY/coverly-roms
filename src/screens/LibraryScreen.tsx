@@ -11,6 +11,7 @@ import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
+import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useT } from '@/i18n/useT';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
@@ -155,6 +156,7 @@ export function LibraryScreen() {
       <div className="library-body">
         <Sidebar key={view.generation} view={view} now={now} />
         <main className="library-main">
+          <UpdateBanner />
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div className="library-content">{content}</div>
         </main>

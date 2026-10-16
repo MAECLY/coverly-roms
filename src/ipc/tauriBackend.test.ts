@@ -24,6 +24,7 @@ import {
   ENTRIES_UPDATED_EVENT,
   JOB_CHANGED_EVENT,
   SCAN_PROGRESS_EVENT,
+  UPDATE_PROGRESS_EVENT,
 } from './tauriBackend';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -261,5 +262,57 @@ describe('Tauri backend', () => {
       ],
       ['clear_identity_override', { generation: 2, entryId: 7 }],
     ]);
+  });
+
+  it('drives the updater through the Rust commands and the progress event', async () => {
+    const calls: string[] = [];
+    mockIPC((cmd, args) => {
+      calls.push(`${cmd} ${JSON.stringify(args ?? {})}`);
+      if (cmd === 'check_update') return sample.update_check_available;
+      if (cmd === 'install_update') return sample.update_install;
+      return null;
+    });
+    const b = createTauriBackend();
+    await expect(b.checkForUpdates('startup')).resolves.toEqual(
+      sample.update_check_available,
+    );
+    await b.downloadUpdate();
+    await expect(b.installUpdate()).resolves.toEqual(sample.update_install);
+    await b.restartApp();
+    expect(calls).toEqual([
+      'check_update {"trigger":"startup"}',
+      'download_update {}',
+      'install_update {}',
+      'restart_app {}',
+    ]);
+    expect(UPDATE_PROGRESS_EVENT).toBe('update-progress');
+    const seen: unknown[] = [];
+    const off = await b.onUpdateProgress((p) => seen.push(p));
+    events.handlers.get(UPDATE_PROGRESS_EVENT)!({
+      payload: sample.update_progress,
+    });
+    expect(seen).toEqual([sample.update_progress]);
+    off();
+    expect(events.handlers.has(UPDATE_PROGRESS_EVENT)).toBe(false);
+  });
+
+  it('lists the connected drives', async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      return [sample.volume];
+    });
+    await expect(createTauriBackend().mountedVolumes()).resolves.toEqual([
+      sample.volume,
+    ]);
+    expect(calls).toEqual(['mounted_volumes']);
+  });
+
+  it('maps an update refusal to its code', async () => {
+    mockIPC(() => Promise.reject({ code: 'update-signature', detail: 'bad' }));
+    await expect(createTauriBackend().downloadUpdate()).rejects.toMatchObject({
+      code: 'update-signature',
+      detail: 'bad',
+    });
   });
 });

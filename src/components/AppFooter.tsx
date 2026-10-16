@@ -1,22 +1,11 @@
-import { useEffect, useState } from 'react';
-
+import { useAppInfo } from '@/hooks/useAppInfo';
 import { useT } from '@/i18n/useT';
-import { fetchAppInfo, type AppInfo } from '@/ipc/appInfo';
 
 const NO_VALUE = '—';
 
 export function AppFooter() {
   const t = useT();
-  const [info, setInfo] = useState<AppInfo | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAppInfo().then((result) => {
-      if (!cancelled) setInfo(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const info = useAppInfo();
   return (
     <footer className="footer flex justify-center gap-4 px-6 py-3">
       <span>{t('footer.version', { version: info?.version ?? NO_VALUE })}</span>

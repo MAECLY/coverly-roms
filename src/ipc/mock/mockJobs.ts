@@ -279,6 +279,8 @@ type JobsApi = Pick<
   | 'clearIdentityOverride'
 > & {
   readonly exports: MockExport[];
+  /** A fill job an update must wait for (Rust `job_blocks_update`). */
+  isBusy(): boolean;
   /** The manual identity ("Search by title" pick) of an entry, if any. */
   manualIdentity(generation: number, id: number): string | null;
 };
@@ -623,6 +625,9 @@ export function createMockJobs(
 
   return {
     exports,
+    isBusy: () =>
+      job !== null &&
+      ['gathering', 'applying', 'paused'].includes(job.view.state),
     async startFill(generation, request) {
       const view = library(generation);
       notRunning();

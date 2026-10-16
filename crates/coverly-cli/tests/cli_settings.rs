@@ -224,3 +224,32 @@ fn undo_reads_jobs_from_the_backup_location_setting() {
         .stdout(contains("removed 1"));
     assert!(!cover(&f).exists());
 }
+
+#[test]
+fn a_corrupt_settings_file_warns_on_stderr_and_is_left_alone() {
+    let f = fx();
+    settings(&f, "{ not json");
+    coverly(&f)
+        .arg("profiles")
+        .assert()
+        .success()
+        .stderr(contains("warning: settings file").and(contains("not valid settings")));
+    assert_eq!(
+        fs::read_to_string(f.cfg.path().join("settings.json")).unwrap(),
+        "{ not json"
+    );
+}
+
+#[test]
+fn a_bom_settings_file_reads_without_a_warning() {
+    let f = fx();
+    settings(&f, "\u{feff}{\"library\":{\"ignored_dirs\":[\"Junk\"]}}");
+    coverly(&f)
+        .arg("audit")
+        .arg(f.lib.path())
+        .args(["--format", "json"])
+        .assert()
+        .success()
+        .stderr(contains("warning: settings file").not())
+        .stdout(contains("Other").not());
+}

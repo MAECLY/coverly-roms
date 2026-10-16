@@ -4,9 +4,10 @@ import { waitFor } from '@testing-library/react';
 import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
+import type { JobState, JobView } from '@/ipc/types';
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 
-import { useJobStore } from './jobStore';
+import { blocksUpdate, useJobStore } from './jobStore';
 import { resetLibraryStore, useLibraryStore } from './libraryStore';
 
 describe('job store', () => {
@@ -37,5 +38,24 @@ describe('job store', () => {
       expect(useJobStore.getState().job?.state).toBe('planned'),
     );
     second();
+  });
+});
+
+describe('blocksUpdate', () => {
+  it('holds an update for a running or paused job only (Rust job_blocks_update)', () => {
+    const at = (state: JobState) => ({ id: 1, state }) as unknown as JobView;
+    expect(blocksUpdate(null)).toBe(false);
+    const held = (
+      [
+        'gathering',
+        'planned',
+        'applying',
+        'paused',
+        'cancelled',
+        'done',
+        'failed',
+      ] as const
+    ).filter((st) => blocksUpdate(at(st)));
+    expect(held).toEqual(['gathering', 'applying', 'paused']);
   });
 });

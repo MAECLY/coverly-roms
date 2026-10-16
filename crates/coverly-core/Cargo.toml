@@ -25,10 +25,15 @@ ureq.workspace = true
 percent-encoding.workspace = true
 image.workspace = true
 quick-xml.workspace = true
+semver.workspace = true
+base64.workspace = true
+minisign-verify.workspace = true
+minisign = { workspace = true, optional = true }
 
 [features]
-# Mock HTTP server and fixtures for tests of this crate and of the CLI.
-test-util = []
+# Mock HTTP server, fixtures and throwaway update keys for tests of this
+# crate and of the CLI.
+test-util = ["dep:minisign"]
 
 [dev-dependencies]
 coverly-core = { path = ".", features = ["test-util"] }

@@ -15,6 +15,11 @@ import type {
 import { generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import { createMockSettings } from './mockSettings';
+import {
+  createMockUpdates,
+  readMockUpdateScenario,
+  type MockUpdateScenario,
+} from './mockUpdates';
 import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
@@ -39,6 +44,9 @@ export interface MockOptions {
   /** Where settings, custom profiles and credential presence persist
    * (default: `window.localStorage` when usable; null = memory only). */
   storage?: Storage | null;
+  /** What the updater answers (default: `?mockUpdate=`, then localStorage
+   * `coverly.mock.update`, then `up-to-date`). */
+  update?: MockUpdateScenario;
 }
 
 export interface MockBackend extends Backend {
@@ -48,6 +56,9 @@ export interface MockBackend extends Backend {
   readonly exports: MockExport[];
   /** Folders and links "opened" (`folder:logs`, `link:repo`), for tests. */
   readonly opened: string[];
+  /** Updater calls (`check:startup`, `check:manual`, `download`, `install`,
+   * `restart`), for tests. */
+  readonly updateLog: string[];
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -233,6 +244,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       pick: opts.pick ?? 'image',
     },
   );
+  const updateLog: string[] = [];
+  const updates = createMockUpdates({
+    scenario: opts.update ?? readMockUpdateScenario(),
+    tick: () => sleep(delayMs),
+    log: updateLog,
+    jobBusy: () => jobs.isBusy(),
+  });
   let recents: RecentLibrary[] = [
     ...MOCK_LIBRARIES.map((l, i) => ({
       path: l.path,
@@ -263,6 +281,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   return {
     ...jobs,
     ...settings,
+    ...updates,
+    updateLog,
     kind: 'mock',
     revealed,
     async openLibrary(path) {
@@ -317,6 +337,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       recents = recents.filter((r) => r.path !== path);
       return Promise.resolve([...recents]);
     },
+    mountedVolumes: () =>
+      Promise.resolve([{ path: '/mock/Small library', name: 'Small library' }]),
     librarySettings: () =>
       Promise.resolve({
         ignored_dirs: settings.current().library.ignored_dirs,

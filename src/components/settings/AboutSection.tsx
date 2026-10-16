@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
-
+import { useAppInfo } from '@/hooks/useAppInfo';
 import { useT } from '@/i18n/useT';
-import { fetchAppInfo, type AppInfo } from '@/ipc/appInfo';
 import { getBackend } from '@/ipc/backend';
 import type { LinkId } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
+
+import { UpdatePanel } from '../update/UpdatePanel';
 
 const LINKS: readonly LinkId[] = [
   'repo',
@@ -17,17 +17,10 @@ const LINKS: readonly LinkId[] = [
 
 export function AboutSection() {
   const t = useT();
-  const [info, setInfo] = useState<AppInfo | null>(null);
+  const info = useAppInfo();
   const channel = useSettingsStore(
     (s) => s.settings?.general.update_channel ?? 'stable',
   );
-  useEffect(() => {
-    let alive = true;
-    void fetchAppInfo().then((i) => alive && setInfo(i));
-    return () => {
-      alive = false;
-    };
-  }, []);
   return (
     <div className="settings-group">
       <h2 className="wordmark-small">Coverly ROMs</h2>
@@ -40,6 +33,7 @@ export function AboutSection() {
           channel: t(`settings.general.channels.${channel}`),
         })}
       </p>
+      <UpdatePanel />
       <div className="about-links">
         {LINKS.map((l) => (
           <button

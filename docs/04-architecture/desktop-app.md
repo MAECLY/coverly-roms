@@ -1,6 +1,6 @@
 # Desktop App (Tauri shell, IPC and UI state)
 
-> **TL;DR.** The desktop app is a thin Tauri 2 shell over `coverly-core`. Opening a library scans it once into a compact `LibraryView` that the webview browses entirely in memory (filters, facets, sort, folder tree are pure TypeScript). The backend keeps the paths: the webview asks for art, identification and "reveal" by `(generation, entry id)`, never by path. Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview. Settings (M5) are one typed `settings.json` edited from a Settings screen, applied live (theme, language, log level) or on the next open/job; see [settings.md](./settings.md). In a plain browser the same UI runs on a deterministic mock backend. Spec: [§6, §7, §8, §9, §11](../superpowers/specs/2026-10-15-coverly-roms-design.md). Code: `src-tauri/src/`, `src/ipc/`, `src/stores/`, `src/lib/`, `src/components/library/`, `src/components/settings/`.
+> **TL;DR.** The desktop app is a thin Tauri 2 shell over `coverly-core`. Opening a library scans it once into a compact `LibraryView` that the webview browses entirely in memory (filters, facets, sort, folder tree are pure TypeScript). The backend keeps the paths: the webview asks for art, identification and "reveal" by `(generation, entry id)`, never by path. Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview. Settings (M5) are one typed `settings.json` edited from a Settings screen, applied live (theme, language, log level) or on the next open/job; see [settings.md](./settings.md). Updates (M7) are checked, downloaded and installed from Rust, never while a fill job runs; see [updates.md](./updates.md). In a plain browser the same UI runs on a deterministic mock backend. Spec: [§6, §7, §8, §9, §11](../superpowers/specs/2026-10-15-coverly-roms-design.md). Code: `src-tauri/src/`, `src/ipc/`, `src/stores/`, `src/lib/`, `src/components/library/`, `src/components/settings/`.
 
 ## Layers
 
@@ -10,6 +10,7 @@
 | Library layer | `src-tauri/src/library/` | `open_session` → `(Session, LibraryView)`; `read_art_bytes`, `entry_path`; `identify_entry` |
 | App state | `src-tauri/src/state.rs`, `prefs.rs`, `profiles.rs` | generation counter, the open `Session`, the settings (`settings.json`, migrated from `library.json`), custom profiles, the credential store, SQLite cache, the `JobManager`, drawer and search candidates, undo/history/exports |
 | Platform | `src-tauri/src/keychain.rs`, `logging.rs` | OS keychain `CredentialStore`; the file logger whose level follows the settings |
+| Updates | `src-tauri/src/update.rs` | `UpdateManager` (phases, startup and job gates) over `tauri-plugin-updater`; the key comes from `crates/coverly-core/updater.pub` ([updates.md](./updates.md)) |
 | Jobs | `src-tauri/src/jobs/` | `JobManager` (one job), worker threads, `JobEvents`, wire views (`jobs/view.rs`) |
 | Commands | `src-tauri/src/ipc.rs` | one-liners over the two layers above; blocking work on the blocking pool |
 | Backend adapter | `src/ipc/` | `Backend` interface; `tauriBackend` (invoke/listen/dialog/webview) or `mockBackend` |
@@ -64,12 +65,19 @@ JS argument names are camelCase; payload fields are Rust snake_case. The shapes 
 | `entry_search_art` | `generation`, `entryId`, `media`, `candidate` | raw bytes | as above + `bad-image` |
 | `set_entry_art_from_search` | `generation`, `entryId`, `media`, `candidate` | `EntryArtUpdate[]` (the file keeps the ROM's name; the manual identity is stored) | as `set_entry_art` |
 | `clear_identity_override` | `generation`, `entryId` | `null` | `no-library`, `stale-library`, `unknown-entry`, `io` |
+| `mounted_volumes` | — | `Volume[]` (`path`, `name`): the drives connected now, for the Start screen (only lists folders) | — |
+| `check_update` | `trigger` (`startup` / `manual`) | `UpdateCheckView`: `skipped` (startup with the setting off; nothing requested), `up-to-date`, `available` (`offer`: version, notes ≤ 64 KiB, date) | `update-no-key`, `update-offline`, `update-unavailable`, `update-signature`, `update-failed` |
+| `download_update` | — | `null`; emits `update-progress` | `update-not-ready`, `update-offline`, `update-signature`, `update-failed` |
+| `install_update` | — | `UpdateInstallView` (`restart_required`) | `update-not-ready`, `job-running` (a fill job is running or paused), `update-failed` |
+| `restart_app` | — | does not return | `update-not-ready`, `job-running` |
 
 Event `library-scan-progress` → `{ generation, done, total, folder, roms }`: once before the first system folder, then after each.
 
 Job events: `fill-job-progress` → `{ job, phase (gather/apply), done, total, label }` (throttled, ~20 a second, first and last always); `fill-job-changed` → `JobView` on every state change; `library-entries-updated` → `{ generation, entries: EntryArtUpdate[] }` after a job or a drawer action wrote (the UI ignores another generation).
 
 Settings event: `settings-changed` → `Settings` after every saved update or reset (the log level is applied at the same time).
+
+Update event: `update-progress` → `{ downloaded, total }` while an update downloads (throttled to ~10 a second, the last always).
 
 Errors are `{ "code": "<kebab-case>", "detail"?: … }`; the UI shows `errors.<code>` from `locales/{en,es}/ui.json` (`src/ipc/errors.ts`). Codes are stable.
 
@@ -100,7 +108,7 @@ paused    → gathering | applying (resume) | cancelled
 
 - The webview never sends a path except the folder the user picked. Art and reveal resolve paths from the scan, canonicalise them and refuse anything outside the canonical library root (symlinks included) — `outside-library`. Art over 20 MiB is refused.
 - The image picker and the save dialog run in Rust (`DialogExt`); the webview never sends a path. Picked files are read up to 20 MiB and always decoded and re-encoded. Candidates are addressed by `(job, item, candidate)` or `(generation, entryId, media, candidate)`.
-- No asset protocol, no `fs` plugin; capabilities are `core:default` + `dialog:allow-open`; the opener plugin is used from Rust only. CSP `img-src 'self' data: blob:`. Pinned by `src-tauri/tests/config_security.rs`.
+- No asset protocol, no `fs` plugin, no `updater:` permission (updates run from Rust with our endpoint and key); capabilities are `core:default` + `dialog:allow-open`; the opener plugin is used from Rust only. CSP `img-src 'self' data: blob:`. Pinned by `src-tauri/tests/config_security.rs`.
 - File names are hostile: React text only, `unicode-bidi: plaintext`, truncated with `title`; the mock's SVG escapes them. Only PNG/JPEG/WebP/GIF bytes become images (`sniffImageMime`), never SVG from disk.
 
 ## Stores
@@ -115,6 +123,7 @@ paused    → gathering | applying (resume) | cancelled
 | `settingsStore` | `settings`, load `notice`/`backup`/`fixed`, per-field `errors`, `reopen`, `saveError`; `update(patch)` numbers each save and ignores answers older than one already applied |
 | `navStore` | which screen shows (library/start or Settings) and the open Settings section |
 | `jobStore` | the current `JobView`, progress, error, history, last undo, `pending`; mirrors `fill-job-*` events (a command result older than an event is dropped) and applies `library-entries-updated` to the library store |
+| `updateStore` | update `status` (idle, checking, up-to-date, available, downloading, waiting-for-job, installing, ready, error), `offer`, `progress`, `error`, banner dismissal; the startup check runs once and only with the setting on, its errors are silent; install waits while `blocksUpdate(job)` |
 
 `useVisibleEntries()` derives scope → filters → sort plus the facet counts with memoised pure functions; the filter input is deferred (`useDeferredValue`) so typing stays responsive on 12k entries.
 
@@ -126,7 +135,7 @@ paused    → gathering | applying (resume) | cancelled
 
 `getBackend()` picks Tauri when `window.__TAURI_INTERNALS__` exists and lazily imports `src/ipc/mock/mockBackend.ts` otherwise (its own chunk). The mock serves seeded libraries from `generateLibrary` (mulberry32): `/mock/Fixture SD (12k)` (12,000 entries, 18 systems, mixed cover/screenshot/title, hostile names, dates over 3 years), `/mock/Small library` (240), `/mock/Empty library` (0), an unavailable `/Volumes/EJECTED` recent, and `not-found` for anything else. `pickFolder()` opens the 12k fixture; dropping a folder named `X` opens `/mock/X`. Art is an escaped SVG per entry; identify answers hash for `id % 3 == 0`, offline for `id % 3 == 2`.
 
-Fill jobs in the mock (`src/ipc/mock/mockJobs.ts`, deterministic): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so Undo restores the previous marks, refused while a job runs or is paused and only for journals of the open library. Options: `pauseAfter` (the first apply of each job pauses with a rate limit after this many items; default 25, `null` = never) and `pick` (what "From file…" picks: `image`, `cancel`, `not-image`). Exports are downloaded through Blob URLs (`coverly-job-<id>.csv/json`, `coverly-audit.csv/json`). Each subscription is its own listener, like Tauri's `listen`, so React StrictMode's double connect keeps its events. Settings, custom profiles and credential presence persist in `localStorage` (`coverly.mock.settings`, `coverly.mock.profiles`, `coverly.mock.credentials` with booleans only). The validation rules are the TypeScript mirror of the Rust ones. Search by title answers three regional variants of the typed title.
+Fill jobs in the mock (`src/ipc/mock/mockJobs.ts`, deterministic): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so Undo restores the previous marks, refused while a job runs or is paused and only for journals of the open library. Options: `pauseAfter` (the first apply of each job pauses with a rate limit after this many items; default 25, `null` = never) and `pick` (what "From file…" picks: `image`, `cancel`, `not-image`). Exports are downloaded through Blob URLs (`coverly-job-<id>.csv/json`, `coverly-audit.csv/json`). Each subscription is its own listener, like Tauri's `listen`, so React StrictMode's double connect keeps its events. Settings, custom profiles and credential presence persist in `localStorage` (`coverly.mock.settings`, `coverly.mock.profiles`, `coverly.mock.credentials` with booleans only). The validation rules are the TypeScript mirror of the Rust ones. Search by title answers three regional variants of the typed title. Updates follow `?mockUpdate=available|up-to-date|offline|bad-signature|no-key` (or localStorage `coverly.mock.update`; default `up-to-date`, so no startup banner), and `mountedVolumes` lists `/mock/Small library`.
 
 ## Performance
 

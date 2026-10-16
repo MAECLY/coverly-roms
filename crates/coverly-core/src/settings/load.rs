@@ -66,7 +66,11 @@ fn read_capped(path: &Path) -> Read_ {
         return Read_::TooLarge;
     }
     match String::from_utf8(bytes) {
-        Ok(text) => Read_::Text(text),
+        // A leading UTF-8 BOM (some editors add it) is not part of the JSON.
+        Ok(text) => Read_::Text(match text.strip_prefix('\u{feff}') {
+            Some(rest) => rest.to_string(),
+            None => text,
+        }),
         Err(_) => Read_::TooLarge,
     }
 }
@@ -362,14 +366,32 @@ pub fn load_settings(dir: &Path, known: &[String]) -> (Settings, LoadReport) {
     }
 }
 
+/// Why [`read_settings_checked`] fell back to the defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadProblem {
+    /// Not JSON settings (garbage, too large, not UTF-8, not an object).
+    NotSettings,
+    /// A folder, or no permission.
+    Unreadable,
+}
+
+/// Like [`read_settings`], also saying why the defaults were used. Never
+/// touches the disk; a missing file is not a problem.
+pub fn read_settings_checked(path: &Path, known: &[String]) -> (Settings, Option<ReadProblem>) {
+    match read_capped(path) {
+        Read_::Missing => (Settings::default(), None),
+        Read_::Unreadable => (Settings::default(), Some(ReadProblem::Unreadable)),
+        Read_::TooLarge => (Settings::default(), Some(ReadProblem::NotSettings)),
+        Read_::Text(text) => match parse_tolerant(&text, known) {
+            Some(p) => (p.settings, None),
+            None => (Settings::default(), Some(ReadProblem::NotSettings)),
+        },
+    }
+}
+
 /// Like [`load_settings`] without touching the disk (the CLI).
 pub fn read_settings(path: &Path, known: &[String]) -> Settings {
-    match read_capped(path) {
-        Read_::Text(text) => parse_tolerant(&text, known)
-            .map(|p| p.settings)
-            .unwrap_or_default(),
-        _ => Settings::default(),
-    }
+    read_settings_checked(path, known).0
 }
 
 /// `library.json` → `settings.json` (ignored folders + recents), once.
@@ -384,11 +406,17 @@ fn migrate_legacy(dir: &Path) -> (Settings, LoadReport) {
         return (Settings::default(), LoadReport::default());
     };
     let Ok(Value::Object(old)) = serde_json::from_str::<Value>(&text) else {
+        // Set aside once and start from defaults saved to settings.json, so
+        // the next start neither migrates nor warns again.
+        let dest = aside_path(&legacy, "bad");
+        let backup = fs::rename(&legacy, &dest).ok().map(|()| dest);
+        let s = Settings::default();
+        let _ = save_settings(dir, &s);
         return (
-            Settings::default(),
+            s,
             LoadReport {
                 notice: Some(LoadNotice::ResetCorrupt),
-                backup: Some(legacy),
+                backup: backup.or(Some(legacy)),
                 fixed: Vec::new(),
             },
         );

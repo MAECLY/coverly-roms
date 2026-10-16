@@ -28,6 +28,10 @@ use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use crate::sources::SourceInfoView;
 use crate::state::AppState;
+use crate::update::{
+    job_blocks_update, CheckTrigger, UpdateCheckView, UpdateInstallView, UpdateManager,
+    UpdateProgressEvent,
+};
 
 /// Product name shown in the UI and reported over IPC.
 pub const APP_NAME: &str = "Coverly ROMs";
@@ -41,6 +45,8 @@ pub const JOB_CHANGED_EVENT: &str = "fill-job-changed";
 pub const ENTRIES_UPDATED_EVENT: &str = "library-entries-updated";
 /// Event carrying the saved `Settings` after an update or a reset.
 pub const SETTINGS_CHANGED_EVENT: &str = "settings-changed";
+/// Event carrying `UpdateProgressEvent` while an update downloads (throttled).
+pub const UPDATE_PROGRESS_EVENT: &str = "update-progress";
 
 /// Name and versions of the app and of the core library it is built on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -92,6 +98,12 @@ pub async fn open_library(
 #[tauri::command]
 pub async fn recent_libraries(app: AppHandle) -> Result<Vec<RecentView>, IpcError> {
     blocking(move || Ok(app.state::<AppState>().recent())).await
+}
+
+/// The drives and SD cards connected now (only lists folders, never writes).
+#[tauri::command]
+pub async fn mounted_volumes() -> Result<Vec<coverly_core::volumes::Volume>, IpcError> {
+    blocking(|| Ok(coverly_core::volumes::mounted_volumes())).await
 }
 
 #[tauri::command]
@@ -643,4 +655,61 @@ pub async fn clear_identity_override(
             .clear_identity_override(generation, entry_id)
     })
     .await
+}
+
+/// Checks the channel's manifest. A startup check with "check on start" off
+/// requests nothing and answers `skipped`.
+#[tauri::command]
+pub async fn check_update(
+    app: AppHandle,
+    trigger: CheckTrigger,
+) -> Result<UpdateCheckView, IpcError> {
+    blocking(move || {
+        let general = app.state::<AppState>().settings().general;
+        app.state::<UpdateManager>()
+            .check(trigger, &general, env!("CARGO_PKG_VERSION"))
+    })
+    .await
+}
+
+/// Downloads (and verifies) the offered update, emitting `update-progress`.
+#[tauri::command]
+pub async fn download_update(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        let step = std::time::Duration::from_millis(100);
+        let mut last: Option<std::time::Instant> = None;
+        let manager = app.state::<UpdateManager>();
+        manager.download(&mut |downloaded, total| {
+            let done = total == Some(downloaded);
+            if done || last.is_none_or(|t| t.elapsed() >= step) {
+                last = Some(std::time::Instant::now());
+                let _ = app.emit(
+                    UPDATE_PROGRESS_EVENT,
+                    UpdateProgressEvent { downloaded, total },
+                );
+            }
+        })
+    })
+    .await
+}
+
+/// Installs the downloaded update; refused while a fill job is running or paused.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<UpdateInstallView, IpcError> {
+    blocking(move || {
+        let held = job_blocks_update(app.state::<AppState>().jobs().current().map(|j| j.state));
+        app.state::<UpdateManager>().install(held)
+    })
+    .await
+}
+
+/// Restarts into the installed update; refused while a fill job is running or paused.
+#[tauri::command]
+pub fn restart_app(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    updates: State<'_, UpdateManager>,
+) -> Result<(), IpcError> {
+    updates.can_restart(job_blocks_update(state.jobs().current().map(|j| j.state)))?;
+    app.restart()
 }
