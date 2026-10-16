@@ -546,10 +546,15 @@ fn render_table(chosen: &Chosen, plan: &Plan, job: Option<&JobReport>, all: bool
     for item in &plan.items {
         match &item.action {
             PlanAction::Review { chosen, .. } => review.push(format!(
-                "{}  -> {}  {}",
+                "{}  -> {}  {}{}",
                 item_label(item),
                 chosen.name,
-                kind_name(chosen.kind, chosen.score)
+                kind_name(chosen.kind, chosen.score),
+                if item.note.is_some() {
+                    "  (beta/prototype/hack variant)"
+                } else {
+                    ""
+                }
             )),
             PlanAction::None { reason } => {
                 none.push(format!("{}  {}", item_label(item), none_reason(reason)))

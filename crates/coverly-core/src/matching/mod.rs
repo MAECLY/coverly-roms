@@ -100,13 +100,60 @@ fn region_rank(c: &Candidate, ctx: &RankContext, expand_rom: bool) -> usize {
         .unwrap_or(expanded.len())
 }
 
-/// Whether the variant is not a retail release (No-Intro / GoodTools tags).
-fn unreleased(c: &Candidate) -> bool {
-    const TAGS: [&str; 9] = [
-        "(beta", "(proto", "(demo", "(sample", "(hack", "(pirate", "(kiosk", "(debug", "[h",
-    ];
-    let lower = c.name.to_lowercase();
-    TAGS.iter().any(|t| lower.contains(t))
+/// Words that mark a non-retail variant inside `(…)` or `[…]` (No-Intro
+/// and GoodTools tags).
+const VARIANT_WORDS: [&str; 11] = [
+    "beta",
+    "proto",
+    "prototype",
+    "demo",
+    "sample",
+    "hack",
+    "pirate",
+    "kiosk",
+    "debug",
+    "unl",
+    "unlicensed",
+];
+
+/// Whether `name` is not a retail release: a beta, prototype, demo,
+/// sample, hack, pirate, kiosk, debug or unlicensed variant — `(Beta)`,
+/// `(Proto 2)`, `(Unl)`, GoodTools `[h1]`, `[Hack by …]`,
+/// `(Sound Restoration Hack)`. Only bracketed tags count, so titles such
+/// as `.hack` or `Hackers` are releases.
+pub fn is_unreleased_variant(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    let found = bracket_groups(&lower).any(|g| {
+        let g = g.trim();
+        let goodtools_hack =
+            g == "h" || (g.starts_with('h') && g.as_bytes().get(1).is_some_and(u8::is_ascii_digit));
+        goodtools_hack
+            || g.split(|c: char| !c.is_alphanumeric())
+                .any(|w| VARIANT_WORDS.contains(&w))
+    });
+    found
+}
+
+/// The text inside each closed `(…)` and `[…]` of `s` (not nested).
+fn bracket_groups(s: &str) -> impl Iterator<Item = &str> {
+    let mut rest = s;
+    std::iter::from_fn(move || loop {
+        let open = rest.find(['(', '['])?;
+        let close = if rest.as_bytes()[open] == b'(' {
+            ')'
+        } else {
+            ']'
+        };
+        let after = &rest[open + 1..];
+        match after.find(close) {
+            Some(end) => {
+                rest = &after[end + 1..];
+                return Some(&after[..end]);
+            }
+            // Unclosed: not a tag; look further on.
+            None => rest = after,
+        }
+    })
 }
 
 fn source_rank(c: &Candidate, ctx: &RankContext) -> usize {
@@ -147,8 +194,8 @@ fn rank_with(
         (0..cands.len()).partition(|&i| eligible(&cands[i]));
     // A release always beats a beta/proto/demo/hack of the same title, whatever the strategy.
     good.sort_by(|&a, &b| {
-        unreleased(&cands[a])
-            .cmp(&unreleased(&cands[b]))
+        is_unreleased_variant(&cands[a].name)
+            .cmp(&is_unreleased_variant(&cands[b].name))
             .then_with(|| order(&cands[a], &cands[b]))
             .then_with(|| tail(&cands[a], &cands[b], ctx))
     });

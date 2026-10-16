@@ -11,7 +11,10 @@ use serde::Serialize;
 use crate::art::target_path;
 use crate::gather::Gathered;
 use crate::identify::IdMethod;
-use crate::matching::{default_region_order, strategy_for, RankContext, RegionPref, StrategyKind};
+use crate::matching::{
+    default_region_order, is_unreleased_variant, strategy_for, RankContext, RegionPref,
+    StrategyKind,
+};
 use crate::profiles::{Media, Profile};
 use crate::sources::{Candidate, MatchKind};
 use crate::systems::SystemDb;
@@ -59,6 +62,15 @@ pub enum NoneReason {
     NoTarget,
 }
 
+/// Why an item needs a look although its match may be strong.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlanNote {
+    /// The best image is a beta, prototype, demo, hack or unlicensed
+    /// variant while the ROM is not (M2-11, D22): never written as `auto`.
+    UnreleasedVariant,
+}
+
 /// What the plan does for one ROM and media.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case")]
@@ -98,6 +110,9 @@ pub struct PlanItem {
     pub canonical: Option<String>,
     /// Whether a file already exists at `target` (exact spelling).
     pub replaces_existing: bool,
+    /// Why this item is in review although its confidence may be high.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<PlanNote>,
     #[serde(flatten)]
     pub action: PlanAction,
 }
@@ -179,20 +194,26 @@ pub fn build_plan(
                 media,
             );
             let cands = g.candidates.get(&media).map(Vec::as_slice).unwrap_or(&[]);
-            let action = match &target {
-                None => PlanAction::None {
-                    reason: NoneReason::NoTarget,
-                },
-                Some(_) if cands.is_empty() => match g.errors.get(&media) {
-                    Some(message) => PlanAction::None {
-                        reason: NoneReason::SourceError {
-                            message: message.clone(),
+            let (action, note) = match &target {
+                None => (
+                    PlanAction::None {
+                        reason: NoneReason::NoTarget,
+                    },
+                    None,
+                ),
+                Some(_) if cands.is_empty() => (
+                    match g.errors.get(&media) {
+                        Some(message) => PlanAction::None {
+                            reason: NoneReason::SourceError {
+                                message: message.clone(),
+                            },
+                        },
+                        None => PlanAction::None {
+                            reason: NoneReason::NoCandidates,
                         },
                     },
-                    None => PlanAction::None {
-                        reason: NoneReason::NoCandidates,
-                    },
-                },
+                    None,
+                ),
                 Some(_) => {
                     let ctx = RankContext {
                         rom_regions: &g.identity.parsed.regions,
@@ -200,7 +221,7 @@ pub fn build_plan(
                         sources: &opts.sources,
                     };
                     let order = strategy.rank(&ctx, cands);
-                    choose(cands, &order, opts)
+                    choose(cands, &order, opts, &t.stem)
                 }
             };
             totals.add(&action);
@@ -217,6 +238,7 @@ pub fn build_plan(
                 stem: t.stem.clone(),
                 media,
                 replaces_existing: target.as_deref().is_some_and(Path::exists),
+                note,
                 target: target.unwrap_or_default(),
                 identity_method: g.identity.method,
                 canonical: g.identity.canonical.clone(),
@@ -237,12 +259,37 @@ pub fn build_plan(
     }
 }
 
+/// Whether `c` is a non-retail variant matched only by title or fuzzily
+/// for a ROM that is not itself such a variant (M2-11).
+fn variant_needs_review(c: &Candidate, rom_stem: &str) -> bool {
+    is_unreleased_variant(&c.name)
+        && !matches!(c.kind, MatchKind::Canonical | MatchKind::NameExact)
+        && !is_unreleased_variant(rom_stem)
+}
+
 /// Picks the first of `order` (falling back to the first candidate if the
-/// strategy returned nothing) and classifies it by the thresholds.
-fn choose(cands: &[Candidate], order: &[usize], opts: &PlanOptions) -> PlanAction {
+/// strategy returned nothing) and classifies it by the thresholds. A
+/// non-retail first pick is replaced by the first retail candidate that
+/// reaches the review threshold, and is never `auto` (D22).
+fn choose(
+    cands: &[Candidate],
+    order: &[usize],
+    opts: &PlanOptions,
+    rom_stem: &str,
+) -> (PlanAction, Option<PlanNote>) {
     let mut order: Vec<usize> = order.iter().copied().filter(|&i| i < cands.len()).collect();
     if order.is_empty() {
         order = (0..cands.len()).collect();
+    }
+    let mut note = None;
+    if variant_needs_review(&cands[order[0]], rom_stem) {
+        note = Some(PlanNote::UnreleasedVariant);
+        if let Some(pos) = order.iter().position(|&i| {
+            !is_unreleased_variant(&cands[i].name) && confidence(&cands[i]) >= opts.review_threshold
+        }) {
+            let release = order.remove(pos);
+            order.insert(0, release);
+        }
     }
     let chosen = cands[order[0]].clone();
     let alternatives: Vec<Candidate> = order[1..]
@@ -251,21 +298,30 @@ fn choose(cands: &[Candidate], order: &[usize], opts: &PlanOptions) -> PlanActio
         .map(|&i| cands[i].clone())
         .collect();
     let c = confidence(&chosen);
-    if c >= opts.auto_threshold {
-        PlanAction::Auto {
-            chosen,
-            confidence: c,
-            alternatives,
-        }
+    if c >= opts.auto_threshold && note.is_none() {
+        (
+            PlanAction::Auto {
+                chosen,
+                confidence: c,
+                alternatives,
+            },
+            None,
+        )
     } else if c >= opts.review_threshold {
-        PlanAction::Review {
-            chosen,
-            confidence: c,
-            alternatives,
-        }
+        (
+            PlanAction::Review {
+                chosen,
+                confidence: c,
+                alternatives,
+            },
+            note,
+        )
     } else {
-        PlanAction::None {
-            reason: NoneReason::BelowThreshold { best: c },
-        }
+        (
+            PlanAction::None {
+                reason: NoneReason::BelowThreshold { best: c },
+            },
+            None,
+        )
     }
 }
