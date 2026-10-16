@@ -6,10 +6,12 @@
 pub mod art;
 pub mod audit;
 pub mod cache;
+pub mod gather;
 pub mod identify;
 pub mod net;
 pub mod paths;
 pub mod profiles;
+pub mod progress;
 pub mod scan;
 pub mod sources;
 pub mod systems;
