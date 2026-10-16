@@ -136,6 +136,14 @@ CLI exit codes: `0` up to date / updated / dry run verified; `6` signature failu
 | `COVERLY_UPDATE_PUBKEY` | CLI, **debug builds only** | Trust this base64 public key instead of `updater.pub` (tests and the local recipe in RELEASING.md §8). |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `tauri build`, `tauri signer sign` | Signing. In CI: a throwaway key in `app`, the real secrets only in `finalize`. Never read by the app or the CLI. |
 
+## Verified locally (M7, 2026-10-16)
+
+Checked on macOS arm64 with Tauri CLI 2.12 and a throwaway key (evidence in `docs/TRACKER.md`, «Evidencia M7»):
+
+- `tauri build` with `createUpdaterArtifacts: true` and the signing key set fails with `failed to decode pubkey` while `plugins.updater.pubkey` is the marker; with the throwaway `.pub` overlaid through `--config` it writes `Coverly ROMs.app.tar.gz` and its `.sig`. `make build`'s form (`createUpdaterArtifacts: false`) needs no key.
+- The `.sig` that `tauri build` writes already carries `version:<app version>` in its trusted comment. The `finalize` job re-signs with `--app-version` anyway, so the real signature never depends on that.
+- `coverly update check|install` against a local `latest.json` written by `release_tools.py add-cli`: a tampered artifact exits 6 and leaves the binary byte-for-byte unchanged; a good one replaces it.
+
 ## Connected drives on the Start screen (M3-06)
 
 Not part of the updater, but shipped in M7: `coverly_core::volumes::mounted_volumes()` (IPC `mounted_volumes`, `Backend.mountedVolumes()`) lists the drives connected now so the Start screen can open one as a library. It only lists folders, never opens, writes or mounts anything: on macOS the children of `/Volumes` (skipping hidden names and the boot disk, which resolves to `/`); on Linux `/media/$USER`, `/run/media/$USER` and `/media`; on Windows every existing `D:\`…`Z:\` except the system drive. Entries are de-duplicated by their real path and sorted by name, ignoring case. The browser mock lists one drive, `/mock/Small library`.
