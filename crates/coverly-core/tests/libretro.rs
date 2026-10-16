@@ -100,6 +100,35 @@ fn apache_index_drops_traversal_and_control_names() {
 }
 
 #[test]
+fn apache_index_decodes_html_entities_in_hrefs() {
+    // The live server escapes `&` in attributes:
+    // href="Tom%20&amp;%20Jerry%203%20(199x)(Dragon%20Co.)(AS)%5bp%5d.png"
+    let html = apache_listing(
+        "x",
+        &[
+            "Tom%20&amp;%20Jerry%203%20(AS)%5bp%5d.png".into(),
+            "Q&#39;bert%20&quot;X&quot;%20&#x26;%20&lt;Y&gt;.png".into(),
+            // Entities must not smuggle separators or traversal in.
+            "..&#47;evil.png".into(),
+            "a&#x5C;b.png".into(),
+            // Decoding happens once: `%26amp;` stays a literal `&amp;`.
+            "A%26amp;B.png".into(),
+            // Unknown entities are left alone.
+            "R&D&copy;.png".into(),
+        ],
+    );
+    assert_eq!(
+        parse_apache_files(&html),
+        [
+            "Tom & Jerry 3 (AS)[p].png",
+            "Q'bert \"X\" & <Y>.png",
+            "A&amp;B.png",
+            "R&D&copy;.png",
+        ]
+    );
+}
+
+#[test]
 fn root_listing_lists_system_folders() {
     let html = apache_listing(
         "/",

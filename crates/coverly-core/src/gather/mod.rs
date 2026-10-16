@@ -22,8 +22,9 @@ use crate::sources::libretro::INDEX_TTL_SECS;
 use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError};
 use crate::systems::{System, SystemDb};
 
-/// Cache namespace of gathered candidate lists.
-const NS: &str = "candidates";
+/// Cache namespace of gathered candidate lists; bumped with the libretro
+/// listing namespaces so lists built from older parsed names are not reused.
+const NS: &str = "candidates-2";
 
 /// Which ROMs get art: only those missing it, or every one (overwrite).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

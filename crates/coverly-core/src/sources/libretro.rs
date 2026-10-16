@@ -26,8 +26,11 @@ pub const INDEX_TTL_SECS: i64 = 2 * 24 * 3600;
 pub const MAX_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 const SOURCE_ID: &str = "libretro";
-const NS_ROOT: &str = "libretro-root";
-const NS_INDEX: &str = "libretro-index";
+// Parsed listings are cached with their ETag, so a 304 would keep names
+// parsed by an older parser forever: bump the suffix whenever parsing
+// changes (2: HTML entities in hrefs are decoded).
+const NS_ROOT: &str = "libretro-root-2";
+const NS_INDEX: &str = "libretro-index-2";
 /// Server folders whose GitHub repo has another name (research, correction 2).
 const RAW_RENAMES: [(&str, &str); 2] = [
     ("Atari - 8-bit", "Atari_-_8-bit_Family"),
@@ -69,12 +72,57 @@ fn is_bidi_control(c: char) -> bool {
     ('\u{202A}'..='\u{202E}').contains(&c) || ('\u{2066}'..='\u{2069}').contains(&c)
 }
 
+/// Undoes the HTML escaping of an attribute value: the five named entities
+/// Apache emits (`&amp;` in `Tom &amp; Jerry`) and numeric references.
+/// Anything else is left as it is; decoding happens exactly once.
+fn unescape_html(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let decoded = rest
+            .get(1..rest.find(';').filter(|&end| end <= 10).unwrap_or(0))
+            .and_then(|entity| {
+                let c = match entity {
+                    "amp" => '&',
+                    "lt" => '<',
+                    "gt" => '>',
+                    "quot" => '"',
+                    "apos" => '\'',
+                    _ => {
+                        let num = entity.strip_prefix('#')?;
+                        let code = match num.strip_prefix(['x', 'X']) {
+                            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+                            None => num.parse().ok()?,
+                        };
+                        char::from_u32(code)?
+                    }
+                };
+                Some((c, entity.len() + 2))
+            });
+        match decoded {
+            Some((c, used)) => {
+                out.push(c);
+                rest = &rest[used..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Decodes an href into a safe single path segment, or `None`.
 fn safe_name(href: &str) -> Option<String> {
+    let href = unescape_html(href);
     if href.starts_with('?') || href.starts_with('/') || href.contains("://") {
         return None;
     }
-    let decoded = percent_decode_str(href).decode_utf8().ok()?;
+    let decoded = percent_decode_str(&href).decode_utf8().ok()?;
     let name: String = decoded.nfc().collect();
     // A single segment cannot traverse without a separator, so titles with
     // "..." (e.g. "Wait... What (USA).png") stay valid.
