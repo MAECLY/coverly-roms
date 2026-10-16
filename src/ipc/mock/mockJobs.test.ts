@@ -177,7 +177,9 @@ describe('mock fill jobs', () => {
     const { b, view } = await opened();
     const v = await planned(b, view.generation);
     const review = (await b.fillJobItems(v.id, 'review'))[0]!;
-    const none = (await b.fillJobItems(v.id, 'none'))[0]!;
+    const none = (await b.fillJobItems(v.id, 'all')).find(
+      (i) => i.action === 'none',
+    )!;
     const last = review.candidates.length;
     await expect(
       b.decideFill(v.id, [
