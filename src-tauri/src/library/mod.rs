@@ -3,6 +3,7 @@
 
 pub mod art;
 pub mod identify;
+pub mod refresh;
 pub mod view;
 
 use std::collections::BTreeMap;
@@ -11,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use coverly_core::art::{resolve_art, ArtState};
+use coverly_core::art::resolve_art;
 use coverly_core::identify::names::parse_name;
 use coverly_core::profiles::{builtin_profiles, detect, fit_to_root, Media, Profile};
 use coverly_core::scan::{scan_library_with_progress, RomEntry, ScanOptions, ScanProgress};
@@ -20,9 +21,20 @@ use coverly_core::systems::SystemDb;
 use crate::error::IpcError;
 use view::{ArtMarks, EntryView, LibraryView, ProfileView, SystemView, WarningView};
 
+/// One folder of the ROMs root, as the backend needs it later.
+#[derive(Clone, Debug)]
+pub struct SessionSystem {
+    pub dir: PathBuf,
+    /// Folder name as on disk.
+    pub folder: String,
+    pub system_id: Option<String>,
+}
+
 /// Backend-only data of one entry (same index as its [`EntryView`]).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SessionEntry {
+    /// Index in [`Session::systems`].
+    pub system: u16,
     pub system_id: String,
     pub rom: RomEntry,
     /// Art files that exist, per media.
@@ -30,13 +42,16 @@ pub struct SessionEntry {
 }
 
 /// The library currently open in the app.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Session {
     pub generation: u64,
     /// The folder as picked.
     pub root: PathBuf,
     /// `root` canonicalised: nothing outside it is ever read.
     pub root_canon: PathBuf,
+    /// The profile fitted to `root` (what the scan used).
+    pub profile: Profile,
+    pub systems: Vec<SessionSystem>,
     pub entries: Vec<SessionEntry>,
 }
 
@@ -77,6 +92,7 @@ pub fn open_session(
 
     let mut warnings: Vec<WarningView> = scan.warnings.iter().map(warning).collect();
     let mut system_views = Vec::with_capacity(art.len());
+    let mut session_systems = Vec::with_capacity(art.len());
     let mut entry_views = Vec::new();
     let mut entries = Vec::new();
     for system_art in &art {
@@ -95,6 +111,11 @@ pub fn open_session(
                 .map(|s| s.name.clone())
                 .unwrap_or_else(|| system_art.scan.folder_name.clone()),
             roms: system_art.roms.len() as u32,
+        });
+        session_systems.push(SessionSystem {
+            dir: system_art.scan.dir.clone(),
+            folder: system_art.scan.folder_name.clone(),
+            system_id: system_art.scan.system_id.clone(),
         });
         warnings.extend(system_art.warnings.iter().map(warning));
         for rom_art in &system_art.roms {
@@ -117,16 +138,10 @@ pub fn open_session(
                 art: ArtMarks::from_states(&rom_art.art),
             });
             entries.push(SessionEntry {
+                system: index,
                 system_id: system_art.scan.system_id.clone().unwrap_or_default(),
                 rom: rom.clone(),
-                art: rom_art
-                    .art
-                    .iter()
-                    .filter_map(|(media, state)| match state {
-                        ArtState::Present { path } => Some((*media, path.clone())),
-                        _ => None,
-                    })
-                    .collect(),
+                art: refresh::present_paths(&rom_art.art),
             });
         }
     }
@@ -158,6 +173,8 @@ pub fn open_session(
         generation: req.generation,
         root: root.to_path_buf(),
         root_canon,
+        profile: profile.clone(),
+        systems: session_systems,
         entries,
     };
     Ok((session, view))

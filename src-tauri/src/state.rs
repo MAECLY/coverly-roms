@@ -12,6 +12,8 @@ use coverly_core::settings::{LibrarySettings, RecentLibrary};
 use coverly_core::systems::SystemDb;
 
 use crate::error::IpcError;
+use crate::jobs::FillConfig;
+use crate::library::refresh::{refresh_entries, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
 
@@ -19,16 +21,16 @@ pub struct AppState {
     latest: AtomicU64,
     session: Mutex<Option<Arc<Session>>>,
     settings_path: PathBuf,
-    cache_dir: PathBuf,
+    fill: Arc<FillConfig>,
 }
 
 impl AppState {
-    pub fn new(settings_path: PathBuf, cache_dir: PathBuf) -> AppState {
+    pub fn new(settings_path: PathBuf, fill: FillConfig) -> AppState {
         AppState {
             latest: AtomicU64::new(0),
             session: Mutex::new(None),
             settings_path,
-            cache_dir,
+            fill: Arc::new(fill),
         }
     }
 
@@ -56,6 +58,30 @@ impl AppState {
             Some(s) if s.generation != generation => Err(IpcError::StaleLibrary),
             Some(s) => Ok(Arc::clone(s)),
         }
+    }
+
+    /// The fill settings shared with job threads.
+    pub fn fill_config(&self) -> Arc<FillConfig> {
+        Arc::clone(&self.fill)
+    }
+
+    /// Resolves the art of `ids` again and installs the updated session,
+    /// if `generation` is still the open library.
+    pub fn refresh_entries(
+        &self,
+        generation: u64,
+        ids: &[u32],
+        systems: &SystemDb,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let mut slot = self.session.lock().unwrap_or_else(PoisonError::into_inner);
+        let current = match slot.as_ref() {
+            None => return Err(IpcError::NoLibrary),
+            Some(s) if s.generation != generation => return Err(IpcError::StaleLibrary),
+            Some(s) => Arc::clone(s),
+        };
+        let (next, updates) = refresh_entries(&current, ids, systems);
+        *slot = Some(Arc::new(next));
+        Ok(updates)
     }
 
     /// Opens `path` (blocking), installs it and remembers it as recent. A
@@ -141,8 +167,8 @@ impl AppState {
 
     /// The shared SQLite cache (hash memo, DATs), created on first use.
     pub fn cache(&self) -> Result<Cache, IpcError> {
-        std::fs::create_dir_all(&self.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
-        Cache::open(&self.cache_dir.join(CACHE_FILE)).map_err(|e| IpcError::Io(e.to_string()))
+        std::fs::create_dir_all(&self.fill.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        Cache::open(&self.fill.cache_dir.join(CACHE_FILE)).map_err(|e| IpcError::Io(e.to_string()))
     }
 }
 

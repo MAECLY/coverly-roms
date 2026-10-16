@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod ipc;
+pub mod jobs;
 pub mod library;
 pub mod state;
 
@@ -20,10 +21,11 @@ pub fn run() {
             let settings_path = config_dir()
                 .ok_or("cannot find the app config folder")?
                 .join(LIBRARY_SETTINGS_FILE);
-            let cache_dir = AppDirs::resolve(None, None)
-                .ok_or("cannot find the app cache folder")?
-                .cache;
-            app.manage(state::AppState::new(settings_path, cache_dir));
+            let dirs = AppDirs::resolve(None, None).ok_or("cannot find the app data folders")?;
+            app.manage(state::AppState::new(
+                settings_path,
+                jobs::FillConfig::new(dirs.cache, dirs.data),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
