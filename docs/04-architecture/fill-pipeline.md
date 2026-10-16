@@ -101,7 +101,7 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 
 - **Art store.** Downloads land in `<cache>/art/<sha1[0..2]>/<sha1>`, keyed by URL in SQLite and verified by SHA1 on read. Re-applying after an undo, or with another profile, downloads nothing.
 - **Fallbacks.** A 404, a decode failure (garbage behind a 200, a truncated PNG, a 9000 px image) or a fetch error moves to the next alternative. Only when all of them fail does the item fail, with `no-art`, `network` or `decode`.
-- **Per-item errors** (spec §10): `no-art`, `network`, `decode`, `write-denied`, `disk-full`, `name-invalid`, `outside-root`, `io`. One failed item never stops the job.
+- **Per-item errors** (spec §10): `no-art`, `network`, `decode`, `write-denied`, `disk-full`, `name-invalid`, `outside-root`, `volume-gone`, `io`. One failed item never stops the job.
 
 ## Pause and resume
 
@@ -110,6 +110,7 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 | 403 / 429 (after retries for 429) | stop, partial plan, exit 5, nothing written | stop scheduling, finish the journal, exit 5 |
 | Offline or timeout after retries (D15) | same as a rate limit | same as a rate limit |
 | Volume full or read-only, write denied | — | stop, journal kept |
+| Volume ejected (library root gone) | — | stop before downloading more, journal kept, the item is resumable |
 | Cancel (`AtomicBool`, used by the app in M4) | — | stop, journal kept, `cancelled: true` |
 
 **Resume = run the same command again.** Already-written art is no longer missing, so it is not a target. Quick ids, DATs, listings and candidate lists come from the cache, and art already downloaded comes from the art store. `coverly undo` removes exactly what the interrupted job wrote. In the CLI, Ctrl-C ends the process. Every journal entry is fsynced as it is written, so the job can still be undone.
