@@ -98,8 +98,8 @@ Audit of the reference SD (Anbernic stock, FAT `msdos` volume in a USB reader, 2
 
 | Run | Wall time |
 |---|---|
-| First run (cold cache) | 1.69 s |
-| Repeated runs (warm OS cache) | 0.17–0.43 s |
+| First run of the session | 1.69 s |
+| Repeated runs (OS cache warm) | 0.17–0.43 s |
 
 At this speed a scan cache is not needed for auditing, so the SQLite scan cache (tracker M1-05) moved to M2, where hashing makes caching worthwhile.
 
