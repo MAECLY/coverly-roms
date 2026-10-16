@@ -2,20 +2,35 @@
 //! generation counter that lets a newer open supersede an older one, and
 //! the library settings file. Free of Tauri types so it is unit-testable.
 
+use std::collections::BTreeMap;
+use std::fs::{self, File};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use coverly_core::art::{resolve_art, target_path};
+use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::fill::{remove_art, write_local_image, FillSettings};
+use coverly_core::gather::Scope;
+use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
+use coverly_core::plan::{Decision, Plan};
+use coverly_core::profiles::Media;
+use coverly_core::progress::NoProgress;
 use coverly_core::settings::{LibrarySettings, RecentLibrary};
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{list_jobs, undo_job};
+use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
 
 use crate::error::IpcError;
-use crate::jobs::view::{FillRequest, JobHistoryView, JobState, JobView, UndoView};
-use crate::jobs::{FillConfig, JobEvents, JobManager};
-use crate::library::refresh::{ids_for_art_paths, refresh_entries, EntryArtUpdate};
+use crate::jobs::view::{
+    candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest, JobHistoryView,
+    JobState, JobView, UndoView,
+};
+use crate::jobs::{with_env, FillConfig, JobEvents, JobManager};
+use crate::library::art::{inside_root, media_name, MAX_ART_BYTES};
+use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
 
@@ -25,6 +40,80 @@ pub struct AppState {
     settings_path: PathBuf,
     fill: Arc<FillConfig>,
     jobs: JobManager,
+    picks: Mutex<Option<EntryPick>>,
+}
+
+/// The candidates last listed in the drawer, so a pick names one of them.
+struct EntryPick {
+    generation: u64,
+    id: u32,
+    media: Media,
+    plan: Plan,
+}
+
+fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
+    let m = message.to_string();
+    match kind {
+        ItemErrorKind::NoArt | ItemErrorKind::Network => IpcError::Network(m),
+        ItemErrorKind::Decode => IpcError::BadImage(m),
+        ItemErrorKind::WriteDenied => IpcError::WriteDenied(m),
+        ItemErrorKind::DiskFull => IpcError::DiskFull,
+        ItemErrorKind::NameInvalid => IpcError::NameInvalid(m),
+        ItemErrorKind::OutsideRoot => IpcError::OutsideLibrary(m),
+        ItemErrorKind::VolumeGone | ItemErrorKind::Io => IpcError::Io(m),
+    }
+}
+
+fn absolute_root(session: &Session) -> Result<PathBuf, IpcError> {
+    std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))
+}
+
+/// Where the profile stores `media` for entry `id`.
+fn art_target(session: &Session, id: u32, media: Media) -> Result<PathBuf, IpcError> {
+    let entry = &session.entries[id as usize];
+    let sys = &session.systems[entry.system as usize];
+    let db = SystemDb::builtin();
+    let system = db.get(&entry.system_id).ok_or(IpcError::UnknownEntry(id))?;
+    target_path(
+        &absolute_root(session)?,
+        &session.profile,
+        &sys.dir,
+        system,
+        &entry.rom.rel_dir,
+        &entry.rom.stem,
+        media,
+    )
+    .ok_or_else(|| IpcError::BadRequest("this layout cannot store that media".into()))
+}
+
+/// A picked file, at most [`MAX_ART_BYTES`].
+fn read_capped(file: &Path) -> Result<Vec<u8>, IpcError> {
+    let shown = file.display().to_string();
+    let meta = fs::metadata(file).map_err(|_| IpcError::Unreadable(shown.clone()))?;
+    if !meta.is_file() {
+        return Err(IpcError::BadImage(shown));
+    }
+    if meta.len() > MAX_ART_BYTES {
+        return Err(IpcError::ArtTooLarge(meta.len()));
+    }
+    let mut bytes = Vec::new();
+    File::open(file)
+        .and_then(|f| f.take(MAX_ART_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|e| IpcError::Io(e.to_string()))?;
+    if bytes.len() as u64 > MAX_ART_BYTES {
+        return Err(IpcError::ArtTooLarge(bytes.len() as u64));
+    }
+    Ok(bytes)
+}
+
+fn write_export(
+    dest: &Path,
+    f: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+) -> Result<(), IpcError> {
+    let mut w = BufWriter::new(File::create(dest).map_err(|e| IpcError::Io(e.to_string()))?);
+    f(&mut w)
+        .and_then(|()| w.flush())
+        .map_err(|e| IpcError::Io(e.to_string()))
 }
 
 impl AppState {
@@ -35,6 +124,7 @@ impl AppState {
             settings_path,
             fill: Arc::new(fill),
             jobs: JobManager::default(),
+            picks: Mutex::new(None),
         }
     }
 
@@ -118,6 +208,230 @@ impl AppState {
             .refresh_entries(generation, &ids, &SystemDb::builtin())
             .unwrap_or_default();
         Ok(UndoView::new(&report, entries))
+    }
+
+    /// The open session, if entry `id` exists and no job is writing.
+    fn writable_entry(&self, generation: u64, id: u32) -> Result<Arc<Session>, IpcError> {
+        if self.jobs.busy() {
+            return Err(IpcError::JobRunning);
+        }
+        let session = self.session(generation)?;
+        if session.entries.get(id as usize).is_none() {
+            return Err(IpcError::UnknownEntry(id));
+        }
+        Ok(session)
+    }
+
+    fn picked(&self, generation: u64, id: u32, media: Media) -> Result<Plan, IpcError> {
+        let slot = self.picks.lock().unwrap_or_else(PoisonError::into_inner);
+        match slot.as_ref() {
+            Some(p) if p.generation == generation && p.id == id && p.media == media => {
+                Ok(p.plan.clone())
+            }
+            _ => Err(IpcError::BadRequest("list the candidates first".into())),
+        }
+    }
+
+    /// Every candidate for `media` of entry `id`, best first (the drawer's
+    /// "Change…"). Existing art does not hide candidates.
+    pub fn entry_candidates(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+    ) -> Result<Vec<CandidateView>, IpcError> {
+        let session = self.writable_entry(generation, id)?;
+        if session.profile.slot(media).is_none() {
+            return Err(IpcError::BadRequest(
+                "this layout cannot store that media".into(),
+            ));
+        }
+        let plan = with_env(&self.fill, |env| {
+            let db = SystemDb::builtin();
+            let (scan, _) = subset_scan(&session, &[id]);
+            let art = resolve_art(&scan, &session.profile, &db, &[media]);
+            let settings = FillSettings {
+                media: vec![media],
+                scope: Scope::All,
+                ..FillSettings::default()
+            };
+            Ok(env.plan(
+                &absolute_root(&session)?,
+                &session.profile,
+                &db,
+                &art,
+                &settings,
+                &NoProgress,
+                &AtomicBool::new(false),
+            ))
+        })?;
+        if let Some(why) = &plan.paused {
+            return Err(IpcError::Network(why.clone()));
+        }
+        let candidates = plan.items.first().map(candidate_views).unwrap_or_default();
+        *self.picks.lock().unwrap_or_else(PoisonError::into_inner) = Some(EntryPick {
+            generation,
+            id,
+            media,
+            plan,
+        });
+        Ok(candidates)
+    }
+
+    /// Candidate `candidate` of the listed ones, re-encoded as it would be written.
+    pub fn entry_candidate_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<u8>, IpcError> {
+        let session = self.session(generation)?;
+        let plan = self.picked(generation, id, media)?;
+        let c = plan
+            .items
+            .first()
+            .and_then(|item| {
+                candidates_of(item)
+                    .get(candidate as usize)
+                    .map(|c| (*c).clone())
+            })
+            .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}")))?;
+        with_env(&self.fill, |env| {
+            Ok(env.candidate_image(&session.profile, &c)?.bytes)
+        })
+    }
+
+    /// Writes candidate `candidate` of the listed ones (existing art backed up).
+    pub fn set_entry_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let session = self.writable_entry(generation, id)?;
+        let mut plan = self.picked(generation, id, media)?;
+        let known = plan
+            .items
+            .first()
+            .map_or(0, |item| candidates_of(item).len());
+        if candidate as usize >= known {
+            return Err(IpcError::BadRequest(format!("no candidate {candidate}")));
+        }
+        plan.decide(&BTreeMap::from([(
+            0,
+            Decision::Pick {
+                candidate: candidate as usize,
+            },
+        )]));
+        let opts = ApplyOptions {
+            overwrite: OverwritePolicy::Backup,
+            include_review: false,
+            concurrency: 1,
+            ..ApplyOptions::default()
+        };
+        let report = with_env(&self.fill, |env| {
+            env.apply(
+                &plan,
+                &session.profile,
+                &opts,
+                &NoProgress,
+                &AtomicBool::new(false),
+            )
+            .map_err(IpcError::from)
+        })?;
+        if let Some(ItemStatus::Failed { kind, message }) = report.items.first().map(|i| &i.status)
+        {
+            return Err(item_error(*kind, message));
+        }
+        if let Some(why) = report.paused {
+            return Err(IpcError::Network(why));
+        }
+        self.refresh_entries(generation, &[id], &SystemDb::builtin())
+    }
+
+    /// Writes the image file the user picked (decoded and re-encoded).
+    pub fn set_entry_art_from_file(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        file: &Path,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let session = self.writable_entry(generation, id)?;
+        let target = art_target(&session, id, media)?;
+        let bytes = read_capped(file)?;
+        write_local_image(
+            &absolute_root(&session)?,
+            &session.profile,
+            media,
+            &target,
+            &bytes,
+            &self.fill.data_dir,
+        )?;
+        self.refresh_entries(generation, &[id], &SystemDb::builtin())
+    }
+
+    /// Removes the art file of `media` (backed up, undoable).
+    pub fn remove_entry_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let session = self.writable_entry(generation, id)?;
+        let path = session.entries[id as usize]
+            .art
+            .get(&media)
+            .cloned()
+            .ok_or_else(|| IpcError::ArtMissing(media_name(media)))?;
+        inside_root(&session, &path)?;
+        remove_art(&absolute_root(&session)?, &path, &self.fill.data_dir)?;
+        self.refresh_entries(generation, &[id], &SystemDb::builtin())
+    }
+
+    /// Writes the audit of the open library (read again from disk) to `dest`.
+    pub fn export_audit(
+        &self,
+        generation: u64,
+        format: ExportFormat,
+        dest: &Path,
+    ) -> Result<(), IpcError> {
+        let session = self.session(generation)?;
+        let media: Vec<Media> = Media::ALL
+            .into_iter()
+            .filter(|m| session.profile.slot(*m).is_some())
+            .collect();
+        let report = build_report(
+            &session.root,
+            &session.profile,
+            &SystemDb::builtin(),
+            &self.settings().scan_options(),
+            &media,
+        );
+        write_export(dest, |w| match format {
+            ExportFormat::Csv => write_csv(&report, w, false),
+            ExportFormat::Json => {
+                serde_json::to_writer_pretty(w, &report).map_err(io::Error::other)
+            }
+        })
+    }
+
+    /// Writes the item outcomes of job `job` to `dest`.
+    pub fn export_job_report(
+        &self,
+        job: u64,
+        format: ExportFormat,
+        dest: &Path,
+    ) -> Result<(), IpcError> {
+        let report = self.jobs.report(job)?;
+        write_export(dest, |w| match format {
+            ExportFormat::Csv => write_report_csv(&report, w),
+            ExportFormat::Json => {
+                serde_json::to_writer_pretty(w, &report).map_err(io::Error::other)
+            }
+        })
     }
 
     /// Every journal kept, newest first.

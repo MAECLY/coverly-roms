@@ -2,22 +2,24 @@
 //! `state`/`jobs`/`library`; blocking work runs on the blocking thread pool;
 //! fill jobs report through Tauri events.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use coverly_core::profiles::Media;
 use coverly_core::systems::SystemDb;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::IpcError;
 use crate::jobs::view::{
-    DecisionIn, EntriesUpdatedEvent, FillRequest, ItemFilter, JobHistoryView, JobItemView,
-    JobProgressEvent, JobView, UndoView,
+    CandidateView, DecisionIn, EntriesUpdatedEvent, ExportFormat, FillRequest, ItemFilter,
+    JobHistoryView, JobItemView, JobProgressEvent, JobView, UndoView,
 };
 use crate::jobs::JobEvents;
 use crate::library::art::{entry_path, read_art_bytes};
+use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
 use crate::state::AppState;
 
@@ -281,4 +283,161 @@ pub async fn undo_last_job(app: AppHandle, generation: u64) -> Result<UndoView, 
 #[tauri::command]
 pub async fn job_history(app: AppHandle) -> Result<Vec<JobHistoryView>, IpcError> {
     blocking(move || app.state::<AppState>().job_history()).await
+}
+
+const IMAGE_FILTER: &str = "PNG / JPEG / WebP / GIF / BMP";
+const IMAGE_EXTS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+
+fn ext(format: ExportFormat) -> &'static str {
+    match format {
+        ExportFormat::Csv => "csv",
+        ExportFormat::Json => "json",
+    }
+}
+
+/// Asks where to save `default_name`; `None` when the user cancels.
+fn save_path(
+    app: &AppHandle,
+    default_name: &str,
+    format: ExportFormat,
+) -> Result<Option<PathBuf>, IpcError> {
+    let Some(file) = app
+        .dialog()
+        .file()
+        .set_file_name(default_name)
+        .add_filter(ext(format).to_uppercase(), &[ext(format)])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    file.into_path()
+        .map(Some)
+        .map_err(|e| IpcError::Io(e.to_string()))
+}
+
+fn shown_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn entry_candidates(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+) -> Result<Vec<CandidateView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .entry_candidates(generation, entry_id, media)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn entry_candidate_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+    candidate: u32,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .entry_candidate_art(generation, entry_id, media, candidate)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_entry_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+    candidate: u32,
+) -> Result<Vec<EntryArtUpdate>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .set_entry_art(generation, entry_id, media, candidate)
+    })
+    .await
+}
+
+/// Opens the native image picker; `None` when the user cancels.
+#[tauri::command]
+pub async fn set_entry_art_from_file(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+) -> Result<Option<Vec<EntryArtUpdate>>, IpcError> {
+    blocking(move || {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter(IMAGE_FILTER, &IMAGE_EXTS)
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let path = file.into_path().map_err(|e| IpcError::Io(e.to_string()))?;
+        app.state::<AppState>()
+            .set_entry_art_from_file(generation, entry_id, media, &path)
+            .map(Some)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_entry_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+) -> Result<Vec<EntryArtUpdate>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .remove_entry_art(generation, entry_id, media)
+    })
+    .await
+}
+
+/// Saves the audit through the native save dialog; returns the file name.
+#[tauri::command]
+pub async fn export_audit(
+    app: AppHandle,
+    generation: u64,
+    format: ExportFormat,
+) -> Result<Option<String>, IpcError> {
+    blocking(move || {
+        let name = format!("coverly-audit.{}", ext(format));
+        let Some(path) = save_path(&app, &name, format)? else {
+            return Ok(None);
+        };
+        app.state::<AppState>()
+            .export_audit(generation, format, &path)?;
+        Ok(Some(shown_name(&path)))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn export_job_report(
+    app: AppHandle,
+    job: u64,
+    format: ExportFormat,
+) -> Result<Option<String>, IpcError> {
+    blocking(move || {
+        let name = format!("coverly-job-{job}.{}", ext(format));
+        let Some(path) = save_path(&app, &name, format)? else {
+            return Ok(None);
+        };
+        app.state::<AppState>()
+            .export_job_report(job, format, &path)?;
+        Ok(Some(shown_name(&path)))
+    })
+    .await
 }

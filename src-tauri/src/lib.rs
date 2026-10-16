@@ -48,6 +48,13 @@ pub fn run() {
             ipc::candidate_art,
             ipc::undo_last_job,
             ipc::job_history,
+            ipc::entry_candidates,
+            ipc::entry_candidate_art,
+            ipc::set_entry_art,
+            ipc::set_entry_art_from_file,
+            ipc::remove_entry_art,
+            ipc::export_audit,
+            ipc::export_job_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

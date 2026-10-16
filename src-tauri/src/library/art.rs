@@ -16,7 +16,7 @@ use crate::error::IpcError;
 /// Largest art file served (the core image pipeline's own input cap).
 pub const MAX_ART_BYTES: u64 = 20 * 1024 * 1024;
 
-fn media_name(media: Media) -> String {
+pub(crate) fn media_name(media: Media) -> String {
     match media {
         Media::Cover => "cover",
         Media::Screenshot => "screenshot",

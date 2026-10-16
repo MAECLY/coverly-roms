@@ -1,0 +1,168 @@
+mod common;
+
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use common::fill::{fill_world, request, wait_for, FillWorld, Recorder};
+use common::write;
+use coverly_core::image::probe_dimensions;
+use coverly_core::net::testing::png_bytes;
+use coverly_core::profiles::Media;
+use coverly_core::settings::LIBRARY_SETTINGS_FILE;
+use coverly_core::systems::SystemDb;
+use coverly_roms_lib::error::IpcError;
+use coverly_roms_lib::jobs::view::{ExportFormat, JobState};
+use coverly_roms_lib::library::view::ArtMark;
+use coverly_roms_lib::state::AppState;
+
+fn opened(w: &FillWorld) -> (AppState, u64) {
+    let st = AppState::new(w.dirs.path().join(LIBRARY_SETTINGS_FILE), (*w.cfg).clone());
+    let view = st
+        .open(w.lib.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    (st, view.generation)
+}
+
+fn cover(w: &FillWorld, stem: &str) -> PathBuf {
+    w.lib.path().join(format!("ROMS/GBA/Imgs/{stem}.png"))
+}
+
+#[test]
+fn change_art_writes_the_picked_candidate_and_undo_removes_it() {
+    let w = fill_world();
+    let (st, generation) = opened(&w);
+    let cands = st.entry_candidates(generation, 1, Media::Cover).unwrap();
+    let japan = cands
+        .iter()
+        .find(|c| c.name == "Golden Adventure (Japan)")
+        .unwrap()
+        .index;
+    let preview = st
+        .entry_candidate_art(generation, 1, Media::Cover, japan)
+        .unwrap();
+    assert_eq!(&preview[..8], b"\x89PNG\r\n\x1a\n");
+    let updates = st
+        .set_entry_art(generation, 1, Media::Cover, japan)
+        .unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!((updates[0].id, updates[0].art.cover), (1, ArtMark::Present));
+    assert!(cover(&w, "002 Golden Adventure").exists());
+    assert_eq!(st.undo_last_job(generation).unwrap().removed, 1);
+    assert!(!cover(&w, "002 Golden Adventure").exists());
+}
+
+#[test]
+fn set_art_needs_the_candidates_of_that_entry() {
+    let w = fill_world();
+    let (st, generation) = opened(&w);
+    assert!(matches!(
+        st.set_entry_art(generation, 1, Media::Cover, 0),
+        Err(IpcError::BadRequest(_))
+    ));
+    st.entry_candidates(generation, 0, Media::Cover).unwrap();
+    assert!(matches!(
+        st.set_entry_art(generation, 1, Media::Cover, 0),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert!(matches!(
+        st.set_entry_art(generation, 0, Media::Cover, 42),
+        Err(IpcError::BadRequest(_))
+    ));
+}
+
+#[test]
+fn a_local_image_replaces_the_art_with_a_backup() {
+    let w = fill_world();
+    write(w.lib.path(), "ROMS/GBA/Imgs/001 Golden Sun.png", b"old art");
+    let (st, generation) = opened(&w);
+    let file = w.dirs.path().join("pick.png");
+    fs::write(&file, png_bytes(800, 800)).unwrap();
+    let updates = st
+        .set_entry_art_from_file(generation, 0, Media::Cover, &file)
+        .unwrap();
+    assert_eq!(updates[0].art.cover, ArtMark::Present);
+    let (wd, ht) = probe_dimensions(&fs::read(cover(&w, "001 Golden Sun")).unwrap()).unwrap();
+    assert!(wd <= 250 && ht <= 360, "{wd}x{ht}");
+    assert_eq!(st.undo_last_job(generation).unwrap().restored, 1);
+    assert_eq!(fs::read(cover(&w, "001 Golden Sun")).unwrap(), b"old art");
+}
+
+#[test]
+fn a_file_that_is_not_an_image_is_refused() {
+    let w = fill_world();
+    let (st, generation) = opened(&w);
+    let file = w.dirs.path().join("evil.png");
+    fs::write(&file, b"<html><script>alert(1)</script></html>").unwrap();
+    assert!(matches!(
+        st.set_entry_art_from_file(generation, 0, Media::Cover, &file),
+        Err(IpcError::BadImage(_))
+    ));
+    assert!(!cover(&w, "001 Golden Sun").exists());
+}
+
+#[test]
+fn removing_art_backs_it_up_and_undo_restores_it() {
+    let w = fill_world();
+    write(w.lib.path(), "ROMS/GBA/Imgs/001 Golden Sun.png", b"old art");
+    let (st, generation) = opened(&w);
+    let updates = st.remove_entry_art(generation, 0, Media::Cover).unwrap();
+    assert_eq!(updates[0].art.cover, ArtMark::Missing);
+    assert!(!cover(&w, "001 Golden Sun").exists());
+    let undo = st.undo_last_job(generation).unwrap();
+    assert_eq!(undo.restored, 1);
+    assert_eq!(undo.entries[0].art.cover, ArtMark::Present);
+    assert_eq!(fs::read(cover(&w, "001 Golden Sun")).unwrap(), b"old art");
+    assert_eq!(
+        st.remove_entry_art(generation, 1, Media::Cover),
+        Err(IpcError::ArtMissing("cover".into()))
+    );
+}
+
+#[test]
+fn audit_export_neutralises_formulas() {
+    let w = fill_world();
+    write(w.lib.path(), "ROMS/GBA/=HYPERLINK(1).gba", b"x");
+    let (st, generation) = opened(&w);
+    let csv = w.dirs.path().join("audit.csv");
+    st.export_audit(generation, ExportFormat::Csv, &csv)
+        .unwrap();
+    let text = fs::read_to_string(&csv).unwrap();
+    assert!(text.starts_with("system,folder,rel_path,stem,size,modified,cover"));
+    assert!(text.contains("'=HYPERLINK(1)"), "{text}");
+    let json = w.dirs.path().join("audit.json");
+    st.export_audit(generation, ExportFormat::Json, &json)
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(v["totals"]["roms"], 5);
+}
+
+#[test]
+fn job_report_export_lists_every_item() {
+    let w = fill_world();
+    let (st, generation) = opened(&w);
+    let rec = Arc::new(Recorder::default());
+    let id = st
+        .start_fill(generation, &request(None), rec.clone())
+        .unwrap()
+        .id;
+    wait_for(&rec, JobState::Planned);
+    assert!(matches!(
+        st.export_job_report(id, ExportFormat::Csv, &w.dirs.path().join("early.csv")),
+        Err(IpcError::BadRequest(_))
+    ));
+    st.jobs().run(st.fill_config(), id, rec.clone()).unwrap();
+    wait_for(&rec, JobState::Done);
+    let csv = w.dirs.path().join("job.csv");
+    st.export_job_report(id, ExportFormat::Csv, &csv).unwrap();
+    let text = fs::read_to_string(&csv).unwrap();
+    assert_eq!(text.lines().count(), 5);
+    assert!(
+        text.contains("GBA,003 Missing Game.gba,cover,failed,,,no-art,"),
+        "{text}"
+    );
+    let json = w.dirs.path().join("job.json");
+    st.export_job_report(id, ExportFormat::Json, &json).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(v["filled"], 2);
+}
