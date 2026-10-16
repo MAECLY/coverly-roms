@@ -870,6 +870,17 @@ body {
   margin-top: 0.5rem;
 }
 
+.drawer-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.drawer-search .text-input {
+  width: 100%;
+}
+
 .undo-confirm {
   margin-top: 0.5rem;
   padding: 0.75rem;
