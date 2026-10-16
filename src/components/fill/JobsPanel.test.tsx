@@ -178,6 +178,25 @@ describe('Jobs panel', () => {
     expect(within(history).getByText('Complete')).toBeInTheDocument();
   });
 
+  it('says one file, not one files, in the history', async () => {
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      { ...real!, job: 'one', entries: 1 },
+      { ...real!, job: 'two', entries: 2 },
+    ]);
+    const dialog = await openPanel();
+    const history = await within(dialog).findByRole('list', {
+      name: 'History',
+    });
+    await waitFor(() =>
+      expect(within(history).getAllByRole('listitem')).toHaveLength(2),
+    );
+    expect(within(history).getByText('1 file')).toBeInTheDocument();
+    expect(within(history).getByText('2 files')).toBeInTheDocument();
+  });
+
   it('survives history entries with unreadable dates', async () => {
     const { backend } = await running();
     await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));

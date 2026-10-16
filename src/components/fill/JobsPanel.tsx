@@ -321,7 +321,11 @@ export function JobsPanel({
             {history.map((h) => (
               <li key={h.job}>
                 <span>{when(h.created_at)}</span>
-                <span>{t('jobs.files', { n: n.format(h.entries) })}</span>
+                <span>
+                  {h.entries === 1
+                    ? t('jobs.file')
+                    : t('jobs.files', { n: n.format(h.entries) })}
+                </span>
                 <span className="hint">
                   {h.undone
                     ? t('jobs.undoneBadge')

@@ -331,6 +331,7 @@
     "undone": "Deshecho: {removed} quitadas, {restored} restauradas, {kept} conservadas porque las cambiaste.",
     "history": "Historial",
     "noHistory": "Todavía no hay trabajos.",
+    "file": "1 archivo",
     "files": "{n} archivos",
     "complete": "Completo",
     "incomplete": "Detenido antes de terminar",

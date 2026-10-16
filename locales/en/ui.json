@@ -331,6 +331,7 @@
     "undone": "Undone: {removed} removed, {restored} restored, {kept} kept because you changed them.",
     "history": "History",
     "noHistory": "No jobs yet.",
+    "file": "1 file",
     "files": "{n} files",
     "complete": "Complete",
     "incomplete": "Stopped early",
