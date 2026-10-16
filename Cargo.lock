@@ -547,6 +547,7 @@ dependencies = [
  "crc32fast",
  "directories",
  "filetime",
+ "flate2",
  "insta",
  "md-5",
  "percent-encoding",

@@ -116,6 +116,44 @@ fn bodies_over_the_limit_are_refused() {
 }
 
 #[test]
+fn gzip_bodies_are_capped_after_decompression() {
+    use std::io::Write;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    gz.write_all(&vec![0u8; 4 * 1024 * 1024]).unwrap();
+    let bomb = gz.finish().unwrap();
+    assert!(
+        bomb.len() < 64 * 1024,
+        "wire size {} is under the cap",
+        bomb.len()
+    );
+    let server = MockServer::start();
+    server.mock(
+        "/bomb",
+        MockResponse::ok(bomb).header("Content-Encoding", "gzip"),
+    );
+    let err = client()
+        .get(&HttpRequest::get(server.url("/bomb")).max_bytes(64 * 1024))
+        .unwrap_err();
+    assert_eq!(err, NetError::TooLarge { limit: 64 * 1024 });
+}
+
+#[test]
+fn gzip_bodies_within_the_cap_are_decoded() {
+    use std::io::Write;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    gz.write_all(b"hello gzip").unwrap();
+    let server = MockServer::start();
+    server.mock(
+        "/gz",
+        MockResponse::ok(gz.finish().unwrap()).header("Content-Encoding", "gzip"),
+    );
+    let resp = client()
+        .get(&HttpRequest::get(server.url("/gz")).max_bytes(10))
+        .unwrap();
+    assert_eq!(resp.body, b"hello gzip");
+}
+
+#[test]
 fn plain_http_to_a_remote_host_is_refused_before_connecting() {
     let err = UreqHttp::new(&cfg())
         .get(&HttpRequest::get("http://example.com/x"))

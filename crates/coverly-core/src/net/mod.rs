@@ -230,16 +230,7 @@ impl Http for UreqHttp {
         let body = if status == 304 {
             Vec::new()
         } else {
-            resp.body_mut()
-                .with_config()
-                .limit(req.max_bytes)
-                .read_to_vec()
-                .map_err(|e| match e {
-                    ureq::Error::BodyExceedsLimit(_) => NetError::TooLarge {
-                        limit: req.max_bytes,
-                    },
-                    other => transport(other),
-                })?
+            read_capped(resp.body_mut(), req.max_bytes)?
         };
         Ok(HttpResponse {
             status,
@@ -250,6 +241,33 @@ impl Http for UreqHttp {
             body,
         })
     }
+}
+
+/// Slack on the wire cap so a small body may still carry gzip framing.
+const WIRE_SLACK: u64 = 64 * 1024;
+
+/// Reads at most `max` decoded bytes. ureq decodes `Content-Encoding: gzip`
+/// itself and its `limit` counts wire bytes, so a gzip bomb would pass it:
+/// the decoded stream gets its own cap here.
+fn read_capped(body: &mut ureq::Body, max: u64) -> Result<Vec<u8>, NetError> {
+    use std::io::Read;
+    let too_large = || NetError::TooLarge { limit: max };
+    let reader = body
+        .with_config()
+        .limit(max.saturating_add(WIRE_SLACK))
+        .reader();
+    let mut out = Vec::new();
+    reader
+        .take(max.saturating_add(1))
+        .read_to_end(&mut out)
+        .map_err(|e| match ureq::Error::from(e) {
+            ureq::Error::BodyExceedsLimit(_) => too_large(),
+            other => transport(other),
+        })?;
+    if out.len() as u64 > max {
+        return Err(too_large());
+    }
+    Ok(out)
 }
 
 fn transport(e: ureq::Error) -> NetError {
