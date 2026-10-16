@@ -344,3 +344,20 @@ fn other_batocera_scraper_media_are_not_orphans() {
         ["Gone-marquee.png", "Zelda-unknown.png"]
     );
 }
+
+#[test]
+fn stems_match_across_unicode_normalisation_forms() {
+    let lib = tempfile::TempDir::new().unwrap();
+    let root = lib.path();
+    // ROM in NFC, art in NFD (as some macOS tools write it).
+    touch(root, "ROMS/SFC/Pok\u{e9}mon.sfc");
+    touch(root, "ROMS/SFC/IMGS/Poke\u{301}mon.png");
+
+    let art = resolve(root, "anbernic-stock", &[Media::Cover]);
+    let sfc = system(&art, "SFC");
+    assert!(matches!(
+        state(sfc, "Pok\u{e9}mon", Media::Cover),
+        ArtState::Present { .. }
+    ));
+    assert!(sfc.orphans.is_empty(), "{:?}", sfc.orphans);
+}

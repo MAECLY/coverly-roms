@@ -5,13 +5,16 @@
 //! (one `read_dir` per directory, never an `exists()` per ROM and
 //! extension). Folder names, file stems and extensions all match
 //! case-insensitively, and an image with another extension (`.jpg` where
-//! the profile writes `.png`) counts as present. Read-only.
+//! the profile writes `.png`) counts as present. Names are compared in
+//! Unicode NFC, so `é` written decomposed (NFD, as some macOS tools do)
+//! matches a precomposed `é`. Read-only.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::profiles::{render, ImageFormat, Media, MediaSlot, Profile, TemplateVars};
 use crate::scan::{LibraryScan, RomEntry, SystemScan};
@@ -242,12 +245,12 @@ fn expected(
         },
     );
     let dir = path.parent()?.to_path_buf();
-    let file_stem = path.file_stem()?.to_string_lossy().to_lowercase();
+    let file_stem = key(&path.file_stem()?.to_string_lossy());
     let mut stems = vec![file_stem.clone()];
     if let Some(base) = file_stem.strip_suffix(COVER_POSTFIX) {
         stems.push(format!("{base}{COVER_POSTFIX_ALT}"));
     }
-    let rom_stem = stem.to_lowercase();
+    let rom_stem = key(stem);
     let batocera = file_stem
         .strip_prefix(rom_stem.as_str())
         .and_then(|rest| rest.strip_prefix('-'))
@@ -271,7 +274,7 @@ fn push_unique(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
 
 /// An image file of an indexed folder.
 struct Image {
-    /// File stem, lowercase.
+    /// File stem, lowercase NFC (see [`key`]).
     stem: String,
     /// Extension, lowercase.
     ext: String,
@@ -407,7 +410,7 @@ fn read_listing(dir: &Path) -> Listing {
         }
         let stem = path
             .file_stem()
-            .map(|s| s.to_string_lossy().to_lowercase())
+            .map(|s| key(&s.to_string_lossy()))
             .unwrap_or_default();
         listing.images.push(Image { stem, ext, path });
     }
@@ -423,6 +426,11 @@ fn read_listing(dir: &Path) -> Listing {
     listing
 }
 
+/// Comparison key of a name: lowercase, Unicode NFC.
+fn key(name: &str) -> String {
+    name.to_lowercase().nfc().collect()
+}
+
 fn eq_ignore_case(a: &str, b: &str) -> bool {
-    a == b || a.to_lowercase() == b.to_lowercase()
+    a == b || key(a) == key(b)
 }
