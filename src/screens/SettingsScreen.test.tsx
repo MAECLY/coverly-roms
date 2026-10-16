@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Root } from '@/Root';
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import {
   createMockBackend,
@@ -198,6 +199,23 @@ describe('Settings screen', () => {
     await waitFor(() => expect(missing()).toBeLessThan(before));
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(missing()).toBeLessThan(before);
+  });
+
+  it('says when a setting could not be saved', async () => {
+    await start();
+    act(() => useNavStore.getState().openSettings('general'));
+    const real = backend.updateSettings.bind(backend);
+    backend.updateSettings = () =>
+      Promise.reject(new BackendError('settings', 'read-only folder'));
+    await userEvent.click(await screen.findByRole('radio', { name: 'Dark' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The settings could not be saved: read-only folder',
+    );
+    backend.updateSettings = real;
+    await userEvent.click(screen.getByRole('radio', { name: 'Light' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument(),
+    );
   });
 
   it('shows About with the licence and opens fixed links only', async () => {

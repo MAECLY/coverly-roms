@@ -1,22 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
-import { createMockBackend } from '@/ipc/mock/mockBackend';
+import {
+  createMockBackend,
+  MOCK_LIBRARIES,
+  type MockBackend,
+} from '@/ipc/mock/mockBackend';
+import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { MemoryStorage } from '@/test/storage';
 
 import { resetSettingsStore, useSettingsStore } from './settingsStore';
 
+let backend: MockBackend;
+
 describe('settings store', () => {
   beforeEach(() => {
-    setBackend(
-      createMockBackend({
-        delayMs: 0,
-        now: FIXTURE_NOW,
-        storage: new MemoryStorage(),
-      }),
-    );
+    backend = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+    });
+    setBackend(backend);
     resetSettingsStore();
+    resetLibraryStore();
   });
   afterEach(() => setBackend(null));
 
@@ -45,6 +53,7 @@ describe('settings store', () => {
   });
 
   it('flags a reopen and resets', async () => {
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
     const s = useSettingsStore.getState();
     await s.load();
     await s.update({ library: { include_hidden: true } });
@@ -60,5 +69,62 @@ describe('settings store', () => {
     await useSettingsStore.getState().load();
     expect(useSettingsStore.getState().settings!.general.language).toBe('es');
     expect(localStorage.getItem('coverly.locale')).toBeNull();
+  });
+
+  it('keeps a failed save as an error instead of throwing', async () => {
+    const s = useSettingsStore.getState();
+    await s.load();
+    const real = backend.updateSettings.bind(backend);
+    backend.updateSettings = () =>
+      Promise.reject(new BackendError('settings', 'read-only'));
+    expect(await s.update({ library: { include_hidden: true } })).toEqual([]);
+    expect(useSettingsStore.getState().saveError?.code).toBe('settings');
+    expect(useSettingsStore.getState().settings!.library.include_hidden).toBe(
+      false,
+    );
+    backend.resetSettings = () =>
+      Promise.reject(new BackendError('settings', 'read-only'));
+    await expect(s.reset()).resolves.toBeUndefined();
+    expect(useSettingsStore.getState().saveError?.code).toBe('settings');
+    backend.updateSettings = real;
+    expect(await s.update({ network: { retries: 5 } })).toEqual([]);
+    expect(useSettingsStore.getState().saveError).toBeNull();
+  });
+
+  it('flags a reopen only while a library is open, and clears it on open', async () => {
+    const s = useSettingsStore.getState();
+    await s.load();
+    await s.update({ library: { include_hidden: true } });
+    expect(useSettingsStore.getState().reopen).toBe(false);
+    await s.reset();
+    expect(useSettingsStore.getState().reopen).toBe(false);
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    await s.update({ library: { include_hidden: true } });
+    expect(useSettingsStore.getState().reopen).toBe(true);
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    expect(useSettingsStore.getState().reopen).toBe(false);
+  });
+
+  it('ignores a save answer older than one already applied', async () => {
+    const s = useSettingsStore.getState();
+    await s.load();
+    const real = backend.updateSettings.bind(backend);
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((r) => (releaseFirst = r));
+    let calls = 0;
+    backend.updateSettings = async (patch) => {
+      const n = (calls += 1);
+      const out = await real(patch);
+      if (n > 1) return out;
+      await gate;
+      // The answer as it stood when this save finished, before the next one.
+      const network = { ...out.settings.network, retries: 5 };
+      return { ...out, settings: { ...out.settings, network } };
+    };
+    const first = s.update({ network: { retries: 5 } });
+    await s.update({ network: { retries: 7 } });
+    releaseFirst();
+    await first;
+    expect(useSettingsStore.getState().settings!.network.retries).toBe(7);
   });
 });

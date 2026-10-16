@@ -49,6 +49,7 @@ export function SettingsScreen() {
   const dismissNotice = useSettingsStore((s) => s.dismissNotice);
   const dismissReopen = useSettingsStore((s) => s.dismissReopen);
   const loadError = useSettingsStore((s) => s.error);
+  const saveError = useSettingsStore((s) => s.saveError);
   const tabRefs = useRef(new Map<SettingsSection, HTMLButtonElement>());
   useEffect(() => {
     // Root loads them at start; this covers a screen shown without it.
@@ -109,6 +110,11 @@ export function SettingsScreen() {
         </button>
         <h1>{t('settings.title')}</h1>
       </header>
+      {saveError && (
+        <p role="alert" className="error-banner">
+          {t(errorKey(saveError.code), { detail: saveError.detail ?? '' })}
+        </p>
+      )}
       {notice && (
         <div role="status" className="notice-banner">
           <p>

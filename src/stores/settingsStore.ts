@@ -11,6 +11,7 @@ import type {
   SettingsPatch,
 } from '@/ipc/types';
 import { leafPaths } from '@/lib/settingsRules';
+import { useLibraryStore } from '@/stores/libraryStore';
 
 const LEGACY_LOCALE = 'coverly.locale';
 
@@ -24,6 +25,8 @@ interface SettingsState {
   reopen: boolean;
   saved: number;
   error: BackendError | null;
+  /** The last save or reset that failed; cleared by the next one that works. */
+  saveError: BackendError | null;
   load(): Promise<void>;
   refresh(): Promise<void>;
   update(patch: SettingsPatch): Promise<FieldError[]>;
@@ -43,7 +46,17 @@ const INITIAL = {
   reopen: false,
   saved: 0,
   error: null,
+  saveError: null,
 };
+
+/** Each save is numbered; an answer older than one applied is not shown. */
+let saveSeq = 0;
+let appliedSeq = 0;
+
+/** A scan setting changed only matters to a library already open. */
+function libraryOpen(): boolean {
+  return useLibraryStore.getState().status === 'ready';
+}
 
 function takeLegacyLocale(): 'en' | 'es' | null {
   try {
@@ -86,9 +99,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
   async update(patch) {
-    const b = await getBackend();
-    const out = await b.updateSettings(patch);
+    const mine = (saveSeq += 1);
+    let out;
+    try {
+      out = await (await getBackend()).updateSettings(patch);
+    } catch (e) {
+      set({ saveError: toBackendError(e) });
+      return [];
+    }
     const paths = leafPaths(patch);
+    const stale = mine < appliedSeq;
+    if (!stale && out.errors.length === 0) appliedSeq = mine;
     set((s) => {
       const errors = { ...s.errors };
       for (const key of Object.keys(errors)) {
@@ -96,26 +117,35 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
           delete errors[key];
       }
       for (const e of out.errors) errors[e.field] = e;
-      return out.errors.length
-        ? { errors }
-        : {
-            errors,
-            settings: out.settings,
-            reopen: s.reopen || out.reopen,
-            notice: null,
-            saved: s.saved + 1,
-          };
+      if (out.errors.length) return { errors };
+      return {
+        errors,
+        ...(stale ? {} : { settings: out.settings }),
+        reopen: s.reopen || (out.reopen && libraryOpen()),
+        notice: null,
+        saveError: null,
+        saved: s.saved + 1,
+      };
     });
     return out.errors;
   },
   async reset() {
-    const b = await getBackend();
-    const view = await b.resetSettings();
+    const mine = (saveSeq += 1);
+    let view;
+    try {
+      view = await (await getBackend()).resetSettings();
+    } catch (e) {
+      set({ saveError: toBackendError(e) });
+      return;
+    }
+    if (mine < appliedSeq) return;
+    appliedSeq = mine;
     set({
       settings: view.settings,
       notice: null,
       errors: {},
-      reopen: true,
+      saveError: null,
+      reopen: libraryOpen(),
       saved: get().saved + 1,
     });
   },
@@ -131,7 +161,18 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     })),
 }));
 
+// A library opened (or reopened) is scanned with the current settings.
+useLibraryStore.subscribe((now, before) => {
+  if (
+    now.status === 'ready' &&
+    now.view?.generation !== before.view?.generation
+  )
+    useSettingsStore.setState({ reopen: false });
+});
+
 /** Tests only. */
 export function resetSettingsStore(): void {
+  saveSeq = 0;
+  appliedSeq = 0;
   useSettingsStore.setState({ ...INITIAL });
 }
