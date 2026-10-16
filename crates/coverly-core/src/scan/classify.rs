@@ -79,6 +79,7 @@ mod tests {
             multi_file: false,
             header: crate::identify::hash::HeaderRule::Plain,
             dats: Vec::new(),
+            screenscraper: None,
         }
     }
 
