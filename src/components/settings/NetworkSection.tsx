@@ -18,6 +18,8 @@ export function NetworkSection() {
   const update = useSettingsStore((s) => s.update);
   const urlError = useFieldError('network.proxy_url');
   const [url, setUrl] = useState<string | null>(null);
+  // A Manual choice refused for its empty URL is applied with the URL.
+  const [manualPending, setManualPending] = useState(false);
   const [usage, setUsage] = useState<number | null>(null);
   const [freed, setFreed] = useState<number | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -76,7 +78,10 @@ export function NetworkSection() {
               type="radio"
               name="proxy"
               checked={n.proxy === p}
-              onChange={() => void update({ network: { proxy: p } })}
+              onChange={async () => {
+                const errors = await update({ network: { proxy: p } });
+                setManualPending(p === 'manual' && errors.length > 0);
+              }}
             />
             {t(`settings.network.proxies.${p}`)}
           </label>
@@ -93,8 +98,13 @@ export function NetworkSection() {
           onChange={(e) => setUrl(e.target.value)}
           onBlur={async () => {
             if (url === null) return;
-            if ((await update({ network: { proxy_url: url } })).length === 0)
+            const patch = manualPending
+              ? { proxy: 'manual' as const, proxy_url: url }
+              : { proxy_url: url };
+            if ((await update({ network: patch })).length === 0) {
               setUrl(null);
+              setManualPending(false);
+            }
           }}
         />
       </Field>

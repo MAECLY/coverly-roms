@@ -225,6 +225,33 @@ describe('settings sections', () => {
     });
   });
 
+  it('network: a Manual proxy refused for its empty URL is applied once a URL is typed', async () => {
+    await open('network');
+    await userEvent.click(screen.getByRole('radio', { name: 'Manual' }));
+    expect(
+      await screen.findByText('This cannot be empty.'),
+    ).toBeInTheDocument();
+    const url = screen.getByRole('textbox', { name: 'Proxy URL' });
+    await userEvent.type(url, 'http://proxy.local:3128');
+    await userEvent.tab();
+    expect((await saved()).network).toMatchObject({
+      proxy: 'manual',
+      proxy_url: 'http://proxy.local:3128',
+    });
+    expect(screen.getByRole('radio', { name: 'Manual' })).toBeChecked();
+  });
+
+  it('network: a URL typed with another proxy choice keeps that choice', async () => {
+    await open('network');
+    const url = screen.getByRole('textbox', { name: 'Proxy URL' });
+    await userEvent.type(url, 'http://proxy.local:3128');
+    await userEvent.tab();
+    expect((await saved()).network).toMatchObject({
+      proxy: 'system',
+      proxy_url: 'http://proxy.local:3128',
+    });
+  });
+
   it('network: clears the cache after a confirmation', async () => {
     await open('network');
     expect(await screen.findByText(/In use: 48/)).toBeInTheDocument();
