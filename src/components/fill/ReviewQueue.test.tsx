@@ -228,6 +228,23 @@ describe('Review queue', () => {
     ).toBeInTheDocument();
   });
 
+  it('says there is nothing to review when there is no job', async () => {
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+    resetLibraryStore();
+    useJobStore.getState().reset();
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    render(
+      <I18nProvider locale="en">
+        <App />
+      </I18nProvider>,
+    );
+    const dialog = await openQueue();
+    expect(
+      within(dialog).getByText('There is no fill job.'),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText('Loading…')).toBeNull();
+  });
+
   it('a double Enter decides one item, not two', async () => {
     const { backend, review } = await planned();
     const spy = vi.spyOn(backend, 'decideFill');

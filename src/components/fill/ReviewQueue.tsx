@@ -171,7 +171,8 @@ export function ReviewQueue({
       <h2 id="review-title" className="section-title">
         {t('review.title')}
       </h2>
-      {items === null && !loadError && (
+      {jobId === null && <p>{t('errors.no-job')}</p>}
+      {jobId !== null && items === null && !loadError && (
         <p role="status">{t('review.loading')}</p>
       )}
       {items !== null && items.length === 0 && <p>{t('review.empty')}</p>}
