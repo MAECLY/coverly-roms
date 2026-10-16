@@ -242,9 +242,10 @@ impl Writer {
             return Err(WriteError::Journal(format!("not a job id: {job}")));
         }
         let path = data_dir.join("jobs").join(format!("{job}.jsonl"));
-        let text = fs::read_to_string(&path).map_err(|e| map_io(e, &path))?;
-        if !text.is_empty() && !text.ends_with('\n') {
-            let keep = text.rfind('\n').map_or(0, |i| i + 1);
+        // Bytes, not text: a tear can split a multi-byte character.
+        let bytes = fs::read(&path).map_err(|e| map_io(e, &path))?;
+        if bytes.last().is_some_and(|&b| b != b'\n') {
+            let keep = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
             let file = OpenOptions::new()
                 .write(true)
                 .open(&path)
@@ -320,9 +321,19 @@ impl Writer {
             }
         };
 
-        let tmp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
-        self.counter += 1;
-        atomic_write(&dest, bytes, &tmp)?;
+        // A crash (or an earlier run of a resumed job) can leave a temp
+        // file with the next name behind: skip past it.
+        let mut tries = 0;
+        loop {
+            let tmp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
+            self.counter = self.counter.wrapping_add(1);
+            match atomic_write(&dest, bytes, &tmp) {
+                Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists && tries < 1000 => {
+                    tries += 1;
+                }
+                result => break result?,
+            }
+        }
 
         let (op, outcome) = match backup {
             None => (Op::Created, WriteOutcome::Created { path: dest.clone() }),
@@ -581,16 +592,22 @@ fn valid_job_id(job: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Parses a journal. A torn last line (crash while appending) is ignored;
-/// any other bad line is an error.
+/// Parses a journal. A torn last line (crash while appending, possibly
+/// inside a multi-byte character) is ignored; any other bad line is an
+/// error. `done` is whether the last run finished: an entry after a `done`
+/// line (a resumed run) clears it.
 fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
-    let text = fs::read_to_string(path).map_err(|e| map_io(e, path))?;
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let bytes = fs::read(path).map_err(|e| map_io(e, path))?;
+    let torn = bytes.last().is_some_and(|&b| b != b'\n');
+    let lines: Vec<&[u8]> = bytes
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.trim_ascii().is_empty())
+        .collect();
     let mut parsed = Vec::with_capacity(lines.len());
     for (i, raw) in lines.iter().enumerate() {
-        match serde_json::from_str::<Line>(raw) {
+        match serde_json::from_slice::<Line>(raw) {
             Ok(line) => parsed.push(line),
-            Err(_) if i + 1 == lines.len() && !text.ends_with('\n') => {}
+            Err(_) if i + 1 == lines.len() && torn => {}
             Err(e) => {
                 return Err(WriteError::Journal(format!(
                     "{}: line {}: {e}",
@@ -614,7 +631,10 @@ fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
     let mut done = false;
     for line in iter {
         match line {
-            Line::Entry { .. } => entries.push(line),
+            Line::Entry { .. } => {
+                entries.push(line);
+                done = false;
+            }
             Line::Done => done = true,
             Line::Header { .. } => {
                 return Err(WriteError::Journal(format!(

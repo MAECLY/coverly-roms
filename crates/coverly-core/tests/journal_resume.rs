@@ -122,3 +122,79 @@ fn remove_skips_missing_files_and_never_removes_folders_or_outside_paths() {
     ));
     assert!(img(&root, "dir.png").is_dir() && outside.path().join("x.png").exists());
 }
+
+#[test]
+fn resume_cuts_a_torn_last_line_inside_a_multibyte_name() {
+    let (_lib, data, root) = setup();
+    let mut w = Writer::begin(&root, data.path()).unwrap();
+    w.write(
+        &img(&root, "ゼルダの伝説.png"),
+        b"a",
+        OverwritePolicy::Never,
+    )
+    .unwrap();
+    let job = w.job_id().to_string();
+    drop(w); // a crash while appending the next line
+    let journal = data.path().join("jobs").join(format!("{job}.jsonl"));
+    let mut bytes = fs::read(&journal).unwrap();
+    let torn = "{\"type\":\"entry\",\"target\":\"ゼ".as_bytes();
+    // Cut inside the last character: the file is not valid UTF-8.
+    bytes.extend_from_slice(&torn[..torn.len() - 1]);
+    fs::write(&journal, &bytes).unwrap();
+    let jobs = list_jobs(data.path()).unwrap();
+    assert_eq!(jobs[0].entries, 1);
+    let mut w = Writer::resume(&root, data.path(), &job).unwrap();
+    w.write(&img(&root, "ポケモン.png"), b"b", OverwritePolicy::Never)
+        .unwrap();
+    w.finish().unwrap();
+    assert_eq!(undo_last(data.path()).unwrap().removed.len(), 2);
+}
+
+#[test]
+fn undo_reads_a_journal_torn_inside_a_multibyte_name() {
+    let (_lib, data, root) = setup();
+    let mut w = Writer::begin(&root, data.path()).unwrap();
+    w.write(&img(&root, "ゼルダ.png"), b"a", OverwritePolicy::Never)
+        .unwrap();
+    let job = w.job_id().to_string();
+    drop(w);
+    let journal = data.path().join("jobs").join(format!("{job}.jsonl"));
+    let mut bytes = fs::read(&journal).unwrap();
+    bytes.extend_from_slice(&"ゼ".as_bytes()[..2]);
+    fs::write(&journal, &bytes).unwrap();
+    assert_eq!(undo_last(data.path()).unwrap().removed.len(), 1);
+}
+
+#[test]
+fn a_resumed_write_survives_temp_files_left_by_a_crash() {
+    let (_lib, data, root) = setup();
+    let mut w = Writer::begin(&root, data.path()).unwrap();
+    w.write(&img(&root, "a.png"), b"a", OverwritePolicy::Never)
+        .unwrap();
+    let job = w.job_id().to_string();
+    drop(w); // a crash that left temp files behind
+    for k in 0..8 {
+        fs::write(img(&root, &format!(".coverly-{job}-{k}.tmp")), b"stale").unwrap();
+    }
+    let mut w = Writer::resume(&root, data.path(), &job).unwrap();
+    w.write(&img(&root, "b.png"), b"b", OverwritePolicy::Never)
+        .unwrap();
+    w.finish().unwrap();
+    assert_eq!(fs::read(img(&root, "b.png")).unwrap(), b"b");
+}
+
+#[test]
+fn a_resumed_run_that_crashes_is_not_complete() {
+    let (_lib, data, root) = setup();
+    let mut w = Writer::begin(&root, data.path()).unwrap();
+    w.write(&img(&root, "a.png"), b"a", OverwritePolicy::Never)
+        .unwrap();
+    let job = w.finish().unwrap();
+    let mut w = Writer::resume(&root, data.path(), &job).unwrap();
+    w.write(&img(&root, "b.png"), b"b", OverwritePolicy::Never)
+        .unwrap();
+    drop(w); // a crash: no second `done`
+    let jobs = list_jobs(data.path()).unwrap();
+    assert_eq!(jobs[0].entries, 2);
+    assert!(!jobs[0].complete);
+}
