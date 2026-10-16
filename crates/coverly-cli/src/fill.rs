@@ -10,25 +10,22 @@ use std::sync::atomic::AtomicBool;
 use clap::{Args, ValueEnum};
 use coverly_core::art::resolve_art;
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::gather::{gather, select_targets, GatherOptions, Scope, TargetFilter};
-use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
-use coverly_core::identify::{Identifier, IdentifyOptions, MatchMethod};
-use coverly_core::jobs::{
-    apply_plan, ApplyOptions, ArtStore, ItemErrorKind, ItemStatus, JobReport,
-};
+use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
+use coverly_core::gather::Scope;
+use coverly_core::identify::dat::DATABASE_BASE;
+use coverly_core::identify::MatchMethod;
+use coverly_core::jobs::{ApplyOptions, ItemErrorKind, ItemStatus, JobReport};
 use coverly_core::matching::{parse_region_order, StrategyKind};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::paths::AppDirs;
-use coverly_core::plan::{build_plan, NoneReason, Plan, PlanAction, PlanItem, PlanOptions};
+use coverly_core::plan::{NoneReason, Plan, PlanAction, PlanItem};
 use coverly_core::profiles::Media;
 use coverly_core::progress::{Phase, ProgressEvent, ProgressSink};
 use coverly_core::scan::{scan_library, ScanOptions};
-use coverly_core::sources::libretro::{
-    LibretroConfig, LibretroSource, LIBRETRO_BASE, LIBRETRO_RAW_BASE,
-};
-use coverly_core::sources::{ArtSource, MatchKind};
+use coverly_core::sources::libretro::{LIBRETRO_BASE, LIBRETRO_RAW_BASE};
+use coverly_core::sources::MatchKind;
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{prune_jobs, OverwritePolicy};
+use coverly_core::write::OverwritePolicy;
 
 use crate::audit::MediaArg;
 use crate::profile::{check_root, choose_profile, detection_note, Chosen};
@@ -36,9 +33,6 @@ use crate::{media_name, print_stdout, table, Failure};
 
 /// Review and no-art lines listed in the table, unless `--output` is used.
 const PREVIEW: usize = 20;
-
-/// Jobs kept for `coverly undo` (spec §9 undo history depth).
-const KEEP_JOBS: usize = 10;
 
 #[derive(Debug, Args)]
 pub struct FillArgs {
@@ -252,14 +246,6 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     let db = SystemDb::builtin();
     let scan = scan_library(&root, profile, &db, &ScanOptions::default());
     let art = resolve_art(&scan, profile, &db, &media);
-    let targets = select_targets(
-        &art,
-        &TargetFilter {
-            systems: args.system.clone(),
-            media: media.clone(),
-            scope: args.scope.into(),
-        },
-    );
 
     let dirs =
         AppDirs::resolve(args.cache_dir.as_deref(), args.data_dir.as_deref()).ok_or_else(|| {
@@ -277,66 +263,39 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         ..NetConfig::default()
     };
     let http = PoliteHttp::new(UreqHttp::new(&net), &net);
-    let dats = DatStore::new(
-        &http,
-        &cache,
-        args.database_url
-            .clone()
-            .unwrap_or_else(|| DATABASE_BASE.into()),
-    );
-    let identifier = Identifier::new(
-        &cache,
-        &dats,
-        IdentifyOptions {
-            method: args.match_method.into(),
-            ..IdentifyOptions::default()
-        },
-    );
-    let mut lcfg = LibretroConfig {
-        base: args
+    let endpoints = Endpoints {
+        libretro: args
             .libretro_url
             .clone()
             .unwrap_or_else(|| LIBRETRO_BASE.into()),
-        raw_base: args
+        libretro_raw: args
             .libretro_raw_url
             .clone()
             .unwrap_or_else(|| LIBRETRO_RAW_BASE.into()),
-        ..LibretroConfig::default()
+        database: args
+            .database_url
+            .clone()
+            .unwrap_or_else(|| DATABASE_BASE.into()),
     };
-    if args.refresh {
-        lcfg.ttl_secs = 0;
-    }
-    let libretro = LibretroSource::new(&http, &cache, lcfg);
-    let sources: Vec<&dyn ArtSource> = vec![&libretro];
-    let strategy: StrategyKind = args.strategy.into();
-    let gopts = GatherOptions {
-        consensus: strategy == StrategyKind::Popularity,
+    let env = FillEnv {
+        cache: &cache,
+        http: &http,
+        endpoints: &endpoints,
+        cache_dir: &dirs.cache,
+        data_dir: &dirs.data,
+    };
+    let settings = FillSettings {
+        systems: args.system.clone(),
+        media: media.clone(),
+        scope: args.scope.into(),
+        strategy: args.strategy.into(),
+        regions,
+        match_method: args.match_method.into(),
         refresh: args.refresh,
-        ..GatherOptions::default()
     };
     let cancel = AtomicBool::new(false);
     let progress = StderrProgress::new();
-    let gathered = gather(
-        &targets,
-        &db,
-        &sources,
-        &identifier,
-        &cache,
-        &gopts,
-        &progress,
-        &cancel,
-    );
-    let plan = build_plan(
-        &root,
-        profile,
-        &db,
-        &gathered,
-        &PlanOptions {
-            strategy,
-            regions,
-            ..PlanOptions::default()
-        },
-    );
+    let plan = env.plan(&root, profile, &db, &art, &settings, &progress, &cancel);
     for w in &plan.warnings {
         eprintln!("{}", table::terminal_safe(&format!("warning: {w}")));
     }
@@ -353,18 +312,15 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         return emit(args, &chosen, &plan, None);
     }
 
-    let store = ArtStore::new(&dirs.cache, &cache);
     let aopts = ApplyOptions {
         overwrite: args.overwrite.into(),
         include_review: !args.auto_only,
         concurrency: args.concurrency,
         ..ApplyOptions::default()
     };
-    let report = apply_plan(
-        &plan, profile, &sources, &store, &dirs.data, &aopts, &progress, &cancel,
-    )
-    .map_err(fail)?;
-    let _ = prune_jobs(&dirs.data, KEEP_JOBS);
+    let report = env
+        .apply(&plan, profile, &aopts, &progress, &cancel)
+        .map_err(fail)?;
     emit(args, &chosen, &plan, Some(&report))?;
     match &report.paused {
         Some(reason) => Err(Failure {
@@ -461,6 +417,7 @@ fn none_reason(reason: &NoneReason) -> String {
         }
         NoneReason::SourceError { message } => format!("source error: {message}"),
         NoneReason::NoTarget => "the profile has no place for it".into(),
+        NoneReason::Skipped => "skipped in review".into(),
     }
 }
 

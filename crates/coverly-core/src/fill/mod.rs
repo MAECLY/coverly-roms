@@ -1,0 +1,275 @@
+//! A whole fill behind one door (spec §7 steps 3–9), shared by
+//! `coverly fill` and the desktop app: phase one + plan (the dry run),
+//! phase two (apply, then prune old journals), the preview of one
+//! candidate, and the manual writes of the detail drawer (a local image,
+//! removing art). Every write is journaled, so `undo` reverts it.
+
+use std::path::Path;
+use std::sync::atomic::AtomicBool;
+
+use crate::art::SystemArt;
+use crate::cache::Cache;
+use crate::gather::{gather, select_targets, GatherOptions, Scope, TargetFilter};
+use crate::identify::dat::{DatStore, DATABASE_BASE};
+use crate::identify::{Identifier, IdentifyOptions, MatchMethod};
+use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec, ProcessedImage};
+use crate::jobs::{apply_plan, ApplyOptions, ArtStore, JobReport};
+use crate::matching::{default_region_order, RegionPref, StrategyKind};
+use crate::net::Http;
+use crate::plan::{build_plan, Plan, PlanOptions};
+use crate::profiles::{Media, Profile};
+use crate::progress::ProgressSink;
+use crate::sources::libretro::{LibretroConfig, LibretroSource, LIBRETRO_BASE, LIBRETRO_RAW_BASE};
+use crate::sources::{ArtSource, Candidate, SourceError};
+use crate::systems::SystemDb;
+use crate::write::{prune_jobs, OverwritePolicy, RemoveOutcome, WriteError, WriteOutcome, Writer};
+
+/// Journals (and their backups) kept for undo (spec §9 undo history depth).
+pub const KEEP_JOBS: usize = 10;
+
+/// Where the sources and DATs live (tests point them at a mock server).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Endpoints {
+    pub libretro: String,
+    pub libretro_raw: String,
+    pub database: String,
+}
+
+impl Default for Endpoints {
+    fn default() -> Self {
+        Endpoints {
+            libretro: LIBRETRO_BASE.to_string(),
+            libretro_raw: LIBRETRO_RAW_BASE.to_string(),
+            database: DATABASE_BASE.to_string(),
+        }
+    }
+}
+
+/// What one fill does (spec §9 defaults).
+#[derive(Clone, Debug)]
+pub struct FillSettings {
+    /// System folders or ids (empty = all).
+    pub systems: Vec<String>,
+    pub media: Vec<Media>,
+    pub scope: Scope,
+    pub strategy: StrategyKind,
+    pub regions: Vec<RegionPref>,
+    pub match_method: MatchMethod,
+    /// Ignore cached candidate lists and indexes.
+    pub refresh: bool,
+}
+
+impl Default for FillSettings {
+    fn default() -> Self {
+        FillSettings {
+            systems: Vec::new(),
+            media: vec![Media::Cover],
+            scope: Scope::Missing,
+            strategy: StrategyKind::RomRegion,
+            regions: default_region_order(),
+            match_method: MatchMethod::HashThenName,
+            refresh: false,
+        }
+    }
+}
+
+/// Why a candidate preview or a manual write failed.
+#[derive(Debug, thiserror::Error)]
+pub enum ArtError {
+    #[error("this layout cannot store that media")]
+    NoSlot,
+    #[error("unknown image source `{0}`")]
+    UnknownSource(String),
+    #[error("{0}")]
+    Source(String),
+    #[error("{0}")]
+    Paused(String),
+    #[error(transparent)]
+    Image(#[from] ImageError),
+    #[error(transparent)]
+    Write(#[from] WriteError),
+}
+
+impl From<SourceError> for ArtError {
+    fn from(e: SourceError) -> Self {
+        match e {
+            SourceError::Net(n) if n.pauses() => ArtError::Paused(n.to_string()),
+            other => ArtError::Source(other.to_string()),
+        }
+    }
+}
+
+/// What a fill needs from its host.
+pub struct FillEnv<'a> {
+    pub cache: &'a Cache,
+    pub http: &'a dyn Http,
+    pub endpoints: &'a Endpoints,
+    /// Holds the art store (`<cache dir>/art`).
+    pub cache_dir: &'a Path,
+    /// Holds journals and backups.
+    pub data_dir: &'a Path,
+}
+
+fn spec_for(profile: &Profile, media: Media) -> Result<OutputSpec, ArtError> {
+    let slot = profile.slot(media).ok_or(ArtError::NoSlot)?;
+    Ok(OutputSpec::for_slot(slot, Fit::Contain, 90))
+}
+
+impl FillEnv<'_> {
+    fn libretro(&self, refresh: bool) -> LibretroSource<'_> {
+        let mut cfg = LibretroConfig {
+            base: self.endpoints.libretro.clone(),
+            raw_base: self.endpoints.libretro_raw.clone(),
+            ..LibretroConfig::default()
+        };
+        if refresh {
+            cfg.ttl_secs = 0;
+        }
+        LibretroSource::new(self.http, self.cache, cfg)
+    }
+
+    /// Phase one and the plan of `art` (the dry run). Never writes to the
+    /// library. A pause or a cancel gives a partial plan (`plan.paused`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn plan(
+        &self,
+        root: &Path,
+        profile: &Profile,
+        systems: &SystemDb,
+        art: &[SystemArt],
+        settings: &FillSettings,
+        progress: &dyn ProgressSink,
+        cancel: &AtomicBool,
+    ) -> Plan {
+        let targets = select_targets(
+            art,
+            &TargetFilter {
+                systems: settings.systems.clone(),
+                media: settings.media.clone(),
+                scope: settings.scope,
+            },
+        );
+        let dats = DatStore::new(self.http, self.cache, self.endpoints.database.clone());
+        let identifier = Identifier::new(
+            self.cache,
+            &dats,
+            IdentifyOptions {
+                method: settings.match_method,
+                ..IdentifyOptions::default()
+            },
+        );
+        let libretro = self.libretro(settings.refresh);
+        let sources: Vec<&dyn ArtSource> = vec![&libretro];
+        let gopts = GatherOptions {
+            consensus: settings.strategy == StrategyKind::Popularity,
+            refresh: settings.refresh,
+            ..GatherOptions::default()
+        };
+        let gathered = gather(
+            &targets,
+            systems,
+            &sources,
+            &identifier,
+            self.cache,
+            &gopts,
+            progress,
+            cancel,
+        );
+        build_plan(
+            root,
+            profile,
+            systems,
+            &gathered,
+            &PlanOptions {
+                strategy: settings.strategy,
+                regions: settings.regions.clone(),
+                ..PlanOptions::default()
+            },
+        )
+    }
+
+    /// Phase two: applies `plan`, then keeps the newest [`KEEP_JOBS`] journals.
+    pub fn apply(
+        &self,
+        plan: &Plan,
+        profile: &Profile,
+        opts: &ApplyOptions,
+        progress: &dyn ProgressSink,
+        cancel: &AtomicBool,
+    ) -> Result<JobReport, WriteError> {
+        let libretro = self.libretro(false);
+        let sources: Vec<&dyn ArtSource> = vec![&libretro];
+        let store = ArtStore::new(self.cache_dir, self.cache);
+        let report = apply_plan(
+            plan,
+            profile,
+            &sources,
+            &store,
+            self.data_dir,
+            opts,
+            progress,
+            cancel,
+        )?;
+        // Pruning only frees space: failing to prune is not an error.
+        let _ = prune_jobs(self.data_dir, KEEP_JOBS);
+        Ok(report)
+    }
+
+    /// The image of `c` as it would be written (decoded with limits and
+    /// re-encoded for its media's slot), through the art store: a preview
+    /// downloads once and the later apply reuses it.
+    pub fn candidate_image(
+        &self,
+        profile: &Profile,
+        c: &Candidate,
+    ) -> Result<ProcessedImage, ArtError> {
+        let spec = spec_for(profile, c.media)?;
+        let libretro = self.libretro(false);
+        if c.source != libretro.id() {
+            return Err(ArtError::UnknownSource(c.source.clone()));
+        }
+        let store = ArtStore::new(self.cache_dir, self.cache);
+        let (bytes, cached) = match store.get(&c.url) {
+            Some(bytes) => (bytes, true),
+            None => (libretro.fetch(c)?, false),
+        };
+        let img = process_image(&bytes, &spec, &ImageLimits::default())?;
+        if !cached {
+            let _ = store.put(&c.url, &bytes);
+        }
+        Ok(img)
+    }
+}
+
+/// Writes `bytes` (a local image the user picked: untrusted) as the
+/// `media` art at `target`: decoded with limits, re-encoded for the slot,
+/// the existing art backed up, in a journaled job of its own.
+pub fn write_local_image(
+    root: &Path,
+    profile: &Profile,
+    media: Media,
+    target: &Path,
+    bytes: &[u8],
+    data_dir: &Path,
+) -> Result<(String, WriteOutcome), ArtError> {
+    let spec = spec_for(profile, media)?;
+    let img = process_image(bytes, &spec, &ImageLimits::default())?;
+    let mut writer = Writer::begin(root, data_dir)?;
+    let outcome = writer.write(target, &img.bytes, OverwritePolicy::Backup);
+    let job = writer.finish()?;
+    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    Ok((job, outcome?))
+}
+
+/// Removes the art file `target` (backed up, journaled) in a job of its own.
+pub fn remove_art(
+    root: &Path,
+    target: &Path,
+    data_dir: &Path,
+) -> Result<(String, RemoveOutcome), WriteError> {
+    let mut writer = Writer::begin(root, data_dir)?;
+    let outcome = writer.remove(target);
+    let job = writer.finish()?;
+    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    Ok((job, outcome?))
+}

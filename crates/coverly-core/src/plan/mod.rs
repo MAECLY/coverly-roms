@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::art::target_path;
 use crate::gather::Gathered;
@@ -61,6 +61,20 @@ pub enum NoneReason {
     SourceError { message: String },
     /// The profile cannot store this media for this ROM.
     NoTarget,
+    /// The user skipped it in the review queue.
+    Skipped,
+}
+
+/// What the user decided for one item in the review queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choice", rename_all = "kebab-case")]
+pub enum Decision {
+    /// Write the chosen image (falling back to the alternatives).
+    Accept,
+    /// Write this image only: 0 is the chosen one, `n` is `alternatives[n - 1]`.
+    Pick { candidate: usize },
+    /// Write nothing.
+    Skip,
 }
 
 /// Why an item needs a look although its match may be strong.
@@ -169,6 +183,56 @@ impl Plan {
         };
         plan.recount();
         plan
+    }
+
+    /// Applies review decisions: an accepted or picked item becomes `auto`
+    /// (with the confidence of its image), a skipped one `none`
+    /// ([`NoneReason::Skipped`]). Unknown indices, `none` items and picks
+    /// past the last alternative are ignored.
+    pub fn decide(&mut self, decisions: &BTreeMap<usize, Decision>) {
+        for (&n, decision) in decisions {
+            let Some(item) = self.items.get_mut(n) else {
+                continue;
+            };
+            let (chosen, alternatives) = match &item.action {
+                PlanAction::Auto {
+                    chosen,
+                    alternatives,
+                    ..
+                }
+                | PlanAction::Review {
+                    chosen,
+                    alternatives,
+                    ..
+                } => (chosen.clone(), alternatives.clone()),
+                PlanAction::None { .. } => continue,
+            };
+            item.action = match *decision {
+                Decision::Accept => PlanAction::Auto {
+                    confidence: confidence(&chosen),
+                    chosen,
+                    alternatives,
+                },
+                Decision::Pick { candidate } => {
+                    let Some(c) = std::iter::once(&chosen)
+                        .chain(alternatives.iter())
+                        .nth(candidate)
+                    else {
+                        continue;
+                    };
+                    PlanAction::Auto {
+                        confidence: confidence(c),
+                        chosen: c.clone(),
+                        alternatives: Vec::new(),
+                    }
+                }
+                Decision::Skip => PlanAction::None {
+                    reason: NoneReason::Skipped,
+                },
+            };
+            item.note = None;
+        }
+        self.recount();
     }
 
     fn recount(&mut self) {
