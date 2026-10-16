@@ -33,6 +33,8 @@ log = { workspace = true, features = ["std"] }
 custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
+# The mock runtime drives PluginDriver against a local server in tests.
+tauri = { version = "2.12", features = ["test"] }
 coverly-core = { path = "../crates/coverly-core", features = ["test-util"] }
 tempfile = { workspace = true }
 toml = { workspace = true }

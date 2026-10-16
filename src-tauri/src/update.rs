@@ -4,6 +4,7 @@
 //! these commands, and the endpoint and key are always ours.
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use coverly_core::settings::GeneralSettings;
 use serde::{Deserialize, Serialize};
@@ -185,6 +186,12 @@ pub fn job_blocks_update(state: Option<crate::jobs::view::JobState>) -> bool {
 }
 
 /// Every way the plugin can fail, in the IPC vocabulary.
+///
+/// The plugin reports any non-2xx manifest answer (404 and 5xx alike) as
+/// `ReleaseNotFound` without the status, so a server outage reads as
+/// update-unavailable, and its UI copy says so ("none is published yet, or
+/// the server could not provide it"). A 200 that is not JSON is a reqwest
+/// decode error: update-offline.
 pub fn classify(err: &tauri_plugin_updater::Error) -> IpcError {
     use tauri_plugin_updater::Error as E;
     match err {
@@ -201,10 +208,43 @@ pub fn classify(err: &tauri_plugin_updater::Error) -> IpcError {
     }
 }
 
+/// Total bound on the manifest request. The plugin has no timeout by
+/// default, so a server that accepts and never answers would hang the check.
+pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+/// Total bound on the artifact download (larger: it is tens of MiB).
+pub const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+/// Release notes longer than this are cut before they reach the webview.
+pub const MAX_NOTES_BYTES: usize = 64 * 1024;
+
+/// The offer the webview sees, with the notes capped at `MAX_NOTES_BYTES`
+/// (cut on a char boundary).
+pub fn offer_view(version: &str, notes: Option<&str>, raw: &serde_json::Value) -> UpdateOfferView {
+    let notes = notes.map(|n| {
+        if n.len() <= MAX_NOTES_BYTES {
+            return n.to_string();
+        }
+        let mut end = MAX_NOTES_BYTES;
+        while !n.is_char_boundary(end) {
+            end -= 1;
+        }
+        n[..end].to_string()
+    });
+    UpdateOfferView {
+        version: version.to_string(),
+        notes,
+        date: raw
+            .get("pub_date")
+            .and_then(|d| d.as_str())
+            .map(String::from),
+    }
+}
+
 /// The real driver: `tauri-plugin-updater`, blocking on its futures from the
 /// blocking pool (the IPC commands already run there).
 pub struct PluginDriver<R: tauri::Runtime> {
     app: tauri::AppHandle<R>,
+    check_timeout: Duration,
+    download_timeout: Duration,
     pending: Mutex<Option<tauri_plugin_updater::Update>>,
     bytes: Mutex<Option<Vec<u8>>>,
 }
@@ -213,9 +253,18 @@ impl<R: tauri::Runtime> PluginDriver<R> {
     pub fn new(app: tauri::AppHandle<R>) -> Self {
         PluginDriver {
             app,
+            check_timeout: CHECK_TIMEOUT,
+            download_timeout: DOWNLOAD_TIMEOUT,
             pending: Mutex::new(None),
             bytes: Mutex::new(None),
         }
+    }
+
+    /// Other bounds than `CHECK_TIMEOUT` / `DOWNLOAD_TIMEOUT` (tests).
+    pub fn with_timeouts(mut self, check: Duration, download: Duration) -> Self {
+        self.check_timeout = check;
+        self.download_timeout = download;
+        self
     }
 }
 
@@ -227,31 +276,28 @@ impl<R: tauri::Runtime> UpdateDriver for PluginDriver<R> {
             .app
             .updater_builder()
             .pubkey(pubkey)
+            .timeout(self.check_timeout)
             .endpoints(vec![url])
             .and_then(|b| b.build())
             .map_err(|e| classify(&e))?;
         let found = tauri::async_runtime::block_on(updater.check()).map_err(|e| classify(&e))?;
-        let view = found.as_ref().map(|u| UpdateOfferView {
-            version: u.version.clone(),
-            notes: u.body.clone(),
-            date: u
-                .raw_json
-                .get("pub_date")
-                .and_then(|d| d.as_str())
-                .map(String::from),
-        });
+        let view = found
+            .as_ref()
+            .map(|u| offer_view(&u.version, u.body.as_deref(), &u.raw_json));
         *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = found;
         *self.bytes.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(view)
     }
 
     fn download(&self, on_progress: &mut dyn FnMut(u64, Option<u64>)) -> Result<(), IpcError> {
-        let update = self
+        let mut update = self
             .pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
             .ok_or(IpcError::UpdateNotReady)?;
+        // The check's bound is too tight for the artifact itself.
+        update.timeout = Some(self.download_timeout);
         let mut done = 0u64;
         // `download` verifies the signature before returning any byte.
         let bytes = tauri::async_runtime::block_on(update.download(
