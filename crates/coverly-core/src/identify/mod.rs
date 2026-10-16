@@ -99,13 +99,6 @@ impl<'a> Identifier<'a> {
         strip_numbering: bool,
     ) -> Result<Identity, DatError> {
         let parsed = names::parse_name(&rom.stem, strip_numbering);
-        let by_name = |parsed| Identity {
-            canonical: None,
-            method: IdMethod::Name,
-            confidence: 0.0,
-            parsed,
-            hash: None,
-        };
         let dats = dat::dat_sources(system);
         if system.arcade {
             // Arcade sets are never hashed: the short-name lookup is their
@@ -157,17 +150,24 @@ impl<'a> Identifier<'a> {
                 });
             }
         }
-        // Hash-only never falls back to the name: not without a DAT, not
-        // for an arcade set missing from it (or with translation off).
-        if self.opts.method == MatchMethod::HashOnly {
-            return Ok(Identity {
-                canonical: None,
-                method: IdMethod::Unknown,
-                confidence: 0.0,
-                parsed,
-                hash: None,
-            });
+        Ok(self.unidentified(parsed))
+    }
+
+    /// The identity of a ROM no DAT identified (or whose identification
+    /// failed): its parsed name, unless hash-only, which never falls back
+    /// to the name (`Unknown`): not without a DAT, not for an arcade set
+    /// missing from it (or with translation off), not after a DAT error.
+    pub fn unidentified(&self, parsed: ParsedName) -> Identity {
+        Identity {
+            canonical: None,
+            method: if self.opts.method == MatchMethod::HashOnly {
+                IdMethod::Unknown
+            } else {
+                IdMethod::Name
+            },
+            confidence: 0.0,
+            parsed,
+            hash: None,
         }
-        Ok(by_name(parsed))
     }
 }

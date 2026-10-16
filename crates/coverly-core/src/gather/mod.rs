@@ -214,13 +214,7 @@ pub fn gather(
                     progress.event(ProgressEvent::Warning(w.clone()));
                     out.warnings.push(w);
                 }
-                Identity {
-                    canonical: None,
-                    method: IdMethod::Name,
-                    confidence: 0.0,
-                    parsed: names::parse_name(&t.rom.stem, t.strip_numbering),
-                    hash: None,
-                }
+                identifier.unidentified(names::parse_name(&t.rom.stem, t.strip_numbering))
             }
         };
         let mut item = GatherItem {

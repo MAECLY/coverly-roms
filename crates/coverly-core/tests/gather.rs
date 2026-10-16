@@ -735,3 +735,57 @@ fn failures_that_do_not_pause_are_asked_and_warned_once_per_run() {
     assert!(g.paused.is_none() && g.items.len() == 2, "{g:?}");
     assert_eq!(s.hits("/"), 1);
 }
+
+#[test]
+fn hash_only_never_matches_by_name_when_identification_fails() {
+    let (lib, e) = (library(), env());
+    let s = server();
+    let dat = format!("/{}", coverly_core::identify::dat::encode_path(GBA_DAT));
+    s.mock(&dat, MockResponse::status(500));
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(
+        &art,
+        &TargetFilter {
+            systems: vec!["GBA".into()],
+            media: vec![Media::Cover],
+            scope: Scope::Missing,
+        },
+    );
+    let dats = DatStore::new(&e.http, &e.cache, s.base());
+    let id = Identifier::new(
+        &e.cache,
+        &dats,
+        IdentifyOptions {
+            method: MatchMethod::HashOnly,
+            ..IdentifyOptions::default()
+        },
+    );
+    let src = LibretroSource::new(
+        &e.http,
+        &e.cache,
+        LibretroConfig {
+            base: s.base(),
+            raw_base: s.url("/raw"),
+            ..Default::default()
+        },
+    );
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let g = gather(
+        &targets,
+        &db,
+        &sources,
+        &id,
+        &e.cache,
+        &GatherOptions::default(),
+        &NoProgress,
+        &AtomicBool::new(false),
+    );
+    assert_eq!(g.items.len(), 2);
+    for item in &g.items {
+        assert_eq!(item.identity.method, IdMethod::Unknown);
+        assert!(item.candidates[&Media::Cover].is_empty(), "{item:?}");
+    }
+}
