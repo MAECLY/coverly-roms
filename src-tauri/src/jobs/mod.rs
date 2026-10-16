@@ -579,8 +579,9 @@ impl JobManager {
         if d.state != JobState::Paused {
             return Err(IpcError::BadRequest("the job is not paused".into()));
         }
-        let phase = d.paused.take().map_or(Phase::Apply, |p| p.phase);
+        let phase = d.paused.as_ref().map_or(Phase::Apply, |p| p.phase);
         if phase == Phase::Gather {
+            d.paused = None;
             d.state = JobState::Gathering;
             drop(d);
             spawn_gather(Arc::clone(&job), cfg, events);
@@ -592,6 +593,8 @@ impl JobManager {
                 Some(journal) => (plan.subset(&indices), Some((indices, journal))),
                 None => (plan, None),
             };
+            // Cleared only now: a failed check above leaves the pause intact.
+            d.paused = None;
             d.state = JobState::Applying;
             drop(d);
             spawn_apply(Arc::clone(&job), cfg, events, todo, resumed);
