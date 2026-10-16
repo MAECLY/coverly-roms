@@ -602,6 +602,10 @@
     "preview": "Preview",
     "exampleFolder": "Example system folder",
     "exampleSub": "Example subfolder",
-    "exampleFile": "Example ROM file"
+    "exampleFile": "Example ROM file",
+    "errors": {
+      "slotsOrder": "Either every slot template uses {rel_dir} or none does.",
+      "slotsRequired": "Turn on at least one slot."
+    }
   }
 }

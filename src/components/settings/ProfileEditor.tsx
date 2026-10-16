@@ -107,6 +107,15 @@ export function ProfileEditor({
     const e = all.find((x) => x.field === field);
     return e ? fieldErrorText(t, e) : null;
   };
+  // The slots rule is about the profile as a whole, not a number range:
+  // it gets its own words instead of the generic field text.
+  const slotsError = (() => {
+    const e = all.find((x) => x.field === 'slots');
+    if (!e) return null;
+    if (e.code === 'order') return t('profiles.errors.slotsOrder');
+    if (e.code === 'required') return t('profiles.errors.slotsRequired');
+    return fieldErrorText(t, e);
+  })();
   const set = (patch: Partial<ProfileFile>) => {
     setSaveErrors([]);
     setDraft((d) => ({ ...d, ...patch }));
@@ -227,9 +236,9 @@ export function ProfileEditor({
         />
         {t('profiles.gamelist')}
       </label>
-      {errorFor('slots') && (
+      {slotsError && (
         <p role="alert" className="field-error">
-          {errorFor('slots')}
+          {slotsError}
         </p>
       )}
       {MEDIA.map((m) => {

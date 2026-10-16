@@ -602,6 +602,10 @@
     "preview": "Vista previa",
     "exampleFolder": "Carpeta de sistema de ejemplo",
     "exampleSub": "Subcarpeta de ejemplo",
-    "exampleFile": "Archivo ROM de ejemplo"
+    "exampleFile": "Archivo ROM de ejemplo",
+    "errors": {
+      "slotsOrder": "O todas las plantillas usan {rel_dir} o ninguna.",
+      "slotsRequired": "Activa al menos un hueco."
+    }
   }
 }

@@ -232,4 +232,40 @@ describe('profiles editor', () => {
       screen.getByRole('form', { name: 'Edit layout profile' }),
     ).toBeInTheDocument();
   });
+
+  it('explains a mix of mirrored and flat slot templates', async () => {
+    await openProfiles();
+    await userEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    const form = screen.getByRole('form', { name: 'Edit layout profile' });
+    await userEvent.click(
+      within(form).getByRole('checkbox', { name: 'Screenshot slot' }),
+    );
+    const shot = within(form).getByRole('textbox', {
+      name: 'Screenshot path template',
+    });
+    await userEvent.clear(shot);
+    await userEvent.type(shot, '{{system_dir}/shots/{{stem}.png');
+    expect(
+      await within(form).findByText(
+        'Either every slot template uses {rel_dir} or none does.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(form).queryByText(
+        'This must not be higher than the auto-accept threshold.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('asks for at least one slot', async () => {
+    await openProfiles();
+    await userEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    const form = screen.getByRole('form', { name: 'Edit layout profile' });
+    await userEvent.click(
+      within(form).getByRole('checkbox', { name: 'Cover slot' }),
+    );
+    expect(
+      await within(form).findByText('Turn on at least one slot.'),
+    ).toBeInTheDocument();
+  });
 });
