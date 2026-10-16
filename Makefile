@@ -100,6 +100,10 @@ check: ## Run every quality gate without writing (CI equivalent).
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
 
+.PHONY: version-check
+version-check: ## Check that Cargo.toml, package.json and Cargo.lock agree on the version.
+	@scripts/bump-version.sh --check
+
 # ───────────────────────────────────────────────────────────────────────
 # CLI
 # ───────────────────────────────────────────────────────────────────────

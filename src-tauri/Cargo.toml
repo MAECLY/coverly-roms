@@ -34,3 +34,4 @@ custom-protocol = ["tauri/custom-protocol"]
 [dev-dependencies]
 coverly-core = { path = "../crates/coverly-core", features = ["test-util"] }
 tempfile = { workspace = true }
+toml = { workspace = true }
