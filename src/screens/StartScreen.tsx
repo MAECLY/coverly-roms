@@ -65,6 +65,7 @@ export function StartScreen() {
         <button
           type="button"
           className="ghost-button"
+          data-settings-opener
           onClick={() => useNavStore.getState().openSettings()}
         >
           {t('settings.open')}

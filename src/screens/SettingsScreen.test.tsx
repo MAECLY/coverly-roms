@@ -73,6 +73,23 @@ describe('Settings screen', () => {
     ).toBeInTheDocument();
   });
 
+  it('moves focus into the screen and back to the Settings button', async () => {
+    await start();
+    screen.getByRole('button', { name: 'Settings' }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('heading', { name: 'Settings' })).toHaveFocus();
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+  });
+
+  it('returns focus to the library toolbar after Back', async () => {
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    await start();
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+  });
+
   it('moves between sections with the arrow keys', async () => {
     await start();
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));

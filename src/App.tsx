@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { LibraryScreen } from './screens/LibraryScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -32,6 +32,13 @@ export default function App() {
       off?.();
     };
   }, [ready]);
+  // Back from Settings: focus returns to the Settings button that opened it.
+  const shown = useRef(screen);
+  useEffect(() => {
+    if (shown.current === 'settings' && screen === 'main')
+      document.querySelector<HTMLElement>('[data-settings-opener]')?.focus();
+    shown.current = screen;
+  }, [screen]);
   if (screen === 'settings') return <SettingsScreen />;
   return ready ? <LibraryScreen /> : <StartScreen />;
 }

@@ -899,6 +899,11 @@ body {
   font-weight: 700;
 }
 
+/* Focused by script on open, not a control: no ring. */
+.settings-header h1:focus {
+  outline: none;
+}
+
 .settings-body {
   display: flex;
   flex: 1;

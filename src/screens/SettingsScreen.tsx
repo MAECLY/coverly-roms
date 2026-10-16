@@ -51,6 +51,9 @@ export function SettingsScreen() {
   const loadError = useSettingsStore((s) => s.error);
   const saveError = useSettingsStore((s) => s.saveError);
   const tabRefs = useRef(new Map<SettingsSection, HTMLButtonElement>());
+  const heading = useRef<HTMLHeadingElement>(null);
+  // The screen replaces the one that opened it: focus starts at its title.
+  useEffect(() => heading.current?.focus(), []);
   useEffect(() => {
     // Root loads them at start; this covers a screen shown without it.
     if (useSettingsStore.getState().status === 'idle')
@@ -108,7 +111,9 @@ export function SettingsScreen() {
         <button type="button" className="ghost-button" onClick={close}>
           {t('settings.back')}
         </button>
-        <h1>{t('settings.title')}</h1>
+        <h1 ref={heading} tabIndex={-1}>
+          {t('settings.title')}
+        </h1>
       </header>
       {saveError && (
         <p role="alert" className="error-banner">
