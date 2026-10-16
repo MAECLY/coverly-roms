@@ -1196,3 +1196,81 @@ fn the_beta_pointer_moves_forward_only_and_past_a_broken_manifest() {
         );
     }
 }
+
+fn snapshot(dir: &Path) -> Vec<String> {
+    ["Cargo.toml", "package.json", "Cargo.lock"]
+        .iter()
+        .map(|f| std::fs::read_to_string(dir.join(f)).unwrap())
+        .collect()
+}
+
+fn bump(dir: &Path, arg: &str) -> std::process::Output {
+    Command::new("bash")
+        .arg(repo().join("scripts/bump-version.sh"))
+        .arg("--root")
+        .arg(dir)
+        .arg(arg)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn bump_version_check_fails_on_a_missing_source_and_reads_only_workspace_package() {
+    if !scripts_runnable() {
+        return;
+    }
+    // [workspace.package] without a version; a later table has one. Neither
+    // --check nor a bump may take that other version for the workspace's.
+    let dir = scratch_checkout();
+    let cargo = dir.path().join("Cargo.toml");
+    let text = std::fs::read_to_string(&cargo).unwrap();
+    let ws = workspace_version(&text);
+    let stripped = text.replacen(&format!("version = \"{ws}\"\n"), "", 1);
+    assert_ne!(stripped, text);
+    std::fs::write(
+        &cargo,
+        format!("{stripped}\n[package.metadata.x]\nversion = \"{ws}\"\n"),
+    )
+    .unwrap();
+    let check = bump(dir.path(), "--check");
+    assert_eq!(check.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&check.stdout).contains("Cargo.toml <none>"));
+    assert!(String::from_utf8_lossy(&check.stderr).contains("<none>"));
+    let before = snapshot(dir.path());
+    let out = bump(dir.path(), "1.2.3");
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(snapshot(dir.path()), before, "nothing is written");
+
+    // package.json without a version: the other four agreeing is not enough.
+    let dir = scratch_checkout();
+    let pkg = dir.path().join("package.json");
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&pkg).unwrap()).unwrap();
+    v.as_object_mut().unwrap().remove("version");
+    std::fs::write(&pkg, v.to_string()).unwrap();
+    assert_eq!(bump(dir.path(), "--check").status.code(), Some(1));
+}
+
+#[test]
+fn bump_version_writes_nothing_unless_every_source_matched() {
+    if !scripts_runnable() {
+        return;
+    }
+    let dir = scratch_checkout();
+    let lock = dir.path().join("Cargo.lock");
+    let text = std::fs::read_to_string(&lock).unwrap();
+    std::fs::write(
+        &lock,
+        text.replace("name = \"coverly-cli\"", "name = \"coverly-cli-renamed\""),
+    )
+    .unwrap();
+    let before = snapshot(dir.path());
+    let out = bump(dir.path(), "1.2.3");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("coverly-cli"));
+    assert_eq!(
+        snapshot(dir.path()),
+        before,
+        "Cargo.toml and package.json are untouched when Cargo.lock does not match"
+    );
+}

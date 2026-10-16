@@ -42,14 +42,23 @@ for f in "$cargo_toml" "$cargo_lock" "$package_json"; do
   [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }
 done
 
+# The [workspace.package] table only: its lines up to the next [section]
+# header, so a `version` of another table is never read or rewritten.
+CARGO_VERSION_RE='(?m)^(\[workspace\.package\][ \t]*(?:#[^\n]*)?\n(?:(?!\[)[^\n]*\n)*?version[ \t]*=[ \t]*")([^"]+)(")'
+export CARGO_VERSION_RE
+
 current_versions() {
   python3 -I - "$cargo_toml" "$package_json" "$cargo_lock" <<'PY'
-import json, re, sys
+import json, os, re, sys
 cargo, pkg, lock = sys.argv[1:]
 text = open(cargo, encoding="utf-8").read()
-m = re.search(r'(?ms)^\[workspace\.package\].*?^version = "([^"]+)"', text)
-print("Cargo.toml", m.group(1) if m else "<none>")
-print("package.json", json.load(open(pkg, encoding="utf-8")).get("version", "<none>"))
+m = re.search(os.environ["CARGO_VERSION_RE"], text)
+print("Cargo.toml", m.group(2) if m else "<none>")
+try:
+    v = json.load(open(pkg, encoding="utf-8")).get("version")
+except (ValueError, AttributeError):
+    v = None
+print("package.json", v if isinstance(v, str) and v else "<none>")
 lock_text = open(lock, encoding="utf-8").read()
 for name in ("coverly-core", "coverly-cli", "coverly-roms"):
     m = re.search(r'name = "%s"\nversion = "([^"]+)"' % re.escape(name), lock_text)
@@ -60,6 +69,10 @@ PY
 if [[ $check -eq 1 ]]; then
   out="$(current_versions)"
   echo "$out"
+  if grep -q '<none>' <<<"$out"; then
+    echo "a version source has no version (<none>); run scripts/bump-version.sh X.Y.Z" >&2
+    exit 1
+  fi
   if [[ "$(echo "$out" | awk '{print $2}' | sort -u | wc -l | tr -d ' ')" != "1" ]]; then
     echo "versions disagree; run scripts/bump-version.sh X.Y.Z" >&2
     exit 1
@@ -74,25 +87,28 @@ if [[ ! "$version" =~ $semver ]]; then
   exit 2
 fi
 
+# Every substitution is computed in memory first; files are written only
+# once all of them matched, so a failure leaves every file as it was.
 python3 -I - "$version" "$cargo_toml" "$package_json" "$cargo_lock" <<'PY'
-import json, re, sys
+import json, os, re, sys
 version, cargo, pkg, lock = sys.argv[1:]
 text = open(cargo, encoding="utf-8").read()
-new, n = re.subn(r'(?ms)(^\[workspace\.package\].*?^version = ")[^"]+(")', r'\g<1>' + version + r'\g<2>', text, count=1)
+new_cargo, n = re.subn(os.environ["CARGO_VERSION_RE"], r'\g<1>' + version + r'\g<3>', text, count=1)
 if n != 1:
-    sys.exit("no [workspace.package] version in Cargo.toml")
-open(cargo, "w", encoding="utf-8").write(new)
+    sys.exit("no version in Cargo.toml's [workspace.package]; nothing was changed")
 data = json.load(open(pkg, encoding="utf-8"))
+if not isinstance(data, dict):
+    sys.exit("package.json is not an object; nothing was changed")
 data["version"] = version
-with open(pkg, "w", encoding="utf-8") as f:
-    json.dump(data, f, indent=2, ensure_ascii=False)
-    f.write("\n")
+new_pkg = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 lock_text = open(lock, encoding="utf-8").read()
 for name in ("coverly-core", "coverly-cli", "coverly-roms"):
     lock_text, n = re.subn(r'(name = "%s"\nversion = ")[^"]+(")' % re.escape(name), r'\g<1>' + version + r'\g<2>', lock_text)
     if n != 1:
-        sys.exit(f"no {name} entry in Cargo.lock")
-open(lock, "w", encoding="utf-8").write(lock_text)
+        sys.exit(f"no {name} entry in Cargo.lock; nothing was changed")
+for path, content in ((cargo, new_cargo), (pkg, new_pkg), (lock, lock_text)):
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content)
 PY
 
 echo "Version set to $version. Next:"
