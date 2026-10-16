@@ -544,3 +544,49 @@ fn a_manual_proxy_without_url_resets_only_the_proxy() {
         assert!(report.fixed.contains(&"network.proxy_url".to_string()));
     }
 }
+
+#[test]
+fn loading_cleans_what_it_can_instead_of_resetting() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"matching":{"languages":["ES"," fr"],"regions":["USA","usa","rom"]},
+            "sources":{"order":[{"id":"hologram-db","enabled":true},
+                                {"id":"screenscraper","enabled":true},
+                                {"id":"libretro","enabled":true}]}}"#,
+    );
+    let (s, _) = load_settings(dir.path(), &known());
+    assert_eq!(s.matching.languages, ["es", "fr"]);
+    assert_eq!(s.matching.regions, ["usa", "rom"]);
+    let ids: Vec<&str> = s.sources.order.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        &ids[..2],
+        ["screenscraper", "libretro"],
+        "the user's order is kept"
+    );
+}
+
+#[test]
+fn bad_list_and_map_entries_are_dropped_one_by_one() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        &format!(
+            r#"{{"library":{{"recent":[{RECENT},{{"path":7}}]}},
+                "art":{{"max_size":{{"onion":{{"width":300,"height":400}},
+                                    "garlic":{{"width":1,"height":400}},
+                                    "gone":{{"width":300,"height":400}},
+                                    "minui":"big"}}}}}}"#
+        ),
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.library.recent.len(), 1);
+    assert_eq!(s.library.recent[0].profile_id, "onion");
+    assert_eq!(
+        s.art.max_size.keys().collect::<Vec<_>>(),
+        ["onion"],
+        "only the broken entries are dropped"
+    );
+    assert!(report.fixed.contains(&"library.recent".to_string()));
+    assert!(report.fixed.contains(&"art.max_size".to_string()));
+}

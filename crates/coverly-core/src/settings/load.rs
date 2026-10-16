@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::model::{RecentLibrary, Settings, SETTINGS_VERSION};
+use super::model::{MaxSize, RecentLibrary, Settings, SETTINGS_VERSION};
 use super::validate::FieldErrorCode;
 
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -181,8 +181,12 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             if !defaults.contains_key(field) {
                 continue; // an unknown field: ignored
             }
+            let (value, dropped) = keep_good_entries(group, field, value);
+            if dropped {
+                fixed.push(format!("{group}.{field}"));
+            }
             let before = merged[group.as_str()][field.as_str()].clone();
-            merged[group.as_str()][field.as_str()] = value.clone();
+            merged[group.as_str()][field.as_str()] = value;
             if serde_json::from_value::<Settings>(merged.clone()).is_err() {
                 merged[group.as_str()][field.as_str()] = before;
                 fixed.push(format!("{group}.{field}"));
@@ -190,6 +194,9 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         }
     }
     let mut settings: Settings = serde_json::from_value(merged).ok()?;
+    // What can be cleaned (spelling, duplicates, unknown sources) is
+    // cleaned before validating, so it is not reset.
+    settings.normalise();
     let note = |fixed: &mut Vec<String>, key: &str| {
         if !fixed.iter().any(|f| f == key) {
             fixed.push(key.to_string());
@@ -210,7 +217,12 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             } else {
                 &[]
             };
-            if fields.is_empty() {
+            if let Some(id) = e.field.strip_prefix("art.max_size.") {
+                // One bad entry: only that entry goes.
+                let id = id.split('.').next().unwrap_or_default();
+                settings.art.max_size.remove(id);
+                note(&mut fixed, "art.max_size");
+            } else if fields.is_empty() {
                 reset_field(&mut settings, &e.field);
                 let key: String = e.field.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
                 note(&mut fixed, &key);
@@ -238,6 +250,32 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         fixed,
         future,
     })
+}
+
+/// `value` without the list/map entries of `group.field` that cannot be
+/// read (recent libraries, per-profile sizes), and whether any was dropped.
+fn keep_good_entries(group: &str, field: &str, value: &Value) -> (Value, bool) {
+    match (group, field, value) {
+        ("library", "recent", Value::Array(items)) => {
+            let good: Vec<Value> = items
+                .iter()
+                .filter(|v| serde_json::from_value::<RecentLibrary>((*v).clone()).is_ok())
+                .cloned()
+                .collect();
+            let dropped = good.len() != items.len();
+            (Value::Array(good), dropped)
+        }
+        ("art", "max_size", Value::Object(map)) => {
+            let good: serde_json::Map<String, Value> = map
+                .iter()
+                .filter(|(_, v)| serde_json::from_value::<MaxSize>((*v).clone()).is_ok())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let dropped = good.len() != map.len();
+            (Value::Object(good), dropped)
+        }
+        _ => (value.clone(), false),
+    }
 }
 
 /// Resets the whole group `group` of `s` to its defaults.
