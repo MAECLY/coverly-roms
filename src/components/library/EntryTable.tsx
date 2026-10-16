@@ -50,6 +50,10 @@ export function EntryTable({
     getScrollElement: () => element.current,
     estimateSize: () => ROW_H,
     overscan: 8,
+    // The sticky header row sits inside the scroll element above the list:
+    // the list starts ROW_H down, and rows hidden behind the header are not
+    // visible.
+    scrollMargin: ROW_H,
     scrollPaddingStart: ROW_H,
     initialRect: size,
   });
@@ -138,7 +142,7 @@ export function EntryTable({
               data-entry-id={e.id}
               className="entry-row"
               style={{
-                transform: `translateY(${item.start}px)`,
+                transform: `translateY(${item.start - ROW_H}px)`,
                 height: ROW_H,
               }}
             >

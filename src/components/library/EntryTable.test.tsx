@@ -9,7 +9,7 @@ import { createMockBackend } from '@/ipc/mock/mockBackend';
 import { DEFAULT_SORT, type SortKey } from '@/lib/sort';
 import { stubLayout } from '@/test/layout';
 
-import { EntryTable } from './EntryTable';
+import { EntryTable, ROW_H } from './EntryTable';
 
 const MAX_ROWS = 60;
 const big = generateLibrary({
@@ -88,5 +88,40 @@ describe('EntryTable', () => {
       'aria-activedescendant',
       `entry-${big.entries[1]!.id}`,
     );
+  });
+
+  it('scrolls the keyboard selection fully below the sticky header', () => {
+    const height = 800;
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => (big.entries.length + 1) * ROW_H,
+    });
+    try {
+      render(<Harness onSort={() => undefined} />);
+      const grid = screen.getByRole('grid');
+      const presses = 40;
+      for (let i = 0; i < presses; i += 1)
+        fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      const index = presses - 1;
+      const top = (scrollTo.mock.lastCall?.[0] as { top: number }).top;
+      // Row `index` sits below the header row inside the scroll element.
+      const rowTop = ROW_H + index * ROW_H - top;
+      expect(rowTop).toBeGreaterThanOrEqual(ROW_H);
+      expect(rowTop + ROW_H).toBeLessThanOrEqual(height);
+
+      for (let i = 0; i < presses; i += 1)
+        fireEvent.keyDown(grid, { key: 'ArrowUp' });
+      expect(
+        (scrollTo.mock.lastCall?.[0] as { top: number }).top,
+      ).toBeLessThanOrEqual(0);
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+    }
   });
 });
