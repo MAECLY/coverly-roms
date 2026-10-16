@@ -101,13 +101,22 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
   });
 
-  it('reveals the file and keeps the M4 actions disabled', async () => {
+  it('reveals the file; searching by title stays for later', async () => {
     const view = await setup();
     const entry = view.entries[5]!;
     const drawer = show(entry);
-    for (const name of ['Change…', 'Search…', 'From file…', 'Remove']) {
-      expect(within(drawer).getByRole('button', { name })).toBeDisabled();
-    }
+    expect(
+      within(drawer).getByRole('button', { name: 'Search…' }),
+    ).toBeDisabled();
+    expect(
+      within(drawer).getByRole('button', { name: 'Change…' }),
+    ).toBeEnabled();
+    expect(
+      within(drawer).getByRole('button', { name: 'From file…' }),
+    ).toBeEnabled();
+    expect(
+      within(drawer).getByRole('button', { name: 'Remove' }),
+    ).toHaveProperty('disabled', entry.art.cover !== 'present');
     await userEvent.click(
       within(drawer).getByRole('button', {
         name: /Reveal in Finder|Show in Explorer|Show in folder/,
@@ -158,6 +167,6 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
     expect(
       within(drawer).getByRole('button', { name: 'Cambiar…' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 });

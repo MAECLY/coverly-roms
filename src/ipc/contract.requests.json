@@ -1,0 +1,23 @@
+{
+  "fill_request": {
+    "entry_ids": [0, 2],
+    "media": ["cover"],
+    "strategy": "rom-region",
+    "regions": ["rom", "world", "usa", "europe", "japan"],
+    "overwrite": "never"
+  },
+  "fill_request_all": {
+    "entry_ids": null,
+    "media": ["cover", "title"],
+    "strategy": "priority",
+    "regions": ["usa"],
+    "overwrite": "backup"
+  },
+  "decisions": [
+    { "index": 0, "choice": "accept" },
+    { "index": 1, "choice": "pick", "candidate": 2 },
+    { "index": 2, "choice": "skip" }
+  ],
+  "item_filters": ["all", "auto", "review", "failed"],
+  "export_formats": ["csv", "json"]
+}

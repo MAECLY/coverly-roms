@@ -7,6 +7,9 @@ import {
 } from 'react';
 
 import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
+import { FillWizard } from '@/components/fill/FillWizard';
+import { JobsPanel } from '@/components/fill/JobsPanel';
+import { ReviewQueue } from '@/components/fill/ReviewQueue';
 import { CoverGrid } from '@/components/library/CoverGrid';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { EntryTable } from '@/components/library/EntryTable';
@@ -14,8 +17,10 @@ import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
+import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { useT } from '@/i18n/useT';
 import { useFilterStore } from '@/stores/filterStore';
+import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
@@ -52,6 +57,9 @@ export function LibraryScreen() {
   const toggleSort = useViewStore((s) => s.toggleSort);
   const openDrawer = useViewStore((s) => s.openDrawer);
   const closeDrawer = useViewStore((s) => s.closeDrawer);
+  const overlay = useViewStore((s) => s.overlay);
+  const setOverlay = useViewStore((s) => s.setOverlay);
+  const closeOverlay = useViewStore((s) => s.closeOverlay);
   const selectedId = useSelectionStore((s) => s.selectedId);
   const select = useSelectionStore((s) => s.select);
   const clearFilters = useFilterStore((s) => s.clear);
@@ -60,10 +68,27 @@ export function LibraryScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
+  // Job events for as long as the library screen lives.
+  useEffect(() => {
+    let alive = true;
+    let off: (() => void) | undefined;
+    void useJobStore
+      .getState()
+      .connect()
+      .then((unsubscribe) => {
+        if (alive) off = unsubscribe;
+        else unsubscribe();
+      });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, []);
+
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
-      // The modal owns the keyboard; the search sits behind it.
-      if (settingsOpen) return;
+      // A modal owns the keyboard; the search sits behind it.
+      if (settingsOpen || overlay !== 'none') return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();
@@ -74,7 +99,7 @@ export function LibraryScreen() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closeDrawer, settingsOpen]);
+  }, [closeDrawer, settingsOpen, overlay]);
 
   if (!view) return null;
 
@@ -131,6 +156,9 @@ export function LibraryScreen() {
         view={view}
         searchRef={searchRef}
         onSettings={() => setSettingsOpen(true)}
+        onFill={() => setOverlay('wizard')}
+        onJobs={() => setOverlay('jobs')}
+        onReports={() => setOverlay('reports')}
       />
       <div className="library-body">
         <Sidebar key={view.generation} view={view} now={now} />
@@ -147,6 +175,21 @@ export function LibraryScreen() {
         total={view.entries.length}
         scanMs={view.scan_ms}
       />
+      {overlay === 'wizard' && (
+        <FillWizard
+          view={view}
+          visible={visible}
+          selectedId={selectedId}
+          onClose={closeOverlay}
+        />
+      )}
+      {overlay === 'review' && (
+        <ReviewQueue view={view} onClose={() => setOverlay('wizard')} />
+      )}
+      {overlay === 'jobs' && <JobsPanel view={view} onClose={closeOverlay} />}
+      {overlay === 'reports' && (
+        <ReportsPanel view={view} onClose={closeOverlay} />
+      )}
       {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>
   );

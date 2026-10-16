@@ -264,3 +264,37 @@ fn undo_job_refuses_hostile_ids() {
         );
     }
 }
+
+#[test]
+fn discarding_an_empty_job_leaves_no_journal_and_no_backups() {
+    let (lib, data, imgs) = setup();
+    let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    let job = w.job_id().to_string();
+    assert!(!w.has_entries());
+    // A refused write appends nothing.
+    assert!(w
+        .write(&imgs.join("a?b.png"), b"x", OverwritePolicy::Backup)
+        .is_err());
+    assert!(!w.has_entries());
+    w.discard().unwrap();
+    assert!(list_jobs(data.path()).unwrap().is_empty());
+    assert!(!data
+        .path()
+        .join("jobs")
+        .join(format!("{job}.jsonl"))
+        .exists());
+    assert!(!data.path().join("backups").join(&job).exists());
+}
+
+#[test]
+fn a_job_with_entries_is_never_discarded() {
+    let (lib, data, imgs) = setup();
+    let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    w.write(&imgs.join("a.png"), b"x", OverwritePolicy::Never)
+        .unwrap();
+    assert!(w.has_entries());
+    assert!(matches!(w.discard(), Err(WriteError::Journal(_))));
+    assert_eq!(list_jobs(data.path()).unwrap().len(), 1);
+    undo_last(data.path()).unwrap();
+    assert!(!imgs.join("a.png").exists());
+}

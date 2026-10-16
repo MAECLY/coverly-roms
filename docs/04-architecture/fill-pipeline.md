@@ -1,6 +1,6 @@
 # Fill Pipeline
 
-> **TL;DR.** `coverly fill` runs scan → art status → targets → **gather** → **plan** → (with `--apply`) **apply** → re-audit. Gathering identifies ROMs and collects art candidates into a SQLite cache. Planning picks one candidate per ROM and media with a strategy and classes it `auto`, `review` or `none`; that is the dry run, and it writes nothing. Applying downloads through a content-addressed art store, re-encodes for the profile and writes atomically inside the library root. Replaced files are backed up and every write is journaled, so `coverly undo` can reverse a job. A rate limit or going offline pauses the job; it never fails item by item. Decisions: [ADR-0007](../adr/0007-pluggable-strategies.md), [ADR-0009](../adr/0009-two-phase-fill-with-sqlite-cache.md), [ADR-0010](../adr/0010-safe-writes-backups-and-journal.md). Spec: [§7, §9, §10, §11, §16.1, §16.10](../superpowers/specs/2026-10-15-coverly-roms-design.md). Related: [identification](./identification.md), [art sources](./art-sources.md).
+> **TL;DR.** `coverly fill` runs scan → art status → targets → **gather** → **plan** → (with `--apply`) **apply** → re-audit. Gathering identifies ROMs and collects art candidates into a SQLite cache. Planning picks one candidate per ROM and media with a strategy and classes it `auto`, `review` or `none`; that is the dry run, and it writes nothing. Applying downloads through a content-addressed art store, re-encodes for the profile and writes atomically inside the library root. Replaced files are backed up and every write is journaled, so `coverly undo` can reverse a job. A rate limit or going offline pauses the job; it never fails item by item. In the app the same pipeline runs as a job (`coverly_core::fill::FillEnv`), with review decisions between plan and apply. Decisions: [ADR-0007](../adr/0007-pluggable-strategies.md), [ADR-0009](../adr/0009-two-phase-fill-with-sqlite-cache.md), [ADR-0010](../adr/0010-safe-writes-backups-and-journal.md). Spec: [§7, §9, §10, §11, §16.1, §16.10](../superpowers/specs/2026-10-15-coverly-roms-design.md). Related: [identification](./identification.md), [art sources](./art-sources.md).
 
 ## Flow
 
@@ -58,6 +58,8 @@ A strategy only **orders** candidates (`matching::Strategy::rank`). Eligible can
 
 Every tie ends on source, name and URL, so a plan never depends on input order.
 
+**Unreleased variants never win as `auto` (M2-11, D22).** `matching::is_unreleased_variant` recognises bracketed beta, proto, demo, sample, hack, pirate, kiosk, debug and `(Unl)` tags and GoodTools `[h…]`. When the best tier holds only such a variant, `build_plan` moves the first retail candidate that reaches the review threshold to the front, and a non-retail first pick that is neither a canonical nor an exact file-name match, for a ROM that is not itself that kind of variant, is classed `review` with `note: unreleased-variant`, never `auto`. Real cases (M4 run): `057 Final Fantasy IV` → `Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)` in review, `054 Contra Advance` → `Contra Advance (USA) (Beta)` in review.
+
 **Popularity (D9).** Part (b), consensus, is measured inside libretro in M2. With `--strategy popularity`, gathering counts how many libretro media listings (`Named_Boxarts`, `Named_Snaps`, `Named_Titles`) contain the same variant file. A variant with box, snap and title is more "canonical" than one with a lone box. Part (a), SteamGridDB votes, and cross-source consensus arrive with the M6 sources. The `votes` field already exists, so the strategy will not change (decision D15).
 
 ## Image pipeline
@@ -89,11 +91,12 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 {"type":"header","job":"20261016T050401Z-1bfb-0000","root":"/abs/library","created_at":"2026-10-16T05:04:01Z"}
 {"type":"entry","target":"/abs/library/ROMS/FC/Imgs/054 Soccer.png","op":{"kind":"created"},"sha1":"F2EA…"}
 {"type":"entry","target":"/abs/…/Imgs/001 Golden Sun.png","op":{"kind":"replaced","backup":"/abs/data/backups/<job>/ROMS/GBA/Imgs/001 Golden Sun.png"},"sha1":"…"}
+{"type":"entry","target":"/abs/…/Imgs/057 Final Fantasy IV.png","op":{"kind":"removed","backup":"/abs/data/backups/<job>/ROMS/GBA/Imgs/057 Final Fantasy IV.png"},"sha1":"…"}
 {"type":"done"}
 ```
 
   The root is stored as an **absolute** path, so `undo` works from any working directory. A torn last line (crash) is ignored, and an unfinished job can still be undone.
-- **Undo** (`coverly undo [--job ID] [--list]`) walks the entries in reverse. A `created` file is removed only if its SHA1 still matches. A `replaced` file is restored from its backup, atomically, only if its SHA1 still matches. A file the user changed or deleted after the job is **kept** and reported. Job ids are validated before use, and backup paths must stay inside the job's backup folder. The journal is renamed `<job>.undone.jsonl`. The newest 10 journals and their backups are kept.
+- **Undo** (`coverly undo [--job ID] [--list]`) walks the entries in reverse. A `created` file is removed only if its SHA1 still matches. A `replaced` file is restored from its backup, atomically, only if its SHA1 still matches. A `removed` file (drawer "Remove", M4) is restored from its backup unless the user put a file there since. A file the user changed or deleted after the job is **kept** and reported. Job ids are validated before use, and backup paths must stay inside the job's backup folder. The journal is renamed `<job>.undone.jsonl`. The newest 10 journals and their backups are kept.
 
 ## Apply
 
@@ -101,7 +104,7 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 
 - **Art store.** Downloads land in `<cache>/art/<sha1[0..2]>/<sha1>`, keyed by URL in SQLite and verified by SHA1 on read. Re-applying after an undo, or with another profile, downloads nothing.
 - **Fallbacks.** A 404, a decode failure (garbage behind a 200, a truncated PNG, a 9000 px image) or a fetch error moves to the next alternative. Only when all of them fail does the item fail, with `no-art`, `network` or `decode`.
-- **Per-item errors** (spec §10): `no-art`, `network`, `decode`, `write-denied`, `disk-full`, `name-invalid`, `outside-root`, `io`. One failed item never stops the job.
+- **Per-item errors** (spec §10): `no-art`, `network`, `decode`, `write-denied`, `disk-full`, `name-invalid`, `outside-root`, `volume-gone`, `io`. One failed item never stops the job.
 
 ## Pause and resume
 
@@ -110,9 +113,28 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 | 403 / 429 (after retries for 429) | stop, partial plan, exit 5, nothing written | stop scheduling, finish the journal, exit 5 |
 | Offline or timeout after retries (D15) | same as a rate limit | same as a rate limit |
 | Volume full or read-only, write denied | — | stop, journal kept |
+| Volume ejected (library root gone) | — | stop before downloading more, journal kept, the item is resumable |
 | Cancel (`AtomicBool`, used by the app in M4) | — | stop, journal kept, `cancelled: true` |
 
+The plan and the job report carry a `pause_kind` (`rate-limit`, `offline`, `volume`) so a UI can say why it stopped.
+
 **Resume = run the same command again.** Already-written art is no longer missing, so it is not a target. Quick ids, DATs, listings and candidate lists come from the cache, and art already downloaded comes from the art store. `coverly undo` removes exactly what the interrupted job wrote. In the CLI, Ctrl-C ends the process. Every journal entry is fsynced as it is written, so the job can still be undone.
+
+**Resume in the app.** The app does not re-plan after an apply pause: it resumes the not-attempted (and volume-failed) items of the same plan into the **same journal** (`Writer::resume`; a torn last line is cut off first), so a paused and resumed job is one job for Undo and history (D21). Resuming a gather pause re-runs the dry run, which is cheap from the cache, and clears the decisions.
+
+## In the app
+
+`FillEnv::plan` builds the plan of the chosen entries; the review queue records decisions on it (`Plan::decide`) before `FillEnv::apply` writes `Plan::subset` of the wanted items:
+
+| Decision | Effect |
+|---|---|
+| `accept` | write the chosen image (falling back to the alternatives) |
+| `pick` (`candidate`) | write that image only: 0 is the chosen one, `n` is alternative `n − 1` |
+| `skip` | write nothing |
+
+The app writes `auto` items plus the accepted or picked review items; undecided review items are skipped as `skipped-review` (D20). The CLI keeps D14 (review items are written unless `--auto-only`).
+
+The detail drawer writes one file at a time, each as a journaled job of its own (so Undo reverts it): "Change…" writes a candidate through the same apply path; "From file…" uses `write_local_image` (the file is read up to 20 MiB, decoded and re-encoded for the slot); "Remove" uses `remove_art`, which backs the file up and journals a `removed` op. A drawer action that changes nothing leaves no journal.
 
 ## CLI reference
 
@@ -151,3 +173,12 @@ M2 Task 14, run on 2026-10-16 with release binaries against the real servers. Th
 - **Undo** restored the original tree: the `shasum` diff of the whole copy is empty.
 - **Backup round trip** (`--scope all --overwrite backup`, GBA): 13 filled, 19 replaced, 19 backups in the data dir; undo removed 13 and restored 19, and the diff is empty.
 - **Source untouched:** `find ~/Documents/ROMS/{GBA,FC} -newer snapshot` → 0.
+
+M4 Task 13, run on 2026-10-16 through the app's job path (`AppState::open` → `start_fill` → `run` → `undo_last_job`, the code the UI drives; ignored test `src-tauri/tests/real_fill.rs`, release build, real servers). Full numbers in the tracker («Evidencia M4»).
+
+- **Copy:** GBA (first 60 files + 22 covers) and FC (first 150 files + 41 covers): 273 files, 684 MB, 209 ROMs (anbernic-stock), 146 without cover.
+- **Dry run (cold cache, 5.9 s):** auto 122 / review 14 / none 10 (FC 95 / 6 / 8, GBA 27 / 8 / 2). Nothing written.
+- **M2-11:** `054 Contra Advance` → review, `unreleased-variant`, `Contra Advance (USA) (Beta)`; `057 Final Fantasy IV` → review, `unreleased-variant`, `Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)`.
+- **Apply (auto only, no decisions):** 19.3 s, 122 filled, 0 replaced, 24 skipped, 0 no-art, 0 failed; every new file a PNG ≤ 250×360, no `._*` or `.coverly-*` leftovers; the session's covers went from 146 missing to 24 (146 − 122) without reopening the library.
+- **Undo** (`undo_last_job`): 122 removed, 0 restored, 0 kept; the SHA-1 tree of the copy is identical to before.
+- **Source untouched:** `find ~/Documents/ROMS/{GBA,FC} -cnewer snapshot` → 0; nothing under `/Volumes`.

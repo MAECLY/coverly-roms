@@ -1,7 +1,9 @@
 {
   "app": {
     "name": "Coverly ROMs",
-    "tagline": "Find and add the missing cover art in your ROMs"
+    "tagline": "Find and add the missing cover art in your ROMs",
+    "crashed": "Something went wrong in the app.",
+    "reload": "Reload"
   },
   "language": {
     "label": "Language",
@@ -86,6 +88,17 @@
     "art-too-large": "This image is too large to show.",
     "io": "Something went wrong: {detail}",
     "settings": "The settings could not be saved: {detail}",
+    "job-running": "A fill job is running. Wait for it or cancel it first.",
+    "no-job": "There is no fill job.",
+    "stale-job": "That fill job was replaced by a newer one.",
+    "bad-request": "This cannot be done: {detail}",
+    "nothing-to-undo": "There is nothing to undo.",
+    "network": "The art source could not be reached: {detail}",
+    "bad-image": "This file is not a usable image: {detail}",
+    "write-denied": "Coverly ROMs cannot write to the library (read-only or no permission): {detail}",
+    "disk-full": "The library disk is full.",
+    "name-invalid": "This file name is not valid on SD cards: {detail}",
+    "volume-gone": "The library volume was removed or is no longer reachable: {detail}",
     "art-unreadable": "This image cannot be shown.",
     "unknown": "Unexpected error: {detail}"
   },
@@ -116,7 +129,10 @@
     "grid": "Grid",
     "list": "List",
     "fill": "Fill missing art",
-    "fillHint": "Filling art arrives in a later version."
+    "jobs": "Jobs",
+    "jobsRunning": "Jobs (running)",
+    "jobsPaused": "Jobs (paused)",
+    "reports": "Reports"
   },
   "filters": {
     "art": "Art",
@@ -191,9 +207,172 @@
     "search": "Search…",
     "fromFile": "From file…",
     "remove": "Remove",
-    "laterHint": "Changing art arrives in a later version.",
     "revealMac": "Reveal in Finder",
     "revealWin": "Show in Explorer",
-    "revealOther": "Show in folder"
+    "revealOther": "Show in folder",
+    "searchLater": "Searching by title arrives in a later version.",
+    "mediaLabel": "Art to change",
+    "candidates": "Candidates",
+    "loadingCandidates": "Looking for images…",
+    "noCandidates": "No images found for this ROM.",
+    "updated": "Art updated. Undo it from Jobs if needed.",
+    "removeConfirm": "Remove this image? It is backed up and Undo brings it back.",
+    "removeYes": "Remove image",
+    "removeNo": "Keep",
+    "busy": "A fill job is running: art changes wait until it ends."
+  },
+  "fill": {
+    "title": "Fill missing art",
+    "stepOf": "Step {n} of {total}",
+    "next": "Next",
+    "back": "Back",
+    "close": "Close",
+    "scope": {
+      "title": "What to fill",
+      "selection": "Selected ROM ({n})",
+      "filter": "Current filter ({n} ROMs)",
+      "library": "Whole library ({n} ROMs)"
+    },
+    "media": {
+      "title": "Which art"
+    },
+    "strategy": {
+      "title": "How to choose the image",
+      "rom-region": "ROM region",
+      "priority": "Source priority",
+      "popularity": "Most common variant"
+    },
+    "strategyHint": {
+      "rom-region": "Prefers the ROM's own region, then the order below.",
+      "priority": "Prefers the first source, then the order below.",
+      "popularity": "Prefers the variant that has box, screenshot and title, then source priority."
+    },
+    "regions": "Region order",
+    "regionRom": "The ROM's own region",
+    "moveUp": "Move {region} up",
+    "moveDown": "Move {region} down",
+    "overwrite": {
+      "title": "Existing art",
+      "never": "Only missing art",
+      "backup": "Also replace existing art (with a backup)",
+      "backupHint": "Replaced images are kept in the app's data folder and come back with Undo."
+    },
+    "batocera": "Batocera and Knulli read art from gamelist.xml, which Coverly ROMs does not update yet: new images may not show until it does.",
+    "preview": "Preview (dry run)",
+    "gathering": "Looking for art… {done} of {total}",
+    "summary": "Dry run",
+    "summaryHint": "Nothing has been written yet.",
+    "system": "System",
+    "auto": "Automatic",
+    "review": "To review",
+    "none": "No art",
+    "total": "Total",
+    "samples": "Sample images",
+    "imageFailed": "Image not available",
+    "nothingToDo": "Nothing to fill here.",
+    "run": "Run ({n})",
+    "discard": "Discard the plan",
+    "failed": "The dry run failed: {detail}",
+    "pausedHint": "The dry run paused. Resume it when the connection is back."
+  },
+  "jobs": {
+    "resume": "Resume",
+    "pause": {
+      "rate-limit": "Paused: the art server is limiting requests. Wait a few minutes and resume.",
+      "offline": "Paused: no connection to the art server. Resume when you are back online.",
+      "volume": "Paused: the SD card is full, read-only or was removed. Fix it and resume."
+    },
+    "title": "Jobs",
+    "current": "Current job",
+    "none": "No fill job yet.",
+    "state": {
+      "gathering": "Looking for art (dry run)…",
+      "planned": "Dry run ready: nothing written yet.",
+      "applying": "Writing art…",
+      "paused": "Paused",
+      "cancelled": "Cancelled",
+      "done": "Finished",
+      "failed": "Failed"
+    },
+    "phase": {
+      "gather": "Looking for art",
+      "apply": "Writing art"
+    },
+    "progress": "{phase}: {done} of {total}",
+    "progressLabel": "Job progress",
+    "cancel": "Cancel",
+    "failed": "The job failed: {detail}",
+    "totals": {
+      "filled": "Filled",
+      "replaced": "Replaced",
+      "skipped": "Skipped",
+      "no_art": "No art found",
+      "failed": "Failed"
+    },
+    "errors": "Problems ({n})",
+    "error": {
+      "no-art": "No art found",
+      "network": "Network error",
+      "decode": "Not a usable image",
+      "write-denied": "Write denied",
+      "disk-full": "Disk full",
+      "name-invalid": "Name not valid on SD cards",
+      "outside-root": "Outside the library",
+      "volume-gone": "The library volume was removed",
+      "io": "Disk error"
+    },
+    "exportCsv": "Export report (CSV)",
+    "exportJson": "Export report (JSON)",
+    "undoTitle": "Undo",
+    "undo": "Undo last job",
+    "undoConfirm": "Undo the last job? Written images are removed and replaced ones restored; images you changed since are kept.",
+    "undoYes": "Undo",
+    "undoNo": "Keep",
+    "undone": "Undone: {removed} removed, {restored} restored, {kept} kept because you changed them.",
+    "history": "History",
+    "noHistory": "No jobs yet.",
+    "file": "1 file",
+    "files": "{n} files",
+    "complete": "Complete",
+    "incomplete": "Stopped early",
+    "undoneBadge": "Undone",
+    "close": "Close",
+    "unknownDate": "Unknown date",
+    "unknownError": "Unknown problem"
+  },
+  "review": {
+    "title": "Review doubtful matches",
+    "open": "Review ({n})",
+    "loading": "Loading…",
+    "empty": "Nothing to review.",
+    "position": "{n} of {total} · {decided} decided",
+    "current": "Current art",
+    "candidates": "Candidates",
+    "meta": "{key}. {source} · {regions} · {score}%",
+    "variantNote": "The best image is a beta, prototype, hack or unlicensed variant: check it before writing.",
+    "undecided": "Not decided",
+    "accepted": "Will be written",
+    "skipped": "Skipped",
+    "keys": "Keys: ← → move · 1–9 choose · Enter accept · S skip · A accept all remaining · Esc back",
+    "previous": "Previous",
+    "next": "Next",
+    "accept": "Accept",
+    "skip": "Skip",
+    "acceptAll": "Accept all remaining",
+    "done": "Done"
+  },
+  "reports": {
+    "saved": "Saved as {name}.",
+    "title": "Reports",
+    "audit": "Art audit",
+    "system": "System",
+    "roms": "ROMs",
+    "complete": "Complete",
+    "total": "Total",
+    "exportAuditCsv": "Export audit (CSV)",
+    "exportAuditJson": "Export audit (JSON)",
+    "jobReport": "Last job report",
+    "noJob": "No job has run yet.",
+    "close": "Close"
   }
 }

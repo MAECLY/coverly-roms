@@ -6,6 +6,7 @@ use common::anbernic_tree;
 use coverly_core::settings::{LibrarySettings, LIBRARY_SETTINGS_FILE};
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
+use coverly_roms_lib::jobs::FillConfig;
 use coverly_roms_lib::library::view::ScanProgressEvent;
 use coverly_roms_lib::library::{open_session, OpenRequest};
 use coverly_roms_lib::state::AppState;
@@ -14,7 +15,7 @@ use tempfile::TempDir;
 fn state(config: &TempDir) -> AppState {
     AppState::new(
         config.path().join(LIBRARY_SETTINGS_FILE),
-        config.path().join("cache"),
+        FillConfig::new(config.path().join("cache"), config.path().join("data")),
     )
 }
 
@@ -88,7 +89,10 @@ fn open_succeeds_when_settings_cannot_be_saved() {
     // The settings "file" is a folder: saving fails, opening must not.
     let settings_path = config.path().join("as-dir");
     std::fs::create_dir_all(&settings_path).unwrap();
-    let st = AppState::new(settings_path, config.path().join("cache"));
+    let st = AppState::new(
+        settings_path,
+        FillConfig::new(config.path().join("cache"), config.path().join("data")),
+    );
     let tree = anbernic_tree(&["GBA"], 1, 0);
     assert!(st
         .open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})

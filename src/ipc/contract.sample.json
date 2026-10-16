@@ -68,5 +68,112 @@
     "regions": ["usa"],
     "offline": false
   },
-  "error": { "code": "not-found", "detail": "/Volumes/SD" }
+  "job_view": {
+    "id": 4,
+    "generation": 3,
+    "state": "paused",
+    "progress": {
+      "phase": "apply",
+      "done": 2,
+      "total": 5,
+      "label": "Zelda (USA)"
+    },
+    "paused": {
+      "phase": "apply",
+      "kind": "rate-limit",
+      "detail": "rate limited by thumbnails.libretro.com (HTTP 429)"
+    },
+    "plan": {
+      "totals": { "auto": 3, "review": 1, "none": 1 },
+      "per_system": [{ "folder": "SFC", "auto": 3, "review": 1, "none": 1 }],
+      "warnings": []
+    },
+    "decided": 1,
+    "skipped": 0,
+    "journal": "20261016T050401Z-1bfb-0000",
+    "result": {
+      "filled": 2,
+      "replaced": 0,
+      "skipped": 2,
+      "no_art": 0,
+      "failed": 1
+    },
+    "error": null
+  },
+  "job_item": {
+    "index": 0,
+    "entry_id": 0,
+    "folder": "SFC",
+    "name": "Zelda (USA)",
+    "media": "cover",
+    "action": "review",
+    "confidence": 0.5,
+    "note": "unreleased-variant",
+    "none_reason": null,
+    "candidates": [
+      {
+        "index": 0,
+        "source": "libretro",
+        "name": "Zelda (USA) (Beta)",
+        "regions": ["usa"],
+        "kind": "title-exact",
+        "score": 95,
+        "confidence": 0.5
+      }
+    ],
+    "replaces_existing": false,
+    "decision": { "choice": "pick", "candidate": 0 },
+    "outcome": {
+      "status": "failed",
+      "error": "write-denied",
+      "message": "write denied"
+    }
+  },
+  "job_progress": {
+    "job": 4,
+    "phase": "gather",
+    "done": 1,
+    "total": 5,
+    "label": "Zelda (USA)"
+  },
+  "entries_updated": {
+    "generation": 3,
+    "entries": [
+      {
+        "id": 0,
+        "art": {
+          "cover": "present",
+          "screenshot": "unsupported",
+          "title": "unsupported"
+        }
+      }
+    ]
+  },
+  "undo": {
+    "job": "20261016T050401Z-1bfb-0000",
+    "removed": 2,
+    "restored": 1,
+    "kept": 0,
+    "entries": []
+  },
+  "history_item": {
+    "job": "20261016T050401Z-1bfb-0000",
+    "root": "/Volumes/SD",
+    "created_at": "2026-10-16T05:04:01Z",
+    "entries": 3,
+    "complete": true,
+    "undone": false
+  },
+  "error": { "code": "not-found", "detail": "/Volumes/SD" },
+  "item_error_kinds": [
+    "no-art",
+    "network",
+    "decode",
+    "write-denied",
+    "disk-full",
+    "name-invalid",
+    "outside-root",
+    "volume-gone",
+    "io"
+  ]
 }

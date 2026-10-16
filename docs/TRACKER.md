@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M3 mergeado ([PR #4](https://github.com/MAECLY/coverly-roms/pull/4), `910618e`). M4 (relleno masivo en la app) en curso en `feat/m4-fill-app`.
-- **Siguiente paso:** plan M4 (`docs/superpowers/plans/2026-10-16-m4-fill-in-app.md`) + workflow implementador/revisor. Pendiente de Miguel (no bloqueante): abrir `~/Documents/ROMS` en la app real con el diálogo nativo y probar scroll/drawer/Reveal («Evidencia M3»).
-- **En curso:** workflow M4.
+- **Fase:** M4 implementado en `feat/m4-fill-app` (pendiente de PR). M3 mergeado ([PR #4](https://github.com/MAECLY/coverly-roms/pull/4), `910618e`).
+- **Siguiente paso:** PR M4 + verificación independiente. Pendiente de Miguel (no bloqueante): en la app real (Tauri), abrir una **copia** de la SD, rellenar portadas desde el asistente y deshacer («Evidencia M4»); y lo pendiente de M3 (diálogo nativo, scroll, drawer, Reveal).
+- **En curso:** cierre de M4 (tarea 13 hecha: E2E, docs y tracker).
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
@@ -44,6 +44,10 @@
 | D17 | Escaneo progresivo = eventos de progreso por carpeta de sistema; las entradas llegan al final (abrir la biblioteca real: 367 ms en frío / 140 ms en caliente, release) | 2026-10-16 | Claude (plan M3) |
 | D18 | El arte llega por IPC como bytes, pedido por `(generación, id)`; sin asset protocol; CSP `img-src 'self' data: blob:` | 2026-10-16 | Claude (plan M3) |
 | D19 | Elegir directamente la carpeta `ROMS` funciona (`fit_to_root`); idioma en `localStorage` hasta M5 | 2026-10-16 | Claude (plan M3) |
+| D20 | En la app se escriben solo los ítems auto y los de revisión aceptados/elegidos; los de revisión sin decidir se omiten (la CLI mantiene D14) | 2026-10-16 | Claude (plan M4) |
+| D21 | Reanudar un job pausado continúa el mismo journal (Writer::resume): un único Deshacer revierte ambas tandas. En la app, Deshacer actúa solo sobre journals de la biblioteca abierta y se rechaza mientras un job está pausado | 2026-10-16 | Claude (plan M4) |
+| D22 | M2-11: una variante beta/proto/demo/hack/sin licencia nunca es auto salvo coincidencia canónica o de nombre exacto, o si la ROM es esa variante; se antepone la primera release ≥ umbral de revisión | 2026-10-16 | Claude (plan M4) |
+| D23 | Los diálogos de «Desde archivo…» y de exportar se abren desde Rust: la webview nunca envía rutas y no hay capacidades nuevas | 2026-10-16 | Claude (plan M4) |
 
 ## Fase 0 — Descubrimiento y diseño
 
@@ -123,9 +127,10 @@ Contraste manual con `ls` (ROMs = ficheros no ocultos fuera de `Imgs`; portadas 
 | M2-07 | Imagen: decode/resize/encode por perfil | ✅ | `67e4bca` (límites: 20 MiB, 8192 px, 256 MiB de asignación; formato por sniffing) |
 | M2-08 | Escritura atómica, respaldo, journal, undo, nombres FAT-safe | ✅ | `c594bf4`, `90874a2` (borra los `._*` que macOS crea en FAT por `com.apple.provenance`, hallado en el E2E sobre FAT32). [ADR-0010](adr/0010-safe-writes-backups-and-journal.md) |
 | M2-09 | `coverly fill` (dry-run/apply/--auto-only) | ✅ | `321e001` (aplicar plan: art store, fallbacks, pausa, cancelar), `63896d4` (`coverly fill` y `coverly undo`). E2E: «Evidencia M2» abajo. Doc: [fill-pipeline.md](04-architecture/fill-pipeline.md) |
-| M2-10 | Batocera/Knulli: fusionar `gamelist.xml` al rellenar (diferido de M2; hoy `fill` avisa) | ⬜ | M4/M5 |
-| M2-11 | Selección de variantes: hoy un hack/beta puede ganar como `auto` cuando es el único título exacto o el mejor fuzzy (GBA `Final Fantasy IV` → caja «Sound Restoration hack», `Contra Advance` → `(Beta)`): penalizar o mandar a `review` | ⬜ | Visto en el dry-run del E2E (abajo) |
-| M2-12 | Perfil Anbernic stock: las portadas existentes de la SD miden 285×184, fuera de la caja 250×360 del perfil → revisar el tamaño máximo con la consola real | ⬜ | Visto en el E2E (22 portadas GBA originales) |
+| M2-10 | Batocera/Knulli: fusionar `gamelist.xml` al rellenar (diferido de M2; hoy `fill` avisa) | ⬜ | M5. En M4: aviso en el asistente para batocera (como la CLI) |
+| M2-11 | Selección de variantes: hoy un hack/beta puede ganar como `auto` cuando es el único título exacto o el mejor fuzzy (GBA `Final Fantasy IV` → caja «Sound Restoration hack», `Contra Advance` → `(Beta)`): penalizar o mandar a `review` | ✅ | `526e3a9` (D22). Ejecución real M4: `054 Contra Advance` → `Review Some(UnreleasedVariant)` → `Contra Advance (USA) (Beta)`; `057 Final Fantasy IV` → `Review Some(UnreleasedVariant)` → `Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)` («Evidencia M4») |
+| M2-12 | Perfil Anbernic stock: las portadas existentes de la SD miden 285×184, fuera de la caja 250×360 del perfil → revisar el tamaño máximo con la consola real | ⬜ | Visto en el E2E (22 portadas GBA originales). Sigue abierto tras M4 (necesita la consola real) |
+| M2-13 | Emparejado por título: quitar prefijos numéricos de las ROMs (`001 Golden Sun`, habituales en SD Anbernic). Hoy `001 Golden Sun` cae a fuzzy 71 (`review` en vez de `auto`) aun con DAT, y `002 Gldn Rsh` queda sin candidatos (sin prefijo: fuzzy 72) | ⬜ | Visto en la revisión de la tarea 3 de M4 (fixture de `fill_env.rs`) |
 
 ### Evidencia M2 — relleno E2E sobre copia de la SD (2026-10-16)
 
@@ -151,7 +156,7 @@ Binario release, servidores reales, todo en el scratchpad (`$SC` = `/private/tmp
 | M3-04 | Filtros y búsqueda | ✅ | `673e5c1` (búsqueda sin acentos, filtros, facetas), `3a100b9`, `07f665c`, `de3a458`, `b381df2` (campos con `name`, hallado en el E2E) |
 | M3-05 | Panel de detalle con acciones | ✅ | `2808f63` (identificar bajo demanda, sin conexión → por nombre), `5fc856e` (panel: arte, ficha, identidad, «Mostrar en Finder») |
 | M3-06 | Inicio: volúmenes extraíbles detectados (spec §8) | ⏸️ | Diferido a M5 (plan M3) |
-| M3-07 | Filtro por método/confianza de identificación (spec §8) | ⏸️ | Diferido a M4: en M3 la identidad es bajo demanda |
+| M3-07 | Filtro por método/confianza de identificación (spec §8) | ⏸️ | Diferido a M4: en M3 la identidad es bajo demanda. Tras M4 sigue diferido (identidad bajo demanda) → M5 |
 | M3-08 | Elegir/confirmar el perfil al abrir (spec §7.1); hoy `no-profile` si no hay marcadores | ⏸️ | Diferido a M5 (editor de perfiles); el comando ya acepta `profileId` |
 
 ### Evidencia M3 — explorador (2026-10-16)
@@ -174,10 +179,39 @@ Evidencia en `$S` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Doc
 
 | ID | Tarea | Estado | Evidencia |
 |---|---|---|---|
-| M4-01 | Asistente de relleno (alcance, media, estrategia, sobrescritura, dry-run) | ⬜ | |
-| M4-02 | Cola de revisión lado a lado | ⬜ | |
-| M4-03 | Jobs: progreso, cancelar, reanudar, deshacer | ⬜ | |
-| M4-04 | Reportes CSV/JSON | ⬜ | |
+| M4-01 | Asistente de relleno (alcance, media, estrategia, sobrescritura, dry-run) | ✅ | Core: `ed93ede` (fachada `FillEnv` + decisiones), `178dcb3`, `669fca4`, `f70749f`. App: `b6be996`, `81af28d`, `b976768`, `936af46`, `5be5ab2`. UI: `c8afb15`, `9541e09`, `aeb995b` (el recuento de «Ejecutar» no cuenta las omitidas, hallado en el E2E). «Evidencia M4» |
+| M4-02 | Cola de revisión lado a lado | ✅ | `73a93d7`, `941b8ed`, `8893f4a`; mock: `43f54a7`. «Evidencia M4» |
+| M4-03 | Jobs: progreso, cancelar, reanudar, deshacer | ✅ | Core: `8b7a9d7` (pausas, journal reanudable, borrado journaled), `fcd594b`, `343b6e7`, `5b1968e`. App: `81af28d`, `17a4e35`, `5be5ab2`, `9571040`, `bc3d659`, `88f6458`. UI: `6d0715e`, `88107be`, `b6e7668`, `76dfebf` (eventos del job perdidos con StrictMode en el mock, hallado en el E2E), `80684b5` («1 archivo»). Ejecución real por el camino de la app: `c778dc0`. «Evidencia M4» |
+| M4-04 | Reportes CSV/JSON | ✅ | `409911f` (CSV del job a prueba de fórmulas), `ff179a2` (acciones del panel + exportaciones con diálogo en Rust), `3c0387a`, `2cb9171`, `d1aa5ea`, `8efad85` (panel de informes). «Evidencia M4» |
+| M4-05 | Buscar por título en el panel (spec §8) | ⏸️ | Diferido a M5: necesita una identidad manual que no cambie el nombre del destino |
+
+### Evidencia M4 — relleno en la app (2026-10-16)
+
+Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad` (no versionada). **Nada se ejecutó contra `/Volumes`.** `~/Documents/ROMS` solo se leyó (`cp -X`).
+
+- **Ejecución real por el camino de la app** (test ignorado `src-tauri/tests/real_fill.rs`, `COVERLY_FILL_COPY=$SC/m4-copy COVERLY_FILL_WORK=$SC/m4-work cargo test -p coverly-roms --release --test real_fill -- --ignored --nocapture`, servidores reales; es el mismo código que usa la UI: `AppState::open` → `start_fill` → `jobs().run` → `undo_last_job`, con `refresh_entries` en cada escritura). Log: `real-fill.log`.
+  - **Copia:** `head -60` de `ROMS/GBA` (incluye `054 Contra Advance` y `057 Final Fantasy IV`) + `head -150` de `ROMS/FC` + sus `Imgs` + `anbernic/` → **684 MB, 273 ficheros**; abierta como `anbernic-stock`: **209 ROMs, 146 sin portada**.
+  - **Dry-run** (caché fría): **5,9 s**, auto **122** / review **14** / none **10** (FC 95 / 6 / 8, GBA 27 / 8 / 2). El árbol de la copia no cambia.
+  - **M2-11:** `054 Contra Advance: Review Some(UnreleasedVariant) -> Some("Contra Advance (USA) (Beta)")`; `057 Final Fantasy IV: Review Some(UnreleasedVariant) -> Some("Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)")`.
+  - **Apply (solo auto, sin decisiones; D20):** **19,3 s**, filled **122**, replaced 0, skipped 24, no-art 0, failed 0, journal `20261016T105644Z-757c-0000`. Un fichero nuevo por ítem rellenado; todos PNG ≤ 250×360; ningún `._*` ni `.coverly-*`.
+  - **Sin portada en la sesión** (refresco de las entradas tocadas, sin reabrir): **146 → 24** (146 − 122).
+  - **Undo** (`undo_last_job`): removed 122, restored 0, kept 0 → árbol SHA-1 de la copia **idéntico** al de antes.
+  - **Origen intacto:** `find ~/Documents/ROMS/GBA ~/Documents/ROMS/FC -cnewer snapshot | wc -l` → **0** (`source-untouched.txt`).
+- **E2E en Chrome** (Chrome DevTools MCP, `pnpm dev`, viewport 1440×900, mock 12k; notas paso a paso en `e2e-notes.md`):
+  - Asistente (paso 1 de 5 → toda la biblioteca, Portada + Título, Región de la ROM, «Move USA up», solo lo que falta) → progreso → resumen por sistema con Total **8.717 auto / 2.437 review / 1.247 none** y 4 muestras.
+  - Cola de revisión: arte actual + 3 candidatos con fuente, región y puntuación; `2`, `Enter` («2 of 2,437 · 1 decided»), `s`, `a` («2,437 decided»), `Esc` → «Run (11,153)» (8.717 + 2.436 aceptadas).
+  - Ejecutar → pausa del mock tras 25 ítems: «Paused: the art server is limiting requests…» + detalle HTTP 429 + Resume → «Finished»: filled **10.481**, skipped 1.248, no art 186, failed 486, «Problems (672)» con red / nombre no válido / sin arte / imagen no válida. Barra de estado **4.553 → 697** sin portada; las celdas muestran el arte nuevo.
+  - Exportar informe CSV y JSON → «Saved as coverly-job-1.csv.» / «.json.» (descargados, copiados a la evidencia). Deshacer → confirmación → «Undone: 10,481 removed, 0 restored, 0 kept…», historial «Undone», barra **4.553**.
+  - Panel de detalle: «Change…» → 3 candidatos → el 2.º → «Art updated…» (4.552); «From file…» → actualizado; «Remove» → confirmación → «Remove image» → sin portada (4.553); Jobs → Deshacer → «0 removed, 1 restored» y la portada vuelve (4.552).
+  - Informes: auditoría por sistema con Total 12.000; «Export audit (CSV)» → «Saved as coverly-audit.csv.» (12.001 líneas).
+  - Nombres hostiles: `<img` → panel de `<img src=x onerror=alert(1)>` → «Change…»: candidatos como texto; `document.querySelectorAll('img[src="x"], [onerror]').length` → **0**.
+  - Español: «Rellenar arte que falta», «Paso 1 de 5», «Revisar coincidencias dudosas», «Trabajos», «Deshacer el último trabajo», «1 archivo».
+  - Pasada limpia tras recargar (en español: dry-run, `s`/`a`, «Ejecutar (4098)» = 3193 + 905, pausa, reanudar, 3855 rellenadas, 4553 → 698 → deshacer → 4553): consola **0 errores, 0 avisos** (`console.txt`); red: 117 peticiones, todas 200/304 (`network.txt`).
+  - **Bugs del E2E (test primero + fix):** (1) el resumen del dry-run no aparecía nunca: el `listen` del mock identificaba la suscripción por callback y la doble conexión de React StrictMode borraba la buena → `76dfebf`; (2) «Run (n)» contaba también las de revisión omitidas → `aeb995b`; (3) historial «1 files» → «1 file» / «1 archivo» → `80684b5`.
+  - Observaciones (sin cambio): mientras el job está en pausa, «Skipped» incluye los ítems aún no intentados (igual que `JobReport` en Rust); los textos «{n} ROMs» dicen «1 ROMs» para una sola ROM (redacción de M3); las celdas del grid no aparecen como clicables en el árbol de accesibilidad (se abrió el panel con `element.click()`); el estado «aplicando» del mock dura menos que una captura (`05-applying.png` ya muestra la pausa; el texto «Escribiendo arte: 81 de 3168» se leyó del DOM).
+  - **Capturas:** `01-library.png`, `02-gathering.png`, `03-summary.png`, `04-review.png`, `05-applying.png`, `06-paused.png`, `07-done.png`, `07b-library-filled.png`, `08-undone.png`, `09-drawer-candidates.png`, `10-reports.png`, `11-es-wizard.png`, `11b-es-review.png`, `12-es-jobs.png`; exportaciones `coverly-job-1.csv`, `coverly-job-1.json`, `coverly-audit.csv`.
+- **Comprobación manual pendiente (Miguel):** en la ventana Tauri, abrir una copia de la SD (nunca `/Volumes` sin respaldo), rellenar portadas desde el asistente y deshacer.
+- **Tests:** `cargo test --workspace` → **389 pasan**, 0 fallan, 2 ignorados (`real_library`, `real_fill`); `pnpm test` → **241 pasan** (41 ficheros). `cargo fmt --check`, `clippy -D warnings`, `pnpm lint`, `typecheck`, `format:check` y `build` en verde.
 
 ## M5 — Configuración e i18n
 
@@ -214,3 +248,4 @@ Evidencia en `$S` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Doc
 - **2026-10-16** — M2 implementado en `feat/m2-fill` (plan tareas 1–14): identificación (hash → DATs, arcade, nombre), libretro-thumbnails, estrategias, plan, imagen, escritura segura, `coverly fill`/`undo`. E2E sobre copia de la SD: 109/126 portadas rellenadas, undo y respaldos byte a byte; imagen FAT32 sin `._*`. El E2E destapó y arregló 3 bugs (rutas DAT, `&amp;` en listados, `._*` en FAT). Docs: identification, art-sources, fill-pipeline, ADR-0009/0010; D12–D15.
 - **2026-10-16** — M3 implementado en `feat/m3-explorer` (plan tareas 1–13): explorador con vistas, grid/tabla virtualizados, filtros y búsqueda, panel de detalle, mock de navegador; E2E en Chrome (12k entradas) y biblioteca real en solo lectura (7473 ROMs, 367 ms en frío). El E2E destapó 2 bugs menores (recuentos sin formato, campos sin `name`). D16–D19.
 - **2026-10-16** — M3 mergeado (PR #4, `910618e`; Actions bloqueado por facturación → gates locales: 312 tests Rust + 156 Vitest, clippy/fmt/lint limpios). Comprobación independiente con Chrome DevTools MCP sobre `pnpm dev`: inicio con recientes, fixture 12k abre el grid virtualizado («12.000 de 12.000 ROMs · 4553 sin portada»), 0 errores/avisos de consola.
+- **2026-10-16** — M4 implementado en `feat/m4-fill-app` (plan tareas 1–13): asistente de relleno, cola de revisión por teclado, jobs con pausa/reanudación/cancelación/deshacer, acciones del panel (cambiar, desde archivo, quitar), informes CSV/JSON; M2-11 resuelto (D22). Ejecución real por el camino de la app sobre copia (122 portadas, undo idéntico) y E2E en Chrome (3 bugs arreglados). D20–D23.

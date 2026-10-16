@@ -138,11 +138,11 @@ describe('Library screen', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps Fill missing art disabled until M4', async () => {
+  it('enables Fill missing art', async () => {
     await openLibrary();
     expect(
       screen.getByRole('button', { name: 'Fill missing art' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
   it('focuses the search with the slash key', async () => {
@@ -282,7 +282,7 @@ describe('Library screen', () => {
     expect(screen.getByRole('tab', { name: 'Sistemas' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Rellenar arte que falta' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
   it('closes back to the start screen', async () => {

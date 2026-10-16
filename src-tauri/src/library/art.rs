@@ -16,7 +16,7 @@ use crate::error::IpcError;
 /// Largest art file served (the core image pipeline's own input cap).
 pub const MAX_ART_BYTES: u64 = 20 * 1024 * 1024;
 
-fn media_name(media: Media) -> String {
+pub(crate) fn media_name(media: Media) -> String {
     match media {
         Media::Cover => "cover",
         Media::Screenshot => "screenshot",
@@ -33,7 +33,7 @@ fn entry(session: &Session, id: u32) -> Result<&SessionEntry, IpcError> {
 }
 
 /// `path` canonicalised, if it stays inside the library.
-fn inside_root(session: &Session, path: &Path) -> Result<PathBuf, IpcError> {
+pub(crate) fn inside_root(session: &Session, path: &Path) -> Result<PathBuf, IpcError> {
     let canon =
         fs::canonicalize(path).map_err(|_| IpcError::Unreadable(path.display().to_string()))?;
     if canon.starts_with(&session.root_canon) {

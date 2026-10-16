@@ -6,6 +6,8 @@
 pub mod art;
 pub mod audit;
 pub mod cache;
+mod csv_util;
+pub mod fill;
 pub mod gather;
 pub mod identify;
 pub mod image;

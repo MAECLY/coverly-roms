@@ -5,6 +5,7 @@ import { useT } from '@/i18n/useT';
 import type { LibraryView } from '@/ipc/types';
 import { activeFilterCount } from '@/lib/filters';
 import { useFilterStore } from '@/stores/filterStore';
+import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -12,10 +13,16 @@ export function Toolbar({
   view,
   searchRef,
   onSettings,
+  onFill,
+  onJobs,
+  onReports,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
   onSettings(): void;
+  onFill(): void;
+  onJobs(): void;
+  onReports(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -25,6 +32,7 @@ export function Toolbar({
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const toggleFilters = useViewStore((s) => s.toggleFilters);
   const close = useLibraryStore((s) => s.close);
+  const job = useJobStore((s) => s.job);
   const active = activeFilterCount(filters);
 
   return (
@@ -75,19 +83,19 @@ export function Toolbar({
         </button>
       </div>
       <span className="toolbar-spacer" />
-      <span title={t('toolbar.fillHint')}>
-        <button
-          type="button"
-          className="primary-button"
-          disabled
-          aria-describedby="fill-hint"
-        >
-          {t('toolbar.fill')}
-        </button>
-      </span>
-      <span id="fill-hint" className="sr-only">
-        {t('toolbar.fillHint')}
-      </span>
+      <button type="button" className="primary-button" onClick={onFill}>
+        {t('toolbar.fill')}
+      </button>
+      <button type="button" className="ghost-button" onClick={onJobs}>
+        {isRunning(job)
+          ? t('toolbar.jobsRunning')
+          : job?.state === 'paused'
+            ? t('toolbar.jobsPaused')
+            : t('toolbar.jobs')}
+      </button>
+      <button type="button" className="ghost-button" onClick={onReports}>
+        {t('toolbar.reports')}
+      </button>
       <button type="button" className="ghost-button" onClick={onSettings}>
         {t('start.settings')}
       </button>

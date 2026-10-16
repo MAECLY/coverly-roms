@@ -46,6 +46,18 @@ pub enum WriteOutcome {
     SkippedExists { existing: PathBuf },
 }
 
+/// Result of one [`Writer::remove`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum RemoveOutcome {
+    Removed {
+        path: PathBuf,
+        backup: PathBuf,
+    },
+    /// Nothing at the target.
+    Missing,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum WriteError {
     #[error("refusing to write outside the library: {0}")]
@@ -58,6 +70,8 @@ pub enum WriteError {
     DiskFull,
     #[error("nothing to undo")]
     NothingToUndo,
+    #[error("not a regular file: {0}")]
+    NotAFile(PathBuf),
     #[error("job journal is damaged: {0}")]
     Journal(String),
     #[error(transparent)]
@@ -163,6 +177,7 @@ enum Line {
 enum Op {
     Created,
     Replaced { backup: PathBuf },
+    Removed { backup: PathBuf },
 }
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -182,7 +197,11 @@ pub struct Writer {
     job: String,
     backups: PathBuf,
     journal: File,
+    journal_path: PathBuf,
     counter: u32,
+    /// Changes this run made to the library (done, journaled or not).
+    changes: usize,
+    resumed: bool,
 }
 
 impl Writer {
@@ -194,11 +213,11 @@ impl Writer {
         }
         let jobs = data_dir.join("jobs");
         fs::create_dir_all(&jobs).map_err(|e| map_io(e, &jobs))?;
-        let (job, journal) = loop {
+        let (job, journal, journal_path) = loop {
             let job = new_job_id();
             let path = jobs.join(format!("{job}.jsonl"));
             match OpenOptions::new().append(true).create_new(true).open(&path) {
-                Ok(file) => break (job, file),
+                Ok(file) => break (job, file, path),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(map_io(e, &path)),
             }
@@ -208,7 +227,10 @@ impl Writer {
             backups: data_dir.join("backups").join(&job),
             job,
             journal,
+            journal_path,
             counter: 0,
+            changes: 0,
+            resumed: false,
         };
         let header = Line::Header {
             job: writer.job.clone(),
@@ -217,6 +239,55 @@ impl Writer {
         };
         writer.append(&header)?;
         Ok(writer)
+    }
+
+    /// Continues the journal of job `job` (paused earlier), so one undo
+    /// reverts every run of it (D21). The journal must exist, not be
+    /// undone and belong to `root`. A torn last line is cut off first.
+    pub fn resume(root: &Path, data_dir: &Path, job: &str) -> Result<Writer, WriteError> {
+        if !valid_job_id(job) {
+            return Err(WriteError::Journal(format!("not a job id: {job}")));
+        }
+        let path = data_dir.join("jobs").join(format!("{job}.jsonl"));
+        // Bytes, not text: a tear can split a multi-byte character.
+        let bytes = fs::read(&path).map_err(|e| map_io(e, &path))?;
+        if bytes.last().is_some_and(|&b| b != b'\n') {
+            let keep = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .map_err(|e| map_io(e, &path))?;
+            file.set_len(keep as u64).map_err(|e| map_io(e, &path))?;
+            file.sync_all()?;
+        }
+        let (header, entries, _) = parse(&path)?;
+        let Line::Header {
+            root: journal_root, ..
+        } = header
+        else {
+            unreachable!("parse returns a header first")
+        };
+        if journal_root != root {
+            return Err(WriteError::Journal(format!(
+                "{} belongs to {}",
+                path.display(),
+                journal_root.display()
+            )));
+        }
+        let journal = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| map_io(e, &path))?;
+        Ok(Writer {
+            root: root.to_path_buf(),
+            job: job.to_string(),
+            backups: data_dir.join("backups").join(job),
+            journal,
+            journal_path: path,
+            counter: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            changes: 0,
+            resumed: true,
+        })
     }
 
     pub fn job_id(&self) -> &str {
@@ -260,9 +331,22 @@ impl Writer {
             }
         };
 
-        let tmp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
-        self.counter += 1;
-        atomic_write(&dest, bytes, &tmp)?;
+        // A crash (or an earlier run of a resumed job) can leave a temp
+        // file with the next name behind: skip past it.
+        let mut tries = 0;
+        loop {
+            let tmp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
+            self.counter = self.counter.wrapping_add(1);
+            match atomic_write(&dest, bytes, &tmp) {
+                Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists && tries < 1000 => {
+                    tries += 1;
+                }
+                result => break result?,
+            }
+        }
+        // The library has changed: count it before journaling, so a failed
+        // append never lets `discard` delete the backup of what was replaced.
+        self.changes += 1;
 
         let (op, outcome) = match backup {
             None => (Op::Created, WriteOutcome::Created { path: dest.clone() }),
@@ -284,10 +368,73 @@ impl Writer {
         Ok(outcome)
     }
 
+    /// Deletes the art file `target`: backed up first and journaled before
+    /// the delete, so undo restores it. A missing target is
+    /// [`RemoveOutcome::Missing`]; folders and symlinks are never removed.
+    pub fn remove(&mut self, target: &Path) -> Result<RemoveOutcome, WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let meta = match fs::symlink_metadata(&target) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(RemoveOutcome::Missing),
+            Err(e) => return Err(map_io(e, &target)),
+        };
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(target));
+        }
+        let bytes = fs::read(&target).map_err(|e| map_io(e, &target))?;
+        let backup = self.back_up(&target)?;
+        self.append(&Line::Entry {
+            target: target.clone(),
+            op: Op::Removed {
+                backup: backup.clone(),
+            },
+            sha1: sha1_hex(&bytes),
+        })?;
+        // A failed delete leaves the file as it was: the entry stays in the
+        // journal (its undo is a no-op) but it is not a change.
+        fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
+        self.changes += 1;
+        Ok(RemoveOutcome::Removed {
+            path: target,
+            backup,
+        })
+    }
+
     /// Marks the job complete and returns its id.
     pub fn finish(mut self) -> Result<String, WriteError> {
         self.append(&Line::Done)?;
         Ok(self.job)
+    }
+
+    /// Whether this run changed the library (a file written or removed).
+    pub fn has_entries(&self) -> bool {
+        self.changes > 0
+    }
+
+    /// Drops a job that changed nothing: deletes its journal and backups,
+    /// so it is neither listed, undone nor counted when pruning. Refused
+    /// (and the journal kept) for a job that changed something or was
+    /// resumed.
+    pub fn discard(self) -> Result<(), WriteError> {
+        if self.changes > 0 || self.resumed {
+            return Err(WriteError::Journal(format!(
+                "job {} cannot be discarded",
+                self.job
+            )));
+        }
+        let Writer {
+            journal,
+            journal_path,
+            backups,
+            ..
+        } = self;
+        drop(journal);
+        fs::remove_file(&journal_path).map_err(|e| map_io(e, &journal_path))?;
+        match fs::remove_dir_all(&backups) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(map_io(e, &backups)),
+        }
     }
 
     fn back_up(&self, existing: &Path) -> Result<PathBuf, WriteError> {
@@ -492,16 +639,22 @@ fn valid_job_id(job: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Parses a journal. A torn last line (crash while appending) is ignored;
-/// any other bad line is an error.
+/// Parses a journal. A torn last line (crash while appending, possibly
+/// inside a multi-byte character) is ignored; any other bad line is an
+/// error. `done` is whether the last run finished: an entry after a `done`
+/// line (a resumed run) clears it.
 fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
-    let text = fs::read_to_string(path).map_err(|e| map_io(e, path))?;
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let bytes = fs::read(path).map_err(|e| map_io(e, path))?;
+    let torn = bytes.last().is_some_and(|&b| b != b'\n');
+    let lines: Vec<&[u8]> = bytes
+        .split(|&b| b == b'\n')
+        .filter(|l| !l.trim_ascii().is_empty())
+        .collect();
     let mut parsed = Vec::with_capacity(lines.len());
     for (i, raw) in lines.iter().enumerate() {
-        match serde_json::from_str::<Line>(raw) {
+        match serde_json::from_slice::<Line>(raw) {
             Ok(line) => parsed.push(line),
-            Err(_) if i + 1 == lines.len() && !text.ends_with('\n') => {}
+            Err(_) if i + 1 == lines.len() && torn => {}
             Err(e) => {
                 return Err(WriteError::Journal(format!(
                     "{}: line {}: {e}",
@@ -525,7 +678,10 @@ fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
     let mut done = false;
     for line in iter {
         match line {
-            Line::Entry { .. } => entries.push(line),
+            Line::Entry { .. } => {
+                entries.push(line);
+                done = false;
+            }
             Line::Done => done = true,
             Line::Header { .. } => {
                 return Err(WriteError::Journal(format!(
@@ -618,6 +774,19 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             // Already gone: nothing to remove.
             (Op::Created, None) => {}
             (Op::Replaced { .. }, None) => report.skipped_modified.push(target),
+            (Op::Removed { backup }, None) => {
+                let backup = ensure_within(&backups, &backup)?;
+                let old = fs::read(&backup).map_err(|e| map_io(e, &backup))?;
+                if let Some(parent) = target.parent() {
+                    remove_apple_doubles(&create_dirs(parent)?);
+                }
+                let tmp = format!(".coverly-undo-{}-{n}.tmp", journal.job);
+                atomic_write(&target, &old, &tmp)?;
+                report.restored.push(target);
+            }
+            // The delete never happened (crash between journal and delete).
+            (Op::Removed { .. }, Some(bytes)) if sha1_hex(&bytes) == sha1 => {}
+            (Op::Removed { .. }, Some(_)) => report.skipped_modified.push(target),
             (_, Some(bytes)) if sha1_hex(&bytes) != sha1 => report.skipped_modified.push(target),
             (Op::Created, Some(_)) => {
                 fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
@@ -690,6 +859,35 @@ mod tests {
         assert!(new.exists() && old.exists() && tmp.path().join("._old.png").exists());
         // Missing sidecars are not an error.
         remove_apple_doubles(&[new]);
+    }
+
+    #[test]
+    fn a_journal_failure_after_a_replace_keeps_the_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let data = tmp.path().join("data");
+        fs::create_dir_all(root.join("Imgs")).unwrap();
+        let target = root.join("Imgs").join("a.png");
+        fs::write(&target, b"ORIGINAL-USER-ART").unwrap();
+
+        let mut writer = Writer::begin(&root, &data).unwrap();
+        // A read-only handle: the entry append fails after the art is
+        // already replaced (as on a full data disk).
+        writer.journal = File::open(&writer.journal_path).unwrap();
+        let journal_path = writer.journal_path.clone();
+        let backups = writer.backups.clone();
+
+        assert!(writer
+            .write(&target, b"new art", OverwritePolicy::Backup)
+            .is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"new art");
+        assert!(writer.has_entries(), "the library changed");
+        assert!(writer.discard().is_err(), "a changed job is never dropped");
+        assert!(journal_path.exists());
+        assert_eq!(
+            fs::read(backups.join("Imgs").join("a.png")).unwrap(),
+            b"ORIGINAL-USER-ART"
+        );
     }
 
     #[test]

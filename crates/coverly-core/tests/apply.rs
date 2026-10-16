@@ -16,12 +16,12 @@ use coverly_core::net::testing::{png_bytes, HangingServer, MockResponse, MockSer
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::plan::{build_plan, Plan, PlanAction, PlanOptions};
 use coverly_core::profiles::Media;
-use coverly_core::progress::NoProgress;
+use coverly_core::progress::{NoProgress, PauseKind};
 use coverly_core::scan::{scan_library, ScanOptions};
-use coverly_core::sources::libretro::{LibretroConfig, LibretroSource};
+use coverly_core::sources::libretro::{encode_segment, LibretroConfig, LibretroSource};
 use coverly_core::sources::ArtSource;
 use coverly_core::systems::SystemDb;
-use coverly_core::write::undo_last;
+use coverly_core::write::{list_jobs, undo_last};
 use tempfile::TempDir;
 
 const GBA: &str = "Nintendo - Game Boy Advance";
@@ -467,4 +467,289 @@ fn read_only_volume_pauses_the_job() {
     assert_eq!(status(&r, "004"), &ItemStatus::NotAttempted);
     assert_eq!(r.failed, 1);
     assert!(r.job_id.is_some());
+}
+
+#[test]
+fn a_rate_limited_gather_reports_its_pause_kind() {
+    let w = world();
+    w.server
+        .mock("/", MockResponse::status(429).header("Retry-After", "0"));
+    let p = plan(&w);
+    assert!(p.paused.is_some());
+    assert_eq!(p.pause_kind, Some(PauseKind::RateLimit));
+}
+
+#[test]
+fn a_paused_job_resumes_into_the_same_journal() {
+    let w = world();
+    let p = plan(&w);
+    let path = "/Nintendo%20-%20Game%20Boy%20Advance/Named_Boxarts/Golden%20Adventure%20(USA).png";
+    w.server
+        .mock(path, MockResponse::status(429).header("Retry-After", "0"));
+    let opts = ApplyOptions {
+        concurrency: 1,
+        ..ApplyOptions::default()
+    };
+    let mut r = apply(&w, &p, &opts, false);
+    assert_eq!(r.pause_kind, Some(PauseKind::RateLimit));
+    let todo = r.resumable_items();
+    assert_eq!(todo, vec![1, 2, 3]);
+    w.server
+        .mock(path, MockResponse::ok(b"<html>oops</html>".to_vec()));
+    let rest = p.subset(&todo);
+    assert_eq!(rest.items.len(), 3);
+    let again = apply(
+        &w,
+        &rest,
+        &ApplyOptions {
+            resume_job: r.job_id.clone(),
+            ..opts
+        },
+        false,
+    );
+    assert_eq!(again.job_id, r.job_id);
+    r.merge_resumed(&todo, again);
+    assert_eq!(r.paused, None);
+    assert_eq!(r.pause_kind, None);
+    assert!(matches!(status(&r, "002"), ItemStatus::Filled { .. }));
+    assert_eq!(r.filled, 3, "{r:?}");
+    assert_eq!(list_jobs(w.data.path()).unwrap().len(), 1);
+    assert_eq!(undo_last(w.data.path()).unwrap().removed.len(), 3);
+}
+
+#[test]
+fn going_offline_reports_the_offline_kind() {
+    let w = world();
+    let mut p = plan(&w);
+    for item in &mut p.items {
+        if let PlanAction::Auto {
+            chosen,
+            alternatives,
+            ..
+        }
+        | PlanAction::Review {
+            chosen,
+            alternatives,
+            ..
+        } = &mut item.action
+        {
+            for c in std::iter::once(chosen).chain(alternatives.iter_mut()) {
+                c.url = "http://127.0.0.1:9/gone.png".into();
+                c.fallback_url = None;
+            }
+        }
+    }
+    let r = apply(
+        &w,
+        &p,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    assert_eq!(r.pause_kind, Some(PauseKind::Offline));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_volume_reports_the_volume_kind() {
+    use std::os::unix::fs::PermissionsExt;
+    let w = world();
+    let p = plan(&w);
+    let imgs = w.lib.path().join("ROMS/GBA/Imgs");
+    fs::create_dir_all(&imgs).unwrap();
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o555)).unwrap();
+    let r = apply(
+        &w,
+        &p,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(r.pause_kind, Some(PauseKind::Volume));
+    // The item that met the read-only folder is retried on resume.
+    assert!(r.resumable_items().contains(&0));
+}
+
+/// Moves the library root away (an ejected volume) and back on drop.
+struct Ejected {
+    root: std::path::PathBuf,
+    away: std::path::PathBuf,
+}
+
+impl Ejected {
+    fn new(root: &std::path::Path) -> Ejected {
+        let away = root.with_extension("ejected");
+        Ejected {
+            root: root.to_path_buf(),
+            away,
+        }
+    }
+
+    fn eject(&self) {
+        if self.root.exists() {
+            fs::rename(&self.root, &self.away).unwrap();
+        }
+    }
+}
+
+impl Drop for Ejected {
+    fn drop(&mut self) {
+        if self.away.exists() {
+            let _ = fs::rename(&self.away, &self.root);
+        }
+    }
+}
+
+#[test]
+fn an_ejected_volume_pauses_the_job_and_every_item_stays_resumable() {
+    let w = world();
+    let p = plan(&w);
+    let wanted: Vec<usize> = p
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| !matches!(i.action, PlanAction::None { .. }))
+        .map(|(n, _)| n)
+        .collect();
+    let ejected = Ejected::new(w.lib.path());
+    ejected.eject();
+    let r = apply(
+        &w,
+        &p,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    drop(ejected);
+    assert_eq!(r.pause_kind, Some(PauseKind::Volume), "{r:?}");
+    assert!(r.paused.as_deref().unwrap_or("").contains("gone"), "{r:?}");
+    assert_eq!(r.failed, 0, "{r:?}");
+    assert_eq!(r.resumable_items(), wanted);
+}
+
+/// Ejects the library volume while the first download is in flight.
+struct EjectOnFetch<'a> {
+    inner: LibretroSource<'a>,
+    ejected: &'a Ejected,
+}
+
+impl ArtSource for EjectOnFetch<'_> {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    fn candidates(
+        &self,
+        q: &coverly_core::sources::ArtQuery,
+    ) -> Result<Vec<coverly_core::sources::Candidate>, coverly_core::sources::SourceError> {
+        self.inner.candidates(q)
+    }
+    fn has_name(
+        &self,
+        system: &coverly_core::systems::System,
+        media: Media,
+        name: &str,
+    ) -> Result<bool, coverly_core::sources::SourceError> {
+        self.inner.has_name(system, media, name)
+    }
+    fn fetch(
+        &self,
+        c: &coverly_core::sources::Candidate,
+    ) -> Result<Vec<u8>, coverly_core::sources::SourceError> {
+        let bytes = self.inner.fetch(c);
+        self.ejected.eject();
+        bytes
+    }
+}
+
+#[test]
+fn a_volume_ejected_mid_write_pauses_and_the_item_is_resumable() {
+    let w = world();
+    let p = plan(&w);
+    let ejected = Ejected::new(w.lib.path());
+    let src = EjectOnFetch {
+        inner: libretro(&w),
+        ejected: &ejected,
+    };
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let store = ArtStore::new(w.cache_dir.path(), &w.cache);
+    let r = apply_plan(
+        &p,
+        &common::profile("anbernic-stock"),
+        &sources,
+        &store,
+        w.data.path(),
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        &NoProgress,
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    drop(ejected);
+    assert_eq!(r.pause_kind, Some(PauseKind::Volume), "{r:?}");
+    assert!(
+        matches!(
+            status(&r, "001"),
+            ItemStatus::Failed {
+                kind: ItemErrorKind::VolumeGone,
+                ..
+            }
+        ),
+        "{:?}",
+        status(&r, "001")
+    );
+    assert!(r.resumable_items().contains(&0), "{r:?}");
+    assert_eq!(status(&r, "004"), &ItemStatus::NotAttempted);
+}
+
+#[test]
+fn a_one_shot_apply_that_writes_nothing_leaves_no_job() {
+    let w = world();
+    let p = plan(&w);
+    let missing = p.subset(&[2]);
+    let one_shot = ApplyOptions {
+        concurrency: 1,
+        discard_empty: true,
+        ..ApplyOptions::default()
+    };
+    let r = apply(&w, &missing, &one_shot, false);
+    assert!(
+        matches!(status(&r, "003"), ItemStatus::Failed { .. }),
+        "{r:?}"
+    );
+    assert_eq!(r.job_id, None);
+    assert!(list_jobs(w.data.path()).unwrap().is_empty());
+
+    let path = format!(
+        "/{}/{BOX}/{}",
+        encode_segment(GBA),
+        encode_segment("Golden Sun (USA, Europe).png")
+    );
+    w.server
+        .mock(&path, MockResponse::status(429).header("Retry-After", "0"));
+    let r = apply(&w, &p.subset(&[0]), &one_shot, false);
+    assert_eq!(r.pause_kind, Some(PauseKind::RateLimit), "{r:?}");
+    assert_eq!(r.job_id, None);
+    assert!(list_jobs(w.data.path()).unwrap().is_empty());
+
+    // A fill job keeps its journal (it may resume into it).
+    let r = apply(
+        &w,
+        &missing,
+        &ApplyOptions {
+            concurrency: 1,
+            ..ApplyOptions::default()
+        },
+        false,
+    );
+    assert!(r.job_id.is_some());
+    assert_eq!(list_jobs(w.data.path()).unwrap().len(), 1);
 }

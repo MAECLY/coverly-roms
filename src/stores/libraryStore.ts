@@ -6,7 +6,13 @@ import { create } from 'zustand';
 
 import { getBackend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
-import type { LibraryView, RecentLibrary, ScanProgress } from '@/ipc/types';
+import type {
+  EntryArtUpdate,
+  LibraryView,
+  RecentLibrary,
+  ScanProgress,
+} from '@/ipc/types';
+import { dropArtUrls } from '@/lib/artCache';
 import { buildSearchKeys } from '@/lib/search';
 
 import { useFilterStore } from './filterStore';
@@ -32,6 +38,8 @@ interface LibraryState {
   forget(path: string): Promise<void>;
   /** Shows an error raised outside `open()` (e.g. the folder picker). */
   fail(e: unknown): void;
+  /** New art marks of rewritten entries; another generation is ignored. */
+  applyArtUpdates(generation: number, updates: readonly EntryArtUpdate[]): void;
   close(): void;
 }
 
@@ -118,6 +126,17 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     } catch (e) {
       set({ error: toBackendError(e) });
     }
+  },
+  applyArtUpdates(generation, updates) {
+    const view = get().view;
+    if (!view || view.generation !== generation || updates.length === 0) return;
+    const byId = new Map(updates.map((u) => [u.id, u.art]));
+    const entries = view.entries.map((e) => {
+      const art = byId.get(e.id);
+      return art ? { ...e, art } : e;
+    });
+    dropArtUrls(generation, [...byId.keys()]);
+    set({ view: { ...view, entries } });
   },
   close() {
     requestSeq += 1;

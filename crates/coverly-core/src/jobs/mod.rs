@@ -7,7 +7,7 @@
 //! the journal kept, so `undo` and a re-run both work.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -15,10 +15,11 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::cache::Cache;
+use crate::csv_util::{media_name, write_row};
 use crate::image::{process_image, Fit, ImageError, ImageLimits, OutputSpec};
 use crate::plan::{Plan, PlanAction, PlanItem};
 use crate::profiles::{Media, Profile};
-use crate::progress::{Phase, ProgressEvent, ProgressSink};
+use crate::progress::{PauseKind, Phase, ProgressEvent, ProgressSink};
 use crate::sources::{ArtSource, Candidate, SourceError};
 use crate::write::{sha1_hex, OverwritePolicy, WriteError, WriteOutcome, Writer};
 
@@ -93,6 +94,14 @@ pub struct ApplyOptions {
     pub jpeg_quality: u8,
     /// How many alternatives are tried after the chosen candidate fails.
     pub max_alternatives: usize,
+    /// Continue this paused job's journal instead of starting a new one (D21).
+    pub resume_job: Option<String>,
+    /// A one-shot manual apply (the drawer's "Change…"): when nothing was
+    /// written, its journal is dropped instead of finished (and
+    /// `report.job_id` is `None`), so a failed or paused change is never
+    /// undone in place of a real job nor pushes one out of the history.
+    /// Ignored when resuming. Fill jobs keep the journal to resume into.
+    pub discard_empty: bool,
 }
 
 impl Default for ApplyOptions {
@@ -105,6 +114,8 @@ impl Default for ApplyOptions {
             fit: Fit::Contain,
             jpeg_quality: 90,
             max_alternatives: 2,
+            resume_job: None,
+            discard_empty: false,
         }
     }
 }
@@ -120,7 +131,26 @@ pub enum ItemErrorKind {
     DiskFull,
     NameInvalid,
     OutsideRoot,
+    /// The library volume was ejected or went away.
+    VolumeGone,
     Io,
+}
+
+impl ItemErrorKind {
+    /// The stable name used on the wire and in reports (`no-art`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ItemErrorKind::NoArt => "no-art",
+            ItemErrorKind::Network => "network",
+            ItemErrorKind::Decode => "decode",
+            ItemErrorKind::WriteDenied => "write-denied",
+            ItemErrorKind::DiskFull => "disk-full",
+            ItemErrorKind::NameInvalid => "name-invalid",
+            ItemErrorKind::OutsideRoot => "outside-root",
+            ItemErrorKind::VolumeGone => "volume-gone",
+            ItemErrorKind::Io => "io",
+        }
+    }
 }
 
 /// What happened to one plan item.
@@ -171,7 +201,50 @@ pub struct JobReport {
     pub items: Vec<ItemResult>,
     /// Why the job stopped early, when it did.
     pub paused: Option<String>,
+    /// The kind of `paused`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pause_kind: Option<PauseKind>,
     pub cancelled: bool,
+}
+
+/// Writes one row per item of `report`:
+/// `folder,rel_path,media,status,source,name,error,message`, quoted and
+/// formula-neutralised like the audit CSV (names are hostile).
+pub fn write_report_csv<W: Write>(report: &JobReport, mut w: W) -> io::Result<()> {
+    let header = [
+        "folder", "rel_path", "media", "status", "source", "name", "error", "message",
+    ]
+    .map(String::from);
+    write_row(&mut w, &header)?;
+    for item in &report.items {
+        let (status, source, name, error, message) = match &item.status {
+            ItemStatus::Filled { source, name } => {
+                ("filled", source.as_str(), name.as_str(), "", "")
+            }
+            ItemStatus::Replaced { source, name, .. } => {
+                ("replaced", source.as_str(), name.as_str(), "", "")
+            }
+            ItemStatus::SkippedExists => ("skipped-exists", "", "", "", ""),
+            ItemStatus::SkippedReview => ("skipped-review", "", "", "", ""),
+            ItemStatus::SkippedNoMatch => ("skipped-no-match", "", "", "", ""),
+            ItemStatus::NotAttempted => ("not-attempted", "", "", "", ""),
+            ItemStatus::Failed { kind, message } => {
+                ("failed", "", "", kind.as_str(), message.as_str())
+            }
+        };
+        let row = [
+            item.folder.clone(),
+            item.rel_path.to_string_lossy().into_owned(),
+            media_name(item.media),
+            status.to_string(),
+            source.to_string(),
+            name.to_string(),
+            error.to_string(),
+            message.to_string(),
+        ];
+        write_row(&mut w, &row)?;
+    }
+    w.flush()
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -221,10 +294,14 @@ pub fn apply_plan(
     if cancel.load(Ordering::SeqCst) {
         report.cancelled = true;
     } else if !todo.is_empty() {
-        let writer = Mutex::new(Writer::begin(&plan.root, data_dir)?);
+        let started = match &opts.resume_job {
+            Some(job) => Writer::resume(&plan.root, data_dir, job)?,
+            None => Writer::begin(&plan.root, data_dir)?,
+        };
+        let writer = Mutex::new(started);
         report.job_id = Some(lock(&writer).job_id().to_string());
         let next = AtomicUsize::new(0);
-        let stop: Mutex<Option<String>> = Mutex::new(None);
+        let stop: Mutex<Option<(String, PauseKind)>> = Mutex::new(None);
         let done = Mutex::new(Vec::<(usize, ItemStatus)>::new());
         let total = todo.len();
         progress.event(ProgressEvent::Started {
@@ -232,6 +309,7 @@ pub fn apply_plan(
             total,
         });
         let ctx = Ctx {
+            root: &plan.root,
             profile,
             sources,
             store,
@@ -265,47 +343,105 @@ pub fn apply_plan(
             results[n] = Some(st);
         }
         report.cancelled = cancel.load(Ordering::SeqCst);
-        report.paused = stop.into_inner().unwrap_or_else(|p| p.into_inner());
+        let stopped = stop.into_inner().unwrap_or_else(|p| p.into_inner());
+        report.paused = stopped.as_ref().map(|(why, _)| why.clone());
+        report.pause_kind = stopped.map(|(_, kind)| kind);
         progress.event(ProgressEvent::Finished {
             phase: Phase::Apply,
         });
-        writer
-            .into_inner()
-            .unwrap_or_else(|p| p.into_inner())
-            .finish()?;
+        let writer = writer.into_inner().unwrap_or_else(|p| p.into_inner());
+        if opts.discard_empty && opts.resume_job.is_none() && !writer.has_entries() {
+            writer.discard()?;
+            report.job_id = None;
+        } else {
+            writer.finish()?;
+        }
     }
     for (item, st) in plan.items.iter().zip(results) {
-        let status = st.unwrap_or(ItemStatus::NotAttempted);
-        match &status {
-            ItemStatus::Filled { .. } => report.filled += 1,
-            ItemStatus::Replaced { .. } => report.replaced += 1,
-            ItemStatus::Failed {
-                kind: ItemErrorKind::NoArt,
-                ..
-            } => report.no_art += 1,
-            ItemStatus::Failed { .. } => report.failed += 1,
-            _ => report.skipped += 1,
-        }
         report.items.push(ItemResult {
             folder: item.folder.clone(),
             rel_path: item.rel_path.clone(),
             media: item.media,
             target: item.target.clone(),
-            status,
+            status: st.unwrap_or(ItemStatus::NotAttempted),
         });
     }
+    report.recount();
     Ok(report)
+}
+
+impl JobReport {
+    /// Items a resumed job must still try: never attempted, or stopped by
+    /// a full, read-only or ejected volume.
+    pub fn resumable_items(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                matches!(
+                    i.status,
+                    ItemStatus::NotAttempted
+                        | ItemStatus::Failed {
+                            kind: ItemErrorKind::WriteDenied
+                                | ItemErrorKind::DiskFull
+                                | ItemErrorKind::VolumeGone,
+                            ..
+                        }
+                )
+            })
+            .map(|(n, _)| n)
+            .collect()
+    }
+
+    /// Puts the outcomes of a resumed run (`other.items[k]` is item
+    /// `indices[k]` of this report) into this report and recounts.
+    pub fn merge_resumed(&mut self, indices: &[usize], other: JobReport) {
+        for (&n, item) in indices.iter().zip(other.items) {
+            if let Some(slot) = self.items.get_mut(n) {
+                *slot = item;
+            }
+        }
+        self.paused = other.paused;
+        self.pause_kind = other.pause_kind;
+        self.cancelled = other.cancelled;
+        if self.job_id.is_none() {
+            self.job_id = other.job_id;
+        }
+        self.recount();
+    }
+
+    fn recount(&mut self) {
+        let (mut filled, mut replaced, mut skipped, mut no_art, mut failed) = (0, 0, 0, 0, 0);
+        for item in &self.items {
+            match &item.status {
+                ItemStatus::Filled { .. } => filled += 1,
+                ItemStatus::Replaced { .. } => replaced += 1,
+                ItemStatus::Failed {
+                    kind: ItemErrorKind::NoArt,
+                    ..
+                } => no_art += 1,
+                ItemStatus::Failed { .. } => failed += 1,
+                _ => skipped += 1,
+            }
+        }
+        self.filled = filled;
+        self.replaced = replaced;
+        self.skipped = skipped;
+        self.no_art = no_art;
+        self.failed = failed;
+    }
 }
 
 /// What every worker shares.
 struct Ctx<'a, 's> {
+    root: &'a Path,
     profile: &'a Profile,
     sources: &'a [&'a dyn ArtSource],
     store: &'a ArtStore<'s>,
     writer: &'a Mutex<Writer>,
     opts: &'a ApplyOptions,
     /// Why the queue stopped (the first reason wins).
-    stop: &'a Mutex<Option<String>>,
+    stop: &'a Mutex<Option<(String, PauseKind)>>,
     cancel: &'a AtomicBool,
 }
 
@@ -314,11 +450,38 @@ impl Ctx<'_, '_> {
         self.cancel.load(Ordering::SeqCst) || lock(self.stop).is_some()
     }
 
-    fn pause(&self, why: String) {
-        lock(self.stop).get_or_insert(why);
+    fn pause(&self, why: String, kind: PauseKind) {
+        lock(self.stop).get_or_insert((why, kind));
+    }
+
+    /// Pauses the job when the library root is gone or unreachable (an
+    /// ejected volume, spec §10).
+    fn volume_gone(&self) -> bool {
+        match fs::metadata(self.root) {
+            Ok(meta) if meta.is_dir() => false,
+            Ok(_) => {
+                self.pause_gone("not a folder".into());
+                true
+            }
+            Err(e) => {
+                self.pause_gone(e.to_string());
+                true
+            }
+        }
+    }
+
+    fn pause_gone(&self, why: String) {
+        self.pause(
+            format!("the library volume is gone: {}: {why}", self.root.display()),
+            PauseKind::Volume,
+        );
     }
 
     fn apply_item(&self, item: &PlanItem) -> ItemStatus {
+        if self.volume_gone() {
+            // Nothing is downloaded for a library that is not there.
+            return ItemStatus::NotAttempted;
+        }
         let (chosen, alternatives) = match &item.action {
             PlanAction::Auto {
                 chosen,
@@ -358,7 +521,7 @@ impl Ctx<'_, '_> {
                 None => match src.fetch(c) {
                     Ok(b) => (b, false),
                     Err(SourceError::Net(e)) if e.pauses() => {
-                        self.pause(e.to_string());
+                        self.pause(e.to_string(), e.pause_kind().unwrap_or(PauseKind::Offline));
                         return ItemStatus::NotAttempted;
                     }
                     Err(e @ SourceError::NotFound(_)) => {
@@ -402,7 +565,10 @@ impl Ctx<'_, '_> {
             },
             Ok(WriteOutcome::SkippedExists { .. }) => ItemStatus::SkippedExists,
             Err(e @ (WriteError::DiskFull | WriteError::Denied(_))) => {
-                self.pause(format!("the library volume is full or read-only: {e}"));
+                self.pause(
+                    format!("the library volume is full or read-only: {e}"),
+                    PauseKind::Volume,
+                );
                 let kind = if matches!(e, WriteError::DiskFull) {
                     ItemErrorKind::DiskFull
                 } else {
@@ -416,6 +582,7 @@ impl Ctx<'_, '_> {
             Err(e @ WriteError::OutsideRoot(_)) => {
                 failed(ItemErrorKind::OutsideRoot, e.to_string())
             }
+            Err(e) if self.volume_gone() => failed(ItemErrorKind::VolumeGone, e.to_string()),
             Err(e) => failed(ItemErrorKind::Io, e.to_string()),
         }
     }

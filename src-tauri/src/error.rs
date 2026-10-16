@@ -36,4 +36,73 @@ pub enum IpcError {
     Io(String),
     #[error("cannot save settings: {0}")]
     Settings(String),
+    #[error("a fill job is running")]
+    JobRunning,
+    #[error("there is no fill job")]
+    NoJob,
+    #[error("the fill job was replaced by a newer one")]
+    StaleJob,
+    #[error("bad request: {0}")]
+    BadRequest(String),
+    #[error("nothing to undo")]
+    NothingToUndo,
+    #[error("network: {0}")]
+    Network(String),
+    #[error("not a usable image: {0}")]
+    BadImage(String),
+    #[error("write denied: {0}")]
+    WriteDenied(String),
+    #[error("the disk is full")]
+    DiskFull,
+    #[error("file name not valid on FAT/exFAT: {0}")]
+    NameInvalid(String),
+    #[error("the library volume is gone: {0}")]
+    VolumeGone(String),
+}
+
+impl From<coverly_core::write::WriteError> for IpcError {
+    fn from(e: coverly_core::write::WriteError) -> Self {
+        use coverly_core::write::WriteError as W;
+        match e {
+            W::OutsideRoot(p) => IpcError::OutsideLibrary(p.display().to_string()),
+            W::NameInvalid(n) => IpcError::NameInvalid(n),
+            W::Denied(p) => IpcError::WriteDenied(p.display().to_string()),
+            W::DiskFull => IpcError::DiskFull,
+            W::NothingToUndo => IpcError::NothingToUndo,
+            other @ (W::NotAFile(_) | W::Journal(_) | W::Io(_)) => IpcError::Io(other.to_string()),
+        }
+    }
+}
+
+impl From<coverly_core::fill::ArtError> for IpcError {
+    fn from(e: coverly_core::fill::ArtError) -> Self {
+        use coverly_core::fill::ArtError as A;
+        match e {
+            A::NoSlot | A::UnknownSource(_) => IpcError::BadRequest(e.to_string()),
+            A::Source(m) | A::Paused(m) => IpcError::Network(m),
+            A::Image(i) => IpcError::BadImage(i.to_string()),
+            A::Write(w) => w.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use coverly_core::write::WriteError;
+
+    #[test]
+    fn write_errors_keep_their_meaning() {
+        assert_eq!(IpcError::from(WriteError::DiskFull), IpcError::DiskFull);
+        assert_eq!(
+            IpcError::from(WriteError::NothingToUndo),
+            IpcError::NothingToUndo
+        );
+        assert!(matches!(
+            IpcError::from(WriteError::Denied("/sd/x.png".into())),
+            IpcError::WriteDenied(_)
+        ));
+        let json = serde_json::to_value(IpcError::JobRunning).unwrap();
+        assert_eq!(json, serde_json::json!({ "code": "job-running" }));
+    }
 }
