@@ -5,6 +5,7 @@
 
 pub mod art;
 pub mod audit;
+pub mod identify;
 pub mod paths;
 pub mod profiles;
 pub mod scan;
