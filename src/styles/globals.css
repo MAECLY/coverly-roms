@@ -988,6 +988,51 @@ body {
   font-size: 0.875rem;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ghost-button.danger {
+  color: var(--cr-error);
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.settings-table th,
+.settings-table td {
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.settings-table th[scope='row'] {
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.source-order {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.source-order li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.source-order li > .checkbox-row {
+  flex: 1;
+}
+
 .notice-banner {
   display: flex;
   align-items: center;
