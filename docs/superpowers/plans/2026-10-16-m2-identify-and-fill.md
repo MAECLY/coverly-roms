@@ -33,7 +33,7 @@
 
 1. **Hostile names from the network** — an Apache listing href such as `..%2F..%2Fevil.png`, `a%2Fb.png`, `%00.png` or a DAT game name with `/` or `\` must never become a path component: hrefs that decode to anything with `/`, `\`, `..` or control characters are dropped, and the written file name always comes from the ROM stem through the profile template, then `ensure_within(root, …)`. Tests: Task 6 (`apache_index_drops_traversal_and_control_names`) and Task 11 (`refuses_targets_outside_the_root`, `refuses_symlink_escape`).
 2. **Garbage behind a 200** — an HTML error page, a truncated PNG or a 9000-pixel-wide image served as `image/png` must fail that one item with `decode` and fall back to the next candidate; the job continues. Tests: Task 10 (`rejects_non_images`, `rejects_oversized_dimensions`) and Task 12 (`bad_image_falls_back_to_next_candidate`).
-3. **Interrupted job** — a 429 in the middle of `--apply`, or a cancel, must stop scheduling new items, keep the journal of what was written, let `coverly undo` remove exactly those files, and let a re-run fill only what is still missing. Test: Task 12 (`rate_limit_pauses_and_journal_allows_undo`).
+3. **Interrupted job** — a 429, going offline (spec §10: offline pauses like a rate limit), a full or read-only volume in the middle of `--apply`, or a cancel, must stop scheduling new items, keep the journal of what was written, let `coverly undo` remove exactly those files (even when run from another working directory: the root is journaled as an absolute path), and let a re-run fill only what is still missing. Tests: Task 7 (`going_offline_pauses_gathering`), Task 11 (`begin_requires_an_absolute_root`), Task 12 (`rate_limit_pauses_and_journal_allows_undo`, `going_offline_pauses_the_job`).
 4. **Corrupt or foreign cache database** — a garbage `coverly.sqlite3` or one from a newer schema must be set aside and recreated, never block a fill. Test: Task 3 (`corrupt_database_is_set_aside_and_recreated`).
 5. **Art that appears between plan and apply, or exists with another case** — with overwrite `never`, an existing `Imgs/zelda.png` blocks writing `Imgs/Zelda.png` (FAT is case-insensitive) and a file the user changed after a job is not deleted by undo. Tests: Task 11 (`never_policy_skips_case_insensitive_twin`, `undo_keeps_files_changed_after_the_job`) and Task 12 (`target_created_after_planning_is_skipped`).
 
@@ -43,6 +43,9 @@
 - **§9 settings** the core needs are typed option structs with spec defaults (`NetConfig`, `IdentifyOptions`, `GatherOptions`, `PlanOptions`, `ApplyOptions`); persistence and the settings UI stay in M5.
 - **Backups and journals** live in the app data dir (`<data>/backups/<job>/…`, `<data>/jobs/<job>.jsonl`), not on the SD card, so the handheld never sees extra folders. ADR-0010 records this.
 - **CLI review items**: per spec §7.7, `coverly fill --apply` also writes `review` items unless `--auto-only` is given; the dry-run summary always shows how many are `review`.
+- **Popularity consensus (D9 part b)** in M2 is measured inside libretro only: `consensus` = how many libretro media listings (`Named_Boxarts`, `Named_Snaps`, `Named_Titles`) contain the same variant file. Cross-source consensus and SteamGridDB votes (D9 part a) arrive with the M6 sources; `Candidate::votes` / `consensus` are already in place, so the strategy does not change.
+- **gamelist.xml merge** for the Batocera/Knulli profile (spec §4 "out", §16.8) is not part of M2: `coverly fill` writes the images and prints a warning that `gamelist.xml` is not updated yet when the profile is `batocera`. Tracked as a new tracker row (M4/M5).
+- **Offline = pause** (spec §10): a transport failure (`NetError::Offline`) after retries pauses gather and apply exactly like a 403/429, instead of failing every remaining item one by one.
 
 ---
 
@@ -637,6 +640,9 @@ fn parses_real_world_names() {
         ("Q-Bert's Qubes (USA) (1983) (Parker Brothers) [h]", false, "Q-Bert's Qubes", &[Usa], Some(1983), 1, "q berts qubes"),
         ("Mega_Man_X_(U)", false, "Mega Man X", &[Usa], None, 10, "mega man 10"),
         ("Beta Game (Beta) (Unl)", false, "Beta Game", &[], None, 1, "beta game"),
+        // Lower-casing `İ` changes its UTF-8 length: byte offsets from a
+        // lower-cased copy must never index the original (hostile names must not panic).
+        ("İstanbul Racer, The (Turkey)", false, "The İstanbul Racer", &[], None, 1, "istanbul racer"),
     ];
     for (stem, strip, title, regions, year, numeral, key) in cases {
         let p = parse_name(stem, *strip);
@@ -851,7 +857,8 @@ fn year_group(group: &str) -> Option<u16> {
 fn tidy_title(raw: &str) -> String {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut title = collapsed.trim_matches(|c: char| c == '-' || c == ' ' || c == ',').to_string();
-    let lower = title.to_lowercase();
+    // ASCII lower-casing keeps byte offsets identical, so `i` indexes `title` safely.
+    let lower = title.to_ascii_lowercase();
     if let Some(i) = lower.find(", the") {
         let after = &title[i + 5..];
         if after.is_empty() || after.starts_with(" -") || after.starts_with(':') {
@@ -1279,6 +1286,12 @@ impl Cache {
         }
         match Connection::open(path).map_err(CacheError::from).and_then(prepare) {
             Ok(conn) => Ok(Cache { conn: Mutex::new(conn) }),
+            // Another process (app + CLI) holds the lock: the database is fine, do not move it.
+            Err(CacheError::Sql(rusqlite::Error::SqliteFailure(e, msg)))
+                if matches!(e.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) =>
+            {
+                Err(CacheError::Sql(rusqlite::Error::SqliteFailure(e, msg)))
+            }
             Err(_) => {
                 let aside = path.with_file_name(format!(
                     "{}.corrupt-{}",
@@ -2963,7 +2976,11 @@ impl<'a> LibretroSource<'a> {
 
 /// File name without its `.png` extension (any case), as shown to users.
 fn key_display(file: &str) -> String {
-    if file.len() > 4 && file[file.len() - 4..].eq_ignore_ascii_case(".png") { file[..file.len() - 4].to_string() } else { file.to_string() }
+    // `get` instead of indexing: never slice inside a multi-byte character.
+    match file.len().checked_sub(4).and_then(|i| Some((i, file.get(i..)?))) {
+        Some((i, ext)) if i > 0 && ext.eq_ignore_ascii_case(".png") => file[..i].to_string(),
+        _ => file.to_string(),
+    }
 }
 
 impl ArtSource for LibretroSource<'_> {
@@ -3315,6 +3332,52 @@ fn rate_limit_pauses_gathering() {
     assert!(g.paused.as_deref().unwrap_or("").contains("rate limited"), "{:?}", g.paused);
     assert!(g.items.len() < targets.len());
 }
+
+#[test]
+fn going_offline_pauses_gathering() {
+    let (lib, e) = (library(), env());
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(&art, &TargetFilter { systems: vec!["GBA".into()], media: vec![Media::Cover], scope: Scope::Missing });
+    // Nothing cached and nothing listening: the first ROM must pause the phase,
+    // not fail every ROM one by one with retries.
+    let dats = DatStore::new(&e.http, &e.cache, "http://127.0.0.1:9");
+    let id = Identifier::new(&e.cache, &dats, IdentifyOptions::default());
+    let src = LibretroSource::new(&e.http, &e.cache, LibretroConfig { base: "http://127.0.0.1:9".into(), raw_base: "http://127.0.0.1:9".into(), ..Default::default() });
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let g = gather(&targets, &db, &sources, &id, &e.cache, &GatherOptions::default(), &NoProgress, &AtomicBool::new(false));
+    assert!(g.paused.as_deref().unwrap_or("").contains("offline"), "{:?}", g.paused);
+    assert!(g.items.is_empty());
+}
+
+#[test]
+fn consensus_counts_other_media_listings_and_is_part_of_the_cache_key() {
+    let (lib, e) = (library(), env());
+    let s = server();
+    s.serve_libretro_index(GBA, "Named_Snaps", &["Golden Sun (Japan).png"]);
+    s.serve_libretro_index(GBA, "Named_Titles", &["Golden Sun (Japan).png"]);
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(&art, &TargetFilter { systems: vec!["GBA".into()], media: vec![Media::Cover], scope: Scope::Missing });
+    let dats = DatStore::new(&e.http, &e.cache, s.base());
+    let id = Identifier::new(&e.cache, &dats, IdentifyOptions::default());
+    let src = LibretroSource::new(&e.http, &e.cache, LibretroConfig { base: s.base(), raw_base: s.url("/raw"), ..Default::default() });
+    let sources: Vec<&dyn ArtSource> = vec![&src];
+    let consensus_of = |g: &coverly_core::gather::Gathered, name: &str| {
+        g.items[0].candidates[&Media::Cover].iter().find(|c| c.name == name).unwrap().consensus
+    };
+    // First without consensus (cached), then with it: the cached run must not be reused.
+    let plain = gather(&targets, &db, &sources, &id, &e.cache, &GatherOptions::default(), &NoProgress, &AtomicBool::new(false));
+    assert_eq!(consensus_of(&plain, "Golden Sun (Japan)"), 0);
+    let opts = GatherOptions { consensus: true, ..GatherOptions::default() };
+    let g = gather(&targets, &db, &sources, &id, &e.cache, &opts, &NoProgress, &AtomicBool::new(false));
+    assert_eq!(consensus_of(&g, "Golden Sun (Japan)"), 3);
+    assert_eq!(consensus_of(&g, "Golden Sun (USA, Europe)"), 1);
+}
 ```
 
 (`crc32fast` is a regular dependency of the crate, so tests may use it.)
@@ -3422,8 +3485,9 @@ pub fn gather(targets: &[GatherTarget], systems: &SystemDb, sources: &[&dyn ArtS
         progress.event(ProgressEvent::Item { phase: Phase::Gather, done: n, total: targets.len(), label: t.rom.stem.clone() });
         let identity = match identifier.identify(&t.rom, system, t.strip_numbering) {
             Ok(i) => i,
-            Err(DatError::Net(NetError::RateLimited { host, status })) => {
-                out.paused = Some(format!("rate limited by {host} (HTTP {status})")); break;
+            // Rate limited or offline (spec §10): pause the phase.
+            Err(DatError::Net(e @ (NetError::RateLimited { .. } | NetError::Offline(_)))) => {
+                out.paused = Some(e.to_string()); break;
             }
             Err(e) => {
                 out.warnings.push(format!("{}: identification failed: {e}", t.rom.path.display()));
@@ -3449,8 +3513,8 @@ pub fn gather(targets: &[GatherTarget], systems: &SystemDb, sources: &[&dyn ArtS
                         let _ = cache.put_json(NS, &key, &found, None);
                         all.extend(found);
                     }
-                    Err(SourceError::Net(NetError::RateLimited { host, status })) => {
-                        out.paused = Some(format!("rate limited by {host} (HTTP {status})"));
+                    Err(SourceError::Net(e @ (NetError::RateLimited { .. } | NetError::Offline(_)))) => {
+                        out.paused = Some(e.to_string()); // "rate limited by … (HTTP 429)" / "offline or unreachable: …"
                         out.items.push(item);
                         break 'media;
                     }
@@ -3468,7 +3532,7 @@ pub fn gather(targets: &[GatherTarget], systems: &SystemDb, sources: &[&dyn ArtS
 }
 ```
 
-Write `summary(t) -> GatherTargetSummary` (copies fields; `path = t.rom.path`, `rel_dir = t.rom.rel_dir`), `cache_key` = `format!("{src}\u{1f}{sys}\u{1f}{media:?}\u{1f}{canon_or_stem}\u{1f}{method:?}\u{1f}{fuzzy}\u{1f}{min_score}")` with `canon_or_stem` = canonical or `parsed.key` + `|` + stem, and `add_consensus(src, system, found)`: for each candidate, `consensus = 1 + number of other media m where src.has_name(system, m, &c.name) == Ok(true)`. Note the `break 'media` path pushes the partial item and the outer `if out.paused.is_some()` stops before pushing it twice — restructure so the item is pushed exactly once (e.g. set a `paused` local flag and push after the media loop). `GatherItem` and `Gathered` derive `Serialize` so `--report json` can include them.
+Write `summary(t) -> GatherTargetSummary` (copies fields; `path = t.rom.path`, `rel_dir = t.rom.rel_dir`), `cache_key` = `format!("{src}\u{1f}{sys}\u{1f}{media:?}\u{1f}{canon_or_stem}\u{1f}{method:?}\u{1f}{fuzzy}\u{1f}{min_score}\u{1f}{max_candidates}\u{1f}{consensus}")` (every option that changes the candidate list or its fields is part of the key, so a cached run without consensus is never reused by `--strategy popularity`) with `canon_or_stem` = canonical or `parsed.key` + `|` + stem, and `add_consensus(src, system, found)`: for each candidate, `consensus = 1 + number of other media m where src.has_name(system, m, &c.name) == Ok(true)`. Note the `break 'media` path pushes the partial item and the outer `if out.paused.is_some()` stops before pushing it twice — restructure so the item is pushed exactly once (e.g. set a `paused` local flag and push after the media loop). `GatherItem` and `Gathered` derive `Serialize` so `--report json` can include them.
 
 - [ ] **Step 6: Run to see it pass**
 
@@ -3605,6 +3669,21 @@ fn ranking_is_deterministic_for_any_input_order() {
 }
 
 #[test]
+fn prototypes_and_betas_never_beat_a_release() {
+    // By name alone "(USA) (Proto)" sorts before "(USA, Europe)"; a release must still win.
+    let cands = vec![
+        c("libretro", "Zelda (USA) (Proto)", &[Usa], MatchKind::TitleExact, 95),
+        c("libretro", "Zelda (USA, Europe)", &[Usa, Europe], MatchKind::TitleExact, 95),
+        c("libretro", "Zelda (Europe)", &[Europe], MatchKind::TitleExact, 95),
+    ];
+    for kind in [StrategyKind::Priority, StrategyKind::RomRegion, StrategyKind::Popularity] {
+        assert_eq!(pick(kind, &[Usa], &cands), "Zelda (USA, Europe)", "{kind:?}");
+    }
+    let only_proto_or_europe = vec![cands[0].clone(), cands[2].clone()];
+    assert_eq!(pick(StrategyKind::RomRegion, &[Usa], &only_proto_or_europe), "Zelda (Europe)");
+}
+
+#[test]
 fn every_candidate_is_ranked_once() {
     let regions = default_region_order();
     let ctx = RankContext { rom_regions: &[], regions: &regions, sources: &[] };
@@ -3669,6 +3748,13 @@ fn region_rank(c: &Candidate, ctx: &RankContext, expand_rom: bool) -> usize {
     c.regions.iter().filter_map(|r| expanded.iter().position(|x| x == r)).min().unwrap_or(expanded.len())
 }
 
+/// Whether the variant is not a retail release (No-Intro / GoodTools tags).
+fn unreleased(c: &Candidate) -> bool {
+    const TAGS: [&str; 9] = ["(beta", "(proto", "(demo", "(sample", "(hack", "(pirate", "(kiosk", "(debug", "[h"];
+    let lower = c.name.to_lowercase();
+    TAGS.iter().any(|t| lower.contains(t))
+}
+
 fn source_rank(c: &Candidate, ctx: &RankContext) -> usize {
     ctx.sources.iter().position(|s| *s == c.source).unwrap_or(ctx.sources.len())
 }
@@ -3683,7 +3769,9 @@ fn rank_with(ctx: &RankContext, cands: &[Candidate], order: impl Fn(&Candidate, 
     let Some(best) = cands.iter().max_by(|a, b| a.kind.cmp(&b.kind).then(a.score.cmp(&b.score))) else { return Vec::new() };
     let eligible = |c: &Candidate| c.kind == best.kind && c.score + ELIGIBLE_SCORE_GAP >= best.score;
     let (mut good, mut rest): (Vec<usize>, Vec<usize>) = (0..cands.len()).partition(|&i| eligible(&cands[i]));
-    good.sort_by(|&a, &b| order(&cands[a], &cands[b]).then_with(|| tail(&cands[a], &cands[b], ctx)));
+    // A release always beats a beta/proto/demo/hack of the same title, whatever the strategy.
+    good.sort_by(|&a, &b| unreleased(&cands[a]).cmp(&unreleased(&cands[b]))
+        .then_with(|| order(&cands[a], &cands[b])).then_with(|| tail(&cands[a], &cands[b], ctx)));
     rest.sort_by(|&a, &b| cands[b].kind.cmp(&cands[a].kind).then_with(|| tail(&cands[a], &cands[b], ctx)));
     good.extend(rest);
     good
@@ -4317,6 +4405,21 @@ fn refuses_targets_outside_the_root() {
     }
 }
 
+#[test]
+fn begin_requires_an_absolute_root() {
+    // The journal stores the root; a relative one would make `coverly undo`
+    // from another working directory touch the wrong files.
+    let data = TempDir::new().unwrap();
+    assert!(matches!(Writer::begin(Path::new("relative/sd"), data.path()), Err(WriteError::OutsideRoot(_))));
+}
+
+#[test]
+fn listing_or_undoing_with_no_jobs_folder() {
+    let data = TempDir::new().unwrap();
+    assert!(list_jobs(data.path()).unwrap().is_empty());
+    assert!(matches!(undo_last(data.path()), Err(WriteError::NothingToUndo)));
+}
+
 #[cfg(unix)]
 #[test]
 fn refuses_symlink_escape() {
@@ -4462,13 +4565,13 @@ pub fn ensure_within(root: &Path, target: &Path) -> Result<PathBuf, WriteError> 
 ```
 
 `Writer` (fields: `root`, `job`, `backups`, `journal: File`, `counter: u32`):
-- `begin`: create `<data>/jobs` and open `<data>/jobs/<job>.jsonl` with `create_new`, write the header line `{"type":"header","job":…,"root":…,"created_at":…}` and `sync_all`.
+- `begin`: refuse a relative `root` with `OutsideRoot(root)` (callers pass an absolute root; the CLI uses `std::path::absolute`); create `<data>/jobs` and open `<data>/jobs/<job>.jsonl` with `create_new`, write the header line `{"type":"header","job":…,"root":…,"created_at":…}` and `sync_all`.
 - `write`: `ensure_within`; refuse when `safe_file_name(name)? != name` (`NameInvalid`); `create_dir_all(parent)` (safe: the parent is under the canonical root); look in the parent for an entry whose name equals the file name ignoring case (`to_lowercase` on both, after NFC); `Never` + found → `SkippedExists`; `Backup` + found → copy its bytes (`fs::read` + `File::create` + `write_all` + `sync_all`) to `backups/<rel>` and replace **that** path (keep the on-disk spelling); write the temp file `.coverly-<job>-<n>.tmp` in the same folder with `OpenOptions::new().write(true).create_new(true)`, `write_all`, `sync_all`; `fs::rename(temp, dest)` (remove the temp on any error); append `{"type":"entry","target":…,"op":{"kind":"created"}|{"kind":"replaced","backup":…},"sha1":…}` and `sync_all`.
 - I/O errors map with `fn map_io(e: io::Error, path: &Path) -> WriteError`: `ErrorKind::PermissionDenied` or (unix) raw 30 `EROFS` → `Denied(path)`; (unix) raw 28 `ENOSPC`, (windows) raw 112/39 → `DiskFull`; else `Io(e)`.
 - `finish`: append `{"type":"done"}`, `sync_all`, return the job id.
 
 Undo:
-- `list_jobs`: read `<data>/jobs/*.jsonl`; a line that does not parse makes `Journal(..)` only for that job's summary (`complete: false`); `undone` = file name ends with `.undone.jsonl`; sort newest first by job id (ids sort by time).
+- `list_jobs`: a missing `<data>/jobs` folder means no jobs (empty list, not an error); read `<data>/jobs/*.jsonl`; a line that does not parse makes `Journal(..)` only for that job's summary (`complete: false`); `undone` = file name ends with `.undone.jsonl`; sort newest first by job id (ids sort by time).
 - `undo_job`: entries in reverse order; for each, `ensure_within(header.root, target)`; current `sha1_hex(fs::read(target))` must equal the entry's sha1, else push to `skipped_modified`; `created` → `fs::remove_file`; `replaced` → read the backup and write it back through the same temp+rename routine; then rename the journal to `<job>.undone.jsonl`.
 - `undo_last`: the newest job that is not undone, else `NothingToUndo`.
 - `prune_jobs(keep)`: delete journals (and their `backups/<job>` folders) beyond the newest `keep`.
@@ -4530,7 +4633,7 @@ pub fn apply_plan(plan: &Plan, profile: &Profile, sources: &[&dyn ArtSource], st
                   opts: &ApplyOptions, progress: &dyn ProgressSink, cancel: &AtomicBool) -> Result<JobReport, WriteError>;
 ```
 
-Rules: items are processed in plan order by `concurrency` (1–6) scoped worker threads; the writer is behind a `Mutex`. For each `auto` (and `review` when `include_review`) item: try the chosen candidate then up to `max_alternatives` alternatives — bytes from the `ArtStore` or `source.fetch` (then `store.put`), then `process_image` with `OutputSpec::for_slot(profile.slot(media), fit, quality)`, then `writer.write`. `NotFound` / decode errors move to the next candidate (`no-art` when none worked, `decode` when the last error was a decode error); `RateLimited` sets `paused` and stops the queue (remaining items `not-attempted`); `DiskFull` and `Denied` stop the queue too (§10 read-only/ejected volume); a cancel stops it as well. The journal is always finished (or left for undo) and the job id reported. `skipped` counts `SkippedExists`, `SkippedReview`, `SkippedNoMatch` and `NotAttempted`. No `Writer` (and no journal) is created when nothing is to be written.
+Rules: items are processed in plan order by `concurrency` (1–6) scoped worker threads; the writer is behind a `Mutex`. For each `auto` (and `review` when `include_review`) item: try the chosen candidate then up to `max_alternatives` alternatives — bytes from the `ArtStore` or `source.fetch` (then `store.put`), then `process_image` with `OutputSpec::for_slot(profile.slot(media), fit, quality)`, then `writer.write`. `NotFound` / decode errors move to the next candidate (`no-art` when none worked, `decode` when the last error was a decode error); `RateLimited` **or `Offline`** (spec §10) sets `paused` and stops the queue (remaining items `not-attempted`); `DiskFull` and `Denied` stop the queue too and also set `paused` ("the library volume is full or read-only: …", §10 read-only/ejected volume: stop safely, allow resume); a cancel stops it as well. The journal is always finished (or left for undo) and the job id reported. `skipped` counts `SkippedExists`, `SkippedReview`, `SkippedNoMatch` and `NotAttempted`. No `Writer` (and no journal) is created when nothing is to be written.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -4551,7 +4654,7 @@ use coverly_core::image::probe_dimensions;
 use coverly_core::jobs::{apply_plan, ApplyOptions, ArtStore, ItemErrorKind, ItemStatus, JobReport};
 use coverly_core::net::testing::{png_bytes, MockResponse, MockServer};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
-use coverly_core::plan::{build_plan, Plan, PlanOptions};
+use coverly_core::plan::{build_plan, Plan, PlanAction, PlanOptions};
 use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
 use coverly_core::scan::{scan_library, ScanOptions};
@@ -4684,6 +4787,25 @@ fn rate_limit_pauses_and_journal_allows_undo() {
 }
 
 #[test]
+fn going_offline_pauses_the_job() {
+    let w = world();
+    let mut p = plan(&w);
+    for item in &mut p.items {
+        if let PlanAction::Auto { chosen, alternatives, .. } | PlanAction::Review { chosen, alternatives, .. } = &mut item.action {
+            for c in std::iter::once(chosen).chain(alternatives.iter_mut()) {
+                c.url = "http://127.0.0.1:9/gone.png".into();
+                c.fallback_url = None;
+            }
+        }
+    }
+    let r = apply(&w, &p, &ApplyOptions { concurrency: 1, ..ApplyOptions::default() }, false);
+    assert!(r.paused.as_deref().unwrap_or("").contains("offline"), "{:?}", r.paused);
+    assert_eq!(r.filled, 0);
+    assert!(r.items.iter().all(|i| !matches!(i.status, ItemStatus::Failed { kind: ItemErrorKind::Network, .. })),
+            "offline pauses instead of failing items one by one");
+}
+
+#[test]
 fn cancel_writes_nothing() {
     let w = world();
     let r = apply(&w, &plan(&w), &ApplyOptions::default(), true);
@@ -4744,7 +4866,8 @@ impl<'a> ArtStore<'a> {
     }
 }
 
-enum Stop { RateLimited(String), Volume }
+/// Why the queue stopped early: rate limited, offline, or a full / read-only volume.
+enum Stop { Paused(String) }
 
 pub fn apply_plan(plan: &Plan, profile: &Profile, sources: &[&dyn ArtSource], store: &ArtStore, data_dir: &Path,
                   opts: &ApplyOptions, progress: &dyn ProgressSink, cancel: &AtomicBool) -> Result<JobReport, WriteError> {
@@ -4787,7 +4910,7 @@ pub fn apply_plan(plan: &Plan, profile: &Profile, sources: &[&dyn ArtSource], st
         let writer = writer.into_inner().unwrap();
         writer.finish()?;
         report.cancelled = cancel.load(Ordering::SeqCst);
-        if let Some(Stop::RateLimited(msg)) = stop.into_inner().unwrap() { report.paused = Some(msg); }
+        if let Some(Stop::Paused(msg)) = stop.into_inner().unwrap() { report.paused = Some(msg); }
         progress.event(ProgressEvent::Finished { phase: Phase::Apply });
     }
     for (item, st) in plan.items.iter().zip(results) {
@@ -4805,7 +4928,7 @@ pub fn apply_plan(plan: &Plan, profile: &Profile, sources: &[&dyn ArtSource], st
 }
 ```
 
-`apply_item`: take `(chosen, alternatives)` from the action; for each candidate in `once(chosen).chain(alternatives.iter().take(opts.max_alternatives))`: find the source by `c.source == src.id()` (none → skip); bytes = `store.get(&c.url)` or `src.fetch(c)` — `Err(SourceError::Net(NetError::RateLimited{host,status}))` → set `stop = RateLimited("rate limited by {host} (HTTP {status})")` and return `NotAttempted`; `Err(NotFound)` → `last = NoArt`, continue; other `Err` → `last = Network`, continue; on bytes `let _ = store.put(&c.url, &bytes)`; `process_image(&bytes, &spec, &opts.image_limits)` error → `last = Decode`, continue; then `writer.lock().write(&item.target, &img.bytes, opts.overwrite)`: `Created` → `Filled{source,name}`, `Replaced{backup,..}` → `Replaced{..}`, `SkippedExists` → `SkippedExists`; `Err(DiskFull)` / `Err(Denied)` → set `stop = Volume` and return `Failed{DiskFull|WriteDenied}`; `Err(NameInvalid)` → `Failed{NameInvalid}`; `Err(OutsideRoot)` → `Failed{OutsideRoot}`; other → `Failed{Io}`. After the loop return `Failed{kind: last, message}` (`message` = last error text). The spec is `OutputSpec::for_slot(profile.slot(item.media)?, opts.fit, opts.jpeg_quality)`; a missing slot is `Failed{NameInvalid}` (cannot happen for planned items).
+`apply_item`: take `(chosen, alternatives)` from the action; for each candidate in `once(chosen).chain(alternatives.iter().take(opts.max_alternatives))`: find the source by `c.source == src.id()` (none → skip); bytes = `store.get(&c.url)` or `src.fetch(c)` — `Err(SourceError::Net(e @ (NetError::RateLimited{..} | NetError::Offline(_))))` → set `stop = Paused(e.to_string())` and return `NotAttempted`; `Err(NotFound)` → `last = NoArt`, continue; other `Err` → `last = Network`, continue; on bytes `let _ = store.put(&c.url, &bytes)`; `process_image(&bytes, &spec, &opts.image_limits)` error → `last = Decode`, continue; then `writer.lock().write(&item.target, &img.bytes, opts.overwrite)`: `Created` → `Filled{source,name}`, `Replaced{backup,..}` → `Replaced{..}`, `SkippedExists` → `SkippedExists`; `Err(DiskFull)` / `Err(Denied)` → set `stop = Paused(format!("the library volume is full or read-only: {e}"))` and return `Failed{DiskFull|WriteDenied}`; `Err(NameInvalid)` → `Failed{NameInvalid}`; `Err(OutsideRoot)` → `Failed{OutsideRoot}`; other → `Failed{Io}`. After the loop return `Failed{kind: last, message}` (`message` = last error text). The spec is `OutputSpec::for_slot(profile.slot(item.media)?, opts.fit, opts.jpeg_quality)`; a missing slot is `Failed{NameInvalid}` (cannot happen for planned items).
 
 - [ ] **Step 4: Run to see it pass**
 
@@ -4827,7 +4950,7 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add crat
 - Test: `crates/coverly-cli/tests/cli_fill.rs`
 
 **Interfaces:**
-- Consumes: everything above. Exit codes (extends M1): 0 ok · 1 I/O / cache / no app dirs · 2 bad usage · 3 root not found · 4 no profile detected · **5 paused (offline or rate limited)**.
+- Consumes: everything above. Exit codes (extends M1): 0 ok · 1 I/O / cache / no app dirs · 2 bad usage · 3 root not found · 4 no profile detected · **5 paused (offline, rate limited, or the library volume is full / read-only)**.
 - Produces (CLI surface, spec §4):
 
 ```text
@@ -5005,6 +5128,10 @@ pub struct FillArgs {
 
 pub fn run(args: &FillArgs) -> Result<(), Failure> {
     check_root(&args.root)?;
+    // Absolute (not canonical: no `\\?\` on Windows) so the journal's root and
+    // targets stay valid for `coverly undo` from any working directory.
+    // Every `args.root` below means this `root`.
+    let root = std::path::absolute(&args.root)?;
     if args.scope == ScopeArg::All && args.overwrite != OverwriteArg::Backup {
         return Err(Failure::usage("--scope all replaces existing art and needs --overwrite backup"));
     }
@@ -5055,6 +5182,8 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
     }
 }
 ```
+
+Also in `run`: when `profile.id == "batocera"`, print `warning: gamelist.xml is not updated yet; Batocera may not show the new images until it is` to stderr (deviation above). Update the exit-code list in the `main.rs` module doc comment (add `5 paused: offline, rate limited, or the library volume is full / read-only`).
 
 `emit` writes JSON (`{"mode": "dry-run"|"apply", "plan": plan, "job": report?}`) or the table to `--output` or stdout (via `print_stdout`, terminal-safe). Table (dry run):
 
@@ -5131,9 +5260,9 @@ Never write under `/Volumes`. All outputs go to the scratchpad. `SC=/private/tmp
 ```bash
 cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && SC=/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad && \
 test -d /Volumes/System/ROMS && rm -rf "$SC/sd-copy" "$SC/e2e" && mkdir -p "$SC/sd-copy/anbernic" "$SC/sd-copy/ROMS/GBA/Imgs" "$SC/sd-copy/ROMS/FC/Imgs" "$SC/e2e" && \
-ls /Volumes/System/ROMS/GBA | grep -v '^Imgs$' | grep -v '^\._' | head -40 | while IFS= read -r f; do cp -X "/Volumes/System/ROMS/GBA/$f" "$SC/sd-copy/ROMS/GBA/"; done && \
-ls /Volumes/System/ROMS/FC | grep -v '^Imgs$' | grep -v '^\._' | head -150 | while IFS= read -r f; do cp -X "/Volumes/System/ROMS/FC/$f" "$SC/sd-copy/ROMS/FC/"; done && \
-for s in GBA FC; do ls "/Volumes/System/ROMS/$s/Imgs" | grep -v '^\._' | while IFS= read -r f; do cp -X "/Volumes/System/ROMS/$s/Imgs/$f" "$SC/sd-copy/ROMS/$s/Imgs/"; done; done && \
+find /Volumes/System/ROMS/GBA -maxdepth 1 -type f ! -name '._*' | sort | head -40 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/GBA/" || exit 1; done && \
+find /Volumes/System/ROMS/FC -maxdepth 1 -type f ! -name '._*' | sort | head -150 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/FC/" || exit 1; done && \
+for s in GBA FC; do find "/Volumes/System/ROMS/$s/Imgs" -maxdepth 1 -type f ! -name '._*' | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/$s/Imgs/" || exit 1; done; done && \
 du -sh "$SC/sd-copy" && find "$SC/sd-copy" -type f | wc -l
 ```
 
@@ -5149,6 +5278,17 @@ $B audit "$SC/sd-copy" --format json --output "$SC/e2e/audit-before.json" && $B 
 ```
 
 - [ ] **Step 3: Dry run against the real servers (polite: 4 concurrent, 150 ms spacing, cache in the scratchpad)**
+
+First check (read-only HEAD requests) that every explicit `dats = [...]` path in `systems.toml` and the derived no-intro paths of GBA and FC exist in libretro-database; a 404 only degrades to name matching, so a wrong path would pass every test silently. Fix any wrong path in `systems.toml` (and the `dat_sources_per_system` test) before going on:
+
+```bash
+cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && \
+grep -o 'metadat/[^"]*\.dat\|dat/[^"]*\.dat' crates/coverly-core/src/systems/systems.toml | sort -u | \
+  { cat; echo "metadat/no-intro/Nintendo - Game Boy Advance.dat"; echo "metadat/no-intro/Nintendo - Nintendo Entertainment System.dat"; } | \
+  while IFS= read -r p; do printf '%s  %s\n' "$(curl -s -o /dev/null -w '%{http_code}' -I "https://raw.githubusercontent.com/libretro/libretro-database/master/$(python3 -I -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "$p")")" "$p"; done
+```
+
+Then the dry run:
 
 ```bash
 cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && SC=/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad && B=target/release/coverly && \
@@ -5171,6 +5311,25 @@ $B audit "$SC/sd-copy" --format json --output "$SC/e2e/audit-after.json" && $B a
 ```
 
 Expected: `filled` > 0, `0 over 250x360`, `0` AppleDouble files, and `totals.missing.cover` in `audit-after.json` = before − filled. `file` on a few new PNGs reports `PNG image data`.
+
+- [ ] **Step 4b: Same apply on a real FAT32 volume (AppleDouble and case-insensitivity check)**
+
+The scratchpad is APFS, where macOS never creates `._*` files, so Step 4's `0` proves nothing about SD cards. Build a small FAT32 disk image in the scratchpad and mount it **at a scratchpad folder** (`-mountpoint`, `-nobrowse`: nothing appears under `/Volumes`):
+
+```bash
+cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && SC=/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad && B=target/release/coverly && \
+hdiutil create -size 128m -fs "MS-DOS FAT32" -volname COVERLYT -layout MBRSPUD "$SC/e2e/fat.dmg" && \
+mkdir -p "$SC/e2e/fat" && hdiutil attach -nobrowse -mountpoint "$SC/e2e/fat" "$SC/e2e/fat.dmg" && \
+mkdir -p "$SC/e2e/fat/anbernic" "$SC/e2e/fat/ROMS/GBA/Imgs" && \
+find "$SC/sd-copy/ROMS/GBA" -maxdepth 1 -type f | sort | head -15 | while IFS= read -r f; do cp -X "$f" "$SC/e2e/fat/ROMS/GBA/" || exit 1; done && \
+$B fill "$SC/e2e/fat" --system GBA --apply --auto-only --cache-dir "$SC/e2e/cache" --data-dir "$SC/e2e/data-fat" | tail -3 && \
+echo "AppleDouble files: $(find "$SC/e2e/fat" -name '._*' | wc -l)" && \
+$B undo --data-dir "$SC/e2e/data-fat" && \
+echo "left after undo: $(find "$SC/e2e/fat/ROMS/GBA/Imgs" -type f | wc -l)" && \
+hdiutil detach "$SC/e2e/fat"
+```
+
+Expected: `AppleDouble files: 0`, `left after undo: 0`, and no `.coverly-*.tmp` leftovers. If `._*` files appear, the writer is leaking extended attributes (e.g. `com.apple.provenance`): fix it (write through a plain `File`, then remove any xattr with `libc::fremovexattr` on macOS only if needed) with a regression note in `fill-pipeline.md`. Always `hdiutil detach` even after a failure.
 
 - [ ] **Step 5: Undo restores the exact original tree**
 
@@ -5211,7 +5370,7 @@ Expected: `0`.
 
 - [ ] **Step 9: Tracker (Spanish)**
 
-In `docs/TRACKER.md`: Estado actual (fecha, fase "M2 terminado en `feat/m2-fill`", siguiente paso "PR de `feat/m2-fill` → CI → merge; después plan M3"); M1-05 ⏸️→✅ with the Task 3 commit; M2-01…M2-09 ✅ each with its commit hashes (`git log --oneline main..HEAD`); a new section «Evidencia M2 — relleno E2E sobre copia de la SD» with: the copy command and sizes, dry-run counts (auto/review/none per system, hash vs name), apply counts and time, `0 over 250x360`, `0` `._*`, missing before/after from both audits, undo diff empty, backup round-trip diff empty, `/Volumes` untouched (`0`), number of HTTP requests if logged; add decisions D12 (backups/journal in app data dir), D13 (7z by name for now), D14 (CLI applies review items unless `--auto-only`, per spec §7.7); a Bitácora line for the day.
+In `docs/TRACKER.md`: Estado actual (fecha, fase "M2 terminado en `feat/m2-fill`", siguiente paso "PR de `feat/m2-fill` → CI → merge; después plan M3"); M1-05 ⏸️→✅ with the Task 3 commit; M2-01…M2-09 ✅ each with its commit hashes (`git log --oneline main..HEAD`); a new section «Evidencia M2 — relleno E2E sobre copia de la SD» with: the copy command and sizes, dry-run counts (auto/review/none per system, hash vs name), apply counts and time, `0 over 250x360`, `0` `._*` on the FAT32 image (Step 4b), DAT path check output (Step 3), missing before/after from both audits, undo diff empty, backup round-trip diff empty, `/Volumes` untouched (`0`), number of HTTP requests if logged; add decisions D12 (backups/journal in app data dir), D13 (7z by name for now), D14 (CLI applies review items unless `--auto-only`, per spec §7.7), D15 (offline pauses like 403/429; Popularity consensus = libretro media listings until M6); a new ⬜ row for the Batocera/Knulli `gamelist.xml` merge (deferred from M2); a Bitácora line for the day.
 
 - [ ] **Step 10: Global checks and commits**
 
