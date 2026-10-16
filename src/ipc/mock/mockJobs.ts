@@ -835,7 +835,9 @@ export function createMockJobs(
         cand(0, `${t} (USA)`, ['usa'], 'canonical', 100),
         cand(1, `${t} (Europe)`, ['europe'], 'title-exact', 95),
         cand(2, `${t} (Japan)`, ['japan'], 'fuzzy', 80),
-      ];
+        // SteamGridDB has covers only (D35); listed after libretro.
+        ...(media === 'cover' && host.sgdbReady() ? grids(e) : []),
+      ].map((c, index) => ({ ...c, index }));
       // Like Rust: the plan's reason on index 0 (canonical beat a title match).
       candidates[0]!.reason = { why: 'better-match' };
       picks = { generation, id, media, candidates };

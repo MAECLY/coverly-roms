@@ -419,6 +419,30 @@ describe('mock fill sources', () => {
     expect(found.every((c) => c.reason === null)).toBe(true);
   });
 
+  it('the drawer lists SteamGridDB covers too when it is ready', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    await b.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    await b.setCredential('steamgriddb-api-key', 'sk');
+    const covers = await b.entryCandidates(view.generation, 0, 'cover');
+    const grids = covers.filter((c) => c.source === 'steamgriddb');
+    expect(grids.length).toBe(2);
+    expect(grids.every((c) => c.votes !== null && c.reason === null)).toBe(
+      true,
+    );
+    expect(covers.map((c) => c.index)).toEqual(covers.map((_, n) => n));
+    expect(covers[0]!.reason).toEqual({ why: 'better-match' });
+    const shots = await b.entryCandidates(view.generation, 0, 'screenshot');
+    expect(shots.every((c) => c.source === 'libretro')).toBe(true);
+  });
+
   it('SteamGridDB grids are covers only (D35)', async () => {
     const { b, view } = await opened({ storage: new MemoryStorage() });
     await b.updateSettings({
