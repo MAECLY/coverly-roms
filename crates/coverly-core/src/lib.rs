@@ -1,12 +1,13 @@
 //! Core library of Coverly ROMs.
 //!
-//! Pure Rust, no Tauri and no network code: everything the app and the
-//! `coverly` CLI share lives here.
+//! Pure Rust, no Tauri: everything the app and the `coverly` CLI share
+//! lives here. Network access is confined to `net`.
 
 pub mod art;
 pub mod audit;
 pub mod cache;
 pub mod identify;
+pub mod net;
 pub mod paths;
 pub mod profiles;
 pub mod scan;

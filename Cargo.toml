@@ -30,3 +30,5 @@ sha1 = "0.10"
 zip = { version = "9", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
 directories = "6"
+ureq = "3.4"
+percent-encoding = "2.3"

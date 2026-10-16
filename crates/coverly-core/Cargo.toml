@@ -21,8 +21,15 @@ zip.workspace = true
 rusqlite.workspace = true
 directories.workspace = true
 serde_json.workspace = true
+ureq.workspace = true
+percent-encoding.workspace = true
+
+[features]
+# Mock HTTP server and fixtures for tests of this crate and of the CLI.
+test-util = []
 
 [dev-dependencies]
+coverly-core = { path = ".", features = ["test-util"] }
 filetime.workspace = true
 insta.workspace = true
 tempfile.workspace = true
