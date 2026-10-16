@@ -3,6 +3,7 @@
 pub mod error;
 pub mod ipc;
 pub mod jobs;
+pub mod keychain;
 pub mod library;
 pub mod state;
 
