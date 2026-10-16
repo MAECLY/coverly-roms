@@ -4,6 +4,7 @@
 //! behind the same trait.
 
 pub mod libretro;
+pub mod steamgriddb;
 
 use serde::{Deserialize, Serialize};
 

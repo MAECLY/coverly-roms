@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "page": 0,
+  "total": 3,
+  "limit": 50,
+  "data": [
+    {
+      "id": 80213,
+      "score": 0,
+      "style": "alternate",
+      "width": 600,
+      "height": 900,
+      "nsfw": false,
+      "humor": false,
+      "epilepsy": false,
+      "notes": null,
+      "mime": "image/jpeg",
+      "language": "en",
+      "url": "{{BASE}}/cdn/grid/80213.jpg",
+      "thumb": "{{BASE}}/cdn/thumb/80213.jpg",
+      "lock": false,
+      "upvotes": 0,
+      "downvotes": 0,
+      "author": { "name": "a", "steam64": "1", "avatar": "x" }
+    },
+    {
+      "id": 80212,
+      "score": 2,
+      "style": "material",
+      "width": 342,
+      "height": 482,
+      "nsfw": false,
+      "humor": false,
+      "epilepsy": false,
+      "mime": "image/png",
+      "url": "{{BASE}}/cdn/grid/80212.png",
+      "upvotes": 2,
+      "downvotes": 0
+    },
+    {
+      "id": 80211,
+      "score": 7,
+      "style": "alternate",
+      "width": 600,
+      "height": 900,
+      "nsfw": false,
+      "humor": false,
+      "epilepsy": false,
+      "mime": "image/png",
+      "url": "{{BASE}}/cdn/grid/80211.png",
+      "upvotes": 8,
+      "downvotes": 1
+    }
+  ]
+}

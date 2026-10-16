@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "data": [
+    {
+      "id": 5248,
+      "name": "Golden Sun",
+      "types": ["steam"],
+      "verified": true,
+      "release_date": 1001894400
+    },
+    {
+      "id": 5249,
+      "name": "Golden Sun: The Lost Age",
+      "types": [],
+      "verified": true
+    }
+  ]
+}
