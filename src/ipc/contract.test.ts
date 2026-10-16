@@ -1,25 +1,33 @@
 import { describe, expect, it } from 'vitest';
 
+import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
+import { DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
+
 import requests from './contract.requests.json';
 import sample from './contract.sample.json';
-import type {
-  CandidateView,
-  DecisionIn,
-  EntriesUpdated,
-  EntryView,
-  FillRequest,
-  IdentityView,
-  ItemErrorKind,
-  JobHistoryItem,
-  JobItemView,
-  JobProgressEvent,
-  JobView,
-  LibraryView,
-  ProfileView,
-  RecentLibrary,
-  ScanProgress,
-  SystemView,
-  UndoView,
+import {
+  CREDENTIAL_KEYS,
+  type CandidateView,
+  type CredentialStatus,
+  type FieldError,
+  type ProfileInfo,
+  type SettingsPatch,
+  type DecisionIn,
+  type EntriesUpdated,
+  type EntryView,
+  type FillRequest,
+  type IdentityView,
+  type ItemErrorKind,
+  type JobHistoryItem,
+  type JobItemView,
+  type JobProgressEvent,
+  type JobView,
+  type LibraryView,
+  type ProfileView,
+  type RecentLibrary,
+  type ScanProgress,
+  type SystemView,
+  type UndoView,
 } from './types';
 
 /** Compiles only when `K` lists every key of `T`. */
@@ -267,5 +275,41 @@ describe('wire contract', () => {
     const decisions = requests.decisions as DecisionIn[];
     expect(decisions[1]).toEqual({ index: 1, choice: 'pick', candidate: 2 });
     expect(requests.item_filters).toEqual(['all', 'auto', 'review', 'failed']);
+  });
+});
+
+describe('settings contract', () => {
+  it('the UI defaults and ranges are the Rust ones', () => {
+    expect(DEFAULT_SETTINGS).toEqual(sample.settings);
+    expect(RANGES).toEqual(sample.ranges);
+  });
+  it('error and status samples have the TS shapes', () => {
+    const e: FieldError = sample.field_error as FieldError;
+    expect(Object.keys(e).sort()).toEqual(['code', 'field', 'max', 'min']);
+    const st: CredentialStatus = sample.credential_status as CredentialStatus;
+    expect(Object.keys(st.set).sort()).toEqual([...CREDENTIAL_KEYS].sort());
+    const info: ProfileInfo = sample.profile_info as ProfileInfo;
+    expect(Object.keys(info).sort()).toEqual([
+      'builtin',
+      'mirror_subdirs',
+      'profile',
+    ]);
+    expect(Object.keys(sample.settings_view_meta).sort()).toEqual([
+      'backup',
+      'fixed',
+      'notice',
+    ]);
+    expect(Object.keys(sample.profile_preview).sort()).toEqual([
+      'errors',
+      'paths',
+    ]);
+  });
+  it('the mock built-in profiles are the Rust ones', () => {
+    expect(MOCK_BUILTIN_PROFILES).toEqual(sample.builtin_profiles);
+  });
+  it('requests use the Rust spellings', () => {
+    const patch: SettingsPatch = requests.settings_patch as SettingsPatch;
+    expect(patch.safety?.backup_dir).toBeNull();
+    expect(requests.credential_keys).toEqual([...CREDENTIAL_KEYS]);
   });
 });

@@ -6,6 +6,8 @@ import { hasTauriIpc } from './appInfo';
 import type {
   ArtImage,
   CandidateView,
+  CredentialKey,
+  CredentialStatus,
   DecisionIn,
   EntriesUpdated,
   EntryArtUpdate,
@@ -19,9 +21,19 @@ import type {
   JobView,
   LibrarySettings,
   LibraryView,
+  LinkId,
   Media,
+  PreviewExample,
+  ProfileFile,
+  ProfileInfo,
+  ProfilePreview,
+  ProfileSaveOutcome,
   RecentLibrary,
   ScanProgress,
+  Settings,
+  SettingsPatch,
+  SettingsUpdate,
+  SettingsView,
   UndoView,
 } from './types';
 
@@ -86,6 +98,60 @@ export interface Backend {
   /** Saves through a native dialog; the file name, or null when cancelled. */
   exportAudit(generation: number, format: ExportFormat): Promise<string | null>;
   exportJobReport(job: number, format: ExportFormat): Promise<string | null>;
+
+  /* Settings (§9): field problems come back as data, not errors. */
+  getSettings(): Promise<SettingsView>;
+  updateSettings(patch: SettingsPatch): Promise<SettingsUpdate>;
+  /** Defaults again; the recent libraries are kept. */
+  resetSettings(): Promise<SettingsView>;
+  onSettingsChanged(cb: (s: Settings) => void): Promise<() => void>;
+  /** Folders and links are fixed ids: the webview never names a path or URL. */
+  openConfigFolder(): Promise<void>;
+  openLogsFolder(): Promise<void>;
+  openLink(link: LinkId): Promise<void>;
+  /** Bytes used by the downloaded-art cache. */
+  cacheUsage(): Promise<number>;
+  /** Clears the cache (refused while a job runs); the bytes freed. */
+  clearCache(): Promise<number>;
+
+  /* Layout profiles: built-ins read-only, custom ones editable. */
+  listProfiles(): Promise<ProfileInfo[]>;
+  /** `replaces` = the id the profile had (a rename), null for a new one. */
+  saveProfile(
+    profile: ProfileFile,
+    replaces: string | null,
+  ): Promise<ProfileSaveOutcome>;
+  deleteProfile(id: string): Promise<ProfileInfo[]>;
+  previewProfile(
+    profile: ProfileFile,
+    example: PreviewExample,
+  ): Promise<ProfilePreview>;
+
+  /* Source credentials: values go in once and never come back. */
+  credentialStatus(): Promise<CredentialStatus>;
+  setCredential(key: CredentialKey, value: string): Promise<CredentialStatus>;
+  clearCredential(key: CredentialKey): Promise<CredentialStatus>;
+
+  /* Drawer "Search by title" (manual identity, D32). */
+  searchEntryArt(
+    generation: number,
+    entryId: number,
+    media: Media,
+    query: string,
+  ): Promise<CandidateView[]>;
+  entrySearchArt(
+    generation: number,
+    entryId: number,
+    media: Media,
+    candidate: number,
+  ): Promise<ArtImage>;
+  setEntryArtFromSearch(
+    generation: number,
+    entryId: number,
+    media: Media,
+    candidate: number,
+  ): Promise<EntryArtUpdate[]>;
+  clearIdentityOverride(generation: number, entryId: number): Promise<void>;
 }
 
 let current: Backend | null = null;

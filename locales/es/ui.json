@@ -99,8 +99,20 @@
     "disk-full": "El disco de la biblioteca está lleno.",
     "name-invalid": "Este nombre de archivo no es válido en tarjetas SD: {detail}",
     "volume-gone": "El volumen de la biblioteca se ha retirado o ya no está accesible: {detail}",
+    "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
+    "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
+    "keychain-failed": "El llavero rechazó la petición: {detail}",
     "art-unreadable": "No se puede mostrar esta imagen.",
-    "unknown": "Error inesperado: {detail}"
+    "unknown": "Error inesperado: {detail}",
+    "field": {
+      "range": "Usa un valor entre {min} y {max}.",
+      "required": "No puede quedar vacío.",
+      "invalid": "Este valor no es válido.",
+      "order": "No puede ser mayor que el umbral de aceptación automática.",
+      "unknown": "No existe.",
+      "duplicate": "Ya está en uso.",
+      "not-absolute": "Usa una ruta completa (que empiece por / o por una letra de unidad)."
+    }
   },
   "sidebar": {
     "label": "Vistas",

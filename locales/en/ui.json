@@ -99,8 +99,20 @@
     "disk-full": "The library disk is full.",
     "name-invalid": "This file name is not valid on SD cards: {detail}",
     "volume-gone": "The library volume was removed or is no longer reachable: {detail}",
+    "keychain-unavailable": "This system has no credential store (keychain) Coverly ROMs can use.",
+    "keychain-locked": "The keychain is locked. Unlock it and try again.",
+    "keychain-failed": "The keychain refused the request: {detail}",
     "art-unreadable": "This image cannot be shown.",
-    "unknown": "Unexpected error: {detail}"
+    "unknown": "Unexpected error: {detail}",
+    "field": {
+      "range": "Use a value from {min} to {max}.",
+      "required": "This cannot be empty.",
+      "invalid": "This value is not valid.",
+      "order": "This must not be higher than the auto-accept threshold.",
+      "unknown": "This does not exist.",
+      "duplicate": "This is already used.",
+      "not-absolute": "Use a full path (starting with / or a drive letter)."
+    }
   },
   "sidebar": {
     "label": "Views",

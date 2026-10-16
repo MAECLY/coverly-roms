@@ -110,7 +110,7 @@ fn rust_serialises_the_shared_sample() {
             opened_at: 1_700_000_000,
             available: true,
         },
-        "settings": LibrarySettingsView { ignored_dirs: vec!["bios".into()] },
+        "library_settings": LibrarySettingsView { ignored_dirs: vec!["bios".into()] },
         "identity": IdentityView {
             canonical: Some("Legend of Zelda, The (USA)".into()),
             method: IdMethod::Hash,
@@ -189,7 +189,10 @@ fn rust_serialises_the_shared_sample() {
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
-    assert_eq!(actual, expected);
+    // The settings samples are checked by `settings_samples_match_rust`.
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(value, &expected[key.as_str()], "sample `{key}`");
+    }
 }
 
 #[test]
@@ -260,4 +263,81 @@ fn profile_views_and_keychain_errors_keep_their_wire_shape() {
         serde_json::to_value(IpcError::KeychainFailed("denied".into())).unwrap(),
         json!({ "code": "keychain-failed", "detail": "denied" })
     );
+}
+
+#[test]
+fn settings_samples_match_rust() {
+    use coverly_core::credentials::{CredentialKey, CredentialStore, MemoryStore};
+    use coverly_core::profiles::custom::ProfileFile;
+    use coverly_core::settings::{
+        FieldError, FieldErrorCode, LoadNotice, LoadReport, Settings, RANGES,
+    };
+    use coverly_roms_lib::prefs::SettingsView;
+    use coverly_roms_lib::profiles::ProfileInfoView;
+
+    let sample: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    // Through the text form, as on the wire: `to_value` widens the f32
+    // thresholds (0.9 → 0.8999999761581421) while `to_string` prints the
+    // shortest f32 form ("0.9") that the UI receives.
+    let wire: Value =
+        serde_json::from_str(&serde_json::to_string(&Settings::default()).unwrap()).unwrap();
+    assert_eq!(wire, sample["settings"]);
+    assert_eq!(serde_json::to_value(RANGES).unwrap(), sample["ranges"]);
+    let e = FieldError {
+        field: "network.timeout_secs".into(),
+        code: FieldErrorCode::Range,
+        min: Some(5.0),
+        max: Some(300.0),
+    };
+    assert_eq!(serde_json::to_value(e).unwrap(), sample["field_error"]);
+    let report = LoadReport {
+        notice: Some(LoadNotice::Fixed),
+        backup: Some("/config/settings.json.bak-1".into()),
+        fixed: vec!["network.timeout_secs".into()],
+    };
+    let mut view = serde_json::to_value(SettingsView::new(Settings::default(), &report)).unwrap();
+    view.as_object_mut().unwrap().remove("settings");
+    assert_eq!(view, sample["settings_view_meta"]);
+    let store = MemoryStore::default();
+    store.set(CredentialKey::SteamgriddbApiKey, "x").unwrap();
+    assert_eq!(
+        serde_json::to_value(coverly_core::credentials::status(&store)).unwrap(),
+        sample["credential_status"]
+    );
+    let info: ProfileFile =
+        serde_json::from_value(sample["profile_info"]["profile"].clone()).unwrap();
+    let view = ProfileInfoView::of(&info.to_profile(), false);
+    assert_eq!(serde_json::to_value(view).unwrap(), sample["profile_info"]);
+    let builtins: Vec<ProfileInfoView> = coverly_core::profiles::builtin_profiles()
+        .iter()
+        .map(|p| ProfileInfoView::of(p, true))
+        .collect();
+    assert_eq!(
+        serde_json::to_value(builtins).unwrap(),
+        sample["builtin_profiles"]
+    );
+}
+
+#[test]
+fn settings_requests_deserialize() {
+    use coverly_core::credentials::CredentialKey;
+    use coverly_core::profiles::custom::PreviewExample;
+    use coverly_core::settings::Settings;
+    use coverly_roms_lib::prefs::LinkId;
+
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let s = Settings::default()
+        .with_patch(&req["settings_patch"], &[])
+        .unwrap();
+    assert_eq!(s.network.timeout_secs, 60);
+    assert_eq!(s.safety.backup_dir, None);
+    for id in req["link_ids"].as_array().unwrap() {
+        serde_json::from_value::<LinkId>(id.clone()).unwrap();
+    }
+    for k in req["credential_keys"].as_array().unwrap() {
+        assert!(CredentialKey::parse(k.as_str().unwrap()).is_some());
+    }
+    serde_json::from_value::<PreviewExample>(req["preview_example"].clone()).unwrap();
 }

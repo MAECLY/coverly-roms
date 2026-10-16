@@ -176,4 +176,75 @@ describe('Tauri backend', () => {
       ],
     ]);
   });
+
+  it('sends the settings, profile, credential and search commands', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      if (cmd === 'entry_search_art') return PNG.buffer;
+      if (cmd === 'cache_usage' || cmd === 'clear_cache') return 0;
+      return null;
+    });
+    const b = createTauriBackend();
+    await b.getSettings();
+    await b.updateSettings({ network: { timeout_secs: 60 } });
+    await b.resetSettings();
+    await b.openConfigFolder();
+    await b.openLogsFolder();
+    await b.openLink('repo');
+    await b.cacheUsage();
+    await b.clearCache();
+    await b.listProfiles();
+    const profile = sample.profile_info.profile as never;
+    await b.saveProfile(profile, null);
+    await b.deleteProfile('mine');
+    await b.previewProfile(profile, {
+      system_folder: 'GBA',
+      rel_dir: '',
+      file_name: 'a.gba',
+    });
+    await b.credentialStatus();
+    await b.setCredential('screenscraper-user', 'me');
+    await b.clearCredential('screenscraper-user');
+    await b.searchEntryArt(2, 7, 'cover', 'zelda');
+    await b.entrySearchArt(2, 7, 'cover', 1);
+    await b.setEntryArtFromSearch(2, 7, 'cover', 1);
+    await b.clearIdentityOverride(2, 7);
+    expect(calls).toEqual([
+      ['get_settings', {}],
+      ['update_settings', { patch: { network: { timeout_secs: 60 } } }],
+      ['reset_settings', {}],
+      ['open_config_folder', {}],
+      ['open_logs_folder', {}],
+      ['open_link', { link: 'repo' }],
+      ['cache_usage', {}],
+      ['clear_cache', {}],
+      ['list_profiles', {}],
+      ['save_profile', { profile, replaces: null }],
+      ['delete_profile', { id: 'mine' }],
+      [
+        'preview_profile',
+        {
+          profile,
+          example: { system_folder: 'GBA', rel_dir: '', file_name: 'a.gba' },
+        },
+      ],
+      ['credential_status', {}],
+      ['set_credential', { key: 'screenscraper-user', value: 'me' }],
+      ['clear_credential', { key: 'screenscraper-user' }],
+      [
+        'search_entry_art',
+        { generation: 2, entryId: 7, media: 'cover', query: 'zelda' },
+      ],
+      [
+        'entry_search_art',
+        { generation: 2, entryId: 7, media: 'cover', candidate: 1 },
+      ],
+      [
+        'set_entry_art_from_search',
+        { generation: 2, entryId: 7, media: 'cover', candidate: 1 },
+      ],
+      ['clear_identity_override', { generation: 2, entryId: 7 }],
+    ]);
+  });
 });
