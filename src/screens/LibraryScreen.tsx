@@ -43,7 +43,7 @@ function Notice({ title, children }: { title: string; children?: ReactNode }) {
 export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
-  const { visible, facets, libraryFacets, now } = useVisibleEntries();
+  const { visible, facets, now } = useVisibleEntries();
   const layout = useViewStore((s) => s.layout);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const sort = useViewStore((s) => s.sort);
@@ -127,12 +127,7 @@ export function LibraryScreen() {
         onSettings={() => setSettingsOpen(true)}
       />
       <div className="library-body">
-        <Sidebar
-          key={view.generation}
-          view={view}
-          facets={libraryFacets}
-          now={now}
-        />
+        <Sidebar key={view.generation} view={view} now={now} />
         <main className="library-main">
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div className="library-content">{content}</div>

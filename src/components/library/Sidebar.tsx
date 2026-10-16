@@ -1,8 +1,16 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import {
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
+
+import { LocaleContext } from '@/i18n/core';
 
 import { useT } from '@/i18n/useT';
 import type { LibraryView } from '@/ipc/types';
-import type { Facets } from '@/lib/filters';
 import { buildFolderTree, type FolderNode } from '@/lib/folderTree';
 import {
   DATE_BUCKETS,
@@ -41,16 +49,16 @@ function initialExpanded(root: FolderNode): Set<string> {
   return open;
 }
 
-export function Sidebar({
-  view,
-  facets,
-  now,
-}: {
-  view: LibraryView;
-  facets: Facets;
-  now: number;
-}) {
+/**
+ * Library navigation. Every count is an unfiltered library total (how many
+ * ROMs live in that folder, system or date bucket); the search and filters
+ * only change the status bar and the filter panel facets.
+ */
+export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
   const t = useT();
+  const locale = useContext(LocaleContext);
+  const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const tabRefs = useRef(new Map<Tab, HTMLButtonElement>());
   const scope = useViewStore((s) => s.scope);
   const setScope = useViewStore((s) => s.setScope);
   const setSort = useViewStore((s) => s.setSort);
@@ -59,6 +67,12 @@ export function Sidebar({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() =>
     initialExpanded(buildFolderTree(view.entries)),
   );
+  const systemTotals = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const e of view.entries)
+      counts.set(e.system, (counts.get(e.system) ?? 0) + 1);
+    return counts;
+  }, [view.entries]);
   const buckets = useMemo(() => {
     const counts: Record<DateBucket, number> = {
       week: 0,
@@ -73,6 +87,27 @@ export function Sidebar({
   function choose(target: Scope) {
     setScope(target);
     if (target.kind === 'date') setSort({ key: 'mtime', dir: 'desc' });
+  }
+
+  function activate(id: Tab) {
+    setTab(id);
+    if (id === 'all') choose({ kind: 'all' });
+  }
+
+  /** WAI-ARIA tabs: arrows (and Home/End) move and activate the tab. */
+  function onTabKey(ev: KeyboardEvent<HTMLButtonElement>, id: Tab) {
+    const at = TABS.indexOf(id);
+    let next: number;
+    if (ev.key === 'ArrowRight') next = (at + 1) % TABS.length;
+    else if (ev.key === 'ArrowLeft')
+      next = (at - 1 + TABS.length) % TABS.length;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = TABS.length - 1;
+    else return;
+    ev.preventDefault();
+    const target = TABS[next]!;
+    activate(target);
+    tabRefs.current.get(target)?.focus();
   }
 
   function toggle(path: string) {
@@ -94,7 +129,7 @@ export function Sidebar({
       <span className="truncate" title={label}>
         {label}
       </span>
-      <span className="sidebar-count">{count.toLocaleString()}</span>
+      <span className="sidebar-count">{n.format(count)}</span>
     </button>
   );
 
@@ -151,11 +186,14 @@ export function Sidebar({
             id={`tab-${id}`}
             aria-selected={tab === id}
             aria-controls={`panel-${id}`}
-            className="sidebar-tab"
-            onClick={() => {
-              setTab(id);
-              if (id === 'all') choose({ kind: 'all' });
+            tabIndex={tab === id ? 0 : -1}
+            ref={(el) => {
+              if (el) tabRefs.current.set(id, el);
+              else tabRefs.current.delete(id);
             }}
+            className="sidebar-tab"
+            onClick={() => activate(id)}
+            onKeyDown={(ev) => onTabKey(ev, id)}
           >
             {t(`views.${id}`)}
           </button>
@@ -185,7 +223,7 @@ export function Sidebar({
                   {scopeButton(
                     { kind: 'system', system: s.index },
                     s.name,
-                    facets.systems.get(s.index) ?? 0,
+                    systemTotals.get(s.index) ?? 0,
                   )}
                 </li>
               ))}

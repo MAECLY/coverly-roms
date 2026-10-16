@@ -37,6 +37,6 @@ describe('useVisibleEntries', () => {
     expect(result.current.visible.map((e) => e.id)).toEqual(
       expected.map((e) => e.id),
     );
-    expect(result.current.libraryFacets.systems.get(3)).toBe(expected.length);
+    expect(result.current.facets.systems.get(3)).toBe(expected.length);
   });
 });

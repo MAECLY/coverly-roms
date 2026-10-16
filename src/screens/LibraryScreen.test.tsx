@@ -204,6 +204,45 @@ describe('Library screen', () => {
     ).not.toHaveFocus();
   });
 
+  it('shows unfiltered library totals in every sidebar view', async () => {
+    const view = await openLibrary();
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: 'Search by name' }),
+      'zzzzqqq',
+    );
+    const nav = screen.getByRole('navigation', { name: 'Views' });
+    await userEvent.click(within(nav).getByRole('tab', { name: 'Systems' }));
+    const gba = view.systems.find((s) => s.folder === 'GBA')!;
+    const total = view.entries.filter((e) => e.system === gba.index).length;
+    const item = within(nav).getByText(gba.name).closest('button')!;
+    expect(within(item).getByText(String(total))).toBeInTheDocument();
+  });
+
+  it('moves between sidebar tabs with the arrow keys', async () => {
+    await openLibrary();
+    const nav = screen.getByRole('navigation', { name: 'Views' });
+    const folders = within(nav).getByRole('tab', { name: 'Folders' });
+    await userEvent.click(folders);
+    await userEvent.keyboard('{ArrowRight}');
+    const systems = within(nav).getByRole('tab', { name: 'Systems' });
+    expect(systems).toHaveFocus();
+    expect(systems).toHaveAttribute('aria-selected', 'true');
+    expect(systems).toHaveAttribute('tabindex', '0');
+    expect(folders).toHaveAttribute('tabindex', '-1');
+    await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+    expect(within(nav).getByRole('tab', { name: 'All' })).toHaveFocus();
+  });
+
+  it('formats sidebar and facet counts in the app locale', async () => {
+    await openLibrary(MOCK_LIBRARIES[0].path, 'es');
+    const nav = screen.getByRole('navigation', { name: 'Vistas' });
+    await userEvent.click(within(nav).getByRole('tab', { name: 'Todo' }));
+    expect(within(nav).getByText('12.000')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Filtros' }));
+    const panel = screen.getByRole('region', { name: 'Filtros' });
+    expect(within(panel).getAllByText('12.000').length).toBeGreaterThan(0);
+  });
+
   it('offers to clear when nothing matches', async () => {
     await openLibrary();
     await userEvent.type(

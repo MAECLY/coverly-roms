@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
+
+import { LocaleContext } from '@/i18n/core';
 
 import { useT } from '@/i18n/useT';
 import { REGIONS, type LibraryView } from '@/ipc/types';
@@ -75,6 +77,8 @@ export function FilterPanel({
   facets: Facets;
 }) {
   const t = useT();
+  const locale = useContext(LocaleContext);
+  const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const f = useFilterStore((s) => s.filters);
   const setArt = useFilterStore((s) => s.setArt);
   const toggleSystem = useFilterStore((s) => s.toggleSystem);
@@ -109,7 +113,7 @@ export function FilterPanel({
               onChange={() => setArt(a)}
             />
             <span>{t(`filters.artOptions.${a}`)}</span>
-            <span className="filter-count">{facets.art[a]}</span>
+            <span className="filter-count">{n.format(facets.art[a])}</span>
           </label>
         ))}
       </fieldset>
@@ -126,7 +130,7 @@ export function FilterPanel({
               />
               <span className="truncate">{s.name}</span>
               <span className="filter-count">
-                {facets.systems.get(s.index) ?? 0}
+                {n.format(facets.systems.get(s.index) ?? 0)}
               </span>
             </label>
           ))}
@@ -141,7 +145,9 @@ export function FilterPanel({
               onChange={() => toggleExt(x)}
             />
             <span>.{x}</span>
-            <span className="filter-count">{facets.exts.get(x) ?? 0}</span>
+            <span className="filter-count">
+              {n.format(facets.exts.get(x) ?? 0)}
+            </span>
           </label>
         ))}
       </fieldset>
@@ -155,7 +161,9 @@ export function FilterPanel({
               onChange={() => toggleRegion(r)}
             />
             <span>{t(`regions.${r}`)}</span>
-            <span className="filter-count">{facets.regions.get(r) ?? 0}</span>
+            <span className="filter-count">
+              {n.format(facets.regions.get(r) ?? 0)}
+            </span>
           </label>
         ))}
       </fieldset>

@@ -16,8 +16,6 @@ export interface VisibleEntries {
   scoped: EntryView[];
   /** Facet counts within the scope (filter panel). */
   facets: Facets;
-  /** Facet counts over the whole library (sidebar). */
-  libraryFacets: Facets;
   /** Unix seconds the date buckets are relative to. */
   now: number;
 }
@@ -49,9 +47,5 @@ export function useVisibleEntries(): VisibleEntries {
     () => computeFacets(scoped, keys, filters),
     [scoped, keys, filters],
   );
-  const libraryFacets = useMemo(
-    () => computeFacets(entries, keys, filters),
-    [entries, keys, filters],
-  );
-  return { visible, scoped, facets, libraryFacets, now };
+  return { visible, scoped, facets, now };
 }
