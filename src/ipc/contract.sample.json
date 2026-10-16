@@ -1,0 +1,72 @@
+{
+  "library_view": {
+    "generation": 3,
+    "root": "/Volumes/SD",
+    "name": "SD",
+    "profile": {
+      "id": "anbernic-stock",
+      "name": "Anbernic stock",
+      "media": ["cover"],
+      "detected": true,
+      "evidence": ["anbernic/ folder"],
+      "fitted": false
+    },
+    "systems": [
+      {
+        "index": 0,
+        "folder": "SFC",
+        "dir": "ROMS/SFC",
+        "system_id": "snes",
+        "name": "Super Nintendo",
+        "roms": 1
+      }
+    ],
+    "entries": [
+      {
+        "id": 0,
+        "system": 0,
+        "rel_path": "ROMS/SFC/Zelda (USA).sfc",
+        "dir": "ROMS/SFC",
+        "name": "Zelda (USA)",
+        "ext": "sfc",
+        "size": 1048576,
+        "mtime": 1700000000,
+        "regions": ["usa"],
+        "art": {
+          "cover": "present",
+          "screenshot": "unsupported",
+          "title": "unsupported"
+        }
+      }
+    ],
+    "warnings": [
+      { "path": "/Volumes/SD/ROMS/BAD", "message": "permission denied" }
+    ],
+    "scan_ms": 42
+  },
+  "scan_progress": {
+    "generation": 3,
+    "done": 1,
+    "total": 2,
+    "folder": "SFC",
+    "roms": 1
+  },
+  "recent": {
+    "path": "/Volumes/SD",
+    "name": "SD",
+    "profile_id": "anbernic-stock",
+    "roms": 1,
+    "opened_at": 1700000000,
+    "available": true
+  },
+  "settings": { "ignored_dirs": ["bios"] },
+  "identity": {
+    "canonical": "Legend of Zelda, The (USA)",
+    "method": "hash",
+    "confidence": 1.0,
+    "title": "Legend of Zelda, The",
+    "regions": ["usa"],
+    "offline": false
+  },
+  "error": { "code": "not-found", "detail": "/Volumes/SD" }
+}

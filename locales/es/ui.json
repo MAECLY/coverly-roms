@@ -13,5 +13,23 @@
   "footer": {
     "version": "Versión {version}",
     "coreVersion": "Núcleo {version}"
+  },
+  "errors": {
+    "not-found": "Esta carpeta no existe: {detail}",
+    "not-a-folder": "Esto es un archivo, no una carpeta: {detail}",
+    "unreadable": "Coverly ROMs no puede leer {detail}. Revisa sus permisos.",
+    "no-profile": "No se reconoce ningún formato en {detail}. Elige la raíz de la SD o su carpeta de ROMs.",
+    "unknown-profile": "Perfil de formato desconocido: {detail}",
+    "no-library": "No hay ninguna biblioteca abierta.",
+    "stale-library": "La biblioteca se ha vuelto a abrir. Inténtalo de nuevo.",
+    "superseded": "Mientras tanto se abrió otra biblioteca.",
+    "unknown-entry": "Esta ROM ya no está en la biblioteca.",
+    "art-missing": "No hay imagen para esta ROM.",
+    "outside-library": "Esta imagen está fuera de la biblioteca y no se ha abierto.",
+    "art-too-large": "Esta imagen es demasiado grande para mostrarla.",
+    "io": "Algo ha fallado: {detail}",
+    "settings": "No se han podido guardar los ajustes: {detail}",
+    "art-unreadable": "No se puede mostrar esta imagen.",
+    "unknown": "Error inesperado: {detail}"
   }
 }
