@@ -164,5 +164,36 @@
     "shown": "{shown} of {total} ROMs",
     "missingCover": "{n} without cover",
     "scan": "Scanned in {ms} ms"
+  },
+  "drawer": {
+    "close": "Close details",
+    "art": "Art",
+    "file": "File",
+    "path": "Path",
+    "ext": "Extension",
+    "identity": "Identity",
+    "identify": "Identify",
+    "identifying": "Identifying…",
+    "identifyHint": "Look this ROM up in the game databases.",
+    "canonical": "Database name",
+    "notIdentified": "Not found in the databases",
+    "methodLabel": "Method",
+    "method": {
+      "hash": "Content hash",
+      "arcade-dat": "Arcade set name",
+      "name": "File name",
+      "unknown": "Unknown"
+    },
+    "confidenceLabel": "Confidence",
+    "offline": "Offline: identified by its file name only.",
+    "actions": "Actions",
+    "change": "Change…",
+    "search": "Search…",
+    "fromFile": "From file…",
+    "remove": "Remove",
+    "laterHint": "Changing art arrives in a later version.",
+    "revealMac": "Reveal in Finder",
+    "revealWin": "Show in Explorer",
+    "revealOther": "Show in folder"
   }
 }

@@ -10,6 +10,7 @@ import type { LibraryView, RecentLibrary, ScanProgress } from '@/ipc/types';
 import { buildSearchKeys } from '@/lib/search';
 
 import { useFilterStore } from './filterStore';
+import { useIdentityStore } from './identityStore';
 import { useSelectionStore } from './selectionStore';
 import { useViewStore } from './viewStore';
 
@@ -82,6 +83,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
       useFilterStore.getState().reset();
       useViewStore.getState().reset();
       useSelectionStore.getState().select(null);
+      useIdentityStore.getState().reset();
       set({
         status: 'ready',
         view,
@@ -133,4 +135,5 @@ export function resetLibraryStore(): void {
   useFilterStore.getState().reset();
   useViewStore.getState().reset();
   useSelectionStore.getState().select(null);
+  useIdentityStore.getState().reset();
 }

@@ -8,6 +8,7 @@ import {
 
 import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { CoverGrid } from '@/components/library/CoverGrid';
+import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { EntryTable } from '@/components/library/EntryTable';
 import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
@@ -46,6 +47,7 @@ export function LibraryScreen() {
   const { visible, facets, now } = useVisibleEntries();
   const layout = useViewStore((s) => s.layout);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
+  const drawerOpen = useViewStore((s) => s.drawerOpen);
   const sort = useViewStore((s) => s.sort);
   const toggleSort = useViewStore((s) => s.toggleSort);
   const openDrawer = useViewStore((s) => s.openDrawer);
@@ -75,6 +77,10 @@ export function LibraryScreen() {
   }, [closeDrawer, settingsOpen]);
 
   if (!view) return null;
+
+  // Entry ids are indexes into `view.entries`.
+  const selected =
+    selectedId === null ? null : (view.entries[selectedId] ?? null);
 
   const onOpen = (id: number) => {
     select(id);
@@ -132,6 +138,9 @@ export function LibraryScreen() {
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div className="library-content">{content}</div>
         </main>
+        {drawerOpen && selected && (
+          <DetailDrawer view={view} entry={selected} onClose={closeDrawer} />
+        )}
       </div>
       <StatusBar
         visible={visible}

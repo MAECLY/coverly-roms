@@ -579,3 +579,80 @@ body {
   font-size: 1.125rem;
   font-weight: 600;
 }
+
+.drawer {
+  width: 22rem;
+  overflow: auto;
+  padding: 1rem;
+  border-left: 1px solid var(--cr-border);
+  background: var(--cr-surface);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.drawer-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.drawer-art {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.drawer-figure {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--cr-text-muted);
+}
+
+.drawer-figure:first-child {
+  grid-row: span 2;
+}
+
+.art-thumb--wide {
+  aspect-ratio: 4 / 3;
+}
+
+.drawer-section {
+  margin-top: 1rem;
+}
+
+.drawer-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+}
+
+.drawer-facts dt {
+  color: var(--cr-text-muted);
+}
+
+.drawer-facts dd {
+  margin: 0;
+  min-width: 0;
+  unicode-bidi: plaintext;
+}
+
+.drawer-confidence {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
