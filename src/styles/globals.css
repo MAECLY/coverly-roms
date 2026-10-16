@@ -1174,3 +1174,51 @@ body {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* In-app updates (M7) */
+.update-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.update-panel p {
+  margin: 0;
+}
+
+.update-panel progress {
+  width: 100%;
+  max-width: 24rem;
+  accent-color: var(--cr-accent);
+}
+
+.update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--cr-text-muted);
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 1.5rem 0;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--cr-border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--cr-accent) 10%, var(--cr-surface));
+  color: var(--cr-text);
+}
+
+.update-banner > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}

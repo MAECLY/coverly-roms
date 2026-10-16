@@ -3,6 +3,7 @@ import { useContext, useEffect, useMemo } from 'react';
 import { AppFooter } from '@/components/AppFooter';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { ScanProgressView } from '@/components/ScanProgressView';
+import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -73,6 +74,7 @@ export function StartScreen() {
         <LanguageSwitch />
       </header>
       <main className="flex flex-1 flex-col items-center gap-6 px-6 py-10 text-center">
+        <UpdateBanner />
         <h1 className="wordmark">{t('app.name')}</h1>
         <p className="tagline max-w-xl">{t('app.tagline')}</p>
         <button

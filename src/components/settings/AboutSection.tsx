@@ -4,6 +4,8 @@ import { getBackend } from '@/ipc/backend';
 import type { LinkId } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+import { UpdatePanel } from '../update/UpdatePanel';
+
 const LINKS: readonly LinkId[] = [
   'repo',
   'license',
@@ -31,6 +33,7 @@ export function AboutSection() {
           channel: t(`settings.general.channels.${channel}`),
         })}
       </p>
+      <UpdatePanel />
       <div className="about-links">
         {LINKS.map((l) => (
           <button
