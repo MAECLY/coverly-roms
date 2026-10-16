@@ -1,6 +1,6 @@
 # Fill Pipeline
 
-> **TL;DR.** `coverly fill` runs scan → art status → targets → **gather** → **plan** → (with `--apply`) **apply** → re-audit. Gathering identifies ROMs and collects art candidates into a SQLite cache. Planning picks one candidate per ROM and media with a strategy and classes it `auto`, `review` or `none`; that is the dry run, and it writes nothing. Applying downloads through a content-addressed art store, re-encodes for the profile and writes atomically inside the library root. Replaced files are backed up and every write is journaled, so `coverly undo` can reverse a job. A rate limit or going offline pauses the job; it never fails item by item. In the app the same pipeline runs as a job (`coverly_core::fill::FillEnv`), with review decisions between plan and apply. Decisions: [ADR-0007](../adr/0007-pluggable-strategies.md), [ADR-0009](../adr/0009-two-phase-fill-with-sqlite-cache.md), [ADR-0010](../adr/0010-safe-writes-backups-and-journal.md). Spec: [§7, §9, §10, §11, §16.1, §16.10](../superpowers/specs/2026-10-15-coverly-roms-design.md). Related: [identification](./identification.md), [art sources](./art-sources.md).
+> **TL;DR.** `coverly fill` runs scan → art status → targets → **gather** → **plan** → (with `--apply`) **apply** → re-audit. Gathering identifies ROMs and collects art candidates from every enabled source (libretro, SteamGridDB, ScreenScraper when built), in the user's order, merged into a SQLite cache. Planning picks one candidate per ROM and media with a strategy, records **why** it won (`PickReason`) and classes it `auto`, `review` or `none`; that is the dry run, and it writes nothing. Applying downloads through a content-addressed art store, re-encodes for the profile and writes atomically inside the library root. Replaced files are backed up and every write is journaled, so `coverly undo` can reverse a job. A rate limit or going offline pauses the job; it never fails item by item. A source whose key, account or quota is refused is skipped for the run with one warning. In the app the same pipeline runs as a job (`coverly_core::fill::FillEnv`), with review decisions between plan and apply. Decisions: [ADR-0007](../adr/0007-pluggable-strategies.md), [ADR-0009](../adr/0009-two-phase-fill-with-sqlite-cache.md), [ADR-0010](../adr/0010-safe-writes-backups-and-journal.md). Spec: [§7, §9, §10, §11, §16.1, §16.10](../superpowers/specs/2026-10-15-coverly-roms-design.md). Decisions D9, D33–D36 in the [tracker](../TRACKER.md). Related: [identification](./identification.md), [art sources](./art-sources.md).
 
 ## Flow
 
@@ -14,12 +14,15 @@ coverly fill ROOT [--system …] [--media …] [--apply]
  ├─ gather  ───────────────────────────────────────────────── phase 1 (no library writes)
  │    for each target ROM:
  │      Identifier::identify ── quick-id memo ─▶ hash_rom ─▶ DatStore (download DAT on demand)
- │      for each media, each source:
+ │      for each media, each enabled source (user order):
+ │        skipped for this run (refused key / quota)? ─▶ next source
  │        cached candidate list?  ── yes ─▶ use it
- │                                └─ no ──▶ LibretroSource::candidates (listing from cache / HTTP)
- │      403/429/offline/timeout ─▶ PAUSE (partial result, exit 5)
+ │                                └─ no ──▶ source.candidates (libretro listing, SteamGridDB, ScreenScraper)
+ │        Auth / MissingKey / Exhausted ─▶ skip the source for the run, one warning
+ │      merge_candidates (dedupe, cross-source consensus D34)
+ │      rate limit (429; 403 from libretro) / offline / timeout ─▶ PAUSE (partial result, exit 5)
  │
- ├─ build_plan                       strategy ranks; auto / review / none
+ ├─ build_plan                       strategy ranks; explain → PickReason; auto / review / none
  │    dry run: print the table (or --report json) and stop
  │
  └─ apply_plan (--apply) ──────────────────────────────────── phase 2
@@ -54,13 +57,50 @@ A strategy only **orders** candidates (`matching::Strategy::rank`). Eligible can
 |---|---|
 | `priority` | source order, then the region order without the ROM's own regions |
 | `rom-region` (default) | the ROM's own regions (`(USA, Europe)`, `(J)`), then the region order (`rom,world,usa,europe,japan`), then source order |
-| `popularity` | `votes` (SteamGridDB, M6), then `consensus`, then Priority |
+| `popularity` | exact matches as one tier (D33), then net `votes` (SteamGridDB), match kind, `consensus`, source order and region order (Priority) |
 
 Every tie ends on source, name and URL, so a plan never depends on input order.
 
 **Unreleased variants never win as `auto` (M2-11, D22).** `matching::is_unreleased_variant` recognises bracketed beta, proto, demo, sample, hack, pirate, kiosk, debug and `(Unl)` tags and GoodTools `[h…]`. When the best tier holds only such a variant, `build_plan` moves the first retail candidate that reaches the review threshold to the front, and a non-retail first pick that is neither a canonical nor an exact file-name match, for a ROM that is not itself that kind of variant, is classed `review` with `note: unreleased-variant`, never `auto`. Real cases (M4 run): `057 Final Fantasy IV` → `Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)` in review, `054 Contra Advance` → `Contra Advance (USA) (Beta)` in review.
 
-**Popularity (D9).** Part (b), consensus, is measured inside libretro in M2. With `--strategy popularity`, gathering counts how many libretro media listings (`Named_Boxarts`, `Named_Snaps`, `Named_Titles`) contain the same variant file. A variant with box, snap and title is more "canonical" than one with a lone box. Part (a), SteamGridDB votes, and cross-source consensus arrive with the M6 sources. The `votes` field already exists, so the strategy will not change (decision D15).
+**Popularity (D9, D33, D34).** Spec §17 Q5 is resolved by D9: votes where they exist, consensus otherwise, then Priority.
+
+| Step | Popularity order (D33) |
+|---|---|
+| 1 | Match tier: every **exact** kind (`canonical`, `name-exact`, `title-exact`) is one tier; `fuzzy` is a lower tier. So a voted SteamGridDB grid of the same title can beat libretro's exact file name, but never a fuzzy one (an ambiguous SteamGridDB title is fuzzy 85, see [art-sources.md](./art-sources.md#steamgriddb-m6-01-d35)). |
+| 2 | Release before beta/proto/hack (D22) |
+| 3 | Net votes, `up − down` (a missing `votes` counts 0) |
+| 4 | Match kind (`canonical` > `name-exact` > `title-exact`) |
+| 5 | `consensus` |
+| 6 | Source order, then region order (Priority) |
+| 7 | Preferred language (D28), then name and URL |
+
+Without votes this is exactly the M2 behaviour. Priority and RomRegion are unchanged by M6.
+
+`consensus` (D34) = 1 + the source's other media listings that carry the same file (libretro `Named_Boxarts`/`Named_Snaps`/`Named_Titles`, M2) **+ the number of other sources offering the same parsed title in an overlapping region**, each source counted once. It is measured only under Popularity. SteamGridDB grids have no region, so they never add or receive consensus; they compete by votes.
+
+**Why this image (`PickReason`).** `matching::explain` names the rule that put the first candidate before the second, and every plan item stores it as `reason` (also on the app's chosen `CandidateView`, localised in the review queue and the drawer):
+
+| `why` | Meaning |
+|---|---|
+| `only` | the only candidate |
+| `better-match` | a stronger match kind or score |
+| `release` | a release beat a beta/proto/demo/hack (D22) |
+| `votes { score, next }` | more net SteamGridDB votes (Popularity) |
+| `consensus { count, next }` | more listings, sources and regions agree on it (Popularity) |
+| `source-order { source }` | earlier in the user's source order |
+| `region { rom }` | earlier in the region order; `rom` = it is the ROM's own region |
+| `language` | carries the preferred language (D28) |
+| `tie` | equal on every rule: first by name, so the plan is stable |
+| `user` | picked by hand (review queue `pick`, drawer) |
+
+## Gathering from several sources (M6)
+
+- **Which sources.** The enabled entries of Settings → Sources, in their order (`--sources libretro,steamgriddb` overrides it in the CLI), kept to `available_sources()`: libretro and SteamGridDB always, ScreenScraper only in a build with developer credentials. Settings from another build (ScreenScraper on, an unknown id, a duplicate) load and normalise instead of failing.
+- **Keys snapshot.** `FillEnv.keys` is a `SourceKeys` read once when the job starts (keychain in the app, environment in the CLI) and kept for every resume of that job. Workers never read the keychain; a key never reaches a plan, a journal, a report or the webview.
+- **Merge.** `gather::merge_candidates` drops repeats of one image (same source and URL, the strongest kept), adds cross-source consensus under Popularity (D34) and sorts strongest first. Each candidate keeps its `source` and `origin`. The candidate-list cache namespace was bumped for M6 (`candidates-3`).
+- **Source-wide skip.** `Auth`, `MissingKey` and `Exhausted` (`SourceError::is_source_wide`) stop that source for the rest of the run with **one** warning in `plan.warnings` (e.g. `steamgriddb: no API key stored; skipped`), and the run goes on with the other sources. This is never a pause: a pause would come back on every resume. A 429 or going offline from any source still pauses the whole phase.
+- **Apply.** `FillEnv::apply`, the drawer and "Search by title" fetch through the source a candidate came from; search asks every enabled source and dedupes by `(source, url)`.
 
 ## Image pipeline
 
@@ -158,11 +198,12 @@ coverly fill <ROOT> [--profile ID|auto] [--system GBA,FC] [--media cover,screens
              [--match hash-then-name|hash-only|name-only] [--scope missing|all]
              [--dry-run | --apply [--auto-only]] [--overwrite never|backup]
              [--report table|json] [--output FILE] [--concurrency 1-6] [--refresh]
-             [--cache-dir DIR] [--data-dir DIR]
+             [--sources libretro,steamgriddb] [--cache-dir DIR] [--data-dir DIR]
 coverly undo [--job ID] [--list] [--data-dir DIR]
 ```
 
 - Dry run is the default. `--scope all` replaces existing art and needs `--overwrite backup`.
+- `--sources` overrides the order and enabled set of the sources setting. The CLI has no keychain: keys come from `COVERLY_SGDB_KEY`, `COVERLY_SS_USER` and `COVERLY_SS_PASSWORD`. Hidden `--steamgriddb-url` / `--screenscraper-url` point the sources at a mock in tests.
 - `--cache-dir` / `--data-dir` override the OS app dirs (`directories`: `com.Maecly.CoverlyROMs`).
 - With the `batocera` profile, fill prints a warning that `gamelist.xml` is not updated yet (tracker row M4/M5).
 
@@ -196,3 +237,11 @@ M4 Task 13, run on 2026-10-16 through the app's job path (`AppState::open` → `
 - **Apply (auto only, no decisions):** 19.3 s, 122 filled, 0 replaced, 24 skipped, 0 no-art, 0 failed; every new file a PNG ≤ 250×360, no `._*` or `.coverly-*` leftovers; the session's covers went from 146 missing to 24 (146 − 122) without reopening the library.
 - **Undo** (`undo_last_job`): 122 removed, 0 restored, 0 kept; the SHA-1 tree of the copy is identical to before.
 - **Source untouched:** `find ~/Documents/ROMS/{GBA,FC} -cnewer snapshot` → 0; nothing under `/Volumes`.
+
+M6 Task 14, run on 2026-10-16 with the release CLI against the real libretro servers and **no SteamGridDB key**. Full numbers in the tracker («Evidencia M6»).
+
+- **Copy:** `ROMS/GG` (107 ROMs, 40 covers) + `anbernic/` → 41 MB, anbernic-stock, 67 without cover.
+- **Dry run** (`--sources libretro,steamgriddb --strategy popularity`, `COVERLY_SGDB_KEY` unset, cold cache, 2.1 s): one warning `steamgriddb: no API key stored; skipped`, no pause; auto 66 / review 1 / none 0, every pick from libretro; reasons `only` 32, `better-match` 19, `release` 6, `region` 3, `consensus` 3, `tie` 3, `language` 1 — never `votes`.
+- **Apply `--auto-only`:** 66 filled, 0 failed, 1 skipped (10.9 s); 66 new files, no `._*` or `.coverly-*` leftovers.
+- **Undo:** 66 removed, 0 restored; `diff -r` against the untouched copy and against `~/Documents/ROMS/GG` is empty.
+- **Source untouched:** `find ~/Documents/ROMS -cnewer snapshot` → 0; nothing under `/Volumes`.

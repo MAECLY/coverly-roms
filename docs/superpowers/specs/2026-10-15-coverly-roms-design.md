@@ -234,4 +234,4 @@ Verified in `docs/02-research/` (workflow `wf_46f73971-0a2`). These refine §5�
 2. ScreenScraper developer credentials (application process) — research R-05.
 3. libretro-database DAT licences / redistribution vs download-at-runtime — research.
 4. ~~libretro index method~~ → resolved: Apache listing of `thumbnails.libretro.com`, TTL 2 days (§16.5).
-5. **Popularity strategy coverage**: SteamGridDB (votes) covers PC titles mostly, not consoles. Options: (a) keep it PC-only and fall back to Priority elsewhere; (b) define "popularity" for consoles as the variant most commonly used across sources/regions; (c) drop it. Needs Miguel's decision.
+5. ~~**Popularity strategy coverage**: SteamGridDB (votes) covers PC titles mostly, not consoles. Options: (a) keep it PC-only and fall back to Priority elsewhere; (b) define "popularity" for consoles as the variant most commonly used across sources/regions; (c) drop it. Needs Miguel's decision.~~ → resolved: D9 + D33/D34 (votes where SteamGridDB has them, searched for every system; cross-source/region consensus otherwise; then Priority — see `docs/04-architecture/fill-pipeline.md`).
