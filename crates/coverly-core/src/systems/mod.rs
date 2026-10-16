@@ -12,7 +12,7 @@ const BUILTIN_TOML: &str = include_str!("systems.toml");
 /// One platform (e.g. Super Nintendo) as Coverly ROMs knows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct System {
-    /// Canonical id, e.g. `snes`.
+    /// Canonical id, lowercase, e.g. `snes`.
     pub id: String,
     /// Display name, e.g. `Super Nintendo`.
     pub name: String,
@@ -82,7 +82,8 @@ impl SystemDb {
 
     /// Merges a user TOML file (same format as `systems.toml`).
     ///
-    /// An entry whose `id` already exists overrides it: `name`, `libretro`,
+    /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
+    /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
     /// `arcade` and `multi_file` replace the current values when given;
     /// `aliases` and `extensions` are added to the current lists. An alias
     /// claimed by an override is removed from any other system, so the user
@@ -97,11 +98,18 @@ impl SystemDb {
     }
 
     fn merge(&mut self, raw: RawSystem) -> Result<(), SystemsError> {
-        let id = raw.id.trim().to_string();
+        // Ids are canonical lowercase so overrides match regardless of case.
+        let id = raw.id.trim().to_lowercase();
         if id.is_empty() {
             return Err(SystemsError::EmptyId);
         }
-        let aliases = raw.aliases.unwrap_or_default();
+        let aliases: Vec<String> = raw
+            .aliases
+            .unwrap_or_default()
+            .iter()
+            .map(|a| a.trim().to_string())
+            .filter(|a| !a.is_empty())
+            .collect();
         let extensions: Vec<String> = raw
             .extensions
             .unwrap_or_default()
@@ -175,9 +183,10 @@ impl SystemDb {
             .find(|s| s.aliases.iter().any(|a| a.to_lowercase() == key))
     }
 
-    /// Finds a system by canonical id.
+    /// Finds a system by canonical id, ignoring case and surrounding spaces.
     pub fn get(&self, id: &str) -> Option<&System> {
-        self.systems.iter().find(|s| s.id == id)
+        let key = id.trim().to_lowercase();
+        self.systems.iter().find(|s| s.id == key)
     }
 
     /// All systems, in file order (overrides with new ids come last).
@@ -549,6 +558,50 @@ mod tests {
         for ext in ["ws", "wsc"] {
             assert!(ws.extensions.iter().any(|e| e == ext), "{ext}");
         }
+    }
+
+    #[test]
+    fn override_aliases_are_trimmed() {
+        let db = SystemDb::builtin()
+            .with_overrides(
+                r#"
+                [[system]]
+                id = "snes"
+                aliases = [" SuperFamicom ", "   "]
+                "#,
+            )
+            .unwrap();
+        assert_eq!(
+            db.resolve_folder("superfamicom").map(|s| s.id.as_str()),
+            Some("snes")
+        );
+        let snes = db.get("snes").unwrap();
+        assert!(snes.aliases.iter().all(|a| a == a.trim() && !a.is_empty()));
+    }
+
+    #[test]
+    fn override_ids_are_case_insensitive() {
+        let before = SystemDb::builtin().all().len();
+        let db = SystemDb::builtin()
+            .with_overrides(
+                r#"
+                [[system]]
+                id = " SNES "
+                aliases = ["superfamicom"]
+                "#,
+            )
+            .expect("an existing id in another case is an override");
+        assert_eq!(db.all().len(), before);
+        assert_eq!(
+            db.resolve_folder("superfamicom").map(|s| s.id.as_str()),
+            Some("snes")
+        );
+        assert_eq!(db.get("SNES").map(|s| s.id.as_str()), Some("snes"));
+
+        let db = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"TIC80\"\nname = \"TIC-80\"\n")
+            .unwrap();
+        assert_eq!(db.all().last().unwrap().id, "tic80");
     }
 
     #[test]
