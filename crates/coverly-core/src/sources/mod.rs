@@ -109,7 +109,8 @@ pub enum SourceError {
     Net(NetError),
     Cache(CacheError),
     NotFound(String),
-    /// The source refused the key or account (HTTP 401/403).
+    /// The source refused the key or account (HTTP 401/403), or the key
+    /// cannot be sent at all (`status` 0: characters a key cannot have).
     Auth {
         source: String,
         status: u16,
@@ -139,6 +140,12 @@ impl std::fmt::Display for SourceError {
             SourceError::Net(e) => e.fmt(f),
             SourceError::Cache(e) => e.fmt(f),
             SourceError::NotFound(url) => write!(f, "no image at {url}"),
+            SourceError::Auth { source, status: 0 } => {
+                write!(
+                    f,
+                    "{source} key is not valid (unexpected characters): check the key"
+                )
+            }
             SourceError::Auth { source, status } => {
                 write!(
                     f,
@@ -288,6 +295,15 @@ mod tests {
             auth.to_string(),
             "steamgriddb refused access (HTTP 401): check the key or account"
         );
+        let malformed = SourceError::Auth {
+            source: "steamgriddb".into(),
+            status: 0,
+        };
+        assert_eq!(
+            malformed.to_string(),
+            "steamgriddb key is not valid (unexpected characters): check the key"
+        );
+        assert!(malformed.is_source_wide());
         let missing = SourceError::MissingKey {
             source: "steamgriddb".into(),
         };

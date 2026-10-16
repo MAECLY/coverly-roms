@@ -16,7 +16,7 @@ use super::{
 use crate::cache::{now_unix, Cache};
 use crate::credentials::Secret;
 use crate::identify::names::{compatible, parse_name, score, ParsedName};
-use crate::net::{host_of, Http, HttpRequest, NetError};
+use crate::net::{host_of, plain_authority, Http, HttpRequest, NetError};
 use crate::profiles::Media;
 use crate::systems::System;
 
@@ -35,8 +35,10 @@ const MAX_GAMES: usize = 2;
 const MAX_SEARCH_RESULTS: usize = 20;
 const MAX_NAME_CHARS: usize = 200;
 const MAX_STYLE_CHARS: usize = 32;
-const NS_SEARCH: &str = "sgdb-search-1";
-const NS_GRIDS: &str = "sgdb-grids-1";
+// Keys carry the base and the request path (with the filters), so a
+// changed setting or server never reuses another answer.
+const NS_SEARCH: &str = "sgdb-search-2";
+const NS_GRIDS: &str = "sgdb-grids-2";
 
 #[derive(Clone, Debug)]
 pub struct SgdbConfig {
@@ -166,11 +168,30 @@ impl<'a> SteamGridDbSource<'a> {
         }
     }
 
-    /// The `data` list of an API answer (an empty list for a 404).
-    fn get_data(&self, path: &str) -> Result<Vec<Value>, SourceError> {
-        let key = self.key.clone().ok_or_else(|| SourceError::MissingKey {
-            source: SOURCE_ID.into(),
-        })?;
+    /// The stored key, if it can be sent: an empty one is missing, and one
+    /// with anything but visible ASCII (a pasted line break, a space) is
+    /// refused here like the API would, never sent as a broken header.
+    fn usable_key(&self) -> Result<Secret, SourceError> {
+        let key = match &self.key {
+            Some(k) if !k.expose().is_empty() => k.clone(),
+            _ => {
+                return Err(SourceError::MissingKey {
+                    source: SOURCE_ID.into(),
+                })
+            }
+        };
+        if !key.expose().chars().all(|c| c.is_ascii_graphic()) {
+            return Err(SourceError::Auth {
+                source: SOURCE_ID.into(),
+                status: 0,
+            });
+        }
+        Ok(key)
+    }
+
+    /// The `data` list of an API answer; `None` for a 404.
+    fn get_data(&self, path: &str) -> Result<Option<Vec<Value>>, SourceError> {
+        let key = self.usable_key()?;
         let url = format!("{}{path}", self.cfg.base);
         let req = HttpRequest::get(url.clone())
             .bearer(key)
@@ -184,7 +205,7 @@ impl<'a> SteamGridDbSource<'a> {
                     return Err(bad("the answer is not a success"));
                 }
                 match v.get("data") {
-                    Some(Value::Array(a)) => Ok(a.clone()),
+                    Some(Value::Array(a)) => Ok(Some(a.clone())),
                     _ => Err(bad("no data list")),
                 }
             }
@@ -192,7 +213,7 @@ impl<'a> SteamGridDbSource<'a> {
                 source: SOURCE_ID.into(),
                 status: resp.status,
             }),
-            404 => Ok(Vec::new()),
+            404 => Ok(None),
             status => Err(NetError::Status { status, url }.into()),
         }
     }
@@ -206,12 +227,15 @@ impl<'a> SteamGridDbSource<'a> {
     }
 
     fn search(&self, term: &str) -> Result<Vec<Game>, SourceError> {
-        let key = term.to_lowercase();
+        let key = format!("{}{}", self.cfg.base, search_path(&term.to_lowercase()));
         if let Some(g) = self.cached(NS_SEARCH, &key, self.cfg.search_ttl_secs) {
             return Ok(g);
         }
-        let games: Vec<Game> = self
-            .get_data(&search_path(term))?
+        // A 404 is not remembered: only real answers are cached.
+        let Some(data) = self.get_data(&search_path(term))? else {
+            return Ok(Vec::new());
+        };
+        let games: Vec<Game> = data
             .into_iter()
             .filter_map(|v| serde_json::from_value::<Game>(v).ok())
             .filter_map(|g| {
@@ -227,12 +251,15 @@ impl<'a> SteamGridDbSource<'a> {
     }
 
     fn grids(&self, game: u64) -> Result<Vec<Grid>, SourceError> {
-        let key = game.to_string();
+        let path = grids_path(game, &self.cfg);
+        let key = format!("{}{path}", self.cfg.base);
         if let Some(g) = self.cached(NS_GRIDS, &key, self.cfg.grids_ttl_secs) {
             return Ok(g);
         }
-        let grids: Vec<Grid> = self
-            .get_data(&grids_path(game, &self.cfg))?
+        let Some(data) = self.get_data(&path)? else {
+            return Ok(Vec::new());
+        };
+        let grids: Vec<Grid> = data
             .into_iter()
             .filter_map(|v| serde_json::from_value::<Grid>(v).ok())
             .collect();
@@ -243,13 +270,15 @@ impl<'a> SteamGridDbSource<'a> {
     /// Image URLs only on steamgriddb.com over HTTPS. A base that is not
     /// HTTPS can only be a loopback mock (the client refuses anything else),
     /// so only then are images on the base's own host accepted (tests).
+    /// The authority must be a plain `host[:port]` ([`plain_authority`]):
+    /// `evil.com\\.steamgriddb.com` would otherwise pass the suffix test.
     fn allowed_image_url(&self, url: &str) -> bool {
         let host = host_of(url);
         let https = url.to_ascii_lowercase().starts_with("https://");
         let sgdb = host == "steamgriddb.com" || host.ends_with(".steamgriddb.com");
         let mock_base = !self.cfg.base.to_ascii_lowercase().starts_with("https://")
             && host == host_of(&self.cfg.base);
-        !url.contains('@') && !host.is_empty() && ((https && sgdb) || mock_base)
+        plain_authority(url) && !host.is_empty() && ((https && sgdb) || mock_base)
     }
 
     fn grid_candidate(

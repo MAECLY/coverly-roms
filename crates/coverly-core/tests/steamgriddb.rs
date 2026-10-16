@@ -195,3 +195,119 @@ fn the_canonical_name_is_searched_when_known() {
     q.canonical = Some("Golden Sun (USA, Europe)");
     assert_eq!(src.candidates(&q).unwrap().len(), 3);
 }
+
+fn grid_json(id: u64, url: &str, up: u32) -> String {
+    format!(
+        r#"{{"id":{id},"style":"alternate","width":600,"height":900,"nsfw":false,"humor":false,"epilepsy":false,"mime":"image/png","url":{},"upvotes":{up},"downvotes":0}}"#,
+        serde_json::to_string(url).unwrap()
+    )
+}
+
+#[test]
+fn grids_whose_url_authority_is_odd_are_dropped() {
+    let w = world();
+    let hostile = [
+        "https://evil.com\\.steamgriddb.com/a.png",
+        "https://evil.com%2f.steamgriddb.com/a.png",
+        "https://ev%69l.steamgriddb.com/a.png",
+        "https://evil.com .steamgriddb.com/a.png",
+        "https://user@cdn2.steamgriddb.com/a.png",
+    ];
+    let mut grids: Vec<String> = hostile
+        .iter()
+        .enumerate()
+        .map(|(i, u)| grid_json(900 + i as u64, u, 99))
+        .collect();
+    grids.push(grid_json(1, "https://cdn2.steamgriddb.com/grid/ok.png", 1));
+    w.server.serve_json(
+        &format!("/sgdb{}", grids_path(5248, &w.cfg)),
+        &format!(r#"{{"success":true,"data":[{}]}}"#, grids.join(",")),
+    );
+    let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("k")), w.cfg.clone());
+    let db = SystemDb::builtin();
+    let rom = parse_name("Golden Sun (USA)", false);
+    let c = src
+        .candidates(&cover_query(
+            db.get("gba").unwrap(),
+            &rom,
+            "Golden Sun (USA)",
+        ))
+        .unwrap();
+    let urls: Vec<&str> = c.iter().map(|c| c.url.as_str()).collect();
+    assert_eq!(urls, ["https://cdn2.steamgriddb.com/grid/ok.png"]);
+}
+
+#[test]
+fn an_empty_or_malformed_key_is_a_key_error_without_any_request() {
+    use coverly_core::sources::SourceError;
+    let w = world();
+    let db = SystemDb::builtin();
+    let rom = parse_name("Golden Sun (USA)", false);
+    let q = cover_query(db.get("gba").unwrap(), &rom, "Golden Sun (USA)");
+    let empty = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("")), w.cfg.clone());
+    let err = empty.candidates(&q).unwrap_err();
+    assert!(matches!(err, SourceError::MissingKey { .. }), "{err:?}");
+    for bad in ["a\r\nX", "sk test", "sk\u{0}x", "clé"] {
+        let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new(bad)), w.cfg.clone());
+        let err = src.candidates(&q).unwrap_err();
+        assert!(matches!(err, SourceError::Auth { .. }), "{bad:?} → {err:?}");
+        assert!(err.is_source_wide());
+    }
+    assert!(w.server.requests().is_empty());
+}
+
+#[test]
+fn changing_the_filters_or_the_base_does_not_reuse_cached_grids() {
+    let w = world();
+    let db = SystemDb::builtin();
+    let rom = parse_name("Golden Sun (USA)", false);
+    let q = cover_query(db.get("gba").unwrap(), &rom, "Golden Sun (USA)");
+    let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("k")), w.cfg.clone());
+    src.candidates(&q).unwrap();
+    let humor = SgdbConfig {
+        humor: true,
+        ..w.cfg.clone()
+    };
+    w.server.serve_json(
+        &format!("/sgdb{}", grids_path(5248, &humor)),
+        &fixture("grids_5248.json"),
+    );
+    let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("k")), humor.clone());
+    src.candidates(&q).unwrap();
+    assert_eq!(
+        w.server.hits(&format!("/sgdb{}", grids_path(5248, &humor))),
+        1
+    );
+    // Another base (another server) asks again too.
+    let other = SgdbConfig {
+        base: w.server.url("/other"),
+        ..w.cfg.clone()
+    };
+    w.server.serve_json(
+        &format!("/other{}", search_path("Golden Sun")),
+        &fixture("search_golden_sun.json"),
+    );
+    let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("k")), other);
+    let _ = src.candidates(&q);
+    assert_eq!(
+        w.server
+            .hits(&format!("/other{}", search_path("Golden Sun"))),
+        1
+    );
+}
+
+#[test]
+fn a_404_search_is_not_cached() {
+    let w = world();
+    let db = SystemDb::builtin();
+    let rom = parse_name("Nothing Here (USA)", false);
+    let q = cover_query(db.get("gba").unwrap(), &rom, "Nothing Here (USA)");
+    let src = SteamGridDbSource::new(&w.http, &w.cache, Some(Secret::new("k")), w.cfg.clone());
+    assert!(src.candidates(&q).unwrap().is_empty());
+    assert!(src.candidates(&q).unwrap().is_empty());
+    assert_eq!(
+        w.server
+            .hits(&format!("/sgdb{}", search_path("Nothing Here"))),
+        2
+    );
+}
