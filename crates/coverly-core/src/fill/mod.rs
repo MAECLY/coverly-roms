@@ -22,7 +22,10 @@ use crate::progress::ProgressSink;
 use crate::sources::libretro::{LibretroConfig, LibretroSource, LIBRETRO_BASE, LIBRETRO_RAW_BASE};
 use crate::sources::{ArtSource, Candidate, SourceError};
 use crate::systems::SystemDb;
-use crate::write::{prune_jobs, OverwritePolicy, RemoveOutcome, WriteError, WriteOutcome, Writer};
+use crate::write::{
+    ensure_within, prune_jobs, safe_file_name, OverwritePolicy, RemoveOutcome, WriteError,
+    WriteOutcome, Writer,
+};
 
 /// Journals (and their backups) kept for undo (spec §9 undo history depth).
 pub const KEEP_JOBS: usize = 10;
@@ -243,7 +246,10 @@ impl FillEnv<'_> {
 
 /// Writes `bytes` (a local image the user picked: untrusted) as the
 /// `media` art at `target`: decoded with limits, re-encoded for the slot,
-/// the existing art backed up, in a journaled job of its own.
+/// the existing art backed up, in a journaled job of its own. The job id
+/// is `None` when nothing was written (a folder or symlink in the way): a
+/// write that is refused or does nothing leaves no job behind, so it is
+/// never undone in place of a real job nor pushes one out of the history.
 pub fn write_local_image(
     root: &Path,
     profile: &Profile,
@@ -251,25 +257,54 @@ pub fn write_local_image(
     target: &Path,
     bytes: &[u8],
     data_dir: &Path,
-) -> Result<(String, WriteOutcome), ArtError> {
+) -> Result<(Option<String>, WriteOutcome), ArtError> {
     let spec = spec_for(profile, media)?;
     let img = process_image(bytes, &spec, &ImageLimits::default())?;
+    precheck(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.write(target, &img.bytes, OverwritePolicy::Backup);
-    let job = writer.finish()?;
-    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    let job = close(writer, data_dir)?;
     Ok((job, outcome?))
 }
 
-/// Removes the art file `target` (backed up, journaled) in a job of its own.
+/// Removes the art file `target` (backed up, journaled) in a job of its
+/// own. The job id is `None` when there was nothing to remove; a refused
+/// remove leaves no job behind (see [`write_local_image`]).
 pub fn remove_art(
     root: &Path,
     target: &Path,
     data_dir: &Path,
-) -> Result<(String, RemoveOutcome), WriteError> {
+) -> Result<(Option<String>, RemoveOutcome), WriteError> {
+    ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
-    let job = writer.finish()?;
-    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    let job = close(writer, data_dir)?;
     Ok((job, outcome?))
+}
+
+/// The checks `Writer::write` makes before touching anything, made before
+/// a journal exists.
+fn precheck(root: &Path, target: &Path) -> Result<(), WriteError> {
+    let target = ensure_within(root, target)?;
+    let name = target
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| WriteError::NameInvalid(target.display().to_string()))?;
+    if safe_file_name(name)? != name {
+        return Err(WriteError::NameInvalid(name.to_string()));
+    }
+    Ok(())
+}
+
+/// Finishes (and prunes old journals after) a job that changed the
+/// library; discards one that did not.
+fn close(writer: Writer, data_dir: &Path) -> Result<Option<String>, WriteError> {
+    if !writer.has_entries() {
+        writer.discard()?;
+        return Ok(None);
+    }
+    let job = writer.finish()?;
+    // Pruning only frees space: failing to prune is not an error.
+    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    Ok(Some(job))
 }

@@ -197,7 +197,11 @@ pub struct Writer {
     job: String,
     backups: PathBuf,
     journal: File,
+    journal_path: PathBuf,
     counter: u32,
+    /// Changes this run made to the library (journaled and done).
+    changes: usize,
+    resumed: bool,
 }
 
 impl Writer {
@@ -209,11 +213,11 @@ impl Writer {
         }
         let jobs = data_dir.join("jobs");
         fs::create_dir_all(&jobs).map_err(|e| map_io(e, &jobs))?;
-        let (job, journal) = loop {
+        let (job, journal, journal_path) = loop {
             let job = new_job_id();
             let path = jobs.join(format!("{job}.jsonl"));
             match OpenOptions::new().append(true).create_new(true).open(&path) {
-                Ok(file) => break (job, file),
+                Ok(file) => break (job, file, path),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(map_io(e, &path)),
             }
@@ -223,7 +227,10 @@ impl Writer {
             backups: data_dir.join("backups").join(&job),
             job,
             journal,
+            journal_path,
             counter: 0,
+            changes: 0,
+            resumed: false,
         };
         let header = Line::Header {
             job: writer.job.clone(),
@@ -276,7 +283,10 @@ impl Writer {
             job: job.to_string(),
             backups: data_dir.join("backups").join(job),
             journal,
+            journal_path: path,
             counter: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            changes: 0,
+            resumed: true,
         })
     }
 
@@ -352,6 +362,7 @@ impl Writer {
             op,
             sha1: sha1_hex(bytes),
         })?;
+        self.changes += 1;
         Ok(outcome)
     }
 
@@ -377,7 +388,10 @@ impl Writer {
             },
             sha1: sha1_hex(&bytes),
         })?;
+        // A failed delete leaves the file as it was: the entry stays in the
+        // journal (its undo is a no-op) but it is not a change.
         fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
+        self.changes += 1;
         Ok(RemoveOutcome::Removed {
             path: target,
             backup,
@@ -388,6 +402,37 @@ impl Writer {
     pub fn finish(mut self) -> Result<String, WriteError> {
         self.append(&Line::Done)?;
         Ok(self.job)
+    }
+
+    /// Whether this run changed the library (a file written or removed).
+    pub fn has_entries(&self) -> bool {
+        self.changes > 0
+    }
+
+    /// Drops a job that changed nothing: deletes its journal and backups,
+    /// so it is neither listed, undone nor counted when pruning. Refused
+    /// (and the journal kept) for a job that changed something or was
+    /// resumed.
+    pub fn discard(self) -> Result<(), WriteError> {
+        if self.changes > 0 || self.resumed {
+            return Err(WriteError::Journal(format!(
+                "job {} cannot be discarded",
+                self.job
+            )));
+        }
+        let Writer {
+            journal,
+            journal_path,
+            backups,
+            ..
+        } = self;
+        drop(journal);
+        fs::remove_file(&journal_path).map_err(|e| map_io(e, &journal_path))?;
+        match fs::remove_dir_all(&backups) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(map_io(e, &backups)),
+        }
     }
 
     fn back_up(&self, existing: &Path) -> Result<PathBuf, WriteError> {

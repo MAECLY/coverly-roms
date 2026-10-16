@@ -19,7 +19,7 @@ use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
 use coverly_core::scan::{scan_library, ScanOptions};
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{undo_last, RemoveOutcome, WriteOutcome};
+use coverly_core::write::{list_jobs, undo_last, RemoveOutcome, WriteError, WriteOutcome};
 use tempfile::TempDir;
 
 const GBA: &str = "Nintendo - Game Boy Advance";
@@ -235,7 +235,7 @@ fn a_local_image_is_re_encoded_backed_up_and_undoable() {
         w.data.path(),
     )
     .unwrap();
-    assert!(!job.is_empty());
+    assert!(job.is_some());
     assert!(
         matches!(outcome, WriteOutcome::Replaced { .. }),
         "{outcome:?}"
@@ -283,4 +283,135 @@ fn removed_art_is_backed_up_and_undo_brings_it_back() {
     assert!(!target.exists());
     undo_last(w.data.path()).unwrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "old art");
+}
+
+/// A manual write that wrote `target` (job of its own), for the tests below.
+fn real_job(w: &World, target: &std::path::Path) -> String {
+    let (job, outcome) = write_local_image(
+        w.lib.path(),
+        &common::profile("anbernic-stock"),
+        Media::Cover,
+        target,
+        &png_bytes(100, 100),
+        w.data.path(),
+    )
+    .unwrap();
+    assert!(
+        matches!(outcome, WriteOutcome::Created { .. }),
+        "{outcome:?}"
+    );
+    job.unwrap()
+}
+
+fn job_ids(w: &World) -> Vec<String> {
+    list_jobs(w.data.path())
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect()
+}
+
+#[test]
+fn refused_or_no_op_manual_writes_leave_no_job_behind() {
+    let w = world();
+    let target = w.img(SUN);
+    let job = real_job(&w, &target);
+    let local = |t: &std::path::Path| {
+        write_local_image(
+            w.lib.path(),
+            &common::profile("anbernic-stock"),
+            Media::Cover,
+            t,
+            &png_bytes(100, 100),
+            w.data.path(),
+        )
+    };
+    let outside = w.data.path().join("evil.png");
+    assert!(matches!(
+        local(&outside),
+        Err(ArtError::Write(WriteError::OutsideRoot(_)))
+    ));
+    assert!(matches!(
+        local(&w.img("a?b")),
+        Err(ArtError::Write(WriteError::NameInvalid(_)))
+    ));
+    // A folder in the way is never replaced: nothing written.
+    let folder = w.img(RUSH);
+    fs::create_dir_all(&folder).unwrap();
+    assert!(matches!(
+        local(&folder),
+        Ok((None, WriteOutcome::SkippedExists { .. }))
+    ));
+    assert!(matches!(
+        remove_art(w.lib.path(), &folder, w.data.path()),
+        Err(WriteError::NotAFile(_))
+    ));
+    assert!(matches!(
+        remove_art(w.lib.path(), &w.img("Nothing Here"), w.data.path()),
+        Ok((None, RemoveOutcome::Missing))
+    ));
+    assert!(matches!(
+        remove_art(w.lib.path(), &outside, w.data.path()),
+        Err(WriteError::OutsideRoot(_))
+    ));
+    assert_eq!(job_ids(&w), [job.clone()]);
+
+    // Undo reverts the real job, not a phantom one.
+    assert_eq!(undo_last(w.data.path()).unwrap().job, job);
+    assert!(!target.exists());
+}
+
+#[test]
+fn failed_manual_writes_never_prune_a_real_job() {
+    let w = world();
+    let job = real_job(&w, &w.img(SUN));
+    for _ in 0..(coverly_core::fill::KEEP_JOBS + 2) {
+        let _ = remove_art(w.lib.path(), &w.img("Nothing Here"), w.data.path());
+        let _ = remove_art(w.lib.path(), &w.data.path().join("x.png"), w.data.path());
+    }
+    assert_eq!(job_ids(&w), [job]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
+    use std::os::unix::fs::PermissionsExt;
+    let w = world();
+    let job = real_job(&w, &w.img(SUN));
+    let imgs = w.lib.path().join("ROMS/GBA/Imgs");
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o555)).unwrap();
+    let new = write_local_image(
+        w.lib.path(),
+        &common::profile("anbernic-stock"),
+        Media::Cover,
+        &w.img(RUSH),
+        &png_bytes(100, 100),
+        w.data.path(),
+    );
+    // Replacing backs the old art up before the write is refused.
+    let replace = write_local_image(
+        w.lib.path(),
+        &common::profile("anbernic-stock"),
+        Media::Cover,
+        &w.img(SUN),
+        &png_bytes(120, 120),
+        w.data.path(),
+    );
+    let removed = remove_art(w.lib.path(), &w.img(SUN), w.data.path());
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        matches!(new, Err(ArtError::Write(WriteError::Denied(_)))),
+        "{new:?}"
+    );
+    assert!(
+        matches!(replace, Err(ArtError::Write(WriteError::Denied(_)))),
+        "{replace:?}"
+    );
+    assert!(matches!(removed, Err(WriteError::Denied(_))), "{removed:?}");
+    assert!(w.img(SUN).exists());
+    assert_eq!(job_ids(&w), [job]);
+    let backups: Vec<_> = fs::read_dir(w.data.path().join("backups"))
+        .map(|r| r.flatten().map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    assert!(backups.is_empty(), "{backups:?}");
 }
