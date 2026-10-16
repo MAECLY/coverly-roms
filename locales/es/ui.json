@@ -126,7 +126,10 @@
     "layout": "Vista",
     "grid": "Cuadrícula",
     "list": "Lista",
-    "fill": "Rellenar arte que falta"
+    "fill": "Rellenar arte que falta",
+    "jobs": "Trabajos",
+    "jobsRunning": "Trabajos (en curso)",
+    "jobsPaused": "Trabajos (en pausa)"
   },
   "filters": {
     "art": "Arte",
@@ -266,7 +269,61 @@
       "rate-limit": "En pausa: el servidor de arte está limitando las peticiones. Espera unos minutos y reanuda.",
       "offline": "En pausa: no hay conexión con el servidor de arte. Reanuda cuando vuelvas a tener conexión.",
       "volume": "En pausa: la tarjeta SD está llena, en solo lectura o se ha extraído. Corrígelo y reanuda."
-    }
+    },
+    "title": "Trabajos",
+    "current": "Trabajo actual",
+    "none": "Todavía no hay ningún trabajo de relleno.",
+    "state": {
+      "gathering": "Buscando arte (simulación)…",
+      "planned": "Simulación lista: todavía no se ha escrito nada.",
+      "applying": "Escribiendo arte…",
+      "paused": "En pausa",
+      "cancelled": "Cancelado",
+      "done": "Terminado",
+      "failed": "Ha fallado"
+    },
+    "phase": {
+      "gather": "Buscando arte",
+      "apply": "Escribiendo arte"
+    },
+    "progress": "{phase}: {done} de {total}",
+    "progressLabel": "Progreso del trabajo",
+    "cancel": "Cancelar",
+    "failed": "El trabajo ha fallado: {detail}",
+    "totals": {
+      "filled": "Rellenadas",
+      "replaced": "Sustituidas",
+      "skipped": "Omitidas",
+      "no_art": "Sin arte",
+      "failed": "Fallidas"
+    },
+    "errors": "Problemas ({n})",
+    "error": {
+      "no-art": "No se ha encontrado arte",
+      "network": "Error de red",
+      "decode": "No es una imagen válida",
+      "write-denied": "Escritura denegada",
+      "disk-full": "Disco lleno",
+      "name-invalid": "Nombre no válido en tarjetas SD",
+      "outside-root": "Fuera de la biblioteca",
+      "volume-gone": "Se ha retirado el volumen de la biblioteca",
+      "io": "Error de disco"
+    },
+    "exportCsv": "Exportar informe (CSV)",
+    "exportJson": "Exportar informe (JSON)",
+    "undoTitle": "Deshacer",
+    "undo": "Deshacer el último trabajo",
+    "undoConfirm": "¿Deshacer el último trabajo? Se quitan las imágenes escritas y se restauran las sustituidas; las que hayas cambiado después se conservan.",
+    "undoYes": "Deshacer",
+    "undoNo": "Conservar",
+    "undone": "Deshecho: {removed} quitadas, {restored} restauradas, {kept} conservadas porque las cambiaste.",
+    "history": "Historial",
+    "noHistory": "Todavía no hay trabajos.",
+    "files": "{n} archivos",
+    "complete": "Completo",
+    "incomplete": "Detenido antes de terminar",
+    "undoneBadge": "Deshecho",
+    "close": "Cerrar"
   },
   "review": {
     "title": "Revisar coincidencias dudosas",
@@ -288,5 +345,8 @@
     "skip": "Omitir",
     "acceptAll": "Aceptar el resto",
     "done": "Hecho"
+  },
+  "reports": {
+    "saved": "Guardado como {name}."
   }
 }

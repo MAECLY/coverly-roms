@@ -155,7 +155,7 @@ export function FillWizard({
   }
 
   async function runJob() {
-    if (await run()) setOverlay('none');
+    if (await run()) setOverlay('jobs');
   }
 
   async function discard() {

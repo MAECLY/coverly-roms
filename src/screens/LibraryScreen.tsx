@@ -8,6 +8,7 @@ import {
 
 import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { FillWizard } from '@/components/fill/FillWizard';
+import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
 import { CoverGrid } from '@/components/library/CoverGrid';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
@@ -155,6 +156,7 @@ export function LibraryScreen() {
         searchRef={searchRef}
         onSettings={() => setSettingsOpen(true)}
         onFill={() => setOverlay('wizard')}
+        onJobs={() => setOverlay('jobs')}
       />
       <div className="library-body">
         <Sidebar key={view.generation} view={view} now={now} />
@@ -182,6 +184,7 @@ export function LibraryScreen() {
       {overlay === 'review' && (
         <ReviewQueue view={view} onClose={() => setOverlay('wizard')} />
       )}
+      {overlay === 'jobs' && <JobsPanel view={view} onClose={closeOverlay} />}
       {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>
   );

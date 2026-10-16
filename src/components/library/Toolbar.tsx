@@ -5,6 +5,7 @@ import { useT } from '@/i18n/useT';
 import type { LibraryView } from '@/ipc/types';
 import { activeFilterCount } from '@/lib/filters';
 import { useFilterStore } from '@/stores/filterStore';
+import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -13,11 +14,13 @@ export function Toolbar({
   searchRef,
   onSettings,
   onFill,
+  onJobs,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
   onSettings(): void;
   onFill(): void;
+  onJobs(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -27,6 +30,7 @@ export function Toolbar({
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const toggleFilters = useViewStore((s) => s.toggleFilters);
   const close = useLibraryStore((s) => s.close);
+  const job = useJobStore((s) => s.job);
   const active = activeFilterCount(filters);
 
   return (
@@ -79,6 +83,13 @@ export function Toolbar({
       <span className="toolbar-spacer" />
       <button type="button" className="primary-button" onClick={onFill}>
         {t('toolbar.fill')}
+      </button>
+      <button type="button" className="ghost-button" onClick={onJobs}>
+        {isRunning(job)
+          ? t('toolbar.jobsRunning')
+          : job?.state === 'paused'
+            ? t('toolbar.jobsPaused')
+            : t('toolbar.jobs')}
       </button>
       <button type="button" className="ghost-button" onClick={onSettings}>
         {t('start.settings')}

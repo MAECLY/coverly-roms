@@ -126,7 +126,10 @@
     "layout": "Layout",
     "grid": "Grid",
     "list": "List",
-    "fill": "Fill missing art"
+    "fill": "Fill missing art",
+    "jobs": "Jobs",
+    "jobsRunning": "Jobs (running)",
+    "jobsPaused": "Jobs (paused)"
   },
   "filters": {
     "art": "Art",
@@ -266,7 +269,61 @@
       "rate-limit": "Paused: the art server is limiting requests. Wait a few minutes and resume.",
       "offline": "Paused: no connection to the art server. Resume when you are back online.",
       "volume": "Paused: the SD card is full, read-only or was removed. Fix it and resume."
-    }
+    },
+    "title": "Jobs",
+    "current": "Current job",
+    "none": "No fill job yet.",
+    "state": {
+      "gathering": "Looking for art (dry run)…",
+      "planned": "Dry run ready: nothing written yet.",
+      "applying": "Writing art…",
+      "paused": "Paused",
+      "cancelled": "Cancelled",
+      "done": "Finished",
+      "failed": "Failed"
+    },
+    "phase": {
+      "gather": "Looking for art",
+      "apply": "Writing art"
+    },
+    "progress": "{phase}: {done} of {total}",
+    "progressLabel": "Job progress",
+    "cancel": "Cancel",
+    "failed": "The job failed: {detail}",
+    "totals": {
+      "filled": "Filled",
+      "replaced": "Replaced",
+      "skipped": "Skipped",
+      "no_art": "No art found",
+      "failed": "Failed"
+    },
+    "errors": "Problems ({n})",
+    "error": {
+      "no-art": "No art found",
+      "network": "Network error",
+      "decode": "Not a usable image",
+      "write-denied": "Write denied",
+      "disk-full": "Disk full",
+      "name-invalid": "Name not valid on SD cards",
+      "outside-root": "Outside the library",
+      "volume-gone": "The library volume was removed",
+      "io": "Disk error"
+    },
+    "exportCsv": "Export report (CSV)",
+    "exportJson": "Export report (JSON)",
+    "undoTitle": "Undo",
+    "undo": "Undo last job",
+    "undoConfirm": "Undo the last job? Written images are removed and replaced ones restored; images you changed since are kept.",
+    "undoYes": "Undo",
+    "undoNo": "Keep",
+    "undone": "Undone: {removed} removed, {restored} restored, {kept} kept because you changed them.",
+    "history": "History",
+    "noHistory": "No jobs yet.",
+    "files": "{n} files",
+    "complete": "Complete",
+    "incomplete": "Stopped early",
+    "undoneBadge": "Undone",
+    "close": "Close"
   },
   "review": {
     "title": "Review doubtful matches",
@@ -288,5 +345,8 @@
     "skip": "Skip",
     "acceptAll": "Accept all remaining",
     "done": "Done"
+  },
+  "reports": {
+    "saved": "Saved as {name}."
   }
 }

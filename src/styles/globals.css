@@ -793,3 +793,39 @@ body {
 .candidate[aria-pressed='true'] {
   border-color: var(--cr-accent, rgb(59 130 246));
 }
+
+.jobs {
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.jobs section + section {
+  margin-top: 1rem;
+}
+
+.jobs-totals {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  gap: 0.25rem 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.job-errors,
+.history-list {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 12rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.job-errors li,
+.history-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  unicode-bidi: plaintext;
+}
