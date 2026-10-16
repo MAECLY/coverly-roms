@@ -79,7 +79,7 @@ Rules the tests pin:
 - **Phases.** `download` needs `Available`, `install` needs `Downloaded`, `restart_app` needs `Installed`; otherwise `update-not-ready`. A new check while an update is downloading or installed is refused, so it cannot drop it.
 - **Replay.** A manifest that pairs a newer `version` with an older release's genuine artifact is refused: the signature's `version:` must equal the announced version (`requireSignedVersion: true` in the plugin; the same check in the core for the CLI).
 - **Hostile manifests.** Non-JSON, over 1 MiB, a non-SemVer version or a missing platform key give "manifest not valid" / "no update for this platform", never a crash or a false "up to date".
-- **CLI self-replace.** The new binary is written next to the old one (`.coverly.new-<pid>`), fsynced, made executable and renamed over it (Windows: the running file is moved to `coverly.old.exe` first and moved back on failure). If anything fails the old binary is intact and no temporary file is left.
+- **CLI self-replace.** The real file behind any symlink is replaced (the link stays a link). The new binary is downloaded with a total timeout of at least 5 minutes (`artifact_net_config`), written next to the old one (`.coverly.new-<pid>`), fsynced, made executable and renamed over it (Windows: the running file is moved to `coverly.old.exe` first and moved back on failure; a later `coverly update` deletes the stale `coverly.old.exe`). If anything fails the old binary is intact and no temporary file is left.
 
 ## The manifest
 
@@ -132,7 +132,7 @@ CLI exit codes: `0` up to date / updated / dry run verified; `6` signature failu
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `COVERLY_UPDATE_ENDPOINT` | app and CLI | Replaces the channel's manifest URL (local tests). The CLI accepts `http://` on loopback only; the app accepts `http://` in debug builds only. The key is unchanged. |
+| `COVERLY_UPDATE_ENDPOINT` | app and CLI | Replaces the channel's manifest URL (local tests). It must be `https://` with a host, or `http://` to a loopback host (`localhost`, `127.0.0.0/8`, `[::1]`); the app also refuses `http://` in release builds (the plugin). The key is unchanged. |
 | `COVERLY_UPDATE_PUBKEY` | CLI, **debug builds only** | Trust this base64 public key instead of `updater.pub` (tests and the local recipe in RELEASING.md §8). |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `tauri build`, `tauri signer sign` | Signing. In CI: a throwaway key in `app`, the real secrets only in `finalize`. Never read by the app or the CLI. |
 

@@ -225,9 +225,10 @@ No test or local check talks to GitHub. To exercise the real update path
 against a manifest you serve yourself:
 
 - `COVERLY_UPDATE_ENDPOINT=http://127.0.0.1:PORT/latest.json` replaces the
-  channel's manifest URL for the app and the CLI. Plain `http://` works for
-  the CLI on loopback (`127.0.0.1`) only, and for the app in debug builds only
-  (a release build refuses a non-`https` endpoint). It changes where the
+  channel's manifest URL for the app and the CLI. It must be `https://` with
+  a host, or plain `http://` to a loopback host (`localhost`, `127.0.0.1`,
+  `[::1]`); the app takes `http://` in debug builds only (a release build
+  refuses a non-`https` endpoint). It changes where the
   manifest comes from, never which key is trusted.
 - `COVERLY_UPDATE_PUBKEY=<base64 public key>` makes a **debug** CLI build trust
   that key instead of `updater.pub`. Release builds ignore it. The app has no

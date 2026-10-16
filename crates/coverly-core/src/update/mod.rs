@@ -8,10 +8,12 @@ pub mod testing;
 pub mod verify;
 
 use std::collections::BTreeMap;
+use std::net::IpAddr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::net::{Http, HttpRequest, HttpResponse, NetError};
+use crate::net::{Http, HttpRequest, HttpResponse, NetConfig, NetError};
 use crate::settings::UpdateChannel;
 
 pub const STABLE_ENDPOINT: &str =
@@ -26,6 +28,9 @@ pub const ENDPOINT_ENV: &str = "COVERLY_UPDATE_ENDPOINT";
 pub const PUBKEY_PLACEHOLDER: &str = "UNSET";
 pub const MAX_MANIFEST_BYTES: u64 = 1 << 20;
 pub const MAX_ARTIFACT_BYTES: u64 = 256 << 20;
+/// The least total time an artifact download gets (tens of MiB on a slow
+/// line), whatever the network timeout setting is for small requests.
+pub const MIN_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(300);
 
 const PUBKEY_FILE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/updater.pub"));
 
@@ -50,7 +55,9 @@ pub enum UpdateError {
 impl From<NetError> for UpdateError {
     fn from(e: NetError) -> Self {
         match e {
-            NetError::Offline(_) | NetError::Timeout => UpdateError::Offline(e.to_string()),
+            // UpdateError::Offline adds its own "offline or unreachable: ".
+            NetError::Offline(detail) => UpdateError::Offline(detail),
+            NetError::Timeout => UpdateError::Offline(e.to_string()),
             NetError::TooLarge { .. } => UpdateError::BadManifest(e.to_string()),
             other => UpdateError::Network(other.to_string()),
         }
@@ -64,22 +71,69 @@ pub fn endpoint_for(channel: UpdateChannel) -> &'static str {
     }
 }
 
-/// The override when set and non-blank (http or https), else the channel's.
+/// The host of an `http(s)://` URL without the scheme: no user info, an
+/// optional numeric port, an IPv6 address in brackets. `None` when it is
+/// missing or malformed.
+fn url_host(rest: &str) -> Option<&str> {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return None;
+    }
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (host, after) = v6.split_once(']')?;
+            host.parse::<std::net::Ipv6Addr>().ok()?;
+            (host, after.strip_prefix(':'))
+        }
+        None => match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        },
+    };
+    if let Some(port) = port {
+        port.parse::<u16>().ok()?;
+    }
+    (!host.is_empty()).then_some(host)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// The override when set and non-blank, else the channel's. An override must
+/// be `https://` with a host, or `http://` to a loopback host (`localhost`,
+/// `127.0.0.0/8`, `[::1]`) for local tests: a plain-HTTP manifest from the
+/// network is never read.
 pub fn resolve_endpoint(
     override_value: Option<&str>,
     channel: UpdateChannel,
 ) -> Result<String, UpdateError> {
-    match override_value.map(str::trim).filter(|v| !v.is_empty()) {
-        None => Ok(endpoint_for(channel).to_string()),
-        Some(v)
-            if (v.starts_with("https://") || v.starts_with("http://"))
-                && !v.contains(char::is_whitespace) =>
-        {
-            Ok(v.to_string())
-        }
-        Some(v) => Err(UpdateError::Network(format!(
-            "invalid update endpoint {v:?}"
-        ))),
+    let Some(v) = override_value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(endpoint_for(channel).to_string());
+    };
+    let ok = !v.contains(char::is_whitespace)
+        && match (v.strip_prefix("https://"), v.strip_prefix("http://")) {
+            (Some(rest), _) => url_host(rest).is_some(),
+            (None, Some(rest)) => url_host(rest).is_some_and(is_loopback_host),
+            _ => false,
+        };
+    if ok {
+        Ok(v.to_string())
+    } else {
+        Err(UpdateError::Network(format!(
+            "invalid update endpoint {v:?}: use https://, or http:// to localhost"
+        )))
+    }
+}
+
+/// The network settings for downloading an update artifact: the user's,
+/// with a total timeout of at least [`MIN_ARTIFACT_TIMEOUT`] (the setting is
+/// sized for small API answers, not for a binary of tens of MiB).
+pub fn artifact_net_config(base: &NetConfig) -> NetConfig {
+    NetConfig {
+        timeout: base.timeout.max(MIN_ARTIFACT_TIMEOUT),
+        ..base.clone()
     }
 }
 

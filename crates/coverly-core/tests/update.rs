@@ -42,6 +42,87 @@ fn channels_have_their_own_manifest_on_the_project_releases() {
 }
 
 #[test]
+fn an_endpoint_override_is_https_with_a_host_or_http_to_loopback() {
+    for ok in [
+        "https://example.org/latest.json",
+        "https://example.org:8443/x/latest.json",
+        "https://[2001:db8::1]/latest.json",
+        "http://127.0.0.1:9/latest.json",
+        "http://127.8.9.10/latest.json",
+        "http://localhost:8080/latest.json",
+        "http://LOCALHOST/latest.json",
+        "http://[::1]:8080/latest.json",
+    ] {
+        assert_eq!(
+            resolve_endpoint(Some(ok), UpdateChannel::Stable).as_deref(),
+            Ok(ok),
+            "{ok}"
+        );
+    }
+    for bad in [
+        "https://",
+        "https:///latest.json",
+        "https://:443/latest.json",
+        "https://user@example.org/latest.json",
+        "https://example.org:port/latest.json",
+        "https://[not-v6]/latest.json",
+        "http://example.org/latest.json",
+        "http://192.168.1.10/latest.json",
+        "http://localhost.example.org/latest.json",
+        "http://127.0.0.1@evil.example/latest.json",
+        "http://",
+        "ftp://example.org/latest.json",
+        "HTTPS//example.org",
+    ] {
+        let err = resolve_endpoint(Some(bad), UpdateChannel::Stable).unwrap_err();
+        assert!(
+            matches!(&err, UpdateError::Network(m) if m.contains("invalid update endpoint")),
+            "{bad}: {err}"
+        );
+    }
+}
+
+#[test]
+fn offline_errors_say_offline_once() {
+    let err = UpdateError::from(coverly_core::net::NetError::Offline(
+        "connection refused".into(),
+    ));
+    assert_eq!(
+        err.to_string(),
+        "offline or unreachable: connection refused"
+    );
+    let err = UpdateError::from(coverly_core::net::NetError::Timeout);
+    assert_eq!(err.to_string(), "offline or unreachable: timed out");
+    // And through a real refused connection.
+    let err = check(&http(), "http://127.0.0.1:1/latest.json", "0.0.1").unwrap_err();
+    assert_eq!(
+        err.to_string().matches("offline or unreachable").count(),
+        1,
+        "{err}"
+    );
+}
+
+#[test]
+fn artifact_downloads_get_at_least_five_minutes() {
+    use std::time::Duration;
+    let short = NetConfig {
+        timeout: Duration::from_secs(30),
+        retries: 1,
+        ..NetConfig::default()
+    };
+    let cfg = artifact_net_config(&short);
+    assert_eq!(cfg.timeout, Duration::from_secs(300));
+    assert_eq!(MIN_ARTIFACT_TIMEOUT, Duration::from_secs(300));
+    assert_eq!(cfg.retries, 1, "everything else is the user's setting");
+    assert_eq!(cfg.proxy, short.proxy);
+    let long = NetConfig {
+        timeout: Duration::from_secs(900),
+        ..NetConfig::default()
+    };
+    assert_eq!(artifact_net_config(&long).timeout, Duration::from_secs(900));
+}
+
+#[test]
 fn the_key_file_is_a_placeholder_or_one_base64_key() {
     assert_eq!(parse_pubkey_file("# c\nUNSET\n"), None);
     assert_eq!(
