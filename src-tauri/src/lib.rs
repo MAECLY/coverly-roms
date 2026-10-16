@@ -1,6 +1,8 @@
 //! Tauri shell of Coverly ROMs: a thin IPC layer over `coverly-core`.
 
+pub mod error;
 pub mod ipc;
+pub mod library;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
 

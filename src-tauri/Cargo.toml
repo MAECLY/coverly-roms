@@ -20,6 +20,7 @@ tauri-build = { version = "2.7", features = [] }
 tauri = { version = "2.12", features = [] }
 serde = { workspace = true }
 coverly-core = { path = "../crates/coverly-core" }
+thiserror = { workspace = true }
 
 [features]
 # By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.
@@ -27,3 +28,4 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 serde_json = { workspace = true }
+tempfile = { workspace = true }
