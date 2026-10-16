@@ -375,3 +375,28 @@ fn a_release_stays_auto_over_a_beta_in_the_preferred_language() {
         other => panic!("expected auto, got {other:?}"),
     }
 }
+
+#[test]
+fn an_uppercase_image_extension_follows_the_output_format() {
+    let mut base = common::profile("anbernic-stock");
+    for slot in base.slots.values_mut() {
+        slot.template = slot.template.replace(".png", ".PNG");
+    }
+    let mut s = Settings::default();
+    s.art.output_format = OutputFormat::Jpg;
+    let p = s.art_profile(&base);
+    for slot in p.slots.values() {
+        assert_eq!(slot.format, ImageFormat::Jpg);
+        assert!(slot.template.ends_with(".jpg"), "{}", slot.template);
+        assert!(!slot.template.contains(".PNG"), "{}", slot.template);
+    }
+    let mut jpeg = common::profile("anbernic-stock");
+    for slot in jpeg.slots.values_mut() {
+        slot.template = slot.template.replace(".png", ".JPEG");
+        slot.format = ImageFormat::Jpg;
+    }
+    s.art.output_format = OutputFormat::Png;
+    for slot in s.art_profile(&jpeg).slots.values() {
+        assert!(slot.template.ends_with(".png"), "{}", slot.template);
+    }
+}

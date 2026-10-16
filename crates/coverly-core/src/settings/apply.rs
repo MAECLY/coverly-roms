@@ -9,15 +9,19 @@ use crate::write::OverwritePolicy;
 
 use super::model::{OutputFormat, OverwriteSetting, Settings};
 
-/// `template` with its image extension set to `format`'s.
+/// `template` with its image extension (any case: `.png`, `.JPG`,
+/// `.Jpeg`) set to `format`'s lowercase one.
 fn with_extension(template: &str, format: ImageFormat) -> String {
     let ext = match format {
         ImageFormat::Png => "png",
         ImageFormat::Jpg => "jpg",
     };
     for old in [".png", ".jpg", ".jpeg"] {
-        if let Some(stem) = template.strip_suffix(old) {
-            return format!("{stem}.{ext}");
+        let Some(cut) = template.len().checked_sub(old.len()) else {
+            continue;
+        };
+        if template.is_char_boundary(cut) && template[cut..].eq_ignore_ascii_case(old) {
+            return format!("{}.{ext}", &template[..cut]);
         }
     }
     template.to_string()
