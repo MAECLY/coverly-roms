@@ -4,6 +4,7 @@
 //! `coverly` CLI share lives here.
 
 pub mod art;
+pub mod audit;
 pub mod paths;
 pub mod profiles;
 pub mod scan;

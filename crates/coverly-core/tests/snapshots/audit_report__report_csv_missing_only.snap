@@ -1,0 +1,8 @@
+---
+source: crates/coverly-core/tests/audit_report.rs
+expression: text
+---
+system,folder,rel_path,stem,size,modified,cover,screenshot,title
+megadrive,MD,Hacks/Sonic Hack.md,Sonic Hack,5,2023-11-14T22:13:20Z,missing,unsupported,unsupported
+psx,PS,FF7.m3u,FF7,200,2023-11-14T22:13:20Z,missing,unsupported,unsupported
+snes,SFC,MARIO.SMC,MARIO,5,2023-11-14T22:13:20Z,missing,unsupported,unsupported

@@ -14,6 +14,7 @@ use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use serde::Serialize;
 use walkdir::WalkDir;
 
 use crate::profiles::Profile;
@@ -56,7 +57,7 @@ pub struct SystemScan {
 }
 
 /// A problem that did not stop the scan.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ScanWarning {
     /// Entry the problem is about.
     pub path: PathBuf,

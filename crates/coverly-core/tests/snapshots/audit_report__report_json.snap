@@ -1,0 +1,150 @@
+---
+source: crates/coverly-core/tests/audit_report.rs
+expression: json
+---
+{
+  "media": [
+    "cover",
+    "screenshot",
+    "title"
+  ],
+  "profile_id": "anbernic-stock",
+  "root": "<root>",
+  "systems": [
+    {
+      "entries": [],
+      "folder": "APPS",
+      "missing": {
+        "cover": 0,
+        "screenshot": 0,
+        "title": 0
+      },
+      "orphans": [],
+      "roms": 0,
+      "system_id": null
+    },
+    {
+      "entries": [
+        {
+          "art": {
+            "cover": {
+              "state": "missing"
+            },
+            "screenshot": {
+              "state": "unsupported"
+            },
+            "title": {
+              "state": "unsupported"
+            }
+          },
+          "modified": "2023-11-14T22:13:20Z",
+          "rel_path": "Hacks/Sonic Hack.md",
+          "size": 5,
+          "stem": "Sonic Hack"
+        }
+      ],
+      "folder": "MD",
+      "missing": {
+        "cover": 1,
+        "screenshot": 0,
+        "title": 0
+      },
+      "orphans": [],
+      "roms": 1,
+      "system_id": "megadrive"
+    },
+    {
+      "entries": [
+        {
+          "art": {
+            "cover": {
+              "state": "missing"
+            },
+            "screenshot": {
+              "state": "unsupported"
+            },
+            "title": {
+              "state": "unsupported"
+            }
+          },
+          "modified": "2023-11-14T22:13:20Z",
+          "rel_path": "FF7.m3u",
+          "size": 200,
+          "stem": "FF7"
+        }
+      ],
+      "folder": "PS",
+      "missing": {
+        "cover": 1,
+        "screenshot": 0,
+        "title": 0
+      },
+      "orphans": [],
+      "roms": 1,
+      "system_id": "psx"
+    },
+    {
+      "entries": [
+        {
+          "art": {
+            "cover": {
+              "state": "missing"
+            },
+            "screenshot": {
+              "state": "unsupported"
+            },
+            "title": {
+              "state": "unsupported"
+            }
+          },
+          "modified": "2023-11-14T22:13:20Z",
+          "rel_path": "MARIO.SMC",
+          "size": 5,
+          "stem": "MARIO"
+        },
+        {
+          "art": {
+            "cover": {
+              "path": "<root>/ROMS/SFC/Imgs/Zelda (USA).png",
+              "state": "present"
+            },
+            "screenshot": {
+              "state": "unsupported"
+            },
+            "title": {
+              "state": "unsupported"
+            }
+          },
+          "modified": "2023-11-14T22:13:20Z",
+          "rel_path": "Zelda (USA).sfc",
+          "size": 9,
+          "stem": "Zelda (USA)"
+        }
+      ],
+      "folder": "SFC",
+      "missing": {
+        "cover": 1,
+        "screenshot": 0,
+        "title": 0
+      },
+      "orphans": [
+        "<root>/ROMS/SFC/Imgs/Old Game.png"
+      ],
+      "roms": 2,
+      "system_id": "snes"
+    }
+  ],
+  "totals": {
+    "complete": 1,
+    "missing": {
+      "cover": 3,
+      "screenshot": 0,
+      "title": 0
+    },
+    "orphans": 1,
+    "roms": 4,
+    "systems_known": 3,
+    "systems_unknown": 1
+  },
+  "warnings": []
+}
