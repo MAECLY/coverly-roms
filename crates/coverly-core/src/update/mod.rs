@@ -83,8 +83,10 @@ pub fn resolve_endpoint(
     }
 }
 
-/// The first line that is not blank or a `#` comment, unless it is the placeholder.
+/// The first line that is not blank or a `#` comment, unless it is the
+/// placeholder. A leading UTF-8 BOM (some Windows editors add one) is ignored.
 pub fn parse_pubkey_file(text: &str) -> Option<&str> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     text.lines()
         .map(str::trim)
         .find(|l| !l.is_empty() && !l.starts_with('#'))

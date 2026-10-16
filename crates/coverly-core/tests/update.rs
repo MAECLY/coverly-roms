@@ -49,6 +49,16 @@ fn the_key_file_is_a_placeholder_or_one_base64_key() {
         Some("dW50cnVzdGVk")
     );
     assert_eq!(parse_pubkey_file("# only comments\n"), None);
+    assert_eq!(
+        parse_pubkey_file("\u{feff}dW50cnVzdGVk\n"),
+        Some("dW50cnVzdGVk"),
+        "a BOM is not part of the key"
+    );
+    assert_eq!(parse_pubkey_file("\u{feff}UNSET\n"), None);
+    assert_eq!(
+        parse_pubkey_file("\u{feff}# c\ndW50cnVzdGVk\n"),
+        Some("dW50cnVzdGVk")
+    );
     let shipped = include_str!("../updater.pub");
     match parse_pubkey_file(shipped) {
         None => assert!(shipped.contains(PUBKEY_PLACEHOLDER)),
