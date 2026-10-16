@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 use crate::identify::names::Region;
-use crate::sources::{Candidate, Votes};
+use crate::sources::{Candidate, MatchKind, Votes};
 
 /// Largest score gap below the best candidate that is still eligible.
 pub const ELIGIBLE_SCORE_GAP: u8 = 5;
@@ -163,6 +163,41 @@ fn source_rank(c: &Candidate, ctx: &RankContext) -> usize {
         .unwrap_or(ctx.sources.len())
 }
 
+/// The tier a strategy compares in. Popularity merges every exact kind
+/// so votes can choose between an exact libretro name and a SteamGridDB
+/// grid of the same title (D33); fuzzy is always the lowest tier.
+fn tier(kind: MatchKind, merge_exact: bool) -> u8 {
+    match kind {
+        MatchKind::Fuzzy => 0,
+        _ if merge_exact => 3,
+        MatchKind::TitleExact => 1,
+        MatchKind::NameExact => 2,
+        MatchKind::Canonical => 3,
+    }
+}
+
+/// Whether `c` competes with `best`: same tier, score within
+/// `ELIGIBLE_SCORE_GAP`.
+fn eligible(best: &Candidate, c: &Candidate, merge_exact: bool) -> bool {
+    tier(c.kind, merge_exact) == tier(best.kind, merge_exact)
+        && c.score.saturating_add(ELIGIBLE_SCORE_GAP) >= best.score
+}
+
+/// Net SteamGridDB votes; a candidate without votes counts 0.
+pub fn vote_score(c: &Candidate) -> i64 {
+    c.votes.map_or(0, Votes::score)
+}
+
+/// Position of the first preferred language `c`'s name carries (D28), or
+/// `langs.len()` when none.
+pub fn language_rank(c: &Candidate, langs: &[String]) -> usize {
+    let have = crate::identify::names::languages(&c.name);
+    langs
+        .iter()
+        .position(|l| have.contains(l))
+        .unwrap_or(langs.len())
+}
+
 /// Final tie-break: score, source order, name, source id.
 fn tail(a: &Candidate, b: &Candidate, ctx: &RankContext) -> Ordering {
     b.score
@@ -179,19 +214,18 @@ fn tail(a: &Candidate, b: &Candidate, ctx: &RankContext) -> Ordering {
 fn rank_with(
     ctx: &RankContext,
     cands: &[Candidate],
+    merge_exact: bool,
     order: impl Fn(&Candidate, &Candidate) -> Ordering,
 ) -> Vec<usize> {
-    let Some(best) = cands
-        .iter()
-        .max_by(|a, b| a.kind.cmp(&b.kind).then(a.score.cmp(&b.score)))
-    else {
+    let Some(best) = cands.iter().max_by(|a, b| {
+        tier(a.kind, merge_exact)
+            .cmp(&tier(b.kind, merge_exact))
+            .then(a.score.cmp(&b.score))
+    }) else {
         return Vec::new();
     };
-    let eligible = |c: &Candidate| {
-        c.kind == best.kind && c.score.saturating_add(ELIGIBLE_SCORE_GAP) >= best.score
-    };
     let (mut good, mut rest): (Vec<usize>, Vec<usize>) =
-        (0..cands.len()).partition(|&i| eligible(&cands[i]));
+        (0..cands.len()).partition(|&i| eligible(best, &cands[i], merge_exact));
     // A release always beats a beta/proto/demo/hack of the same title, whatever the strategy.
     good.sort_by(|&a, &b| {
         is_unreleased_variant(&cands[a].name)
@@ -217,10 +251,10 @@ pub struct Priority;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RomRegion;
 
-/// SteamGridDB votes (`Candidate::votes`, filled by the M6 source) first;
-/// for consoles, consensus = how many media listings of the same source
-/// contain the same file (gathered with `GatherOptions::consensus`); then
-/// Priority (D9).
+/// Net SteamGridDB votes, then match kind, then consensus (listings of
+/// the same source + other sources in an overlapping region, D34), then
+/// Priority (D9, D33). Every exact match kind is one tier here, so votes
+/// can beat an exact name; a fuzzy match never competes with an exact one.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Popularity;
 
@@ -229,7 +263,7 @@ impl Strategy for Priority {
         StrategyKind::Priority
     }
     fn rank(&self, ctx: &RankContext, cands: &[Candidate]) -> Vec<usize> {
-        rank_with(ctx, cands, |a, b| {
+        rank_with(ctx, cands, false, |a, b| {
             source_rank(a, ctx)
                 .cmp(&source_rank(b, ctx))
                 .then(region_rank(a, ctx, false).cmp(&region_rank(b, ctx, false)))
@@ -242,7 +276,7 @@ impl Strategy for RomRegion {
         StrategyKind::RomRegion
     }
     fn rank(&self, ctx: &RankContext, cands: &[Candidate]) -> Vec<usize> {
-        rank_with(ctx, cands, |a, b| {
+        rank_with(ctx, cands, false, |a, b| {
             region_rank(a, ctx, true)
                 .cmp(&region_rank(b, ctx, true))
                 .then(source_rank(a, ctx).cmp(&source_rank(b, ctx)))
@@ -255,15 +289,115 @@ impl Strategy for Popularity {
         StrategyKind::Popularity
     }
     fn rank(&self, ctx: &RankContext, cands: &[Candidate]) -> Vec<usize> {
-        rank_with(ctx, cands, |a, b| {
-            b.votes
-                .map_or(0, Votes::score)
-                .cmp(&a.votes.map_or(0, Votes::score))
+        rank_with(ctx, cands, true, |a, b| {
+            vote_score(b)
+                .cmp(&vote_score(a))
+                .then(b.kind.cmp(&a.kind))
                 .then(b.consensus.cmp(&a.consensus))
                 .then(source_rank(a, ctx).cmp(&source_rank(b, ctx)))
                 .then(region_rank(a, ctx, false).cmp(&region_rank(b, ctx, false)))
         })
     }
+}
+
+/// Why the first of a ranked list was picked over the second.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "why", rename_all = "kebab-case")]
+pub enum PickReason {
+    /// The only candidate.
+    Only,
+    /// It matches the ROM better (kind or score).
+    BetterMatch,
+    /// A release beats a beta/proto/demo/hack (D22).
+    Release,
+    /// More net SteamGridDB votes than the next one.
+    Votes { score: i64, next: i64 },
+    /// More listings, sources and regions agree on it (D9 b, D34).
+    Consensus { count: u8, next: u8 },
+    /// Earlier in the user's source order.
+    SourceOrder { source: String },
+    /// Earlier in the region order; `rom` = it is the ROM's own region.
+    Region { rom: bool },
+    /// It carries the preferred language (D28).
+    Language,
+    /// Equal on every rule: the first by name, so the result is stable.
+    Tie,
+    /// The user picked it (review queue, drawer).
+    User,
+}
+
+/// Names the rule that put `first` before `second` in a ranking by
+/// `kind` (followed by the D28 language tie-break).
+pub fn explain(
+    kind: StrategyKind,
+    ctx: &RankContext,
+    first: &Candidate,
+    second: Option<&Candidate>,
+    languages: &[String],
+) -> PickReason {
+    let Some(second) = second else {
+        return PickReason::Only;
+    };
+    if !is_unreleased_variant(&first.name) && is_unreleased_variant(&second.name) {
+        return PickReason::Release;
+    }
+    let merge = kind == StrategyKind::Popularity;
+    if !eligible(first, second, merge) {
+        return PickReason::BetterMatch;
+    }
+    let by_source = || PickReason::SourceOrder {
+        source: first.source.clone(),
+    };
+    let src = |c: &Candidate| source_rank(c, ctx);
+    match kind {
+        StrategyKind::Popularity => {
+            if vote_score(first) != vote_score(second) {
+                return PickReason::Votes {
+                    score: vote_score(first),
+                    next: vote_score(second),
+                };
+            }
+            if first.kind != second.kind {
+                return PickReason::BetterMatch;
+            }
+            if first.consensus != second.consensus {
+                return PickReason::Consensus {
+                    count: first.consensus,
+                    next: second.consensus,
+                };
+            }
+            if src(first) != src(second) {
+                return by_source();
+            }
+            if region_rank(first, ctx, false) != region_rank(second, ctx, false) {
+                return PickReason::Region { rom: false };
+            }
+        }
+        StrategyKind::Priority => {
+            if src(first) != src(second) {
+                return by_source();
+            }
+            if region_rank(first, ctx, false) != region_rank(second, ctx, false) {
+                return PickReason::Region { rom: false };
+            }
+        }
+        StrategyKind::RomRegion => {
+            if region_rank(first, ctx, true) != region_rank(second, ctx, true) {
+                let rom = first.regions.iter().any(|r| ctx.rom_regions.contains(r));
+                return PickReason::Region { rom };
+            }
+            if src(first) != src(second) {
+                return by_source();
+            }
+        }
+    }
+    if language_rank(first, languages) != language_rank(second, languages) {
+        return PickReason::Language;
+    }
+    if first.score != second.score {
+        return PickReason::BetterMatch;
+    }
+    PickReason::Tie
 }
 
 /// The strategy for `kind`.
