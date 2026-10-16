@@ -233,8 +233,12 @@ pub fn plain_authority(url: &str) -> bool {
         && host
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
-    let port_ok =
-        port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()));
+    let port_ok = port.is_none_or(|p| {
+        !p.is_empty()
+            && p.len() <= 5
+            && p.chars().all(|c| c.is_ascii_digit())
+            && p.parse::<u16>().is_ok()
+    });
     host_ok && port_ok
 }
 
@@ -472,6 +476,17 @@ mod tests {
         fn get(&self, _: &HttpRequest) -> Result<HttpResponse, NetError> {
             Err(NetError::Timeout)
         }
+    }
+
+    #[test]
+    fn plain_authority_refuses_ports_out_of_range() {
+        assert!(plain_authority("https://cdn2.steamgriddb.com/a.png"));
+        assert!(plain_authority("http://127.0.0.1:65535/a.png"));
+        assert!(plain_authority("http://[::1]:8080/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:65536/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:99999/a.png"));
+        assert!(!plain_authority("http://[::1]:70000/a.png"));
+        assert!(!plain_authority("http://127.0.0.1:/a.png"));
     }
 
     #[test]
