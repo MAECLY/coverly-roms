@@ -1,0 +1,74 @@
+{
+  "header": { "APIversion": "2.0", "success": "true" },
+  "response": {
+    "serveurs": { "serveurcpu1": "20", "threadsmin": "1" },
+    "ssuser": {
+      "id": "me",
+      "maxthreads": "3",
+      "requeststoday": "10",
+      "maxrequestsperday": "20000"
+    },
+    "jeu": {
+      "id": "3",
+      "noms": [
+        { "region": "wor", "text": "Golden Sun" },
+        { "region": "jp", "text": "Ougon no Taiyou" }
+      ],
+      "systeme": { "id": "12", "text": "Game Boy Advance" },
+      "medias": [
+        {
+          "type": "box-2D",
+          "parent": "jeu",
+          "region": "us",
+          "url": "https://neoclone.screenscraper.fr/api2/mediaJeu.php?devid=dev&devpassword=devpw&softname=x&ssid=&sspassword=&systemeid=12&jeuid=3&media=box-2D(us)",
+          "format": "png"
+        },
+        {
+          "type": "box-2D",
+          "parent": "jeu",
+          "region": "eu",
+          "url": "…",
+          "format": "png"
+        },
+        {
+          "type": "box-2D",
+          "parent": "jeu",
+          "region": "jp",
+          "url": "…",
+          "format": "png"
+        },
+        {
+          "type": "box-2D",
+          "parent": "jeu",
+          "region": "us",
+          "url": "duplicate",
+          "format": "png"
+        },
+        {
+          "type": "ss",
+          "parent": "jeu",
+          "region": "wor",
+          "url": "…",
+          "format": "png"
+        },
+        {
+          "type": "sstitle",
+          "parent": "jeu",
+          "region": "wor",
+          "url": "…",
+          "format": "png"
+        },
+        {
+          "type": "flyer",
+          "parent": "jeu",
+          "region": "us",
+          "url": "…",
+          "format": "png"
+        },
+        { "type": "box-2D", "parent": "jeu", "region": "us&x=1", "url": "…" },
+        { "type": "../box", "parent": "jeu", "region": "us", "url": "…" },
+        { "type": "box-2D", "parent": "support", "region": "eu", "url": "…" }
+      ]
+    }
+  }
+}

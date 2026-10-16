@@ -178,6 +178,42 @@ impl std::fmt::Debug for Secret {
     }
 }
 
+/// ScreenScraper developer credentials, baked in at build time from
+/// `COVERLY_SS_DEVID` / `COVERLY_SS_DEVPASSWORD` (never in git).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DevCredentials {
+    pub id: Secret,
+    pub password: Secret,
+}
+
+impl DevCredentials {
+    /// `None` = ScreenScraper is not available in this build.
+    pub fn from_build() -> Option<DevCredentials> {
+        DevCredentials::from_values(
+            option_env!("COVERLY_SS_DEVID"),
+            option_env!("COVERLY_SS_DEVPASSWORD"),
+        )
+    }
+
+    /// Both values present and non-empty after trimming, else `None`.
+    pub fn from_values(id: Option<&str>, password: Option<&str>) -> Option<DevCredentials> {
+        let id = id.map(str::trim).filter(|s| !s.is_empty())?;
+        let password = password.map(str::trim).filter(|s| !s.is_empty())?;
+        Some(DevCredentials {
+            id: Secret::new(id),
+            password: Secret::new(password),
+        })
+    }
+}
+
+/// The user's own ScreenScraper account (keychain); sent only when both
+/// are stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserCredentials {
+    pub user: Secret,
+    pub password: Secret,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +223,17 @@ mod tests {
         let s = Secret::new("sk-123");
         assert_eq!(format!("{s:?}"), "Secret(***)");
         assert_eq!(s.expose(), "sk-123");
+    }
+
+    #[test]
+    fn dev_credentials_need_both_values_and_never_print_them() {
+        let d = DevCredentials::from_values(Some(" dev "), Some("pw")).unwrap();
+        assert_eq!(d.id.expose(), "dev");
+        assert_eq!(
+            format!("{d:?}"),
+            "DevCredentials { id: Secret(***), password: Secret(***) }"
+        );
+        assert_eq!(DevCredentials::from_values(Some(""), Some("pw")), None);
+        assert_eq!(DevCredentials::from_values(None, Some("pw")), None);
     }
 }
