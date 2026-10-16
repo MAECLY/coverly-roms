@@ -15,7 +15,7 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use crate::cache::{now_unix, Cache, CacheError, DatRow};
 use crate::identify::hash::HashOutcome;
 use crate::net::{Http, HttpRequest, NetError};
-use crate::systems::System;
+use crate::systems::{is_safe_repo_path, System};
 
 pub const DATABASE_BASE: &str =
     "https://raw.githubusercontent.com/libretro/libretro-database/master";
@@ -82,12 +82,17 @@ pub fn encode_path(path: &str) -> String {
 
 /// The DATs to identify `system`'s ROMs with: the explicit `dats` list, or
 /// `metadat/no-intro/<libretro>.dat` (`metadat/redump/…` for disc systems).
-/// Arcade systems without an explicit list have none.
+/// Arcade systems without an explicit list have none, and so does a
+/// libretro name that would not stay one path segment.
 pub fn dat_sources(system: &System) -> Vec<String> {
     if !system.dats.is_empty() {
         return system.dats.clone();
     }
-    match (&system.libretro, system.arcade) {
+    let libretro = system
+        .libretro
+        .as_ref()
+        .filter(|n| !n.contains('/') && is_safe_repo_path(n));
+    match (libretro, system.arcade) {
         (Some(name), false) if system.multi_file => vec![format!("metadat/redump/{name}.dat")],
         (Some(name), false) => vec![format!("metadat/no-intro/{name}.dat")],
         _ => Vec::new(),

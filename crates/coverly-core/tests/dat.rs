@@ -303,3 +303,13 @@ fn any_refresh_failure_with_cached_rows_is_stale() {
         );
     }
 }
+
+#[test]
+fn an_unsafe_libretro_name_derives_no_dat() {
+    for bad in ["../../x", "a/b", "a\\\\b", ".."] {
+        let db = SystemDb::builtin()
+            .with_overrides(&format!("[[system]]\nid = \"gba\"\nlibretro = \"{bad}\"\n"))
+            .unwrap();
+        assert!(dat_sources(db.get("gba").unwrap()).is_empty(), "{bad}");
+    }
+}

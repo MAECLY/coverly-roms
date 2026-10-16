@@ -60,6 +60,16 @@ pub enum SystemsError {
         /// The unknown value.
         value: String,
     },
+    /// A `dats` entry is not a safe relative repository path.
+    #[error(
+        "system `{id}`: DAT path `{value}` must be relative, with no `..`, empty segments, `\\` or control characters"
+    )]
+    BadDat {
+        /// The offending id.
+        id: String,
+        /// The rejected path.
+        value: String,
+    },
 }
 
 /// A `[[system]]` table as written in TOML. Every field but `id` is
@@ -153,6 +163,13 @@ impl SystemDb {
             None => None,
         };
 
+        if let Some(bad) = raw.dats.iter().flatten().find(|d| !is_safe_repo_path(d)) {
+            return Err(SystemsError::BadDat {
+                id,
+                value: bad.clone(),
+            });
+        }
+
         let index = match self.systems.iter().position(|s| s.id == id) {
             Some(index) => index,
             None => {
@@ -228,6 +245,16 @@ impl SystemDb {
     pub fn all(&self) -> &[System] {
         &self.systems
     }
+}
+
+/// A relative `/`-separated path with no empty, `.` or `..` segment, no
+/// `\` and no control characters, so it stays under the DAT base URL.
+pub(crate) fn is_safe_repo_path(path: &str) -> bool {
+    !path.contains('\\')
+        && !path.chars().any(char::is_control)
+        && path
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
 }
 
 /// Lowercases an extension and strips a leading dot: `.SFC` -> `sfc`.
@@ -419,6 +446,33 @@ mod tests {
             .with_overrides("[[system]]\nid = \"neogeo\"\ndats = [\"dat/One.dat\"]\n")
             .unwrap();
         assert_eq!(db.get("neogeo").unwrap().dats, ["dat/One.dat"]);
+    }
+
+    #[test]
+    fn unsafe_dat_paths_are_rejected() {
+        for bad in [
+            "metadat/../../../x.dat",
+            "..",
+            "/etc/x.dat",
+            "metadat//x.dat",
+            "metadat/x.dat/",
+            "metadat\\x.dat",
+            "metadat/x\u{0}.dat",
+            "metadat/x\n.dat",
+            "",
+        ] {
+            let value = toml::Value::String(bad.into());
+            let toml = format!("[[system]]\nid = \"gba\"\ndats = [{value}]\n");
+            let err = SystemDb::builtin().with_overrides(&toml).unwrap_err();
+            assert!(
+                matches!(err, SystemsError::BadDat { ref id, .. } if id == "gba"),
+                "{bad:?}: {err}"
+            );
+        }
+        let ok = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"gba\"\ndats = [\"dat/My Set (v1.2).dat\"]\n")
+            .unwrap();
+        assert_eq!(ok.get("gba").unwrap().dats, ["dat/My Set (v1.2).dat"]);
     }
 
     #[test]
