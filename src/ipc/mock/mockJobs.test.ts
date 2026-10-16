@@ -419,6 +419,34 @@ describe('mock fill sources', () => {
     expect(found.every((c) => c.reason === null)).toBe(true);
   });
 
+  it('SteamGridDB grids are covers only (D35)', async () => {
+    const { b, view } = await opened({ storage: new MemoryStorage() });
+    await b.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    await b.setCredential('steamgriddb-api-key', 'sk');
+    const v = await planned(b, view.generation, {
+      ...REQUEST,
+      media: ['cover', 'screenshot', 'title'],
+      strategy: 'popularity',
+    });
+    const items = await b.fillJobItems(v.id, 'all');
+    const withGrids = items.filter((i) =>
+      i.candidates.some((c) => c.source === 'steamgriddb'),
+    );
+    expect(withGrids.length).toBeGreaterThan(0);
+    expect(withGrids.every((i) => i.media === 'cover')).toBe(true);
+    expect(items.some((i) => i.media !== 'cover' && i.action !== 'none')).toBe(
+      true,
+    );
+  });
+
   it('a key but SteamGridDB disabled keeps the grids out', async () => {
     const { b, view } = await opened({ storage: new MemoryStorage() });
     await b.setCredential('steamgriddb-api-key', 'sk');

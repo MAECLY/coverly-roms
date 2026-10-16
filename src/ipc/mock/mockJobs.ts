@@ -4,7 +4,7 @@
  * writes and exports, so the whole fill flow runs end to end in Chrome.
  *
  * Sources (M6): when SteamGridDB is enabled and has a key
- * (`MockJobsHost.sgdbReady`), every review/auto item also gets two
+ * (`MockJobsHost.sgdbReady`), every review/auto cover item also gets two
  * SteamGridDB grids (votes `{up: 9 + id % 7, down: 1}` and `{up: 2,
  * down: 0}`). Under `popularity` the list is ranked like Rust's Popularity
  * (exact matches one tier, releases before betas, then net votes), so the
@@ -172,7 +172,8 @@ function candidatesFor(
               cand(2, `${t} (USA) (Beta)`, ['usa'], 'title-exact', 95),
             ];
   let ranked = candidates;
-  if (sgdb && action !== 'none') {
+  // SteamGridDB has covers only (D35).
+  if (sgdb && media === 'cover' && action !== 'none') {
     ranked = [...candidates, ...grids(e)];
     if (strategy === 'popularity') {
       // Stable: equal candidates keep the libretro order.
