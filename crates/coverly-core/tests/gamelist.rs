@@ -292,8 +292,10 @@ fn a_bom_and_comments_inside_games_are_kept() {
     )
     .unwrap()
     .unwrap();
-    assert!(out.starts_with('\u{feff}'));
-    assert!(out.contains("<!-- note -->"));
+    assert_eq!(
+        out,
+        "\u{feff}<gameList><game><!-- note --><path>./A.sfc</path><thumbnail>./images/A.png</thumbnail><image>./images/A.png</image></game></gameList>"
+    );
 }
 
 #[test]
@@ -338,4 +340,95 @@ fn control_characters_in_a_rom_path_do_not_duplicate_its_game() {
     let out = merge(None, &g, false, &no).unwrap().unwrap();
     assert!(!out.contains('\u{7}'));
     assert_eq!(merge(Some(&out), &g, false, &yes).unwrap(), None, "{out}");
+}
+
+#[test]
+fn a_bom_never_shifts_the_edits() {
+    let g = |rom: &str| cover(rom, &format!("./images/{}.png", &rom[2..3]));
+    // Matched game, compact file.
+    let out = merge(
+        Some("\u{feff}<gameList><game><path>./A.sfc</path></game></gameList>"),
+        &[g("./A.sfc")],
+        false,
+        &no,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        out,
+        "\u{feff}<gameList><game><path>./A.sfc</path><thumbnail>./images/A.png</thumbnail><image>./images/A.png</image></game></gameList>"
+    );
+    // Declaration, comment, one game matched and one appended.
+    let existing = "\u{feff}<?xml version=\"1.0\"?>\n<!-- c -->\n<gameList>\n\t<game>\n\t\t<path>./A.sfc</path>\n\t</game>\n</gameList>\n";
+    let out = merge(Some(existing), &[g("./A.sfc"), g("./B.sfc")], false, &no)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        out,
+        "\u{feff}<?xml version=\"1.0\"?>\n<!-- c -->\n<gameList>\n\t<game>\n\t\t<path>./A.sfc</path>\
+         \n\t\t<thumbnail>./images/A.png</thumbnail>\n\t\t<image>./images/A.png</image>\n\t</game>\
+         \n\t<game>\n\t\t<path>./B.sfc</path>\n\t\t<name>B</name>\
+         \n\t\t<thumbnail>./images/B.png</thumbnail>\n\t\t<image>./images/B.png</image>\n\t</game>\
+         \n</gameList>\n"
+    );
+    // Whitespace before a self-closing root.
+    let out = merge(Some("\u{feff}  <gameList/>"), &[g("./A.sfc")], false, &no)
+        .unwrap()
+        .unwrap();
+    assert!(out.starts_with("\u{feff}  <gameList>\n\t<game>"), "{out:?}");
+    assert!(out.ends_with("</game>\n</gameList>"), "{out:?}");
+}
+
+#[test]
+fn a_bom_and_four_byte_characters_next_to_tags_never_panic() {
+    let existing =
+        "\u{feff}<gameList><game><path>./A😀</path><desc>😀</desc></game><game>😀</game></gameList>";
+    let out = merge(
+        Some(existing),
+        &[cover("./A😀", "./images/A.png")],
+        false,
+        &no,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        out,
+        "\u{feff}<gameList><game><path>./A😀</path><desc>😀</desc><thumbnail>./images/A.png</thumbnail><image>./images/A.png</image></game><game>😀</game></gameList>"
+    );
+    for hostile in [
+        "\u{feff}😀<gameList/>",
+        "\u{feff}<gameList>😀<game>😀<path>😀</path>😀</game>😀</gameList>",
+        "\u{feff}<!--😀--><gameList><game><path>./😀</path><image>😀</image></game></gameList>",
+        "\u{feff}<?xml version=\"1.0\"?><gameList><game><path>😀😀</path></game></gameList>😀",
+    ] {
+        for rom in ["./😀", "./😀😀", "./A.sfc"] {
+            // Merged or refused, never a panic; a merged file parses again.
+            if let Ok(Some(out)) = merge(Some(hostile), &[cover(rom, "./i/😀.png")], false, &no) {
+                assert!(
+                    merge(Some(&out), &[cover(rom, "./i/😀.png")], false, &yes).is_ok(),
+                    "{out:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn text_outside_the_root_is_refused() {
+    let g = [cover("./A.sfc", "./images/A.png")];
+    for bad in [
+        "garbage<gameList/>",
+        "<gameList/>junk",
+        "<gameList/>&amp;",
+        "<![CDATA[x]]><gameList/>",
+    ] {
+        assert!(
+            matches!(
+                merge(Some(bad), &g, false, &no),
+                Err(MergeError::Malformed(_))
+            ),
+            "{bad}"
+        );
+    }
+    assert!(merge(Some(" \r\n\t<gameList/>\n "), &g, false, &no).is_ok());
 }

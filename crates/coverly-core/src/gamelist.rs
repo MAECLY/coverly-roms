@@ -101,12 +101,29 @@ struct Doc {
     games: Vec<GameNode>,
 }
 
-fn pos(reader: &Reader<&[u8]>) -> usize {
-    usize::try_from(reader.buffer_position()).unwrap_or(usize::MAX)
+/// Offset in the whole file of the reader's position in the parsed part
+/// (`base` bytes in: quick-xml skips a BOM without counting it).
+fn pos(reader: &Reader<&[u8]>, base: usize) -> usize {
+    usize::try_from(reader.buffer_position())
+        .ok()
+        .and_then(|p| p.checked_add(base))
+        .unwrap_or(usize::MAX)
+}
+
+/// The offsets of `e` lie inside `xml`, in order and on char boundaries,
+/// so slicing with them can never panic.
+fn sliceable(xml: &str, e: &Elem) -> bool {
+    let offs = [e.start, e.inner_start, e.inner_end, e.end];
+    offs.windows(2).all(|w| w[0] <= w[1]) && offs.iter().all(|&o| xml.is_char_boundary(o))
 }
 
 fn scan(xml: &str) -> Result<Doc, MergeError> {
-    let mut reader = Reader::from_str(xml);
+    // The BOM is parsed away by hand so every offset counts it.
+    let (body, base) = match xml.strip_prefix('\u{feff}') {
+        Some(rest) => (rest, xml.len() - rest.len()),
+        None => (xml, 0),
+    };
+    let mut reader = Reader::from_str(body);
     reader.config_mut().check_end_names = true;
     let mut stack: Vec<(String, usize, usize)> = Vec::new();
     let mut root: Option<Elem> = None;
@@ -114,13 +131,24 @@ fn scan(xml: &str) -> Result<Doc, MergeError> {
     let mut current: Option<GameNode> = None;
     let malformed = |m: &str| MergeError::Malformed(m.to_string());
     loop {
-        let before = pos(&reader);
+        let before = pos(&reader, base);
         let event = reader
             .read_event()
             .map_err(|e| MergeError::Malformed(e.to_string()))?;
-        let after = pos(&reader);
+        let after = pos(&reader, base);
+        if after > xml.len() || !xml.is_char_boundary(before) || !xml.is_char_boundary(after) {
+            return Err(malformed("offsets out of place"));
+        }
         match event {
             Event::DocType(_) => return Err(MergeError::Doctype),
+            Event::Text(t) if stack.is_empty() => {
+                if !t.iter().all(u8::is_ascii_whitespace) {
+                    return Err(malformed("text outside the root element"));
+                }
+            }
+            Event::CData(_) | Event::GeneralRef(_) if stack.is_empty() => {
+                return Err(malformed("text outside the root element"));
+            }
             Event::Start(e) => {
                 if stack.len() >= MAX_DEPTH {
                     return Err(malformed("nested too deeply"));
@@ -203,6 +231,13 @@ fn scan(xml: &str) -> Result<Doc, MergeError> {
     if root.name != "gameList" {
         return Err(MergeError::NoRoot);
     }
+    let all_sliceable = sliceable(xml, &root)
+        && games
+            .iter()
+            .all(|g| sliceable(xml, &g.elem) && g.children.iter().all(|c| sliceable(xml, c)));
+    if !all_sliceable {
+        return Err(malformed("offsets out of place"));
+    }
     Ok(Doc { root, games })
 }
 
@@ -256,7 +291,7 @@ fn text_of(xml: &str, e: &Elem) -> Option<String> {
     if e.empty {
         return Some(String::new());
     }
-    let raw = xml[e.inner_start..e.inner_end].trim();
+    let raw = xml.get(e.inner_start..e.inner_end)?.trim();
     if let Some(inner) = raw
         .strip_prefix("<![CDATA[")
         .and_then(|r| r.strip_suffix("]]>"))
@@ -271,6 +306,10 @@ fn text_of(xml: &str, e: &Elem) -> Option<String> {
 
 /// Comparison form of a gamelist path.
 /// Control characters are dropped, as [`escape`] drops them on write.
+/// Surrounding whitespace is trimmed (as ES-DE does when it reads a path),
+/// so two ROMs whose names differ only by leading or trailing whitespace
+/// share one key: only the first gets its art in the gamelist. Such names
+/// are accepted as a known edge; the art files themselves are written.
 fn norm(p: &str) -> String {
     let p = p.trim().replace('\\', "/");
     let p = p.strip_prefix("./").unwrap_or(&p);
@@ -325,8 +364,11 @@ impl PathIndex {
 
 /// Whitespace before `at` on its line (the indentation of an element).
 fn indent_before(xml: &str, at: usize) -> &str {
-    let line_start = xml[..at].rfind('\n').map_or(0, |i| i + 1);
-    let ws = &xml[line_start..at];
+    let Some(head) = xml.get(..at) else {
+        return "";
+    };
+    let line_start = head.rfind('\n').map_or(0, |i| i + 1);
+    let ws = &head[line_start..];
     if ws.chars().all(|c| c == ' ' || c == '\t') {
         ws
     } else {
@@ -418,7 +460,9 @@ pub fn merge(
                     }
                 }
                 if !inserted.is_empty() {
-                    let inner = &xml[g.elem.inner_start..g.elem.inner_end];
+                    let inner = xml
+                        .get(g.elem.inner_start..g.elem.inner_end)
+                        .ok_or_else(|| MergeError::Malformed("offsets out of place".into()))?;
                     let at = g.elem.inner_start + inner.trim_end().len();
                     let compact = !inner.contains('\n');
                     let text = if compact {
@@ -451,7 +495,9 @@ pub fn merge(
                 format!("<gameList>{appended}{nl}</gameList>"),
             ));
         } else {
-            let inner = &xml[r.inner_start..r.inner_end];
+            let inner = xml
+                .get(r.inner_start..r.inner_end)
+                .ok_or_else(|| MergeError::Malformed("offsets out of place".into()))?;
             let at = r.inner_start + inner.trim_end().len();
             let tail = if inner[inner.trim_end().len()..].contains('\n') {
                 ""
@@ -468,16 +514,20 @@ pub fn merge(
     // an insertion sorts before a replacement starting at the same byte.
     edits.sort_by_key(|(start, end, _)| (*start, *end));
     let mut out = String::with_capacity(xml.len() + edits.iter().map(|e| e.2.len()).sum::<usize>());
+    let out_of_place = || MergeError::Malformed("offsets out of place".into());
     let mut at = 0;
     for (start, end, text) in edits {
         if start < at {
             return Err(MergeError::Malformed("overlapping edits".into()));
         }
-        out.push_str(&xml[at..start]);
+        out.push_str(xml.get(at..start).ok_or_else(out_of_place)?);
         out.push_str(&text);
         at = end;
     }
-    out.push_str(&xml[at..]);
+    out.push_str(xml.get(at..).ok_or_else(out_of_place)?);
+    // Defense in depth: a result that does not parse is never written.
+    scan(&out)
+        .map_err(|e| MergeError::Malformed(format!("the merged file would be broken: {e}")))?;
     Ok(Some(out))
 }
 
