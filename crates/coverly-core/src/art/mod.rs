@@ -25,6 +25,26 @@ const IMAGE_EXTS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 const COVER_POSTFIX: &str = "-image";
 const COVER_POSTFIX_ALT: &str = "-thumb";
 
+/// Every postfix Batocera's ES scraper writes to the flat `images/` folder
+/// (`Scraper.cpp`, `getSaveAsPath`), plus the profile's own. When a slot
+/// expects `<stem>-<one of these>`, all of them belong to the ROM, so the
+/// marquee, fanart, wheel... of a game are never reported as orphans.
+const BATOCERA_POSTFIXES: [&str; 13] = [
+    "image",
+    "thumb",
+    "marquee",
+    "fanart",
+    "boxback",
+    "box",
+    "wheel",
+    "titleshot",
+    "map",
+    "cartridge",
+    "bezel",
+    "screenshot",
+    "titlescreen",
+];
+
 /// State of one media for one ROM.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -68,7 +88,8 @@ pub struct SystemArt {
 /// A media the profile has no slot for, or whose template needs a libretro
 /// name the system lacks, is [`ArtState::Unsupported`]. Orphans are images
 /// in the folders the profile's slots point to whose name matches no ROM of
-/// the library for any slot; a folder shared by several system folders
+/// the library for any slot (for Batocera, any scraper postfix of a ROM
+/// counts); a folder shared by several system folders
 /// reports its orphans under the first one.
 pub fn resolve_art(
     scan: &LibraryScan,
@@ -129,7 +150,7 @@ pub fn resolve_art(
                     let resolved = index.resolve(&expected.dir);
                     let state = match &resolved {
                         Some(dir) => {
-                            for stem in &expected.stems {
+                            for stem in expected.stems.iter().chain(&expected.claims) {
                                 claimed.insert((dir.clone(), stem.clone()));
                             }
                             push_unique(&mut dirs, dir.clone());
@@ -185,6 +206,9 @@ struct Expected {
     dir: PathBuf,
     /// Accepted file stems, lowercase, in preference order.
     stems: Vec<String>,
+    /// Further stems, lowercase, that belong to the ROM (never orphans) but
+    /// do not count as this slot's art.
+    claims: Vec<String>,
 }
 
 /// Renders `slot` for a ROM at `rel_dir`/`stem`, or `None` when the
@@ -223,7 +247,20 @@ fn expected(
     if let Some(base) = file_stem.strip_suffix(COVER_POSTFIX) {
         stems.push(format!("{base}{COVER_POSTFIX_ALT}"));
     }
-    Some(Expected { dir, stems })
+    let rom_stem = stem.to_lowercase();
+    let batocera = file_stem
+        .strip_prefix(rom_stem.as_str())
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|postfix| BATOCERA_POSTFIXES.contains(&postfix));
+    let claims = if batocera {
+        BATOCERA_POSTFIXES
+            .iter()
+            .map(|postfix| format!("{rom_stem}-{postfix}"))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Some(Expected { dir, stems, claims })
 }
 
 fn push_unique(dirs: &mut Vec<PathBuf>, dir: PathBuf) {

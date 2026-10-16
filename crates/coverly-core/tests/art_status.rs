@@ -303,3 +303,39 @@ fn art_state_serializes_with_a_state_tag() {
         r#"{"state":"unsupported"}"#
     );
 }
+
+#[test]
+fn other_batocera_scraper_media_are_not_orphans() {
+    let lib = tempfile::TempDir::new().unwrap();
+    let root = lib.path();
+    touch(root, "roms/snes/Zelda.sfc");
+    // Every suffix Batocera's ES scraper writes to `images/` (Scraper.cpp).
+    for suffix in [
+        "image",
+        "thumb",
+        "marquee",
+        "fanart",
+        "boxback",
+        "box",
+        "wheel",
+        "titleshot",
+        "map",
+        "cartridge",
+        "bezel",
+    ] {
+        touch(root, &format!("roms/snes/images/Zelda-{suffix}.png"));
+    }
+    touch(root, "roms/snes/images/Gone-marquee.png");
+    touch(root, "roms/snes/images/Zelda-unknown.png");
+
+    let art = resolve(root, "batocera", &[Media::Cover]);
+    let snes = system(&art, "snes");
+    assert_eq!(
+        present_name(state(snes, "Zelda", Media::Cover)),
+        "Zelda-image.png"
+    );
+    assert_eq!(
+        orphan_names(snes),
+        ["Gone-marquee.png", "Zelda-unknown.png"]
+    );
+}
