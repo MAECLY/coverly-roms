@@ -516,3 +516,31 @@ fn ranges_table_is_the_validation_source() {
     let json = serde_json::to_value(RANGES[0]).unwrap();
     assert!(json.get("field").is_some() && json.get("min").is_some());
 }
+
+const RECENT: &str = r#"{"path":"/sd","name":"sd","profile_id":"onion","roms":12,"opened_at":5}"#;
+
+#[test]
+fn a_manual_proxy_without_url_resets_only_the_proxy() {
+    for network in [
+        r#"{"proxy":"manual","timeout_secs":90}"#,
+        r#"{"proxy":"manual","proxy_url":"socks5://x:1","timeout_secs":90}"#,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            &format!(
+                r#"{{"general":{{"theme":"dark"}},"network":{network},"library":{{"recent":[{RECENT}]}}}}"#
+            ),
+        );
+        let (s, report) = load_settings(dir.path(), &known());
+        assert_eq!(s.general.theme, ThemeChoice::Dark, "{network}");
+        assert_eq!(s.network.timeout_secs, 90, "{network}");
+        assert_eq!(s.library.recent.len(), 1, "{network}");
+        assert_eq!(s.network.proxy, ProxyChoice::System, "{network}");
+        assert_eq!(s.network.proxy_url, "", "{network}");
+        assert!(s.validate(&known()).is_empty());
+        assert_eq!(report.notice, Some(LoadNotice::Fixed));
+        assert!(report.fixed.contains(&"network.proxy".to_string()));
+        assert!(report.fixed.contains(&"network.proxy_url".to_string()));
+    }
+}

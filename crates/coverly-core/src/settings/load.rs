@@ -35,7 +35,8 @@ pub struct LoadReport {
     pub notice: Option<LoadNotice>,
     /// The copy (or the set-aside file) holding what was on disk.
     pub backup: Option<PathBuf>,
-    /// Dotted fields that fell back to their defaults.
+    /// Dotted fields (`group.field`) that fell back to their defaults; a
+    /// bare group name when the whole group did, `*` when everything did.
     pub fixed: Vec<String>,
 }
 
@@ -189,30 +190,47 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         }
     }
     let mut settings: Settings = serde_json::from_value(merged).ok()?;
+    let note = |fixed: &mut Vec<String>, key: &str| {
+        if !fixed.iter().any(|f| f == key) {
+            fixed.push(key.to_string());
+        }
+    };
     for _ in 0..3 {
         let errors = settings.validate(known);
         if errors.is_empty() {
             break;
         }
         for e in errors {
-            if e.code == FieldErrorCode::Order {
-                reset_field(&mut settings, "matching.auto_threshold");
-                reset_field(&mut settings, "matching.review_threshold");
+            // Cross-field rules reset every field of the rule, so the reset
+            // itself cannot fail again.
+            let fields: &[&str] = if e.code == FieldErrorCode::Order {
+                &["matching.auto_threshold", "matching.review_threshold"]
+            } else if e.field == "network.proxy_url" {
+                &["network.proxy", "network.proxy_url"]
             } else {
+                &[]
+            };
+            if fields.is_empty() {
                 reset_field(&mut settings, &e.field);
-            }
-            let key: String = e.field.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
-            if !fixed.contains(&key) {
-                fixed.push(key);
+                let key: String = e.field.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
+                note(&mut fixed, &key);
+            } else {
+                for f in fields {
+                    reset_field(&mut settings, f);
+                    note(&mut fixed, f);
+                }
             }
         }
     }
+    // Still wrong: only the groups with a problem fall back to defaults.
+    for e in settings.validate(known) {
+        let group = e.field.split('.').next().unwrap_or_default().to_string();
+        reset_group(&mut settings, &group);
+        note(&mut fixed, &group);
+    }
     if !settings.validate(known).is_empty() {
-        return Some(Parsed {
-            settings: Settings::default(),
-            fixed,
-            future,
-        });
+        settings = Settings::default();
+        note(&mut fixed, "*");
     }
     settings.normalise();
     Some(Parsed {
@@ -220,6 +238,18 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         fixed,
         future,
     })
+}
+
+/// Resets the whole group `group` of `s` to its defaults.
+fn reset_group(s: &mut Settings, group: &str) {
+    let defaults = serde_json::to_value(Settings::default()).expect("defaults serialise");
+    let mut v = serde_json::to_value(&*s).expect("settings serialise");
+    if let (Some(slot), Some(def)) = (v.get_mut(group), defaults.get(group)) {
+        *slot = def.clone();
+        if let Ok(next) = serde_json::from_value(v) {
+            *s = next;
+        }
+    }
 }
 
 /// Loads `dir/settings.json` (see the module docs). Side effects: a file
