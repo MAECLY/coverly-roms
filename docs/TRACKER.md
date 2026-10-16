@@ -8,9 +8,10 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M2 terminado en `feat/m2-fill` (plan `2026-10-16-m2-identify-and-fill.md`, tareas 1–14). `coverly fill` + `coverly undo` validados de punta a punta sobre una copia de la SD y sobre una imagen FAT32 (ver «Evidencia M2»).
-- **Siguiente paso:** PR de `feat/m2-fill` → CI → merge; después plan M3 (explorador en la app).
-- **En curso:** nada en segundo plano.
+- **Fase:** M2 mergeado ([PR #3](https://github.com/MAECLY/coverly-roms/pull/3), `2a1a8e1`). Siguiente: M3 (explorador en la app).
+- **Siguiente paso:** plan M3 (`docs/superpowers/plans/2026-10-16-m3-explorer.md`) + workflow implementador/revisor en `feat/m3-explorer`.
+- **En curso:** workflow M3.
+- **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
 
@@ -186,4 +187,5 @@ Binario release, servidores reales, todo en el scratchpad (`$SC` = `/private/tmp
 - **2026-10-15** — Investigación de herramientas Mac; repo creado; decisiones D1–D8; spec maestra y tracker escritos; investigación Top1 en curso.
 - **2026-10-15** — Investigación Top1 terminada (14 agentes, ~270 claims verificados) → `docs/02-research/`; spec §16 refinamientos + pregunta abierta 5 (Popularidad/SteamGridDB solo PC).
 - **2026-10-15** — M0 + M1 implementados (plan tareas 1–11, rama `feat/m1-audit`). `coverly audit` validado en solo lectura contra la SD real: 7473 ROMs, 3080 sin portada, 1,69 s en la 1ª ejecución; recuento manual de SFC/GB/WS/PS coincide. ADRs 0001–0008 + arquitectura + índice de docs (`1455f8a`). M1-05 (caché SQLite) movida a M2.
+- **2026-10-16** — M2 mergeado (PR #3, `2a1a8e1`; Actions bloqueado por facturación → gates locales: 265 tests Rust + 11 front, clippy/fmt/lint limpios). Verificación independiente sobre copia de 61 ROMs SFC: 61/61 rellenadas (59 por hash, 2 por nombre), todas el juego correcto revisadas a mano (`Digital Devil Story X` → *Shin Megami Tensei if...*), 12 s en frío; undo quitó las 61. Fix menor `create_dirs` solo NotFound.
 - **2026-10-16** — M2 implementado en `feat/m2-fill` (plan tareas 1–14): identificación (hash → DATs, arcade, nombre), libretro-thumbnails, estrategias, plan, imagen, escritura segura, `coverly fill`/`undo`. E2E sobre copia de la SD: 109/126 portadas rellenadas, undo y respaldos byte a byte; imagen FAT32 sin `._*`. El E2E destapó y arregló 3 bugs (rutas DAT, `&amp;` en listados, `._*` en FAT). Docs: identification, art-sources, fill-pipeline, ADR-0009/0010; D12–D15.
