@@ -4,6 +4,7 @@ use assert_cmd::Command;
 fn prints_version() {
     Command::cargo_bin("coverly")
         .unwrap()
+        .env("COVERLY_SETTINGS", "")
         .arg("--version")
         .assert()
         .success()

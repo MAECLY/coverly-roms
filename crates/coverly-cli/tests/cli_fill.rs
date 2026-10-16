@@ -62,6 +62,7 @@ fn fixture() -> Fixture {
 
 fn fill_cmd() -> Command {
     let mut cmd = Command::cargo_bin("coverly").unwrap();
+    cmd.env("COVERLY_SETTINGS", "");
     cmd.arg("fill");
     cmd
 }
@@ -119,6 +120,7 @@ fn apply_writes_a_resized_png_and_undo_removes_it() {
     assert!(w <= 250 && h <= 360, "{w}x{h}");
     Command::cargo_bin("coverly")
         .unwrap()
+        .env("COVERLY_SETTINGS", "")
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -140,6 +142,7 @@ fn relative_root_is_journaled_absolute_so_undo_works_elsewhere() {
     let elsewhere = TempDir::new().unwrap();
     Command::cargo_bin("coverly")
         .unwrap()
+        .env("COVERLY_SETTINGS", "")
         .current_dir(elsewhere.path())
         .args(["undo", "--data-dir"])
         .arg(f.data.path())
@@ -155,6 +158,7 @@ fn undo_list_shows_the_job() {
     fill(&f).arg("--apply").assert().success();
     Command::cargo_bin("coverly")
         .unwrap()
+        .env("COVERLY_SETTINGS", "")
         .args(["undo", "--list", "--data-dir"])
         .arg(f.data.path())
         .assert()
@@ -217,6 +221,7 @@ fn undo_with_no_jobs_fails() {
     let data = TempDir::new().unwrap();
     Command::cargo_bin("coverly")
         .unwrap()
+        .env("COVERLY_SETTINGS", "")
         .args(["undo", "--data-dir"])
         .arg(data.path())
         .assert()
