@@ -531,3 +531,115 @@ fn the_runbook_names_every_owner_step() {
     }
     assert!(read("docs/adr/0011-release-pipeline-and-update-key.md").contains("updater.pub"));
 }
+
+/// A failure the workflow log shows as an annotation: exit 1, `::error::`, no
+/// Python traceback.
+fn assert_clean_failure(out: &std::process::Output, what: &str) {
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{what}: {err}");
+    assert!(err.starts_with("::error::"), "{what}: {err}");
+    assert!(!err.contains("Traceback"), "{what}: {err}");
+}
+
+#[test]
+fn release_tools_refuse_asset_names_that_are_paths() {
+    if python().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path().join("latest.json");
+    let base = "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0/";
+    for url in [
+        format!("{base}..%2Fevil.tar.gz"),
+        format!("{base}a%2Fb.tar.gz"),
+        format!("{base}a%5Cb.tar.gz"),
+        format!("{base}%2E%2E"),
+        format!("{base}.."),
+        String::new(),
+    ] {
+        let manifest = serde_json::json!({
+            "version": "0.2.0",
+            "platforms": { "darwin-aarch64": { "url": url, "signature": "s" } }
+        });
+        std::fs::write(&m, manifest.to_string()).unwrap();
+        let out = tool(&["list-artifacts", "--manifest", m.to_str().unwrap()]);
+        assert_clean_failure(&out, &url);
+        let out = tool(&[
+            "resign-manifest",
+            "--manifest",
+            m.to_str().unwrap(),
+            "--sigdir",
+            dir.path().to_str().unwrap(),
+        ]);
+        assert_clean_failure(&out, &url);
+    }
+}
+
+#[test]
+fn release_tools_report_malformed_manifests_without_a_traceback() {
+    if python().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path().join("latest.json");
+    for body in [
+        "not json",
+        "[]",
+        r#"{"version": "0.2.0", "platforms": []}"#,
+        r#"{"version": "0.2.0", "platforms": {"linux-x86_64": "x"}}"#,
+        r#"{"version": "0.2.0", "platforms": {"linux-x86_64": {}}}"#,
+        r#"{"version": "0.2.0", "platforms": {"linux-x86_64": {"url": 3}}}"#,
+    ] {
+        std::fs::write(&m, body).unwrap();
+        for args in [
+            vec!["list-artifacts", "--manifest", m.to_str().unwrap()],
+            vec![
+                "check-manifest",
+                "--manifest",
+                m.to_str().unwrap(),
+                "--version",
+                "0.2.0",
+                "--require",
+                "linux-x86_64",
+            ],
+            vec![
+                "resign-manifest",
+                "--manifest",
+                m.to_str().unwrap(),
+                "--sigdir",
+                dir.path().to_str().unwrap(),
+            ],
+        ] {
+            assert_clean_failure(&tool(&args), &format!("{} {body}", args[0]));
+        }
+    }
+    let missing = dir.path().join("missing.json");
+    assert_clean_failure(
+        &tool(&[
+            "check-manifest",
+            "--manifest",
+            missing.to_str().unwrap(),
+            "--version",
+            "0.2.0",
+        ]),
+        "missing file",
+    );
+}
+
+#[test]
+fn release_tools_read_a_key_file_with_a_bom() {
+    if python().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("updater.pub");
+    std::fs::write(&f, "\u{feff}dW50cnVzdGVk\n").unwrap();
+    let out = tool(&["pubkey", "--file", f.to_str().unwrap()]);
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim_end(),
+        "dW50cnVzdGVk"
+    );
+    std::fs::write(&f, "\u{feff}UNSET\n").unwrap();
+    assert_clean_failure(&tool(&["pubkey", "--file", f.to_str().unwrap()]), "UNSET");
+}

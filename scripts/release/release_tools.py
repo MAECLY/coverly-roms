@@ -136,8 +136,27 @@ def check_manifest(manifest: dict, version: str, required: list[str],
     return errors
 
 
+class ManifestError(ValueError):
+    """A manifest, file name or url this tool refuses (reported as ::error::)."""
+
+
+def check_file_name(name: str) -> str:
+    """`name` when it is a plain file name: never empty, never a path."""
+    if (not name or name in (".", "..") or "/" in name or "\\" in name
+            or ".." in name or "\0" in name):
+        raise ManifestError(f"{name!r} is not a plain file name")
+    return name
+
+
 def asset_name(url: str) -> str:
-    return urllib.parse.unquote(url.rstrip("/").rsplit("/", 1)[-1])
+    """The file name a release asset url points at (last segment, decoded).
+
+    Refuses anything that would leave the folder it is joined to: a `/`, a
+    `\\` or `..` (also once decoded, e.g. `%2F` or `..%2F`) or an empty name.
+    """
+    if not isinstance(url, str):
+        raise ManifestError(f"url {url!r} is not a string")
+    return check_file_name(urllib.parse.unquote(url.rstrip("/").rsplit("/", 1)[-1]))
 
 
 def list_artifacts(manifest: dict) -> list[str]:
@@ -197,7 +216,8 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
 
 
 def read_pubkey(path: str) -> str | None:
-    with open(path, encoding="utf-8") as f:
+    # utf-8-sig: a key file saved by an editor that adds a BOM still reads.
+    with open(path, encoding="utf-8-sig") as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith("#"):
@@ -205,9 +225,30 @@ def read_pubkey(path: str) -> str | None:
     return None
 
 
+def validate_manifest(manifest) -> dict:
+    """The manifest when it has the shape this tool reads, else ManifestError."""
+    if not isinstance(manifest, dict):
+        raise ManifestError("the manifest is not a JSON object")
+    platforms = manifest.get("platforms", {})
+    if not isinstance(platforms, dict):
+        raise ManifestError("the manifest's platforms is not an object")
+    for key, entry in platforms.items():
+        if not isinstance(entry, dict):
+            raise ManifestError(f"platform {key} is not an object")
+        if not isinstance(entry.get("url"), str):
+            raise ManifestError(f"platform {key} has no url")
+        if not isinstance(entry.get("signature", ""), str):
+            raise ManifestError(f"platform {key}'s signature is not a string")
+    return manifest
+
+
 def load_manifest(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            manifest = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ManifestError(f"{path} is not valid JSON: {e}") from None
+    return validate_manifest(manifest)
 
 
 def write_manifest(path: str, manifest: dict) -> None:
@@ -256,6 +297,14 @@ def main(argv: list[str]) -> int:
     p.add_argument("--file", required=True)
 
     args = parser.parse_args(argv)
+    try:
+        return run(args)
+    except (ManifestError, OSError, UnicodeDecodeError) as e:
+        print(f"::error::{e}", file=sys.stderr)
+        return 1
+
+
+def run(args) -> int:
 
     if args.cmd == "semver-gt":
         try:
