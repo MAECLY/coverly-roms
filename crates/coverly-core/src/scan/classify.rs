@@ -77,6 +77,7 @@ mod tests {
             libretro: None,
             arcade: false,
             multi_file: false,
+            header: crate::identify::hash::HeaderRule::Plain,
         }
     }
 

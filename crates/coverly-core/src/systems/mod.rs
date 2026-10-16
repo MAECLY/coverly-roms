@@ -6,6 +6,8 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::identify::hash::HeaderRule;
+
 /// The embedded built-in database.
 const BUILTIN_TOML: &str = include_str!("systems.toml");
 
@@ -26,6 +28,8 @@ pub struct System {
     pub arcade: bool,
     /// Disc system: cue/bin, m3u, gdi, chd.
     pub multi_file: bool,
+    /// Header rule for content hashing.
+    pub header: HeaderRule,
 }
 
 /// Errors loading a systems TOML file.
@@ -43,6 +47,16 @@ pub enum SystemsError {
         /// The offending id.
         id: String,
     },
+    /// A `header` value is not a known rule.
+    #[error(
+        "system `{id}`: unknown header rule `{value}` (expected plain, nes, fds, snes-copier, lynx or a7800)"
+    )]
+    BadHeader {
+        /// The offending id.
+        id: String,
+        /// The unknown value.
+        value: String,
+    },
 }
 
 /// A `[[system]]` table as written in TOML. Every field but `id` is
@@ -57,6 +71,7 @@ struct RawSystem {
     libretro: Option<String>,
     arcade: Option<bool>,
     multi_file: Option<bool>,
+    header: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,7 +99,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade` and `multi_file` replace the current values when given;
+    /// `arcade`, `multi_file` and `header` replace the current values when given;
     /// `aliases` and `extensions` are added to the current lists. An alias
     /// claimed by an override is removed from any other system, so the user
     /// file always wins. An entry with a new `id` is appended and must have a
@@ -126,6 +141,14 @@ impl SystemDb {
             }
         }
 
+        let header = match raw.header {
+            Some(value) => Some(HeaderRule::parse(&value).ok_or(SystemsError::BadHeader {
+                id: id.clone(),
+                value,
+            })?),
+            None => None,
+        };
+
         let index = match self.systems.iter().position(|s| s.id == id) {
             Some(index) => index,
             None => {
@@ -141,6 +164,7 @@ impl SystemDb {
                     libretro: None,
                     arcade: false,
                     multi_file: false,
+                    header: HeaderRule::Plain,
                 });
                 self.systems.len() - 1
             }
@@ -157,6 +181,9 @@ impl SystemDb {
         }
         if let Some(multi_file) = raw.multi_file {
             system.multi_file = multi_file;
+        }
+        if let Some(header) = header {
+            system.header = header;
         }
         for alias in aliases {
             let key = alias.to_lowercase();
@@ -602,6 +629,30 @@ mod tests {
             .with_overrides("[[system]]\nid = \"TIC80\"\nname = \"TIC-80\"\n")
             .unwrap();
         assert_eq!(db.all().last().unwrap().id, "tic80");
+    }
+
+    #[test]
+    fn builtin_header_rules() {
+        use crate::identify::hash::HeaderRule;
+        let db = SystemDb::builtin();
+        for (id, rule) in [
+            ("nes", HeaderRule::Nes),
+            ("fds", HeaderRule::Fds),
+            ("snes", HeaderRule::SnesCopier),
+            ("lynx", HeaderRule::Lynx),
+            ("a7800", HeaderRule::A7800),
+            ("gba", HeaderRule::Plain),
+        ] {
+            assert_eq!(db.get(id).unwrap().header, rule, "{id}");
+        }
+    }
+
+    #[test]
+    fn unknown_header_rule_is_an_error() {
+        let err = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"gba\"\nheader = \"bogus\"\n")
+            .unwrap_err();
+        assert!(matches!(err, SystemsError::BadHeader { .. }), "{err}");
     }
 
     #[test]

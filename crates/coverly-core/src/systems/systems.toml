@@ -9,6 +9,9 @@
 #               (live server root listing, not the GitHub umbrella repo names)
 #   arcade      ROM set short names instead of game titles
 #   multi_file  disc system: cue/bin, m3u, gdi, chd
+#   header      header rule for content hashing: plain (default), nes, fds,
+#               snes-copier, lynx or a7800; the digest without the header is
+#               also computed so headerless DAT entries match
 #
 # Users can extend or override entries by id with a file in the same format.
 
@@ -32,6 +35,7 @@ name = "Atari 7800"
 aliases = ["A7800", "atari7800", "7800"]
 extensions = ["a78", "bin", "zip", "7z"]
 libretro = "Atari - 7800"
+header = "a7800"
 
 [[system]]
 id = "a800"
@@ -129,6 +133,7 @@ name = "Nintendo Entertainment System"
 aliases = ["FC", "NES", "famicom"]
 extensions = ["nes", "unf", "unif", "zip", "7z"]
 libretro = "Nintendo - Nintendo Entertainment System"
+header = "nes"
 
 [[system]]
 id = "fds"
@@ -136,6 +141,7 @@ name = "Famicom Disk System"
 aliases = ["FDS", "famicomdisk"]
 extensions = ["fds", "zip", "7z"]
 libretro = "Nintendo - Family Computer Disk System"
+header = "fds"
 
 [[system]]
 id = "gb"
@@ -186,6 +192,7 @@ name = "Atari Lynx"
 aliases = ["LYNX", "atarilynx"]
 extensions = ["lnx", "o", "zip", "7z"]
 libretro = "Atari - Lynx"
+header = "lynx"
 
 [[system]]
 id = "mame"
@@ -364,6 +371,7 @@ name = "Super Nintendo"
 aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
 extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
 libretro = "Nintendo - Super Nintendo Entertainment System"
+header = "snes-copier"
 
 [[system]]
 id = "mastersystem"
