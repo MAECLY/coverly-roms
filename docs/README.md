@@ -62,6 +62,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [Identification](./04-architecture/identification.md) — hashing, header rules, DATs, arcade names, name normalisation
 - [Art Sources](./04-architecture/art-sources.md) — `ArtSource` trait, libretro-thumbnails, hostile names, polite HTTP
 - [Fill Pipeline](./04-architecture/fill-pipeline.md) — gather, plan, strategies, image limits, safe writes, undo, CLI, E2E evidence
+- [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, art security, UI stores, browser mock, performance
 
 ### 07 — Build & Release
 

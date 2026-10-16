@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M2 mergeado ([PR #3](https://github.com/MAECLY/coverly-roms/pull/3), `2a1a8e1`). Siguiente: M3 (explorador en la app).
-- **Siguiente paso:** plan M3 (`docs/superpowers/plans/2026-10-16-m3-explorer.md`) + workflow implementador/revisor en `feat/m3-explorer`.
-- **En curso:** workflow M3.
+- **Fase:** M3 implementado en `feat/m3-explorer` (plan tareas 1–13). M2 mergeado ([PR #3](https://github.com/MAECLY/coverly-roms/pull/3), `2a1a8e1`).
+- **Siguiente paso:** PR M3 + revisión (incluye la comprobación manual de la app real, abajo en «Evidencia M3»); luego plan M4.
+- **En curso:** —
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
@@ -40,6 +40,10 @@
 | D13 | ROMs `.7z` se identifican por nombre en M2 (CRC interno de 7z diferido: dependencia pesada) | 2026-10-16 | Claude (plan M2) |
 | D14 | `coverly fill --apply` escribe también los ítems `review` salvo `--auto-only` (spec §7.7); el dry-run siempre muestra cuántos son `review` | 2026-10-16 | Claude (plan M2) |
 | D15 | Sin conexión / timeout pausa como un 403/429 (spec §10). Popularidad: consenso = listados de media de libretro hasta M6 (votos SteamGridDB y consenso entre fuentes llegan con M6) | 2026-10-16 | Claude (plan M2) |
+| D16 | El árbol de carpetas se deriva en la UI desde `entry.dir`; `LibraryView` no lleva `folders` | 2026-10-16 | Claude (plan M3) |
+| D17 | Escaneo progresivo = eventos de progreso por carpeta de sistema; las entradas llegan al final (abrir la biblioteca real: 367 ms en frío / 140 ms en caliente, release) | 2026-10-16 | Claude (plan M3) |
+| D18 | El arte llega por IPC como bytes, pedido por `(generación, id)`; sin asset protocol; CSP `img-src 'self' data: blob:` | 2026-10-16 | Claude (plan M3) |
+| D19 | Elegir directamente la carpeta `ROMS` funciona (`fit_to_root`); idioma en `localStorage` hasta M5 | 2026-10-16 | Claude (plan M3) |
 
 ## Fase 0 — Descubrimiento y diseño
 
@@ -141,11 +145,30 @@ Binario release, servidores reales, todo en el scratchpad (`$SC` = `/private/tmp
 
 | ID | Tarea | Estado | Evidencia |
 |---|---|---|---|
-| M3-01 | Pantalla inicio + librerías recientes + drag&drop | ⬜ | |
-| M3-02 | Vistas: Carpetas / Sistemas / Fecha / Todo | ⬜ | |
-| M3-03 | Grid virtualizado + tabla | ⬜ | |
-| M3-04 | Filtros y búsqueda | ⬜ | |
-| M3-05 | Panel de detalle con acciones | ⬜ | |
+| M3-01 | Pantalla inicio + librerías recientes + drag&drop | ✅ | Core: `be519c4` (progreso), `f17b801` (`fit_to_root`), `0345817` (ignorados + recientes). App: `206886f`, `8f4e1f2`, `90dbcef`, `892db67`, `23f94e1`. UI: `ab80981`, `016b05f`, `7d53fe0`, `65c4413`, `75172c1`, `4ee52cb`, `9c4473a`, `060c651`, `4a1746c` (recuentos con formato del idioma, hallado en el E2E). Doc: [desktop-app.md](04-architecture/desktop-app.md) |
+| M3-02 | Vistas: Carpetas / Sistemas / Fecha / Todo | ✅ | `673e5c1` (árbol, ámbitos, orden), `3a100b9`, `e8d23c9` |
+| M3-03 | Grid virtualizado + tabla | ✅ | `2d0309f`, `c0dbe8d`, `a20aef2`, `ee00ef8`, `9041e1d`; 48 celdas montadas como máximo con 12k (presupuesto 120) |
+| M3-04 | Filtros y búsqueda | ✅ | `673e5c1` (búsqueda sin acentos, filtros, facetas), `3a100b9`, `07f665c`, `de3a458`, `b381df2` (campos con `name`, hallado en el E2E) |
+| M3-05 | Panel de detalle con acciones | ✅ | `2808f63` (identificar bajo demanda, sin conexión → por nombre), `5fc856e` (panel: arte, ficha, identidad, «Mostrar en Finder») |
+| M3-06 | Inicio: volúmenes extraíbles detectados (spec §8) | ⏸️ | Diferido a M5 (plan M3) |
+| M3-07 | Filtro por método/confianza de identificación (spec §8) | ⏸️ | Diferido a M4: en M3 la identidad es bajo demanda |
+| M3-08 | Elegir/confirmar el perfil al abrir (spec §7.1); hoy `no-profile` si no hay marcadores | ⏸️ | Diferido a M5 (editor de perfiles); el comando ya acepta `profileId` |
+
+### Evidencia M3 — explorador (2026-10-16)
+
+Evidencia en `$S` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad/m3-e2e/` (no versionada). **Nada se ejecutó contra `/Volumes`.**
+
+- **Biblioteca real en solo lectura** (`COVERLY_REAL_ROMS=~/Documents/ROMS cargo test -p coverly-roms --release --test real_library -- --ignored`, camino real de comandos `open_session`): `profile=anbernic-stock fitted=true systems_with_roms=34 folders=55 entries=7473 missing_cover=3080 warnings=0 progress_events=56 json_bytes=1777055`; **`open=367 ms` en frío** (scan 176 ms), **140 ms en caliente** (scan 90 ms). Mismos totales que la auditoría M1-07 de la SD (7473 / 3080). Muy por debajo de 3 s → no hace falta enviar entradas por sistema.
+- **Origen intacto:** `find ~/Documents/ROMS -cnewer snapshot | wc -l` → **0** (antes y después de todo el E2E). `-newer` (mtime) lista 3 ficheros de `SFC` (`Star Trek-The Next Generation.smc`, `Super Buster Bros..smc`, `Battle Tycoon.smc`) porque ya traían fecha de modificación de **2099** en la copia; su ctime es anterior al snapshot, no se tocaron.
+- **Árbol generado de 12.000 ROMs** (`library_scale`, release): **151 ms**, 2.913.204 bytes de JSON.
+- **E2E en Chrome** (Chrome DevTools MCP, `pnpm dev`, viewport 1440×900, mock 12k): inicio en/es con recientes y `EJECTED` desactivado; progreso capturado por sondeo (18 estados, «Scanning DREAMCAST… 1 of 18 folders» … «Scanning SMS… 17 of 18 folders · 11,867 ROMs found»; demasiado rápido para captura); Sistemas → Super Nintendo 1,333; Carpetas → SFC › Hacks 95; Fecha → This week 435 (Modified descendente); búsqueda `pokemon edicion` → `Pokémon - Edición Oro (Spain)`; `<img` → el nombre hostil como texto, sin `img[src=x]` ni `[onerror]`; filtros Missing cover + Super Nintendo + .sfc → «Filters (3)», estado y facetas 267; tabla Size ascendente/descendente (`aria-sort`); teclado (flechas, End, Home, Enter abre, flecha sigue, Escape cierra, `/` busca); panel con hash 100 % y con la nota sin conexión, acciones de M4 desactivadas, «Reveal» sin error; español («12.000 de 12.000 ROMs»); soltar `Broken` → «Esta carpeta no existe»; `Empty library` → «No se han encontrado ROMs en esta carpeta.».
+- **Scroll 12k** (120 saltos de 600 px): **48 celdas** como máximo (presupuesto 120), tabla 42 filas (presupuesto 60). Tiempo de frame (media / p95): build de producción (`vite preview`) **16,6–19,4 / 20–30 ms** (dentro de ≤ 20 / ≤ 50); `pnpm dev` 22–32 / 42–58 ms por el modo desarrollo de React.
+- **Consola y red:** tras los fixes, 0 errores, 0 avisos, 0 issues (`console.txt`); 1068 peticiones, todas 200, `favicon.png` 200 (`network.txt`).
+- **Bugs del E2E:** recuentos de recientes y del progreso sin formato del idioma («12000 ROMs») → test + fix `4a1746c`; issue de DevTools «A form field element should have an id or name attribute» (13 campos) → test + fix `b381df2`.
+- **App Tauri real:** `pnpm tauri build --debug --no-bundle` OK (chequeo de versiones de plugins, capabilities, CSP); `target/debug/coverly-roms` arrancó y siguió vivo (`pgrep`), inicio renderizado en `17-tauri-start.png`; parado.
+- **Comprobación manual pendiente (Miguel, solo lectura, nunca bajo `/Volumes`):** en la app real, abrir `~/Documents/ROMS` con el diálogo nativo, desplazarse por las portadas reales, abrir el panel y «Mostrar en Finder».
+- **Capturas:** `01-start-en.png`, `02-scanning.png`, `03-grid-12k.png`, `04-grid-scrolled.png`, `05-systems.png`, `06-folders.png`, `07-date.png`, `08-search.png`, `09-filters.png`, `10-table.png`, `11-keyboard.png`, `12-drawer.png`, `12b-drawer-offline.png`, `13-library-es.png`, `14-start-es.png`, `15-error.png`, `16-empty.png`, `17-tauri-start.png`; logs `real-library-{1,2}.log`, `scale-12k.log`, `tauri-build.log`; notas `e2e-notes.md`.
+- **Tests:** `cargo test --workspace` → 312 pasan; `pnpm test` → 156 pasan (28 ficheros). fmt, clippy `-D warnings`, lint, typecheck, format y build en verde.
 
 ## M4 — Relleno masivo en la app
 
@@ -189,3 +212,4 @@ Binario release, servidores reales, todo en el scratchpad (`$SC` = `/private/tmp
 - **2026-10-15** — M0 + M1 implementados (plan tareas 1–11, rama `feat/m1-audit`). `coverly audit` validado en solo lectura contra la SD real: 7473 ROMs, 3080 sin portada, 1,69 s en la 1ª ejecución; recuento manual de SFC/GB/WS/PS coincide. ADRs 0001–0008 + arquitectura + índice de docs (`1455f8a`). M1-05 (caché SQLite) movida a M2.
 - **2026-10-16** — M2 mergeado (PR #3, `2a1a8e1`; Actions bloqueado por facturación → gates locales: 265 tests Rust + 11 front, clippy/fmt/lint limpios). Verificación independiente sobre copia de 61 ROMs SFC: 61/61 rellenadas (59 por hash, 2 por nombre), todas el juego correcto revisadas a mano (`Digital Devil Story X` → *Shin Megami Tensei if...*), 12 s en frío; undo quitó las 61. Fix menor `create_dirs` solo NotFound.
 - **2026-10-16** — M2 implementado en `feat/m2-fill` (plan tareas 1–14): identificación (hash → DATs, arcade, nombre), libretro-thumbnails, estrategias, plan, imagen, escritura segura, `coverly fill`/`undo`. E2E sobre copia de la SD: 109/126 portadas rellenadas, undo y respaldos byte a byte; imagen FAT32 sin `._*`. El E2E destapó y arregló 3 bugs (rutas DAT, `&amp;` en listados, `._*` en FAT). Docs: identification, art-sources, fill-pipeline, ADR-0009/0010; D12–D15.
+- **2026-10-16** — M3 implementado en `feat/m3-explorer` (plan tareas 1–13): explorador con vistas, grid/tabla virtualizados, filtros y búsqueda, panel de detalle, mock de navegador; E2E en Chrome (12k entradas) y biblioteca real en solo lectura (7473 ROMs, 367 ms en frío). El E2E destapó 2 bugs menores (recuentos sin formato, campos sin `name`). D16–D19.
