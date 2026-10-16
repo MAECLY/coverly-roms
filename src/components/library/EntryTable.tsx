@@ -65,6 +65,8 @@ export function EntryTable({
     selectedId === null ? -1 : (indexOf.get(selectedId) ?? -1);
 
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
+    // Keys pressed on a header sort button belong to that button.
+    if (ev.target !== ev.currentTarget) return;
     if (ev.key === 'Enter') {
       if (selectedId !== null) {
         ev.preventDefault();

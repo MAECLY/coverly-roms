@@ -62,6 +62,8 @@ export function CoverGrid({
     selectedId === null ? -1 : (indexOf.get(selectedId) ?? -1);
 
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
+    // Keys pressed on a focusable child belong to that child.
+    if (ev.target !== ev.currentTarget) return;
     if (ev.key === 'Enter') {
       if (selectedId !== null) {
         ev.preventDefault();

@@ -94,6 +94,20 @@ describe('CoverGrid', () => {
     expect(screen.getByTestId('opened')).toHaveTextContent(String(last));
   });
 
+  it('ignores keys that bubble up from inside the grid', () => {
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    const tile = screen.getAllByRole('gridcell')[3]!;
+    fireEvent.keyDown(tile, { key: 'ArrowRight' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${big.entries[0]!.id}`,
+    );
+    expect(fireEvent.keyDown(tile, { key: 'Enter' })).toBe(true);
+    expect(screen.getByTestId('opened')).toHaveTextContent('');
+  });
+
   it('opens a tile on click', () => {
     render(<Harness entries={big.entries} />);
     fireEvent.click(screen.getAllByRole('gridcell')[2]!);

@@ -20,7 +20,13 @@ const big = generateLibrary({
   now: FIXTURE_NOW,
 });
 
-function Harness({ onSort }: { onSort: (k: SortKey) => void }) {
+function Harness({
+  onSort,
+  onOpen = () => undefined,
+}: {
+  onSort: (k: SortKey) => void;
+  onOpen?: (id: number) => void;
+}) {
   const [selected, setSelected] = useState<number | null>(null);
   return (
     <I18nProvider locale="en">
@@ -30,7 +36,10 @@ function Harness({ onSort }: { onSort: (k: SortKey) => void }) {
         generation={1}
         selectedId={selected}
         onSelect={setSelected}
-        onOpen={setSelected}
+        onOpen={(id) => {
+          setSelected(id);
+          onOpen(id);
+        }}
         sort={DEFAULT_SORT}
         onSort={onSort}
       />
@@ -123,5 +132,24 @@ describe('EntryTable', () => {
       Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
       Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
     }
+  });
+
+  it('leaves Enter and arrows on a sort button to the button', () => {
+    const onSort = vi.fn();
+    const onOpen = vi.fn();
+    render(<Harness onSort={onSort} onOpen={onOpen} />);
+    const grid = screen.getByRole('grid');
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    const name = screen.getByRole('button', { name: 'Name' });
+    fireEvent.keyDown(name, { key: 'ArrowDown' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${big.entries[0]!.id}`,
+    );
+    const enter = fireEvent.keyDown(name, { key: 'Enter' });
+    expect(enter).toBe(true);
+    fireEvent.click(name);
+    expect(onSort).toHaveBeenCalledWith('name');
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });
