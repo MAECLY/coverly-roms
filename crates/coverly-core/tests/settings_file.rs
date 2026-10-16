@@ -643,3 +643,28 @@ fn a_set_aside_settings_file_is_not_replaced_by_the_legacy_one() {
     assert_eq!(s, Settings::default());
     assert_eq!(report.notice, None, "settings existed: no migration");
 }
+
+#[test]
+fn with_patch_refuses_a_patch_that_is_not_an_object() {
+    let mut s = Settings::default();
+    s.general.theme = ThemeChoice::Dark;
+    for patch in [json!([1]), json!([]), json!(null), json!(7), json!("x")] {
+        let errors = s.with_patch(&patch, &known()).unwrap_err();
+        assert_eq!(
+            codes(&errors),
+            [(String::new(), FieldErrorCode::Invalid)],
+            "{patch}"
+        );
+    }
+    let errors = s
+        .with_patch(
+            &json!({"network": [], "general": {"theme": "light"}}),
+            &known(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        codes(&errors),
+        [("network".to_string(), FieldErrorCode::Invalid)]
+    );
+    assert!(s.with_patch(&json!({}), &known()).is_ok());
+}

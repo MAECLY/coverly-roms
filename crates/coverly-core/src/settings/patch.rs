@@ -60,6 +60,19 @@ impl Settings {
         patch: &Value,
         known_profiles: &[String],
     ) -> Result<Settings, Vec<FieldError>> {
+        // Only an object of groups (each an object, or `null` to reset it)
+        // is a patch: anything else would replace whole groups at once.
+        let Value::Object(groups) = patch else {
+            return Err(vec![FieldError::new("", FieldErrorCode::Invalid)]);
+        };
+        let bad: Vec<FieldError> = groups
+            .iter()
+            .filter(|(_, v)| !(v.is_object() || v.is_null()))
+            .map(|(k, _)| FieldError::new(k.clone(), FieldErrorCode::Invalid))
+            .collect();
+        if !bad.is_empty() {
+            return Err(bad);
+        }
         let current = serde_json::to_value(self).expect("settings serialise");
         let mut merged = current.clone();
         merge_patch(&mut merged, patch);
