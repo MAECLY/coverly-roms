@@ -7,14 +7,19 @@
 #
 # Who holds what (least privilege, ADR-0011):
 # - guard and draft run no third-party build code. draft (contents: write)
-#   only runs `gh` to create or reuse the draft.
+#   only runs `gh` to create or reuse the draft. guard checks that the
+#   signing secret is set (`!= ''`) without receiving its value.
 # - app and cli compile third-party code (crates and their build scripts, npm
 #   packages, the Tauri CLI), so they hold `contents: read` only: they cannot
 #   push, tag or touch the draft. They never see the signing secret either:
 #   `tauri build` needs a key for createUpdaterArtifacts, so each app build
 #   signs with a throwaway key generated on the spot. They hand their files
-#   to finalize as workflow artifacts (actions/upload-artifact).
-# - finalize builds nothing. It downloads those artifacts, signs every update
+#   to finalize as workflow artifacts (actions/upload-artifact). On a
+#   prerelease tag Windows builds the NSIS installer only: WiX (the .msi)
+#   refuses a non-numeric prerelease such as 1.0.0-beta.1.
+# - finalize builds nothing. It downloads every artifact into its own folder
+#   (never merged), checks that each holds only its own platform's files
+#   (release_tools.py stage-builds), signs every update
 #   artifact and CLI binary with the real key (bound to the version,
 #   --app-version), writes latest.json itself (release_tools.py
 #   updater-manifest + add-cli), verifies every signature with minisign
