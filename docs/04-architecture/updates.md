@@ -83,16 +83,16 @@ Rules the tests pin:
 
 ## The manifest
 
-`release.yml`'s `finalize` job writes it; `release-channels.yml` copies it to `channel-beta`. Example (signatures shortened):
+`release.yml`'s `finalize` job writes it (the notes are the version's `CHANGELOG.md` section); `release-channels.yml` copies it to `channel-beta`. Example (signatures shortened, bundle-specific keys left out):
 
 ```json
 {
   "version": "0.1.0",
-  "notes": "Coverly ROMs 0.1.0 …",
+  "notes": "### Added\n\n- …",
   "pub_date": "2026-11-02T10:00:00Z",
   "platforms": {
-    "darwin-aarch64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
-    "darwin-x86_64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
+    "darwin-aarch64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
+    "darwin-x86_64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
     "windows-x86_64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_x64-setup.exe", "signature": "dW50cnVzdGVk…" },
     "linux-x86_64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_amd64.AppImage", "signature": "dW50cnVzdGVk…" },
     "linux-aarch64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_aarch64.AppImage", "signature": "dW50cnVzdGVk…" },
@@ -105,7 +105,7 @@ Rules the tests pin:
 }
 ```
 
-The exact app artifact names are whatever tauri-action uploads; tauri-action may also add bundle-specific keys (for example `windows-x86_64-msi`). Each `signature` is the base64 of a minisign signature file whose trusted comment carries `version:0.1.0` (`tauri signer sign --app-version`). The app reads `<os>-<arch>`; the CLI reads `cli-<os>-<arch>` (`cli_platform_key()`: `macos` → `darwin`; arch `x86_64` or `aarch64`, anything else has no key).
+`finalize` writes it with `release_tools.py updater-manifest` from the bundles the read-only `app` jobs handed over: `darwin-aarch64` and `darwin-x86_64` → the universal `.app.tar.gz`, `windows-x86_64` → the NSIS `-setup.exe` (the `.msi` only if there were no NSIS installer, tauri-action's `updaterJsonPreferNsis`), `linux-<arch>` → the `.AppImage`; it also writes bundle-specific keys (`darwin-aarch64-app`, `windows-x86_64-nsis`, `windows-x86_64-msi`, `linux-x86_64-appimage`, `linux-x86_64-deb`, …), which the updater tries first for the bundle a copy was installed from. Each `signature` is the base64 of a minisign signature file whose trusted comment carries `version:0.1.0` (`tauri signer sign --app-version`). The app reads `<os>-<arch>`; the CLI reads `cli-<os>-<arch>` (`cli_platform_key()`: `macos` → `darwin`; arch `x86_64` or `aarch64`, anything else has no key).
 
 | Channel | URL |
 |---|---|

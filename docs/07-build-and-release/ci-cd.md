@@ -50,15 +50,15 @@ Node 24, pnpm from `package.json` → `packageManager`. `pnpm install --frozen-l
 
 ## `release.yml` job by job
 
-Top-level `permissions: {}`; each job asks for what it needs. `concurrency: release-<ref>` without cancelling, so a tag's run is never cut in half. Every action is pinned to a full SHA; tauri-action is `tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0`.
+Top-level `permissions: {}`; each job asks for what it needs. `concurrency: release-<ref>` without cancelling, so a tag's run is never cut in half. Every action is pinned to a full SHA. Only `draft` and `finalize` hold `contents: write`, and neither compiles third-party code; the build jobs are read-only and hand their files to `finalize` as workflow artifacts (ADR-0011).
 
 | Job | Needs | Runs on | Permissions | Secrets | What it does |
 |---|---|---|---|---|---|
 | `guard` | — | ubuntu-latest | `contents: read` | reads whether `TAURI_SIGNING_PRIVATE_KEY` is set | Refuses a missing secret, a private repository, `updater.pub` still `UNSET`, versions that disagree (`scripts/bump-version.sh --check`), a tag ≠ `Cargo.toml`, or no `## [X.Y.Z]` in `CHANGELOG.md`. |
-| `draft` | guard | ubuntu-latest | `contents: write` | `GITHUB_TOKEN` | Creates the draft (prerelease for a `-pre` tag) with `.github/release-notes.md`, or reuses the draft on a re-run; refuses an already published tag. |
-| `app` | draft | macos-latest (universal: `--target universal-apple-darwin`), windows-latest, ubuntu-22.04, ubuntu-22.04-arm | `contents: write` (tauri-action uploads to the draft) | `GITHUB_TOKEN` only | Generates a throwaway updater key and a `--config` overlay with its public half (`tauri build` decodes `plugins.updater.pubkey`, which is only a marker in the repo), then tauri-action v1 builds the bundles and update artifacts and merges its platform into the draft's `latest.json` (`uploadUpdaterJson: true`, `updaterJsonPreferNsis: true`, `uploadUpdaterSignatures: false`). |
+| `draft` | guard | ubuntu-latest | `contents: write` | `GITHUB_TOKEN` | Runs only `gh`. Creates the draft (prerelease for a `-pre` tag) with `.github/release-notes.md`, or reuses the draft on a re-run; refuses an already published tag. |
+| `app` | guard | macos-latest (universal: `--target universal-apple-darwin`), windows-latest, ubuntu-22.04, ubuntu-22.04-arm | `contents: read` | none | Generates a throwaway updater key and a `--config` overlay with its public half (`tauri build` decodes `plugins.updater.pubkey`, which is only a marker in the repo), runs `pnpm tauri build`, stages the bundles under their release names (no spaces; the macOS `.app.tar.gz` gets the version and `universal`; the throwaway `.sig` files stay behind) and uploads them as the workflow artifact `app-<platform>`. |
 | `cli` | guard | the same 5 targets | `contents: read` | none | `cargo build --release --locked -p coverly-cli`, staged as `coverly-<version>-<os>-<arch>[.exe]` workflow artifacts. |
-| `finalize` | draft, app, cli | ubuntu-latest | `contents: write` | the two signing secrets, in one step | Downloads `latest.json` and every update artifact from the draft and the CLI artifacts; signs each with `tauri signer sign --app-version`; `release_tools.py resign-manifest`, `add-cli`, `check-manifest` (10 keys, signatures bound to the version); `minisign -V` of every file against the committed `updater.pub` and a tampered copy that must fail; `SHA256SUMS` over every file (the `.dmg` included); uploads `latest.json`, `SHA256SUMS`, the `.sig` files and the CLI binaries. |
+| `finalize` | draft, app, cli | ubuntu-latest | `contents: write` | the two signing secrets, in one step | Compiles nothing. Downloads the `app-*` and `cli-*` workflow artifacts; signs every update artifact (`release_tools.py updater-artifacts`) and CLI binary with `tauri signer sign --app-version`; writes `latest.json` with `release_tools.py updater-manifest` and `add-cli`, then `check-manifest` (10 keys, signatures bound to the version); `minisign -V` of every file against the committed `updater.pub` and a tampered copy that must fail; `SHA256SUMS` over every file (the `.dmg`, `.msi` and `.deb` included); uploads the bundles, their `.sig` files, the CLI binaries, `latest.json` and `SHA256SUMS` to the draft. |
 
 macOS is signed ad hoc (`signingIdentity: "-"`) and Windows installers are not Authenticode-signed (ADR-0008); the release notes explain "Open Anyway" and "Run anyway".
 
@@ -68,7 +68,7 @@ Runs when a release is published (drafts and `channel-beta` itself are ignored).
 
 ## The release helper
 
-`scripts/release/release_tools.py` (Python 3.9+ standard library, run with `python3 -I`) holds every rule the workflows depend on — `semver-gt`, `check-manifest`, `list-artifacts`, `resign-manifest`, `add-cli`, `pubkey` — so `src-tauri/tests/release_pipeline.rs` tests them on a developer machine, together with workflow invariants (pins, permissions, which job sees the secrets) and the docs this page links.
+`scripts/release/release_tools.py` (Python 3.9+ standard library, run with `python3 -I`) holds every rule the workflows depend on — `semver-gt`, `semver-check`, `updater-artifacts`, `updater-manifest`, `check-manifest`, `add-cli`, `pubkey`, and `list-artifacts`/`resign-manifest` for recovery — so `src-tauri/tests/release_pipeline.rs` tests them on a developer machine, together with workflow invariants (pins, permissions, which job sees the secrets) and the docs this page links.
 
 ## Running the same checks locally
 
