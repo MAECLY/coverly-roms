@@ -4,6 +4,10 @@
 //! app data dir, and a JSON-lines journal flushed per entry so a job can be
 //! undone even after a crash. Never sets extended attributes and never uses
 //! `fs::copy` (it copies xattrs on macOS, which makes `._*` files on FAT).
+//! macOS still tags every file and folder a process creates with
+//! `com.apple.provenance`, which user space cannot remove; on FAT/exFAT it
+//! lands in a `._<name>` AppleDouble file, so the writer deletes the
+//! sidecars of the paths it created (never one that was already there).
 //!
 //! Layout in the app data dir: journals `jobs/<job>.jsonl` (renamed
 //! `<job>.undone.jsonl` after undo) and backups
@@ -237,7 +241,7 @@ impl Writer {
         let parent = target
             .parent()
             .ok_or_else(|| WriteError::OutsideRoot(target.clone()))?;
-        fs::create_dir_all(parent).map_err(|e| map_io(e, parent))?;
+        remove_apple_doubles(&create_dirs(parent)?);
 
         let existing = find_twin(parent, name)?;
         let (dest, backup) = match (existing, policy) {
@@ -337,13 +341,42 @@ fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, WriteError> {
     Ok(found)
 }
 
+/// `dir/._name`: the AppleDouble file macOS keeps next to `path` on
+/// FAT/exFAT for the extended attributes those file systems cannot store.
+fn apple_double(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    Some(path.with_file_name(format!("._{name}")))
+}
+
+/// Deletes the AppleDouble sidecars of `paths`, best effort. Only for
+/// paths this writer created, or whose sidecar did not exist before.
+fn remove_apple_doubles(paths: &[PathBuf]) {
+    for sidecar in paths.iter().filter_map(|p| apple_double(p)) {
+        let _ = fs::remove_file(sidecar);
+    }
+}
+
+/// `create_dir_all(dir)`, returning the folders that did not exist.
+fn create_dirs(dir: &Path) -> Result<Vec<PathBuf>, WriteError> {
+    let mut missing = Vec::new();
+    let mut probe = Some(dir);
+    while let Some(p) = probe.filter(|p| fs::symlink_metadata(p).is_err()) {
+        missing.push(p.to_path_buf());
+        probe = p.parent();
+    }
+    fs::create_dir_all(dir).map_err(|e| map_io(e, dir))?;
+    Ok(missing)
+}
+
 /// Writes `bytes` to a temp file named `tmp_name` next to `dest`, fsyncs
-/// it and renames it over `dest`. The temp file never survives an error.
+/// it and renames it over `dest`. The temp file never survives an error,
+/// and neither do the AppleDouble sidecars the write caused.
 fn atomic_write(dest: &Path, bytes: &[u8], tmp_name: &str) -> Result<(), WriteError> {
     let dir = dest
         .parent()
         .ok_or_else(|| WriteError::OutsideRoot(dest.to_path_buf()))?;
     let tmp = dir.join(tmp_name);
+    let dest_had_sidecar = apple_double(dest).is_some_and(|s| fs::symlink_metadata(s).is_ok());
     let result = (|| {
         let mut file = OpenOptions::new()
             .write(true)
@@ -357,6 +390,10 @@ fn atomic_write(dest: &Path, bytes: &[u8], tmp_name: &str) -> Result<(), WriteEr
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
+    }
+    remove_apple_doubles(&[tmp]);
+    if result.is_ok() && !dest_had_sidecar {
+        remove_apple_doubles(&[dest.to_path_buf()]);
     }
     result
 }
@@ -610,4 +647,57 @@ pub fn prune_jobs(data_dir: &Path, keep: usize) -> Result<(), WriteError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apple_double_is_the_dot_underscore_sibling() {
+        assert_eq!(
+            apple_double(Path::new("/r/ROMS/GBA/Imgs/a b.png")),
+            Some(PathBuf::from("/r/ROMS/GBA/Imgs/._a b.png"))
+        );
+    }
+
+    #[test]
+    fn create_dirs_reports_only_the_folders_it_created() {
+        let tmp = tempfile::tempdir().unwrap();
+        let existing = tmp.path().join("ROMS");
+        fs::create_dir(&existing).unwrap();
+        let deep = existing.join("GBA").join("Imgs");
+        let mut created = create_dirs(&deep).unwrap();
+        created.sort();
+        assert_eq!(created, [existing.join("GBA"), deep.clone()]);
+        assert!(deep.is_dir());
+        assert!(create_dirs(&deep).unwrap().is_empty());
+    }
+
+    #[test]
+    fn removes_the_sidecars_of_new_paths_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (new, old) = (tmp.path().join("new.png"), tmp.path().join("old.png"));
+        for p in ["new.png", "._new.png", "old.png", "._old.png"] {
+            fs::write(tmp.path().join(p), b"x").unwrap();
+        }
+        remove_apple_doubles(std::slice::from_ref(&new));
+        assert!(!tmp.path().join("._new.png").exists());
+        assert!(new.exists() && old.exists() && tmp.path().join("._old.png").exists());
+        // Missing sidecars are not an error.
+        remove_apple_doubles(&[new]);
+    }
+
+    #[test]
+    fn atomic_write_keeps_a_sidecar_that_was_already_there() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("a.png");
+        fs::write(tmp.path().join("._a.png"), b"user metadata").unwrap();
+        atomic_write(&dest, b"png", ".coverly-t-0.tmp").unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"png");
+        assert_eq!(
+            fs::read(tmp.path().join("._a.png")).unwrap(),
+            b"user metadata"
+        );
+    }
 }
