@@ -3,7 +3,12 @@
 //! Pure Rust, no Tauri and no network code: everything the app and the
 //! `coverly` CLI share lives here.
 
+pub mod art;
+pub mod audit;
 pub mod paths;
+pub mod profiles;
+pub mod scan;
+pub mod systems;
 
 /// Version of the core library, taken from the workspace package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

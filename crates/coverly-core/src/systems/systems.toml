@@ -1,0 +1,412 @@
+# Built-in system database of Coverly ROMs.
+#
+# One [[system]] per platform:
+#   id          canonical id (stable; used by profiles and overrides)
+#   name        display name
+#   aliases     folder names, compared case-insensitively
+#   extensions  ROM extensions, lowercase, without the dot
+#   libretro    playlist folder name exactly as on https://thumbnails.libretro.com/
+#               (live server root listing, not the GitHub umbrella repo names)
+#   arcade      ROM set short names instead of game titles
+#   multi_file  disc system: cue/bin, m3u, gdi, chd
+#
+# Users can extend or override entries by id with a file in the same format.
+
+[[system]]
+id = "a2600"
+name = "Atari 2600"
+aliases = ["A2600", "atari2600", "2600"]
+extensions = ["a26", "bin", "zip", "7z"]
+libretro = "Atari - 2600"
+
+[[system]]
+id = "a5200"
+name = "Atari 5200"
+aliases = ["A5200", "atari5200", "5200"]
+extensions = ["a52", "bin", "zip", "7z"]
+libretro = "Atari - 5200"
+
+[[system]]
+id = "a7800"
+name = "Atari 7800"
+aliases = ["A7800", "atari7800", "7800"]
+extensions = ["a78", "bin", "zip", "7z"]
+libretro = "Atari - 7800"
+
+[[system]]
+id = "a800"
+name = "Atari 8-bit"
+aliases = ["A800", "atari800", "atari8bit"]
+extensions = ["atr", "atx", "xex", "xfd", "cas", "car", "com", "bas", "zip", "7z"]
+libretro = "Atari - 8-bit"
+
+[[system]]
+id = "amiga"
+name = "Commodore Amiga"
+aliases = ["AMIGA"]
+extensions = ["adf", "adz", "dms", "fdi", "ipf", "hdf", "hdz", "lha", "lzh", "uae", "m3u", "zip", "7z"]
+libretro = "Commodore - Amiga"
+
+[[system]]
+id = "atarist"
+name = "Atari ST"
+aliases = ["ATARIST", "atari st"]
+extensions = ["st", "msa", "stx", "dim", "ipf", "m3u", "zip", "7z"]
+libretro = "Atari - ST"
+
+[[system]]
+id = "atomiswave"
+name = "Atomiswave"
+aliases = ["ATOMISWAVE", "awave"]
+extensions = ["zip", "7z"]
+libretro = "Atomiswave"
+arcade = true
+
+[[system]]
+id = "c64"
+name = "Commodore 64"
+aliases = ["C64", "commodore64"]
+extensions = ["d64", "d71", "d81", "g64", "t64", "tap", "prg", "p00", "crt", "m3u", "zip", "7z"]
+libretro = "Commodore - 64"
+
+[[system]]
+id = "cps1"
+name = "Capcom Play System"
+aliases = ["CPS1"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "cps2"
+name = "Capcom Play System II"
+aliases = ["CPS2"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "cps3"
+name = "Capcom Play System III"
+aliases = ["CPS3"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "dos"
+name = "DOS"
+aliases = ["DOS", "msdos"]
+extensions = ["zip", "dosz", "exe", "com", "bat", "conf", "iso", "cue"]
+libretro = "DOS"
+
+[[system]]
+id = "dreamcast"
+name = "Sega Dreamcast"
+aliases = ["DREAMCAST", "dc"]
+extensions = ["cdi", "gdi", "chd", "cue", "m3u", "iso"]
+libretro = "Sega - Dreamcast"
+multi_file = true
+
+[[system]]
+id = "easyrpg"
+name = "EasyRPG"
+aliases = ["EASYRPG", "rpgmaker"]
+extensions = ["easyrpg", "zip"]
+libretro = "RPG Maker"
+
+[[system]]
+id = "fbneo"
+name = "FinalBurn Neo"
+aliases = ["FBNEO", "fba", "fbalpha", "finalburn"]
+extensions = ["zip", "7z"]
+libretro = "FBNeo - Arcade Games"
+arcade = true
+
+[[system]]
+id = "nes"
+name = "Nintendo Entertainment System"
+aliases = ["FC", "NES", "famicom"]
+extensions = ["nes", "unf", "unif", "zip", "7z"]
+libretro = "Nintendo - Nintendo Entertainment System"
+
+[[system]]
+id = "fds"
+name = "Famicom Disk System"
+aliases = ["FDS", "famicomdisk"]
+extensions = ["fds", "zip", "7z"]
+libretro = "Nintendo - Family Computer Disk System"
+
+[[system]]
+id = "gb"
+name = "Game Boy"
+aliases = ["GB", "gameboy"]
+extensions = ["gb", "zip", "7z"]
+libretro = "Nintendo - Game Boy"
+
+[[system]]
+id = "gba"
+name = "Game Boy Advance"
+aliases = ["GBA", "gameboyadvance"]
+extensions = ["gba", "zip", "7z"]
+libretro = "Nintendo - Game Boy Advance"
+
+[[system]]
+id = "gbc"
+name = "Game Boy Color"
+aliases = ["GBC", "gameboycolor"]
+extensions = ["gbc", "gb", "zip", "7z"]
+libretro = "Nintendo - Game Boy Color"
+
+[[system]]
+id = "gamegear"
+name = "Sega Game Gear"
+aliases = ["GG", "gamegear"]
+extensions = ["gg", "zip", "7z"]
+libretro = "Sega - Game Gear"
+
+[[system]]
+id = "gw"
+name = "Game & Watch"
+aliases = ["GW", "gameandwatch"]
+extensions = ["mgw", "zip", "7z"]
+libretro = "Handheld Electronic Game"
+
+[[system]]
+id = "hbmame"
+name = "HBMAME"
+aliases = ["HBMAME"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "lynx"
+name = "Atari Lynx"
+aliases = ["LYNX", "atarilynx"]
+extensions = ["lnx", "o", "zip", "7z"]
+libretro = "Atari - Lynx"
+
+[[system]]
+id = "mame"
+name = "MAME"
+aliases = ["MAME", "arcade", "mame2003", "mame2003plus", "mame2010"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "megadrive"
+name = "Sega Mega Drive / Genesis"
+aliases = ["MD", "megadrive", "genesis", "Mega Drive"]
+extensions = ["md", "gen", "smd", "bin", "68k", "sgd", "zip", "7z"]
+libretro = "Sega - Mega Drive - Genesis"
+
+[[system]]
+id = "segacd"
+name = "Sega CD / Mega-CD"
+aliases = ["MDCD", "segacd", "megacd", "Mega CD"]
+extensions = ["cue", "chd", "iso", "m3u"]
+libretro = "Sega - Mega-CD - Sega CD"
+multi_file = true
+
+[[system]]
+id = "msx"
+name = "MSX"
+aliases = ["MSX", "msx1", "msx2"]
+extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip", "7z"]
+libretro = "Microsoft - MSX"
+
+[[system]]
+id = "n64"
+name = "Nintendo 64"
+aliases = ["N64", "nintendo64"]
+extensions = ["n64", "v64", "z64", "zip", "7z"]
+libretro = "Nintendo - Nintendo 64"
+
+[[system]]
+id = "naomi"
+name = "Sega NAOMI"
+aliases = ["NAOMI"]
+extensions = ["zip", "7z"]
+libretro = "Sega - Naomi"
+arcade = true
+
+[[system]]
+id = "nds"
+name = "Nintendo DS"
+aliases = ["NDS", "nintendods"]
+extensions = ["nds", "zip", "7z"]
+libretro = "Nintendo - Nintendo DS"
+
+[[system]]
+id = "neocd"
+name = "Neo Geo CD"
+aliases = ["NEOCD", "neogeocd"]
+extensions = ["cue", "chd", "iso", "m3u"]
+libretro = "SNK - Neo Geo CD"
+multi_file = true
+
+[[system]]
+id = "neogeo"
+name = "Neo Geo"
+aliases = ["NEOGEO", "Neo Geo"]
+extensions = ["zip", "7z"]
+libretro = "SNK - Neo Geo"
+arcade = true
+
+[[system]]
+id = "ngp"
+name = "Neo Geo Pocket"
+aliases = ["NGP", "neogeopocket"]
+# Like WS: Color games (.ngc) in NGP have art under "SNK - Neo Geo Pocket Color".
+extensions = ["ngp", "ngc", "zip", "7z"]
+libretro = "SNK - Neo Geo Pocket"
+
+[[system]]
+id = "ngpc"
+name = "Neo Geo Pocket Color"
+aliases = ["NGPC", "neogeopocketcolor"]
+extensions = ["ngc", "ngpc", "zip", "7z"]
+libretro = "SNK - Neo Geo Pocket Color"
+
+[[system]]
+id = "ons"
+name = "ONScripter"
+aliases = ["ONS", "onscripter"]
+extensions = ["ons", "zip"]
+
+[[system]]
+id = "openbor"
+name = "OpenBOR"
+aliases = ["OPENBOR"]
+extensions = ["pak"]
+
+[[system]]
+id = "pcengine"
+name = "PC Engine / TurboGrafx-16"
+aliases = ["PCE", "pcengine", "tg16", "turbografx16", "PC Engine"]
+# Anbernic stock also keeps CD images (chd, cue) in PCE.
+extensions = ["pce", "sgx", "chd", "cue", "zip", "7z"]
+libretro = "NEC - PC Engine - TurboGrafx 16"
+
+[[system]]
+id = "pcenginecd"
+name = "PC Engine CD / TurboGrafx-CD"
+aliases = ["PCECD", "pcenginecd", "tgcd", "turbografxcd"]
+extensions = ["cue", "chd", "ccd", "m3u"]
+libretro = "NEC - PC Engine CD - TurboGrafx-CD"
+multi_file = true
+
+[[system]]
+id = "pgm2"
+name = "IGS PGM2"
+aliases = ["PGM2"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "pico8"
+name = "PICO-8"
+aliases = ["PICO", "pico8", "pico-8"]
+# .p8.png carts: png is also in the scanner's default ignored_exts.
+# Open point for Task 7: system.extensions must win over ignored_exts here.
+extensions = ["p8", "png"]
+
+[[system]]
+id = "pokemini"
+name = "Pokemon Mini"
+aliases = ["POKE", "pokemini"]
+extensions = ["min", "zip", "7z"]
+libretro = "Nintendo - Pokemon Mini"
+
+[[system]]
+id = "psx"
+name = "Sony PlayStation"
+aliases = ["PS", "psx", "ps1", "playstation"]
+extensions = ["cue", "bin", "chd", "pbp", "m3u", "iso", "img", "ccd"]
+libretro = "Sony - PlayStation"
+multi_file = true
+
+[[system]]
+id = "psp"
+name = "Sony PSP"
+aliases = ["PSP"]
+extensions = ["iso", "cso", "pbp", "chd"]
+libretro = "Sony - PlayStation Portable"
+
+[[system]]
+id = "saturn"
+name = "Sega Saturn"
+aliases = ["SATURN", "segasaturn"]
+extensions = ["cue", "chd", "iso", "ccd", "m3u", "mds"]
+libretro = "Sega - Saturn"
+multi_file = true
+
+[[system]]
+id = "scummvm"
+name = "ScummVM"
+aliases = ["SCUMMVM", "scumm"]
+extensions = ["scummvm", "svm"]
+libretro = "ScummVM"
+
+[[system]]
+id = "sega32x"
+name = "Sega 32X"
+aliases = ["SEGA32X", "32x", "sega32"]
+extensions = ["32x", "zip", "7z"]
+libretro = "Sega - 32X"
+
+[[system]]
+id = "snes"
+name = "Super Nintendo"
+aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
+extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
+libretro = "Nintendo - Super Nintendo Entertainment System"
+
+[[system]]
+id = "mastersystem"
+name = "Sega Master System"
+aliases = ["SMS", "mastersystem", "Master System"]
+extensions = ["sms", "zip", "7z"]
+libretro = "Sega - Master System - Mark III"
+
+[[system]]
+id = "varcade"
+name = "Arcade (various)"
+aliases = ["VARCADE"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+
+[[system]]
+id = "virtualboy"
+name = "Virtual Boy"
+aliases = ["VB", "virtualboy"]
+extensions = ["vb", "vboy", "zip", "7z"]
+libretro = "Nintendo - Virtual Boy"
+
+[[system]]
+id = "vic20"
+name = "Commodore VIC-20"
+aliases = ["VIC20", "vic-20"]
+extensions = ["20", "40", "60", "a0", "b0", "d64", "prg", "crt", "tap", "t64", "zip", "7z"]
+libretro = "Commodore - VIC-20"
+
+[[system]]
+id = "wonderswan"
+name = "WonderSwan"
+aliases = ["WS", "wonderswan"]
+# Anbernic stock keeps mono and Color games together in WS, so wsc is accepted.
+# Art for .wsc files lives under "Bandai - WonderSwan Color", not this playlist:
+# art lookup needs a per-extension libretro fallback (open point for Task 6+).
+extensions = ["ws", "wsc", "zip", "7z"]
+libretro = "Bandai - WonderSwan"
+
+[[system]]
+id = "wonderswancolor"
+name = "WonderSwan Color"
+aliases = ["WSC", "wonderswancolor"]
+extensions = ["wsc", "zip", "7z"]
+libretro = "Bandai - WonderSwan Color"
