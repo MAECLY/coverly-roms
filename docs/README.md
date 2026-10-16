@@ -12,6 +12,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 |---|---|
 | A user wanting to know what this is | [Project README](../README.md) → [Design spec §1–§4](./superpowers/specs/2026-10-15-coverly-roms-design.md) |
 | A contributor / developer | [Contributing](../CONTRIBUTING.md) → [System Architecture](./04-architecture/system-architecture.md) → [CI / CD](./07-build-and-release/ci-cd.md) |
+| The maintainer cutting a release | [RELEASING.md](../RELEASING.md) → [Updates](./04-architecture/updates.md) → [ADR-0011](./adr/0011-release-pipeline-and-update-key.md) |
 | A reviewer / decision-maker | [System Architecture](./04-architecture/system-architecture.md) → [ADRs](./adr/README.md) → [Tracker](./TRACKER.md) |
 | Curious about prior art | [Research index](./02-research/README.md) → [Tool landscape](./02-research/tool-landscape.md) |
 
@@ -29,6 +30,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 | ROM identification | **Hash → DATs, then name**, arcade short-name translation | [ADR-0006](./adr/0006-hash-then-name-identification.md) |
 | Bulk selection | **Pluggable strategies**: Priority, ROM region, Popularity | [ADR-0007](./adr/0007-pluggable-strategies.md) |
 | Auto-update | **tauri-plugin-updater**, minisign, public GitHub Releases, stable + beta | [ADR-0008](./adr/0008-updater-public-releases.md) |
+| Release pipeline | **Draft releases from tags**; throwaway keys in builds, the real key only in `finalize`; one key file `updater.pub` | [ADR-0011](./adr/0011-release-pipeline-and-update-key.md) |
 | Fill pipeline | **Gather into a SQLite cache, then apply** from a content-addressed art store | [ADR-0009](./adr/0009-two-phase-fill-with-sqlite-cache.md) |
 | Library writes | **Atomic writes**, with backups and journals in the app data dir, and undo | [ADR-0010](./adr/0010-safe-writes-backups-and-journal.md) |
 | UI languages | English (default) + Spanish | — |
@@ -43,6 +45,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [Design spec](./superpowers/specs/2026-10-15-coverly-roms-design.md) — purpose, scope, domain model, architecture, UI, settings, milestones
 - [M0 + M1 implementation plan](./superpowers/plans/2026-10-15-m0-m1-foundation-and-audit.md) — foundation and audit, task by task
 - [M2 implementation plan](./superpowers/plans/2026-10-16-m2-identify-and-fill.md) — identification, art sources and fill, task by task
+- [M7 implementation plan](./superpowers/plans/2026-10-16-m7-release.md) — release pipeline, signed updates, the owner's steps, task by task
 - [Tracker](./TRACKER.md) — task status with evidence (Spanish)
 
 ### 02 — Research
@@ -63,10 +66,12 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [Art Sources](./04-architecture/art-sources.md) — `ArtSource` trait, libretro-thumbnails, hostile names, polite HTTP
 - [Fill Pipeline](./04-architecture/fill-pipeline.md) — gather, plan, strategies, image limits, safe writes, undo, CLI, E2E evidence
 - [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, art security, UI stores, browser mock, performance
+- [Updates](./04-architecture/updates.md) — update manifest and channels, minisign key, check/download/install with the fill-job gate, CLI self-update, errors, connected drives
 
 ### 07 — Build & Release
 
-- [CI / CD](./07-build-and-release/ci-cd.md) — GitHub Actions on Linux, Windows and macOS
+- [CI / CD](./07-build-and-release/ci-cd.md) — GitHub Actions on Linux, Windows and macOS: CI, `release.yml`, `release-channels.yml`
+- [RELEASING.md](../RELEASING.md) — the owner's runbook: signing key and secrets, public repository, cutting, checking and publishing a release, beta channel, local builds, recovery
 
 ### 09 — Legal
 
@@ -86,6 +91,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [0008 — Updater on public GitHub Releases](./adr/0008-updater-public-releases.md)
 - [0009 — Two-phase fill with a SQLite cache](./adr/0009-two-phase-fill-with-sqlite-cache.md)
 - [0010 — Safe writes, backups and journal](./adr/0010-safe-writes-backups-and-journal.md)
+- [0011 — Release pipeline and the update key](./adr/0011-release-pipeline-and-update-key.md)
 
 ---
 

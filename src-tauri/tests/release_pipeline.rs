@@ -501,3 +501,31 @@ fn release_tools_semver_and_pubkey() {
         coverly_core::update::release_pubkey().is_some()
     );
 }
+
+#[test]
+fn the_runbook_names_every_owner_step() {
+    let r = read("RELEASING.md");
+    for needle in [
+        "pnpm tauri signer generate",
+        "TAURI_SIGNING_PRIVATE_KEY",
+        "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+        "crates/coverly-core/updater.pub",
+        "public",
+        "scripts/bump-version.sh",
+        "git tag v",
+        "coverly update check",
+        "channel-beta",
+        "createUpdaterArtifacts",
+    ] {
+        assert!(r.contains(needle), "RELEASING.md lacks {needle}");
+    }
+    for readme in ["README.md", "README.es.md"] {
+        let t = read(readme);
+        assert!(t.contains("SHA256SUMS"), "{readme}");
+        assert!(
+            t.contains("Open Anyway") || t.contains("Abrir igualmente"),
+            "{readme}"
+        );
+    }
+    assert!(read("docs/adr/0011-release-pipeline-and-update-key.md").contains("updater.pub"));
+}

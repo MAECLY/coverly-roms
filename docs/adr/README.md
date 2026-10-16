@@ -16,8 +16,9 @@
 | 0008 | [Updater on public GitHub Releases, signed with minisign](./0008-updater-public-releases.md) | Accepted | 2026-10-15 |
 | 0009 | [Two-phase fill with a SQLite cache and a content-addressed art store](./0009-two-phase-fill-with-sqlite-cache.md) | Accepted | 2026-10-16 |
 | 0010 | [Safe writes, with backups and journals in the app data dir](./0010-safe-writes-backups-and-journal.md) | Accepted | 2026-10-16 |
+| 0011 | [Release pipeline and the update key](./0011-release-pipeline-and-update-key.md) | Accepted | 2026-10-16 |
 
-ADRs 0001–0004 are implemented (milestone M0). ADRs 0005–0007, 0009 and 0010 are implemented in M2 (identification, libretro-thumbnails, strategies, two-phase fill, safe writes); the SteamGridDB votes of ADR-0007's Popularity arrive with the M6 sources. ADR-0008 is an accepted design for M7; that code does not exist yet.
+ADRs 0001–0004 are implemented (milestone M0). ADRs 0005–0007, 0009 and 0010 are implemented in M2 (identification, libretro-thumbnails, strategies, two-phase fill, safe writes); the SteamGridDB votes of ADR-0007's Popularity arrive with the M6 sources. ADR-0008 and ADR-0011 are implemented in M7 (release pipeline, signed updates for the app and the CLI); the real signing key, the public repository and the first published release are the owner's steps in [RELEASING.md](../../RELEASING.md).
 
 ## Format
 
