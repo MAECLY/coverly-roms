@@ -247,6 +247,7 @@
     "ready": "Version {version} is installed. Restart Coverly ROMs to use it.",
     "restart": "Restart now",
     "restartAfterJob": "Restart after the fill job finishes.",
+    "restarting": "Restarting Coverly ROMs…",
     "retry": "Try again",
     "banner": "Coverly ROMs {version} is available.",
     "bannerDetails": "See what's new",

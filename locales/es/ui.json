@@ -247,6 +247,7 @@
     "ready": "La versión {version} está instalada. Reinicia Coverly ROMs para usarla.",
     "restart": "Reiniciar ahora",
     "restartAfterJob": "Reinicia cuando termine el trabajo de relleno.",
+    "restarting": "Reiniciando Coverly ROMs…",
     "retry": "Reintentar",
     "banner": "Coverly ROMs {version} está disponible.",
     "bannerDetails": "Ver novedades",

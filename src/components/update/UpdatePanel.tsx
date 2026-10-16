@@ -53,15 +53,26 @@ export function UpdatePanel({ compact = false }: { compact?: boolean }) {
     case 'ready':
       line = t('update.ready', { version: u.offer?.version ?? '' });
       break;
+    case 'restarting':
+      line = t('update.restarting');
+      break;
     case 'error':
       line = t(errorKey(u.error?.code ?? 'unknown'), {
         detail: u.error?.detail ?? '',
       });
       break;
   }
+  // Without a key no check can succeed: only the Releases link helps.
+  const canCheck =
+    CAN_CHECK.includes(u.status) && u.error?.code !== 'update-no-key';
   return (
     <div className="update-panel" aria-live="polite">
       <p role={u.status === 'error' ? 'alert' : undefined}>{line}</p>
+      {u.status === 'ready' && u.error && (
+        <p role="alert">
+          {t(errorKey(u.error.code), { detail: u.error.detail ?? '' })}
+        </p>
+      )}
       {u.status === 'downloading' && (
         <progress
           aria-label={t('update.progressLabel')}
@@ -76,7 +87,7 @@ export function UpdatePanel({ compact = false }: { compact?: boolean }) {
         </details>
       )}
       <div className="update-actions">
-        {CAN_CHECK.includes(u.status) && (
+        {canCheck && (
           <button
             type="button"
             className="ghost-button"

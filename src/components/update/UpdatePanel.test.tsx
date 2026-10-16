@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import type { MockUpdateScenario } from '@/ipc/mock/mockUpdates';
@@ -156,6 +157,65 @@ describe('updates UI', () => {
     render(<Root />);
     await waitFor(() => expect(backend.updateLog).toEqual(['check:startup']));
     expect(screen.queryByText(/update server/)).not.toBeInTheDocument();
+  });
+
+  it('without a key only the Releases link is offered, not Try again', async () => {
+    await start('no-key');
+    const panel = await about();
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Check for updates' }),
+    );
+    const updates = (
+      await within(panel).findByText(/This build cannot update itself/)
+    ).closest('.update-panel') as HTMLElement;
+    expect(
+      within(updates).getByRole('button', { name: 'Releases' }),
+    ).toBeInTheDocument();
+    expect(
+      within(updates).queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(updates).queryByRole('button', { name: 'Check for updates' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('a failed restart leaves Restarting, shows why and offers Restart again', async () => {
+    await start('available');
+    const panel = await about();
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Check for updates' }),
+    );
+    await userEvent.click(
+      await within(panel).findByRole('button', {
+        name: 'Download and install',
+      }),
+    );
+    let fail: (e: unknown) => void = () => undefined;
+    vi.spyOn(backend, 'restartApp').mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    await userEvent.click(
+      await within(panel).findByRole('button', { name: 'Restart now' }),
+    );
+    expect(
+      await within(panel).findByText('Restarting Coverly ROMs…'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('button', { name: 'Restart now' }),
+    ).not.toBeInTheDocument();
+    act(() => fail(new BackendError('job-running')));
+    expect(await within(panel).findByRole('alert')).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/Version \d+\.\d+\.0 is installed\./),
+    ).toBeInTheDocument();
+    const again = within(panel).getByRole('button', { name: 'Restart now' });
+    expect(again).toBeEnabled();
+    await userEvent.click(again);
+    await waitFor(() => expect(backend.updateLog).toContain('restart'));
+    expect(within(panel).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('General has a Check now button with the status', async () => {

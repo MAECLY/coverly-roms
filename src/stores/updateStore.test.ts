@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import type { MockUpdateScenario } from '@/ipc/mock/mockUpdates';
@@ -109,6 +110,44 @@ describe('update store', () => {
     expect(backend.updateLog).not.toContain('restart');
     useJobStore.setState({ job: null });
     await s().restart();
+    expect(backend.updateLog).toContain('restart');
+  });
+
+  it('a check after the install keeps the update ready for its restart', async () => {
+    use('available');
+    await s().check('manual');
+    await s().download();
+    expect(s().status).toBe('ready');
+    await s().check('manual');
+    await s().check('startup');
+    expect(s().status).toBe('ready');
+    expect(s().offer).not.toBeNull();
+    expect(backend.updateLog).toEqual(['check:manual', 'download', 'install']);
+    await s().restart();
+    expect(backend.updateLog).toContain('restart');
+  });
+
+  it('a failed restart goes back to ready with the error, and can be retried', async () => {
+    use('available');
+    await s().check('manual');
+    await s().download();
+    let fail: (e: unknown) => void = () => undefined;
+    vi.spyOn(backend, 'restartApp').mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const pending = s().restart();
+    await vi.waitFor(() => expect(s().status).toBe('restarting'));
+    await s().check('manual');
+    expect(s().status).toBe('restarting');
+    fail(new BackendError('update-failed', 'mock: could not relaunch'));
+    await pending;
+    expect(s().status).toBe('ready');
+    expect(s().error?.code).toBe('update-failed');
+    await s().restart();
+    expect(s().error).toBeNull();
     expect(backend.updateLog).toContain('restart');
   });
 

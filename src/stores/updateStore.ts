@@ -2,7 +2,9 @@
  * The in-app updater as the UI follows it (M7). The startup check runs at
  * most once per page and only when the setting is on (otherwise nothing is
  * requested); its failures are silent. Installing waits for a running fill
- * job, and restarting is refused while one runs.
+ * job, and restarting is refused while one runs. Once an update is installed
+ * ('ready') a check changes nothing: the restart is still owed. A restart
+ * that fails goes back to 'ready' with the error, so it can be tried again.
  */
 import { create } from 'zustand';
 
@@ -21,6 +23,7 @@ export type UpdateStatus =
   | 'waiting-for-job'
   | 'installing'
   | 'ready'
+  | 'restarting'
   | 'error';
 
 interface UpdateStore {
@@ -56,6 +59,17 @@ let waitOff: (() => void) | null = null;
 
 const jobBusy = () => blocksUpdate(useJobStore.getState().job);
 
+/** States a check must not replace: work in progress, or an installed
+ * update waiting for its restart (Rust refuses that check too). */
+const BUSY: readonly UpdateStatus[] = [
+  'checking',
+  'downloading',
+  'installing',
+  'waiting-for-job',
+  'ready',
+  'restarting',
+];
+
 export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   ...initial,
   async startupCheck(enabled) {
@@ -65,12 +79,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     await get().check('startup');
   },
   async check(trigger) {
-    if (
-      ['checking', 'downloading', 'installing', 'waiting-for-job'].includes(
-        get().status,
-      )
-    )
-      return;
+    if (BUSY.includes(get().status)) return;
     set({ status: 'checking', error: null, trigger });
     try {
       const b = await getBackend();
@@ -128,10 +137,12 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
   async restart() {
     if (get().status !== 'ready' || jobBusy()) return;
+    set({ status: 'restarting', error: null });
     try {
       await (await getBackend()).restartApp();
     } catch (e) {
-      set({ error: toBackendError(e) });
+      // Still installed: show why and offer Restart again.
+      set({ status: 'ready', error: toBackendError(e) });
     }
   },
   dismissBanner: () => set({ bannerDismissed: true }),
