@@ -523,6 +523,11 @@ dependencies = [
 [[package]]
 name = "coverly-core"
 version = "0.0.1"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+]
 
 [[package]]
 name = "coverly-roms"

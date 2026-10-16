@@ -4,6 +4,7 @@
 //! `coverly` CLI share lives here.
 
 pub mod paths;
+pub mod systems;
 
 /// Version of the core library, taken from the workspace package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
