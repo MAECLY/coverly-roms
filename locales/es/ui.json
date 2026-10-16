@@ -267,5 +267,26 @@
       "offline": "En pausa: no hay conexión con el servidor de arte. Reanuda cuando vuelvas a tener conexión.",
       "volume": "En pausa: la tarjeta SD está llena, en solo lectura o se ha extraído. Corrígelo y reanuda."
     }
+  },
+  "review": {
+    "title": "Revisar coincidencias dudosas",
+    "open": "Revisar ({n})",
+    "loading": "Cargando…",
+    "empty": "No hay nada que revisar.",
+    "position": "{n} de {total} · {decided} decididas",
+    "current": "Arte actual",
+    "candidates": "Candidatas",
+    "meta": "{key}. {source} · {regions} · {score} %",
+    "variantNote": "La mejor imagen es una beta, un prototipo, un hack o una variante sin licencia: revísala antes de escribirla.",
+    "undecided": "Sin decidir",
+    "accepted": "Se escribirá",
+    "skipped": "Omitida",
+    "keys": "Teclas: ← → moverse · 1–9 elegir · Intro aceptar · S omitir · A aceptar el resto · Esc volver",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "accept": "Aceptar",
+    "skip": "Omitir",
+    "acceptAll": "Aceptar el resto",
+    "done": "Hecho"
   }
 }

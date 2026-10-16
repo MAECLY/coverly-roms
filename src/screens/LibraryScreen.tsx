@@ -8,6 +8,7 @@ import {
 
 import { LibrarySettingsDialog } from '@/components/LibrarySettingsDialog';
 import { FillWizard } from '@/components/fill/FillWizard';
+import { ReviewQueue } from '@/components/fill/ReviewQueue';
 import { CoverGrid } from '@/components/library/CoverGrid';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
 import { EntryTable } from '@/components/library/EntryTable';
@@ -177,6 +178,9 @@ export function LibraryScreen() {
           selectedId={selectedId}
           onClose={closeOverlay}
         />
+      )}
+      {overlay === 'review' && (
+        <ReviewQueue view={view} onClose={() => setOverlay('wizard')} />
       )}
       {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>

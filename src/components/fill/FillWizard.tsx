@@ -429,6 +429,15 @@ export function FillWizard({
             {t('fill.preview')}
           </button>
         )}
+        {planned && job.plan && job.plan.totals.review > 0 && (
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setOverlay('review')}
+          >
+            {t('review.open', { n: n.format(job.plan.totals.review) })}
+          </button>
+        )}
         {planned && job.plan && (
           <button
             type="button"

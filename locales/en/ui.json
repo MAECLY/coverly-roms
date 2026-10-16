@@ -267,5 +267,26 @@
       "offline": "Paused: no connection to the art server. Resume when you are back online.",
       "volume": "Paused: the SD card is full, read-only or was removed. Fix it and resume."
     }
+  },
+  "review": {
+    "title": "Review doubtful matches",
+    "open": "Review ({n})",
+    "loading": "Loading…",
+    "empty": "Nothing to review.",
+    "position": "{n} of {total} · {decided} decided",
+    "current": "Current art",
+    "candidates": "Candidates",
+    "meta": "{key}. {source} · {regions} · {score}%",
+    "variantNote": "The best image is a beta, prototype, hack or unlicensed variant: check it before writing.",
+    "undecided": "Not decided",
+    "accepted": "Will be written",
+    "skipped": "Skipped",
+    "keys": "Keys: ← → move · 1–9 choose · Enter accept · S skip · A accept all remaining · Esc back",
+    "previous": "Previous",
+    "next": "Next",
+    "accept": "Accept",
+    "skip": "Skip",
+    "acceptAll": "Accept all remaining",
+    "done": "Done"
   }
 }
