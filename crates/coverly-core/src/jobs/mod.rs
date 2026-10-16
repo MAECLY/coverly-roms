@@ -176,6 +176,10 @@ pub enum ItemStatus {
         source: String,
         name: String,
         backup: PathBuf,
+        /// The file actually replaced: a case/NFC twin of the target keeps
+        /// its own spelling (the gamelist must name it).
+        #[serde(skip)]
+        path: PathBuf,
     },
     SkippedExists,
     SkippedReview,
@@ -409,18 +413,22 @@ fn merge_gamelists(
 ) -> Vec<String> {
     let mut by_dir: BTreeMap<PathBuf, BTreeMap<String, GameArt>> = BTreeMap::new();
     for (item, st) in items.iter().zip(results) {
-        if !matches!(
-            st,
-            Some(ItemStatus::Filled { .. } | ItemStatus::Replaced { .. })
-        ) {
-            continue;
-        }
+        // The path written: the target, or the twin (same folder, its own
+        // spelling) the writer replaced.
+        let written = match st {
+            Some(ItemStatus::Filled { .. }) => item.target.clone(),
+            Some(ItemStatus::Replaced { path, .. }) => match path.file_name() {
+                Some(twin) => item.target.with_file_name(twin),
+                None => item.target.clone(),
+            },
+            _ => continue,
+        };
         // `strip_prefix("")` succeeds: an item without a system dir (a
         // hand-built plan) never reaches a gamelist.
         if item.system_dir.as_os_str().is_empty() {
             continue;
         }
-        let Ok(art_rel) = item.target.strip_prefix(&item.system_dir) else {
+        let Ok(art_rel) = written.strip_prefix(&item.system_dir) else {
             continue;
         };
         let rom = rel_slash(&item.rel_path);
@@ -688,10 +696,11 @@ impl Ctx<'_, '_> {
                 source: c.source.clone(),
                 name: c.name.clone(),
             },
-            Ok(WriteOutcome::Replaced { backup, .. }) => ItemStatus::Replaced {
+            Ok(WriteOutcome::Replaced { backup, path }) => ItemStatus::Replaced {
                 source: c.source.clone(),
                 name: c.name.clone(),
                 backup,
+                path,
             },
             Ok(WriteOutcome::SkippedExists { .. }) => ItemStatus::SkippedExists,
             Err(e @ (WriteError::DiskFull | WriteError::Denied(_))) => {

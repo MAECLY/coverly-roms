@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use coverly_core::art::resolve_art;
 use coverly_core::cache::Cache;
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
+use coverly_core::gather::Scope;
 use coverly_core::jobs::ApplyOptions;
 use coverly_core::net::testing::{png_bytes, MockServer};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
@@ -40,15 +41,33 @@ fn run_named(
     coverly_core::jobs::JobReport,
     tempfile::TempDir,
 ) {
+    run_with(
+        |r| {
+            if gamelist_is_dir {
+                common::mkdir(r, &format!("roms/snes/{name}"));
+            } else if let Some(bytes) = gamelist {
+                fs::write(r.join("roms/snes").join(name), bytes).unwrap();
+            }
+        },
+        Scope::Missing,
+        OverwritePolicy::Never,
+    )
+}
+
+fn run_with(
+    setup: impl Fn(&std::path::Path),
+    scope: Scope,
+    overwrite: OverwritePolicy,
+) -> (
+    tempfile::TempDir,
+    coverly_core::jobs::JobReport,
+    tempfile::TempDir,
+) {
     let lib = tempfile::tempdir().unwrap();
     let r = lib.path();
     common::write(r, "roms/snes/Zelda.sfc", "zelda");
     common::write(r, "roms/snes/Other.sfc", "other");
-    if gamelist_is_dir {
-        common::mkdir(r, &format!("roms/snes/{name}"));
-    } else if let Some(bytes) = gamelist {
-        fs::write(r.join("roms/snes").join(name), bytes).unwrap();
-    }
+    setup(r);
     let server = MockServer::start();
     server.serve_libretro_root(&[SNES]);
     server.serve_libretro_index(SNES, "Named_Boxarts", &["Zelda (USA).png"]);
@@ -84,6 +103,7 @@ fn run_named(
     let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
     let settings = FillSettings {
         media: vec![Media::Cover],
+        scope,
         ..FillSettings::default()
     };
     let plan = env.plan(
@@ -100,7 +120,7 @@ fn run_named(
             &plan,
             &profile,
             &ApplyOptions {
-                overwrite: OverwritePolicy::Never,
+                overwrite,
                 ..ApplyOptions::default()
             },
             &NoProgress,
@@ -334,5 +354,30 @@ fn a_symlinked_gamelist_is_never_followed() {
             .unwrap()
             .file_type()
             .is_symlink()
+    );
+}
+
+#[test]
+fn a_replaced_case_twin_is_named_as_spelled_on_disk() {
+    // The art exists as `zelda-IMAGE.png`; the writer replaces that file
+    // instead of adding `Zelda-image.png` next to it.
+    let (lib, report, _data) = run_with(
+        |r| {
+            common::mkdir(r, "roms/snes/images");
+            fs::write(
+                r.join("roms/snes/images/zelda-IMAGE.png"),
+                png_bytes(10, 10),
+            )
+            .unwrap();
+        },
+        Scope::All,
+        OverwritePolicy::Backup,
+    );
+    assert_eq!(report.replaced, 1, "{report:?}");
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let merged = fs::read_to_string(lib.path().join("roms/snes/gamelist.xml")).unwrap();
+    assert!(
+        merged.contains("<thumbnail>./images/zelda-IMAGE.png</thumbnail>"),
+        "{merged}"
     );
 }
