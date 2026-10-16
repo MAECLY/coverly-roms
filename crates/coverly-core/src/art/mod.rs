@@ -96,7 +96,8 @@ pub struct SystemArt {
 /// name the system lacks, is [`ArtState::Unsupported`]. Orphans are images
 /// in the folders the profile's slots point to whose name matches no ROM of
 /// the library for any slot (for Batocera, any scraper postfix of a ROM
-/// counts); a folder shared by several system folders
+/// counts; for a multi-file game, the name of any disc or track counts too);
+/// a folder shared by several system folders
 /// reports its orphans under the first one.
 pub fn resolve_art(
     scan: &LibraryScan,
@@ -143,7 +144,7 @@ pub fn resolve_art(
             }
             if let Some(system) = system {
                 for &(m, slot) in &slots {
-                    let Some(expected) = expected(
+                    let Some(want) = expected(
                         scan,
                         profile,
                         system_scan,
@@ -154,14 +155,14 @@ pub fn resolve_art(
                     ) else {
                         continue;
                     };
-                    let resolved = index.resolve(&expected.dir);
+                    let resolved = index.resolve(&want.dir);
                     let state = match &resolved {
                         Some(dir) => {
-                            for stem in expected.stems.iter().chain(&expected.claims) {
+                            for stem in want.stems.iter().chain(&want.claims) {
                                 claimed.insert((dir.clone(), stem.clone()));
                             }
                             push_unique(&mut dirs, dir.clone());
-                            match index.find(dir, &expected.stems, slot.format) {
+                            match index.find(dir, &want.stems, slot.format) {
                                 Some(path) => ArtState::Present { path },
                                 None => ArtState::Missing,
                             }
@@ -170,6 +171,29 @@ pub fn resolve_art(
                     };
                     if let Some(entry) = art.get_mut(&m) {
                         *entry = state;
+                    }
+                    // Art named after a disc or track of a multi-file game
+                    // belongs to the game: never an orphan, never its art.
+                    for companion in &rom.companions {
+                        let Some(stem) = companion.file_stem() else {
+                            continue;
+                        };
+                        let stem = stem.to_string_lossy();
+                        if let Some(expected) = expected(
+                            scan,
+                            profile,
+                            system_scan,
+                            system,
+                            slot,
+                            &rom.rel_dir,
+                            &stem,
+                        ) {
+                            if let Some(dir) = index.resolve(&expected.dir) {
+                                for stem in expected.stems.into_iter().chain(expected.claims) {
+                                    claimed.insert((dir.clone(), stem));
+                                }
+                            }
+                        }
                     }
                 }
             }

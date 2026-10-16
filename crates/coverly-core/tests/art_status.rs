@@ -380,3 +380,17 @@ fn unreadable_art_folder_is_reported_as_a_warning() {
     assert!(!sfc.warnings[0].message.is_empty());
     assert!(system(&art, "PS").warnings.is_empty());
 }
+
+#[test]
+fn art_named_after_a_disc_of_a_multi_file_game_is_not_an_orphan() {
+    let lib = realistic_library();
+    let root = lib.path();
+    // The entry is `FF7.m3u`; art named after a disc belongs to it but does
+    // not count as its cover.
+    write(root, "ROMS/PS/Imgs/ff7 (disc 1).png", "png");
+    write(root, "ROMS/PS/Imgs/Other.png", "png");
+    let art = resolve(root, "anbernic-stock", &[Media::Cover]);
+    let ps = system(&art, "PS");
+    assert_eq!(state(ps, "FF7", Media::Cover), &ArtState::Missing);
+    assert_eq!(orphan_names(ps), ["Other.png"]);
+}
