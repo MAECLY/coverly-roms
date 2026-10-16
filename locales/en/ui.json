@@ -32,11 +32,41 @@
   },
   "library": {
     "count": "{n} ROMs",
-    "close": "Close library"
+    "close": "Close library",
+    "grid": {
+      "label": "ROM covers"
+    },
+    "table": {
+      "label": "ROM list"
+    }
   },
   "footer": {
     "version": "Version {version}",
     "coreVersion": "Core {version}"
+  },
+  "columns": {
+    "name": "Name",
+    "system": "System",
+    "size": "Size",
+    "modified": "Modified"
+  },
+  "art": {
+    "status": "{media}: {state}",
+    "media": {
+      "cover": "Cover",
+      "screenshot": "Screenshot",
+      "title": "Title screen"
+    },
+    "mark": {
+      "present": "present",
+      "missing": "missing",
+      "unsupported": "not supported by this layout"
+    },
+    "none": {
+      "cover": "No cover",
+      "screenshot": "No screenshot",
+      "title": "No title screen"
+    }
   },
   "errors": {
     "not-found": "This folder does not exist: {detail}",

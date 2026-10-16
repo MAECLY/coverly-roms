@@ -32,11 +32,41 @@
   },
   "library": {
     "count": "{n} ROMs",
-    "close": "Cerrar biblioteca"
+    "close": "Cerrar biblioteca",
+    "grid": {
+      "label": "Portadas de las ROMs"
+    },
+    "table": {
+      "label": "Lista de ROMs"
+    }
   },
   "footer": {
     "version": "Versión {version}",
     "coreVersion": "Núcleo {version}"
+  },
+  "columns": {
+    "name": "Nombre",
+    "system": "Sistema",
+    "size": "Tamaño",
+    "modified": "Modificado"
+  },
+  "art": {
+    "status": "{media}: {state}",
+    "media": {
+      "cover": "Portada",
+      "screenshot": "Captura",
+      "title": "Pantalla de título"
+    },
+    "mark": {
+      "present": "presente",
+      "missing": "falta",
+      "unsupported": "no admitida por este formato"
+    },
+    "none": {
+      "cover": "Sin portada",
+      "screenshot": "Sin captura",
+      "title": "Sin pantalla de título"
+    }
   },
   "errors": {
     "not-found": "Esta carpeta no existe: {detail}",
