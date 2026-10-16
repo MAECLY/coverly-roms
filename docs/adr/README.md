@@ -14,8 +14,10 @@
 | 0006 | [Identify ROMs by hash first, then by name](./0006-hash-then-name-identification.md) | Accepted | 2026-10-15 |
 | 0007 | [Bulk art selection through pluggable strategies](./0007-pluggable-strategies.md) | Accepted | 2026-10-15 |
 | 0008 | [Updater on public GitHub Releases, signed with minisign](./0008-updater-public-releases.md) | Accepted | 2026-10-15 |
+| 0009 | [Two-phase fill with a SQLite cache and a content-addressed art store](./0009-two-phase-fill-with-sqlite-cache.md) | Accepted | 2026-10-16 |
+| 0010 | [Safe writes, with backups and journals in the app data dir](./0010-safe-writes-backups-and-journal.md) | Accepted | 2026-10-16 |
 
-ADRs 0001–0004 are implemented (milestone M0). ADRs 0005–0008 are accepted designs for milestones M2, M6 and M7; the code does not exist yet.
+ADRs 0001–0004 are implemented (milestone M0). ADRs 0005–0007, 0009 and 0010 are implemented in M2 (identification, libretro-thumbnails, strategies, two-phase fill, safe writes); the SteamGridDB votes of ADR-0007's Popularity arrive with the M6 sources. ADR-0008 is an accepted design for M7; that code does not exist yet.
 
 ## Format
 

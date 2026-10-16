@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implementation: milestone M2)
+Accepted (implemented in M2; 7z inner CRC deferred — see [identification.md](../04-architecture/identification.md#deviation-7z))
 
 ## Date
 

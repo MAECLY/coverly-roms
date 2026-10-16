@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implementation: milestone M2)
+Accepted (implemented in M2)
 
 ## Date
 

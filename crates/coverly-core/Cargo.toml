@@ -14,9 +14,24 @@ toml.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
 unicode-normalization.workspace = true
+crc32fast.workspace = true
+md-5.workspace = true
+sha1.workspace = true
+zip.workspace = true
+rusqlite.workspace = true
+directories.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+percent-encoding.workspace = true
+image.workspace = true
+
+[features]
+# Mock HTTP server and fixtures for tests of this crate and of the CLI.
+test-util = []
 
 [dev-dependencies]
+coverly-core = { path = ".", features = ["test-util"] }
 filetime.workspace = true
+flate2.workspace = true
 insta.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true

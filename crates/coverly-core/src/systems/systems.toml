@@ -9,6 +9,13 @@
 #               (live server root listing, not the GitHub umbrella repo names)
 #   arcade      ROM set short names instead of game titles
 #   multi_file  disc system: cue/bin, m3u, gdi, chd
+#   header      header rule for content hashing: plain (default), nes, fds,
+#               snes-copier, lynx or a7800; the digest without the header is
+#               also computed so headerless DAT entries match
+#   dats        libretro-database files (paths relative to the repo root) used
+#               to identify ROMs by hash or arcade short name; replaces the
+#               derived default (metadat/no-intro/<libretro>.dat, or
+#               metadat/redump/<libretro>.dat for disc systems)
 #
 # Users can extend or override entries by id with a file in the same format.
 
@@ -32,6 +39,7 @@ name = "Atari 7800"
 aliases = ["A7800", "atari7800", "7800"]
 extensions = ["a78", "bin", "zip", "7z"]
 libretro = "Atari - 7800"
+header = "a7800"
 
 [[system]]
 id = "a800"
@@ -39,6 +47,7 @@ name = "Atari 8-bit"
 aliases = ["A800", "atari800", "atari8bit"]
 extensions = ["atr", "atx", "xex", "xfd", "cas", "car", "com", "bas", "zip", "7z"]
 libretro = "Atari - 8-bit"
+dats = ["metadat/no-intro/Atari - 8-bit Family.dat"]
 
 [[system]]
 id = "amiga"
@@ -76,6 +85,7 @@ aliases = ["CPS1"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "cps2"
@@ -84,6 +94,7 @@ aliases = ["CPS2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "cps3"
@@ -92,6 +103,7 @@ aliases = ["CPS3"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "dos"
@@ -122,6 +134,7 @@ aliases = ["FBNEO", "fba", "fbalpha", "finalburn"]
 extensions = ["zip", "7z"]
 libretro = "FBNeo - Arcade Games"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat"]
 
 [[system]]
 id = "nes"
@@ -129,6 +142,7 @@ name = "Nintendo Entertainment System"
 aliases = ["FC", "NES", "famicom"]
 extensions = ["nes", "unf", "unif", "zip", "7z"]
 libretro = "Nintendo - Nintendo Entertainment System"
+header = "nes"
 
 [[system]]
 id = "fds"
@@ -136,6 +150,7 @@ name = "Famicom Disk System"
 aliases = ["FDS", "famicomdisk"]
 extensions = ["fds", "zip", "7z"]
 libretro = "Nintendo - Family Computer Disk System"
+header = "fds"
 
 [[system]]
 id = "gb"
@@ -171,6 +186,7 @@ name = "Game & Watch"
 aliases = ["GW", "gameandwatch"]
 extensions = ["mgw", "zip", "7z"]
 libretro = "Handheld Electronic Game"
+dats = ["dat/Handheld Electronic Game.dat"]
 
 [[system]]
 id = "hbmame"
@@ -179,6 +195,7 @@ aliases = ["HBMAME"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["dat/HBMAME.dat"]
 
 [[system]]
 id = "lynx"
@@ -186,6 +203,7 @@ name = "Atari Lynx"
 aliases = ["LYNX", "atarilynx"]
 extensions = ["lnx", "o", "zip", "7z"]
 libretro = "Atari - Lynx"
+header = "lynx"
 
 [[system]]
 id = "mame"
@@ -194,6 +212,7 @@ aliases = ["MAME", "arcade", "mame2003", "mame2003plus", "mame2010"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
 arcade = true
+dats = ["metadat/mame/MAME.dat"]
 
 [[system]]
 id = "megadrive"
@@ -254,6 +273,7 @@ aliases = ["NEOGEO", "Neo Geo"]
 extensions = ["zip", "7z"]
 libretro = "SNK - Neo Geo"
 arcade = true
+dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat", "metadat/mame/MAME.dat"]
 
 [[system]]
 id = "ngp"
@@ -364,6 +384,7 @@ name = "Super Nintendo"
 aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
 extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
 libretro = "Nintendo - Super Nintendo Entertainment System"
+header = "snes-copier"
 
 [[system]]
 id = "mastersystem"

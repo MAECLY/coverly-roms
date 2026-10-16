@@ -1,10 +1,15 @@
 //! `coverly`: command-line interface of Coverly ROMs.
 //!
-//! Exit codes: 0 ok, 1 I/O error, 2 bad usage, 3 library root not found or
-//! not a folder, 4 no layout profile detected and none given.
+//! Exit codes: 0 ok, 1 I/O, cache or job error (or no app folders), 2 bad
+//! usage, 3 library root not found or not a folder, 4 no layout profile
+//! detected and none given, 5 paused: offline, rate limited, or the library
+//! volume is full / read-only.
 
 mod audit;
+mod fill;
+mod profile;
 mod table;
+mod undo;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -25,10 +30,14 @@ enum Command {
     /// Report which ROMs of a library lack cover, screenshot or title art
     /// (read-only).
     Audit(audit::AuditArgs),
+    /// Fill missing art from libretro-thumbnails (dry run unless --apply).
+    Fill(fill::FillArgs),
     /// List the built-in layout profiles.
     Profiles,
     /// List the known systems and their folder aliases.
     Systems,
+    /// Undo the last fill job.
+    Undo(undo::UndoArgs),
 }
 
 /// A failure with its exit code and a message for stderr.
@@ -64,6 +73,8 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Audit(args) => audit::run(&args),
+        Command::Fill(args) => fill::run(&args),
+        Command::Undo(args) => undo::run(&args),
         Command::Profiles => print_stdout(&profiles_table()),
         Command::Systems => print_stdout(&systems_table()),
     };

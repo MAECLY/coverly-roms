@@ -6,6 +6,8 @@
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::identify::hash::HeaderRule;
+
 /// The embedded built-in database.
 const BUILTIN_TOML: &str = include_str!("systems.toml");
 
@@ -26,6 +28,11 @@ pub struct System {
     pub arcade: bool,
     /// Disc system: cue/bin, m3u, gdi, chd.
     pub multi_file: bool,
+    /// Header rule for content hashing.
+    pub header: HeaderRule,
+    /// libretro-database files (repo-relative) to identify ROMs with;
+    /// empty = derived from the libretro name.
+    pub dats: Vec<String>,
 }
 
 /// Errors loading a systems TOML file.
@@ -43,6 +50,26 @@ pub enum SystemsError {
         /// The offending id.
         id: String,
     },
+    /// A `header` value is not a known rule.
+    #[error(
+        "system `{id}`: unknown header rule `{value}` (expected plain, nes, fds, snes-copier, lynx or a7800)"
+    )]
+    BadHeader {
+        /// The offending id.
+        id: String,
+        /// The unknown value.
+        value: String,
+    },
+    /// A `dats` entry is not a safe relative repository path.
+    #[error(
+        "system `{id}`: DAT path `{value}` must be relative, with no `..`, empty segments, `\\` or control characters"
+    )]
+    BadDat {
+        /// The offending id.
+        id: String,
+        /// The rejected path.
+        value: String,
+    },
 }
 
 /// A `[[system]]` table as written in TOML. Every field but `id` is
@@ -57,6 +84,8 @@ struct RawSystem {
     libretro: Option<String>,
     arcade: Option<bool>,
     multi_file: Option<bool>,
+    header: Option<String>,
+    dats: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,7 +113,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade` and `multi_file` replace the current values when given;
+    /// `arcade`, `multi_file`, `header` and `dats` replace the current values when given;
     /// `aliases` and `extensions` are added to the current lists. An alias
     /// claimed by an override is removed from any other system, so the user
     /// file always wins. An entry with a new `id` is appended and must have a
@@ -126,6 +155,21 @@ impl SystemDb {
             }
         }
 
+        let header = match raw.header {
+            Some(value) => Some(HeaderRule::parse(&value).ok_or(SystemsError::BadHeader {
+                id: id.clone(),
+                value,
+            })?),
+            None => None,
+        };
+
+        if let Some(bad) = raw.dats.iter().flatten().find(|d| !is_safe_repo_path(d)) {
+            return Err(SystemsError::BadDat {
+                id,
+                value: bad.clone(),
+            });
+        }
+
         let index = match self.systems.iter().position(|s| s.id == id) {
             Some(index) => index,
             None => {
@@ -141,6 +185,8 @@ impl SystemDb {
                     libretro: None,
                     arcade: false,
                     multi_file: false,
+                    header: HeaderRule::Plain,
+                    dats: Vec::new(),
                 });
                 self.systems.len() - 1
             }
@@ -157,6 +203,12 @@ impl SystemDb {
         }
         if let Some(multi_file) = raw.multi_file {
             system.multi_file = multi_file;
+        }
+        if let Some(header) = header {
+            system.header = header;
+        }
+        if let Some(dats) = raw.dats {
+            system.dats = dats;
         }
         for alias in aliases {
             let key = alias.to_lowercase();
@@ -193,6 +245,16 @@ impl SystemDb {
     pub fn all(&self) -> &[System] {
         &self.systems
     }
+}
+
+/// A relative `/`-separated path with no empty, `.` or `..` segment, no
+/// `\` and no control characters, so it stays under the DAT base URL.
+pub(crate) fn is_safe_repo_path(path: &str) -> bool {
+    !path.contains('\\')
+        && !path.chars().any(char::is_control)
+        && path
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
 }
 
 /// Lowercases an extension and strips a leading dot: `.SFC` -> `sfc`.
@@ -366,6 +428,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn dats_are_explicit_for_arcade_and_replaced_by_overrides() {
+        let db = SystemDb::builtin();
+        assert_eq!(db.get("mame").unwrap().dats, ["metadat/mame/MAME.dat"]);
+        assert_eq!(
+            db.get("neogeo").unwrap().dats,
+            [
+                "metadat/fbneo-split/FBNeo - Arcade Games.dat",
+                "metadat/mame/MAME.dat"
+            ]
+        );
+        assert!(db.get("gba").unwrap().dats.is_empty(), "derived");
+        let db = db
+            .with_overrides("[[system]]\nid = \"neogeo\"\ndats = [\"dat/One.dat\"]\n")
+            .unwrap();
+        assert_eq!(db.get("neogeo").unwrap().dats, ["dat/One.dat"]);
+    }
+
+    #[test]
+    fn unsafe_dat_paths_are_rejected() {
+        for bad in [
+            "metadat/../../../x.dat",
+            "..",
+            "/etc/x.dat",
+            "metadat//x.dat",
+            "metadat/x.dat/",
+            "metadat\\x.dat",
+            "metadat/x\u{0}.dat",
+            "metadat/x\n.dat",
+            "",
+        ] {
+            let value = toml::Value::String(bad.into());
+            let toml = format!("[[system]]\nid = \"gba\"\ndats = [{value}]\n");
+            let err = SystemDb::builtin().with_overrides(&toml).unwrap_err();
+            assert!(
+                matches!(err, SystemsError::BadDat { ref id, .. } if id == "gba"),
+                "{bad:?}: {err}"
+            );
+        }
+        let ok = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"gba\"\ndats = [\"dat/My Set (v1.2).dat\"]\n")
+            .unwrap();
+        assert_eq!(ok.get("gba").unwrap().dats, ["dat/My Set (v1.2).dat"]);
     }
 
     #[test]
@@ -602,6 +709,30 @@ mod tests {
             .with_overrides("[[system]]\nid = \"TIC80\"\nname = \"TIC-80\"\n")
             .unwrap();
         assert_eq!(db.all().last().unwrap().id, "tic80");
+    }
+
+    #[test]
+    fn builtin_header_rules() {
+        use crate::identify::hash::HeaderRule;
+        let db = SystemDb::builtin();
+        for (id, rule) in [
+            ("nes", HeaderRule::Nes),
+            ("fds", HeaderRule::Fds),
+            ("snes", HeaderRule::SnesCopier),
+            ("lynx", HeaderRule::Lynx),
+            ("a7800", HeaderRule::A7800),
+            ("gba", HeaderRule::Plain),
+        ] {
+            assert_eq!(db.get(id).unwrap().header, rule, "{id}");
+        }
+    }
+
+    #[test]
+    fn unknown_header_rule_is_an_error() {
+        let err = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"gba\"\nheader = \"bogus\"\n")
+            .unwrap_err();
+        assert!(matches!(err, SystemsError::BadHeader { .. }), "{err}");
     }
 
     #[test]

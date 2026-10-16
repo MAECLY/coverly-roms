@@ -29,6 +29,8 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 | ROM identification | **Hash → DATs, then name**, arcade short-name translation | [ADR-0006](./adr/0006-hash-then-name-identification.md) |
 | Bulk selection | **Pluggable strategies**: Priority, ROM region, Popularity | [ADR-0007](./adr/0007-pluggable-strategies.md) |
 | Auto-update | **tauri-plugin-updater**, minisign, public GitHub Releases, stable + beta | [ADR-0008](./adr/0008-updater-public-releases.md) |
+| Fill pipeline | **Gather into a SQLite cache, then apply** from a content-addressed art store | [ADR-0009](./adr/0009-two-phase-fill-with-sqlite-cache.md) |
+| Library writes | **Atomic writes**, with backups and journals in the app data dir, and undo | [ADR-0010](./adr/0010-safe-writes-backups-and-journal.md) |
 | UI languages | English (default) + Spanish | — |
 | Documentation language | English (the tracker is in Spanish) | — |
 
@@ -40,6 +42,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 
 - [Design spec](./superpowers/specs/2026-10-15-coverly-roms-design.md) — purpose, scope, domain model, architecture, UI, settings, milestones
 - [M0 + M1 implementation plan](./superpowers/plans/2026-10-15-m0-m1-foundation-and-audit.md) — foundation and audit, task by task
+- [M2 implementation plan](./superpowers/plans/2026-10-16-m2-identify-and-fill.md) — identification, art sources and fill, task by task
 - [Tracker](./TRACKER.md) — task status with evidence (Spanish)
 
 ### 02 — Research
@@ -56,6 +59,9 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 ### 04 — Architecture
 
 - [System Architecture](./04-architecture/system-architecture.md) — containers, modules, domain model, data flow, performance
+- [Identification](./04-architecture/identification.md) — hashing, header rules, DATs, arcade names, name normalisation
+- [Art Sources](./04-architecture/art-sources.md) — `ArtSource` trait, libretro-thumbnails, hostile names, polite HTTP
+- [Fill Pipeline](./04-architecture/fill-pipeline.md) — gather, plan, strategies, image limits, safe writes, undo, CLI, E2E evidence
 
 ### 07 — Build & Release
 
@@ -77,6 +83,8 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [0006 — Identify ROMs by hash first, then by name](./adr/0006-hash-then-name-identification.md)
 - [0007 — Bulk art selection through pluggable strategies](./adr/0007-pluggable-strategies.md)
 - [0008 — Updater on public GitHub Releases](./adr/0008-updater-public-releases.md)
+- [0009 — Two-phase fill with a SQLite cache](./adr/0009-two-phase-fill-with-sqlite-cache.md)
+- [0010 — Safe writes, backups and journal](./adr/0010-safe-writes-backups-and-journal.md)
 
 ---
 
@@ -86,7 +94,7 @@ Numbered folders give the reading order (`02-research`, `04-architecture`, `07-b
 
 ## Status
 
-**Pre-alpha · M1 (scan and audit) delivered.** `coverly audit` reports missing art on real libraries (validated read-only on an Anbernic SD with 7,473 ROMs). Nothing writes to a library yet; identification, art download and filling start in M2. The [tracker](./TRACKER.md) is the source of truth for what is done.
+**Pre-alpha · M2 (identify and fill) delivered on `feat/m2-fill`.** `coverly audit` reports missing art on real libraries (validated read-only on an Anbernic SD with 7,473 ROMs). `coverly fill` identifies ROMs (hash → libretro-database DATs, arcade short names, names), gathers art from libretro-thumbnails, shows a dry-run plan and, with `--apply`, writes covers atomically with backups and `coverly undo` (validated end to end on a copy of the SD and on a FAT32 image). The [tracker](./TRACKER.md) is the source of truth for what is done.
 
 ## Licence of this documentation
 
