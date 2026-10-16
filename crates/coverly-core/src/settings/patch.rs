@@ -83,6 +83,12 @@ impl Settings {
                     return Err(errors);
                 }
                 next.normalise();
+                // Normalising can undo what made the patch valid (e.g. it
+                // turns unavailable sources off), so check the result too.
+                let errors = next.validate(known_profiles);
+                if !errors.is_empty() {
+                    return Err(errors);
+                }
                 Ok(next)
             }
             Err(_) => {

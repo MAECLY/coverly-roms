@@ -472,6 +472,25 @@ fn with_patch_names_the_field_of_a_type_error_and_of_a_range_error() {
 }
 
 #[test]
+fn with_patch_refuses_a_change_that_only_enables_an_unavailable_source() {
+    // Normalising turns sources that are not available yet off; a patch
+    // whose only enabled source is one of them would leave none enabled.
+    let errors = Settings::default()
+        .with_patch(
+            &json!({"sources": {"order": [
+                {"id": "steamgriddb", "enabled": true},
+                {"id": "libretro", "enabled": false}
+            ]}}),
+            &known(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        codes(&errors),
+        [("sources.order".to_string(), FieldErrorCode::Required)]
+    );
+}
+
+#[test]
 fn remembers_recent_libraries_most_recent_first() {
     let mut s = Settings::default();
     for i in 0..12 {
