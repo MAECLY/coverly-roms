@@ -10,6 +10,7 @@ pub mod paths;
 pub mod profiles;
 pub mod scan;
 pub mod systems;
+mod time;
 
 /// Version of the core library, taken from the workspace package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
