@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M3 implementado en `feat/m3-explorer` (plan tareas 1–13). M2 mergeado ([PR #3](https://github.com/MAECLY/coverly-roms/pull/3), `2a1a8e1`).
-- **Siguiente paso:** PR M3 + revisión (incluye la comprobación manual de la app real, abajo en «Evidencia M3»); luego plan M4.
-- **En curso:** —
+- **Fase:** M3 mergeado ([PR #4](https://github.com/MAECLY/coverly-roms/pull/4), `910618e`). M4 (relleno masivo en la app) en curso en `feat/m4-fill-app`.
+- **Siguiente paso:** plan M4 (`docs/superpowers/plans/2026-10-16-m4-fill-in-app.md`) + workflow implementador/revisor. Pendiente de Miguel (no bloqueante): abrir `~/Documents/ROMS` en la app real con el diálogo nativo y probar scroll/drawer/Reveal («Evidencia M3»).
+- **En curso:** workflow M4.
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
@@ -213,3 +213,4 @@ Evidencia en `$S` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Doc
 - **2026-10-16** — M2 mergeado (PR #3, `2a1a8e1`; Actions bloqueado por facturación → gates locales: 265 tests Rust + 11 front, clippy/fmt/lint limpios). Verificación independiente sobre copia de 61 ROMs SFC: 61/61 rellenadas (59 por hash, 2 por nombre), todas el juego correcto revisadas a mano (`Digital Devil Story X` → *Shin Megami Tensei if...*), 12 s en frío; undo quitó las 61. Fix menor `create_dirs` solo NotFound.
 - **2026-10-16** — M2 implementado en `feat/m2-fill` (plan tareas 1–14): identificación (hash → DATs, arcade, nombre), libretro-thumbnails, estrategias, plan, imagen, escritura segura, `coverly fill`/`undo`. E2E sobre copia de la SD: 109/126 portadas rellenadas, undo y respaldos byte a byte; imagen FAT32 sin `._*`. El E2E destapó y arregló 3 bugs (rutas DAT, `&amp;` en listados, `._*` en FAT). Docs: identification, art-sources, fill-pipeline, ADR-0009/0010; D12–D15.
 - **2026-10-16** — M3 implementado en `feat/m3-explorer` (plan tareas 1–13): explorador con vistas, grid/tabla virtualizados, filtros y búsqueda, panel de detalle, mock de navegador; E2E en Chrome (12k entradas) y biblioteca real en solo lectura (7473 ROMs, 367 ms en frío). El E2E destapó 2 bugs menores (recuentos sin formato, campos sin `name`). D16–D19.
+- **2026-10-16** — M3 mergeado (PR #4, `910618e`; Actions bloqueado por facturación → gates locales: 312 tests Rust + 156 Vitest, clippy/fmt/lint limpios). Comprobación independiente con Chrome DevTools MCP sobre `pnpm dev`: inicio con recientes, fixture 12k abre el grid virtualizado («12.000 de 12.000 ROMs · 4553 sin portada»), 0 errores/avisos de consola.
