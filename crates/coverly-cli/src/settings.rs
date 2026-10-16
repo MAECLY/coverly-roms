@@ -1,13 +1,14 @@
 //! The app's settings, read-only (spec §9: the CLI uses the same file;
 //! flags override it). The CLI never writes, migrates or renames the
-//! settings file: a broken file reads as defaults and is left alone.
+//! settings file: a broken file reads as defaults, is left alone, and is
+//! reported on stderr.
 
 use std::path::{Path, PathBuf};
 
 use coverly_core::paths::{config_dir, AppDirs};
 use coverly_core::profiles::builtin_profiles;
 use coverly_core::profiles::custom::{ProfileFile, ProfileStore, PROFILES_DIR};
-use coverly_core::settings::{read_settings, Settings, SETTINGS_FILE};
+use coverly_core::settings::{read_settings_checked, ReadProblem, Settings, SETTINGS_FILE};
 
 /// Settings file override: unset = the app's, empty = built-in defaults,
 /// else the path of a settings file.
@@ -50,17 +51,30 @@ pub fn load_cli_settings() -> CliSettings {
         .map(|p| p.join(PROFILES_DIR))
         .unwrap_or_default();
     let (mut custom, mut warnings) = ProfileStore::new(base).load();
-    let mut settings = read_settings(&path, &ids(&custom));
+    let (mut settings, mut problem) = read_settings_checked(&path, &ids(&custom));
     // The custom folder is itself a setting: read the file again with the
     // ids of the folder it names.
     if let Some(dir) = settings.advanced.custom_dir.clone() {
         (custom, warnings) = ProfileStore::new(dir).load();
-        settings = read_settings(&path, &ids(&custom));
+        (settings, problem) = read_settings_checked(&path, &ids(&custom));
     }
     for w in warnings {
         eprintln!(
             "{}",
             crate::table::terminal_safe(&format!("warning: custom profile {w}"))
+        );
+    }
+    if let Some(problem) = problem {
+        let what = match problem {
+            ReadProblem::NotSettings => "is not valid settings",
+            ReadProblem::Unreadable => "cannot be read",
+        };
+        eprintln!(
+            "{}",
+            crate::table::terminal_safe(&format!(
+                "warning: settings file {} {what}; using the defaults (the file was left untouched)",
+                path.display()
+            ))
         );
     }
     CliSettings { settings, custom }
