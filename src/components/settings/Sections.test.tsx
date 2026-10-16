@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -169,16 +169,13 @@ describe('settings sections', () => {
     expect((await saved()).matching.review_threshold).toBe(0.65);
   });
 
-  it('sources: SteamGridDB can be enabled, ScreenScraper is coming soon and credentials are stored without coming back', async () => {
+  it('sources: SteamGridDB turns on once a key is stored; the key never comes back', async () => {
     const panel = await open('sources');
     const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
-    expect(sgdb).toBeEnabled();
+    expect(sgdb).toBeDisabled();
     expect(
-      within(panel).getByRole('checkbox', { name: /ScreenScraper/ }),
-    ).toBeDisabled();
-    expect(within(panel).getAllByText('Coming in a later version').length).toBe(
-      1,
-    );
+      within(panel).getByText('Store an API key below to turn it on'),
+    ).toBeInTheDocument();
     const key = within(panel).getByLabelText('SteamGridDB API key');
     expect(key).toHaveAttribute('type', 'password');
     await userEvent.type(key, 'sk-SECRET');
@@ -189,6 +186,15 @@ describe('settings sections', () => {
       await within(panel).findByText('Saved in the system keychain.'),
     ).toBeInTheDocument();
     expect(key).toHaveValue('');
+    expect(sgdb).toBeEnabled();
+    expect(
+      within(panel).queryByText('Store an API key below to turn it on'),
+    ).not.toBeInTheDocument();
+    await userEvent.click(sgdb);
+    expect(
+      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
+        .enabled,
+    ).toBe(true);
     expect(document.body.innerHTML).not.toContain('sk-SECRET');
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Remove SteamGridDB API key' }),
@@ -196,6 +202,106 @@ describe('settings sections', () => {
     expect((await backend.credentialStatus()).set['steamgriddb-api-key']).toBe(
       false,
     );
+  });
+
+  it('sources: screenscraper says not available in this build', async () => {
+    const panel = await open('sources');
+    expect(
+      within(panel).getByRole('checkbox', { name: /ScreenScraper/ }),
+    ).toBeDisabled();
+    expect(
+      within(panel).getByText('Not available in this build'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('button', {
+        name: 'Test the ScreenScraper password',
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('sources: Test reports ok, invalid and missing without showing the key', async () => {
+    const panel = await open('sources');
+    const test = within(panel).getByRole('button', {
+      name: 'Test the SteamGridDB API key',
+    });
+    expect(test).toBeDisabled();
+    const key = within(panel).getByLabelText('SteamGridDB API key');
+    await userEvent.type(key, 'bad-key');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
+    );
+    await within(panel).findByText('Saved in the system keychain.');
+    await userEvent.click(test);
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'The key was refused.',
+    );
+    await userEvent.type(key, 'sk-good');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
+    );
+    // A new key forgets the previous result.
+    expect(within(panel).queryByRole('status')).not.toBeInTheDocument();
+    await userEvent.click(test);
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'The key works.',
+    );
+    expect(document.body.innerHTML).not.toContain('sk-good');
+    expect(document.body.innerHTML).not.toContain('bad-key');
+  });
+
+  it('sources: Test says the key is missing when it was removed elsewhere', async () => {
+    await backend.setCredential('steamgriddb-api-key', 'sk');
+    const panel = await open('sources');
+    const test = within(panel).getByRole('button', {
+      name: 'Test the SteamGridDB API key',
+    });
+    await waitFor(() => expect(test).toBeEnabled());
+    await backend.clearCredential('steamgriddb-api-key');
+    await userEvent.click(test);
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'No key is stored.',
+    );
+  });
+
+  it('sources: an enabled source without its key can still be turned off', async () => {
+    await backend.setCredential('steamgriddb-api-key', 'sk');
+    await backend.updateSettings({
+      sources: {
+        order: [
+          { id: 'libretro', enabled: true },
+          { id: 'steamgriddb', enabled: true },
+          { id: 'screenscraper', enabled: false },
+        ],
+      },
+    });
+    await backend.clearCredential('steamgriddb-api-key');
+    const panel = await open('sources');
+    const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
+    expect(sgdb).toBeChecked();
+    expect(sgdb).toBeEnabled();
+    await userEvent.click(sgdb);
+    expect(
+      (await saved()).sources.order.find((e) => e.id === 'steamgriddb')!
+        .enabled,
+    ).toBe(false);
+    // Once off, it cannot be turned on again without a key.
+    await waitFor(() => expect(sgdb).toBeDisabled());
+  });
+
+  it('sources: speaks Spanish', async () => {
+    await backend.updateSettings({ general: { language: 'es' } });
+    render(<Root />);
+    await screen.findByRole('button', { name: 'Configuración' });
+    act(() => useNavStore.getState().openSettings('sources'));
+    const panel = await screen.findByRole('tabpanel');
+    expect(
+      await within(panel).findByText('No disponible en esta versión'),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole('button', {
+        name: 'Probar Clave de API de SteamGridDB',
+      }),
+    ).toBeInTheDocument();
   });
 
   it('network: invalid timeout shows an error, keeps the typed value and other fields still save', async () => {

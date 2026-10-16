@@ -7,9 +7,10 @@ import {
   CREDENTIAL_KEYS,
   type CredentialKey,
   type CredentialStatus,
+  type KeyCheck,
   type SourceId,
+  type SourceInfo,
 } from '@/ipc/types';
-import { AVAILABLE_SOURCES } from '@/lib/settingsRules';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import { useFieldError } from './Field';
@@ -18,16 +19,21 @@ function CredentialRow({
   k,
   set,
   disabled,
+  testable,
   onStatus,
 }: {
   k: CredentialKey;
   set: boolean;
   disabled: boolean;
+  /** The source whose key "Test" checks; no Test button without it. */
+  testable?: SourceId | undefined;
   onStatus(s: CredentialStatus): void;
 }) {
   const t = useT();
   const [value, setValue] = useState('');
   const [error, setError] = useState<BackendError | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [check, setCheck] = useState<KeyCheck | null>(null);
   const what = t(`settings.sources.credential.${k}`);
   const id = `credential-${k}`;
   async function run(
@@ -36,6 +42,8 @@ function CredentialRow({
     ) => Promise<CredentialStatus>,
   ) {
     setError(null);
+    // A result about the previous key would be stale.
+    setCheck(null);
     try {
       onStatus(await op(await getBackend()));
     } catch (e) {
@@ -43,6 +51,19 @@ function CredentialRow({
     } finally {
       // Never keep a secret in the DOM longer than needed, even on error.
       setValue('');
+    }
+  }
+  async function test(source: SourceId) {
+    setTesting(true);
+    setCheck(null);
+    setError(null);
+    try {
+      // Only the verdict comes back; the key never reaches the webview.
+      setCheck(await (await getBackend()).testSourceKey(source));
+    } catch (e) {
+      setError(toBackendError(e));
+    } finally {
+      setTesting(false);
     }
   }
   return (
@@ -80,10 +101,28 @@ function CredentialRow({
         >
           {t('settings.sources.removeShort')}
         </button>
+        {testable && (
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={disabled || !set || testing}
+            aria-label={t('settings.sources.testKeyLabel', { what })}
+            onClick={() => void test(testable)}
+          >
+            {testing
+              ? t('settings.sources.testing')
+              : t('settings.sources.testKey')}
+          </button>
+        )}
       </div>
       <p className="hint">
         {set ? t('settings.sources.stored') : t('settings.sources.notStored')}
       </p>
+      {check && (
+        <p role="status" className="hint">
+          {t(`settings.sources.check.${check}`)}
+        </p>
+      )}
       {error && (
         <p role="alert" className="field-error">
           {t(errorKey(error.code), { detail: error.detail ?? '' })}
@@ -99,20 +138,28 @@ export function SourcesSection() {
   const update = useSettingsStore((s) => s.update);
   const orderError = useFieldError('sources.order');
   const [status, setStatus] = useState<CredentialStatus | null>(null);
+  const [info, setInfo] = useState<SourceInfo[] | null>(null);
   const [error, setError] = useState<BackendError | null>(null);
   useEffect(() => {
     let alive = true;
-    void getBackend()
-      .then((b) => b.credentialStatus())
-      .then(
-        (s) => alive && setStatus(s),
-        (e) => alive && setError(toBackendError(e)),
-      );
+    const fail = (e: unknown) => alive && setError(toBackendError(e));
+    void getBackend().then((b) => {
+      void b.credentialStatus().then((s) => alive && setStatus(s), fail);
+      void b.sourcesInfo().then((i) => alive && setInfo(i), fail);
+    }, fail);
     return () => {
       alive = false;
     };
   }, []);
   const name = (id: SourceId) => t(`settings.sources.name.${id}`);
+  const infoOf = (id: SourceId) => info?.find((x) => x.id === id);
+  // Readiness follows the live key status, so saving or removing a key
+  // updates it at once (no reload).
+  const ready = (id: SourceId) => {
+    const i = infoOf(id);
+    return !!i && i.built && i.needs.every((k) => status?.set[k] === true);
+  };
+  const built = (id: SourceId) => infoOf(id)?.built === true;
   const save = (next: typeof order) =>
     void update({ sources: { order: next } });
   const move = (i: number, d: -1 | 1) => {
@@ -126,7 +173,16 @@ export function SourcesSection() {
     <div className="settings-group">
       <ol className="source-order" aria-label={t('settings.section.sources')}>
         {order.map((e, i) => {
-          const usable = AVAILABLE_SOURCES.includes(e.id);
+          // An enabled source can always be turned off.
+          const usable = ready(e.id) || e.enabled;
+          const hint =
+            info === null
+              ? null
+              : !built(e.id)
+                ? t('settings.sources.notBuilt')
+                : !ready(e.id)
+                  ? t('settings.sources.needsKey')
+                  : null;
           return (
             <li key={e.id}>
               <label className="checkbox-row">
@@ -147,9 +203,7 @@ export function SourcesSection() {
                 />
                 {name(e.id)}
               </label>
-              {!usable && (
-                <span className="hint">{t('settings.sources.later')}</span>
-              )}
+              {hint && <span className="hint">{hint}</span>}
               <button
                 type="button"
                 className="icon-button"
@@ -195,6 +249,13 @@ export function SourcesSection() {
           k={k}
           set={status?.set[k] ?? false}
           disabled={unavailable}
+          testable={
+            k === 'steamgriddb-api-key'
+              ? 'steamgriddb'
+              : k === 'screenscraper-password' && built('screenscraper')
+                ? 'screenscraper'
+                : undefined
+          }
           onStatus={setStatus}
         />
       ))}

@@ -136,11 +136,12 @@
         "steamgriddb": "SteamGridDB",
         "screenscraper": "ScreenScraper"
       },
-      "later": "Coming in a later version",
+      "notBuilt": "Not available in this build",
+      "needsKey": "Store an API key below to turn it on",
       "up": "Move {name} up",
       "down": "Move {name} down",
       "credentials": "Accounts",
-      "credentialsHint": "Stored in the system keychain, never in the settings file. They are used when these sources arrive.",
+      "credentialsHint": "Stored in the system keychain, never in the settings file, and never shown again.",
       "credential": {
         "steamgriddb-api-key": "SteamGridDB API key",
         "screenscraper-user": "ScreenScraper user",
@@ -151,7 +152,18 @@
       "remove": "Remove {what}",
       "removeShort": "Remove",
       "stored": "Saved in the system keychain.",
-      "notStored": "Not set."
+      "notStored": "Not set.",
+      "testKey": "Test",
+      "testKeyLabel": "Test the {what}",
+      "testing": "Testing…",
+      "check": {
+        "ok": "The key works.",
+        "invalid": "The key was refused.",
+        "missing": "No key is stored.",
+        "offline": "Could not reach the server.",
+        "rate-limited": "The server asks to wait; try again later.",
+        "unavailable": "The server could not check it now."
+      }
     },
     "network": {
       "concurrency": "Simultaneous downloads",

@@ -136,11 +136,12 @@
         "steamgriddb": "SteamGridDB",
         "screenscraper": "ScreenScraper"
       },
-      "later": "Llegará en una versión posterior",
+      "notBuilt": "No disponible en esta versión",
+      "needsKey": "Guarda una clave de API abajo para activarla",
       "up": "Subir {name}",
       "down": "Bajar {name}",
       "credentials": "Cuentas",
-      "credentialsHint": "Se guardan en el llavero del sistema, nunca en el archivo de configuración. Se usarán cuando lleguen estas fuentes.",
+      "credentialsHint": "Se guardan en el llavero del sistema, nunca en el archivo de configuración, y no se vuelven a mostrar.",
       "credential": {
         "steamgriddb-api-key": "Clave de API de SteamGridDB",
         "screenscraper-user": "Usuario de ScreenScraper",
@@ -151,7 +152,18 @@
       "remove": "Quitar {what}",
       "removeShort": "Quitar",
       "stored": "Guardada en el llavero del sistema.",
-      "notStored": "Sin configurar."
+      "notStored": "Sin configurar.",
+      "testKey": "Probar",
+      "testKeyLabel": "Probar {what}",
+      "testing": "Probando…",
+      "check": {
+        "ok": "La clave funciona.",
+        "invalid": "La clave fue rechazada.",
+        "missing": "No hay ninguna clave guardada.",
+        "offline": "No se pudo contactar con el servidor.",
+        "rate-limited": "El servidor pide esperar; inténtalo más tarde.",
+        "unavailable": "El servidor no pudo comprobarla ahora."
+      }
     },
     "network": {
       "concurrency": "Descargas simultáneas",
