@@ -40,6 +40,53 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (year, month, day)
 }
 
+/// Day count since 1970-01-01 of a proleptic Gregorian date (Howard
+/// Hinnant's `days_from_civil`).
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let m = i64::from(month);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + i64::from(day) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Unix seconds of an HTTP IMF-fixdate such as
+/// `Sun, 06 Nov 1994 08:49:37 GMT` (RFC 9110 §5.6.7). The obsolete
+/// RFC 850 and asctime forms are not accepted.
+pub(crate) fn unix_from_http_date(value: &str) -> Option<i64> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let (_, rest) = value.trim().split_once(", ")?;
+    let parts: Vec<&str> = rest.split(' ').collect();
+    let [day, month, year, clock, "GMT"] = parts.as_slice() else {
+        return None;
+    };
+    let num = |s: &str, len: usize| -> Option<u32> {
+        (s.len() == len && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse().ok())
+            .flatten()
+    };
+    let day = num(day, 2)?;
+    let month = MONTHS.iter().position(|m| m == month)? as u32 + 1;
+    let year = i64::from(num(year, 4)?);
+    let hms: Vec<&str> = clock.split(':').collect();
+    let [h, m, sec] = hms.as_slice() else {
+        return None;
+    };
+    let (h, m, sec) = (num(h, 2)?, num(m, 2)?, num(sec, 2)?);
+    if !(1..=31).contains(&day) || h > 23 || m > 59 || sec > 60 {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    if civil_from_days(days) != (year, month, day) {
+        return None; // e.g. 31 Apr
+    }
+    Some(days * 86_400 + i64::from(h * 3600 + m * 60 + sec))
+}
+
 /// `20261016T030000Z`: sortable, file-name safe.
 // First used by job ids and backups (writer); until then only by tests.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -91,6 +138,33 @@ mod tests {
         let time = UNIX_EPOCH + Duration::from_secs(1_792_119_600);
         assert_eq!(rfc3339_utc(time), "2026-10-16T03:00:00Z");
         assert_eq!(compact_utc(time), "20261016T030000Z");
+    }
+
+    #[test]
+    fn parses_imf_fixdate() {
+        assert_eq!(
+            unix_from_http_date("Sun, 06 Nov 1994 08:49:37 GMT"),
+            Some(784_111_777)
+        );
+        assert_eq!(
+            unix_from_http_date("Tue, 14 Nov 2023 22:13:20 GMT"),
+            Some(1_700_000_000)
+        );
+        assert_eq!(
+            unix_from_http_date("Tue, 29 Feb 2000 00:00:00 GMT"),
+            Some(951_782_400)
+        );
+        for bad in [
+            "",
+            "120",
+            "Sun, 06 Nov 1994 08:49:37 PST",
+            "Sun, 32 Nov 1994 08:49:37 GMT",
+            "Sun, 06 Foo 1994 08:49:37 GMT",
+            "Sun, 06 Nov 1994 25:49:37 GMT",
+            "Sun, 06 Nov 1994 08:49 GMT",
+        ] {
+            assert_eq!(unix_from_http_date(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

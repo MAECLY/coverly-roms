@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use coverly_core::net::testing::{MockResponse, MockServer};
 use coverly_core::net::{
-    proxy_from, Http, HttpRequest, Limiter, NetConfig, NetError, PoliteHttp, UreqHttp, USER_AGENT,
+    proxy_from, Http, HttpRequest, Limiter, NetConfig, NetError, PoliteHttp, ProxyMode, UreqHttp,
+    USER_AGENT,
 };
 
 fn cfg() -> NetConfig {
@@ -166,6 +167,36 @@ fn plain_http_to_a_remote_host_is_refused_before_connecting() {
         matches!(err, NetError::Insecure(_)),
         "userinfo tricks are refused"
     );
+}
+
+#[test]
+fn an_invalid_manual_proxy_fails_closed() {
+    let c = NetConfig {
+        proxy: ProxyMode::Manual("http://[::bad".into()),
+        ..cfg()
+    };
+    let err = UreqHttp::new(&c)
+        .get(&HttpRequest::get("https://example.invalid/x"))
+        .unwrap_err();
+    assert!(
+        matches!(&err, NetError::Offline(m) if m.contains("proxy")),
+        "{err}"
+    );
+}
+
+#[test]
+fn loopback_does_not_follow_redirects() {
+    let server = MockServer::start();
+    server.mock(
+        "/from",
+        MockResponse::status(302).header("Location", &server.url("/to")),
+    );
+    server.mock("/to", MockResponse::ok("moved"));
+    let resp = client()
+        .get(&HttpRequest::get(server.url("/from")))
+        .unwrap();
+    assert_eq!(resp.status, 302);
+    assert_eq!(server.hits("/to"), 0);
 }
 
 #[test]

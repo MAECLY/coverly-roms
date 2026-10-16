@@ -173,29 +173,38 @@ fn url_kind(url: &str) -> UrlKind {
 pub struct UreqHttp {
     secure: ureq::Agent,
     loopback: ureq::Agent,
+    /// Set when a manual proxy was given but cannot be used: HTTPS requests
+    /// then fail instead of silently going direct.
+    proxy_error: Option<String>,
 }
 
 impl UreqHttp {
     pub fn new(cfg: &NetConfig) -> UreqHttp {
-        let proxy = match &cfg.proxy {
-            ProxyMode::Env => proxy_from(|n| std::env::var(n).ok()),
-            ProxyMode::Off => None,
-            ProxyMode::Manual(url) => ureq::Proxy::new(url).ok(),
+        let (proxy, proxy_error) = match &cfg.proxy {
+            ProxyMode::Env => (proxy_from(|n| std::env::var(n).ok()), None),
+            ProxyMode::Off => (None, None),
+            ProxyMode::Manual(url) => match ureq::Proxy::new(url.trim()) {
+                Ok(p) => (Some(p), None),
+                Err(e) => (None, Some(format!("invalid manual proxy: {e}"))),
+            },
         };
-        let build = |https_only: bool, proxy: Option<ureq::Proxy>| -> ureq::Agent {
+        // Loopback (tests, local setups) never follows redirects, so a
+        // local URL cannot bounce to a remote plain-HTTP host.
+        let build = |https_only: bool, redirects: u32, proxy: Option<ureq::Proxy>| {
             ureq::Agent::config_builder()
                 .timeout_global(Some(cfg.timeout))
                 .http_status_as_error(false)
                 .https_only(https_only)
-                .max_redirects(5)
+                .max_redirects(redirects)
                 .user_agent(USER_AGENT)
                 .proxy(proxy)
                 .build()
                 .into()
         };
         UreqHttp {
-            secure: build(true, proxy),
-            loopback: build(false, None),
+            secure: build(true, 5, proxy),
+            loopback: build(false, 0, None),
+            proxy_error,
         }
     }
 }
@@ -203,7 +212,10 @@ impl UreqHttp {
 impl Http for UreqHttp {
     fn get(&self, req: &HttpRequest) -> Result<HttpResponse, NetError> {
         let agent = match url_kind(&req.url) {
-            UrlKind::Https => &self.secure,
+            UrlKind::Https => match &self.proxy_error {
+                Some(e) => return Err(NetError::Offline(e.clone())),
+                None => &self.secure,
+            },
             UrlKind::Loopback => &self.loopback,
             UrlKind::Refused => return Err(NetError::Insecure(req.url.clone())),
         };
@@ -224,9 +236,8 @@ impl Http for UreqHttp {
             header("last-modified"),
             header("content-type"),
         );
-        let retry_after = header("retry-after")
-            .and_then(|v| v.trim().parse::<u64>().ok())
-            .map(Duration::from_secs);
+        let retry_after =
+            header("retry-after").and_then(|v| retry_after(&v, crate::time::now_unix()));
         let body = if status == 304 {
             Vec::new()
         } else {
@@ -241,6 +252,17 @@ impl Http for UreqHttp {
             body,
         })
     }
+}
+
+/// `Retry-After` as delta-seconds or as an HTTP-date relative to `now`
+/// (Unix seconds); a date in the past means no wait.
+fn retry_after(value: &str, now: i64) -> Option<Duration> {
+    let value = value.trim();
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(Duration::from_secs(secs));
+    }
+    let at = crate::time::unix_from_http_date(value)?;
+    Some(Duration::from_secs(at.saturating_sub(now).max(0) as u64))
 }
 
 /// Slack on the wire cap so a small body may still carry gzip framing.
@@ -354,6 +376,22 @@ mod tests {
         fn get(&self, _: &HttpRequest) -> Result<HttpResponse, NetError> {
             Err(NetError::Timeout)
         }
+    }
+
+    #[test]
+    fn retry_after_takes_seconds_or_an_http_date() {
+        let now = 1_700_000_000;
+        assert_eq!(retry_after(" 7 ", now), Some(Duration::from_secs(7)));
+        assert_eq!(
+            retry_after("Tue, 14 Nov 2023 22:13:50 GMT", now),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            retry_after("Tue, 14 Nov 2023 22:00:00 GMT", now),
+            Some(Duration::ZERO),
+            "a date in the past means retry now"
+        );
+        assert_eq!(retry_after("soon", now), None);
     }
 
     #[test]
