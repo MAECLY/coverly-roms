@@ -126,6 +126,7 @@ Contraste manual con `ls` (ROMs = ficheros no ocultos fuera de `Imgs`; portadas 
 | M2-10 | Batocera/Knulli: fusionar `gamelist.xml` al rellenar (diferido de M2; hoy `fill` avisa) | ⬜ | M4/M5 |
 | M2-11 | Selección de variantes: hoy un hack/beta puede ganar como `auto` cuando es el único título exacto o el mejor fuzzy (GBA `Final Fantasy IV` → caja «Sound Restoration hack», `Contra Advance` → `(Beta)`): penalizar o mandar a `review` | ⬜ | Visto en el dry-run del E2E (abajo) |
 | M2-12 | Perfil Anbernic stock: las portadas existentes de la SD miden 285×184, fuera de la caja 250×360 del perfil → revisar el tamaño máximo con la consola real | ⬜ | Visto en el E2E (22 portadas GBA originales) |
+| M2-13 | Emparejado por título: quitar prefijos numéricos de las ROMs (`001 Golden Sun`, habituales en SD Anbernic). Hoy `001 Golden Sun` cae a fuzzy 71 (`review` en vez de `auto`) aun con DAT, y `002 Gldn Rsh` queda sin candidatos (sin prefijo: fuzzy 72) | ⬜ | Visto en la revisión de la tarea 3 de M4 (fixture de `fill_env.rs`) |
 
 ### Evidencia M2 — relleno E2E sobre copia de la SD (2026-10-16)
 

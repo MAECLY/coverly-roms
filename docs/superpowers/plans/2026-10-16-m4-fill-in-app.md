@@ -1229,8 +1229,9 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add crat
     - `pub fn plan(&self, root: &Path, profile: &Profile, systems: &SystemDb, art: &[SystemArt], settings: &FillSettings, progress: &dyn ProgressSink, cancel: &AtomicBool) -> Plan`
     - `pub fn apply(&self, plan: &Plan, profile: &Profile, opts: &ApplyOptions, progress: &dyn ProgressSink, cancel: &AtomicBool) -> Result<JobReport, WriteError>` (prunes to `KEEP_JOBS`)
     - `pub fn candidate_image(&self, profile: &Profile, c: &Candidate) -> Result<ProcessedImage, ArtError>`
-  - `pub fn write_local_image(root: &Path, profile: &Profile, media: Media, target: &Path, bytes: &[u8], data_dir: &Path) -> Result<(String, WriteOutcome), ArtError>`
-  - `pub fn remove_art(root: &Path, target: &Path, data_dir: &Path) -> Result<(String, RemoveOutcome), WriteError>`
+  - `pub fn write_local_image(root: &Path, profile: &Profile, media: Media, target: &Path, bytes: &[u8], data_dir: &Path) -> Result<(Option<String>, WriteOutcome), ArtError>`
+  - `pub fn remove_art(root: &Path, target: &Path, data_dir: &Path) -> Result<(Option<String>, RemoveOutcome), WriteError>`
+  - The job id is `None` when nothing was written or removed: a refused or no-op manual write leaves **no** journal (otherwise `undo_last` undoes the empty phantom instead of the real last job, and failed clicks prune real journals and their backups). `Writer::{has_entries, discard}` support this.
   - `pub enum ArtError { NoSlot, UnknownSource(String), Source(String), Paused(String), Image(ImageError), Write(WriteError) }` (`Debug, thiserror::Error`)
   - `#[serde(tag = "choice", rename_all = "kebab-case")] pub enum coverly_core::plan::Decision { Accept, Pick { candidate: usize }, Skip }` (`Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize`); `candidate` 0 is the chosen image, `n ≥ 1` is `alternatives[n - 1]`
   - `pub fn Plan::decide(&mut self, decisions: &BTreeMap<usize, Decision>)`
@@ -1265,8 +1266,8 @@ use tempfile::TempDir;
 
 const GBA: &str = "Nintendo - Game Boy Advance";
 const BOX: &str = "Named_Boxarts";
-const SUN: &str = "001 Golden Sun";
-const RUSH: &str = "002 Gldn Rsh";
+const SUN: &str = "Golden Sun";
+const RUSH: &str = "Gldn Rsh";
 
 struct World {
     lib: TempDir,
@@ -1459,7 +1460,7 @@ fn a_local_image_is_re_encoded_backed_up_and_undoable() {
         w.data.path(),
     )
     .unwrap();
-    assert!(!job.is_empty());
+    assert!(job.is_some());
     assert!(matches!(outcome, WriteOutcome::Replaced { .. }), "{outcome:?}");
     let (wd, ht) = probe_dimensions(&fs::read(&target).unwrap()).unwrap();
     assert!(wd <= 250 && ht <= 360);
@@ -1507,7 +1508,7 @@ fn removed_art_is_backed_up_and_undo_brings_it_back() {
 }
 ```
 
-(`Golden Sun` has no DAT on the mock server, so it is matched by title: `Golden Sun (USA, Europe)` and `(Japan)` are both `title-exact`, `rom-region` with no ROM region puts USA/Europe first, so candidate 1 is the Japanese box. `Gldn Rsh` is a fuzzy match to `Golden Rush (USA)`, a `review` item, as in `apply.rs`.)
+(The stems are **not numbered**: title matching does not strip a numbered prefix yet (tracker M2-13), so `001 Golden Sun` would be a fuzzy `review` (score 71) even with a DAT, and `002 Gldn Rsh` would get no candidates. `Golden Sun` has no DAT on the mock server, so it is matched by title: `Golden Sun (USA, Europe)` and `(Japan)` are both `title-exact`, `rom-region` with no ROM region puts USA/Europe first, so candidate 1 is the Japanese box. `Gldn Rsh` is a fuzzy match to `Golden Rush (USA)` (score 72), a `review` item. The as-built file also tests that a refused or no-op `write_local_image`/`remove_art` leaves `list_jobs` unchanged and `undo_last` still reverts the real job, and that a cancel is `report.cancelled` but leaves no mark on the plan.)
 
 - [ ] **Step 2: Run the tests to see them fail**
 
@@ -1725,7 +1726,8 @@ impl FillEnv<'_> {
     }
 
     /// Phase one and the plan of `art` (the dry run). Never writes to the
-    /// library. A pause or a cancel gives a partial plan (`plan.paused`).
+    /// library. A pause gives a partial plan (`plan.paused`). A cancel
+    /// does not mark the plan: the caller checks its own `cancel` flag.
     #[allow(clippy::too_many_arguments)]
     pub fn plan(
         &self,
@@ -1838,8 +1840,8 @@ impl FillEnv<'_> {
 }
 
 /// Writes `bytes` (a local image the user picked: untrusted) as the
-/// `media` art at `target`: decoded with limits, re-encoded for the slot,
-/// the existing art backed up, in a journaled job of its own.
+/// `media` art at `target`, in a journaled job of its own. The job id is
+/// `None` when nothing was written: a refused or no-op write leaves no job.
 pub fn write_local_image(
     root: &Path,
     profile: &Profile,
@@ -1847,13 +1849,13 @@ pub fn write_local_image(
     target: &Path,
     bytes: &[u8],
     data_dir: &Path,
-) -> Result<(String, WriteOutcome), ArtError> {
+) -> Result<(Option<String>, WriteOutcome), ArtError> {
     let spec = spec_for(profile, media)?;
     let img = process_image(bytes, &spec, &ImageLimits::default())?;
+    precheck(root, target)?; // ensure_within + FAT-safe name, before any journal
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.write(target, &img.bytes, OverwritePolicy::Backup);
-    let job = writer.finish()?;
-    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    let job = close(writer, data_dir)?;
     Ok((job, outcome?))
 }
 
@@ -1862,12 +1864,24 @@ pub fn remove_art(
     root: &Path,
     target: &Path,
     data_dir: &Path,
-) -> Result<(String, RemoveOutcome), WriteError> {
+) -> Result<(Option<String>, RemoveOutcome), WriteError> {
+    ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
+    let job = close(writer, data_dir)?;
+    Ok((job, outcome?))
+}
+
+/// Finishes (then prunes) a job that changed the library; discards
+/// (journal + backups deleted) one that did not.
+fn close(writer: Writer, data_dir: &Path) -> Result<Option<String>, WriteError> {
+    if !writer.has_entries() {
+        writer.discard()?;
+        return Ok(None);
+    }
     let job = writer.finish()?;
     let _ = prune_jobs(data_dir, KEEP_JOBS);
-    Ok((job, outcome?))
+    Ok(Some(job))
 }
 ```
 
@@ -3237,6 +3251,11 @@ pub struct FillWorld {
     pub cfg: Arc<FillConfig>,
 }
 
+// CAUTION (Task 3 review): title matching does not strip numbered
+// prefixes yet (tracker M2-13): `001 Golden Sun` is a fuzzy `review`, not
+// `auto`, and `004 Gldn Rsh` gets no candidates. If these stems fail as
+// written, drop the numbers (or add a DAT hit per ROM) and re-derive the
+// plan order and entry ids below; do not copy them blindly.
 /// `ROMS/GBA`: `001 Golden Sun` (auto), `002 Golden Adventure` (auto, its
 /// USA box is an HTML page, the Japanese one works), `003 Missing Game`
 /// (auto, no image on either host: `no-art`), `004 Gldn Rsh` (review).
