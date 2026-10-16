@@ -133,6 +133,30 @@ describe('mock fill jobs', () => {
     expect(await b.jobHistory()).toHaveLength(1);
   });
 
+  it.each([
+    ['the same root again', SMALL],
+    ['another root', MOCK_LIBRARIES[0].path],
+  ])(
+    'a resumed job never writes into a library opened since (%s)',
+    async (_name, path) => {
+      const { b, view } = await opened({ pauseAfter: 3 });
+      const v = await planned(b, view.generation);
+      const paused = next(b, 'paused');
+      await b.runFill(v.id);
+      await paused;
+      const other = await b.openLibrary(path);
+      await b.exportAudit(other.generation, 'json');
+      const updated: number[] = [];
+      await b.onEntriesUpdated((u) => updated.push(u.generation));
+      const done = next(b, 'done');
+      await b.resumeFill(v.id);
+      expect((await done).result!.filled).toBeGreaterThan(3);
+      await b.exportAudit(other.generation, 'json');
+      expect(b.exports[1]!.text).toBe(b.exports[0]!.text);
+      expect(updated).toEqual([view.generation]);
+    },
+  );
+
   it('undo restores the marks and history shows it undone', async () => {
     const { b, view } = await opened();
     const v = await planned(b, view.generation);

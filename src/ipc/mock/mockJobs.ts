@@ -13,6 +13,7 @@ import {
   type ActionKind,
   type ArtImage,
   type ArtMark,
+  type ArtMarks,
   type CandidateView,
   type Decision,
   type EntriesUpdated,
@@ -170,6 +171,8 @@ interface Job {
   view: JobView;
   items: JobItemView[];
   root: string;
+  /** The job's own view of its entries' marks (its session, like Rust). */
+  marks: Map<number, ArtMarks>;
   cancel: boolean;
   pausedOnce: boolean;
   journal: Journal | null;
@@ -250,18 +253,24 @@ export function createMockJobs(
     journals.push(j);
     return j;
   }
-  /** Sets one mark, journaled; returns the entry's new marks. */
+  /**
+   * Sets one mark of entry `id` (whose marks were `art` in library
+   * `generation`), journaled; returns the entry's new marks. The open
+   * library is patched only when it is that same generation: a library
+   * opened since is another session and keeps its own marks.
+   */
   function write(
     journal: Journal,
+    generation: number,
+    art: ArtMarks | undefined,
     id: number,
     media: Media,
     mark: ArtMark,
   ): EntryArtUpdate | null {
-    const e = fresh(id);
-    if (!e) return null;
-    journal.changes.push({ id, media, before: e.art[media] });
-    const update = { id, art: { ...e.art, [media]: mark } };
-    host.patch([update]);
+    if (!art) return null;
+    journal.changes.push({ id, media, before: art[media] });
+    const update = { id, art: { ...art, [media]: mark } };
+    if (host.current()?.generation === generation) host.patch([update]);
     return update;
   }
   /** One update per entry (the last one wins). */
@@ -372,7 +381,16 @@ export function createMockJobs(
         continue;
       }
       if (i.entry_id === null || !j.journal) continue;
-      updates.push(write(j.journal, i.entry_id, i.media, 'present'));
+      const update = write(
+        j.journal,
+        j.view.generation,
+        j.marks.get(i.entry_id),
+        i.entry_id,
+        i.media,
+        'present',
+      );
+      if (update) j.marks.set(update.id, update.art);
+      updates.push(update);
       i.outcome = {
         status: i.replaces_existing ? 'replaced' : 'filled',
         error: null,
@@ -462,9 +480,11 @@ export function createMockJobs(
         ...new Set(request.entry_ids ?? view.entries.map((e) => e.id)),
       ].sort((a, b) => a - b);
       const items: JobItemView[] = [];
+      const marks = new Map<number, ArtMarks>();
       for (const id of ids) {
         const e = view.entries[id];
         if (!e) continue;
+        marks.set(e.id, e.art);
         for (const m of media) {
           const mark = e.art[m];
           const replace = request.overwrite === 'backup' && mark === 'present';
@@ -503,6 +523,7 @@ export function createMockJobs(
         },
         items,
         root: view.root,
+        marks,
         cancel: false,
         pausedOnce: false,
         journal: null,
@@ -676,7 +697,8 @@ export function createMockJobs(
       }
       const journal = newJournal(view.root);
       journal.complete = true;
-      return merged([write(journal, id, media, 'present')]);
+      const art = entry(generation, id).art;
+      return merged([write(journal, generation, art, id, media, 'present')]);
     },
     async setEntryArtFromFile(generation, id, media) {
       notRunning();
@@ -688,17 +710,19 @@ export function createMockJobs(
       }
       const journal = newJournal(view.root);
       journal.complete = true;
-      return merged([write(journal, id, media, 'present')]);
+      const art = entry(generation, id).art;
+      return merged([write(journal, generation, art, id, media, 'present')]);
     },
     async removeEntryArt(generation, id, media) {
       notRunning();
       const view = library(generation);
-      if (entry(generation, id).art[media] !== 'present') {
+      const art = entry(generation, id).art;
+      if (art[media] !== 'present') {
         throw new BackendError('art-missing', media);
       }
       const journal = newJournal(view.root);
       journal.complete = true;
-      return merged([write(journal, id, media, 'missing')]);
+      return merged([write(journal, generation, art, id, media, 'missing')]);
     },
     async exportAudit(generation, format) {
       const view = library(generation);
