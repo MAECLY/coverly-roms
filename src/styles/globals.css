@@ -809,6 +809,9 @@ body {
 
 .candidate {
   display: grid;
+  /* Cards in a row share the tallest height: keep the rows at the top
+     instead of stretching them (which stretched the source badge). */
+  align-content: start;
   gap: 0.25rem;
   min-width: 0;
   padding: 0.5rem;
