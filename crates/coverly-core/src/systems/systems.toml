@@ -47,6 +47,7 @@ name = "Atari 8-bit"
 aliases = ["A800", "atari800", "atari8bit"]
 extensions = ["atr", "atx", "xex", "xfd", "cas", "car", "com", "bas", "zip", "7z"]
 libretro = "Atari - 8-bit"
+dats = ["metadat/no-intro/Atari - 8-bit Family.dat"]
 
 [[system]]
 id = "amiga"
@@ -185,6 +186,7 @@ name = "Game & Watch"
 aliases = ["GW", "gameandwatch"]
 extensions = ["mgw", "zip", "7z"]
 libretro = "Handheld Electronic Game"
+dats = ["dat/Handheld Electronic Game.dat"]
 
 [[system]]
 id = "hbmame"

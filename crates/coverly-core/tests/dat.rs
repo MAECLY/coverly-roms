@@ -82,6 +82,16 @@ fn dat_sources_per_system() {
         dat_sources(db.get("fbneo").unwrap()),
         ["metadat/fbneo-split/FBNeo - Arcade Games.dat"]
     );
+    // libretro-database names these DATs differently from the thumbnail
+    // folders (checked with HEAD requests against the live repository).
+    assert_eq!(
+        dat_sources(db.get("a800").unwrap()),
+        ["metadat/no-intro/Atari - 8-bit Family.dat"]
+    );
+    assert_eq!(
+        dat_sources(db.get("gw").unwrap()),
+        ["dat/Handheld Electronic Game.dat"]
+    );
     let custom = db
         .with_overrides("[[system]]\nid = \"gba\"\ndats = [\"dat/Custom.dat\"]\n")
         .unwrap();
