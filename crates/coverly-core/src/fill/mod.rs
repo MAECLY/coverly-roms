@@ -197,6 +197,9 @@ impl FillEnv<'_> {
     /// Phase two: applies `plan`, then keeps the newest [`KEEP_JOBS`] journals.
     /// A cancel is `report.cancelled` (never `paused`; the items left are
     /// `not-attempted`).
+    /// The source never refreshes here: images are fetched by the URL the
+    /// plan picked, and the index TTL (what `refresh` changes) only matters
+    /// when listing candidates in [`FillEnv::plan`].
     pub fn apply(
         &self,
         plan: &Plan,
