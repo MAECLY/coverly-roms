@@ -1,6 +1,7 @@
 //! An opened library: scanning a folder into a [`LibraryView`] for the UI,
 //! and keeping, per entry, the paths only the backend may touch.
 
+pub mod art;
 pub mod view;
 
 use std::collections::BTreeMap;
