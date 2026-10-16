@@ -78,7 +78,7 @@
       "ignoredExtsHint": "Comma-separated, without dots. Files with these extensions are never taken as ROMs.",
       "includeHidden": "Include hidden files",
       "followSymlinks": "Follow symbolic links",
-      "followSymlinksHint": "Art for ROMs inside a linked folder is saved through the link, which can be outside the library folder.",
+      "followSymlinksHint": "Art is never written outside the library folder: ROMs in a linked folder that points elsewhere are listed, but their art is skipped with an error.",
       "recent": "Recent libraries",
       "recentEmpty": "No recent libraries.",
       "forget": "Forget"

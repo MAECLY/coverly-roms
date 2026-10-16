@@ -78,7 +78,7 @@
       "ignoredExtsHint": "Separadas por comas, sin punto. Los archivos con estas extensiones nunca se toman como ROMs.",
       "includeHidden": "Incluir archivos ocultos",
       "followSymlinks": "Seguir enlaces simbólicos",
-      "followSymlinksHint": "Las imágenes de las ROMs de una carpeta enlazada se guardan a través del enlace, que puede estar fuera de la carpeta de la biblioteca.",
+      "followSymlinksHint": "Nunca se escribe arte fuera de la carpeta de la biblioteca: las ROMs de una carpeta enlazada que apunta a otro sitio se muestran, pero su arte se omite con un error.",
       "recent": "Bibliotecas recientes",
       "recentEmpty": "No hay bibliotecas recientes.",
       "forget": "Olvidar"

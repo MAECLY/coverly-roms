@@ -230,7 +230,7 @@ Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelang
 | M5-02 | Pantalla de configuración (todos los grupos de la spec §9) | ✅ | `6b7373b`, `b29d02f`, `f287fad`, `2ff987e`, `1c9e419`, `ef041d2`, `2cf5a2d`, `10ed909`; E2E: `cecfb0b` (proxy «Manual» rechazado se aplica al escribir la URL, hallado en el E2E). «Evidencia M5» |
 | M5-03 | Editor de perfiles personalizados | ✅ | Core: `4db90b7`, `7e76811`, `1ae1fc2`. App: `27e40e7`. UI: `04240c0`, `67454b3`, `a1fbf0c`, `fbe9994`, `9109aa6`; E2E: `37eafb7` (nombre de la copia traducido, hallado en el E2E). D29. «Evidencia M5» |
 | M5-04 | Credenciales en keychain | ✅ | `2db0bd8` (trait + `MemoryStore`), `be81e91` (llavero del SO, errores sin secretos), `27e40e7` (comandos), `ef041d2` (UI Fuentes). D30. El test del llavero real está `#[ignore]` (ejecutable a mano en macOS). E2E paso 5 («Evidencia M5») |
-| M5-05 | Con `library.follow_symlinks` activo, las portadas bajo una carpeta enlazada se escriben a través del enlace (fuera de la raíz) | ⬜ | Documentado en la ayuda de Biblioteca (`9395b7e`); falta que el writer rechace destinos cuyo padre canónico salga de la raíz canónica (estaba como nota de M5-01) |
+| M5-05 | Con `library.follow_symlinks` activo, ¿se puede escribir arte fuera de la raíz a través de un enlace? | ✅ | No: `write::ensure_within` canonicaliza el ancestro existente más profundo y rechaza `OutsideRoot` (test `refuses_symlink_escape` desde M2; el `gamelist.xml` también pasa por `Writer::write`). Se corrigieron la nota y la ayuda de Biblioteca, que decían lo contrario |
 
 ### Evidencia M5 — configuración, perfiles, credenciales, `gamelist.xml` (2026-10-16)
 
