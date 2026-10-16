@@ -361,3 +361,22 @@ fn stems_match_across_unicode_normalisation_forms() {
     ));
     assert!(sfc.orphans.is_empty(), "{:?}", sfc.orphans);
 }
+
+#[cfg(unix)]
+#[test]
+fn unreadable_art_folder_is_reported_as_a_warning() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let lib = realistic_library();
+    let root = lib.path();
+    let imgs = root.join("ROMS/SFC/Imgs");
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o000)).unwrap();
+    let art = resolve(root, "anbernic-stock", &[Media::Cover]);
+    fs::set_permissions(&imgs, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let sfc = system(&art, "SFC");
+    let paths: Vec<&Path> = sfc.warnings.iter().map(|w| w.path.as_path()).collect();
+    assert_eq!(paths, [imgs.as_path()], "{:?}", sfc.warnings);
+    assert!(!sfc.warnings[0].message.is_empty());
+    assert!(system(&art, "PS").warnings.is_empty());
+}

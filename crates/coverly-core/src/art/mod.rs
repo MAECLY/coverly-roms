@@ -17,7 +17,7 @@ use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::profiles::{render, ImageFormat, Media, MediaSlot, Profile, TemplateVars};
-use crate::scan::{LibraryScan, RomEntry, SystemScan};
+use crate::scan::{LibraryScan, RomEntry, ScanWarning, SystemScan};
 use crate::systems::{System, SystemDb};
 
 /// Image extensions accepted as art, in preference order after the slot's
@@ -83,6 +83,10 @@ pub struct SystemArt {
     /// Images in this system's art folders that belong to no ROM, sorted.
     /// AppleDouble twins and hidden files are never orphans.
     pub orphans: Vec<PathBuf>,
+    /// Art folders (or folders on the way to them) that could not be read,
+    /// so their art counts as missing. Folders the library scan walks are
+    /// left out: the scan already reports them.
+    pub warnings: Vec<ScanWarning>,
 }
 
 /// Resolves the state of each of `media` for every ROM of `scan`, laid out
@@ -175,6 +179,8 @@ pub fn resolve_art(
             });
         }
 
+        let mut warnings = Vec::new();
+        take_failures(&mut index, scan, profile, &mut warnings);
         result.push(SystemArt {
             scan: SystemScan {
                 roms: Vec::new(),
@@ -182,6 +188,7 @@ pub fn resolve_art(
             },
             roms,
             orphans: Vec::new(),
+            warnings,
         });
         art_dirs.push(dirs);
     }
@@ -199,8 +206,51 @@ pub fn resolve_art(
             }
         }
         system_art.orphans.sort();
+        take_failures(&mut index, scan, profile, &mut system_art.warnings);
     }
     result
+}
+
+/// Moves the folders `index` failed to read since the last call into
+/// `warnings`. Each folder is read once, so its failure is reported under
+/// the first system that needed it.
+fn take_failures(
+    index: &mut DirIndex,
+    scan: &LibraryScan,
+    profile: &Profile,
+    warnings: &mut Vec<ScanWarning>,
+) {
+    for (path, message) in index.failures.drain(..) {
+        if !walked_by_scan(scan, profile, &path) {
+            warnings.push(ScanWarning { path, message });
+        }
+    }
+}
+
+/// Whether the library scan walks `dir` (and so already reports it when it
+/// cannot be read): the library root, the ROMs root, and folders inside a
+/// known system folder that are not art folders.
+fn walked_by_scan(scan: &LibraryScan, profile: &Profile, dir: &Path) -> bool {
+    if dir == scan.root {
+        return true;
+    }
+    scan.systems.iter().any(|system_scan| {
+        if system_scan.dir.parent() == Some(dir) {
+            return true;
+        }
+        if system_scan.system_id.is_none() {
+            return false;
+        }
+        dir.strip_prefix(&system_scan.dir).is_ok_and(|rel| {
+            !rel.components().any(|c| {
+                let name = c.as_os_str().to_string_lossy();
+                profile
+                    .art_dir_names
+                    .iter()
+                    .any(|art| eq_ignore_case(art, &name))
+            })
+        })
+    })
 }
 
 /// Where a slot expects the art of one ROM.
@@ -301,6 +351,9 @@ struct DirIndex {
     resolved: HashMap<PathBuf, Option<PathBuf>>,
     /// Folder as on disk -> its listing.
     listings: HashMap<PathBuf, Listing>,
+    /// Folders that could not be read (listed as empty), with the error,
+    /// not yet taken by [`take_failures`].
+    failures: Vec<(PathBuf, String)>,
 }
 
 impl DirIndex {
@@ -309,6 +362,7 @@ impl DirIndex {
             root: root.to_path_buf(),
             resolved: HashMap::new(),
             listings: HashMap::new(),
+            failures: Vec::new(),
         }
     }
 
@@ -342,11 +396,15 @@ impl DirIndex {
     }
 
     /// The listing of an on-disk folder, read on first use. Unreadable
-    /// folders list as empty (the scan already reports I/O problems).
+    /// folders list as empty and are recorded in `failures`.
     fn listing(&mut self, dir: &Path) -> &Listing {
-        self.listings
-            .entry(dir.to_path_buf())
-            .or_insert_with(|| read_listing(dir))
+        let failures = &mut self.failures;
+        self.listings.entry(dir.to_path_buf()).or_insert_with(|| {
+            read_listing(dir).unwrap_or_else(|err| {
+                failures.push((dir.to_path_buf(), format!("cannot read: {err}")));
+                Listing::default()
+            })
+        })
     }
 
     /// The best image in `dir` whose stem is one of `stems` (preference
@@ -381,11 +439,9 @@ impl DirIndex {
     }
 }
 
-fn read_listing(dir: &Path) -> Listing {
+fn read_listing(dir: &Path) -> std::io::Result<Listing> {
     let mut listing = Listing::default();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return listing;
-    };
+    let entries = fs::read_dir(dir)?;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
@@ -423,7 +479,7 @@ fn read_listing(dir: &Path) -> Listing {
             .or_default()
             .push(i);
     }
-    listing
+    Ok(listing)
 }
 
 /// Comparison key of a name: lowercase, Unicode NFC.
