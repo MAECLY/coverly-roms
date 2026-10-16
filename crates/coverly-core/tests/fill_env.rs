@@ -8,7 +8,8 @@ use std::sync::atomic::AtomicBool;
 use coverly_core::art::resolve_art;
 use coverly_core::cache::Cache;
 use coverly_core::fill::{
-    remove_art, write_local_image, ArtError, Endpoints, FillEnv, FillSettings,
+    remove_art, write_local_image, ArtError, Endpoints, FillEnv, FillSettings, ManualOptions,
+    KEEP_JOBS,
 };
 use coverly_core::image::probe_dimensions;
 use coverly_core::jobs::{ApplyOptions, ItemStatus};
@@ -233,6 +234,7 @@ fn a_local_image_is_re_encoded_backed_up_and_undoable() {
         &target,
         &png_bytes(800, 800),
         w.data.path(),
+        &ManualOptions::default(),
     )
     .unwrap();
     assert!(job.is_some());
@@ -257,6 +259,7 @@ fn a_local_file_that_is_not_an_image_is_refused_before_writing() {
         &target,
         b"<html>not an image</html>",
         w.data.path(),
+        &ManualOptions::default(),
     );
     assert!(matches!(r, Err(ArtError::Image(_))), "{r:?}");
     assert!(!target.exists());
@@ -268,6 +271,7 @@ fn a_local_file_that_is_not_an_image_is_refused_before_writing() {
             &target,
             &png_bytes(10, 10),
             w.data.path(),
+            &ManualOptions::default(),
         ),
         Err(ArtError::NoSlot)
     ));
@@ -278,7 +282,7 @@ fn removed_art_is_backed_up_and_undo_brings_it_back() {
     let w = world();
     let target = w.img(SUN);
     common::write(w.lib.path(), &format!("ROMS/GBA/Imgs/{SUN}.png"), "old art");
-    let (_, out) = remove_art(w.lib.path(), &target, w.data.path()).unwrap();
+    let (_, out) = remove_art(w.lib.path(), &target, w.data.path(), KEEP_JOBS).unwrap();
     assert!(matches!(out, RemoveOutcome::Removed { .. }));
     assert!(!target.exists());
     undo_last(w.data.path()).unwrap();
@@ -294,6 +298,7 @@ fn real_job(w: &World, target: &std::path::Path) -> String {
         target,
         &png_bytes(100, 100),
         w.data.path(),
+        &ManualOptions::default(),
     )
     .unwrap();
     assert!(
@@ -324,6 +329,7 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
             t,
             &png_bytes(100, 100),
             w.data.path(),
+            &ManualOptions::default(),
         )
     };
     let outside = w.data.path().join("evil.png");
@@ -343,15 +349,20 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
         Ok((None, WriteOutcome::SkippedExists { .. }))
     ));
     assert!(matches!(
-        remove_art(w.lib.path(), &folder, w.data.path()),
+        remove_art(w.lib.path(), &folder, w.data.path(), KEEP_JOBS),
         Err(WriteError::NotAFile(_))
     ));
     assert!(matches!(
-        remove_art(w.lib.path(), &w.img("Nothing Here"), w.data.path()),
+        remove_art(
+            w.lib.path(),
+            &w.img("Nothing Here"),
+            w.data.path(),
+            KEEP_JOBS
+        ),
         Ok((None, RemoveOutcome::Missing))
     ));
     assert!(matches!(
-        remove_art(w.lib.path(), &outside, w.data.path()),
+        remove_art(w.lib.path(), &outside, w.data.path(), KEEP_JOBS),
         Err(WriteError::OutsideRoot(_))
     ));
     assert_eq!(job_ids(&w), std::slice::from_ref(&job));
@@ -366,8 +377,18 @@ fn failed_manual_writes_never_prune_a_real_job() {
     let w = world();
     let job = real_job(&w, &w.img(SUN));
     for _ in 0..(coverly_core::fill::KEEP_JOBS + 2) {
-        let _ = remove_art(w.lib.path(), &w.img("Nothing Here"), w.data.path());
-        let _ = remove_art(w.lib.path(), &w.data.path().join("x.png"), w.data.path());
+        let _ = remove_art(
+            w.lib.path(),
+            &w.img("Nothing Here"),
+            w.data.path(),
+            KEEP_JOBS,
+        );
+        let _ = remove_art(
+            w.lib.path(),
+            &w.data.path().join("x.png"),
+            w.data.path(),
+            KEEP_JOBS,
+        );
     }
     assert_eq!(job_ids(&w), [job]);
 }
@@ -387,6 +408,7 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
         &w.img(RUSH),
         &png_bytes(100, 100),
         w.data.path(),
+        &ManualOptions::default(),
     );
     // Replacing backs the old art up before the write is refused.
     let replace = write_local_image(
@@ -396,8 +418,9 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
         &w.img(SUN),
         &png_bytes(120, 120),
         w.data.path(),
+        &ManualOptions::default(),
     );
-    let removed = remove_art(w.lib.path(), &w.img(SUN), w.data.path());
+    let removed = remove_art(w.lib.path(), &w.img(SUN), w.data.path(), KEEP_JOBS);
     fs::set_permissions(&imgs, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
         matches!(new, Err(ArtError::Write(WriteError::Denied(_)))),
@@ -491,4 +514,40 @@ fn thresholds_and_fuzzy_from_settings_reach_the_plan() {
         "only a fuzzy match exists for `Gldn Rsh`: {:?}",
         rush.action
     );
+}
+
+#[test]
+fn apply_prunes_to_the_undo_depth_and_cleans_appledouble_junk() {
+    let w = world();
+    let profile = common::profile("anbernic-stock");
+    // Three earlier jobs.
+    for i in 0..3 {
+        let mut writer = coverly_core::write::Writer::begin(w.lib.path(), w.data.path()).unwrap();
+        writer
+            .write(
+                &w.lib.path().join(format!("ROMS/GBA/Imgs/old{i}.png")),
+                b"x",
+                coverly_core::write::OverwritePolicy::Never,
+            )
+            .unwrap();
+        writer.finish().unwrap();
+    }
+    fs::create_dir_all(w.lib.path().join("ROMS/GBA/Imgs")).unwrap();
+    fs::write(
+        w.lib.path().join("ROMS/GBA/Imgs/._junk.png"),
+        [0x00, 0x05, 0x16, 0x07, 0, 2, 0, 0],
+    )
+    .unwrap();
+    let plan = w.plan();
+    let opts = ApplyOptions {
+        keep_jobs: 2,
+        clean_apple_double: true,
+        include_review: false,
+        ..ApplyOptions::default()
+    };
+    w.env()
+        .apply(&plan, &profile, &opts, &NoProgress, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(list_jobs(w.data.path()).unwrap().len(), 2);
+    assert!(!w.lib.path().join("ROMS/GBA/Imgs/._junk.png").exists());
 }

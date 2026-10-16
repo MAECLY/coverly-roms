@@ -137,9 +137,32 @@ pub struct FillEnv<'a> {
     pub data_dir: &'a Path,
 }
 
-fn spec_for(profile: &Profile, media: Media) -> Result<OutputSpec, ArtError> {
+/// Output and history settings of the drawer's manual writes.
+#[derive(Clone, Copy, Debug)]
+pub struct ManualOptions {
+    pub fit: Fit,
+    pub jpeg_quality: u8,
+    pub keep_jobs: usize,
+}
+
+impl Default for ManualOptions {
+    fn default() -> Self {
+        ManualOptions {
+            fit: Fit::Contain,
+            jpeg_quality: 90,
+            keep_jobs: KEEP_JOBS,
+        }
+    }
+}
+
+fn spec_for(
+    profile: &Profile,
+    media: Media,
+    fit: Fit,
+    quality: u8,
+) -> Result<OutputSpec, ArtError> {
     let slot = profile.slot(media).ok_or(ArtError::NoSlot)?;
-    Ok(OutputSpec::for_slot(slot, Fit::Contain, 90))
+    Ok(OutputSpec::for_slot(slot, fit, quality))
 }
 
 impl FillEnv<'_> {
@@ -226,7 +249,8 @@ impl FillEnv<'_> {
         )
     }
 
-    /// Phase two: applies `plan`, then keeps the newest [`KEEP_JOBS`] journals.
+    /// Phase two: applies `plan`, then keeps the newest `opts.keep_jobs`
+    /// journals and trims the art store to `opts.cache_max_bytes`.
     /// A cancel is `report.cancelled` (never `paused`; the items left are
     /// `not-attempted`).
     /// The source never refreshes here: images are fetched by the URL the
@@ -253,8 +277,11 @@ impl FillEnv<'_> {
             progress,
             cancel,
         )?;
-        // Pruning only frees space: failing to prune is not an error.
-        let _ = prune_jobs(self.data_dir, KEEP_JOBS);
+        // Pruning and trimming only free space: failing is not an error.
+        let _ = prune_jobs(self.data_dir, opts.keep_jobs.max(1));
+        if let Some(max) = opts.cache_max_bytes {
+            let _ = crate::jobs::trim_art_store(self.cache_dir, max);
+        }
         Ok(report)
     }
 
@@ -266,7 +293,7 @@ impl FillEnv<'_> {
         profile: &Profile,
         c: &Candidate,
     ) -> Result<ProcessedImage, ArtError> {
-        let spec = spec_for(profile, c.media)?;
+        let spec = spec_for(profile, c.media, Fit::Contain, 90)?;
         let libretro = self.libretro(false, INDEX_TTL_SECS);
         if c.source != libretro.id() {
             return Err(ArtError::UnknownSource(c.source.clone()));
@@ -297,13 +324,17 @@ pub fn write_local_image(
     target: &Path,
     bytes: &[u8],
     data_dir: &Path,
+    opts: &ManualOptions,
 ) -> Result<(Option<String>, WriteOutcome), ArtError> {
-    let spec = spec_for(profile, media)?;
+    let spec = spec_for(profile, media, opts.fit, opts.jpeg_quality)?;
     let img = process_image(bytes, &spec, &ImageLimits::default())?;
     precheck(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.write(target, &img.bytes, OverwritePolicy::Backup);
-    settle(close(writer, data_dir), outcome.map_err(ArtError::from))
+    settle(
+        close(writer, data_dir, opts.keep_jobs),
+        outcome.map_err(ArtError::from),
+    )
 }
 
 /// Removes the art file `target` (backed up, journaled) in a job of its
@@ -313,11 +344,12 @@ pub fn remove_art(
     root: &Path,
     target: &Path,
     data_dir: &Path,
+    keep_jobs: usize,
 ) -> Result<(Option<String>, RemoveOutcome), WriteError> {
     ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
-    settle(close(writer, data_dir), outcome)
+    settle(close(writer, data_dir, keep_jobs), outcome)
 }
 
 /// The checks `Writer::write` makes before touching anything, made before
@@ -345,15 +377,15 @@ fn settle<T, E: From<WriteError>>(
 }
 
 /// Finishes (and prunes old journals after) a job that changed the
-/// library; discards one that did not.
-fn close(writer: Writer, data_dir: &Path) -> Result<Option<String>, WriteError> {
+/// library (keeping the newest `keep` journals); discards one that did not.
+fn close(writer: Writer, data_dir: &Path, keep: usize) -> Result<Option<String>, WriteError> {
     if !writer.has_entries() {
         writer.discard()?;
         return Ok(None);
     }
     let job = writer.finish()?;
     // Pruning only frees space: failing to prune is not an error.
-    let _ = prune_jobs(data_dir, KEEP_JOBS);
+    let _ = prune_jobs(data_dir, keep.max(1));
     Ok(Some(job))
 }
 

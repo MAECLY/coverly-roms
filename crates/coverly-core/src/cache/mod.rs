@@ -43,6 +43,52 @@ pub enum CacheError {
     Io(#[from] std::io::Error),
 }
 
+fn walk_size(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_file() {
+        return meta.len();
+    }
+    if !meta.is_dir() {
+        return 0;
+    }
+    std::fs::read_dir(path)
+        .map(|r| r.flatten().map(|e| walk_size(&e.path())).sum())
+        .unwrap_or(0)
+}
+
+/// Suffixes of the database file and its SQLite side files.
+const DB_SUFFIXES: [&str; 4] = ["", "-journal", "-wal", "-shm"];
+
+/// Bytes used by the cache database (with its journal files) and the
+/// downloaded-art store.
+pub fn cache_usage(cache_dir: &Path) -> u64 {
+    let db: u64 = DB_SUFFIXES
+        .iter()
+        .map(|s| walk_size(&cache_dir.join(format!("{CACHE_FILE}{s}"))))
+        .sum();
+    db + walk_size(&cache_dir.join("art"))
+}
+
+/// Deletes the cache database and the art store; returns the bytes freed.
+/// The next `Cache::open` creates a fresh database. Identity overrides and
+/// job data live in the data dir and are kept.
+pub fn clear_cache(cache_dir: &Path) -> std::io::Result<u64> {
+    let before = cache_usage(cache_dir);
+    for s in DB_SUFFIXES {
+        match std::fs::remove_file(cache_dir.join(format!("{CACHE_FILE}{s}"))) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+    }
+    match std::fs::remove_dir_all(cache_dir.join("art")) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    Ok(before.saturating_sub(cache_usage(cache_dir)))
+}
+
 /// A cached JSON value with its fetch time (Unix seconds) and HTTP ETag.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Stored<T> {

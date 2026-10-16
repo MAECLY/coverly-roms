@@ -1,13 +1,18 @@
 //! Settings → the option structs the scan, fill and writes take.
 
-use crate::fill::FillSettings;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::fill::{FillSettings, ManualOptions};
 use crate::image::Fit;
+use crate::jobs::ApplyOptions;
 use crate::matching::{default_region_order, parse_region_order};
+use crate::net::{NetConfig, ProxyMode};
 use crate::profiles::{ImageFormat, Profile};
 use crate::scan::ScanOptions;
 use crate::write::OverwritePolicy;
 
-use super::model::{OutputFormat, OverwriteSetting, Settings};
+use super::model::{OutputFormat, OverwriteSetting, ProxyChoice, Settings};
 
 /// `template` with its image extension (any case: `.png`, `.JPG`,
 /// `.Jpeg`) set to `format`'s lowercase one.
@@ -113,5 +118,73 @@ impl Settings {
             OverwriteSetting::Backup => OverwritePolicy::Backup,
             OverwriteSetting::Never | OverwriteSetting::Ask => OverwritePolicy::Never,
         }
+    }
+
+    /// The Network group as HTTP settings (D26: `system` = environment).
+    pub fn net_config(&self) -> NetConfig {
+        let n = &self.network;
+        NetConfig {
+            concurrency: n.concurrency.clamp(1, 6) as usize,
+            timeout: Duration::from_secs(u64::from(n.timeout_secs)),
+            retries: n.retries,
+            proxy: match n.proxy {
+                ProxyChoice::System | ProxyChoice::Env => ProxyMode::Env,
+                ProxyChoice::Manual => ProxyMode::Manual(n.proxy_url.trim().to_string()),
+            },
+            ..NetConfig::default()
+        }
+    }
+
+    /// Apply options for a job on the library at `root` (scope, review and
+    /// resume are set by the caller).
+    pub fn apply_options(&self, root: &Path) -> ApplyOptions {
+        ApplyOptions {
+            overwrite: self.overwrite_policy(),
+            concurrency: self.network.concurrency.clamp(1, 6) as usize,
+            fit: self.fit(),
+            jpeg_quality: self.art.jpeg_quality.clamp(1, 100),
+            keep_jobs: self.safety.undo_depth.max(1) as usize,
+            cache_max_bytes: Some(u64::from(self.network.cache_max_mb) * 1024 * 1024),
+            clean_apple_double: self.safety.clean_apple_double
+                && crate::write::on_removable_volume(root),
+            ..ApplyOptions::default()
+        }
+    }
+
+    /// Options of the drawer's manual writes (output and history).
+    pub fn manual_options(&self) -> ManualOptions {
+        ManualOptions {
+            fit: self.fit(),
+            jpeg_quality: self.art.jpeg_quality.clamp(1, 100),
+            keep_jobs: self.safety.undo_depth.max(1) as usize,
+        }
+    }
+
+    /// Where jobs keep journals and backups (D27).
+    pub fn data_dir(&self, default: &Path) -> PathBuf {
+        self.safety
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| default.to_path_buf())
+    }
+
+    /// Whether going from `self` to `next` changes what an open library
+    /// shows (scan options, the single-slot media, the output format, the
+    /// max sizes or the custom profiles folder): the library must be
+    /// reopened.
+    pub fn needs_reopen(&self, next: &Settings) -> bool {
+        let lib = |s: &Settings| {
+            (
+                s.library.ignored_dirs.clone(),
+                s.library.ignored_exts.clone(),
+                s.library.include_hidden,
+                s.library.follow_symlinks,
+            )
+        };
+        lib(self) != lib(next)
+            || self.art.single_slot_media != next.art.single_slot_media
+            || self.art.output_format != next.art.output_format
+            || self.art.max_size != next.art.max_size
+            || self.advanced.custom_dir != next.advanced.custom_dir
     }
 }

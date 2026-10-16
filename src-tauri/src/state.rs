@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::fill::{remove_art, write_local_image, FillSettings};
+use coverly_core::fill::{remove_art, write_local_image, FillSettings, ManualOptions, KEEP_JOBS};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
 use coverly_core::plan::{Decision, Plan};
@@ -384,6 +384,7 @@ impl AppState {
             &target,
             &bytes,
             &self.fill.data_dir,
+            &ManualOptions::default(),
         )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
@@ -402,7 +403,12 @@ impl AppState {
             .cloned()
             .ok_or_else(|| IpcError::ArtMissing(media_name(media)))?;
         inside_root(&session, &path)?;
-        remove_art(&absolute_root(&session)?, &path, &self.fill.data_dir)?;
+        remove_art(
+            &absolute_root(&session)?,
+            &path,
+            &self.fill.data_dir,
+            KEEP_JOBS,
+        )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
 

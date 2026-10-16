@@ -102,6 +102,12 @@ pub struct ApplyOptions {
     /// undone in place of a real job nor pushes one out of the history.
     /// Ignored when resuming. Fill jobs keep the journal to resume into.
     pub discard_empty: bool,
+    /// Journals kept after the job (spec §9 undo history depth).
+    pub keep_jobs: usize,
+    /// Trim the downloaded-art store to this size after the job.
+    pub cache_max_bytes: Option<u64>,
+    /// Delete AppleDouble junk in the folders the job wrote to.
+    pub clean_apple_double: bool,
 }
 
 impl Default for ApplyOptions {
@@ -116,6 +122,9 @@ impl Default for ApplyOptions {
             max_alternatives: 2,
             resume_job: None,
             discard_empty: false,
+            keep_jobs: crate::fill::KEEP_JOBS,
+            cache_max_bytes: None,
+            clean_apple_double: false,
         }
     }
 }
@@ -349,6 +358,16 @@ pub fn apply_plan(
         progress.event(ProgressEvent::Finished {
             phase: Phase::Apply,
         });
+        if opts.clean_apple_double {
+            let mut dirs: Vec<PathBuf> = done_targets(&plan.items, &results)
+                .filter_map(|t| t.parent().map(Path::to_path_buf))
+                .collect();
+            dirs.sort();
+            dirs.dedup();
+            for d in dirs {
+                crate::write::clean_apple_doubles(&d);
+            }
+        }
         let writer = writer.into_inner().unwrap_or_else(|p| p.into_inner());
         if opts.discard_empty && opts.resume_job.is_none() && !writer.has_entries() {
             writer.discard()?;
@@ -368,6 +387,59 @@ pub fn apply_plan(
     }
     report.recount();
     Ok(report)
+}
+
+/// Targets of the items written (filled or replaced) so far.
+fn done_targets<'a>(
+    items: &'a [PlanItem],
+    results: &'a [Option<ItemStatus>],
+) -> impl Iterator<Item = &'a Path> + 'a {
+    items.iter().zip(results).filter_map(|(item, st)| {
+        matches!(
+            st,
+            Some(ItemStatus::Filled { .. } | ItemStatus::Replaced { .. })
+        )
+        .then_some(item.target.as_path())
+    })
+}
+
+/// Deletes the oldest files (by modification time) of the art store until
+/// it holds at most `max_bytes`; returns the bytes removed. A removed
+/// file is a cache miss next time (`ArtStore::get` checks the bytes).
+pub fn trim_art_store(cache_dir: &Path, max_bytes: u64) -> io::Result<u64> {
+    let mut files = Vec::new();
+    let art = cache_dir.join("art");
+    let shards = match fs::read_dir(&art) {
+        Ok(r) => r,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    };
+    for shard in shards.flatten() {
+        let Ok(read) = fs::read_dir(shard.path()) else {
+            continue;
+        };
+        for f in read.flatten() {
+            if let Ok(meta) = f.metadata() {
+                if meta.is_file() {
+                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                    files.push((mtime, meta.len(), f.path()));
+                }
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
+    files.sort();
+    let mut removed = 0;
+    for (_, len, path) in files {
+        if total <= max_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total -= len;
+            removed += len;
+        }
+    }
+    Ok(removed)
 }
 
 impl JobReport {
