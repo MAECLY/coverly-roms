@@ -246,6 +246,8 @@ fn a_second_job_is_refused_while_one_runs() {
             libretro: hang.base(),
             libretro_raw: hang.base(),
             database: hang.base(),
+            steamgriddb: hang.base(),
+            screenscraper: hang.base(),
         },
         net: NetConfig {
             retries: 0,

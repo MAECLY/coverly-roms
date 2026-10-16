@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use coverly_core::art::{resolve_art, RomArt, SystemArt};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::{ApplyOptions, ItemStatus, JobReport};
@@ -100,6 +101,8 @@ pub fn with_env<T>(
         endpoints: &cfg.endpoints,
         cache_dir: &cfg.cache_dir,
         data_dir: &cfg.data_dir,
+        // Task 10 passes the keychain snapshot of the job.
+        keys: &SourceKeys::default(),
     };
     f(&env)
 }

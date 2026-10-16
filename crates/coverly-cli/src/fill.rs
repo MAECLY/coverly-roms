@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Args, ValueEnum};
 use coverly_core::art::resolve_art;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
 use coverly_core::gather::Scope;
 use coverly_core::identify::dat::DATABASE_BASE;
@@ -296,6 +297,7 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
             .database_url
             .clone()
             .unwrap_or_else(|| DATABASE_BASE.into()),
+        ..Endpoints::default()
     };
     let env = FillEnv {
         cache: &cache,
@@ -303,6 +305,7 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         endpoints: &endpoints,
         cache_dir: &dirs.cache,
         data_dir: &dirs.data,
+        keys: &SourceKeys::default(),
     };
     // Manual identities live in the app data dir even when the backup
     // location moves the journals (D32); an explicit --data-dir (tests,

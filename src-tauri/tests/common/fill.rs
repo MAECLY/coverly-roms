@@ -87,6 +87,8 @@ pub fn fill_world() -> FillWorld {
             libretro: server.base(),
             libretro_raw: server.url("/raw"),
             database: server.base(),
+            steamgriddb: server.base(),
+            screenscraper: server.base(),
         },
         net: NetConfig {
             retries: 0,
