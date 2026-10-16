@@ -8,6 +8,7 @@ pub mod audit;
 pub mod cache;
 mod csv_util;
 pub mod fill;
+pub mod gamelist;
 pub mod gather;
 pub mod identify;
 pub mod image;
