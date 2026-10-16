@@ -1,7 +1,11 @@
 //! libretro-database DATs (clrmamepro format), downloaded on demand into
 //! the cache (spec §16.6, §17 q3: never bundled). Rows are stored in SQLite
 //! so a lookup is one indexed query; a DAT is re-checked after 30 days with
-//! a conditional GET; a 404 is remembered for the same TTL.
+//! a conditional GET; a 404 is remembered for the same TTL. Any other
+//! failed refresh falls back to older cached rows when there are some, and
+//! is otherwise remembered for the rest of the process, so a library of N
+//! ROMs never downloads a broken DAT N times. Rate limits and going offline
+//! are not remembered: they pause the job, and a resume must try again.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -43,6 +47,13 @@ pub enum DatError {
     Net(#[from] NetError),
     #[error(transparent)]
     Cache(#[from] CacheError),
+    /// The DAT downloaded fine but holds no ROM entries (an empty body, a
+    /// captive portal page): never replaces cached rows.
+    #[error("DAT has no ROM entries")]
+    Empty,
+    /// An earlier refresh of `dat` in this process failed; not retried.
+    #[error("DAT {dat} is unavailable: {reason}")]
+    Unavailable { dat: String, reason: String },
 }
 
 /// Whether a DAT's rows can be used.
@@ -249,7 +260,7 @@ pub struct DatStore<'a> {
     base: String,
     ttl: i64,
     max_bytes: u64,
-    memo: Mutex<HashMap<String, DatStatus>>,
+    memo: Mutex<HashMap<String, Result<DatStatus, String>>>,
 }
 
 impl<'a> DatStore<'a> {
@@ -273,13 +284,26 @@ impl<'a> DatStore<'a> {
     }
 
     /// Makes `dat`'s rows available, at most one check per process per DAT.
+    /// A failure is remembered too (later calls return
+    /// [`DatError::Unavailable`] without a request), except a rate limit or
+    /// being offline, which pause the job and are retried on resume.
     pub fn ensure(&self, dat: &str) -> Result<DatStatus, DatError> {
-        if let Some(s) = self.memo.lock().unwrap().get(dat) {
-            return Ok(*s);
+        if let Some(m) = self.memo.lock().unwrap().get(dat) {
+            return m.clone().map_err(|reason| DatError::Unavailable {
+                dat: dat.to_string(),
+                reason,
+            });
         }
-        let status = self.refresh(dat)?;
-        self.memo.lock().unwrap().insert(dat.to_string(), status);
-        Ok(status)
+        let result = self.refresh(dat);
+        let remembered = match &result {
+            Ok(status) => Some(Ok(*status)),
+            Err(DatError::Net(NetError::RateLimited { .. } | NetError::Offline(_))) => None,
+            Err(e) => Some(Err(e.to_string())),
+        };
+        if let Some(m) = remembered {
+            self.memo.lock().unwrap().insert(dat.to_string(), m);
+        }
+        result
     }
 
     fn refresh(&self, dat: &str) -> Result<DatStatus, DatError> {
@@ -293,24 +317,28 @@ impl<'a> DatStore<'a> {
                 });
             }
         }
-        let url = format!("{}/{}", self.base, encode_path(dat));
         let etag = meta
             .as_ref()
             .filter(|m| m.value.found)
             .and_then(|m| m.etag.clone());
-        let resp = match self.http.get(
+        match self.download(dat, etag) {
+            // Older rows beat no rows: any failed refresh falls back to them.
+            Err(DatError::Net(_) | DatError::Parse { .. } | DatError::Empty)
+                if meta.as_ref().is_some_and(|m| m.value.found) =>
+            {
+                Ok(DatStatus::Stale)
+            }
+            other => other,
+        }
+    }
+
+    fn download(&self, dat: &str, etag: Option<String>) -> Result<DatStatus, DatError> {
+        let url = format!("{}/{}", self.base, encode_path(dat));
+        let resp = self.http.get(
             &HttpRequest::get(url.clone())
                 .max_bytes(self.max_bytes)
                 .if_none_match(etag),
-        ) {
-            Ok(r) => r,
-            Err(NetError::Offline(_) | NetError::Timeout | NetError::Status { .. })
-                if meta.as_ref().is_some_and(|m| m.value.found) =>
-            {
-                return Ok(DatStatus::Stale);
-            }
-            Err(e) => return Err(e.into()),
-        };
+        )?;
         match resp.status {
             304 => {
                 self.cache.touch_json(NS, dat)?;
@@ -327,6 +355,9 @@ impl<'a> DatStore<'a> {
                     .into_iter()
                     .flat_map(|g| g.roms)
                     .collect();
+                if rows.is_empty() {
+                    return Err(DatError::Empty);
+                }
                 self.cache.replace_dat(dat, &rows)?;
                 self.cache
                     .put_json(NS, dat, &DatMeta { found: true }, resp.etag.as_deref())?;

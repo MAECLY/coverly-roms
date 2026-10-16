@@ -211,3 +211,95 @@ fn oversized_dat_is_refused() {
     let store = DatStore::new(&http, &cache, server.base()).with_max_bytes(1024);
     assert!(store.ensure("big.dat").is_err());
 }
+
+const HTML: &str = "<!doctype html><html><body>Sign in to continue</body></html>";
+
+/// Fills `cache` with `NES_DAT` rows for `path`, then drops the server.
+fn seed(cache: &Cache, path: &str) {
+    let server = MockServer::start();
+    server.serve_dat(path, NES_DAT);
+    let http = http();
+    assert_eq!(
+        DatStore::new(&http, cache, server.base())
+            .ensure(path)
+            .unwrap(),
+        DatStatus::Ready
+    );
+}
+
+#[test]
+fn a_failed_refresh_is_remembered_for_the_process() {
+    let zipped = HashOutcome::ZipEntry {
+        crc32: "22222222".into(),
+        size: 3,
+        inner_name: "q".into(),
+    };
+    for (name, resp) in [
+        ("500", MockResponse::status(500)),
+        ("html", MockResponse::ok(HTML.as_bytes().to_vec())),
+        ("empty", MockResponse::ok(Vec::new())),
+        ("big", MockResponse::ok(vec![b' '; 2048])),
+    ] {
+        let server = MockServer::start();
+        let path = format!("metadat/no-intro/{name}.dat");
+        server.mock(&format!("/{}", encode_path(&path)), resp);
+        let (http, cache) = (http(), Cache::in_memory().unwrap());
+        let store = DatStore::new(&http, &cache, server.base()).with_max_bytes(1024);
+        let dats = vec![path.clone()];
+        assert!(store.ensure(&path).is_err(), "{name}");
+        assert!(store.lookup(&dats, &zipped).is_err(), "{name}");
+        assert!(store.arcade_description(&dats, "x").is_err(), "{name}");
+        assert_eq!(
+            server.hits(&format!("/{}", encode_path(&path))),
+            1,
+            "{name}: one download per process"
+        );
+    }
+}
+
+#[test]
+fn rate_limits_and_offline_are_not_remembered() {
+    let server = MockServer::start();
+    let path = "metadat/no-intro/X.dat";
+    server.mock(
+        &format!("/{}", encode_path(path)),
+        MockResponse::status(429),
+    );
+    let (http, cache) = (http(), Cache::in_memory().unwrap());
+    let store = DatStore::new(&http, &cache, server.base());
+    assert!(store.ensure(path).is_err());
+    server.serve_dat(path, NES_DAT);
+    assert_eq!(
+        store.ensure(path).unwrap(),
+        DatStatus::Ready,
+        "resume works"
+    );
+    assert_eq!(server.hits(&format!("/{}", encode_path(path))), 2);
+}
+
+#[test]
+fn any_refresh_failure_with_cached_rows_is_stale() {
+    let path = "metadat/no-intro/X.dat";
+    for (name, resp) in [
+        ("429", MockResponse::status(429)),
+        ("500", MockResponse::status(500)),
+        ("html", MockResponse::ok(HTML.as_bytes().to_vec())),
+        ("empty", MockResponse::ok(Vec::new())),
+        ("big", MockResponse::ok(vec![b' '; 2048])),
+    ] {
+        let cache = Cache::in_memory().unwrap();
+        seed(&cache, path);
+        let server = MockServer::start();
+        server.mock(&format!("/{}", encode_path(path)), resp);
+        let http = http();
+        let store = DatStore::new(&http, &cache, server.base())
+            .with_ttl_secs(0)
+            .with_max_bytes(1024);
+        assert_eq!(store.ensure(path).unwrap(), DatStatus::Stale, "{name}");
+        assert_eq!(
+            cache.dat_by_crc(path, "22222222").unwrap().len(),
+            1,
+            "{name}: old rows kept"
+        );
+    }
+}
