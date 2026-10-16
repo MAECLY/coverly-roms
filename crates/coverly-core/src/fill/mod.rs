@@ -19,7 +19,9 @@ use crate::net::Http;
 use crate::plan::{build_plan, Plan, PlanOptions};
 use crate::profiles::{Media, Profile};
 use crate::progress::ProgressSink;
-use crate::sources::libretro::{LibretroConfig, LibretroSource, LIBRETRO_BASE, LIBRETRO_RAW_BASE};
+use crate::sources::libretro::{
+    LibretroConfig, LibretroSource, INDEX_TTL_SECS, LIBRETRO_BASE, LIBRETRO_RAW_BASE,
+};
 use crate::sources::{ArtSource, Candidate, SourceError};
 use crate::systems::SystemDb;
 use crate::write::{
@@ -48,7 +50,8 @@ impl Default for Endpoints {
     }
 }
 
-/// What one fill does (spec §9 defaults).
+/// What one fill does (spec §9 defaults; `Settings::fill_settings` builds
+/// it from the user's settings).
 #[derive(Clone, Debug)]
 pub struct FillSettings {
     /// System folders or ids (empty = all).
@@ -60,10 +63,23 @@ pub struct FillSettings {
     pub match_method: MatchMethod,
     /// Ignore cached candidate lists and indexes.
     pub refresh: bool,
+    /// Larger ROMs are identified by name.
+    pub hash_max_bytes: u64,
+    pub arcade_translation: bool,
+    pub fuzzy: bool,
+    pub auto_threshold: f32,
+    pub review_threshold: f32,
+    /// Preferred languages (D28).
+    pub languages: Vec<String>,
+    /// Enabled source ids, preferred first.
+    pub sources: Vec<String>,
+    /// How long a listing stays fresh.
+    pub index_ttl_secs: i64,
 }
 
 impl Default for FillSettings {
     fn default() -> Self {
+        let plan = PlanOptions::default();
         FillSettings {
             systems: Vec::new(),
             media: vec![Media::Cover],
@@ -72,6 +88,14 @@ impl Default for FillSettings {
             regions: default_region_order(),
             match_method: MatchMethod::HashThenName,
             refresh: false,
+            hash_max_bytes: crate::identify::hash::DEFAULT_HASH_MAX_BYTES,
+            arcade_translation: true,
+            fuzzy: true,
+            auto_threshold: plan.auto_threshold,
+            review_threshold: plan.review_threshold,
+            languages: Vec::new(),
+            sources: plan.sources,
+            index_ttl_secs: INDEX_TTL_SECS,
         }
     }
 }
@@ -119,15 +143,12 @@ fn spec_for(profile: &Profile, media: Media) -> Result<OutputSpec, ArtError> {
 }
 
 impl FillEnv<'_> {
-    fn libretro(&self, refresh: bool) -> LibretroSource<'_> {
-        let mut cfg = LibretroConfig {
+    fn libretro(&self, refresh: bool, ttl_secs: i64) -> LibretroSource<'_> {
+        let cfg = LibretroConfig {
             base: self.endpoints.libretro.clone(),
             raw_base: self.endpoints.libretro_raw.clone(),
-            ..LibretroConfig::default()
+            ttl_secs: if refresh { 0 } else { ttl_secs },
         };
-        if refresh {
-            cfg.ttl_secs = 0;
-        }
         LibretroSource::new(self.http, self.cache, cfg)
     }
 
@@ -161,14 +182,21 @@ impl FillEnv<'_> {
             &dats,
             IdentifyOptions {
                 method: settings.match_method,
-                ..IdentifyOptions::default()
+                hash_max_bytes: settings.hash_max_bytes,
+                arcade_translation: settings.arcade_translation,
             },
         );
-        let libretro = self.libretro(settings.refresh);
-        let sources: Vec<&dyn ArtSource> = vec![&libretro];
+        let libretro = self.libretro(settings.refresh, settings.index_ttl_secs);
+        let sources: Vec<&dyn ArtSource> = if settings.sources.iter().any(|s| s == libretro.id()) {
+            vec![&libretro]
+        } else {
+            Vec::new()
+        };
         let gopts = GatherOptions {
             consensus: settings.strategy == StrategyKind::Popularity,
             refresh: settings.refresh,
+            fuzzy: settings.fuzzy,
+            ttl_secs: settings.index_ttl_secs,
             ..GatherOptions::default()
         };
         let gathered = gather(
@@ -189,6 +217,10 @@ impl FillEnv<'_> {
             &PlanOptions {
                 strategy: settings.strategy,
                 regions: settings.regions.clone(),
+                sources: settings.sources.clone(),
+                auto_threshold: settings.auto_threshold,
+                review_threshold: settings.review_threshold,
+                languages: settings.languages.clone(),
                 ..PlanOptions::default()
             },
         )
@@ -208,7 +240,7 @@ impl FillEnv<'_> {
         progress: &dyn ProgressSink,
         cancel: &AtomicBool,
     ) -> Result<JobReport, WriteError> {
-        let libretro = self.libretro(false);
+        let libretro = self.libretro(false, INDEX_TTL_SECS);
         let sources: Vec<&dyn ArtSource> = vec![&libretro];
         let store = ArtStore::new(self.cache_dir, self.cache);
         let report = apply_plan(
@@ -235,7 +267,7 @@ impl FillEnv<'_> {
         c: &Candidate,
     ) -> Result<ProcessedImage, ArtError> {
         let spec = spec_for(profile, c.media)?;
-        let libretro = self.libretro(false);
+        let libretro = self.libretro(false, INDEX_TTL_SECS);
         if c.source != libretro.id() {
             return Err(ArtError::UnknownSource(c.source.clone()));
         }

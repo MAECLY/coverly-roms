@@ -19,7 +19,6 @@ use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStat
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::Media;
 use coverly_core::progress::NoProgress;
-use coverly_core::scan::ScanOptions;
 use coverly_core::settings::{load_settings, save_settings, RecentLibrary, Settings};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
@@ -423,7 +422,7 @@ impl AppState {
             &session.root,
             &session.profile,
             &SystemDb::builtin(),
-            &scan_options(&self.settings()),
+            &self.settings().scan_options(),
             &media,
         );
         write_export(dest, |w| match format {
@@ -501,7 +500,7 @@ impl AppState {
             &OpenRequest {
                 path,
                 profile_id,
-                scan: &scan_options(&settings),
+                scan: &settings.scan_options(),
                 generation,
             },
             systems,
@@ -572,15 +571,6 @@ fn builtin_ids() -> Vec<String> {
         .into_iter()
         .map(|p| p.id)
         .collect()
-}
-
-/// Scan options with the ignored folders of `settings` and the other
-/// defaults (the full mapping arrives with `Settings::scan_options`).
-fn scan_options(settings: &Settings) -> ScanOptions {
-    ScanOptions {
-        ignored_dirs: settings.library.ignored_dirs.clone(),
-        ..ScanOptions::default()
-    }
 }
 
 fn recent_views(settings: &Settings) -> Vec<RecentView> {

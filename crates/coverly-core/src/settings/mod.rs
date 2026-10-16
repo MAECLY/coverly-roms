@@ -5,6 +5,7 @@
 //! to its default, a file that cannot be read as settings is set aside,
 //! and a copy is kept whenever loading changed something (D24).
 
+mod apply;
 mod load;
 mod model;
 mod patch;

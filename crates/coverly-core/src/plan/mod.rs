@@ -34,6 +34,9 @@ pub struct PlanOptions {
     pub review_threshold: f32,
     /// How many runner-up candidates each item keeps.
     pub max_alternatives: usize,
+    /// Preferred languages (D28), two-letter lowercase codes; empty = no
+    /// preference.
+    pub languages: Vec<String>,
 }
 
 impl Default for PlanOptions {
@@ -45,8 +48,40 @@ impl Default for PlanOptions {
             auto_threshold: 0.90,
             review_threshold: 0.65,
             max_alternatives: 4,
+            languages: Vec::new(),
         }
     }
+}
+
+/// D28: among the leading candidates the strategy ranks equal (same kind,
+/// score and regions as the first), the one carrying the earliest
+/// preferred language comes first. Stable, so ties keep the strategy order.
+fn prefer_languages(order: &mut [usize], cands: &[Candidate], langs: &[String]) {
+    if langs.is_empty() || order.len() < 2 {
+        return;
+    }
+    let Some(top) = order.first().and_then(|&i| cands.get(i)) else {
+        return;
+    };
+    let tied = order
+        .iter()
+        .take_while(|&&i| {
+            cands.get(i).is_some_and(|c| {
+                c.kind == top.kind && c.score == top.score && c.regions == top.regions
+            })
+        })
+        .count();
+    let rank = |i: usize| {
+        let have = cands
+            .get(i)
+            .map(|c| crate::identify::names::languages(&c.name))
+            .unwrap_or_default();
+        langs
+            .iter()
+            .position(|l| have.contains(l))
+            .unwrap_or(langs.len())
+    };
+    order[..tied].sort_by_key(|&i| rank(i));
 }
 
 /// Why an item gets no art.
@@ -318,7 +353,8 @@ pub fn build_plan(
                         regions: &opts.regions,
                         sources: &opts.sources,
                     };
-                    let order = strategy.rank(&ctx, cands);
+                    let mut order = strategy.rank(&ctx, cands);
+                    prefer_languages(&mut order, cands, &opts.languages);
                     choose(cands, &order, opts, &t.stem)
                 }
             };

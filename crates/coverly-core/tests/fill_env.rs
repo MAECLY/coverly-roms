@@ -453,3 +453,42 @@ fn a_cancel_is_marked_in_the_report_but_not_in_the_plan() {
     assert!(r.items.iter().all(|i| i.status == ItemStatus::NotAttempted));
     assert!(!w.lib.path().join("ROMS/GBA/Imgs").exists());
 }
+
+#[test]
+fn thresholds_and_fuzzy_from_settings_reach_the_plan() {
+    let w = world();
+    let profile = common::profile("anbernic-stock");
+    let db = SystemDb::builtin();
+    let scan = scan_library(w.lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let mut s = coverly_core::settings::Settings::default();
+    s.matching.auto_threshold = 1.0;
+    s.matching.fuzzy = false;
+    s.art.media = vec![Media::Cover];
+    let plan = w.env().plan(
+        w.lib.path(),
+        &profile,
+        &db,
+        &art,
+        &s.fill_settings(),
+        &NoProgress,
+        &AtomicBool::new(false),
+    );
+    let sun = &plan.items[at(&plan, SUN)];
+    assert!(
+        matches!(sun.action, PlanAction::Review { .. }),
+        "a title match (0.95) is below an auto threshold of 1.0: {:?}",
+        sun.action
+    );
+    let rush = &plan.items[at(&plan, RUSH)];
+    assert!(
+        matches!(
+            rush.action,
+            PlanAction::None {
+                reason: NoneReason::NoCandidates
+            }
+        ),
+        "only a fuzzy match exists for `Gldn Rsh`: {:?}",
+        rush.action
+    );
+}

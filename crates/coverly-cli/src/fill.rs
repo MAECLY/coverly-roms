@@ -292,6 +292,7 @@ pub fn run(args: &FillArgs) -> Result<(), Failure> {
         regions,
         match_method: args.match_method.into(),
         refresh: args.refresh,
+        ..FillSettings::default()
     };
     let cancel = AtomicBool::new(false);
     let progress = StderrProgress::new();

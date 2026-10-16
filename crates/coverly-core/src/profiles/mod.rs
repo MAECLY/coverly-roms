@@ -79,6 +79,9 @@ pub struct Profile {
     /// One slot per media the profile can store; absent media cannot be
     /// stored by this layout.
     pub slots: HashMap<Media, MediaSlot>,
+    /// The frontend reads one format only (RetroArch: PNG); the output
+    /// format setting does not apply.
+    pub fixed_format: bool,
 }
 
 impl Profile {

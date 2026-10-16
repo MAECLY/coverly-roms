@@ -172,6 +172,31 @@ fn split_groups(s: &str) -> (String, Vec<String>) {
     (outside, groups)
 }
 
+/// No-Intro language codes (as they appear: `En`, `Fr`…).
+const LANGUAGE_CODES: [&str; 26] = [
+    "En", "Fr", "De", "Es", "It", "Nl", "Pt", "Sv", "No", "Da", "Fi", "Ja", "Zh", "Ko", "Pl", "Ru",
+    "Ca", "Eu", "Gd", "Cs", "Hu", "El", "Tr", "Ar", "He", "Hr",
+];
+
+/// The languages of a No-Intro name's `(En,Fr,De)` group(s), lowercase, in
+/// order. A group counts only when every comma-separated token is a code.
+pub fn languages(name: &str) -> Vec<String> {
+    let (_, groups) = split_groups(name);
+    let mut out: Vec<String> = Vec::new();
+    for group in &groups {
+        let tokens: Vec<&str> = group.split(',').map(str::trim).collect();
+        if !tokens.is_empty() && tokens.iter().all(|t| LANGUAGE_CODES.contains(t)) {
+            for t in tokens {
+                let code = t.to_ascii_lowercase();
+                if !out.contains(&code) {
+                    out.push(code);
+                }
+            }
+        }
+    }
+    out
+}
+
 fn region_group(group: &str) -> Option<Vec<Region>> {
     let parts: Vec<&str> = group.split(',').map(str::trim).collect();
     if let Some(all) = parts

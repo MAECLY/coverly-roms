@@ -1,0 +1,273 @@
+//! Settings reach the scan, the plan and the art output.
+
+mod common;
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use coverly_core::gather::{GatherItem, GatherTargetSummary, Gathered};
+use coverly_core::identify::names::{languages, parse_name, Region};
+use coverly_core::identify::{IdMethod, Identity, MatchMethod};
+use coverly_core::image::{process_image, Fit, ImageLimits, OutputSpec};
+use coverly_core::matching::StrategyKind;
+use coverly_core::net::testing::png_bytes;
+use coverly_core::plan::{build_plan, PlanAction, PlanOptions};
+use coverly_core::profiles::{ImageFormat, Media};
+use coverly_core::scan::scan_library;
+use coverly_core::settings::{MaxSize, OutputFormat, OverwriteSetting, Settings};
+use coverly_core::sources::{Candidate, MatchKind};
+use coverly_core::systems::SystemDb;
+use coverly_core::write::OverwritePolicy;
+
+#[test]
+fn scan_options_follow_the_library_group() {
+    let lib = tempfile::tempdir().unwrap();
+    let r = lib.path();
+    common::mkdir(r, "anbernic");
+    common::write(r, "ROMS/GBA/Keep.gba", "a");
+    common::write(r, "ROMS/GBA/Junk/Skip.gba", "b");
+    common::write(r, "ROMS/GBA/.hidden.gba", "c");
+    common::write(r, "ROMS/GBA/Odd.zzz", "d");
+    let mut s = Settings::default();
+    s.library.set_ignored_dirs(vec!["junk".into()]);
+    s.library.set_ignored_exts(vec!["gba".into()]);
+    s.library.include_hidden = true;
+    s.library.follow_symlinks = true;
+    let opts = s.scan_options();
+    assert!(opts.include_hidden && opts.follow_symlinks);
+    assert_eq!(opts.ignored_dirs, ["junk"]);
+    assert_eq!(opts.ignored_exts, ["gba"]);
+
+    let mut s = Settings::default();
+    s.library.set_ignored_dirs(vec!["junk".into()]);
+    let scan = scan_library(
+        r,
+        &common::profile("anbernic-stock"),
+        &SystemDb::builtin(),
+        &s.scan_options(),
+    );
+    let stems: Vec<String> = scan
+        .systems
+        .iter()
+        .flat_map(|sys| sys.roms.iter().map(|rom| rom.stem.clone()))
+        .collect();
+    assert_eq!(
+        stems,
+        ["Keep"],
+        "Junk/ is ignored, hidden files are not scanned"
+    );
+}
+
+#[test]
+fn fill_settings_map_the_matching_group() {
+    let mut s = Settings::default();
+    s.matching.strategy = StrategyKind::Priority;
+    s.matching.regions = vec!["japan".into(), "rom".into()];
+    s.matching.languages = vec!["es".into()];
+    s.matching.auto_threshold = 0.95;
+    s.matching.review_threshold = 0.5;
+    s.matching.fuzzy = false;
+    s.matching.arcade_translation = false;
+    s.matching.match_method = MatchMethod::NameOnly;
+    s.matching.max_hash_mb = 8;
+    s.art.media = vec![Media::Cover, Media::Title];
+    s.network.index_refresh_hours = 6;
+    let f = s.fill_settings();
+    assert_eq!(f.strategy, StrategyKind::Priority);
+    assert_eq!(f.regions.len(), 2);
+    assert_eq!(f.languages, ["es"]);
+    assert_eq!((f.auto_threshold, f.review_threshold), (0.95, 0.5));
+    assert!(!f.fuzzy && !f.arcade_translation);
+    assert_eq!(f.match_method, MatchMethod::NameOnly);
+    assert_eq!(f.hash_max_bytes, 8 * 1024 * 1024);
+    assert_eq!(f.media, [Media::Cover, Media::Title]);
+    assert_eq!(f.sources, ["libretro"]);
+    assert_eq!(f.index_ttl_secs, 6 * 3600);
+}
+
+#[test]
+fn overwrite_ask_is_never_inside_a_job() {
+    let mut s = Settings::default();
+    for (setting, policy) in [
+        (OverwriteSetting::Never, OverwritePolicy::Never),
+        (OverwriteSetting::Ask, OverwritePolicy::Never),
+        (OverwriteSetting::Backup, OverwritePolicy::Backup),
+    ] {
+        s.art.overwrite = setting;
+        assert_eq!(s.overwrite_policy(), policy);
+    }
+}
+
+#[test]
+fn languages_are_read_from_the_no_intro_group() {
+    assert_eq!(
+        languages("Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)"),
+        ["en", "fr", "de", "es", "it"]
+    );
+    assert_eq!(languages("Pokemon (Spain) (Es)"), ["es"]);
+    assert!(languages("Zelda (USA)").is_empty());
+    assert!(languages("Game (Rev 1) (Beta)").is_empty());
+    assert!(
+        languages("Odd (En,Martian)").is_empty(),
+        "every token must be a language"
+    );
+}
+
+fn cand(name: &str) -> Candidate {
+    Candidate {
+        source: "libretro".into(),
+        media: Media::Cover,
+        name: name.into(),
+        url: format!("https://x/{name}.png"),
+        fallback_url: None,
+        regions: vec![Region::Europe],
+        kind: MatchKind::TitleExact,
+        score: 100,
+        votes: None,
+        consensus: 0,
+    }
+}
+
+fn one_rom_plan(root: &Path, cands: Vec<Candidate>, opts: &PlanOptions) -> Option<String> {
+    let profile = common::profile("anbernic-stock");
+    let system_dir = root.join("ROMS/GBA");
+    let gathered = Gathered {
+        items: vec![GatherItem {
+            target: GatherTargetSummary {
+                system_id: "gba".into(),
+                folder: "GBA".into(),
+                system_dir: system_dir.clone(),
+                rel_dir: "".into(),
+                path: system_dir.join("Final Fantasy.gba"),
+                stem: "Final Fantasy".into(),
+                media: vec![Media::Cover],
+            },
+            identity: Identity {
+                canonical: None,
+                method: IdMethod::Name,
+                confidence: 0.0,
+                parsed: parse_name("Final Fantasy", false),
+                hash: None,
+            },
+            candidates: BTreeMap::from([(Media::Cover, cands)]),
+            errors: BTreeMap::new(),
+        }],
+        ..Gathered::default()
+    };
+    let plan = build_plan(root, &profile, &SystemDb::builtin(), &gathered, opts);
+    match &plan.items[0].action {
+        PlanAction::Auto { chosen, .. } | PlanAction::Review { chosen, .. } => {
+            Some(chosen.name.clone())
+        }
+        PlanAction::None { .. } => None,
+    }
+}
+
+#[test]
+fn the_preferred_language_breaks_a_strategy_tie() {
+    let root = tempfile::tempdir().unwrap();
+    let cands = || {
+        vec![
+            cand("Final Fantasy (Europe) (De,Fr)"),
+            cand("Final Fantasy (Europe) (Es,It)"),
+        ]
+    };
+    let none = PlanOptions::default();
+    assert_eq!(
+        one_rom_plan(root.path(), cands(), &none).unwrap(),
+        "Final Fantasy (Europe) (De,Fr)"
+    );
+    let italian = PlanOptions {
+        languages: vec!["it".into()],
+        ..PlanOptions::default()
+    };
+    assert_eq!(
+        one_rom_plan(root.path(), cands(), &italian).unwrap(),
+        "Final Fantasy (Europe) (Es,It)"
+    );
+    let german_first = PlanOptions {
+        languages: vec!["ja".into(), "de".into()],
+        ..PlanOptions::default()
+    };
+    assert_eq!(
+        one_rom_plan(root.path(), cands(), &german_first).unwrap(),
+        "Final Fantasy (Europe) (De,Fr)"
+    );
+}
+
+#[test]
+fn language_never_beats_a_stronger_match() {
+    let root = tempfile::tempdir().unwrap();
+    let mut weaker = cand("Final Fantasy (Europe) (Es,It)");
+    weaker.kind = MatchKind::Fuzzy;
+    weaker.score = 90;
+    let cands = vec![cand("Final Fantasy (Europe) (De,Fr)"), weaker];
+    let italian = PlanOptions {
+        languages: vec!["it".into()],
+        ..PlanOptions::default()
+    };
+    assert_eq!(
+        one_rom_plan(root.path(), cands, &italian).unwrap(),
+        "Final Fantasy (Europe) (De,Fr)"
+    );
+}
+
+#[test]
+fn stretch_fills_the_box_exactly_and_contain_keeps_the_aspect() {
+    let src = png_bytes(100, 50);
+    let spec = |fit| OutputSpec {
+        format: ImageFormat::Png,
+        max_size: Some((40, 40)),
+        fit,
+        jpeg_quality: 90,
+    };
+    let img = process_image(&src, &spec(Fit::Stretch), &ImageLimits::default()).unwrap();
+    assert_eq!((img.width, img.height), (40, 40));
+    let img = process_image(&src, &spec(Fit::Contain), &ImageLimits::default()).unwrap();
+    assert_eq!((img.width, img.height), (40, 20));
+    let mut s = Settings::default();
+    assert_eq!(s.fit(), Fit::Contain);
+    s.art.keep_aspect = false;
+    assert_eq!(s.fit(), Fit::Stretch);
+}
+
+#[test]
+fn art_profile_moves_the_single_slot_and_overrides_format_and_size() {
+    let base = common::profile("anbernic-stock");
+    let mut s = Settings::default();
+    s.art.single_slot_media = Media::Screenshot;
+    s.art.output_format = OutputFormat::Jpg;
+    s.art.max_size.insert(
+        "anbernic-stock".into(),
+        MaxSize {
+            width: 320,
+            height: 240,
+        },
+    );
+    let p = s.art_profile(&base);
+    assert!(p.slot(Media::Cover).is_none());
+    let slot = p
+        .slot(Media::Screenshot)
+        .expect("the one slot holds screenshots");
+    assert_eq!(slot.format, ImageFormat::Jpg);
+    assert!(slot.template.ends_with("{stem}.jpg"), "{}", slot.template);
+    assert_eq!(slot.max_size, Some((320, 240)));
+    // Idempotent: applying again changes nothing.
+    assert_eq!(s.art_profile(&p), p);
+    // Defaults leave a profile as it is.
+    assert_eq!(Settings::default().art_profile(&base), base);
+}
+
+#[test]
+fn multi_slot_layouts_keep_their_slots_and_retroarch_stays_png() {
+    let mut s = Settings::default();
+    s.art.single_slot_media = Media::Title;
+    s.art.output_format = OutputFormat::Jpg;
+    let esde = s.art_profile(&common::profile("esde"));
+    assert_eq!(esde.slots.len(), 3);
+    assert!(esde.slot(Media::Cover).unwrap().template.ends_with(".jpg"));
+    let ra = s.art_profile(&common::profile("retroarch"));
+    assert!(ra.fixed_format);
+    assert_eq!(ra.slot(Media::Cover).unwrap().format, ImageFormat::Png);
+    assert!(ra.slot(Media::Cover).unwrap().template.ends_with(".png"));
+}
