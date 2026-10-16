@@ -66,7 +66,19 @@ fn write_row<W: Write>(w: &mut W, fields: &[String]) -> io::Result<()> {
 
 /// `field` as a CSV field: quoted (with `"` doubled) when it holds a
 /// comma, a quote or a line break, or starts or ends with a space.
+///
+/// ROM and folder names come from files the user does not control, so a
+/// field a spreadsheet would read as a formula (starting with `=`, `+`,
+/// `-`, `@`, a tab or a carriage return) is prefixed with `'` (OWASP CSV
+/// injection guidance).
 fn quote(field: &str) -> String {
+    let guarded;
+    let field = if field.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        guarded = format!("'{field}");
+        guarded.as_str()
+    } else {
+        field
+    };
     let needs =
         field.contains([',', '"', '\n', '\r']) || field.starts_with(' ') || field.ends_with(' ');
     if needs {
@@ -96,5 +108,18 @@ mod tests {
         assert_eq!(quote("two\nlines"), "\"two\nlines\"");
         assert_eq!(quote(" padded"), "\" padded\"");
         assert_eq!(quote(""), "");
+    }
+
+    #[test]
+    fn neutralises_spreadsheet_formulas() {
+        assert_eq!(
+            quote("=HYPERLINK(\"http://x\")"),
+            "\"'=HYPERLINK(\"\"http://x\"\")\""
+        );
+        assert_eq!(quote("+1"), "'+1");
+        assert_eq!(quote("-cmd"), "'-cmd");
+        assert_eq!(quote("@SUM(A1)"), "'@SUM(A1)");
+        assert_eq!(quote("\tTab"), "'\tTab");
+        assert_eq!(quote("Mega Man X"), "Mega Man X");
     }
 }
