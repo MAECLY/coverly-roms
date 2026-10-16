@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Modal } from '@/components/Modal';
 import { LocaleContext } from '@/i18n/core';
@@ -18,11 +18,13 @@ import {
 } from '@/ipc/types';
 import {
   buildFillRequest,
-  DEFAULT_REGION_ORDER,
   moveItem,
+  shouldAutoRun,
+  wizardDefaults,
   type FillScope,
 } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useViewStore } from '@/stores/viewStore';
 
 import { CandidateImage } from './CandidateImage';
@@ -113,6 +115,13 @@ export function FillWizard({
   const cancel = useJobStore((s) => s.cancel);
   const resume = useJobStore((s) => s.resume);
   const setOverlay = useViewStore((s) => s.setOverlay);
+  const settings = useSettingsStore((s) => s.settings);
+  const [defaults] = useState(() =>
+    wizardDefaults(useSettingsStore.getState().settings, view.profile.media),
+  );
+  /** Only a plan this wizard started may run by itself, and only once. */
+  const startedHere = useRef(false);
+  const autoRan = useRef(false);
   const [step, setStep] = useState<Step>(() =>
     inPlay(useJobStore.getState().job, view.generation) ? 'summary' : 'scope',
   );
@@ -123,12 +132,13 @@ export function FillWizard({
         ? 'filter'
         : 'library',
   );
-  const [media, setMedia] = useState<Media[]>(view.profile.media.slice(0, 1));
-  const [strategy, setStrategy] = useState<StrategyKind>('rom-region');
-  const [regions, setRegions] = useState<RegionPref[]>([
-    ...DEFAULT_REGION_ORDER,
-  ]);
-  const [overwrite, setOverwrite] = useState<OverwritePolicy>('never');
+  const [media, setMedia] = useState<Media[]>(defaults.media);
+  const [strategy, setStrategy] = useState<StrategyKind>(defaults.strategy);
+  const [regions, setRegions] = useState<RegionPref[]>(defaults.regions);
+  // `null` while the "ask" setting waits for the user's choice (D25).
+  const [overwrite, setOverwrite] = useState<OverwritePolicy | null>(
+    defaults.overwrite,
+  );
   const index = STEPS.indexOf(step);
   const regionName = (r: RegionPref) =>
     r === 'rom' ? t('fill.regionRom') : t(`regions.${r}`);
@@ -139,7 +149,10 @@ export function FillWizard({
   };
 
   async function preview() {
+    if (overwrite === null) return;
     setStep('summary');
+    startedHere.current = true;
+    autoRan.current = false;
     await start(
       view.generation,
       buildFillRequest({
@@ -157,6 +170,21 @@ export function FillWizard({
   async function runJob() {
     if (await run()) setOverlay('jobs');
   }
+
+  const ownJob =
+    job !== null && job.generation === view.generation ? job : null;
+  useEffect(() => {
+    if (
+      !startedHere.current ||
+      !shouldAutoRun(ownJob, settings, autoRan.current)
+    ) {
+      return;
+    }
+    autoRan.current = true;
+    void runJob();
+    // `runJob` only reads stores; re-running on its identity is not wanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownJob, settings]);
 
   async function discard() {
     await cancel();
@@ -270,6 +298,9 @@ export function FillWizard({
             {t(`fill.overwrite.${o}`)}
           </label>
         ))}
+        {defaults.overwrite === null && (
+          <p className="hint">{t('fill.overwrite.askHint')}</p>
+        )}
         <p className="hint">{t('fill.overwrite.backupHint')}</p>
       </fieldset>
     );
@@ -378,9 +409,7 @@ export function FillWizard({
       <p className="hint">
         {t('fill.stepOf', { n: index + 1, total: STEPS.length })}
       </p>
-      {view.profile.id === 'batocera' && (
-        <p className="hint">{t('fill.batocera')}</p>
-      )}
+      {view.profile.gamelist && <p className="hint">{t('fill.gamelist')}</p>}
       {body}
       {error && (
         <p role="alert" className="error-banner">
@@ -423,7 +452,7 @@ export function FillWizard({
           <button
             type="button"
             className="primary-button"
-            disabled={pending || media.length === 0}
+            disabled={pending || media.length === 0 || overwrite === null}
             onClick={() => void preview()}
           >
             {t('fill.preview')}

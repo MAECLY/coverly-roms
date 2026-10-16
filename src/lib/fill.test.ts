@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { generateLibrary, FIXTURE_NOW } from '@/ipc/mock/fixture';
 
+import { cloneSettings, DEFAULT_SETTINGS } from '@/lib/settingsRules';
+
 import {
   buildFillRequest,
   DEFAULT_REGION_ORDER,
   moveItem,
   scopeIds,
+  shouldAutoRun,
+  wizardDefaults,
 } from './fill';
 
 const view = generateLibrary({
@@ -60,5 +64,47 @@ describe('fill choices', () => {
       regions: ['usa', 'rom'],
       overwrite: 'backup',
     });
+  });
+});
+
+describe('wizard defaults from settings', () => {
+  it('uses the art and matching settings, filtered by the layout', () => {
+    const s = cloneSettings(DEFAULT_SETTINGS);
+    s.art.media = ['cover', 'title'];
+    s.matching.strategy = 'priority';
+    s.matching.regions = ['japan', 'rom'];
+    expect(wizardDefaults(s, ['cover'])).toEqual({
+      media: ['cover'],
+      strategy: 'priority',
+      regions: ['japan', 'rom'],
+      overwrite: 'never',
+    });
+    s.art.overwrite = 'ask';
+    expect(wizardDefaults(s, ['cover']).overwrite).toBeNull();
+    s.art.overwrite = 'backup';
+    expect(wizardDefaults(s, ['cover']).overwrite).toBe('backup');
+    // Falls back to the first media the layout stores.
+    s.art.media = ['title'];
+    expect(wizardDefaults(s, ['cover']).media).toEqual(['cover']);
+    expect(wizardDefaults(null, ['cover', 'screenshot']).media).toEqual([
+      'cover',
+    ]);
+  });
+
+  it('runs by itself only with dry-run-first off and nothing to review', () => {
+    const s = cloneSettings(DEFAULT_SETTINGS);
+    const job = {
+      state: 'planned',
+      plan: { totals: { auto: 3, review: 0, none: 1 } },
+    } as never;
+    expect(shouldAutoRun(job, s, false)).toBe(false);
+    s.safety.dry_run_default = false;
+    expect(shouldAutoRun(job, s, false)).toBe(true);
+    expect(shouldAutoRun(job, s, true)).toBe(false);
+    const review = {
+      state: 'planned',
+      plan: { totals: { auto: 3, review: 2, none: 0 } },
+    } as never;
+    expect(shouldAutoRun(review, s, false)).toBe(false);
   });
 });
