@@ -19,6 +19,7 @@ export function StartScreen() {
   const loadRecents = useLibraryStore((s) => s.loadRecents);
   const open = useLibraryStore((s) => s.open);
   const forget = useLibraryStore((s) => s.forget);
+  const fail = useLibraryStore((s) => s.fail);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const opening = status === 'opening';
@@ -46,8 +47,14 @@ export function StartScreen() {
   }, [open]);
 
   async function pick() {
-    const backend = await getBackend();
-    const path = await backend.pickFolder();
+    let path: string | null;
+    try {
+      const backend = await getBackend();
+      path = await backend.pickFolder();
+    } catch (e) {
+      fail(e);
+      return;
+    }
     if (path) await open(path);
   }
 

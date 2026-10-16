@@ -120,6 +120,39 @@ describe('Start screen', () => {
     ]);
   });
 
+  it('reports_a_failing_folder_picker', async () => {
+    backend.pickFolder = () => Promise.reject(new Error('dialog denied'));
+    renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open folder…' }),
+    ).not.toBeDisabled();
+  });
+
+  it('settings_dialog_traps_and_restores_focus', async () => {
+    renderApp();
+    const trigger = screen.getByRole('button', { name: 'Library settings' });
+    await userEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog');
+    const box = await screen.findByLabelText('Ignored folders');
+    await waitFor(() => expect(box).not.toBeDisabled());
+    await waitFor(() =>
+      expect(dialog).toContainElement(document.activeElement as HTMLElement),
+    );
+    for (let i = 0; i < 6; i += 1) {
+      await userEvent.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    }
+    await userEvent.tab({ shift: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
   it('switches the language', async () => {
     render(<Root />);
     await userEvent.selectOptions(screen.getByLabelText('Language'), 'es');
