@@ -179,27 +179,52 @@ fn tokens(template: &str) -> Vec<&str> {
     out
 }
 
+/// Tokens that expand to paths: allowed only as a whole segment, since an
+/// absolute path pushed inside a segment replaces everything before it.
+const PATH_TOKENS: [&str; 3] = ["{root}", "{system_dir}", "{rel_dir}"];
+
+/// Literal text of a segment (its tokens removed) is plain: no control
+/// characters, `\` or `:`, and the segment is not dot-like or blank.
+fn literal_segment_ok(seg: &str) -> bool {
+    let trimmed = seg.trim();
+    !trimmed.is_empty()
+        && trimmed != "."
+        && trimmed != ".."
+        && !seg.contains(['\\', ':'])
+        && !seg.chars().any(char::is_control)
+}
+
 fn template_error(t: &SlotFile) -> Option<FieldErrorCode> {
     use FieldErrorCode::*;
-    let s = t.template.trim();
-    if s.is_empty() {
+    let s = t.template.as_str();
+    if s.trim().is_empty() {
         return Some(Required);
     }
     if tokens(s).iter().any(|tok| !TOKENS.contains(tok)) {
         return Some(Unknown);
     }
-    if !(s.starts_with("{root}/") || s.starts_with("{system_dir}/"))
-        || s.contains('\\')
-        || s.contains("//")
-    {
+    // What is validated is exactly what is saved and rendered.
+    if s.trim() != s {
         return Some(Invalid);
     }
     let segments: Vec<&str> = s.split('/').collect();
-    if segments
-        .iter()
-        .any(|seg| *seg == "." || *seg == ".." || seg.is_empty())
-    {
+    // `{root}` or `{system_dir}` is the whole first segment, once.
+    if segments.len() < 2 || !matches!(segments[0], "{root}" | "{system_dir}") {
         return Some(Invalid);
+    }
+    for (i, seg) in segments.iter().enumerate() {
+        let path_tokens = PATH_TOKENS.iter().filter(|p| seg.contains(**p)).count();
+        if path_tokens > 0 {
+            let whole = PATH_TOKENS.contains(seg);
+            let allowed_here = if i == 0 { true } else { *seg == "{rel_dir}" };
+            if !whole || !allowed_here {
+                return Some(Invalid);
+            }
+            continue;
+        }
+        if !literal_segment_ok(seg) {
+            return Some(Invalid);
+        }
     }
     let last = segments.last().copied().unwrap_or("");
     if !last.contains("{stem}") {

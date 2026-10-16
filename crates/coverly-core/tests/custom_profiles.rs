@@ -104,6 +104,26 @@ fn templates_must_stay_inside_the_library() {
         ("{system_dir}/Imgs/cover.png", FieldErrorCode::Invalid),
         ("{system_dir}/Imgs/{stem}.jpg", FieldErrorCode::Invalid),
         ("", FieldErrorCode::Required),
+        // Path tokens only as whole segments: an absolute root pushed
+        // inside a segment replaces the whole path.
+        ("{root}/{root}{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}/{root}x/{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}/{root}/{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/x/{system_dir}{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/{system_dir}/{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/{rel_dir}{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/x{rel_dir}/{stem}.png", FieldErrorCode::Invalid),
+        ("{root}{stem}.png", FieldErrorCode::Invalid),
+        // What is validated is what is saved: no stray spaces, no
+        // dot-like or control-character segments.
+        ("{root}/{stem}.png ", FieldErrorCode::Invalid),
+        (" {root}/{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/ ../{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/.. /{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/ /{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/a\u{0}b/{stem}.png", FieldErrorCode::Invalid),
+        ("{root}/C:/{stem}.png", FieldErrorCode::Invalid),
+        ("   ", FieldErrorCode::Required),
     ];
     for (template, code) in cases {
         let mut p = sample();
