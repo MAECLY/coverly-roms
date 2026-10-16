@@ -268,4 +268,24 @@ describe('profiles editor', () => {
       await within(form).findByText('Turn on at least one slot.'),
     ).toBeInTheDocument();
   });
+
+  it('sends one save while a save is in flight', async () => {
+    let finish: () => void = () => undefined;
+    const real = backend.saveProfile.bind(backend);
+    const spy = vi
+      .spyOn(backend, 'saveProfile')
+      .mockImplementation(async (p, r) => {
+        await new Promise<void>((resolve) => (finish = resolve));
+        return real(p, r);
+      });
+    await openProfiles();
+    await userEvent.click(screen.getByRole('button', { name: 'New profile' }));
+    const save = screen.getByRole('button', { name: 'Save profile' });
+    await userEvent.click(save);
+    await userEvent.click(save);
+    expect(save).toBeDisabled();
+    await act(async () => finish());
+    await screen.findByRole('list', { name: 'Layout profiles' });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });

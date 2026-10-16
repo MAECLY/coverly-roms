@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -64,6 +64,9 @@ export function ProfileEditor({
   const [errors, setErrors] = useState<FieldError[]>([]);
   const [saveErrors, setSaveErrors] = useState<FieldError[]>([]);
   const [saveFailed, setSaveFailed] = useState<BackendError | null>(null);
+  /** A save in flight: the button is off and a second submit is ignored. */
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
   /** What is typed where the field shows something else than the profile
    * holds (art folders as a list, sizes as numbers). */
   const [raw, setRaw] = useState<Record<string, string>>({});
@@ -141,15 +144,22 @@ export function ProfileEditor({
   };
 
   async function save() {
-    if (localErrors.length) return;
+    if (localErrors.length || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
     setSaveFailed(null);
     try {
       const out = await (await getBackend()).saveProfile(draft, replaces);
       if (out.errors.length) setSaveErrors(out.errors);
-      else onSaved(out.profiles);
+      else {
+        onSaved(out.profiles);
+        return;
+      }
     } catch (e) {
       setSaveFailed(toBackendError(e));
     }
+    inFlight.current = false;
+    setSaving(false);
   }
 
   const text = (
@@ -353,7 +363,12 @@ export function ProfileEditor({
         <button type="button" className="ghost-button" onClick={onCancel}>
           {t('profiles.cancel')}
         </button>
-        <button type="submit" className="primary-button">
+        <button
+          type="submit"
+          className="primary-button"
+          disabled={saving}
+          aria-busy={saving || undefined}
+        >
           {t('profiles.save')}
         </button>
       </div>
