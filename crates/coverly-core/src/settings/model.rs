@@ -102,6 +102,10 @@ pub struct LibraryGroup {
     /// Extensions never taken as ROMs (lowercase, no dot).
     pub ignored_exts: Vec<String>,
     pub include_hidden: bool,
+    /// Scan into symlinked folders (off by default). Art for ROMs under a
+    /// linked folder is written through the link, so it can land outside
+    /// the library root; the Library screen says so (Task 9) and a
+    /// writer-side containment check is an open follow-up (TRACKER M5-01).
     pub follow_symlinks: bool,
     /// Most recent first, at most [`MAX_RECENT`].
     pub recent: Vec<RecentLibrary>,

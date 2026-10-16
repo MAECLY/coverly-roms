@@ -217,7 +217,7 @@ Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelang
 
 | ID | Tarea | Estado | Evidencia |
 |---|---|---|---|
-| M5-01 | Settings tipados + persistencia + migración | ⬜ | |
+| M5-01 | Settings tipados + persistencia + migración | ⬜ | Pendiente: con `library.follow_symlinks` activo, las portadas bajo una carpeta enlazada se escriben a través del enlace (fuera de la raíz). Documentado en la ayuda de Biblioteca (Task 9); falta que el writer rechace destinos cuyo padre canónico salga de la raíz canónica |
 | M5-02 | Pantalla de configuración (todos los grupos de la spec §9) | ⬜ | |
 | M5-03 | Editor de perfiles personalizados | ⬜ | |
 | M5-04 | Credenciales en keychain | ⬜ | |
