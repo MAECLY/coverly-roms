@@ -275,3 +275,106 @@ fn batocera_merges_the_gamelist_without_the_old_warning() {
         "{gamelist}"
     );
 }
+
+const SGDB_FIX: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../coverly-core/tests/fixtures/steamgriddb/"
+);
+
+/// SteamGridDB under `/sgdb` on `server`: search, grids and one CDN image.
+fn serve_sgdb(server: &MockServer) {
+    use coverly_core::sources::steamgriddb::{grids_path, search_path, SgdbConfig};
+    let sg = SgdbConfig {
+        base: server.url("/sgdb"),
+        ..SgdbConfig::default()
+    };
+    let f = |n: &str| fs::read_to_string(format!("{SGDB_FIX}{n}")).unwrap();
+    server.serve_json(
+        &format!("/sgdb{}", search_path("Golden Sun")),
+        &f("search_golden_sun.json"),
+    );
+    server.serve_json(
+        &format!("/sgdb{}", grids_path(5248, &sg)),
+        &f("grids_5248.json"),
+    );
+    server.mock(
+        "/cdn/grid/80211.png",
+        MockResponse::ok(png_bytes(600, 900)).header("Content-Type", "image/png"),
+    );
+}
+
+#[test]
+fn sources_flag_and_env_key_let_popularity_pick_by_votes() {
+    let f = fixture();
+    serve_sgdb(&f.server);
+    let out = fill(&f)
+        .arg("--sources")
+        .arg("libretro,steamgriddb")
+        .arg("--strategy")
+        .arg("popularity")
+        .arg("--steamgriddb-url")
+        .arg(f.server.url("/sgdb"))
+        .arg("--report")
+        .arg("json")
+        .env("COVERLY_SGDB_KEY", "sk-test")
+        .assert()
+        .success()
+        .stdout(contains("\"source\": \"steamgriddb\"").and(contains("\"why\": \"votes\"")))
+        .get_output()
+        .clone();
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!all.contains("sk-test"), "the key is never printed");
+    let auth: Vec<_> = f
+        .server
+        .requests()
+        .into_iter()
+        .filter(|r| r.path.starts_with("/sgdb"))
+        .collect();
+    assert!(!auth.is_empty());
+}
+
+#[test]
+fn without_a_key_the_cli_warns_and_still_uses_libretro() {
+    let f = fixture();
+    serve_sgdb(&f.server);
+    fill(&f)
+        .arg("--sources")
+        .arg("libretro,steamgriddb")
+        .arg("--steamgriddb-url")
+        .arg(f.server.url("/sgdb"))
+        .arg("--apply")
+        .env_remove("COVERLY_SGDB_KEY")
+        .assert()
+        .success()
+        .stderr(contains("warning: steamgriddb: no API key stored; skipped"))
+        .stdout(contains("filled 1"));
+    assert!(f
+        .server
+        .requests()
+        .iter()
+        .all(|r| !r.path.starts_with("/sgdb")));
+}
+
+#[test]
+fn an_unknown_source_is_refused() {
+    let f = fixture();
+    fill(&f)
+        .arg("--sources")
+        .arg("libretro,nope")
+        .assert()
+        .code(2)
+        .stderr(contains("unknown source `nope`"));
+}
+
+#[test]
+fn fill_help_names_the_key_variable() {
+    fill_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(contains("COVERLY_SGDB_KEY").and(contains("--sources")));
+}
