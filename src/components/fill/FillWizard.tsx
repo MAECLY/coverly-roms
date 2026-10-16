@@ -14,6 +14,7 @@ import {
   type Media,
   type OverwritePolicy,
   type RegionPref,
+  type SourceInfo,
   type StrategyKind,
 } from '@/ipc/types';
 import {
@@ -140,6 +141,27 @@ export function FillWizard({
     defaults.overwrite,
   );
   const index = STEPS.indexOf(step);
+  // Asked once, when Popularity is first chosen: are SteamGridDB votes usable?
+  const [sources, setSources] = useState<SourceInfo[] | null>(null);
+  const wantSources = strategy === 'popularity' && sources === null;
+  useEffect(() => {
+    if (!wantSources) return;
+    let alive = true;
+    void getBackend()
+      .then((b) => b.sourcesInfo())
+      .then(
+        (list) => alive && setSources(list),
+        // Unknown readiness reads as "not ready": the hint only informs.
+        () => alive && setSources([]),
+      );
+    return () => {
+      alive = false;
+    };
+  }, [wantSources]);
+  const sgdbVotes =
+    sources?.some((i) => i.id === 'steamgriddb' && i.ready) === true &&
+    (settings?.sources.order.some((e) => e.id === 'steamgriddb' && e.enabled) ??
+      false);
   const regionName = (r: RegionPref) =>
     r === 'rom' ? t('fill.regionRom') : t(`regions.${r}`);
   const counts: Record<FillScope, number> = {
@@ -252,6 +274,9 @@ export function FillWizard({
               </span>
             </label>
           ))}
+          {strategy === 'popularity' && sources !== null && !sgdbVotes && (
+            <p className="hint">{t('fill.popularityNoKey')}</p>
+          )}
         </fieldset>
         <h3 className="section-title" id="fill-regions">
           {t('fill.regions')}

@@ -15,6 +15,7 @@ import type {
 import { useJobStore } from '@/stores/jobStore';
 
 import { CandidateImage } from './CandidateImage';
+import { CandidateMeta } from './CandidateMeta';
 
 export function ReviewQueue({
   view,
@@ -235,16 +236,7 @@ export function ReviewQueue({
                   <span className="truncate" title={c.name}>
                     {c.name}
                   </span>
-                  <span className="hint">
-                    {t('review.meta', {
-                      key: c.index + 1,
-                      source: c.source,
-                      regions:
-                        c.regions.map((r) => t(`regions.${r}`)).join(', ') ||
-                        '—',
-                      score: Math.round(c.confidence * 100),
-                    })}
-                  </span>
+                  <CandidateMeta c={c} position={c.index + 1} />
                 </button>
               ))}
             </div>

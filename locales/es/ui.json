@@ -457,13 +457,14 @@
       "title": "Cómo elegir la imagen",
       "rom-region": "Región de la ROM",
       "priority": "Prioridad de fuentes",
-      "popularity": "Variante más común"
+      "popularity": "Popularidad (votos)"
     },
     "strategyHint": {
       "rom-region": "Prefiere la región de la propia ROM y después el orden de abajo.",
       "priority": "Prefiere la primera fuente y después el orden de abajo.",
-      "popularity": "Prefiere la variante que tiene caja, captura y título; después, la prioridad de fuentes."
+      "popularity": "Prefiere la imagen con más votos en SteamGridDB; sin votos, la variante en la que más fuentes y tipos de arte coinciden; después, la prioridad de fuentes."
     },
+    "popularityNoKey": "SteamGridDB no está listo, así que no se usan votos: añade una clave en Ajustes → Fuentes.",
     "regions": "Orden de regiones",
     "regionRom": "La región de la propia ROM",
     "moveUp": "Subir {region}",
@@ -567,6 +568,8 @@
     "current": "Arte actual",
     "candidates": "Candidatas",
     "meta": "{key}. {source} · {regions} · {score} %",
+    "votes": "{score} votos (▲{up} ▼{down})",
+    "why": "Por qué: {reason}",
     "variantNote": "La mejor imagen es una beta, un prototipo, un hack o una variante sin licencia: revísala antes de escribirla.",
     "undecided": "Sin decidir",
     "accepted": "Se escribirá",
@@ -578,6 +581,19 @@
     "skip": "Omitir",
     "acceptAll": "Aceptar el resto",
     "done": "Hecho"
+  },
+  "reason": {
+    "only": "la única imagen encontrada.",
+    "better-match": "encaja mejor con esta ROM.",
+    "release": "una versión comercial gana a betas, prototipos y hacks.",
+    "votes": "más votos en SteamGridDB ({score}; siguiente {next}).",
+    "consensus": "más fuentes y tipos de arte coinciden ({count}; siguiente {next}).",
+    "source-order": "primera fuente en tu orden ({source}).",
+    "region": "región preferida en tu orden.",
+    "region-rom": "misma región que la ROM.",
+    "language": "idioma preferido.",
+    "tie": "iguales en todo; la primera por nombre.",
+    "user": "elegida por ti."
   },
   "reports": {
     "saved": "Guardado como {name}.",

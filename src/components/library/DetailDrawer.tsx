@@ -1,6 +1,7 @@
 import { useContext, useState } from 'react';
 
 import { CandidateImage } from '@/components/fill/CandidateImage';
+import { CandidateMeta } from '@/components/fill/CandidateMeta';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend, type Backend } from '@/ipc/backend';
@@ -360,15 +361,7 @@ function DrawerActions({
                 <span className="truncate" title={c.name}>
                   {c.name}
                 </span>
-                <span className="hint">
-                  {t('review.meta', {
-                    key: c.index + 1,
-                    source: c.source,
-                    regions:
-                      c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
-                    score: Math.round(c.confidence * 100),
-                  })}
-                </span>
+                <CandidateMeta c={c} position={c.index + 1} />
               </button>
             ))}
           </div>
@@ -445,15 +438,7 @@ function DrawerActions({
                 <span className="truncate" title={c.name}>
                   {c.name}
                 </span>
-                <span className="hint">
-                  {t('review.meta', {
-                    key: c.index + 1,
-                    source: c.source,
-                    regions:
-                      c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
-                    score: Math.round(c.confidence * 100),
-                  })}
-                </span>
+                <CandidateMeta c={c} position={c.index + 1} />
               </button>
             ))}
           </div>

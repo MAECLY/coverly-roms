@@ -107,6 +107,96 @@ describe('Fill wizard', () => {
     ).toBeInTheDocument();
   });
 
+  it('explains popularity and says when SteamGridDB votes cannot be used', async () => {
+    await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    expect(
+      within(dialog).queryByText(/SteamGridDB is not ready/),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    expect(
+      within(dialog).getByText(/most SteamGridDB votes/),
+    ).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(/SteamGridDB is not ready/),
+    ).toBeInTheDocument();
+  });
+
+  it('does not warn about votes once SteamGridDB is enabled with a key', async () => {
+    const { backend } = await setup();
+    await backend.setCredential('steamgriddb-api-key', 'sk');
+    await act(() =>
+      useSettingsStore.getState().update({
+        sources: {
+          order: [
+            { id: 'libretro', enabled: true },
+            { id: 'steamgriddb', enabled: true },
+            { id: 'screenscraper', enabled: false },
+          ],
+        },
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Whole library/ }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
+    );
+    // Give the readiness check time to answer before asserting it stays quiet.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByText(/most SteamGridDB votes/),
+      ).toBeInTheDocument(),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      within(dialog).queryByText(/SteamGridDB is not ready/),
+    ).not.toBeInTheDocument();
+  });
+
+  it('explains popularity in Spanish', async () => {
+    await setup({}, 'es');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Rellenar arte que falta' }),
+    );
+    const dialog = screen.getByRole('dialog', {
+      name: 'Rellenar arte que falta',
+    });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Toda la biblioteca/ }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Siguiente' }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Siguiente' }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /^Popularidad \(votos\)/ }),
+    );
+    expect(
+      await within(dialog).findByText(/SteamGridDB no está listo/),
+    ).toBeInTheDocument();
+  });
+
   it('run_counts_accepted_review_items_but_not_skipped_ones', async () => {
     const { view } = await setup();
     await userEvent.click(

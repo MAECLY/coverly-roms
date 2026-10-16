@@ -125,6 +125,26 @@ describe('Detail drawer', () => {
     expect(backend.revealed).toEqual([entry.id]);
   });
 
+  it('shows the source of each candidate and why the first one is chosen', async () => {
+    const view = await setup();
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const drawer = show(entry);
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Change…' }),
+    );
+    const group = await within(drawer).findByRole('group', {
+      name: 'Candidates',
+    });
+    expect(
+      within(group).getAllByText('libretro-thumbnails').length,
+    ).toBeGreaterThan(0);
+    const [first, second] = within(group).getAllByRole('button');
+    expect(
+      within(first!).getByText('Why: it matches this ROM better.'),
+    ).toBeInTheDocument();
+    expect(within(second!).queryByText(/^Why: /)).not.toBeInTheDocument();
+  });
+
   it('drawer_renders_hostile_name_as_text', async () => {
     const view = await setup();
     const hostile = view.entries.find(

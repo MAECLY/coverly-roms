@@ -457,13 +457,14 @@
       "title": "How to choose the image",
       "rom-region": "ROM region",
       "priority": "Source priority",
-      "popularity": "Most common variant"
+      "popularity": "Popularity (votes)"
     },
     "strategyHint": {
       "rom-region": "Prefers the ROM's own region, then the order below.",
       "priority": "Prefers the first source, then the order below.",
-      "popularity": "Prefers the variant that has box, screenshot and title, then source priority."
+      "popularity": "Prefers the image with the most SteamGridDB votes; without votes, the variant most sources and art types agree on; then source priority."
     },
+    "popularityNoKey": "SteamGridDB is not ready, so votes are not used: add a key in Settings → Sources.",
     "regions": "Region order",
     "regionRom": "The ROM's own region",
     "moveUp": "Move {region} up",
@@ -567,6 +568,8 @@
     "current": "Current art",
     "candidates": "Candidates",
     "meta": "{key}. {source} · {regions} · {score}%",
+    "votes": "{score} votes (▲{up} ▼{down})",
+    "why": "Why: {reason}",
     "variantNote": "The best image is a beta, prototype, hack or unlicensed variant: check it before writing.",
     "undecided": "Not decided",
     "accepted": "Will be written",
@@ -578,6 +581,19 @@
     "skip": "Skip",
     "acceptAll": "Accept all remaining",
     "done": "Done"
+  },
+  "reason": {
+    "only": "the only image found.",
+    "better-match": "it matches this ROM better.",
+    "release": "a release beats betas, prototypes and hacks.",
+    "votes": "most SteamGridDB votes ({score}; next {next}).",
+    "consensus": "most sources and art types agree on it ({count}; next {next}).",
+    "source-order": "first source in your order ({source}).",
+    "region": "preferred region in your order.",
+    "region-rom": "same region as the ROM.",
+    "language": "preferred language.",
+    "tie": "equal in every way; first by name.",
+    "user": "chosen by you."
   },
   "reports": {
     "saved": "Saved as {name}.",
