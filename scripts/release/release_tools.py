@@ -22,15 +22,40 @@ Subcommands:
       writes, which the app's updater (`requireSignedVersion`) and
       `coverly update install` insist on.
 
+  semver-check VERSION
+      Exit 0 when VERSION is SemVer 2.0 (a leading "v" allowed), 2 otherwise.
+
+  updater-artifacts --dir D
+      Print the update artifacts among the bundles in D, one per line: the
+      macOS .app.tar.gz, the Windows NSIS -setup.exe and .msi, the Linux
+      .AppImage. These are the files the finalize job signs for latest.json;
+      the .dmg and .deb are only downloaded by people.
+
+  updater-manifest --dir D --version V --base-url URL --output F
+                   [--changelog CHANGELOG.md] [--pub-date DATE]
+      Write latest.json for the update artifacts in D, each with the
+      signature in D/<file>.sig and the url <URL>/<file>. Platform keys:
+      darwin-aarch64 and darwin-x86_64 -> the universal .app.tar.gz;
+      windows-x86_64 -> the NSIS -setup.exe (the .msi only when there is no
+      NSIS installer, as tauri-action's updaterJsonPreferNsis);
+      linux-x86_64 / linux-aarch64 -> the .AppImage of that architecture;
+      plus a bundle-specific key for each (darwin-aarch64-app,
+      windows-x86_64-msi, windows-x86_64-nsis, linux-x86_64-appimage, ...),
+      which the updater prefers for the bundle a copy was installed from.
+      The notes are CHANGELOG.md's `## [V]` section; pub_date is now (UTC)
+      unless given. Fails (and writes nothing) on a missing .sig, two
+      artifacts for one key or a name without an architecture.
+
   list-artifacts --manifest F
       Print the file name of every update artifact the manifest points at,
       one per line, each once (the last path segment of its url, decoded).
+      Refuses a name that is a path. Kept for recovery: re-signing a
+      manifest written elsewhere.
 
   resign-manifest --manifest F --sigdir D
       Replace every platform's signature with the contents of
-      D/<artifact file name>.sig: tauri-action wrote the manifest with the
-      throwaway key's signatures, the finalize job signs with the real one.
-      Fails (and writes nothing) when a .sig file is missing.
+      D/<artifact file name>.sig. Fails (and writes nothing) when a .sig file
+      is missing. Kept for recovery, like list-artifacts.
 
   add-cli --manifest F --dir D --version V --base-url URL
       Add a `cli-<os>-<arch>` entry for every file
@@ -41,7 +66,10 @@ Subcommands:
   pubkey --file crates/coverly-core/updater.pub
       Print the updater public key committed in the file (its first line that
       is neither blank nor a `#` comment), or fail while it is the
-      placeholder UNSET.
+      placeholder UNSET. A UTF-8 BOM is ignored.
+
+Every failure is one `::error::` line per problem on stderr and exit 1 (a
+GitHub Actions annotation), never a traceback.
 """
 
 from __future__ import annotations
@@ -215,6 +243,135 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
     return errors
 
 
+# Update artifacts the app's updater installs, by file name suffix:
+# (suffix, os, bundle). Every other bundle (.dmg, .deb) is only downloaded
+# by people, so it is uploaded and listed in SHA256SUMS but not in latest.json.
+UPDATER_KINDS = (
+    (".app.tar.gz", "darwin", "app"),
+    ("-setup.exe", "windows", "nsis"),
+    (".msi", "windows", "msi"),
+    (".AppImage", "linux", "appimage"),
+)
+
+# The architecture token Tauri puts in a bundle name, and the manifest
+# architectures it serves. A universal macOS app serves both.
+ARCH_TOKENS = {
+    "universal": ("aarch64", "x86_64"),
+    "aarch64": ("aarch64",),
+    "arm64": ("aarch64",),
+    "x86_64": ("x86_64",),
+    "x64": ("x86_64",),
+    "amd64": ("x86_64",),
+}
+ARCH_RE = re.compile(r"[_.-](universal|aarch64|arm64|x86_64|x64|amd64)(?=[_.-])")
+
+
+def updater_kind(name: str):
+    """(os, bundle) of an update artifact, or None for any other file."""
+    for suffix, os_name, bundle in UPDATER_KINDS:
+        if name.endswith(suffix):
+            return os_name, bundle
+    return None
+
+
+def updater_artifacts(names: list[str]) -> list[str]:
+    """The update artifacts among `names` (no .sig), sorted."""
+    return sorted(n for n in names
+                  if not n.endswith(".sig") and updater_kind(n) is not None)
+
+
+def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
+    """Map manifest platform keys to the update artifact each one installs.
+
+    Every artifact gets its bundle-specific key (`windows-x86_64-msi`,
+    `darwin-aarch64-app`, …), which the updater tries first for the bundle a
+    copy was installed from. The generic `<os>-<arch>` key goes to the only
+    artifact of that platform, except on Windows, where the NSIS installer
+    wins over the MSI (tauri-action's `updaterJsonPreferNsis`). A universal
+    macOS app serves `darwin-aarch64` and `darwin-x86_64`.
+    """
+    errors: list[str] = []
+    specific: dict[str, str] = {}
+    for name in updater_artifacts(names):
+        try:
+            check_file_name(name)
+        except ManifestError as e:
+            errors.append(str(e))
+            continue
+        os_name, bundle = updater_kind(name)
+        tokens = ARCH_RE.findall(name)
+        if not tokens:
+            errors.append(f"{name}: no architecture in the file name")
+            continue
+        for arch in ARCH_TOKENS[tokens[-1]]:
+            key = f"{os_name}-{arch}-{bundle}"
+            if key in specific:
+                errors.append(f"{key}: both {specific[key]} and {name}")
+                continue
+            specific[key] = name
+    platforms: dict[str, str] = {}
+    preference = {"darwin": ("app",), "linux": ("appimage",),
+                  "windows": ("nsis", "msi")}
+    for key in sorted(specific):
+        os_name, arch, _bundle = key.split("-", 2)
+        generic = f"{os_name}-{arch}"
+        if generic in platforms:
+            continue
+        for bundle in preference[os_name]:
+            name = specific.get(f"{generic}-{bundle}")
+            if name:
+                platforms[generic] = name
+                break
+    platforms.update(specific)
+    return platforms, errors
+
+
+def changelog_notes(text: str, version: str) -> str | None:
+    """The body of CHANGELOG.md's `## [version]` section, or None."""
+    lines = text.splitlines()
+    head = re.compile(r"## \[" + re.escape(version.lstrip("v")) + r"\](\s|$)")
+    for i, line in enumerate(lines):
+        if head.match(line):
+            body = []
+            for rest in lines[i + 1:]:
+                if rest.startswith("## ["):
+                    break
+                body.append(rest)
+            return "\n".join(body).strip() or None
+    return None
+
+
+def updater_manifest(directory: str, version: str, base_url: str,
+                     notes: str | None, pub_date: str) -> tuple[dict, list[str]]:
+    """latest.json for the update artifacts in `directory`, each with the
+    signature in `<file>.sig` next to it (written by the finalize job with the
+    real key)."""
+    platforms, errors = updater_platforms(os.listdir(directory))
+    manifest = {"version": version.lstrip("v"), "notes": notes,
+                "pub_date": pub_date, "platforms": {}}
+    if not platforms:
+        errors.append(f"no update artifacts in {directory}")
+    for key, name in sorted(platforms.items()):
+        sig = os.path.join(directory, name + ".sig")
+        if not os.path.isfile(sig):
+            errors.append(f"{key}: {name} has no .sig")
+            continue
+        with open(sig, encoding="utf-8") as f:
+            signature = f.read().strip()
+        if not signature:
+            errors.append(f"{key}: {name}.sig is empty")
+            continue
+        manifest["platforms"][key] = {
+            "url": f"{base_url.rstrip('/')}/{urllib.parse.quote(name)}",
+            "signature": signature,
+        }
+    return manifest, errors
+
+
+def now_utc() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def read_pubkey(path: str) -> str | None:
     # utf-8-sig: a key file saved by an editor that adds a BOM still reads.
     with open(path, encoding="utf-8-sig") as f:
@@ -296,6 +453,20 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("pubkey")
     p.add_argument("--file", required=True)
 
+    p = sub.add_parser("semver-check")
+    p.add_argument("version")
+
+    p = sub.add_parser("updater-artifacts")
+    p.add_argument("--dir", required=True)
+
+    p = sub.add_parser("updater-manifest")
+    p.add_argument("--dir", required=True)
+    p.add_argument("--version", required=True)
+    p.add_argument("--base-url", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--changelog")
+    p.add_argument("--pub-date")
+
     args = parser.parse_args(argv)
     try:
         return run(args)
@@ -305,6 +476,33 @@ def main(argv: list[str]) -> int:
 
 
 def run(args) -> int:
+
+    if args.cmd == "semver-check":
+        try:
+            semver_key(args.version)
+        except ValueError as e:
+            print(f"::error::{e}", file=sys.stderr)
+            return 2
+        return 0
+
+    if args.cmd == "updater-artifacts":
+        for name in updater_artifacts(os.listdir(args.dir)):
+            print(check_file_name(name))
+        return 0
+
+    if args.cmd == "updater-manifest":
+        notes = None
+        if args.changelog:
+            with open(args.changelog, encoding="utf-8-sig") as f:
+                notes = changelog_notes(f.read(), args.version)
+            if notes is None:
+                return report([f"{args.changelog} has no ## [{args.version.lstrip('v')}] section"])
+        manifest, errors = updater_manifest(
+            args.dir, args.version, args.base_url, notes, args.pub_date or now_utc())
+        if errors:
+            return report(errors)
+        write_manifest(args.output, manifest)
+        return 0
 
     if args.cmd == "semver-gt":
         try:
@@ -338,8 +536,7 @@ def run(args) -> int:
             manifest = {
                 "version": args.version.lstrip("v"),
                 "notes": None,
-                "pub_date": datetime.datetime.now(datetime.timezone.utc)
-                .strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pub_date": now_utc(),
                 "platforms": {},
             }
         errors = add_cli(manifest, args.dir, args.version.lstrip("v"), args.base_url)

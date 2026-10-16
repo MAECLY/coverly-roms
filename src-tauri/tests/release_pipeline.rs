@@ -496,6 +496,18 @@ fn release_tools_semver_and_pubkey() {
     assert!(!tool(&["semver-gt", "0.1.5", "0.2.0-beta.3"])
         .status
         .success());
+    assert_eq!(
+        tool(&["semver-check", "v0.2.0-beta.1"]).status.code(),
+        Some(0)
+    );
+    for bad in ["", "0.2", "latest"] {
+        assert_eq!(tool(&["semver-check", bad]).status.code(), Some(2), "{bad}");
+    }
+    assert_eq!(
+        tool(&["semver-gt", "0.2.0", "not-a-version"]).status.code(),
+        Some(2),
+        "release-channels.yml moves the pointer past a broken current manifest"
+    );
     let key_file = repo().join("crates/coverly-core/updater.pub");
     let out = tool(&["pubkey", "--file", key_file.to_str().unwrap()]);
     assert_eq!(
@@ -642,4 +654,269 @@ fn release_tools_read_a_key_file_with_a_bom() {
     );
     std::fs::write(&f, "\u{feff}UNSET\n").unwrap();
     assert_clean_failure(&tool(&["pubkey", "--file", f.to_str().unwrap()]), "UNSET");
+}
+
+/// The bundles the read-only `app` jobs hand to `finalize` (staged names).
+const BUNDLES: [&str; 8] = [
+    "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+    "Coverly.ROMs_0.2.0_universal.dmg",
+    "Coverly.ROMs_0.2.0_x64-setup.exe",
+    "Coverly.ROMs_0.2.0_x64_en-US.msi",
+    "Coverly.ROMs_0.2.0_amd64.AppImage",
+    "Coverly.ROMs_0.2.0_amd64.deb",
+    "Coverly.ROMs_0.2.0_aarch64.AppImage",
+    "Coverly.ROMs_0.2.0_arm64.deb",
+];
+
+fn write_bundles(dir: &Path, names: &[&str]) {
+    for name in names {
+        std::fs::write(dir.join(name), name.as_bytes()).unwrap();
+    }
+}
+
+fn updater_artifacts(dir: &Path) -> Vec<String> {
+    let out = tool(&["updater-artifacts", "--dir", dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+fn updater_manifest(dir: &Path, out_file: &Path, extra: &[&str]) -> std::process::Output {
+    let mut args = vec![
+        "updater-manifest",
+        "--dir",
+        dir.to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--base-url",
+        "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0",
+        "--output",
+        out_file.to_str().unwrap(),
+        "--pub-date",
+        "2026-10-16T00:00:00Z",
+    ];
+    args.extend_from_slice(extra);
+    tool(&args)
+}
+
+#[test]
+fn release_tools_map_the_update_artifacts_to_platform_keys() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let bundles = dir.path().join("bundles");
+    std::fs::create_dir(&bundles).unwrap();
+    write_bundles(&bundles, &BUNDLES);
+    // Only these are signed for latest.json; the .dmg and .deb are not.
+    let artifacts = updater_artifacts(&bundles);
+    assert_eq!(
+        artifacts,
+        [
+            "Coverly.ROMs_0.2.0_aarch64.AppImage",
+            "Coverly.ROMs_0.2.0_amd64.AppImage",
+            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+            "Coverly.ROMs_0.2.0_x64-setup.exe",
+            "Coverly.ROMs_0.2.0_x64_en-US.msi",
+        ]
+    );
+    // finalize signs each with the real key, bound to the version.
+    for name in &artifacts {
+        std::fs::write(
+            bundles.join(format!("{name}.sig")),
+            key.sign(name.as_bytes(), name, Some("0.2.0")),
+        )
+        .unwrap();
+    }
+    let changelog = dir.path().join("CHANGELOG.md");
+    std::fs::write(
+        &changelog,
+        "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-10-16\n\n### Added\n\n- Updates.\n\n## [0.1.0] - 2026-10-01\n\n- First.\n",
+    )
+    .unwrap();
+    let latest = dir.path().join("latest.json");
+    let out = updater_manifest(
+        &bundles,
+        &latest,
+        &["--changelog", changelog.to_str().unwrap()],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: coverly_core::update::Manifest =
+        serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
+    assert_eq!(m.version, "0.2.0");
+    assert_eq!(m.notes.as_deref(), Some("### Added\n\n- Updates."));
+    assert_eq!(m.pub_date.as_deref(), Some("2026-10-16T00:00:00Z"));
+    let file = |k: &str| m.platforms[k].url.rsplit('/').next().unwrap().to_string();
+    for (k, name) in [
+        ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+        ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+        (
+            "darwin-aarch64-app",
+            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+        ),
+        ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+        ("windows-x86_64-nsis", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+        ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
+        ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+        ("linux-aarch64", "Coverly.ROMs_0.2.0_aarch64.AppImage"),
+        ("linux-x86_64-appimage", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+    ] {
+        assert_eq!(file(k), name, "{k}");
+    }
+    assert!(!m
+        .platforms
+        .values()
+        .any(|e| e.url.ends_with(".deb") || e.url.ends_with(".dmg")));
+    // Each entry carries the real signature of its own file.
+    for (k, e) in &m.platforms {
+        let name = file(k);
+        coverly_core::update::verify::verify_signed(
+            name.as_bytes(),
+            &e.signature,
+            &key.public_b64(),
+            "0.2.0",
+        )
+        .unwrap_or_else(|err| panic!("{k}: {err}"));
+    }
+    // The CLI entries are added next to them and all ten keys are checked.
+    let cli = dir.path().join("cli");
+    std::fs::create_dir(&cli).unwrap();
+    for (os, arch) in [
+        ("darwin", "aarch64"),
+        ("darwin", "x86_64"),
+        ("windows", "x86_64"),
+        ("linux", "x86_64"),
+        ("linux", "aarch64"),
+    ] {
+        let ext = if os == "windows" { ".exe" } else { "" };
+        let name = format!("coverly-0.2.0-{os}-{arch}{ext}");
+        std::fs::write(cli.join(&name), &name).unwrap();
+        std::fs::write(
+            cli.join(format!("{name}.sig")),
+            key.sign(name.as_bytes(), &name, Some("0.2.0")),
+        )
+        .unwrap();
+    }
+    assert!(tool(&[
+        "add-cli",
+        "--manifest",
+        latest.to_str().unwrap(),
+        "--dir",
+        cli.to_str().unwrap(),
+        "--version",
+        "0.2.0",
+        "--base-url",
+        "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0",
+    ])
+    .status
+    .success());
+    let wf = read(".github/workflows/release.yml");
+    let mut args = vec![
+        "check-manifest".to_string(),
+        "--manifest".into(),
+        latest.to_str().unwrap().into(),
+        "--version".into(),
+        "0.2.0".into(),
+        "--signed-version".into(),
+        "0.2.0".into(),
+    ];
+    // Exactly the keys finalize requires.
+    for word in job(&wf, "finalize")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(2)
+    {
+        if word[0] == "--require" {
+            args.push("--require".into());
+            args.push(word[1].trim_end_matches('\\').to_string());
+        }
+    }
+    assert_eq!(args.len(), 7 + 20, "finalize requires the ten keys");
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let ok = tool(&args);
+    assert!(
+        ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ok.stderr)
+    );
+}
+
+#[test]
+fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles() {
+    if python().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let latest = dir.path().join("latest.json");
+    let sign_all = |d: &Path| {
+        for name in updater_artifacts(d) {
+            std::fs::write(d.join(format!("{name}.sig")), "c2ln").unwrap();
+        }
+    };
+    // No NSIS installer: windows-x86_64 is the MSI.
+    let msi_only = dir.path().join("msi");
+    std::fs::create_dir(&msi_only).unwrap();
+    write_bundles(&msi_only, &["Coverly.ROMs_0.2.0_x64_en-US.msi"]);
+    sign_all(&msi_only);
+    assert!(updater_manifest(&msi_only, &latest, &[]).status.success());
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
+    assert!(m["platforms"]["windows-x86_64"]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with(".msi"));
+    assert!(m["notes"].is_null());
+    std::fs::remove_file(&latest).unwrap();
+    // A missing .sig, two AppImages for one architecture, a name without an
+    // architecture, or a CHANGELOG without the version: nothing is written.
+    let cases: [(&str, &[&str], bool); 3] = [
+        ("unsigned", &["Coverly.ROMs_0.2.0_amd64.AppImage"], false),
+        (
+            "twice",
+            &[
+                "Coverly.ROMs_0.2.0_amd64.AppImage",
+                "Other_0.2.0_x86_64.AppImage",
+            ],
+            true,
+        ),
+        ("no-arch", &["Coverly.ROMs.app.tar.gz"], true),
+    ];
+    for (name, files, signed) in cases {
+        let d = dir.path().join(name);
+        std::fs::create_dir(&d).unwrap();
+        write_bundles(&d, files);
+        if signed {
+            for f in files {
+                std::fs::write(d.join(format!("{f}.sig")), "c2ln").unwrap();
+            }
+        }
+        assert_clean_failure(&updater_manifest(&d, &latest, &[]), name);
+        assert!(!latest.exists(), "{name}");
+    }
+    let changelog = dir.path().join("CHANGELOG.md");
+    std::fs::write(&changelog, "# Changelog\n\n## [0.1.0]\n- x\n").unwrap();
+    assert_clean_failure(
+        &updater_manifest(
+            &msi_only,
+            &latest,
+            &["--changelog", changelog.to_str().unwrap()],
+        ),
+        "changelog",
+    );
+    assert!(!latest.exists());
+    assert_clean_failure(
+        &updater_manifest(&dir.path().join("empty-missing"), &latest, &[]),
+        "missing dir",
+    );
 }
