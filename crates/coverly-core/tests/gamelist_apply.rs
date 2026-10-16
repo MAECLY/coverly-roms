@@ -381,3 +381,45 @@ fn a_replaced_case_twin_is_named_as_spelled_on_disk() {
         "{merged}"
     );
 }
+
+#[test]
+fn a_local_image_on_batocera_updates_the_gamelist_too() {
+    let lib = tempfile::tempdir().unwrap();
+    let r = lib.path();
+    common::write(r, "roms/snes/Zelda.sfc", "zelda");
+    fs::write(r.join("roms/snes/gamelist.xml"), ORIGINAL).unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let profile = common::profile("batocera");
+    let system_dir = r.join("roms/snes");
+    let rel = std::path::PathBuf::from("Zelda.sfc");
+    let rom = coverly_core::fill::RomRef {
+        system_id: "snes",
+        folder: "snes",
+        system_dir: &system_dir,
+        rel_path: &rel,
+        stem: "Zelda",
+    };
+    let target = system_dir.join("images/Zelda-image.png");
+    let (job, _) = coverly_core::fill::write_local_image(
+        r,
+        &profile,
+        &rom,
+        Media::Cover,
+        &target,
+        &png_bytes(300, 400),
+        data.path(),
+        &coverly_core::fill::ManualOptions::default(),
+    )
+    .unwrap();
+    assert!(job.is_some());
+    let merged = fs::read_to_string(system_dir.join("gamelist.xml")).unwrap();
+    assert!(
+        merged.contains("<thumbnail>./images/Zelda-image.png</thumbnail>"),
+        "{merged}"
+    );
+    undo_last(data.path()).unwrap();
+    assert_eq!(
+        fs::read_to_string(system_dir.join("gamelist.xml")).unwrap(),
+        ORIGINAL
+    );
+}

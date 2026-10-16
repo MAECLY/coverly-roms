@@ -2,14 +2,14 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use coverly_core::art::resolve_art;
 use coverly_core::cache::Cache;
 use coverly_core::fill::{
     remove_art, write_local_image, ArtError, Endpoints, FillEnv, FillSettings, ManualOptions,
-    KEEP_JOBS,
+    RomRef, KEEP_JOBS,
 };
 use coverly_core::image::probe_dimensions;
 use coverly_core::jobs::{ApplyOptions, ItemStatus};
@@ -111,6 +111,17 @@ impl World {
 
     fn img(&self, stem: &str) -> PathBuf {
         self.lib.path().join(format!("ROMS/GBA/Imgs/{stem}.png"))
+    }
+}
+
+/// A ROM for manual writes on a profile without a gamelist.
+fn no_rom() -> RomRef<'static> {
+    RomRef {
+        system_id: "gba",
+        folder: "GBA",
+        system_dir: Path::new(""),
+        rel_path: Path::new(""),
+        stem: "",
     }
 }
 
@@ -230,6 +241,7 @@ fn a_local_image_is_re_encoded_backed_up_and_undoable() {
     let (job, outcome) = write_local_image(
         w.lib.path(),
         &common::profile("anbernic-stock"),
+        &no_rom(),
         Media::Cover,
         &target,
         &png_bytes(800, 800),
@@ -255,6 +267,7 @@ fn a_local_file_that_is_not_an_image_is_refused_before_writing() {
     let r = write_local_image(
         w.lib.path(),
         &common::profile("anbernic-stock"),
+        &no_rom(),
         Media::Cover,
         &target,
         b"<html>not an image</html>",
@@ -267,6 +280,7 @@ fn a_local_file_that_is_not_an_image_is_refused_before_writing() {
         write_local_image(
             w.lib.path(),
             &common::profile("anbernic-stock"),
+            &no_rom(),
             Media::Screenshot,
             &target,
             &png_bytes(10, 10),
@@ -294,6 +308,7 @@ fn real_job(w: &World, target: &std::path::Path) -> String {
     let (job, outcome) = write_local_image(
         w.lib.path(),
         &common::profile("anbernic-stock"),
+        &no_rom(),
         Media::Cover,
         target,
         &png_bytes(100, 100),
@@ -325,6 +340,7 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
         write_local_image(
             w.lib.path(),
             &common::profile("anbernic-stock"),
+            &no_rom(),
             Media::Cover,
             t,
             &png_bytes(100, 100),
@@ -404,6 +420,7 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
     let new = write_local_image(
         w.lib.path(),
         &common::profile("anbernic-stock"),
+        &no_rom(),
         Media::Cover,
         &w.img(RUSH),
         &png_bytes(100, 100),
@@ -414,6 +431,7 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
     let replace = write_local_image(
         w.lib.path(),
         &common::profile("anbernic-stock"),
+        &no_rom(),
         Media::Cover,
         &w.img(SUN),
         &png_bytes(120, 120),
@@ -550,4 +568,144 @@ fn apply_prunes_to_the_undo_depth_and_cleans_appledouble_junk() {
         .unwrap();
     assert_eq!(list_jobs(w.data.path()).unwrap().len(), 2);
     assert!(!w.lib.path().join("ROMS/GBA/Imgs/._junk.png").exists());
+}
+
+#[test]
+fn a_manual_identity_makes_the_plan_use_its_name() {
+    let w = world();
+    let rom = w.lib.path().join(format!("ROMS/GBA/{RUSH}.gba"));
+    coverly_core::identify::overrides::remember_manual(
+        w.data.path(),
+        &rom,
+        "Golden Rush (USA)",
+        "libretro",
+    )
+    .unwrap();
+    let plan = w.plan();
+    let item = &plan.items[at(&plan, RUSH)];
+    assert_eq!(
+        item.identity_method,
+        coverly_core::identify::IdMethod::Manual
+    );
+    assert_eq!(item.canonical.as_deref(), Some("Golden Rush (USA)"));
+    match &item.action {
+        PlanAction::Auto { chosen, .. } => assert_eq!(chosen.name, "Golden Rush (USA)"),
+        other => panic!("expected auto, got {other:?}"),
+    }
+}
+
+#[test]
+fn overrides_can_live_outside_the_job_data_dir() {
+    let w = world();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let rom = w.lib.path().join(format!("ROMS/GBA/{RUSH}.gba"));
+    coverly_core::identify::overrides::remember_manual(
+        elsewhere.path(),
+        &rom,
+        "Golden Rush (USA)",
+        "libretro",
+    )
+    .unwrap();
+    let profile = common::profile("anbernic-stock");
+    let db = SystemDb::builtin();
+    let scan = scan_library(w.lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let plan_with = |overrides_dir: Option<std::path::PathBuf>| {
+        let settings = FillSettings {
+            media: vec![Media::Cover],
+            overrides_dir,
+            ..FillSettings::default()
+        };
+        w.env().plan(
+            w.lib.path(),
+            &profile,
+            &db,
+            &art,
+            &settings,
+            &NoProgress,
+            &AtomicBool::new(false),
+        )
+    };
+    let plan = plan_with(None);
+    assert_ne!(
+        plan.items[at(&plan, RUSH)].identity_method,
+        coverly_core::identify::IdMethod::Manual,
+        "not in the data dir"
+    );
+    let plan = plan_with(Some(elsewhere.path().to_path_buf()));
+    assert_eq!(
+        plan.items[at(&plan, RUSH)].identity_method,
+        coverly_core::identify::IdMethod::Manual
+    );
+}
+
+#[test]
+fn search_by_title_lists_candidates_and_refuses_bad_queries() {
+    let w = world();
+    let db = SystemDb::builtin();
+    let gba = db.get("gba").unwrap();
+    let found = w
+        .env()
+        .search_title(gba, Media::Cover, "  golden sun ", &FillSettings::default())
+        .unwrap();
+    assert!(
+        found.iter().any(|c| c.name == "Golden Sun (USA, Europe)"),
+        "{found:?}"
+    );
+    assert!(found.len() <= coverly_core::fill::SEARCH_LIMIT);
+    let long = "x".repeat(121);
+    for bad in ["", "   ", "a\u{7}b", long.as_str()] {
+        assert!(matches!(
+            w.env()
+                .search_title(gba, Media::Cover, bad, &FillSettings::default()),
+            Err(ArtError::BadQuery)
+        ));
+    }
+}
+
+#[test]
+fn a_manual_pick_writes_to_the_rom_name_and_undo_removes_it() {
+    let w = world();
+    let profile = common::profile("anbernic-stock");
+    let db = SystemDb::builtin();
+    let gba = db.get("gba").unwrap();
+    let found = w
+        .env()
+        .search_title(gba, Media::Cover, "golden sun", &FillSettings::default())
+        .unwrap();
+    let japan = found
+        .iter()
+        .find(|c| c.name == "Golden Sun (Japan)")
+        .expect("listed")
+        .clone();
+    let system_dir = w.lib.path().join("ROMS/GBA");
+    let rel = std::path::PathBuf::from(format!("{RUSH}.gba"));
+    let rom = coverly_core::fill::RomRef {
+        system_id: "gba",
+        folder: "GBA",
+        system_dir: &system_dir,
+        rel_path: &rel,
+        stem: RUSH,
+    };
+    let report = w
+        .env()
+        .apply_candidate(
+            w.lib.path(),
+            &profile,
+            &rom,
+            Media::Cover,
+            &w.img(RUSH),
+            &japan,
+            10,
+        )
+        .unwrap();
+    assert_eq!(report.filled, 1, "{report:?}");
+    assert!(w.img(RUSH).exists(), "written as the ROM's own name");
+    assert!(!w
+        .lib
+        .path()
+        .join("ROMS/GBA/Imgs/Golden Sun (Japan).png")
+        .exists());
+    undo_last(w.data.path()).unwrap();
+    assert!(!w.img(RUSH).exists());
 }

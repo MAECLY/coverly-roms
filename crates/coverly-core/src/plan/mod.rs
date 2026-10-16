@@ -217,6 +217,24 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// A plan of one item (the drawer's manual pick).
+    pub fn single(root: &Path, profile: &Profile, item: PlanItem) -> Plan {
+        let mut plan = Plan {
+            root: root.to_path_buf(),
+            profile_id: profile.id.clone(),
+            created_at: crate::time::rfc3339_utc(std::time::SystemTime::now()),
+            strategy: StrategyKind::Priority,
+            items: vec![item],
+            totals: Counts::default(),
+            per_system: BTreeMap::new(),
+            warnings: Vec::new(),
+            paused: None,
+            pause_kind: None,
+        };
+        plan.recount();
+        plan
+    }
+
     /// A plan with only `indices` (in that order; out-of-range ones are
     /// skipped) and recomputed counts: what a resumed job still has to do.
     pub fn subset(&self, indices: &[usize]) -> Plan {

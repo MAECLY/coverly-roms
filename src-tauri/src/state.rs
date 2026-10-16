@@ -13,7 +13,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::fill::{remove_art, write_local_image, FillSettings, ManualOptions, KEEP_JOBS};
+use coverly_core::fill::{
+    remove_art, write_local_image, FillSettings, ManualOptions, RomRef, KEEP_JOBS,
+};
 use coverly_core::gather::Scope;
 use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
 use coverly_core::plan::{Decision, Plan};
@@ -377,9 +379,24 @@ impl AppState {
         let (_writing, session) = self.writable_entry(generation, id)?;
         let target = art_target(&session, id, media)?;
         let bytes = read_capped(file)?;
+        let entry = &session.entries[id as usize];
+        let sys = &session.systems[entry.system as usize];
+        let rel_path = entry
+            .rom
+            .path
+            .strip_prefix(&sys.dir)
+            .unwrap_or(&entry.rom.path);
+        let rom = RomRef {
+            system_id: &entry.system_id,
+            folder: &sys.folder,
+            system_dir: &sys.dir,
+            rel_path,
+            stem: &entry.rom.stem,
+        };
         write_local_image(
             &absolute_root(&session)?,
             &session.profile,
+            &rom,
             media,
             &target,
             &bytes,

@@ -78,7 +78,7 @@ impl From<coverly_core::fill::ArtError> for IpcError {
     fn from(e: coverly_core::fill::ArtError) -> Self {
         use coverly_core::fill::ArtError as A;
         match e {
-            A::NoSlot | A::UnknownSource(_) => IpcError::BadRequest(e.to_string()),
+            A::NoSlot | A::UnknownSource(_) | A::BadQuery => IpcError::BadRequest(e.to_string()),
             A::Source(m) | A::Paused(m) => IpcError::Network(m),
             A::Image(i) => IpcError::BadImage(i.to_string()),
             A::Write(w) => w.into(),
@@ -101,6 +101,10 @@ mod tests {
         assert!(matches!(
             IpcError::from(WriteError::Denied("/sd/x.png".into())),
             IpcError::WriteDenied(_)
+        ));
+        assert!(matches!(
+            IpcError::from(coverly_core::fill::ArtError::BadQuery),
+            IpcError::BadRequest(_)
         ));
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));
