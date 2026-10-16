@@ -25,9 +25,16 @@ pub struct SourceInfoView {
 
 impl AppState {
     /// Every known source, whether this build has it and whether the
-    /// credentials it needs are stored (presence only, never values).
+    /// credentials it needs are stored and usable: the same keys a fill
+    /// and "Test key" send (presence only, never values).
     pub fn sources_info(&self) -> Vec<SourceInfoView> {
-        let status = self.credential_status();
+        let keys = self.source_keys();
+        let usable = |k: &CredentialKey| match k {
+            CredentialKey::SteamgriddbApiKey => keys.steamgriddb.is_some(),
+            CredentialKey::ScreenscraperUser | CredentialKey::ScreenscraperPassword => {
+                keys.screenscraper_user.is_some()
+            }
+        };
         KNOWN_SOURCES
             .iter()
             .map(|&id| {
@@ -36,10 +43,7 @@ impl AppState {
                     "screenscraper" => (DevCredentials::from_build().is_some(), vec![]),
                     _ => (true, vec![]),
                 };
-                let ready = built
-                    && needs
-                        .iter()
-                        .all(|k| status.set.get(k).copied().unwrap_or(false));
+                let ready = built && needs.iter().all(usable);
                 SourceInfoView {
                     id: id.to_string(),
                     built,

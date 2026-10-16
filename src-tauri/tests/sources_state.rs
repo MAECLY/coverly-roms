@@ -30,7 +30,7 @@ fn sources_info_tells_what_this_build_has_and_what_is_ready() {
     assert!(get("libretro").built && get("libretro").ready);
     assert!(get("steamgriddb").built && !get("steamgriddb").ready);
     assert_eq!(get("steamgriddb").needs, [CredentialKey::SteamgriddbApiKey]);
-    store.set(CredentialKey::SteamgriddbApiKey, "sk").unwrap();
+    st.set_credential("steamgriddb-api-key", "sk").unwrap();
     assert!(
         st.sources_info()
             .iter()
@@ -58,8 +58,7 @@ fn test_source_key_never_returns_the_key() {
         st.test_source_key("steamgriddb").unwrap(),
         KeyCheck::Missing
     );
-    store
-        .set(CredentialKey::SteamgriddbApiKey, "sk-SECRET")
+    st.set_credential("steamgriddb-api-key", "sk-SECRET")
         .unwrap();
     server.serve_json(
         &format!("/sgdb{}", search_path("mario")),
@@ -111,4 +110,68 @@ fn a_job_snapshots_the_keys_it_started_with() {
     store.clear(CredentialKey::SteamgriddbApiKey).unwrap();
     assert!(cfg.keys.steamgriddb.is_some());
     assert!(!format!("{cfg:?}").contains("\"sk\""));
+}
+
+fn sgdb_ready(st: &AppState) -> bool {
+    st.sources_info()
+        .into_iter()
+        .find(|i| i.id == "steamgriddb")
+        .unwrap()
+        .ready
+}
+
+#[test]
+fn a_stored_value_the_fill_would_not_send_is_not_ready() {
+    let server = MockServer::start();
+    for bad in ["   ".to_string(), "k".repeat(600), "a\u{7}b".to_string()] {
+        let store = Arc::new(MemoryStore::default());
+        store.set(CredentialKey::SteamgriddbApiKey, &bad).unwrap();
+        let (st, _d) = state(&server, store);
+        assert!(!sgdb_ready(&st));
+        assert!(st.fill_config().keys.steamgriddb.is_none());
+        assert_eq!(
+            st.test_source_key("steamgriddb").unwrap(),
+            KeyCheck::Missing
+        );
+    }
+    assert!(server.requests().is_empty());
+}
+
+#[test]
+fn the_keychain_is_read_once_until_a_credential_changes() {
+    let server = MockServer::start();
+    let store = Arc::new(MemoryStore::default());
+    let (st, _d) = state(&server, store.clone());
+    let per_read = CredentialKey::ALL.len();
+    // Thumbnails, history and the sources list all take the same snapshot.
+    for _ in 0..20 {
+        let _ = st.fill_config();
+    }
+    let _ = st.sources_info();
+    assert_eq!(store.reads(), per_read);
+    st.set_credential("steamgriddb-api-key", "sk").unwrap();
+    let after_save = store.reads();
+    assert!(st.fill_config().keys.steamgriddb.is_some());
+    assert!(sgdb_ready(&st));
+    let _ = st.fill_config();
+    assert_eq!(store.reads(), after_save + per_read);
+    st.clear_credential("steamgriddb-api-key").unwrap();
+    assert!(st.fill_config().keys.steamgriddb.is_none());
+    assert!(!sgdb_ready(&st));
+}
+
+#[test]
+fn a_failing_keychain_read_is_not_remembered() {
+    let server = MockServer::start();
+    let store = Arc::new(MemoryStore::unavailable());
+    let (st, _d) = state(&server, store.clone());
+    let _ = st.fill_config();
+    let first = store.reads();
+    assert!(first > 0);
+    let _ = st.fill_config();
+    assert_eq!(
+        store.reads(),
+        2 * first,
+        "asked again: it may be unlocked now"
+    );
 }

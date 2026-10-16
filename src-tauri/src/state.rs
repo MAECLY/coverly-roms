@@ -64,6 +64,17 @@ pub struct AppState {
     picks: Mutex<Option<EntryPick>>,
     searches: Mutex<Option<EntrySearch>>,
     credentials: Arc<dyn CredentialStore>,
+    /// The source keys last read from `credentials`, so drawing thumbnails
+    /// or listing history never goes back to the keychain.
+    keys: Mutex<KeyCache>,
+}
+
+/// A snapshot of the stored keys, dropped when a credential is saved or
+/// removed. `generation` keeps a read that raced a save from being kept.
+#[derive(Default)]
+struct KeyCache {
+    generation: u64,
+    keys: Option<SourceKeys>,
 }
 
 /// The settings in use and what loading them had to do.
@@ -227,13 +238,40 @@ impl AppState {
             picks: Mutex::new(None),
             searches: Mutex::new(None),
             credentials: Arc::new(MemoryStore::default()),
+            keys: Mutex::new(KeyCache::default()),
         }
     }
 
     /// Uses `store` for source credentials (the OS keychain in the app).
     pub fn with_credentials(mut self, store: Arc<dyn CredentialStore>) -> AppState {
         self.credentials = store;
+        self.forget_keys();
         self
+    }
+
+    /// The usable source keys (what a fill sends, and what makes a source
+    /// ready): read from the store once, then remembered until a
+    /// credential is saved or removed. A failing read is not remembered.
+    pub fn source_keys(&self) -> SourceKeys {
+        let generation = {
+            let cache = lock(&self.keys);
+            if let Some(k) = &cache.keys {
+                return k.clone();
+            }
+            cache.generation
+        };
+        let (keys, complete) = SourceKeys::read_store(self.credentials.as_ref());
+        let mut cache = lock(&self.keys);
+        if complete && cache.generation == generation {
+            cache.keys = Some(keys.clone());
+        }
+        keys
+    }
+
+    fn forget_keys(&self) {
+        let mut cache = lock(&self.keys);
+        cache.generation += 1;
+        cache.keys = None;
     }
 
     /// Where source credentials are kept.
@@ -341,7 +379,7 @@ impl AppState {
             },
             overrides_dir: self.base.overrides_dir.clone(),
             settings: s,
-            keys: SourceKeys::from_store(self.credentials.as_ref()),
+            keys: self.source_keys(),
         })
     }
 
@@ -966,7 +1004,9 @@ impl AppState {
     /// Stores a credential (an empty value clears it); only the status comes back.
     pub fn set_credential(&self, key: &str, value: &str) -> Result<CredentialStatus, IpcError> {
         let key = credential_key(key)?;
-        store_secret(self.credentials.as_ref(), key, value)?;
+        let stored = store_secret(self.credentials.as_ref(), key, value);
+        self.forget_keys();
+        stored?;
         log::info!("credential set: {}", key.account());
         Ok(self.credential_status())
     }
@@ -976,7 +1016,9 @@ impl AppState {
         if !self.credentials.available() {
             return Err(IpcError::KeychainUnavailable);
         }
-        self.credentials.clear(key)?;
+        let cleared = self.credentials.clear(key);
+        self.forget_keys();
+        cleared?;
         log::info!("credential cleared: {}", key.account());
         Ok(self.credential_status())
     }
