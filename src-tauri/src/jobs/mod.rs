@@ -72,7 +72,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Runs `f` with a fill environment on `cfg`: its own cache connection
-/// and HTTP client.
+/// and HTTP client. Each call has its own per-host politeness and 429
+/// backoff state, so a candidate preview taken while a job applies does not
+/// wait behind that job's rate limit. Accepted: previews are single
+/// requests the user asks for one at a time, served from the art cache
+/// once fetched; a 429 on one only fails that preview.
 pub fn with_env<T>(
     cfg: &FillConfig,
     f: impl FnOnce(&FillEnv<'_>) -> Result<T, IpcError>,
