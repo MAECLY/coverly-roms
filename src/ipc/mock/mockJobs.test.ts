@@ -173,6 +173,31 @@ describe('mock fill jobs', () => {
     });
   });
 
+  it('refuses decisions the real backend refuses, recording none of them', async () => {
+    const { b, view } = await opened();
+    const v = await planned(b, view.generation);
+    const review = (await b.fillJobItems(v.id, 'review'))[0]!;
+    const none = (await b.fillJobItems(v.id, 'none'))[0]!;
+    const last = review.candidates.length;
+    await expect(
+      b.decideFill(v.id, [
+        { index: review.index, choice: 'accept' },
+        { index: review.index, choice: 'pick', candidate: last },
+      ]),
+    ).rejects.toMatchObject({ code: 'bad-request' });
+    await expect(
+      b.decideFill(v.id, [{ index: none.index, choice: 'accept' }]),
+    ).rejects.toMatchObject({ code: 'bad-request' });
+    await expect(
+      b.decideFill(v.id, [{ index: none.index, choice: 'skip' }]),
+    ).rejects.toMatchObject({ code: 'bad-request' });
+    expect((await b.fillJob())?.decided).toBe(0);
+    const ok = await b.decideFill(v.id, [
+      { index: review.index, choice: 'pick', candidate: last - 1 },
+    ]);
+    expect(ok.decided).toBe(1);
+  });
+
   it('changes, sets from file and removes art from the drawer', async () => {
     const { b, view } = await opened();
     const e = view.entries.find((x) => x.art.cover === 'missing')!;

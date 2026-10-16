@@ -532,8 +532,24 @@ export function createMockJobs(
           'decisions are taken before the job runs',
         );
       }
-      const bad = decisions.find((d) => !j.items[d.index]);
-      if (bad) throw new BackendError('bad-request', `no item ${bad.index}`);
+      // Like Rust: validate every decision before recording any.
+      for (const d of decisions) {
+        const item = j.items[d.index];
+        if (!item) throw new BackendError('bad-request', `no item ${d.index}`);
+        const count = item.candidates.length;
+        if (count === 0) {
+          throw new BackendError(
+            'bad-request',
+            `item ${d.index} has nothing to decide`,
+          );
+        }
+        if (d.choice === 'pick' && d.candidate >= count) {
+          throw new BackendError(
+            'bad-request',
+            `no candidate ${d.candidate} for item ${d.index}`,
+          );
+        }
+      }
       for (const d of decisions) {
         const { index, ...decision } = d;
         j.items[index]!.decision = decision as Decision;
