@@ -107,6 +107,31 @@ pub async fn read_art(
     .await
 }
 
+/// Identifies one entry (hash → DAT, else name); never fails for lack of network.
+#[tauri::command]
+pub async fn identify_entry(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<crate::library::identify::IdentityView, IpcError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let session = state.session(generation)?;
+        let cache = state.cache()?;
+        let net = coverly_core::net::NetConfig::default();
+        let http = coverly_core::net::PoliteHttp::new(coverly_core::net::UreqHttp::new(&net), &net);
+        crate::library::identify::identify_entry(
+            &session,
+            entry_id,
+            &SystemDb::builtin(),
+            &cache,
+            &http,
+            coverly_core::identify::dat::DATABASE_BASE,
+        )
+    })
+    .await
+}
+
 /// Shows the entry's file in Finder / Explorer / the file manager.
 #[tauri::command]
 pub fn reveal_entry(

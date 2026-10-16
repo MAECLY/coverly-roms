@@ -2,6 +2,7 @@
 //! and keeping, per entry, the paths only the backend may touch.
 
 pub mod art;
+pub mod identify;
 pub mod view;
 
 use std::collections::BTreeMap;

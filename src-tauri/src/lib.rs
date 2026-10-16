@@ -34,6 +34,7 @@ pub fn run() {
             ipc::library_settings,
             ipc::set_library_settings,
             ipc::read_art,
+            ipc::identify_entry,
             ipc::reveal_entry,
         ])
         .run(tauri::generate_context!())
