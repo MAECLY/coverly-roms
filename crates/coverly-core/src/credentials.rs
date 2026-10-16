@@ -3,6 +3,7 @@
 //! whether a key is set.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -102,6 +103,8 @@ pub fn status(store: &dyn CredentialStore) -> CredentialStatus {
 pub struct MemoryStore {
     values: Mutex<BTreeMap<CredentialKey, String>>,
     unavailable: bool,
+    /// How many times a value was asked for (tests count keychain trips).
+    reads: AtomicUsize,
 }
 
 impl MemoryStore {
@@ -111,6 +114,11 @@ impl MemoryStore {
             unavailable: true,
             ..MemoryStore::default()
         }
+    }
+
+    /// How many `get` calls this store answered (or refused).
+    pub fn reads(&self) -> usize {
+        self.reads.load(Ordering::Relaxed)
     }
 
     fn values(
@@ -145,6 +153,7 @@ impl CredentialStore for MemoryStore {
         !self.unavailable
     }
     fn get(&self, key: CredentialKey) -> Result<Option<String>, CredentialError> {
+        self.reads.fetch_add(1, Ordering::Relaxed);
         Ok(self.values()?.get(&key).cloned())
     }
     fn set(&self, key: CredentialKey, value: &str) -> Result<(), CredentialError> {
@@ -240,12 +249,24 @@ fn usable(v: Option<String>) -> Option<Secret> {
 impl SourceKeys {
     /// The keys in `store`; a store that fails counts as empty.
     pub fn from_store(store: &dyn CredentialStore) -> SourceKeys {
-        let get = |k| usable(store.get(k).ok().flatten());
-        SourceKeys::assemble(
-            get(CredentialKey::SteamgriddbApiKey),
-            get(CredentialKey::ScreenscraperUser),
-            get(CredentialKey::ScreenscraperPassword),
-        )
+        SourceKeys::read_store(store).0
+    }
+
+    /// [`Self::from_store`] and whether every read succeeded (a locked or
+    /// failing store gives empty keys that are not worth remembering).
+    pub fn read_store(store: &dyn CredentialStore) -> (SourceKeys, bool) {
+        let mut complete = true;
+        let mut get = |k| match store.get(k) {
+            Ok(v) => usable(v),
+            Err(_) => {
+                complete = false;
+                None
+            }
+        };
+        let sgdb = get(CredentialKey::SteamgriddbApiKey);
+        let user = get(CredentialKey::ScreenscraperUser);
+        let password = get(CredentialKey::ScreenscraperPassword);
+        (SourceKeys::assemble(sgdb, user, password), complete)
     }
 
     /// The keys in the environment (`lookup` is `std::env::var` in the CLI).
