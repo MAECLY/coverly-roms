@@ -5261,14 +5261,14 @@ Never write under `/Volumes`. All outputs go to the scratchpad. `SC=/private/tmp
 
 ```bash
 cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && SC=/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad && \
-test -d /Volumes/System/ROMS && rm -rf "$SC/sd-copy" "$SC/e2e" && mkdir -p "$SC/sd-copy/anbernic" "$SC/sd-copy/ROMS/GBA/Imgs" "$SC/sd-copy/ROMS/FC/Imgs" "$SC/e2e" && \
-find /Volumes/System/ROMS/GBA -maxdepth 1 -type f ! -name '._*' | sort | head -40 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/GBA/" || exit 1; done && \
-find /Volumes/System/ROMS/FC -maxdepth 1 -type f ! -name '._*' | sort | head -150 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/FC/" || exit 1; done && \
-for s in GBA FC; do find "/Volumes/System/ROMS/$s/Imgs" -maxdepth 1 -type f ! -name '._*' | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/$s/Imgs/" || exit 1; done; done && \
+test -d /Users/miguelangelesparzacalero/Documents/ROMS && rm -rf "$SC/sd-copy" "$SC/e2e" && mkdir -p "$SC/sd-copy/anbernic" "$SC/sd-copy/ROMS/GBA/Imgs" "$SC/sd-copy/ROMS/FC/Imgs" "$SC/e2e" && \
+find /Users/miguelangelesparzacalero/Documents/ROMS/GBA -maxdepth 1 -type f ! -name '._*' | sort | head -40 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/GBA/" || exit 1; done && \
+find /Users/miguelangelesparzacalero/Documents/ROMS/FC -maxdepth 1 -type f ! -name '._*' | sort | head -150 | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/FC/" || exit 1; done && \
+for s in GBA FC; do find "/Users/miguelangelesparzacalero/Documents/ROMS/$s/Imgs" -maxdepth 1 -type f ! -name '._*' | while IFS= read -r f; do cp -X "$f" "$SC/sd-copy/ROMS/$s/Imgs/" || exit 1; done; done && \
 du -sh "$SC/sd-copy" && find "$SC/sd-copy" -type f | wc -l
 ```
 
-(`cp -X` = no extended attributes. Only `cp` reads from `/Volumes`; nothing is written there. If the SD is not mounted, stop and report.)
+(`cp -X` = no extended attributes. The source is the user's full local copy of the SD ROMS folder at `/Users/miguelangelesparzacalero/Documents/ROMS` (the SD may be ejected); treat it as read-only exactly like the SD: only `cp` reads from it, nothing is written there. If it is missing, stop and report.)
 
 - [ ] **Step 2: Baseline audit and snapshot**
 
@@ -5353,10 +5353,10 @@ $B undo --data-dir "$SC/e2e/data" && \
 
 (This second run downloads nothing it already has: images come from the art store.)
 
-- [ ] **Step 7: Confirm the SD was not touched**
+- [ ] **Step 7: Confirm the source ROM copy was not touched**
 
 ```bash
-cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && find /Volumes/System/ROMS/GBA /Volumes/System/ROMS/FC -newer "/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad/e2e/snapshot-before.txt" | wc -l
+cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && find /Users/miguelangelesparzacalero/Documents/ROMS/GBA /Users/miguelangelesparzacalero/Documents/ROMS/FC -newer "/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad/e2e/snapshot-before.txt" | wc -l
 ```
 
 Expected: `0`.
