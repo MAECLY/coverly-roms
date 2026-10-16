@@ -10,6 +10,8 @@ export const ART_CACHE_SIZE = 400;
 
 const urls = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
+/** Bumped by clearArtCache so loads started before a clear never land. */
+let epoch = 0;
 
 export function artKey(generation: number, id: number, media: Media): string {
   return `${generation}:${id}:${media}`;
@@ -44,21 +46,29 @@ export function loadArtUrl(
   if (hit) return Promise.resolve(hit);
   const pending = inflight.get(key);
   if (pending) return pending;
+  const started = epoch;
   const request = (async () => {
     const backend = await getBackend();
     const image = await backend.readArt(generation, id, media);
     const url = URL.createObjectURL(
       new Blob([image.bytes], { type: image.mime }),
     );
+    if (started !== epoch) {
+      URL.revokeObjectURL(url);
+      throw new Error('art cache cleared while loading');
+    }
     urls.set(key, url);
     evict();
     return url;
-  })().finally(() => inflight.delete(key));
+  })().finally(() => {
+    if (inflight.get(key) === request) inflight.delete(key);
+  });
   inflight.set(key, request);
   return request;
 }
 
 export function clearArtCache(): void {
+  epoch += 1;
   for (const url of urls.values()) URL.revokeObjectURL(url);
   urls.clear();
   inflight.clear();

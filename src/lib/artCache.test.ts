@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setBackend } from '@/ipc/backend';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
+import type { ArtImage } from '@/ipc/types';
 
 import {
   ART_CACHE_SIZE,
@@ -54,5 +55,29 @@ describe('art cache', () => {
     await expect(loadArtUrl(1, 0, 'cover')).rejects.toThrow('nope');
     await expect(loadArtUrl(1, 0, 'cover')).rejects.toThrow('nope');
     expect(readArt).toHaveBeenCalledTimes(2);
+  });
+
+  it('revokes instead of caching a load that resolves after a clear', async () => {
+    let release: () => void = () => undefined;
+    const readArt = vi.fn(
+      () =>
+        new Promise<ArtImage>((resolve) => {
+          release = () =>
+            resolve({ bytes: new Uint8Array([1]), mime: 'image/png' });
+        }),
+    );
+    setBackend({ ...createMockBackend({ delayMs: 0 }), readArt });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stale');
+    const revoke = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation(() => undefined);
+
+    const pending = loadArtUrl(1, 0, 'cover');
+    await vi.waitFor(() => expect(readArt).toHaveBeenCalled());
+    clearArtCache();
+    release();
+    await pending.catch(() => undefined);
+    expect(peekArtUrl(artKey(1, 0, 'cover'))).toBeNull();
+    expect(revoke).toHaveBeenCalledWith('blob:stale');
   });
 });
