@@ -1,20 +1,28 @@
 import { useContext, useState } from 'react';
 
+import { CandidateImage } from '@/components/fill/CandidateImage';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
-import { getBackend } from '@/ipc/backend';
+import { getBackend, type Backend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
-import { MEDIA, type EntryView, type LibraryView } from '@/ipc/types';
+import {
+  MEDIA,
+  type CandidateView,
+  type EntryArtUpdate,
+  type EntryView,
+  type LibraryView,
+  type Media,
+} from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
 import {
   identityKey,
   useIdentityStore,
   type IdentityState,
 } from '@/stores/identityStore';
+import { isRunning, useJobStore } from '@/stores/jobStore';
+import { useLibraryStore } from '@/stores/libraryStore';
 
 import { ArtThumb } from './ArtThumb';
-
-const LATER_ACTIONS = ['change', 'search', 'fromFile', 'remove'] as const;
 
 function revealLabel(): string {
   const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
@@ -56,6 +64,216 @@ function IdentityBlock({ state }: { state: IdentityState | undefined }) {
         </dd>
       </dl>
       {identity.offline && <p className="hint">{t('drawer.offline')}</p>}
+    </>
+  );
+}
+
+function DrawerActions({
+  view,
+  entry,
+}: {
+  view: LibraryView;
+  entry: EntryView;
+}) {
+  const t = useT();
+  const job = useJobStore((s) => s.job);
+  const applyArtUpdates = useLibraryStore((s) => s.applyArtUpdates);
+  const writable = view.profile.media;
+  const [media, setMedia] = useState<Media>(writable[0] ?? 'cover');
+  const [candidates, setCandidates] = useState<CandidateView[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [updated, setUpdated] = useState(false);
+  const [error, setError] = useState<BackendError | null>(null);
+  const busy = isRunning(job);
+
+  async function attempt(
+    f: (b: Backend) => Promise<EntryArtUpdate[] | null>,
+  ): Promise<boolean> {
+    setError(null);
+    setUpdated(false);
+    try {
+      const b = await getBackend();
+      const updates = await f(b);
+      if (!updates) return false;
+      applyArtUpdates(view.generation, updates);
+      setUpdated(true);
+      return true;
+    } catch (e) {
+      setError(toBackendError(e));
+      return false;
+    }
+  }
+
+  async function listCandidates() {
+    setError(null);
+    setUpdated(false);
+    setLoading(true);
+    setCandidates(null);
+    try {
+      const b = await getBackend();
+      setCandidates(await b.entryCandidates(view.generation, entry.id, media));
+    } catch (e) {
+      setError(toBackendError(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function choose(candidate: number) {
+    if (
+      await attempt((b) =>
+        b.setEntryArt(view.generation, entry.id, media, candidate),
+      )
+    ) {
+      setCandidates(null);
+    }
+  }
+
+  async function remove() {
+    setConfirmRemove(false);
+    await attempt((b) => b.removeEntryArt(view.generation, entry.id, media));
+  }
+
+  return (
+    <>
+      {writable.length > 1 && (
+        <label className="field-label">
+          {t('drawer.mediaLabel')}{' '}
+          <select
+            name="drawer-media"
+            className="select"
+            value={media}
+            onChange={(e) => {
+              setMedia(e.target.value as Media);
+              setCandidates(null);
+              setConfirmRemove(false);
+            }}
+          >
+            {writable.map((m) => (
+              <option key={m} value={m}>
+                {t(`art.media.${m}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="drawer-actions">
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={busy || loading}
+          onClick={() => void listCandidates()}
+        >
+          {t('drawer.change')}
+        </button>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled
+          aria-describedby="drawer-search-later"
+        >
+          {t('drawer.search')}
+        </button>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={busy}
+          onClick={() =>
+            void attempt((b) =>
+              b.setEntryArtFromFile(view.generation, entry.id, media),
+            )
+          }
+        >
+          {t('drawer.fromFile')}
+        </button>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={busy || entry.art[media] !== 'present'}
+          onClick={() => setConfirmRemove(true)}
+        >
+          {t('drawer.remove')}
+        </button>
+      </div>
+      <p id="drawer-search-later" className="hint">
+        {t('drawer.searchLater')}
+      </p>
+      {busy && <p className="hint">{t('drawer.busy')}</p>}
+      {confirmRemove && (
+        <div className="undo-confirm">
+          <p>{t('drawer.removeConfirm')}</p>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setConfirmRemove(false)}
+            >
+              {t('drawer.removeNo')}
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void remove()}
+            >
+              {t('drawer.removeYes')}
+            </button>
+          </div>
+        </div>
+      )}
+      {loading && <p role="status">{t('drawer.loadingCandidates')}</p>}
+      {candidates &&
+        (candidates.length === 0 ? (
+          <p>{t('drawer.noCandidates')}</p>
+        ) : (
+          <div
+            role="group"
+            aria-label={t('drawer.candidates')}
+            className="candidate-grid drawer-candidates"
+          >
+            {candidates.map((c) => (
+              <button
+                key={c.index}
+                type="button"
+                className="candidate"
+                onClick={() => void choose(c.index)}
+              >
+                <CandidateImage
+                  source={{
+                    kind: 'entry',
+                    generation: view.generation,
+                    entryId: entry.id,
+                    media,
+                    candidate: c.index,
+                  }}
+                  label={c.name}
+                />
+                <span className="truncate" title={c.name}>
+                  {c.name}
+                </span>
+                <span className="hint">
+                  {t('review.meta', {
+                    key: c.index + 1,
+                    source: c.source,
+                    regions:
+                      c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
+                    score: Math.round(c.confidence * 100),
+                  })}
+                </span>
+              </button>
+            ))}
+          </div>
+        ))}
+      {updated && (
+        <p role="status" className="hint">
+          {t('drawer.updated')}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="error-banner">
+          {t(errorKey(error.code), { detail: error.detail ?? '' })}
+        </p>
+      )}
     </>
   );
 }
@@ -153,18 +371,8 @@ export function DetailDrawer({
       </section>
       <section className="drawer-section">
         <h3 className="section-title">{t('drawer.actions')}</h3>
+        <DrawerActions key={entry.id} view={view} entry={entry} />
         <div className="drawer-actions">
-          {LATER_ACTIONS.map((a) => (
-            <button
-              key={a}
-              type="button"
-              className="ghost-button"
-              disabled
-              aria-describedby="drawer-later"
-            >
-              {t(`drawer.${a}`)}
-            </button>
-          ))}
           <button
             type="button"
             className="ghost-button"
@@ -173,9 +381,6 @@ export function DetailDrawer({
             {t(revealLabel())}
           </button>
         </div>
-        <p id="drawer-later" className="hint">
-          {t('drawer.laterHint')}
-        </p>
         {revealError && (
           <p role="alert" className="error-banner">
             {t(errorKey(revealError.code), {

@@ -17,6 +17,7 @@ import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
+import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { useT } from '@/i18n/useT';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
@@ -157,6 +158,7 @@ export function LibraryScreen() {
         onSettings={() => setSettingsOpen(true)}
         onFill={() => setOverlay('wizard')}
         onJobs={() => setOverlay('jobs')}
+        onReports={() => setOverlay('reports')}
       />
       <div className="library-body">
         <Sidebar key={view.generation} view={view} now={now} />
@@ -185,6 +187,9 @@ export function LibraryScreen() {
         <ReviewQueue view={view} onClose={() => setOverlay('wizard')} />
       )}
       {overlay === 'jobs' && <JobsPanel view={view} onClose={closeOverlay} />}
+      {overlay === 'reports' && (
+        <ReportsPanel view={view} onClose={closeOverlay} />
+      )}
       {settingsOpen && <LibrarySettingsDialog onClose={closeSettings} />}
     </div>
   );

@@ -15,12 +15,14 @@ export function Toolbar({
   onSettings,
   onFill,
   onJobs,
+  onReports,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
   onSettings(): void;
   onFill(): void;
   onJobs(): void;
+  onReports(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -90,6 +92,9 @@ export function Toolbar({
           : job?.state === 'paused'
             ? t('toolbar.jobsPaused')
             : t('toolbar.jobs')}
+      </button>
+      <button type="button" className="ghost-button" onClick={onReports}>
+        {t('toolbar.reports')}
       </button>
       <button type="button" className="ghost-button" onClick={onSettings}>
         {t('start.settings')}

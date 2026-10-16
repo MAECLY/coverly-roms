@@ -131,7 +131,8 @@
     "fill": "Rellenar arte que falta",
     "jobs": "Trabajos",
     "jobsRunning": "Trabajos (en curso)",
-    "jobsPaused": "Trabajos (en pausa)"
+    "jobsPaused": "Trabajos (en pausa)",
+    "reports": "Informes"
   },
   "filters": {
     "art": "Arte",
@@ -206,10 +207,19 @@
     "search": "Buscar…",
     "fromFile": "Desde archivo…",
     "remove": "Quitar",
-    "laterHint": "Cambiar el arte llegará en una versión posterior.",
     "revealMac": "Mostrar en Finder",
     "revealWin": "Mostrar en el Explorador",
-    "revealOther": "Mostrar en la carpeta"
+    "revealOther": "Mostrar en la carpeta",
+    "searchLater": "Buscar por título llegará en una versión posterior.",
+    "mediaLabel": "Arte que cambiar",
+    "candidates": "Candidatas",
+    "loadingCandidates": "Buscando imágenes…",
+    "noCandidates": "No se han encontrado imágenes para esta ROM.",
+    "updated": "Arte actualizado. Puedes deshacerlo desde Trabajos.",
+    "removeConfirm": "¿Quitar esta imagen? Se guarda una copia y Deshacer la recupera.",
+    "removeYes": "Quitar imagen",
+    "removeNo": "Conservar",
+    "busy": "Hay un trabajo de relleno en curso: los cambios de arte esperan a que termine."
   },
   "fill": {
     "title": "Rellenar arte que falta",
@@ -351,6 +361,17 @@
     "done": "Hecho"
   },
   "reports": {
-    "saved": "Guardado como {name}."
+    "saved": "Guardado como {name}.",
+    "title": "Informes",
+    "audit": "Auditoría de arte",
+    "system": "Sistema",
+    "roms": "ROMs",
+    "complete": "Completas",
+    "total": "Total",
+    "exportAuditCsv": "Exportar auditoría (CSV)",
+    "exportAuditJson": "Exportar auditoría (JSON)",
+    "jobReport": "Informe del último trabajo",
+    "noJob": "Todavía no se ha ejecutado ningún trabajo.",
+    "close": "Cerrar"
   }
 }

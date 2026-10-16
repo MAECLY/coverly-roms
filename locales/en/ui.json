@@ -131,7 +131,8 @@
     "fill": "Fill missing art",
     "jobs": "Jobs",
     "jobsRunning": "Jobs (running)",
-    "jobsPaused": "Jobs (paused)"
+    "jobsPaused": "Jobs (paused)",
+    "reports": "Reports"
   },
   "filters": {
     "art": "Art",
@@ -206,10 +207,19 @@
     "search": "Search…",
     "fromFile": "From file…",
     "remove": "Remove",
-    "laterHint": "Changing art arrives in a later version.",
     "revealMac": "Reveal in Finder",
     "revealWin": "Show in Explorer",
-    "revealOther": "Show in folder"
+    "revealOther": "Show in folder",
+    "searchLater": "Searching by title arrives in a later version.",
+    "mediaLabel": "Art to change",
+    "candidates": "Candidates",
+    "loadingCandidates": "Looking for images…",
+    "noCandidates": "No images found for this ROM.",
+    "updated": "Art updated. Undo it from Jobs if needed.",
+    "removeConfirm": "Remove this image? It is backed up and Undo brings it back.",
+    "removeYes": "Remove image",
+    "removeNo": "Keep",
+    "busy": "A fill job is running: art changes wait until it ends."
   },
   "fill": {
     "title": "Fill missing art",
@@ -351,6 +361,17 @@
     "done": "Done"
   },
   "reports": {
-    "saved": "Saved as {name}."
+    "saved": "Saved as {name}.",
+    "title": "Reports",
+    "audit": "Art audit",
+    "system": "System",
+    "roms": "ROMs",
+    "complete": "Complete",
+    "total": "Total",
+    "exportAuditCsv": "Export audit (CSV)",
+    "exportAuditJson": "Export audit (JSON)",
+    "jobReport": "Last job report",
+    "noJob": "No job has run yet.",
+    "close": "Close"
   }
 }

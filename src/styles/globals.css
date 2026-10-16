@@ -838,3 +838,21 @@ body {
   gap: 0.75rem;
   unicode-bidi: plaintext;
 }
+
+.reports {
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.drawer-candidates {
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  margin-top: 0.5rem;
+}
+
+.undo-confirm {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: rgb(127 127 127 / 0.12);
+}
