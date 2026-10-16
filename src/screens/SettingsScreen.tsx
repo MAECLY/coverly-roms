@@ -7,6 +7,7 @@ import { GeneralSection } from '@/components/settings/GeneralSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
 import { MatchingSection } from '@/components/settings/MatchingSection';
 import { NetworkSection } from '@/components/settings/NetworkSection';
+import { ProfilesSection } from '@/components/settings/ProfilesSection';
 import { SafetySection } from '@/components/settings/SafetySection';
 import { SourcesSection } from '@/components/settings/SourcesSection';
 import { useT } from '@/i18n/useT';
@@ -19,12 +20,7 @@ import {
 } from '@/stores/navStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-function Pending() {
-  const t = useT();
-  return <p className="hint">{t('settings.loading')}</p>;
-}
-
-/** Each section's panel (Tasks 13–14 replace the pending ones). */
+/** Each section's panel. */
 // eslint-disable-next-line react-refresh/only-export-components -- the section registry Tasks 13–14 extend (plan interface)
 export const SECTION_COMPONENTS: Record<
   SettingsSection,
@@ -38,7 +34,7 @@ export const SECTION_COMPONENTS: Record<
   network: NetworkSection,
   safety: SafetySection,
   advanced: AdvancedSection,
-  profiles: Pending,
+  profiles: ProfilesSection,
   about: AboutSection,
 };
 
