@@ -10,10 +10,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::settings::{LibrarySettings, RecentLibrary};
 use coverly_core::systems::SystemDb;
+use coverly_core::write::{list_jobs, undo_job};
 
 use crate::error::IpcError;
-use crate::jobs::FillConfig;
-use crate::library::refresh::{refresh_entries, EntryArtUpdate};
+use crate::jobs::view::{FillRequest, JobHistoryView, JobState, JobView, UndoView};
+use crate::jobs::{FillConfig, JobEvents, JobManager};
+use crate::library::refresh::{ids_for_art_paths, refresh_entries, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
 
@@ -22,6 +24,7 @@ pub struct AppState {
     session: Mutex<Option<Arc<Session>>>,
     settings_path: PathBuf,
     fill: Arc<FillConfig>,
+    jobs: JobManager,
 }
 
 impl AppState {
@@ -31,6 +34,7 @@ impl AppState {
             session: Mutex::new(None),
             settings_path,
             fill: Arc::new(fill),
+            jobs: JobManager::default(),
         }
     }
 
@@ -63,6 +67,65 @@ impl AppState {
     /// The fill settings shared with job threads.
     pub fn fill_config(&self) -> Arc<FillConfig> {
         Arc::clone(&self.fill)
+    }
+
+    /// The one fill job of the app.
+    pub fn jobs(&self) -> &JobManager {
+        &self.jobs
+    }
+
+    /// Starts the dry run of a fill on the open library `generation`.
+    pub fn start_fill(
+        &self,
+        generation: u64,
+        req: &FillRequest,
+        events: Arc<dyn JobEvents>,
+    ) -> Result<JobView, IpcError> {
+        let session = self.session(generation)?;
+        self.jobs.start(self.fill_config(), session, req, events)
+    }
+
+    /// Undoes the newest not-undone journal of the open library
+    /// `generation` (fill, drawer change, removal) and refreshes the
+    /// entries it touched. Refused while a job gathers, applies or is
+    /// paused (a paused job resumes into its journal); journals of other
+    /// libraries are never touched. Journals keep `absolute(session.root)`
+    /// (the root of every app write).
+    pub fn undo_last_job(&self, generation: u64) -> Result<UndoView, IpcError> {
+        let paused = self
+            .jobs
+            .current()
+            .is_some_and(|j| j.state == JobState::Paused);
+        if self.jobs.busy() || paused {
+            return Err(IpcError::JobRunning);
+        }
+        let session = self.session(generation)?;
+        let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
+        let job = list_jobs(&self.fill.data_dir)?
+            .into_iter()
+            .find(|j| !j.undone && j.root == root)
+            .ok_or(IpcError::NothingToUndo)?;
+        let report = undo_job(&self.fill.data_dir, &job.job)?;
+        let paths: Vec<PathBuf> = report
+            .removed
+            .iter()
+            .chain(&report.restored)
+            .cloned()
+            .collect();
+        let ids = ids_for_art_paths(&session, &paths);
+        // The undo is done; a library reopened meanwhile only loses the refresh.
+        let entries = self
+            .refresh_entries(generation, &ids, &SystemDb::builtin())
+            .unwrap_or_default();
+        Ok(UndoView::new(&report, entries))
+    }
+
+    /// Every journal kept, newest first.
+    pub fn job_history(&self) -> Result<Vec<JobHistoryView>, IpcError> {
+        Ok(list_jobs(&self.fill.data_dir)?
+            .into_iter()
+            .map(JobHistoryView::from)
+            .collect())
     }
 
     /// Resolves the art of `ids` again and installs the updated session,
