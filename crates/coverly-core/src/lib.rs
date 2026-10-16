@@ -11,6 +11,7 @@ pub mod net;
 pub mod paths;
 pub mod profiles;
 pub mod scan;
+pub mod sources;
 pub mod systems;
 mod time;
 

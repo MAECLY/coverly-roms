@@ -121,6 +121,68 @@ impl MockServer {
     }
 }
 
+/// An Apache-style autoindex page with the given raw hrefs.
+pub fn apache_listing(title: &str, hrefs: &[String]) -> String {
+    let mut html = format!(
+        "<html><head><title>Index of {title}</title></head><body><h1>Index of {title}</h1><table>\n"
+    );
+    for h in hrefs {
+        html.push_str(&format!("<tr><td><a href=\"{h}\">{h}</a></td></tr>\n"));
+    }
+    html.push_str("</table></body></html>\n");
+    html
+}
+
+/// A solid-colour RGBA PNG.
+pub fn png_bytes(width: u32, height: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(width, height, image::Rgba([200, 30, 30, 255]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png)
+        .expect("encode test png");
+    out.into_inner()
+}
+
+/// Apache's own href style: spaces as %20, commas and parentheses literal.
+fn listing_href(name: &str) -> String {
+    name.replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('"', "%22")
+}
+
+impl MockServer {
+    /// The thumbnails.libretro.com root listing with `systems` as folders.
+    pub fn serve_libretro_root(&self, systems: &[&str]) {
+        let mut hrefs = vec!["?C=N;O=D".to_string(), "stats/".to_string()];
+        hrefs.extend(systems.iter().map(|s| format!("{}/", listing_href(s))));
+        self.mock("/", MockResponse::ok(apache_listing("/", &hrefs)));
+    }
+
+    /// The `<system>/<media_dir>/` listing (HTML only), with `ETag: "listing-v1"`.
+    pub fn serve_libretro_index(&self, system: &str, media_dir: &str, files: &[&str]) {
+        let sys = crate::sources::libretro::encode_segment(system);
+        let mut hrefs = vec!["?C=N;O=D".to_string(), format!("/{sys}/")];
+        hrefs.extend(files.iter().map(|f| listing_href(f)));
+        self.mock(
+            &format!("/{sys}/{media_dir}/"),
+            MockResponse::ok(apache_listing(&format!("/{system}/{media_dir}"), &hrefs))
+                .header("ETag", "\"listing-v1\""),
+        );
+    }
+
+    /// One image at its thumbnails.libretro.com path.
+    pub fn serve_libretro_image(&self, system: &str, media_dir: &str, file: &str, body: Vec<u8>) {
+        use crate::sources::libretro::encode_segment;
+        self.mock(
+            &format!(
+                "/{}/{media_dir}/{}",
+                encode_segment(system),
+                encode_segment(file)
+            ),
+            MockResponse::ok(body).header("Content-Type", "image/png"),
+        );
+    }
+}
+
 impl Drop for MockServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);

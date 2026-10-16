@@ -23,6 +23,7 @@ directories.workspace = true
 serde_json.workspace = true
 ureq.workspace = true
 percent-encoding.workspace = true
+image.workspace = true
 
 [features]
 # Mock HTTP server and fixtures for tests of this crate and of the CLI.
