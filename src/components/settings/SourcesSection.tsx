@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -34,6 +34,12 @@ function CredentialRow({
   const [error, setError] = useState<BackendError | null>(null);
   const [testing, setTesting] = useState(false);
   const [check, setCheck] = useState<KeyCheck | null>(null);
+  /**
+   * Bumped by every save, remove and test: a test answer whose number is
+   * no longer current is about a key that has changed since, so it is
+   * dropped.
+   */
+  const generation = useRef(0);
   const what = t(`settings.sources.credential.${k}`);
   const id = `credential-${k}`;
   async function run(
@@ -42,8 +48,11 @@ function CredentialRow({
     ) => Promise<CredentialStatus>,
   ) {
     setError(null);
-    // A result about the previous key would be stale.
+    // A result about the previous key would be stale, and so would a test
+    // still running for it.
+    generation.current += 1;
     setCheck(null);
+    setTesting(false);
     try {
       onStatus(await op(await getBackend()));
     } catch (e) {
@@ -54,16 +63,19 @@ function CredentialRow({
     }
   }
   async function test(source: SourceId) {
+    const mine = ++generation.current;
+    const current = () => generation.current === mine;
     setTesting(true);
     setCheck(null);
     setError(null);
     try {
       // Only the verdict comes back; the key never reaches the webview.
-      setCheck(await (await getBackend()).testSourceKey(source));
+      const verdict = await (await getBackend()).testSourceKey(source);
+      if (current()) setCheck(verdict);
     } catch (e) {
-      setError(toBackendError(e));
+      if (current()) setError(toBackendError(e));
     } finally {
-      setTesting(false);
+      if (current()) setTesting(false);
     }
   }
   return (
