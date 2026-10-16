@@ -354,7 +354,7 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
         remove_art(w.lib.path(), &outside, w.data.path()),
         Err(WriteError::OutsideRoot(_))
     ));
-    assert_eq!(job_ids(&w), [job.clone()]);
+    assert_eq!(job_ids(&w), std::slice::from_ref(&job));
 
     // Undo reverts the real job, not a phantom one.
     assert_eq!(undo_last(w.data.path()).unwrap().job, job);
