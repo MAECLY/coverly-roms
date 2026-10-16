@@ -14,18 +14,26 @@ use std::time::Duration;
 
 pub use limiter::{Limiter, Permit};
 
+use crate::credentials::Secret;
+
 pub const USER_AGENT: &str = concat!("CoverlyROMs/", env!("CARGO_PKG_VERSION"));
 pub const DEFAULT_MAX_BYTES: u64 = 32 * 1024 * 1024;
 const PROXY_ENV: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"];
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
-/// A GET request: URL, optional conditional ETag and a body size cap.
+/// A GET request: URL, optional conditional ETag, a body size cap, an
+/// optional Bearer key (redacted in `Debug`) and whether a 403 pauses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HttpRequest {
     pub url: String,
     pub if_none_match: Option<String>,
     pub max_bytes: u64,
+    /// Sent as `Authorization: Bearer …` (SteamGridDB).
+    pub bearer: Option<Secret>,
+    /// A 403 pauses the phase (libretro/GitHub rate limit, spec §10)
+    /// unless an API source answers 403 for a bad key: then `false`.
+    pub forbidden_pauses: bool,
 }
 
 /// Any HTTP response, including error statuses such as 404 or 304.
@@ -109,6 +117,8 @@ impl HttpRequest {
             url: url.into(),
             if_none_match: None,
             max_bytes: DEFAULT_MAX_BYTES,
+            bearer: None,
+            forbidden_pauses: true,
         }
     }
     pub fn max_bytes(mut self, n: u64) -> HttpRequest {
@@ -117,6 +127,15 @@ impl HttpRequest {
     }
     pub fn if_none_match(mut self, etag: Option<String>) -> HttpRequest {
         self.if_none_match = etag;
+        self
+    }
+    pub fn bearer(mut self, key: Secret) -> HttpRequest {
+        self.bearer = Some(key);
+        self
+    }
+    /// A 403 comes back as a response (the source decides what it means).
+    pub fn forbidden_passes(mut self) -> HttpRequest {
+        self.forbidden_pauses = false;
         self
     }
 }
@@ -212,13 +231,16 @@ impl UreqHttp {
             },
         };
         // Loopback (tests, local setups) never follows redirects, so a
-        // local URL cannot bounce to a remote plain-HTTP host.
+        // local URL cannot bounce to a remote plain-HTTP host. A redirect
+        // never carries the Authorization header (the ureq 3 default, made
+        // explicit): a key sent to an API never reaches its CDN.
         let build = |https_only: bool, redirects: u32, proxy: Option<ureq::Proxy>| {
             ureq::Agent::config_builder()
                 .timeout_global(Some(cfg.timeout))
                 .http_status_as_error(false)
                 .https_only(https_only)
                 .max_redirects(redirects)
+                .redirect_auth_headers(ureq::config::RedirectAuthHeaders::Never)
                 .user_agent(USER_AGENT)
                 .proxy(proxy)
                 .build()
@@ -245,6 +267,9 @@ impl Http for UreqHttp {
         let mut builder = agent.get(&req.url);
         if let Some(tag) = &req.if_none_match {
             builder = builder.header("If-None-Match", tag);
+        }
+        if let Some(key) = &req.bearer {
+            builder = builder.header("Authorization", format!("Bearer {}", key.expose()));
         }
         let mut resp = builder.call().map_err(transport)?;
         let status = resp.status().as_u16();
@@ -361,7 +386,7 @@ impl<H: Http> Http for PoliteHttp<H> {
                 self.inner.get(req)
             };
             let wait = match &result {
-                Ok(r) if r.status == 403 => {
+                Ok(r) if r.status == 403 && req.forbidden_pauses => {
                     return Err(NetError::RateLimited {
                         host: host_of(&req.url),
                         status: 403,

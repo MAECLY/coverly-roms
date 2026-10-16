@@ -156,3 +156,36 @@ impl CredentialStore for MemoryStore {
         Ok(())
     }
 }
+
+/// A secret value (API key, password). `Debug` never shows it and it has
+/// no `Display` or `Serialize`, so it cannot reach a log, a journal or the
+/// webview by accident; `expose` is the one way to read it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Secret {
+        Secret(value.into())
+    }
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_secret_never_prints_its_value() {
+        let s = Secret::new("sk-123");
+        assert_eq!(format!("{s:?}"), "Secret(***)");
+        assert_eq!(s.expose(), "sk-123");
+    }
+}
