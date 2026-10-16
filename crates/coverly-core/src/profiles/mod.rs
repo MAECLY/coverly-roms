@@ -8,6 +8,7 @@
 
 mod builtin;
 mod detect;
+mod fit;
 mod template;
 
 use std::collections::HashMap;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 pub use builtin::builtin_profiles;
 pub use detect::{detect, Detection};
+pub use fit::fit_to_root;
 pub use template::{render, TemplateVars};
 
 /// A kind of game art.

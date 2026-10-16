@@ -40,6 +40,12 @@ impl AppDirs {
     }
 }
 
+/// Where the app keeps its settings (`library.json`), or `None` when no
+/// home dir is known.
+pub fn config_dir() -> Option<std::path::PathBuf> {
+    directories::ProjectDirs::from(QUALIFIER, ORG, APP).map(|p| p.config_dir().to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,5 +60,11 @@ mod tests {
         let dirs = AppDirs::resolve(None, Some(std::path::Path::new("/d"))).unwrap();
         assert!(dirs.cache.to_string_lossy().contains(APP), "{dirs:?}");
         assert_eq!(dirs.data, std::path::Path::new("/d"));
+    }
+
+    #[test]
+    fn config_dir_is_the_app_config_dir() {
+        let dir = config_dir().expect("a home dir exists in tests");
+        assert!(dir.to_string_lossy().contains(APP), "{dir:?}");
     }
 }
