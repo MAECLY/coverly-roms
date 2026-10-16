@@ -270,6 +270,15 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
         if let Some(code) = template_error(slot) {
             out.push(FieldError::new(format!("slots.{key}.template"), code));
         }
+        match (slot.max_width, slot.max_height) {
+            (Some(_), None) => {
+                out.push(FieldError::new(format!("slots.{key}.max_height"), Required))
+            }
+            (None, Some(_)) => {
+                out.push(FieldError::new(format!("slots.{key}.max_width"), Required))
+            }
+            _ => {}
+        }
         for (field, v) in [
             ("max_width", slot.max_width),
             ("max_height", slot.max_height),

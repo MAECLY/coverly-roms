@@ -169,6 +169,21 @@ fn slots_are_checked_as_a_set() {
     let mut p = sample();
     p.slots.get_mut("cover").unwrap().max_width = Some(8);
     assert!(has(&p, "slots.cover.max_width", FieldErrorCode::Range));
+    let mut p = sample();
+    p.slots.get_mut("cover").unwrap().max_height = None;
+    assert!(
+        has(&p, "slots.cover.max_height", FieldErrorCode::Required),
+        "a width without a height would be dropped silently: {:?}",
+        errors(&p)
+    );
+    let mut p = sample();
+    p.slots.get_mut("cover").unwrap().max_width = None;
+    assert!(has(&p, "slots.cover.max_width", FieldErrorCode::Required));
+    let mut p = sample();
+    let cover = p.slots.get_mut("cover").unwrap();
+    cover.max_width = None;
+    cover.max_height = None;
+    assert!(errors(&p).is_empty(), "no size at all is fine");
 }
 
 #[test]
