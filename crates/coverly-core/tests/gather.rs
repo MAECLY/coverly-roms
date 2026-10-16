@@ -611,3 +611,52 @@ fn two_roms_with_one_dat_identity_do_not_share_a_name_match() {
         names("Golden Sun")
     );
 }
+
+#[test]
+fn hash_only_arcade_misses_stay_unknown() {
+    // One rule: under hash-only, a ROM with no DAT identity is never matched
+    // by name. For arcade sets the DAT identity is the short-name lookup.
+    let lib = tempfile::TempDir::new().unwrap();
+    common::mkdir(lib.path(), "anbernic");
+    common::write(lib.path(), "ROMS/MAME/10yard.zip", "zip");
+    common::write(lib.path(), "ROMS/MAME/nosuchset.zip", "zip");
+    let (s, e) = (server(), env());
+    let dats = DatStore::new(&e.http, &e.cache, s.base());
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let mame = db.get("mame").unwrap();
+    let rom = |stem: &str| {
+        scan.systems
+            .iter()
+            .find(|x| x.folder_name == "MAME")
+            .unwrap()
+            .roms
+            .iter()
+            .find(|r| r.stem == stem)
+            .unwrap()
+            .clone()
+    };
+    let method_of = |opts: IdentifyOptions, stem: &str| {
+        Identifier::new(&e.cache, &dats, opts)
+            .identify(&rom(stem), mame, false)
+            .unwrap()
+            .method
+    };
+    let hash_only = IdentifyOptions {
+        method: MatchMethod::HashOnly,
+        ..IdentifyOptions::default()
+    };
+    assert_eq!(method_of(hash_only.clone(), "10yard"), IdMethod::ArcadeDat);
+    assert_eq!(method_of(hash_only.clone(), "nosuchset"), IdMethod::Unknown);
+    let no_translation = IdentifyOptions {
+        arcade_translation: false,
+        ..hash_only
+    };
+    assert_eq!(method_of(no_translation, "10yard"), IdMethod::Unknown);
+    assert_eq!(
+        method_of(IdentifyOptions::default(), "nosuchset"),
+        IdMethod::Name,
+        "hash-then-name still falls back to the short name"
+    );
+}

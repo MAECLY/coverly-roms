@@ -20,7 +20,8 @@ pub enum MatchMethod {
     /// Content hash against the DAT, then the file name.
     #[default]
     HashThenName,
-    /// Content hash only: a ROM not in the DAT stays unknown.
+    /// Content hash only: a ROM not in the DAT stays unknown. Arcade sets
+    /// (never hashed) must have their short name in the arcade DAT.
     HashOnly,
     /// File name only: nothing is hashed.
     NameOnly,
@@ -36,7 +37,8 @@ pub enum IdMethod {
     ArcadeDat,
     /// Only its (parsed) file name is known.
     Name,
-    /// Hash-only and not in the DAT: never matched by name.
+    /// Hash-only and not identified by a DAT (arcade sets included):
+    /// never matched by name.
     Unknown,
 }
 
@@ -88,7 +90,8 @@ impl<'a> Identifier<'a> {
 
     /// Arcade: short name → description (no hashing). Otherwise, unless
     /// name-only: hash (memoised by path + size + mtime) → DAT game. A miss
-    /// falls back to the parsed name (hash-only: `Unknown`).
+    /// falls back to the parsed name; under hash-only every miss (arcade,
+    /// no DAT, not in the DAT) is `Unknown` and never matched by name.
     pub fn identify(
         &self,
         rom: &RomEntry,
@@ -105,6 +108,8 @@ impl<'a> Identifier<'a> {
         };
         let dats = dat::dat_sources(system);
         if system.arcade {
+            // Arcade sets are never hashed: the short-name lookup is their
+            // DAT identification.
             if self.opts.arcade_translation {
                 if let Some(desc) = self.dats.arcade_description(&dats, &rom.stem)? {
                     return Ok(Identity {
@@ -116,9 +121,7 @@ impl<'a> Identifier<'a> {
                     });
                 }
             }
-            return Ok(by_name(parsed));
-        }
-        if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() {
+        } else if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() {
             let mtime = crate::cache::mtime_ns(rom.modified);
             let outcome = match self.cache.quick_id(&rom.path, rom.size, mtime)? {
                 Some(o) => o,
@@ -154,7 +157,8 @@ impl<'a> Identifier<'a> {
                 });
             }
         }
-        // Hash-only never falls back to the name, even without a DAT.
+        // Hash-only never falls back to the name: not without a DAT, not
+        // for an arcade set missing from it (or with translation off).
         if self.opts.method == MatchMethod::HashOnly {
             return Ok(Identity {
                 canonical: None,
