@@ -7,6 +7,7 @@ pub mod keychain;
 pub mod library;
 pub mod logging;
 pub mod prefs;
+pub mod profiles;
 pub mod state;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
@@ -64,6 +65,17 @@ pub fn run() {
             ipc::open_link,
             ipc::cache_usage,
             ipc::clear_cache,
+            ipc::list_profiles,
+            ipc::save_profile,
+            ipc::delete_profile,
+            ipc::preview_profile,
+            ipc::credential_status,
+            ipc::set_credential,
+            ipc::clear_credential,
+            ipc::search_entry_art,
+            ipc::entry_search_art,
+            ipc::set_entry_art_from_search,
+            ipc::clear_identity_override,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

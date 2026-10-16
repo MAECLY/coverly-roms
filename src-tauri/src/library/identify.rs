@@ -1,11 +1,13 @@
 //! Identifying one entry on demand with the core identifier. Offline-safe:
 //! cached DATs (and the hash memo) answer without the network; when the
 //! DATs are unreachable and not cached, the entry is identified by name and
-//! the result says it was offline.
+//! the result says it was offline. A manual identity ("Search by title",
+//! D32) wins over every other method.
 
 use coverly_core::cache::Cache;
 use coverly_core::identify::dat::{DatError, DatStore};
 use coverly_core::identify::names::{parse_name, Region};
+use coverly_core::identify::overrides::Overrides;
 use coverly_core::identify::{IdMethod, Identifier, IdentifyOptions};
 use coverly_core::net::Http;
 use coverly_core::systems::SystemDb;
@@ -35,6 +37,7 @@ pub fn identify_entry(
     cache: &Cache,
     http: &dyn Http,
     database_base: &str,
+    overrides: &Overrides,
 ) -> Result<IdentityView, IpcError> {
     let entry = session
         .entries
@@ -44,7 +47,9 @@ pub fn identify_entry(
         .get(&entry.system_id)
         .ok_or(IpcError::UnknownEntry(id))?;
     let dats = DatStore::new(http, cache, database_base);
-    let identifier = Identifier::new(cache, &dats, IdentifyOptions::default());
+    // A manual identity (D32) answers first, without the network.
+    let identifier =
+        Identifier::new(cache, &dats, IdentifyOptions::default()).with_overrides(overrides);
     let (identity, offline) = match identifier.identify(&entry.rom, system, false) {
         Ok(identity) => (identity, false),
         Err(DatError::Cache(e)) => return Err(IpcError::Io(e.to_string())),

@@ -227,3 +227,37 @@ fn rust_reads_the_shared_requests() {
     let formats: Vec<ExportFormat> = serde_json::from_value(req["export_formats"].clone()).unwrap();
     assert_eq!(formats, vec![ExportFormat::Csv, ExportFormat::Json]);
 }
+
+/// The profile and keychain shapes added in M5 (Task 11 moves them into
+/// the shared sample files).
+#[test]
+fn profile_views_and_keychain_errors_keep_their_wire_shape() {
+    use coverly_core::profiles::custom::ProfileFile;
+    use coverly_roms_lib::profiles::{ProfileInfoView, ProfilePreviewView};
+
+    let onion = coverly_core::profiles::builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "onion")
+        .unwrap();
+    let view = serde_json::to_value(ProfileInfoView::of(&onion, true)).unwrap();
+    assert_eq!(view["builtin"], json!(true));
+    assert!(view["mirror_subdirs"].is_boolean());
+    let back: ProfileFile = serde_json::from_value(view["profile"].clone()).unwrap();
+    assert_eq!(back.id, "onion");
+    let preview = ProfilePreviewView {
+        paths: [("cover".to_string(), "Roms/GBA/Imgs/Zelda.png".to_string())].into(),
+        errors: Vec::new(),
+    };
+    assert_eq!(
+        serde_json::to_value(preview).unwrap(),
+        json!({ "paths": { "cover": "Roms/GBA/Imgs/Zelda.png" }, "errors": [] })
+    );
+    assert_eq!(
+        serde_json::to_value(IpcError::KeychainUnavailable).unwrap(),
+        json!({ "code": "keychain-unavailable" })
+    );
+    assert_eq!(
+        serde_json::to_value(IpcError::KeychainFailed("denied".into())).unwrap(),
+        json!({ "code": "keychain-failed", "detail": "denied" })
+    );
+}

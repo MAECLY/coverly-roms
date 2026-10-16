@@ -5,6 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use coverly_core::credentials::CredentialStatus;
+use coverly_core::profiles::custom::{PreviewExample, ProfileFile};
 use coverly_core::profiles::Media;
 use coverly_core::systems::SystemDb;
 use serde::Serialize;
@@ -22,6 +24,7 @@ use crate::library::art::{entry_path, read_art_bytes};
 use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
 use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
+use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use crate::state::AppState;
 
 /// Product name shown in the UI and reported over IPC.
@@ -125,7 +128,8 @@ pub async fn read_art(
     .await
 }
 
-/// Identifies one entry (hash → DAT, else name); never fails for lack of network.
+/// Identifies one entry (manual match, else hash → DAT, else name); never
+/// fails for lack of network.
 #[tauri::command]
 pub async fn identify_entry(
     app: AppHandle,
@@ -133,19 +137,8 @@ pub async fn identify_entry(
     entry_id: u32,
 ) -> Result<crate::library::identify::IdentityView, IpcError> {
     blocking(move || {
-        let state = app.state::<AppState>();
-        let session = state.session(generation)?;
-        let cache = state.cache()?;
-        let net = state.fill_config().net.clone();
-        let http = coverly_core::net::PoliteHttp::new(coverly_core::net::UreqHttp::new(&net), &net);
-        crate::library::identify::identify_entry(
-            &session,
-            entry_id,
-            &SystemDb::builtin(),
-            &cache,
-            &http,
-            coverly_core::identify::dat::DATABASE_BASE,
-        )
+        app.state::<AppState>()
+            .identify_entry(generation, entry_id, &SystemDb::builtin())
     })
     .await
 }
@@ -518,4 +511,122 @@ pub async fn cache_usage(app: AppHandle) -> Result<u64, IpcError> {
 #[tauri::command]
 pub async fn clear_cache(app: AppHandle) -> Result<u64, IpcError> {
     blocking(move || app.state::<AppState>().clear_cache()).await
+}
+
+// Profiles, credentials and "Search by title". Keychain calls block and may
+// raise an OS prompt: they run on the blocking pool, never the main thread.
+
+/// Built-in (read-only) and custom layout profiles.
+#[tauri::command]
+pub async fn list_profiles(app: AppHandle) -> Result<Vec<ProfileInfoView>, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().list_profiles())).await
+}
+
+/// Saves a custom profile (`replaces` = the id it had); field problems come back as data.
+#[tauri::command]
+pub async fn save_profile(
+    app: AppHandle,
+    profile: ProfileFile,
+    replaces: Option<String>,
+) -> Result<ProfileSaveView, IpcError> {
+    blocking(move || app.state::<AppState>().save_profile(profile, replaces)).await
+}
+
+#[tauri::command]
+pub async fn delete_profile(app: AppHandle, id: String) -> Result<Vec<ProfileInfoView>, IpcError> {
+    blocking(move || app.state::<AppState>().delete_profile(&id)).await
+}
+
+/// Where a profile being edited puts the art of an example ROM.
+#[tauri::command]
+pub fn preview_profile(
+    state: State<'_, AppState>,
+    profile: ProfileFile,
+    example: PreviewExample,
+) -> ProfilePreviewView {
+    state.preview_profile(&profile, &example)
+}
+
+/// Whether the keychain works and which keys are set (never the values).
+#[tauri::command]
+pub async fn credential_status(app: AppHandle) -> Result<CredentialStatus, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().credential_status())).await
+}
+
+/// Stores a credential in the keychain; the value never comes back.
+#[tauri::command]
+pub async fn set_credential(
+    app: AppHandle,
+    key: String,
+    value: String,
+) -> Result<CredentialStatus, IpcError> {
+    blocking(move || app.state::<AppState>().set_credential(&key, &value)).await
+}
+
+#[tauri::command]
+pub async fn clear_credential(app: AppHandle, key: String) -> Result<CredentialStatus, IpcError> {
+    blocking(move || app.state::<AppState>().clear_credential(&key)).await
+}
+
+/// "Search by title" for one entry's media.
+#[tauri::command]
+pub async fn search_entry_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+    query: String,
+) -> Result<Vec<CandidateView>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .search_entry_art(generation, entry_id, media, &query)
+    })
+    .await
+}
+
+/// A found candidate's image, re-encoded as it would be written (raw bytes).
+#[tauri::command]
+pub async fn entry_search_art(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+    candidate: u32,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .entry_search_art(generation, entry_id, media, candidate)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+/// Writes a found candidate under the ROM's own name and remembers the match.
+#[tauri::command]
+pub async fn set_entry_art_from_search(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+    media: Media,
+    candidate: u32,
+) -> Result<Vec<EntryArtUpdate>, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .set_entry_art_from_search(generation, entry_id, media, candidate)
+    })
+    .await
+}
+
+/// "Forget manual match".
+#[tauri::command]
+pub async fn clear_identity_override(
+    app: AppHandle,
+    generation: u64,
+    entry_id: u32,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .clear_identity_override(generation, entry_id)
+    })
+    .await
 }

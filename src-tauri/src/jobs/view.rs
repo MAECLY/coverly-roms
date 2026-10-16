@@ -241,19 +241,24 @@ pub fn candidates_of(item: &PlanItem) -> Vec<&Candidate> {
     }
 }
 
+/// Candidate `c` listed at `index`.
+pub fn candidate_view(index: usize, c: &Candidate) -> CandidateView {
+    CandidateView {
+        index: u32::try_from(index).unwrap_or(u32::MAX),
+        source: c.source.clone(),
+        name: c.name.clone(),
+        regions: c.regions.clone(),
+        kind: c.kind,
+        score: c.score,
+        confidence: confidence(c),
+    }
+}
+
 pub fn candidate_views(item: &PlanItem) -> Vec<CandidateView> {
     candidates_of(item)
         .into_iter()
         .enumerate()
-        .map(|(i, c)| CandidateView {
-            index: i as u32,
-            source: c.source.clone(),
-            name: c.name.clone(),
-            regions: c.regions.clone(),
-            kind: c.kind,
-            score: c.score,
-            confidence: confidence(c),
-        })
+        .map(|(i, c)| candidate_view(i, c))
         .collect()
 }
 

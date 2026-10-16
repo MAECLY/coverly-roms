@@ -14,32 +14,44 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
-use coverly_core::credentials::{CredentialStore, MemoryStore};
+use coverly_core::credentials::{
+    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore,
+};
 use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
+use coverly_core::identify::overrides::{
+    forget_manual, remember_manual, Overrides, OVERRIDES_FILE,
+};
 use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
-use coverly_core::net::NetConfig;
+use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::plan::{Decision, Plan};
-use coverly_core::profiles::custom::{ProfileFile, ProfileStore, PROFILES_DIR};
+use coverly_core::profiles::custom::{
+    all_profiles, preview_paths, validate_profile, PreviewExample, ProfileFile, ProfileStore,
+    PROFILES_DIR,
+};
 use coverly_core::profiles::{builtin_profiles, Media};
 use coverly_core::progress::NoProgress;
 use coverly_core::settings::{
-    backup_settings, load_settings, save_settings, LoadReport, RecentLibrary, Settings,
+    backup_settings, load_settings, save_settings, FieldError, FieldErrorCode, LoadReport,
+    RecentLibrary, Settings,
 };
+use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
 
 use crate::error::IpcError;
 use crate::jobs::view::{
-    candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest, JobHistoryView,
-    JobState, JobView, UndoView,
+    candidate_view, candidate_views, candidates_of, CandidateView, ExportFormat, FillRequest,
+    JobHistoryView, JobState, JobView, UndoView,
 };
 use crate::jobs::{with_env, FillConfig, JobEvents, JobManager, ManualWrite};
 use crate::library::art::{inside_root, media_name, MAX_ART_BYTES};
+use crate::library::identify::IdentityView;
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
 use crate::prefs::{SettingsUpdateView, SettingsView};
+use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 
 pub struct AppState {
     latest: AtomicU64,
@@ -50,6 +62,7 @@ pub struct AppState {
     base: FillConfig,
     jobs: JobManager,
     picks: Mutex<Option<EntryPick>>,
+    searches: Mutex<Option<EntrySearch>>,
     credentials: Arc<dyn CredentialStore>,
 }
 
@@ -65,6 +78,14 @@ struct EntryPick {
     id: u32,
     media: Media,
     plan: Plan,
+}
+
+/// The candidates last found by "Search by title", so a pick names one of them.
+struct EntrySearch {
+    generation: u64,
+    id: u32,
+    media: Media,
+    candidates: Vec<Candidate>,
 }
 
 fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
@@ -204,6 +225,7 @@ impl AppState {
             base,
             jobs: JobManager::default(),
             picks: Mutex::new(None),
+            searches: Mutex::new(None),
             credentials: Arc::new(MemoryStore::default()),
         }
     }
@@ -813,6 +835,306 @@ impl AppState {
         std::fs::create_dir_all(dir).map_err(|e| IpcError::Io(e.to_string()))?;
         Cache::open(&dir.join(CACHE_FILE)).map_err(|e| IpcError::Io(e.to_string()))
     }
+}
+
+/// Profiles, credentials and "Search by title".
+impl AppState {
+    /// Built-ins (read-only) first, then the custom profiles that load.
+    pub fn list_profiles(&self) -> Vec<ProfileInfoView> {
+        all_profiles(&self.custom_profiles())
+            .iter()
+            .map(|(p, builtin)| ProfileInfoView::of(p, *builtin))
+            .collect()
+    }
+
+    /// Saves custom profile `p`, replacing custom profile `replaces` (a
+    /// rename moves the default profile and the max size with it). Problems
+    /// come back as field errors and nothing is saved then.
+    pub fn save_profile(
+        &self,
+        p: ProfileFile,
+        replaces: Option<String>,
+    ) -> Result<ProfileSaveView, IpcError> {
+        let store = self.custom_store();
+        let customs = store.load().0;
+        if let Some(old) = &replaces {
+            if !customs.iter().any(|c| &c.id == old) {
+                return Err(IpcError::BadRequest(format!("no custom profile `{old}`")));
+            }
+        }
+        let builtin_ids: Vec<String> = builtin_profiles().into_iter().map(|b| b.id).collect();
+        let mut errors = validate_profile(&p, &builtin_ids);
+        let taken = customs.iter().any(|c| {
+            c.id.eq_ignore_ascii_case(&p.id) && replaces.as_deref() != Some(c.id.as_str())
+        });
+        if taken && !errors.iter().any(|e| e.field == "id") {
+            errors.push(FieldError::new("id", FieldErrorCode::Duplicate));
+        }
+        if !errors.is_empty() {
+            return Ok(ProfileSaveView {
+                profiles: self.list_profiles(),
+                errors,
+            });
+        }
+        store
+            .save(&p, replaces.as_deref())
+            .map_err(|e| IpcError::Settings(e.to_string()))?;
+        log::info!("custom profile saved: {}", p.id);
+        if let Some(old) = replaces.filter(|o| *o != p.id) {
+            self.rename_profile_refs(&old, Some(&p.id))?;
+        }
+        Ok(ProfileSaveView {
+            profiles: self.list_profiles(),
+            errors: Vec::new(),
+        })
+    }
+
+    /// Deletes custom profile `id`; the default profile falls back to
+    /// detection and its max size goes with it. Built-ins are read-only.
+    pub fn delete_profile(&self, id: &str) -> Result<Vec<ProfileInfoView>, IpcError> {
+        if builtin_profiles()
+            .iter()
+            .any(|b| b.id.eq_ignore_ascii_case(id))
+        {
+            return Err(IpcError::BadRequest(
+                "built-in profiles are read-only".into(),
+            ));
+        }
+        let deleted = self
+            .custom_store()
+            .delete(id)
+            .map_err(|_| IpcError::UnknownProfile(id.to_string()))?;
+        if !deleted {
+            return Err(IpcError::UnknownProfile(id.to_string()));
+        }
+        log::info!("custom profile deleted: {id}");
+        self.rename_profile_refs(id, None)?;
+        Ok(self.list_profiles())
+    }
+
+    /// The default profile and the per-profile max size follow a rename
+    /// (or are dropped with a delete).
+    fn rename_profile_refs(&self, old: &str, new: Option<&str>) -> Result<(), IpcError> {
+        let s = self.settings();
+        let mut patch = serde_json::Map::new();
+        if s.library.default_profile.as_deref() == Some(old) {
+            patch.insert(
+                "library".into(),
+                serde_json::json!({ "default_profile": new }),
+            );
+        }
+        if let Some(size) = s.art.max_size.get(old) {
+            // A merge patch merges maps: the old key is removed with an
+            // explicit null, or it stays (and fails validation as an
+            // unknown profile once the file is gone).
+            let mut sizes = serde_json::Map::new();
+            sizes.insert(old.to_string(), serde_json::Value::Null);
+            if let Some(n) = new {
+                sizes.insert(n.to_string(), serde_json::json!(size));
+            }
+            patch.insert("art".into(), serde_json::json!({ "max_size": sizes }));
+        }
+        if patch.is_empty() {
+            return Ok(());
+        }
+        let out = self.update_settings(&serde_json::Value::Object(patch))?;
+        match out.errors.first() {
+            None => Ok(()),
+            Some(e) => Err(IpcError::Settings(format!("{} is not valid", e.field))),
+        }
+    }
+
+    /// Where `p` puts the art of `ex`, with its layout problems (the id of
+    /// a profile being created may still be empty: id errors are left out).
+    pub fn preview_profile(&self, p: &ProfileFile, ex: &PreviewExample) -> ProfilePreviewView {
+        let builtin_ids: Vec<String> = builtin_profiles().into_iter().map(|b| b.id).collect();
+        ProfilePreviewView {
+            paths: preview_paths(p, ex, &SystemDb::builtin()),
+            errors: validate_profile(p, &builtin_ids)
+                .into_iter()
+                .filter(|e| e.field != "id")
+                .collect(),
+        }
+    }
+
+    /// Whether the keychain works and which keys are set (never values).
+    pub fn credential_status(&self) -> CredentialStatus {
+        coverly_core::credentials::status(self.credentials.as_ref())
+    }
+
+    /// Stores a credential (an empty value clears it); only the status comes back.
+    pub fn set_credential(&self, key: &str, value: &str) -> Result<CredentialStatus, IpcError> {
+        let key = credential_key(key)?;
+        store_secret(self.credentials.as_ref(), key, value)?;
+        log::info!("credential set: {}", key.account());
+        Ok(self.credential_status())
+    }
+
+    pub fn clear_credential(&self, key: &str) -> Result<CredentialStatus, IpcError> {
+        let key = credential_key(key)?;
+        if !self.credentials.available() {
+            return Err(IpcError::KeychainUnavailable);
+        }
+        self.credentials.clear(key)?;
+        log::info!("credential cleared: {}", key.account());
+        Ok(self.credential_status())
+    }
+
+    /// Identifies entry `id`: a manual identity (kept in the app data dir,
+    /// never the backup folder) first, else hash → DAT, else the name.
+    pub fn identify_entry(
+        &self,
+        generation: u64,
+        id: u32,
+        systems: &SystemDb,
+    ) -> Result<IdentityView, IpcError> {
+        let session = self.session(generation)?;
+        let cache = self.cache()?;
+        let cfg = self.fill_config();
+        let http = PoliteHttp::new(UreqHttp::new(&cfg.net), &cfg.net);
+        let overrides = Overrides::read(&cfg.overrides_dir.join(OVERRIDES_FILE));
+        crate::library::identify::identify_entry(
+            &session,
+            id,
+            systems,
+            &cache,
+            &http,
+            &cfg.endpoints.database,
+            &overrides,
+        )
+    }
+
+    /// "Search by title": candidates for a typed title (untrusted: empty,
+    /// over-long or control-character queries are refused), best first.
+    pub fn search_entry_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        query: &str,
+    ) -> Result<Vec<CandidateView>, IpcError> {
+        let session = self.known_entry(generation, id)?;
+        if session.profile.slot(media).is_none() {
+            return Err(IpcError::BadRequest(
+                "this layout cannot store that media".into(),
+            ));
+        }
+        let cfg = self.fill_config();
+        let db = SystemDb::builtin();
+        let system = db
+            .get(&session.entries[id as usize].system_id)
+            .ok_or(IpcError::UnknownEntry(id))?;
+        let settings = cfg.settings.fill_settings();
+        let found = with_env(&cfg, |env| {
+            Ok(env.search_title(system, media, query, &settings)?)
+        })?;
+        let views = found
+            .iter()
+            .enumerate()
+            .map(|(i, c)| candidate_view(i, c))
+            .collect();
+        *lock(&self.searches) = Some(EntrySearch {
+            generation,
+            id,
+            media,
+            candidates: found,
+        });
+        Ok(views)
+    }
+
+    fn searched(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Candidate, IpcError> {
+        match lock(&self.searches).as_ref() {
+            Some(s) if s.generation == generation && s.id == id && s.media == media => s
+                .candidates
+                .get(candidate as usize)
+                .cloned()
+                .ok_or_else(|| IpcError::BadRequest(format!("no candidate {candidate}"))),
+            _ => Err(IpcError::BadRequest("search first".into())),
+        }
+    }
+
+    /// Found candidate `candidate`, re-encoded as it would be written.
+    pub fn entry_search_art(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<u8>, IpcError> {
+        let session = self.session(generation)?;
+        let c = self.searched(generation, id, media, candidate)?;
+        with_env(&self.fill_config(), |env| {
+            Ok(env.candidate_image(&session.profile, &c)?.bytes)
+        })
+    }
+
+    /// Writes found candidate `candidate` to the ROM's own art target
+    /// (never renamed; existing art backed up, undoable) and remembers the
+    /// pick as the ROM's manual identity.
+    pub fn set_entry_art_from_search(
+        &self,
+        generation: u64,
+        id: u32,
+        media: Media,
+        candidate: u32,
+    ) -> Result<Vec<EntryArtUpdate>, IpcError> {
+        let (_writing, session, cfg) = self.writable_entry(generation, id)?;
+        let c = self.searched(generation, id, media, candidate)?;
+        let target = art_target(&session, id, media)?;
+        let root = absolute_root(&session)?;
+        let entry = &session.entries[id as usize];
+        let sys = &session.systems[entry.system as usize];
+        let rel_path = entry
+            .rom
+            .path
+            .strip_prefix(&sys.dir)
+            .unwrap_or(&entry.rom.path);
+        let rom = RomRef {
+            system_id: &entry.system_id,
+            folder: &sys.folder,
+            system_dir: &sys.dir,
+            rel_path,
+            stem: &entry.rom.stem,
+        };
+        let keep_jobs = cfg.settings.manual_options().keep_jobs;
+        let report = with_env(&cfg, |env| {
+            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, keep_jobs)
+                .map_err(IpcError::from)
+        })?;
+        if let Some(ItemStatus::Failed { kind, message }) = report.items.first().map(|i| &i.status)
+        {
+            return Err(item_error(*kind, message));
+        }
+        if let Some(why) = report.paused {
+            return Err(IpcError::Network(why));
+        }
+        remember_manual(&cfg.overrides_dir, &entry.rom.path, &c.name, &c.source)
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        self.refresh_entries(generation, &[id], &SystemDb::builtin())
+    }
+
+    /// "Forget manual match": entry `id` is identified as before again.
+    pub fn clear_identity_override(&self, generation: u64, id: u32) -> Result<(), IpcError> {
+        let session = self.known_entry(generation, id)?;
+        forget_manual(
+            &self.fill_config().overrides_dir,
+            &session.entries[id as usize].rom.path,
+        )
+        .map(|_| ())
+        .map_err(|e| IpcError::Io(e.to_string()))
+    }
+}
+
+/// Only the closed set of credential names.
+fn credential_key(name: &str) -> Result<CredentialKey, IpcError> {
+    CredentialKey::parse(name)
+        .ok_or_else(|| IpcError::BadRequest(format!("unknown credential `{name}`")))
 }
 
 fn recent_views(settings: &Settings) -> Vec<RecentView> {

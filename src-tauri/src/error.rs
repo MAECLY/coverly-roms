@@ -58,6 +58,12 @@ pub enum IpcError {
     NameInvalid(String),
     #[error("the library volume is gone: {0}")]
     VolumeGone(String),
+    #[error("there is no credential store (keychain) on this system")]
+    KeychainUnavailable,
+    #[error("the keychain is locked")]
+    KeychainLocked,
+    #[error("keychain error: {0}")]
+    KeychainFailed(String),
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {
@@ -86,6 +92,21 @@ impl From<coverly_core::fill::ArtError> for IpcError {
     }
 }
 
+/// Never carries a stored value: only what went wrong.
+impl From<coverly_core::credentials::CredentialError> for IpcError {
+    fn from(e: coverly_core::credentials::CredentialError) -> Self {
+        use coverly_core::credentials::CredentialError as C;
+        match e {
+            C::Unavailable => IpcError::KeychainUnavailable,
+            C::Locked => IpcError::KeychainLocked,
+            C::Failed(m) => IpcError::KeychainFailed(m),
+            C::BadValue => {
+                IpcError::BadRequest("the value is too long or holds control characters".into())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,6 +127,20 @@ mod tests {
             IpcError::from(coverly_core::fill::ArtError::BadQuery),
             IpcError::BadRequest(_)
         ));
+        use coverly_core::credentials::CredentialError as C;
+        assert_eq!(
+            IpcError::from(C::Unavailable),
+            IpcError::KeychainUnavailable
+        );
+        assert_eq!(IpcError::from(C::Locked), IpcError::KeychainLocked);
+        assert!(matches!(
+            IpcError::from(C::BadValue),
+            IpcError::BadRequest(_)
+        ));
+        assert_eq!(
+            serde_json::to_value(IpcError::from(C::Failed("denied".into()))).unwrap(),
+            serde_json::json!({ "code": "keychain-failed", "detail": "denied" })
+        );
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));
     }
