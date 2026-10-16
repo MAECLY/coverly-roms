@@ -6187,6 +6187,7 @@ export type ItemErrorKind =
   | 'disk-full'
   | 'name-invalid'
   | 'outside-root'
+  | 'volume-gone'
   | 'io';
 export type OutcomeKind =
   | 'filled'
@@ -9337,6 +9338,8 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add src 
 - Consumes: Task 9 `useJobStore` (`job`, `progress`, `history`, `lastUndo`, `error`, `pending`, `resume`, `cancel`, `undoLast`, `loadHistory`, `exportReport`), `isRunning`, `Modal`; Task 8 `fillJobItems(job, 'failed')`.
 - Produces: `<JobsPanel view onClose />`; Toolbar prop `onJobs(): void`; the wizard's Run now opens the `jobs` overlay.
 
+**Item error kinds (Task 8 review):** `jobs.error` needs one key per `ItemErrorKind`, `volume-gone` included (an SD pulled mid-job fails the remaining items with it). Add a test that both locales have every kind, e.g. a `const KINDS: Record<ItemErrorKind, true>` whose keys are compared with `Object.keys(en.jobs.error)` and `Object.keys(es.jobs.error)`, so typecheck catches a missing kind.
+
 - [ ] **Step 1: Write the failing tests**
 
 `src/components/fill/JobsPanel.test.tsx`:
@@ -9859,6 +9862,7 @@ export function JobsPanel({
       "disk-full": "Disk full",
       "name-invalid": "Name not valid on SD cards",
       "outside-root": "Outside the library",
+      "volume-gone": "The library volume was removed",
       "io": "Disk error"
     },
     "exportCsv": "Export report (CSV)",
@@ -9916,6 +9920,7 @@ and a new `"reports": { "saved": "Saved as {name}." }`.
       "disk-full": "Disco lleno",
       "name-invalid": "Nombre no válido en tarjetas SD",
       "outside-root": "Fuera de la biblioteca",
+      "volume-gone": "Se ha retirado el volumen de la biblioteca",
       "io": "Error de disco"
     },
     "exportCsv": "Exportar informe (CSV)",

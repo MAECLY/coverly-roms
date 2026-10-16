@@ -163,5 +163,16 @@
     "complete": true,
     "undone": false
   },
-  "error": { "code": "not-found", "detail": "/Volumes/SD" }
+  "error": { "code": "not-found", "detail": "/Volumes/SD" },
+  "item_error_kinds": [
+    "no-art",
+    "network",
+    "decode",
+    "write-denied",
+    "disk-full",
+    "name-invalid",
+    "outside-root",
+    "volume-gone",
+    "io"
+  ]
 }

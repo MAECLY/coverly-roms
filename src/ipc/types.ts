@@ -253,6 +253,7 @@ export type ItemErrorKind =
   | 'disk-full'
   | 'name-invalid'
   | 'outside-root'
+  | 'volume-gone'
   | 'io';
 export type OutcomeKind =
   | 'filled'

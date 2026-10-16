@@ -9,6 +9,7 @@ import type {
   EntryView,
   FillRequest,
   IdentityView,
+  ItemErrorKind,
   JobHistoryItem,
   JobItemView,
   JobProgressEvent,
@@ -141,6 +142,22 @@ const REQUEST_KEYS = [
   'overwrite',
 ] as const;
 
+/** Compiles only when `K` lists every member of the union `T`. */
+type AllMembers<T, K extends readonly T[]> =
+  Exclude<T, K[number]> extends never ? K : never;
+
+const ITEM_ERROR_KINDS = [
+  'no-art',
+  'network',
+  'decode',
+  'write-denied',
+  'disk-full',
+  'name-invalid',
+  'outside-root',
+  'volume-gone',
+  'io',
+] as const;
+
 const checks: [string, readonly string[], object][] = [
   [
     'LibraryView',
@@ -240,6 +257,12 @@ describe('wire contract', () => {
     expect(sample.job_view.paused.kind).toBe('rate-limit');
     expect(sample.job_item.decision).toEqual({ choice: 'pick', candidate: 0 });
     expect(sample.job_item.outcome.error).toBe('write-denied');
+    expect(sample.item_error_kinds).toEqual([
+      ...(ITEM_ERROR_KINDS satisfies AllMembers<
+        ItemErrorKind,
+        typeof ITEM_ERROR_KINDS
+      >),
+    ]);
     const decisions = requests.decisions as DecisionIn[];
     expect(decisions[1]).toEqual({ index: 1, choice: 'pick', candidate: 2 });
     expect(requests.item_filters).toEqual(['all', 'auto', 'review', 'failed']);

@@ -25,6 +25,36 @@ use coverly_roms_lib::library::view::{
 };
 use serde_json::{json, Value};
 
+/// Every item error kind, in declaration order.
+const ALL_ITEM_ERROR_KINDS: [ItemErrorKind; 9] = [
+    ItemErrorKind::NoArt,
+    ItemErrorKind::Network,
+    ItemErrorKind::Decode,
+    ItemErrorKind::WriteDenied,
+    ItemErrorKind::DiskFull,
+    ItemErrorKind::NameInvalid,
+    ItemErrorKind::OutsideRoot,
+    ItemErrorKind::VolumeGone,
+    ItemErrorKind::Io,
+];
+
+/// Fails to compile when a new kind is added, so the list above (and the
+/// TypeScript union) gets it too.
+#[allow(dead_code)]
+fn every_item_error_kind_is_listed(k: ItemErrorKind) {
+    match k {
+        ItemErrorKind::NoArt
+        | ItemErrorKind::Network
+        | ItemErrorKind::Decode
+        | ItemErrorKind::WriteDenied
+        | ItemErrorKind::DiskFull
+        | ItemErrorKind::NameInvalid
+        | ItemErrorKind::OutsideRoot
+        | ItemErrorKind::VolumeGone
+        | ItemErrorKind::Io => {}
+    }
+}
+
 #[test]
 fn rust_serialises_the_shared_sample() {
     let view = LibraryView {
@@ -154,6 +184,7 @@ fn rust_serialises_the_shared_sample() {
             undone: false,
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
+        "item_error_kinds": ALL_ITEM_ERROR_KINDS,
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
