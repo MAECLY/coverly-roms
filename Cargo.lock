@@ -546,6 +546,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "coverly-core",
+ "crc32fast",
  "predicates",
  "serde_json",
  "tempfile",

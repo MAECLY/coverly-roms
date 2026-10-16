@@ -4,15 +4,16 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
 use coverly_core::art::ArtState;
 use coverly_core::audit::{build_report, write_csv, AuditReport, SystemReport};
-use coverly_core::profiles::{builtin_profiles, detect, Media, Profile};
+use coverly_core::profiles::Media;
 use coverly_core::scan::ScanOptions;
 use coverly_core::systems::SystemDb;
 
+use crate::profile::{check_root, choose_profile, detection_note, Chosen};
 use crate::{media_name, print_stdout, table, Failure};
 
 /// Missing entries listed per system in the table, unless `--missing-only`.
@@ -46,7 +47,7 @@ pub struct AuditArgs {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum MediaArg {
+pub(crate) enum MediaArg {
     Cover,
     Screenshot,
     Title,
@@ -67,15 +68,6 @@ enum Format {
     Table,
     Json,
     Csv,
-}
-
-/// How the profile was chosen, for the report header.
-struct Chosen {
-    profile: Profile,
-    /// `Some(evidence)` when auto-detected.
-    detected: Option<Vec<String>>,
-    /// Other profiles that scored as high as the chosen one.
-    tied: Vec<String>,
 }
 
 pub fn run(args: &AuditArgs) -> Result<(), Failure> {
@@ -135,89 +127,6 @@ pub fn run(args: &AuditArgs) -> Result<(), Failure> {
         }
         None => print_stdout(&String::from_utf8_lossy(&buf)),
     }
-}
-
-/// Exit 3 unless `root` is an existing folder.
-fn check_root(root: &Path) -> Result<(), Failure> {
-    let message = match root.metadata() {
-        Ok(meta) if meta.is_dir() => return Ok(()),
-        Ok(_) => format!("library root is not a folder: {}", root.display()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            format!("library root not found: {}", root.display())
-        }
-        Err(e) => format!("cannot read library root {}: {e}", root.display()),
-    };
-    Err(Failure { code: 3, message })
-}
-
-fn profile_ids() -> String {
-    builtin_profiles()
-        .into_iter()
-        .map(|p| p.id)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// The profile named `id`, or the best detected one for `auto`.
-fn choose_profile(root: &Path, id: &str) -> Result<Chosen, Failure> {
-    if !id.eq_ignore_ascii_case("auto") {
-        let profile = builtin_profiles()
-            .into_iter()
-            .find(|p| p.id.eq_ignore_ascii_case(id))
-            .ok_or_else(|| {
-                Failure::usage(format!(
-                    "unknown profile `{id}`; expected `auto` or one of: {}",
-                    profile_ids()
-                ))
-            })?;
-        return Ok(Chosen {
-            profile,
-            detected: None,
-            tied: Vec::new(),
-        });
-    }
-
-    let found = detect(root);
-    let Some(best) = found.first() else {
-        return Err(Failure {
-            code: 4,
-            message: format!(
-                "no layout profile detected in {}; pass --profile <ID> with one of: {}",
-                root.display(),
-                profile_ids()
-            ),
-        });
-    };
-    let tied = found[1..]
-        .iter()
-        .filter(|d| d.score == best.score)
-        .map(|d| d.profile_id.clone())
-        .collect();
-    let profile = builtin_profiles()
-        .into_iter()
-        .find(|p| p.id == best.profile_id)
-        .expect("detect only returns built-in profile ids");
-    Ok(Chosen {
-        profile,
-        detected: Some(best.evidence.clone()),
-        tied,
-    })
-}
-
-fn detection_note(chosen: &Chosen, evidence: &[String]) -> String {
-    let mut note = format!(
-        "profile: {} (auto-detected from {})",
-        chosen.profile.id,
-        evidence.join(", ")
-    );
-    if !chosen.tied.is_empty() {
-        let _ = write!(
-            note,
-            "; also matches {}, pass --profile to choose",
-            chosen.tied.join(", ")
-        );
-    }
-    note
 }
 
 /// The plain-text report: header, one row per folder, totals, then the
