@@ -199,7 +199,7 @@ pub struct Writer {
     journal: File,
     journal_path: PathBuf,
     counter: u32,
-    /// Changes this run made to the library (journaled and done).
+    /// Changes this run made to the library (done, journaled or not).
     changes: usize,
     resumed: bool,
 }
@@ -344,6 +344,9 @@ impl Writer {
                 result => break result?,
             }
         }
+        // The library has changed: count it before journaling, so a failed
+        // append never lets `discard` delete the backup of what was replaced.
+        self.changes += 1;
 
         let (op, outcome) = match backup {
             None => (Op::Created, WriteOutcome::Created { path: dest.clone() }),
@@ -362,7 +365,6 @@ impl Writer {
             op,
             sha1: sha1_hex(bytes),
         })?;
-        self.changes += 1;
         Ok(outcome)
     }
 
@@ -857,6 +859,35 @@ mod tests {
         assert!(new.exists() && old.exists() && tmp.path().join("._old.png").exists());
         // Missing sidecars are not an error.
         remove_apple_doubles(&[new]);
+    }
+
+    #[test]
+    fn a_journal_failure_after_a_replace_keeps_the_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let data = tmp.path().join("data");
+        fs::create_dir_all(root.join("Imgs")).unwrap();
+        let target = root.join("Imgs").join("a.png");
+        fs::write(&target, b"ORIGINAL-USER-ART").unwrap();
+
+        let mut writer = Writer::begin(&root, &data).unwrap();
+        // A read-only handle: the entry append fails after the art is
+        // already replaced (as on a full data disk).
+        writer.journal = File::open(&writer.journal_path).unwrap();
+        let journal_path = writer.journal_path.clone();
+        let backups = writer.backups.clone();
+
+        assert!(writer
+            .write(&target, b"new art", OverwritePolicy::Backup)
+            .is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"new art");
+        assert!(writer.has_entries(), "the library changed");
+        assert!(writer.discard().is_err(), "a changed job is never dropped");
+        assert!(journal_path.exists());
+        assert_eq!(
+            fs::read(backups.join("Imgs").join("a.png")).unwrap(),
+            b"ORIGINAL-USER-ART"
+        );
     }
 
     #[test]
