@@ -8,6 +8,7 @@ use std::sync::Arc;
 use coverly_core::credentials::CredentialStatus;
 use coverly_core::profiles::custom::{PreviewExample, ProfileFile};
 use coverly_core::profiles::Media;
+use coverly_core::sources::KeyCheck;
 use coverly_core::systems::SystemDb;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -25,6 +26,7 @@ use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
 use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
+use crate::sources::SourceInfoView;
 use crate::state::AppState;
 
 /// Product name shown in the UI and reported over IPC.
@@ -566,6 +568,18 @@ pub async fn set_credential(
 #[tauri::command]
 pub async fn clear_credential(app: AppHandle, key: String) -> Result<CredentialStatus, IpcError> {
     blocking(move || app.state::<AppState>().clear_credential(&key)).await
+}
+
+/// Which sources this build has and which are ready to run.
+#[tauri::command]
+pub async fn sources_info(app: AppHandle) -> Result<Vec<SourceInfoView>, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().sources_info())).await
+}
+
+/// One cheap authenticated request with the stored key; never returns it.
+#[tauri::command]
+pub async fn test_source_key(app: AppHandle, source: String) -> Result<KeyCheck, IpcError> {
+    blocking(move || app.state::<AppState>().test_source_key(&source)).await
 }
 
 /// "Search by title" for one entry's media.

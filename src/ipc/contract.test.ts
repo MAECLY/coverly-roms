@@ -7,6 +7,9 @@ import requests from './contract.requests.json';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
+  KEY_CHECKS,
+  type PickReason,
+  type SourceInfo,
   type CandidateView,
   type CredentialStatus,
   type FieldError,
@@ -132,6 +135,9 @@ const CANDIDATE_KEYS = [
   'kind',
   'score',
   'confidence',
+  'votes',
+  'origin',
+  'reason',
 ] as const;
 const JOB_PROGRESS_KEYS = ['job', 'phase', 'done', 'total', 'label'] as const;
 const UPDATED_KEYS = ['generation', 'entries'] as const;
@@ -303,6 +309,19 @@ describe('settings contract', () => {
     expect(Object.keys(sample.profile_preview).sort()).toEqual([
       'errors',
       'paths',
+    ]);
+  });
+  it('source info, key checks and pick reasons match Rust', () => {
+    const info: SourceInfo = sample.source_info as SourceInfo;
+    expect(Object.keys(info).sort()).toEqual(['built', 'id', 'needs', 'ready']);
+    expect(sample.key_checks).toEqual([...KEY_CHECKS]);
+    const reasons = sample.pick_reasons as PickReason[];
+    expect(reasons.map((r) => r.why)).toEqual([
+      'only',
+      'consensus',
+      'source-order',
+      'region',
+      'user',
     ]);
   });
   it('the mock built-in profiles are the Rust ones', () => {

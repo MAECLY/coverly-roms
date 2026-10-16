@@ -4,13 +4,13 @@
 
 use coverly_core::identify::names::Region;
 use coverly_core::jobs::{ItemErrorKind, ItemStatus, JobReport};
-use coverly_core::matching::StrategyKind;
+use coverly_core::matching::{PickReason, StrategyKind};
 use coverly_core::plan::{
     confidence, Counts, Decision, NoneReason, Plan, PlanAction, PlanItem, PlanNote,
 };
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
-use coverly_core::sources::{Candidate, MatchKind};
+use coverly_core::sources::{Candidate, MatchKind, Votes};
 use coverly_core::write::{JobSummary, OverwritePolicy, UndoReport};
 use serde::{Deserialize, Serialize};
 
@@ -141,6 +141,13 @@ pub struct CandidateView {
     pub kind: MatchKind,
     pub score: u8,
     pub confidence: f32,
+    /// Community votes (SteamGridDB), when the source has them.
+    pub votes: Option<Votes>,
+    /// Where in the source it came from (ids, never a credential).
+    pub origin: Option<String>,
+    /// Why it was chosen: only on the chosen image (index 0) of a plan
+    /// item; `None` for alternatives and search results.
+    pub reason: Option<PickReason>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -241,8 +248,9 @@ pub fn candidates_of(item: &PlanItem) -> Vec<&Candidate> {
     }
 }
 
-/// Candidate `c` listed at `index`.
-pub fn candidate_view(index: usize, c: &Candidate) -> CandidateView {
+/// Candidate `c` listed at `index`; `reason` only for the chosen image
+/// (index 0) of a plan item.
+pub fn candidate_view(index: usize, c: &Candidate, reason: Option<PickReason>) -> CandidateView {
     CandidateView {
         index: u32::try_from(index).unwrap_or(u32::MAX),
         source: c.source.clone(),
@@ -251,6 +259,9 @@ pub fn candidate_view(index: usize, c: &Candidate) -> CandidateView {
         kind: c.kind,
         score: c.score,
         confidence: confidence(c),
+        votes: c.votes,
+        origin: c.origin.clone(),
+        reason,
     }
 }
 
@@ -258,7 +269,7 @@ pub fn candidate_views(item: &PlanItem) -> Vec<CandidateView> {
     candidates_of(item)
         .into_iter()
         .enumerate()
-        .map(|(i, c)| candidate_view(i, c))
+        .map(|(i, c)| candidate_view(i, c, if i == 0 { item.reason.clone() } else { None }))
         .collect()
 }
 

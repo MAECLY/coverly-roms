@@ -70,7 +70,18 @@ function cand(
       : kind === 'title-exact'
         ? 0.95
         : Math.min(score, 94) / 100;
-  return { index, source: 'libretro', name, regions, kind, score, confidence };
+  return {
+    index,
+    source: 'libretro',
+    name,
+    regions,
+    kind,
+    score,
+    confidence,
+    votes: null,
+    origin: null,
+    reason: null,
+  };
 }
 
 function candidatesFor(e: EntryView, media: Media) {

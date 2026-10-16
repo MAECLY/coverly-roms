@@ -96,6 +96,7 @@ pub fn fill_world() -> FillWorld {
         },
         settings: Default::default(),
         overrides_dir: dirs.path().join("data"),
+        keys: Default::default(),
     };
     FillWorld {
         lib,

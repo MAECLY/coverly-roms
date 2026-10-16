@@ -15,7 +15,7 @@ use coverly_core::art::{resolve_art, target_path};
 use coverly_core::audit::{build_report, write_csv};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::credentials::{
-    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore,
+    store_secret, CredentialKey, CredentialStatus, CredentialStore, MemoryStore, SourceKeys,
 };
 use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
@@ -341,6 +341,7 @@ impl AppState {
             },
             overrides_dir: self.base.overrides_dir.clone(),
             settings: s,
+            keys: SourceKeys::from_store(self.credentials.as_ref()),
         })
     }
 
@@ -1031,7 +1032,8 @@ impl AppState {
         let views = found
             .iter()
             .enumerate()
-            .map(|(i, c)| candidate_view(i, c))
+            // Search results are not a pick: no reason.
+            .map(|(i, c)| candidate_view(i, c, None))
             .collect();
         *lock(&self.searches) = Some(EntrySearch {
             generation,

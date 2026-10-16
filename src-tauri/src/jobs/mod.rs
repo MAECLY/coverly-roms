@@ -51,6 +51,9 @@ pub struct FillConfig {
     /// Where manual identities live: the app's own data dir, so moving the
     /// backup location never forgets them (D32).
     pub overrides_dir: PathBuf,
+    /// Source credentials read when the job started (never re-read by
+    /// workers; redacted in `Debug`).
+    pub keys: SourceKeys,
 }
 
 impl FillConfig {
@@ -63,6 +66,7 @@ impl FillConfig {
             endpoints: Endpoints::default(),
             net: NetConfig::default(),
             settings: Settings::default(),
+            keys: SourceKeys::default(),
         }
     }
 }
@@ -101,8 +105,7 @@ pub fn with_env<T>(
         endpoints: &cfg.endpoints,
         cache_dir: &cfg.cache_dir,
         data_dir: &cfg.data_dir,
-        // Task 10 passes the keychain snapshot of the job.
-        keys: &SourceKeys::default(),
+        keys: &cfg.keys,
     };
     f(&env)
 }
