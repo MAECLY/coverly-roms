@@ -178,6 +178,80 @@ describe('Jobs panel', () => {
     expect(within(history).getByText('Complete')).toBeInTheDocument();
   });
 
+  it('survives history entries with unreadable dates', async () => {
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      { ...real!, job: 'bad-1', created_at: '' },
+      { ...real!, job: 'bad-2', created_at: 'not a date \u202e' },
+      real!,
+    ]);
+    const dialog = await openPanel();
+    const history = await within(dialog).findByRole('list', {
+      name: 'History',
+    });
+    await waitFor(() =>
+      expect(within(history).getAllByRole('listitem')).toHaveLength(3),
+    );
+    expect(within(history).getAllByText('Unknown date')).toHaveLength(2);
+  });
+
+  it('moves focus into the undo confirmation and back', async () => {
+    await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const dialog = await openPanel();
+    const undo = within(dialog).getByRole('button', { name: 'Undo last job' });
+    await userEvent.click(undo);
+    expect(within(dialog).getByRole('button', { name: 'Keep' })).toHaveFocus();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Keep' }));
+    expect(
+      within(dialog).getByRole('button', { name: 'Undo last job' }),
+    ).toHaveFocus();
+  });
+
+  it('keeps focus inside the dialog after undoing', async () => {
+    await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const dialog = await openPanel();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Undo last job' }),
+    );
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Undo' }));
+    await within(dialog).findByText(/^Undone: /);
+    await waitFor(() =>
+      expect(dialog.contains(document.activeElement)).toBe(true),
+    );
+  });
+
+  it('lists recorded item errors of a failed job', async () => {
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const job = useJobStore.getState().job!;
+    const [item] = await backend.fillJobItems(job.id, 'failed');
+    vi.spyOn(backend, 'fillJobItems').mockResolvedValue([
+      { ...item!, index: 9001, name: 'Known.zip' },
+      {
+        ...item!,
+        index: 9002,
+        name: 'Unknown.zip',
+        outcome: { status: 'failed', error: null, message: null },
+      },
+    ]);
+    act(() =>
+      useJobStore.setState({
+        job: { ...job, state: 'failed', error: 'boom', result: null },
+      }),
+    );
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', {
+      name: 'Problems (2)',
+    });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows[1]).toHaveTextContent('Unknown problem');
+    expect(rows[1]).not.toHaveTextContent('Disk error');
+  });
+
   it('speaks Spanish', async () => {
     await running({}, 'es');
     await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));

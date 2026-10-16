@@ -323,7 +323,9 @@
     "complete": "Complete",
     "incomplete": "Stopped early",
     "undoneBadge": "Undone",
-    "close": "Close"
+    "close": "Close",
+    "unknownDate": "Unknown date",
+    "unknownError": "Unknown problem"
   },
   "review": {
     "title": "Review doubtful matches",

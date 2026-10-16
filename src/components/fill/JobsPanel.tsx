@@ -1,4 +1,11 @@
-import { Fragment, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { Modal } from '@/components/Modal';
 import { LocaleContext } from '@/i18n/core';
@@ -51,6 +58,10 @@ export function JobsPanel({
   const loadHistory = useJobStore((s) => s.loadHistory);
   const exportReport = useJobStore((s) => s.exportReport);
   const [confirming, setConfirming] = useState(false);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const undoTitleRef = useRef<HTMLHeadingElement>(null);
+  const wasConfirming = useRef(false);
   const [failed, setFailed] = useState<{
     job: number;
     items: JobItemView[];
@@ -60,7 +71,10 @@ export function JobsPanel({
   const jobId = job?.id ?? null;
   const state = job?.state ?? null;
   const finished =
-    state === 'done' || state === 'paused' || state === 'cancelled';
+    state === 'done' ||
+    state === 'paused' ||
+    state === 'cancelled' ||
+    state === 'failed';
 
   useEffect(() => {
     void loadHistory();
@@ -80,6 +94,18 @@ export function JobsPanel({
     };
   }, [jobId, finished]);
 
+  // The focused button unmounts when the confirmation toggles: hand focus over
+  // so keyboard and screen reader users stay inside the dialog.
+  useEffect(() => {
+    if (confirming) keepRef.current?.focus();
+    else if (wasConfirming.current) {
+      const back = undoRef.current;
+      if (back && !back.disabled) back.focus();
+      else undoTitleRef.current?.focus();
+    }
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
   const errors = finished && failed?.job === jobId ? failed.items : [];
   const p = progress && job && progress.job === job.id ? progress : null;
   // Rust refuses while paused and only undoes journals of the open library.
@@ -87,6 +113,12 @@ export function JobsPanel({
     !running &&
     job?.state !== 'paused' &&
     history.some((h) => !h.undone && h.root === view.root);
+
+  // Journal headers come from disk and may be empty or garbage.
+  function when(createdAt: string) {
+    const d = new Date(createdAt);
+    return Number.isNaN(d.getTime()) ? t('jobs.unknownDate') : dates.format(d);
+  }
 
   async function exportJob(format: ExportFormat) {
     const name = await exportReport(format);
@@ -193,7 +225,9 @@ export function JobsPanel({
                   </span>
                   <span className="hint" title={i.outcome?.message ?? ''}>
                     {t(`art.media.${i.media}`)} ·{' '}
-                    {t(`jobs.error.${i.outcome?.error ?? 'io'}`)}
+                    {i.outcome?.error
+                      ? t(`jobs.error.${i.outcome.error}`)
+                      : t('jobs.unknownError')}
                   </span>
                 </li>
               ))}
@@ -225,7 +259,12 @@ export function JobsPanel({
         <p>{t('jobs.none')}</p>
       )}
       <section aria-labelledby="jobs-undo">
-        <h3 id="jobs-undo" className="section-title">
+        <h3
+          id="jobs-undo"
+          className="section-title"
+          ref={undoTitleRef}
+          tabIndex={-1}
+        >
           {t('jobs.undoTitle')}
         </h3>
         {confirming ? (
@@ -233,6 +272,7 @@ export function JobsPanel({
             <p>{t('jobs.undoConfirm')}</p>
             <div className="modal-actions">
               <button
+                ref={keepRef}
                 type="button"
                 className="ghost-button"
                 onClick={() => setConfirming(false)}
@@ -251,6 +291,7 @@ export function JobsPanel({
           </div>
         ) : (
           <button
+            ref={undoRef}
             type="button"
             className="ghost-button"
             disabled={!canUndo || pending}
@@ -279,7 +320,7 @@ export function JobsPanel({
           <ul className="history-list" aria-labelledby="jobs-history">
             {history.map((h) => (
               <li key={h.job}>
-                <span>{dates.format(new Date(h.created_at))}</span>
+                <span>{when(h.created_at)}</span>
                 <span>{t('jobs.files', { n: n.format(h.entries) })}</span>
                 <span className="hint">
                   {h.undone

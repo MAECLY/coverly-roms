@@ -323,7 +323,9 @@
     "complete": "Completo",
     "incomplete": "Detenido antes de terminar",
     "undoneBadge": "Deshecho",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "unknownDate": "Fecha desconocida",
+    "unknownError": "Problema desconocido"
   },
   "review": {
     "title": "Revisar coincidencias dudosas",
