@@ -1,7 +1,9 @@
 {
   "app": {
     "name": "Coverly ROMs",
-    "tagline": "Encuentra y añade las portadas que faltan en tus ROMs"
+    "tagline": "Encuentra y añade las portadas que faltan en tus ROMs",
+    "crashed": "Algo ha fallado en la aplicación.",
+    "reload": "Recargar"
   },
   "language": {
     "label": "Idioma",

@@ -233,6 +233,15 @@ body {
   color: var(--cr-text);
 }
 
+.crash {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  text-align: center;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

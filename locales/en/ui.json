@@ -1,7 +1,9 @@
 {
   "app": {
     "name": "Coverly ROMs",
-    "tagline": "Find and add the missing cover art in your ROMs"
+    "tagline": "Find and add the missing cover art in your ROMs",
+    "crashed": "Something went wrong in the app.",
+    "reload": "Reload"
   },
   "language": {
     "label": "Language",
