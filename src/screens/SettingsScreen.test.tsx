@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -10,6 +10,8 @@ import {
   MOCK_LIBRARIES,
   type MockBackend,
 } from '@/ipc/mock/mockBackend';
+import { DEFAULT_REGION_ORDER } from '@/lib/fill';
+import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { resetSettingsStore } from '@/stores/settingsStore';
@@ -158,6 +160,44 @@ describe('Settings screen', () => {
     expect(screen.getByRole('status')).toHaveTextContent('could not be read');
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByText(/could not be read/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the art a job writes while settings are open', async () => {
+    backend = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage,
+      pauseAfter: null,
+    });
+    setBackend(backend);
+    useJobStore.getState().reset();
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    const missing = () =>
+      useLibraryStore
+        .getState()
+        .view!.entries.filter((e) => e.art.cover === 'missing').length;
+    const before = missing();
+    await start();
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('tablist', { name: 'Settings sections' });
+    const view = useLibraryStore.getState().view!;
+    await act(() =>
+      useJobStore.getState().start(view.generation, {
+        entry_ids: null,
+        media: ['cover'],
+        strategy: 'rom-region',
+        regions: [...DEFAULT_REGION_ORDER],
+        overwrite: 'never',
+      }),
+    );
+    await waitFor(() =>
+      expect(useJobStore.getState().job?.state).toBe('planned'),
+    );
+    await act(() => useJobStore.getState().run());
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    await waitFor(() => expect(missing()).toBeLessThan(before));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(missing()).toBeLessThan(before);
   });
 
   it('shows About with the licence and opens fixed links only', async () => {

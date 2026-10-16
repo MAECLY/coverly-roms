@@ -60,7 +60,7 @@ export function LibraryScreen() {
   const setQuery = useFilterStore((s) => s.setQuery);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Job events for as long as the library screen lives.
+  // Job events while this screen lives (shared with App's subscription).
   useEffect(() => {
     let alive = true;
     let off: (() => void) | undefined;

@@ -31,7 +31,7 @@ interface JobStore {
   lastUndo: UndoView | null;
   /** A command is in flight. */
   pending: boolean;
-  /** Subscribes to job events; returns the unsubscribe. */
+  /** Subscribes to job events (shared, ref-counted); returns the release. */
   connect(): Promise<() => void>;
   start(generation: number, request: FillRequest): Promise<boolean>;
   decide(decisions: DecisionIn[]): Promise<boolean>;
@@ -53,6 +53,13 @@ const initial = {
   lastUndo: null,
   pending: false,
 };
+
+interface Shared {
+  backend: Backend;
+  refs: number;
+  ready: Promise<() => void>;
+}
+let shared: Shared | null = null;
 
 /** Bumped by every `changed` event: a command result older than an event is dropped. */
 let events = 0;
@@ -92,19 +99,53 @@ export const useJobStore = create<JobStore>()((set, get) => {
     ...initial,
     async connect() {
       const b = await getBackend();
-      const offs = await Promise.all([
-        b.onJobProgress((p) => {
-          const cur = get().job;
-          if (!cur || p.job === cur.id) set({ progress: p });
-        }),
-        b.onJobChanged(onChanged),
-        b.onEntriesUpdated((u) =>
-          useLibraryStore.getState().applyArtUpdates(u.generation, u.entries),
-        ),
-      ]);
-      const job = await b.fillJob();
-      if (job) accept(job);
-      return () => offs.forEach((off) => off());
+      // One shared subscription however many holders (App and the library
+      // screen) connect: events are handled once and survive either leaving.
+      if (!shared || shared.backend !== b) {
+        const sub: Shared = {
+          backend: b,
+          refs: 0,
+          ready: Promise.all([
+            b.onJobProgress((p) => {
+              const cur = get().job;
+              if (!cur || p.job === cur.id) set({ progress: p });
+            }),
+            b.onJobChanged(onChanged),
+            b.onEntriesUpdated((u) =>
+              useLibraryStore
+                .getState()
+                .applyArtUpdates(u.generation, u.entries),
+            ),
+          ]).then((offs) => () => offs.forEach((off) => off())),
+        };
+        sub.ready.catch(() => {
+          if (shared === sub) shared = null;
+        });
+        shared = sub;
+      }
+      const sub = shared;
+      sub.refs += 1;
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        sub.refs -= 1;
+        if (sub.refs > 0) return;
+        if (shared === sub) shared = null;
+        void sub.ready.then(
+          (off) => off(),
+          () => undefined,
+        );
+      };
+      try {
+        await sub.ready;
+        const job = await b.fillJob();
+        if (job) accept(job);
+      } catch (e) {
+        release();
+        throw e;
+      }
+      return release;
     },
     start(generation, request) {
       set({ progress: null, lastUndo: null });
