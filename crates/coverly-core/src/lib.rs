@@ -9,6 +9,7 @@ pub mod cache;
 pub mod gather;
 pub mod identify;
 pub mod image;
+pub mod jobs;
 pub mod matching;
 pub mod net;
 pub mod paths;
