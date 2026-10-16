@@ -1,0 +1,136 @@
+mod common;
+
+use std::path::PathBuf;
+
+use common::anbernic_tree;
+use coverly_core::settings::{LibrarySettings, LIBRARY_SETTINGS_FILE};
+use coverly_core::systems::SystemDb;
+use coverly_roms_lib::error::IpcError;
+use coverly_roms_lib::library::view::ScanProgressEvent;
+use coverly_roms_lib::library::{open_session, OpenRequest};
+use coverly_roms_lib::state::AppState;
+use tempfile::TempDir;
+
+fn state(config: &TempDir) -> AppState {
+    AppState::new(
+        config.path().join(LIBRARY_SETTINGS_FILE),
+        config.path().join("cache"),
+    )
+}
+
+#[test]
+fn open_installs_the_session_and_remembers_the_library() {
+    let config = TempDir::new().unwrap();
+    let tree = anbernic_tree(&["GBA"], 3, 1);
+    let st = state(&config);
+    let mut events: Vec<ScanProgressEvent> = Vec::new();
+    let view = st
+        .open(tree.path(), None, &SystemDb::builtin(), &mut |e| {
+            events.push(e)
+        })
+        .unwrap();
+    assert_eq!(view.generation, 1);
+    assert!(events.iter().all(|e| e.generation == 1));
+    assert_eq!(st.session(1).unwrap().entries.len(), 3);
+
+    let recent = st.recent();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].path, tree.path().display().to_string());
+    assert_eq!(recent[0].roms, 3);
+    assert!(recent[0].available);
+    let saved = LibrarySettings::load(&config.path().join(LIBRARY_SETTINGS_FILE));
+    assert_eq!(saved.recent.len(), 1);
+}
+
+#[test]
+fn stale_generation_is_rejected() {
+    let config = TempDir::new().unwrap();
+    let tree = anbernic_tree(&["GBA"], 1, 0);
+    let st = state(&config);
+    assert_eq!(st.session(1).unwrap_err(), IpcError::NoLibrary);
+    st.open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    st.open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    assert_eq!(st.session(1).unwrap_err(), IpcError::StaleLibrary);
+    assert!(st.session(2).is_ok());
+}
+
+#[test]
+fn a_newer_open_supersedes_an_older_one() {
+    let config = TempDir::new().unwrap();
+    let tree = anbernic_tree(&["GBA"], 1, 0);
+    let st = state(&config);
+    let older = st.begin_open();
+    let newer = st.begin_open();
+    let scan = |generation| {
+        open_session(
+            &OpenRequest {
+                path: tree.path(),
+                profile_id: None,
+                scan: &Default::default(),
+                generation,
+            },
+            &SystemDb::builtin(),
+            &mut |_| {},
+        )
+        .unwrap()
+        .0
+    };
+    st.install(scan(newer)).unwrap();
+    assert_eq!(st.install(scan(older)).unwrap_err(), IpcError::Superseded);
+    assert_eq!(st.session(newer).unwrap().generation, newer);
+}
+
+#[test]
+fn open_succeeds_when_settings_cannot_be_saved() {
+    let config = TempDir::new().unwrap();
+    // The settings "file" is a folder: saving fails, opening must not.
+    let settings_path = config.path().join("as-dir");
+    std::fs::create_dir_all(&settings_path).unwrap();
+    let st = AppState::new(settings_path, config.path().join("cache"));
+    let tree = anbernic_tree(&["GBA"], 1, 0);
+    assert!(st
+        .open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .is_ok());
+}
+
+#[test]
+fn failed_open_keeps_the_previous_library() {
+    let config = TempDir::new().unwrap();
+    let tree = anbernic_tree(&["GBA"], 1, 0);
+    let st = state(&config);
+    st.open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    let missing = PathBuf::from("/definitely/not/here");
+    assert!(st
+        .open(&missing, None, &SystemDb::builtin(), &mut |_| {})
+        .is_err());
+    // The failed attempt took generation 2; the open library is still 1.
+    assert!(st.session(1).is_ok());
+}
+
+#[test]
+fn recents_report_unavailable_folders_and_can_be_forgotten() {
+    let config = TempDir::new().unwrap();
+    let tree = anbernic_tree(&["GBA"], 1, 0);
+    let st = state(&config);
+    st.open(tree.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    let gone = tree.path().to_path_buf();
+    drop(tree);
+    let recent = st.recent();
+    assert!(!recent[0].available);
+    assert!(st.forget(&gone).unwrap().is_empty());
+}
+
+#[test]
+fn ignored_dirs_are_saved_normalised() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let view = st
+        .set_ignored_dirs(vec![" bios ".into(), "a/b".into(), "Saves".into()])
+        .unwrap();
+    assert_eq!(view.ignored_dirs, ["bios", "Saves"]);
+    assert_eq!(st.library_settings().ignored_dirs, ["bios", "Saves"]);
+}

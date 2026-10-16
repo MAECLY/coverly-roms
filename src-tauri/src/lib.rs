@@ -3,6 +3,7 @@
 pub mod error;
 pub mod ipc;
 pub mod library;
+pub mod state;
 
 pub use ipc::{app_info, AppInfo, APP_NAME};
 
