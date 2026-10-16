@@ -2,6 +2,8 @@
 
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod fill;
+
 use std::fs;
 use std::path::Path;
 
