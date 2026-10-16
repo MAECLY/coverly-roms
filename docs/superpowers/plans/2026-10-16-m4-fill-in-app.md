@@ -18,12 +18,12 @@
 - Commits: conventional, granular, English. **Never** add `Co-Authored-By` or any Claude attribution. Do not push.
 - `rust-version = "1.90"`, `edition = "2021"` stay.
 - The core never depends on Tauri and holds no UI strings (spec §6). `src-tauri` stays thin: commands are one-liners over `state`/`jobs`/`library` functions that are testable without a Tauri runtime.
-- Tests never hit the real network: Rust uses `coverly_core::net::testing::{MockServer, HangingServer}` on 127.0.0.1; the UI uses the mock backend. Only the ignored `real_fill` test of Task 14 talks to the real servers, and only when run by hand.
+- Tests never hit the real network: Rust uses `coverly_core::net::testing::{MockServer, HangingServer}` on 127.0.0.1; the UI uses the mock backend. Only the ignored `real_fill` test of Task 13 talks to the real servers, and only when run by hand.
 - Real ROM data `/Users/miguelangelesparzacalero/Documents/ROMS` is **strictly read-only**. Never create, modify or delete anything under `/Volumes`. Any real write uses a COPY under `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad` (`$SC` below).
 - Every UI string goes through i18n in `locales/en/ui.json` **and** `locales/es/ui.json` (same keys; `src/i18n/parity.test.ts` enforces it).
 - File names and downloaded data are hostile: React text only (never `dangerouslySetInnerHTML`), escaped in mock SVG, every downloaded or picked image decoded with limits and re-encoded (`process_image`), CSV fields formula-neutralised (`'` prefix for `= + - @ \t \r`).
 - The webview never sends a library path. Art writes are addressed by `(generation, entryId, media)` or `(job, item, candidate)`; the local-image picker and the report save dialog run in Rust (`tauri_plugin_dialog::DialogExt`), so no new JS capability is granted (`capabilities/default.json` stays `core:default` + `dialog:allow-open`).
-- One fill job at a time. Undo is always the newest journal (`coverly_core::write::undo_last`), refused while a job runs.
+- One fill job at a time. The app's Undo is the newest not-undone journal **of the open library** (`list_jobs` + `undo_job`; never a journal of another library or SD), refused with `job-running` while a job gathers, applies **or is paused** (a paused job resumes into its journal). A worker thread never leaves a job stuck in `gathering`/`applying`: a panic ends the job as `failed`.
 - IPC: JS argument names camelCase (`entryId`), payload fields snake_case (`entry_ids`), errors `{ code, detail? }` shown as `errors.<code>`; codes are stable.
 
 ## Review Focus
@@ -33,6 +33,7 @@
 3. **Hostile names in new surfaces** — progress labels, review cards, error lists and exported CSV with `<img onerror>`, RTL overrides or `=HYPERLINK(...)`: text only, CSV neutralised. Tests: Task 7 (`job_report_csv_neutralises_formulas`, `audit_export_neutralises_formulas`), Task 8 (`mock_csv_neutralises_formulas`), Task 10 (`renders_hostile_names_as_text`).
 4. **The library is reopened (new generation) while a job runs or after it** — `start_fill` with an old generation is `stale-library`; `library-entries-updated` for another generation is ignored by the UI; the job keeps its own session. Tests: Task 6 (`start_with_a_stale_generation_is_refused`), Task 9 (`ignores_entry_updates_for_another_generation`).
 5. **Undo after the user touched the art** — a file the user replaced or re-added after the job (or after a removal) is kept and reported as kept; removed art comes back byte for byte. Tests: Task 2 (`undo_restores_removed_art`, `undo_keeps_art_the_user_added_after_a_removal`), Task 11 (`undo_reports_kept_files`).
+6. **Undo or a crash at the wrong moment** — Undo while a job is paused is refused (resume would append to a journal that was just undone), Undo never reverts a journal of another library than the open one, and a panicking worker ends the job as `failed` instead of blocking new jobs, Undo and the drawer forever. Tests: Task 5 (`a_panicking_worker_fails_the_job_instead_of_leaving_it_busy`), Task 6 (`undo_is_refused_while_a_job_is_paused`, `undo_only_touches_the_open_library`), Task 8 (mock pause test refuses undo).
 
 ## Deviations from the spec / task brief (decided in this plan)
 
@@ -43,6 +44,7 @@
 - **"Search…" in the drawer stays disabled** (search by typed title needs a manual identity override that must not change the target file name) → new tracker row M4-05 for M5.
 - **Scope "selection"** is the selected entry (M3 has single selection); "current filter" sends the ids of the visible entries; "whole library" sends `null`.
 - **Job report export covers the current/last job of this app session**; the history lists every journal (id, date, files, complete/undone) but per-item reports of older sessions are not kept (journals hold targets only).
+- **Undo in the app is per library**: "Undo last job" reverts the newest not-undone journal whose root is the open library (the CLI `coverly undo` keeps undoing the newest journal of any library). Part of D21.
 - **Dialogs from Rust**: "From file…" and both "Export…" actions open native dialogs in Rust and return the chosen file name (or `null` when cancelled). The mock downloads exports through a Blob URL and "picks" a built-in image. New decision **D23**.
 - **M4 exit criterion** ("fill missing covers on the SD copy from the UI"): the UI is proven end to end in Chrome on the mock, and the exact Rust job path the UI drives (`AppState::start_fill` → `run` → `undo_last_job`) runs against a copy of two real systems with the real servers (Task 13). A by-hand GUI run in the Tauri window stays as the manual check for Miguel, like M3.
 - **Still open after M4**: M2-10 (Batocera `gamelist.xml`; the wizard shows a warning for the `batocera` profile, like the CLI), M2-12 (Anbernic max size), M3-07 (identity filter; identity stays on demand) → tracker notes in Task 13.
@@ -3368,8 +3370,10 @@ use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
 use coverly_core::write::{list_jobs, undo_last};
 use coverly_roms_lib::error::IpcError;
-use coverly_roms_lib::jobs::view::{ActionKind, DecisionIn, ItemFilter, JobState, OutcomeKind};
-use coverly_roms_lib::jobs::{FillConfig, JobManager};
+use coverly_roms_lib::jobs::view::{
+    ActionKind, DecisionIn, ItemFilter, JobProgressEvent, JobState, JobView, OutcomeKind,
+};
+use coverly_roms_lib::jobs::{FillConfig, JobEvents, JobManager};
 use coverly_roms_lib::library::Session;
 
 fn session(w: &common::fill::FillWorld) -> Arc<Session> {
@@ -3633,6 +3637,36 @@ fn candidate_images_are_png_previews() {
         jobs.candidate_image(&w.cfg, id, 0, 9),
         Err(IpcError::BadRequest(_))
     ));
+}
+
+/// Events whose progress hook panics, as a bug in a worker would.
+struct Panicking(Recorder);
+
+impl JobEvents for Panicking {
+    fn progress(&self, _: JobProgressEvent) {
+        panic!("boom");
+    }
+    fn changed(&self, view: JobView) {
+        self.0.changed(view);
+    }
+    fn written(&self, generation: u64, ids: Vec<u32>) {
+        self.0.written(generation, ids);
+    }
+}
+
+#[test]
+fn a_panicking_worker_fails_the_job_instead_of_leaving_it_busy() {
+    let w = fill_world();
+    let jobs = JobManager::default();
+    let ev = Arc::new(Panicking(Recorder::default()));
+    jobs.start(w.cfg.clone(), session(&w), &request(None), ev.clone())
+        .unwrap();
+    let failed = wait_for(&ev.0, JobState::Failed);
+    assert!(failed.error.is_some());
+    assert!(!jobs.busy());
+    // The manager still works: a new job plans normally.
+    let rec = Arc::new(Recorder::default());
+    planned(&w, &jobs, &rec, None);
 }
 
 #[test]
@@ -3912,9 +3946,16 @@ fn pause_view(phase: Phase, why: Option<&String>, kind: Option<PauseKind>) -> Op
     })
 }
 
+/// Runs a job phase; a panic becomes an error, so the job ends `failed`
+/// instead of staying `gathering`/`applying` (and `busy`) forever.
+fn guarded<T>(f: impl FnOnce() -> Result<T, IpcError>) -> Result<T, IpcError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .unwrap_or_else(|_| Err(IpcError::Io("the fill job stopped unexpectedly".into())))
+}
+
 fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>) {
     std::thread::spawn(move || {
-        let planned = with_env(&cfg, |env| {
+        let planned = guarded(|| with_env(&cfg, |env| {
             let db = SystemDb::builtin();
             let session = &job.session;
             let ids: Vec<u32> = match &job.entry_filter {
@@ -3935,7 +3976,7 @@ fn spawn_gather(job: Arc<Job>, cfg: Arc<FillConfig>, events: Arc<dyn JobEvents>)
                 &sink,
                 &job.cancel,
             ))
-        });
+        }));
         {
             let mut d = lock(&job.data);
             d.progress = None;
@@ -3982,7 +4023,7 @@ fn spawn_apply(
     resumed: Option<(Vec<usize>, String)>,
 ) {
     std::thread::spawn(move || {
-        let applied = with_env(&cfg, |env| {
+        let applied = guarded(|| with_env(&cfg, |env| {
             let opts = ApplyOptions {
                 overwrite: job.overwrite,
                 // Only auto items and accepted/picked review items (D20).
@@ -3994,7 +4035,7 @@ fn spawn_apply(
             let sink = Bridge::new(&job, events.as_ref());
             env.apply(&plan, &job.session.profile, &opts, &sink, &job.cancel)
                 .map_err(IpcError::from)
-        });
+        }));
         let mut touched = Vec::new();
         {
             let mut d = lock(&job.data);
@@ -4262,7 +4303,7 @@ impl JobManager {
 - [ ] **Step 5: Run the tests**
 
 Run: `cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && cargo test -p coverly-roms --test fill_job`
-Expected: PASS (the hanging-server test takes about 0.5 s).
+Expected: PASS (the hanging-server test takes about 0.5 s; the panicking-worker test prints the `boom` panic message, which is expected).
 
 - [ ] **Step 6: Gates and commit**
 
@@ -4286,7 +4327,7 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add src-
 - Produces:
   - `AppState::jobs(&self) -> &JobManager`
   - `AppState::start_fill(&self, generation: u64, req: &FillRequest, events: Arc<dyn JobEvents>) -> Result<JobView, IpcError>`
-  - `AppState::undo_last_job(&self, generation: u64) -> Result<UndoView, IpcError>` (refused while a job runs; refreshes the entries whose art it touched)
+  - `AppState::undo_last_job(&self, generation: u64) -> Result<UndoView, IpcError>` (the newest not-undone journal whose root is the open library; `job-running` while a job gathers, applies or is paused; `nothing-to-undo` when this library has none; refreshes the entries whose art it touched)
   - `AppState::job_history(&self) -> Result<Vec<JobHistoryView>, IpcError>`
   - Commands (JS name → args → result): `start_fill` (`generation`, `request`) → `JobView`; `fill_job` → `JobView | null`; `fill_job_items` (`job`, `filter`) → `JobItemView[]`; `decide_fill` (`job`, `decisions`) → `JobView`; `run_fill` (`job`) → `JobView`; `resume_fill` (`job`) → `JobView`; `cancel_fill` (`job`) → `JobView`; `candidate_art` (`job`, `index`, `candidate`) → bytes; `undo_last_job` (`generation`) → `UndoView`; `job_history` → `JobHistoryView[]`
   - Events: `fill-job-progress` (`JobProgressEvent`), `fill-job-changed` (`JobView`), `library-entries-updated` (`EntriesUpdatedEvent`)
@@ -4301,9 +4342,9 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::fill::{fill_world, request, wait_for, FillWorld, Recorder};
+use common::fill::{fill_world, request, wait_for, FillWorld, Recorder, ADVENTURE_USA};
 use coverly_core::fill::Endpoints;
-use coverly_core::net::testing::HangingServer;
+use coverly_core::net::testing::{HangingServer, MockResponse};
 use coverly_core::net::NetConfig;
 use coverly_core::profiles::Media;
 use coverly_core::settings::LIBRARY_SETTINGS_FILE;
@@ -4420,6 +4461,61 @@ fn undo_is_refused_while_a_job_runs() {
     st.jobs().cancel(id).unwrap();
     wait_for(&ev.rec, JobState::Cancelled);
 }
+
+#[test]
+fn undo_is_refused_while_a_job_is_paused() {
+    let w = fill_world();
+    let serial = FillConfig {
+        net: NetConfig {
+            concurrency: 1,
+            retries: 0,
+            ..NetConfig::default()
+        },
+        ..(*w.cfg).clone()
+    };
+    let (st, ev, generation) = opened(&w, serial);
+    let id = st
+        .start_fill(generation, &request(None), ev.clone())
+        .unwrap()
+        .id;
+    wait_for(&ev.rec, JobState::Planned);
+    w.server.mock(
+        ADVENTURE_USA,
+        MockResponse::status(429).header("Retry-After", "0"),
+    );
+    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    wait_for(&ev.rec, JobState::Paused);
+    // Resume appends to this journal: undoing it now would break the resume.
+    assert_eq!(st.undo_last_job(generation), Err(IpcError::JobRunning));
+    st.jobs().cancel(id).unwrap();
+    assert_eq!(st.undo_last_job(generation).unwrap().removed, 1);
+}
+
+#[test]
+fn undo_only_touches_the_open_library() {
+    let w = fill_world();
+    let (st, ev, generation) = opened(&w, (*w.cfg).clone());
+    let id = st
+        .start_fill(generation, &request(None), ev.clone())
+        .unwrap()
+        .id;
+    wait_for(&ev.rec, JobState::Planned);
+    st.jobs().run(st.fill_config(), id, ev.clone()).unwrap();
+    wait_for(&ev.rec, JobState::Done);
+    let cover = w.lib.path().join("ROMS/GBA/Imgs/001 Golden Sun.png");
+    assert!(cover.exists());
+    // Another library is opened: the first library's job is not its to undo.
+    let other = common::anbernic_tree(&["GBA"], 2, 0);
+    let view = st
+        .open(other.path(), None, &SystemDb::builtin(), &mut |_| {})
+        .unwrap();
+    assert_eq!(
+        st.undo_last_job(view.generation),
+        Err(IpcError::NothingToUndo)
+    );
+    assert!(cover.exists());
+    assert!(!st.job_history().unwrap()[0].undone);
+}
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -4431,7 +4527,7 @@ Expected: FAIL to compile — `start_fill`, `jobs`, `undo_last_job`, `job_histor
 
 `src-tauri/src/state.rs`:
 - field `jobs: JobManager` (initialised with `JobManager::default()` in `new`).
-- imports: add `use crate::jobs::view::{FillRequest, JobHistoryView, JobView, UndoView};` and `use coverly_core::write::{list_jobs, undo_last};`; the Task 4 imports become `use crate::jobs::{FillConfig, JobEvents, JobManager};` and `use crate::library::refresh::{ids_for_art_paths, refresh_entries, EntryArtUpdate};`.
+- imports: add `use crate::jobs::view::{FillRequest, JobHistoryView, JobState, JobView, UndoView};` and `use coverly_core::write::{list_jobs, undo_job};`; the Task 4 imports become `use crate::jobs::{FillConfig, JobEvents, JobManager};` and `use crate::library::refresh::{ids_for_art_paths, refresh_entries, EntryArtUpdate};`.
 - methods:
 
 ```rust
@@ -4450,27 +4546,38 @@ Expected: FAIL to compile — `start_fill`, `jobs`, `undo_last_job`, `job_histor
         self.jobs.start(self.fill_config(), session, req, events)
     }
 
-    /// Undoes the newest journal (fill, drawer change, removal) and
-    /// refreshes the entries of library `generation` it touched.
+    /// Undoes the newest not-undone journal of the open library
+    /// `generation` (fill, drawer change, removal) and refreshes the
+    /// entries it touched. Refused while a job gathers, applies or is
+    /// paused (a paused job resumes into its journal); journals of other
+    /// libraries are never touched. Journals keep `absolute(session.root)`
+    /// (the root of every app write, Tasks 5 and 7).
     pub fn undo_last_job(&self, generation: u64) -> Result<UndoView, IpcError> {
-        if self.jobs.busy() {
+        let paused = self
+            .jobs
+            .current()
+            .is_some_and(|j| j.state == JobState::Paused);
+        if self.jobs.busy() || paused {
             return Err(IpcError::JobRunning);
         }
-        let report = undo_last(&self.fill.data_dir)?;
-        let entries = match self.session(generation) {
-            Ok(session) => {
-                let paths: Vec<PathBuf> = report
-                    .removed
-                    .iter()
-                    .chain(&report.restored)
-                    .filter(|p| p.starts_with(&session.root))
-                    .cloned()
-                    .collect();
-                let ids = ids_for_art_paths(&session, &paths);
-                self.refresh_entries(generation, &ids, &SystemDb::builtin())?
-            }
-            Err(_) => Vec::new(),
-        };
+        let session = self.session(generation)?;
+        let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
+        let job = list_jobs(&self.fill.data_dir)?
+            .into_iter()
+            .find(|j| !j.undone && j.root == root)
+            .ok_or(IpcError::NothingToUndo)?;
+        let report = undo_job(&self.fill.data_dir, &job.job)?;
+        let paths: Vec<PathBuf> = report
+            .removed
+            .iter()
+            .chain(&report.restored)
+            .cloned()
+            .collect();
+        let ids = ids_for_art_paths(&session, &paths);
+        // The undo is done; a library reopened meanwhile only loses the refresh.
+        let entries = self
+            .refresh_entries(generation, &ids, &SystemDb::builtin())
+            .unwrap_or_default();
         Ok(UndoView::new(&report, entries))
     }
 
@@ -5500,7 +5607,7 @@ cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms && git add src-
   - `src/lib/csv.ts`: `csvField(value: string): string`, `csvRow(fields: readonly (string | number)[]): string`, `csvText(rows: readonly (readonly (string | number)[])[]): string`
   - mock: `mockClass(id: number, media: Media): ActionKind`, `mockFailure(id: number): ItemErrorKind | null`, `mockTitle(name: string): string`, `MOCK_PAUSE_DETAIL`; `MockOptions` gains `pauseAfter?: number | null` (default 25: the first apply run of each job pauses once with a rate limit after that many items; `null` never) and `pick?: 'image' | 'cancel' | 'not-image'` (what "From file…" picks; default `'image'`); `MockBackend` gains `readonly exports: MockExport[]` (`{ name, text }`)
 
-Mock rules (deterministic): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so undo restores the previous marks.
+Mock rules (deterministic; undo follows Rust: refused while a job runs or is paused, only journals of the open library): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so undo restores the previous marks.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5831,6 +5938,9 @@ describe('mock fill jobs', () => {
       detail: MOCK_PAUSE_DETAIL,
     });
     expect(p.journal).not.toBeNull();
+    await expect(b.undoLastJob(view.generation)).rejects.toMatchObject({
+      code: 'job-running',
+    });
     const done = next(b, 'done');
     await b.resumeFill(v.id);
     expect((await done).journal).toBe(p.journal);
@@ -6888,18 +6998,21 @@ export function createMockJobs(
     },
     async undoLastJob(generation) {
       notRunning();
-      const journal = [...journals].reverse().find((j) => !j.undone);
+      // Like Rust: a paused job resumes into its journal; only this library's journals.
+      if (job?.view.state === 'paused') throw new BackendError('job-running');
+      const view = library(generation);
+      const journal = [...journals]
+        .reverse()
+        .find((j) => !j.undone && j.root === view.root);
       if (!journal) throw new BackendError('nothing-to-undo');
       journal.undone = true;
-      const view = host.current();
-      const same = view !== null && view.generation === generation && view.root === journal.root;
       const updates: (EntryArtUpdate | null)[] = [];
       let removed = 0;
       let restored = 0;
       for (const c of [...journal.changes].reverse()) {
         if (c.before === 'present') restored += 1;
         else removed += 1;
-        const e = same ? fresh(c.id) : undefined;
+        const e = fresh(c.id);
         if (e) {
           const update = { id: c.id, art: { ...e.art, [c.media]: c.before } };
           host.patch([update]);
@@ -9294,7 +9407,7 @@ describe('Jobs panel', () => {
         mockClass(e.id, 'cover') === 'auto' &&
         mockFailure(e.id) !== null,
     );
-    if (failing.length === 0) return;
+    expect(failing.length).toBeGreaterThan(0);
     const list = await within(dialog).findByRole('list', {
       name: `Problems (${failing.length})`,
     });
@@ -9455,7 +9568,11 @@ export function JobsPanel({
 
   const errors = finished && failed?.job === jobId ? failed.items : [];
   const p = progress && job && progress.job === job.id ? progress : null;
-  const canUndo = !running && history.some((h) => !h.undone);
+  // Rust refuses while paused and only undoes journals of the open library.
+  const canUndo =
+    !running &&
+    job?.state !== 'paused' &&
+    history.some((h) => !h.undone && h.root === view.root);
 
   async function exportJob(format: ExportFormat) {
     const name = await exportReport(format);
@@ -10979,7 +11096,7 @@ Any bug found: write the failing test, fix it, commit `fix(…)`, re-run the ste
 - TL;DR: add one sentence: "Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview."
 - Layers table: add `Jobs | src-tauri/src/jobs/ | JobManager (one job), worker threads, JobEvents, wire views` and stores row `jobStore`.
 - IPC table: add the rows of Tasks 6–7 (`start_fill`, `fill_job`, `fill_job_items`, `decide_fill`, `run_fill`, `resume_fill`, `cancel_fill`, `candidate_art`, `undo_last_job`, `job_history`, `entry_candidates`, `entry_candidate_art`, `set_entry_art`, `set_entry_art_from_file`, `remove_entry_art`, `export_audit`, `export_job_report`) with their arguments, results and error codes (`job-running`, `no-job`, `stale-job`, `bad-request`, `nothing-to-undo`, `network`, `bad-image`, `write-denied`, `disk-full`, `name-invalid`), and the events `fill-job-progress`, `fill-job-changed`, `library-entries-updated`.
-- New section "Fill jobs": the state machine (copy it from Task 5), one job at a time, throttled progress (~20/s), `written` before `changed`, decisions recorded before Run, undecided review items skipped (D20), resume into the same journal (D21), undo = newest journal, refused while a job runs; "Re-scan of touched entries" (`subset_scan` + `resolve_art`, `refresh_entries` installs a new `Session` for the same generation).
+- New section "Fill jobs": the state machine (copy it from Task 5), one job at a time, throttled progress (~20/s), `written` before `changed`, decisions recorded before Run, undecided review items skipped (D20), resume into the same journal (D21), undo = newest not-undone journal of the open library, refused while a job gathers, applies or is paused; a panicking worker ends the job `failed`; "Re-scan of touched entries" (`subset_scan` + `resolve_art`, `refresh_entries` installs a new `Session` for the same generation).
 - Security: add "The image picker and the save dialog run in Rust (`DialogExt`); the webview never sends a path. Picked files are read up to 20 MiB and always decoded and re-encoded."
 - Mock adapter: add the job rules (Task 8 "Mock rules"), `pauseAfter`, `pick`, exports through Blob downloads.
 
@@ -10997,7 +11114,7 @@ Any bug found: write the failing test, fix it, commit `fix(…)`, re-run the ste
 - "Estado actual": fecha, fase "M4 implementado en `feat/m4-fill-app` (pendiente de PR)", siguiente paso "PR M4 + verificación independiente".
 - Decisions: add
   - `| D20 | En la app se escriben solo los ítems auto y los de revisión aceptados/elegidos; los de revisión sin decidir se omiten (la CLI mantiene D14) | 2026-10-16 | Claude (plan M4) |`
-  - `| D21 | Reanudar un job pausado continúa el mismo journal (Writer::resume): un único Deshacer revierte ambas tandas | 2026-10-16 | Claude (plan M4) |`
+  - `| D21 | Reanudar un job pausado continúa el mismo journal (Writer::resume): un único Deshacer revierte ambas tandas. En la app, Deshacer actúa solo sobre journals de la biblioteca abierta y se rechaza mientras un job está pausado | 2026-10-16 | Claude (plan M4) |`
   - `| D22 | M2-11: una variante beta/proto/demo/hack/sin licencia nunca es auto salvo coincidencia canónica o de nombre exacto, o si la ROM es esa variante; se antepone la primera release ≥ umbral de revisión | 2026-10-16 | Claude (plan M4) |`
   - `| D23 | Los diálogos de «Desde archivo…» y de exportar se abren desde Rust: la webview nunca envía rutas y no hay capacidades nuevas | 2026-10-16 | Claude (plan M4) |`
 - M2-11 → ✅ with the Task 1 commit and the real-run lines; M2-10, M2-12 stay ⬜ (note "aviso en el asistente para batocera" on M2-10).
@@ -11019,6 +11136,8 @@ Run every gate once more on the final tree and paste the summary lines (test cou
 ---
 
 ## Self-review notes
+
+- **Plan review (2026-10-16):** tightened job safety — worker phases are `guarded` (a panic ends the job `failed`, never `busy` forever); the app's Undo is scoped to the open library (`list_jobs` + `undo_job`) and refused while a job is paused (Rust, mock and the Jobs panel's `canUndo` agree); a vacuous early `return` in the Jobs panel test became an assertion. Known, accepted: `prune_jobs` (keep 10) could drop a paused job's journal after 10 more drawer writes — resume then ends the job `failed` with the I/O error, nothing is written.
 
 - **Spec coverage:** §7.3 select (wizard scope: selection / filter / library), §7.4–7.6 identify, fetch, choose (core `FillEnv::plan`, strategy + region order), §7.7 review (Task 10), §7.8 apply with backup and journal (Tasks 2, 3, 5), §7.9 re-scan of affected entries + report (Tasks 4, 6, 11, 12); §8 Fill wizard (Task 9), Review queue (Task 10; "search" deferred, M4-05), Jobs (Task 11), Reports (Task 12), drawer change / from file / remove (Tasks 7, 12); §10 per-item errors, pause on rate limit/offline/volume with resume (Tasks 2, 5, 11); §11 every image decoded and re-encoded, no paths from the webview (Tasks 3, 7); M2-11 (Task 1); exit criterion "fill missing covers on the SD copy from the UI" → mock E2E of the UI + the real run of the same job path the UI drives (Task 13).
 - **Types used across tasks:** `FillRequest`, `JobView`, `JobItemView`, `CandidateView`, `DecisionIn` (`{ index, choice, candidate? }`), `EntryArtUpdate`, `UndoView`, `JobHistoryView`/`JobHistoryItem`, `ExportFormat` are defined once in Rust (Task 4) and mirrored once in TS (Task 8), pinned by `contract.sample.json` / `contract.requests.json`.
