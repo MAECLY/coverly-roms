@@ -1,0 +1,272 @@
+//! User-defined layout profiles (spec §5, D29).
+
+use std::collections::BTreeMap;
+use std::fs;
+
+use coverly_core::profiles::custom::*;
+use coverly_core::profiles::{builtin_profiles, ImageFormat, Media};
+use coverly_core::settings::FieldErrorCode;
+use coverly_core::systems::SystemDb;
+
+fn builtin_ids() -> Vec<String> {
+    builtin_profiles().into_iter().map(|p| p.id).collect()
+}
+
+fn sample() -> ProfileFile {
+    ProfileFile {
+        id: "my-sd".into(),
+        name: "My SD".into(),
+        roms_root: "Roms".into(),
+        art_dirs: vec!["Imgs".into()],
+        gamelist: false,
+        slots: BTreeMap::from([(
+            "cover".to_string(),
+            SlotFile {
+                template: "{system_dir}/{rel_dir}/Imgs/{stem}.png".into(),
+                format: ImageFormat::Png,
+                max_width: Some(250),
+                max_height: Some(360),
+            },
+        )]),
+    }
+}
+
+fn errors(p: &ProfileFile) -> Vec<(String, FieldErrorCode)> {
+    validate_profile(p, &builtin_ids())
+        .into_iter()
+        .map(|e| (e.field, e.code))
+        .collect()
+}
+
+fn has(p: &ProfileFile, field: &str, code: FieldErrorCode) -> bool {
+    errors(p).contains(&(field.to_string(), code))
+}
+
+#[test]
+fn a_valid_profile_round_trips_through_toml_and_into_a_profile() {
+    let p = sample();
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let text = p.to_toml();
+    assert!(text.contains("id = \"my-sd\""), "{text}");
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), p);
+    let profile = p.to_profile();
+    assert_eq!(profile.id, "my-sd");
+    assert!(profile.mirror_subdirs);
+    assert!(!profile.fixed_format && !profile.gamelist);
+    let slot = profile.slot(Media::Cover).unwrap();
+    assert_eq!(slot.max_size, Some((250, 360)));
+    assert_eq!(ProfileFile::from_profile(&profile), p);
+}
+
+#[test]
+fn every_builtin_profile_converts_and_validates_except_its_reserved_id() {
+    for b in builtin_profiles() {
+        let mut f = ProfileFile::from_profile(&b);
+        assert!(has(&f, "id", FieldErrorCode::Duplicate), "{}", b.id);
+        f.id = format!("copy-of-{}", b.id);
+        assert!(errors(&f).is_empty(), "{}: {:?}", b.id, errors(&f));
+        assert_eq!(f.to_profile().slots, b.slots, "{}", b.id);
+    }
+}
+
+#[test]
+fn ids_names_and_folders_are_checked() {
+    let mut p = sample();
+    p.id = "My SD!".into();
+    assert!(has(&p, "id", FieldErrorCode::Invalid));
+    p.id = "../evil".into();
+    assert!(has(&p, "id", FieldErrorCode::Invalid));
+    let mut p = sample();
+    p.name = "  ".into();
+    assert!(has(&p, "name", FieldErrorCode::Required));
+    p.name = "bad\u{7}".into();
+    assert!(has(&p, "name", FieldErrorCode::Invalid));
+    for root in ["../up", "/abs", "a/../b", "C:\\x", "a\\b"] {
+        let mut p = sample();
+        p.roms_root = root.into();
+        assert!(has(&p, "roms_root", FieldErrorCode::Invalid), "{root}");
+    }
+    let mut p = sample();
+    p.art_dirs = vec!["a/b".into()];
+    assert!(has(&p, "art_dirs", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn templates_must_stay_inside_the_library() {
+    let cases = [
+        ("{root}/../outside/{stem}.png", FieldErrorCode::Invalid),
+        ("/abs/{stem}.png", FieldErrorCode::Invalid),
+        ("Imgs/{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}/./Imgs/{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}//{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}\\{stem}.png", FieldErrorCode::Invalid),
+        ("{system_dir}/{nope}/{stem}.png", FieldErrorCode::Unknown),
+        ("{system_dir}/Imgs/cover.png", FieldErrorCode::Invalid),
+        ("{system_dir}/Imgs/{stem}.jpg", FieldErrorCode::Invalid),
+        ("", FieldErrorCode::Required),
+    ];
+    for (template, code) in cases {
+        let mut p = sample();
+        p.slots.get_mut("cover").unwrap().template = template.into();
+        assert!(
+            has(&p, "slots.cover.template", code),
+            "{template}: {:?}",
+            errors(&p)
+        );
+    }
+}
+
+#[test]
+fn slots_are_checked_as_a_set() {
+    let mut p = sample();
+    p.slots.clear();
+    assert!(has(&p, "slots", FieldErrorCode::Required));
+    let mut p = sample();
+    p.slots.insert(
+        "marquee".into(),
+        SlotFile {
+            template: "{system_dir}/{stem}.png".into(),
+            format: ImageFormat::Png,
+            max_width: None,
+            max_height: None,
+        },
+    );
+    assert!(has(&p, "slots.marquee", FieldErrorCode::Unknown));
+    let mut p = sample();
+    p.slots.insert(
+        "title".into(),
+        SlotFile {
+            template: "{system_dir}/titles/{stem}.png".into(),
+            format: ImageFormat::Png,
+            max_width: None,
+            max_height: None,
+        },
+    );
+    assert!(
+        has(&p, "slots", FieldErrorCode::Order),
+        "{{rel_dir}} in one slot only"
+    );
+    let mut p = sample();
+    p.slots.get_mut("cover").unwrap().max_width = Some(8);
+    assert!(has(&p, "slots.cover.max_width", FieldErrorCode::Range));
+}
+
+#[test]
+fn preview_renders_library_relative_paths() {
+    let mut p = sample();
+    p.slots.insert(
+        "title".into(),
+        SlotFile {
+            template: "{root}/thumbs/{libretro}/{rel_dir}/{stem}.png".into(),
+            format: ImageFormat::Png,
+            max_width: None,
+            max_height: None,
+        },
+    );
+    let ex = PreviewExample {
+        system_folder: "SFC".into(),
+        rel_dir: "Hacks".into(),
+        file_name: "Zelda (USA).sfc".into(),
+    };
+    let paths = preview_paths(&p, &ex, &SystemDb::builtin());
+    assert_eq!(paths["cover"], "Roms/SFC/Hacks/Imgs/Zelda (USA).png");
+    assert_eq!(
+        paths["title"],
+        "thumbs/Nintendo - Super Nintendo Entertainment System/Hacks/Zelda (USA).png"
+    );
+    let mut broken = p.clone();
+    broken.slots.get_mut("cover").unwrap().template = "{root}/../{stem}.png".into();
+    let paths = preview_paths(&broken, &ex, &SystemDb::builtin());
+    assert!(
+        !paths.contains_key("cover"),
+        "a bad template has no preview"
+    );
+}
+
+#[test]
+fn the_store_saves_renames_deletes_and_skips_hostile_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ProfileStore::new(dir.path().join(PROFILES_DIR));
+    let (none, warnings) = store.load();
+    assert!(none.is_empty() && warnings.is_empty());
+    let p = sample();
+    store.save(&p, None).unwrap();
+    let mut renamed = p.clone();
+    renamed.id = "my-sd-2".into();
+    store.save(&renamed, Some("my-sd")).unwrap();
+    let pdir = dir.path().join(PROFILES_DIR);
+    assert!(!pdir.join("my-sd.toml").exists() && pdir.join("my-sd-2.toml").exists());
+    fs::write(pdir.join("broken.toml"), "id = [").unwrap();
+    fs::write(pdir.join("liar.toml"), sample().to_toml()).unwrap(); // id my-sd ≠ liar
+    fs::write(
+        pdir.join("big.toml"),
+        "#".repeat(MAX_PROFILE_BYTES as usize + 1),
+    )
+    .unwrap();
+    let mut builtin = sample();
+    builtin.id = "onion".into();
+    fs::write(pdir.join("onion.toml"), builtin.to_toml()).unwrap();
+    fs::write(pdir.join("notes.txt"), "ignored").unwrap();
+    let (loaded, warnings) = store.load();
+    assert_eq!(
+        loaded.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        ["my-sd-2"]
+    );
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
+    assert!(store.delete("my-sd-2").unwrap());
+    assert!(!store.delete("my-sd-2").unwrap());
+    assert!(store.delete("../../etc/passwd").is_err());
+}
+
+#[test]
+fn custom_profiles_are_listed_after_the_builtins_and_found_by_id() {
+    let customs = vec![sample()];
+    let all = all_profiles(&customs);
+    assert_eq!(all.len(), builtin_profiles().len() + 1);
+    assert!(all[0].1, "built-ins first");
+    assert_eq!(all.last().unwrap().0.id, "my-sd");
+    assert!(!all.last().unwrap().1);
+    assert_eq!(find_profile(&customs, "MY-SD").unwrap().id, "my-sd");
+    assert_eq!(find_profile(&customs, "onion").unwrap().id, "onion");
+    assert!(find_profile(&customs, "nope").is_none());
+}
+
+#[test]
+fn only_batocera_writes_a_gamelist() {
+    for p in builtin_profiles() {
+        assert_eq!(p.gamelist, p.id == "batocera", "{}", p.id);
+    }
+}
+
+#[test]
+fn a_hostile_preview_example_never_points_outside_the_library() {
+    let p = sample();
+    for (system_folder, rel_dir) in [("..", ""), ("SFC", "../../etc"), ("a/../..", "x")] {
+        let ex = PreviewExample {
+            system_folder: system_folder.into(),
+            rel_dir: rel_dir.into(),
+            file_name: "Zelda (USA).sfc".into(),
+        };
+        let paths = preview_paths(&p, &ex, &SystemDb::builtin());
+        assert!(
+            paths
+                .values()
+                .all(|v| !v.split('/').any(|s| s == ".." || s.is_empty())),
+            "{system_folder} {rel_dir}: {paths:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn folders_and_links_named_like_profiles_are_skipped_with_a_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let pdir = dir.path().join(PROFILES_DIR);
+    fs::create_dir_all(pdir.join("folder.toml")).unwrap();
+    let outside = dir.path().join("outside.toml");
+    fs::write(&outside, sample().to_toml()).unwrap();
+    std::os::unix::fs::symlink(&outside, pdir.join("my-sd.toml")).unwrap();
+    let (loaded, warnings) = ProfileStore::new(pdir).load();
+    assert!(loaded.is_empty());
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+}

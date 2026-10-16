@@ -66,22 +66,25 @@ pub fn builtin_profiles() -> Vec<Profile> {
             ],
             None,
         ),
-        profile(
-            "batocera",
-            "Batocera / Knulli / EmulationStation",
-            "roms",
-            &["images", "videos", "manuals", "magazines"],
-            false,
-            &[
-                (Media::Cover, "{system_dir}/images/{stem}-image.png"),
-                (
-                    Media::Screenshot,
-                    "{system_dir}/images/{stem}-screenshot.png",
-                ),
-                (Media::Title, "{system_dir}/images/{stem}-titleshot.png"),
-            ],
-            None,
-        ),
+        Profile {
+            gamelist: true,
+            ..profile(
+                "batocera",
+                "Batocera / Knulli / EmulationStation",
+                "roms",
+                &["images", "videos", "manuals", "magazines"],
+                false,
+                &[
+                    (Media::Cover, "{system_dir}/images/{stem}-image.png"),
+                    (
+                        Media::Screenshot,
+                        "{system_dir}/images/{stem}-screenshot.png",
+                    ),
+                    (Media::Title, "{system_dir}/images/{stem}-titleshot.png"),
+                ],
+                None,
+            )
+        },
         Profile {
             fixed_format: true,
             ..profile(
@@ -152,6 +155,7 @@ fn profile(
             })
             .collect::<HashMap<_, _>>(),
         fixed_format: false,
+        gamelist: false,
     }
 }
 
