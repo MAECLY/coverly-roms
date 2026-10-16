@@ -1,0 +1,327 @@
+import { act, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { Root } from '@/Root';
+import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
+import { FIXTURE_NOW } from '@/ipc/mock/fixture';
+import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
+import { resetLibraryStore } from '@/stores/libraryStore';
+import { useNavStore, type SettingsSection } from '@/stores/navStore';
+import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
+import { stubLayout } from '@/test/layout';
+import { MemoryStorage } from '@/test/storage';
+
+let backend: MockBackend;
+let restore: () => void;
+
+async function open(section: SettingsSection) {
+  render(<Root />);
+  await screen.findByRole('button', { name: 'Settings' });
+  act(() => useNavStore.getState().openSettings(section));
+  return screen.findByRole('tabpanel');
+}
+
+const saved = async () => (await backend.getSettings()).settings;
+
+describe('settings sections', () => {
+  beforeEach(() => {
+    backend = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+    });
+    setBackend(backend);
+    resetSettingsStore();
+    resetLibraryStore();
+    // A previous test leaves the settings screen open.
+    useNavStore.getState().closeSettings();
+    restore = stubLayout(1280, 800);
+  });
+  afterEach(() => {
+    restore();
+    vi.restoreAllMocks();
+    setBackend(null);
+  });
+
+  it('art: media, single slot, format, aspect, quality, overwrite and a per-profile size', async () => {
+    await open('art');
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: 'Title screen' }),
+    );
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Image for single-slot layouts' }),
+      'screenshot',
+    );
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Output format' }),
+      'jpg',
+    );
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: 'Keep the aspect ratio' }),
+    );
+    const quality = screen.getByRole('textbox', { name: 'JPEG quality' });
+    await userEvent.clear(quality);
+    await userEvent.type(quality, '75{enter}');
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Ask every time' }),
+    );
+    const width = screen.getByRole('textbox', {
+      name: 'Onion OS: maximum width',
+    });
+    const height = screen.getByRole('textbox', {
+      name: 'Onion OS: maximum height',
+    });
+    await userEvent.type(width, '300');
+    await userEvent.type(height, '420{enter}');
+    const s = await saved();
+    expect(s.art).toMatchObject({
+      media: ['cover', 'screenshot'],
+      single_slot_media: 'screenshot',
+      output_format: 'jpg',
+      keep_aspect: false,
+      jpeg_quality: 75,
+      overwrite: 'ask',
+    });
+    expect(s.art.max_size['onion']).toEqual({ width: 300, height: 420 });
+    // Emptying both removes the override (a `null` in the merge patch).
+    await userEvent.clear(width);
+    await userEvent.clear(height);
+    await userEvent.tab();
+    expect((await saved()).art.max_size['onion']).toBeUndefined();
+  });
+
+  it('art: a size that is not a number is refused and a reset empties the row', async () => {
+    await open('art');
+    const width = screen.getByRole('textbox', {
+      name: 'Onion OS: maximum width',
+    });
+    const height = screen.getByRole('textbox', {
+      name: 'Onion OS: maximum height',
+    });
+    await userEvent.type(width, 'abc');
+    await userEvent.type(height, '420{enter}');
+    expect(
+      await screen.findByText('This value is not valid.'),
+    ).toBeInTheDocument();
+    expect((await saved()).art.max_size['onion']).toBeUndefined();
+    await userEvent.clear(width);
+    await userEvent.type(width, '300{enter}');
+    expect((await saved()).art.max_size['onion']).toEqual({
+      width: 300,
+      height: 420,
+    });
+    expect(
+      screen.queryByText('This value is not valid.'),
+    ).not.toBeInTheDocument();
+    await act(() => useSettingsStore.getState().reset());
+    expect(width).toHaveValue('');
+    expect(height).toHaveValue('');
+  });
+
+  it('matching: strategy, region order, languages, thresholds and toggles', async () => {
+    await open('matching');
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Source priority' }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Move USA up' }));
+    const langs = screen.getByRole('textbox', { name: 'Preferred languages' });
+    await userEvent.clear(langs);
+    await userEvent.type(langs, 'es, en');
+    await userEvent.tab();
+    const auto = screen.getByRole('textbox', {
+      name: 'Auto-accept threshold (%)',
+    });
+    await userEvent.clear(auto);
+    await userEvent.type(auto, '95{enter}');
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: 'Fuzzy name matching' }),
+    );
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'How ROMs are identified' }),
+      'name-only',
+    );
+    const s = await saved();
+    expect(s.matching).toMatchObject({
+      strategy: 'priority',
+      regions: ['rom', 'usa', 'world', 'europe', 'japan'],
+      languages: ['es', 'en'],
+      auto_threshold: 0.95,
+      fuzzy: false,
+      match_method: 'name-only',
+    });
+  });
+
+  it('matching: a review threshold above the auto one is an error next to the field', async () => {
+    await open('matching');
+    const review = screen.getByRole('textbox', {
+      name: 'Review threshold (%)',
+    });
+    await userEvent.clear(review);
+    await userEvent.type(review, '99{enter}');
+    expect(
+      await screen.findByText(
+        'This must not be higher than the auto-accept threshold.',
+      ),
+    ).toBeInTheDocument();
+    expect(review).toHaveValue('99');
+    expect((await saved()).matching.review_threshold).toBe(0.65);
+  });
+
+  it('sources: later sources are shown as coming soon and credentials are stored without coming back', async () => {
+    const panel = await open('sources');
+    const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
+    expect(sgdb).toBeDisabled();
+    expect(within(panel).getAllByText('Coming in a later version').length).toBe(
+      2,
+    );
+    const key = within(panel).getByLabelText('SteamGridDB API key');
+    expect(key).toHaveAttribute('type', 'password');
+    await userEvent.type(key, 'sk-SECRET');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
+    );
+    expect(
+      await within(panel).findByText('Saved in the system keychain.'),
+    ).toBeInTheDocument();
+    expect(key).toHaveValue('');
+    expect(document.body.innerHTML).not.toContain('sk-SECRET');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Remove SteamGridDB API key' }),
+    );
+    expect((await backend.credentialStatus()).set['steamgriddb-api-key']).toBe(
+      false,
+    );
+  });
+
+  it('network: invalid timeout shows an error, keeps the typed value and other fields still save', async () => {
+    await open('network');
+    const timeout = screen.getByRole('textbox', { name: 'Timeout (seconds)' });
+    await userEvent.clear(timeout);
+    await userEvent.type(timeout, '1{enter}');
+    expect(
+      await screen.findByText('Use a value from 5 to 300.'),
+    ).toBeInTheDocument();
+    expect(timeout).toHaveValue('1');
+    const retries = screen.getByRole('textbox', { name: 'Retries' });
+    await userEvent.clear(retries);
+    await userEvent.type(retries, '5{enter}');
+    expect((await saved()).network).toMatchObject({
+      retries: 5,
+      timeout_secs: 30,
+    });
+    await userEvent.click(screen.getByRole('radio', { name: 'Manual' }));
+    expect(
+      await screen.findByText('This cannot be empty.'),
+    ).toBeInTheDocument();
+    const url = screen.getByRole('textbox', { name: 'Proxy URL' });
+    await userEvent.type(url, 'http://proxy.local:3128');
+    await userEvent.tab();
+    await userEvent.click(screen.getByRole('radio', { name: 'Manual' }));
+    expect((await saved()).network).toMatchObject({
+      proxy: 'manual',
+      proxy_url: 'http://proxy.local:3128',
+    });
+  });
+
+  it('network: clears the cache after a confirmation', async () => {
+    await open('network');
+    expect(await screen.findByText(/In use: 48/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear cache…' }));
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Clear cache',
+      }),
+    );
+    expect(await screen.findByText(/Freed 48/)).toBeInTheDocument();
+    expect(await backend.cacheUsage()).toBe(0);
+  });
+
+  it('safety: backups are locked on; the rest saves', async () => {
+    await open('safety');
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Back up files before replacing them',
+      }),
+    ).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Simulate before writing (dry run first)',
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Delete macOS ._ files on removable drives',
+      }),
+    );
+    const depth = screen.getByRole('textbox', { name: 'Jobs kept for undo' });
+    await userEvent.clear(depth);
+    await userEvent.type(depth, '20{enter}');
+    const folder = screen.getByRole('textbox', { name: 'Backup folder' });
+    await userEvent.type(folder, 'relative/path');
+    await userEvent.tab();
+    expect(
+      await screen.findByText(
+        'Use a full path (starting with / or a drive letter).',
+      ),
+    ).toBeInTheDocument();
+    expect((await saved()).safety).toMatchObject({
+      dry_run_default: false,
+      clean_apple_double: false,
+      undo_depth: 20,
+      backup_dir: null,
+    });
+  });
+
+  it('advanced: log level, folders and reset with confirmation', async () => {
+    await open('advanced');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Log level' }),
+      'debug',
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Open logs folder' }),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Open settings folder' }),
+    );
+    expect(backend.opened).toEqual(['folder:logs', 'folder:config']);
+    expect((await saved()).advanced.log_level).toBe('debug');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Reset all settings…' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    );
+    expect((await saved()).advanced.log_level).toBe('debug');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Reset all settings…' }),
+    );
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Reset settings',
+      }),
+    );
+    expect((await saved()).advanced.log_level).toBe('info');
+  });
+
+  it('safety and advanced: folders that cannot be picked or opened show the error', async () => {
+    vi.spyOn(backend, 'pickFolder').mockRejectedValue(
+      new BackendError('io', 'picker broke'),
+    );
+    vi.spyOn(backend, 'openLogsFolder').mockRejectedValue(
+      new BackendError('io', 'no opener'),
+    );
+    await open('safety');
+    await userEvent.click(screen.getByRole('button', { name: 'Choose…' }));
+    expect(await screen.findByText(/picker broke/)).toBeInTheDocument();
+    expect((await saved()).safety.backup_dir).toBeNull();
+    act(() => useNavStore.getState().setSection('advanced'));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Open logs folder' }),
+    );
+    expect(await screen.findByText(/no opener/)).toBeInTheDocument();
+  });
+});

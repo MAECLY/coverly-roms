@@ -82,6 +82,126 @@
       "recent": "Bibliotecas recientes",
       "recentEmpty": "No hay bibliotecas recientes.",
       "forget": "Olvidar"
+    },
+    "art": {
+      "media": "Arte que rellenar",
+      "singleSlot": "Imagen para estructuras de un solo hueco",
+      "singleSlotHint": "Anbernic, GarlicOS, Onion y MinUI muestran una sola imagen por juego.",
+      "format": "Formato de salida",
+      "formatHint": "RetroArch siempre usa PNG.",
+      "formats": {
+        "profile": "El que indique la estructura",
+        "png": "PNG",
+        "jpg": "JPEG"
+      },
+      "keepAspect": "Mantener la proporción",
+      "jpegQuality": "Calidad JPEG",
+      "overwrite": "Cuando ya hay arte",
+      "overwrites": {
+        "never": "Conservarlo (rellenar solo lo que falta)",
+        "ask": "Preguntar cada vez",
+        "backup": "Sustituirlo (con copia de seguridad)"
+      },
+      "maxSize": "Imagen más grande por estructura",
+      "maxSizeHint": "Déjalo vacío para usar el límite propio de la estructura.",
+      "profile": "Estructura",
+      "width": "Ancho",
+      "height": "Alto",
+      "noLimit": "Sin límite",
+      "maxWidth": "{profile}: ancho máximo",
+      "maxHeight": "{profile}: alto máximo"
+    },
+    "matching": {
+      "strategy": "Cómo se elige el arte",
+      "regions": "Orden de regiones",
+      "addRegion": "Añadir región",
+      "remove": "Quitar {region}",
+      "languages": "Idiomas preferidos",
+      "languagesHint": "Códigos de dos letras separados por comas (en, es, fr…). Sirven para desempatar.",
+      "auto": "Umbral de aceptación automática (%)",
+      "review": "Umbral de revisión (%)",
+      "fuzzy": "Coincidencia aproximada de nombres",
+      "arcade": "Traducir nombres cortos de arcade",
+      "method": "Cómo se identifican las ROMs",
+      "methods": {
+        "hash-then-name": "Hash del contenido y después nombre de archivo",
+        "hash-only": "Solo hash del contenido",
+        "name-only": "Solo nombre de archivo (sin hash)"
+      },
+      "maxHash": "Archivo más grande para calcular el hash (MB)"
+    },
+    "sources": {
+      "name": {
+        "libretro": "libretro-thumbnails",
+        "steamgriddb": "SteamGridDB",
+        "screenscraper": "ScreenScraper"
+      },
+      "later": "Llegará en una versión posterior",
+      "up": "Subir {name}",
+      "down": "Bajar {name}",
+      "credentials": "Cuentas",
+      "credentialsHint": "Se guardan en el llavero del sistema, nunca en el archivo de configuración. Se usarán cuando lleguen estas fuentes.",
+      "credential": {
+        "steamgriddb-api-key": "Clave de API de SteamGridDB",
+        "screenscraper-user": "Usuario de ScreenScraper",
+        "screenscraper-password": "Contraseña de ScreenScraper"
+      },
+      "save": "Guardar {what}",
+      "saveShort": "Guardar",
+      "remove": "Quitar {what}",
+      "removeShort": "Quitar",
+      "stored": "Guardada en el llavero del sistema.",
+      "notStored": "Sin configurar."
+    },
+    "network": {
+      "concurrency": "Descargas simultáneas",
+      "timeout": "Tiempo de espera (segundos)",
+      "retries": "Reintentos",
+      "proxy": "Proxy",
+      "proxies": {
+        "system": "Sistema",
+        "env": "Variables de entorno",
+        "manual": "Manual"
+      },
+      "proxyHint": "Sistema usa las variables estándar HTTPS_PROXY / HTTP_PROXY.",
+      "proxyUrl": "URL del proxy",
+      "cacheMax": "Límite de la caché (MB)",
+      "refresh": "Actualizar las listas de las fuentes cada (horas)",
+      "inUse": "En uso: {size}",
+      "clear": "Vaciar caché…",
+      "clearTitle": "¿Vaciar la caché?",
+      "clearBody": "Se borran el arte descargado y las listas de las fuentes. Se conservan las coincidencias manuales y el historial para deshacer.",
+      "clearYes": "Vaciar caché",
+      "cancel": "Cancelar",
+      "freed": "Liberados {size}."
+    },
+    "safety": {
+      "backup": "Hacer copia antes de sustituir archivos",
+      "backupHint": "Siempre activado: Deshacer necesita las copias.",
+      "backupDir": "Carpeta de copias",
+      "backupDirHint": "Vacío: la carpeta propia de la app. Si la cambias, Deshacer deja de ver los trabajos guardados en la carpeta anterior.",
+      "choose": "Elegir…",
+      "dryRun": "Simular antes de escribir (primero en seco)",
+      "appleDouble": "Borrar los archivos ._ de macOS en unidades extraíbles",
+      "undoDepth": "Trabajos guardados para deshacer"
+    },
+    "advanced": {
+      "logLevel": "Nivel de registro",
+      "levels": {
+        "error": "Solo errores",
+        "warn": "Avisos",
+        "info": "Información",
+        "debug": "Depuración"
+      },
+      "openLogs": "Abrir la carpeta de registros",
+      "openConfig": "Abrir la carpeta de configuración",
+      "customDir": "Carpeta de perfiles personalizados",
+      "customDirHint": "Vacío: la carpeta de perfiles dentro de la carpeta de configuración.",
+      "reset": "Restablecer toda la configuración…",
+      "resetTitle": "¿Restablecer toda la configuración?",
+      "resetBody": "Todos los ajustes vuelven a su valor predeterminado. Se conservan las bibliotecas recientes y se guarda una copia de la configuración actual.",
+      "resetYes": "Restablecer configuración",
+      "cancel": "Cancelar"
     }
   },
   "about": {

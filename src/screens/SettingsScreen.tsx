@@ -1,8 +1,14 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
 
 import { AboutSection } from '@/components/settings/AboutSection';
+import { AdvancedSection } from '@/components/settings/AdvancedSection';
+import { ArtSection } from '@/components/settings/ArtSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
+import { MatchingSection } from '@/components/settings/MatchingSection';
+import { NetworkSection } from '@/components/settings/NetworkSection';
+import { SafetySection } from '@/components/settings/SafetySection';
+import { SourcesSection } from '@/components/settings/SourcesSection';
 import { useT } from '@/i18n/useT';
 import { errorKey } from '@/ipc/errors';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -26,12 +32,12 @@ export const SECTION_COMPONENTS: Record<
 > = {
   general: GeneralSection,
   library: LibrarySection,
-  art: Pending,
-  matching: Pending,
-  sources: Pending,
-  network: Pending,
-  safety: Pending,
-  advanced: Pending,
+  art: ArtSection,
+  matching: MatchingSection,
+  sources: SourcesSection,
+  network: NetworkSection,
+  safety: SafetySection,
+  advanced: AdvancedSection,
   profiles: Pending,
   about: AboutSection,
 };

@@ -82,6 +82,126 @@
       "recent": "Recent libraries",
       "recentEmpty": "No recent libraries.",
       "forget": "Forget"
+    },
+    "art": {
+      "media": "Art to fill",
+      "singleSlot": "Image for single-slot layouts",
+      "singleSlotHint": "Anbernic, GarlicOS, Onion and MinUI show one image per game.",
+      "format": "Output format",
+      "formatHint": "RetroArch always uses PNG.",
+      "formats": {
+        "profile": "As the layout says",
+        "png": "PNG",
+        "jpg": "JPEG"
+      },
+      "keepAspect": "Keep the aspect ratio",
+      "jpegQuality": "JPEG quality",
+      "overwrite": "When art already exists",
+      "overwrites": {
+        "never": "Keep it (fill only missing art)",
+        "ask": "Ask every time",
+        "backup": "Replace it (with a backup)"
+      },
+      "maxSize": "Largest image per layout",
+      "maxSizeHint": "Leave empty to use the layout's own limit.",
+      "profile": "Layout",
+      "width": "Width",
+      "height": "Height",
+      "noLimit": "No limit",
+      "maxWidth": "{profile}: maximum width",
+      "maxHeight": "{profile}: maximum height"
+    },
+    "matching": {
+      "strategy": "How the art is picked",
+      "regions": "Region order",
+      "addRegion": "Add region",
+      "remove": "Remove {region}",
+      "languages": "Preferred languages",
+      "languagesHint": "Two-letter codes, comma-separated (en, es, fr…). Used to break ties.",
+      "auto": "Auto-accept threshold (%)",
+      "review": "Review threshold (%)",
+      "fuzzy": "Fuzzy name matching",
+      "arcade": "Translate arcade short names",
+      "method": "How ROMs are identified",
+      "methods": {
+        "hash-then-name": "Content hash, then file name",
+        "hash-only": "Content hash only",
+        "name-only": "File name only (no hashing)"
+      },
+      "maxHash": "Largest file to hash (MB)"
+    },
+    "sources": {
+      "name": {
+        "libretro": "libretro-thumbnails",
+        "steamgriddb": "SteamGridDB",
+        "screenscraper": "ScreenScraper"
+      },
+      "later": "Coming in a later version",
+      "up": "Move {name} up",
+      "down": "Move {name} down",
+      "credentials": "Accounts",
+      "credentialsHint": "Stored in the system keychain, never in the settings file. They are used when these sources arrive.",
+      "credential": {
+        "steamgriddb-api-key": "SteamGridDB API key",
+        "screenscraper-user": "ScreenScraper user",
+        "screenscraper-password": "ScreenScraper password"
+      },
+      "save": "Save {what}",
+      "saveShort": "Save",
+      "remove": "Remove {what}",
+      "removeShort": "Remove",
+      "stored": "Saved in the system keychain.",
+      "notStored": "Not set."
+    },
+    "network": {
+      "concurrency": "Simultaneous downloads",
+      "timeout": "Timeout (seconds)",
+      "retries": "Retries",
+      "proxy": "Proxy",
+      "proxies": {
+        "system": "System",
+        "env": "Environment variables",
+        "manual": "Manual"
+      },
+      "proxyHint": "System uses the standard HTTPS_PROXY / HTTP_PROXY variables.",
+      "proxyUrl": "Proxy URL",
+      "cacheMax": "Cache size limit (MB)",
+      "refresh": "Refresh source lists every (hours)",
+      "inUse": "In use: {size}",
+      "clear": "Clear cache…",
+      "clearTitle": "Clear the cache?",
+      "clearBody": "The downloaded art and source lists are deleted. Manual matches and undo history are kept.",
+      "clearYes": "Clear cache",
+      "cancel": "Cancel",
+      "freed": "Freed {size}."
+    },
+    "safety": {
+      "backup": "Back up files before replacing them",
+      "backupHint": "Always on: Undo needs the backups.",
+      "backupDir": "Backup folder",
+      "backupDirHint": "Empty: the app's own folder. Changing it hides the jobs kept in the previous folder from Undo.",
+      "choose": "Choose…",
+      "dryRun": "Simulate before writing (dry run first)",
+      "appleDouble": "Delete macOS ._ files on removable drives",
+      "undoDepth": "Jobs kept for undo"
+    },
+    "advanced": {
+      "logLevel": "Log level",
+      "levels": {
+        "error": "Errors only",
+        "warn": "Warnings",
+        "info": "Information",
+        "debug": "Debug"
+      },
+      "openLogs": "Open logs folder",
+      "openConfig": "Open settings folder",
+      "customDir": "Custom profiles folder",
+      "customDirHint": "Empty: the profiles folder inside the settings folder.",
+      "reset": "Reset all settings…",
+      "resetTitle": "Reset all settings?",
+      "resetBody": "Every setting goes back to its default. Recent libraries are kept and a copy of the current settings is saved.",
+      "resetYes": "Reset settings",
+      "cancel": "Cancel"
     }
   },
   "about": {
