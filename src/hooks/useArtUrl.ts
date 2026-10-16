@@ -16,6 +16,8 @@ export function useArtUrl(
     key: string;
     url: string | null;
   } | null>(null);
+  // A loaded URL that is no longer cached was evicted and revoked: load again.
+  const evicted = !cached && loaded?.key === key && loaded.url !== null;
   useEffect(() => {
     if (!enabled || cached) return;
     let alive = true;
@@ -26,7 +28,7 @@ export function useArtUrl(
     return () => {
       alive = false;
     };
-  }, [enabled, cached, key, generation, id, media]);
+  }, [enabled, cached, evicted, key, generation, id, media]);
   if (!enabled) return null;
-  return cached ?? (loaded?.key === key ? loaded.url : null);
+  return cached;
 }
