@@ -88,8 +88,6 @@ pub(crate) fn unix_from_http_date(value: &str) -> Option<i64> {
 }
 
 /// `20261016T030000Z`: sortable, file-name safe.
-// First used by job ids and backups (writer); until then only by tests.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn compact_utc(time: SystemTime) -> String {
     rfc3339_utc(time).replace(['-', ':'], "")
 }

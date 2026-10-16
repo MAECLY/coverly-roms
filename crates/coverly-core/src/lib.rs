@@ -19,6 +19,7 @@ pub mod scan;
 pub mod sources;
 pub mod systems;
 mod time;
+pub mod write;
 
 /// Version of the core library, taken from the workspace package version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
