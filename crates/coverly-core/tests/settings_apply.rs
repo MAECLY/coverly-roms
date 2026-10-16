@@ -271,3 +271,107 @@ fn multi_slot_layouts_keep_their_slots_and_retroarch_stays_png() {
     assert_eq!(ra.slot(Media::Cover).unwrap().format, ImageFormat::Png);
     assert!(ra.slot(Media::Cover).unwrap().template.ends_with(".png"));
 }
+
+fn one_rom_action(root: &Path, cands: Vec<Candidate>, opts: &PlanOptions) -> PlanAction {
+    let profile = common::profile("anbernic-stock");
+    let system_dir = root.join("ROMS/GBA");
+    let gathered = Gathered {
+        items: vec![GatherItem {
+            target: GatherTargetSummary {
+                system_id: "gba".into(),
+                folder: "GBA".into(),
+                system_dir: system_dir.clone(),
+                rel_dir: "".into(),
+                path: system_dir.join("Final Fantasy.gba"),
+                stem: "Final Fantasy".into(),
+                media: vec![Media::Cover],
+            },
+            identity: Identity {
+                canonical: None,
+                method: IdMethod::Name,
+                confidence: 0.0,
+                parsed: parse_name("Final Fantasy", false),
+                hash: None,
+            },
+            candidates: BTreeMap::from([(Media::Cover, cands)]),
+            errors: BTreeMap::new(),
+        }],
+        ..Gathered::default()
+    };
+    let plan = build_plan(root, &profile, &SystemDb::builtin(), &gathered, opts);
+    plan.items[0].action.clone()
+}
+
+#[test]
+fn popularity_consensus_beats_the_preferred_language() {
+    let root = tempfile::tempdir().unwrap();
+    let mut popular = cand("Final Fantasy (Europe) (De,Fr)");
+    popular.consensus = 3;
+    let mut rare = cand("Final Fantasy (Europe) (Es,It)");
+    rare.consensus = 1;
+    let opts = PlanOptions {
+        strategy: StrategyKind::Popularity,
+        languages: vec!["it".into()],
+        ..PlanOptions::default()
+    };
+    assert_eq!(
+        one_rom_plan(root.path(), vec![rare, popular], &opts).unwrap(),
+        "Final Fantasy (Europe) (De,Fr)"
+    );
+}
+
+#[test]
+fn popularity_votes_beat_the_preferred_language() {
+    let root = tempfile::tempdir().unwrap();
+    let mut popular = cand("Final Fantasy (Europe) (De,Fr)");
+    popular.votes = Some(10);
+    let mut rare = cand("Final Fantasy (Europe) (Es,It)");
+    rare.votes = Some(2);
+    let opts = PlanOptions {
+        strategy: StrategyKind::Popularity,
+        languages: vec!["it".into()],
+        ..PlanOptions::default()
+    };
+    assert_eq!(
+        one_rom_plan(root.path(), vec![rare, popular], &opts).unwrap(),
+        "Final Fantasy (Europe) (De,Fr)"
+    );
+}
+
+#[test]
+fn source_priority_beats_the_preferred_language() {
+    let root = tempfile::tempdir().unwrap();
+    let first = cand("Final Fantasy (Europe) (De,Fr)");
+    let mut second = cand("Final Fantasy (Europe) (Es,It)");
+    second.source = "other".into();
+    for strategy in [StrategyKind::Priority, StrategyKind::RomRegion] {
+        let opts = PlanOptions {
+            strategy,
+            sources: vec!["libretro".into(), "other".into()],
+            languages: vec!["it".into()],
+            ..PlanOptions::default()
+        };
+        assert_eq!(
+            one_rom_plan(root.path(), vec![second.clone(), first.clone()], &opts).unwrap(),
+            "Final Fantasy (Europe) (De,Fr)",
+            "{strategy:?}"
+        );
+    }
+}
+
+#[test]
+fn a_release_stays_auto_over_a_beta_in_the_preferred_language() {
+    let root = tempfile::tempdir().unwrap();
+    let cands = vec![
+        cand("Final Fantasy (Europe) (En,Fr) (Beta)"),
+        cand("Final Fantasy (Europe)"),
+    ];
+    let opts = PlanOptions {
+        languages: vec!["en".into()],
+        ..PlanOptions::default()
+    };
+    match one_rom_action(root.path(), cands, &opts) {
+        PlanAction::Auto { chosen, .. } => assert_eq!(chosen.name, "Final Fantasy (Europe)"),
+        other => panic!("expected auto, got {other:?}"),
+    }
+}

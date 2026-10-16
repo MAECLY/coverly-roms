@@ -53,9 +53,11 @@ impl Default for PlanOptions {
     }
 }
 
-/// D28: among the leading candidates the strategy ranks equal (same kind,
-/// score and regions as the first), the one carrying the earliest
-/// preferred language comes first. Stable, so ties keep the strategy order.
+/// D28: among the leading candidates the strategy ranks equal, the one
+/// carrying the earliest preferred language comes first. "Equal" means the
+/// same value for every key a strategy orders by: kind, score, regions,
+/// source, votes, consensus and release-vs-variant (`rank_with`). Only the
+/// name/url tail may differ. Stable, so ties keep the strategy order.
 fn prefer_languages(order: &mut [usize], cands: &[Candidate], langs: &[String]) {
     if langs.is_empty() || order.len() < 2 {
         return;
@@ -67,7 +69,13 @@ fn prefer_languages(order: &mut [usize], cands: &[Candidate], langs: &[String]) 
         .iter()
         .take_while(|&&i| {
             cands.get(i).is_some_and(|c| {
-                c.kind == top.kind && c.score == top.score && c.regions == top.regions
+                c.kind == top.kind
+                    && c.score == top.score
+                    && c.regions == top.regions
+                    && c.source == top.source
+                    && c.votes == top.votes
+                    && c.consensus == top.consensus
+                    && is_unreleased_variant(&c.name) == is_unreleased_variant(&top.name)
             })
         })
         .count();
