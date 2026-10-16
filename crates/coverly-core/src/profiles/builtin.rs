@@ -78,7 +78,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
                     Media::Screenshot,
                     "{system_dir}/images/{stem}-screenshot.png",
                 ),
-                (Media::Title, "{system_dir}/images/{stem}-titlescreen.png"),
+                (Media::Title, "{system_dir}/images/{stem}-titleshot.png"),
             ],
             None,
         ),
@@ -261,7 +261,7 @@ mod tests {
             .slot(Media::Title)
             .unwrap()
             .template
-            .ends_with("-titlescreen.png"));
+            .ends_with("-titleshot.png"));
     }
 
     #[test]

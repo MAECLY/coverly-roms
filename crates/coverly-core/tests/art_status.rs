@@ -199,6 +199,7 @@ fn flat_layouts_ignore_the_rom_subfolder() {
     touch(root, "roms/snes/Zelda (USA).sfc");
     touch(root, "roms/snes/images/Zelda (USA)-thumb.png");
     touch(root, "roms/snes/images/Zelda (USA)-screenshot.JPG");
+    touch(root, "roms/snes/images/Zelda (USA)-titleshot.png");
     touch(root, "roms/snes/images/Gone-image.png");
 
     let art = resolve(root, "batocera", &Media::ALL);
@@ -217,6 +218,10 @@ fn flat_layouts_ignore_the_rom_subfolder() {
     assert_eq!(
         present_name(state(snes, "Zelda (USA)", Media::Screenshot)),
         "Zelda (USA)-screenshot.JPG"
+    );
+    assert_eq!(
+        present_name(state(snes, "Zelda (USA)", Media::Title)),
+        "Zelda (USA)-titleshot.png"
     );
     assert_eq!(orphan_names(snes), ["Gone-image.png"]);
 }
