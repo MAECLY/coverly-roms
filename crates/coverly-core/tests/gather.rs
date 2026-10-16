@@ -670,3 +670,68 @@ fn hash_only_arcade_misses_stay_unknown() {
         "hash-then-name still falls back to the short name"
     );
 }
+
+#[test]
+fn failures_that_do_not_pause_are_asked_and_warned_once_per_run() {
+    let lib = library();
+    let db = SystemDb::builtin();
+    let profile = common::profile("anbernic-stock");
+    let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+    let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+    let targets = select_targets(
+        &art,
+        &TargetFilter {
+            systems: vec!["GBA".into()],
+            media: vec![Media::Cover],
+            scope: Scope::Missing,
+        },
+    );
+    assert_eq!(targets.len(), 2);
+    let index = "/Nintendo%20-%20Game%20Boy%20Advance/Named_Boxarts/";
+    let dat = format!("/{}", coverly_core::identify::dat::encode_path(GBA_DAT));
+    let run = |s: &MockServer| {
+        let e = env();
+        let dats = DatStore::new(&e.http, &e.cache, s.base());
+        let id = Identifier::new(&e.cache, &dats, IdentifyOptions::default());
+        let src = LibretroSource::new(
+            &e.http,
+            &e.cache,
+            LibretroConfig {
+                base: s.base(),
+                raw_base: s.url("/raw"),
+                ..Default::default()
+            },
+        );
+        let sources: Vec<&dyn ArtSource> = vec![&src];
+        gather(
+            &targets,
+            &db,
+            &sources,
+            &id,
+            &e.cache,
+            &GatherOptions::default(),
+            &NoProgress,
+            &AtomicBool::new(false),
+        )
+    };
+
+    // A broken DAT and a broken index: one request and one warning each.
+    let s = server();
+    s.mock(&dat, MockResponse::status(500));
+    s.mock(index, MockResponse::status(500));
+    let g = run(&s);
+    assert!(g.paused.is_none(), "{:?}", g.paused);
+    assert_eq!(g.items.len(), 2);
+    assert!(g.items.iter().all(|i| i.errors.contains_key(&Media::Cover)));
+    assert_eq!(s.hits(&dat), 1);
+    assert_eq!(s.hits(index), 1);
+    assert_eq!(g.warnings.len(), 1, "{:?}", g.warnings);
+    assert!(g.warnings[0].contains("GBA"), "{:?}", g.warnings);
+
+    // A broken root listing: asked once, not once per ROM.
+    let s = server();
+    s.mock("/", MockResponse::status(500));
+    let g = run(&s);
+    assert!(g.paused.is_none() && g.items.len() == 2, "{g:?}");
+    assert_eq!(s.hits("/"), 1);
+}

@@ -133,14 +133,16 @@ struct Index {
     by_key: HashMap<String, usize>,
 }
 
-type IndexMap = HashMap<(String, Media), Arc<Index>>;
+/// A listing, or why it could not be read in this run.
+type Remembered<T> = Result<Arc<T>, NetError>;
+type IndexMap = HashMap<(String, Media), Remembered<Index>>;
 
 /// The libretro-thumbnails source.
 pub struct LibretroSource<'a> {
     http: &'a dyn Http,
     cache: &'a Cache,
     cfg: LibretroConfig,
-    root: Mutex<Option<Arc<Vec<String>>>>,
+    root: Mutex<Option<Remembered<Vec<String>>>>,
     indexes: Mutex<IndexMap>,
 }
 
@@ -216,11 +218,14 @@ impl<'a> LibretroSource<'a> {
     fn root(&self) -> Result<Arc<Vec<String>>, SourceError> {
         let mut root = lock(&self.root);
         if let Some(r) = root.as_ref() {
-            return Ok(r.clone());
+            return r.clone().map_err(SourceError::Net);
         }
-        let list = Arc::new(self.listing(NS_ROOT, "root", &format!("{}/", self.cfg.base), true)?);
-        *root = Some(list.clone());
-        Ok(list)
+        let list = self.listing(NS_ROOT, "root", &format!("{}/", self.cfg.base), true);
+        let (result, keep) = remember(list.map(Arc::new));
+        if keep.is_some() {
+            *root = keep;
+        }
+        result
     }
 
     /// The server folder for `system`, matched case-insensitively against the live root.
@@ -244,7 +249,7 @@ impl<'a> LibretroSource<'a> {
     fn index(&self, server: &str, media: Media) -> Result<Arc<Index>, SourceError> {
         let map_key = (server.to_string(), media);
         if let Some(i) = lock(&self.indexes).get(&map_key) {
-            return Ok(i.clone());
+            return i.clone().map_err(SourceError::Net);
         }
         let url = format!(
             "{}/{}/{}/",
@@ -252,12 +257,21 @@ impl<'a> LibretroSource<'a> {
             encode_segment(server),
             named_dir(media)
         );
-        let files = self.listing(
+        let files = match self.listing(
             NS_INDEX,
             &format!("{server}/{}", named_dir(media)),
             &url,
             false,
-        )?;
+        ) {
+            Ok(files) => files,
+            Err(e) => {
+                let (result, keep) = remember::<Index>(Err(e));
+                if let Some(keep) = keep {
+                    lock(&self.indexes).insert(map_key, keep);
+                }
+                return result;
+            }
+        };
         let mut entries = Vec::with_capacity(files.len());
         let mut by_key = HashMap::new();
         for file in files {
@@ -266,7 +280,7 @@ impl<'a> LibretroSource<'a> {
             entries.push(Entry { file, parsed });
         }
         let index = Arc::new(Index { entries, by_key });
-        lock(&self.indexes).insert(map_key, index.clone());
+        lock(&self.indexes).insert(map_key, Ok(index.clone()));
         Ok(index)
     }
 
@@ -296,6 +310,20 @@ impl<'a> LibretroSource<'a> {
             votes: None,
             consensus: 0,
         }
+    }
+}
+
+/// What to remember of a listing fetch for the rest of the run: a listing,
+/// or a network failure that does not pause (an HTTP 500, an oversized
+/// listing), so it is not asked again for every ROM. A pausing failure is
+/// not remembered (the re-run retries it), nor is a cache error.
+fn remember<T>(
+    r: Result<Arc<T>, SourceError>,
+) -> (Result<Arc<T>, SourceError>, Option<Remembered<T>>) {
+    match r {
+        Ok(v) => (Ok(v.clone()), Some(Ok(v))),
+        Err(SourceError::Net(e)) if !e.pauses() => (Err(SourceError::Net(e.clone())), Some(Err(e))),
+        Err(e) => (Err(e), None),
     }
 }
 

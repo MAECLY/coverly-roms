@@ -4,7 +4,7 @@
 //! nothing is written to the library. A rate limit or a transport failure
 //! (offline, timed out) pauses the phase (spec §10).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -180,6 +180,9 @@ pub fn gather(
     cancel: &AtomicBool,
 ) -> Gathered {
     let mut out = Gathered::default();
+    // Systems whose identification failure was already reported: a DAT that
+    // cannot be read fails every ROM of the system the same way.
+    let mut warned = BTreeSet::new();
     let total = targets.len();
     progress.event(ProgressEvent::Started {
         phase: Phase::Gather,
@@ -206,9 +209,11 @@ pub fn gather(
                 break;
             }
             Err(e) => {
-                let w = format!("{}: identification failed: {e}", t.rom.path.display());
-                progress.event(ProgressEvent::Warning(w.clone()));
-                out.warnings.push(w);
+                if warned.insert(t.system_id.clone()) {
+                    let w = format!("{}: identification failed: {e}", t.folder);
+                    progress.event(ProgressEvent::Warning(w.clone()));
+                    out.warnings.push(w);
+                }
                 Identity {
                     canonical: None,
                     method: IdMethod::Name,
