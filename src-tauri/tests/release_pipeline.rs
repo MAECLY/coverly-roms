@@ -209,20 +209,151 @@ fn job(workflow: &str, name: &str) -> String {
     out.join("\n")
 }
 
+/// Every job key of a workflow, in order.
+fn job_names(workflow: &str) -> Vec<String> {
+    workflow
+        .lines()
+        .skip_while(|l| l.trim_end() != "jobs:")
+        .skip(1)
+        .filter(|l| is_job_key(l))
+        .map(|l| l.trim().trim_end_matches(':').to_string())
+        .collect()
+}
+
 #[test]
-fn release_pins_tauri_action_v1_and_prefers_nsis() {
+fn only_draft_and_finalize_can_write_and_neither_builds_third_party_code() {
     let wf = read(".github/workflows/release.yml");
-    assert!(wf.contains(
-        "tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0"
-    ));
-    assert!(wf.contains("updaterJsonPreferNsis: true"));
-    assert!(wf.contains("uploadUpdaterJson: true"));
+    let names = job_names(&wf);
+    assert_eq!(names, ["guard", "draft", "app", "cli", "finalize"]);
+    for name in &names {
+        let j = job(&wf, name);
+        let writes = j.contains("contents: write");
+        assert_eq!(
+            writes,
+            name == "draft" || name == "finalize",
+            "{name}: only draft and finalize hold contents: write"
+        );
+        if !writes {
+            assert!(j.contains("contents: read"), "{name}");
+        }
+    }
+    // The jobs that compile (crates, build scripts, npm packages) are
+    // read-only and hand their files over as workflow artifacts.
+    let app = job(&wf, "app");
+    assert!(app.contains("pnpm tauri build $ARGS --config \"$RUNNER_TEMP/updater-overlay.json\""));
+    assert!(app.contains("actions/upload-artifact@"));
+    assert!(app.contains("name: app-${{ matrix.slug }}"));
     assert!(
-        wf.contains("uploadUpdaterSignatures: false"),
-        "throwaway signatures never reach the release"
+        !wf.contains("tauri-action"),
+        "no job uploads to the draft while it builds"
     );
+    assert!(!wf.contains("releaseId") && !wf.contains("tagName"));
+    assert!(job(&wf, "cli").contains("actions/upload-artifact@"));
+    // draft only runs gh; finalize compiles nothing and uploads.
+    let draft = job(&wf, "draft");
+    for needle in ["pnpm", "cargo", "npm", "rustup", "setup-node", "tauri"] {
+        assert!(!draft.contains(needle), "draft runs {needle}");
+    }
+    let finalize = job(&wf, "finalize");
+    for needle in [
+        "cargo",
+        "tauri build",
+        "rustup",
+        "apt-get install -y --no-install-recommends",
+    ] {
+        assert!(!finalize.contains(needle), "finalize runs {needle}");
+    }
+    assert!(finalize.contains("pattern: app-*") && finalize.contains("pattern: cli-*"));
+    assert!(finalize.contains("updater-manifest") && finalize.contains("add-cli"));
+    assert!(finalize.contains("gh release upload"));
     assert!(wf.contains("universal-apple-darwin"));
     assert!(wf.contains("ubuntu-22.04-arm"));
+}
+
+/// The `run: |` script of the step named `step` in `job_text`, dedented.
+fn step_script(job_text: &str, step: &str) -> String {
+    let mut lines = job_text
+        .lines()
+        .skip_while(|l| !l.contains(&format!("name: {step}")))
+        .skip_while(|l| l.trim() != "run: |")
+        .skip(1)
+        .peekable();
+    let indent = lines
+        .peek()
+        .map(|l| l.len() - l.trim_start().len())
+        .expect("a run block");
+    lines
+        .take_while(|l| l.trim().is_empty() || l.len() - l.trim_start().len() >= indent)
+        .map(|l| l.get(indent..).unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn the_app_job_stages_bundles_that_finalize_can_map() {
+    if !scripts_runnable() {
+        return;
+    }
+    let script = step_script(
+        &job(&read(".github/workflows/release.yml"), "app"),
+        "Stage the bundles under their release names",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    // What `tauri build` leaves on the four runners (merged here).
+    for (rel, body) in [
+        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz", "mac"),
+        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz.sig", "throwaway"),
+        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app/Contents/Info.plist", "x"),
+        ("target/universal-apple-darwin/release/bundle/dmg/Coverly ROMs_0.2.0_universal.dmg", "dmg"),
+        ("target/release/bundle/nsis/Coverly ROMs_0.2.0_x64-setup.exe", "nsis"),
+        ("target/release/bundle/nsis/Coverly ROMs_0.2.0_x64-setup.exe.sig", "throwaway"),
+        ("target/release/bundle/msi/Coverly ROMs_0.2.0_x64_en-US.msi", "msi"),
+        ("target/release/bundle/appimage/Coverly ROMs_0.2.0_amd64.AppImage", "appimage"),
+        ("target/release/bundle/deb/Coverly ROMs_0.2.0_amd64.deb", "deb"),
+    ] {
+        let p = d.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, body).unwrap();
+    }
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(d)
+        .env("GITHUB_REF_NAME", "v0.2.0")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut staged: Vec<String> = std::fs::read_dir(d.join("staged"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    staged.sort();
+    assert_eq!(
+        staged,
+        [
+            "Coverly.ROMs_0.2.0_amd64.AppImage",
+            "Coverly.ROMs_0.2.0_amd64.deb",
+            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+            "Coverly.ROMs_0.2.0_universal.dmg",
+            "Coverly.ROMs_0.2.0_x64-setup.exe",
+            "Coverly.ROMs_0.2.0_x64_en-US.msi",
+        ],
+        "no throwaway .sig, no spaces, the macOS archive named with version and arch"
+    );
+    assert_eq!(
+        updater_artifacts(&d.join("staged")),
+        [
+            "Coverly.ROMs_0.2.0_amd64.AppImage",
+            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+            "Coverly.ROMs_0.2.0_x64-setup.exe",
+            "Coverly.ROMs_0.2.0_x64_en-US.msi",
+        ]
+    );
 }
 
 #[test]
@@ -273,7 +404,7 @@ fn the_real_signing_key_reaches_only_the_finalize_sign_step() {
         "the build signs with a throwaway key"
     );
     assert!(
-        job(&wf, "app").contains("--config ${{ runner.temp }}/updater-overlay.json"),
+        job(&wf, "app").contains("--config \"$RUNNER_TEMP/updater-overlay.json\""),
         "tauri build decodes plugins.updater.pubkey: overlay the throwaway public key"
     );
     assert!(wf.contains("permissions: {}"));
@@ -314,9 +445,12 @@ fn finalize_requires_every_platform_and_writes_sha256sums() {
     assert!(finalize.contains("--signed-version"));
     assert!(finalize.contains("SHA256SUMS"));
     assert!(
-        finalize.contains("others/"),
-        "SHA256SUMS covers every asset, the .dmg included"
+        finalize.contains("cp bundles/* cli/* all/"),
+        "SHA256SUMS covers every asset, the .dmg, .msi and .deb included"
     );
+    for kind in ["dmg", "msi", "deb", "AppImage"] {
+        assert!(finalize.contains(&format!("'\\.{kind}'")), "{kind}");
+    }
     assert!(finalize.contains("minisign -V"));
     assert!(finalize.contains("tampered"));
 }

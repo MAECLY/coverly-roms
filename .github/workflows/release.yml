@@ -6,17 +6,23 @@
 # release-channels.yml, which moves the beta channel's manifest.
 #
 # Who holds what (least privilege, ADR-0011):
-# - app (tauri-action v1) and cli compile third-party code. They never see
-#   the signing secret: `tauri build` needs a key for createUpdaterArtifacts,
-#   so each app build signs with a throwaway key generated on the spot, and
-#   tauri-action uploads no signature files. The app jobs upload to the draft
-#   (contents: write) because tauri-action writes latest.json there with
-#   updaterJsonPreferNsis.
-# - finalize builds nothing. It downloads every update artifact, signs it
-#   with the real key (bound to the version, --app-version), rewrites the
-#   signatures in latest.json, adds the CLI entries, verifies everything with
-#   minisign against crates/coverly-core/updater.pub (and that a tampered copy
-#   fails), and writes SHA256SUMS.
+# - guard and draft run no third-party build code. draft (contents: write)
+#   only runs `gh` to create or reuse the draft.
+# - app and cli compile third-party code (crates and their build scripts, npm
+#   packages, the Tauri CLI), so they hold `contents: read` only: they cannot
+#   push, tag or touch the draft. They never see the signing secret either:
+#   `tauri build` needs a key for createUpdaterArtifacts, so each app build
+#   signs with a throwaway key generated on the spot. They hand their files
+#   to finalize as workflow artifacts (actions/upload-artifact).
+# - finalize builds nothing. It downloads those artifacts, signs every update
+#   artifact and CLI binary with the real key (bound to the version,
+#   --app-version), writes latest.json itself (release_tools.py
+#   updater-manifest + add-cli), verifies every signature with minisign
+#   against crates/coverly-core/updater.pub (and that a tampered copy fails),
+#   writes SHA256SUMS and uploads everything to the draft. It is the only job
+#   besides draft with contents: write. It signs what the read-only builds
+#   produced; it cannot tell whether a build was compromised while it
+#   compiled (ADR-0011).
 #
 # No OS certificates (ADR-0008): macOS is signed ad hoc (signingIdentity "-"),
 # Windows installers are not Authenticode-signed; the notes explain both.
@@ -82,14 +88,12 @@ jobs:
     needs: [guard]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-    outputs:
-      release_id: ${{ steps.draft.outputs.release_id }}
+      contents: write # creates the draft; runs only gh, no build code
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: draft
+      - name: Create or reuse the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -105,32 +109,34 @@ jobs:
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
             gh release create "$GITHUB_REF_NAME" --repo "$REPO" --draft --verify-tag \
               --title "Coverly ROMs $GITHUB_REF_NAME" --notes-file notes.md "${prerelease[@]}"
-            id=$(gh api --paginate "repos/$REPO/releases" --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id" | head -n1)
           fi
-          echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   app:
     name: App (${{ matrix.name }})
-    needs: [draft]
+    needs: [guard]
     permissions:
-      contents: write # tauri-action uploads the bundles and latest.json to the draft
+      contents: read # builds third-party code: no write access, no secret
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS universal
+            slug: macos-universal
             platform: macos-latest
             targets: aarch64-apple-darwin x86_64-apple-darwin
             args: '--target universal-apple-darwin'
           - name: Windows x64
+            slug: windows-x86_64
             platform: windows-latest
             targets: x86_64-pc-windows-msvc
             args: ''
           - name: Linux x64
+            slug: linux-x86_64
             platform: ubuntu-22.04
             targets: x86_64-unknown-linux-gnu
             args: ''
           - name: Linux ARM64
+            slug: linux-aarch64
             platform: ubuntu-22.04-arm
             targets: aarch64-unknown-linux-gnu
             args: ''
@@ -184,17 +190,43 @@ jobs:
             echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pass"
           } >> "$GITHUB_ENV"
           rm -f "$key" "$key.pub"
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+      - name: Build the bundles (build only; this job cannot upload to the release)
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARGS: ${{ matrix.args }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086 # ARGS holds zero or more flags
+          pnpm tauri build $ARGS --config "$RUNNER_TEMP/updater-overlay.json"
+      - name: Stage the bundles under their release names
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p staged
+          for f in target/release/bundle/*/* target/*/release/bundle/*/*; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            case "$base" in
+              # The macOS update archive carries no version or architecture;
+              # the only macOS build is universal.
+              *.app.tar.gz) name="${base%.app.tar.gz}_${version}_universal.app.tar.gz" ;;
+              *.dmg | *-setup.exe | *.msi | *.AppImage | *.deb) name="$base" ;;
+              # The throwaway .sig files stay here: finalize signs again.
+              *) continue ;;
+            esac
+            # Name each file as GitHub would store it (no spaces).
+            name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '.')
+            cp "$f" "staged/$name"
+          done
+          ls -l staged
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          releaseId: ${{ needs.draft.outputs.release_id }}
-          tauriScript: pnpm tauri
-          args: ${{ matrix.args }} --config ${{ runner.temp }}/updater-overlay.json
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
-          uploadUpdaterSignatures: false
-          retryAttempts: 1
+          name: app-${{ matrix.slug }}
+          path: staged/
+          if-no-files-found: error
+          retention-days: 7
 
   cli:
     name: CLI (${{ matrix.os }}-${{ matrix.arch }})
@@ -270,11 +302,11 @@ jobs:
           retention-days: 7
 
   finalize:
-    name: Sign, manifest, verify, checksums
+    name: Sign, manifest, verify, checksums, upload
     needs: [draft, app, cli]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # uploads to the draft; compiles nothing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -288,30 +320,24 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: app-*
+          path: bundles
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
           pattern: cli-*
           path: cli
           merge-multiple: true
-      - name: Download latest.json and the update artifacts from the draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+      - name: List the update artifacts
         run: |
           set -euo pipefail
-          mkdir -p updater
-          gh api --paginate "repos/$REPO/releases/$RELEASE_ID/assets" --jq '[.[] | {name, id}]' | jq -s add > assets.json
-          fetch() {
-            id=$(jq -r --arg n "$1" '.[] | select(.name == $n) | .id' assets.json)
-            test -n "$id" || { echo "::error::no asset $1"; exit 1; }
-            gh api -H 'Accept: application/octet-stream' "repos/$REPO/releases/assets/$id" > "$2"
-          }
-          fetch latest.json latest.json
-          python3 -I scripts/release/release_tools.py list-artifacts --manifest latest.json > artifacts.txt
-          while IFS= read -r name; do fetch "$name" "updater/$name"; done < artifacts.txt
-          # Everything else on the draft (the .dmg, …) only for SHA256SUMS.
-          mkdir -p others
-          jq -r '.[].name' assets.json | grep -v -x -e latest.json -e SHA256SUMS | grep -v '\.sig$' \
-            | grep -v -x -F -f artifacts.txt > others.txt || true
-          while IFS= read -r name; do fetch "$name" "others/$name"; done < others.txt
+          shopt -s nullglob
+          sigs=(bundles/*.sig cli/*.sig)
+          if [ ${#sigs[@]} -gt 0 ]; then
+            echo "::error::a build handed over signature files: ${sigs[*]}"; exit 1
+          fi
+          python3 -I scripts/release/release_tools.py updater-artifacts --dir bundles > artifacts.txt
+          cat artifacts.txt
       - name: Sign with the release key (the only step that sees it)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -319,17 +345,22 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          for f in updater/* cli/*; do
-            case "$f" in *.sig) continue ;; esac
+          mapfile -t artifacts < artifacts.txt
+          for name in "${artifacts[@]}"; do
+            pnpm --silent tauri signer sign --app-version "$version" "bundles/$name"
+          done
+          for f in cli/*; do
             pnpm --silent tauri signer sign --app-version "$version" "$f"
           done
-      - name: Write latest.json (real signatures + CLI entries)
+      - name: Write latest.json (app and CLI entries, real signatures)
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          python3 -I scripts/release/release_tools.py resign-manifest --manifest latest.json --sigdir updater
+          base="https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
+          python3 -I scripts/release/release_tools.py updater-manifest --dir bundles \
+            --version "$version" --base-url "$base" --changelog CHANGELOG.md --output latest.json
           python3 -I scripts/release/release_tools.py add-cli --manifest latest.json --dir cli \
-            --version "$version" --base-url "https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
+            --version "$version" --base-url "$base"
           python3 -I scripts/release/release_tools.py check-manifest --manifest latest.json \
             --version "$version" --signed-version "$version" \
             --require darwin-aarch64 --require darwin-x86_64 --require windows-x86_64 \
@@ -340,18 +371,20 @@ jobs:
       - name: Verify every signature against the committed key (and a tampered copy fails)
         run: |
           set -euo pipefail
+          shopt -s nullglob
           sudo apt-get update -qq && sudo apt-get install -y -qq minisign
           python3 -I scripts/release/release_tools.py pubkey --file crates/coverly-core/updater.pub | base64 -d > updater.pub
-          for f in updater/* cli/*; do
+          mapfile -t artifacts < artifacts.txt
+          signed=()
+          for name in "${artifacts[@]}"; do signed+=("bundles/$name"); done
+          signed+=(cli/*)
+          first=""
+          for f in "${signed[@]}"; do
             case "$f" in *.sig) continue ;; esac
+            test -f "$f.sig" || { echo "::error::$f has no signature"; exit 1; }
             base64 -d "$f.sig" > "$f.minisig"
             minisign -V -p updater.pub -m "$f" -x "$f.minisig"
-          done
-          first=""
-          for f in cli/*; do
-            case "$f" in *.sig | *.minisig) continue ;; esac
-            first="$f"
-            break
+            case "$f" in cli/*) [ -n "$first" ] || first="$f" ;; esac
           done
           test -n "$first" || { echo "::error::no CLI binary to tamper with"; exit 1; }
           # Appending always changes the content (overwriting a byte might
@@ -361,20 +394,22 @@ jobs:
           if minisign -V -p updater.pub -m tampered -x "$first.minisig"; then
             echo "::error::a tampered artifact verified"; exit 1
           fi
-          rm -f updater/*.minisig cli/*.minisig tampered
-      - name: SHA256SUMS and upload
+          rm -f bundles/*.minisig cli/*.minisig tampered
+      - name: SHA256SUMS and upload to the draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p all
-          # Every downloadable file (the .dmg included), not only update artifacts.
-          cp updater/* cli/* all/
-          if [ -n "$(ls -A others)" ]; then cp others/* all/; fi
+          # Every downloadable file (the .dmg, .msi and .deb included), not
+          # only the update artifacts.
+          cp bundles/* cli/* all/
           rm -f all/*.sig
           (cd all && sha256sum -- * > ../SHA256SUMS)
-          grep -q '\.dmg$' SHA256SUMS || { echo "::error::SHA256SUMS has no .dmg"; exit 1; }
-          gh release upload "$GITHUB_REF_NAME" latest.json SHA256SUMS updater/*.sig cli/* --repo "$REPO" --clobber
+          for kind in '\.dmg' '\.app\.tar\.gz' '-setup\.exe' '\.msi' '\.AppImage' '\.deb'; do
+            grep -q -e "$kind\$" SHA256SUMS || { echo "::error::SHA256SUMS has no $kind file"; exit 1; }
+          done
+          gh release upload "$GITHUB_REF_NAME" bundles/* cli/* latest.json SHA256SUMS --repo "$REPO" --clobber
           {
             echo "### Coverly ROMs $GITHUB_REF_NAME is waiting as a draft"
             echo "Check it (RELEASING.md section 5) before publishing; publishing moves the beta channel."
