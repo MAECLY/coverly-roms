@@ -446,10 +446,15 @@ export function createMockJobs(
     return name;
   }
 
+  /**
+   * Each call is its own subscription, like Tauri's `listen`: subscribing
+   * the same callback twice and dropping one keeps the other.
+   */
   const listen = <T>(set: Set<(v: T) => void>, cb: (v: T) => void) => {
-    set.add(cb);
+    const own = (v: T) => cb(v);
+    set.add(own);
     return Promise.resolve(() => {
-      set.delete(cb);
+      set.delete(own);
     });
   };
 
