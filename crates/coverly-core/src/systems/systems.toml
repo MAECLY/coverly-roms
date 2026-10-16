@@ -259,6 +259,7 @@ arcade = true
 id = "ngp"
 name = "Neo Geo Pocket"
 aliases = ["NGP", "neogeopocket"]
+# Like WS: Color games (.ngc) in NGP have art under "SNK - Neo Geo Pocket Color".
 extensions = ["ngp", "ngc", "zip", "7z"]
 libretro = "SNK - Neo Geo Pocket"
 
@@ -285,7 +286,8 @@ extensions = ["pak"]
 id = "pcengine"
 name = "PC Engine / TurboGrafx-16"
 aliases = ["PCE", "pcengine", "tg16", "turbografx16", "PC Engine"]
-extensions = ["pce", "sgx", "zip", "7z"]
+# Anbernic stock also keeps CD images (chd, cue) in PCE.
+extensions = ["pce", "sgx", "chd", "cue", "zip", "7z"]
 libretro = "NEC - PC Engine - TurboGrafx 16"
 
 [[system]]
@@ -308,6 +310,8 @@ arcade = true
 id = "pico8"
 name = "PICO-8"
 aliases = ["PICO", "pico8", "pico-8"]
+# .p8.png carts: png is also in the scanner's default ignored_exts.
+# Open point for Task 7: system.extensions must win over ignored_exts here.
 extensions = ["p8", "png"]
 
 [[system]]
@@ -394,7 +398,10 @@ libretro = "Commodore - VIC-20"
 id = "wonderswan"
 name = "WonderSwan"
 aliases = ["WS", "wonderswan"]
-extensions = ["ws", "zip", "7z"]
+# Anbernic stock keeps mono and Color games together in WS, so wsc is accepted.
+# Art for .wsc files lives under "Bandai - WonderSwan Color", not this playlist:
+# art lookup needs a per-extension libretro fallback (open point for Task 6+).
+extensions = ["ws", "wsc", "zip", "7z"]
 libretro = "Bandai - WonderSwan"
 
 [[system]]

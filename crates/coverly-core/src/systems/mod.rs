@@ -481,6 +481,76 @@ mod tests {
         assert!(err.to_string().contains("x"), "{err}");
     }
 
+    /// Every ROM extension seen per folder on the reference SD card
+    /// (read-only scan of /Volumes/System/ROMS; saves, BIOS and scripts left out).
+    const SD_EXTENSIONS: &[(&str, &str)] = &[
+        ("A2600", "a26"),
+        ("ATOMISWAVE", "zip"),
+        ("CPS1", "zip"),
+        ("CPS2", "zip"),
+        ("CPS3", "zip"),
+        ("DREAMCAST", "cdi"),
+        ("DREAMCAST", "chd"),
+        ("FBNEO", "zip"),
+        ("FC", "nes"),
+        ("GB", "gb"),
+        ("GBA", "gba"),
+        ("GBC", "gbc"),
+        ("GG", "gg"),
+        ("GW", "mgw"),
+        ("HBMAME", "zip"),
+        ("MAME", "zip"),
+        ("MD", "bin"),
+        ("MD", "md"),
+        ("MDCD", "chd"),
+        ("MSX", "rom"),
+        ("N64", "n64"),
+        ("N64", "v64"),
+        ("N64", "z64"),
+        ("NAOMI", "zip"),
+        ("NDS", "nds"),
+        ("NDS", "zip"),
+        ("OPENBOR", "pak"),
+        ("PCE", "pce"),
+        ("PCE", "chd"),
+        ("PCECD", "chd"),
+        ("PICO", "p8"),
+        ("PS", "bin"),
+        ("PS", "img"),
+        ("PS", "iso"),
+        ("PS", "pbp"),
+        ("PSP", "iso"),
+        ("SATURN", "chd"),
+        ("SEGA32X", "zip"),
+        ("SFC", "sfc"),
+        ("SFC", "smc"),
+        ("SMS", "sms"),
+        ("VARCADE", "zip"),
+        ("VB", "vb"),
+        ("WS", "wsc"),
+    ];
+
+    #[test]
+    fn reference_sd_extensions_are_accepted() {
+        let db = SystemDb::builtin();
+        for (folder, ext) in SD_EXTENSIONS {
+            let system = db.resolve_folder(folder).expect(folder);
+            assert!(
+                system.extensions.iter().any(|e| e == ext),
+                "{folder} ({}) does not accept .{ext}",
+                system.id
+            );
+        }
+    }
+
+    #[test]
+    fn wonderswan_folder_accepts_mono_and_color_roms() {
+        let ws = SystemDb::builtin().resolve_folder("WS").unwrap().clone();
+        for ext in ["ws", "wsc"] {
+            assert!(ws.extensions.iter().any(|e| e == ext), "{ext}");
+        }
+    }
+
     #[test]
     fn invalid_override_toml_is_an_error() {
         assert!(SystemDb::builtin().with_overrides("[[system]\n").is_err());
