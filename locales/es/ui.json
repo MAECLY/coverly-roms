@@ -1,0 +1,17 @@
+{
+  "app": {
+    "name": "Coverly ROMs",
+    "tagline": "Encuentra y añade las portadas que faltan en tus ROMs"
+  },
+  "start": {
+    "openLibrary": "Abrir biblioteca…",
+    "openLibraryHint": "La elección de biblioteca llegará en una versión posterior."
+  },
+  "library": {
+    "count": "{n} ROMs"
+  },
+  "footer": {
+    "version": "Versión {version}",
+    "coreVersion": "Núcleo {version}"
+  }
+}

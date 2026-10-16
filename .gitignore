@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+/build/
+/out/
+
+# Rust / Cargo / Tauri
+target/
+src-tauri/gen/
+**/*.rs.bk
+
+# Vite cache
+.vite/
+*.local
+
+# Editor / OS
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# Claude Code per-user state
+.claude/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Env files (never commit)
+.env
+.env.local
+.env.*.local
+
+# Local MCP browser-tool residue (screenshots, snapshots, console logs)
+.playwright-mcp/
+
+# Updater signing keys (never commit)
+*.key
+
+# Vite timestamped config bundles
+vite.config.ts.timestamp-*

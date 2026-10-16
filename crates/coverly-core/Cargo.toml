@@ -1,0 +1,11 @@
+[package]
+name = "coverly-core"
+description = "Core library of Coverly ROMs: ROM library scanning, art audit and layout profiles."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]

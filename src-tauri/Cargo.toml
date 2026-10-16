@@ -1,0 +1,29 @@
+[package]
+name = "coverly-roms"
+description = "Audit and fill the missing cover art of your ROM library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "coverly_roms_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+serde = { workspace = true }
+coverly-core = { path = "../crates/coverly-core" }
+
+[features]
+# By default Tauri uses "custom-protocol" in release builds. Tauri's CLI passes this in.
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
