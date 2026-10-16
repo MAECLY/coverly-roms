@@ -15,7 +15,7 @@ import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
-import { resetSettingsStore } from '@/stores/settingsStore';
+import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
@@ -168,6 +168,24 @@ describe('Settings screen', () => {
     const s = (await backend.getSettings()).settings;
     expect(s.library.ignored_dirs).toEqual(['bios', 'Junk']);
     expect(s.library.default_profile).toBe('onion');
+  });
+
+  it('shows a default profile it does not know instead of auto', async () => {
+    await start();
+    act(() => useNavStore.getState().openSettings('library'));
+    const select = await screen.findByRole('combobox', {
+      name: 'Default layout profile',
+    });
+    act(() => {
+      const cur = useSettingsStore.getState().settings!;
+      useSettingsStore.setState({
+        settings: {
+          ...cur,
+          library: { ...cur.library, default_profile: 'gone-profile' },
+        },
+      });
+    });
+    expect(select).toHaveDisplayValue('gone-profile');
   });
 
   it('shows a notice when the stored settings were unreadable', async () => {

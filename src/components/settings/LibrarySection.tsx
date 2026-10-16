@@ -71,6 +71,13 @@ export function LibrarySection() {
       alive = false;
     };
   }, []);
+  // Until the list loads, or for a profile it no longer has, the stored id
+  // still shows (not "Detect automatically").
+  const current = lib.default_profile;
+  const unlisted =
+    current !== null && !profiles.some((p) => p.profile.id === current)
+      ? current
+      : null;
   const lines = (s: string) =>
     s
       .split('\n')
@@ -100,6 +107,7 @@ export function LibrarySection() {
           }
         >
           <option value="">{t('settings.library.defaultProfileAuto')}</option>
+          {unlisted !== null && <option value={unlisted}>{unlisted}</option>}
           {profiles.map((p) => (
             <option key={p.profile.id} value={p.profile.id}>
               {p.profile.name}
