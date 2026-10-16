@@ -2,9 +2,7 @@
 //! folders: never opens, writes or mounts anything.
 
 use std::collections::BTreeMap;
-#[cfg(target_os = "linux")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -40,10 +38,33 @@ pub fn mount_parents() -> Vec<PathBuf> {
     }
 }
 
-/// The child folders of `parents`: hidden names, files, missing parents and
-/// anything that resolves to `/` (macOS lists the boot disk in `/Volumes`)
-/// are skipped; the same folder reached twice is listed once; sorted by
-/// name, ignoring case.
+/// Names macOS mounts for itself (APFS system volumes, snapshots, firmware
+/// helpers); never a drive a person plugged in.
+const MACOS_SYSTEM_NAMES: [&str; 7] = [
+    "Recovery",
+    "Preboot",
+    "VM",
+    "Update",
+    "xarts",
+    "iSCPreboot",
+    "Hardware",
+];
+
+/// Whether a mount named `name` (resolving to `real`) belongs to the system
+/// rather than to the user: hidden names, `com.apple.*` (Time Machine local
+/// snapshots), the APFS helper volumes in [`MACOS_SYSTEM_NAMES`] and
+/// anything under `/System/Volumes`.
+pub fn is_system_mount(name: &str, real: &Path) -> bool {
+    name.starts_with('.')
+        || name.starts_with("com.apple.")
+        || MACOS_SYSTEM_NAMES.contains(&name)
+        || real.starts_with("/System/Volumes")
+}
+
+/// The child folders of `parents`: system mounts ([`is_system_mount`]),
+/// files, missing parents and anything that resolves to `/` (macOS lists the
+/// boot disk in `/Volumes`) are skipped; the same folder reached twice is
+/// listed once; sorted by name, ignoring case.
 pub fn list_volumes(parents: &[PathBuf]) -> Vec<Volume> {
     let root = std::fs::canonicalize("/").ok();
     let mut found: BTreeMap<PathBuf, Volume> = BTreeMap::new();
@@ -53,14 +74,14 @@ pub fn list_volumes(parents: &[PathBuf]) -> Vec<Volume> {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
+            if is_system_mount(&name, Path::new("")) {
                 continue;
             }
             let path = entry.path();
             let Ok(real) = path.canonicalize() else {
                 continue;
             };
-            if !real.is_dir() || Some(&real) == root.as_ref() {
+            if !real.is_dir() || Some(&real) == root.as_ref() || is_system_mount(&name, &real) {
                 continue;
             }
             found.entry(real).or_insert(Volume {
