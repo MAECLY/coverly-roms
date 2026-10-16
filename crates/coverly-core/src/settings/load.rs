@@ -91,7 +91,21 @@ fn aside_path(path: &Path, tag: &str) -> PathBuf {
     candidate
 }
 
-/// Copies `settings.json` aside; `None` when there is no file.
+/// The `settings.json.<tag>-*` files in `dir`, sorted.
+fn asides(dir: &Path, tag: &str) -> Vec<PathBuf> {
+    let prefix = format!("{SETTINGS_FILE}.{tag}-");
+    let mut out: Vec<PathBuf> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|e| e.path())
+        .collect();
+    out.sort();
+    out
+}
+
+/// Copies `settings.json` aside (or names an identical copy already there); `None` when there is no file.
 pub fn backup_settings(dir: &Path, tag: &str) -> io::Result<Option<PathBuf>> {
     let path = dir.join(SETTINGS_FILE);
     let bytes = match fs::read(&path) {
@@ -99,6 +113,14 @@ pub fn backup_settings(dir: &Path, tag: &str) -> io::Result<Option<PathBuf>> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
+    // The same content already copied aside (loading again): reuse it.
+    if let Some(same) = asides(dir, tag).into_iter().find(|p| {
+        p.metadata()
+            .is_ok_and(|m| m.is_file() && m.len() == bytes.len() as u64)
+            && fs::read(p).is_ok_and(|b| b == bytes)
+    }) {
+        return Ok(Some(same));
+    }
     let dest = aside_path(&path, tag);
     write_synced(&dest, &bytes)?;
     Ok(Some(dest))
@@ -352,6 +374,11 @@ pub fn read_settings(path: &Path, known: &[String]) -> Settings {
 
 /// `library.json` → `settings.json` (ignored folders + recents), once.
 fn migrate_legacy(dir: &Path) -> (Settings, LoadReport) {
+    // A settings file existed once (it was set aside or copied): the old
+    // file was migrated before and must not come back.
+    if !asides(dir, "bad").is_empty() || !asides(dir, "bak").is_empty() {
+        return (Settings::default(), LoadReport::default());
+    }
     let legacy = dir.join(LEGACY_LIBRARY_FILE);
     let Read_::Text(text) = read_capped(&legacy) else {
         return (Settings::default(), LoadReport::default());

@@ -610,3 +610,36 @@ fn concurrent_saves_never_fail_or_leave_temp_files() {
     let (_, report) = load_settings(dir.path(), &known());
     assert_eq!(report.notice, None);
 }
+
+#[test]
+fn loading_the_same_fixed_file_again_keeps_one_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), r#"{"network":{"concurrency":99}}"#);
+    let (_, first) = load_settings(dir.path(), &known());
+    for _ in 0..4 {
+        let (_, again) = load_settings(dir.path(), &known());
+        assert_eq!(again.backup, first.backup);
+    }
+    assert_eq!(files(dir.path()).len(), 2, "{:?}", files(dir.path()));
+    // A different content gets its own copy.
+    write(dir.path(), r#"{"network":{"concurrency":98}}"#);
+    let (_, other) = load_settings(dir.path(), &known());
+    assert_ne!(other.backup, first.backup);
+    assert_eq!(files(dir.path()).len(), 3);
+}
+
+#[test]
+fn a_set_aside_settings_file_is_not_replaced_by_the_legacy_one() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(LEGACY_LIBRARY_FILE),
+        r#"{"version":1,"ignored_dirs":["Old"]}"#,
+    )
+    .unwrap();
+    write(dir.path(), "garbage");
+    let (_, report) = load_settings(dir.path(), &known());
+    assert_eq!(report.notice, Some(LoadNotice::ResetCorrupt));
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s, Settings::default());
+    assert_eq!(report.notice, None, "settings existed: no migration");
+}
