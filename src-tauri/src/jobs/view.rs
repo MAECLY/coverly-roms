@@ -123,6 +123,8 @@ pub struct JobView {
     pub plan: Option<PlanSummaryView>,
     /// Review decisions recorded so far.
     pub decided: usize,
+    /// Review items decided as skip: decided, but not written.
+    pub skipped: usize,
     /// The journal id, once something was written.
     pub journal: Option<String>,
     pub result: Option<JobTotalsView>,

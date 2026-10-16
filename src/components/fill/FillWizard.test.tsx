@@ -128,6 +128,16 @@ describe('Fill wizard', () => {
     expect(
       await within(dialog).findByRole('button', { name: `Run (${auto + 2})` }),
     ).toBeInTheDocument();
+
+    // Changing a decision keeps the decided count but moves the Run count.
+    await act(() =>
+      useJobStore
+        .getState()
+        .decide([{ index: review[0]!.index, choice: 'skip' }]),
+    );
+    expect(
+      await within(dialog).findByRole('button', { name: `Run (${auto + 1})` }),
+    ).toBeInTheDocument();
   });
 
   it('sends the visible entries for the current filter', async () => {

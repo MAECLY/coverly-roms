@@ -159,6 +159,11 @@ impl Job {
             paused: d.paused.clone(),
             plan: d.plan.as_ref().map(PlanSummaryView::of),
             decided: d.decisions.len(),
+            skipped: d
+                .decisions
+                .values()
+                .filter(|c| matches!(c, Decision::Skip))
+                .count(),
             journal: d.report.as_ref().and_then(|r| r.job_id.clone()),
             result: d.report.as_ref().map(JobTotalsView::of),
             error: d.error.clone(),

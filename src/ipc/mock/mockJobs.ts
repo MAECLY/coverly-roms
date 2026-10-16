@@ -202,6 +202,7 @@ export function createMockJobs(
   const snapshot = (j: Job): JobView => ({
     ...j.view,
     decided: j.items.filter((i) => i.decision !== null).length,
+    skipped: j.items.filter((i) => i.decision?.choice === 'skip').length,
   });
   const emitChanged = (j: Job) => {
     const v = snapshot(j);
@@ -522,6 +523,7 @@ export function createMockJobs(
           paused: null,
           plan: null,
           decided: 0,
+          skipped: 0,
           journal: null,
           result: null,
           error: null,

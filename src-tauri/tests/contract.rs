@@ -135,6 +135,7 @@ fn rust_serialises_the_shared_sample() {
                 warnings: vec![],
             }),
             decided: 1,
+            skipped: 0,
             journal: Some("20261016T050401Z-1bfb-0000".into()),
             result: Some(JobTotalsView { filled: 2, replaced: 0, skipped: 2, no_art: 0, failed: 1 }),
             error: None,

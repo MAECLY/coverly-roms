@@ -133,6 +133,7 @@ describe('Drawer art actions', () => {
           paused: null,
           plan: null,
           decided: 0,
+          skipped: 0,
           journal: null,
           result: null,
           error: null,

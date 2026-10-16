@@ -95,6 +95,7 @@ const JOB_KEYS = [
   'paused',
   'plan',
   'decided',
+  'skipped',
   'journal',
   'result',
   'error',

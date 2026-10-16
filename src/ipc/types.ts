@@ -215,6 +215,8 @@ export interface JobView {
   paused: PauseView | null;
   plan: PlanSummary | null;
   decided: number;
+  /** Review items decided as skip: decided, but not written. */
+  skipped: number;
   journal: string | null;
   result: JobTotals | null;
   error: string | null;

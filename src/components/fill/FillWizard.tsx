@@ -49,38 +49,6 @@ function inPlay(job: JobView | null, generation: number): boolean {
   );
 }
 
-/**
- * Review items the user chose to skip: decided, but not written, so the
- * Run count leaves them out. Read again whenever a decision is recorded.
- */
-function useSkipped(job: JobView | null): number {
-  const id = job?.id ?? null;
-  const decided = job?.decided ?? 0;
-  const key = `${id}:${decided}`;
-  // The count read for `key`; a count of an older key is not shown.
-  const [read, setRead] = useState({ key: '', skipped: 0 });
-  useEffect(() => {
-    if (id === null || decided === 0) return;
-    let alive = true;
-    const at = `${id}:${decided}`;
-    void getBackend()
-      .then((b) => b.fillJobItems(id, 'review'))
-      .then(
-        (list) =>
-          alive &&
-          setRead({
-            key: at,
-            skipped: list.filter((i) => i.decision?.choice === 'skip').length,
-          }),
-        () => alive && setRead({ key: at, skipped: 0 }),
-      );
-    return () => {
-      alive = false;
-    };
-  }, [id, decided]);
-  return decided > 0 && read.key === key ? read.skipped : 0;
-}
-
 function Samples({ job }: { job: JobView }) {
   const t = useT();
   const [items, setItems] = useState<JobItemView[]>([]);
@@ -137,7 +105,6 @@ export function FillWizard({
   const locale = useContext(LocaleContext);
   const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const job = useJobStore((s) => s.job);
-  const skipped = useSkipped(job);
   const progress = useJobStore((s) => s.progress);
   const error = useJobStore((s) => s.error);
   const pending = useJobStore((s) => s.pending);
@@ -479,7 +446,7 @@ export function FillWizard({
             onClick={() => void runJob()}
           >
             {t('fill.run', {
-              n: n.format(job.plan.totals.auto + job.decided - skipped),
+              n: n.format(job.plan.totals.auto + job.decided - job.skipped),
             })}
           </button>
         )}
