@@ -197,8 +197,15 @@ jobs:
           ARGS: ${{ matrix.args }}
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2086 # ARGS holds zero or more flags
-          pnpm tauri build $ARGS --config "$RUNNER_TEMP/updater-overlay.json"
+          bundles=""
+          # WiX (the .msi) accepts only a numeric prerelease, so a prerelease
+          # tag such as v1.0.0-beta.1 builds the NSIS installer alone on
+          # Windows (RELEASING.md section 6).
+          if [ "$RUNNER_OS" = Windows ] && [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            bundles="--bundles nsis"
+          fi
+          # shellcheck disable=SC2086 # ARGS and bundles hold zero or more flags
+          pnpm tauri build $ARGS $bundles --config "$RUNNER_TEMP/updater-overlay.json"
       - name: Stage the bundles under their release names
         shell: bash
         run: |
@@ -407,7 +414,10 @@ jobs:
           cp bundles/* cli/* all/
           rm -f all/*.sig
           (cd all && sha256sum -- * > ../SHA256SUMS)
-          for kind in '\.dmg' '\.app\.tar\.gz' '-setup\.exe' '\.msi' '\.AppImage' '\.deb'; do
+          kinds=('\.dmg' '\.app\.tar\.gz' '-setup\.exe' '\.AppImage' '\.deb')
+          # A prerelease has no .msi (WiX refuses a non-numeric prerelease).
+          [[ "$GITHUB_REF_NAME" == *-* ]] || kinds+=('\.msi')
+          for kind in "${kinds[@]}"; do
             grep -q -e "$kind\$" SHA256SUMS || { echo "::error::SHA256SUMS has no $kind file"; exit 1; }
           done
           gh release upload "$GITHUB_REF_NAME" bundles/* cli/* latest.json SHA256SUMS --repo "$REPO" --clobber

@@ -240,7 +240,9 @@ fn only_draft_and_finalize_can_write_and_neither_builds_third_party_code() {
     // The jobs that compile (crates, build scripts, npm packages) are
     // read-only and hand their files over as workflow artifacts.
     let app = job(&wf, "app");
-    assert!(app.contains("pnpm tauri build $ARGS --config \"$RUNNER_TEMP/updater-overlay.json\""));
+    assert!(app.contains(
+        "pnpm tauri build $ARGS $bundles --config \"$RUNNER_TEMP/updater-overlay.json\""
+    ));
     assert!(app.contains("actions/upload-artifact@"));
     assert!(app.contains("name: app-${{ matrix.slug }}"));
     assert!(
@@ -1272,6 +1274,156 @@ fn bump_version_writes_nothing_unless_every_source_matched() {
         snapshot(dir.path()),
         before,
         "Cargo.toml and package.json are untouched when Cargo.lock does not match"
+    );
+}
+
+/// A folder of stand-in commands (`pnpm`, `gh`) that record their arguments
+/// in `<name>.calls`, one per line, and succeed.
+fn fake_bin(names: &[&str]) -> tempfile::TempDir {
+    let bin = tempfile::tempdir().unwrap();
+    for name in names {
+        let p = bin.path().join(name);
+        std::fs::write(
+            &p,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"{}\"\n",
+                bin.path().join(format!("{name}.calls")).display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    bin
+}
+
+fn with_fake_bin(bin: &Path) -> String {
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+/// The arguments `pnpm` receives from the app job's build step.
+fn app_build_args(runner_os: &str, tag: &str, matrix_args: &str) -> Vec<String> {
+    let script = step_script(
+        &job(&read(".github/workflows/release.yml"), "app"),
+        "Build the bundles",
+    );
+    let bin = fake_bin(&["pnpm"]);
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .env("PATH", with_fake_bin(bin.path()))
+        .env("RUNNER_OS", runner_os)
+        .env("RUNNER_TEMP", "/runner/temp")
+        .env("GITHUB_REF_NAME", tag)
+        .env("ARGS", matrix_args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::read_to_string(bin.path().join("pnpm.calls"))
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn a_prerelease_builds_windows_without_the_msi() {
+    if !scripts_runnable() {
+        return;
+    }
+    let overlay = ["--config", "/runner/temp/updater-overlay.json"];
+    // WiX refuses a non-numeric prerelease (1.0.0-beta.1), so a beta tag
+    // builds only the NSIS installer on Windows.
+    assert_eq!(
+        app_build_args("Windows", "v1.0.0-beta.1", ""),
+        [&["tauri", "build", "--bundles", "nsis"][..], &overlay[..]].concat()
+    );
+    // A stable tag builds every configured bundle, the .msi included.
+    assert_eq!(
+        app_build_args("Windows", "v1.0.0", ""),
+        [&["tauri", "build"][..], &overlay[..]].concat()
+    );
+    // Other platforms never get --bundles.
+    assert_eq!(
+        app_build_args("macOS", "v1.0.0-beta.1", "--target universal-apple-darwin"),
+        [
+            &["tauri", "build", "--target", "universal-apple-darwin"][..],
+            &overlay[..]
+        ]
+        .concat()
+    );
+    assert_eq!(
+        app_build_args("Linux", "v1.0.0-beta.1", ""),
+        [&["tauri", "build"][..], &overlay[..]].concat()
+    );
+}
+
+/// Runs finalize's SHA256SUMS step over `bundles` for `tag`.
+fn finalize_checksums(tag: &str, bundles: &[&str]) -> std::process::Output {
+    let script = step_script(
+        &job(&read(".github/workflows/release.yml"), "finalize"),
+        "SHA256SUMS and upload to the draft",
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    std::fs::create_dir(d.join("bundles")).unwrap();
+    std::fs::create_dir(d.join("cli")).unwrap();
+    write_bundles(&d.join("bundles"), bundles);
+    std::fs::write(d.join("cli/coverly-1.0.0-linux-x86_64"), "cli").unwrap();
+    std::fs::write(d.join("latest.json"), "{}").unwrap();
+    let bin = fake_bin(&["gh"]);
+    Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(d)
+        .env("PATH", with_fake_bin(bin.path()))
+        .env("GITHUB_REF_NAME", tag)
+        .env("REPO", "MAECLY/coverly-roms")
+        .env("GH_TOKEN", "x")
+        .env("GITHUB_STEP_SUMMARY", d.join("summary.md"))
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn finalize_requires_the_msi_only_for_a_stable_release() {
+    if !scripts_runnable() {
+        return;
+    }
+    let no_msi = [
+        "Coverly.ROMs_1.0.0_universal.dmg",
+        "Coverly.ROMs_1.0.0_universal.app.tar.gz",
+        "Coverly.ROMs_1.0.0_x64-setup.exe",
+        "Coverly.ROMs_1.0.0_amd64.AppImage",
+        "Coverly.ROMs_1.0.0_amd64.deb",
+    ];
+    let beta = finalize_checksums("v1.0.0-beta.1", &no_msi);
+    assert!(
+        beta.status.success(),
+        "{}",
+        String::from_utf8_lossy(&beta.stderr)
+    );
+    let stable = finalize_checksums("v1.0.0", &no_msi);
+    assert!(!stable.status.success());
+    assert!(String::from_utf8_lossy(&stable.stdout).contains("msi"));
+    let mut with_msi = no_msi.to_vec();
+    with_msi.push("Coverly.ROMs_1.0.0_x64_en-US.msi");
+    let stable = finalize_checksums("v1.0.0", &with_msi);
+    assert!(
+        stable.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stable.stderr)
     );
 }
 
