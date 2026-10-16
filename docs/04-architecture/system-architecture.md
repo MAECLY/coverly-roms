@@ -1,6 +1,6 @@
 # System Architecture
 
-> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. M1 built the read-only scan and audit. M2 adds identification, the libretro-thumbnails source, strategies, plans and safe writes, which together are `coverly fill` and `coverly undo`. Details: [identification](./identification.md), [art sources](./art-sources.md), [fill pipeline](./fill-pipeline.md). Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
+> **TL;DR.** One Cargo workspace: a pure Rust library (`coverly-core`) holds every rule about systems, layouts, scanning and art; the `coverly` CLI and the Tauri app (`coverly-roms`) are thin layers over it. M1 built the read-only scan and audit. M2 adds identification, the libretro-thumbnails source, strategies, plans and safe writes, which together are `coverly fill` and `coverly undo`. M3/M4 put the explorer and the fill jobs in the app. M5 adds one typed settings file read by the app and the CLI, custom layout profiles, OS-keychain credentials, manual identities and the Batocera `gamelist.xml` merge ([settings](./settings.md)). Details: [identification](./identification.md), [art sources](./art-sources.md), [fill pipeline](./fill-pipeline.md), [desktop app](./desktop-app.md), [settings](./settings.md). Decisions: [ADR-0002](../adr/0002-stack-tauri-rust-react.md), [ADR-0003](../adr/0003-core-cli-app-workspace.md). Source: spec [§6–§7](../superpowers/specs/2026-10-15-coverly-roms-design.md#6-architecture-approach-a), refined by [§16](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15).
 
 ## Containers
 
@@ -20,8 +20,8 @@
                │ systems · profiles · scan · art ·    │
                │ audit · identify · cache · net ·     │
                │ sources · gather · matching · plan · │
-               │ image · write · jobs                 │
-               │ (M5+: settings)                      │
+               │ image · write · jobs · fill ·        │
+               │ settings · credentials · gamelist    │
                └──────────────────┬───────────────────┘
                                   ▼
           ROM library on disk (SD card, ES-DE, RetroArch, folder)
@@ -45,11 +45,13 @@ coverly-roms/
 │  ├─ coverly-core/src/
 │  │  ├─ systems/             systems.toml (embedded) + loader + alias resolution   [M1]
 │  │  ├─ profiles/            built-in profiles, path templates, auto-detect        [M1]
+│  │  │                       custom.rs: TOML custom profiles, validation, store, preview [M5]
 │  │  ├─ scan/                walker, ROM classification, multi-file sets            [M1]
 │  │  ├─ art/                 art status per media, orphan art                      [M1]
 │  │  ├─ audit/               report model, JSON (serde) and CSV                    [M1]
 │  │  ├─ paths.rs             app directory identity (qualifier, org, app)          [M1]
 │  │  ├─ identify/            CRC32/MD5/SHA1, header skip, DAT index, arcade map    [M2]
+│  │  │                       overrides.rs: manual identities (identity-overrides.json) [M5]
 │  │  ├─ sources/             trait ArtSource: libretro [M2]; SteamGridDB, ScreenScraper [M6]
 │  │  ├─ gather/              targets, identify + candidates into the cache         [M2]
 │  │  ├─ matching/            regions, strategies (Priority, ROM region, Popularity) [M2]
@@ -59,9 +61,14 @@ coverly-roms/
 │  │  ├─ cache/               SQLite: quick ids, DAT rows, indexes, candidates      [M2]
 │  │  ├─ net/                 HTTPS client, global limiter, retries, proxy, mock    [M2]
 │  │  ├─ progress.rs time.rs  progress events, time helpers                         [M2]
-│  │  └─ settings/            typed settings, defaults, migration                   [M5]
+│  │  ├─ fill/                FillEnv facade: plan, apply, search by title, picks   [M4/M5]
+│  │  ├─ settings/            model, tolerant load + migration, validate, patch, apply [M5]
+│  │  ├─ credentials.rs       CredentialStore trait, closed keys, MemoryStore       [M5]
+│  │  └─ gamelist.rs          byte-preserving Batocera/Knulli gamelist.xml merge    [M5]
 │  └─ coverly-cli/            binary `coverly`
-├─ src-tauri/                 Tauri 2 app, IPC commands (today: app_info)
+├─ src-tauri/src/            Tauri 2 app: ipc.rs (commands), state.rs (AppState), library/, jobs/,
+│                            prefs.rs (settings views, links), profiles.rs, keychain.rs (OS keychain
+│                            CredentialStore), logging.rs (file logger, live level)          [M3–M5]
 ├─ src/                       React UI
 ├─ locales/{en,es}/ui.json    UI strings
 └─ docs/
@@ -114,5 +121,6 @@ At this speed a scan cache is not needed for auditing, so the SQLite scan cache 
 - **Network:** never real in tests. `coverly_core::net::testing::MockServer` (std `TcpListener`, feature `test-util`) serves Apache listings, DATs, images, 404/403/429 and garbage.
 - **CLI:** `assert_cmd` integration tests for output formats and exit codes (0 ok, 2 usage, 3 bad root, 4 no profile, 5 paused).
 - **End to end:** M2 ran against the real servers on a copy of the SD and on a FAT32 disk image (see [fill-pipeline.md](./fill-pipeline.md#end-to-end-evidence)).
-- **App:** Vitest + Testing Library.
+- **App:** Vitest + Testing Library on the mock backend; Rust `src-tauri/tests/` drive `AppState` without a Tauri runtime (`AppState::new(config_dir, …)` never reads the developer's settings; credentials use `MemoryStore`).
+- **Ignored real runs:** `real_fill.rs` (M4) and `real_m5.rs` (M5) run by hand against the real servers on a copy of real ROMs; the real-keychain test is ignored too.
 - **CI:** `ci.yml` runs fmt, clippy and the workspace tests on Linux, Windows and macOS ([CI/CD](../07-build-and-release/ci-cd.md)).

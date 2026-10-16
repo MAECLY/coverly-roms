@@ -8,9 +8,9 @@
 ## Estado actual (actualizar en cada sesión)
 
 - **Fecha:** 2026-10-16
-- **Fase:** M4 mergeado ([PR #5](https://github.com/MAECLY/coverly-roms/pull/5), `980b085`). Siguiente: M5 (configuración, i18n, keychain; + M4-05 y M2-10).
-- **Siguiente paso:** escribir y ejecutar el plan de M5. Pendiente de Miguel (no bloqueante): en la app real (Tauri), abrir una **copia** de la SD, rellenar portadas desde el asistente y deshacer («Evidencia M4»); y lo pendiente de M3 (diálogo nativo, scroll, drawer, Reveal).
-- **En curso:** M5 en `feat/m5-settings` (workflow `wf_0cfb50c2-1fa`: plan + implementador y revisor por tarea). Alcance: M5-01..04 + M4-05 (buscar por título) + M2-10 (`gamelist.xml`).
+- **Fase:** M5 implementado en `feat/m5-settings` (plan tareas 1–16; M5-01..04 + M4-05 + M2-10). Siguiente: M6 (fuentes secundarias).
+- **Siguiente paso:** PR de `feat/m5-settings` + merge con gates locales (Actions bloqueado por facturación). Pendiente de Miguel (no bloqueante), en la ventana Tauri: la configuración se aplica en vivo (tema, idioma, nivel de log), el aviso del llavero de macOS al guardar una clave, y rellenar + deshacer una **copia** estilo Batocera con `gamelist.xml`. Sigue pendiente lo de M3/M4 (diálogo nativo, scroll, drawer, Reveal; relleno desde el asistente sobre una copia de la SD).
+- **En curso:** —
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)
@@ -48,6 +48,15 @@
 | D21 | Reanudar un job pausado continúa el mismo journal (Writer::resume): un único Deshacer revierte ambas tandas. En la app, Deshacer actúa solo sobre journals de la biblioteca abierta y se rechaza mientras un job está pausado | 2026-10-16 | Claude (plan M4) |
 | D22 | M2-11: una variante beta/proto/demo/hack/sin licencia nunca es auto salvo coincidencia canónica o de nombre exacto, o si la ROM es esa variante; se antepone la primera release ≥ umbral de revisión | 2026-10-16 | Claude (plan M4) |
 | D23 | Los diálogos de «Desde archivo…» y de exportar se abren desde Rust: la webview nunca envía rutas y no hay capacidades nuevas | 2026-10-16 | Claude (plan M4) |
+| D24 | Un único `settings.json` (formato 2) sustituye a `library.json` (se migra y queda como respaldo). Carga tolerante campo a campo: lo inválido vuelve a su valor por defecto, lo no-JSON o > 1 MiB se aparta como `.bad-<unix>`, si la carga cambió algo se guarda `.bak-<unix>` y la UI avisa; un archivo de una versión futura se lee igual (con respaldo) | 2026-10-16 | Claude (plan M5) |
+| D25 | Sobrescritura «preguntar» = el asistente siempre pregunta (sin opción preseleccionada) y el panel confirma antes de reemplazar; sin preguntas por archivo dentro de un job. La CLI trata `ask` como `never` salvo `--overwrite backup` | 2026-10-16 | Claude (plan M5) |
+| D26 | Proxy «sistema» se comporta como «entorno» (`HTTPS_PROXY`/`HTTP_PROXY`); «manual» exige `http(s)://host:puerto`. «Hashing sí/no» es el método de identificación (§16.3: `hash-then-name`/`hash-only`/`name-only`) + tamaño máximo a hashear | 2026-10-16 | Claude (plan M5) |
+| D27 | «Respaldo antes de sobrescribir» siempre activo (bloqueado). «Ubicación de respaldos» mueve toda la carpeta de datos de los jobs (no dentro de la biblioteca abierta; un job usa la carpeta con la que empezó). «Dry-run por defecto»: CLI sin `--apply` lo sigue; la app siempre simula y, con el ajuste apagado, ejecuta sola si no hay nada que revisar. Limpieza de `._*` (magia AppleDouble) en volúmenes extraíbles tras el job, sin journal | 2026-10-16 | Claude (plan M5) |
+| D28 | Idiomas preferidos = desempate entre candidatos que la estrategia deja iguales: gana el grupo de idiomas No-Intro que contiene el primer idioma preferido (por defecto `en`) | 2026-10-16 | Claude (plan M5) |
+| D29 | Perfiles personalizados = archivos TOML `<id>.toml` en `<config>/profiles` (o la carpeta configurada); tokens del conjunto integrado, plantillas que empiezan por `{root}`/`{system_dir}`, nunca fuera de la biblioteca; archivos hostiles se ignoran con aviso. Los integrados son de solo lectura y se duplican | 2026-10-16 | Claude (plan M5) |
+| D30 | Credenciales: trait `CredentialStore` + `MemoryStore` en el núcleo; llavero del SO (`keyring` 4) solo en `src-tauri`. Claves cerradas (`steamgriddb-api-key`, `screenscraper-user`, `screenscraper-password`); los valores van webview → Rust una vez y nunca vuelven. SteamGridDB/ScreenScraper aparecen «en una versión posterior» | 2026-10-16 | Claude (plan M5) |
+| D31 | `gamelist.xml` (Batocera/Knulli): portada → `<thumbnail>` (y `<image>` si falta), captura → `<image>`, título → `<titleshot>`; todo lo demás se conserva byte a byte. Se rellena si falta, está vacío o apunta a un archivo inexistente; se reemplaza solo en un job de «reemplazar». Se rechaza (aviso) con DOCTYPE, no UTF-8, > 32 MiB, mal formado o no regular. Escritura journaled: Deshacer lo deja idéntico | 2026-10-16 | Claude (plan M5) |
+| D32 | Identidad manual (M4-05): elegir en «Buscar por título» escribe en el destino propio de la ROM (sin renombrar) y guarda `{ruta absoluta → nombre, fuente}` en `<datos de la app>/identity-overrides.json` (ni caché ni carpeta de respaldos); gana a hash y nombre (`Manual`, 1.0); «Olvidar coincidencia manual» la quita | 2026-10-16 | Claude (plan M5) |
 
 ## Fase 0 — Descubrimiento y diseño
 
@@ -127,10 +136,10 @@ Contraste manual con `ls` (ROMs = ficheros no ocultos fuera de `Imgs`; portadas 
 | M2-07 | Imagen: decode/resize/encode por perfil | ✅ | `67e4bca` (límites: 20 MiB, 8192 px, 256 MiB de asignación; formato por sniffing) |
 | M2-08 | Escritura atómica, respaldo, journal, undo, nombres FAT-safe | ✅ | `c594bf4`, `90874a2` (borra los `._*` que macOS crea en FAT por `com.apple.provenance`, hallado en el E2E sobre FAT32). [ADR-0010](adr/0010-safe-writes-backups-and-journal.md) |
 | M2-09 | `coverly fill` (dry-run/apply/--auto-only) | ✅ | `321e001` (aplicar plan: art store, fallbacks, pausa, cancelar), `63896d4` (`coverly fill` y `coverly undo`). E2E: «Evidencia M2» abajo. Doc: [fill-pipeline.md](04-architecture/fill-pipeline.md) |
-| M2-10 | Batocera/Knulli: fusionar `gamelist.xml` al rellenar (diferido de M2; hoy `fill` avisa) | ⬜ | M5. En M4: aviso en el asistente para batocera (como la CLI) |
+| M2-10 | Batocera/Knulli: fusionar `gamelist.xml` al rellenar (diferido de M2) | ✅ | Core: `7bc173d` (fusión que conserva bytes, hostil-segura), `43690c5` (journaled + undo), `249424a` (BOM), `7469c25` (lectura acotada), `f3b015c` (gemelo por mayúsculas), `cfd5ab7` (undo de un archivo escrito dos veces). App/UI: `11b6dc5`, `10ed909` (nota en el asistente). D31. Copia Batocera real: 11 rellenadas, `gamelist.xml` bien formado, `cmp` idéntico tras deshacer («Evidencia M5») |
 | M2-11 | Selección de variantes: hoy un hack/beta puede ganar como `auto` cuando es el único título exacto o el mejor fuzzy (GBA `Final Fantasy IV` → caja «Sound Restoration hack», `Contra Advance` → `(Beta)`): penalizar o mandar a `review` | ✅ | `526e3a9` (D22). Ejecución real M4: `054 Contra Advance` → `Review Some(UnreleasedVariant)` → `Contra Advance (USA) (Beta)`; `057 Final Fantasy IV` → `Review Some(UnreleasedVariant)` → `Final Fantasy IV Advance (Europe) (En,Fr,De,Es,It)` («Evidencia M4») |
-| M2-12 | Perfil Anbernic stock: las portadas existentes de la SD miden 285×184, fuera de la caja 250×360 del perfil → revisar el tamaño máximo con la consola real | ⬜ | Visto en el E2E (22 portadas GBA originales). Sigue abierto tras M4 (necesita la consola real) |
-| M2-13 | Emparejado por título: quitar prefijos numéricos de las ROMs (`001 Golden Sun`, habituales en SD Anbernic). Hoy `001 Golden Sun` cae a fuzzy 71 (`review` en vez de `auto`) aun con DAT, y `002 Gldn Rsh` queda sin candidatos (sin prefijo: fuzzy 72) | ⬜ | Visto en la revisión de la tarea 3 de M4 (fixture de `fill_env.rs`) |
+| M2-12 | Perfil Anbernic stock: las portadas existentes de la SD miden 285×184, fuera de la caja 250×360 del perfil → revisar el tamaño máximo con la consola real | ⬜ | Visto en el E2E (22 portadas GBA originales). Sigue abierto tras M5 (necesita la consola real); mientras tanto, «Tamaño máximo por perfil» en Configuración → Arte permite ajustarlo (`real_m5`: 120×160 aplicado) |
+| M2-13 | Emparejado por título: quitar prefijos numéricos de las ROMs (`001 Golden Sun`, habituales en SD Anbernic). Hoy `001 Golden Sun` cae a fuzzy 71 (`review` en vez de `auto`) aun con DAT, y `002 Gldn Rsh` queda sin candidatos (sin prefijo: fuzzy 72) | ⬜ | Visto en la revisión de la tarea 3 de M4 (fixture de `fill_env.rs`). Sigue abierto tras M5 (fuera del alcance de configuración); «Buscar por título» (M4-05) es el arreglo manual por ROM |
 
 ### Evidencia M2 — relleno E2E sobre copia de la SD (2026-10-16)
 
@@ -155,9 +164,9 @@ Binario release, servidores reales, todo en el scratchpad (`$SC` = `/private/tmp
 | M3-03 | Grid virtualizado + tabla | ✅ | `2d0309f`, `c0dbe8d`, `a20aef2`, `ee00ef8`, `9041e1d`; 48 celdas montadas como máximo con 12k (presupuesto 120) |
 | M3-04 | Filtros y búsqueda | ✅ | `673e5c1` (búsqueda sin acentos, filtros, facetas), `3a100b9`, `07f665c`, `de3a458`, `b381df2` (campos con `name`, hallado en el E2E) |
 | M3-05 | Panel de detalle con acciones | ✅ | `2808f63` (identificar bajo demanda, sin conexión → por nombre), `5fc856e` (panel: arte, ficha, identidad, «Mostrar en Finder») |
-| M3-06 | Inicio: volúmenes extraíbles detectados (spec §8) | ⏸️ | Diferido a M5 (plan M3) |
-| M3-07 | Filtro por método/confianza de identificación (spec §8) | ⏸️ | Diferido a M4: en M3 la identidad es bajo demanda. Tras M4 sigue diferido (identidad bajo demanda) → M5 |
-| M3-08 | Elegir/confirmar el perfil al abrir (spec §7.1); hoy `no-profile` si no hay marcadores | ⏸️ | Diferido a M5 (editor de perfiles); el comando ya acepta `profileId` |
+| M3-06 | Inicio: volúmenes extraíbles detectados (spec §8) | ⏸️ | Diferido a M5 (plan M3). Tras M5 sigue diferido: M5 se centró en configuración; candidato para M6/M7 |
+| M3-07 | Filtro por método/confianza de identificación (spec §8) | ⏸️ | Diferido a M4: en M3 la identidad es bajo demanda. Tras M4 y M5 sigue diferido (la identidad sigue siendo bajo demanda; M5 añade el método «Elegida por ti») |
+| M3-08 | Elegir/confirmar el perfil al abrir (spec §7.1); hoy `no-profile` si no hay marcadores | ⏸️ | Diferido a M5 (editor de perfiles); el comando ya acepta `profileId`. M5 lo cubre en parte: «Perfil por defecto» (Configuración → Biblioteca) se usa al abrir; falta el selector al abrir una carpeta sin marcadores |
 
 ### Evidencia M3 — explorador (2026-10-16)
 
@@ -183,7 +192,7 @@ Evidencia en `$S` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Doc
 | M4-02 | Cola de revisión lado a lado | ✅ | `73a93d7`, `941b8ed`, `8893f4a`; mock: `43f54a7`. «Evidencia M4» |
 | M4-03 | Jobs: progreso, cancelar, reanudar, deshacer | ✅ | Core: `8b7a9d7` (pausas, journal reanudable, borrado journaled), `fcd594b`, `343b6e7`, `5b1968e`. App: `81af28d`, `17a4e35`, `5be5ab2`, `9571040`, `bc3d659`, `88f6458`. UI: `6d0715e`, `88107be`, `b6e7668`, `76dfebf` (eventos del job perdidos con StrictMode en el mock, hallado en el E2E), `80684b5` («1 archivo»). Ejecución real por el camino de la app: `c778dc0`. «Evidencia M4» |
 | M4-04 | Reportes CSV/JSON | ✅ | `409911f` (CSV del job a prueba de fórmulas), `ff179a2` (acciones del panel + exportaciones con diálogo en Rust), `3c0387a`, `2cb9171`, `d1aa5ea`, `8efad85` (panel de informes). «Evidencia M4» |
-| M4-05 | Buscar por título en el panel (spec §8) | ⏸️ | Diferido a M5: necesita una identidad manual que no cambie el nombre del destino |
+| M4-05 | Buscar por título en el panel (spec §8) | ✅ | Core: `c0f236d` (identidades manuales), `cc720ad` (búsqueda + escritura con el nombre de la ROM). App: `27e40e7`. UI: `612f135` (confirmación antes de reemplazar). D32. E2E Chrome paso 12 («Evidencia M5») |
 
 ### Evidencia M4 — relleno en la app (2026-10-16)
 
@@ -217,10 +226,46 @@ Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelang
 
 | ID | Tarea | Estado | Evidencia |
 |---|---|---|---|
-| M5-01 | Settings tipados + persistencia + migración | ⬜ | Pendiente: con `library.follow_symlinks` activo, las portadas bajo una carpeta enlazada se escriben a través del enlace (fuera de la raíz). Documentado en la ayuda de Biblioteca (Task 9); falta que el writer rechace destinos cuyo padre canónico salga de la raíz canónica |
-| M5-02 | Pantalla de configuración (todos los grupos de la spec §9) | ⬜ | |
-| M5-03 | Editor de perfiles personalizados | ⬜ | |
-| M5-04 | Credenciales en keychain | ⬜ | |
+| M5-01 | Settings tipados + persistencia + migración | ✅ | Core: `2b18e32` (modelo, carga tolerante, migración), `0e4da3e`, `96ecb72`, `5d789a3`, `582b739`, `5e7385e`, `b23cf4e` (escaneo, identificación, emparejado, arte), `83b415b` (D28), `cbe30f9`, `03ae7e0` (red, caché, seguridad). CLI: `d01150b`, `3bd28d4`. App: `66eacd3`. IPC/mock: `f27cdb4`, `86ab2c8`. D24–D28. Doc: [settings.md](04-architecture/settings.md). `real_m5` sobre copia («Evidencia M5») |
+| M5-02 | Pantalla de configuración (todos los grupos de la spec §9) | ✅ | `6b7373b`, `b29d02f`, `f287fad`, `2ff987e`, `1c9e419`, `ef041d2`, `2cf5a2d`, `10ed909`; E2E: `cecfb0b` (proxy «Manual» rechazado se aplica al escribir la URL, hallado en el E2E). «Evidencia M5» |
+| M5-03 | Editor de perfiles personalizados | ✅ | Core: `4db90b7`, `7e76811`, `1ae1fc2`. App: `27e40e7`. UI: `04240c0`, `67454b3`, `a1fbf0c`, `fbe9994`, `9109aa6`; E2E: `37eafb7` (nombre de la copia traducido, hallado en el E2E). D29. «Evidencia M5» |
+| M5-04 | Credenciales en keychain | ✅ | `2db0bd8` (trait + `MemoryStore`), `be81e91` (llavero del SO, errores sin secretos), `27e40e7` (comandos), `ef041d2` (UI Fuentes). D30. El test del llavero real está `#[ignore]` (ejecutable a mano en macOS). E2E paso 5 («Evidencia M5») |
+| M5-05 | Con `library.follow_symlinks` activo, las portadas bajo una carpeta enlazada se escriben a través del enlace (fuera de la raíz) | ⬜ | Documentado en la ayuda de Biblioteca (`9395b7e`); falta que el writer rechace destinos cuyo padre canónico salga de la raíz canónica (estaba como nota de M5-01) |
+
+### Evidencia M5 — configuración, perfiles, credenciales, `gamelist.xml` (2026-10-16)
+
+Evidencia en `$SC/m5-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelangelesparzacalero-Documents-GitHub/35b7c020-f2ae-412f-b757-99c24a9a498b/scratchpad` (no versionada). **Nada se ejecutó contra `/Volumes`.** `~/Documents/ROMS` solo se leyó (`cp -X`).
+
+- **`real_m5`** (test ignorado `src-tauri/tests/real_m5.rs`, `COVERLY_M5_COPY=$SC/m5-copy COVERLY_M5_WORK=$SC/m5-work cargo test -p coverly-roms --release --test real_m5 -- --ignored --nocapture`, servidores reales, camino de la app: `AppState::update_settings` → `open` → `start_fill` → `jobs().run` → `undo_last_job`). Log: `real-m5.log`.
+  - **Copia:** las 30 primeras ROMs GBA en `ROMS/GBA` + 3 más en `ROMS/GBA/Junk` + `anbernic/` → 367 MB; perfil `anbernic-stock`.
+  - **Ajustes por defecto:** **33 ROMs (3 en `Junk/`)**. Tras `library.ignored_dirs += Junk` y `art.max_size.anbernic-stock = 120×160` (`reopen: true`): **30 ROMs**.
+  - **Dry-run** (regiones de la configuración): **3,7 s**, auto **22** / review **5** / none **3**; el árbol de la copia no cambia.
+  - **Apply:** filled **22**, replaced 0, skipped 8, no-art 0, failed 0 → **22 ficheros nuevos, todos ≤ 120×160**, ninguno en `Junk/`.
+  - **Undo:** removed 22, restored 0, kept 0 → árbol SHA-1 de la copia **idéntico**.
+- **Copia estilo Batocera + `gamelist.xml`** (CLI, servidores reales, `COVERLY_SETTINGS=""`): 12 ROMs GBA en `$SC/m5-bato/roms/gba` + un `gamelist.xml` escrito a mano (comentario, `<game id="42" source="ScreenScraper.fr">`, `<rating>`, `<marquee>`). Logs: `bato-fill.log`, `bato-undo.log`; ficheros `gamelist.before.xml`, `gamelist.after.xml`.
+  - `coverly fill --profile batocera --media cover --apply --auto-only` → plan gba 11 auto / 0 review / 1 none (`040 Dragon Ball-Ad Adv`: sin candidatos) → **filled 11**, failed 0.
+  - **Diff del gamelist:** solo líneas añadidas: `<thumbnail>` + `<image>` dentro de la entrada escrita a mano (comentario, `id="42"`, `<rating>`, `<marquee>` intactos) y 10 `<game>` nuevos con `<path>`, `<name>`, `<thumbnail>`, `<image>`. `xmllint --noout gamelist.after.xml` → bien formado.
+  - `coverly undo` → «removed 11, restored 1» (el `gamelist.xml`) → **`cmp gamelist.before.xml gamelist.xml` sin diferencias** («gamelist restored byte for byte»).
+- **Origen intacto:** `find ~/Documents/ROMS -cnewer snapshot | wc -l` → **0** (`source-untouched.txt`).
+- **E2E en Chrome** (Chrome DevTools MCP, `pnpm dev`, 1440×900, mock; locale del navegador `es`; notas paso a paso en `e2e-notes.md`):
+  1. Configuración: 10 pestañas; Español/English en vivo (`<html lang>`), Oscuro → `data-theme=dark` en inicio y biblioteca, Claro, Sistema; canal Beta y sin buscar actualizaciones guardados.
+  2. Biblioteca: perfil por defecto Onion, `Junk`, `zip`, ocultos y enlaces; con la biblioteca de 240 abierta → «Reopen the library to apply these changes.» → «Reopen now».
+  3. Arte: sin título, hueco único Captura, JPEG, sin aspecto, calidad 75, «Ask every time», Onion 300×420; `0` → «Use a value from 1 to 100.» con el `0` aún escrito.
+  4. Coincidencias: Prioridad de fuente, USA arriba, `es, en`; revisión 99 → «This must not be higher than the auto-accept threshold.»; 60 guardado; fuzzy off; solo nombre; 128 MB.
+  5. Fuentes: SteamGridDB/ScreenScraper deshabilitadas «Coming in a later version»; clave falsa → «Saved in the system keychain.», el campo se vacía, la clave no está en el DOM ni en `localStorage` (solo `true/false`); quitar → `false`.
+  6. Red: timeout 1 → «Use a value from 5 to 300.»; 45, reintentos 5; Manual sin URL → «This cannot be empty.»; URL → guardada **y** proxy Manual (tras el fix `cecfb0b`); caché 512, refresco 24 h; Vaciar caché → confirmar → «Freed 48 MB.».
+  7. Seguridad: respaldo bloqueado; `relative` → «Use a full path (starting with / or a drive letter).»; `/tmp/coverly-backups`, dry-run off, `._` off, profundidad 20.
+  8–9. Avanzado: Debug; abrir carpetas sin error; Reset → Cancelar (nada cambia); **recarga → todos los valores siguen**; Reset → tema Sistema, idioma Auto, log info.
+  10. Perfiles (en español): integrados de solo lectura; Duplicar Onion OS → «Onion OS (copia)» (tras el fix `37eafb7`); `{root}/../x/{stem}.png` → «Este valor no es válido.» sin vista previa; `{system_dir}/covers/{stem}.png` → `Roms/SFC/covers/Zelda (USA).png`; guardar, renombrar, recargar (sigue), eliminar con confirmación.
+  11. Acerca de: AGPL-3.0-only, sin telemetría, canal, 6 enlaces (el mock los registra, no se abre nada). La versión sale «—» en un navegador sin Tauri (desde M0).
+  12. Panel: ROM sin portada → «Search…» `Golden Sun` → 3 resultados con imagen → «Golden Sun (Europe)» → «Art updated. This ROM now matches “Golden Sun (Europe)”.», identidad «Chosen by you» 100 %, sin portada 89 → 88; Olvidar → «Content hash»; ROM con portada → elegir → confirmación «Use this image»; consulta hostil `<img src=x onerror=alert(1)>` → resultados como texto, `img[src="x"], [onerror]` = **0**.
+  13. Asistente con «Ask»: el paso 4 no tiene opción marcada y «Preview (dry run)» está deshabilitado. El mock no tiene biblioteca Batocera: la nota de `gamelist.xml` solo se comprueba en `FillWizard.test.tsx`.
+  14. Pasada limpia tras recargar: consola **0 errores, 0 avisos** (`console.txt`); red: 104 peticiones a `localhost`/`blob:`, todas 200/304 (`network.txt`).
+  - **Bugs del E2E (test primero + fix):** (1) elegir proxy «Manual» con la URL vacía se rechaza; al escribir después la URL solo se guardaba la URL y el proxy seguía en «Sistema» → `cecfb0b`; (2) la copia de un perfil integrado se llamaba «(copy)» también en español → `37eafb7` (clave `profiles.copyName`).
+  - Observaciones (sin cambio): la herramienta `fill` de DevTools no dispara `onChange` de React en el textarea de extensiones (al teclear de verdad se guarda; artefacto de la herramienta); `9075` en calidad JPEG da «This value is not valid.» (no cabe en `u8`; mismo código que en Rust) en vez del mensaje de rango; la plantilla que sale de la biblioteca muestra el genérico «no válido» (códigos estables, sin código específico).
+  - **Capturas:** `01-general-es.png`, `02-start-dark.png`, `03-library-dark.png`, `04-library-reopen.png`, `05-art-error.png`, `06-matching-order-error.png`, `07-sources-key-saved.png`, `08-network.png`, `09-safety.png`, `10-after-reset-es.png`, `11-profile-escape-error.png`, `12-about-es.png`, `13-drawer-search.png`, `14-drawer-picked.png`, `15-drawer-replace-confirm.png`, `16-drawer-hostile.png`, `17-wizard-overwrite-ask.png`.
+- **Comprobación manual pendiente (Miguel):** en la ventana Tauri: ajustes en vivo, aviso del llavero de macOS al guardar una clave, y una copia Batocera rellenada y deshecha desde la app.
+- **Tests:** `cargo test --workspace` → **518 pasan**, 0 fallan, 4 ignorados (`real_library`, `real_fill`, `real_m5`, llavero real); `pnpm test` → **326 pasan** (50 ficheros). `cargo fmt --check`, `clippy -D warnings`, `pnpm lint`, `typecheck`, `format:check` y `build` en verde (`gates.log`).
 
 ## M6 — Fuentes secundarias
 
@@ -250,3 +295,4 @@ Evidencia en `$SC/m4-e2e/` con `$SC` = `/private/tmp/claude-501/-Users-miguelang
 - **2026-10-16** — M3 mergeado (PR #4, `910618e`; Actions bloqueado por facturación → gates locales: 312 tests Rust + 156 Vitest, clippy/fmt/lint limpios). Comprobación independiente con Chrome DevTools MCP sobre `pnpm dev`: inicio con recientes, fixture 12k abre el grid virtualizado («12.000 de 12.000 ROMs · 4553 sin portada»), 0 errores/avisos de consola.
 - **2026-10-16** — M4 implementado en `feat/m4-fill-app` (plan tareas 1–13): asistente de relleno, cola de revisión por teclado, jobs con pausa/reanudación/cancelación/deshacer, acciones del panel (cambiar, desde archivo, quitar), informes CSV/JSON; M2-11 resuelto (D22). Ejecución real por el camino de la app sobre copia (122 portadas, undo idéntico) y E2E en Chrome (3 bugs arreglados). D20–D23.
 - **2026-10-16** — M4 mergeado (PR #5, `980b085`; Actions bloqueado por facturación → gates locales: 389 tests Rust + 241 Vitest, clippy/fmt/lint limpios). Fix previo al PR `fix(app): carry the skipped review count on the job` (hallazgo del revisor: re-decidir un ítem no actualizaba «Ejecutar (n)»; ahora `JobView.skipped`). Verificación independiente: `real_fill` sobre la copia de nuevo (122 rellenadas, 0 fallos, undo 122, `find -cnewer` en la fuente = 0); Chrome DevTools sobre la biblioteca pequeña del mock: simulación 64/15/10, aceptar todo + saltar uno → «Ejecutar (78)», ejecución 71+3+4 = 78, sin portada 89 → 18, 0 errores de consola.
+- **2026-10-16** — M5 implementado en `feat/m5-settings` (plan tareas 1–16): `settings.json` tipado y tolerante (corrupto/antiguo/futuro → valores por defecto + respaldo + aviso) leído por la app y la CLI; pantalla de Configuración con los 9 grupos de §9 + Acerca de; editor de perfiles personalizados con vista previa; credenciales en el llavero del SO; «Buscar por título» con identidad manual (M4-05); fusión de `gamelist.xml` Batocera/Knulli journaled (M2-10). `real_m5` sobre copia (Junk ignorado, 22 portadas ≤ 120×160, undo idéntico) y copia Batocera (`cmp` idéntico tras deshacer). El E2E en Chrome destapó 2 bugs (proxy Manual, nombre de copia sin traducir). D24–D32.

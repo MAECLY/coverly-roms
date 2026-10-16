@@ -136,6 +136,20 @@ The app writes `auto` items plus the accepted or picked review items; undecided 
 
 The detail drawer writes one file at a time, each as a journaled job of its own (so Undo reverts it): "Change…" writes a candidate through the same apply path; "From file…" uses `write_local_image` (the file is read up to 20 MiB, decoded and re-encoded for the slot); "Remove" uses `remove_art`, which backs the file up and journals a `removed` op. A drawer action that changes nothing leaves no journal.
 
+## Settings, gamelist.xml and manual matches (M5)
+
+The pipeline takes its options from the settings ([settings.md](./settings.md)). The core never reads the file itself:
+
+- **Settings → options.** `scan_options()` (ignored folders/extensions, hidden files, symlinks), `fill_settings()` (media, strategy, regions, languages, thresholds, fuzzy, arcade translation, match method, max hash size), `art_profile()` (single-slot media, output format, per-profile max size), `fit()` (keep aspect, JPEG quality), `net_config()` (concurrency, timeout, retries, proxy), `apply_options()` (`._*` cleanup, undo depth) and `data_dir()` (the backup location). The thresholds of [Plan classes](#plan-classes-and-thresholds) are the setting values (defaults 0.90/0.65). In the app, each job keeps the settings snapshot it started with, for its run and every resume.
+- **Match method.** `hash-then-name` (default), `hash-only` (no name fallback) or `name-only` (hashing off). ROMs over "max file size to hash" are identified by name.
+- **Language tie-break (D28).** Among candidates the strategy ranks **equal** (same match kind, score and regions), one whose No-Intro language group (`(En,Fr,De)`) contains the first preferred language wins. It never overrides a real strategy difference.
+- **Manual identities first (D32).** Identification checks `identity-overrides.json` before hash and name (`IdMethod::Manual`, confidence 1.0), so a ROM matched by hand keeps that match in later fills.
+- **gamelist.xml (D31).** After the apply phase, on a profile with `gamelist = true` (Batocera/Knulli), `gamelist::merge_into` merges the written art paths into each touched system's `gamelist.xml` through the same `Writer` (backup + journal), so Undo restores it byte for byte. A file that cannot be merged safely is left untouched with a warning in the report. The mapping and refusals are in [settings.md](./settings.md#gamelistxml-merge-gamelist-d31-m2-10).
+- **`._*` cleanup (D27).** With the setting on and the library on a removable volume (`/Volumes/…`, `/media`, `/run/media`, `/mnt`), the AppleDouble files (`._*` starting with `00 05 16 07`) in the folders the job wrote to are deleted after the job (`write::clean_apple_doubles`). This is not journaled.
+- **Art store trimming.** After a job, `trim_art_store(cache_dir, cache_max_mb)` deletes the oldest downloaded images until the store fits the cache limit. A trimmed image is a cache miss next time. Clear cache empties it (refused while a job runs).
+- **Search by title (M4-05).** `FillEnv::search_title` returns candidates for a typed title (cleaned by `clean_query`: not empty, at most 120 characters, no control characters). `FillEnv::apply_candidate` writes the picked one at the ROM's **own** target path (never renamed, never the candidate's name) as a journaled job of its own, and the app stores the manual identity.
+- **Dry run by default.** CLI: `coverly fill` without `--apply`/`--dry-run` follows the setting. App: the wizard always plans first. With the setting off, it starts the run by itself when the plan has nothing to review.
+
 ## CLI reference
 
 ```
