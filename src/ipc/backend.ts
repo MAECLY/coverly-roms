@@ -38,6 +38,10 @@ import type {
   SourceId,
   SourceInfo,
   UndoView,
+  UpdateCheck,
+  UpdateInstall,
+  UpdateProgress,
+  UpdateTrigger,
 } from './types';
 
 export interface Backend {
@@ -161,6 +165,18 @@ export interface Backend {
     candidate: number,
   ): Promise<EntryArtUpdate[]>;
   clearIdentityOverride(generation: number, entryId: number): Promise<void>;
+
+  /* In-app updates (M7): driven from Rust, never from the webview. */
+  /** Checks the channel's manifest; a `startup` check with "check on start"
+   * off requests nothing and answers `skipped`. */
+  checkForUpdates(trigger: UpdateTrigger): Promise<UpdateCheck>;
+  /** Downloads and verifies the offered update (progress via `onUpdateProgress`). */
+  downloadUpdate(): Promise<void>;
+  onUpdateProgress(cb: (p: UpdateProgress) => void): Promise<() => void>;
+  /** Installs the downloaded update; `job-running` while a fill job runs or is paused. */
+  installUpdate(): Promise<UpdateInstall>;
+  /** Restarts into the installed update; `job-running` while a fill job runs or is paused. */
+  restartApp(): Promise<void>;
 }
 
 let current: Backend | null = null;

@@ -31,6 +31,9 @@ import type {
   SettingsView,
   SourceInfo,
   UndoView,
+  UpdateCheck,
+  UpdateInstall,
+  UpdateProgress,
 } from './types';
 
 export const SCAN_PROGRESS_EVENT = 'library-scan-progress';
@@ -38,6 +41,7 @@ export const JOB_PROGRESS_EVENT = 'fill-job-progress';
 export const JOB_CHANGED_EVENT = 'fill-job-changed';
 export const ENTRIES_UPDATED_EVENT = 'library-entries-updated';
 export const SETTINGS_CHANGED_EVENT = 'settings-changed';
+export const UPDATE_PROGRESS_EVENT = 'update-progress';
 
 async function call<T>(
   cmd: string,
@@ -184,5 +188,12 @@ export function createTauriBackend(): Backend {
       }),
     clearIdentityOverride: (generation, entryId) =>
       call<void>('clear_identity_override', { generation, entryId }),
+    checkForUpdates: (trigger) =>
+      call<UpdateCheck>('check_update', { trigger }),
+    downloadUpdate: () => call<void>('download_update'),
+    onUpdateProgress: (cb) =>
+      listen<UpdateProgress>(UPDATE_PROGRESS_EVENT, (e) => cb(e.payload)),
+    installUpdate: () => call<UpdateInstall>('install_update'),
+    restartApp: () => call<void>('restart_app'),
   };
 }

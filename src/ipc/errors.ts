@@ -29,6 +29,12 @@ export const ERROR_CODES = [
   'keychain-unavailable',
   'keychain-locked',
   'keychain-failed',
+  'update-offline',
+  'update-signature',
+  'update-unavailable',
+  'update-no-key',
+  'update-failed',
+  'update-not-ready',
   'art-unreadable',
   'unknown',
 ] as const;

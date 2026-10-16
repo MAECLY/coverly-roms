@@ -561,3 +561,30 @@ export interface ProfilePreview {
   paths: Partial<Record<Media, string>>;
   errors: FieldError[];
 }
+
+/** What asked for an update check (Rust `CheckTrigger`). */
+export type UpdateTrigger = 'startup' | 'manual';
+
+/** Rust `UpdateOfferView`: the version the channel offers. */
+export interface UpdateOffer {
+  version: string;
+  notes: string | null;
+  date: string | null;
+}
+
+/** Rust `UpdateCheckView`; `skipped` = a startup check with the setting off. */
+export type UpdateCheck =
+  | { kind: 'skipped' }
+  | { kind: 'up-to-date'; current: string; latest: string }
+  | { kind: 'available'; current: string; offer: UpdateOffer };
+
+/** Rust `UpdateProgressEvent` (the `update-progress` event). */
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
+
+/** Rust `UpdateInstallView`. */
+export interface UpdateInstall {
+  restart_required: boolean;
+}

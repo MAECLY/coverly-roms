@@ -2,7 +2,6 @@
  * Browser stand-in for the Tauri backend (`pnpm dev` in Chrome, tests):
  * deterministic fixture libraries, fake progress, SVG art, fake identity.
  */
-import { version as APP_VERSION } from '../../../package.json';
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
@@ -16,6 +15,11 @@ import type {
 import { generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import { createMockSettings } from './mockSettings';
+import {
+  createMockUpdates,
+  readMockUpdateScenario,
+  type MockUpdateScenario,
+} from './mockUpdates';
 import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
@@ -40,6 +44,9 @@ export interface MockOptions {
   /** Where settings, custom profiles and credential presence persist
    * (default: `window.localStorage` when usable; null = memory only). */
   storage?: Storage | null;
+  /** What the updater answers (default: `?mockUpdate=`, then localStorage
+   * `coverly.mock.update`, then `up-to-date`). */
+  update?: MockUpdateScenario;
 }
 
 export interface MockBackend extends Backend {
@@ -49,6 +56,9 @@ export interface MockBackend extends Backend {
   readonly exports: MockExport[];
   /** Folders and links "opened" (`folder:logs`, `link:repo`), for tests. */
   readonly opened: string[];
+  /** Updater calls (`check:startup`, `check:manual`, `download`, `install`,
+   * `restart`), for tests. */
+  readonly updateLog: string[];
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -234,6 +244,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       pick: opts.pick ?? 'image',
     },
   );
+  const updateLog: string[] = [];
+  const updates = createMockUpdates({
+    scenario: opts.update ?? readMockUpdateScenario(),
+    tick: () => sleep(delayMs),
+    log: updateLog,
+    jobBusy: () => jobs.isBusy(),
+  });
   let recents: RecentLibrary[] = [
     ...MOCK_LIBRARIES.map((l, i) => ({
       path: l.path,
@@ -264,13 +281,9 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   return {
     ...jobs,
     ...settings,
+    ...updates,
+    updateLog,
     kind: 'mock',
-    appInfo: () =>
-      Promise.resolve({
-        name: 'Coverly ROMs',
-        version: APP_VERSION,
-        core_version: APP_VERSION,
-      }),
     revealed,
     async openLibrary(path) {
       const gen = (generation += 1);

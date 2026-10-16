@@ -31,6 +31,10 @@ import {
   type ScanProgress,
   type SystemView,
   type UndoView,
+  type UpdateCheck,
+  type UpdateInstall,
+  type UpdateOffer,
+  type UpdateProgress,
 } from './types';
 
 /** Compiles only when `K` lists every key of `T`. */
@@ -150,6 +154,9 @@ const HISTORY_KEYS = [
   'complete',
   'undone',
 ] as const;
+const UPDATE_OFFER_KEYS = ['version', 'notes', 'date'] as const;
+const UPDATE_PROGRESS_KEYS = ['downloaded', 'total'] as const;
+const UPDATE_INSTALL_KEYS = ['restart_required'] as const;
 const REQUEST_KEYS = [
   'entry_ids',
   'media',
@@ -249,6 +256,27 @@ const checks: [string, readonly string[], object][] = [
     sample.history_item,
   ],
   [
+    'UpdateOffer',
+    UPDATE_OFFER_KEYS satisfies AllKeys<UpdateOffer, typeof UPDATE_OFFER_KEYS>,
+    sample.update_check_available.offer,
+  ],
+  [
+    'UpdateProgress',
+    UPDATE_PROGRESS_KEYS satisfies AllKeys<
+      UpdateProgress,
+      typeof UPDATE_PROGRESS_KEYS
+    >,
+    sample.update_progress,
+  ],
+  [
+    'UpdateInstall',
+    UPDATE_INSTALL_KEYS satisfies AllKeys<
+      UpdateInstall,
+      typeof UPDATE_INSTALL_KEYS
+    >,
+    sample.update_install,
+  ],
+  [
     'FillRequest',
     REQUEST_KEYS satisfies AllKeys<FillRequest, typeof REQUEST_KEYS>,
     requests.fill_request,
@@ -282,6 +310,32 @@ describe('wire contract', () => {
     const decisions = requests.decisions as DecisionIn[];
     expect(decisions[1]).toEqual({ index: 1, choice: 'pick', candidate: 2 });
     expect(requests.item_filters).toEqual(['all', 'auto', 'review', 'failed']);
+  });
+});
+
+describe('update contract', () => {
+  it('update checks use the Rust tags and keys', () => {
+    const checks: UpdateCheck[] = [
+      sample.update_check_available as UpdateCheck,
+      sample.update_check_up_to_date as UpdateCheck,
+      sample.update_check_skipped as UpdateCheck,
+    ];
+    expect(checks.map((c) => c.kind)).toEqual([
+      'available',
+      'up-to-date',
+      'skipped',
+    ]);
+    expect(Object.keys(sample.update_check_available).sort()).toEqual([
+      'current',
+      'kind',
+      'offer',
+    ]);
+    expect(Object.keys(sample.update_check_up_to_date).sort()).toEqual([
+      'current',
+      'kind',
+      'latest',
+    ]);
+    expect(Object.keys(sample.update_check_skipped)).toEqual(['kind']);
   });
 });
 

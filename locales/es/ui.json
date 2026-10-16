@@ -299,6 +299,12 @@
     "keychain-unavailable": "Este sistema no tiene un almacén de credenciales (llavero) que Coverly ROMs pueda usar.",
     "keychain-locked": "El llavero está bloqueado. Desbloquéalo y vuelve a intentarlo.",
     "keychain-failed": "El llavero rechazó la petición: {detail}",
+    "update-offline": "No se pudo contactar con el servidor de actualizaciones. Comprueba la conexión y reinténtalo.",
+    "update-signature": "La actualización descargada no superó la comprobación de firma y NO se instaló. No se cambió nada.",
+    "update-unavailable": "No se encontró ninguna actualización para este canal y sistema: todavía no hay ninguna publicada o el servidor de actualizaciones no pudo darla.",
+    "update-no-key": "Esta compilación no puede actualizarse sola. Descarga las versiones nuevas desde la página de versiones.",
+    "update-failed": "No se pudo instalar la actualización: {detail}",
+    "update-not-ready": "Busca actualizaciones primero.",
     "art-unreadable": "No se puede mostrar esta imagen.",
     "unknown": "Error inesperado: {detail}",
     "field": {
