@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<title>Coverly ROMs glyph, hand-tuned for 24 px</title>
+<rect id="tile" width="24" height="24" rx="5.25" fill="#0E5E6F"/>
+<g id="glyph" fill="#FBFBF9">
+<rect x="3.6" y="7" width="6.5" height="9" rx="1" transform="rotate(12 10.1 16)"/>
+<path id="slot" fill-rule="evenodd" d="M12 6h8v10h-8zm2 2v6h4V8z"/>
+<rect id="shelf" x="4" y="17" width="16" height="2"/>
+</g>
+</svg>
