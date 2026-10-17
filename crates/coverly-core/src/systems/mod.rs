@@ -255,6 +255,77 @@ impl SystemDb {
     }
 }
 
+/// Extensions that wrap a ROM: never evidence by themselves.
+pub const CONTAINER_EXTS: [&str; 2] = ["zip", "7z"];
+/// Extensions many non-ROM files use: no system candidate without
+/// content evidence (spec §6.4).
+pub const GENERIC_EXTS: [&str; 6] = ["bin", "iso", "img", "rom", "dat", "chd"];
+/// Disc/list formats that are ROM-like even when no system lists them.
+const LIST_EXTS: [&str; 3] = ["cue", "gdi", "m3u"];
+
+/// How much an extension says about the system (spec §6.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtClass {
+    /// `zip`, `7z`: look inside.
+    Container,
+    /// `bin`, `iso`, `img`, `rom`, `dat`, `chd`: says nothing alone.
+    Generic,
+    /// Listed by exactly one system.
+    Unique,
+    /// Listed by several systems.
+    Shared,
+    /// Listed by none.
+    Unknown,
+}
+
+impl SystemDb {
+    /// Systems listing `ext` (any case, no dot); empty for containers.
+    pub fn systems_for_extension(&self, ext: &str) -> Vec<&System> {
+        let ext = ext.trim().to_lowercase();
+        if ext.is_empty() || CONTAINER_EXTS.contains(&ext.as_str()) {
+            return Vec::new();
+        }
+        self.systems
+            .iter()
+            .filter(|s| s.extensions.contains(&ext))
+            .collect()
+    }
+
+    /// What `ext` says about the system.
+    pub fn extension_class(&self, ext: &str) -> ExtClass {
+        let lower = ext.trim().to_lowercase();
+        if CONTAINER_EXTS.contains(&lower.as_str()) {
+            return ExtClass::Container;
+        }
+        if GENERIC_EXTS.contains(&lower.as_str()) {
+            return ExtClass::Generic;
+        }
+        match self.systems_for_extension(&lower).len() {
+            0 => ExtClass::Unknown,
+            1 => ExtClass::Unique,
+            _ => ExtClass::Shared,
+        }
+    }
+
+    /// The system whose DAT list (see `dat_sources`) contains `dat`.
+    pub fn system_for_dat(&self, dat: &str) -> Option<&System> {
+        self.systems.iter().find(|s| {
+            crate::identify::dat::dat_sources(s)
+                .iter()
+                .any(|d| d == dat)
+        })
+    }
+
+    /// Whether a file with extension `ext` may be a ROM, a disc image or
+    /// an archive of one (organise candidates).
+    pub fn is_rom_like_extension(&self, ext: &str) -> bool {
+        let lower = ext.trim().to_lowercase();
+        !lower.is_empty()
+            && (LIST_EXTS.contains(&lower.as_str())
+                || self.extension_class(&lower) != ExtClass::Unknown)
+    }
+}
+
 /// A relative `/`-separated path with no empty, `.` or `..` segment, no
 /// `\` and no control characters, so it stays under the DAT base URL.
 pub(crate) fn is_safe_repo_path(path: &str) -> bool {
@@ -760,5 +831,65 @@ mod tests {
     #[test]
     fn invalid_override_toml_is_an_error() {
         assert!(SystemDb::builtin().with_overrides("[[system]\n").is_err());
+    }
+
+    #[test]
+    fn extension_classes_follow_the_database() {
+        let db = SystemDb::builtin();
+        assert_eq!(db.extension_class("GBA"), ExtClass::Unique);
+        assert_eq!(db.extension_class("sfc"), ExtClass::Unique);
+        assert_eq!(
+            db.extension_class("gb"),
+            ExtClass::Shared,
+            "gb and gbc list it"
+        );
+        assert_eq!(db.extension_class("wsc"), ExtClass::Shared);
+        assert_eq!(db.extension_class("cue"), ExtClass::Shared);
+        assert_eq!(db.extension_class("zip"), ExtClass::Container);
+        assert_eq!(db.extension_class("7z"), ExtClass::Container);
+        for generic in ["bin", "iso", "img", "rom", "dat", "chd"] {
+            assert_eq!(db.extension_class(generic), ExtClass::Generic, "{generic}");
+        }
+        assert_eq!(db.extension_class("docx"), ExtClass::Unknown);
+        assert_eq!(db.extension_class(""), ExtClass::Unknown);
+    }
+
+    #[test]
+    fn systems_for_an_extension() {
+        let db = SystemDb::builtin();
+        let ids = |ext: &str| -> Vec<String> {
+            db.systems_for_extension(ext)
+                .iter()
+                .map(|s| s.id.clone())
+                .collect()
+        };
+        assert_eq!(ids("gba"), ["gba"]);
+        let mut gb = ids("gb");
+        gb.sort();
+        assert_eq!(gb, ["gb", "gbc"]);
+        assert!(ids("zip").is_empty(), "containers name no system");
+    }
+
+    #[test]
+    fn the_system_of_a_dat() {
+        let db = SystemDb::builtin();
+        let gba = db.get("gba").unwrap();
+        let dat = crate::identify::dat::dat_sources(gba)
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(db.system_for_dat(&dat).map(|s| s.id.as_str()), Some("gba"));
+        assert!(db.system_for_dat("metadat/no-intro/Nope.dat").is_none());
+    }
+
+    #[test]
+    fn rom_like_extensions() {
+        let db = SystemDb::builtin();
+        for ext in ["gba", "zip", "7z", "bin", "cue", "m3u", "gdi", "chd", "NDS"] {
+            assert!(db.is_rom_like_extension(ext), "{ext}");
+        }
+        for ext in ["txt", "jpg", "docx", "dmg", ""] {
+            assert!(!db.is_rom_like_extension(ext), "{ext}");
+        }
     }
 }
