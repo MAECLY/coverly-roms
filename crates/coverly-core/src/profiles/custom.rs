@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::naming::validate_folder_override;
 use super::{
     builtin_profiles, render, FolderNaming, ImageFormat, Media, MediaSlot, Profile, TemplateVars,
 };
@@ -57,6 +58,16 @@ pub struct ProfileFile {
     /// Keyed by `cover`, `screenshot` or `title`.
     #[serde(default)]
     pub slots: BTreeMap<String, SlotFile>,
+    /// How organise names system folders (`first-alias` | `id`).
+    #[serde(default, skip_serializing_if = "is_default_naming")]
+    pub system_folder: FolderNaming,
+    /// Per-system folder names (system id → folder).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folder_names: BTreeMap<String, String>,
+}
+
+fn is_default_naming(n: &FolderNaming) -> bool {
+    *n == FolderNaming::default()
 }
 
 pub fn media_key(m: Media) -> &'static str {
@@ -95,6 +106,8 @@ impl ProfileFile {
                     })
                 })
                 .collect(),
+            system_folder: p.system_folder,
+            folder_names: BTreeMap::new(),
         }
     }
 
@@ -132,7 +145,9 @@ impl ProfileFile {
             fixed_format: false,
             gamelist: self.gamelist,
             slots,
-            system_folder: FolderNaming::default(),
+            system_folder: self.system_folder,
+            // Custom `folder_names` are merged under the user settings map
+            // by the planner.
             host_folders: BTreeMap::new(),
             arcade_order: vec!["fbneo".to_string(), "mame".to_string()],
             known_folders: Vec::new(),
@@ -308,6 +323,18 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
         .collect();
     if mirrors.iter().any(|m| *m) && !mirrors.iter().all(|m| *m) {
         out.push(FieldError::new("slots", Order));
+    }
+    if !p.folder_names.is_empty() {
+        let db = SystemDb::builtin();
+        let profile = p.to_profile();
+        for (system_id, folder) in &p.folder_names {
+            if validate_folder_override(&db, &profile, system_id, folder).is_err() {
+                out.push(FieldError::new(
+                    format!("folder_names.{system_id}"),
+                    Invalid,
+                ));
+            }
+        }
     }
     out
 }

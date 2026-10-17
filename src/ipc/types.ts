@@ -538,7 +538,14 @@ export interface ProfileFile {
   art_dirs: string[];
   gamelist: boolean;
   slots: Partial<Record<Media, SlotFile>>;
+  /** How organise names system folders; absent = `first-alias`. */
+  system_folder?: FolderNaming;
+  /** Per-system folder names (system id → folder); absent = none. */
+  folder_names?: Record<string, string>;
 }
+
+/** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
+export type FolderNaming = 'first-alias' | 'id';
 
 export interface ProfileInfo {
   profile: ProfileFile;

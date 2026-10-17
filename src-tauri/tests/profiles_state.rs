@@ -3,7 +3,7 @@ mod common;
 use std::collections::BTreeMap;
 
 use coverly_core::profiles::custom::{PreviewExample, ProfileFile, SlotFile};
-use coverly_core::profiles::ImageFormat;
+use coverly_core::profiles::{FolderNaming, ImageFormat};
 use coverly_core::settings::FieldErrorCode;
 use coverly_core::systems::SystemDb;
 use coverly_roms_lib::error::IpcError;
@@ -35,6 +35,8 @@ fn mine(id: &str, template: &str) -> ProfileFile {
                 max_height: None,
             },
         )]),
+        system_folder: FolderNaming::default(),
+        folder_names: BTreeMap::new(),
     }
 }
 

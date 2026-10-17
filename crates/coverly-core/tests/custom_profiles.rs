@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use coverly_core::profiles::custom::*;
-use coverly_core::profiles::{builtin_profiles, ImageFormat, Media};
+use coverly_core::profiles::{builtin_profiles, FolderNaming, ImageFormat, Media};
 use coverly_core::settings::FieldErrorCode;
 use coverly_core::systems::SystemDb;
 
@@ -28,6 +28,8 @@ fn sample() -> ProfileFile {
                 max_height: Some(360),
             },
         )]),
+        system_folder: FolderNaming::default(),
+        folder_names: BTreeMap::new(),
     }
 }
 
@@ -304,4 +306,43 @@ fn folders_and_links_named_like_profiles_are_skipped_with_a_warning() {
     let (loaded, warnings) = ProfileStore::new(pdir).load();
     assert!(loaded.is_empty());
     assert_eq!(warnings.len(), 2, "{warnings:?}");
+}
+
+#[test]
+fn folder_names_must_resolve_to_their_system() {
+    let mut p = sample();
+    p.folder_names.insert("gba".into(), "GBA".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    p.folder_names.insert("snes".into(), "GBA".into());
+    p.folder_names.insert("nes".into(), "My Stuff".into());
+    assert!(has(&p, "folder_names.snes", FieldErrorCode::Invalid));
+    assert!(has(&p, "folder_names.nes", FieldErrorCode::Invalid));
+    assert!(!has(&p, "folder_names.gba", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn folder_naming_round_trips_and_defaults_stay_out_of_the_file() {
+    let plain = sample();
+    let text = plain.to_toml();
+    assert!(!text.contains("system_folder"), "{text}");
+    assert!(!text.contains("folder_names"), "{text}");
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), plain);
+
+    let mut named = sample();
+    named.system_folder = FolderNaming::Id;
+    named.folder_names.insert("gba".into(), "gba".into());
+    let text = named.to_toml();
+    assert!(text.contains("system_folder = \"id\""), "{text}");
+    let back = ProfileFile::parse_toml(&text).unwrap();
+    assert_eq!(back, named);
+    assert_eq!(back.to_profile().system_folder, FolderNaming::Id);
+
+    let esde = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "esde")
+        .unwrap();
+    assert_eq!(
+        ProfileFile::from_profile(&esde).system_folder,
+        FolderNaming::Id
+    );
 }

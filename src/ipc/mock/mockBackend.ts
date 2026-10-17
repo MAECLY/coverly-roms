@@ -116,6 +116,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'ROMS',
       art_dirs: [],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png('{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png'),
         screenshot: png(
@@ -145,6 +146,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'ROMs',
       art_dirs: [],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png(
           '{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png',
@@ -167,6 +169,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],
       gamelist: true,
+      system_folder: 'id',
       slots: {
         cover: png('{system_dir}/images/{stem}-image.png'),
         screenshot: png('{system_dir}/images/{stem}-screenshot.png'),
@@ -183,6 +186,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: '',
       art_dirs: ['thumbnails'],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png('{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png'),
         screenshot: png('{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png'),
