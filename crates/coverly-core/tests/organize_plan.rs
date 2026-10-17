@@ -878,6 +878,64 @@ fn a_disc_set_with_a_symlinked_track_stays_in_place() {
     assert_eq!(plan.counts.roms, 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_disc_set_whose_track_sits_behind_a_symlinked_folder_stays_in_place() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    put(&outside.path().join("Game.bin"), &fx::psx_iso(true, false));
+    put(
+        &dir.path().join("Game.cue"),
+        b"FILE \"tracks/Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    // `tracks` looks like a folder inside the pile but points outside it.
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("tracks")).unwrap();
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("anbernic-stock")
+        },
+    );
+    assert!(
+        matches!(
+            left_reason(&plan, "Game.cue"),
+            Some(LeftReason::Symlink | LeftReason::SetOutsideFolder)
+        ),
+        "{:?}",
+        left_reason(&plan, "Game.cue")
+    );
+    assert_eq!(plan.counts.roms, 0);
+    assert!(outside.path().join("Game.bin").exists());
+}
+
+#[test]
+fn a_disc_set_whose_track_climbs_out_with_dot_dot_stays_in_place() {
+    let root = TempDir::new().unwrap();
+    let dir = root.path().join("pile");
+    put(&root.path().join("Game.bin"), &fx::psx_iso(true, false));
+    put(
+        &dir.join("Game.cue"),
+        b"FILE \"../Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    let world = World::new();
+    let plan = plan(
+        &world,
+        &dir,
+        OrganizeOptions {
+            offline: true,
+            ..defaults("anbernic-stock")
+        },
+    );
+    assert!(
+        left_reason(&plan, "Game.cue").is_some(),
+        "a track outside the pile must hold the set back"
+    );
+    assert_eq!(plan.counts.roms, 0);
+}
+
 #[test]
 fn a_raw_file_equal_to_a_zipped_one_is_a_duplicate() {
     let dir = TempDir::new().unwrap();

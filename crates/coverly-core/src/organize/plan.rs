@@ -551,6 +551,28 @@ fn is_within(inner: &Path, outer: &Path) -> bool {
     inner.starts_with(outer)
 }
 
+/// `member` is a symlink or reparse point itself, or reaches its file
+/// through one: a folder between `source` and `member` that is a link.
+fn reached_through_link(member: &Path, source: &Path) -> bool {
+    let is_link = |p: &Path| {
+        fs::symlink_metadata(p)
+            .is_ok_and(|m| m.file_type().is_symlink() || super::walk::is_reparse_point(&m))
+    };
+    member
+        .ancestors()
+        .take_while(|p| *p != source && p.starts_with(source))
+        .any(is_link)
+}
+
+/// `member` really lives under `source` once every link and `..` is
+/// resolved. Anything that cannot be resolved counts as outside.
+fn really_within(member: &Path, source: &Path) -> bool {
+    match (fs::canonicalize(member), fs::canonicalize(source)) {
+        (Ok(m), Ok(s)) => m.starts_with(s),
+        _ => false,
+    }
+}
+
 fn mtime_ns_of(meta: &fs::Metadata) -> i64 {
     match meta
         .modified()
@@ -871,9 +893,11 @@ fn build_entries(
             Some(LeftReason::SetIncomplete { missing })
         } else if let Some(reason) = member_left {
             Some(reason)
+        } else if members.iter().any(|m| reached_through_link(m, source)) {
+            Some(LeftReason::Symlink)
         } else if members
             .iter()
-            .any(|m| !is_within(m, &base) || !is_within(m, source))
+            .any(|m| !is_within(m, &base) || !is_within(m, source) || !really_within(m, source))
         {
             Some(LeftReason::SetOutsideFolder)
         } else if members

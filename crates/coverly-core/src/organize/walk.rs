@@ -394,7 +394,7 @@ fn is_companion(name: &str, ext: &str) -> bool {
 }
 
 #[allow(unused_variables)]
-fn is_reparse_point(meta: &fs::Metadata) -> bool {
+pub(crate) fn is_reparse_point(meta: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
