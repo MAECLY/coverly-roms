@@ -1194,25 +1194,6 @@ html[lang='en'] .fx-ghost {
   stroke-dasharray: 1;
 }
 
-/* Section headlines: a slot under each, dashed until it fills. */
-/* The dashes are a border-image pattern, not border-style: dashed. */
-.section-head h2::after {
-  content: '';
-  display: block;
-  width: 64px;
-  height: 8px;
-  margin-top: 22px;
-  border: 1.5px solid transparent;
-  border-image: repeating-linear-gradient(
-      90deg,
-      var(--cr-slot-missing) 0 4px,
-      transparent 4px 7px
-    )
-    2;
-  background: linear-gradient(var(--cr-primary), var(--cr-primary)) 0 0 / 100%
-    100% no-repeat border-box;
-}
-
 /* Terminal: lines wait their turn while motion.js types. */
 html.motion .term .t-wait {
   visibility: hidden;
@@ -1283,11 +1264,6 @@ html.motion .t-rest {
     opacity: 0;
     visibility: hidden;
     transform: translateY(4px);
-  }
-}
-@keyframes bar-fill {
-  from {
-    background-size: 0% 100%;
   }
 }
 @keyframes fig-in {
@@ -1586,11 +1562,6 @@ html.vt-ink::view-transition-new(root) {
       animation: cta-in linear both;
       animation-timeline: --hero-cta;
       animation-range: exit 0% exit 100%;
-    }
-    .section-head h2::after {
-      animation: bar-fill linear both;
-      animation-timeline: view();
-      animation-range: entry 40% cover 35%;
     }
     .annot-mark {
       animation: draw linear both;
@@ -2272,6 +2243,37 @@ body::before {
   }
   to {
     stroke-dashoffset: calc(var(--cy) * -1);
+  }
+}
+
+/* == showcase:heads == */
+/* Every H2 stands on a short shelf rule (brand §2): a 1px line with its
+   3px Buckram cap. As the head scrolls in it draws from the cap out.
+   Static: drawn. */
+.section-head h2::after {
+  content: '';
+  display: block;
+  width: min(100%, 12rem);
+  height: 3px;
+  margin-top: 22px;
+  background:
+    linear-gradient(var(--cr-primary), var(--cr-primary)) 0 0 / 48px 3px
+      no-repeat,
+    linear-gradient(var(--cr-border-strong), var(--cr-border-strong)) 0 0 /
+      100% 1px no-repeat;
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .section-head h2::after {
+      animation: rule-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 30%;
+    }
+  }
+}
+@keyframes rule-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
   }
 }
 
