@@ -4,7 +4,8 @@
 mark** belong to MAECLY, the name under which the founder, Miguel Angel Esparza
 Calero, publishes his software.
 
-The mark is being designed; until it ships the app uses the wordmark only.
+The mark is the Lean-To icon: a solid cover leaning against an empty slot on a
+shelf rule. Its master SVGs live in `design/icon/` (see `design/icon/README.md`).
 
 - The code is licensed under the GNU Affero General Public License v3.0 (see
   `LICENSE`). As an additional term under its section 7(e), the licence grants
@@ -33,7 +34,10 @@ them are created as the app is built; the list names where each one will live):
   `coverly`) and the app crate `coverly-roms`.
 - `locales/en/ui.json` and `locales/es/ui.json` - `app.name`, the product name
   in the interface copy.
-- `src-tauri/icons/` - the desktop icon set.
+- `design/icon/` - the master SVGs of the mark. `pnpm icons` rasterises them
+  into `src-tauri/icons/` (the desktop icon set), `public/favicon.png` and the
+  landing icons in `site/` (`favicon.ico`, `assets/favicon.svg`,
+  `assets/apple-touch-icon.png`, `assets/icon-*.png`).
 - `index.html` - the page `<title>`.
 
 The repository is `github.com/MAECLY/coverly-roms`.
