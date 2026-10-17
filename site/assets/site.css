@@ -2807,6 +2807,58 @@ body::before {
   }
 }
 
+/* == showcase:formats == */
+/* One shelf of covers in runs, one run per layout row (its ink chip in
+   the table). It develops once on the way in: grounds, covers, spines.
+   Hovering a row lifts its run off its shadow. One slot stays empty. */
+.gal {
+  margin-bottom: 16px;
+}
+.g-sp {
+  fill: var(--cr-slot-applied);
+}
+.chip {
+  display: inline-block;
+  width: 6px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.split:has(tbody tr:nth-child(1):hover) .q1,
+.split:has(tbody tr:nth-child(2):hover) .q2,
+.split:has(tbody tr:nth-child(3):hover) .q3,
+.split:has(tbody tr:nth-child(4):hover) .q4,
+.split:has(tbody tr:nth-child(5):hover) .q5,
+.split:has(tbody tr:nth-child(6):hover) .q6,
+.split:has(tbody tr:nth-child(7):hover) .q7,
+.split:has(tbody tr:nth-child(8):hover) .q8 {
+  transform: translateY(-3px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gal :is(.g-gd, .g-cv, .g-sp) > * {
+    transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+  }
+  html.motion .gal:not(.is-in) > g {
+    opacity: 0;
+  }
+  html.motion .gal.is-in > g {
+    animation: dm-in var(--cr-duration-slower) var(--cr-ease-enter) both;
+  }
+  html.motion .gal.is-in .g-cv {
+    animation: develop 640ms var(--cr-ease-ink) 160ms both;
+  }
+  html.motion .gal.is-in .g-sp {
+    animation: develop var(--cr-duration-slower) var(--cr-ease-ink) 640ms both;
+  }
+}
+@keyframes develop {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
