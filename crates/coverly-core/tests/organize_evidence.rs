@@ -425,3 +425,64 @@ fn arcade_sets_listed_by_zip_name_resolve_to_their_description() {
     assert_eq!(game, "Street Fighter II (World 910522)");
     assert_eq!(roms, [("33333333".to_string(), 4)]);
 }
+
+#[test]
+fn a_full_dat_set_is_found_by_its_own_name_before_a_clone_sharing_a_rom() {
+    // MAME-style full DAT: the clone `mspacman` ships the parent's
+    // `pacman.6e`, whose stem equals the set name being asked for.
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "mame"),
+            &[
+                row("mspacman", "pacman.6e", 4096, "C1E6AB10"),
+                row("mspacman", "boot1", 4096, "D16B31B7"),
+                row("pacman", "pacman.6e", 4096, "C1E6AB10"),
+                row("pacman", "pacman.6f", 4096, "1A6FB2D4"),
+            ],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    let (game, roms) = cat.set_roms("mame", "pacman").unwrap();
+    assert_eq!(game, "pacman");
+    assert_eq!(
+        roms,
+        [
+            ("C1E6AB10".to_string(), 4096),
+            ("1A6FB2D4".to_string(), 4096)
+        ]
+    );
+}
+
+struct OfflineHttp(std::sync::atomic::AtomicUsize);
+
+impl coverly_core::net::Http for OfflineHttp {
+    fn get(
+        &self,
+        _req: &coverly_core::net::HttpRequest,
+    ) -> Result<coverly_core::net::HttpResponse, coverly_core::net::NetError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(coverly_core::net::NetError::Offline("unreachable".into()))
+    }
+}
+
+#[test]
+fn once_the_network_is_down_no_more_downloads_are_tried() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let http = OfflineHttp(Default::default());
+    let store = DatStore::new(&http, &cache, "https://example.invalid");
+    let cat = DatCatalogue::new(&db, &cache, Some(&store), MAX_DAT_DOWNLOADS);
+    let systems: Vec<String> = ["gb", "gbc", "gba", "snes", "nes"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert!(cat.hits(&systems, "00000001", 1).is_empty());
+    assert_eq!(
+        http.0.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "an offline error stops the on-demand downloads"
+    );
+    assert_eq!(cat.unconsulted().len(), 5);
+}

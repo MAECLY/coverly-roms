@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::Cache;
-use crate::identify::dat::{dat_sources, DatStatus, DatStore};
+use crate::identify::dat::{dat_sources, DatError, DatStatus, DatStore};
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{Sniff, DECISIVE};
 use crate::systems::{ExtClass, SystemDb};
@@ -304,10 +304,17 @@ impl<'a> DatCatalogue<'a> {
                         match self.store {
                             Some(store) if state.downloads < self.cap => {
                                 state.downloads += 1;
-                                matches!(
-                                    store.ensure(&dat),
-                                    Ok(DatStatus::Ready | DatStatus::Stale)
-                                )
+                                match store.ensure(&dat) {
+                                    Ok(DatStatus::Ready | DatStatus::Stale) => true,
+                                    // Offline, timed out or rate limited: the
+                                    // next download would fail the same way,
+                                    // so the rest use cached DATs only.
+                                    Err(DatError::Net(e)) if e.pauses() => {
+                                        state.downloads = self.cap;
+                                        false
+                                    }
+                                    _ => false,
+                                }
                             }
                             _ => false,
                         }
@@ -388,18 +395,21 @@ impl Catalogue for DatCatalogue<'_> {
 
     fn set_roms(&self, system: &str, set: &str) -> Option<(String, Vec<(String, u64)>)> {
         for dat in self.ready_dats(system) {
-            // libretro DATs list a set as one ROM named `<set>.zip` under
-            // the game's description; full DATs name the game by the set.
-            let by_stem = self
+            // Full DATs (MAME) name the game by the set: that wins, since a
+            // clone may ship a parent's chip ROM whose stem is the set name
+            // (`mspacman` has `pacman.6e`). libretro DATs list a set as one
+            // ROM named `<set>.zip` under the game's description; only an
+            // archive-named row stands for a whole set.
+            let by_archive = self
                 .cache
                 .dat_by_rom_stem(&dat, set)
                 .unwrap_or_default()
                 .into_iter()
-                .next()
+                .find(|r| is_set_archive(&r.rom_name))
                 .map(|r| r.game);
-            let candidates = by_stem
+            let candidates = [set.to_string(), set.to_lowercase()]
                 .into_iter()
-                .chain([set.to_string(), set.to_lowercase()]);
+                .chain(by_archive);
             for game in candidates {
                 let rows = self.cache.dat_rows_of_game(&dat, &game).unwrap_or_default();
                 if rows.is_empty() {
@@ -419,4 +429,11 @@ impl Catalogue for DatCatalogue<'_> {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.unconsulted.iter().cloned().collect()
     }
+}
+
+/// Whether a DAT ROM name is a whole arcade set packed as an archive.
+fn is_set_archive(rom_name: &str) -> bool {
+    rom_name
+        .rsplit_once('.')
+        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("7z"))
 }
