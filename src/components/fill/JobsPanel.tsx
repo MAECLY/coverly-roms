@@ -9,6 +9,17 @@ import {
 } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -467,58 +478,53 @@ export function JobsPanel({
                             {t('organize.resume')}
                           </Button>
                         )}
-                      {h.kind === 'organize' &&
-                        !h.undone &&
-                        h.undoable &&
-                        organizeConfirm !== h.job && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={running || organizeBusy}
-                            aria-label={t('jobs.organizeUndo.label', {
-                              date: when(h.created_at),
-                            })}
-                            onClick={() => setOrganizeConfirm(h.job)}
-                          >
-                            <Undo2 aria-hidden />
-                            {t('organize.undo.action')}
-                          </Button>
-                        )}
-                    </span>
-                    {organizeConfirm === h.job && (
-                      <Alert
-                        variant="warning"
-                        role="group"
-                        aria-labelledby={`jobs-organize-confirm-${h.job}`}
-                        className="col-span-full"
-                        action={
-                          <>
+                      {h.kind === 'organize' && !h.undone && h.undoable && (
+                        <AlertDialog
+                          open={organizeConfirm === h.job}
+                          onOpenChange={(on) =>
+                            setOrganizeConfirm(on ? h.job : null)
+                          }
+                        >
+                          <AlertDialogTrigger asChild>
                             <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setOrganizeConfirm(null)}
-                            >
-                              {t('jobs.undoNo')}
-                            </Button>
-                            <Button
-                              variant="destructive"
+                              variant="outline"
                               size="sm"
                               disabled={running || organizeBusy}
-                              onClick={() => void undoOrganize(h.job, false)}
+                              aria-label={t('jobs.organizeUndo.label', {
+                                date: when(h.created_at),
+                              })}
                             >
-                              {t('jobs.undoYes')}
+                              <Undo2 aria-hidden />
+                              {t('organize.undo.action')}
                             </Button>
-                          </>
-                        }
-                      >
-                        <p
-                          id={`jobs-organize-confirm-${h.job}`}
-                          className="m-0"
-                        >
-                          {t('jobs.organizeUndo.confirm')}
-                        </p>
-                      </Alert>
-                    )}
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {t('jobs.organizeUndo.title', {
+                                  date: when(h.created_at),
+                                })}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t('jobs.organizeUndo.confirm')}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                {t('jobs.undoNo')}
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                disabled={running || organizeBusy}
+                                onClick={() => void undoOrganize(h.job, false)}
+                              >
+                                {t('jobs.undoYes')}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>

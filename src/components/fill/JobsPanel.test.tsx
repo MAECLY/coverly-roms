@@ -329,24 +329,37 @@ describe('Jobs panel', () => {
     expect(
       within(fill!).queryByRole('button', { name: /^Undo/ }),
     ).not.toBeInTheDocument();
+    const opener = within(row!).getByRole('button', {
+      name: /^Undo the organisation of /,
+    });
+    await userEvent.click(opener);
+    expect(undo).not.toHaveBeenCalled();
+    // The confirmation interrupts, and focus starts on the safe action.
+    let confirm = screen.getByRole('alertdialog', {
+      name: /^Undo the organisation of .+\?$/,
+    });
+    expect(within(confirm).getByRole('button', { name: 'Keep' })).toHaveFocus();
+    // Keeping it changes nothing and gives focus back to the row.
     await userEvent.click(
-      within(row!).getByRole('button', { name: /^Undo the organisation of / }),
+      within(confirm).getByRole('button', { name: 'Keep' }),
     );
     expect(undo).not.toHaveBeenCalled();
-    // Keeping it changes nothing.
-    await userEvent.click(within(row!).getByRole('button', { name: 'Keep' }));
-    expect(undo).not.toHaveBeenCalled();
-    await userEvent.click(
-      within(row!).getByRole('button', { name: /^Undo the organisation of / }),
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    await userEvent.click(opener);
+    confirm = screen.getByRole('alertdialog', {
+      name: /^Undo the organisation of .+\?$/,
+    });
+    expect(confirm).toHaveAccessibleDescription(
+      /files go back where they were/,
     );
-    expect(
-      within(row!).getByText(/files go back where they were/),
-    ).toBeInTheDocument();
     history.mockResolvedValue([
       { ...organised, undone: true },
       { ...real!, undone: true },
     ]);
-    await userEvent.click(within(row!).getByRole('button', { name: 'Undo' }));
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Undo' }),
+    );
     await waitFor(() =>
       expect(undo).toHaveBeenCalledWith('organize-0001', false),
     );
@@ -393,7 +406,11 @@ describe('Jobs panel', () => {
     await userEvent.click(
       within(row).getByRole('button', { name: /^Undo the organisation of / }),
     );
-    await userEvent.click(within(row).getByRole('button', { name: 'Undo' }));
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Undo',
+      }),
+    );
     expect(
       await within(dialog).findByText(/^These must be undone first: Covers /),
     ).toBeInTheDocument();

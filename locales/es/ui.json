@@ -618,7 +618,8 @@
     "undoNo": "Conservar",
     "organizeUndo": {
       "label": "Deshacer la organización del {date}",
-      "confirm": "¿Deshacer esta organización? Los archivos vuelven a donde estaban; los que hayas cambiado después se quedan donde están."
+      "title": "¿Deshacer la organización del {date}?",
+      "confirm": "Los archivos vuelven a donde estaban; los que hayas cambiado después se quedan donde están."
     },
     "undone": "Deshecho: {removed} quitadas, {restored} restauradas, {kept} conservadas porque las cambiaste.",
     "history": "Historial",

@@ -618,7 +618,8 @@
     "undoNo": "Keep",
     "organizeUndo": {
       "label": "Undo the organisation of {date}",
-      "confirm": "Undo this organisation? The files go back where they were; files you changed since stay where they are."
+      "title": "Undo the organisation of {date}?",
+      "confirm": "The files go back where they were; files you changed since stay where they are."
     },
     "undone": "Undone: {removed} removed, {restored} restored, {kept} kept because you changed them.",
     "history": "History",
