@@ -417,9 +417,12 @@ function header(kind) {
 /* Landing only: a section that is greyboard-dark in either mode (the
    #como band, landing-showcase-spec.md §4.4). It carries the dark roles, so
    every pair the contrast matrix checks in dark holds inside it; in dark
-   mode its ground sinks to surface-sunken so it still reads as a band. */
+   mode its ground sinks to surface-sunken so it still reads as a band.
+   Status, chart and legacy roles stay out: the band only shows content. */
+const BAND_SKIP =
+  /^--cr-(chart|warning|danger|info|success-bg|text-muted|accent|error)/;
 function bandBlocks(surface, darkScheme) {
-  const roles = darkScheme.filter(([name]) => !name.startsWith('--cr-chart-'));
+  const roles = darkScheme.filter(([name]) => !BAND_SKIP.test(name));
   const sunken = darkScheme.find(([name]) => name === '--cr-surface-sunken')[1];
   const sink = [['--cr-bg', sunken]];
   return [

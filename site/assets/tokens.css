@@ -265,17 +265,6 @@
   --cr-manila-fg: #2a2111;
   --cr-manila-text: #e6c77f;
   --cr-success: #6cc983;
-  --cr-success-bg: #172c1c;
-  --cr-warning: #f0a35a;
-  --cr-warning-bg: #352211;
-  --cr-warning-fill: #f0a35a;
-  --cr-warning-fill-fg: #121514;
-  --cr-danger: #ff8a80;
-  --cr-danger-bg: #381c1b;
-  --cr-danger-fill: #ff8a80;
-  --cr-danger-fill-fg: #121514;
-  --cr-info: #8fb3f2;
-  --cr-info-bg: #19253b;
   --cr-slot-missing: #79817e;
   --cr-slot-filled: #eceeea;
   --cr-slot-applied: #5db6c4;
@@ -285,10 +274,6 @@
   --cr-code-muted: #a8afab;
   --cr-code-accent: #5db6c4;
   --cr-scrim: rgb(13 15 15 / 55%);
-  --cr-text-muted: #a8afab;
-  --cr-accent: #5db6c4;
-  --cr-accent-text: #0a262c;
-  --cr-error: #ff8a80;
   --cr-shadow-raised:
     0 1px 0 rgb(0 0 0 / 30%), 0 6px 16px -6px rgb(0 0 0 / 45%);
   --cr-shadow-overlay:
