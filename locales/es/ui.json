@@ -685,5 +685,48 @@
       "slotsOrder": "O todas las plantillas usan {rel_dir} o ninguna.",
       "slotsRequired": "Activa al menos un hueco."
     }
+  },
+  "organize": {
+    "title": "Organizar por sistema",
+    "back": "Volver",
+    "confidence": {
+      "high": "Alta",
+      "medium": "Media"
+    },
+    "why": {
+      "hash": "CRC {crc} en el catálogo de {system}: {name}",
+      "header": "La cabecera es de {system} ({detail})",
+      "extension": "Extensión .{ext}, propia de {system}",
+      "extensionShared": "Extensión .{ext}, compartida por varios sistemas; probablemente {system}",
+      "extensionContradicted": "Extensión .{ext} de {system}, pero la cabecera no coincide",
+      "name": "El nombre se parece a {name} ({system})",
+      "online": "ScreenScraper lo conoce como {name} ({system})",
+      "user": "Elegido por ti"
+    },
+    "left": {
+      "partialDownload": "Descarga sin terminar",
+      "recent": "Modificado hace un momento; puede que aún se esté descargando",
+      "cloudOnly": "Está en la nube, sin descargar",
+      "notARom": "No es una ROM ({what})",
+      "webPage": "página web",
+      "text": "texto",
+      "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
+      "damagedArchive": "Archivo comprimido dañado",
+      "unsupportedArchive": "Formato comprimido no compatible",
+      "multiGameArchive": "Comprimido con varios juegos; descomprímelo antes",
+      "unsupportedSystem": "Sistema no compatible ({name})",
+      "unknown": "Sistema desconocido",
+      "duplicate": "Igual que {name}",
+      "alreadyPresent": "Ya está en {path}",
+      "alreadySorted": "Ya está en la carpeta de sistema {folder}",
+      "symlink": "Enlace simbólico; se deja tal cual",
+      "setIncomplete": "Faltan archivos del juego: {missing}",
+      "setOutsideFolder": "Parte de sus archivos está fuera de esta carpeta",
+      "sharedTrack": "Pista compartida por varios juegos",
+      "ambiguousCompanion": "Acompaña a varias ROMs; no se sabe con cuál ir",
+      "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
+      "unreadable": "No se puede leer",
+      "collisionSet": "Otro juego ya usa esos nombres en el destino"
+    }
   }
 }
