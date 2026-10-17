@@ -2277,6 +2277,239 @@ body::before {
   }
 }
 
+/* == showcase:steps == */
+/* #como, the greyboard-dark band (tokens.css .band-dark) under a still
+   weave; its screenshots are the dark ones. --lp-paper keeps the page's
+   own ground (taken at :root) for covers drawn inside it. */
+:root {
+  --lp-paper: var(--cr-bg);
+}
+.band-dark {
+  position: relative;
+  isolation: isolate;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+}
+.band-dark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--cr-text);
+  mask: url('art/weave.svg') 0 0 / 8px 8px;
+  opacity: 0.04;
+}
+/* Camera: each shot scales about the spot that matters, so that spot
+   stays put and the frame never shows past the edge. Static: whole shot. */
+.cam {
+  position: relative;
+  transform-origin: var(--cx) var(--cy);
+}
+.cam-1 {
+  --cx: 14.8%;
+  --cy: 98%;
+  --cz: 1.9;
+}
+.cam-2 {
+  --cx: 34.6%;
+  --cy: 8%;
+  --cz: 1.8;
+}
+.cam-3 {
+  --cx: 37.9%;
+  --cy: 66.9%;
+  --cz: 1.6;
+}
+.cam-4 {
+  --cx: 82.2%;
+  --cy: 17.1%;
+  --cz: 1.9;
+}
+/* Callouts: a leader from that spot to a mono label. */
+.call path {
+  fill: none;
+  stroke: var(--cr-text-secondary);
+  stroke-width: 1.25;
+  stroke-dasharray: 1;
+  vector-effect: non-scaling-stroke;
+}
+.callout {
+  position: absolute;
+  left: var(--lx);
+  top: var(--ly);
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-raised);
+  font: 500 0.6875rem/1.4 var(--cr-font-mono);
+  white-space: nowrap;
+}
+.co-1 {
+  --lx: 25.8%;
+  --ly: 86.3%;
+}
+.co-3 {
+  --lx: 50%;
+  --ly: 80%;
+}
+.co-4 {
+  --lx: auto;
+  --ly: 12.3%;
+  right: 30.9%;
+}
+/* Step 2's proof stamp, printed twice out of register: nothing written. */
+.stamp {
+  fill: none;
+  stroke: var(--cr-primary);
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.st-slot {
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3.5;
+}
+.st-b {
+  opacity: 0.45;
+}
+/* Step rail beside the pinned desk: dashed, then solid with a spine. */
+.rail {
+  display: none;
+}
+.rl-o {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+.rl-f {
+  fill: var(--cr-slot-filled);
+}
+.rl-s {
+  fill: var(--cr-slot-applied);
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .steps {
+      --tl: --shot;
+    }
+    .shot {
+      view-timeline-name: --shot;
+    }
+    .cam,
+    .stamp,
+    .call path,
+    .callout {
+      animation: cam linear both;
+      animation-timeline: var(--tl);
+      animation-range: cover 5% cover 70%;
+    }
+    .stamp {
+      animation-name: stamp;
+    }
+    .call path {
+      animation-name: draw;
+      animation-range: cover 30% cover 40%;
+    }
+    .callout {
+      animation-name: co-in;
+      animation-range: cover 38% cover 44%;
+    }
+    @media (min-width: 1024px) {
+      .cam-1 {
+        animation-range: cover 25% cover 75%;
+      }
+      .step:nth-child(1) {
+        --tl: --s1;
+      }
+      .step:nth-child(2) {
+        --tl: --s2;
+      }
+      .step:nth-child(3) {
+        --tl: --s3;
+      }
+      .step:nth-child(4) {
+        --tl: --s4;
+      }
+      .rail {
+        display: block;
+        grid-column: 1;
+        grid-row: 1 / 5;
+        justify-self: end;
+        position: sticky;
+        top: calc(max(var(--header) + 32px, 50vh - 250px) + 170px);
+        margin-right: -38px;
+      }
+      .rl-f,
+      .rl-s {
+        transform-box: fill-box;
+        transform-origin: 0 100%;
+        animation: rl-fill linear both;
+        animation-timeline: --s1;
+        animation-range: entry 30% entry 80%;
+      }
+      .rl-s {
+        animation-name: rl-spine;
+        animation-range: entry 80% cover 50%;
+      }
+      .r2 > * {
+        animation-timeline: --s2;
+      }
+      .r3 > * {
+        animation-timeline: --s3;
+      }
+      .r4 > * {
+        animation-timeline: --s4;
+      }
+    }
+  }
+}
+@keyframes cam {
+  0%,
+  20% {
+    transform: none;
+  }
+  45%,
+  72% {
+    transform: scale(var(--cz));
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes stamp {
+  0%,
+  30% {
+    opacity: 0.001;
+    transform: scale(1.08);
+  }
+  36%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0.001;
+    transform: translateY(-4px) scale(1.04);
+  }
+}
+@keyframes co-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rl-fill {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes rl-spine {
+  from {
+    transform: scaleX(0);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
