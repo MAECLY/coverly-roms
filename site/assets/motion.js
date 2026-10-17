@@ -57,70 +57,6 @@
     return t;
   }
 
-  /* The hero shelf runs the app's own order: a dry run marks the five
-     gaps (nothing written), then each gets its cover while the count goes
-     7 → 12, then the result. Waits, armed, until most of the grid is on
-     screen; a slow load shows the finished shelf instead. */
-  function hero() {
-    var box = document.querySelector(".shelf");
-    if (!box) return;
-    var grid = box.querySelector(".shelf-grid") || box;
-    var gaps = box.querySelectorAll(".tile.gap"), n = gaps.length;
-    var have = box.querySelector(".have"), total = box.querySelectorAll(".tile").length;
-    var later = timers(), io = null, replay = box.querySelector(".replay");
-    var ready = function (on) {
-      if (!replay) return;
-      if (on) replay.removeAttribute("aria-disabled");
-      else replay.setAttribute("aria-disabled", "true");
-    };
-    var cl = box.classList, phases = ["armed", "planning", "applying", "is-done", "is-played"];
-    var count = function (v) { if (have) have.textContent = v; };
-    var each = function (fn) { for (var i = 0; i < n; i++) fn(gaps[i], i); };
-    var stop = function () {
-      later.clear();
-      if (io) io.disconnect();
-      cl.remove("armed", "planning", "applying");
-      each(function (g) { g.classList.add("is-filled"); });
-      count(total);
-      cl.add("is-done", "is-played");
-      ready(true);
-    };
-    stops.push(stop);
-    var fill = function (i) {
-      gaps[i].classList.add("is-filled");
-      count(total - n + i + 1);
-      if (i + 1 < n) return later(function () { fill(i + 1); }, 380, stop);
-      later(function () { cl.remove("applying", "armed"); cl.add("is-done"); }, 640, stop);
-      later(function () { cl.add("is-played"); ready(true); }, 1300, stop);
-    };
-    var play = function () {
-      later.clear();
-      cl.remove.apply(cl, phases);
-      ready(false);
-      each(function (g) { g.classList.remove("is-filled"); });
-      cl.add("armed");
-      count(total - n);
-      later(function () { cl.add("planning"); }, 150, stop);
-      later(function () { cl.remove("planning"); cl.add("applying"); fill(0); }, 1500, stop);
-    };
-    /* motion.js owns the timing now: drop the CSS fallback that fills the
-       gaps at 4 s whether or not anyone is looking. */
-    cl.add("is-live");
-    each(function (g, i) { g.style.setProperty("--i", i); });
-    if (!n || performance.now() > 2600) stop();
-    else {
-      cl.add("armed");
-      count(total - n);
-      io = once(grid, 0.4, function () { later(play, 250, stop); });
-    }
-    /* Replaying, the button stays in place and keeps focus: it is only
-       marked unavailable until the shelf is full again. */
-    if (replay) replay.addEventListener("click", function () {
-      if (replay.getAttribute("aria-disabled")) return;
-      try { play(); } catch (x) { stop(); }
-    });
-  }
-
   /* The terminal types each command in turn; a line shows when its turn
      comes. The untyped rest stays in place, hidden, so no glyph moves.
      Skipped when it is already on screen. */
@@ -218,7 +154,6 @@
   counter();
   if (!html.classList.contains("anim") || !window.IntersectionObserver || !window.matchMedia) return html.classList.remove("anim");
   try {
-    hero();
     terminal();
     reveals();
     Array.prototype.forEach.call(document.querySelectorAll("[data-clip]"), clip);
