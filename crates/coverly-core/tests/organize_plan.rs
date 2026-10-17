@@ -881,3 +881,13 @@ fn a_raw_file_equal_to_a_zipped_one_is_a_duplicate() {
     assert_eq!(dup, 1, "{:#?}", plan.items);
     assert_eq!(by_name(&plan, "Other.gba").action, OrganizeAction::Auto);
 }
+
+#[test]
+fn probe_skips_ignored_folders() {
+    let dir = TempDir::new().unwrap();
+    put(&dir.path().join("bios/scph1001.bin"), &[1u8; 512]);
+    put(&dir.path().join("saves/x.gba"), &fx::gba());
+    put(&dir.path().join("Game.gba"), &fx::gba());
+    let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
+    assert_eq!(probe.rom_like, 1);
+}

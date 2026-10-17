@@ -1453,6 +1453,8 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
         broad_root: is_broad_root(path),
         ..FolderProbe::default()
     };
+    // Same folders the walk never enters (`bios`, `saves`, …).
+    let ignored = ScanOptions::default().ignored_dirs;
     let mut sorted: BTreeSet<String> = BTreeSet::new();
     let mut partial_dirs = 0usize;
     let walker = WalkDir::new(path)
@@ -1466,7 +1468,7 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
                 return true;
             }
             let name = entry.file_name().to_string_lossy();
-            if is_hidden(&name) {
+            if is_hidden(&name) || ignored.iter().any(|d| d.eq_ignore_ascii_case(&name)) {
                 return false;
             }
             if is_partial_download(&name) {
