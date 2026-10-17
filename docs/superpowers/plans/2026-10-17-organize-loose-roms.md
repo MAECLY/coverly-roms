@@ -3026,6 +3026,8 @@ fn a_remembered_choice_settles_the_same_content() {
 
 `scene_group_hint`: case-insensitive search for one of `["Venom", "Paracox", "BatMan", "Independent", "Rising Sun", "Eurasia", "Trashman", "Mode7", "Megaroms", "Suxxors", "Menace", "LightForce"]` inside parentheses.
 
+*As built:* `Facts.raw_crcs` is `Vec<(String, u64)>` (CRC + size), because the headerless digest has a different size than the file and DAT hits filter by size; memoised digests whose size differs from the candidate's are dropped and the file is re-hashed. A scene group matches when a whole `( … )` group equals the name (case-insensitive), so `Venom - Lethal Protector` is no hint. Later arcade systems confirming the same set are added to `combined.alternatives` at 0.99 after `combine`, not as evidence (as evidence the 0.01 gap would fail the margin rule and send every FBNeo/MAME set to review). Hashing that yields no digest (too large, name-only) still sets `hashed`, so it is not retried; an I/O error does not. The online lookup gets the inner ROM name for zips.
+
 - [ ] **Step 4: Run tests and gates.**
 
 - [ ] **Step 5: Commit**
