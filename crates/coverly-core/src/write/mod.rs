@@ -1025,6 +1025,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         data_dir,
         job: &journal.job,
         counter: 0,
+        overrides: Vec::new(),
     };
     // A target replaced twice in one job (a gamelist written by a run and
     // its resume) shares one backup holding the original bytes: once the
@@ -1103,6 +1104,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             ) => unreachable!("handled before reading the target"),
         }
     }
+    undo_organize::restore_overrides(&mut ctx)?;
     let undone = journal
         .path
         .with_file_name(format!("{}.undone.jsonl", journal.job));

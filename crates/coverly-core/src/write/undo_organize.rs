@@ -30,6 +30,9 @@ pub(super) struct Ctx<'a> {
     pub job: &'a str,
     /// Temp file counter of the copies back across volumes.
     pub counter: u32,
+    /// Rekeyed manual identities (`from`, `to`), restored once every file
+    /// had its chance to go back (see [`restore_overrides`]).
+    pub overrides: Vec<(PathBuf, PathBuf)>,
 }
 
 /// Whether `op` is one of the organise ops this module undoes.
@@ -49,7 +52,10 @@ pub(super) fn undo_entry(
     report: &mut UndoReport,
 ) -> Result<(), WriteError> {
     match op {
-        Op::OverrideMoved { from, to } => restore_override(ctx.data_dir, &from, &to),
+        Op::OverrideMoved { from, to } => {
+            ctx.overrides.push((from, to));
+            Ok(())
+        }
         Op::DirCreated => {
             remove_created_dir(ctx, &target, report);
             Ok(())
@@ -354,21 +360,37 @@ fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
     }
 }
 
-/// Puts the manual identity the job rekeyed from `from` to `to` back
-/// under `from`, unless `from` has one of its own by now.
-fn restore_override(data_dir: &Path, from: &Path, to: &Path) -> Result<(), WriteError> {
-    let path = data_dir.join(OVERRIDES_FILE);
-    if fs::symlink_metadata(&path).is_err() {
+/// Puts each manual identity the job rekeyed from `from` to `to` back
+/// under `from`, after the files were undone: an identity follows its
+/// file, so one whose file is still at `to` (changed after the job, or its
+/// source taken again) stays there, and `from` keeps any identity of its
+/// own it has by now.
+pub(super) fn restore_overrides(ctx: &mut Ctx<'_>) -> Result<(), WriteError> {
+    let pending = std::mem::take(&mut ctx.overrides);
+    let path = ctx.data_dir.join(OVERRIDES_FILE);
+    if pending.is_empty() || fs::symlink_metadata(&path).is_err() {
         return Ok(());
     }
     let mut overrides = Overrides::load_for_update(&path);
-    let Some(identity) = overrides.get(to).cloned() else {
-        return Ok(());
-    };
-    if overrides.get(from).is_some() {
+    let mut changed = false;
+    for (from, to) in pending {
+        match fs::symlink_metadata(&to) {
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            // Still there (or unreadable): the file did not go back.
+            _ => continue,
+        }
+        let Some(identity) = overrides.get(&to).cloned() else {
+            continue;
+        };
+        if overrides.get(&from).is_some() {
+            continue;
+        }
+        overrides.remove(&to);
+        overrides.set(&from, identity);
+        changed = true;
+    }
+    if !changed {
         return Ok(());
     }
-    overrides.remove(to);
-    overrides.set(from, identity);
     overrides.save(&path).map_err(|e| map_io(e, &path))
 }

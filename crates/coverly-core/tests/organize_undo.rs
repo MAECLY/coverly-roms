@@ -559,6 +559,42 @@ fn prune_jobs_keeps_both_kinds() {
 }
 
 #[test]
+fn a_manual_identity_stays_with_a_file_that_was_not_moved_back() {
+    let (_tmp, src, root, data) = setup();
+    let from = src.join("Tetris 2.zip");
+    let to = root.join("ROMS/GB/Tetris 2.zip");
+    fs::create_dir_all(to.parent().unwrap()).unwrap();
+    // Changed after the job (size differs from the fingerprint): it stays.
+    fs::write(&to, b"changed").unwrap();
+    remember_manual(&data, &to, "Tetris 2 (USA)", "libretro").unwrap();
+    let job = "20261017T100000Z-0001-0003";
+    hand_journal(
+        &data,
+        job,
+        &root,
+        &src,
+        &[
+            format!(
+                "{{\"type\":\"entry\",\"target\":{},\"op\":{{\"kind\":\"moved\",\"from\":{},\"via\":\"rename\"}},\"fp\":{{\"size\":999,\"mtime_ns\":0}}}}",
+                json_path(&to),
+                json_path(&from)
+            ),
+            format!(
+                "{{\"type\":\"entry\",\"target\":{},\"op\":{{\"kind\":\"override-moved\",\"from\":{},\"to\":{}}}}}",
+                json_path(&to),
+                json_path(&from),
+                json_path(&to)
+            ),
+        ],
+    );
+    let report = undo_job(&data, job).unwrap();
+    assert_eq!(report.skipped_modified, std::slice::from_ref(&to));
+    let o = Overrides::read(&data.join(OVERRIDES_FILE));
+    assert_eq!(o.get(&to).unwrap().name, "Tetris 2 (USA)");
+    assert!(o.get(&from).is_none());
+}
+
+#[test]
 fn a_later_organise_of_the_target_is_a_later_job() {
     let (tmp, src, root, data) = setup();
     let first = move_into_gb(&src, &root, &data, &["Tetris.gb"]);
