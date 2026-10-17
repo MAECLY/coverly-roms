@@ -44,8 +44,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Detail drawer: the cover, screenshot and title screen are now slots that
   open one workspace in place. Candidates load on their own (the first missing
   art when the drawer opens), a title search replaces them in the same spot, an
-  empty slot fills with one click and replacing existing art asks right on the
-  chosen image. "Show in Finder" moved next to the close button; identity and
+  empty slot fills with one click and moves on to the next empty one, and
+  replacing existing art asks right on the chosen image. Candidates are listed
+  one per row with their full name. "Show in Finder" moved next to the close button; identity and
   file facts follow the art.
 
 ### Fixed
