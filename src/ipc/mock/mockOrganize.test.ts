@@ -86,11 +86,21 @@ describe('mock organise backend', () => {
       i.action === 'left' ? [i.reason.kind] : [],
     );
     expect(reasons.sort()).toEqual([
-      'duplicate',
+      'not-a-rom',
       'partial-download',
       'partial-download',
       'partial-download',
     ]);
+    // The names mislead; the content settles it, as on the real sample.
+    const folderOf = (name: string) =>
+      plan.items.find((i) => i.sources[0] === name)?.folder;
+    expect(folderOf('Tetris 2.zip')).toBe('SFC');
+    expect(folderOf('Tetris 2 (1).zip')).toBe('GB');
+    expect(folderOf('Tetris Attack (1).zip')).toBe('GB');
+    const perFolder: Record<string, number> = {};
+    for (const i of plan.items)
+      if (i.folder) perFolder[i.folder] = (perFolder[i.folder] ?? 0) + 1;
+    expect(perFolder).toEqual({ GBA: 6, GB: 6, GBC: 2, SFC: 2 });
     for (const i of plan.items.filter((i) => i.action === 'auto')) {
       expect(i.target).toMatch(/^ROMS\/(GBA|GB|GBC|SFC)\//);
       expect(i.why.length).toBeGreaterThan(0);

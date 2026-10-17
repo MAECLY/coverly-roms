@@ -93,10 +93,10 @@ describe('OrganizeScreen', () => {
     expect(within(gba).getAllByText('High').length).toBeGreaterThan(0);
     expect(
       within(gba).getByText(
-        'CRC 1A2B3C4D in the Game Boy Advance catalogue: Tetris Worlds (USA)',
+        'CRC 7B729804 in the Game Boy Advance catalogue: Tetris Worlds (USA)',
       ),
     ).toBeInTheDocument();
-    for (const folder of ['ROMS/GB/ (5)', 'ROMS/GBC/ (2)', 'ROMS/SFC/ (3)'])
+    for (const folder of ['ROMS/GB/ (6)', 'ROMS/GBC/ (2)', 'ROMS/SFC/ (2)'])
       expect(screen.getByText(folder)).toBeInTheDocument();
   });
 
@@ -105,10 +105,8 @@ describe('OrganizeScreen', () => {
     const left = (
       await screen.findByRole('heading', { name: 'Staying where they are' })
     ).closest('section')!;
-    expect(within(left).getByText('Tetris Attack (1).zip')).toBeInTheDocument();
-    expect(
-      within(left).getByText('Same as Tetris Attack.zip'),
-    ).toBeInTheDocument();
+    expect(within(left).getByText('3-D Tetris (USA).zip')).toBeInTheDocument();
+    expect(within(left).getByText('Not a ROM (web page)')).toBeInTheDocument();
     expect(within(left).getAllByText('Download not finished')).toHaveLength(3);
   });
 

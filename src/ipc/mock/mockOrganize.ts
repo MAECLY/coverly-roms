@@ -7,9 +7,9 @@
  * organise jobs wrote under the target, unless asked). Like Rust, an apply,
  * a resume or an undo drops every kept plan.
  *
- * - `MOCK_DOWNLOADS` has the shape of the owner's real sample: 16 ROMs
- *   that go to GBA/GB/GBC/SFC, 1 duplicate, 3 partial downloads and a
- *   `.DS_Store`.
+ * - `MOCK_DOWNLOADS` mirrors the owner's real sample: 16 ROMs that go to
+ *   GBA 6 / GB 6 / GBC 2 / SFC 2, a saved web page named like a ROM,
+ *   3 partial downloads and a `.DS_Store`.
  * - `MOCK_MIXED` has 4 sure ROMs (one with a name that is markup), 2 for
  *   review, 1 unknown, 1 duplicate and 2 partial downloads.
  *
@@ -116,46 +116,57 @@ const header = (system: string, detail: string): Partial<PileFile> => ({
   confidence: 0.9,
   detail,
 });
-const GBA_HEADER = header('gba', 'GBA logo, 0x96 at 0xB2');
-const GB_HEADER = header('gb', 'Nintendo logo, CGB 0x00');
 const GBC_HEADER = header('gbc', 'Nintendo logo, CGB 0xC0');
 const SFC_HEADER = header('snes', 'LoROM header, checksum ok');
 const PARTIAL: LeftReason = { kind: 'partial-download' };
 
 const PILES: readonly PileDef[] = [
   {
+    // The owner's real sample as the core plans it (docs/TRACKER.md, task
+    // 35): the names mislead (`Tetris 2.zip` is the SNES game, `Tetris 2
+    // (1).zip` the Game Boy one), the CRC settles it; no GBC catalogue is
+    // cached, so GBC is decided by the header; `3-D Tetris` is a saved web
+    // page. Plus the partial downloads a browser leaves behind.
     path: MOCK_DOWNLOADS,
     junk: ['.DS_Store'],
     files: [
       {
         name: '0319 - Crash Bandicoot XS (E)(Paracox).zip',
         size: 4_455_459,
-        ...GBA_HEADER,
+        ...hash(
+          'gba',
+          'Crash Bandicoot XS (Europe) (En,Fr,De,Es,It,Nl)',
+          'CCFD654F',
+        ),
       },
       {
         name: '1490 - Sonic Advance 3 (U)(Venom).zip',
         size: 4_417_731,
-        ...GBA_HEADER,
+        ...hash('gba', 'Sonic Advance 3 (USA) (En,Ja,Fr,De,Es,It)', '49DDA5E6'),
       },
       {
         name: '1792 - Tomb Raider - The Prophecy (U)(BatMan).zip',
         size: 4_503_552,
-        ...GBA_HEADER,
+        ...hash(
+          'gba',
+          'Tomb Raider - The Prophecy (USA) (En,Fr,De,Es,It)',
+          '556F40FA',
+        ),
       },
       {
         name: 'Fire Emblem (E)(Independent).zip',
         size: 12_076_482,
-        ...GBA_HEADER,
+        ...hash('gba', 'Fire Emblem (Europe) (En,Fr,De)', '9DECC754'),
       },
       {
         name: 'Pokemon Verde Hoja (S)(Rising Sun).zip',
         size: 5_300_837,
-        ...GBA_HEADER,
+        ...hash('gba', 'Pokemon - Edicion Verde Hoja (Spain)', '2CA11D59'),
       },
       {
         name: 'Tetris Worlds (USA).zip',
         size: 1_602_371,
-        ...hash('gba', 'Tetris Worlds (USA)', '1A2B3C4D'),
+        ...hash('gba', 'Tetris Worlds (USA)', '7B729804'),
       },
       {
         name: 'Tetris (JUE) (V1.0) [!].zip',
@@ -167,27 +178,50 @@ const PILES: readonly PileDef[] = [
         size: 19_543,
         ...hash('gb', 'Tetris (World) (Rev 1)', '46DF91AD'),
       },
-      { name: 'Tetris 2.zip', size: 667_294, ...GB_HEADER },
-      { name: 'Tetris Blast.zip', size: 65_877, ...GB_HEADER },
-      { name: 'Tetris Plus (1).zip', size: 80_891, ...GB_HEADER },
-      { name: 'Tetris DX.zip', size: 103_156, ...GBC_HEADER },
+      {
+        name: 'Tetris 2 (1).zip',
+        size: 60_699,
+        ...hash('gb', 'Tetris 2 (USA, Europe)', 'EA19A9D9'),
+      },
+      {
+        name: 'Tetris Attack (1).zip',
+        size: 183_388,
+        ...hash('gb', 'Tetris Attack (USA, Europe)', 'B76C769B'),
+      },
+      {
+        name: 'Tetris Blast.zip',
+        size: 65_877,
+        ...hash('gb', 'Tetris Blast (USA, Europe)', '7BE5A73F'),
+      },
+      {
+        name: 'Tetris Plus (1).zip',
+        size: 80_891,
+        ...hash('gb', 'Tetris Plus (USA, Europe)', 'DAFC3BFF'),
+      },
       {
         name: 'Magical Tetris Challenge (USA).zip',
         size: 334_891,
-        ...hash('gbc', 'Magical Tetris Challenge (USA)', '9E6CDC96'),
+        ...GBC_HEADER,
       },
-      { name: 'Tetris Attack.zip', size: 720_633, ...SFC_HEADER },
       {
-        name: 'Tetris Attack (1).zip',
+        name: 'Tetris DX.zip',
+        size: 103_156,
+        ...header('gbc', 'Nintendo logo, CGB 0x80'),
+      },
+      {
+        name: 'Tetris 2.zip',
+        size: 667_294,
+        ...hash('snes', 'Tetris 2 (USA)', '3BC7054A'),
+      },
+      {
+        name: 'Tetris Attack.zip',
         size: 720_633,
-        ...SFC_HEADER,
-        left: { kind: 'duplicate', of: 'Tetris Attack.zip' },
+        ...hash('snes', 'Tetris Attack (USA) (En,Ja)', '6C128210'),
       },
-      { name: 'Tetris 2 (1).zip', size: 60_699, ...SFC_HEADER },
       {
-        name: 'Tetris & Dr. Mario (USA).zip',
+        name: '3-D Tetris (USA).zip',
         size: 5_900,
-        ...hash('snes', 'Tetris & Dr. Mario (USA)', 'B3F3A9C4'),
+        left: { kind: 'not-a-rom', what: 'web-page' },
       },
       {
         name: 'Super Tetris 3 (Japan).zip.crdownload',
