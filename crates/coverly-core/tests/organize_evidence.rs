@@ -189,3 +189,46 @@ fn alternatives_keep_other_candidates_from_four_tenths() {
     assert_eq!(c.alternatives, vec![("gb".to_string(), 0.5)]);
     assert_eq!(c.why.len(), 1);
 }
+
+#[test]
+fn a_remembered_choice_settles_a_tie_and_is_the_method() {
+    // Two catalogues held the CRC; the user picked gb once. Re-planning must
+    // not ask again (spec §6.6: method = user, confidence 1.0).
+    let c = combine(&CombineInput {
+        evidence: &[
+            ev(Hash, "gb", 1.0),
+            ev(Hash, "gbc", 1.0),
+            ev(User, "gb", 1.0),
+        ],
+        excluded: &[],
+        content_read: true,
+        broad_root: false,
+        thresholds: Thresholds::default(),
+    });
+    assert_eq!(c.verdict, Verdict::Auto);
+    assert_eq!(c.system.as_deref(), Some("gb"));
+    assert_eq!(c.method, Some(User));
+    assert_eq!(c.confidence, 1.0);
+    assert_eq!(c.why[0].kind, User);
+    assert_eq!(c.alternatives, vec![("gbc".to_string(), 1.0)]);
+}
+
+#[test]
+fn a_remembered_choice_never_overrides_a_hard_veto() {
+    let (v, s) = decide(&[ev(Header, "gbc", 0.95), ev(User, "gb", 1.0)], &["gb"]);
+    assert_eq!((v, s.as_deref()), (Verdict::Auto, Some("gbc")));
+}
+
+#[test]
+fn an_unread_unique_extension_is_not_content_support() {
+    // A `.pce` inside a 7z (or cloud-only): no signature to check, but the
+    // bytes were never read either.
+    let c = combine(&CombineInput {
+        evidence: &[ev(Extension, "pcengine", 0.85)],
+        excluded: &[],
+        content_read: false,
+        broad_root: false,
+        thresholds: Thresholds::default(),
+    });
+    assert_eq!(c.verdict, Verdict::Review);
+}

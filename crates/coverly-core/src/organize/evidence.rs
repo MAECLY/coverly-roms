@@ -87,7 +87,8 @@ const EPS: f32 = 1e-4;
 
 /// Combines `input.evidence` into a verdict: the best system's score is
 /// its strongest evidence plus [`BONUS`] per further agreeing level;
-/// `Auto` needs the auto threshold, a [`MARGIN`] lead and content support.
+/// `Auto` needs the auto threshold, a [`MARGIN`] lead and content support,
+/// or a user choice that no hard veto excluded.
 pub fn combine(input: &CombineInput) -> Combined {
     let mut by_system: BTreeMap<&str, Vec<&Evidence>> = BTreeMap::new();
     for e in input
@@ -113,20 +114,38 @@ pub fn combine(input: &CombineInput) -> Combined {
         })
         .collect();
     scored.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(b.0)));
+    // A user choice (made now or remembered by content) settles the file
+    // unless a hard veto excluded it above (spec §6.6: method = user).
+    let chosen = input
+        .evidence
+        .iter()
+        .find(|e| e.kind == IdLevel::User && by_system.contains_key(e.system.as_str()))
+        .map(|e| e.system.as_str());
+    if let Some(user) = chosen {
+        if let Some(i) = scored.iter().position(|s| s.0 == user) {
+            let picked = scored.remove(i);
+            scored.insert(0, (picked.0, 1.0, true));
+        }
+    }
     let Some(&(best, score, content)) = scored.first() else {
         return Combined::unknown();
     };
     let second = scored.get(1).map_or(0.0, |s| s.1);
-    let verdict =
-        if score + EPS >= input.thresholds.auto && score - second + EPS >= MARGIN && content {
-            Verdict::Auto
-        } else if score + EPS >= input.thresholds.review && !(input.broad_root && !content) {
-            Verdict::Review
-        } else {
-            Verdict::Unknown
-        };
+    let automatic =
+        score + EPS >= input.thresholds.auto && score - second + EPS >= MARGIN && content;
+    let verdict = if chosen.is_some() || automatic {
+        Verdict::Auto
+    } else if score + EPS >= input.thresholds.review && !(input.broad_root && !content) {
+        Verdict::Review
+    } else {
+        Verdict::Unknown
+    };
     let mut why: Vec<Evidence> = by_system[best].iter().map(|e| (*e).clone()).collect();
-    why.sort_by(|a, b| a.kind.cmp(&b.kind).then(b.weight.total_cmp(&a.weight)));
+    why.sort_by(|a, b| {
+        why_rank(a.kind)
+            .cmp(&why_rank(b.kind))
+            .then(b.weight.total_cmp(&a.weight))
+    });
     why.truncate(4);
     Combined {
         verdict,
@@ -141,6 +160,11 @@ pub fn combine(input: &CombineInput) -> Combined {
             .map(|s| (s.0.to_string(), s.1))
             .collect(),
     }
+}
+
+/// Order of `why`: the user's choice first, then the ladder's precedence.
+fn why_rank(kind: IdLevel) -> (bool, IdLevel) {
+    (kind != IdLevel::User, kind)
 }
 
 /// A DAT hit, header evidence ≥ 0.85, a user choice, or a unique extension
