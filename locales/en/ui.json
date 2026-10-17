@@ -878,6 +878,7 @@
     "undo": {
       "action": "Undo",
       "actionCount": "Undo {count} files",
+      "confirmTitle": "Undo this organisation?",
       "laterJobs": "These must be undone first: {jobs}",
       "laterJob": "{kind} {date}",
       "all": "Undo all in order"

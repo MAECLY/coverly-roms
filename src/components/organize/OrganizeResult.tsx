@@ -2,6 +2,17 @@ import { ChevronRight, FolderOpen, Play, Undo2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { Alert, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -132,6 +143,12 @@ export function OrganizeResult({
   const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
+  const placed = report ? report.moved + report.copied : 0;
+  // A verb plus the exact count when it is known (brand §7).
+  const undoLabel =
+    placed > 0
+      ? t('organize.undo.actionCount', { count: placed })
+      : t('organize.undo.action');
   const nameOf = (o: OrganizeItemOutcome) => {
     const source = names.get(o.item) || o.targets[0];
     return source ? baseName(source) : `#${o.item}`;
@@ -245,15 +262,34 @@ export function OrganizeResult({
             )
           )}
           {job.job && (
-            <Button variant="outline" onClick={() => onUndo(false)}>
-              <Undo2 aria-hidden />
-              {/* A verb plus the exact count when it is known (brand §7). */}
-              {report && report.moved + report.copied > 0
-                ? t('organize.undo.actionCount', {
-                    count: report.moved + report.copied,
-                  })
-                : t('organize.undo.action')}
-            </Button>
+            // Undo asks first, as it does from the job history.
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline">
+                  <Undo2 aria-hidden />
+                  {undoLabel}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('organize.undo.confirmTitle')}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('jobs.organizeUndo.confirm')}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('jobs.undoNo')}</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => onUndo(false)}
+                  >
+                    {undoLabel}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           {laterIds && (
             <Button variant="outline" onClick={() => onUndo(true)}>

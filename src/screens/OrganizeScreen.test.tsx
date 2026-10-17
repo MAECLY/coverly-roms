@@ -48,6 +48,16 @@ function renderScreen(source: string) {
 const ready = () =>
   waitFor(() => expect(useOrganizeStore.getState().status).toBe('ready'));
 
+/** Confirms the undo the result screen asks about. */
+async function confirmUndo() {
+  const confirm = await screen.findByRole('alertdialog', {
+    name: 'Undo this organisation?',
+  });
+  await userEvent.click(
+    within(confirm).getByRole('button', { name: /^Undo( \d+ files)?$/ }),
+  );
+}
+
 describe('OrganizeScreen', () => {
   let b: MockBackend;
   beforeEach(() => {
@@ -437,6 +447,7 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Undo 16 files' }),
     );
+    await confirmUndo();
     expect(
       await screen.findByText(
         'Restored: 16 · Left alone because they changed: 0',
@@ -462,6 +473,7 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Undo 16 files' }),
     );
+    await confirmUndo();
     expect(
       await screen.findByText(/^These must be undone first: Covers .+$/),
     ).toBeInTheDocument();

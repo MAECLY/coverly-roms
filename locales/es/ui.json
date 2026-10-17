@@ -878,6 +878,7 @@
     "undo": {
       "action": "Deshacer",
       "actionCount": "Deshacer {count} archivos",
+      "confirmTitle": "¿Deshacer esta organización?",
       "laterJobs": "Primero hay que deshacer: {jobs}",
       "laterJob": "{kind} {date}",
       "all": "Deshacer todo en orden"

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -118,7 +118,30 @@ describe('OrganizeResult', () => {
         'Stopped. What was already organised stays; Undo puts it back.',
       ),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Undo 2 files' }));
+    const opener = screen.getByRole('button', { name: 'Undo 2 files' });
+    await userEvent.click(opener);
+    // Undo asks first, as it does from the history; focus starts on Keep.
+    expect(h.onUndo).not.toHaveBeenCalled();
+    let confirm = screen.getByRole('alertdialog', {
+      name: 'Undo this organisation?',
+    });
+    expect(confirm).toHaveAccessibleDescription(
+      /files go back where they were/,
+    );
+    expect(within(confirm).getByRole('button', { name: 'Keep' })).toHaveFocus();
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Keep' }),
+    );
+    expect(h.onUndo).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    await userEvent.click(opener);
+    confirm = screen.getByRole('alertdialog', {
+      name: 'Undo this organisation?',
+    });
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Undo 2 files' }),
+    );
     expect(h.onUndo).toHaveBeenCalledWith(false);
     await userEvent.click(screen.getByRole('button', { name: 'Open library' }));
     expect(h.onOpen).toHaveBeenCalled();
