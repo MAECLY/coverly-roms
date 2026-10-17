@@ -1,0 +1,1 @@
+{"name": "Fill Line", "idea": "Una cuadrícula 2x2 de huecos 3:4 donde tres portadas están completas y la cuarta se está llenando desde abajo: la mitad inferior ya es sólida y la superior sigue punteada.", "why": "Cuenta el producto en un gesto (rellenar lo que falta, sin tocar lo que ya está), y la media pieza sólida sigue leyéndose a 16 px cuando el punteado desaparece."}

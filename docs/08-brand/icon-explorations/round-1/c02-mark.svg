@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<title>Coverly ROMs</title>
+<mask id="m"><path fill="#fff" d="M0 0H1024V516H436V1024H0Z"/></mask>
+<path mask="url(#m)" fill-rule="evenodd" fill="#0E5E6F" d="M256 66H768Q856 66 856 154V869Q856 957 768 957H256Q168 957 168 869V154Q168 66 256 66ZM296 146Q248 146 248 194V829Q248 877 296 877H728Q776 877 776 829V194Q776 146 728 146Z"/>
+<path d="M856 569V869Q856 957 768 957H468Z" fill="#E6C171"/>
+<path d="M856 569Q660 590 492 548Q456 760 468 957Z" fill="#0E5E6F"/>
+</svg>
