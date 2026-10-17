@@ -2531,6 +2531,269 @@ body::before {
   }
 }
 
+/* == showcase:safety == */
+/* #seguro: the round trip the visitor runs. The HTML is the applied card
+   (the finished page, also without JS); shelf.js arms "before" and shows
+   the buttons. State on .demo: is-before, is-sim, is-applied, is-undo
+   (which ends on the before frame). Reduced motion: instant swaps, a
+   short crossfade. --g staggers the three slots that change. */
+.demo {
+  display: grid;
+  gap: 20px 40px;
+  margin-bottom: clamp(40px, 5vw, 64px);
+  padding: clamp(16px, 3vw, 28px);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-xl);
+  background: var(--cr-surface);
+}
+@media (min-width: 960px) {
+  .demo {
+    grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+    align-items: center;
+  }
+}
+.dm,
+.gal {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dm-leg {
+  display: flex;
+  max-width: 560px;
+  font: 500 clamp(0.625rem, 2.6vw, 0.75rem) / 1.4 var(--cr-font-mono);
+  white-space: nowrap;
+  color: var(--cr-text-secondary);
+  text-align: center;
+}
+.dm-leg span:first-child {
+  width: 73%;
+}
+.dm-leg span:last-child {
+  flex: 1;
+}
+.dm-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 44px;
+}
+.dm-ctl [hidden] {
+  display: none;
+}
+.dm-ctl [aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.dm-ctl [aria-pressed='true'] {
+  opacity: 1;
+  border-color: var(--cr-primary);
+  background: var(--cr-primary-subtle);
+  color: var(--cr-primary-subtle-fg);
+}
+.demo-status {
+  min-height: 3em;
+  margin-top: 14px;
+  font: 500 0.875rem/1.5 var(--cr-font-mono);
+  color: var(--cr-text-secondary);
+}
+.dm-card {
+  color: var(--cr-border-strong);
+}
+.dm-pin {
+  fill: var(--cr-border);
+}
+.dm-rule,
+.gal .rl {
+  stroke: var(--cr-border-strong);
+}
+.dm-cap,
+.gal .cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3;
+}
+.dm-route {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 3 3;
+}
+.dm-ftab {
+  color: var(--cr-manila);
+}
+.dm-fold {
+  color: var(--cr-border);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.75;
+}
+.dm .sh,
+.gsh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.dm .gd,
+.g-gd {
+  fill: var(--lp-paper);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.35;
+}
+.dm .tb {
+  fill: var(--cr-slot-applied-run);
+  transform-box: fill-box;
+  transform-origin: 100% 0;
+}
+.dm .mi,
+.gm {
+  color: var(--cr-slot-missing);
+}
+.dm :is(.mi, .old) {
+  opacity: 0;
+}
+.dm .dk {
+  --dm-off: translate(1.5px, -1px);
+}
+.dm .bk {
+  transform-origin: 457px 104px;
+  --dm-at: translate(-134px, -28px) scale(1.5714);
+}
+.d2 {
+  --g: 1;
+}
+.d3 {
+  --g: 2;
+}
+.demo:is(.is-before, .is-sim, .is-undo) :is(.gn, .dt, .dk, .tb, .bk) {
+  opacity: 0;
+}
+.demo:is(.is-before, .is-sim, .is-undo) :is(.mi, .old) {
+  opacity: 1;
+}
+.demo.is-sim :is(.dt, .dk) {
+  opacity: 0.45;
+}
+.demo.is-sim .dk {
+  transform: var(--dm-off);
+}
+.cam-r {
+  --cx: 45.6%;
+  --cy: 72%;
+  --cz: 1.7;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .is-sim :is(.dt, .dk) {
+    animation: dm-in var(--cr-duration-slower) var(--cr-ease-enter)
+      calc(var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .bk {
+    animation: dm-bk var(--cr-duration-slower) var(--cr-ease-ink) both;
+  }
+  html.motion .is-applied :is(.dt, .dk) {
+    animation: dm-reg var(--cr-duration-slower) var(--cr-ease-ink)
+      calc(400ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied :is(.gn, .old) {
+    animation: dm-in var(--cr-duration-base) linear
+      calc(400ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .old {
+    animation-name: dm-out;
+  }
+  html.motion .is-applied .mi {
+    animation: dm-out var(--cr-duration-fast) var(--cr-ease-exit)
+      calc(600ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .tb {
+    animation: dm-tab var(--cr-duration-base) var(--cr-ease-enter)
+      calc(800ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-undo .tb {
+    animation: dm-peel 480ms var(--cr-ease-ink) calc(var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo :is(.gn, .dt, .dk) {
+    animation: dm-down var(--cr-duration-slower) var(--cr-ease-ink)
+      calc(320ms + var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo .mi {
+    animation: dm-in var(--cr-duration-slow) linear
+      calc(560ms + var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo .bk {
+    animation: dm-back var(--cr-duration-slower) var(--cr-ease-ink) 640ms both;
+  }
+  html.motion .is-undo .old {
+    animation: dm-in 1ms 1040ms both;
+  }
+  @supports (animation-timeline: view()) {
+    .safe {
+      --tl: --shot;
+    }
+  }
+}
+@keyframes dm-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dm-out {
+  from {
+    opacity: 1;
+  }
+}
+@keyframes dm-reg {
+  from {
+    opacity: 0.45;
+    transform: var(--dm-off, none);
+  }
+}
+@keyframes dm-bk {
+  from {
+    transform: var(--dm-at);
+  }
+}
+@keyframes dm-back {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  96% {
+    opacity: 1;
+    transform: var(--dm-at);
+  }
+  to {
+    opacity: 0;
+    transform: var(--dm-at);
+  }
+}
+@keyframes dm-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@keyframes dm-peel {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  55% {
+    opacity: 1;
+    transform: rotate(-18deg);
+  }
+  to {
+    opacity: 0;
+    transform: rotate(-18deg);
+  }
+}
+@keyframes dm-down {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2549,6 +2812,9 @@ body::before {
   .replay,
   .clip-fx:not(.fx-end) {
     display: none !important;
+  }
+  .dm :is(.gn, .dt, .dk, .tb, .bk, .mi, .old) {
+    transition: opacity 150ms !important;
   }
 }
 

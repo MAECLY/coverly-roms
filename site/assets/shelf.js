@@ -4,6 +4,32 @@
    Every module registers a stop() that puts its piece in the finished state
    the HTML already shows, so halt() means "finish", never "cancel". motion.js
    halts with a "cr-halt" event; reduced motion turned on mid-visit halts too. */
+/* WP4, the #seguro round trip: user-started, so it also runs under
+   reduced motion (instant swaps). HTML = applied; this arms "before". */
+(function () {
+  "use strict";
+  var box = document.querySelector(".demo"), ctl = box && box.querySelector(".dm-ctl");
+  if (!ctl) return;
+  var out = box.querySelector(".demo-status"), bs = ctl.querySelectorAll("button"), now = "is-applied";
+  var next = { "is-before": "sim", "is-sim": "apply", "is-applied": "undo", "is-undo": "sim" };
+  var to = { sim: "is-sim", apply: "is-applied", undo: "is-undo" };
+  var set = function (st, b) {
+    box.classList.remove(now);
+    box.classList.add(now = st);
+    Array.prototype.forEach.call(bs, function (x) {
+      x.hidden = false;
+      x.setAttribute("aria-pressed", x === b ? "true" : "false");
+      if (x.getAttribute("data-s") === next[st]) x.removeAttribute("aria-disabled");
+      else x.setAttribute("aria-disabled", "true");
+    });
+    out.textContent = (b || ctl).getAttribute("data-say");
+  };
+  ctl.addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (b && !b.getAttribute("aria-disabled")) set(to[b.getAttribute("data-s")], b);
+  });
+  set("is-before");
+})();
 (function () {
   "use strict";
   var html = document.documentElement;
