@@ -21,7 +21,10 @@ async function openProfiles() {
   render(<Root />);
   await screen.findByRole('button', { name: 'Settings' });
   act(() => useNavStore.getState().openSettings('profiles'));
-  return screen.findByRole('list', { name: 'Layout profiles' });
+  const list = await screen.findByRole('list', { name: 'Layout profiles' });
+  // The list renders before the profiles load; wait for its rows.
+  await within(list).findAllByRole('listitem');
+  return list;
 }
 
 describe('profiles editor', () => {
@@ -62,7 +65,7 @@ describe('profiles editor', () => {
       name: 'Perfiles de estructura',
     });
     await userEvent.click(
-      within(list).getByRole('button', { name: 'Duplicar Onion OS' }),
+      await within(list).findByRole('button', { name: 'Duplicar Onion OS' }),
     );
     expect(screen.getByRole('textbox', { name: 'Nombre' })).toHaveValue(
       'Onion OS (copia)',
