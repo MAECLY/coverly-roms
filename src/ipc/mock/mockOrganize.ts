@@ -82,7 +82,7 @@ const hash = (
   system,
   method: 'hash',
   confidence: 1,
-  detail: `CRC ${crc} ${catalogue}`,
+  detail: `${crc} ${catalogue}`,
   catalogue,
 });
 const header = (system: string, detail: string): Partial<PileFile> => ({
