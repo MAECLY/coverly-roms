@@ -110,6 +110,11 @@ pub(crate) fn is_bios_name(name: &str) -> bool {
     })
 }
 
+/// OS metadata file (`.DS_Store`, `Thumbs.db`, `desktop.ini`), any case.
+pub(crate) fn is_junk_file(name: &str) -> bool {
+    JUNK_FILES.iter().any(|j| name.eq_ignore_ascii_case(j))
+}
+
 /// macOS AppleDouble twin (`._Game.zip`): never a ROM, never art.
 pub(crate) fn is_appledouble(name: &str) -> bool {
     name.starts_with("._")
@@ -125,7 +130,7 @@ pub(crate) fn is_hidden(name: &str) -> bool {
 /// `Zone.Identifier` streams always, hidden entries unless `include_hidden`.
 pub(crate) fn is_skipped_entry(name: &str, opts: &ScanOptions) -> bool {
     is_appledouble(name)
-        || JUNK_FILES.iter().any(|j| name.eq_ignore_ascii_case(j))
+        || is_junk_file(name)
         || is_partial_download(name)
         || is_zone_identifier(name)
         || (!opts.include_hidden && is_hidden(name))

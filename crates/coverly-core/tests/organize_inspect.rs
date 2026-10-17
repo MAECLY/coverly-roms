@@ -273,3 +273,102 @@ fn inspections_serialise_with_kebab_case_tags() {
     let json = serde_json::to_value(Container::SevenZip).unwrap();
     assert_eq!(json, serde_json::json!("seven-zip"));
 }
+
+#[test]
+fn macos_metadata_entries_are_not_payloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.zip");
+    zip_file(
+        &p,
+        &[
+            ("Game.gba", &fx::gba(), true),
+            ("__MACOSX/._Game.gba", b"\x00\x05\x16\x07appledouble", true),
+            ("__MACOSX/.DS_Store", b"junk", true),
+        ],
+    );
+    let i = inspect(&p);
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(i.payloads[0].name, "Game.gba");
+    assert_eq!(i.entries.len(), 3, "entries still list every file");
+}
+
+#[test]
+fn a_generic_entry_next_to_macos_metadata_is_still_lone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Sonic.zip");
+    zip_file(
+        &p,
+        &[
+            ("Sonic.bin", &fx::md(), true),
+            ("__MACOSX/._Sonic.bin", b"\x00\x05\x16\x07appledouble", true),
+        ],
+    );
+    let i = inspect(&p);
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(i.payloads[0].sniff.hits[0].system, "megadrive");
+}
+
+#[test]
+fn a_generic_entry_with_a_readme_is_a_payload() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Sonic.zip");
+    zip_file(
+        &p,
+        &[
+            ("Sonic.bin", &fx::md(), true),
+            ("readme.txt", b"enjoy", true),
+            ("file_id.diz", b"scene", true),
+        ],
+    );
+    let i = inspect(&p);
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(i.payloads[0].name, "Sonic.bin");
+}
+
+#[test]
+fn arcade_data_with_a_readme_stays_without_payloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("outrun.zip");
+    zip_file(
+        &p,
+        &[
+            ("epr-10381.bin", b"aaaa", false),
+            ("epr-10382.ic12", b"bbbb", false),
+            ("readme.txt", b"cccc", false),
+        ],
+    );
+    assert!(inspect(&p).payloads.is_empty());
+}
+
+#[test]
+fn an_oversized_central_directory_is_damaged_before_parsing() {
+    // A hand-made end record that claims a 32 MiB directory.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("claims.zip");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PK\x03\x04");
+    bytes.extend_from_slice(&[0u8; 26]);
+    bytes.extend_from_slice(b"PK\x05\x06");
+    bytes.extend_from_slice(&[0, 0, 0, 0]); // disk numbers
+    bytes.extend_from_slice(&5u16.to_le_bytes()); // entries on disk
+    bytes.extend_from_slice(&5u16.to_le_bytes()); // entries total
+    bytes.extend_from_slice(&(32u32 * 1024 * 1024).to_le_bytes()); // directory size
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // directory offset
+    bytes.extend_from_slice(&0u16.to_le_bytes()); // comment length
+    std::fs::write(&p, &bytes).unwrap();
+    let i = inspect(&p);
+    assert_eq!(i.issue, Some(ArchiveIssue::Damaged));
+}
+
+#[test]
+fn central_directory_limits_are_read_from_the_end_record() {
+    use coverly_core::organize::inspect::central_directory_claim;
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("g.zip");
+    zip_file(&p, &[("a.gba", &fx::gba(), true), ("b.txt", b"x", false)]);
+    let mut f = std::fs::File::open(&p).unwrap();
+    let len = f.metadata().unwrap().len();
+    let claim = central_directory_claim(&mut f, len).unwrap();
+    assert_eq!(claim.entries, 2);
+    assert!(claim.size > 0 && claim.size < 1024);
+}

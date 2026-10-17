@@ -4,7 +4,7 @@
 //! never inflates more than [`STREAM_CAP`] bytes of an entry.
 
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -13,12 +13,15 @@ use zip::result::ZipError;
 use crate::identify::sniff::{
     sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
 };
-use crate::scan::classify::extension;
+use crate::scan::classify::{extension, is_appledouble, is_junk_file};
 use crate::systems::{ExtClass, SystemDb};
 
 /// Zips with more file entries than this are treated as damaged (a
 /// central directory that large is not a game).
 pub const MAX_ZIP_ENTRIES: usize = 10_000;
+/// Zips whose central directory claims more bytes than this are treated
+/// as damaged before the directory is parsed (spec §7.2, bounded parse).
+pub const MAX_CENTRAL_DIRECTORY: u64 = 16 * 1024 * 1024;
 /// Zips with more ROM-like entries than this are collections, not games.
 pub const MAX_ROM_ENTRIES: usize = 8;
 
@@ -196,6 +199,86 @@ fn container_for(ext: &str, magic: Option<ContainerMagic>) -> Container {
     }
 }
 
+/// What a zip's end-of-central-directory record claims.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CentralDirectoryClaim {
+    /// Total number of entries (directories included).
+    pub entries: u64,
+    /// Size of the central directory in bytes.
+    pub size: u64,
+}
+
+const EOCD_SIG: [u8; 4] = *b"PK\x05\x06";
+const EOCD_LEN: usize = 22;
+const ZIP64_LOCATOR_SIG: [u8; 4] = *b"PK\x06\x07";
+const ZIP64_LOCATOR_LEN: u64 = 20;
+const ZIP64_EOCD_SIG: [u8; 4] = *b"PK\x06\x06";
+/// End record plus the longest comment.
+const EOCD_SEARCH: u64 = EOCD_LEN as u64 + u16::MAX as u64;
+
+/// Reads the counts a zip's end record (zip64 included) claims, from at
+/// most the last 64 KiB of `src` plus the zip64 record. `None` when no
+/// end record is found or it cannot be read (the zip reader decides).
+pub fn central_directory_claim<R: Read + Seek>(
+    src: &mut R,
+    len: u64,
+) -> Option<CentralDirectoryClaim> {
+    let tail_len = len.min(EOCD_SEARCH);
+    let tail_start = len - tail_len;
+    let mut tail = vec![0u8; usize::try_from(tail_len).ok()?];
+    src.seek(SeekFrom::Start(tail_start)).ok()?;
+    src.read_exact(&mut tail).ok()?;
+    let pos = (0..=tail.len().checked_sub(EOCD_LEN)?)
+        .rev()
+        .find(|&i| tail[i..i + 4] == EOCD_SIG)?;
+    let eocd = &tail[pos..pos + EOCD_LEN];
+    let u16_at = |b: &[u8], o: usize| u64::from(u16::from_le_bytes([b[o], b[o + 1]]));
+    let u32_at =
+        |b: &[u8], o: usize| u64::from(u32::from_le_bytes(b[o..o + 4].try_into().unwrap()));
+    let u64_at = |b: &[u8], o: usize| u64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+    let mut claim = CentralDirectoryClaim {
+        entries: u16_at(eocd, 10),
+        size: u32_at(eocd, 12),
+    };
+    if claim.entries == u64::from(u16::MAX) || claim.size == u64::from(u32::MAX) {
+        // Zip64: the locator sits right before the end record.
+        let locator_at = (tail_start + pos as u64).checked_sub(ZIP64_LOCATOR_LEN)?;
+        let mut locator = [0u8; ZIP64_LOCATOR_LEN as usize];
+        src.seek(SeekFrom::Start(locator_at)).ok()?;
+        src.read_exact(&mut locator).ok()?;
+        if locator[..4] != ZIP64_LOCATOR_SIG {
+            return Some(claim);
+        }
+        let record_at = u64_at(&locator, 8);
+        let mut record = [0u8; 56];
+        src.seek(SeekFrom::Start(record_at)).ok()?;
+        src.read_exact(&mut record).ok()?;
+        if record[..4] != ZIP64_EOCD_SIG {
+            return Some(claim);
+        }
+        claim = CentralDirectoryClaim {
+            entries: u64_at(&record, 32),
+            size: u64_at(&record, 40),
+        };
+    }
+    Some(claim)
+}
+
+/// macOS/Windows metadata stored in an archive (`__MACOSX/…`, `._x`,
+/// `.DS_Store`, `Thumbs.db`): listed, never a payload.
+fn is_metadata_entry(name: &str) -> bool {
+    let mut parts = name.split(['/', '\\']).filter(|p| !p.is_empty());
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    parts.any(|p| p.eq_ignore_ascii_case("__MACOSX")) || is_appledouble(base) || is_junk_file(base)
+}
+
+/// Files that ride along with a game in a zip (readmes, scene `.nfo`/
+/// `.diz`, checksums, scans): they do not make a zip arcade-shaped.
+const README_EXTS: [&str; 17] = [
+    "txt", "nfo", "diz", "md", "doc", "pdf", "htm", "html", "url", "sfv", "md5", "sha1", "jpg",
+    "jpeg", "png", "gif", "bmp",
+];
+
 /// A zip entry that is read and sniffed.
 struct RomEntry {
     index: usize,
@@ -211,6 +294,13 @@ fn inspect_zip(file: &mut File, first: &Sniff, db: &SystemDb, out: &mut Inspecti
         }
         return;
     }
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if let Some(claim) = central_directory_claim(&mut *file, len) {
+        if claim.entries > MAX_ZIP_ENTRIES as u64 || claim.size > MAX_CENTRAL_DIRECTORY {
+            out.damaged();
+            return;
+        }
+    }
     let Ok(mut archive) = zip::ZipArchive::new(&mut *file) else {
         out.damaged();
         return;
@@ -220,6 +310,8 @@ fn inspect_zip(file: &mut File, first: &Sniff, db: &SystemDb, out: &mut Inspecti
         return;
     }
     let mut candidates: Vec<(RomEntry, ExtClass)> = Vec::new();
+    // File entries that are neither metadata nor readme-like.
+    let mut substantive = 0usize;
     for index in 0..archive.len() {
         let Ok(entry) = archive.by_index_raw(index) else {
             out.damaged();
@@ -236,7 +328,15 @@ fn inspect_zip(file: &mut File, first: &Sniff, db: &SystemDb, out: &mut Inspecti
             crc32: format!("{:08X}", entry.crc32()),
             size: entry.size(),
         };
-        let class = db.extension_class(&extension(Path::new(&info.name)));
+        let entry_ext = extension(Path::new(&info.name));
+        if is_metadata_entry(&info.name) {
+            out.entries.push(info);
+            continue;
+        }
+        if !README_EXTS.contains(&entry_ext.as_str()) {
+            substantive += 1;
+        }
+        let class = db.extension_class(&entry_ext);
         if matches!(
             class,
             ExtClass::Unique | ExtClass::Shared | ExtClass::Generic
@@ -253,8 +353,9 @@ fn inspect_zip(file: &mut File, first: &Sniff, db: &SystemDb, out: &mut Inspecti
         out.entries.push(info);
     }
     // A generic extension (`bin`, `iso`…) is a payload only when it is the
-    // zip's only file: next to other files it is arcade data or a track.
-    let lone = out.entries.len() == 1;
+    // zip's only file besides readmes and OS metadata: next to other data
+    // files it is arcade data or a track.
+    let lone = substantive == 1;
     let roms: Vec<RomEntry> = candidates
         .into_iter()
         .filter(|(_, class)| lone || *class != ExtClass::Generic)
