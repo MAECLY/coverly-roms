@@ -470,6 +470,7 @@ mod plans {
     use coverly_core::cache::Cache;
     use coverly_core::identify::overrides::{remember_manual, Overrides, OVERRIDES_FILE};
     use coverly_core::identify::sniff::fixtures as fx;
+    #[cfg(unix)]
     use coverly_core::jobs::ItemErrorKind;
     use coverly_core::organize::apply::{last_apply_dir_reads, set_free_space_override};
     use coverly_core::organize::{
@@ -478,6 +479,7 @@ mod plans {
         OrganizePlan, OrganizeProgress, OrganizeReport, SkipReason, TransferMode,
     };
     use coverly_core::profiles::{builtin_profiles, Profile};
+    #[cfg(unix)]
     use coverly_core::progress::PauseKind;
     use coverly_core::systems::SystemDb;
     use coverly_core::write::{
@@ -923,6 +925,7 @@ mod plans {
         assert!(pile.join("B.gb").exists());
     }
 
+    #[cfg(unix)]
     fn disk_full_on_sav(stage: CopyStage, path: &Path) -> Option<io::Error> {
         (stage == CopyStage::Rename && path.extension().is_some_and(|e| e == "sav"))
             .then(|| io::Error::from_raw_os_error(28))
@@ -1005,6 +1008,7 @@ mod plans {
         );
     }
 
+    #[cfg(unix)]
     fn bad_copy_of_bin(stage: CopyStage, path: &Path) -> Option<io::Error> {
         (stage == CopyStage::Verify && path.extension().is_some_and(|e| e == "bin"))
             .then(|| io::Error::new(io::ErrorKind::InvalidData, "copy verification failed"))
