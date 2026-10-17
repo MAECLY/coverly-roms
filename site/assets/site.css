@@ -2673,6 +2673,13 @@ body::before {
 .demo.is-sim .dk {
   transform: var(--dm-off);
 }
+/* Pictograms before each promise, line-drawn as each one scrolls in. */
+.pict {
+  margin-right: 10px;
+  vertical-align: -4px;
+  color: var(--cr-primary);
+  view-timeline-name: --pict;
+}
 .cam-r {
   --cx: 45.6%;
   --cy: 72%;
@@ -2725,6 +2732,12 @@ body::before {
   @supports (animation-timeline: view()) {
     .safe {
       --tl: --shot;
+    }
+    .pict use {
+      stroke-dasharray: 1;
+      animation: draw linear both;
+      animation-timeline: --pict;
+      animation-range: entry 60% cover 40%;
     }
   }
 }
