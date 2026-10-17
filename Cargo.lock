@@ -817,6 +817,7 @@ dependencies = [
  "flate2",
  "image",
  "insta",
+ "libc",
  "md-5",
  "minisign",
  "minisign-verify",
@@ -833,6 +834,7 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "walkdir",
+ "windows-sys 0.61.2",
  "zip 9.0.3",
 ]
 
