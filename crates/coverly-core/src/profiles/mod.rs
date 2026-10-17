@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 pub use builtin::builtin_profiles;
-pub use detect::{detect, Detection};
+pub use detect::{detect, detect_with_fallback, Detection};
 pub use fit::fit_to_root;
 pub use template::{render, TemplateVars};
 
