@@ -650,7 +650,8 @@ html.motion .shelf.applying .s-busy {
 }
 
 /* Caption row under the shelf. The replay button only exists once
-   motion.js runs, and only shows after the fill has played; the row keeps
+   motion.js runs, and only shows after the fill has played; while it
+   replays it stays put, dimmed, so keyboard focus is kept. The row keeps
    its height either way, so nothing below moves. */
 .caption-row {
   display: flex;
@@ -682,8 +683,14 @@ html.motion .replay {
   display: inline-flex;
   visibility: hidden;
 }
-html.motion .shelf.is-played .replay {
+html.motion .shelf.is-played .replay,
+html.motion .replay[aria-disabled='true'] {
   visibility: visible;
+}
+/* Replaying: still there and still focused, only unavailable. */
+.replay[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Motion: armed before first paint by theme.js (html.anim), so the gaps

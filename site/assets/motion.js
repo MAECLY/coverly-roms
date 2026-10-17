@@ -59,15 +59,20 @@
 
   /* The hero shelf runs the app's own order: a dry run marks the five
      gaps (nothing written), then each gets its cover while the count goes
-     7 → 12, then the result. Waits for the grid to be on screen and gives
-     up, showing the finished shelf, after 10 s. */
+     7 → 12, then the result. Waits, armed, until most of the grid is on
+     screen; a slow load shows the finished shelf instead. */
   function hero() {
     var box = document.querySelector(".shelf");
     if (!box) return;
     var grid = box.querySelector(".shelf-grid") || box;
     var gaps = box.querySelectorAll(".tile.gap"), n = gaps.length;
     var have = box.querySelector(".have"), total = box.querySelectorAll(".tile").length;
-    var later = timers(), io = null;
+    var later = timers(), io = null, replay = box.querySelector(".replay");
+    var ready = function (on) {
+      if (!replay) return;
+      if (on) replay.removeAttribute("aria-disabled");
+      else replay.setAttribute("aria-disabled", "true");
+    };
     var cl = box.classList, phases = ["armed", "planning", "applying", "is-done", "is-played"];
     var count = function (v) { if (have) have.textContent = v; };
     var each = function (fn) { for (var i = 0; i < n; i++) fn(gaps[i], i); };
@@ -78,6 +83,7 @@
       each(function (g) { g.classList.add("is-filled"); });
       count(total);
       cl.add("is-done", "is-played");
+      ready(true);
     };
     stops.push(stop);
     var fill = function (i) {
@@ -85,11 +91,12 @@
       count(total - n + i + 1);
       if (i + 1 < n) return later(function () { fill(i + 1); }, 380, stop);
       later(function () { cl.remove("applying", "armed"); cl.add("is-done"); }, 640, stop);
-      later(function () { cl.add("is-played"); }, 1300, stop);
+      later(function () { cl.add("is-played"); ready(true); }, 1300, stop);
     };
     var play = function () {
       later.clear();
       cl.remove.apply(cl, phases);
+      ready(false);
       each(function (g) { g.classList.remove("is-filled"); });
       cl.add("armed");
       count(total - n);
@@ -104,11 +111,12 @@
     else {
       cl.add("armed");
       count(total - n);
-      later(stop, 10000, stop);
-      io = once(grid, 0.6, function () { later.clear(); later(play, 250, stop); });
+      io = once(grid, 0.4, function () { later(play, 250, stop); });
     }
-    var replay = box.querySelector(".replay");
+    /* Replaying, the button stays in place and keeps focus: it is only
+       marked unavailable until the shelf is full again. */
     if (replay) replay.addEventListener("click", function () {
+      if (replay.getAttribute("aria-disabled")) return;
       try { play(); } catch (x) { stop(); }
     });
   }
