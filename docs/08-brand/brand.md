@@ -555,17 +555,17 @@ Under `prefers-reduced-motion: reduce` all durations become 0ms through the toke
 
 ```
 design/tokens.json              # source of truth (DTCG 2025.10): primitives -> semantic (light/dark) -> legacy + shadcn aliases
-scripts/build-tokens.mjs        # zero-dependency: resolve aliases, emit CSS, check contrast, --check mode for CI
+scripts/brand/build_tokens.mjs  # zero-dependency: resolve aliases, emit CSS, check contrast, --check mode for CI
 src/styles/tokens.css           # GENERATED, imported first by src/styles/globals.css
 site/assets/tokens.css          # GENERATED, <link> before site.css on the landing
 ```
 
 - **Three tiers.** Primitives (`--cr-buckram-9`, `--cr-greyboard-11` …) are never used directly by components. Components use semantic roles (`--cr-primary`, `--cr-text-secondary` …). Legacy and shadcn names are aliases.
-- **Emitted format.** Each colour is emitted twice: RGB channels for Tailwind 3 opacity modifiers (`--cr-primary: 14 94 111`) and a full colour (`--cr-primary-c: #0e5e6f`). `oklch()` appears only inside `@supports (color: oklch(0 0 0))` / `@media (color-gamut: p3)`, because Linux webkit2gtk versions vary. No relative colour syntax at runtime.
-- **Themes.** `:root` and `:root[data-theme='light']` get light. `:root[data-theme='dark']` and `@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) }` get dark. Both blocks are generated, never hand-copied.
-- **Tailwind.** `darkMode: ['selector', '[data-theme="dark"]']` so `dark:` variants follow the real theme toggle. Colours map as `primary: 'rgb(var(--cr-primary) / <alpha-value>)'` etc. Radius, duration, easing and font families map to the `--cr-*` variables.
+- **Emitted format.** `--cr-<role>` is a full colour (`--cr-primary: #0e5e6f`), so plain CSS and the legacy names keep working with `var(--cr-*)`. The app file also emits RGB channels for Tailwind 3 opacity modifiers (`--cr-primary-rgb: 14 94 111`), the shadcn/ui names as full colours (`--background: #f2f3ef`) and the primitive scales; the landing file carries only the roles. Every hex is in sRGB, so no `oklch()` is emitted. No relative colour syntax at runtime. Run `pnpm tokens` (`make tokens`) after editing the JSON; `pnpm tokens:check` (`make tokens-check`, CI) fails on stale output or a contrast pair below its target.
+- **Themes.** `:root` gets light. `:root[data-theme='dark']` gets dark, and so does the OS fallback, under the selector each surface already used: `:root:not([data-theme])` in the app (before the settings load) and `:root:not([data-theme='light'])` on the landing (no-JS visitors). Both blocks are generated, never hand-copied.
+- **Tailwind.** `darkMode: ['selector', '[data-theme="dark"]']` so `dark:` variants follow the real theme toggle. `tailwind.config.ts` reads `design/tokens.json` through the generator, so colours map as `primary: 'rgb(var(--cr-primary-rgb) / <alpha-value>)'` (every role is also `cr-<role>`). Radius, duration, easing, shadows and font families map to the `--cr-*` variables.
 - **Landing.** Uses `var(--cr-primary-c)` style full colours. Its private tokens (`--ok`, `--line`, `--dash`, `--code-*`, `--shot-*`, `--shadow`, `--ease-*`) are deleted and replaced by `--cr-success`, `--cr-border`, `--cr-slot-missing`, `--cr-code-*`, `--cr-shadow-*`, `--cr-ease-*`.
-- **Drift guard.** `scripts/site/check_site.py`'s token-sync check is replaced by `build-tokens --check`, which fails when a generated file differs from a fresh build or when any contrast pair in §4 drops below its target.
+- **Drift guard.** `scripts/site/check_site.py`'s token-sync check runs `build_tokens.mjs --check`, which fails when a generated file differs from a fresh build or when any contrast pair in §4 drops below its target.
 - **Hard-coded colours.** Every literal in `globals.css` and `site.css` (Tailwind greens/reds/yellows, source badge colours, the `#a5b4fc` terminal prompt) moves to a token. Source badges become Manila tags with mono labels, identical across sources (the label text tells them apart, not the colour).
 
 ---
@@ -604,10 +604,10 @@ site/assets/tokens.css          # GENERATED, <link> before site.css on the landi
 
 ## 10. Checklist for applying the brand
 
-- [ ] `scripts/build-tokens.mjs` emits `src/styles/tokens.css` and `site/assets/tokens.css` from `design/tokens.json`; `--check` wired into the local CI gates.
-- [ ] `tailwind.config.ts` maps shadcn names, radius, motion and fonts; `darkMode` uses the `data-theme` selector.
-- [ ] Fonts (Archivo variable, Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono) self-hosted in both app and landing with their OFL files.
-- [ ] All hard-coded colours in `globals.css` and `site.css` replaced by tokens.
+- [x] `scripts/brand/build_tokens.mjs` emits `src/styles/tokens.css` and `site/assets/tokens.css` from `design/tokens.json`; `--check` wired into the local CI gates.
+- [x] `tailwind.config.ts` maps shadcn names, radius, motion and fonts; `darkMode` uses the `data-theme` selector.
+- [x] Fonts (Archivo variable, Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono) self-hosted in both app and landing with their OFL files.
+- [x] All hard-coded colours in `globals.css` and `site.css` replaced by tokens.
 - [ ] Raw `<input>`, `<select>`, `<progress>`, `<textarea>` and modal replaced by branded components (shadcn primitives restyled with these tokens; checkbox and progress use the slot).
 - [ ] Wordmark with the Manila `ROMs` tag in the app header and the landing nav.
 - [ ] Chosen icon generated for every platform; `site/assets/favicon.svg` "temporary icon" comment removed; `TRADEMARKS.md` updated.

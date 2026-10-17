@@ -136,8 +136,17 @@ fmt: ## Format frontend (Prettier) and Rust (rustfmt) sources.
 	pnpm format
 	cargo fmt --all
 
+.PHONY: tokens
+tokens: ## Regenerate src/styles/tokens.css and site/assets/tokens.css from design/tokens.json.
+	pnpm tokens
+
+.PHONY: tokens-check
+tokens-check: ## Fail if the generated token CSS is stale or a contrast pair misses its target.
+	pnpm tokens:check
+
 .PHONY: check
 check: ## Run every quality gate without writing (CI equivalent).
+	pnpm tokens:check
 	pnpm lint
 	pnpm typecheck
 	pnpm format:check
@@ -188,7 +197,8 @@ site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json t
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
 
 .PHONY: site-check
-site-check: ## Check the landing page: links, ES/EN parity, head tags, budgets, contrast.
+site-check: ## Check the landing page: tokens, links, ES/EN parity, head tags, budgets, contrast.
+	node scripts/brand/build_tokens.mjs --check
 	python3 -I scripts/site/check_site.py
 
 # ───────────────────────────────────────────────────────────────────────
