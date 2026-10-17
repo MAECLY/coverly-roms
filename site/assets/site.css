@@ -48,6 +48,7 @@
 .dl-soon,
 .notyet li,
 .faq summary::after,
+.req-count,
 html.motion .t-rest::before {
   --dash-ink: var(--cr-slot-missing);
   --dash-x: repeating-linear-gradient(
@@ -3088,6 +3089,20 @@ html.motion .t-rest::before {
       box-shadow var(--cr-duration-fast) var(--cr-ease-standard),
       background-color var(--cr-duration-fast) var(--cr-ease-standard);
   }
+}
+
+/* == showcase:footer == */
+/* Requests to other servers: a mini slot meant to stay empty, dashed. */
+.req-count {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 1.25em;
+  height: 1.66em;
+  padding: 0 0.2em;
+  line-height: 1;
+  vertical-align: middle;
+  color: var(--cr-text);
 }
 
 /* == showcase:reduce == */
