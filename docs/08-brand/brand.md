@@ -572,9 +572,50 @@ site/assets/tokens.css          # GENERATED, <link> before site.css on the landi
 
 ## 9. Icon
 
-**The final icon is chosen by the owner from 10 candidates** built to this brief. Whatever wins is generated from one master SVG by `scripts/icons/generate.mjs` and replaces both the current "C" ring (app) and the two-slot favicon (landing), so the dock, the browser tab and the landing show the same mark.
+**Final choice: "Lean-To" (round 2, v05), chosen by the owner on 2026-10-17.** A solid paper cover leans about 12° against an upright empty slot, and both rest on a shelf rule: the gap on the shelf that Coverly fills. It replaced the "C" ring (app) and the two-slot favicon (landing), so the dock, the taskbar, the browser tab, the README and the landing all show the same mark. History: [round 1](icon-explorations/round-1/index.html) (10 concepts, #10 Shelf Gap picked) and [round 2](icon-explorations/round-2/index.html) (10 Shelf Gap variants, v05 Lean-To picked); see [`icon-explorations/README.md`](icon-explorations/README.md).
 
-### Brief
+### Construction
+
+- **Canvas:** 1024 px; body 824 × 824 squircle, rx 185.4 (100 px gutter), Buckram `#0E5E6F`. The glyph is drawn in 1024 space and scaled 0.8 into the body.
+- **Cover:** 300 × 400 (3:4 portrait), rx 48, paper `#FBFBF9`, rotated 12° about its bottom-right corner. Its lowest point sits level with the slot's bottom edge and its top-right corner touches the slot's outer edge: it leans, it does not float.
+- **Slot:** 302 × 404 outer (246 × 348 inner + 56 stroke), outer radius 50 to match the cover, paper outline, empty. The empty slot is the point: never fill it.
+- **Shelf:** 680 × 56, rx 28, 34 units below the objects, same weight as the slot stroke. Manila `#E6C171` at 48 px and up; paper on the hand-tuned 32/24/16 px glyphs (Manila on Buckram is too weak that small).
+- **Balance:** glyph bounding box centred horizontally and 3.5 units above centre (optical centre).
+- **Layers:** three flat, opaque shapes (cover, slot, shelf) on the tile. No shadow, gloss, gradient, blur or blend mode; Icon Composer and the OS add depth.
+- **One colour:** `app-mono.svg` is the glyph in a single ink on transparent; the cover reads as a solid, the slot through its outline (macOS 26 Tinted/Clear, Windows unplated, embossing).
+- **Small sizes:** below 48 px never downscale `app.svg`. `glyph-32/24/16.svg` snap the slot and shelf to whole pixels, fill the tile edge to edge, and draw the 16 px lean as a one-pixel step with three mid-tone pixels.
+- **Dark favicon:** tile `#205F6A`, paper `#ECEEEA` (never near-black).
+- **In the app:** `src/components/brand/Logo.tsx` inlines `mark.svg` in `currentColor`, coloured by `--cr-accent` (Buckram `#0E5E6F` light, `#5DB6C4` dark), with the wordmark at a gap of 0.5 × icon height (`size`, `showWordmark` props). A test keeps its geometry in sync with `mark.svg`.
+
+Full geometry, clear space and don'ts: [`design/icon/README.md`](../../design/icon/README.md).
+
+### Assets
+
+Masters live in `design/icon/`; every raster is generated from them.
+
+| Master | Use | Generated outputs |
+|---|---|---|
+| `app.svg` | App icon, 48 px and up | `src-tauri/icons/source.png` → `icon.icns`, `128x128.png`, `128x128@2x.png`, `Square*Logo.png`, `android/`, `ios/`, ico 48/64/256 layers; `site/assets/icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (cropped to the body, opaque) |
+| `glyph-32.svg` | 32 px | `src-tauri/icons/32x32.png`, ico 32 layer, `public/favicon.png` (app `index.html`), `site/favicon.ico` 32 |
+| `glyph-24.svg` | 24 px | ico 24 layer |
+| `glyph-16.svg` | 16 px | ico 16 layer, `site/favicon.ico` 16, `site/assets/favicon.svg` (with a `prefers-color-scheme: dark` palette) |
+| `maskable.svg` | PWA / Android adaptive | `site/assets/icon-maskable-512.png` (glyph inside the 40% safe zone) |
+| `app-mono.svg` | Tinted, unplated, single-ink print | used as is (recolour the alpha) |
+| `mark.svg` / `mark-dark.svg` | Mark on light / dark backgrounds (lockups, docs, `Logo.tsx`) | used as is |
+
+Tauri `bundle.icon` points at `icons/32x32.png`, `icons/128x128.png`, `icons/128x128@2x.png`, `icons/icon.icns`, `icons/icon.ico`.
+
+### Generator
+
+```sh
+pnpm icons        # or: make icons, node scripts/icons/generate.mjs
+```
+
+`scripts/icons/generate.mjs` rasterises with `@resvg/resvg-js` (falls back to `rsvg-convert` or `inkscape`), runs `pnpm tauri icon` on `source.png`, then rewrites `icon.ico` (32, 16, 24, 48, 64, 256, with 16/24/32 from the hand-tuned glyphs) and `32x32.png`. Edit the SVGs, regenerate, commit the outputs; never edit a PNG/ICO/ICNS by hand.
+
+### Original brief (kept for reference)
+
+The brief below produced both exploration rounds. Where it differs from the construction above (the "Empty Mount" 2×2 grid, photo-corners), the construction wins.
 
 - **Subject:** the Slot. The reference concept is **"The Empty Mount"**: a Buckram squircle holding a 2×2 grid of 3:4 portrait slots, three solid and one empty (bottom-right), the empty one held by four photo-corners. Candidates may explore other arrangements (single slot, row of slots, shelf, two-slot solid-next-to-hollow), but every candidate must show **solid next to missing**.
 - **Colours:** tile `#0E5E6F` (Buckram). All solid slots in **one** paper colour `#FBFBF9` (do not mix Manila and paper cells: at small sizes that reads as coloured quadrants). Manila `#E6C171` is allowed only as a small accent (the "applied" tab or a fill sliver), dropped below 64px.
@@ -610,5 +651,5 @@ site/assets/tokens.css          # GENERATED, <link> before site.css on the landi
 - [x] All hard-coded colours in `globals.css` and `site.css` replaced by tokens.
 - [ ] Raw `<input>`, `<select>`, `<progress>`, `<textarea>` and modal replaced by branded components (shadcn primitives restyled with these tokens; checkbox and progress use the slot).
 - [ ] Wordmark with the Manila `ROMs` tag in the app header and the landing nav.
-- [ ] Chosen icon generated for every platform; `site/assets/favicon.svg` "temporary icon" comment removed; `TRADEMARKS.md` updated.
+- [x] Chosen icon (Lean-To) generated for every platform; `site/assets/favicon.svg` "temporary icon" comment removed; `TRADEMARKS.md` updated.
 - [ ] Copy reviewed against §7 in both languages.

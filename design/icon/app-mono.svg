@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<title>Coverly ROMs app icon, one colour (glyph only)</title>
+<!-- Single ink on a transparent canvas, same geometry as app.svg. Only the alpha
+     matters: recolour freely (macOS Tinted/Clear template, Windows unplated). -->
+<g id="glyph" fill="#000" transform="matrix(.8 0 0 .8 102.4 102.4)"><g transform="translate(0 -22)">
+<rect x="165.8" y="311.9" width="300" height="400" rx="48" transform="rotate(12 465.8 711.9)"/><rect x="568" y="327" width="246" height="348" rx="22" fill="none" stroke="#000" stroke-width="56"/><rect x="172" y="737" width="680" height="56" rx="28"/>
+</g></g>
+</svg>

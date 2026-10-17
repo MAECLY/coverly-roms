@@ -164,14 +164,16 @@ placeholder art, so no capture shows real box art. Capture each screen at a
 `python3 scripts/site/encode_shots.py <raw>` (needs `cwebp`): it writes the
 2560-wide and `@1x` 1280-wide WebP files the `<picture>` elements use.
 
-`scripts/site/og.html` renders the 1200×630 cards from the page's own CSS and
-shots: copy it into a filled site, open `og.html?lang=es` or `?lang=en` at a
-1200×630 viewport and save the screenshot as `site/assets/og.png` or
-`og-en.png`.
+`make site-og` (`scripts/site/og.mjs`) renders the 1200×630 cards
+`site/assets/og.png` and `og-en.png`: the Lean-To app icon from
+`design/icon/app.svg`, the wordmark with its Manila `ROMs` tag, the headline and
+the shelf rule, laid out in HTML with the landing's Archivo woff2 and
+screenshotted by headless Chrome or Chromium (`$CHROME` to pick one).
 
-The favicon and icons are a temporary glyph (a filled cover slot beside an
-empty one) until the mark exists; the page uses the wordmark only
-(`TRADEMARKS.md`). The display face is Archivo (OFL-1.1), instanced at width
+The favicon, touch and manifest icons (including the maskable one) and the nav
+mark (`site/assets/mark.svg`, `mark-dark.svg`, swapped by `theme.js` like the
+screenshots) are rasterised or cropped from `design/icon/` by `pnpm icons`; the
+footer keeps the wordmark only, as `docs/08-brand/brand.md` asks. The display face is Archivo (OFL-1.1), instanced at width
 72 and weight 800 and subset to Latin-1 (`site/assets/fonts/`).
 
 ## One-time setup (maintainer)

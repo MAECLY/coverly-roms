@@ -196,6 +196,10 @@ site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json t
 	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
 
+.PHONY: site-og
+site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs Chrome or Chromium).
+	node scripts/site/og.mjs
+
 .PHONY: site-check
 site-check: ## Check the landing page: tokens, links, ES/EN parity, head tags, budgets, contrast.
 	node scripts/brand/build_tokens.mjs --check
@@ -234,7 +238,7 @@ example-clean: ## Delete the example library, its cache and its journals.
 # ───────────────────────────────────────────────────────────────────────
 
 .PHONY: icons
-icons: ## Regenerate the app icons from the source logo.
+icons: ## Regenerate every app and landing icon from design/icon/*.svg.
 	pnpm icons
 
 .PHONY: bump

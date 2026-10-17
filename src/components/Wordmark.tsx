@@ -1,5 +1,6 @@
 import type { ElementType, HTMLAttributes } from 'react';
 
+import { Logo } from '@/components/brand/Logo';
 import { cn } from '@/lib/utils';
 
 interface WordmarkProps extends HTMLAttributes<HTMLElement> {
@@ -13,7 +14,8 @@ interface WordmarkProps extends HTMLAttributes<HTMLElement> {
  * `ROMs` inside a filled Manila tag. The same markup as the landing
  * (`.wordmark` + `<b>`), so both surfaces draw it identically. The product
  * name is not translated. `text-transform` leaks into Chromium's accessible
- * name ("COVERLY"), so the name is pinned with aria-label.
+ * name ("COVERLY"), so the name is pinned with aria-label. The Lean-To mark
+ * (`Logo`) leads the lockup and stays decorative.
  */
 export function Wordmark({
   as: Tag = 'span',
@@ -23,11 +25,20 @@ export function Wordmark({
 }: WordmarkProps) {
   return (
     <Tag
-      className={cn(size === 'lg' ? 'wordmark' : 'wordmark-small', className)}
+      className={cn(
+        size === 'lg' ? 'wordmark' : 'wordmark-small',
+        'inline-flex items-center gap-[0.35em]',
+        className,
+      )}
       aria-label="Coverly ROMs"
       {...rest}
     >
-      Coverly <b className="wordmark-tag">ROMs</b>
+      <span aria-hidden>
+        <Logo showWordmark={false} size="0.85em" />
+      </span>
+      <span>
+        Coverly <b className="wordmark-tag">ROMs</b>
+      </span>
     </Tag>
   );
 }
