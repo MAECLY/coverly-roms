@@ -39,6 +39,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # design/tokens.json is the source of truth: the generated CSS must
+      # match it and every contrast pair must meet its WCAG target.
+      - name: Design tokens
+        run: pnpm tokens:check
+
       - name: Lint
         run: pnpm lint
 

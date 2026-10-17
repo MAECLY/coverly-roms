@@ -35,6 +35,7 @@
     "loading": "Cargando la configuración…",
     "retry": "Reintentar",
     "dismiss": "Cerrar aviso",
+    "moved": "{name}: posición {position} de {total}",
     "reopen": "Vuelve a abrir la biblioteca para aplicar estos cambios.",
     "reopenNow": "Reabrir ahora",
     "saved": "Guardado.",
@@ -151,6 +152,7 @@
       },
       "save": "Guardar {what}",
       "saveShort": "Guardar",
+      "show": "Mostrar {what}",
       "remove": "Quitar {what}",
       "removeShort": "Quitar",
       "stored": "Guardada en el llavero del sistema.",
@@ -363,6 +365,7 @@
   "toolbar": {
     "search": "Buscar por nombre",
     "searchPlaceholder": "Buscar… ( / )",
+    "searchShort": "Buscar…",
     "filters": "Filtros",
     "filtersActive": "Filtros ({n})",
     "layout": "Vista",
@@ -459,6 +462,7 @@
     "loadingCandidates": "Buscando imágenes…",
     "noCandidates": "No se han encontrado imágenes para esta ROM.",
     "removeConfirm": "¿Quitar esta imagen? Se guarda una copia y Deshacer la recupera.",
+    "removeTitle": "¿Quitar esta imagen?",
     "removeYes": "Quitar imagen",
     "removeNo": "Conservar",
     "busy": "Hay un trabajo de relleno en curso: los cambios de arte esperan a que termine.",
@@ -504,6 +508,7 @@
     "regionRom": "La región de la propia ROM",
     "moveUp": "Subir {region}",
     "moveDown": "Bajar {region}",
+    "moved": "{region}: posición {n} de {total}",
     "overwrite": {
       "title": "Arte existente",
       "never": "Solo el arte que falta",
@@ -602,7 +607,7 @@
     "position": "{n} de {total} · {decided} decididas",
     "current": "Arte actual",
     "candidates": "Candidatas",
-    "meta": "{key}. {source} · {regions} · {score} %",
+    "meta": "{key}. {regions} · {score} %",
     "metaShort": "{regions} · {score} %",
     "votes": "{score} votos (▲{up} ▼{down})",
     "why": "Por qué: {reason}",
@@ -611,6 +616,17 @@
     "accepted": "Se escribirá",
     "skipped": "Omitida",
     "keys": "Teclas: ← → moverse · 1–9 elegir · Intro aceptar · S omitir · A aceptar el resto · Esc volver",
+    "shortcuts": {
+      "label": "Atajos de teclado",
+      "move": "moverse",
+      "choose": "elegir",
+      "accept": "aceptar",
+      "skip": "omitir",
+      "acceptAll": "aceptar el resto",
+      "back": "volver",
+      "enter": "Intro",
+      "esc": "Esc"
+    },
     "previous": "Anterior",
     "next": "Siguiente",
     "accept": "Aceptar",
@@ -634,6 +650,7 @@
   "reports": {
     "saved": "Guardado como {name}.",
     "title": "Informes",
+    "description": "Arte que falta por sistema y exportación de la auditoría y del último trabajo de relleno.",
     "audit": "Auditoría de arte",
     "system": "Sistema",
     "roms": "ROMs",
@@ -681,5 +698,11 @@
       "slotsOrder": "O todas las plantillas usan {rel_dir} o ninguna.",
       "slotsRequired": "Activa al menos un hueco."
     }
+  },
+  "ui": {
+    "close": "Cerrar",
+    "loading": "Cargando",
+    "notifications": "Notificaciones",
+    "dismiss": "Descartar"
   }
 }

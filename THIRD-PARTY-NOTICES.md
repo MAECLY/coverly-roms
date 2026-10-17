@@ -10,15 +10,31 @@ The notices for Rust crates and npm packages are added here as dependencies are
 added, and will be generated from `Cargo.lock` and `pnpm-lock.yaml` before the
 first release. `docs/09-legal/license.md` explains the project's own licence.
 
-## Landing page
+## Fonts
 
-The website in `site/` (not part of the application bundles) self-hosts one
-font file, `site/assets/fonts/archivo-display-800.woff2`: Archivo, Copyright
-2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo),
-licensed under the SIL Open Font License 1.1. It is a modified version
-(instanced at width 72 and weight 800 and subset to Latin-1), served under
-the family name "Archivo Display". The full licence is in
-`site/assets/fonts/OFL.txt`.
+The application (`src/assets/fonts/`, bundled into every build) and the
+website (`site/assets/fonts/`, not part of the application bundles) self-host
+the same three typefaces, each licensed under the SIL Open Font License 1.1:
+
+- **Archivo**, Copyright 2020 The Archivo Project Authors
+  (https://github.com/Omnibus-Type/Archivo). Licence: `OFL-Archivo.txt`.
+- **Atkinson Hyperlegible Next**, Copyright 2020-2024 The Atkinson
+  Hyperlegible Next Project Authors
+  (https://github.com/googlefonts/atkinson-hyperlegible-next). Licence:
+  `OFL-AtkinsonHyperlegibleNext.txt`.
+- **Atkinson Hyperlegible Mono**, Copyright 2020-2024 The Atkinson
+  Hyperlegible Mono Project Authors
+  (https://github.com/googlefonts/atkinson-hyperlegible-next-mono). Licence:
+  `OFL-AtkinsonHyperlegibleMono.txt`.
+
+The shipped `.woff2` files are modified versions of the variable fonts from
+the google/fonts repository: their axes are limited (Archivo wdth 75-112 and
+wght 600-800, Atkinson Hyperlegible Next wght 400-700, Atkinson Hyperlegible
+Mono wght 400-600), they are subset to Latin, Latin-1 Supplement and Latin
+Extended-A, hinting is removed, and they are converted to WOFF2. They keep
+their original family names, which the OFL allows because none of these
+fonts declares a Reserved Font Name. Each licence file sits next to the font
+files in both folders.
 
 ## Art and metadata sources
 

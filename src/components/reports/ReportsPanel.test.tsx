@@ -55,6 +55,9 @@ describe('Reports panel', () => {
     const view = await setup();
     await userEvent.click(screen.getByRole('button', { name: 'Reports' }));
     const dialog = await screen.findByRole('dialog', { name: 'Reports' });
+    expect(dialog).toHaveAccessibleDescription(
+      'Missing art per system, and exports of the audit and the last fill job.',
+    );
     const table = within(dialog).getByRole('table', { name: 'Art audit' });
     const first = auditSummary(view).systems[0]!;
     expect(
@@ -126,6 +129,19 @@ describe('Reports panel', () => {
     );
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       'disk gone',
+    );
+  });
+
+  it('closes on Escape and returns focus to the Reports button', async () => {
+    await setup();
+    const opener = screen.getByRole('button', { name: 'Reports' });
+    await userEvent.click(opener);
+    await screen.findByRole('dialog', { name: 'Reports' });
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Reports' })).toHaveFocus(),
     );
   });
 

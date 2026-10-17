@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/badge';
 import { useT, type TFunction } from '@/i18n/useT';
 import type { CandidateView, PickReason, SourceId } from '@/ipc/types';
 import { KNOWN_SOURCES } from '@/lib/settingsRules';
@@ -51,8 +52,8 @@ export function reasonText(t: TFn, r: PickReason): string {
 }
 
 /** Source badge, the key/regions/score line, votes and the reason of a pick.
- * `compact` (narrow lists with no number keys) leaves the key and the
- * repeated source name out of the line. */
+ * The source is named once, on the Manila tag, never again in the line.
+ * `compact` (narrow lists with no number keys) leaves the key out. */
 export function CandidateMeta({
   c,
   position,
@@ -67,16 +68,17 @@ export function CandidateMeta({
   const why = c.reason ? reasonText(t, c.reason) : '';
   return (
     <>
-      <span
-        className="source-badge truncate"
+      <Badge
+        variant="tag"
+        mono
+        className="block max-w-full justify-self-start truncate leading-5"
         data-source={isKnownSource(c.source) ? c.source : 'other'}
       >
         {source}
-      </span>
+      </Badge>
       <span className="hint">
         {t(compact ? 'review.metaShort' : 'review.meta', {
           key: position,
-          source,
           regions: c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
           score: Math.round(c.confidence * 100),
         })}

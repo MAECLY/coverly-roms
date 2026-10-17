@@ -1,3 +1,7 @@
+import { ExternalLink } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Wordmark } from '@/components/Wordmark';
 import { useAppInfo } from '@/hooks/useAppInfo';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -5,6 +9,7 @@ import type { LinkId } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import { UpdatePanel } from '../update/UpdatePanel';
+import { hintText } from './Field';
 
 const LINKS: readonly LinkId[] = [
   'repo',
@@ -23,27 +28,27 @@ export function AboutSection() {
   );
   return (
     <div className="settings-group">
-      <h2 className="wordmark-small">Coverly ROMs</h2>
+      <Wordmark as="h2" size="sm" />
       <p>{t('footer.version', { version: info?.version ?? '—' })}</p>
       <p>{t('footer.coreVersion', { version: info?.core_version ?? '—' })}</p>
       <p>{t('about.license')}</p>
-      <p className="hint">{t('about.noTelemetry')}</p>
-      <p className="hint">
+      <p className={hintText}>{t('about.noTelemetry')}</p>
+      <p className={hintText}>
         {t('about.updates', {
           channel: t(`settings.general.channels.${channel}`),
         })}
       </p>
       <UpdatePanel />
-      <div className="about-links">
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
         {LINKS.map((l) => (
-          <button
+          <Button
             key={l}
-            type="button"
-            className="ghost-button"
+            variant="link"
             onClick={() => void getBackend().then((b) => b.openLink(l))}
           >
             {t(`about.link.${l}`)}
-          </button>
+            <ExternalLink aria-hidden className="size-3.5" />
+          </Button>
         ))}
       </div>
     </div>

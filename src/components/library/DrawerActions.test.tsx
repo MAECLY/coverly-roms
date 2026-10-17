@@ -121,7 +121,9 @@ describe('Drawer art actions', () => {
       within(drawer).getByRole('button', { name: 'Remove' }),
     );
     await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Remove image' }),
+      within(
+        screen.getByRole('alertdialog', { name: 'Remove this image?' }),
+      ).getByRole('button', { name: 'Remove image' }),
     );
     expect(
       await within(drawer).findByText(/^Cover removed/),
@@ -225,9 +227,15 @@ describe('Drawer art actions', () => {
     await userEvent.click(
       within(drawer).getByRole('button', { name: 'Remove' }),
     );
-    expect(within(drawer).getByText(/It is backed up/)).toBeInTheDocument();
-    expect(within(drawer).getByRole('button', { name: 'Keep' })).toHaveFocus();
-    await userEvent.click(within(drawer).getByRole('button', { name: 'Keep' }));
+    // A destructive question: an alert dialog that says what happens and
+    // starts on the safe answer.
+    const ask = screen.getByRole('alertdialog', { name: 'Remove this image?' });
+    expect(ask).toHaveAccessibleDescription(
+      /backed up and Undo brings it back/,
+    );
+    expect(within(ask).getByRole('button', { name: 'Keep' })).toHaveFocus();
+    await userEvent.click(within(ask).getByRole('button', { name: 'Keep' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(
       within(drawer).getByRole('button', { name: 'Remove' }),
     ).toHaveFocus();
@@ -235,8 +243,18 @@ describe('Drawer art actions', () => {
     await userEvent.click(
       within(drawer).getByRole('button', { name: 'Remove' }),
     );
+    // Escape answers "Keep" and leaves the drawer open.
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.getByRole('complementary')).toBeInTheDocument();
+    expect(cover(entry.id)).toBe('present');
     await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Remove image' }),
+      within(drawer).getByRole('button', { name: 'Remove' }),
+    );
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Remove image',
+      }),
     );
     expect(
       await within(drawer).findByText(

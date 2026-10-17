@@ -142,7 +142,7 @@ describe('Settings screen', () => {
     await start();
     act(() => useNavStore.getState().openSettings('library'));
     await userEvent.click(
-      await screen.findByRole('checkbox', { name: 'Include hidden files' }),
+      await screen.findByRole('switch', { name: 'Include hidden files' }),
     );
     expect(
       await screen.findByText('Reopen the library to apply these changes.'),

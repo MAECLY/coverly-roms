@@ -9,8 +9,8 @@
 <meta name="author" content="Miguel Esparza · MAECLY">
 <meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f3ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121514" media="(prefers-color-scheme: dark)">
 <link rel="canonical" href="https://coverly-roms.maecly.com/">
 <link rel="alternate" hreflang="es" href="https://coverly-roms.maecly.com/">
 <link rel="alternate" hreflang="en" href="https://coverly-roms.maecly.com/en/">
@@ -19,7 +19,9 @@
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
-<link rel="preload" href="assets/fonts/archivo-display-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/archivo-variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/atkinson-hyperlegible-next-variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/tokens.css">
 <link rel="stylesheet" href="assets/site.css">
 <script src="assets/theme.js"></script>
 <script src="assets/motion.js" defer></script>
@@ -34,19 +36,19 @@
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Coverly ROMs: «Cada ROM, con su portada.» junto a la cuadrícula de la biblioteca de la app.">
+<meta property="og:image:alt" content="Coverly ROMs: el icono, una portada apoyada junto a un hueco vacío en una balda, con «Cada ROM, con su portada.»">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Coverly ROMs · Cada ROM, con su portada.">
 <meta name="twitter:description" content="Rellena las portadas que faltan en tus ROMs, con simulación previa y deshacer. Gratis y AGPL-3.0.">
 <meta name="twitter:image" content="https://coverly-roms.maecly.com/assets/og.png">
-<meta name="twitter:image:alt" content="Coverly ROMs: «Cada ROM, con su portada.» junto a la cuadrícula de la biblioteca de la app.">
+<meta name="twitter:image:alt" content="Coverly ROMs: el icono, una portada apoyada junto a un hueco vacío en una balda, con «Cada ROM, con su portada.»">
 <script type="application/ld+json">
 {
 "@context": "https://schema.org",
 "@graph": [
 {"@type":"WebSite","@id":"https://coverly-roms.maecly.com/#website","url":"https://coverly-roms.maecly.com/","name":"Coverly ROMs","inLanguage":["es","en"],"publisher":{"@id":"https://www.maecly.com/#org"}},
 {"@type":"Organization","@id":"https://www.maecly.com/#org","name":"MAECLY","url":"https://www.maecly.com/"},
-{"@type":"SoftwareApplication","@id":"https://coverly-roms.maecly.com/#software","name":"Coverly ROMs","description":"Programa de escritorio gratuito (AGPL-3.0) para Windows, macOS y Linux que audita una biblioteca de ROMs, enseña qué juegos no tienen portada, captura o pantalla de título y los rellena desde libretro-thumbnails o SteamGridDB, con simulación previa, copias de seguridad y deshacer. Escribe en los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI, muOS, ES-DE, Batocera y RetroArch. Incluye la línea de comandos coverly. Sin cuenta ni telemetría.","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11, macOS 11 o posterior, Linux x64, Linux ARM64","inLanguage":["es","en"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"author":{"@type":"Person","name":"Miguel Esparza"},"publisher":{"@id":"https://www.maecly.com/#org"},"screenshot":"https://coverly-roms.maecly.com/assets/shots/es/library-light.webp","url":"https://coverly-roms.maecly.com/"},
+{"@type":"SoftwareApplication","@id":"https://coverly-roms.maecly.com/#software","name":"Coverly ROMs","description":"Programa de escritorio gratuito (AGPL-3.0) para Windows, macOS y Linux que audita una biblioteca de ROMs, enseña qué juegos no tienen portada, captura o pantalla de título y los rellena desde libretro-thumbnails o SteamGridDB, con simulación previa, copias de seguridad y deshacer. Escribe en los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI, muOS, ES-DE, Batocera y RetroArch. Incluye la línea de comandos coverly. Sin cuenta ni telemetría.","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11, macOS 11 o posterior, Linux x64, Linux ARM64","inLanguage":["es","en"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"author":{"@type":"Person","name":"Miguel Esparza"},"publisher":{"@id":"https://www.maecly.com/#org"},"image":"https://coverly-roms.maecly.com/assets/icon-512.png","screenshot":"https://coverly-roms.maecly.com/assets/shots/es/library-light.webp","url":"https://coverly-roms.maecly.com/"},
 {"@type":"FAQPage","@id":"https://coverly-roms.maecly.com/#preguntas","inLanguage":"es","mainEntity":[{"@type":"Question","name":"¿Es gratis?","acceptedAnswer":{"@type":"Answer","text":"Sí. No cuesta nada, no pide cuenta y no tiene versión de pago. El código es AGPL-3.0."}},{"@type":"Question","name":"¿Trae ROMs o portadas?","acceptedAnswer":{"@type":"Answer","text":"No. Coverly ROMs no incluye ROMs, BIOS ni arte de juegos. Las imágenes se descargan de libretro-thumbnails y, si pones tu propia clave, de SteamGridDB. Cada imagen es de sus dueños."}},{"@type":"Question","name":"¿Va a sobrescribir mis portadas?","acceptedAnswer":{"@type":"Answer","text":"No, salvo que lo pidas. Por defecto solo rellena lo que falta. Si eliges sustituir, antes guarda una copia en la carpeta de datos de la app, no en la tarjeta, y Deshacer la devuelve."}},{"@type":"Question","name":"¿Necesito una cuenta?","acceptedAnswer":{"@type":"Answer","text":"No. libretro-thumbnails funciona sin cuenta. SteamGridDB es opcional: usa tu propia clave, que se guarda en el llavero del sistema."}},{"@type":"Question","name":"¿Con qué consolas funciona?","acceptedAnswer":{"@type":"Answer","text":"Con las que usan los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI y NextUI, muOS, ES-DE, Batocera, Knulli y EmulationStation, o RetroArch. Para otro firmware puedes crear tu formato con vista previa. Aún no se ha probado en consolas reales."}},{"@type":"Question","name":"¿Por qué avisan Gatekeeper y SmartScreen?","acceptedAnswer":{"@type":"Answer","text":"Porque las descargas no llevan certificados de Apple ni de Microsoft. La primera vez basta con confirmar que quieres abrirla, y cada versión trae un SHA256SUMS para comprobar sus archivos."}},{"@type":"Question","name":"¿Envía datos a algún sitio?","acceptedAnswer":{"@type":"Answer","text":"No hay telemetría. La app solo se conecta a las fuentes de arte y, si no lo desactivas, a la comprobación de actualizaciones al arrancar. Las imágenes se recodifican, así que no llevan metadatos."}},{"@type":"Question","name":"¿Cómo se actualiza?","acceptedAnswer":{"@type":"Answer","text":"Desde la propia app, con versiones de GitHub Releases verificadas con minisign antes de instalarse. Hay canal estable y beta, y nunca se reinicia en mitad de un trabajo. La línea de comandos usa coverly update."}}]}
 ]
 }
@@ -62,7 +64,7 @@
 
 <header class="topbar">
 <div class="wrap topbar-inner">
-<a class="brand" href="./" aria-label="Coverly ROMs, inicio"><span class="wordmark">Coverly<b>ROMs</b></span></a>
+<a class="brand" href="./" aria-label="Coverly ROMs, inicio"><picture><source data-dark media="(prefers-color-scheme: dark)" srcset="assets/mark-dark.svg"><img src="assets/mark.svg" width="43" height="24" loading="lazy" decoding="async" alt=""></picture><span class="wordmark">Coverly<b>ROMs</b></span></a>
 <nav class="topnav" aria-label="Secciones">
 <a href="#como">Cómo funciona</a>
 <a href="#seguro">Seguridad</a>

@@ -18,7 +18,7 @@ The AGPL-3.0 licenses the **source code**; apart from the section 7(e) term abov
 |---|---|
 | The name **"Coverly ROMs"** | Unregistered trademark of MAECLY |
 | The wordmark (`Coverly` + `ROMs`) | Unregistered trademark of MAECLY |
-| The Coverly mark (the app icon) | Unregistered trademark of MAECLY. The mark is being designed; until it ships the app uses the wordmark only. |
+| The Coverly mark (the app icon) | Unregistered trademark of MAECLY. The Lean-To icon; master SVGs in `design/icon/`. |
 
 We have not registered "Coverly ROMs" with any trademark office. We may do so as the project matures. Even unregistered, common-law protections apply.
 

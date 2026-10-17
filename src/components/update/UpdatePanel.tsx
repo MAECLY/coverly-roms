@@ -1,5 +1,14 @@
+import { ChevronRight } from 'lucide-react';
 import { useContext } from 'react';
 
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -66,65 +75,82 @@ export function UpdatePanel({ compact = false }: { compact?: boolean }) {
   const canCheck =
     CAN_CHECK.includes(u.status) && u.error?.code !== 'update-no-key';
   return (
-    <div className="update-panel" aria-live="polite">
-      <p role={u.status === 'error' ? 'alert' : undefined}>{line}</p>
+    <div className="update-panel flex flex-col gap-2.5" aria-live="polite">
+      <p
+        className="m-0 text-ui text-cr-text"
+        role={u.status === 'error' ? 'alert' : undefined}
+      >
+        {line}
+      </p>
       {u.status === 'ready' && u.error && (
-        <p role="alert">
+        <p className="m-0 text-ui text-cr-danger" role="alert">
           {t(errorKey(u.error.code), { detail: u.error.detail ?? '' })}
         </p>
       )}
       {u.status === 'downloading' && (
-        <progress
+        <Progress
           aria-label={t('update.progressLabel')}
+          className="max-w-sm"
           max={100}
-          value={pct ?? undefined}
+          value={pct}
         />
       )}
       {!compact && u.status === 'available' && u.offer?.notes && (
-        <details open>
-          <summary>{t('update.notes')}</summary>
-          <p className="update-notes">{u.offer.notes}</p>
-        </details>
+        <Collapsible defaultOpen className="grid gap-1.5">
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="group -ml-2 justify-self-start text-cr-text-secondary"
+            >
+              <ChevronRight
+                aria-hidden
+                className="transition-transform duration-fast ease-standard group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+              />
+              {t('update.notes')}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ScrollArea
+              className="rounded-md border border-cr-border bg-cr-surface-sunken"
+              viewportClassName="max-h-48"
+            >
+              <p className="m-0 whitespace-pre-wrap px-3 py-2 text-ui text-cr-text-secondary [overflow-wrap:anywhere]">
+                {u.offer.notes}
+              </p>
+            </ScrollArea>
+          </CollapsibleContent>
+        </Collapsible>
       )}
-      <div className="update-actions">
+      <div className="flex flex-wrap items-center gap-2">
         {canCheck && (
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => void u.check('manual')}
-          >
+          <Button variant="outline" onClick={() => void u.check('manual')}>
             {u.status === 'error' ? t('update.retry') : t('update.checkNow')}
-          </button>
+          </Button>
         )}
         {u.status === 'available' && (
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => void u.download()}
-          >
+          <Button variant="primary" onClick={() => void u.download()}>
             {t('update.install')}
-          </button>
+          </Button>
         )}
         {u.status === 'ready' && (
-          <button
-            type="button"
-            className="primary-button"
+          <Button
+            variant="primary"
             disabled={jobRunning}
             onClick={() => void u.restart()}
           >
             {t('update.restart')}
-          </button>
+          </Button>
         )}
         {u.error?.code === 'update-no-key' && (
-          <button
-            type="button"
-            className="ghost-button"
+          <Button
+            variant="outline"
             onClick={() =>
               void getBackend().then((b) => b.openLink('releases'))
             }
           >
             {t('about.link.releases')}
-          </button>
+          </Button>
         )}
       </div>
       {u.status === 'ready' && jobRunning && (

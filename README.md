@@ -1,3 +1,5 @@
+<p align="center"><img src="design/icon/app.svg" width="96" height="96" alt="Coverly ROMs icon"></p>
+
 # Coverly ROMs
 
 **English** · [Español](README.es.md)

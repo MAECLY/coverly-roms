@@ -1,5 +1,12 @@
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useId, useMemo, useState, type ReactNode } from 'react';
 
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldControl, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { LocaleContext } from '@/i18n/core';
 
 import { useT } from '@/i18n/useT';
@@ -41,21 +48,79 @@ function SizeField({
   const [draft, setDraft] = useState(() => toMb(bytes));
   const shown = toBytes(draft) === bytes ? draft : toMb(bytes);
   return (
-    <label className="filter-field">
-      {label}
-      <input
-        type="number"
-        name={name}
-        min={0}
-        step="any"
-        className="text-input"
-        value={shown}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          onChange(toBytes(e.target.value));
-        }}
-      />
-    </label>
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <FieldControl>
+        <Input
+          type="number"
+          name={name}
+          min={0}
+          step="any"
+          size="sm"
+          mono
+          value={shown}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onChange(toBytes(e.target.value));
+          }}
+        />
+      </FieldControl>
+    </Field>
+  );
+}
+
+/**
+ * One fieldset of the panel: the legend names the group and sits on the
+ * shelf rule (brand §2: 1px rule, 3px Buckram cap on the left), pinned while
+ * a long list (systems, extensions) scrolls under it.
+ */
+function Group({
+  legend,
+  legendId,
+  children,
+}: {
+  legend: string;
+  legendId?: string;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset className="m-0 grid max-h-56 min-w-48 content-start gap-1.5 overflow-auto border-0 p-0 pr-1">
+      <legend
+        id={legendId}
+        className="sticky top-0 z-[1] float-left mb-0.5 w-full border-b border-cr-border bg-cr-surface pb-1 pl-2 text-caption font-semibold text-cr-text before:absolute before:bottom-1 before:left-0 before:top-0 before:w-[3px] before:rounded-r-sm before:bg-primary"
+      >
+        {legend}
+      </legend>
+      {children}
+    </fieldset>
+  );
+}
+
+/** A choice row: control, its label, then the count it would show. */
+function Option({
+  id,
+  control,
+  label,
+  count,
+}: {
+  id: string;
+  control: ReactNode;
+  label: ReactNode;
+  count: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {control}
+      <Label
+        htmlFor={id}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 font-normal"
+      >
+        <span className="truncate">{label}</span>
+        <Badge mono className="ml-auto">
+          {count}
+        </Badge>
+      </Label>
+    </div>
   );
 }
 
@@ -80,6 +145,7 @@ export function FilterPanel({
   facets: Facets;
 }) {
   const t = useT();
+  const uid = useId();
   const locale = useContext(LocaleContext);
   const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const f = useFilterStore((s) => s.filters);
@@ -99,124 +165,148 @@ export function FilterPanel({
     return REGIONS.filter((r) => present.has(r));
   }, [view.entries]);
 
+  const id = (kind: string, value: string | number) =>
+    `${uid}-${kind}-${value}`;
+
   return (
     <section
       id="filter-panel"
-      className="filter-panel"
+      className="flex max-h-[40vh] flex-wrap items-start gap-4 overflow-auto border-b border-cr-border bg-cr-surface px-4 py-3"
       aria-label={t('toolbar.filters')}
     >
-      <fieldset>
-        <legend>{t('filters.art')}</legend>
-        {artOptions(view).map((a) => (
-          <label key={a} className="filter-option">
-            <input
-              type="radio"
-              name="art-filter"
-              checked={f.art === a}
-              onChange={() => setArt(a)}
-            />
-            <span>{t(`filters.artOptions.${a}`)}</span>
-            <span className="filter-count">{n.format(facets.art[a])}</span>
-          </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>{t('filters.systems')}</legend>
-        {view.systems
-          .filter((s) => s.roms > 0)
-          .map((s) => (
-            <label key={s.index} className="filter-option">
-              <input
-                type="checkbox"
-                name="system"
-                value={s.folder}
-                checked={f.systems.includes(s.index)}
-                onChange={() => toggleSystem(s.index)}
+      {/* A form so the Radix radios and checkboxes carry named native
+          inputs (autofill, devtools); nothing is ever submitted. */}
+      <form
+        className="contents"
+        onSubmit={(e) => e.preventDefault()}
+        noValidate
+      >
+        <Group legend={t('filters.art')} legendId={`${uid}-art`}>
+          <RadioGroup
+            name="art-filter"
+            aria-labelledby={`${uid}-art`}
+            value={f.art}
+            onValueChange={(v) => setArt(v as ArtFilter)}
+            className="gap-1.5"
+          >
+            {artOptions(view).map((a) => (
+              <Option
+                key={a}
+                id={id('art', a)}
+                control={<RadioGroupItem id={id('art', a)} value={a} />}
+                label={t(`filters.artOptions.${a}`)}
+                count={n.format(facets.art[a])}
               />
-              <span className="truncate">{s.name}</span>
-              <span className="filter-count">
-                {n.format(facets.systems.get(s.index) ?? 0)}
-              </span>
-            </label>
+            ))}
+          </RadioGroup>
+        </Group>
+        <Group legend={t('filters.systems')}>
+          {view.systems
+            .filter((s) => s.roms > 0)
+            .map((s) => (
+              <Option
+                key={s.index}
+                id={id('system', s.index)}
+                control={
+                  <Checkbox
+                    id={id('system', s.index)}
+                    name="system"
+                    value={s.folder}
+                    checked={f.systems.includes(s.index)}
+                    onCheckedChange={() => toggleSystem(s.index)}
+                  />
+                }
+                label={s.name}
+                count={n.format(facets.systems.get(s.index) ?? 0)}
+              />
+            ))}
+        </Group>
+        <Group legend={t('filters.exts')}>
+          {exts.map((x) => (
+            <Option
+              key={x}
+              id={id('ext', x)}
+              control={
+                <Checkbox
+                  id={id('ext', x)}
+                  name="extension"
+                  value={x}
+                  checked={f.exts.includes(x)}
+                  onCheckedChange={() => toggleExt(x)}
+                />
+              }
+              label={`.${x}`}
+              count={n.format(facets.exts.get(x) ?? 0)}
+            />
           ))}
-      </fieldset>
-      <fieldset>
-        <legend>{t('filters.exts')}</legend>
-        {exts.map((x) => (
-          <label key={x} className="filter-option">
-            <input
-              type="checkbox"
-              name="extension"
-              value={x}
-              checked={f.exts.includes(x)}
-              onChange={() => toggleExt(x)}
+        </Group>
+        <Group legend={t('filters.regions')}>
+          {regions.map((r) => (
+            <Option
+              key={r}
+              id={id('region', r)}
+              control={
+                <Checkbox
+                  id={id('region', r)}
+                  name="region"
+                  value={r}
+                  checked={f.regions.includes(r)}
+                  onCheckedChange={() => toggleRegion(r)}
+                />
+              }
+              label={t(`regions.${r}`)}
+              count={n.format(facets.regions.get(r) ?? 0)}
             />
-            <span>.{x}</span>
-            <span className="filter-count">
-              {n.format(facets.exts.get(x) ?? 0)}
-            </span>
-          </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>{t('filters.regions')}</legend>
-        {regions.map((r) => (
-          <label key={r} className="filter-option">
-            <input
-              type="checkbox"
-              name="region"
-              value={r}
-              checked={f.regions.includes(r)}
-              onChange={() => toggleRegion(r)}
-            />
-            <span>{t(`regions.${r}`)}</span>
-            <span className="filter-count">
-              {n.format(facets.regions.get(r) ?? 0)}
-            </span>
-          </label>
-        ))}
-      </fieldset>
-      <fieldset>
-        <legend>{t('filters.date')}</legend>
-        <label className="filter-field">
-          {t('filters.from')}
-          <input
-            type="date"
-            name="modified-from"
-            className="text-input"
-            value={toDateInput(f.modifiedFrom)}
-            onChange={(e) => setDates(dayStart(e.target.value), f.modifiedTo)}
+          ))}
+        </Group>
+        <Group legend={t('filters.date')}>
+          <Field>
+            <FieldLabel>{t('filters.from')}</FieldLabel>
+            <FieldControl>
+              <Input
+                type="date"
+                name="modified-from"
+                size="sm"
+                value={toDateInput(f.modifiedFrom)}
+                onChange={(e) =>
+                  setDates(dayStart(e.target.value), f.modifiedTo)
+                }
+              />
+            </FieldControl>
+          </Field>
+          <Field>
+            <FieldLabel>{t('filters.to')}</FieldLabel>
+            <FieldControl>
+              <Input
+                type="date"
+                name="modified-to"
+                size="sm"
+                value={toDateInput(f.modifiedTo)}
+                onChange={(e) =>
+                  setDates(f.modifiedFrom, dayEnd(e.target.value))
+                }
+              />
+            </FieldControl>
+          </Field>
+        </Group>
+        <Group legend={t('filters.size')}>
+          <SizeField
+            name="size-min"
+            label={t('filters.min')}
+            bytes={f.sizeMin}
+            onChange={(b) => setSizes(b, f.sizeMax)}
           />
-        </label>
-        <label className="filter-field">
-          {t('filters.to')}
-          <input
-            type="date"
-            name="modified-to"
-            className="text-input"
-            value={toDateInput(f.modifiedTo)}
-            onChange={(e) => setDates(f.modifiedFrom, dayEnd(e.target.value))}
+          <SizeField
+            name="size-max"
+            label={t('filters.max')}
+            bytes={f.sizeMax}
+            onChange={(b) => setSizes(f.sizeMin, b)}
           />
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend>{t('filters.size')}</legend>
-        <SizeField
-          name="size-min"
-          label={t('filters.min')}
-          bytes={f.sizeMin}
-          onChange={(b) => setSizes(b, f.sizeMax)}
-        />
-        <SizeField
-          name="size-max"
-          label={t('filters.max')}
-          bytes={f.sizeMax}
-          onChange={(b) => setSizes(f.sizeMin, b)}
-        />
-      </fieldset>
-      <button type="button" className="ghost-button" onClick={clear}>
+        </Group>
+      </form>
+      <Button variant="outline" onClick={clear}>
         {t('filters.clear')}
-      </button>
+      </Button>
     </section>
   );
 }

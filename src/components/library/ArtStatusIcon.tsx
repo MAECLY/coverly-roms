@@ -1,10 +1,15 @@
+import { SlotMark, type SlotState } from '@/components/ui/slot-mark';
 import { useT } from '@/i18n/useT';
 import type { ArtMark, Media } from '@/ipc/types';
 
-const GLYPH: Record<ArtMark, string> = {
-  present: '●',
-  missing: '○',
-  unsupported: '–',
+import { Tip } from './Tip';
+
+/** The brand slot: solid = present, dashed = missing, struck = the layout
+ * cannot store it. */
+const STATE: Record<ArtMark, SlotState> = {
+  present: 'filled',
+  missing: 'missing',
+  unsupported: 'unsupported',
 };
 
 export function ArtStatusIcon({
@@ -20,13 +25,11 @@ export function ArtStatusIcon({
     state: t(`art.mark.${mark}`),
   });
   return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className={`art-mark art-mark--${mark}`}
-    >
-      {GLYPH[mark]}
-    </span>
+    // The span takes the trigger's data-state, so the slot keeps its own.
+    <Tip content={label}>
+      <span className="inline-flex" data-mark={mark}>
+        <SlotMark state={STATE[mark]} size={12} label={label} />
+      </span>
+    </Tip>
   );
 }
