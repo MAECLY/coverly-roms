@@ -79,6 +79,24 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     );
     expect(fixed.settings.organize.auto_threshold).toBe(0.85);
     expect(fixed.settings.organize.review_threshold).toBe(0.5);
+    // Like Rust, only the unknown layout's entry is dropped.
+    const keep = tolerantSettings(
+      {
+        organize: {
+          folder_names: { ghost: { gba: 'GBA' }, esde: { gba: 'gba' } },
+          arcade_order: { ghost: ['mame'], esde: ['fbneo'] },
+        },
+      },
+      known,
+    );
+    expect(keep.settings.organize.folder_names).toEqual({
+      esde: { gba: 'gba' },
+    });
+    expect(keep.settings.organize.arcade_order).toEqual({ esde: ['fbneo'] });
+    expect(keep.fixed).toEqual([
+      'organize.folder_names',
+      'organize.arcade_order',
+    ]);
     const n = normaliseSettings({
       ...cloneSettings(DEFAULT_SETTINGS),
       organize: {

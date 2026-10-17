@@ -583,6 +583,21 @@ export function tolerantSettings(
     } else if (e.code === 'order') {
       s.matching.auto_threshold = DEFAULT_SETTINGS.matching.auto_threshold;
       s.matching.review_threshold = DEFAULT_SETTINGS.matching.review_threshold;
+    } else if (
+      g === 'organize' &&
+      (f === 'folder_names' || f === 'arcade_order')
+    ) {
+      // One layout's entry, like Rust: the other layouts' overrides stay.
+      const layout = e.field.slice(`organize.${f}.`.length).split('.')[0] ?? '';
+      if (f === 'folder_names') {
+        const names = { ...s.organize.folder_names };
+        delete names[layout];
+        s.organize.folder_names = names;
+      } else {
+        const orders = { ...s.organize.arcade_order };
+        delete orders[layout];
+        s.organize.arcade_order = orders;
+      }
     } else {
       const def = DEFAULT_SETTINGS[g] as unknown as Record<string, unknown>;
       (s[g] as unknown as Record<string, unknown>)[f] = structuredClone(def[f]);
