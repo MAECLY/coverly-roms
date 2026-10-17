@@ -58,24 +58,26 @@
   }
 
   /* The terminal types each command in turn; a line shows when its turn
-     comes. The untyped rest stays in place, hidden, so no glyph moves.
-     Skipped when it is already on screen. */
+     comes, and its output 200ms after the command. The untyped rest stays
+     in place, hidden, so no glyph moves. Skipped when already on screen. */
   function terminal() {
     var term = document.querySelector(".term");
     var steps = term ? term.querySelectorAll(".t-step") : [];
     if (!steps.length || onScreen(term)) return;
-    var cmds = [], texts = [], later = timers();
+    var cmds = [], texts = [], outs = [], later = timers();
     var done = document.createElement("span"), rest = document.createElement("span");
     rest.className = "t-rest";
     for (var k = 0; k < steps.length; k++) {
       cmds[k] = steps[k].querySelector(".t-cmd");
       texts[k] = cmds[k].textContent;
+      outs[k] = steps[k].querySelector(".t-out") || done;
     }
     var stop = function () {
       later.clear();
       for (var j = 0; j < steps.length; j++) {
         cmds[j].textContent = texts[j];
         steps[j].classList.remove("t-wait");
+        outs[j].classList.remove("t-hold");
       }
       term.classList.remove("typing");
     };
@@ -95,11 +97,17 @@
       }
       done.textContent = text.slice(0, i);
       rest.textContent = text.slice(i);
-      if (i >= text.length) return later(function () { type(s + 1, 0); }, 420, stop);
+      if (i >= text.length) return later(function () {
+        outs[s].classList.remove("t-hold");
+        later(function () { type(s + 1, 0); }, 420, stop);
+      }, 200, stop);
       later(function () { type(s, i + 1); }, 18 + ((i * 37) % 17) + (text.charAt(i) === " " ? 30 : 0), stop);
     };
     term.classList.add("typing");
-    for (var m = 0; m < steps.length; m++) steps[m].classList.add("t-wait");
+    for (var m = 0; m < steps.length; m++) {
+      steps[m].classList.add("t-wait");
+      outs[m].classList.add("t-hold");
+    }
     once(term, 0.45, function () { later(function () { type(0, 0); }, 300, stop); });
   }
 

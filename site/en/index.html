@@ -242,16 +242,20 @@
 <div class="term" role="region" aria-label="Command line example">
 <div class="term-bar">Same engine, in the terminal: <code>coverly</code></div>
 <pre><code><span class="t-step"><span class="c"># What is missing (read-only)</span>
-<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span>
+<span class="t-out">4553 missing</span></span>
 
 <span class="t-step"><span class="c"># The plan, nothing written</span>
-<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span>
+<span class="t-out">plan: 4553 · 0 written</span></span>
 
 <span class="t-step"><span class="c"># For real, skipping the doubtful ones</span>
-<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span>
+<span class="t-out">✓ 4401 applied</span></span>
 
 <span class="t-step"><span class="c"># Changed your mind</span>
-<span class="p">$ </span><span class="t-cmd">coverly undo</span></span></code></pre>
+<span class="p">$ </span><span class="t-cmd">coverly undo</span>
+<span class="t-out">↶ 4401 restored</span></span></code></pre>
 </div>
 </div>
 </div>

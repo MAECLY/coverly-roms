@@ -242,16 +242,20 @@
 <div class="term" role="region" aria-label="Ejemplo de la línea de comandos">
 <div class="term-bar">La misma lógica, en la terminal: <code>coverly</code></div>
 <pre><code><span class="t-step"><span class="c"># Qué falta (solo lee)</span>
-<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span>
+<span class="t-out">4553 sin portada</span></span>
 
 <span class="t-step"><span class="c"># El plan, sin escribir nada</span>
-<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span>
+<span class="t-out">plan: 4553 · 0 escritos</span></span>
 
 <span class="t-step"><span class="c"># Ahora sí, sin las dudosas</span>
-<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span></span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span>
+<span class="t-out">✓ 4401 aplicadas</span></span>
 
 <span class="t-step"><span class="c"># Y si no te convence</span>
-<span class="p">$ </span><span class="t-cmd">coverly undo</span></span></code></pre>
+<span class="p">$ </span><span class="t-cmd">coverly undo</span>
+<span class="t-out">↶ 4401 restauradas</span></span></code></pre>
 </div>
 </div>
 </div>
