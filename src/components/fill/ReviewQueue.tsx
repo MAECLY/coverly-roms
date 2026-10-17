@@ -1,7 +1,19 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ArtThumb } from '@/components/library/ArtThumb';
-import { Modal } from '@/components/Modal';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Kbd, KbdGroup } from '@/components/ui/kbd';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -12,6 +24,7 @@ import type {
   JobItemView,
   LibraryView,
 } from '@/ipc/types';
+import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
 
 import { CandidateImage } from './CandidateImage';
@@ -40,6 +53,7 @@ export function ReviewQueue({
   const editable = job?.state === 'planned';
   /** A decision is in flight: a second key press must not decide (or move) again. */
   const busy = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (jobId === null) return;
@@ -168,132 +182,189 @@ export function ReviewQueue({
   const error = loadError ?? storeError;
 
   return (
-    <Modal labelledBy="review-title" onClose={onClose} className="review">
-      <h2 id="review-title" className="section-title">
-        {t('review.title')}
-      </h2>
-      {jobId === null && <p>{t('errors.no-job')}</p>}
-      {jobId !== null && items === null && !loadError && (
-        <p role="status">{t('review.loading')}</p>
-      )}
-      {items !== null && items.length === 0 && <p>{t('review.empty')}</p>}
-      {item && items && (
-        <>
-          <p className="hint">
-            {t('review.position', {
-              n: n.format(pos + 1),
-              total: n.format(items.length),
-              decided: n.format(decided),
-            })}
-          </p>
-          <h3 className="review-name truncate" title={item.name}>
-            {item.name}
-          </h3>
-          <p className="hint">
-            {item.folder} · {t(`art.media.${item.media}`)} ·{' '}
-            {status(decisions[item.index])}
-          </p>
-          {item.note === 'unreleased-variant' && (
-            <p className="hint review-note">{t('review.variantNote')}</p>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        size="xl"
+        hideClose
+        aria-describedby={undefined}
+        ref={contentRef}
+        // Focus the dialog itself, as before: the keys act on the whole queue.
+        onOpenAutoFocus={(ev) => {
+          ev.preventDefault();
+          contentRef.current?.focus();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{t('review.title')}</DialogTitle>
+          {item && items && (
+            <p className="m-0 text-caption tabular-nums text-cr-text-secondary">
+              {t('review.position', {
+                n: n.format(pos + 1),
+                total: n.format(items.length),
+                decided: n.format(decided),
+              })}
+            </p>
           )}
-          <div className="review-compare">
-            <figure className="review-current">
-              {entry ? (
-                <ArtThumb
-                  generation={view.generation}
-                  entry={entry}
-                  media={item.media}
-                />
-              ) : (
-                <div className="art-thumb art-placeholder" aria-hidden="true" />
-              )}
-              <figcaption>{t('review.current')}</figcaption>
-            </figure>
-            <div
-              role="group"
-              aria-label={t('review.candidates')}
-              className="candidate-grid"
-            >
-              {item.candidates.map((c) => (
-                <button
-                  key={c.index}
-                  type="button"
-                  className="candidate"
-                  aria-pressed={chosen === c.index}
-                  onClick={() => pick(c.index)}
+        </DialogHeader>
+        <DialogBody className="grid content-start gap-3">
+          {jobId === null && <p className="m-0">{t('errors.no-job')}</p>}
+          {jobId !== null && items === null && !loadError && (
+            <p role="status" className="m-0">
+              {t('review.loading')}
+            </p>
+          )}
+          {items !== null && items.length === 0 && (
+            <p className="m-0">{t('review.empty')}</p>
+          )}
+          {item && items && (
+            <>
+              <div className="grid gap-0.5">
+                <h3
+                  className="m-0 truncate text-dialog font-semibold text-cr-text [unicode-bidi:plaintext]"
+                  title={item.name}
                 >
-                  {jobId !== null && (
-                    <CandidateImage
-                      source={{
-                        kind: 'job',
-                        job: jobId,
-                        index: item.index,
-                        candidate: c.index,
-                      }}
-                      label={c.name}
+                  {item.name}
+                </h3>
+                <p className="hint">
+                  {item.folder} · {t(`art.media.${item.media}`)} ·{' '}
+                  {status(decisions[item.index])}
+                </p>
+              </div>
+              {item.note === 'unreleased-variant' && (
+                <Alert variant="warning">{t('review.variantNote')}</Alert>
+              )}
+              <div className="grid grid-cols-[10rem_1fr] items-start gap-4">
+                <figure className="review-current m-0 grid gap-1.5">
+                  {entry ? (
+                    <ArtThumb
+                      generation={view.generation}
+                      entry={entry}
+                      media={item.media}
+                    />
+                  ) : (
+                    <div
+                      className="art-thumb art-placeholder"
+                      aria-hidden="true"
                     />
                   )}
-                  <span className="truncate" title={c.name}>
-                    {c.name}
-                  </span>
-                  <CandidateMeta c={c} position={c.index + 1} />
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-      {error && (
-        <p role="alert" className="error-banner">
-          {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
-      )}
-      <p className="hint">{t('review.keys')}</p>
-      <div className="modal-actions">
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={pos === 0}
-          onClick={() => move(-1)}
+                  <figcaption className="text-caption text-cr-text-secondary">
+                    {t('review.current')}
+                  </figcaption>
+                </figure>
+                <ToggleGroup
+                  type="single"
+                  // Arrow keys belong to the queue (previous / next item).
+                  rovingFocus={false}
+                  value={String(chosen)}
+                  onValueChange={(v) => v !== '' && pick(Number(v))}
+                  aria-label={t('review.candidates')}
+                  className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-start gap-3"
+                >
+                  {item.candidates.map((c) => (
+                    <ToggleGroupItem
+                      key={c.index}
+                      value={String(c.index)}
+                      className={cn(
+                        'grid h-auto min-w-0 content-start justify-stretch gap-1 whitespace-normal rounded-lg border-2 border-transparent p-2 text-left font-normal text-cr-text [unicode-bidi:plaintext]',
+                        'data-[state=on]:border-primary data-[state=on]:bg-cr-primary-subtle/40 data-[state=on]:text-cr-text',
+                      )}
+                    >
+                      {jobId !== null && (
+                        <CandidateImage
+                          source={{
+                            kind: 'job',
+                            job: jobId,
+                            index: item.index,
+                            candidate: c.index,
+                          }}
+                          label={c.name}
+                        />
+                      )}
+                      <span className="truncate font-medium" title={c.name}>
+                        {c.name}
+                      </span>
+                      <CandidateMeta c={c} position={c.index + 1} />
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+            </>
+          )}
+          {error && (
+            <Alert variant="danger">
+              {t(errorKey(error.code), { detail: error.detail ?? '' })}
+            </Alert>
+          )}
+        </DialogBody>
+        <ul
+          aria-label={t('review.shortcuts.label')}
+          className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-caption text-cr-text-secondary"
         >
-          {t('review.previous')}
-        </button>
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={!items || pos >= items.length - 1}
-          onClick={() => move(1)}
-        >
-          {t('review.next')}
-        </button>
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={!editable || pending || !item}
-          onClick={() => void skip()}
-        >
-          {t('review.skip')}
-        </button>
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={!editable || pending || !items}
-          onClick={() => void acceptAll()}
-        >
-          {t('review.acceptAll')}
-        </button>
-        <button
-          type="button"
-          className="primary-button"
-          disabled={!editable || pending || !item}
-          onClick={() => void accept()}
-        >
-          {t('review.accept')}
-        </button>
-        <button type="button" className="ghost-button" onClick={onClose}>
-          {t('review.done')}
-        </button>
-      </div>
-    </Modal>
+          {SHORTCUTS.map(([keys, what]) => (
+            <li key={what} className="inline-flex items-center gap-1">
+              <KbdGroup>
+                {keys.map((k) => (
+                  <Kbd key={k}>{k.startsWith('review.') ? t(k) : k}</Kbd>
+                ))}
+              </KbdGroup>
+              {t(`review.shortcuts.${what}`)}
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            disabled={pos === 0}
+            onClick={() => move(-1)}
+          >
+            <ChevronLeft aria-hidden />
+            {t('review.previous')}
+          </Button>
+          <Button
+            variant="outline"
+            className="mr-auto"
+            disabled={!items || pos >= items.length - 1}
+            onClick={() => move(1)}
+          >
+            {t('review.next')}
+            <ChevronRight aria-hidden />
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!editable || pending || !item}
+            onClick={() => void skip()}
+          >
+            {t('review.skip')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!editable || pending || !items}
+            onClick={() => void acceptAll()}
+          >
+            {t('review.acceptAll')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!editable || pending || !item}
+            onClick={() => void accept()}
+          >
+            {t('review.accept')}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            {t('review.done')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
+
+/** The shortcut legend: key caps (literal, or an i18n key) and what they do. */
+const SHORTCUTS: readonly [readonly string[], string][] = [
+  [['←', '→'], 'move'],
+  [['1–9'], 'choose'],
+  [['review.shortcuts.enter'], 'accept'],
+  [['S'], 'skip'],
+  [['A'], 'acceptAll'],
+  [['review.shortcuts.esc'], 'back'],
+];

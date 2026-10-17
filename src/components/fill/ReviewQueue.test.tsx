@@ -108,13 +108,14 @@ describe('Review queue', () => {
       }),
     ).toBeInTheDocument();
     expect(within(dialog).getByText('Current art')).toBeInTheDocument();
-    const group = within(dialog).getByRole('group', { name: 'Candidates' });
-    const buttons = within(group).getAllByRole('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(2);
-    expect(buttons[0]).toHaveAttribute('aria-pressed', 'true');
-    expect(
-      within(group).getByText(/^1\. libretro-thumbnails · /),
-    ).toBeInTheDocument();
+    const group = within(dialog).getByRole('radiogroup', {
+      name: 'Candidates',
+    });
+    const candidates = within(group).getAllByRole('radio');
+    expect(candidates.length).toBeGreaterThanOrEqual(2);
+    expect(candidates[0]).toBeChecked();
+    expect(candidates[1]).not.toBeChecked();
+    expect(within(group).getByText(/^1\. .+ · \d+%$/)).toBeInTheDocument();
     expect(
       within(dialog).getByText(`1 of ${review.length} · 0 decided`),
     ).toBeInTheDocument();
@@ -123,14 +124,14 @@ describe('Review queue', () => {
   it('shows the source, the votes and why the first image was chosen', async () => {
     await planned();
     const dialog = await openQueue();
-    const group = within(dialog).getByRole('group', { name: 'Candidates' });
+    const group = within(dialog).getByRole('radiogroup', {
+      name: 'Candidates',
+    });
     expect(
       within(group).getAllByText('libretro-thumbnails').length,
     ).toBeGreaterThan(0);
     expect(within(group).getByText(/^Why: /)).toBeInTheDocument();
-    expect(
-      group.querySelector('.source-badge[data-source="libretro"]'),
-    ).not.toBeNull();
+    expect(group.querySelector('[data-source="libretro"]')).not.toBeNull();
   });
 
   it('popularity with SteamGridDB shows votes and a votes reason, in Spanish too', async () => {
@@ -152,7 +153,7 @@ describe('Review queue', () => {
       });
       await backend.setCredential('steamgriddb-api-key', 'sk');
       const dialog = await startAndOpen(backend, 'popularity', locale);
-      const group = await within(dialog).findByRole('group');
+      const group = await within(dialog).findByRole('radiogroup');
       const text = group.textContent ?? '';
       expect(text).toMatch(
         locale === 'en' ? /SteamGridDB.*votes \(▲/ : /SteamGridDB.*votos \(▲/,
@@ -192,11 +193,11 @@ describe('Review queue', () => {
       'review',
     );
     fireEvent.keyDown(window, { key: '2' });
-    const group = within(dialog).getByRole('group', { name: 'Candidates' });
-    expect(within(group).getAllByRole('button')[1]).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    const group = within(dialog).getByRole('radiogroup', {
+      name: 'Candidates',
+    });
+    expect(within(group).getAllByRole('radio')[1]).toBeChecked();
+    expect(within(group).getAllByRole('radio')[0]).not.toBeChecked();
     fireEvent.keyDown(window, { key: 'Enter' });
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(expect.any(Number), [
@@ -263,15 +264,46 @@ describe('Review queue', () => {
       level: 3,
       name: review[0]!.name,
     });
-    const group = within(dialog).getByRole('group', { name: 'Candidates' });
-    const second = within(group).getAllByRole('button')[1]!;
+    const group = within(dialog).getByRole('radiogroup', {
+      name: 'Candidates',
+    });
+    const second = within(group).getAllByRole('radio')[1]!;
     second.focus();
     await userEvent.keyboard('{Enter}');
-    expect(second).toHaveAttribute('aria-pressed', 'true');
+    expect(second).toBeChecked();
     expect(
       within(dialog).getByRole('heading', { level: 3, name: review[0]!.name }),
     ).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('clicking the chosen candidate keeps it chosen', async () => {
+    const { review } = await planned();
+    const dialog = await openQueue();
+    await within(dialog).findByRole('heading', {
+      level: 3,
+      name: review[0]!.name,
+    });
+    const group = within(dialog).getByRole('radiogroup', {
+      name: 'Candidates',
+    });
+    const [first, second] = within(group).getAllByRole('radio');
+    await userEvent.click(second!);
+    expect(second).toBeChecked();
+    await userEvent.click(second!);
+    expect(second).toBeChecked();
+    expect(first).not.toBeChecked();
+  });
+
+  it('lists the keyboard shortcuts as key caps', async () => {
+    await planned();
+    const dialog = await openQueue();
+    const legend = within(dialog).getByRole('list', {
+      name: 'Keyboard shortcuts',
+    });
+    expect(within(legend).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(legend).getByText('Enter').tagName).toBe('KBD');
+    expect(within(legend).getByText('Esc').tagName).toBe('KBD');
   });
 
   it('ignores auto-repeated decision keys', async () => {

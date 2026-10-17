@@ -79,9 +79,22 @@ describe('Fill wizard', () => {
     expect(
       within(dialog).getByRole('radio', { name: /ROM region/ }),
     ).toBeChecked();
+    const regions = within(dialog).getByRole('list', { name: 'Region order' });
+    const before = within(regions)
+      .getAllByRole('listitem')
+      .findIndex((li) => li.textContent?.includes('USA'));
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Move USA up' }),
     );
+    // The reorder is announced: the button moves away from under focus.
+    expect(within(dialog).getByRole('status')).toHaveTextContent(
+      `USA: position ${before} of `,
+    );
+    expect(
+      within(regions)
+        .getAllByRole('listitem')
+        [before - 1]?.textContent?.includes('USA'),
+    ).toBe(true);
     await userEvent.click(within(dialog).getByRole('button', { name: 'Next' }));
     expect(
       within(dialog).getByRole('radio', { name: 'Only missing art' }),
@@ -124,12 +137,44 @@ describe('Fill wizard', () => {
     await userEvent.click(
       within(dialog).getByRole('radio', { name: /^Popularity \(votes\)/ }),
     );
+    // The hint describes the choice; it is not part of its name.
     expect(
-      within(dialog).getByText(/most SteamGridDB votes/),
-    ).toBeInTheDocument();
+      within(dialog).getByRole('radio', { name: 'Popularity (votes)' }),
+    ).toHaveAccessibleDescription(/most SteamGridDB votes/);
     expect(
       await within(dialog).findByText(/SteamGridDB is not ready/),
     ).toBeInTheDocument();
+  });
+
+  it('keeps the scope disabled when it has nothing to fill', async () => {
+    await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    expect(
+      within(dialog).getByRole('radiogroup', { name: 'What to fill' }),
+    ).toBeInTheDocument();
+    const selected = within(dialog).getByRole('radio', {
+      name: /Selected ROM/,
+    });
+    expect(selected).toBeDisabled();
+    await userEvent.click(selected);
+    expect(selected).not.toBeChecked();
+  });
+
+  it('closes on Escape', async () => {
+    await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    screen.getByRole('dialog', { name: 'Fill missing art' });
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Fill missing art' }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it('does not warn about votes once SteamGridDB is enabled with a key', async () => {
