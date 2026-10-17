@@ -355,10 +355,14 @@ impl Cache {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// `(rom_stem, game)` of every row of `dat`; stems are lower-case.
+    /// `(rom_stem, game)` of every row of `dat`, ordered by stem then game
+    /// so fuzzy-match ties resolve the same way on every run; stems are
+    /// lower-case.
     pub fn dat_stems(&self, dat: &str) -> Result<Vec<(String, String)>, CacheError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT rom_stem, game FROM dat_roms WHERE dat = ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT rom_stem, game FROM dat_roms WHERE dat = ?1 ORDER BY rom_stem, game",
+        )?;
         let rows = stmt.query_map(params![dat], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }

@@ -292,9 +292,9 @@ fn rows_of_a_game_and_stems_of_a_dat() {
         .replace_dat(
             "psx.dat",
             &[
+                row("Other (Europe)", "Other (Europe).bin", 300, "33333333"),
                 row("Game (USA)", "Game (USA).cue", 100, "11111111"),
                 row("Game (USA)", "Game (USA) (Track 1).bin", 200, "22222222"),
-                row("Other (Europe)", "Other (Europe).bin", 300, "33333333"),
             ],
         )
         .unwrap();
@@ -307,8 +307,9 @@ fn rows_of_a_game_and_stems_of_a_dat() {
         .dat_rows_of_game("other.dat", "Game (USA)")
         .unwrap()
         .is_empty());
-    let mut stems = cache.dat_stems("psx.dat").unwrap();
-    stems.sort();
+    // Ordered by stem then game, so fuzzy ties resolve the same way on
+    // every run whatever order the rows were inserted in.
+    let stems = cache.dat_stems("psx.dat").unwrap();
     assert_eq!(
         stems,
         [
