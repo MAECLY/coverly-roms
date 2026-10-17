@@ -211,10 +211,13 @@ export function whyKey(
   }
 }
 
-/** The folder an item lands in, relative to the target (`ROMS/GBA`). */
+/**
+ * The folder an item lands in, relative to the target (`ROMS/GBA`). The
+ * backend sends native paths, so Windows targets use backslashes.
+ */
 export function targetDir(item: OrganizeItem): string {
   const target = item.target ?? '';
-  const slash = target.lastIndexOf('/');
+  const slash = Math.max(target.lastIndexOf('/'), target.lastIndexOf('\\'));
   return slash < 0 ? (item.folder ?? '') : target.slice(0, slash);
 }
 

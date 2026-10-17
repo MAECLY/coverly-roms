@@ -249,6 +249,12 @@ describe('organise row helpers', () => {
   it('targetDir is the folder of the target, relative to the target root', () => {
     expect(targetDir(autoItem(0, 'a.gba', 'gba', 'ROMS/GBA'))).toBe('ROMS/GBA');
     expect(targetDir(autoItem(0, 'a.gba', 'gba', 'GBA'))).toBe('GBA');
+    expect(
+      targetDir({
+        ...autoItem(0, 'a.gba', 'gba', 'GBA'),
+        target: 'ROMS\\GBA\\a.gba',
+      }),
+    ).toBe('ROMS\\GBA');
   });
 
   it('itemNotes explains renames and notes with names, not ids', () => {
