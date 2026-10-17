@@ -24,6 +24,11 @@ use crate::jobs::JobEvents;
 use crate::library::art::{entry_path, read_art_bytes};
 use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
+use crate::organize::view::{
+    FolderProbeView, OrganizePlanView, OrganizeProgressEvent, OrganizeRequest,
+    ORGANIZE_PROGRESS_EVENT,
+};
+use crate::organize::OrganizeEvents;
 use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use crate::sources::SourceInfoView;
@@ -712,4 +717,57 @@ pub fn restart_app(
 ) -> Result<(), IpcError> {
     updates.can_restart(job_blocks_update(state.jobs().current().map(|j| j.state)))?;
     app.restart()
+}
+
+/// A quick, name-only look at a folder no layout was detected in.
+#[tauri::command]
+pub async fn probe_folder(app: AppHandle, path: String) -> Result<FolderProbeView, IpcError> {
+    blocking(move || app.state::<AppState>().probe_folder(Path::new(&path))).await
+}
+
+/// Planning progress as Tauri events.
+struct TauriOrganizeEvents(AppHandle);
+
+impl OrganizeEvents for TauriOrganizeEvents {
+    fn progress(&self, event: OrganizeProgressEvent) {
+        let _ = self.0.emit(ORGANIZE_PROGRESS_EVENT, event);
+    }
+}
+
+/// Plans organising a loose pile (a dry run), emitting `organize-progress`.
+#[tauri::command]
+pub async fn organize_plan(
+    app: AppHandle,
+    request: OrganizeRequest,
+    decisions: Option<Vec<coverly_core::organize::Decision>>,
+) -> Result<OrganizePlanView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>()
+            .organize_plan(&request, &decisions.unwrap_or_default(), events)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn organize_cancel(state: State<'_, AppState>, plan_id: u64) -> Result<(), IpcError> {
+    state.organize_cancel(plan_id)
+}
+
+/// Saves plan `plan_id` as JSON where the user picks; `None` when cancelled.
+#[tauri::command]
+pub async fn organize_export_plan(
+    app: AppHandle,
+    plan_id: u64,
+) -> Result<Option<String>, IpcError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        state.organize().get(plan_id)?;
+        let Some(path) = save_path(&app, "coverly-organize-plan.json", ExportFormat::Json)? else {
+            return Ok(None);
+        };
+        state.organize_export_plan(plan_id, &path)?;
+        Ok(Some(shown_name(&path)))
+    })
+    .await
 }

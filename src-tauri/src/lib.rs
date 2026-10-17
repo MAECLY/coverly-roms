@@ -6,6 +6,7 @@ pub mod jobs;
 pub mod keychain;
 pub mod library;
 pub mod logging;
+pub mod organize;
 pub mod prefs;
 pub mod profiles;
 pub mod sources;
@@ -96,6 +97,10 @@ pub fn run() {
             ipc::download_update,
             ipc::install_update,
             ipc::restart_app,
+            ipc::probe_folder,
+            ipc::organize_plan,
+            ipc::organize_cancel,
+            ipc::organize_export_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");
