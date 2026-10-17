@@ -6,6 +6,7 @@ use common::{anbernic_tree, open, write};
 use coverly_core::profiles::Media;
 use coverly_roms_lib::error::IpcError;
 use coverly_roms_lib::library::art::{entry_path, read_art_bytes, MAX_ART_BYTES};
+#[cfg(unix)]
 use tempfile::TempDir;
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
