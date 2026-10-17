@@ -417,3 +417,42 @@ fn clean_temps_removes_only_this_jobs_temps() {
     w.clean_temps(std::slice::from_ref(&dir));
     assert_eq!(names_in(&dir), [".coverly-other-job-1.tmp", "keep.gba"]);
 }
+
+/// Whether `dir` lies on a case-insensitive file system (APFS default,
+/// FAT, exFAT, NTFS).
+fn case_insensitive(dir: &Path) -> bool {
+    let probe = dir.join("CaseProbe");
+    fs::write(&probe, b"").unwrap();
+    let insensitive = dir.join("caseprobe").exists();
+    fs::remove_file(&probe).unwrap();
+    insensitive
+}
+
+#[test]
+fn a_target_folder_differing_only_by_case_is_a_noop() {
+    // ROMS/gba/x.gba asked to go to ROMS/GBA/x.gba on a case-insensitive
+    // volume: it is already there, not a collision with itself.
+    let (_tmp, root, data) = setup();
+    if !case_insensitive(&root) {
+        return;
+    }
+    fs::create_dir_all(root.join("ROMS/gba")).unwrap();
+    let from = root.join("ROMS/gba/x.gba");
+    fs::write(&from, b"X").unwrap();
+    for collision in [Collision::Rename, Collision::Skip] {
+        let mut w = organise_job(&root, &data, &root);
+        let job = w.job_id().to_string();
+        let out = w.move_file(&from, &root.join("ROMS/GBA/x.gba"), collision, None);
+        assert_eq!(
+            out.unwrap(),
+            MoveOutcome::Moved {
+                to: from.clone(),
+                renamed: false
+            },
+            "{collision:?}"
+        );
+        w.finish().unwrap();
+        assert_eq!(names_in(&root.join("ROMS/gba")), ["x.gba"]);
+        assert!(journal_entries(&data, &job).is_empty());
+    }
+}

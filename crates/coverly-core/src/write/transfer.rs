@@ -276,6 +276,15 @@ impl Writer {
             next_n: 2,
         };
         if let Some(existing) = find_twin(&prepared.parent, &prepared.name)? {
+            // The twin is the source itself, reached through a folder that
+            // only differs by case (`gba/x.gba` asked as `GBA/x.gba` on a
+            // case-insensitive volume): already there.
+            if mode == Mode::Move && same_entry(&prepared.from, &existing) {
+                return Ok(MoveOutcome::Moved {
+                    to: prepared.from,
+                    renamed: false,
+                });
+            }
             if collision == Collision::Skip {
                 return Ok(MoveOutcome::SkippedExists { existing });
             }
@@ -515,6 +524,40 @@ fn too_many_collisions(dir: &Path, name: &str) -> WriteError {
         ErrorKind::AlreadyExists,
         format!("no free name for {name} in {}", dir.display()),
     ))
+}
+
+/// Whether `a` and `b` name the same directory entry: the same file in
+/// the same folder (a hard link elsewhere is another entry).
+fn same_entry(a: &Path, b: &Path) -> bool {
+    let (Some(pa), Some(pb)) = (a.parent(), b.parent()) else {
+        return false;
+    };
+    let (Some(na), Some(nb)) = (
+        a.file_name().and_then(|n| n.to_str()),
+        b.file_name().and_then(|n| n.to_str()),
+    ) else {
+        return false;
+    };
+    name_key(na) == name_key(nb) && same_file(pa, pb) && same_file(a, b)
+}
+
+/// Whether two existing paths are the same file (or folder) on disk.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!(
+            (fs::symlink_metadata(a), fs::symlink_metadata(b)),
+            (Ok(x), Ok(y)) if x.dev() == y.dev() && x.ino() == y.ino()
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        matches!(
+            (fs::canonicalize(a), fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+    }
 }
 
 /// CRC-32 of the file at `path`, read in 1 MiB chunks.
