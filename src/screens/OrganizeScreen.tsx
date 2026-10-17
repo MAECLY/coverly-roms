@@ -434,7 +434,9 @@ function Proposal({
         disabled={busy}
         onDecide={onDecide}
       />
-      <div className="sticky bottom-0 -mx-6 flex flex-wrap items-center gap-2 border-t border-cr-border bg-cr-surface px-6 py-3">
+      {/* The action bar sits on the page, ruled off like a shelf edge
+          (brand §2), and lines up with the panels above it. */}
+      <div className="sticky bottom-0 z-[1] flex flex-wrap items-center gap-2 border-t border-cr-border bg-background py-3">
         {counts.auto > 0 ? (
           <Button variant="primary" disabled={stale} onClick={onApply}>
             <FolderTree aria-hidden />

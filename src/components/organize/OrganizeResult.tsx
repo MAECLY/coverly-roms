@@ -145,16 +145,27 @@ export function OrganizeResult({
       <h2 id="organize-result-title" className={sectionTitle}>
         {t(paused ? 'organize.pausedTitle' : 'organize.resultTitle')}
       </h2>
-      {report && (
-        <p className="m-0 text-dense tabular-nums text-cr-text">
-          {t('organize.result', {
-            moved: report.moved,
-            copied: report.copied,
-            skipped: report.skipped,
-            failed: report.failed,
-          })}
-        </p>
-      )}
+      {report &&
+        (() => {
+          const line = (
+            <p className="m-0 text-dense tabular-nums text-cr-text">
+              {t('organize.result', {
+                moved: report.moved,
+                copied: report.copied,
+                skipped: report.skipped,
+                failed: report.failed,
+              })}
+            </p>
+          );
+          // A finished run reads as a status with its icon (brand §4.1):
+          // success when every file landed, warning when some failed.
+          if (job.state !== 'done' || undone) return line;
+          return (
+            <Alert variant={report.failed > 0 ? 'warning' : 'success'}>
+              {line}
+            </Alert>
+          );
+        })()}
       {notRemoved > 0 && (
         <p className={hintText}>
           {t('organize.copiedNotRemovedCount', { count: notRemoved })}
@@ -236,7 +247,12 @@ export function OrganizeResult({
           {job.job && (
             <Button variant="outline" onClick={() => onUndo(false)}>
               <Undo2 aria-hidden />
-              {t('organize.undo.action')}
+              {/* A verb plus the exact count when it is known (brand §7). */}
+              {report && report.moved + report.copied > 0
+                ? t('organize.undo.actionCount', {
+                    count: report.moved + report.copied,
+                  })
+                : t('organize.undo.action')}
             </Button>
           )}
           {laterIds && (
