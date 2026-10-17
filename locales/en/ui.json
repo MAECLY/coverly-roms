@@ -275,7 +275,8 @@
     },
     "empty": "No ROMs found in this folder.",
     "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
-    "noMatch": "No ROMs match the search and filters."
+    "noMatch": "No ROMs match the search and filters.",
+    "organizeLoose": "Organise loose files…"
   },
   "footer": {
     "version": "Version {version}",

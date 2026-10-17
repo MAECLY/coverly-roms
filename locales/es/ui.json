@@ -275,7 +275,8 @@
     },
     "empty": "No se han encontrado ROMs en esta carpeta.",
     "emptyHint": "Comprueba que has elegido la tarjeta SD o su carpeta de ROMs. Avisos: {n}.",
-    "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros."
+    "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros.",
+    "organizeLoose": "Organizar archivos sueltos…"
   },
   "footer": {
     "version": "Versión {version}",

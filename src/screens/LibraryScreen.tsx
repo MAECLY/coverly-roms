@@ -152,6 +152,14 @@ export function LibraryScreen() {
         onFill={() => setOverlay('wizard')}
         onJobs={() => setOverlay('jobs')}
         onReports={() => setOverlay('reports')}
+        onOrganizeLoose={() =>
+          useNavStore.getState().openOrganize(view.root, {
+            layout: view.profile.id,
+            mode: 'move',
+            locked: true,
+            flat: view.profile.fitted,
+          })
+        }
       />
       <div className="library-body">
         <Sidebar key={view.generation} view={view} now={now} />

@@ -16,6 +16,7 @@ export function Toolbar({
   onFill,
   onJobs,
   onReports,
+  onOrganizeLoose,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -23,6 +24,8 @@ export function Toolbar({
   onFill(): void;
   onJobs(): void;
   onReports(): void;
+  /** Sorts the ROMs lying outside any system folder (spec §4.5). */
+  onOrganizeLoose(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -83,6 +86,15 @@ export function Toolbar({
         </button>
       </div>
       <span className="toolbar-spacer" />
+      {view.loose_files > 0 && (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={onOrganizeLoose}
+        >
+          {t('library.organizeLoose')}
+        </button>
+      )}
       <button type="button" className="primary-button" onClick={onFill}>
         {t('toolbar.fill')}
       </button>
