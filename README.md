@@ -78,11 +78,17 @@ the [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/)
 for your OS.
 
 ```sh
-make install                                   # install JS dependencies
+make install                                   # install JS and Rust dependencies
 make dev                                       # run the desktop app in development
-cargo run -p coverly-cli -- audit <path>       # audit a library from the terminal
+make web                                       # only the UI, in a browser, with a mock backend
+make example                                   # build a small example library and audit it
+make example-fill                              # plan filling its covers (dry run)
+make audit ROOT=<path>                         # audit a library from the terminal
 make check                                     # lint, format check and all tests
 ```
+
+`make help` lists every target. The example library lives in `target/example`
+(`make example-apply`, `make example-undo`, `make example-clean`).
 
 ## Contributing
 
