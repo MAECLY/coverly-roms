@@ -18,7 +18,7 @@ import type {
 } from '@/ipc/types';
 
 import { useLibraryStore } from './libraryStore';
-import { useNavStore } from './navStore';
+import { useNavStore, type OrganizeLaunch } from './navStore';
 
 export type OrganizeStatus =
   'idle' | 'planning' | 'ready' | 'applying' | 'done' | 'paused' | 'error';
@@ -35,7 +35,9 @@ interface OrganizeState {
   job: OrganizeJobView | null;
   undo: OrganizeUndoView | null;
   error: BackendError | null;
-  start(source: string): Promise<void>;
+  /** Organising the loose files of a library: its layout and target stay. */
+  locked: boolean;
+  start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
   decide(
     itemIds: number[],
@@ -44,6 +46,9 @@ interface OrganizeState {
   apply(): Promise<void>;
   cancel(): Promise<void>;
   resume(): Promise<void>;
+  /** Resumes an interrupted job of the history (no plan on screen);
+   * `source` is the folder the screen shows for it (the journal root). */
+  resumeJob(job: string, source: string): Promise<void>;
   undoJob(includeLater?: boolean): Promise<void>;
   openResult(): Promise<void>;
   reset(): void;
@@ -60,6 +65,7 @@ const initial = {
   job: null,
   undo: null,
   error: null,
+  locked: false,
 };
 
 /** Bumped by every plan request (and by cancel/reset): older answers are dropped. */
@@ -78,6 +84,8 @@ let shownWith: {
   request: OrganizeRequest;
   decisions: Record<number, OrganizeDecision>;
 } | null = null;
+/** A job of the history being resumed: its events are ours. */
+let ownJob: string | null = null;
 /** Apply/resume event subscription. */
 let following: Promise<() => void> | null = null;
 
@@ -141,7 +149,8 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     const cur = get().job;
     const ours =
       (applyPlan !== null && view.plan_id === applyPlan) ||
-      (cur?.job != null && view.job === cur.job);
+      (cur?.job != null && view.job === cur.job) ||
+      (ownJob !== null && view.job === ownJob);
     if (!ours) return;
     applyPlan = view.plan_id;
     const status: OrganizeStatus =
@@ -219,23 +228,36 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
 
   return {
     ...initial,
-    async start(source) {
+    async start(source, launch) {
       unfollow();
       planning = null;
       applyPlan = null;
+      ownJob = null;
       shownWith = null;
+      const request: OrganizeRequest = { source };
+      if (launch?.layout != null) request.layout = launch.layout;
+      if (launch?.mode != null) request.mode = launch.mode;
+      if (launch?.flat != null) request.flat = launch.flat;
       set({
         ...initial,
         status: 'planning',
         source,
-        request: { source },
+        request,
+        locked: launch?.locked === true,
       });
       await plan();
     },
     async setOption(patch) {
-      const request = get().request;
+      const { request, locked } = get();
       if (!request || !editable()) return;
-      set({ request: { ...request, ...patch } });
+      const next = { ...patch };
+      if (locked) {
+        delete next.layout;
+        delete next.target;
+        delete next.flat;
+      }
+      if (Object.keys(next).length === 0) return;
+      set({ request: { ...request, ...next } });
       await plan();
     },
     async decide(itemIds, choice) {
@@ -296,6 +318,12 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       if (!job) return;
       await run((b) => b.organizeResume(job), null);
     },
+    async resumeJob(job, source) {
+      get().reset();
+      ownJob = job;
+      set({ source });
+      await run((b) => b.organizeResume(job), null);
+    },
     async undoJob(includeLater = false) {
       const job = get().job?.job;
       if (!job) return;
@@ -321,6 +349,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       seq += 1;
       planning = null;
       applyPlan = null;
+      ownJob = null;
       shownWith = null;
       unfollow();
       set(initial);

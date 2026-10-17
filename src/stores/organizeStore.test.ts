@@ -264,4 +264,70 @@ describe('organise store', () => {
     expect(store().request).toEqual(before.request);
     expect(store().decisions).toEqual({});
   });
+
+  it('start takes the options of a library and locks the layout', async () => {
+    await store().start(MOCK_DOWNLOADS, {
+      layout: 'esde',
+      mode: 'copy',
+      flat: true,
+      locked: true,
+    });
+    const s = store();
+    expect(s.status).toBe('ready');
+    expect(s.locked).toBe(true);
+    expect(s.request).toEqual({
+      source: MOCK_DOWNLOADS,
+      layout: 'esde',
+      mode: 'copy',
+      flat: true,
+    });
+    expect(s.plan?.layout).toBe('esde');
+    // The layout stays; other options still change.
+    await store().setOption({ layout: 'muos' });
+    expect(store().request?.layout).toBe('esde');
+    await store().setOption({ names: 'catalogue' });
+    expect(store().request).toMatchObject({
+      layout: 'esde',
+      names: 'catalogue',
+    });
+    store().reset();
+    expect(store().locked).toBe(false);
+  });
+
+  it('resumeJob resumes an interrupted job from the history', async () => {
+    b = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: null,
+      pauseAfter: null,
+      organizePauseAfter: 8,
+    });
+    setBackend(b);
+    await store().start(MOCK_DOWNLOADS);
+    await store().apply();
+    await waitFor(() => expect(store().status).toBe('paused'));
+    const job = store().job!.job!;
+    store().reset();
+
+    await store().resumeJob(job, MOCK_DOWNLOADS);
+    expect(store().source).toBe(MOCK_DOWNLOADS);
+    await waitFor(() => expect(store().status).toBe('done'));
+    expect(store().job).toMatchObject({ job, state: 'done' });
+    expect(store().job?.report?.moved).toBe(8);
+  });
+
+  it('openOrganize keeps the launch options until it closes', () => {
+    useNavStore.getState().openOrganize('/Volumes/SD', {
+      layout: 'muos',
+      mode: 'move',
+      locked: true,
+    });
+    expect(useNavStore.getState()).toMatchObject({
+      screen: 'organize',
+      organizeSource: '/Volumes/SD',
+      organizeLaunch: { layout: 'muos', mode: 'move', locked: true },
+    });
+    useNavStore.getState().closeOrganize();
+    expect(useNavStore.getState().organizeLaunch).toBeNull();
+  });
 });
