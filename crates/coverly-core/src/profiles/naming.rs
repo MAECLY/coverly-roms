@@ -19,7 +19,9 @@ pub struct FolderChoice {
 }
 
 /// The folder for `system` under `profile`, honouring `overrides`
-/// (`settings.organize.folder_names[profile.id]`).
+/// (`settings.organize.folder_names[profile.id]`). An override that does
+/// not pass [`validate_folder_override`] is ignored: the folder must
+/// resolve back to the system (or its host) and never be a path.
 pub fn system_folder(
     profile: &Profile,
     system: &System,
@@ -35,7 +37,7 @@ pub fn system_folder(
     let folder = overrides
         .get(&system.id)
         .map(|f| f.trim().to_string())
-        .filter(|f| !f.is_empty())
+        .filter(|f| validate_folder_override(db, profile, &system.id, f).is_ok())
         .unwrap_or_else(|| default_name(profile.system_folder, owner, db));
     let on_device = (!profile.known_folders.is_empty()).then(|| {
         profile

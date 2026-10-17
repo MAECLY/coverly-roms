@@ -112,3 +112,23 @@ fn arcade_order_defaults() {
     );
     assert_eq!(profile("esde").arcade_order, ["fbneo", "mame"]);
 }
+
+#[test]
+fn an_override_that_does_not_resolve_is_ignored() {
+    let db = SystemDb::builtin();
+    let p = profile("anbernic-stock");
+    let gba = db.get("gba").unwrap();
+    for bad in ["../../escape", "SFC", "Advance Stuff", "GBA/../SFC", "   "] {
+        let mut map = BTreeMap::new();
+        map.insert("gba".to_string(), bad.to_string());
+        assert_eq!(system_folder(&p, gba, &db, &map).folder, "GBA", "{bad:?}");
+    }
+    let mut map = BTreeMap::new();
+    map.insert("ngpc".to_string(), "NGPC".to_string());
+    let ngpc = system_folder(&p, db.get("ngpc").unwrap(), &db, &map);
+    assert_eq!(
+        (ngpc.folder.as_str(), ngpc.host.as_deref()),
+        ("NGP", Some("ngp")),
+        "an override must not split a shared folder from its host"
+    );
+}
