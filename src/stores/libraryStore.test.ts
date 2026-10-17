@@ -149,6 +149,25 @@ describe('library store', () => {
     expect(s.openingPath).toBeNull();
   });
 
+  it('open passes the profile id through', async () => {
+    const mock = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+    const calls: [string, string | undefined][] = [];
+    setBackend({
+      ...mock,
+      openLibrary: (path, profileId) => {
+        calls.push([path, profileId]);
+        return mock.openLibrary(path, profileId);
+      },
+    });
+    await useLibraryStore.getState().open(SMALL, 'esde');
+    await useLibraryStore.getState().open(SMALL);
+    expect(calls).toEqual([
+      [SMALL, 'esde'],
+      [SMALL, undefined],
+    ]);
+    expect(useLibraryStore.getState().status).toBe('ready');
+  });
+
   it('closes back to idle', async () => {
     await useLibraryStore.getState().open(SMALL);
     useLibraryStore.getState().close();
