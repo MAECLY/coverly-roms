@@ -10,8 +10,8 @@ pub mod target;
 pub mod walk;
 
 pub use apply::{
-    apply_organize, free_space, resume_organize, ApplyEnv, ApplyError, ItemOutcome, ItemStatus,
-    OrganizeReport, SkipReason,
+    apply_organize, free_space, load_plan, resume_organize, ApplyEnv, ApplyError, ItemOutcome,
+    ItemStatus, OrganizeReport, SkipReason,
 };
 pub use plan::{
     plan_from_survey, plan_organize, probe_folder, survey, Choice, Companion, Counts, Decision,

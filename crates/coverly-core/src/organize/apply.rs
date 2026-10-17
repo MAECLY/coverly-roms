@@ -348,7 +348,9 @@ fn save_plan(data_dir: &Path, job: &str, plan: &OrganizePlan) -> Result<(), Writ
     Ok(())
 }
 
-fn load_plan(data_dir: &Path, job: &str) -> Result<OrganizePlan, ApplyError> {
+/// The plan saved with organise job `job` (what [`resume_organize`]
+/// continues from). [`ApplyError::NoPlan`] when there is none.
+pub fn load_plan(data_dir: &Path, job: &str) -> Result<OrganizePlan, ApplyError> {
     let valid = !job.is_empty()
         && job
             .bytes()
