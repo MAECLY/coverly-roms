@@ -47,6 +47,7 @@
 .pill.is-soon .pill-dot,
 .dl-soon,
 .notyet li,
+.faq summary::after,
 html.motion .t-rest::before {
   --dash-ink: var(--cr-slot-missing);
   --dash-x: repeating-linear-gradient(
@@ -963,18 +964,6 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 .faq summary::-webkit-details-marker {
   display: none;
 }
-.faq summary::after {
-  content: '';
-  flex: none;
-  width: 12px;
-  height: 12px;
-  border-right: 2px solid var(--cr-text-secondary);
-  border-bottom: 2px solid var(--cr-text-secondary);
-  transform: translateY(-3px) rotate(45deg);
-}
-.faq details[open] summary::after {
-  transform: translateY(3px) rotate(225deg);
-}
 .faq details p {
   padding: 0 0 18px;
   color: var(--cr-text-secondary);
@@ -1427,9 +1416,6 @@ html.vt-ink::view-transition-new(root) {
   }
   .btn:active {
     transform: none;
-  }
-  .faq summary::after {
-    transition: transform 220ms var(--cr-ease-ink);
   }
   .faq details {
     interpolate-size: allow-keywords;
@@ -3073,6 +3059,34 @@ html.motion .t-rest::before {
   }
   50% {
     background-size: 100% 1.5px, 0 1.5px, 1.5px 100%, 1.5px 0;
+  }
+}
+
+/* == showcase:faq == */
+/* The marker is a 12x16 mini slot: dashed closed, solid Buckram with a 2px
+   spine open (the ring covers the dashes). */
+.faq summary::after {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 16px;
+  margin-right: 2px;
+  border-radius: 1px;
+  box-shadow:
+    inset 0 0 0 1.5px transparent,
+    inset 0 -3.5px 0 transparent;
+}
+.faq [open] summary::after {
+  background-color: var(--cr-primary-subtle);
+  box-shadow:
+    inset 0 0 0 1.5px var(--cr-slot-applied),
+    inset 0 -3.5px 0 var(--cr-slot-applied);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .faq summary::after {
+    transition:
+      box-shadow var(--cr-duration-fast) var(--cr-ease-standard),
+      background-color var(--cr-duration-fast) var(--cr-ease-standard);
   }
 }
 
