@@ -89,6 +89,11 @@ pub struct Inspection {
     pub issue: Option<ArchiveIssue>,
     /// Machine-readable notes ([`NOTE_ENCRYPTED`], …), not prose.
     pub notes: Vec<String>,
+    /// CRC32 (upper-case hex) of the prefix read from a raw file: two raw
+    /// files of one size with different prefixes cannot be duplicates, so
+    /// only files sharing size and prefix are hashed in full.
+    #[serde(default)]
+    pub head_crc: Option<String>,
 }
 
 impl Inspection {
@@ -99,6 +104,7 @@ impl Inspection {
             entries: Vec::new(),
             issue: None,
             notes: Vec::new(),
+            head_crc: None,
         }
     }
 
@@ -145,6 +151,7 @@ pub fn inspect_file(path: &Path, len: u64, db: &SystemDb) -> io::Result<Inspecti
             } else {
                 sniff(&mut FileAt(file), len, &ext)
             };
+            out.head_crc = Some(format!("{:08X}", crc32fast::hash(&head)));
             if let Some(what) = sniffed.not_a_rom {
                 out.issue = Some(ArchiveIssue::NotARom { what });
             }
