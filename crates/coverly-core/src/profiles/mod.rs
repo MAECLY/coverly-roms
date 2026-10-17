@@ -10,9 +10,10 @@ mod builtin;
 pub mod custom;
 mod detect;
 mod fit;
+pub mod naming;
 mod template;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,18 @@ pub use builtin::builtin_profiles;
 pub use detect::{detect, Detection};
 pub use fit::fit_to_root;
 pub use template::{render, TemplateVars};
+
+/// How organise names the system folders it creates (spec §8.1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FolderNaming {
+    /// The system's first folder alias (`GBA`, `SFC`, `FC`…): handheld SD
+    /// card names.
+    #[default]
+    FirstAlias,
+    /// The system id (`gba`, `snes`…), as frontends name their folders.
+    Id,
+}
 
 /// A kind of game art.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
@@ -86,6 +99,15 @@ pub struct Profile {
     /// The frontend reads art paths from `<system dir>/gamelist.xml`
     /// (Batocera/Knulli): fills merge them in (spec §16.8, D31).
     pub gamelist: bool,
+    /// How organise names system folders (spec §8.1).
+    pub system_folder: FolderNaming,
+    /// Systems the device keeps in another system's folder (Anbernic:
+    /// `ngpc → ngp`, `wonderswancolor → wonderswan`).
+    pub host_folders: BTreeMap<String, String>,
+    /// Arcade systems, preferred first, when a set is in several DATs.
+    pub arcade_order: Vec<String>,
+    /// Folders the device shows, when known (empty = unknown).
+    pub known_folders: Vec<String>,
 }
 
 impl Profile {

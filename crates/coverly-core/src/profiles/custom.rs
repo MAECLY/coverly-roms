@@ -9,7 +9,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::{builtin_profiles, render, ImageFormat, Media, MediaSlot, Profile, TemplateVars};
+use super::{
+    builtin_profiles, render, FolderNaming, ImageFormat, Media, MediaSlot, Profile, TemplateVars,
+};
 use crate::settings::{FieldError, FieldErrorCode};
 use crate::systems::SystemDb;
 
@@ -130,6 +132,10 @@ impl ProfileFile {
             fixed_format: false,
             gamelist: self.gamelist,
             slots,
+            system_folder: FolderNaming::default(),
+            host_folders: BTreeMap::new(),
+            arcade_order: vec!["fbneo".to_string(), "mame".to_string()],
+            known_folders: Vec::new(),
         }
     }
 
