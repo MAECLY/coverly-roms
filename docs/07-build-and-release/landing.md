@@ -4,7 +4,7 @@ The public page at **https://coverly-roms.maecly.com** is the static site in
 `site/`: Spanish at `/` (also `x-default`), English at `/en/`, plus `404.html`,
 `robots.txt`, `sitemap.xml`, `llms.txt`, `agents.txt` and the web manifests.
 Plain HTML, one stylesheet and two small scripts (`theme.js` for the colour
-mode and OS hint, `motion.js` for the hero's single animation and the
+mode and OS hint, `motion.js` for the motion described below and the
 third-party request counter). No framework, no build step, no request to any
 other server (the CSP forbids it).
 
@@ -48,8 +48,90 @@ make site-check                                      # every gate, both states
 the colour tokens against `src/styles/globals.css` (between `tokens:begin` and
 `tokens:end`), action pins in `pages.yml`, internal links and `#fragments`,
 Spanish/English structural parity, FAQ JSON-LD against the visible FAQ, CSP and
-head tags, sized/described/lazy images, size budgets, visible word count and
-WCAG contrast of the token pairs.
+head tags, sized/described/lazy images, size budgets, visible word count,
+WCAG contrast of the token pairs and the motion contract (see Motion).
+
+## Motion
+
+The motion follows the Pluryprint and Versorium landings, and the same
+rules hold:
+
+- **The HTML is the finished page.** Motion only plays towards it. Text,
+  headings and screenshots are never faded or slid in; only decorative
+  parts (the hero's gaps, the layout table's slots, the closing mark, the
+  annotation strokes) get a starting pose.
+- **Two gates.** `theme.js` sets `html.anim` in `<head>`, before the first
+  paint, unless the visitor asked for reduced motion or turned on
+  Save-Data. `motion.js` adds `html.motion` once its setup worked. Any
+  error, or reduced motion switched on mid-visit, runs `halt()`: each
+  piece's `stop()` puts it in its finished state and both classes go.
+- **Shown, not played.** Anything already on screen at load gets
+  `.is-in.no-anim`; a load slower than 2.6 s shows the hero finished.
+- **CSS fallbacks.** Without `motion.js`, the hero's covers still arrive at
+  4 s. Scroll-linked effects sit inside
+  `@supports (animation-timeline: view())`; without it (Firefox, older
+  Safari) everything stays finished.
+- **Reduced motion** stops every animation, transition and view
+  transition, and hides the replay button. Easing tokens are
+  `--ease-ink` and `--ease-spring`.
+
+What moves:
+
+| Where | What | Trigger |
+| --- | --- | --- |
+| Hero shelf | Plays the app's own sequence. **Armed**: five dashed gaps, "7 of 12". **Dry run**: each gap is marked in the accent colour, "Dry run: 5 covers, nothing written". **Applying**: each cover wipes in as the count reaches 12. **Done**: "5 covers added". Then a ↻ Replay button shows. | 60% of the grid on screen; gives up after 10 s |
+| Header | A reading-progress line under the bar; the Download button appears once the hero's buttons scroll away | Scroll (CSS) |
+| Section headlines | The slot under each H2 fills | Scroll (CSS) |
+| Four steps, ≥1024 px | One sticky screenshot; each step's text cross-fades its own in (named view timelines `--s1`…`--s4`) | Scroll (CSS) |
+| Steps 1 and 2 | An ellipse is drawn around "4553 without cover" and "Nothing has been written yet" | Scroll (CSS) |
+| Layout table | Each slot a format can write goes from dashed to solid, row by row | `[data-reveal]` |
+| Terminal | Each command is typed in turn. The untyped rest stays in place, hidden, so no glyph moves. | 45% on screen; skipped if already visible |
+| Closing | The last slot of a small shelf fills | `[data-reveal]` |
+| Colour mode | The new mode spreads from the click (`startViewTransition`); ES/EN switches cross-fade (`@view-transition`) | Click or key |
+| Buttons, FAQ | 1 px lift on hover; answers open with a height transition | Hover, open |
+
+`check_site.py`'s `motion` gate holds the contract:
+
+- the gates and `halt()` are present in the scripts;
+- a reduced-motion block stops animations, transitions, view transitions
+  and the replay button;
+- keyframes and transitions only move transform, opacity, visibility,
+  clip-path, SVG strokes and colours (the FAQ's height is the one exception,
+  since it answers a click);
+- `animation-timeline` only appears inside `@supports`;
+- every other animation or transition sits behind `html.anim`,
+  `html.motion` or `prefers-reduced-motion: no-preference`;
+- motion never hides a heading, paragraph, list item, link, button or image;
+- no `<video>` or `autoplay`;
+- `motion.js` is at most 8,000 bytes.
+
+The budget gate allows 16,000 / 5,500 bytes (raw / gzip) for all scripts and
+44,000 / 10,500 for the stylesheet.
+
+**Before merging a motion change, check it in a browser:**
+
+- Chrome at 1280×800 and 360×780, light and dark, with reduced motion
+  emulated on and off.
+- With reduced motion: `document.getAnimations()` returns nothing, and every
+  heading, paragraph and image has opacity 1.
+- A performance trace on load: CLS 0 and no long tasks. Measure the layout
+  shift after scrolling the whole page too.
+- 0 console errors.
+
+**Not done yet: recordings of the real app.** These would be play-once
+animated WebP clips, each with a still, as Versorium makes them with
+`tests/landing/record.mjs` and `encode-clips.py`. Planned clips:
+
+- Apply: dashed slots turn into covers.
+- Undo: the covers go back to slots.
+
+They need:
+
+- a `?mockPause=off` flag in the mock backend, which otherwise pauses after
+  25 items;
+- Playwright in the dev dependencies;
+- per-file size budgets in `check_site.py`: about 110 kB for each desktop
+  clip and 75 kB for each phone clip.
 
 ## Screenshots and Open Graph cards
 
