@@ -20,7 +20,7 @@ export const pathText = 'font-mono text-caption [overflow-wrap:anywhere]';
 
 /** Trigger of a collapsible group: a ghost row with a rotating chevron. */
 export const groupTrigger =
-  'group h-auto min-h-control w-full justify-start gap-2 whitespace-normal rounded-lg px-3 py-2 text-left';
+  'group h-auto w-full justify-start gap-2 whitespace-normal rounded-lg px-3 py-2 text-left';
 
 export const chevron =
   'transition-transform duration-fast ease-standard group-data-[state=open]:rotate-90 motion-reduce:transition-none';
