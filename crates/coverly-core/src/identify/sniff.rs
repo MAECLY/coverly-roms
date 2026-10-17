@@ -247,6 +247,39 @@ fn container(head: &[u8]) -> Option<ContainerMagic> {
 fn discs(_src: &mut dyn ReadAt, _head: &[u8], _len: u64, _s: &mut Sniff) {}
 
 fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
+    // NDS before GBA: NDS cartridges embed a GBA-style area.
+    if let Some(h) = at(head, 0, 0x160) {
+        let logo_crc = u16::from_le_bytes([h[0x15C], h[0x15D]]);
+        let header_crc = u16::from_le_bytes([h[0x15E], h[0x15F]]);
+        if logo_crc == 0xCF56 && crc16_modbus(&h[..0x15E]) == header_crc {
+            s.hit("nds", 0.95, "NDS header");
+            return;
+        }
+    }
+    if let Some(h) = at(head, 0, 0xC0) {
+        if h[0xB2] == 0x96 && gba_complement(h) == h[0xBD] {
+            let logo = if starts(h, 0x04, &[0x24, 0xFF, 0xAE, 0x51]) {
+                "fixed 0x96, logo"
+            } else {
+                "fixed 0x96"
+            };
+            s.hit("gba", 0.95, logo);
+            return;
+        }
+    }
+    if let Some(h) = at(head, 0, 0x150) {
+        if h[0x104..0x10C] == GB_LOGO && gb_header_checksum(h) == h[0x14D] {
+            match h[0x143] {
+                0xC0 => {
+                    s.hit("gbc", 0.95, "CGB 0xC0");
+                    s.excluded.push("gb".into());
+                }
+                0x80 => s.hit("gbc", 0.85, "CGB 0x80"),
+                _ => s.hit("gb", 0.95, "DMG"),
+            }
+            return;
+        }
+    }
     if starts(head, 0, b"FDS\x1a")
         || starts(head, 0, b"\x01*NINTENDO-HVC*")
         || starts(head, 16, b"\x01*NINTENDO-HVC*")
@@ -280,8 +313,42 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         s.hit("a7800", 0.95, "ATARI7800");
         return;
     }
-    // Tasks 5–7 add Nintendo handhelds, Sega, SNES, SNK and Bandai here.
+    // Tasks 6–7 add Sega, SNES, SNK and Bandai here.
     let _ = (src, len, ext);
+}
+
+/// First bytes of the Nintendo logo every Game Boy header carries at 0x104.
+const GB_LOGO: [u8; 8] = [0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B];
+
+/// Game Boy header checksum over 0x134..=0x14C.
+fn gb_header_checksum(h: &[u8]) -> u8 {
+    h[0x134..=0x14C]
+        .iter()
+        .fold(0u8, |x, b| x.wrapping_sub(*b).wrapping_sub(1))
+}
+
+/// GBA complement check over 0xA0..=0xBC.
+fn gba_complement(h: &[u8]) -> u8 {
+    h[0xA0..=0xBC]
+        .iter()
+        .fold(0u8, |c, b| c.wrapping_sub(*b))
+        .wrapping_sub(0x19)
+}
+
+/// CRC-16/MODBUS (init 0xFFFF, reflected poly 0xA001), as the NDS header uses.
+pub(crate) fn crc16_modbus(data: &[u8]) -> u16 {
+    let mut crc = 0xFFFFu16;
+    for &b in data {
+        crc ^= u16::from(b);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xA001
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    crc
 }
 
 /// Synthetic headers for tests: only the bytes the checks read.
@@ -341,6 +408,44 @@ pub mod fixtures {
         let mut b = zeros(1024);
         b[1..10].copy_from_slice(b"ATARI7800");
         b
+    }
+
+    pub fn gb(cgb: u8) -> Vec<u8> {
+        let mut b = zeros(32 * 1024);
+        b[0x104..0x10C].copy_from_slice(&[0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B]);
+        b[0x134..0x13C].copy_from_slice(b"SYNTHGB\0");
+        b[0x143] = cgb;
+        b[0x14D] = b[0x134..=0x14C]
+            .iter()
+            .fold(0u8, |x, v| x.wrapping_sub(*v).wrapping_sub(1));
+        b
+    }
+
+    pub fn gba() -> Vec<u8> {
+        let mut b = zeros(64 * 1024);
+        b[0x04..0x08].copy_from_slice(&[0x24, 0xFF, 0xAE, 0x51]);
+        b[0xA0..0xAC].copy_from_slice(b"SYNTHGBA\0\0\0\0");
+        b[0xB2] = 0x96;
+        b[0xBD] = b[0xA0..=0xBC]
+            .iter()
+            .fold(0u8, |c, v| c.wrapping_sub(*v))
+            .wrapping_sub(0x19);
+        b
+    }
+
+    /// An NDS header after `edit`, with the header CRC recomputed.
+    pub fn nds_with(edit: impl FnOnce(&mut [u8])) -> Vec<u8> {
+        let mut b = zeros(64 * 1024);
+        b[..12].copy_from_slice(b"SYNTHNDS\0\0\0\0");
+        b[0x15C..0x15E].copy_from_slice(&0xCF56u16.to_le_bytes());
+        edit(&mut b);
+        let crc = super::crc16_modbus(&b[..0x15E]);
+        b[0x15E..0x160].copy_from_slice(&crc.to_le_bytes());
+        b
+    }
+
+    pub fn nds() -> Vec<u8> {
+        nds_with(|_| {})
     }
 
     pub fn html_page() -> Vec<u8> {

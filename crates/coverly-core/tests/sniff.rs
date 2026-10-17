@@ -206,3 +206,52 @@ fn stream_at_retries_interrupted_reads() {
     let s = sniff(&mut StreamAt::new(flaky, 1 << 20), nes.len() as u64, "nes");
     assert_eq!(best(&s), Some(("nes".into(), 0.95)));
 }
+
+#[test]
+fn game_boy_by_cgb_flag() {
+    assert_eq!(best(&run(&fx::gb(0x00), "gb")), Some(("gb".into(), 0.95)));
+    let gbc_only = run(&fx::gb(0xC0), "gb");
+    assert_eq!(best(&gbc_only), Some(("gbc".into(), 0.95)));
+    assert_eq!(
+        gbc_only.excluded,
+        ["gb"],
+        "a GBC-only cart never goes to GB"
+    );
+    let dual = run(&fx::gb(0x80), "gb");
+    assert_eq!(best(&dual), Some(("gbc".into(), 0.85)));
+    assert!(dual.excluded.is_empty());
+}
+
+#[test]
+fn game_boy_needs_the_header_checksum() {
+    let mut bad = fx::gb(0x00);
+    bad[0x14D] ^= 0xFF;
+    assert_eq!(best(&run(&bad, "gb")), None);
+    let mut no_logo = fx::gb(0x00);
+    no_logo[0x104] = 0;
+    assert_eq!(best(&run(&no_logo, "gb")), None);
+}
+
+#[test]
+fn gba_by_fixed_byte_and_complement() {
+    assert_eq!(best(&run(&fx::gba(), "gba")), Some(("gba".into(), 0.95)));
+    let mut bad = fx::gba();
+    bad[0xBD] ^= 0x01;
+    assert_eq!(best(&run(&bad, "gba")), None, "homebrew without gbafix");
+    let mut no_fixed = fx::gba();
+    no_fixed[0xB2] = 0;
+    assert_eq!(best(&run(&no_fixed, "gba")), None);
+}
+
+#[test]
+fn nds_by_two_crcs_and_never_as_gba() {
+    let nds = fx::nds();
+    assert_eq!(best(&run(&nds, "nds")), Some(("nds".into(), 0.95)));
+    // An NDS image that also looks like a GBA header stays NDS (the edit is
+    // covered by the header CRC, so the fixture recomputes it).
+    let hybrid = fx::nds_with(|b| b[0xB2] = 0x96);
+    assert_eq!(best(&run(&hybrid, "nds")).unwrap().0, "nds");
+    let mut bad = fx::nds();
+    bad[0x15E] ^= 0xFF;
+    assert_eq!(best(&run(&bad, "nds")), None);
+}
