@@ -1463,7 +1463,14 @@ fn dir_writable(dir: &Path) -> bool {
         // SAFETY: `c_path` is a valid nul-terminated string.
         unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 }
     }
-    #[cfg(not(unix))]
+    // Windows does not honour FILE_ATTRIBUTE_READONLY on folders (Explorer
+    // sets it on Documents, Desktop and customised folders), so it says
+    // nothing about moving files out; a denied move pauses the apply.
+    #[cfg(windows)]
+    {
+        fs::metadata(dir).is_ok_and(|m| m.is_dir())
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         fs::metadata(dir).is_ok_and(|m| !m.permissions().readonly())
     }
