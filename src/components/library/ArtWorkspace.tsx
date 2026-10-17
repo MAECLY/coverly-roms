@@ -235,6 +235,7 @@ export function ArtWorkspace({
     if (!canWrite(m) || m === active) return;
     setActive(m);
     setConfirmRemove(false);
+    setApplied(null);
     setStatus(null);
     setError(null);
     setPending(null);
@@ -292,6 +293,10 @@ export function ArtWorkspace({
 
   async function apply(c: CandidateView, from: Listing) {
     setPending(null);
+    const done =
+      from.kind === 'search'
+        ? t('drawer.searchUpdated', { name: c.name })
+        : t('drawer.mediaUpdated', { media: mediaName(from.media) });
     const ok = await attempt(
       (b) =>
         from.kind === 'entry'
@@ -302,15 +307,23 @@ export function ArtWorkspace({
               from.media,
               c.index,
             ),
-      from.kind === 'search'
-        ? t('drawer.searchUpdated', { name: c.name })
-        : t('drawer.mediaUpdated', { media: mediaName(from.media) }),
+      done,
     );
     if (!ok) return;
-    setApplied({ seq: from.seq, index: c.index });
     if (from.kind === 'search') {
       void useIdentityStore.getState().identify(view.generation, entry.id);
     }
+    setApplied({ seq: from.seq, index: c.index });
+  }
+
+  async function fromFile(media: Media) {
+    const done = t('drawer.mediaUpdated', { media: mediaName(media) });
+    const ok = await attempt(
+      (b) => b.setEntryArtFromFile(view.generation, entry.id, media),
+      done,
+    );
+    if (!ok) return;
+    setApplied(null);
   }
 
   /** D25: replacing an existing image is confirmed unless the setting says
@@ -356,10 +369,11 @@ export function ArtWorkspace({
     if (!active) return;
     const media = active;
     setConfirmRemove(false);
-    await attempt(
+    const ok = await attempt(
       (b) => b.removeEntryArt(view.generation, entry.id, media),
       t('drawer.mediaRemoved', { media: mediaName(media) }),
     );
+    if (ok) setApplied(null);
   }
 
   const panelId = `${uid}-panel`;
@@ -416,7 +430,9 @@ export function ArtWorkspace({
               {shown.items.map((c) => {
                 const isPending = pending === c.index;
                 const inUse =
-                  applied?.seq === shown.seq && applied.index === c.index;
+                  entry.art[shown.media] === 'present' &&
+                  applied?.seq === shown.seq &&
+                  applied.index === c.index;
                 return (
                   <div
                     key={c.index}
@@ -617,19 +633,7 @@ export function ArtWorkspace({
                       type="button"
                       className="art-ws__btn"
                       disabled={busy || writing}
-                      onClick={() =>
-                        void attempt(
-                          (b) =>
-                            b.setEntryArtFromFile(
-                              view.generation,
-                              entry.id,
-                              active,
-                            ),
-                          t('drawer.mediaUpdated', {
-                            media: mediaName(active),
-                          }),
-                        )
-                      }
+                      onClick={() => void fromFile(active)}
                     >
                       {t('drawer.fromFile')}
                     </button>

@@ -81,6 +81,33 @@ describe('Drawer art actions', () => {
     ).toBeNull();
   });
 
+  it('drops the “In use” tag once the image is removed', async () => {
+    const view = await setup();
+    const entry = view.entries.find(
+      (e) =>
+        e.art.cover === 'missing' &&
+        e.art.screenshot === 'present' &&
+        e.art.title === 'present',
+    )!;
+    const drawer = show(entry);
+    const group = await within(drawer).findByRole('group', {
+      name: 'Candidates',
+    });
+    await userEvent.click(within(group).getAllByRole('button')[0]!);
+    expect(await within(drawer).findByText('In use')).toBeInTheDocument();
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Remove' }),
+    );
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Remove image' }),
+    );
+    expect(
+      await within(drawer).findByText(/^Cover removed/),
+    ).toBeInTheDocument();
+    expect(cover(entry.id)).toBe('missing');
+    expect(within(drawer).queryByText('In use')).toBeNull();
+  });
+
   it('asks inline before replacing existing art, and can cancel', async () => {
     const view = await setup();
     const entry = view.entries.find(
