@@ -113,6 +113,7 @@ pub enum ApplyError {
 /// Apply progress is reported at most this often.
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
+#[cfg(feature = "test-util")]
 type FreeSpaceFn = fn(&Path) -> Option<u64>;
 
 #[cfg(feature = "test-util")]
