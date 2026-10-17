@@ -799,6 +799,39 @@
     "exportPlan": "Exportar plan (JSON)",
     "exported": "Plan guardado como {name}.",
     "openLibrary": "Abrir biblioteca",
-    "showMore": "Mostrar {count} más"
+    "showMore": "Mostrar {count} más",
+    "applying": "Moviendo {done} de {total}…",
+    "copying": "Copiando {done} de {total}…",
+    "organizing": "Organizando {done} de {total}…",
+    "starting": "Empezando…",
+    "progressLabel": "Progreso de la organización",
+    "resultTitle": "Resultado",
+    "pausedTitle": "En pausa",
+    "result": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
+    "copiedNotRemoved": "Copiado; el original no se pudo borrar",
+    "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
+    "stopped": "Detenido. Lo ya organizado se queda; Deshacer lo devuelve a su sitio.",
+    "details": "Qué ha pasado con cada archivo",
+    "outcome": {
+      "moved": "Movido",
+      "copied": "Copiado",
+      "failed": "Error: {reason}",
+      "skipped": {
+        "changed-since-plan": "Omitido: ha cambiado desde la propuesta",
+        "source-missing": "Omitido: ya no está",
+        "already-present": "Omitido: ya está en el destino",
+        "collision-set": "Omitido: otro juego ya usa esos nombres",
+        "not-decided": "Omitido: sin sistema elegido",
+        "cancelled": "Omitido: se detuvo antes de llegar"
+      }
+    },
+    "undo": {
+      "action": "Deshacer",
+      "laterJobs": "Primero hay que deshacer: {jobs}",
+      "laterJob": "{kind} {date}",
+      "all": "Deshacer todo en orden"
+    },
+    "undone": "Restaurados: {restored} · Sin tocar por cambios: {modified}",
+    "resume": "Reanudar"
   }
 }

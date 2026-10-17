@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import { OptionsBar } from '@/components/organize/OptionsBar';
+import { OrganizeResult } from '@/components/organize/OrganizeResult';
 import {
   ReviewBuckets,
   type OrganizeChoice,
@@ -97,6 +98,9 @@ export function OrganizeScreen() {
   const request = useOrganizeStore((s) => s.request);
   const progress = useOrganizeStore((s) => s.progress);
   const error = useOrganizeStore((s) => s.error);
+  const job = useOrganizeStore((s) => s.job);
+  const undo = useOrganizeStore((s) => s.undo);
+  const locked = useOrganizeStore((s) => s.locked);
   const { profiles, systems } = useCatalogues();
   const [detected, setDetected] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
@@ -104,9 +108,12 @@ export function OrganizeScreen() {
   /** The next plan may switch to the layout its target already has. */
   const followTarget = useRef(false);
 
+  // The launch options come with the source and are read once with it.
   useEffect(() => {
     if (source && useOrganizeStore.getState().source !== source)
-      void useOrganizeStore.getState().start(source);
+      void useOrganizeStore
+        .getState()
+        .start(source, useNavStore.getState().organizeLaunch ?? undefined);
   }, [source]);
 
   // A target that already is a library brings its layout (spec §4.2.1),
@@ -134,7 +141,13 @@ export function OrganizeScreen() {
   );
 
   const back = () => {
-    useOrganizeStore.getState().reset();
+    const s = useOrganizeStore.getState();
+    // Loose files of an open library: it rescans with what changed.
+    if (s.locked && s.job) {
+      void s.openResult();
+      return;
+    }
+    s.reset();
     useNavStore.getState().closeOrganize();
   };
   const setOption = (patch: Partial<OrganizeRequest>) => {
@@ -162,8 +175,11 @@ export function OrganizeScreen() {
     }
   };
 
+  const applying = status === 'applying';
+  const showResult = job !== null && !applying;
   const proposing =
-    status === 'planning' || status === 'ready' || status === 'error';
+    !showResult &&
+    (status === 'planning' || status === 'ready' || status === 'error');
   // Options and decisions wait for the plan in flight; an apply or an
   // export only takes the plan made with the options on screen.
   const busy = status === 'planning';
@@ -199,14 +215,54 @@ export function OrganizeScreen() {
             </button>
           </div>
         )}
-        {shown && proposing && (
+        {shown && !showResult && !applying && (
           <p role="alert" className="error-banner">
             {t(errorKey(shown.code), { detail: shown.detail ?? '' })}
           </p>
         )}
+        {applying && (
+          <div className="flex flex-wrap items-center gap-3">
+            <progress
+              max={progress?.total || 1}
+              value={progress?.done ?? 0}
+              aria-label={t('organize.progressLabel')}
+            />
+            <p role="status">
+              {progress
+                ? t(
+                    !plan
+                      ? 'organize.organizing'
+                      : plan.mode === 'copy'
+                        ? 'organize.copying'
+                        : 'organize.applying',
+                    { done: progress.done, total: progress.total },
+                  )
+                : t('organize.starting')}
+            </p>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => void useOrganizeStore.getState().cancel()}
+            >
+              {t('organize.cancel')}
+            </button>
+          </div>
+        )}
+        {showResult && (
+          <OrganizeResult
+            job={job}
+            plan={plan}
+            undo={undo}
+            error={error}
+            onOpen={() => void useOrganizeStore.getState().openResult()}
+            onUndo={(all) => void useOrganizeStore.getState().undoJob(all)}
+            onResume={() => void useOrganizeStore.getState().resume()}
+          />
+        )}
         {proposing && plan && (
           <Proposal
             plan={plan}
+            locked={locked}
             profiles={profiles}
             systems={systems}
             busy={busy}
@@ -235,6 +291,8 @@ export function OrganizeScreen() {
 
 interface ProposalProps {
   plan: OrganizePlan;
+  /** Layout and target belong to the library being tidied. */
+  locked: boolean;
   profiles: ProfileInfo[];
   systems: SystemInfo[];
   busy: boolean;
@@ -256,6 +314,7 @@ interface ProposalProps {
 
 function Proposal({
   plan,
+  locked,
   profiles,
   systems,
   busy,
@@ -283,6 +342,7 @@ function Proposal({
         plan={plan}
         profiles={profiles}
         disabled={busy}
+        locked={locked}
         onChange={onOption}
         onPickTarget={onPickTarget}
       />

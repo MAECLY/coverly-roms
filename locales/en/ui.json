@@ -799,6 +799,39 @@
     "exportPlan": "Export plan (JSON)",
     "exported": "Plan saved as {name}.",
     "openLibrary": "Open library",
-    "showMore": "Show {count} more"
+    "showMore": "Show {count} more",
+    "applying": "Moving {done} of {total}…",
+    "copying": "Copying {done} of {total}…",
+    "organizing": "Organising {done} of {total}…",
+    "starting": "Starting…",
+    "progressLabel": "Organising progress",
+    "resultTitle": "Result",
+    "pausedTitle": "Paused",
+    "result": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
+    "copiedNotRemoved": "Copied; the original couldn't be removed",
+    "copiedNotRemovedCount": "Copied without removing the original: {count}",
+    "stopped": "Stopped. What was already organised stays; Undo puts it back.",
+    "details": "What happened to each file",
+    "outcome": {
+      "moved": "Moved",
+      "copied": "Copied",
+      "failed": "Error: {reason}",
+      "skipped": {
+        "changed-since-plan": "Skipped: changed since the proposal",
+        "source-missing": "Skipped: no longer there",
+        "already-present": "Skipped: already in the target",
+        "collision-set": "Skipped: another game already uses those names",
+        "not-decided": "Skipped: no system chosen",
+        "cancelled": "Skipped: stopped before it"
+      }
+    },
+    "undo": {
+      "action": "Undo",
+      "laterJobs": "These must be undone first: {jobs}",
+      "laterJob": "{kind} {date}",
+      "all": "Undo all in order"
+    },
+    "undone": "Restored: {restored} · Left alone because they changed: {modified}",
+    "resume": "Resume"
   }
 }

@@ -14,6 +14,8 @@ interface Props {
   plan: OrganizePlan;
   profiles: ProfileInfo[];
   disabled?: boolean;
+  /** Layout, target and folders are fixed (a library's loose files). */
+  locked?: boolean;
   onChange(patch: Partial<OrganizeRequest>): void;
   /** "Another folder…": the screen asks for one and re-plans with it. */
   onPickTarget(): void;
@@ -27,6 +29,7 @@ export function OptionsBar({
   plan,
   profiles,
   disabled = false,
+  locked = false,
   onChange,
   onPickTarget,
 }: Props) {
@@ -43,7 +46,7 @@ export function OptionsBar({
         <select
           className="select"
           value={plan.layout}
-          disabled={disabled}
+          disabled={disabled || locked}
           onChange={(e) => onChange({ layout: e.target.value })}
         >
           {!layout && <option value={plan.layout}>{plan.layout}</option>}
@@ -59,7 +62,7 @@ export function OptionsBar({
         <select
           className="select"
           value={elsewhere ? plan.target_root : HERE}
-          disabled={disabled}
+          disabled={disabled || locked}
           onChange={(e) => {
             const v = e.target.value;
             if (v === OTHER) onPickTarget();
@@ -79,7 +82,7 @@ export function OptionsBar({
           <select
             className="select"
             value={nested ? 'roms' : 'flat'}
-            disabled={disabled}
+            disabled={disabled || locked}
             onChange={(e) => onChange({ flat: e.target.value === 'flat' })}
           >
             <option value="roms">
