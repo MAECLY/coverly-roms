@@ -71,6 +71,28 @@ pub fn app_info() -> AppInfo {
     }
 }
 
+/// One system Coverly knows, for the organise screen's system pickers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SystemInfo {
+    pub id: String,
+    pub name: String,
+}
+
+/// The built-in systems, by display name (case-insensitive).
+#[tauri::command]
+pub fn list_systems() -> Vec<SystemInfo> {
+    let mut systems: Vec<SystemInfo> = SystemDb::builtin()
+        .all()
+        .iter()
+        .map(|s| SystemInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+        })
+        .collect();
+    systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));
+    systems
+}
+
 async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, IpcError> + Send + 'static,
 ) -> Result<T, IpcError> {

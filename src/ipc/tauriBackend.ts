@@ -27,6 +27,7 @@ import type {
   OrganizeProgressEvent,
   OrganizeUndoView,
   ProfileInfo,
+  SystemInfo,
   ProfilePreview,
   ProfileSaveOutcome,
   RecentLibrary,
@@ -188,6 +189,7 @@ export function createTauriBackend(): Backend {
     cacheUsage: () => call<number>('cache_usage'),
     clearCache: () => call<number>('clear_cache'),
     listProfiles: () => call<ProfileInfo[]>('list_profiles'),
+    listSystems: () => call<SystemInfo[]>('list_systems'),
     saveProfile: (profile, replaces) =>
       call<ProfileSaveOutcome>('save_profile', { profile, replaces }),
     deleteProfile: (id) => call<ProfileInfo[]>('delete_profile', { id }),

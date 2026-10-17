@@ -12,7 +12,7 @@ import type {
   RecentLibrary,
   ScanProgress,
 } from '../types';
-import { generateLibrary } from './fixture';
+import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import { createMockOrganize } from './mockOrganize';
 import { createMockSettings } from './mockSettings';
@@ -312,6 +312,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       const all = [...(await jobs.jobHistory()), ...organize.history()];
       return all.sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
+    listSystems: () =>
+      Promise.resolve(
+        FIXTURE_SYSTEMS.map(({ id, name }) => ({ id, name })).sort((a, b) =>
+          a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+        ),
+      ),
     updateLog,
     kind: 'mock',
     revealed,

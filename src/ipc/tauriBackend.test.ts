@@ -197,6 +197,19 @@ describe('Tauri backend', () => {
     ]);
   });
 
+  it('lists the known systems', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      return [{ id: 'gba', name: 'Game Boy Advance' }];
+    });
+    const b = createTauriBackend();
+    expect(await b.listSystems()).toEqual([
+      { id: 'gba', name: 'Game Boy Advance' },
+    ]);
+    expect(calls).toEqual([['list_systems', {}]]);
+  });
+
   it('sends the settings, profile, credential and search commands', async () => {
     const calls: [string, unknown][] = [];
     mockIPC((cmd, args) => {

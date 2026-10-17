@@ -56,6 +56,7 @@ JS argument names are camelCase; payload fields are Rust snake_case. The shapes 
 | `open_link` | `link` (`repo`/`license`/`notices`/`trademarks`/`releases`/`issues`) | `null` | `io` |
 | `cache_usage` / `clear_cache` | — | bytes used / bytes freed | `job-running` (clear), `io` |
 | `list_profiles` | — | `ProfileInfoView[]` (`profile`, `builtin`, `mirror_subdirs`) | — |
+| `list_systems` | — | `SystemInfo[]` (`id`, `name`), sorted by name; organise system pickers | — |
 | `save_profile` | `profile` (`ProfileFile`), `replaces` (old id or null) | `ProfileSaveView` (`profiles`, `errors`; nothing saved when `errors` is not empty) | `bad-request` (`replaces` is not a custom profile), `io`, `settings` |
 | `delete_profile` | `id` | `ProfileInfoView[]` | `bad-request` (built-in), `unknown-profile`, `io` |
 | `preview_profile` | `profile`, `example` (`system_folder`, `rel_dir`, `file_name`) | `ProfilePreviewView` (`paths`, `errors`) | — |

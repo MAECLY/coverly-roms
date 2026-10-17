@@ -580,6 +580,12 @@ export interface ProfileFile {
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
 export type FolderNaming = 'first-alias' | 'id';
 
+/** One system Coverly knows (`list_systems`), sorted by name. */
+export interface SystemInfo {
+  id: string;
+  name: string;
+}
+
 export interface ProfileInfo {
   profile: ProfileFile;
   builtin: boolean;

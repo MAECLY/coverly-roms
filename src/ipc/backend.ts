@@ -34,6 +34,7 @@ import type {
   PreviewExample,
   ProfileFile,
   ProfileInfo,
+  SystemInfo,
   ProfilePreview,
   ProfileSaveOutcome,
   RecentLibrary,
@@ -166,6 +167,8 @@ export interface Backend {
 
   /* Layout profiles: built-ins read-only, custom ones editable. */
   listProfiles(): Promise<ProfileInfo[]>;
+  /** The systems Coverly knows, by name (organise pickers). */
+  listSystems(): Promise<SystemInfo[]>;
   /** `replaces` = the id the profile had (a rename), null for a new one. */
   saveProfile(
     profile: ProfileFile,
