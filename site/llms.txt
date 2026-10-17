@@ -1,0 +1,58 @@
+# Coverly ROMs
+
+> Free desktop app (AGPL-3.0-only) for Windows, macOS and Linux that audits a ROM library, such as a handheld's SD card, shows which games lack cover, screenshot or title-screen art, and fills them in bulk from libretro-thumbnails (no account) or SteamGridDB (your own key). A dry run comes first, existing art is never overwritten unless you ask (and then it is backed up), and the last job can be undone. It ships with a command line, `coverly`. No account, no telemetry. Made by Miguel Esparza (MAECLY).
+
+Canonical: https://coverly-roms.maecly.com/
+English page: https://coverly-roms.maecly.com/en/
+Source: https://github.com/MAECLY/coverly-roms
+Licence: AGPL-3.0-only, contributions under a Contributor License Agreement. The name Coverly ROMs and its mark belong to MAECLY and are not covered by the licence.
+Contact: hola@maecly.com
+
+## Status
+
+<!-- release:begin -->
+Version {{release.version}}, published {{release.date}}. Release notes: {{release.notes_url}}
+Checksums: {{release.sha256sums_url}}
+
+Downloads:
+- macOS 11 or later, universal (Apple silicon and Intel): {{release.macos_universal.url}} (about {{release.macos_universal.mib_en}} MiB)
+- Windows 10 and 11 x64, installer: {{release.windows_x64.url}} (about {{release.windows_x64.mib_en}} MiB)
+- Windows 10 and 11 x64, .msi: {{release.windows_x64_msi.url}} (about {{release.windows_x64_msi.mib_en}} MiB)
+- Linux x64 AppImage: {{release.linux_x64_appimage.url}} (about {{release.linux_x64_appimage.mib_en}} MiB)
+- Linux x64 .deb: {{release.linux_x64_deb.url}} (about {{release.linux_x64_deb.mib_en}} MiB)
+- Linux ARM64 AppImage: {{release.linux_arm64_appimage.url}} (about {{release.linux_arm64_appimage.mib_en}} MiB)
+- Linux ARM64 .deb: {{release.linux_arm64_deb.url}} (about {{release.linux_arm64_deb.mib_en}} MiB)
+- CLI, macOS Apple silicon: {{release.cli_macos_arm64.url}}
+- CLI, macOS Intel: {{release.cli_macos_x64.url}}
+- CLI, Windows x64: {{release.cli_windows_x64.url}}
+- CLI, Linux x64: {{release.cli_linux_x64.url}}
+- CLI, Linux ARM64: {{release.cli_linux_arm64.url}}
+<!-- release:end -->
+<!-- norelease:begin -->
+No version is published yet; the first one is being prepared. Until then it can be built from source (see the README). Releases: https://github.com/MAECLY/coverly-roms/releases
+<!-- norelease:end -->
+
+Builds carry no Apple or Microsoft code-signing certificate, so macOS Gatekeeper ("Open Anyway") and Windows SmartScreen ("More info", then "Run anyway") warn the first time. Downloads can be checked against SHA256SUMS.
+
+## What it does today
+
+- Audit: scans a library (systems, ROMs including multi-file .cue/.bin, .m3u, .gdi and folder games) and reports, per media type (cover, screenshot, title screen), what is present or missing. Read-only. Exports CSV or JSON.
+- Layout profiles, detected automatically: Anbernic stock, GarlicOS, Onion OS, MinUI / NextUI (cover); muOS (cover, screenshot); ES-DE, RetroArch (cover, screenshot, title); Batocera / Knulli / EmulationStation (cover, screenshot, title, plus gamelist.xml merging with undo). Custom profiles with your own path templates and a live preview.
+- More than 50 known systems with the folder aliases each firmware uses.
+- Identification: CRC32, MD5 and SHA1 against libretro-database, then the file name; arcade short names through MAME and FBNeo DATs. Method selectable: hash-then-name, hash-only, name-only. .7z archives are identified by name only.
+- Sources: libretro-thumbnails (default, no account); SteamGridDB (optional, your own API key, kept in the OS keychain).
+- Choosing the image: by the ROM's region (default order rom, world, usa, europe, japan), by source priority, or by popularity (SteamGridDB votes, then agreement between sources). Each choice says why.
+- Safety: dry run by default; only missing art by default; existing art replaced only if you choose overwrite-with-backup; nothing written outside the library folder; atomic writes; backups and job journals in the app data folder, not on the card; undo of the last job; uncertain matches go to a keyboard-driven review queue; jobs pause, resume and cancel; one failing item never stops a job; offline or rate-limited jobs pause; file names safe for FAT/exFAT; macOS ._ files ignored.
+- App: library browser (folders, systems, date, all), virtualised grid and table with filters and search, a detail panel per game (change, search, from file, remove), fill wizard, connected drives on the start screen, English and Spanish, light/dark/system themes.
+- CLI: coverly audit, fill (dry run unless --apply; --auto-only skips review items), profiles, systems, undo, update.
+- Privacy: no telemetry. Network requests only to the art sources and the optional update check. Images are decoded and re-encoded, which strips metadata.
+- Updates: in-app, from GitHub Releases, verified with minisign; stable and beta channels; never restarts during a job.
+
+## Not supported
+
+- ScreenScraper (planned; not available in public builds).
+- TheGamesDB; mixed/composite images, videos, marquees, wheels.
+- Editing gamelist metadata, renaming or verifying ROMs.
+- Running on the handheld itself.
+- It bundles no ROMs, BIOS files or game art. Game art belongs to its owners.
+- Not yet tested on real handhelds; the maximum image sizes some firmware accepts are not confirmed.
