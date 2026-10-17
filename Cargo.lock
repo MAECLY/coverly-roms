@@ -800,6 +800,7 @@ dependencies = [
  "clap",
  "coverly-core",
  "crc32fast",
+ "filetime",
  "predicates",
  "serde_json",
  "tempfile",
