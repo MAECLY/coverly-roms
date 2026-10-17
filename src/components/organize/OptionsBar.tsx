@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react';
+
+import { Field, FieldControl, FieldLabel } from '@/components/ui/field';
+import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
 import type {
   NameMode,
@@ -6,6 +10,18 @@ import type {
   ProfileInfo,
   TransferMode,
 } from '@/ipc/types';
+
+/** One labelled picker of the bar. */
+function Picker({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Field className="w-auto min-w-[10rem] max-w-[18rem]">
+      <FieldLabel className="text-caption text-cr-text-secondary">
+        {label}
+      </FieldLabel>
+      <FieldControl>{children}</FieldControl>
+    </Field>
+  );
+}
 
 const HERE = 'here';
 const OTHER = 'other';
@@ -40,11 +56,10 @@ export function OptionsBar({
   const elsewhere = plan.target_root !== plan.source_root;
   const moveDisabled = t('organize.mode.moveDisabled');
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <label>
-        <span className="field-label">{t('organize.layout')}</span>
-        <select
-          className="select"
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border border-cr-border bg-cr-surface p-3">
+      <Picker label={t('organize.layout')}>
+        <NativeSelect
+          size="sm"
           value={plan.layout}
           disabled={disabled || locked}
           onChange={(e) => onChange({ layout: e.target.value })}
@@ -55,12 +70,11 @@ export function OptionsBar({
               {p.profile.name}
             </option>
           ))}
-        </select>
-      </label>
-      <label>
-        <span className="field-label">{t('organize.target.label')}</span>
-        <select
-          className="select"
+        </NativeSelect>
+      </Picker>
+      <Picker label={t('organize.target.label')}>
+        <NativeSelect
+          size="sm"
           value={elsewhere ? plan.target_root : HERE}
           disabled={disabled || locked}
           onChange={(e) => {
@@ -74,13 +88,12 @@ export function OptionsBar({
             <option value={plan.target_root}>{plan.target_root}</option>
           )}
           <option value={OTHER}>{t('organize.target.other')}</option>
-        </select>
-      </label>
+        </NativeSelect>
+      </Picker>
       {romsRoot !== '' && (
-        <label>
-          <span className="field-label">{t('organize.nest.label')}</span>
-          <select
-            className="select"
+        <Picker label={t('organize.nest.label')}>
+          <NativeSelect
+            size="sm"
             value={nested ? 'roms' : 'flat'}
             disabled={disabled || locked}
             onChange={(e) => onChange({ flat: e.target.value === 'flat' })}
@@ -89,13 +102,12 @@ export function OptionsBar({
               {t('organize.nest.roms', { folder: romsRoot })}
             </option>
             <option value="flat">{t('organize.nest.flat')}</option>
-          </select>
-        </label>
+          </NativeSelect>
+        </Picker>
       )}
-      <label>
-        <span className="field-label">{t('organize.mode.label')}</span>
-        <select
-          className="select"
+      <Picker label={t('organize.mode.label')}>
+        <NativeSelect
+          size="sm"
           value={plan.mode}
           disabled={disabled}
           onChange={(e) => onChange({ mode: e.target.value as TransferMode })}
@@ -108,20 +120,19 @@ export function OptionsBar({
             {t('organize.mode.move')}
           </option>
           <option value="copy">{t('organize.mode.copy')}</option>
-        </select>
-      </label>
-      <label>
-        <span className="field-label">{t('organize.names.label')}</span>
-        <select
-          className="select"
+        </NativeSelect>
+      </Picker>
+      <Picker label={t('organize.names.label')}>
+        <NativeSelect
+          size="sm"
           value={plan.names}
           disabled={disabled}
           onChange={(e) => onChange({ names: e.target.value as NameMode })}
         >
           <option value="keep">{t('organize.names.keep')}</option>
           <option value="catalogue">{t('organize.names.catalogue')}</option>
-        </select>
-      </label>
+        </NativeSelect>
+      </Picker>
     </div>
   );
 }
