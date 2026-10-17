@@ -458,3 +458,51 @@ fn a_temp_folder_is_not_fat32() {
     assert!(!file_system_is_fat32(t.path()));
     assert!(!file_system_is_fat32(&t.path().join("not/yet/created")));
 }
+
+#[test]
+fn renamed_companions_also_fit_windows_paths() {
+    let s = TempDir::new().unwrap();
+    let t = TempDir::new().unwrap();
+    let stem = "a".repeat(240);
+    let rom = format!("{stem}.gb");
+    let sav = put(s.path(), &format!("{stem}.state10"), b"state");
+    let mut items = vec![auto(0, &rom, "gb")];
+    let mut lay = layout(t.path(), true);
+    lay.windows_paths = true;
+    assign(&mut items, &lay, s.path(), &[sav]);
+    let rom_target = target(&items[0]);
+    assert_eq!(items[0].companions.len(), 1);
+    let comp_target = &items[0].companions[0].target;
+    let units = |p: &Path| t.path().join(p).to_string_lossy().encode_utf16().count();
+    assert!(units(&rom_target) <= 259);
+    assert!(units(comp_target) <= 259, "{}", comp_target.display());
+    // The save keeps the ROM's (shortened) stem so emulators still find it.
+    assert_eq!(
+        rom_target.file_stem(),
+        Path::new(comp_target)
+            .file_stem()
+            .and_then(|s| Path::new(s).file_stem())
+    );
+    assert_eq!(items[0].rename, Some(RenameReason::PathLength));
+}
+
+#[test]
+fn auto_save_states_with_two_extensions_follow_and_are_renamed() {
+    let s = TempDir::new().unwrap();
+    let t = TempDir::new().unwrap();
+    put(s.path(), "Game.gba", b"rom");
+    let auto_state = put(s.path(), "Game.state.auto", b"state");
+    let mut it = auto(0, "Game.gba", "gba");
+    it.catalogue_name = Some("Game (USA)".into());
+    let mut items = vec![it];
+    let mut lay = layout(t.path(), true);
+    lay.names = NameMode::Catalogue;
+    assign(&mut items, &lay, s.path(), &[auto_state]);
+    assert_eq!(
+        items[0].companions,
+        vec![Companion {
+            source: "Game.state.auto".into(),
+            target: "ROMS/GBA/Game (USA).state.auto".into()
+        }]
+    );
+}

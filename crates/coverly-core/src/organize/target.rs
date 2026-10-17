@@ -317,11 +317,24 @@ fn match_companions(
             continue;
         }
         let name = file_name(&rel);
-        let (stem, ext) = split_name(&name);
-        let Some(ext) = ext.filter(|e| companion_ext_matches(&layout.companion_exts, e)) else {
-            continue;
-        };
-        let Some(matches) = by_stem.get(&(parent(&rel), name_key(stem))) else {
+        let folder = parent(&rel);
+        // `Game.sav`, but also `Game.state.auto`: the stem may end at any
+        // dot, the last one first.
+        let found = name
+            .match_indices('.')
+            .map(|(i, _)| i)
+            .rev()
+            .filter(|&i| i > 0 && i + 1 < name.len())
+            .find_map(|i| {
+                let ext = &name[i + 1..];
+                if !companion_ext_matches(&layout.companion_exts, ext) {
+                    return None;
+                }
+                by_stem
+                    .get(&(folder.clone(), name_key(&name[..i])))
+                    .map(|matches| (ext, matches))
+            });
+        let Some((ext, matches)) = found else {
             continue;
         };
         let folders: HashSet<String> = matches
@@ -452,7 +465,7 @@ fn plan_single(
         } => {
             let rename = if n > 1 {
                 Some(RenameReason::Collision {
-                    name: compose(dir, &base.stem, base.ext.as_deref(), 1, false).0,
+                    name: compose(dir, &base.stem, base.ext.as_deref(), &[], 1, false).0,
                 })
             } else if cut {
                 Some(RenameReason::PathLength)
@@ -526,8 +539,17 @@ fn find_free(
     index: &mut DirIndex,
     same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
 ) -> Search {
+    // Companions take the ROM's stem: their names must fit too.
+    let comp_exts: Vec<&str> = comps.iter().map(|c| c.ext.as_str()).collect();
     for n in 1u32.. {
-        let (name, cut) = compose(dir, &base.stem, base.ext.as_deref(), n, windows_paths);
+        let (name, cut) = compose(
+            dir,
+            &base.stem,
+            base.ext.as_deref(),
+            &comp_exts,
+            n,
+            windows_paths,
+        );
         if index.taken(dir, &name) {
             if let Some(existing) = index.existing(dir, &name) {
                 if same_content(&existing, item) {
@@ -570,11 +592,13 @@ fn find_free(
 
 /// `{stem}[ ({n})][.{ext}]`, the stem cut until the name fits 255 bytes
 /// and, with `windows_paths`, the full path fits 259 UTF-16 units. The
-/// flag says whether the stem was cut.
+/// same stem with each of `also_exts` (companions renamed with the ROM)
+/// must fit as well. The flag says whether the stem was cut.
 fn compose(
     dir: &Path,
     stem: &str,
     ext: Option<&str>,
+    also_exts: &[&str],
     n: u32,
     windows_paths: bool,
 ) -> (String, bool) {
@@ -588,10 +612,16 @@ fn compose(
     let mut cut = false;
     loop {
         let name = format!("{stem}{suffix}{dot_ext}");
-        let too_long = name.len() > MAX_NAME_BYTES
-            || (windows_paths
-                && dir.join(&name).to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH);
-        if !too_long || stem.chars().count() <= 1 {
+        let too_long = |name: &str| {
+            name.len() > MAX_NAME_BYTES
+                || (windows_paths
+                    && dir.join(name).to_string_lossy().encode_utf16().count() > WINDOWS_MAX_PATH)
+        };
+        let any_too_long = too_long(&name)
+            || also_exts
+                .iter()
+                .any(|e| too_long(&format!("{stem}{suffix}.{e}")));
+        if !any_too_long || stem.chars().count() <= 1 {
             return (name, cut);
         }
         stem.pop();
@@ -878,7 +908,7 @@ mod tests {
 
     #[test]
     fn compose_cuts_the_stem_to_255_bytes() {
-        let (name, cut) = compose(Path::new("/t"), &"é".repeat(200), Some("gb"), 2, false);
+        let (name, cut) = compose(Path::new("/t"), &"é".repeat(200), Some("gb"), &[], 2, false);
         assert!(cut);
         assert!(name.len() <= MAX_NAME_BYTES);
         assert!(name.ends_with(" (2).gb"));
