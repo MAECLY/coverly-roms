@@ -208,8 +208,10 @@
     });
   }
 
+  /* shelf.js listens for "cr-halt" and finishes its pieces too. */
   function halt() {
     stops.forEach(function (s) { try { s(); } catch (x) {} });
+    try { document.dispatchEvent(new Event("cr-halt")); } catch (x) {}
     html.classList.remove("anim", "motion");
   }
 
