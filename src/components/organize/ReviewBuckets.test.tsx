@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -44,11 +44,9 @@ function renderBuckets() {
 }
 
 /** Opens every bucket's file list (rows render only once opened). */
-function openAll() {
-  for (const details of document.querySelectorAll('details')) {
-    details.open = true;
-    fireEvent(details, new Event('toggle'));
-  }
+async function openAll() {
+  for (const toggle of screen.getAllByRole('button', { name: /^Files: / }))
+    await userEvent.click(toggle);
 }
 
 describe('ReviewBuckets', () => {
@@ -84,7 +82,10 @@ describe('ReviewBuckets', () => {
 
   it('settles one file, or leaves it in place, from its own select', async () => {
     const onDecide = renderBuckets();
-    openAll();
+    expect(
+      screen.queryByRole('combobox', { name: 'System for Columns.bin' }),
+    ).not.toBeInTheDocument();
+    await openAll();
     const one = screen.getByRole('combobox', {
       name: 'System for Columns.bin',
     });
@@ -97,9 +98,9 @@ describe('ReviewBuckets', () => {
     expect(onDecide).toHaveBeenLastCalledWith([4], 'leave');
   });
 
-  it('shows the evidence of each file', () => {
+  it('shows the evidence of each file', async () => {
     renderBuckets();
-    openAll();
+    await openAll();
     expect(
       screen.getAllByText(
         '.gb extension, shared by several systems; Game Boy is likely',
@@ -126,10 +127,11 @@ describe('ReviewBuckets', () => {
     const bucket = screen.getByRole('group', {
       name: 'Game Boy / Game Boy Color: 450',
     });
-    const details = bucket.querySelector('details')!;
+    const toggle = within(bucket).getByRole('button', { name: 'Files: 450' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(bucket).queryAllByRole('listitem')).toHaveLength(0);
-    details.open = true;
-    fireEvent(details, new Event('toggle'));
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(within(bucket).getAllByRole('listitem')).toHaveLength(200);
     await userEvent.click(
       within(bucket).getByRole('button', { name: 'Show 250 more' }),

@@ -1,8 +1,29 @@
+import { ChevronRight } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { NativeSelect } from '@/components/ui/select';
+import { SlotMark } from '@/components/ui/slot-mark';
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { ROWS_PER_GROUP, whyKey, type ReviewBucket } from '@/lib/organize';
+
+import {
+  chevron,
+  fileList,
+  fileRow,
+  hintText,
+  listViewport,
+  panel,
+  pathText,
+  sectionTitle,
+} from './styles';
 
 /** A system for the items, or leave them where they are. */
 export type OrganizeChoice = 'leave' | { system: string };
@@ -31,12 +52,14 @@ export function ReviewBuckets({
 }: Props) {
   const t = useT();
   return (
-    <section aria-labelledby="organize-review-title" className="recent">
-      <h2 id="organize-review-title" className="section-title">
-        {t('organize.review.title')}
-      </h2>
-      <p className="hint">{t('organize.review.hint')}</p>
-      <div className="flex flex-col gap-3">
+    <section aria-labelledby="organize-review-title" className="grid gap-2.5">
+      <div className="grid gap-1">
+        <h2 id="organize-review-title" className={sectionTitle}>
+          {t('organize.review.title')}
+        </h2>
+        <p className={hintText}>{t('organize.review.hint')}</p>
+      </div>
+      <div className="flex flex-col gap-2">
         {buckets.map((bucket) => (
           <Bucket
             key={bucket.key}
@@ -73,21 +96,26 @@ function Bucket({
     count: bucket.items.length,
   });
   return (
-    <div role="group" aria-labelledby={id}>
-      <p id={id}>{title}</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          className="select"
+    <div role="group" aria-labelledby={id} className={panel}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+        {/* Dashed: these files have no shelf yet. */}
+        <SlotMark state="missing" size={16} />
+        <p id={id} className="m-0 min-w-0 flex-1 text-ui font-medium">
+          {title}
+        </p>
+        <NativeSelect
+          size="sm"
+          className="w-auto max-w-[16rem]"
           aria-labelledby={id}
           value={choice}
           disabled={disabled}
           onChange={(e) => setChoice(e.target.value)}
         >
           <Options systems={bucket.systems} systemName={systemName} />
-        </select>
-        <button
-          type="button"
-          className="ghost-button"
+        </NativeSelect>
+        <Button
+          variant="outline"
+          size="sm"
           disabled={disabled}
           onClick={() =>
             onDecide(
@@ -97,16 +125,27 @@ function Bucket({
           }
         >
           {t('organize.review.applyAll')}
-        </button>
+        </Button>
       </div>
-      <details onToggle={(e) => setOpen(e.currentTarget.open)}>
-        <summary>
-          {t('organize.review.items', { count: bucket.items.length })}
-        </summary>
+      <Collapsible
+        open={open}
+        onOpenChange={setOpen}
+        className="border-t border-cr-border"
+      >
+        <CollapsibleTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="group w-full justify-start rounded-none rounded-b-lg px-3 text-cr-text-secondary"
+          >
+            <ChevronRight aria-hidden className={chevron} />
+            {t('organize.review.items', { count: bucket.items.length })}
+          </Button>
+        </CollapsibleTrigger>
         {/* Rows reach the DOM only once opened, capped like the groups. */}
-        {open && (
-          <>
-            <ul className="recent-list">
+        <CollapsibleContent className="border-t border-cr-border">
+          <ScrollArea aria-label={title} viewportClassName={listViewport}>
+            <ul className={fileList}>
               {bucket.items.slice(0, visible).map((item) => (
                 <ReviewRow
                   key={item.id}
@@ -119,17 +158,19 @@ function Bucket({
               ))}
             </ul>
             {rest > 0 && (
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setVisible((v) => v + ROWS_PER_GROUP)}
-              >
-                {t('organize.showMore', { count: rest })}
-              </button>
+              <div className="border-t border-cr-border px-3 py-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setVisible((v) => v + ROWS_PER_GROUP)}
+                >
+                  {t('organize.showMore', { count: rest })}
+                </Button>
+              </div>
             )}
-          </>
-        )}
-      </details>
+          </ScrollArea>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
@@ -170,24 +211,27 @@ function ReviewRow({
   const t = useT();
   const name = item.sources[0] ?? '';
   return (
-    <li>
-      <span>{name}</span>{' '}
-      <select
-        className="select"
-        aria-label={t('organize.review.systemFor', { name })}
-        value=""
-        disabled={disabled}
-        onChange={(e) => {
-          if (e.target.value) onDecide([item.id], toChoice(e.target.value));
-        }}
-      >
-        <option value="">{t('organize.review.choose')}</option>
-        <Options systems={systems} systemName={systemName} />
-      </select>
+    <li className={fileRow}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className={`${pathText} min-w-0 flex-1`}>{name}</span>
+        <NativeSelect
+          size="sm"
+          className="w-auto max-w-[16rem]"
+          aria-label={t('organize.review.systemFor', { name })}
+          value=""
+          disabled={disabled}
+          onChange={(e) => {
+            if (e.target.value) onDecide([item.id], toChoice(e.target.value));
+          }}
+        >
+          <option value="">{t('organize.review.choose')}</option>
+          <Options systems={systems} systemName={systemName} />
+        </NativeSelect>
+      </div>
       {item.why.map((e, i) => {
         const why = whyKey(e, systemName);
         return (
-          <p key={i} className="hint">
+          <p key={i} className={hintText}>
             {t(why.key, why.vars)}
           </p>
         );
