@@ -68,7 +68,7 @@ BUDGET = {
 }
 # motion.js alone (raw bytes): Versorium keeps 6 KB; the hero story, the
 # terminal and the reveals fit in a little more.
-MOTION_JS = 8_000
+MOTION_JS = 9_500
 # Versorium keeps 680; this page carries a comparison, a layout table and
 # a download matrix, so it gets more room, and the gate keeps it from growing.
 MAX_WORDS = 1_450

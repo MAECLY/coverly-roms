@@ -45,6 +45,10 @@
   --header: 60px;
   --ease-ink: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.5, 0.64, 1);
+  /* The app's own surfaces in the light screenshots (dialog, art slot),
+     for the step overlays that patch them. */
+  --shot-modal: #ffffff;
+  --shot-slot: #f5f3fd;
   color-scheme: light;
 }
 
@@ -63,6 +67,8 @@
     --dash: #6b6862;
     --code-bg: #0c0c0b;
     --shadow: 0 1px 0 rgb(0 0 0 / 30%), 0 16px 40px -16px rgb(0 0 0 / 70%);
+    --shot-modal: #201e1c;
+    --shot-slot: #262628;
     color-scheme: dark;
   }
 }
@@ -80,6 +86,8 @@
   --dash: #6b6862;
   --code-bg: #0c0c0b;
   --shadow: 0 1px 0 rgb(0 0 0 / 30%), 0 16px 40px -16px rgb(0 0 0 / 70%);
+  --shot-modal: #201e1c;
+  --shot-slot: #262628;
   color-scheme: dark;
 }
 
@@ -683,7 +691,11 @@ html.motion .replay {
   display: inline-flex;
   visibility: hidden;
 }
-html.motion .shelf.is-played .replay,
+html.anim .clip-replay {
+  display: inline-flex;
+  visibility: hidden;
+}
+html.motion .is-played .replay,
 html.motion .replay[aria-disabled='true'] {
   visibility: visible;
 }
@@ -1360,6 +1372,52 @@ html.js .mode-wrap {
   height: 100%;
   pointer-events: none;
 }
+/* Steps 3 and 4 act out their screenshot (motion.js, html.motion only):
+   the review ring walks the candidates, a candidate lands in the empty
+   cover slot and on the grid. Coordinates are the shots' 1280×800. */
+.clip-fx {
+  display: none;
+}
+.clip-replay {
+  margin: 12px 0 0 -12px;
+}
+.fx-hide {
+  fill: none;
+  stroke: var(--shot-modal);
+  stroke-width: 7;
+}
+.fx-ring > rect {
+  fill: none;
+  stroke: var(--cr-accent);
+  stroke-width: 2.5;
+}
+.fx-key rect {
+  fill: var(--cr-accent);
+}
+.fx-key text {
+  fill: var(--cr-accent-text);
+  font: 700 17px var(--body);
+}
+.fx-press {
+  fill: var(--cr-accent-text);
+}
+.fx-pick {
+  fill: color-mix(in srgb, var(--cr-accent) 10%, transparent);
+  stroke: var(--cr-accent);
+  stroke-width: 2;
+}
+.fx-slot {
+  fill: var(--shot-slot);
+}
+.fx-ghost {
+  --fx-dy: -233px;
+  --fx-cy: 377px;
+  filter: drop-shadow(0 6px 8px rgb(0 0 0 / 28%));
+}
+html[lang='en'] .fx-ghost {
+  --fx-dy: -220px;
+  --fx-cy: 364px;
+}
 .annot-mark {
   fill: none;
   stroke: var(--cr-accent);
@@ -1463,6 +1521,106 @@ html.motion .t-rest {
   from {
     opacity: 0;
     transform: scale(0.985);
+  }
+}
+@keyframes fx-hold {
+  0%,
+  96% {
+    opacity: 1;
+  }
+}
+@keyframes fx-walk {
+  0% {
+    opacity: 0;
+    transform: none;
+  }
+  6%,
+  16% {
+    opacity: 1;
+    transform: none;
+  }
+  26%,
+  40% {
+    transform: translateX(138.5px);
+  }
+  50%,
+  64% {
+    transform: translateX(277px);
+  }
+  68% {
+    transform: translateX(277px) scale(0.96);
+  }
+  74%,
+  80% {
+    transform: translateX(277px);
+  }
+  92% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: none;
+  }
+}
+@keyframes fx-key {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  20%,
+  70% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes fx-flash {
+  30% {
+    opacity: 0.35;
+  }
+}
+@keyframes fx-pick {
+  25%,
+  70% {
+    opacity: 1;
+  }
+}
+@keyframes fx-fly {
+  0% {
+    opacity: 0;
+    transform: none;
+  }
+  12% {
+    opacity: 1;
+    transform: none;
+  }
+  28% {
+    transform: scale(1.08);
+  }
+  80% {
+    transform: translateY(var(--fx-dy)) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(var(--fx-dy));
+  }
+}
+@keyframes fx-on {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fx-land {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 @keyframes caret {
@@ -1574,6 +1732,52 @@ html.vt-ink::view-transition-new(root) {
   }
   html.motion .closing-mark.is-in .cm-last {
     animation: grow-y 620ms var(--ease-spring) 350ms both;
+  }
+  html.motion .clip-fx {
+    display: block;
+  }
+  html.motion .clip-fx > :not(defs),
+  html.motion .fx-key {
+    opacity: 0;
+  }
+  html.motion .clip-fx * {
+    transform-box: view-box;
+  }
+  html.motion .is-playing .fx-hide {
+    animation: fx-hold 3600ms linear both;
+  }
+  html.motion .is-playing .fx-ring {
+    transform-origin: 502px 409px;
+    animation: fx-walk 3600ms var(--ease-ink) both;
+  }
+  html.motion .is-playing .fx-key {
+    animation: fx-key 560ms var(--ease-ink) both;
+  }
+  html.motion .is-playing .k1 {
+    animation-delay: 560ms;
+  }
+  html.motion .is-playing .k2 {
+    animation-delay: 1440ms;
+  }
+  html.motion .is-playing .k3 {
+    animation-delay: 2260ms;
+  }
+  html.motion .is-playing .fx-press {
+    animation: fx-flash 420ms ease-out 2420ms both;
+  }
+  html.motion .is-playing .fx-pick {
+    animation: fx-pick 1000ms var(--ease-ink) both;
+  }
+  html.motion .is-playing .fx-ghost {
+    transform-origin: 1054px var(--fx-cy);
+    animation: fx-fly 1300ms var(--ease-ink) 350ms both;
+  }
+  html.motion .is-playing .fx-slot {
+    animation: fx-on 160ms linear 1450ms both;
+  }
+  html.motion .is-playing .fx-tile {
+    transform-origin: 413px 153px;
+    animation: fx-land 560ms var(--ease-spring) 1800ms both;
   }
   html.motion .no-anim,
   html.motion .no-anim * {
@@ -1700,7 +1904,8 @@ html.vt-ink::view-transition-new(root) {
   ::view-transition-new(*) {
     animation: none !important;
   }
-  .replay {
+  .replay,
+  .clip-fx {
     display: none !important;
   }
 }

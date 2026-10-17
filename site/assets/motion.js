@@ -177,6 +177,37 @@
     }
   }
 
+  /* Steps 3 and 4 act out what their screenshot shows (SVG over the
+     still, cut from the same image). Pinned, the figures share one spot,
+     so the step's text decides when; ↻ plays it again. */
+  function clip(fig) {
+    var step = fig.closest(".step"), img = fig.querySelector("img");
+    var srcs = fig.querySelectorAll(".fx-src"), button = step.querySelector(".clip-replay");
+    var later = timers(), cl = step.classList;
+    var ready = function (on) {
+      if (on) button.removeAttribute("aria-disabled");
+      else button.setAttribute("aria-disabled", "true");
+    };
+    var stop = function () { later.clear(); cl.remove("is-playing"); cl.add("is-played"); ready(true); };
+    stops.push(stop);
+    var play = function () {
+      if (button.getAttribute("aria-disabled")) return;
+      for (var i = 0; i < srcs.length; i++) srcs[i].setAttribute("href", img.currentSrc || img.src);
+      cl.remove("is-playing", "is-played");
+      void fig.offsetWidth;
+      cl.add("is-playing");
+      ready(false);
+      later(function () { cl.add("is-played"); ready(true); }, +fig.getAttribute("data-clip-ms") || 3600, stop);
+    };
+    var pinned = getComputedStyle(step).display === "contents";
+    once(pinned ? step.querySelector(".step-text") : fig, pinned ? 0.6 : 0.5, function () {
+      try { play(); } catch (x) { stop(); }
+    });
+    button.addEventListener("click", function () {
+      try { play(); } catch (x) { stop(); }
+    });
+  }
+
   function halt() {
     stops.forEach(function (s) { try { s(); } catch (x) {} });
     html.classList.remove("anim", "motion");
@@ -188,6 +219,7 @@
     hero();
     terminal();
     reveals();
+    Array.prototype.forEach.call(document.querySelectorAll("[data-clip]"), clip);
     html.classList.add("motion");
   } catch (x) {
     halt();
