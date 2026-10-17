@@ -83,8 +83,12 @@ describe('OrganizeScreen', () => {
 
   it('groups by system with target folder, confidence and why', async () => {
     renderScreen(MOCK_DOWNLOADS);
-    const gba = (await screen.findByText('ROMS/GBA/ (6)')).closest('details')!;
-    expect(gba).toHaveAttribute('open');
+    const gba = await screen.findByRole('group', {
+      name: /^ROMS\/GBA\/ \(6\)/,
+    });
+    expect(
+      within(gba).getByRole('button', { name: /^ROMS\/GBA\/ \(6\)/ }),
+    ).toHaveAttribute('aria-expanded', 'true');
     expect(
       within(gba).getByText(
         'Tetris Worlds (USA).zip → ROMS/GBA/Tetris Worlds (USA).zip',
@@ -98,6 +102,8 @@ describe('OrganizeScreen', () => {
     ).toBeInTheDocument();
     for (const folder of ['ROMS/GB/ (6)', 'ROMS/GBC/ (2)', 'ROMS/SFC/ (2)'])
       expect(screen.getByText(folder)).toBeInTheDocument();
+    // Something moves: no "nothing to file away" empty state.
+    expect(screen.queryByText('Nothing to file away')).not.toBeInTheDocument();
   });
 
   it('lists what stays in place with its reason', async () => {
@@ -276,6 +282,11 @@ describe('OrganizeScreen', () => {
     expect(
       screen.queryByRole('button', { name: /^Organise \d+ files$/ }),
     ).not.toBeInTheDocument();
+    // Nothing moves: an empty state says so instead of an empty list.
+    expect(screen.getByText('Nothing to file away')).toBeInTheDocument();
+    expect(
+      screen.getByText('No file here needs a system folder.'),
+    ).toBeInTheDocument();
     await userEvent.click(button);
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
@@ -341,6 +352,11 @@ describe('OrganizeScreen', () => {
       }),
     );
     expect(screen.getByRole('status')).toHaveTextContent('Moving 4 of 16…');
+    const bar = screen.getByRole('progressbar', {
+      name: 'Organising progress',
+    });
+    expect(bar).toHaveAttribute('aria-valuenow', '4');
+    expect(bar).toHaveAttribute('aria-valuemax', '16');
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /^Organise \d+ files$/ }),
@@ -385,8 +401,11 @@ describe('OrganizeScreen', () => {
     expect(
       screen.queryByText('This is a proposal. Nothing has moved yet.'),
     ).not.toBeInTheDocument();
-    const details = screen.getByText('What happened to each file');
-    expect(details.closest('details')).not.toHaveAttribute('open');
+    const details = screen.getByRole('button', {
+      name: 'What happened to each file',
+    });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(details);
     expect(
       screen.getAllByText(/^Tetris Worlds \(USA\)\.zip · Moved$/),
     ).toHaveLength(1);

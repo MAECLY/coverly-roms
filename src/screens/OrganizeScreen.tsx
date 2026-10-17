@@ -1,3 +1,4 @@
+import { ArrowLeft, FileJson, FolderOpen, FolderTree } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
@@ -7,7 +8,13 @@ import {
   ReviewBuckets,
   type OrganizeChoice,
 } from '@/components/organize/ReviewBuckets';
+import { hintText } from '@/components/organize/styles';
 import { SystemGroups } from '@/components/organize/SystemGroups';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Progress } from '@/components/ui/progress';
+import { Spinner } from '@/components/ui/spinner';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -20,6 +27,9 @@ import type {
 import { groupBySystem, leftItems, reviewBuckets } from '@/lib/organize';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
+
+/** Slots of the apply progress (same row as the library scan). */
+const SLOTS = 16;
 
 /** Profiles and systems for the pickers, loaded once per screen. */
 function useCatalogues() {
@@ -189,21 +199,25 @@ export function OrganizeScreen() {
   return (
     <main className="settings-screen">
       <header className="settings-header">
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={status === 'applying'}
-          onClick={back}
-        >
+        <Button disabled={status === 'applying'} onClick={back}>
+          <ArrowLeft aria-hidden />
           {t('organize.back')}
-        </button>
+        </Button>
         <h1>{t('organize.title')}</h1>
       </header>
-      <div className="flex flex-col gap-4 px-6 py-6">
-        {source && <p className="hint">{source}</p>}
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
+        {source && (
+          <p
+            className="m-0 truncate font-mono text-caption text-cr-text-secondary"
+            title={source}
+          >
+            {source}
+          </p>
+        )}
         {status === 'planning' && (
           <div className="flex flex-wrap items-center gap-3">
-            <p role="status">
+            <Spinner size="sm" decorative />
+            <p role="status" className="m-0 text-ui tabular-nums">
               {progress && progress.total > 0
                 ? t('organize.planning', {
                     done: progress.done,
@@ -211,46 +225,52 @@ export function OrganizeScreen() {
                   })
                 : t('organize.walking')}
             </p>
-            <button
-              type="button"
-              className="ghost-button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => void useOrganizeStore.getState().cancel()}
             >
               {t('organize.cancel')}
-            </button>
+            </Button>
           </div>
         )}
         {shown && !showResult && !applying && (
-          <p role="alert" className="error-banner">
-            {t(errorKey(shown.code), { detail: shown.detail ?? '' })}
-          </p>
+          <Alert variant="danger">
+            <p className="m-0">
+              {t(errorKey(shown.code), { detail: shown.detail ?? '' })}
+            </p>
+          </Alert>
         )}
         {applying && (
-          <div className="flex flex-wrap items-center gap-3">
-            <progress
+          <div className="grid justify-items-start gap-2.5">
+            {/* A row of slots filling left to right (brand §2). */}
+            <Progress
+              slots={SLOTS}
               max={progress?.total || 1}
-              value={progress?.done ?? 0}
+              value={progress ? Math.min(progress.done, progress.total) : null}
               aria-label={t('organize.progressLabel')}
             />
-            <p role="status">
-              {progress
-                ? t(
-                    !plan
-                      ? 'organize.organizing'
-                      : plan.mode === 'copy'
-                        ? 'organize.copying'
-                        : 'organize.applying',
-                    { done: progress.done, total: progress.total },
-                  )
-                : t('organize.starting')}
-            </p>
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => void useOrganizeStore.getState().cancel()}
-            >
-              {t('organize.cancel')}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <p role="status" className="m-0 text-ui tabular-nums">
+                {progress
+                  ? t(
+                      !plan
+                        ? 'organize.organizing'
+                        : plan.mode === 'copy'
+                          ? 'organize.copying'
+                          : 'organize.applying',
+                      { done: progress.done, total: progress.total },
+                    )
+                  : t('organize.starting')}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void useOrganizeStore.getState().cancel()}
+              >
+                {t('organize.cancel')}
+              </Button>
+            </div>
           </div>
         )}
         {showResult && (
@@ -341,6 +361,8 @@ function Proposal({
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
   const { counts } = plan;
+  const warnings = warningLines(t, plan, systemName, profileName);
+  const nothingToFile = groups.length === 0 && buckets.length === 0;
   return (
     <>
       <OptionsBar
@@ -352,32 +374,50 @@ function Proposal({
         onPickTarget={onPickTarget}
       />
       {detected && (
-        <p className="hint">
-          {t('organize.target.detected', { profile: detected })}
-        </p>
+        <Alert variant="info">
+          <p className="m-0">
+            {t('organize.target.detected', { profile: detected })}
+          </p>
+        </Alert>
       )}
-      {warningLines(t, plan, systemName, profileName).map((line) => (
-        <p key={line} className="hint">
-          {line}
+      {warnings.length > 0 && (
+        <Alert variant="warning">
+          {warnings.map((line) => (
+            <p key={line} className="m-0">
+              {line}
+            </p>
+          ))}
+        </Alert>
+      )}
+      <div className="grid gap-1">
+        <p className="m-0 text-dense font-medium tabular-nums text-cr-text">
+          {t('organize.summary', {
+            roms: counts.roms,
+            systems: counts.systems,
+            review: counts.review,
+            left: counts.left,
+          })}
         </p>
-      ))}
-      <p>
-        {t('organize.summary', {
-          roms: counts.roms,
-          systems: counts.systems,
-          review: counts.review,
-          left: counts.left,
-        })}
-      </p>
-      <p className="hint">{t('organize.dryRunHint')}</p>
-      <SystemGroups
-        groups={groups}
-        layoutName={profileName(plan.layout)}
-        systemName={systemName}
-        systems={systems}
-        disabled={busy}
-        onDecide={onDecide}
-      />
+        <p className={hintText}>{t('organize.dryRunHint')}</p>
+      </div>
+      {nothingToFile ? (
+        <EmptyState
+          size="sm"
+          titleAs="p"
+          title={t('organize.empty.title')}
+          description={t('organize.empty.body')}
+          className="rounded-lg border border-dashed border-cr-border-strong"
+        />
+      ) : (
+        <SystemGroups
+          groups={groups}
+          layoutName={profileName(plan.layout)}
+          systemName={systemName}
+          systems={systems}
+          disabled={busy}
+          onDecide={onDecide}
+        />
+      )}
       {buckets.length > 0 && (
         <ReviewBuckets
           buckets={buckets}
@@ -394,16 +434,12 @@ function Proposal({
         disabled={busy}
         onDecide={onDecide}
       />
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="sticky bottom-0 -mx-6 flex flex-wrap items-center gap-2 border-t border-cr-border bg-cr-surface px-6 py-3">
         {counts.auto > 0 ? (
-          <button
-            type="button"
-            className="primary-button"
-            disabled={stale}
-            onClick={onApply}
-          >
+          <Button variant="primary" disabled={stale} onClick={onApply}>
+            <FolderTree aria-hidden />
             {t('organize.apply', { count: counts.auto })}
-          </button>
+          </Button>
         ) : (
           // Sorted folders live in the source: "open" opens the target,
           // so offer it only when that is where they are, or when the
@@ -411,31 +447,25 @@ function Proposal({
           ((plan.sorted_folders.length > 0 &&
             plan.target_root === plan.source_root) ||
             detected !== null) && (
-            <button
-              type="button"
-              className="primary-button"
-              disabled={stale}
-              onClick={onOpenLibrary}
-            >
+            <Button variant="primary" disabled={stale} onClick={onOpenLibrary}>
+              <FolderOpen aria-hidden />
               {t('organize.openLibrary')}
-            </button>
+            </Button>
           )
         )}
-        <button
-          type="button"
-          className="ghost-button"
-          disabled={stale}
-          onClick={onExport}
-        >
+        <Button variant="outline" disabled={stale} onClick={onExport}>
+          <FileJson aria-hidden />
           {t('organize.exportPlan')}
-        </button>
-        <button type="button" className="ghost-button" onClick={onCancel}>
+        </Button>
+        <Button variant="ghost" onClick={onCancel}>
           {t('organize.cancel')}
-        </button>
+        </Button>
+        {exported && (
+          <p role="status" className={`${hintText} basis-full`}>
+            {t('organize.exported', { name: exported })}
+          </p>
+        )}
       </div>
-      {exported && (
-        <p className="hint">{t('organize.exported', { name: exported })}</p>
-      )}
     </>
   );
 }

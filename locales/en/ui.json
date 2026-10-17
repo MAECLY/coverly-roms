@@ -785,6 +785,10 @@
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
     "summary": "ROMs: {roms} · Systems: {systems} · To review: {review} · Staying put: {left}",
+    "empty": {
+      "title": "Nothing to file away",
+      "body": "No file here needs a system folder."
+    },
     "dryRunHint": "This is a proposal. Nothing has moved yet.",
     "cancel": "Cancel",
     "otherFiles": "Other files: {count}",

@@ -785,6 +785,10 @@
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
     "summary": "ROMs: {roms} · Sistemas: {systems} · Por revisar: {review} · Se quedan: {left}",
+    "empty": {
+      "title": "Nada que archivar",
+      "body": "Ningún archivo de aquí necesita una carpeta de sistema."
+    },
     "dryRunHint": "Es una propuesta. Todavía no se ha movido nada.",
     "cancel": "Cancelar",
     "otherFiles": "Otros archivos: {count}",
