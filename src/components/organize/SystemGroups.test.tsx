@@ -78,6 +78,20 @@ describe('SystemGroups', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows no confidence for a system the user chose', () => {
+    renderGroups([
+      autoItem(0, 'Tetris.zip', 'gb', 'ROMS/GB', {
+        confidence: 1,
+        method: 'user',
+        why: [{ kind: 'user', system: 'gb', weight: 1, detail: '' }],
+      }),
+    ]);
+    const gb = screen.getByRole('group', { name: /^ROMS\/GB\/ \(1\)/ });
+    expect(within(gb).getByText('Chosen by you')).toBeInTheDocument();
+    expect(within(gb).queryByTitle('Confidence')).not.toBeInTheDocument();
+    expect(within(gb).queryByText('High')).not.toBeInTheDocument();
+  });
+
   it('renders at most 200 rows per group and a show-more button', async () => {
     const items = Array.from({ length: 450 }, (_, i) =>
       autoItem(i, `Game ${String(i).padStart(3, '0')}.gba`, 'gba', 'ROMS/GBA'),

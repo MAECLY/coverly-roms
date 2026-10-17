@@ -137,7 +137,9 @@ function Row({
   onDecide,
 }: RowProps & { item: OrganizeItem }) {
   const t = useT();
-  const confidence = confidenceKey(item.confidence);
+  // A manual choice is the user's decision, not a detection level.
+  const confidence =
+    item.method === 'user' ? null : confidenceKey(item.confidence);
   const why = item.why[0];
   const reason = why ? whyKey(why, systemName) : null;
   const name = item.sources[0] ?? '';
