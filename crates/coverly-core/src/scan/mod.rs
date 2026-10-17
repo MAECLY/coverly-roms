@@ -7,8 +7,8 @@
 //! Scanning is read-only and never fails: unreadable entries and broken
 //! symlinks become [`ScanWarning`]s.
 
-mod classify;
-mod multifile;
+pub(crate) mod classify;
+pub(crate) mod multifile;
 
 use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};

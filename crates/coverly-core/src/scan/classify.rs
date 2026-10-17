@@ -9,6 +9,88 @@ use super::ScanOptions;
 /// OS metadata files ignored everywhere, compared case-insensitively.
 const JUNK_FILES: [&str; 3] = [".ds_store", "thumbs.db", "desktop.ini"];
 
+/// Suffixes of files a browser or download manager is still writing
+/// (Chrome, Firefox, Safari, Opera, µTorrent, qBittorrent, aria2, WinSCP).
+pub(crate) const PARTIAL_DOWNLOAD_EXTS: [&str; 10] = [
+    "crdownload",
+    "part",
+    "partial",
+    "download",
+    "opdownload",
+    "tmp",
+    "!ut",
+    "!qb",
+    "aria2",
+    "filepart",
+];
+
+/// Extensions that follow a ROM with the same stem when it moves
+/// (default of `settings.organize.companion_exts`; `state*` matches
+/// `state`, `state1`, `state.auto`…).
+#[allow(dead_code)] // consumed by the organise planner
+pub(crate) const COMPANION_EXTS: [&str; 12] = [
+    "sav", "srm", "rtc", "state*", "cht", "ips", "bps", "ups", "txt", "nfo", "png", "jpg",
+];
+
+/// BIOS and firmware files, by exact lowercase name.
+const BIOS_NAMES: [&str; 18] = [
+    "gba_bios.bin",
+    "gb_bios.bin",
+    "gbc_bios.bin",
+    "sgb_bios.bin",
+    "bios7.bin",
+    "bios9.bin",
+    "firmware.bin",
+    "neogeo.zip",
+    "disksys.rom",
+    "dc_boot.bin",
+    "dc_flash.bin",
+    "sega_101.bin",
+    "lynxboot.img",
+    "5200.rom",
+    "7800 bios (u).rom",
+    "bios.min",
+    "pgm.zip",
+    "naomi.zip",
+];
+
+/// BIOS families by lowercase prefix and the extension they must have.
+const BIOS_PREFIXES: [(&str, &str); 5] = [
+    ("scph", "bin"),
+    ("syscard", "pce"),
+    ("bios_cd_", "bin"),
+    ("mpr-", "bin"),
+    ("kick", "rom"),
+];
+
+/// Whether `name` is a file a download is still writing.
+pub(crate) fn is_partial_download(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    PARTIAL_DOWNLOAD_EXTS
+        .iter()
+        .any(|ext| lower.len() > ext.len() + 1 && lower.ends_with(&format!(".{ext}")))
+}
+
+/// Windows `Zone.Identifier` alternate stream copied as a regular file
+/// (through WSL or exFAT): `name.zip:Zone.Identifier`.
+pub(crate) fn is_zone_identifier(name: &str) -> bool {
+    name.to_lowercase().ends_with(":zone.identifier")
+}
+
+/// Whether `name` is a BIOS or firmware file (left in place by organise:
+/// moving it into a game folder makes it a fake game).
+#[allow(dead_code)] // consumed by the organise planner
+pub(crate) fn is_bios_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    if BIOS_NAMES.contains(&lower.as_str()) {
+        return true;
+    }
+    let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
+    BIOS_PREFIXES
+        .iter()
+        .any(|(prefix, want)| lower.starts_with(prefix) && ext == *want)
+}
+
 /// macOS AppleDouble twin (`._Game.zip`): never a ROM, never art.
 pub(crate) fn is_appledouble(name: &str) -> bool {
     name.starts_with("._")
@@ -20,11 +102,13 @@ pub(crate) fn is_hidden(name: &str) -> bool {
 }
 
 /// Whether an entry named `name` is skipped before looking at its type:
-/// AppleDouble twins and OS metadata always, hidden entries unless
-/// `include_hidden`.
+/// AppleDouble twins, OS metadata, partial downloads and copied
+/// `Zone.Identifier` streams always, hidden entries unless `include_hidden`.
 pub(crate) fn is_skipped_entry(name: &str, opts: &ScanOptions) -> bool {
     is_appledouble(name)
         || JUNK_FILES.iter().any(|j| name.eq_ignore_ascii_case(j))
+        || is_partial_download(name)
+        || is_zone_identifier(name)
         || (!opts.include_hidden && is_hidden(name))
 }
 
@@ -139,5 +223,74 @@ mod tests {
         assert!(is_rom_extension("whatever", &any, &opts));
         assert!(!is_rom_extension("txt", &any, &opts));
         assert!(!is_rom_extension("png", &any, &opts));
+    }
+
+    #[test]
+    fn partial_downloads_by_suffix_any_case() {
+        for name in [
+            "Tetris.zip.crdownload",
+            "Tetris.zip.part",
+            "x.PARTIAL",
+            "x.download",
+            "x.opdownload",
+            "x.tmp",
+            "x.!ut",
+            "x.!qb",
+            "x.zip.aria2",
+            "x.filepart",
+        ] {
+            assert!(is_partial_download(name), "{name}");
+        }
+        for name in ["Tetris.zip", "Party.gba", "partial.gb", "download.nes"] {
+            assert!(!is_partial_download(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn zone_identifier_streams() {
+        assert!(is_zone_identifier("Tetris.zip:Zone.Identifier"));
+        assert!(is_zone_identifier("a.gba:zone.identifier"));
+        assert!(!is_zone_identifier("Zone.Identifier.gba"));
+    }
+
+    #[test]
+    fn bios_names_exact_and_by_prefix() {
+        for name in [
+            "gba_bios.bin",
+            "GBA_BIOS.BIN",
+            "bios7.bin",
+            "bios9.bin",
+            "firmware.bin",
+            "scph1001.bin",
+            "SCPH5501.BIN",
+            "neogeo.zip",
+            "syscard3.pce",
+            "disksys.rom",
+            "dc_boot.bin",
+            "dc_flash.bin",
+            "bios_CD_U.bin",
+            "sega_101.bin",
+            "mpr-17933.bin",
+            "kick34005.A500.rom",
+        ] {
+            assert!(is_bios_name(name), "{name}");
+        }
+        for name in [
+            "Tetris.gb",
+            "scph.gba",
+            "kickoff.zip",
+            "mpr-17933.zip",
+            "biosphere.gba",
+        ] {
+            assert!(!is_bios_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_scan_skips_partial_downloads_and_streams() {
+        let opts = ScanOptions::default();
+        assert!(is_skipped_entry("Tetris.zip.crdownload", &opts));
+        assert!(is_skipped_entry("Tetris.zip:Zone.Identifier", &opts));
+        assert!(!is_skipped_entry("Tetris.zip", &opts));
     }
 }
