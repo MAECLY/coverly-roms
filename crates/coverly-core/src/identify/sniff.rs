@@ -259,6 +259,11 @@ const RAW: IsoLayout = IsoLayout {
     data: 24,
 };
 
+/// Largest CD image: 99 minutes of raw 2352-byte sectors.
+const CD_MAX: u64 = 99 * 60 * 75 * 2352;
+/// Largest UMD (dual layer, 1.8 GB).
+const UMD_MAX: u64 = 1_800_000_000;
+
 impl IsoLayout {
     fn offset(self, lba: u64, within: u64) -> u64 {
         lba * self.sector + self.data + within
@@ -279,7 +284,11 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         }
     }
     if starts(head, 0, b"CISO") {
-        s.hit("psp", 0.85, "CSO");
+        // PCSX2 reads CSO too: only an image a UMD can hold is a PSP game.
+        let size = at(head, 8, 8).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
+        if size.is_some_and(|n| n <= UMD_MAX) {
+            s.hit("psp", 0.85, "CSO");
+        }
         return;
     }
     for layout in [ISO, RAW] {
@@ -289,7 +298,9 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         if &pvd[1..6] != b"CD001" {
             continue;
         }
-        if &pvd[40..48] == b"PSP GAME" {
+        // Real UMD dumps carry `PSP GAME` as the system id (the volume id
+        // is the game code); accept it in either field.
+        if &pvd[8..16] == b"PSP GAME" || &pvd[40..48] == b"PSP GAME" {
             s.hit("psp", 0.85, "PSP GAME");
             return;
         }
@@ -299,6 +310,8 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         match system_cnf(src, head, layout, &pvd, len) {
             Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
             Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
+            // No CD holds this much: a PS2 DVD whose SYSTEM.CNF was not found.
+            _ if len > CD_MAX => s.unsupported = Some("PlayStation 2".into()),
             _ => s.hit("psx", 0.80, "PLAYSTATION"),
         }
         return;
@@ -918,11 +931,12 @@ pub mod fixtures {
         b
     }
 
-    /// A UMD image: ISO 9660 with the `PSP GAME` volume id.
+    /// A UMD image: ISO 9660 with the `PSP GAME` system id and the game
+    /// code as volume id, as real dumps carry them.
     pub fn psp_iso() -> Vec<u8> {
         disc(false, |lba, data| {
             if lba == 16 {
-                pvd(data, b"PSP GAME", b"PSP GAME");
+                pvd(data, b"PSP GAME", b"ULUS10041");
             }
         })
     }

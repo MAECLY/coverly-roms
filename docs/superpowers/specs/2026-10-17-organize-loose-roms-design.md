@@ -180,7 +180,7 @@ Checks run in a fixed order and the **more specific signature wins** within a fa
 | `wonderswan` / `wonderswancolor` | 10-byte footer: byte `len-10` == 0xEA (jump); `len-9` bit 0 = colour | 0.85 |
 | `psx` / *(PS2)* | ISO 9660 `CD001` at sector 16 (offset 0x8001 for 2048-byte, 0x9319 for raw 2352-byte `.bin`) **and** `PLAYSTATION` at system-area offset 0x8008 / raw equivalent → PlayStation family 0.80 (PS2 CD-ROM discs carry the same string). `SYSTEM.CNF` in the root directory (one directory-record read) decides: `BOOT =` → psx 0.95, `BOOT2 =` → PS2 veto | 0.80–0.95 |
 | `segacd` / `saturn` / `dreamcast` | `SEGADISCSYSTEM` / `SEGA SEGASATURN` / `SEGA SEGAKATANA` at the start of the first data track | 0.90 |
-| `psp` | `CD001` + `PSP GAME` volume id; `.cso` magic `CISO` | 0.85 |
+| `psp` | `CD001` + `PSP GAME` system id (real UMD dumps; volume id also accepted); `.cso` magic `CISO` with an uncompressed size a UMD can hold (≤ 1.8 GB; larger CSO are PS2) | 0.85 |
 | `pcengine`, `a2600`, `a5200`, `msx`, others | no reliable magic → levels 1, 3, 4 only | — |
 | any | CHD (`MComprHD` at 0) / 7z / RAR | container recognised, contents not read → name + extension only | — |
 

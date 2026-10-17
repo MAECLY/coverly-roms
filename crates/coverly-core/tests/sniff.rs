@@ -581,3 +581,31 @@ fn random_bytes_never_reach_high_confidence() {
         }
     }
 }
+
+#[test]
+fn psp_by_the_system_id_of_a_real_umd() {
+    // Real UMD images carry `PSP GAME` as the ISO 9660 system id and the
+    // game code as the volume id.
+    let iso = fx::psp_iso();
+    assert_eq!(&iso[0x8008..0x8010], b"PSP GAME");
+    assert_ne!(&iso[0x8028..0x8030], b"PSP GAME");
+    assert_eq!(best(&run(&iso, "iso")), Some(("psp".into(), 0.85)));
+}
+
+#[test]
+fn playstation_disc_larger_than_a_cd_is_ps2() {
+    // No readable SYSTEM.CNF, but no CD holds this much: a PS2 DVD.
+    let mut iso = fx::psx_iso(false, false);
+    fx::drop_system_cnf(&mut iso);
+    let s = sniff(&mut SliceAt(&iso), 4 * 1024 * 1024 * 1024, "iso");
+    assert!(s.hits.is_empty(), "{:?}", s.hits);
+    assert_eq!(s.unsupported.as_deref(), Some("PlayStation 2"));
+}
+
+#[test]
+fn cso_larger_than_a_umd_is_not_psp() {
+    // PCSX2 also reads CSO: an image bigger than a dual-layer UMD is a DVD.
+    let mut cso = fx::cso();
+    cso[8..16].copy_from_slice(&(4u64 * 1024 * 1024 * 1024).to_le_bytes());
+    assert_eq!(best(&run(&cso, "cso")), None);
+}
