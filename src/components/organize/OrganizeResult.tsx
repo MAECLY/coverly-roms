@@ -12,6 +12,8 @@ import type {
   OrganizeUndoView,
 } from '@/ipc/types';
 
+import { undoCounts } from './undoCounts';
+
 interface Props {
   job: OrganizeJobView;
   /** The plan that was applied (absent for a job resumed from the history). */
@@ -109,25 +111,7 @@ export function OrganizeResult({
     () => new Map((plan?.items ?? []).map((i) => [i.id, i.sources[0] ?? ''])),
     [plan],
   );
-  // "Undo all in order" undoes the later jobs too: count the files of every
-  // organise job among them (a fill job's art is not a restored ROM).
-  const fills = new Set(
-    undo?.later_jobs.filter((j) => j.kind === 'fill').map((j) => j.job),
-  );
-  const undone = undo?.report.length
-    ? undo.report
-        .filter((r) => !fills.has(r.job))
-        .reduce(
-          (sum, r) => ({
-            restored: sum.restored + r.restored.length + r.removed.length,
-            modified:
-              sum.modified +
-              r.skipped_modified.length +
-              r.skipped_occupied.length,
-          }),
-          { restored: 0, modified: 0 },
-        )
-    : null;
+  const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
   const nameOf = (o: OrganizeItemOutcome) => {

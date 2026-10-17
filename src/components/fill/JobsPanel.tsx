@@ -11,14 +11,17 @@ import { Modal } from '@/components/Modal';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
-import { errorKey } from '@/ipc/errors';
+import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import type {
   ExportFormat,
+  JobHistoryItem,
   JobItemView,
   JobTotals,
   LibraryView,
 } from '@/ipc/types';
+import { undoCounts } from '@/components/organize/undoCounts';
 import { isRunning, useJobStore } from '@/stores/jobStore';
+import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
 
@@ -69,6 +72,16 @@ export function JobsPanel({
     items: JobItemView[];
   } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** The organise job whose undo awaits confirmation, in its history row. */
+  const [organizeConfirm, setOrganizeConfirm] = useState<string | null>(null);
+  const [organizeBusy, setOrganizeBusy] = useState(false);
+  const [organizeUndo, setOrganizeUndo] = useState<{
+    job: string;
+    done: { restored: number; modified: number } | null;
+    error: BackendError | null;
+  } | null>(null);
+  /** An organise undo moved ROMs: the open library rescans on close. */
+  const moved = useRef(false);
   const running = isRunning(job);
   const jobId = job?.id ?? null;
   const state = job?.state ?? null;
@@ -111,7 +124,8 @@ export function JobsPanel({
   const errors = finished && failed?.job === jobId ? failed.items : [];
   const p = progress && job && progress.job === job.id ? progress : null;
   // Rust refuses while paused and only undoes fill journals of the open
-  // library (organise jobs are undone from the organise screen).
+  // library (an organise job is undone from its history row below, which
+  // checks later jobs first).
   const canUndo =
     !running &&
     job?.state !== 'paused' &&
@@ -141,8 +155,51 @@ export function JobsPanel({
     await undoLast(view.generation);
   }
 
+  /** Organise spec §4.3: an organise job is also undone later from the
+   * history; newer jobs that wrote under it are listed first. */
+  async function undoOrganize(job: string, includeLater: boolean) {
+    setOrganizeConfirm(null);
+    setOrganizeBusy(true);
+    try {
+      const b = await getBackend();
+      const result = await b.organizeUndo(job, includeLater);
+      moved.current = true;
+      setOrganizeUndo({ job, done: undoCounts(result), error: null });
+      await loadHistory();
+    } catch (e) {
+      setOrganizeUndo({ job, done: null, error: toBackendError(e) });
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  function laterJobs(detail: string | undefined) {
+    return (detail ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((id) => {
+        const h = history.find((x: JobHistoryItem) => x.job === id);
+        return h
+          ? t('organize.undo.laterJob', {
+              kind: t(`jobs.kind.${h.kind}`),
+              date: when(h.created_at),
+            })
+          : id;
+      })
+      .join(', ');
+  }
+
+  function close() {
+    if (moved.current) {
+      moved.current = false;
+      void useLibraryStore.getState().open(view.root, view.profile.id);
+    }
+    onClose();
+  }
+
   return (
-    <Modal labelledBy="jobs-title" onClose={onClose} className="jobs">
+    <Modal labelledBy="jobs-title" onClose={close} className="jobs">
       <h2 id="jobs-title" className="section-title">
         {t('jobs.title')}
       </h2>
@@ -360,18 +417,83 @@ export function JobsPanel({
                       {t('organize.resume')}
                     </button>
                   )}
+                {h.kind === 'organize' &&
+                  !h.undone &&
+                  h.undoable &&
+                  organizeConfirm !== h.job && (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={running || organizeBusy}
+                      aria-label={t('jobs.organizeUndo.label', {
+                        date: when(h.created_at),
+                      })}
+                      onClick={() => setOrganizeConfirm(h.job)}
+                    >
+                      {t('organize.undo.action')}
+                    </button>
+                  )}
+                {organizeConfirm === h.job && (
+                  <div className="undo-confirm">
+                    <p>{t('jobs.organizeUndo.confirm')}</p>
+                    <div className="modal-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => setOrganizeConfirm(null)}
+                      >
+                        {t('jobs.undoNo')}
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={running || organizeBusy}
+                        onClick={() => void undoOrganize(h.job, false)}
+                      >
+                        {t('jobs.undoYes')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+      {organizeUndo?.done && (
+        <p role="status">{t('organize.undone', organizeUndo.done)}</p>
+      )}
+      {organizeUndo?.error?.code === 'later-jobs' && (
+        <div role="alert" className="error-banner">
+          <p>
+            {t('organize.undo.laterJobs', {
+              jobs: laterJobs(organizeUndo.error.detail),
+            })}
+          </p>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={running || organizeBusy}
+            onClick={() => void undoOrganize(organizeUndo.job, true)}
+          >
+            {t('organize.undo.all')}
+          </button>
+        </div>
+      )}
+      {organizeUndo?.error && organizeUndo.error.code !== 'later-jobs' && (
+        <p role="alert" className="error-banner">
+          {t(errorKey(organizeUndo.error.code), {
+            detail: organizeUndo.error.detail ?? '',
+          })}
+        </p>
+      )}
       {error && (
         <p role="alert" className="error-banner">
           {t(errorKey(error.code), { detail: error.detail ?? '' })}
         </p>
       )}
       <div className="modal-actions">
-        <button type="button" className="ghost-button" onClick={onClose}>
+        <button type="button" className="ghost-button" onClick={close}>
           {t('jobs.close')}
         </button>
       </div>

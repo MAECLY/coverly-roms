@@ -611,6 +611,10 @@
     "undoConfirm": "¿Deshacer el último trabajo? Se quitan las imágenes escritas y se restauran las sustituidas; las que hayas cambiado después se conservan.",
     "undoYes": "Deshacer",
     "undoNo": "Conservar",
+    "organizeUndo": {
+      "label": "Deshacer la organización del {date}",
+      "confirm": "¿Deshacer esta organización? Los archivos vuelven a donde estaban; los que hayas cambiado después se quedan donde están."
+    },
     "undone": "Deshecho: {removed} quitadas, {restored} restauradas, {kept} conservadas porque las cambiaste.",
     "history": "Historial",
     "noHistory": "Todavía no hay trabajos.",

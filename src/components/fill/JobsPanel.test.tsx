@@ -292,6 +292,119 @@ describe('Jobs panel', () => {
     ).toBeDisabled();
   });
 
+  it('undoes_an_organise_job_from_its_history_row_after_confirming', async () => {
+    // Organise spec §4.3: undo is also available later from the job history.
+    const { backend, view } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    const organised = {
+      ...real!,
+      job: 'organize-0001',
+      kind: 'organize' as const,
+      complete: true,
+      undone: false,
+    };
+    const history = vi
+      .spyOn(backend, 'jobHistory')
+      .mockResolvedValue([organised, { ...real!, undone: true }]);
+    const undo = vi.spyOn(backend, 'organizeUndo').mockResolvedValue({
+      report: [
+        {
+          job: 'organize-0001',
+          removed: [],
+          restored: ['/a.gba', '/b.gba'],
+          skipped_modified: ['/c.gba'],
+          skipped_occupied: [],
+          dirs_removed: [],
+        },
+      ],
+      later_jobs: [],
+    });
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', { name: 'History' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2),
+    );
+    const [row, fill] = within(list).getAllByRole('listitem');
+    expect(
+      within(fill!).queryByRole('button', { name: /^Undo/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(row!).getByRole('button', { name: /^Undo the organisation of / }),
+    );
+    expect(undo).not.toHaveBeenCalled();
+    // Keeping it changes nothing.
+    await userEvent.click(within(row!).getByRole('button', { name: 'Keep' }));
+    expect(undo).not.toHaveBeenCalled();
+    await userEvent.click(
+      within(row!).getByRole('button', { name: /^Undo the organisation of / }),
+    );
+    expect(
+      within(row!).getByText(/files go back where they were/),
+    ).toBeInTheDocument();
+    history.mockResolvedValue([
+      { ...organised, undone: true },
+      { ...real!, undone: true },
+    ]);
+    await userEvent.click(within(row!).getByRole('button', { name: 'Undo' }));
+    await waitFor(() =>
+      expect(undo).toHaveBeenCalledWith('organize-0001', false),
+    );
+    expect(
+      await within(dialog).findByText(
+        'Restored: 2 · Left alone because they changed: 1',
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(list).getAllByText('Undone')).toHaveLength(2),
+    );
+    // The open library is rescanned on close: its ROMs moved.
+    const open = vi.spyOn(useLibraryStore.getState(), 'open');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    );
+    expect(open).toHaveBeenCalledWith(view.root, view.profile.id);
+  });
+
+  it('lists_the_later_jobs_and_undoes_all_in_order_from_the_history', async () => {
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      { ...real!, job: 'fill-0009', undone: false },
+      {
+        ...real!,
+        job: 'organize-0001',
+        kind: 'organize',
+        complete: true,
+        undone: false,
+      },
+    ]);
+    const undo = vi
+      .spyOn(backend, 'organizeUndo')
+      .mockRejectedValueOnce(new BackendError('later-jobs', 'fill-0009'))
+      .mockResolvedValueOnce({ report: [], later_jobs: [] });
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', { name: 'History' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2),
+    );
+    const row = within(list).getAllByRole('listitem')[1]!;
+    await userEvent.click(
+      within(row).getByRole('button', { name: /^Undo the organisation of / }),
+    );
+    await userEvent.click(within(row).getByRole('button', { name: 'Undo' }));
+    expect(
+      await within(dialog).findByText(/^These must be undone first: Covers /),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Undo all in order' }),
+    );
+    await waitFor(() =>
+      expect(undo).toHaveBeenLastCalledWith('organize-0001', true),
+    );
+  });
+
   it('moves focus into the undo confirmation and back', async () => {
     await running();
     await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
