@@ -1,9 +1,12 @@
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n/useT';
+import { cn } from '@/lib/utils';
 import { useNavStore } from '@/stores/navStore';
 import { useUpdateStore } from '@/stores/updateStore';
 
 /** One line when the startup check found an update; never for errors. */
-export function UpdateBanner() {
+export function UpdateBanner({ className }: { className?: string }) {
   const t = useT();
   const show = useUpdateStore(
     (s) =>
@@ -13,21 +16,30 @@ export function UpdateBanner() {
   const dismiss = useUpdateStore((s) => s.dismissBanner);
   if (!show) return null;
   return (
-    <div className="update-banner" role="status">
-      <span>{t('update.banner', { version })}</span>
-      <button
-        type="button"
-        className="ghost-button"
-        onClick={() => {
-          dismiss();
-          useNavStore.getState().openSettings('about');
-        }}
-      >
-        {t('update.bannerDetails')}
-      </button>
-      <button type="button" className="ghost-button" onClick={dismiss}>
-        {t('update.bannerLater')}
-      </button>
-    </div>
+    <Alert
+      variant="info"
+      className={cn('mx-6 mt-3 items-center text-left', className)}
+      action={
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              dismiss();
+              useNavStore.getState().openSettings('about');
+            }}
+          >
+            {t('update.bannerDetails')}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={dismiss}>
+            {t('update.bannerLater')}
+          </Button>
+        </>
+      }
+    >
+      <p className="m-0 [overflow-wrap:anywhere]">
+        {t('update.banner', { version })}
+      </p>
+    </Alert>
   );
 }
