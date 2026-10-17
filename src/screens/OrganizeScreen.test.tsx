@@ -349,6 +349,19 @@ describe('OrganizeScreen', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('back waits while files are being moved', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    const planId = useOrganizeStore.getState().planId!;
+    act(() =>
+      useOrganizeStore.setState({
+        status: 'applying',
+        progress: { plan_id: planId, phase: 'apply', done: 4, total: 16 },
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+  });
+
   it('says copying while a copy runs', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await ready();

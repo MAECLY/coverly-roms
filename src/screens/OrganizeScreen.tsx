@@ -189,7 +189,12 @@ export function OrganizeScreen() {
   return (
     <main className="settings-screen">
       <header className="settings-header">
-        <button type="button" className="ghost-button" onClick={back}>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={status === 'applying'}
+          onClick={back}
+        >
           {t('organize.back')}
         </button>
         <h1>{t('organize.title')}</h1>
