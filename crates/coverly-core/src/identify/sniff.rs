@@ -719,6 +719,29 @@ pub mod fixtures {
         b
     }
 
+    /// [`gb`] with `tag` as the first title byte (distinct contents), the
+    /// header checksum recomputed.
+    pub fn gb_tagged(cgb: u8, tag: u8) -> Vec<u8> {
+        let mut b = gb(cgb);
+        b[0x134] = tag;
+        b[0x14D] = b[0x134..=0x14C]
+            .iter()
+            .fold(0u8, |x, v| x.wrapping_sub(*v).wrapping_sub(1));
+        b
+    }
+
+    /// [`gba`] with `tag` as the first title byte (distinct contents), the
+    /// complement check recomputed.
+    pub fn gba_tagged(tag: u8) -> Vec<u8> {
+        let mut b = gba();
+        b[0xA0] = tag;
+        b[0xBD] = b[0xA0..=0xBC]
+            .iter()
+            .fold(0u8, |c, v| c.wrapping_sub(*v))
+            .wrapping_sub(0x19);
+        b
+    }
+
     pub fn gba() -> Vec<u8> {
         let mut b = zeros(64 * 1024);
         b[0x04..0x08].copy_from_slice(&[0x24, 0xFF, 0xAE, 0x51]);

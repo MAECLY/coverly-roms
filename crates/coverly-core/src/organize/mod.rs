@@ -8,8 +8,11 @@ pub mod target;
 pub mod walk;
 
 pub use plan::{
-    Companion, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction, OrganizeItem,
-    RenameReason, SourceFp, TransferMode,
+    plan_from_survey, plan_organize, probe_folder, survey, Choice, Companion, Counts, Decision,
+    FolderProbe, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction, OrganizeEnv,
+    OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress,
+    PlanWarning, RenameReason, SourceFp, Survey, SurveyEntry, TransferMode, DEFAULT_LAYOUT,
+    PROBE_LIMIT,
 };
 pub use target::{
     assign_targets, file_system_is_fat32, folder_dir, mark_duplicates, DirIndex, TargetLayout,

@@ -860,6 +860,8 @@ pub fn identify_candidate(
             .payloads
             .first()
             .map_or_else(|| crate::scan::classify::extension(path), |p| p.ext.clone());
+        #[cfg(any(test, feature = "test-util"))]
+        crate::organize::plan::HASH_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match hash_rom(path, &ext, rule, DEFAULT_HASH_MAX_BYTES) {
             Ok(HashOutcome::Content(h)) => {
                 facts.raw_crcs = std::iter::once(h.full)
