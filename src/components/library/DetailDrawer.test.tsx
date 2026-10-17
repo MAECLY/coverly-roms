@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -11,11 +18,13 @@ import {
   MOCK_LIBRARIES,
   type MockBackend,
 } from '@/ipc/mock/mockBackend';
-import type { EntryView } from '@/ipc/types';
+import type { EntryView, Media } from '@/ipc/types';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
+
+import { AUTO_LOAD_DELAY_MS } from './ArtWorkspace';
 
 let backend: MockBackend;
 
@@ -30,6 +39,17 @@ async function setup(locale: 'en' | 'es' = 'en') {
     </I18nProvider>,
   );
   return useLibraryStore.getState().view!;
+}
+
+/** Records the media of every automatic candidate lookup. */
+function spyCandidates(): Media[] {
+  const calls: Media[] = [];
+  const original = backend.entryCandidates.bind(backend);
+  backend.entryCandidates = (generation, id, media) => {
+    calls.push(media);
+    return original(generation, id, media);
+  };
+  return calls;
 }
 
 function show(entry: EntryView) {
@@ -101,22 +121,31 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
   });
 
-  it('reveals the file and offers every art action', async () => {
+  it('reveals the file from the header and offers every art action', async () => {
     const view = await setup();
     const entry = view.entries[5]!;
     const drawer = show(entry);
+    const tabs = within(drawer).getAllByRole('tab');
+    expect(tabs.map((t) => t.getAttribute('aria-label'))).toEqual([
+      'Cover',
+      'Screenshot',
+      'Title screen',
+    ]);
+    const active = tabs.find(
+      (t) => t.getAttribute('aria-selected') === 'true',
+    )!;
+    const media = (['cover', 'screenshot', 'title'] as const)[
+      tabs.indexOf(active)
+    ]!;
     expect(
-      within(drawer).getByRole('button', { name: 'Search…' }),
-    ).toBeEnabled();
-    expect(
-      within(drawer).getByRole('button', { name: 'Change…' }),
+      within(drawer).getByRole('searchbox', { name: 'Title to search' }),
     ).toBeEnabled();
     expect(
       within(drawer).getByRole('button', { name: 'From file…' }),
     ).toBeEnabled();
     expect(
       within(drawer).getByRole('button', { name: 'Remove' }),
-    ).toHaveProperty('disabled', entry.art.cover !== 'present');
+    ).toHaveProperty('disabled', entry.art[media] !== 'present');
     await userEvent.click(
       within(drawer).getByRole('button', {
         name: /Reveal in Finder|Show in Explorer|Show in folder/,
@@ -129,9 +158,7 @@ describe('Detail drawer', () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'missing')!;
     const drawer = show(entry);
-    await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Change…' }),
-    );
+    // No click: the first missing art loads its candidates on its own.
     const group = await within(drawer).findByRole('group', {
       name: 'Candidates',
     });
@@ -143,6 +170,130 @@ describe('Detail drawer', () => {
       within(first!).getByText('Why: it matches this ROM better.'),
     ).toBeInTheDocument();
     expect(within(second!).queryByText(/^Why: /)).not.toBeInTheDocument();
+  });
+
+  it('opens on the first missing art and loads its candidates once', async () => {
+    const view = await setup();
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'present' && e.art.screenshot === 'missing',
+    )!;
+    const calls = spyCandidates();
+    const drawer = show(entry);
+    expect(
+      within(drawer).getByRole('tab', { name: 'Screenshot' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(within(drawer).getByText('Looking for images…')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    expect(calls).toEqual(['screenshot']);
+  });
+
+  it('waits to be asked when no art is missing', async () => {
+    const view = await setup();
+    const entry = view.entries.find(
+      (e) =>
+        e.art.cover === 'present' &&
+        e.art.screenshot === 'present' &&
+        e.art.title === 'present',
+    )!;
+    const calls = spyCandidates();
+    const drawer = show(entry);
+    expect(within(drawer).getByRole('tab', { name: 'Cover' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await act(() => new Promise((r) => setTimeout(r, AUTO_LOAD_DELAY_MS + 50)));
+    expect(calls).toEqual([]);
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Show other images' }),
+    );
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    expect(calls).toEqual(['cover']);
+  });
+
+  it('browsing the slots with the arrow keys loads only where it stops', async () => {
+    const view = await setup();
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const calls = spyCandidates();
+    const drawer = show(entry);
+    const cover = within(drawer).getByRole('tab', { name: 'Cover' });
+    expect(cover).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(cover, { key: 'ArrowRight' });
+    const shot = within(drawer).getByRole('tab', { name: 'Screenshot' });
+    expect(shot).toHaveFocus();
+    fireEvent.keyDown(shot, { key: 'ArrowRight' });
+    const title = within(drawer).getByRole('tab', { name: 'Title screen' });
+    expect(title).toHaveFocus();
+    expect(title).toHaveAttribute('aria-selected', 'true');
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    expect(calls).toEqual(['title']);
+    fireEvent.keyDown(title, { key: 'Home' });
+    expect(cover).toHaveFocus();
+  });
+
+  it('ignores a late answer for a slot that is no longer active', async () => {
+    const view = await setup();
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'missing' && e.art.screenshot === 'present',
+    )!;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const calls: Media[] = [];
+    const original = backend.entryCandidates.bind(backend);
+    backend.entryCandidates = async (generation, id, media) => {
+      calls.push(media);
+      const list = await original(generation, id, media);
+      if (media !== 'cover') return list;
+      await gate;
+      return list.map((c) => ({ ...c, name: `STALE ${c.name}` }));
+    };
+    const drawer = show(entry);
+    await waitFor(() => expect(calls).toEqual(['cover']));
+    await userEvent.click(
+      within(drawer).getByRole('tab', { name: 'Screenshot' }),
+    );
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    await act(async () => {
+      release();
+      await gate;
+    });
+    expect(calls).toEqual(['cover', 'screenshot']);
+    expect(within(drawer).queryByText(/STALE/)).not.toBeInTheDocument();
+    // The screenshot list stays: the late cover answer replaced nothing.
+    expect(
+      within(
+        within(drawer).getByRole('group', { name: 'Candidates' }),
+      ).getAllByRole('button'),
+    ).toHaveLength(3);
+    expect(
+      within(drawer).getByRole('tab', { name: 'Screenshot' }),
+    ).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shows art the layout cannot store but does not offer it', async () => {
+    const view = await setup();
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    act(() =>
+      useLibraryStore.setState({
+        view: { ...view, profile: { ...view.profile, media: ['cover'] } },
+      }),
+    );
+    const calls = spyCandidates();
+    const drawer = show(entry);
+    const shot = within(drawer).getByRole('tab', { name: 'Screenshot' });
+    expect(shot).toBeDisabled();
+    expect(shot).toHaveAccessibleDescription('Not in this layout');
+    await userEvent.click(shot);
+    expect(within(drawer).getByRole('tab', { name: 'Cover' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    expect(calls).toEqual(['cover']);
   });
 
   it('drawer_renders_hostile_name_as_text', async () => {
@@ -186,7 +337,10 @@ describe('Detail drawer', () => {
       within(drawer).getByRole('button', { name: 'Identificar' }),
     ).toBeInTheDocument();
     expect(
-      within(drawer).getByRole('button', { name: 'Cambiar…' }),
+      within(drawer).getByRole('tab', { name: 'Portada' }),
+    ).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole('button', { name: 'Desde archivo…' }),
     ).toBeEnabled();
   });
 });

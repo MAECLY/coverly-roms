@@ -12,15 +12,18 @@ import {
   type MockOptions,
 } from '@/ipc/mock/mockBackend';
 import type { EntryView } from '@/ipc/types';
+import { DEFAULT_SETTINGS } from '@/lib/settingsRules';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
 
 async function setup(opts: MockOptions = {}) {
   setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW, ...opts }));
   resetLibraryStore();
+  resetSettingsStore();
   useJobStore.getState().reset();
   await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
   render(
@@ -52,13 +55,10 @@ describe('Drawer art actions', () => {
     setBackend(null);
   });
 
-  it('changes the art by picking a candidate', async () => {
+  it('fills an empty slot with one click on a candidate', async () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'missing')!;
     const drawer = show(entry);
-    await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Change…' }),
-    );
     const group = await within(drawer).findByRole('group', {
       name: 'Candidates',
     });
@@ -67,13 +67,91 @@ describe('Drawer art actions', () => {
     await userEvent.click(buttons[1]!);
     expect(
       await within(drawer).findByText(
-        'Art updated. Undo it from Jobs if needed.',
+        'Cover updated. Undo it from Jobs if needed.',
+      ),
+    ).toHaveAttribute('role', 'status');
+    expect(cover(entry.id)).toBe('present');
+    // The slot shows the new state in place; the list stays for comparison.
+    expect(
+      within(drawer).getByRole('tab', { name: 'Cover' }),
+    ).toHaveAccessibleDescription('present');
+    expect(within(buttons[1]!).getByText('In use')).toBeInTheDocument();
+    expect(
+      within(drawer).queryByRole('button', { name: 'Replace' }),
+    ).toBeNull();
+  });
+
+  it('asks inline before replacing existing art, and can cancel', async () => {
+    const view = await setup();
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'missing' && e.art.screenshot === 'present',
+    )!;
+    const drawer = show(entry);
+    await userEvent.click(
+      within(drawer).getByRole('tab', { name: 'Screenshot' }),
+    );
+    const group = await within(drawer).findByRole('group', {
+      name: 'Candidates',
+    });
+    const [first, second] = within(group).getAllByRole('button');
+    await userEvent.click(first!);
+    expect(first).toHaveAttribute('aria-pressed', 'true');
+    const bar = within(drawer).getByRole('group', { name: /^Use “/ });
+    expect(first!.parentElement).toContainElement(bar);
+    expect(within(bar).getByText(/backed up/)).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'Replace' })).toHaveFocus();
+    await userEvent.click(within(bar).getByRole('button', { name: 'Cancel' }));
+    expect(
+      within(drawer).queryByRole('button', { name: 'Replace' }),
+    ).toBeNull();
+    expect(first).toHaveFocus();
+
+    await userEvent.click(second!);
+    await userEvent.keyboard('{Escape}');
+    expect(
+      within(drawer).queryByRole('button', { name: 'Replace' }),
+    ).toBeNull();
+    expect(screen.getByRole('complementary')).toBeInTheDocument();
+
+    await userEvent.click(second!);
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Replace' }),
+    );
+    expect(
+      await within(drawer).findByText(
+        'Screenshot updated. Undo it from Jobs if needed.',
       ),
     ).toBeInTheDocument();
-    expect(cover(entry.id)).toBe('present');
+    expect(second).toHaveFocus();
+  });
+
+  it('replaces without asking when the settings say to keep a backup', async () => {
+    const view = await setup();
+    act(() =>
+      useSettingsStore.setState((s) => ({
+        settings: {
+          ...(s.settings ?? DEFAULT_SETTINGS),
+          art: {
+            ...(s.settings ?? DEFAULT_SETTINGS).art,
+            overwrite: 'backup',
+          },
+        },
+      })),
+    );
+    const entry = view.entries.find(
+      (e) => e.art.cover === 'missing' && e.art.screenshot === 'present',
+    )!;
+    const drawer = show(entry);
+    await userEvent.click(
+      within(drawer).getByRole('tab', { name: 'Screenshot' }),
+    );
+    const group = await within(drawer).findByRole('group', {
+      name: 'Candidates',
+    });
+    await userEvent.click(within(group).getAllByRole('button')[0]!);
     expect(
-      within(drawer).queryByRole('group', { name: 'Candidates' }),
-    ).not.toBeInTheDocument();
+      await within(drawer).findByText(/^Screenshot updated/),
+    ).toBeInTheDocument();
   });
 
   it('sets the art from a file and removes it after confirmation', async () => {
@@ -86,16 +164,31 @@ describe('Drawer art actions', () => {
     await userEvent.click(
       within(drawer).getByRole('button', { name: 'From file…' }),
     );
-    expect(await within(drawer).findByText(/^Art updated/)).toBeInTheDocument();
+    expect(
+      await within(drawer).findByText(/^Cover updated/),
+    ).toBeInTheDocument();
     expect(cover(entry.id)).toBe('present');
     await userEvent.click(
       within(drawer).getByRole('button', { name: 'Remove' }),
     );
     expect(within(drawer).getByText(/It is backed up/)).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: 'Keep' })).toHaveFocus();
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Keep' }));
+    expect(
+      within(drawer).getByRole('button', { name: 'Remove' }),
+    ).toHaveFocus();
+    expect(cover(entry.id)).toBe('present');
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Remove' }),
+    );
     await userEvent.click(
       within(drawer).getByRole('button', { name: 'Remove image' }),
     );
-    await within(drawer).findByText(/^Art updated/);
+    expect(
+      await within(drawer).findByText(
+        'Cover removed. Undo it from Jobs if needed.',
+      ),
+    ).toBeInTheDocument();
     expect(cover(entry.id)).toBe('missing');
   });
 
@@ -141,9 +234,16 @@ describe('Drawer art actions', () => {
       }),
     );
     const drawer = show(view.entries[0]!);
-    for (const name of ['Change…', 'From file…', 'Remove']) {
+    for (const name of ['From file…', 'Remove', 'Search']) {
       expect(within(drawer).getByRole('button', { name })).toBeDisabled();
     }
+    expect(
+      within(drawer).getByRole('searchbox', { name: 'Title to search' }),
+    ).toBeDisabled();
+    // Nothing is looked up while the job runs.
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(within(drawer).queryByRole('group')).toBeNull();
+    expect(within(drawer).queryByRole('alert')).toBeNull();
     expect(
       within(drawer).getByText(/A fill job is running/),
     ).toBeInTheDocument();

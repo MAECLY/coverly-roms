@@ -59,12 +59,11 @@ describe('drawer search by title', () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'missing')!;
     const drawer = show(entry);
-    await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Search…' }),
-    );
     const box = within(drawer).getByRole('searchbox', {
       name: 'Title to search',
     });
+    // Pre-filled with the game's name, without its tags.
+    expect(box).toHaveValue(entry.name.replace(/\s*[([][^)\]]*[)\]]/g, ''));
     await userEvent.clear(box);
     await userEvent.type(box, 'Golden Sun{enter}');
     const group = await within(drawer).findByRole('group', {
@@ -94,9 +93,7 @@ describe('drawer search by title', () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'present')!;
     const drawer = show(entry);
-    await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Search…' }),
-    );
+    await userEvent.click(within(drawer).getByRole('tab', { name: 'Cover' }));
     await userEvent.type(
       within(drawer).getByRole('searchbox', { name: 'Title to search' }),
       '{selectall}Zelda{enter}',
@@ -109,7 +106,7 @@ describe('drawer search by title', () => {
       within(drawer).getByText(/The current image is backed up/),
     ).toBeInTheDocument();
     await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Use this image' }),
+      within(drawer).getByRole('button', { name: 'Replace' }),
     );
     expect(await within(drawer).findByText(/Art updated/)).toBeInTheDocument();
   });
@@ -118,9 +115,6 @@ describe('drawer search by title', () => {
     const view = await setup();
     const entry = view.entries[0]!;
     const drawer = show(entry);
-    await userEvent.click(
-      within(drawer).getByRole('button', { name: 'Search…' }),
-    );
     const box = within(drawer).getByRole('searchbox', {
       name: 'Title to search',
     });
@@ -135,5 +129,36 @@ describe('drawer search by title', () => {
         .length,
     ).toBeGreaterThan(0);
     expect(document.querySelectorAll('img[src="x"], [onerror]').length).toBe(0);
+  });
+
+  it('searches in place and clearing the title brings the candidates back', async () => {
+    const view = await setup();
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const drawer = show(entry);
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    const box = within(drawer).getByRole('searchbox', {
+      name: 'Title to search',
+    });
+    await userEvent.clear(box);
+    await userEvent.type(box, 'Zelda{enter}');
+    const results = await within(drawer).findByRole('group', {
+      name: 'Search results',
+    });
+    expect(within(results).getAllByText('Zelda (USA)').length).toBe(1);
+    expect(
+      within(drawer).queryByRole('group', { name: 'Candidates' }),
+    ).toBeNull();
+    await userEvent.clear(box);
+    await within(drawer).findByRole('group', { name: 'Candidates' });
+    expect(
+      within(drawer).queryByRole('group', { name: 'Search results' }),
+    ).toBeNull();
+
+    await userEvent.type(box, 'Zelda{enter}');
+    await within(drawer).findByRole('group', { name: 'Search results' });
+    await userEvent.click(
+      within(drawer).getByRole('button', { name: 'Back to candidates' }),
+    );
+    await within(drawer).findByRole('group', { name: 'Candidates' });
   });
 });
