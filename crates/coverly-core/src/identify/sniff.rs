@@ -247,23 +247,12 @@ fn container(head: &[u8]) -> Option<ContainerMagic> {
 fn discs(_src: &mut dyn ReadAt, _head: &[u8], _len: u64, _s: &mut Sniff) {}
 
 fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
-    // NDS before GBA: NDS cartridges embed a GBA-style area.
+    // NDS before GBA (at the end): NDS cartridges embed a GBA-style area.
     if let Some(h) = at(head, 0, 0x160) {
         let logo_crc = u16::from_le_bytes([h[0x15C], h[0x15D]]);
         let header_crc = u16::from_le_bytes([h[0x15E], h[0x15F]]);
         if logo_crc == 0xCF56 && crc16_modbus(&h[..0x15E]) == header_crc {
             s.hit("nds", 0.95, "NDS header");
-            return;
-        }
-    }
-    if let Some(h) = at(head, 0, 0xC0) {
-        if h[0xB2] == 0x96 && gba_complement(h) == h[0xBD] {
-            let logo = if starts(h, 0x04, &[0x24, 0xFF, 0xAE, 0x51]) {
-                "fixed 0x96, logo"
-            } else {
-                "fixed 0x96"
-            };
-            s.hit("gba", 0.95, logo);
             return;
         }
     }
@@ -315,6 +304,19 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     }
     // Tasks 6–7 add Sega, SNES, SNK and Bandai here.
     let _ = (src, len, ext);
+    // GBA last: its signature is one fixed byte plus a one-byte complement
+    // (16 bits), weaker than any magic above, so a file that carries one of
+    // those and matches it by chance keeps its own system.
+    if let Some(h) = at(head, 0, 0xC0) {
+        if h[0xB2] == 0x96 && gba_complement(h) == h[0xBD] {
+            let logo = if starts(h, 0x04, &[0x24, 0xFF, 0xAE, 0x51]) {
+                "fixed 0x96, logo"
+            } else {
+                "fixed 0x96"
+            };
+            s.hit("gba", 0.95, logo);
+        }
+    }
 }
 
 /// First bytes of the Nintendo logo every Game Boy header carries at 0x104.

@@ -249,9 +249,58 @@ fn nds_by_two_crcs_and_never_as_gba() {
     assert_eq!(best(&run(&nds, "nds")), Some(("nds".into(), 0.95)));
     // An NDS image that also looks like a GBA header stays NDS (the edit is
     // covered by the header CRC, so the fixture recomputes it).
-    let hybrid = fx::nds_with(|b| b[0xB2] = 0x96);
+    let hybrid = fx::nds_with(with_gba_area);
+    assert!(
+        gba_area_is_valid(&hybrid),
+        "the hybrid must pass the GBA check on its own"
+    );
     assert_eq!(best(&run(&hybrid, "nds")).unwrap().0, "nds");
+    assert_eq!(run(&hybrid, "nds").hits.len(), 1, "no GBA evidence too");
     let mut bad = fx::nds();
     bad[0x15E] ^= 0xFF;
     assert_eq!(best(&run(&bad, "nds")), None);
+}
+
+/// Gives `b` a GBA-valid fixed byte and complement (a 16-bit signature).
+fn with_gba_area(b: &mut [u8]) {
+    b[0xB2] = 0x96;
+    b[0xBD] = b[0xA0..=0xBC]
+        .iter()
+        .fold(0u8, |c, v| c.wrapping_sub(*v))
+        .wrapping_sub(0x19);
+}
+
+/// The fixed byte and complement alone would pass the GBA check.
+fn gba_area_is_valid(b: &[u8]) -> bool {
+    let complement = b[0xA0..=0xBC]
+        .iter()
+        .fold(0u8, |c, v| c.wrapping_sub(*v))
+        .wrapping_sub(0x19);
+    b[0xB2] == 0x96 && b[0xBD] == complement
+}
+
+#[test]
+fn weak_gba_signature_never_beats_a_stronger_magic() {
+    // The GBA check is one fixed byte plus a one-byte complement; a file
+    // that carries a 4+ byte magic (or the GB logo and checksum) and
+    // happens to match it by chance keeps its own system.
+    let cases: Vec<(Vec<u8>, &str, &str)> = vec![
+        (fx::nes(), "nes", "nes"),
+        (fx::n64(fx::N64Order::Z64), "z64", "n64"),
+        (fx::lynx(), "lnx", "lynx"),
+        (fx::a7800(), "a78", "a7800"),
+        (fx::gb(0x00), "gb", "gb"),
+    ];
+    for (mut bytes, ext, want) in cases {
+        if bytes.len() < 0x150 {
+            bytes.resize(0x150, 0);
+        }
+        let gb_sum_before = bytes[0x14D];
+        with_gba_area(&mut bytes);
+        assert_eq!(bytes[0x14D], gb_sum_before);
+        assert!(gba_area_is_valid(&bytes), "{want}: fixture must look GBA");
+        let s = run(&bytes, ext);
+        assert_eq!(best(&s).map(|h| h.0), Some(want.to_string()), "{want}");
+        assert_eq!(s.hits.len(), 1, "{want}: only its own evidence");
+    }
 }
