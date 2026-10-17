@@ -140,3 +140,20 @@ fn a_path_without_an_existing_ancestor_is_not_the_same_volume() {
     let tmp = tempfile::tempdir().unwrap();
     assert!(!same_volume(tmp.path(), Path::new("relative/nowhere")));
 }
+
+#[cfg(unix)]
+#[test]
+fn an_unlistable_target_folder_is_refused_as_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let a = tmp.path().join("a.gb");
+    fs::write(&a, b"A").unwrap();
+    let dir = tmp.path().join("GB");
+    fs::create_dir(&dir).unwrap();
+    // Writable and searchable, but not listable: twins cannot be ruled out.
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o300)).unwrap();
+    let result = rename_noclobber(&a, &dir.join("b.gb"));
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(result.unwrap_err().kind(), ErrorKind::PermissionDenied);
+    assert_eq!(fs::read(&a).unwrap(), b"A");
+}

@@ -80,6 +80,13 @@ fn twin_exists(to: &Path) -> io::Result<bool> {
         Ok(found) => Ok(found.is_some()),
         Err(super::WriteError::Io(e)) if e.kind() == ErrorKind::NotFound => Ok(false),
         Err(super::WriteError::Io(e)) => Err(e),
+        // Keep the kind so callers still tell "denied" and "full" apart.
+        Err(e @ super::WriteError::Denied(_)) => {
+            Err(io::Error::new(ErrorKind::PermissionDenied, e.to_string()))
+        }
+        Err(e @ super::WriteError::DiskFull) => {
+            Err(io::Error::new(ErrorKind::StorageFull, e.to_string()))
+        }
         Err(e) => Err(io::Error::other(e.to_string())),
     }
 }
