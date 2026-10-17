@@ -511,10 +511,16 @@ impl Writer {
     }
 }
 
+/// The key file names are compared by: NFC, lower case. FAT and exFAT
+/// are case-insensitive and macOS hands out decomposed names.
+pub(crate) fn name_key(name: &str) -> String {
+    name.nfc().collect::<String>().to_lowercase()
+}
+
 /// The entry of `dir` whose name equals `name` ignoring case (NFC, lower
 /// case): FAT and exFAT are case-insensitive. An exact match wins.
-fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, WriteError> {
-    let key = |s: &str| s.nfc().collect::<String>().to_lowercase();
+pub(crate) fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, WriteError> {
+    let key = name_key;
     let wanted = key(name);
     let mut found = None;
     for entry in fs::read_dir(dir).map_err(|e| map_io(e, dir))? {
