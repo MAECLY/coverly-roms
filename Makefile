@@ -30,6 +30,8 @@ DEV_PORT := 1431
 SITE_OUT := target/site
 SITE_PORT ?= 8080
 RELEASE ?=
+# `make site-covers CONTACT=/tmp/sheet.html`: also write a contact sheet.
+CONTACT ?=
 
 # Throwaway example library built by `make example` (git-ignored).
 EXAMPLE_DIR := target/example
@@ -187,6 +189,7 @@ fill: ## Plan a fill without writing (dry run): make fill ROOT=/path/to/roms
 
 .PHONY: site
 site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json to preview a release).
+	node scripts/site/gen_covers.mjs --check
 	rm -rf "$(SITE_OUT)"
 	@if [ -n "$(RELEASE)" ]; then \
 	  python3 -I scripts/site/apply_release.py --release-json "$(RELEASE)" --repo MAECLY/coverly-roms --site site --out "$(SITE_OUT)"; \
@@ -196,13 +199,18 @@ site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json t
 	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
 
+.PHONY: site-covers
+site-covers: ## Regenerate the landing cover sprite and inks (CONTACT=sheet.html also writes a review sheet).
+	node scripts/site/gen_covers.mjs $(if $(CONTACT),--contact "$(CONTACT)")
+
 .PHONY: site-og
 site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs Chrome or Chromium).
 	node scripts/site/og.mjs
 
 .PHONY: site-check
-site-check: ## Check the landing page: tokens, links, ES/EN parity, head tags, budgets, contrast.
+site-check: ## Check the landing page: tokens, cover sprite, links, ES/EN parity, head tags, budgets, contrast, motion, art.
 	node scripts/brand/build_tokens.mjs --check
+	node scripts/site/gen_covers.mjs --check
 	python3 -I scripts/site/check_site.py
 
 # ───────────────────────────────────────────────────────────────────────
