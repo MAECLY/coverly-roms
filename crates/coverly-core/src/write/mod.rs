@@ -17,17 +17,18 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::identify::hash::hex_upper;
-use crate::time::{compact_utc, rfc3339_utc};
+use crate::time::{compact_utc, parse_compact_utc, rfc3339_utc};
 
 mod noclobber;
 mod transfer;
+mod undo_organize;
 use noclobber::is_cross_device;
 #[doc(hidden)]
 pub use noclobber::rename_noclobber_using;
@@ -313,13 +314,6 @@ enum Op {
     /// the job is listed but cannot be undone.
     #[serde(other)]
     Unknown,
-}
-
-impl Op {
-    /// The ops whose undo this build implements.
-    fn undoable(&self) -> bool {
-        matches!(self, Op::Created | Op::Replaced { .. } | Op::Removed { .. })
-    }
 }
 
 /// Whether every entry of a journal can be undone by this build.
@@ -791,6 +785,12 @@ pub struct UndoReport {
     pub restored: Vec<PathBuf>,
     /// Files changed (or deleted) after the job: left as they are.
     pub skipped_modified: Vec<PathBuf>,
+    /// Moved files whose original place is taken again by another file:
+    /// both are left as they are.
+    pub skipped_occupied: Vec<PathBuf>,
+    /// Folders the job created and the undo removed (they held nothing
+    /// of the user's).
+    pub dirs_removed: Vec<PathBuf>,
 }
 
 /// One journaled job, for `coverly undo --list`.
@@ -982,9 +982,13 @@ pub fn undo_job(data_dir: &Path, job: &str) -> Result<UndoReport, WriteError> {
 
 fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteError> {
     let (header, entries, _) = parse(&journal.path)?;
-    let Line::Header { root, .. } = header else {
+    let Line::Header {
+        root, source_root, ..
+    } = header
+    else {
         unreachable!("parse returns a header first")
     };
+    let source_root = source_root.unwrap_or_else(|| root.clone());
     // Refuse before touching anything: undoing part of a journal from a
     // newer build would leave the library half reverted.
     if !entries_undoable(&entries) {
@@ -992,13 +996,19 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             "written by a newer Coverly; update to undo it".to_string(),
         ));
     }
-    if entries
-        .iter()
-        .any(|e| matches!(e, Line::Entry { op, .. } if !op.undoable()))
-    {
-        return Err(WriteError::Journal(
-            "organise jobs cannot be undone by this build yet".to_string(),
-        ));
+    // An organise undo needs both volumes: with the card pulled every
+    // target would look gone and the job would be marked undone for
+    // nothing. Report it like a write to a missing volume (a pause).
+    let organise = |pred: fn(&Op) -> bool| {
+        entries
+            .iter()
+            .any(|e| matches!(e, Line::Entry { op, .. } if pred(op)))
+    };
+    if organise(undo_organize::is_organize_op) && !root.is_dir() {
+        return Err(WriteError::Denied(root));
+    }
+    if organise(|op| matches!(op, Op::Moved { .. } | Op::Copied { .. })) && !source_root.is_dir() {
+        return Err(WriteError::Denied(source_root));
     }
     let backups = data_dir.join("backups").join(&journal.job);
     let mut report = UndoReport {
@@ -1006,6 +1016,15 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         removed: Vec::new(),
         restored: Vec::new(),
         skipped_modified: Vec::new(),
+        skipped_occupied: Vec::new(),
+        dirs_removed: Vec::new(),
+    };
+    let mut ctx = undo_organize::Ctx {
+        root: &root,
+        source_root: &source_root,
+        data_dir,
+        job: &journal.job,
+        counter: 0,
     };
     // A target replaced twice in one job (a gamelist written by a run and
     // its resume) shares one backup holding the original bytes: once the
@@ -1013,11 +1032,20 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     let mut restored_here: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for (n, entry) in entries.into_iter().rev().enumerate() {
         let Line::Entry {
-            target, op, sha1, ..
+            target,
+            op,
+            sha1,
+            fp,
+            ..
         } = entry
         else {
             continue;
         };
+        // Organise ops never read whole files unless a CRC must decide.
+        if undo_organize::is_organize_op(&op) {
+            undo_organize::undo_entry(&mut ctx, target, op, fp, &mut report)?;
+            continue;
+        }
         let target = ensure_within(&root, &target)?;
         if matches!(op, Op::Replaced { .. }) && restored_here.contains(&target) {
             continue;
@@ -1064,7 +1092,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 restored_here.insert(target.clone());
                 report.restored.push(target);
             }
-            // Refused above, before anything was touched.
+            // Organise ops are undone above; unknown ones refused before.
             (
                 Op::Moved { .. }
                 | Op::Copied { .. }
@@ -1072,7 +1100,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 | Op::OverrideMoved { .. }
                 | Op::Unknown,
                 _,
-            ) => unreachable!("checked before undoing"),
+            ) => unreachable!("handled before reading the target"),
         }
     }
     let undone = journal
@@ -1082,18 +1110,125 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     Ok(report)
 }
 
-/// Keeps the newest `keep` journals (and their backups); deletes the rest.
+/// The jobs newer than `job` that are not undone and wrote under its
+/// root (or above it): undoing `job` alone would orphan what they wrote
+/// (art and gamelists of ROMs an organise undo moves back). Newest first.
+pub fn later_jobs(data_dir: &Path, job: &str) -> Result<Vec<JobSummary>, WriteError> {
+    let jobs = list_jobs(data_dir)?;
+    let this = jobs
+        .iter()
+        .find(|j| j.job == job)
+        .ok_or(WriteError::NothingToUndo)?;
+    let root = this.root.clone();
+    Ok(jobs
+        .into_iter()
+        .filter(|j| {
+            j.job.as_str() > job
+                && !j.undone
+                && !j.root.as_os_str().is_empty()
+                && (j.root.starts_with(&root) || root.starts_with(&j.root))
+        })
+        .collect())
+}
+
+/// Undoes every job of `jobs`, newest first (the order they must be
+/// undone in). Every job must exist and not be undone yet, checked before
+/// anything is touched; the first failure stops the rest.
+pub fn undo_jobs_in_order(data_dir: &Path, jobs: &[String]) -> Result<Vec<UndoReport>, WriteError> {
+    let mut ids: Vec<&str> = jobs.iter().map(String::as_str).collect();
+    ids.sort_unstable_by(|a, b| b.cmp(a));
+    ids.dedup();
+    let known = journals(data_dir)?;
+    if ids
+        .iter()
+        .any(|id| !valid_job_id(id) || !known.iter().any(|j| j.job == *id && !j.undone))
+    {
+        return Err(WriteError::NothingToUndo);
+    }
+    ids.into_iter().map(|id| undo_job(data_dir, id)).collect()
+}
+
+/// Days an organise journal is kept even beyond the newest `keep`.
+pub const KEEP_ORGANIZE_DAYS: u32 = 90;
+
+/// Prunes journals (and their backups and plans), counting fill and
+/// organise jobs separately: [`prune_jobs_at`] with
+/// [`KEEP_ORGANIZE_DAYS`] and the current time.
 pub fn prune_jobs(data_dir: &Path, keep: usize) -> Result<(), WriteError> {
-    for journal in journals(data_dir)?.into_iter().skip(keep) {
-        fs::remove_file(&journal.path).map_err(|e| map_io(e, &journal.path))?;
-        let backups = data_dir.join("backups").join(&journal.job);
-        match fs::remove_dir_all(&backups) {
-            Ok(()) => {}
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(map_io(e, &backups)),
+    prune_jobs_at(data_dir, keep, KEEP_ORGANIZE_DAYS, SystemTime::now())
+}
+
+/// Keeps the newest `keep` fill journals and the newest `keep` organise
+/// journals, plus every organise journal younger than
+/// `keep_organize_days` at `now` (its id gives its age); deletes the rest
+/// with their `backups/<job>` and `jobs/<job>.plan.json`. A few fill runs
+/// must never destroy the only way to put hundreds of moved ROMs back.
+pub fn prune_jobs_at(
+    data_dir: &Path,
+    keep: usize,
+    keep_organize_days: u32,
+    now: SystemTime,
+) -> Result<(), WriteError> {
+    let max_age = Duration::from_secs(u64::from(keep_organize_days) * 86_400);
+    let young = |job: &str| {
+        parse_compact_utc(job)
+            .is_some_and(|at| now.duration_since(at).map_or(true, |age| age < max_age))
+    };
+    let (mut fills, mut organises) = (0usize, 0usize);
+    for journal in journals(data_dir)? {
+        let kept = match header_kind(&journal.path) {
+            JobKind::Fill => {
+                fills += 1;
+                fills <= keep
+            }
+            JobKind::Organize => {
+                organises += 1;
+                organises <= keep || young(&journal.job)
+            }
+        };
+        if kept {
+            continue;
         }
+        fs::remove_file(&journal.path).map_err(|e| map_io(e, &journal.path))?;
+        let plan = data_dir
+            .join("jobs")
+            .join(format!("{}.plan.json", journal.job));
+        remove_if_present(&plan, |p| fs::remove_file(p))?;
+        remove_if_present(&data_dir.join("backups").join(&journal.job), |p| {
+            fs::remove_dir_all(p)
+        })?;
     }
     Ok(())
+}
+
+/// `remove(path)`, where a missing `path` is no error.
+fn remove_if_present(
+    path: &Path,
+    remove: impl Fn(&Path) -> io::Result<()>,
+) -> Result<(), WriteError> {
+    match remove(path) {
+        Err(e) if e.kind() != ErrorKind::NotFound => Err(map_io(e, path)),
+        _ => Ok(()),
+    }
+}
+
+/// The kind in a journal's header line; fill when it cannot be read.
+fn header_kind(path: &Path) -> JobKind {
+    use std::io::{BufRead, BufReader, Read};
+    let Ok(file) = File::open(path) else {
+        return JobKind::Fill;
+    };
+    let mut first = Vec::new();
+    if BufReader::new(file.take(1 << 16))
+        .read_until(b'\n', &mut first)
+        .is_err()
+    {
+        return JobKind::Fill;
+    }
+    match serde_json::from_slice::<Line>(&first) {
+        Ok(Line::Header { kind, .. }) => kind,
+        _ => JobKind::Fill,
+    }
 }
 
 #[cfg(test)]
