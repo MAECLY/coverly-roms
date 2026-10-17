@@ -187,6 +187,10 @@ site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json t
 	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
 
+.PHONY: site-og
+site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs Chrome or Chromium).
+	node scripts/site/og.mjs
+
 .PHONY: site-check
 site-check: ## Check the landing page: links, ES/EN parity, head tags, budgets, contrast.
 	python3 -I scripts/site/check_site.py
