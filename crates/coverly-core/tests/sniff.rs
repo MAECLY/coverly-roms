@@ -449,3 +449,85 @@ fn wonderswan_footer_only_for_its_extensions() {
         "0xEA alone is too common"
     );
 }
+
+#[test]
+fn wonderswan_real_footer_layout() {
+    // Last 16 bytes of real dumps (`Final Fantasy (J).wsc`, a mono one):
+    // the far jump opens the 16-byte footer, the colour flag is byte 7.
+    for (tail, system) in [
+        ("ea000000400001010100060204006b72", "wonderswancolor"),
+        ("ea00000090000000008006010400a8b5", "wonderswan"),
+    ] {
+        let mut rom = vec![0u8; 128 * 1024];
+        let n = rom.len();
+        for (i, b) in (0..tail.len()).step_by(2).enumerate() {
+            rom[n - 16 + i] = u8::from_str_radix(&tail[b..b + 2], 16).unwrap();
+        }
+        assert_eq!(
+            best(&run(&rom, "wsc")),
+            Some((system.into(), 0.85)),
+            "{tail}"
+        );
+    }
+    // 0xEA ten bytes from the end (the developer id slot) is not a footer.
+    let mut late = vec![0u8; 128 * 1024];
+    let n = late.len();
+    late[n - 10] = 0xEA;
+    assert_eq!(best(&run(&late, "ws")), None);
+}
+
+#[test]
+fn snes_spc7110_and_sdd1_map_modes() {
+    // Momotarou Dentetsu Happy / Super Power League 4 (SPC7110, 0x3A) and
+    // ExLoROM / S-DD1 (0x22).
+    for mode in [0x3Au8, 0x22] {
+        let mut rom = fx::snes(fx::SnesMap::Hi, false);
+        rom[0xFFC0 + 0x15] = mode;
+        assert_eq!(
+            best(&run(&rom, "sfc")),
+            Some(("snes".into(), 0.95)),
+            "{mode:#x}"
+        );
+    }
+}
+
+#[test]
+fn snes_title_overflowing_the_map_byte_still_matches_by_checksum() {
+    // `Contra III` / `Super Formation Soccer` dumps renamed by old tools:
+    // a 22-byte title overwrites the map mode, the checksum pair and the
+    // ROM size byte (0x17) stay valid.
+    let mut rom = fx::snes(fx::SnesMap::Lo, false);
+    rom[0x7FC0 + 0x15] = b'S';
+    rom[0x7FC0 + 0x17] = 0x0A;
+    assert_eq!(best(&run(&rom, "sfc")), Some(("snes".into(), 0.95)));
+    // Without a plausible ROM size the bare 16-bit pair is not enough.
+    rom[0x7FC0 + 0x17] = 0x00;
+    assert_eq!(best(&run(&rom, "sfc")), None);
+}
+
+#[test]
+fn a_gba_rom_with_its_logo_is_not_taken_for_snes() {
+    // `Lizzie McGuire` (GBA): code at 0x7FC0 reads as map 0x20 and a
+    // 0xFFFF/0x0000 checksum pair; `It's Mr Pants`: as map + ASCII title.
+    let mut lizzie = fx::gba();
+    lizzie.resize(0x10_0000, 0);
+    lizzie[0x7FC0 + 0x15] = 0x20;
+    lizzie[0x7FC0 + 0x1C..0x7FC0 + 0x1E].copy_from_slice(&[0xFF, 0xFF]);
+    assert_eq!(best(&run(&lizzie, "gba")), Some(("gba".into(), 0.95)));
+    let mut pants = fx::gba();
+    pants.resize(0x10_0000, 0);
+    pants[0x7FC0..0x7FD5].copy_from_slice(b"SOME TEXT IN THE DATA");
+    pants[0x7FC0 + 0x15] = 0x31;
+    assert_eq!(best(&run(&pants, "gba")), Some(("gba".into(), 0.95)));
+}
+
+#[test]
+fn snes_blank_checksum_pair_needs_a_title() {
+    // 0xFFFF filler next to zeros is a coincidence, not a checksum.
+    let mut blank = vec![0u8; 0x8_0000];
+    blank[0x7FC0 + 0x15] = 0x20;
+    blank[0x7FC0 + 0x1C..0x7FC0 + 0x1E].copy_from_slice(&[0xFF, 0xFF]);
+    assert_eq!(best(&run(&blank, "sfc")), None);
+    blank[0x7FC0..0x7FD5].copy_from_slice(b"HOMEBREW             ");
+    assert_eq!(best(&run(&blank, "sfc")), Some(("snes".into(), 0.85)));
+}

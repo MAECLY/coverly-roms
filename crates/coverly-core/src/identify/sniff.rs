@@ -305,6 +305,12 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
+    // A GBA header carrying its logo too (48 bits) outranks the SNES
+    // header, which real GBA code at 0x7FC0 can mimic.
+    if gba_signature(head) == Some(true) {
+        s.hit("gba", 0.95, "fixed 0x96, logo");
+        return;
+    }
     if let Some(weight) = snes_header(src, head, len) {
         let detail = if weight >= 0.95 {
             "internal header"
@@ -321,12 +327,13 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         s.hit(if color { "ngpc" } else { "ngp" }, 0.90, "SNK");
         return;
     }
-    // WonderSwan has no magic, only a footer opening with a far jump
-    // (0xEA): too common a byte to trust outside its own extensions.
-    if matches!(ext, "ws" | "wsc") && len >= 10 && len.is_multiple_of(65536) {
-        let mut foot = [0u8; 10];
-        if read_exact_at(src, len - 10, &mut foot) == 10 && foot[0] == 0xEA {
-            let color = foot[1] & 1 == 1;
+    // WonderSwan has no magic, only a 16-byte footer opening with a far
+    // jump (0xEA), colour flag at byte 7: too weak to trust outside its own
+    // extensions.
+    if matches!(ext, "ws" | "wsc") && len >= 16 && len.is_multiple_of(65536) {
+        let mut foot = [0u8; 16];
+        if read_exact_at(src, len - 16, &mut foot) == 16 && foot[0] == 0xEA {
+            let color = foot[7] & 1 == 1;
             s.hit(
                 if color {
                     "wonderswancolor"
@@ -339,19 +346,20 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
             return;
         }
     }
-    // GBA last: its signature is one fixed byte plus a one-byte complement
+    // GBA without its logo last: one fixed byte plus a one-byte complement
     // (16 bits), weaker than any magic above, so a file that carries one of
     // those and matches it by chance keeps its own system.
-    if let Some(h) = at(head, 0, 0xC0) {
-        if h[0xB2] == 0x96 && gba_complement(h) == h[0xBD] {
-            let logo = if starts(h, 0x04, &[0x24, 0xFF, 0xAE, 0x51]) {
-                "fixed 0x96, logo"
-            } else {
-                "fixed 0x96"
-            };
-            s.hit("gba", 0.95, logo);
-        }
+    if gba_signature(head) == Some(false) {
+        s.hit("gba", 0.95, "fixed 0x96");
     }
+}
+
+/// GBA fixed byte 0x96 and header complement: `Some(true)` when the
+/// Nintendo logo opens at 0x04 as well.
+fn gba_signature(head: &[u8]) -> Option<bool> {
+    let h = at(head, 0, 0xC0)?;
+    (h[0xB2] == 0x96 && gba_complement(h) == h[0xBD])
+        .then(|| starts(h, 0x04, &[0x24, 0xFF, 0xAE, 0x51]))
 }
 
 /// The Sega family, most specific first (spec §6.3): Sega CD, 32X and Pico
@@ -427,12 +435,16 @@ fn smd_starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
 }
 
 /// SNES map-mode bytes (0x15 of the internal header): LoROM, HiROM,
-/// SA-1, ExHiROM and their FastROM variants.
-const SNES_MAPS: [u8; 8] = [0x20, 0x21, 0x23, 0x25, 0x30, 0x31, 0x32, 0x35];
+/// ExLoROM/S-DD1, SA-1, ExHiROM, their FastROM variants and SPC7110.
+const SNES_MAPS: [u8; 10] = [0x20, 0x21, 0x22, 0x23, 0x25, 0x30, 0x31, 0x32, 0x35, 0x3A];
+/// Plausible ROM-size bytes (0x17): 2^n KiB, 256 KiB to 8 MiB.
+const SNES_SIZES: std::ops::RangeInclusive<u8> = 0x08..=0x0D;
 
 /// SNES internal header at LoROM/HiROM/ExHiROM, after a 512-byte copier
 /// header when `len % 1024 == 512`: 0.95 when the checksum and its
-/// complement agree, 0.85 for a valid map mode under a printable title.
+/// complement agree under a valid map mode or ROM size (old renamers let a
+/// 22-byte title overwrite the map byte), 0.85 for a valid map mode under
+/// a printable title.
 fn snes_header(src: &mut dyn ReadAt, head: &[u8], len: u64) -> Option<f32> {
     let base: u64 = if len % 1024 == 512 { 512 } else { 0 };
     let mut weak = None;
@@ -449,13 +461,19 @@ fn snes_header(src: &mut dyn ReadAt, head: &[u8], len: u64) -> Option<f32> {
             }
             None => read_exact_at(src, pos, &mut h),
         };
-        if got < 0x20 || !SNES_MAPS.contains(&h[0x15]) {
+        if got < 0x20 {
             continue;
         }
+        let map_ok = SNES_MAPS.contains(&h[0x15]);
         let complement = u16::from_le_bytes([h[0x1C], h[0x1D]]);
         let checksum = u16::from_le_bytes([h[0x1E], h[0x1F]]);
-        if checksum ^ complement == 0xFFFF {
+        // 0xFFFF/0x0000 is erased filler next to zeros, not a checksum.
+        let paired = checksum ^ complement == 0xFFFF && complement != 0xFFFF;
+        if paired && (map_ok || SNES_SIZES.contains(&h[0x17])) {
             return Some(0.95);
+        }
+        if !map_ok {
+            continue;
         }
         let title = &h[..21];
         if title.iter().all(|b| (0x20..0x7F).contains(b)) && title.iter().any(|b| *b != b' ') {
@@ -687,12 +705,12 @@ pub mod fixtures {
         b
     }
 
-    /// A WonderSwan footer: 0xEA (jump) 10 bytes from the end, colour flag
-    /// in the next byte.
+    /// A WonderSwan footer: 0xEA (far jump) 16 bytes from the end, colour
+    /// flag 9 bytes from the end.
     pub fn ws(color: bool) -> Vec<u8> {
         let mut b = zeros(128 * 1024);
         let n = b.len();
-        b[n - 10] = 0xEA;
+        b[n - 16] = 0xEA;
         b[n - 9] = u8::from(color);
         b
     }
