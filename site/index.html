@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<title>Coverly ROMs · Las portadas que faltan en tus ROMs | MAECLY</title>
+<meta name="description" content="Coverly ROMs revisa la tarjeta SD de tu consola portátil, te enseña qué juegos no tienen portada y las añade de una vez, con simulación previa y deshacer. Gratis y AGPL-3.0 para Windows, macOS y Linux.">
+<meta name="author" content="Miguel Esparza · MAECLY">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://coverly-roms.maecly.com/">
+<link rel="alternate" hreflang="es" href="https://coverly-roms.maecly.com/">
+<link rel="alternate" hreflang="en" href="https://coverly-roms.maecly.com/en/">
+<link rel="alternate" hreflang="x-default" href="https://coverly-roms.maecly.com/">
+<link rel="manifest" href="site.webmanifest">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/archivo-display-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/theme.js"></script>
+<script src="assets/motion.js" defer></script>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Coverly ROMs">
+<meta property="og:locale" content="es_ES">
+<meta property="og:locale:alternate" content="en_GB">
+<meta property="og:title" content="Coverly ROMs · Cada ROM, con su portada.">
+<meta property="og:description" content="Mira qué juegos de tu tarjeta SD no tienen portada y añádelas de una vez, con simulación previa y deshacer. Gratis, sin cuenta y sin telemetría.">
+<meta property="og:url" content="https://coverly-roms.maecly.com/">
+<meta property="og:image" content="https://coverly-roms.maecly.com/assets/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Coverly ROMs: «Cada ROM, con su portada.» junto a la cuadrícula de la biblioteca de la app.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Coverly ROMs · Cada ROM, con su portada.">
+<meta name="twitter:description" content="Rellena las portadas que faltan en tus ROMs, con simulación previa y deshacer. Gratis y AGPL-3.0.">
+<meta name="twitter:image" content="https://coverly-roms.maecly.com/assets/og.png">
+<meta name="twitter:image:alt" content="Coverly ROMs: «Cada ROM, con su portada.» junto a la cuadrícula de la biblioteca de la app.">
+<script type="application/ld+json">
+{
+"@context": "https://schema.org",
+"@graph": [
+{"@type":"WebSite","@id":"https://coverly-roms.maecly.com/#website","url":"https://coverly-roms.maecly.com/","name":"Coverly ROMs","inLanguage":["es","en"],"publisher":{"@id":"https://www.maecly.com/#org"}},
+{"@type":"Organization","@id":"https://www.maecly.com/#org","name":"MAECLY","url":"https://www.maecly.com/"},
+{"@type":"SoftwareApplication","@id":"https://coverly-roms.maecly.com/#software","name":"Coverly ROMs","description":"Programa de escritorio gratuito (AGPL-3.0) para Windows, macOS y Linux que audita una biblioteca de ROMs, enseña qué juegos no tienen portada, captura o pantalla de título y los rellena desde libretro-thumbnails o SteamGridDB, con simulación previa, copias de seguridad y deshacer. Escribe en los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI, muOS, ES-DE, Batocera y RetroArch. Incluye la línea de comandos coverly. Sin cuenta ni telemetría.","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11, macOS 11 o posterior, Linux x64, Linux ARM64","inLanguage":["es","en"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"author":{"@type":"Person","name":"Miguel Esparza"},"publisher":{"@id":"https://www.maecly.com/#org"},"screenshot":"https://coverly-roms.maecly.com/assets/shots/es/library-light.webp","url":"https://coverly-roms.maecly.com/"},
+{"@type":"FAQPage","@id":"https://coverly-roms.maecly.com/#preguntas","inLanguage":"es","mainEntity":[{"@type":"Question","name":"¿Es gratis?","acceptedAnswer":{"@type":"Answer","text":"Sí. No cuesta nada, no pide cuenta y no tiene versión de pago. El código es AGPL-3.0."}},{"@type":"Question","name":"¿Trae ROMs o portadas?","acceptedAnswer":{"@type":"Answer","text":"No. Coverly ROMs no incluye ROMs, BIOS ni arte de juegos. Las imágenes se descargan de libretro-thumbnails y, si pones tu propia clave, de SteamGridDB. Cada imagen es de sus dueños."}},{"@type":"Question","name":"¿Va a sobrescribir mis portadas?","acceptedAnswer":{"@type":"Answer","text":"No, salvo que lo pidas. Por defecto solo rellena lo que falta. Si eliges sustituir, antes guarda una copia en la carpeta de datos de la app, no en la tarjeta, y Deshacer la devuelve."}},{"@type":"Question","name":"¿Necesito una cuenta?","acceptedAnswer":{"@type":"Answer","text":"No. libretro-thumbnails funciona sin cuenta. SteamGridDB es opcional: usa tu propia clave, que se guarda en el llavero del sistema."}},{"@type":"Question","name":"¿Con qué consolas funciona?","acceptedAnswer":{"@type":"Answer","text":"Con las que usan los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI y NextUI, muOS, ES-DE, Batocera, Knulli y EmulationStation, o RetroArch. Para otro firmware puedes crear tu formato con vista previa. Aún no se ha probado en consolas reales."}},{"@type":"Question","name":"¿Por qué avisan Gatekeeper y SmartScreen?","acceptedAnswer":{"@type":"Answer","text":"Porque las descargas no llevan certificados de Apple ni de Microsoft. Puedes comprobar cada archivo con SHA256SUMS; en la sección de descarga tienes cómo abrirlo la primera vez."}},{"@type":"Question","name":"¿Envía datos a algún sitio?","acceptedAnswer":{"@type":"Answer","text":"No hay telemetría. La app solo se conecta a las fuentes de arte y, si no lo desactivas, a la comprobación de actualizaciones al arrancar. Las imágenes se recodifican, así que no llevan metadatos."}},{"@type":"Question","name":"¿Cómo se actualiza?","acceptedAnswer":{"@type":"Answer","text":"Desde la propia app, con versiones de GitHub Releases verificadas con minisign antes de instalarse. Hay canal estable y beta, y nunca se reinicia en mitad de un trabajo. La línea de comandos usa coverly update."}}]}
+]
+}
+</script>
+<!-- release:begin -->
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","@id":"https://coverly-roms.maecly.com/#software","softwareVersion":"{{release.version}}","datePublished":"{{release.date}}","releaseNotes":"{{release.notes_url}}","downloadUrl":["{{release.macos_universal.url}}","{{release.windows_x64.url}}","{{release.linux_x64_appimage.url}}","{{release.linux_arm64_appimage.url}}"]}
+</script>
+<!-- release:end -->
+</head>
+<body>
+<a class="skip" href="#contenido">Saltar al contenido</a>
+
+<header class="topbar">
+<div class="wrap topbar-inner">
+<a class="brand" href="./" aria-label="Coverly ROMs, inicio"><span class="wordmark">Coverly<b>ROMs</b></span></a>
+<nav class="topnav" aria-label="Secciones">
+<a href="#como">Cómo funciona</a>
+<a href="#seguro">Seguridad</a>
+<a href="#formatos">Consolas</a>
+<a href="#comparar">Comparar</a>
+<a href="#preguntas">Preguntas</a>
+</nav>
+<details class="navmenu"><summary><span class="sr-only">Secciones</span><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></summary><nav aria-label="Secciones">
+<a href="#como">Cómo funciona</a>
+<a href="#seguro">Seguridad</a>
+<a href="#formatos">Consolas</a>
+<a href="#comparar">Comparar</a>
+<a href="#preguntas">Preguntas</a>
+<a href="#descargar">Descargar</a>
+<a class="menu-lang" href="en/" hreflang="en" lang="en">English</a>
+</nav></details>
+<a class="btn btn-primary btn-small header-cta" href="#descargar">Descargar</a>
+<a class="lang" href="en/" hreflang="en" lang="en">EN<span class="sr-only"> · Read this page in English</span></a>
+</div>
+</header>
+
+<main id="contenido" tabindex="-1">
+<section class="hero" aria-labelledby="titulo">
+<div class="wrap hero-grid">
+<div class="hero-copy">
+<!-- release:begin --><a class="pill" href="#descargar"><span class="pill-dot" aria-hidden="true"></span>Versión {{release.version}} · ya se puede descargar</a><!-- release:end -->
+<!-- norelease:begin --><a class="pill is-soon" href="#descargar"><span class="pill-dot" aria-hidden="true"></span>Primera versión en preparación</a><!-- norelease:end -->
+<h1 id="titulo">Cada ROM, con su&nbsp;portada.</h1>
+<p class="sub">Coverly ROMs revisa la tarjeta SD de tu consola portátil, te enseña qué juegos no tienen portada y las añade de una vez. <strong>Primero lo simula, y nada de lo que ya tienes se toca sin que lo pidas.</strong></p>
+<div class="actions">
+<a class="btn btn-primary" href="#descargar">Descargar Coverly ROMs</a>
+<a class="btn" href="#como">Ver cómo funciona</a>
+</div>
+<ul class="facts" aria-label="En resumen">
+<li>Gratis</li>
+<li>Sin cuenta</li>
+<li>Sin telemetría</li>
+<li>Windows, macOS y Linux</li>
+</ul>
+</div>
+
+<figure class="shelf" role="img" aria-label="Ilustración: una biblioteca de doce juegos inventados en la que cinco no tienen portada; al rellenarla, cada hueco recibe la suya.">
+<ol class="shelf-grid">
+<li class="tile"><span class="ph">Sin portada</span><span class="art p3 m-diag"><span class="sys">GBA</span><span class="name">Æther Rally</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p1 m-sun"><span class="sys">SNES</span><span class="name">Castle Fighter</span></span></li>
+<li class="tile gap"><span class="ph">Sin portada</span><span class="art p2 m-peak"><span class="sys">N64</span><span class="name">Crónicas Quest 64</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p7 m-grid"><span class="sys">MD</span><span class="name">Neon Harbor</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p4 m-ring"><span class="sys">GBC</span><span class="name">Lunar Kart</span></span></li>
+<li class="tile gap"><span class="ph">Sin portada</span><span class="art p8 m-bands"><span class="sys">GB</span><span class="name">Pixel Saga III</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p12 m-sun"><span class="sys">PS</span><span class="name">Ruta Ámbar</span></span></li>
+<li class="tile gap"><span class="ph">Sin portada</span><span class="art p5 m-peak"><span class="sys">NES</span><span class="name">Sky Knights</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p10 m-bands"><span class="sys">GG</span><span class="name">Deep Coral</span></span></li>
+<li class="tile gap"><span class="ph">Sin portada</span><span class="art p6 m-diag"><span class="sys">NEOGEO</span><span class="name">Iron Valley</span></span></li>
+<li class="tile"><span class="ph">Sin portada</span><span class="art p9 m-ring"><span class="sys">PCE</span><span class="name">Moth Lantern</span></span></li>
+<li class="tile gap"><span class="ph">Sin portada</span><span class="art p11 m-grid"><span class="sys">PSP</span><span class="name">Orbit Derby</span></span></li>
+</ol>
+<p class="shelf-status" aria-hidden="true"><span><b class="have">12</b> de 12 con portada</span><span class="done">5 portadas añadidas</span></p>
+</figure>
+</div>
+</section>
+
+<section class="section" id="como" aria-labelledby="como-t">
+<div class="wrap">
+<div class="section-head">
+<h2 id="como-t">Cuatro pasos. Los dos primeros no escriben nada.</h2>
+</div>
+<ol class="steps">
+<li class="step">
+<div class="step-text">
+<span class="step-num" aria-hidden="true">1</span>
+<h3>Abre la carpeta o la tarjeta SD.</h3>
+<p>Coverly reconoce el formato de tu firmware o frontend y te enseña cada sistema con lo que le falta: portada, captura o pantalla de título. También con bibliotecas de más de 10.000 juegos.</p>
+</div>
+<figure>
+<div class="shot"><picture>
+<source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/library-dark@1x.webp 1280w, assets/shots/es/library-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
+<img src="assets/shots/es/library-light@1x.webp" srcset="assets/shots/es/library-light@1x.webp 1280w, assets/shots/es/library-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="La biblioteca abierta en Coverly ROMs: sistemas a la izquierda y una cuadrícula de juegos en la que los que no tienen portada aparecen como huecos con «Sin portada». Abajo, 4553 sin portada de 12.000 ROMs.">
+</picture></div>
+</figure>
+</li>
+<li class="step">
+<div class="step-text">
+<span class="step-num" aria-hidden="true">2</span>
+<h3>Prueba el trabajo antes de hacerlo.</h3>
+<p>Cada ROM se identifica por su huella (CRC32, MD5 o SHA1) y, si no, por su nombre. El asistente elige la imagen según la región de la ROM, tus fuentes o los votos, y te enseña el plan entero.</p>
+<p>Hasta que pulsas Ejecutar, no se escribe nada.</p>
+</div>
+<figure>
+<div class="shot"><picture>
+<source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/fill-dark@1x.webp 1280w, assets/shots/es/fill-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
+<img src="assets/shots/es/fill-light@1x.webp" srcset="assets/shots/es/fill-light@1x.webp 1280w, assets/shots/es/fill-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="Paso 5 del asistente Rellenar arte que falta: «Todavía no se ha escrito nada» y una tabla por sistema con las imágenes automáticas, las que hay que revisar y las que no tienen arte.">
+</picture></div>
+</figure>
+</li>
+<li class="step">
+<div class="step-text">
+<span class="step-num" aria-hidden="true">3</span>
+<h3>Decide solo las dudosas.</h3>
+<p>Las coincidencias seguras van solas. Las dudosas esperan en una cola que recorres con el teclado, y la elegida dice por qué.</p>
+</div>
+<figure>
+<div class="shot"><picture>
+<source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/review-dark@1x.webp 1280w, assets/shots/es/review-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
+<img src="assets/shots/es/review-light@1x.webp" srcset="assets/shots/es/review-light@1x.webp 1280w, assets/shots/es/review-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="La cola Revisar coincidencias dudosas: tres imágenes candidatas para un juego, con su fuente, región y porcentaje, el motivo de la primera y los atajos de teclado.">
+</picture></div>
+</figure>
+</li>
+<li class="step">
+<div class="step-text">
+<span class="step-num" aria-hidden="true">4</span>
+<h3>Aplica, y deshaz si no te convence.</h3>
+<p>Las imágenes se escriben de una en una, sin dejar archivos a medias. Deshacer devuelve la tarjeta a como estaba. Y cualquier portada se cambia a mano desde la ficha del juego.</p>
+</div>
+<figure>
+<div class="shot"><picture>
+<source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/detail-dark@1x.webp 1280w, assets/shots/es/detail-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
+<img src="assets/shots/es/detail-light@1x.webp" srcset="assets/shots/es/detail-light@1x.webp 1280w, assets/shots/es/detail-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="La ficha de un juego junto a la cuadrícula: su portada, captura y pantalla de título, los datos del archivo y los botones Cambiar, Buscar, Desde archivo y Quitar.">
+</picture></div>
+</figure>
+</li>
+</ol>
+</div>
+</section>
+
+<section class="section" id="seguro" aria-labelledby="seguro-t">
+<div class="wrap">
+<div class="section-head">
+<h2 id="seguro-t">Tu tarjeta vuelve como estaba, con más portadas.</h2>
+</div>
+<div class="safe">
+<dl class="promises">
+<div><dt>Simulación por defecto</dt><dd>Para escribir hay que pedirlo. En la terminal, con <code>--apply</code>.</dd></div>
+<div><dt>Solo lo que falta</dt><dd>Las portadas que ya tienes no se sustituyen salvo que elijas hacerlo, y entonces se guarda una copia antes.</dd></div>
+<div><dt>Copias fuera de la tarjeta</dt><dd>Las copias y el registro de cada trabajo van a la carpeta de datos de la app, no a la SD.</dd></div>
+<div><dt>Nada fuera de la biblioteca</dt><dd>No escribe fuera de la carpeta que abriste, y los nombres de archivo valen para FAT y exFAT.</dd></div>
+<div><dt>Un fallo no lo para todo</dt><dd>Si una ROM falla, el resto sigue. Sin conexión o con límite de peticiones, el trabajo se pausa y lo reanudas luego.</dd></div>
+</dl>
+<figure>
+<div class="shot"><picture>
+<source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/reports-dark@1x.webp 1280w, assets/shots/es/reports-dark.webp 2560w" sizes="(min-width: 1240px) 640px, (min-width: 960px) 55vw, calc(100vw - 32px)">
+<img src="assets/shots/es/reports-light@1x.webp" srcset="assets/shots/es/reports-light@1x.webp 1280w, assets/shots/es/reports-light.webp 2560w" sizes="(min-width: 1240px) 640px, (min-width: 960px) 55vw, calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="El informe Auditoría de arte: por cada sistema, cuántas ROMs no tienen portada, captura o pantalla de título, con botones para exportar a CSV y JSON.">
+</picture></div>
+<figcaption class="shot-cap">La auditoría solo lee. Puedes exportarla a CSV o JSON.</figcaption>
+</figure>
+</div>
+</div>
+</section>
+
+<section class="section" id="formatos" aria-labelledby="formatos-t">
+<div class="wrap">
+<div class="section-head">
+<h2 id="formatos-t">Escribe donde tu consola busca.</h2>
+<p>Ocho formatos de firmware y frontend, detectados al abrir la carpeta, y más de 50 sistemas con los nombres de carpeta de cada uno.</p>
+</div>
+<div class="split">
+<div>
+<div class="table-scroll" tabindex="0" role="region" aria-labelledby="formatos-cap">
+<table class="media">
+<caption id="formatos-cap">Qué imágenes puede guardar cada formato</caption>
+<thead><tr><th scope="col">Formato</th><th scope="col">Portada</th><th scope="col">Captura</th><th scope="col">Título</th></tr></thead>
+<tbody>
+<tr><th scope="row">Anbernic de fábrica</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td></tr>
+<tr><th scope="row">GarlicOS</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td></tr>
+<tr><th scope="row">Onion OS</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td></tr>
+<tr><th scope="row">MinUI y NextUI</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td></tr>
+<tr><th scope="row">muOS</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot no" role="img" aria-label="no"></span></td></tr>
+<tr><th scope="row">ES-DE</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td></tr>
+<tr><th scope="row">Batocera, Knulli y EmulationStation</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td></tr>
+<tr><th scope="row">RetroArch</th><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td><td><span class="slot" role="img" aria-label="sí"></span></td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">En Batocera, Knulli y EmulationStation también actualiza <code>gamelist.xml</code>, con deshacer. Para otro firmware, crea tu propio formato con vista previa.</p>
+</div>
+<div class="term" role="region" aria-label="Ejemplo de la línea de comandos">
+<div class="term-bar">La misma lógica, en la terminal: <code>coverly</code></div>
+<pre><code><span class="c"># Qué falta (solo lee)</span>
+<span class="p">$ </span>coverly audit /Volumes/SD --missing-only
+
+<span class="c"># El plan, sin escribir nada</span>
+<span class="p">$ </span>coverly fill /Volumes/SD
+
+<span class="c"># Ahora sí, sin las dudosas</span>
+<span class="p">$ </span>coverly fill /Volumes/SD --apply --auto-only
+
+<span class="c"># Y si no te convence</span>
+<span class="p">$ </span>coverly undo</code></pre>
+</div>
+</div>
+</div>
+</section>
+
+<section class="section" id="comparar" aria-labelledby="comparar-t">
+<div class="wrap">
+<div class="section-head">
+<h2 id="comparar-t">Las otras opciones, comparadas.</h2>
+<p>Las herramientas de referencia funcionan solo en Windows o piden montarlas a mano. Coverly ROMs quiere ser la opción segura en los tres sistemas.</p>
+</div>
+<div class="table-scroll" tabindex="0" role="region" aria-labelledby="comparar-cap">
+<table class="compare">
+<caption id="comparar-cap">Datos de la web o el repositorio de cada herramienta, recogidos en octubre de 2026. «—» quiere decir que no lo indica.</caption>
+<thead><tr><th scope="col"><span class="sr-only">Característica</span></th><th scope="col">Coverly ROMs</th><th scope="col">Skraper</th><th scope="col">Skyscraper</th><th scope="col">ARRM</th><th scope="col">Mini Scraper</th></tr></thead>
+<tbody>
+<tr><th scope="row">Windows</th><td class="yes">Sí</td><td>Sí</td><td>—</td><td>Sí</td><td>—</td></tr>
+<tr><th scope="row">macOS</th><td class="yes">Sí, Apple silicon e Intel</td><td>Sin versión nativa</td><td>Compilándolo tú</td><td>No</td><td>Solo Apple silicon</td></tr>
+<tr><th scope="row">Linux</th><td class="yes">x64 y ARM64</td><td>Con Mono</td><td>Compilándolo tú</td><td>No</td><td>x64</td></tr>
+<tr><th scope="row">App con ventana</th><td class="yes">Sí</td><td>Sí</td><td>No, terminal</td><td>Sí</td><td>Sí</td></tr>
+<tr><th scope="row">Formato Anbernic (<code>Imgs/</code>)</th><td class="yes">Directo</td><td>Configurándolo</td><td>Configurándolo y renombrando</td><td>Configurándolo</td><td>Directo</td></tr>
+<tr><th scope="row">Cuenta</th><td class="yes">No</td><td>ScreenScraper, en la práctica</td><td>Recomendada</td><td>Recomendada</td><td>No</td></tr>
+<tr><th scope="row">Simulación y deshacer</th><td class="yes">Sí</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+<div class="ahead">
+<h3>Dónde van por delante</h3>
+<p>Skraper, Skyscraper y ARRM usan ScreenScraper y traen vídeos, mezclas de imágenes y metadatos. Coverly ROMs solo rellena imágenes. Mini Scraper también funciona sin cuenta y ya tiene versiones publicadas.</p>
+</div>
+<p class="sources">Fuentes: <a href="https://www.skraper.net/">skraper.net</a>, <a href="https://github.com/Gemba/skyscraper">github.com/Gemba/skyscraper</a>, <a href="https://jujuvincebros.fr/">jujuvincebros.fr</a> y <a href="https://github.com/tzubertowski/mini-scraper-cfw">github.com/tzubertowski/mini-scraper-cfw</a>.</p>
+</div>
+</section>
+
+<section class="section" id="descargar" aria-labelledby="descargar-t">
+<div class="wrap">
+<!-- release:begin -->
+<div class="section-head">
+<h2 id="descargar-t">Ya se puede descargar.</h2>
+<p>Versión {{release.version}}, del {{release.date_es}}. Gratis, para siempre.</p>
+</div>
+<div class="dl-grid">
+<div class="dl-card" data-os="mac"><span class="mine">Tu equipo</span><h3>macOS</h3><p class="req">macOS 11 o posterior, Apple silicon e Intel</p><a class="btn btn-primary" href="{{release.macos_universal.url}}">Descargar .dmg ({{release.macos_universal.mib_es}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="win"><span class="mine">Tu equipo</span><h3>Windows</h3><p class="req">Windows 10 y 11, x64</p><a class="btn btn-primary" href="{{release.windows_x64.url}}">Descargar instalador ({{release.windows_x64.mib_es}}&nbsp;MiB)</a><a class="alt" href="{{release.windows_x64_msi.url}}">O el .msi ({{release.windows_x64_msi.mib_es}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="linux"><span class="mine">Tu equipo</span><h3>Linux x64</h3><p class="req">AppImage o paquete .deb</p><a class="btn btn-primary" href="{{release.linux_x64_appimage.url}}">Descargar AppImage ({{release.linux_x64_appimage.mib_es}}&nbsp;MiB)</a><a class="alt" href="{{release.linux_x64_deb.url}}">O el .deb ({{release.linux_x64_deb.mib_es}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="linux"><span class="mine">Tu equipo</span><h3>Linux ARM64</h3><p class="req">AppImage o paquete .deb</p><a class="btn btn-primary" href="{{release.linux_arm64_appimage.url}}">Descargar AppImage ({{release.linux_arm64_appimage.mib_es}}&nbsp;MiB)</a><a class="alt" href="{{release.linux_arm64_deb.url}}">O el .deb ({{release.linux_arm64_deb.mib_es}}&nbsp;MiB)</a></div>
+</div>
+<div class="cli-files">
+<h3>Solo la línea de comandos</h3>
+<ul>
+<li><a href="{{release.cli_macos_arm64.url}}">macOS Apple silicon</a></li>
+<li><a href="{{release.cli_macos_x64.url}}">macOS Intel</a></li>
+<li><a href="{{release.cli_windows_x64.url}}">Windows x64</a></li>
+<li><a href="{{release.cli_linux_x64.url}}">Linux x64</a></li>
+<li><a href="{{release.cli_linux_arm64.url}}">Linux ARM64</a></li>
+</ul>
+</div>
+<ul class="dl-links">
+<li><a href="{{release.notes_url}}">Notas de la versión</a></li>
+<li><a href="{{release.sha256sums_url}}">SHA256SUMS</a></li>
+<li><a href="https://github.com/MAECLY/coverly-roms/releases">Todas las versiones</a></li>
+</ul>
+<!-- release:end -->
+<!-- norelease:begin -->
+<div class="section-head">
+<h2 id="descargar-t">Casi listo para descargar.</h2>
+<p>La primera versión se está preparando. Cuando salga, aquí tendrás los instaladores para macOS, Windows y Linux, y la línea de comandos.</p>
+</div>
+<div class="dl-soon">
+<h3>Todavía no hay versión publicada</h3>
+<p>Este hueco se rellena solo el día que salga. Mientras tanto, puedes compilarla desde el código fuente: el README explica cómo.</p>
+<div class="actions">
+<a class="btn btn-primary" href="https://github.com/MAECLY/coverly-roms#readme">Compilar desde el código</a>
+<a class="btn" href="https://github.com/MAECLY/coverly-roms/releases">Ver las versiones</a>
+</div>
+</div>
+<!-- norelease:end -->
+<div class="dl-more">
+<div>
+<h3>La primera vez que lo abras</h3>
+<ul>
+<li>macOS: si dice que no puede comprobar el desarrollador, ve a Ajustes del Sistema, Privacidad y seguridad, y pulsa «Abrir igualmente».</li>
+<li>Windows: si SmartScreen avisa, pulsa «Más información» y luego «Ejecutar de todas formas».</li>
+<li>Linux: da permiso de ejecución al AppImage o instala el .deb.</li>
+</ul>
+<p class="note">Avisan porque las descargas no llevan certificados de Apple ni de Microsoft. Comprueba cada archivo con SHA256SUMS.</p>
+</div>
+<div>
+<h3>Lo que aún no hace</h3>
+<ul class="notyet">
+<li>ScreenScraper: previsto, aún no disponible.</li>
+<li>Vídeos, mezclas de imágenes, marquesinas o logos.</li>
+<li>Editar metadatos, renombrar o verificar ROMs.</li>
+<li>Funcionar en la propia consola.</li>
+<li>Aún no se ha probado en consolas reales.</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+
+<section class="section" id="preguntas" aria-labelledby="preguntas-t">
+<div class="wrap">
+<div class="section-head">
+<h2 id="preguntas-t">Antes de que preguntes.</h2>
+</div>
+<div class="faq">
+<details><summary>¿Es gratis?</summary><p>Sí. No cuesta nada, no pide cuenta y no tiene versión de pago. El código es AGPL-3.0.</p></details>
+<details><summary>¿Trae ROMs o portadas?</summary><p>No. Coverly ROMs no incluye ROMs, BIOS ni arte de juegos. Las imágenes se descargan de libretro-thumbnails y, si pones tu propia clave, de SteamGridDB. Cada imagen es de sus dueños.</p></details>
+<details><summary>¿Va a sobrescribir mis portadas?</summary><p>No, salvo que lo pidas. Por defecto solo rellena lo que falta. Si eliges sustituir, antes guarda una copia en la carpeta de datos de la app, no en la tarjeta, y Deshacer la devuelve.</p></details>
+<details><summary>¿Necesito una cuenta?</summary><p>No. libretro-thumbnails funciona sin cuenta. SteamGridDB es opcional: usa tu propia clave, que se guarda en el llavero del sistema.</p></details>
+<details><summary>¿Con qué consolas funciona?</summary><p>Con las que usan los formatos de Anbernic de fábrica, GarlicOS, Onion OS, MinUI y NextUI, muOS, ES-DE, Batocera, Knulli y EmulationStation, o RetroArch. Para otro firmware puedes crear tu formato con vista previa. Aún no se ha probado en consolas reales.</p></details>
+<details><summary>¿Por qué avisan Gatekeeper y SmartScreen?</summary><p>Porque las descargas no llevan certificados de Apple ni de Microsoft. Puedes comprobar cada archivo con SHA256SUMS; en la sección de descarga tienes cómo abrirlo la primera vez.</p></details>
+<details><summary>¿Envía datos a algún sitio?</summary><p>No hay telemetría. La app solo se conecta a las fuentes de arte y, si no lo desactivas, a la comprobación de actualizaciones al arrancar. Las imágenes se recodifican, así que no llevan metadatos.</p></details>
+<details><summary>¿Cómo se actualiza?</summary><p>Desde la propia app, con versiones de GitHub Releases verificadas con minisign antes de instalarse. Hay canal estable y beta, y nunca se reinicia en mitad de un trabajo. La línea de comandos usa coverly update.</p></details>
+</div>
+</div>
+</section>
+
+<section class="closing" aria-labelledby="cierre-t">
+<div class="wrap">
+<h2 id="cierre-t">Abre la tarjeta. Mira lo que falta.</h2>
+<p>Lo demás lo decides tú, con la simulación delante.</p>
+<div class="actions"><a class="btn btn-primary" href="#descargar">Descargar Coverly ROMs</a></div>
+</div>
+</section>
+</main>
+
+<footer class="footer">
+<div class="wrap">
+<div class="footer-top">
+<div>
+<span class="wordmark">Coverly<b>ROMs</b></span>
+<p class="tagline">Encuentra y añade las portadas que faltan en tus ROMs.</p>
+<fieldset class="mode mode-wrap"><legend class="sr-only">Modo de color</legend>
+<label><input type="radio" name="mode" value="light">Claro</label>
+<label><input type="radio" name="mode" value="dark">Oscuro</label>
+<label><input type="radio" name="mode" value="system" checked>Sistema</label>
+</fieldset>
+</div>
+<ul class="footer-links">
+<li><a href="https://github.com/MAECLY/coverly-roms/blob/main/LICENSE">Licencia AGPL-3.0</a></li>
+<li><a href="#descargar">Descargas</a></li>
+<li><a href="https://github.com/MAECLY/coverly-roms">Código fuente</a></li>
+<li><a href="#comparar">Comparar</a></li>
+<li><a href="#preguntas">Preguntas</a></li>
+<li><a href="llms.txt">llms.txt</a></li>
+<li><a href="agents.txt">agents.txt</a></li>
+<li><a href="en/" hreflang="en" lang="en">English</a></li>
+</ul>
+</div>
+<p class="legal">Coverly ROMs y su marca son de MAECLY; la licencia AGPL-3.0 no los cubre. No incluye ROMs, BIOS ni arte de juegos: cada imagen es de sus dueños, y los nombres de consolas y firmware solo indican compatibilidad. Hecho por Miguel Esparza · <a href="mailto:hola@maecly.com">hola@maecly.com</a></p>
+<p class="proof"><span class="proof-nojs">Sin cookies ni analítica, y nada de otros servidores: compruébalo en la pestaña Red.</span><span class="proof-js">Sin cookies ni analítica. Peticiones a otros servidores desde que llegaste: <b class="req-count">0</b></span> <span class="proof-ext" hidden>No las hace esta página (su política de seguridad lo impide): suelen venir de extensiones del navegador.</span></p>
+</div>
+</footer>
+</body>
+</html>
