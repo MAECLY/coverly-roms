@@ -4,6 +4,7 @@
 pub mod apply;
 pub mod evidence;
 pub mod inspect;
+pub mod online;
 pub mod plan;
 pub mod target;
 pub mod walk;

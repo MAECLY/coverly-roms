@@ -6,6 +6,8 @@ use coverly_core::identify::hash::{Digests, HashOutcome, RomHashes};
 use coverly_core::identify::names::{parse_name, Region};
 use coverly_core::net::testing::{png_bytes, MockResponse, MockServer};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::organize::evidence::OnlineLookup;
+use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::profiles::Media;
 use coverly_core::sources::screenscraper::{
     check_account, media_type, ScreenScraperSource, SsConfig, QUERY_VALUE, SOFTNAME,
@@ -409,4 +411,96 @@ fn the_user_account_is_sent_only_when_complete_and_checked_cheaply() {
     );
     assert_eq!(DevCredentials::from_values(Some(" "), Some("x")), None);
     assert_eq!(DevCredentials::from_values(Some("a"), None), None);
+}
+
+// --- Organise: optional online identification by CRC (Task 24) ---
+
+fn zip_entry_path(sid: u32, inner: &str) -> String {
+    format!(
+        "/ss/jeuInfos.php?{}&systemeid={sid}&romtype=rom&romnom={}&romtaille=16&crc=ABCD1234",
+        creds(),
+        enc(inner)
+    )
+}
+
+#[test]
+fn identify_by_hash_returns_the_game_name() {
+    let w = w();
+    w.server
+        .serve_json(&jeu_infos_path(), &fixture("jeu_infos_golden_sun.json"));
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let name = src
+        .identify_by_hash(12, "Golden Sun (USA, Europe).gba", &hashes())
+        .unwrap();
+    assert_eq!(name.as_deref(), Some("Golden Sun"));
+    // Cached like every ScreenScraper answer: no second request.
+    let again = src
+        .identify_by_hash(12, "Golden Sun (USA, Europe).gba", &hashes())
+        .unwrap();
+    assert_eq!(again.as_deref(), Some("Golden Sun"));
+    assert_eq!(w.server.requests().len(), 1);
+    // A ROM that was not hashed is never asked.
+    assert_eq!(
+        src.identify_by_hash(12, "x.gba", &HashOutcome::NameOnly)
+            .unwrap(),
+        None
+    );
+    assert_eq!(w.server.requests().len(), 1);
+}
+
+#[test]
+fn the_lookup_asks_at_most_three_systems_and_never_when_quota_is_gone() {
+    let db = SystemDb::builtin();
+    let inner = "Golden Sun (USA, Europe).gba";
+    let w1 = w();
+    w1.server.serve_json(
+        &zip_entry_path(12, inner),
+        &fixture("jeu_infos_golden_sun.json"),
+    );
+    let src = ScreenScraperSource::new(&w1.http, &w1.cache, dev(), Some(user()), w1.cfg.clone());
+    let lookup = ScreenScraperLookup::new(&src, &db);
+    let systems: Vec<String> = ["nope", "fbneo", "gb", "gbc", "nes", "gba"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    // Unknown systems and systems without a ScreenScraper id are skipped;
+    // only the first three with one are asked (gba is fourth: never).
+    assert!(lookup.lookup(&systems, inner, "abcd1234", 16).is_empty());
+    let paths: Vec<String> = w1.server.requests().into_iter().map(|r| r.path).collect();
+    assert_eq!(
+        paths,
+        vec![
+            zip_entry_path(9, inner),
+            zip_entry_path(10, inner),
+            zip_entry_path(3, inner)
+        ]
+    );
+    // The first hit wins and stops the lookup.
+    let found = lookup.lookup(
+        &["gba".to_string(), "gb".to_string()],
+        inner,
+        "abcd1234",
+        16,
+    );
+    assert_eq!(found, vec![("gba".to_string(), "Golden Sun".to_string())]);
+    assert_eq!(w1.server.hits(&zip_entry_path(12, inner)), 1);
+    assert_eq!(w1.server.requests().len(), 4);
+    // No candidate systems: nothing to bound the question, nothing asked.
+    assert!(lookup.lookup(&[], inner, "abcd1234", 16).is_empty());
+    assert_eq!(w1.server.requests().len(), 4);
+
+    // A used-up quota: the first answer stops the source, the rest of the
+    // run never asks again and the lookup answers nothing.
+    let w = w();
+    w.server
+        .mock(&zip_entry_path(9, inner), MockResponse::status(430));
+    let src = ScreenScraperSource::new(&w.http, &w.cache, dev(), Some(user()), w.cfg.clone());
+    let lookup = ScreenScraperLookup::new(&src, &db);
+    let gb_gbc = ["gb".to_string(), "gbc".to_string()];
+    assert!(lookup.lookup(&gb_gbc, inner, "abcd1234", 16).is_empty());
+    assert_eq!(w.server.requests().len(), 1);
+    assert!(lookup
+        .lookup(&gb_gbc, "other.gb", "1234abcd", 16)
+        .is_empty());
+    assert_eq!(w.server.requests().len(), 1);
 }

@@ -408,14 +408,11 @@ impl<'a> ScreenScraperSource<'a> {
     /// The game for `q`: by hash (canonical, 100) when the ROM was hashed,
     /// else by title when names may be used (title-exact, 95).
     fn game(&self, sid: u32, q: &ArtQuery) -> Result<Option<(SsGame, MatchKind, u8)>, SourceError> {
-        let mut params = vec![("systemeid", sid.to_string())];
-        if let Some(h) = q.hash.and_then(|h| hash_params(q.file_name, h)) {
-            params.extend(h);
-            let found = self.lookup("jeuInfos.php", &params, "", |v| {
-                v["response"].get("jeu").and_then(parse_game)
-            })?;
+        if let Some(h) = q.hash.filter(|h| hash_params(q.file_name, h).is_some()) {
+            let found = self.game_by_hash(sid, q.file_name, h)?;
             return Ok(found.map(|g| (g, MatchKind::Canonical, 100)));
         }
+        let mut params = vec![("systemeid", sid.to_string())];
         if !q.by_name {
             return Ok(None);
         }
@@ -442,6 +439,38 @@ impl<'a> ScreenScraperSource<'a> {
                 })
         })?;
         Ok(found.map(|g| (g, MatchKind::TitleExact, 95)))
+    }
+
+    /// The game `jeuInfos.php` names for a hashed ROM on system `sid`
+    /// (`None` when the ROM was not hashed or the server does not know it).
+    fn game_by_hash(
+        &self,
+        sid: u32,
+        file_name: &str,
+        hash: &HashOutcome,
+    ) -> Result<Option<SsGame>, SourceError> {
+        let Some(h) = hash_params(file_name, hash) else {
+            return Ok(None);
+        };
+        let mut params = vec![("systemeid", sid.to_string())];
+        params.extend(h);
+        self.lookup("jeuInfos.php", &params, "", |v| {
+            v["response"].get("jeu").and_then(parse_game)
+        })
+    }
+
+    /// The game name for a ROM hash on system `sid` (cached like every
+    /// ScreenScraper answer; organise asks it when offline levels are not
+    /// enough). `None` for an unhashed ROM or an unknown hash.
+    pub fn identify_by_hash(
+        &self,
+        sid: u32,
+        file_name: &str,
+        hash: &HashOutcome,
+    ) -> Result<Option<String>, SourceError> {
+        Ok(self
+            .game_by_hash(sid, file_name, hash)?
+            .and_then(|g| g.name().map(str::to_string)))
     }
 
     /// A cached or fresh answer of `endpoint`, read by `pick`.
