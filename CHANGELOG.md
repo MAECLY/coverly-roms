@@ -39,6 +39,15 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   English and Spanish UI, light and dark themes, licence and contribution
   documents.
 
+### Changed
+
+- Detail drawer: the cover, screenshot and title screen are now slots that
+  open one workspace in place. Candidates load on their own (the first missing
+  art when the drawer opens), a title search replaces them in the same spot, an
+  empty slot fills with one click and replacing existing art asks right on the
+  chosen image. "Show in Finder" moved next to the close button; identity and
+  file facts follow the art.
+
 ### Fixed
 
 - A `settings.json` saved with a UTF-8 byte-order mark is read normally
