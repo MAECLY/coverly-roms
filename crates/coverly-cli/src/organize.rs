@@ -65,8 +65,16 @@ pub struct OrganizeArgs {
     /// (see `coverly systems`). Repeatable; split on the last `=`.
     #[arg(long = "assign", value_name = "FILE=SYSTEM_ID")]
     assign: Vec<String>,
-    /// Continue an interrupted organise job.
-    #[arg(long, value_name = "JOB_ID", conflicts_with_all = ["apply", "dry_run"])]
+    /// Continue an interrupted organise job (its saved plan decides the
+    /// layout, target, mode and names).
+    #[arg(
+        long,
+        value_name = "JOB_ID",
+        conflicts_with_all = [
+            "apply", "dry_run", "layout", "target", "flat", "copy", "move_",
+            "names", "assign", "include_review",
+        ]
+    )]
     resume: Option<String>,
     /// Move the items to review with their best candidate system.
     #[arg(long)]
