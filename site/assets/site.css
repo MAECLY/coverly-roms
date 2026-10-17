@@ -752,7 +752,7 @@ html.motion .shelf.planning .tile.gap .ph {
   animation: plan 560ms var(--cr-ease-spring) calc(var(--i, 0) * 110ms) both;
 }
 html.motion .shelf.applying .tile.gap.is-filled {
-  animation: land 520ms var(--cr-ease-spring) both;
+  animation: land 520ms var(--cr-ease-ink) both;
 }
 @keyframes plan {
   45% {
