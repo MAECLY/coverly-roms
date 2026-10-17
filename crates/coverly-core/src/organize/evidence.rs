@@ -1,9 +1,12 @@
 //! Combining identification evidence into a verdict (organise spec §6):
 //! per-system scores, the margin rule, content support, vetoes and the
 //! auto/review thresholds (pure), and the [`Catalogue`] of DATs the
-//! identification ladder asks for CRC hits, ROM stems and arcade sets.
+//! identification ladder asks for CRC hits, ROM stems and arcade sets,
+//! and the ladder itself ([`identify_candidate`]): hash, header,
+//! extension, name and (when configured) online evidence per file.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::Path;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +14,11 @@ use serde::{Deserialize, Serialize};
 use crate::cache::Cache;
 use crate::identify::dat::{dat_sources, DatError, DatStatus, DatStore};
 use crate::identify::evidence::{Evidence, IdLevel};
+use crate::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
+use crate::identify::names::{parse_name, score, strip_numbering_prefix};
 use crate::identify::sniff::{Sniff, DECISIVE};
+use crate::organize::inspect::{ArchiveIssue, Container, Inspection, NOTE_ENCRYPTED};
+use crate::organize::plan::{ItemNote, LeftReason};
 use crate::systems::{ExtClass, SystemDb};
 
 /// Scores at or above `auto` (with margin and content support) are moved
@@ -436,4 +443,537 @@ fn is_set_archive(rom_name: &str) -> bool {
     rom_name
         .rsplit_once('.')
         .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("7z"))
+}
+
+// --- The identification ladder per file (organise spec §6) ---
+
+/// What is known about one candidate before any DAT is consulted:
+/// memoised in `organize_ids` (O-D6).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Facts {
+    pub inspection: Inspection,
+    /// CRC32 (upper-case hex) and size of a hashed raw file: the whole
+    /// file first, then the file without its copier/emulator header when
+    /// one was found.
+    pub raw_crcs: Vec<(String, u64)>,
+    /// Hashing was attempted (`raw_crcs` may stay empty: too large).
+    pub hashed: bool,
+}
+
+/// What the ladder decided for one candidate.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Identification {
+    pub combined: Combined,
+    /// Decided before combining (not a ROM, damaged, several games…).
+    pub left: Option<LeftReason>,
+    /// DAT game name of the deciding hit.
+    pub catalogue_name: Option<String>,
+    /// CRC32 + size for duplicates and remembered choices.
+    pub content_key: Option<(String, u64)>,
+    /// ROM entries in a zip (multi-ROM note); 1 for a raw file.
+    pub rom_count: usize,
+    pub notes: Vec<ItemNote>,
+}
+
+/// An online source asked by CRC when the offline levels leave a file
+/// below Auto (implemented in Task 24, only when configured).
+pub trait OnlineLookup: Sync {
+    /// `(system, game)` matches among `systems` (all when empty).
+    fn lookup(
+        &self,
+        systems: &[String],
+        file_name: &str,
+        crc32: &str,
+        size: u64,
+    ) -> Vec<(String, String)>;
+}
+
+/// Everything the ladder consults besides the file itself.
+pub struct LadderEnv<'a> {
+    pub db: &'a SystemDb,
+    pub catalogue: &'a dyn Catalogue,
+    pub cache: &'a Cache,
+    pub thresholds: Thresholds,
+    pub broad_root: bool,
+    /// Hash raw files even when they are Auto (catalogue names, a
+    /// duplicate bucket).
+    pub need_hash: bool,
+    /// Arcade systems in the layout's preference order.
+    pub arcade_order: &'a [String],
+    pub online: Option<&'a dyn OnlineLookup>,
+}
+
+/// Weight of name tags and scene-group hints (spec §6.5).
+const HINT: f32 = 0.60;
+/// Weight of a CRC hit in a DAT of a candidate system.
+const HASH_CANDIDATE: f32 = 1.00;
+/// Weight of a CRC hit in a DAT outside the candidates.
+const HASH_ELSEWHERE: f32 = 0.97;
+/// Weight of a later arcade system confirming the same set.
+const ARCADE_ALTERNATIVE: f32 = 0.99;
+/// Weight of an arcade set found by name only.
+const ARCADE_NAME: f32 = 0.70;
+/// Weight of an online match.
+const ONLINE: f32 = 0.80;
+
+/// GBA release groups whose names appear as a `(Group)` tag.
+const SCENE_GROUPS: [&str; 12] = [
+    "Venom",
+    "Paracox",
+    "BatMan",
+    "Independent",
+    "Rising Sun",
+    "Eurasia",
+    "Trashman",
+    "Mode7",
+    "Megaroms",
+    "Suxxors",
+    "Menace",
+    "LightForce",
+];
+
+/// `gba` when `name` carries a GBA scene group tag (`(Venom)`, …).
+pub fn scene_group_hint(name: &str) -> Option<&'static str> {
+    scene_group(name).map(|_| "gba")
+}
+
+fn scene_group(name: &str) -> Option<&'static str> {
+    paren_groups(name).find_map(|g| {
+        SCENE_GROUPS
+            .iter()
+            .find(|s| g.eq_ignore_ascii_case(s))
+            .copied()
+    })
+}
+
+/// Trimmed contents of every `( … )` group of `name`.
+fn paren_groups(name: &str) -> impl Iterator<Item = &str> {
+    name.split('(')
+        .skip(1)
+        .filter_map(|rest| rest.split_once(')').map(|(g, _)| g.trim()))
+}
+
+/// Name signals of one stem: tags and scene groups (hints, never Auto).
+fn name_hints(name: &str, evidence: &mut Vec<Evidence>) {
+    for group in paren_groups(name) {
+        if group.eq_ignore_ascii_case("SGB Enhanced") {
+            evidence.push(Evidence::new(IdLevel::Name, "gb", HINT, group));
+            evidence.push(Evidence::new(IdLevel::Name, "gbc", HINT, group));
+        } else if group.eq_ignore_ascii_case("GB Compatible") {
+            evidence.push(Evidence::new(IdLevel::Name, "gbc", HINT, group));
+        }
+    }
+    if let Some(group) = scene_group(name) {
+        evidence.push(Evidence::new(IdLevel::Name, "gba", HINT, group));
+    }
+}
+
+/// File name without folders or extension.
+fn stem_of(name: &str) -> &str {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    Path::new(base)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(base)
+}
+
+/// Why a candidate stays put whatever its evidence.
+fn left_before_combining(insp: &Inspection) -> Option<LeftReason> {
+    match &insp.issue {
+        Some(ArchiveIssue::NotARom { what }) => return Some(LeftReason::NotARom { what: *what }),
+        Some(ArchiveIssue::Damaged) => return Some(LeftReason::DamagedArchive),
+        Some(ArchiveIssue::Unsupported) => return Some(LeftReason::UnsupportedArchive),
+        Some(ArchiveIssue::TooManyRoms { count }) => {
+            return Some(LeftReason::MultiGameArchive { count: *count })
+        }
+        None => {}
+    }
+    if let Some(name) = insp
+        .payloads
+        .iter()
+        .find_map(|p| p.sniff.unsupported.clone())
+    {
+        return Some(LeftReason::UnsupportedSystem { name });
+    }
+    if insp.container == Container::Raw {
+        if let Some(what) = insp.payloads.first().and_then(|p| p.sniff.not_a_rom) {
+            return Some(LeftReason::NotARom { what });
+        }
+    }
+    None
+}
+
+/// Systems with any evidence so far that no veto excluded, sorted.
+fn candidates(evidence: &[Evidence], excluded: &[String]) -> Vec<String> {
+    let set: BTreeSet<&str> = evidence
+        .iter()
+        .map(|e| e.system.as_str())
+        .filter(|s| !excluded.iter().any(|x| x == s))
+        .collect();
+    set.into_iter().map(str::to_string).collect()
+}
+
+/// A remembered user choice for this content (spec §6.6).
+fn remembered(env: &LadderEnv, key: Option<&(String, u64)>, evidence: &mut Vec<Evidence>) {
+    if evidence.iter().any(|e| e.kind == IdLevel::User) {
+        return;
+    }
+    let Some((crc, size)) = key else { return };
+    if let Ok(Some(system)) = env.cache.organize_choice(crc, *size) {
+        evidence.push(Evidence::new(IdLevel::User, &system, 1.0, "remembered"));
+    }
+}
+
+/// Level 1: CRC hits in the candidates' DATs (1.00), else in any cached
+/// DAT (0.97). Several systems hitting are narrowed to those the header
+/// names, when it names any (spec §6.2).
+fn dat_level(
+    env: &LadderEnv,
+    crcs: &[(String, u64)],
+    evidence: &mut Vec<Evidence>,
+    excluded: &[String],
+) -> Vec<CatalogueHit> {
+    if crcs.is_empty() {
+        return Vec::new();
+    }
+    let systems = candidates(evidence, excluded);
+    let mut found: Vec<(String, CatalogueHit)> = Vec::new();
+    if !systems.is_empty() {
+        for (crc, size) in crcs {
+            found.extend(
+                env.catalogue
+                    .hits(&systems, crc, *size)
+                    .into_iter()
+                    .map(|h| (crc.clone(), h)),
+            );
+        }
+    }
+    let mut weight = HASH_CANDIDATE;
+    if found.is_empty() {
+        weight = HASH_ELSEWHERE;
+        for (crc, size) in crcs {
+            found.extend(
+                env.catalogue
+                    .any_hits(crc, *size)
+                    .into_iter()
+                    .map(|h| (crc.clone(), h)),
+            );
+        }
+    }
+    let header: BTreeSet<&str> = evidence
+        .iter()
+        .filter(|e| e.kind == IdLevel::Header)
+        .map(|e| e.system.as_str())
+        .collect();
+    let hit_systems: BTreeSet<&str> = found.iter().map(|(_, h)| h.system.as_str()).collect();
+    if hit_systems.len() > 1 && hit_systems.iter().any(|s| header.contains(s)) {
+        found.retain(|(_, h)| header.contains(h.system.as_str()));
+    }
+    for (crc, hit) in &found {
+        let known = evidence
+            .iter()
+            .any(|e| e.kind == IdLevel::Hash && e.system == hit.system);
+        if !known {
+            evidence.push(Evidence::new(
+                IdLevel::Hash,
+                &hit.system,
+                weight,
+                format!("{crc} {}", hit.game),
+            ));
+        }
+    }
+    found.into_iter().map(|(_, h)| h).collect()
+}
+
+/// Fuzzy title match against the DAT stems of `systems`: ≥ 95 → 0.80,
+/// ≥ 85 → 0.70 (spec §6.5).
+fn fuzzy_level(env: &LadderEnv, systems: &[String], keys: &[String], evidence: &mut Vec<Evidence>) {
+    if keys.is_empty() {
+        return;
+    }
+    for system in systems {
+        let mut best: Option<(u8, String)> = None;
+        for (stem, game) in env.catalogue.stems(system) {
+            let stem_key = parse_name(&stem, false).key;
+            for key in keys {
+                // score ≤ 100·(l − |Δlen|)/l: skip pairs that cannot reach 85.
+                let (a, b) = (key.chars().count(), stem_key.chars().count());
+                let l = a.max(b);
+                if l > 0 && 100 * (l - a.min(b)) > 15 * l {
+                    continue;
+                }
+                let sc = score(key, &stem_key);
+                if best.as_ref().is_none_or(|(s, _)| sc > *s) {
+                    best = Some((sc, game.clone()));
+                }
+            }
+        }
+        if let Some((sc, game)) = best {
+            let weight = match sc {
+                95.. => 0.80,
+                85.. => 0.70,
+                _ => continue,
+            };
+            evidence.push(Evidence::new(IdLevel::Name, system, weight, game));
+        }
+    }
+}
+
+/// Identifies one candidate (organise spec §6): pre-checks from the
+/// inspection, a remembered choice, extension and header per payload,
+/// name hints, DAT hits by CRC, raw hashing only when it can change the
+/// outcome, fuzzy names, arcade sets, the optional online lookup, then
+/// [`combine`]. `facts` gains the raw CRCs when the file is hashed.
+pub fn identify_candidate(
+    path: &Path,
+    outer_name: &str,
+    size: u64,
+    facts: &mut Facts,
+    cloud_only: bool,
+    env: &LadderEnv,
+) -> Identification {
+    let insp = facts.inspection.clone();
+    // Memoised digests of a raw file that changed size are stale.
+    if insp.container == Container::Raw && facts.raw_crcs.first().is_some_and(|(_, s)| *s != size) {
+        facts.raw_crcs.clear();
+        facts.hashed = false;
+    }
+    let mut id = Identification {
+        combined: Combined::unknown(),
+        left: None,
+        catalogue_name: None,
+        content_key: None,
+        rom_count: insp.payloads.len(),
+        notes: Vec::new(),
+    };
+    if insp.notes.iter().any(|n| n == NOTE_ENCRYPTED) {
+        id.notes.push(ItemNote::Encrypted);
+    }
+    // 1. Pre-checks.
+    if let Some(left) = left_before_combining(&insp) {
+        id.left = Some(left);
+        return id;
+    }
+    let content_read = !cloud_only
+        && insp.payloads.iter().any(|p| p.sniff.read > 0)
+        && matches!(insp.container, Container::Raw | Container::Zip);
+    let decide = |evidence: &[Evidence], excluded: &[String]| {
+        combine(&CombineInput {
+            evidence,
+            excluded,
+            content_read,
+            broad_root: env.broad_root,
+            thresholds: env.thresholds,
+        })
+    };
+    let mut evidence: Vec<Evidence> = Vec::new();
+    let mut excluded: Vec<String> = Vec::new();
+    match insp.container {
+        Container::Zip if insp.payloads.len() == 1 => {
+            let p = &insp.payloads[0];
+            id.content_key = p.crc32.clone().map(|crc| (crc, p.size));
+        }
+        Container::Raw if facts.hashed => id.content_key = facts.raw_crcs.first().cloned(),
+        _ => {}
+    }
+    // 2. Remembered choice.
+    remembered(env, id.content_key.as_ref(), &mut evidence);
+    // 3. Extension and header per payload; several payloads must agree.
+    let mut payload_systems: BTreeSet<String> = BTreeSet::new();
+    for p in &insp.payloads {
+        let mut own = extension_evidence(env.db, &p.ext, &p.sniff);
+        own.extend(p.sniff.hits.iter().cloned());
+        if insp.payloads.len() > 1 {
+            let alone = combine(&CombineInput {
+                evidence: &own,
+                excluded: &p.sniff.excluded,
+                content_read: !cloud_only && p.sniff.read > 0,
+                broad_root: false,
+                thresholds: env.thresholds,
+            });
+            payload_systems.extend(alone.system);
+        }
+        evidence.extend(own);
+        excluded.extend(p.sniff.excluded.iter().cloned());
+    }
+    excluded.sort();
+    excluded.dedup();
+    if payload_systems.len() > 1 {
+        id.left = Some(LeftReason::MultiGameArchive {
+            count: insp.payloads.len(),
+        });
+        return id;
+    }
+    if insp.payloads.len() > 1 {
+        id.notes.push(ItemNote::MultiRomZip {
+            count: insp.payloads.len(),
+        });
+    }
+    // 4. Name signals on the outer and inner stems.
+    let mut stems: Vec<&str> = vec![strip_numbering_prefix(stem_of(outer_name))];
+    if insp.container == Container::Zip {
+        stems.extend(
+            insp.payloads
+                .iter()
+                .map(|p| strip_numbering_prefix(stem_of(&p.name))),
+        );
+    }
+    stems.dedup();
+    for stem in &stems {
+        name_hints(stem, &mut evidence);
+    }
+    // 5. DAT by CRC.
+    let mut crcs: Vec<(String, u64)> = match insp.container {
+        Container::Zip => insp
+            .payloads
+            .iter()
+            .filter_map(|p| p.crc32.clone().map(|c| (c, p.size)))
+            .collect(),
+        Container::Raw if facts.hashed => facts.raw_crcs.clone(),
+        _ => Vec::new(),
+    };
+    let mut hits = dat_level(env, &crcs, &mut evidence, &excluded);
+    // 6. Raw hashing, only when it can change the outcome.
+    if insp.container == Container::Raw
+        && !cloud_only
+        && !facts.hashed
+        && (env.need_hash || decide(&evidence, &excluded).verdict != Verdict::Auto)
+    {
+        let rule = decide(&evidence, &excluded)
+            .system
+            .and_then(|s| env.db.get(&s))
+            .map_or(HeaderRule::Plain, |s| s.header);
+        let ext = insp
+            .payloads
+            .first()
+            .map_or_else(|| crate::scan::classify::extension(path), |p| p.ext.clone());
+        match hash_rom(path, &ext, rule, DEFAULT_HASH_MAX_BYTES) {
+            Ok(HashOutcome::Content(h)) => {
+                facts.raw_crcs = std::iter::once(h.full)
+                    .chain(h.headerless)
+                    .map(|d| (d.crc32, d.size))
+                    .collect();
+                facts.hashed = true;
+            }
+            Ok(_) => facts.hashed = true,
+            Err(_) => {}
+        }
+        if !facts.raw_crcs.is_empty() {
+            id.content_key = facts.raw_crcs.first().cloned();
+            remembered(env, id.content_key.as_ref(), &mut evidence);
+            crcs = facts.raw_crcs.clone();
+            hits.extend(dat_level(env, &crcs, &mut evidence, &excluded));
+        }
+    }
+    // 7. Fuzzy name against DAT stems.
+    if decide(&evidence, &excluded).verdict != Verdict::Auto {
+        let mut systems = candidates(&evidence, &excluded);
+        if systems.is_empty() {
+            systems = env.catalogue.stem_systems();
+        }
+        let mut keys: Vec<String> = stems
+            .iter()
+            .map(|s| parse_name(s, false).key)
+            .filter(|k| !k.is_empty())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        fuzzy_level(env, &systems, &keys, &mut evidence);
+    }
+    // 8. Arcade sets: a zip with entries but no console ROM.
+    let mut arcade_games: BTreeMap<String, String> = BTreeMap::new();
+    let mut arcade_alternatives: Vec<(String, f32)> = Vec::new();
+    if insp.container == Container::Zip && insp.payloads.is_empty() && !insp.entries.is_empty() {
+        let set = stem_of(outer_name);
+        let inside: HashSet<String> = insp
+            .entries
+            .iter()
+            .map(|e| e.crc32.to_ascii_uppercase())
+            .collect();
+        let mut winner = false;
+        for system in env.arcade_order {
+            let Some((game, roms)) = env.catalogue.set_roms(system, set) else {
+                continue;
+            };
+            let matched = roms
+                .iter()
+                .filter(|(crc, _)| inside.contains(&crc.to_ascii_uppercase()))
+                .count();
+            let confirmed = !roms.is_empty() && matched * 4 >= roms.len() * 3;
+            if confirmed && winner {
+                arcade_alternatives.push((system.clone(), ARCADE_ALTERNATIVE));
+                continue;
+            }
+            let (level, weight) = if confirmed {
+                winner = true;
+                (IdLevel::Hash, HASH_CANDIDATE)
+            } else {
+                (IdLevel::Name, ARCADE_NAME)
+            };
+            evidence.push(Evidence::new(level, system, weight, game.clone()));
+            arcade_games.insert(system.clone(), game);
+        }
+    }
+    // 9. Online, when configured and a CRC is known.
+    if let Some(online) = env.online {
+        let known = id.content_key.clone().or_else(|| crcs.first().cloned());
+        if let Some((crc, crc_size)) = known {
+            if decide(&evidence, &excluded).verdict != Verdict::Auto {
+                let file_name = match insp.container {
+                    Container::Zip => insp
+                        .payloads
+                        .first()
+                        .map_or(outer_name, |p| p.name.as_str()),
+                    _ => outer_name,
+                };
+                let systems = candidates(&evidence, &excluded);
+                let mut seen = BTreeSet::new();
+                for (system, game) in online.lookup(&systems, file_name, &crc, crc_size) {
+                    if env.db.get(&system).is_some() && seen.insert(system.clone()) {
+                        evidence.push(Evidence::new(IdLevel::Online, &system, ONLINE, game));
+                    }
+                }
+            }
+        }
+    }
+    // 10. Combine.
+    let mut seen = HashSet::new();
+    evidence.retain(|e| seen.insert((e.kind, e.system.clone(), e.detail.clone())));
+    let mut combined = decide(&evidence, &excluded);
+    if let Some(system) = combined.system.clone() {
+        id.catalogue_name = hits
+            .iter()
+            .find(|h| h.system == system)
+            .map(|h| h.game.clone())
+            .or_else(|| arcade_games.get(&system).cloned());
+        let unconsulted = env.catalogue.unconsulted();
+        if unconsulted.contains(&system) {
+            id.notes.push(ItemNote::CatalogueMissing { system });
+        }
+    }
+    for (system, weight) in arcade_alternatives {
+        if combined.system.as_ref() != Some(&system)
+            && !combined.alternatives.iter().any(|(s, _)| *s == system)
+        {
+            combined.alternatives.push((system, weight));
+        }
+    }
+    combined
+        .alternatives
+        .sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    // 11. Notes.
+    for e in &evidence {
+        if e.kind == IdLevel::Extension {
+            if let Some(ext) = e.detail.strip_suffix('!') {
+                let note = ItemNote::ExtensionContradicted {
+                    ext: ext.to_string(),
+                };
+                if !id.notes.contains(&note) {
+                    id.notes.push(note);
+                }
+            }
+        }
+    }
+    id.combined = combined;
+    id
 }

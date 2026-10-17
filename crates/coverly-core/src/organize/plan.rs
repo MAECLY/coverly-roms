@@ -97,3 +97,20 @@ pub enum LeftReason {
     /// One file of a set collides at the target: the whole set stays.
     CollisionSet,
 }
+
+/// Something worth telling about an item that still moves (data for the
+/// UI, never prose).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ItemNote {
+    /// A zip with several ROMs of one system: most cores load the first.
+    MultiRomZip { count: usize },
+    /// The target folder does not exist on the chosen device layout.
+    NoFolderOnDevice { folder: String },
+    /// The extension says one system, the contents do not look like it.
+    ExtensionContradicted { ext: String },
+    /// The system's DAT could not be consulted (offline, cap, none).
+    CatalogueMissing { system: String },
+    /// An archive entry is encrypted: its header was not read.
+    Encrypted,
+}

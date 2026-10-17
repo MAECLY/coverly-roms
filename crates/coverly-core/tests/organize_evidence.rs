@@ -1,3 +1,5 @@
+mod common;
+
 use coverly_core::identify::evidence::{Evidence, IdLevel::*};
 use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt};
 use coverly_core::organize::evidence::{
@@ -485,4 +487,462 @@ fn once_the_network_is_down_no_more_downloads_are_tried() {
         "an offline error stops the on-demand downloads"
     );
     assert_eq!(cat.unconsulted().len(), 5);
+}
+
+// --- The identification ladder per file (Task 14) ---
+
+use std::path::Path;
+
+use common::roms::zip_file;
+use coverly_core::identify::sniff::NotARom;
+use coverly_core::organize::evidence::{
+    identify_candidate, scene_group_hint, CatalogueHit, Facts, Identification, LadderEnv,
+    OnlineLookup,
+};
+use coverly_core::organize::inspect::inspect_file;
+use coverly_core::organize::plan::ItemNote;
+use coverly_core::organize::LeftReason;
+
+struct FakeCatalogue {
+    rows: Vec<(&'static str, String, u64, &'static str)>,
+    stems: Vec<(&'static str, &'static str)>,
+}
+
+impl FakeCatalogue {
+    fn empty() -> FakeCatalogue {
+        FakeCatalogue {
+            rows: vec![],
+            stems: vec![],
+        }
+    }
+
+    fn hit(row: &(&'static str, String, u64, &'static str)) -> CatalogueHit {
+        CatalogueHit {
+            system: row.0.to_string(),
+            game: row.3.to_string(),
+            rom_name: row.3.to_string(),
+        }
+    }
+}
+
+impl Catalogue for FakeCatalogue {
+    fn hits(&self, systems: &[String], crc32: &str, size: u64) -> Vec<CatalogueHit> {
+        self.rows
+            .iter()
+            .filter(|r| systems.iter().any(|s| s == r.0))
+            .filter(|r| r.1.eq_ignore_ascii_case(crc32) && r.2 == size)
+            .map(Self::hit)
+            .collect()
+    }
+    fn any_hits(&self, crc32: &str, size: u64) -> Vec<CatalogueHit> {
+        self.rows
+            .iter()
+            .filter(|r| r.1.eq_ignore_ascii_case(crc32) && r.2 == size)
+            .map(Self::hit)
+            .collect()
+    }
+    fn stems(&self, system: &str) -> Vec<(String, String)> {
+        self.stems
+            .iter()
+            .filter(|s| s.0 == system)
+            .map(|s| (s.1.to_lowercase(), s.1.to_string()))
+            .collect()
+    }
+    fn stem_systems(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.stems.iter().map(|s| s.0.to_string()).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+    fn set_roms(&self, _system: &str, _set: &str) -> Option<(String, Vec<(String, u64)>)> {
+        None
+    }
+    fn unconsulted(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+fn identify_with(
+    path: &Path,
+    cat: &dyn Catalogue,
+    cache: &Cache,
+    online: Option<&dyn OnlineLookup>,
+) -> Identification {
+    let db = SystemDb::builtin();
+    let len = std::fs::metadata(path).unwrap().len();
+    let mut facts = Facts {
+        inspection: inspect_file(path, len, &db).unwrap(),
+        raw_crcs: vec![],
+        hashed: false,
+    };
+    let env = LadderEnv {
+        db: &db,
+        catalogue: cat,
+        cache,
+        thresholds: Thresholds::default(),
+        broad_root: false,
+        need_hash: false,
+        arcade_order: &["fbneo".into(), "mame".into()],
+        online,
+    };
+    identify_candidate(
+        path,
+        path.file_name().unwrap().to_str().unwrap(),
+        len,
+        &mut facts,
+        false,
+        &env,
+    )
+}
+
+fn identify(path: &Path, cat: &FakeCatalogue) -> Identification {
+    identify_with(path, cat, &Cache::in_memory().unwrap(), None)
+}
+
+#[test]
+fn scene_named_gba_zip_is_decided_by_crc_and_header() {
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = fx::gba();
+    let crc = format!("{:08X}", crc32fast::hash(&rom));
+    let p = tmp.path().join("1490 - Sonic Advance 3 (U)(Venom).zip");
+    zip_file(&p, &[("1490 - Sonic Advance 3 (U)(Venom).gba", &rom, true)]);
+    let id = identify(
+        &p,
+        &FakeCatalogue {
+            rows: vec![(
+                "gba",
+                crc.clone(),
+                rom.len() as u64,
+                "Sonic Advance 3 (USA)",
+            )],
+            stems: vec![],
+        },
+    );
+    assert_eq!(id.combined.verdict, Verdict::Auto);
+    assert_eq!(id.combined.system.as_deref(), Some("gba"));
+    assert_eq!(id.combined.method, Some(Hash));
+    assert_eq!(id.catalogue_name.as_deref(), Some("Sonic Advance 3 (USA)"));
+    assert_eq!(id.content_key, Some((crc, rom.len() as u64)));
+    assert_eq!(id.rom_count, 1);
+}
+
+#[test]
+fn without_any_dat_the_header_still_decides() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Tetris DX.zip");
+    zip_file(&p, &[("Tetris DX.gbc", &fx::gb(0xC0), true)]);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("gbc"))
+    );
+    assert_eq!(id.combined.method, Some(Header));
+}
+
+#[test]
+fn same_title_different_systems() {
+    let tmp = tempfile::tempdir().unwrap();
+    let snes = tmp.path().join("Tetris 2.zip");
+    zip_file(
+        &snes,
+        &[("Tetris 2.sfc", &fx::snes(fx::SnesMap::Lo, false), true)],
+    );
+    let gb = tmp.path().join("Tetris 2 (1).zip");
+    zip_file(&gb, &[("Tetris 2.gb", &fx::gb(0x00), true)]);
+    let none = FakeCatalogue::empty();
+    assert_eq!(
+        identify(&snes, &none).combined.system.as_deref(),
+        Some("snes")
+    );
+    assert_eq!(identify(&gb, &none).combined.system.as_deref(), Some("gb"));
+}
+
+#[test]
+fn a_web_page_and_a_collection_are_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let html = tmp.path().join("3-D Tetris (USA).zip");
+    std::fs::write(&html, fx::html_page()).unwrap();
+    let id = identify(&html, &FakeCatalogue::empty());
+    assert!(matches!(
+        id.left,
+        Some(LeftReason::NotARom {
+            what: NotARom::WebPage
+        })
+    ));
+    assert_eq!(id.combined.verdict, Verdict::Unknown);
+    let mixed = tmp.path().join("mixed.zip");
+    zip_file(
+        &mixed,
+        &[("a.gb", &fx::gb(0), false), ("b.gba", &fx::gba(), false)],
+    );
+    assert!(matches!(
+        identify(&mixed, &FakeCatalogue::empty()).left,
+        Some(LeftReason::MultiGameArchive { count: 2 })
+    ));
+}
+
+#[test]
+fn an_unsupported_system_is_left_with_its_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Pico Game.zip");
+    zip_file(&p, &[("Pico Game.md", &fx::pico(), true)]);
+    assert!(matches!(
+        identify(&p, &FakeCatalogue::empty()).left,
+        Some(LeftReason::UnsupportedSystem { .. })
+    ));
+}
+
+#[test]
+fn two_versions_of_one_game_in_one_zip_are_allowed_with_a_note() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Tetris (JUE).zip");
+    zip_file(
+        &p,
+        &[
+            ("Tetris (V1.0).gb", &fx::gb(0), false),
+            ("Tetris (V1.1).gb", &fx::gb(0), false),
+        ],
+    );
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.left, None);
+    assert_eq!(id.combined.system.as_deref(), Some("gb"));
+    assert!(id.notes.contains(&ItemNote::MultiRomZip { count: 2 }));
+    assert_eq!(id.rom_count, 2);
+}
+
+#[test]
+fn a_seven_zip_is_named_only_and_never_auto() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Tetris (World).7z");
+    std::fs::write(&p, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4]).unwrap();
+    let cat = FakeCatalogue {
+        rows: vec![],
+        stems: vec![("gb", "Tetris (World)")],
+    };
+    let id = identify(&p, &cat);
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    assert_eq!(id.combined.system.as_deref(), Some("gb"));
+    assert_eq!(id.combined.method, Some(Name));
+}
+
+#[test]
+fn raw_files_are_hashed_only_when_needed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.gba");
+    std::fs::write(&p, fx::gba()).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Auto, "header decides");
+    assert_eq!(id.content_key, None, "no hashing for an Auto raw file");
+}
+
+#[test]
+fn a_raw_file_below_auto_is_hashed_and_found_in_a_dat() {
+    // A `.gb` with no header: extension alone is shared (Review), so the
+    // file is hashed and the DAT decides.
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = fx::zeros(32 * 1024);
+    let crc = format!("{:08X}", crc32fast::hash(&rom));
+    let p = tmp.path().join("Homebrew.gb");
+    std::fs::write(&p, &rom).unwrap();
+    let cat = FakeCatalogue {
+        rows: vec![("gb", crc.clone(), rom.len() as u64, "Homebrew (World)")],
+        stems: vec![],
+    };
+    let id = identify(&p, &cat);
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("gb"))
+    );
+    assert_eq!(id.combined.method, Some(Hash));
+    assert_eq!(id.content_key, Some((crc, rom.len() as u64)));
+    assert_eq!(id.catalogue_name.as_deref(), Some("Homebrew (World)"));
+}
+
+#[test]
+fn a_crc_outside_the_candidates_is_found_in_any_cached_dat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = fx::zeros(4096);
+    let crc = format!("{:08X}", crc32fast::hash(&rom));
+    let p = tmp.path().join("Mystery.zip");
+    zip_file(&p, &[("Mystery.bin", &rom, true)]);
+    let cat = FakeCatalogue {
+        rows: vec![("pcengine", crc, rom.len() as u64, "Mystery (Japan)")],
+        stems: vec![],
+    };
+    let id = identify(&p, &cat);
+    assert_eq!(id.combined.system.as_deref(), Some("pcengine"));
+    assert_eq!(id.combined.method, Some(Hash));
+    assert!((id.combined.why[0].weight - 0.97).abs() < 1e-6);
+}
+
+#[test]
+fn several_dats_hit_and_the_header_keeps_its_own() {
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = fx::gb(0x00);
+    let crc = format!("{:08X}", crc32fast::hash(&rom));
+    let p = tmp.path().join("Tetris.zip");
+    zip_file(&p, &[("Tetris.gb", &rom, true)]);
+    let size = rom.len() as u64;
+    let cat = FakeCatalogue {
+        rows: vec![
+            ("gb", crc.clone(), size, "Tetris (World)"),
+            ("gbc", crc, size, "Tetris (World) (GBC)"),
+        ],
+        stems: vec![],
+    };
+    let id = identify(&p, &cat);
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("gb"))
+    );
+    assert_eq!(id.catalogue_name.as_deref(), Some("Tetris (World)"));
+}
+
+#[test]
+fn a_contradicted_extension_is_noted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Hack.zip");
+    zip_file(&p, &[("Hack.gba", &fx::zeros(64 * 1024), true)]);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    assert!(id
+        .notes
+        .contains(&ItemNote::ExtensionContradicted { ext: "gba".into() }));
+}
+
+#[test]
+fn scene_groups_hint_gba() {
+    assert_eq!(
+        scene_group_hint("0319 - Crash Bandicoot XS (E)(Paracox)"),
+        Some("gba")
+    );
+    assert_eq!(
+        scene_group_hint("Pokemon Verde Hoja (S)(Rising Sun)"),
+        Some("gba")
+    );
+    assert_eq!(
+        scene_group_hint("1490 - Sonic Advance 3 (U)(venom)"),
+        Some("gba")
+    );
+    assert_eq!(scene_group_hint("Tetris (World)"), None);
+    assert_eq!(scene_group_hint("Venom - Lethal Protector (USA)"), None);
+}
+
+#[test]
+fn tags_hint_the_game_boy_family() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Pokemon Pinball (USA) (GB Compatible).7z");
+    std::fs::write(&p, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4]).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    assert_eq!(id.combined.system.as_deref(), Some("gbc"));
+}
+
+#[test]
+fn a_remembered_choice_settles_the_same_content() {
+    let tmp = tempfile::tempdir().unwrap();
+    let rom = fx::zeros(32 * 1024);
+    let crc = format!("{:08X}", crc32fast::hash(&rom));
+    let p = tmp.path().join("Tetris.zip");
+    zip_file(&p, &[("Tetris.gb", &rom, true)]);
+    let cache = Cache::in_memory().unwrap();
+    let before = identify_with(&p, &FakeCatalogue::empty(), &cache, None);
+    assert_eq!(before.combined.verdict, Verdict::Review);
+    cache
+        .put_organize_choice(&crc.to_lowercase(), rom.len() as u64, "gbc")
+        .unwrap();
+    let id = identify_with(&p, &FakeCatalogue::empty(), &cache, None);
+    assert_eq!(id.combined.verdict, Verdict::Auto);
+    assert_eq!(id.combined.system.as_deref(), Some("gbc"));
+    assert_eq!(id.combined.method, Some(User));
+}
+
+struct FakeOnline;
+
+impl OnlineLookup for FakeOnline {
+    fn lookup(
+        &self,
+        systems: &[String],
+        _file_name: &str,
+        _crc32: &str,
+        _size: u64,
+    ) -> Vec<(String, String)> {
+        assert!(systems.iter().any(|s| s == "gb"));
+        vec![("gb".into(), "Tetris (World)".into())]
+    }
+}
+
+#[test]
+fn online_lookup_adds_name_level_evidence_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Tetris.zip");
+    zip_file(&p, &[("Tetris.gb", &fx::zeros(32 * 1024), true)]);
+    let id = identify_with(
+        &p,
+        &FakeCatalogue::empty(),
+        &Cache::in_memory().unwrap(),
+        Some(&FakeOnline),
+    );
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    assert_eq!(id.combined.system.as_deref(), Some("gb"));
+    assert_eq!(id.combined.method, Some(Extension));
+    assert!(id.combined.why.iter().any(|e| e.kind == Online));
+}
+
+struct ArcadeCatalogue;
+
+impl Catalogue for ArcadeCatalogue {
+    fn hits(&self, _: &[String], _: &str, _: u64) -> Vec<CatalogueHit> {
+        Vec::new()
+    }
+    fn any_hits(&self, _: &str, _: u64) -> Vec<CatalogueHit> {
+        Vec::new()
+    }
+    fn stems(&self, _: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    fn stem_systems(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn set_roms(&self, system: &str, set: &str) -> Option<(String, Vec<(String, u64)>)> {
+        (set == "sf2" && (system == "fbneo" || system == "mame")).then(|| {
+            (
+                "Street Fighter II".to_string(),
+                vec![
+                    (format!("{:08X}", crc32fast::hash(b"one")), 3),
+                    (format!("{:08X}", crc32fast::hash(b"two")), 3),
+                ],
+            )
+        })
+    }
+    fn unconsulted(&self) -> Vec<String> {
+        vec!["fbneo".into()]
+    }
+}
+
+#[test]
+fn an_arcade_set_confirmed_by_contents_follows_the_arcade_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("sf2.zip");
+    zip_file(
+        &p,
+        &[("sf2-1.bin", b"one", true), ("sf2-2.bin", b"two", true)],
+    );
+    let id = identify_with(&p, &ArcadeCatalogue, &Cache::in_memory().unwrap(), None);
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("fbneo"))
+    );
+    assert_eq!(id.combined.alternatives, vec![("mame".to_string(), 0.99)]);
+    assert_eq!(id.catalogue_name.as_deref(), Some("Street Fighter II"));
+    assert!(id.notes.contains(&ItemNote::CatalogueMissing {
+        system: "fbneo".into()
+    }));
+
+    let named = tmp.path().join("sf2b.zip");
+    zip_file(&named, &[("x.bin", b"zz", true), ("y.bin", b"yy", true)]);
+    let p2 = tmp.path().join("sf2.zip");
+    std::fs::rename(&named, &p2).unwrap();
+    let id = identify_with(&p2, &ArcadeCatalogue, &Cache::in_memory().unwrap(), None);
+    assert_eq!(id.combined.verdict, Verdict::Review, "name only");
 }
