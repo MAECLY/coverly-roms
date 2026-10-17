@@ -270,7 +270,8 @@ describe('Drawer art actions', () => {
         },
       }),
     );
-    const drawer = show(view.entries[0]!);
+    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const drawer = show(entry);
     for (const name of ['From file…', 'Remove', 'Search']) {
       expect(within(drawer).getByRole('button', { name })).toBeDisabled();
     }
@@ -283,6 +284,11 @@ describe('Drawer art actions', () => {
     expect(within(drawer).queryByRole('alert')).toBeNull();
     expect(
       within(drawer).getByText(/A fill job is running/),
+    ).toBeInTheDocument();
+    // The held lookup goes out once the job ends.
+    act(() => useJobStore.getState().reset());
+    expect(
+      await within(drawer).findByRole('group', { name: 'Candidates' }),
     ).toBeInTheDocument();
   });
 });

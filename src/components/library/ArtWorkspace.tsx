@@ -123,7 +123,7 @@ export function ArtWorkspace({
       writable.find((m) => entry.art[m] === 'missing') ?? writable[0] ?? null,
   );
   const [lookup, setLookup] = useState<Lookup | null>(() =>
-    active && entry.art[active] === 'missing' && !busy
+    active && entry.art[active] === 'missing'
       ? {
           seq: 0,
           media: active,
@@ -147,7 +147,8 @@ export function ArtWorkspace({
   const [error, setError] = useState<BackendError | null>(null);
 
   const query = typed ?? searchTitle(identity, entry.name);
-  const loading = lookup !== null && settled !== lookup.seq;
+  // A lookup waits while a fill job runs and goes out once it ends.
+  const loading = lookup !== null && settled !== lookup.seq && !busy;
   const tabRefs = useRef(new Map<Media, HTMLButtonElement>());
   const replaceRef = useRef<HTMLButtonElement>(null);
   const candidateRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -158,9 +159,10 @@ export function ArtWorkspace({
 
   /* Runs the current lookup after its delay; a newer lookup (or closing the
    * drawer) cancels the timer and drops a late answer, so responses that
-   * arrive out of order never overwrite the newer list. */
+   * arrive out of order never overwrite the newer list. While a fill job
+   * runs nothing goes out; the same lookup starts when the job ends. */
   useEffect(() => {
-    if (!lookup) return;
+    if (!lookup || busy) return;
     let live = true;
     const timer = setTimeout(() => {
       void (async () => {
@@ -193,7 +195,7 @@ export function ArtWorkspace({
       live = false;
       clearTimeout(timer);
     };
-  }, [lookup, view.generation, entry.id]);
+  }, [lookup, busy, view.generation, entry.id]);
 
   useEffect(() => {
     if (pending !== null) replaceRef.current?.focus();
@@ -237,13 +239,7 @@ export function ArtWorkspace({
     setConfirmRemove(false);
     setApplied(null);
     setStatus(null);
-    setError(null);
-    setPending(null);
-    setListing(null);
-    if (busy) {
-      setLookup(null);
-      return;
-    }
+    // Held back while a job runs; it goes out when the job ends.
     startLookup(m, 'entry', '', AUTO_LOAD_DELAY_MS);
   }
 
