@@ -394,3 +394,58 @@ fn sega_near_misses() {
     tmr[0x7FF1..0x7FF9].copy_from_slice(b"TMR SEGA");
     assert_eq!(best(&run(&tmr, "sms")), None);
 }
+
+#[test]
+fn snes_lorom_hirom_exhirom_with_and_without_copier_header() {
+    use fx::SnesMap::*;
+    for (map, copier) in [
+        (Lo, false),
+        (Lo, true),
+        (Hi, false),
+        (Hi, true),
+        (ExHi, false),
+    ] {
+        let rom = fx::snes(map, copier);
+        assert_eq!(
+            best(&run(&rom, "sfc")),
+            Some(("snes".into(), 0.95)),
+            "{map:?} copier={copier}"
+        );
+    }
+}
+
+#[test]
+fn snes_with_a_broken_checksum_but_valid_map_and_title_is_weaker() {
+    let mut rom = fx::snes(fx::SnesMap::Lo, false);
+    rom[0x7FC0 + 0x1C] ^= 0xFF;
+    assert_eq!(best(&run(&rom, "sfc")), Some(("snes".into(), 0.85)));
+}
+
+#[test]
+fn neo_geo_pocket_and_colour() {
+    assert_eq!(
+        best(&run(&fx::ngp(false), "ngp")),
+        Some(("ngp".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::ngp(true), "ngc")),
+        Some(("ngpc".into(), 0.90))
+    );
+}
+
+#[test]
+fn wonderswan_footer_only_for_its_extensions() {
+    assert_eq!(
+        best(&run(&fx::ws(false), "ws")),
+        Some(("wonderswan".into(), 0.85))
+    );
+    assert_eq!(
+        best(&run(&fx::ws(true), "wsc")),
+        Some(("wonderswancolor".into(), 0.85))
+    );
+    assert_eq!(
+        best(&run(&fx::ws(false), "bin")),
+        None,
+        "0xEA alone is too common"
+    );
+}

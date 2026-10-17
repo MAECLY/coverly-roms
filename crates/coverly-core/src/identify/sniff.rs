@@ -305,8 +305,40 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
-    // Task 7 adds SNES, SNK and Bandai here.
-    let _ = src;
+    if let Some(weight) = snes_header(src, head, len) {
+        let detail = if weight >= 0.95 {
+            "internal header"
+        } else {
+            "map mode + title"
+        };
+        s.hit("snes", weight, detail);
+        return;
+    }
+    if starts(head, 0, b"COPYRIGHT BY SNK CORPORATION")
+        || starts(head, 0, b" LICENSED BY SNK CORPORATION")
+    {
+        let color = head.get(0x23) == Some(&0x10);
+        s.hit(if color { "ngpc" } else { "ngp" }, 0.90, "SNK");
+        return;
+    }
+    // WonderSwan has no magic, only a footer opening with a far jump
+    // (0xEA): too common a byte to trust outside its own extensions.
+    if matches!(ext, "ws" | "wsc") && len >= 10 && len.is_multiple_of(65536) {
+        let mut foot = [0u8; 10];
+        if read_exact_at(src, len - 10, &mut foot) == 10 && foot[0] == 0xEA {
+            let color = foot[1] & 1 == 1;
+            s.hit(
+                if color {
+                    "wonderswancolor"
+                } else {
+                    "wonderswan"
+                },
+                0.85,
+                "footer",
+            );
+            return;
+        }
+    }
     // GBA last: its signature is one fixed byte plus a one-byte complement
     // (16 bits), weaker than any magic above, so a file that carries one of
     // those and matches it by chance keeps its own system.
@@ -392,6 +424,45 @@ fn smd_starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
         };
         j < 0x4000 && head.get(512 + k) == Some(want)
     })
+}
+
+/// SNES map-mode bytes (0x15 of the internal header): LoROM, HiROM,
+/// SA-1, ExHiROM and their FastROM variants.
+const SNES_MAPS: [u8; 8] = [0x20, 0x21, 0x23, 0x25, 0x30, 0x31, 0x32, 0x35];
+
+/// SNES internal header at LoROM/HiROM/ExHiROM, after a 512-byte copier
+/// header when `len % 1024 == 512`: 0.95 when the checksum and its
+/// complement agree, 0.85 for a valid map mode under a printable title.
+fn snes_header(src: &mut dyn ReadAt, head: &[u8], len: u64) -> Option<f32> {
+    let base: u64 = if len % 1024 == 512 { 512 } else { 0 };
+    let mut weak = None;
+    for offset in [0x7FC0u64, 0xFFC0, 0x40_FFC0] {
+        let pos = base + offset;
+        if pos + 0x20 > len {
+            continue;
+        }
+        let mut h = [0u8; 0x20];
+        let got = match usize::try_from(pos).ok().and_then(|p| at(head, p, 0x20)) {
+            Some(slice) => {
+                h.copy_from_slice(slice);
+                0x20
+            }
+            None => read_exact_at(src, pos, &mut h),
+        };
+        if got < 0x20 || !SNES_MAPS.contains(&h[0x15]) {
+            continue;
+        }
+        let complement = u16::from_le_bytes([h[0x1C], h[0x1D]]);
+        let checksum = u16::from_le_bytes([h[0x1E], h[0x1F]]);
+        if checksum ^ complement == 0xFFFF {
+            return Some(0.95);
+        }
+        let title = &h[..21];
+        if title.iter().all(|b| (0x20..0x7F).contains(b)) && title.iter().any(|b| *b != b' ') {
+            weak = Some(0.85);
+        }
+    }
+    weak
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
@@ -579,6 +650,50 @@ pub mod fixtures {
         let mut b = zeros((offset + 0x10).max(32 * 1024));
         b[offset..offset + 8].copy_from_slice(b"TMR SEGA");
         b[offset + 0xF] = region_byte;
+        b
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum SnesMap {
+        Lo,
+        Hi,
+        ExHi,
+    }
+
+    /// A SNES internal header with a valid checksum/complement pair at the
+    /// map's offset, after a 512-byte copier header when `copier`.
+    pub fn snes(map: SnesMap, copier: bool) -> Vec<u8> {
+        let (offset, len, mode) = match map {
+            SnesMap::Lo => (0x7FC0usize, 0x8_0000usize, 0x20u8),
+            SnesMap::Hi => (0xFFC0, 0x10_0000, 0x21),
+            SnesMap::ExHi => (0x40_FFC0, 0x41_0000, 0x25),
+        };
+        let base = if copier { 512 } else { 0 };
+        let mut b = zeros(len + base);
+        let h = &mut b[base + offset..base + offset + 0x20];
+        h[..21].copy_from_slice(b"SYNTH SNES           ");
+        h[0x15] = mode;
+        h[0x1C..0x1E].copy_from_slice(&0x5A5Au16.to_le_bytes());
+        h[0x1E..0x20].copy_from_slice(&(0x5A5Au16 ^ 0xFFFF).to_le_bytes());
+        b
+    }
+
+    pub fn ngp(color: bool) -> Vec<u8> {
+        let mut b = zeros(64 * 1024);
+        b[..28].copy_from_slice(b"COPYRIGHT BY SNK CORPORATION");
+        if color {
+            b[0x23] = 0x10;
+        }
+        b
+    }
+
+    /// A WonderSwan footer: 0xEA (jump) 10 bytes from the end, colour flag
+    /// in the next byte.
+    pub fn ws(color: bool) -> Vec<u8> {
+        let mut b = zeros(128 * 1024);
+        let n = b.len();
+        b[n - 10] = 0xEA;
+        b[n - 9] = u8::from(color);
         b
     }
 
