@@ -1,0 +1,330 @@
+//! Header magic per system (spec §6.3): pure checks over bounded reads.
+//! Reads a 128 KiB prefix plus a few targeted offsets; never the whole
+//! file. Checks run most specific first inside a family.
+
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+
+use serde::{Deserialize, Serialize};
+
+use super::evidence::{Evidence, IdLevel};
+
+/// Bytes read from the start of every candidate.
+pub const PREFIX: usize = 128 * 1024;
+/// Largest offset reachable by stream-skipping a deflated zip entry.
+pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
+/// Systems every real dump of which carries the checked signature: a
+/// failed sniff is negative evidence for them (O-D5).
+pub const DECISIVE: [&str; 8] = ["gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x"];
+
+/// Bounded reads at given offsets.
+pub trait ReadAt {
+    /// Reads up to `buf.len()` bytes at `offset`; fewer at the end.
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize>;
+}
+
+/// In-memory bytes (tests, already-read prefixes).
+pub struct SliceAt<'a>(pub &'a [u8]);
+
+impl ReadAt for SliceAt<'_> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let Ok(start) = usize::try_from(offset) else {
+            return Ok(0);
+        };
+        if start >= self.0.len() {
+            return Ok(0);
+        }
+        let n = buf.len().min(self.0.len() - start);
+        buf[..n].copy_from_slice(&self.0[start..start + n]);
+        Ok(n)
+    }
+}
+
+/// A raw file: seeks.
+pub struct FileAt(pub File);
+
+impl ReadAt for FileAt {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.seek(SeekFrom::Start(offset))?;
+        let mut n = 0;
+        while n < buf.len() {
+            match self.0.read(&mut buf[n..])? {
+                0 => break,
+                k => n += k,
+            }
+        }
+        Ok(n)
+    }
+}
+
+/// A forward-only stream (deflated zip entry): bytes are kept as they are
+/// inflated, up to `cap`; offsets beyond the cap read as end of file.
+pub struct StreamAt<R: Read> {
+    reader: R,
+    seen: Vec<u8>,
+    cap: u64,
+    eof: bool,
+}
+
+impl<R: Read> StreamAt<R> {
+    pub fn new(reader: R, cap: u64) -> StreamAt<R> {
+        StreamAt {
+            reader,
+            seen: Vec::new(),
+            cap,
+            eof: false,
+        }
+    }
+
+    fn fill_to(&mut self, end: u64) -> io::Result<()> {
+        let end = end.min(self.cap);
+        let mut chunk = [0u8; 64 * 1024];
+        while !self.eof && (self.seen.len() as u64) < end {
+            let want = ((end - self.seen.len() as u64) as usize).min(chunk.len());
+            match self.reader.read(&mut chunk[..want])? {
+                0 => self.eof = true,
+                n => self.seen.extend_from_slice(&chunk[..n]),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<R: Read> ReadAt for StreamAt<R> {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.fill_to(offset.saturating_add(buf.len() as u64))?;
+        SliceAt(&self.seen).read_at(offset, buf)
+    }
+}
+
+/// What a file says it is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotARom {
+    WebPage,
+    Text,
+}
+
+/// Container formats recognised by their magic (contents not read here).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContainerMagic {
+    Zip,
+    SevenZip,
+    Chd,
+    Rar,
+}
+
+/// Result of [`sniff`].
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Sniff {
+    /// Header evidence (`kind` = [`IdLevel::Header`]).
+    pub hits: Vec<Evidence>,
+    /// Hard vetoes (e.g. `gb` for a GBC-only cart).
+    pub excluded: Vec<String>,
+    /// A recognised system Coverly does not organise ("Sega Pico", …).
+    pub unsupported: Option<String>,
+    pub not_a_rom: Option<NotARom>,
+    pub container: Option<ContainerMagic>,
+    /// Bytes of prefix actually read (0 = unreadable or empty).
+    pub read: usize,
+}
+
+impl Sniff {
+    fn hit(&mut self, system: &str, weight: f32, detail: impl Into<String>) {
+        self.hits
+            .push(Evidence::new(IdLevel::Header, system, weight, detail));
+    }
+}
+
+/// Reads at `offset` until `buf` is full or the source ends.
+fn read_exact_at(src: &mut dyn ReadAt, offset: u64, buf: &mut [u8]) -> usize {
+    src.read_at(offset, buf).unwrap_or(0)
+}
+
+/// `n` bytes at `offset` of `head`, if present.
+fn at(head: &[u8], offset: usize, n: usize) -> Option<&[u8]> {
+    head.get(offset..offset.checked_add(n)?)
+}
+
+fn starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
+    at(head, offset, magic.len()) == Some(magic)
+}
+
+/// Header magic of the file behind `src` (`len` bytes, extension `ext`).
+pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
+    let ext = ext.to_ascii_lowercase();
+    let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
+    let n = read_exact_at(src, 0, &mut head);
+    head.truncate(n);
+    let mut s = Sniff {
+        read: n,
+        ..Sniff::default()
+    };
+    if n == 0 {
+        return s;
+    }
+    if let Some(kind) = text_kind(&head) {
+        s.not_a_rom = Some(kind);
+        return s;
+    }
+    if let Some(c) = container(&head) {
+        s.container = Some(c);
+        return s;
+    }
+    // Disc images first (sector 16), then cartridges, most specific first.
+    discs(src, &head, len, &mut s);
+    if s.hits.is_empty() && s.unsupported.is_none() {
+        cartridges(src, &head, len, &ext, &mut s);
+    }
+    s
+}
+
+/// Printable text (no NUL/control bytes but tab/CR/LF in the first 512
+/// bytes, valid UTF-8): a web page when it starts like one.
+fn text_kind(head: &[u8]) -> Option<NotARom> {
+    let probe = &head[..head.len().min(512)];
+    let text = match std::str::from_utf8(probe) {
+        Ok(t) => t,
+        // A multi-byte character cut at byte 512 is still text.
+        Err(e) if e.error_len().is_none() => std::str::from_utf8(&probe[..e.valid_up_to()]).ok()?,
+        Err(_) => return None,
+    };
+    if text.is_empty()
+        || text
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\t' | '\r' | '\n'))
+    {
+        return None;
+    }
+    let start = text
+        .trim_start_matches('\u{feff}')
+        .trim_start()
+        .to_ascii_lowercase();
+    let web = ["<!doctype", "<html", "<?xml", "<head", "<body", "{", "["];
+    Some(if web.iter().any(|w| start.starts_with(w)) {
+        NotARom::WebPage
+    } else {
+        NotARom::Text
+    })
+}
+
+fn container(head: &[u8]) -> Option<ContainerMagic> {
+    if starts(head, 0, b"PK\x03\x04") || starts(head, 0, b"PK\x05\x06") {
+        Some(ContainerMagic::Zip)
+    } else if starts(head, 0, &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
+        Some(ContainerMagic::SevenZip)
+    } else if starts(head, 0, b"MComprHD") {
+        Some(ContainerMagic::Chd)
+    } else if starts(head, 0, b"Rar!\x1a\x07") {
+        Some(ContainerMagic::Rar)
+    } else {
+        None
+    }
+}
+
+/// Disc images (Task 8 fills this in).
+fn discs(_src: &mut dyn ReadAt, _head: &[u8], _len: u64, _s: &mut Sniff) {}
+
+fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
+    if starts(head, 0, b"FDS\x1a")
+        || starts(head, 0, b"\x01*NINTENDO-HVC*")
+        || starts(head, 16, b"\x01*NINTENDO-HVC*")
+    {
+        s.hit("fds", 0.95, "FDS");
+        return;
+    }
+    if starts(head, 0, b"NES\x1a") {
+        s.hit("nes", 0.95, "iNES");
+        return;
+    }
+    if starts(head, 0, b"UNIF") {
+        s.hit("nes", 0.95, "UNIF");
+        return;
+    }
+    for (magic, order) in [
+        ([0x80, 0x37, 0x12, 0x40], "z64"),
+        ([0x37, 0x80, 0x40, 0x12], "v64"),
+        ([0x40, 0x12, 0x37, 0x80], "n64"),
+    ] {
+        if starts(head, 0, &magic) {
+            s.hit("n64", 0.95, order);
+            return;
+        }
+    }
+    if starts(head, 0, b"LYNX") {
+        s.hit("lynx", 0.95, "LYNX");
+        return;
+    }
+    if starts(head, 1, b"ATARI7800") {
+        s.hit("a7800", 0.95, "ATARI7800");
+        return;
+    }
+    // Tasks 5–7 add Nintendo handhelds, Sega, SNES, SNK and Bandai here.
+    let _ = (src, len, ext);
+}
+
+/// Synthetic headers for tests: only the bytes the checks read.
+#[cfg(any(test, feature = "test-util"))]
+pub mod fixtures {
+    pub fn zeros(len: usize) -> Vec<u8> {
+        vec![0u8; len]
+    }
+
+    pub fn nes() -> Vec<u8> {
+        let mut b = zeros(16 + 16384);
+        b[..4].copy_from_slice(b"NES\x1a");
+        b
+    }
+
+    pub fn unif() -> Vec<u8> {
+        let mut b = zeros(64);
+        b[..4].copy_from_slice(b"UNIF");
+        b
+    }
+
+    pub fn fds(with_header: bool) -> Vec<u8> {
+        let mut b = zeros(65500 + 16);
+        if with_header {
+            b[..4].copy_from_slice(b"FDS\x1a");
+            b[16..31].copy_from_slice(b"\x01*NINTENDO-HVC*");
+        } else {
+            b[..15].copy_from_slice(b"\x01*NINTENDO-HVC*");
+        }
+        b
+    }
+
+    #[derive(Clone, Copy)]
+    pub enum N64Order {
+        Z64,
+        V64,
+        N64,
+    }
+
+    pub fn n64(order: N64Order) -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(match order {
+            N64Order::Z64 => &[0x80, 0x37, 0x12, 0x40],
+            N64Order::V64 => &[0x37, 0x80, 0x40, 0x12],
+            N64Order::N64 => &[0x40, 0x12, 0x37, 0x80],
+        });
+        b
+    }
+
+    pub fn lynx() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..4].copy_from_slice(b"LYNX");
+        b
+    }
+
+    pub fn a7800() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[1..10].copy_from_slice(b"ATARI7800");
+        b
+    }
+
+    pub fn html_page() -> Vec<u8> {
+        b"<!DOCTYPE html>\n<html><head><title>Download</title></head><body>Not found</body></html>\n"
+            .to_vec()
+    }
+}

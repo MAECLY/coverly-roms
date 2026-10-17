@@ -1,9 +1,11 @@
 //! ROM identification: content hashes, names, DAT lookups (spec §16.2–§16.7).
 
 pub mod dat;
+pub mod evidence;
 pub mod hash;
 pub mod names;
 pub mod overrides;
+pub mod sniff;
 
 use serde::{Deserialize, Serialize};
 
