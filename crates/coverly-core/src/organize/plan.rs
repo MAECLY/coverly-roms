@@ -339,6 +339,8 @@ pub enum OrganizePhase {
     Identify,
     Dats,
     Hash,
+    /// Moving or copying the items (`organize::apply`).
+    Apply,
 }
 
 /// Planning progress: `done` of `total` in `phase`.

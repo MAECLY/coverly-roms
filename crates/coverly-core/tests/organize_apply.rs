@@ -456,3 +456,588 @@ fn a_target_folder_differing_only_by_case_is_a_noop() {
         assert!(journal_entries(&data, &job).is_empty());
     }
 }
+
+// --- organize::apply: whole plans (plan Task 21) ---
+
+mod plans {
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, SystemTime};
+
+    use coverly_core::cache::Cache;
+    use coverly_core::identify::overrides::{remember_manual, Overrides, OVERRIDES_FILE};
+    use coverly_core::identify::sniff::fixtures as fx;
+    use coverly_core::jobs::ItemErrorKind;
+    use coverly_core::organize::apply::{last_apply_dir_reads, set_free_space_override};
+    use coverly_core::organize::{
+        apply_organize, plan_organize, resume_organize, ApplyEnv, ApplyError, ItemOutcome,
+        ItemStatus, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeOptions, OrganizePhase,
+        OrganizePlan, OrganizeProgress, OrganizeReport, SkipReason, TransferMode,
+    };
+    use coverly_core::profiles::{builtin_profiles, Profile};
+    use coverly_core::progress::PauseKind;
+    use coverly_core::systems::SystemDb;
+    use coverly_core::write::{
+        list_jobs, set_copy_fault, twin_listings, undo_job, CopyStage, JobKind,
+    };
+    use filetime::FileTime;
+    use tempfile::TempDir;
+
+    struct NoCloud;
+
+    impl MetaProbe for NoCloud {
+        fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+            false
+        }
+    }
+
+    struct World {
+        db: SystemDb,
+        profiles: Vec<Profile>,
+        cache: Cache,
+    }
+
+    impl World {
+        fn new() -> World {
+            World {
+                db: SystemDb::builtin(),
+                profiles: builtin_profiles(),
+                cache: Cache::in_memory().unwrap(),
+            }
+        }
+
+        fn plan(&self, dir: &Path, opts: OrganizeOptions) -> OrganizePlan {
+            let env = OrganizeEnv {
+                db: &self.db,
+                profiles: &self.profiles,
+                cache: &self.cache,
+                dats: None,
+                probe: &NoCloud,
+                online: None,
+                now: SystemTime::now(),
+            };
+            plan_organize(dir, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+        }
+    }
+
+    fn offline() -> OrganizeOptions {
+        OrganizeOptions {
+            layout: "anbernic-stock".into(),
+            offline: true,
+            ..OrganizeOptions::default()
+        }
+    }
+
+    /// `<tmp>/pile` (the ROMs) and `<tmp>/data` (app data).
+    fn pile() -> (TempDir, PathBuf, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let pile = tmp.path().join("pile");
+        fs::create_dir_all(&pile).unwrap();
+        let data = tmp.path().join("data");
+        (tmp, pile, data)
+    }
+
+    fn hour_ago() -> FileTime {
+        FileTime::from_system_time(SystemTime::now() - Duration::from_secs(3600))
+    }
+
+    /// Writes `bytes` at `path` (parents created) dated one hour back.
+    fn put(path: &Path, bytes: &[u8]) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+        filetime::set_file_mtime(path, hour_ago()).unwrap();
+    }
+
+    fn apply_with(
+        plan: &OrganizePlan,
+        data: &Path,
+        cancel: &AtomicBool,
+    ) -> Result<OrganizeReport, ApplyError> {
+        let env = ApplyEnv {
+            data_dir: data,
+            progress: &|_| {},
+            cancel,
+        };
+        apply_organize(plan, &env)
+    }
+
+    fn apply(plan: &OrganizePlan, data: &Path) -> OrganizeReport {
+        apply_with(plan, data, &AtomicBool::new(false)).unwrap()
+    }
+
+    fn resume(job: &str, data: &Path) -> OrganizeReport {
+        let env = ApplyEnv {
+            data_dir: data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+        };
+        resume_organize(job, &env).unwrap()
+    }
+
+    fn id_of(plan: &OrganizePlan, name: &str) -> usize {
+        plan.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("no item {name}"))
+            .id
+    }
+
+    fn outcome(report: &OrganizeReport, id: usize) -> &ItemOutcome {
+        report
+            .items
+            .iter()
+            .find(|o| o.item == id)
+            .unwrap_or_else(|| panic!("no outcome for item {id}: {report:?}"))
+    }
+
+    fn skip_reason(report: &OrganizeReport, id: usize) -> Option<SkipReason> {
+        match &outcome(report, id).status {
+            ItemStatus::Skipped { reason } => Some(*reason),
+            _ => None,
+        }
+    }
+
+    /// Every file under `dir`, relative, sorted.
+    fn tree(dir: &Path) -> BTreeSet<PathBuf> {
+        walkdir(dir)
+            .into_iter()
+            .map(|p| p.strip_prefix(dir).unwrap().to_path_buf())
+            .collect()
+    }
+
+    fn walkdir(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let Ok(read) = fs::read_dir(dir) else {
+            return out;
+        };
+        for entry in read.flatten() {
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                out.extend(walkdir(&path));
+            } else {
+                out.push(path);
+            }
+        }
+        out
+    }
+
+    fn set(paths: &[&str]) -> BTreeSet<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn apply_moves_auto_items_and_leaves_review_and_left_items() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        put(&pile.join("Boy.gb"), &fx::gb_tagged(0x00, 1));
+        put(&pile.join("Half.gba.crdownload"), b"partial");
+        put(&pile.join("notes.txt"), b"hello");
+        let world = World::new();
+        let mut plan = world.plan(&pile, offline());
+        let (gba, gb) = (id_of(&plan, "Advance.gba"), id_of(&plan, "Boy.gb"));
+        assert_eq!(plan.mode, TransferMode::Move);
+        // The user has not answered for the Game Boy file yet.
+        plan.items.iter_mut().find(|i| i.id == gb).unwrap().action = OrganizeAction::Review;
+
+        let report = apply(&plan, &data);
+        assert_eq!(report.moved, 1, "{report:?}");
+        assert_eq!(report.failed, 0);
+        assert!(report.paused.is_none());
+        assert!(matches!(outcome(&report, gba).status, ItemStatus::Moved));
+        assert_eq!(
+            outcome(&report, gba).targets,
+            [pile.join("ROMS/GBA/Advance.gba")]
+        );
+        assert_eq!(skip_reason(&report, gb), Some(SkipReason::NotDecided));
+        assert_eq!(
+            tree(&pile),
+            set(&[
+                "ROMS/GBA/Advance.gba",
+                "Boy.gb",
+                "Half.gba.crdownload",
+                "notes.txt"
+            ])
+        );
+
+        // One finished organise job, with its plan, undone in one go.
+        let job = report.job.clone().expect("a job");
+        let jobs = list_jobs(&data).unwrap();
+        assert_eq!(jobs[0].job, job);
+        assert_eq!(jobs[0].kind, JobKind::Organize);
+        assert!(jobs[0].complete);
+        let saved: OrganizePlan = serde_json::from_slice(
+            &fs::read(data.join("jobs").join(format!("{job}.plan.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved, plan);
+        undo_job(&data, &job).unwrap();
+        assert_eq!(
+            tree(&pile),
+            set(&["Advance.gba", "Boy.gb", "Half.gba.crdownload", "notes.txt"])
+        );
+    }
+
+    #[test]
+    fn copy_mode_into_another_root_keeps_the_pile() {
+        let (tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        put(&pile.join("Boy.gb"), &fx::gb_tagged(0x00, 1));
+        let card = tmp.path().join("card");
+        fs::create_dir_all(&card).unwrap();
+        let world = World::new();
+        let plan = world.plan(
+            &pile,
+            OrganizeOptions {
+                target: Some(card.clone()),
+                mode: Some(TransferMode::Copy),
+                ..offline()
+            },
+        );
+        let before = tree(&pile);
+        let report = apply(&plan, &data);
+        assert_eq!((report.copied, report.moved), (2, 0), "{report:?}");
+        assert!(report
+            .items
+            .iter()
+            .all(|o| matches!(o.status, ItemStatus::Copied)));
+        assert_eq!(tree(&pile), before, "the pile is untouched");
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GBA/Advance.gba", "ROMS/GB/Boy.gb"])
+        );
+        assert_eq!(
+            fs::read(card.join("ROMS/GBA/Advance.gba")).unwrap(),
+            fx::gba_tagged(1)
+        );
+        undo_job(&data, report.job.as_deref().unwrap()).unwrap();
+        assert!(tree(&card).is_empty());
+        assert_eq!(tree(&pile), before);
+    }
+
+    #[test]
+    fn a_target_created_after_planning_gets_a_numbered_name() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        // Another program puts a different file there meanwhile, in
+        // another case.
+        put(&pile.join("ROMS/GBA/advance.GBA"), b"someone else's");
+
+        let report = apply(&plan, &data);
+        let id = id_of(&plan, "Advance.gba");
+        assert!(matches!(outcome(&report, id).status, ItemStatus::Moved));
+        assert_eq!(
+            outcome(&report, id).targets,
+            [pile.join("ROMS/GBA/Advance (2).gba")]
+        );
+        assert_eq!(
+            fs::read(pile.join("ROMS/GBA/advance.GBA")).unwrap(),
+            b"someone else's"
+        );
+    }
+
+    #[test]
+    fn the_same_content_already_at_the_target_is_skipped() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        put(&pile.join("ROMS/GBA/Advance.gba"), &fx::gba_tagged(1));
+
+        let report = apply(&plan, &data);
+        let id = id_of(&plan, "Advance.gba");
+        assert_eq!(skip_reason(&report, id), Some(SkipReason::AlreadyPresent));
+        assert!(pile.join("Advance.gba").exists());
+        assert_eq!(report.job, None, "nothing changed: no job");
+    }
+
+    #[test]
+    fn a_source_changed_after_planning_is_skipped() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        put(&pile.join("Other.gba"), &fx::gba_tagged(2));
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        // Rewritten with other bytes (and a newer date) after planning.
+        let mut bytes = fx::gba_tagged(3);
+        bytes.extend_from_slice(b"more");
+        fs::write(pile.join("Advance.gba"), &bytes).unwrap();
+        fs::remove_file(pile.join("Other.gba")).unwrap();
+
+        let report = apply(&plan, &data);
+        assert_eq!(
+            skip_reason(&report, id_of(&plan, "Advance.gba")),
+            Some(SkipReason::ChangedSincePlan)
+        );
+        assert_eq!(
+            skip_reason(&report, id_of(&plan, "Other.gba")),
+            Some(SkipReason::SourceMissing)
+        );
+        assert_eq!(fs::read(pile.join("Advance.gba")).unwrap(), bytes);
+        assert_eq!(report.moved, 0);
+    }
+
+    #[test]
+    fn a_set_collision_skips_the_whole_set() {
+        let (_tmp, pile, data) = pile();
+        put(
+            &pile.join("Game.cue"),
+            b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+        );
+        put(&pile.join("Game.bin"), &fx::psx_iso(true, false));
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        let id = id_of(&plan, "Game.cue");
+        let item = plan.items.iter().find(|i| i.id == id).unwrap();
+        assert_eq!(item.action, OrganizeAction::Auto, "{item:?}");
+        // A track with the set's name appears in the target folder.
+        let track = plan.target_root.join(&item.set_targets[0]);
+        put(&track, b"not this game");
+
+        let report = apply(&plan, &data);
+        assert_eq!(skip_reason(&report, id), Some(SkipReason::CollisionSet));
+        assert!(pile.join("Game.cue").exists() && pile.join("Game.bin").exists());
+        assert!(!plan
+            .target_root
+            .join(item.target.as_ref().unwrap())
+            .exists());
+        assert_eq!(fs::read(&track).unwrap(), b"not this game");
+    }
+
+    #[test]
+    fn not_enough_space_refuses_to_start_with_numbers() {
+        let (tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        let card = tmp.path().join("card");
+        fs::create_dir_all(&card).unwrap();
+        let world = World::new();
+        let plan = world.plan(
+            &pile,
+            OrganizeOptions {
+                target: Some(card),
+                mode: Some(TransferMode::Copy),
+                ..offline()
+            },
+        );
+        set_free_space_override(Some(|_| Some(10)));
+        let result = apply_with(&plan, &data, &AtomicBool::new(false));
+        set_free_space_override(None);
+        let size = fx::gba_tagged(1).len() as u64;
+        match result {
+            Err(ApplyError::NoSpace { needed, free }) => {
+                assert_eq!(free, 10);
+                assert_eq!(needed, size + size.div_ceil(100));
+            }
+            other => panic!("expected NoSpace, got {other:?}"),
+        }
+        assert!(list_jobs(&data).unwrap().is_empty(), "no journal");
+        assert!(pile.join("Advance.gba").exists());
+    }
+
+    #[test]
+    fn free_space_reads_the_volume() {
+        let tmp = TempDir::new().unwrap();
+        let free = coverly_core::organize::free_space(tmp.path());
+        assert!(free.is_some_and(|f| f > 0), "{free:?}");
+        // A folder not created yet is measured on its nearest parent.
+        assert!(coverly_core::organize::free_space(&tmp.path().join("a/b")).is_some());
+    }
+
+    /// Three Game Boy files and one GBA file, planned in place.
+    fn three_gb(world: &World) -> (TempDir, PathBuf, PathBuf, OrganizePlan) {
+        let (tmp, pile, data) = pile();
+        put(&pile.join("A.gba"), &fx::gba_tagged(1));
+        for (n, name) in ["B.gb", "C.gb", "D.gb"].iter().enumerate() {
+            put(&pile.join(name), &fx::gb_tagged(0x00, n as u8 + 1));
+        }
+        let plan = world.plan(&pile, offline());
+        assert_eq!(plan.items[0].sources[0], Path::new("A.gba"));
+        (tmp, pile, data, plan)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_target_pauses_and_resume_finishes_into_the_same_journal() {
+        use std::os::unix::fs::PermissionsExt;
+        let world = World::new();
+        let (_tmp, pile, data, plan) = three_gb(&world);
+        let gb_dir = pile.join("ROMS/GB");
+        fs::create_dir_all(&gb_dir).unwrap();
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let report = apply(&plan, &data);
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(report.paused, Some(PauseKind::Volume), "{report:?}");
+        assert_eq!(report.pause_reason, Some(ItemErrorKind::WriteDenied));
+        assert_eq!(report.moved, 1);
+        let resumable: Vec<usize> = ["B.gb", "C.gb", "D.gb"]
+            .iter()
+            .map(|n| id_of(&plan, n))
+            .collect();
+        assert_eq!(report.resumable_items, resumable);
+        let job = report.job.clone().unwrap();
+        assert!(!list_jobs(&data).unwrap()[0].complete, "paused, not done");
+
+        let resumed = resume(&job, &data);
+        assert_eq!(resumed.job.as_deref(), Some(job.as_str()));
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert_eq!(resumed.moved, 4, "counts merge both runs: {resumed:?}");
+        assert!(resumed.resumable_items.is_empty());
+        assert_eq!(
+            tree(&pile),
+            set(&[
+                "ROMS/GBA/A.gba",
+                "ROMS/GB/B.gb",
+                "ROMS/GB/C.gb",
+                "ROMS/GB/D.gb"
+            ])
+        );
+        let jobs = list_jobs(&data).unwrap();
+        assert_eq!(jobs.len(), 1, "one journal for both runs");
+        assert!(jobs[0].complete);
+
+        undo_job(&data, &job).unwrap();
+        assert_eq!(tree(&pile), set(&["A.gba", "B.gb", "C.gb", "D.gb"]));
+    }
+
+    fn disk_full_on_gb(stage: CopyStage, path: &Path) -> Option<io::Error> {
+        (stage == CopyStage::Rename && path.extension().is_some_and(|e| e == "gb"))
+            .then(|| io::Error::from_raw_os_error(28))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_full_disk_pauses() {
+        let world = World::new();
+        let (_tmp, pile, data, plan) = three_gb(&world);
+        set_copy_fault(Some(disk_full_on_gb));
+        let report = apply(&plan, &data);
+        set_copy_fault(None);
+        assert_eq!(report.paused, Some(PauseKind::Volume));
+        assert_eq!(report.pause_reason, Some(ItemErrorKind::DiskFull));
+        assert_eq!(report.resumable_items.len(), 3);
+        assert!(pile.join("B.gb").exists());
+    }
+
+    #[test]
+    fn leftover_temps_of_the_job_are_cleaned_on_resume() {
+        let world = World::new();
+        let (_tmp, pile, data, plan) = three_gb(&world);
+        set_copy_fault(Some(disk_full_on_gb));
+        let report = apply(&plan, &data);
+        set_copy_fault(None);
+        let job = report.job.clone().unwrap();
+        // What a crash in the middle of a copy leaves behind.
+        let gb_dir = pile.join("ROMS/GB");
+        let temp = gb_dir.join(format!(".coverly-{job}-7.tmp"));
+        put(&temp, b"half a copy");
+        let foreign = gb_dir.join(".coverly-otherjob-1.tmp");
+        put(&foreign, b"not ours");
+
+        let resumed = resume(&job, &data);
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert!(!temp.exists(), "the job's temp is gone");
+        assert!(foreign.exists(), "another job's temp stays");
+    }
+
+    static CANCEL_AFTER_FIRST: AtomicBool = AtomicBool::new(false);
+
+    fn cancel_on_first_rename(stage: CopyStage, _: &Path) -> Option<io::Error> {
+        if stage == CopyStage::Rename {
+            CANCEL_AFTER_FIRST.store(true, Ordering::SeqCst);
+        }
+        None
+    }
+
+    #[test]
+    fn cancel_between_items_keeps_what_was_done_undoable() {
+        let world = World::new();
+        let (_tmp, pile, data, plan) = three_gb(&world);
+        set_copy_fault(Some(cancel_on_first_rename));
+        let report = apply_with(&plan, &data, &CANCEL_AFTER_FIRST).unwrap();
+        set_copy_fault(None);
+        assert_eq!(report.moved, 1, "{report:?}");
+        for name in ["B.gb", "C.gb", "D.gb"] {
+            assert_eq!(
+                skip_reason(&report, id_of(&plan, name)),
+                Some(SkipReason::Cancelled)
+            );
+        }
+        assert!(report.paused.is_none());
+        assert!(pile.join("ROMS/GBA/A.gba").exists());
+        let job = report.job.clone().unwrap();
+        assert!(list_jobs(&data).unwrap()[0].complete);
+        undo_job(&data, &job).unwrap();
+        assert_eq!(tree(&pile), set(&["A.gba", "B.gb", "C.gb", "D.gb"]));
+    }
+
+    #[test]
+    fn apply_uses_a_directory_index() {
+        let (_tmp, pile, data) = pile();
+        for n in 0..300u32 {
+            // Distinct contents, or the copies would be duplicates.
+            let mut bytes = fx::gba_tagged((n % 250) as u8);
+            bytes.extend_from_slice(&n.to_le_bytes());
+            put(&pile.join(format!("Game {n:03}.gba")), &bytes);
+        }
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        let listings = twin_listings();
+        let seen: std::sync::Mutex<Vec<OrganizeProgress>> = std::sync::Mutex::new(Vec::new());
+        let env = ApplyEnv {
+            data_dir: &data,
+            progress: &|p| seen.lock().unwrap().push(p),
+            cancel: &AtomicBool::new(false),
+        };
+        let report = apply_organize(&plan, &env).unwrap();
+        assert_eq!(report.moved, 300, "{:?}", report.items.first());
+        assert!(last_apply_dir_reads() <= 3, "{}", last_apply_dir_reads());
+        assert_eq!(twin_listings() - listings, 0, "no folder listing per file");
+        let seen = seen.into_inner().unwrap();
+        assert!(seen.iter().all(|p| p.phase == OrganizePhase::Apply));
+        assert_eq!(seen.last().map(|p| (p.done, p.total)), Some((300, 300)));
+    }
+
+    #[test]
+    fn identity_overrides_follow_moved_roms() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        let from = plan.source_root.join("Advance.gba");
+        let to = plan.target_root.join("ROMS/GBA/Advance.gba");
+        remember_manual(&data, &from, "Advance Wars (USA)", "manual").unwrap();
+
+        let report = apply(&plan, &data);
+        assert_eq!(report.moved, 1);
+        let o = Overrides::read(&data.join(OVERRIDES_FILE));
+        assert!(o.get(&from).is_none());
+        assert_eq!(o.get(&to).unwrap().name, "Advance Wars (USA)");
+        let job = report.job.unwrap();
+        let journal = fs::read_to_string(data.join("jobs").join(format!("{job}.jsonl"))).unwrap();
+        assert!(journal.contains("\"override-moved\""));
+
+        undo_job(&data, &job).unwrap();
+        let o = Overrides::read(&data.join(OVERRIDES_FILE));
+        assert_eq!(o.get(&from).unwrap().name, "Advance Wars (USA)");
+        assert!(o.get(&to).is_none());
+    }
+
+    #[test]
+    fn resume_of_a_job_without_a_plan_fails() {
+        let (_tmp, _pile, data) = pile();
+        let env = ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+        };
+        assert!(matches!(
+            resume_organize("20261017T000000Z-0000-0000", &env),
+            Err(ApplyError::NoPlan(_))
+        ));
+    }
+}
