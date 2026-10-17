@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { AppFooter } from '@/components/AppFooter';
+import { Logo } from '@/components/brand/Logo';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { ScanProgressView } from '@/components/ScanProgressView';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
@@ -103,7 +104,9 @@ export function StartScreen() {
       </header>
       <main className="flex flex-1 flex-col items-center gap-6 px-6 py-10 text-center">
         <UpdateBanner />
-        <h1 className="wordmark">{t('app.name')}</h1>
+        <h1 className="wordmark">
+          <Logo name={t('app.name')} />
+        </h1>
         <p className="tagline max-w-xl">{t('app.tagline')}</p>
         <button
           type="button"

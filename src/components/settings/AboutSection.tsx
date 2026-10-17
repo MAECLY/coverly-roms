@@ -1,3 +1,4 @@
+import { Logo } from '@/components/brand/Logo';
 import { useAppInfo } from '@/hooks/useAppInfo';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -23,7 +24,9 @@ export function AboutSection() {
   );
   return (
     <div className="settings-group">
-      <h2 className="wordmark-small">Coverly ROMs</h2>
+      <h2 className="wordmark-small">
+        <Logo />
+      </h2>
       <p>{t('footer.version', { version: info?.version ?? '—' })}</p>
       <p>{t('footer.coreVersion', { version: info?.core_version ?? '—' })}</p>
       <p>{t('about.license')}</p>
