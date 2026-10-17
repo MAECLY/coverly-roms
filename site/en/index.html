@@ -107,7 +107,8 @@
 </ul>
 </div>
 
-<figure class="shelf" role="img" aria-label="Illustration: a library of twelve made-up games where five have no cover; as it fills, each gap gets its own.">
+<figure class="shelf">
+<div class="shelf-art" role="img" aria-label="Illustration: a library of twelve made-up games where five have no cover; as it fills, each gap gets its own.">
 <ol class="shelf-grid">
 <li class="tile"><span class="ph">No cover</span><span class="art p3 m-diag"><span class="sys">GBA</span><span class="name">Æther Rally</span></span></li>
 <li class="tile"><span class="ph">No cover</span><span class="art p1 m-sun"><span class="sys">SNES</span><span class="name">Castle Fighter</span></span></li>
@@ -122,7 +123,9 @@
 <li class="tile"><span class="ph">No cover</span><span class="art p9 m-ring"><span class="sys">PCE</span><span class="name">Moth Lantern</span></span></li>
 <li class="tile gap"><span class="ph">No cover</span><span class="art p11 m-grid"><span class="sys">PSP</span><span class="name">Orbit Derby</span></span></li>
 </ol>
-<p class="shelf-status" aria-hidden="true"><span><b class="have">12</b> of 12 with a cover</span><span class="done">5 covers added</span></p>
+<p class="shelf-status" aria-hidden="true"><span><b class="have">12</b> of 12 with a cover</span><span class="state"><span class="s-plan">Dry run: 5 covers, nothing written</span><span class="s-busy">Applying…</span><span class="done">5 covers added</span></span></p>
+</div>
+<figcaption class="caption-row"><span>Illustration. Sped up.</span><button class="replay" type="button"><span aria-hidden="true">↻</span> Replay</button></figcaption>
 </figure>
 </div>
 </section>
@@ -143,7 +146,7 @@
 <div class="shot"><picture>
 <source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="../assets/shots/en/library-dark@1x.webp 1280w, ../assets/shots/en/library-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
 <img src="../assets/shots/en/library-light@1x.webp" srcset="../assets/shots/en/library-light@1x.webp 1280w, ../assets/shots/en/library-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="A library open in Coverly ROMs: systems on the left and a grid of games where those without a cover show as “No cover” gaps. At the bottom, 4,553 without cover out of 12,000 ROMs.">
-</picture></div>
+</picture><svg class="annot" viewBox="0 0 1280 800" preserveAspectRatio="none" aria-hidden="true" focusable="false"><ellipse class="annot-mark" pathLength="1" cx="194" cy="785" rx="66" ry="14" transform="rotate(-2 194 785)"/></svg></div>
 </figure>
 </li>
 <li class="step">
@@ -157,7 +160,7 @@
 <div class="shot"><picture>
 <source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="../assets/shots/en/fill-dark@1x.webp 1280w, ../assets/shots/en/fill-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
 <img src="../assets/shots/en/fill-light@1x.webp" srcset="../assets/shots/en/fill-light@1x.webp 1280w, ../assets/shots/en/fill-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="Step 5 of the Fill missing art wizard: “Nothing has been written yet” above a table per system of automatic images, images to review and games with no art.">
-</picture></div>
+</picture><svg class="annot" viewBox="0 0 1280 800" preserveAspectRatio="none" aria-hidden="true" focusable="false"><ellipse class="annot-mark" pathLength="1" cx="476" cy="95" rx="94" ry="16" transform="rotate(-2 476 95)"/></svg></div>
 </figure>
 </li>
 <li class="step">
@@ -222,7 +225,7 @@
 </div>
 <div class="split">
 <div>
-<div class="table-scroll" tabindex="0" role="region" aria-labelledby="layouts-cap">
+<div class="table-scroll" data-reveal tabindex="0" role="region" aria-labelledby="layouts-cap">
 <table class="media">
 <caption id="layouts-cap">Which images each layout can hold</caption>
 <thead><tr><th scope="col">Layout</th><th scope="col">Cover</th><th scope="col">Screenshot</th><th scope="col">Title</th></tr></thead>
@@ -242,17 +245,17 @@
 </div>
 <div class="term" role="region" aria-label="Command line example">
 <div class="term-bar">Same engine, in the terminal: <code>coverly</code></div>
-<pre><code><span class="c"># What is missing (read-only)</span>
-<span class="p">$ </span>coverly audit /Volumes/SD --missing-only
+<pre><code><span class="t-step"><span class="c"># What is missing (read-only)</span>
+<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span></span>
 
-<span class="c"># The plan, nothing written</span>
-<span class="p">$ </span>coverly fill /Volumes/SD
+<span class="t-step"><span class="c"># The plan, nothing written</span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span></span>
 
-<span class="c"># For real, skipping the doubtful ones</span>
-<span class="p">$ </span>coverly fill /Volumes/SD --apply --auto-only
+<span class="t-step"><span class="c"># For real, skipping the doubtful ones</span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span></span>
 
-<span class="c"># Changed your mind</span>
-<span class="p">$ </span>coverly undo</code></pre>
+<span class="t-step"><span class="c"># Changed your mind</span>
+<span class="p">$ </span><span class="t-cmd">coverly undo</span></span></code></pre>
 </div>
 </div>
 </div>
@@ -374,6 +377,7 @@
 
 <section class="closing" aria-labelledby="closing-t">
 <div class="wrap">
+<svg class="closing-mark" data-reveal viewBox="0 0 136 44" width="136" height="44" aria-hidden="true" focusable="false"><rect class="cm p1" x="1" y="1" width="28" height="42" rx="4"/><rect class="cm p2" x="36" y="1" width="28" height="42" rx="4"/><rect class="cm p5" x="71" y="1" width="28" height="42" rx="4"/><rect class="cm-gap" x="106.75" y="1.75" width="26.5" height="40.5" rx="3.5"/><rect class="cm cm-last p3" x="106" y="1" width="28" height="42" rx="4"/></svg>
 <h2 id="closing-t">Open the card. See what is missing.</h2>
 <p>The rest is your call, with the dry run in front of you.</p>
 <div class="actions"><!-- release:begin --><a class="btn btn-primary" href="#download">Download Coverly ROMs</a><!-- release:end --><!-- norelease:begin --><a class="btn btn-primary" href="#download">Release status</a><!-- norelease:end --></div>

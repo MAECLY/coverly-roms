@@ -107,7 +107,8 @@
 </ul>
 </div>
 
-<figure class="shelf" role="img" aria-label="Ilustración: una biblioteca de doce juegos inventados en la que cinco no tienen portada; al rellenarla, cada hueco recibe la suya.">
+<figure class="shelf">
+<div class="shelf-art" role="img" aria-label="Ilustración: una biblioteca de doce juegos inventados en la que cinco no tienen portada; al rellenarla, cada hueco recibe la suya.">
 <ol class="shelf-grid">
 <li class="tile"><span class="ph">Sin portada</span><span class="art p3 m-diag"><span class="sys">GBA</span><span class="name">Æther Rally</span></span></li>
 <li class="tile"><span class="ph">Sin portada</span><span class="art p1 m-sun"><span class="sys">SNES</span><span class="name">Castle Fighter</span></span></li>
@@ -122,7 +123,9 @@
 <li class="tile"><span class="ph">Sin portada</span><span class="art p9 m-ring"><span class="sys">PCE</span><span class="name">Moth Lantern</span></span></li>
 <li class="tile gap"><span class="ph">Sin portada</span><span class="art p11 m-grid"><span class="sys">PSP</span><span class="name">Orbit Derby</span></span></li>
 </ol>
-<p class="shelf-status" aria-hidden="true"><span><b class="have">12</b> de 12 con portada</span><span class="done">5 portadas añadidas</span></p>
+<p class="shelf-status" aria-hidden="true"><span><b class="have">12</b> de 12 con portada</span><span class="state"><span class="s-plan">Simulación: 5 portadas, nada escrito</span><span class="s-busy">Aplicando…</span><span class="done">5 portadas añadidas</span></span></p>
+</div>
+<figcaption class="caption-row"><span>Ilustración. Tiempo acelerado.</span><button class="replay" type="button"><span aria-hidden="true">↻</span> Repetir</button></figcaption>
 </figure>
 </div>
 </section>
@@ -143,7 +146,7 @@
 <div class="shot"><picture>
 <source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/library-dark@1x.webp 1280w, assets/shots/es/library-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
 <img src="assets/shots/es/library-light@1x.webp" srcset="assets/shots/es/library-light@1x.webp 1280w, assets/shots/es/library-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="La biblioteca abierta en Coverly ROMs: sistemas a la izquierda y una cuadrícula de juegos en la que los que no tienen portada aparecen como huecos con «Sin portada». Abajo, 4553 sin portada de 12.000 ROMs.">
-</picture></div>
+</picture><svg class="annot" viewBox="0 0 1280 800" preserveAspectRatio="none" aria-hidden="true" focusable="false"><ellipse class="annot-mark" pathLength="1" cx="189" cy="785" rx="62" ry="14" transform="rotate(-2 189 785)"/></svg></div>
 </figure>
 </li>
 <li class="step">
@@ -157,7 +160,7 @@
 <div class="shot"><picture>
 <source data-dark media="(prefers-color-scheme: dark)" type="image/webp" srcset="assets/shots/es/fill-dark@1x.webp 1280w, assets/shots/es/fill-dark.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)">
 <img src="assets/shots/es/fill-light@1x.webp" srcset="assets/shots/es/fill-light@1x.webp 1280w, assets/shots/es/fill-light.webp 2560w" sizes="(min-width: 1240px) 790px, (min-width: 900px) calc(100vw - 448px), calc(100vw - 32px)" width="1280" height="800" loading="lazy" decoding="async" alt="Paso 5 del asistente Rellenar arte que falta: «Todavía no se ha escrito nada» y una tabla por sistema con las imágenes automáticas, las que hay que revisar y las que no tienen arte.">
-</picture></div>
+</picture><svg class="annot" viewBox="0 0 1280 800" preserveAspectRatio="none" aria-hidden="true" focusable="false"><ellipse class="annot-mark" pathLength="1" cx="478" cy="95" rx="98" ry="16" transform="rotate(-2 478 95)"/></svg></div>
 </figure>
 </li>
 <li class="step">
@@ -222,7 +225,7 @@
 </div>
 <div class="split">
 <div>
-<div class="table-scroll" tabindex="0" role="region" aria-labelledby="formatos-cap">
+<div class="table-scroll" data-reveal tabindex="0" role="region" aria-labelledby="formatos-cap">
 <table class="media">
 <caption id="formatos-cap">Qué imágenes puede guardar cada formato</caption>
 <thead><tr><th scope="col">Formato</th><th scope="col">Portada</th><th scope="col">Captura</th><th scope="col">Título</th></tr></thead>
@@ -242,17 +245,17 @@
 </div>
 <div class="term" role="region" aria-label="Ejemplo de la línea de comandos">
 <div class="term-bar">La misma lógica, en la terminal: <code>coverly</code></div>
-<pre><code><span class="c"># Qué falta (solo lee)</span>
-<span class="p">$ </span>coverly audit /Volumes/SD --missing-only
+<pre><code><span class="t-step"><span class="c"># Qué falta (solo lee)</span>
+<span class="p">$ </span><span class="t-cmd">coverly audit /Volumes/SD --missing-only</span></span>
 
-<span class="c"># El plan, sin escribir nada</span>
-<span class="p">$ </span>coverly fill /Volumes/SD
+<span class="t-step"><span class="c"># El plan, sin escribir nada</span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD</span></span>
 
-<span class="c"># Ahora sí, sin las dudosas</span>
-<span class="p">$ </span>coverly fill /Volumes/SD --apply --auto-only
+<span class="t-step"><span class="c"># Ahora sí, sin las dudosas</span>
+<span class="p">$ </span><span class="t-cmd">coverly fill /Volumes/SD --apply --auto-only</span></span>
 
-<span class="c"># Y si no te convence</span>
-<span class="p">$ </span>coverly undo</code></pre>
+<span class="t-step"><span class="c"># Y si no te convence</span>
+<span class="p">$ </span><span class="t-cmd">coverly undo</span></span></code></pre>
 </div>
 </div>
 </div>
@@ -374,6 +377,7 @@
 
 <section class="closing" aria-labelledby="cierre-t">
 <div class="wrap">
+<svg class="closing-mark" data-reveal viewBox="0 0 136 44" width="136" height="44" aria-hidden="true" focusable="false"><rect class="cm p1" x="1" y="1" width="28" height="42" rx="4"/><rect class="cm p2" x="36" y="1" width="28" height="42" rx="4"/><rect class="cm p5" x="71" y="1" width="28" height="42" rx="4"/><rect class="cm-gap" x="106.75" y="1.75" width="26.5" height="40.5" rx="3.5"/><rect class="cm cm-last p3" x="106" y="1" width="28" height="42" rx="4"/></svg>
 <h2 id="cierre-t">Abre la tarjeta. Mira lo que falta.</h2>
 <p>Lo demás lo decides tú, con la simulación delante.</p>
 <div class="actions"><!-- release:begin --><a class="btn btn-primary" href="#descargar">Descargar Coverly ROMs</a><!-- release:end --><!-- norelease:begin --><a class="btn btn-primary" href="#descargar">Cuándo sale</a><!-- norelease:end --></div>

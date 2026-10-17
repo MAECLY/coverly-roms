@@ -43,6 +43,8 @@
   --wrap: 1160px;
   --gutter: clamp(16px, 4vw, 40px);
   --header: 60px;
+  --ease-ink: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.5, 0.64, 1);
   color-scheme: light;
 }
 
@@ -488,7 +490,7 @@ html:not(.anim) .tile .ph,
 .nf .tile .ph {
   display: grid;
 }
-.tile.is-filled .ph {
+html.anim .tile.is-filled .ph {
   opacity: 0;
   transition: opacity 0s 640ms;
 }
@@ -617,40 +619,96 @@ html:not(.anim) .tile .ph,
   color: var(--cr-text-muted);
 }
 .shelf-status b {
+  display: inline-block;
+  min-width: 2ch;
+  text-align: right;
   color: var(--cr-text);
   font-variant-numeric: tabular-nums;
+}
+/* The three states share one cell, so the line never changes height. */
+.shelf-status .state {
+  display: grid;
+  justify-items: end;
+  margin-left: auto;
+  text-align: right;
+}
+.state > * {
+  grid-area: 1 / 1;
+}
+.shelf-status :is(.s-plan, .s-busy) {
+  visibility: hidden;
+  color: var(--cr-accent);
+  font-weight: 650;
+}
+html.motion .shelf.planning .s-plan,
+html.motion .shelf.applying .s-busy {
+  visibility: visible;
 }
 .shelf-status .done {
   color: var(--ok);
   font-weight: 650;
 }
 
+/* Caption row under the shelf. The replay button only exists once
+   motion.js runs, and only shows after the fill has played; the row keeps
+   its height either way, so nothing below moves. */
+.caption-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  color: var(--cr-text-muted);
+}
+.replay {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cr-text);
+  font: 600 0.875rem/1 var(--body);
+  cursor: pointer;
+}
+.replay:hover {
+  background: var(--cr-surface);
+}
+html.motion .replay {
+  display: inline-flex;
+  visibility: hidden;
+}
+html.motion .shelf.is-played .replay {
+  visibility: visible;
+}
+
 /* Motion: armed before first paint by theme.js (html.anim), so the gaps
-   never flash full. motion.js fills them, or removes .anim on any error. */
+   never flash full. motion.js plays dry run → apply → done (html.motion),
+   or removes both classes on any error and the finished shelf shows. */
 html.anim .tile.gap:not(.is-filled) .art {
   clip-path: inset(0 0 100% 0);
 }
 html.anim .tile.gap .art {
-  transition: clip-path 620ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: clip-path 620ms var(--ease-ink);
 }
 html.anim .tile.gap.is-filled .art {
   clip-path: inset(0 0 0 0);
 }
+/* Until motion.js sets the count, "12 of 12" would sit over five gaps. */
+html.anim .shelf:not(.is-live) .have,
 html.anim .shelf:not(.is-done) .done {
   visibility: hidden;
 }
 /* If motion.js never runs, the covers still arrive. */
-html.anim .tile.gap:not(.is-filled) .art {
+html.anim .shelf:not(.is-live) .tile.gap:not(.is-filled) .art {
   animation: settle 0s 4s forwards;
 }
-html.anim .shelf:not(.is-done) .done {
+html.anim .shelf:not(.is-live) :is(.have, .done) {
   animation: show 0s 4s forwards;
-}
-/* Once motion.js has taken over it waits for the shelf to be seen, and it
-   finishes the fill itself, so the 4 s fallback must not run early. */
-html.anim .shelf.is-live .tile.gap:not(.is-filled) .art,
-html.anim .shelf.is-live:not(.is-done) .done {
-  animation: none;
 }
 @keyframes settle {
   to {
@@ -662,10 +720,34 @@ html.anim .shelf.is-live:not(.is-done) .done {
     visibility: visible;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  html.anim .tile.gap .art {
-    clip-path: none;
-    transition: none;
+/* Dry run: the plan marks each gap (nothing is written yet); applying:
+   each marked gap gets its cover. */
+html.motion .shelf .ph {
+  transition:
+    border-color 200ms,
+    color 200ms,
+    background-color 200ms,
+    opacity 0s 640ms;
+}
+html.motion .shelf:is(.planning, .applying) .tile.gap .ph {
+  border-color: var(--cr-accent);
+  color: var(--cr-accent);
+  background-color: color-mix(in srgb, var(--cr-accent) 8%, transparent);
+}
+html.motion .shelf.planning .tile.gap .ph {
+  animation: plan 560ms var(--ease-spring) calc(var(--i, 0) * 110ms) both;
+}
+html.motion .shelf.applying .tile.gap.is-filled {
+  animation: land 520ms var(--ease-spring) both;
+}
+@keyframes plan {
+  45% {
+    transform: scale(0.93);
+  }
+}
+@keyframes land {
+  from {
+    transform: scale(0.94);
   }
 }
 
@@ -1252,11 +1334,376 @@ html.js .mode-wrap {
   color: var(--cr-text-muted);
 }
 
+/* ── Motion ───────────────────────────────────────────────────────────
+   Same rules as the hero: the static page is the finished page, motion
+   only plays towards it, and only transform, opacity, clip-path, colours
+   and SVG strokes move (check_site.py's motion gate holds that line).
+   Starting poses live under html.motion (motion.js is alive) or inside
+   @supports (animation-timeline: view()); without either, everything
+   stays finished. */
+
+/* Annotation marks drawn over the screenshots. */
+.shot {
+  position: relative;
+}
+.annot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.annot-mark {
+  fill: none;
+  stroke: var(--cr-accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+}
+
+/* Section headlines: a slot under each, dashed until it fills. */
+.section-head h2::after {
+  content: '';
+  display: block;
+  width: 64px;
+  height: 8px;
+  margin-top: 22px;
+  border: 1.5px dashed var(--dash);
+  border-radius: 2px;
+  background: linear-gradient(var(--cr-accent), var(--cr-accent)) 0 0 / 100%
+    100% no-repeat border-box;
+}
+
+/* Terminal: lines wait their turn while motion.js types. */
+html.motion .term .t-wait {
+  visibility: hidden;
+}
+html.motion .t-rest {
+  color: transparent;
+  background: linear-gradient(var(--code-text), var(--code-text)) 0 50% / 0.55em
+    1.2em no-repeat;
+}
+
+/* Closing: a small shelf whose last slot fills. */
+.closing-mark {
+  display: block;
+  margin-bottom: 28px;
+}
+.closing-mark .p1 {
+  fill: #b4372f;
+}
+.closing-mark .p2 {
+  fill: #2f6f4f;
+}
+.closing-mark .p5 {
+  fill: #1f5f8b;
+}
+.closing-mark .p3 {
+  fill: var(--cr-accent);
+}
+.closing-mark .cm-gap {
+  fill: none;
+  stroke: var(--dash);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes slot-fill {
+  from {
+    background-color: transparent;
+    outline-color: var(--dash);
+    transform: scale(0.86);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  to {
+    outline-color: transparent;
+    transform: none;
+  }
+}
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes feed {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes cta-in {
+  from {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+  }
+}
+@keyframes bar-fill {
+  from {
+    background-size: 0% 100%;
+  }
+}
+@keyframes fig-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes ink-spread {
+  from {
+    clip-path: circle(0 at var(--ink-x, 50%) var(--ink-y, 50%));
+  }
+  to {
+    clip-path: circle(150vmax at var(--ink-x, 50%) var(--ink-y, 50%));
+  }
+}
+
+/* Colour mode: the new one spreads from where it was picked (theme.js);
+   the ES/EN switch cross-fades. */
+html.vt-ink::view-transition-old(root) {
+  animation: none;
+}
+html.vt-ink::view-transition-new(root) {
+  animation: ink-spread 480ms var(--ease-ink) both;
+}
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Feedback that answers a hand. */
+  .btn {
+    transition:
+      border-color 150ms,
+      transform 150ms var(--ease-ink),
+      box-shadow 150ms;
+  }
+  .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px -12px rgb(28 27 26 / 45%);
+  }
+  .btn:active {
+    transform: none;
+  }
+  .faq summary::after {
+    transition: transform 220ms var(--ease-ink);
+  }
+  .faq details {
+    interpolate-size: allow-keywords;
+  }
+  .faq details::details-content {
+    height: 0;
+    overflow: clip;
+    transition:
+      height 240ms var(--ease-ink),
+      content-visibility 240ms allow-discrete;
+  }
+  .faq details[open]::details-content {
+    height: auto;
+  }
+
+  /* Reveals: motion.js adds .is-in on the way in (.no-anim when it was
+     already on screen at load). Layout table: each slot the format can
+     write goes from dashed to solid, row by row. */
+  html.motion .media .slot:not(.no) {
+    outline: 1.5px dashed transparent;
+    outline-offset: -1.5px;
+  }
+  html.motion [data-reveal]:not(.is-in) .slot:not(.no) {
+    background-color: transparent;
+    outline-color: var(--dash);
+  }
+  html.motion .is-in .slot:not(.no) {
+    animation: slot-fill 420ms var(--ease-ink)
+      calc(var(--r, 0) * 70ms + var(--c, 0) * 40ms) both;
+  }
+  .media tbody tr:nth-child(2) {
+    --r: 1;
+  }
+  .media tbody tr:nth-child(3) {
+    --r: 2;
+  }
+  .media tbody tr:nth-child(4) {
+    --r: 3;
+  }
+  .media tbody tr:nth-child(5) {
+    --r: 4;
+  }
+  .media tbody tr:nth-child(6) {
+    --r: 5;
+  }
+  .media tbody tr:nth-child(7) {
+    --r: 6;
+  }
+  .media tbody tr:nth-child(8) {
+    --r: 7;
+  }
+  .media td:nth-child(3) {
+    --c: 1;
+  }
+  .media td:nth-child(4) {
+    --c: 2;
+  }
+  html.motion .closing-mark .cm-last {
+    transform-box: fill-box;
+    transform-origin: 50% 0;
+  }
+  html.motion .closing-mark:not(.is-in) .cm-last {
+    transform: scaleY(0);
+  }
+  html.motion .closing-mark.is-in .cm-last {
+    animation: grow-y 620ms var(--ease-spring) 350ms both;
+  }
+  html.motion .no-anim,
+  html.motion .no-anim * {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+  html.motion .t-rest {
+    animation: caret 1.06s steps(1) infinite;
+  }
+
+  /* Scroll-linked, where supported; elsewhere it all stays finished. */
+  @supports (animation-timeline: view()) {
+    .topbar::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--cr-accent);
+      transform-origin: 0 50%;
+      animation: feed linear both;
+      animation-timeline: scroll(root block);
+    }
+    body {
+      timeline-scope: --hero-cta;
+    }
+    .hero .actions {
+      view-timeline-name: --hero-cta;
+    }
+    .header-cta {
+      animation: cta-in linear both;
+      animation-timeline: --hero-cta;
+      animation-range: exit 0% exit 100%;
+    }
+    .section-head h2::after {
+      animation: bar-fill linear both;
+      animation-timeline: view();
+      animation-range: entry 40% cover 35%;
+    }
+    .annot-mark {
+      animation: draw linear both;
+      animation-timeline: view();
+      animation-range: entry 70% cover 50%;
+    }
+
+    /* Four steps, one desk: the screenshot stays put and each step's
+       text brings in its own. */
+    @media (min-width: 1024px) {
+      .steps {
+        grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+        column-gap: 56px;
+        row-gap: 0;
+        timeline-scope: --s1, --s2, --s3, --s4;
+      }
+      .step {
+        display: contents;
+      }
+      .step-text {
+        grid-column: 1;
+        position: static;
+        min-height: 72vh;
+        padding-top: 14vh;
+      }
+      .step:first-child .step-text {
+        padding-top: 0;
+      }
+      .step:nth-child(1) .step-text {
+        grid-row: 1;
+        view-timeline-name: --s1;
+      }
+      .step:nth-child(2) .step-text {
+        grid-row: 2;
+        view-timeline-name: --s2;
+      }
+      .step:nth-child(3) .step-text {
+        grid-row: 3;
+        view-timeline-name: --s3;
+      }
+      .step:nth-child(4) .step-text {
+        grid-row: 4;
+        view-timeline-name: --s4;
+      }
+      .step > figure {
+        grid-column: 2;
+        grid-row: 1 / 5;
+        position: sticky;
+        top: max(calc(var(--header) + 32px), calc(50vh - 250px));
+        align-self: start;
+      }
+      .step:nth-child(2) > figure {
+        animation: fig-in linear both;
+        animation-timeline: --s2;
+        animation-range: entry 55% entry 85%;
+      }
+      .step:nth-child(3) > figure {
+        animation: fig-in linear both;
+        animation-timeline: --s3;
+        animation-range: entry 55% entry 85%;
+      }
+      .step:nth-child(4) > figure {
+        animation: fig-in linear both;
+        animation-timeline: --s4;
+        animation-range: entry 55% entry 85%;
+      }
+      .step:nth-child(2) .annot-mark {
+        animation-timeline: --s2;
+        animation-range: entry 90% cover 45%;
+      }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  .replay {
+    display: none !important;
+  }
+}
+
 @media print {
   .topbar,
   .navmenu,
   .mode-wrap,
-  .skip {
+  .skip,
+  .replay {
     display: none;
   }
 }
