@@ -1,11 +1,15 @@
 //! Combining identification evidence into a verdict (organise spec §6):
 //! per-system scores, the margin rule, content support, vetoes and the
-//! auto/review thresholds. Pure: no I/O.
+//! auto/review thresholds (pure), and the [`Catalogue`] of DATs the
+//! identification ladder asks for CRC hits, ROM stems and arcade sets.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::Cache;
+use crate::identify::dat::{dat_sources, DatStatus, DatStore};
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{Sniff, DECISIVE};
 use crate::systems::{ExtClass, SystemDb};
@@ -206,4 +210,213 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
             Evidence::new(IdLevel::Extension, &s.id, w, detail)
         })
         .collect()
+}
+
+/// DATs one plan may download on demand; the rest of the missing
+/// catalogues are reported as not consulted.
+pub const MAX_DAT_DOWNLOADS: usize = 4;
+
+/// A DAT row that matched a file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogueHit {
+    pub system: String,
+    pub game: String,
+    pub rom_name: String,
+}
+
+/// The DAT knowledge the identification ladder consults. Every lookup
+/// degrades to "no hit" on errors.
+pub trait Catalogue: Sync {
+    /// Rows of `systems`' DATs with this CRC32 (any case) and `size` (or
+    /// an unknown size).
+    fn hits(&self, systems: &[String], crc32: &str, size: u64) -> Vec<CatalogueHit>;
+    /// Rows of every cached DAT with this CRC32 and size.
+    fn any_hits(&self, crc32: &str, size: u64) -> Vec<CatalogueHit>;
+    /// `(rom stem, game)` of `system`'s DATs, stems lower-case.
+    fn stems(&self, system: &str) -> Vec<(String, String)>;
+    /// Systems with a cached DAT, sorted.
+    fn stem_systems(&self) -> Vec<String>;
+    /// An arcade set by short name (any case): the DAT game and the
+    /// `(crc32, size)` of its ROMs.
+    fn set_roms(&self, system: &str, set: &str) -> Option<(String, Vec<(String, u64)>)>;
+    /// Systems asked about whose DAT was not available (offline, missing
+    /// upstream, past the download cap, or no DAT at all), sorted.
+    fn unconsulted(&self) -> Vec<String>;
+}
+
+#[derive(Default)]
+struct CatalogueState {
+    /// Whether a DAT's rows can be used; decided once per DAT.
+    ready: HashMap<String, bool>,
+    downloads: usize,
+    unconsulted: BTreeSet<String>,
+}
+
+/// A [`Catalogue`] over the cache's DAT rows: DATs already cached are used
+/// as they are; missing ones are downloaded through `store` (when given)
+/// up to `max_downloads` per catalogue, i.e. per plan.
+pub struct DatCatalogue<'a> {
+    db: &'a SystemDb,
+    cache: &'a Cache,
+    store: Option<&'a DatStore<'a>>,
+    cap: usize,
+    cached: HashSet<String>,
+    state: Mutex<CatalogueState>,
+}
+
+impl<'a> DatCatalogue<'a> {
+    pub fn new(
+        db: &'a SystemDb,
+        cache: &'a Cache,
+        store: Option<&'a DatStore<'a>>,
+        max_downloads: usize,
+    ) -> Self {
+        DatCatalogue {
+            db,
+            cache,
+            store,
+            cap: max_downloads,
+            cached: cache
+                .cached_dats()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            state: Mutex::default(),
+        }
+    }
+
+    /// The usable DATs of `system`, downloading missing ones within the
+    /// cap. The lock is held across a download so two workers never fetch
+    /// the same DAT.
+    fn ready_dats(&self, system: &str) -> Vec<String> {
+        let Some(sys) = self.db.get(system) else {
+            return Vec::new();
+        };
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out = Vec::new();
+        for dat in dat_sources(sys) {
+            let ready = match state.ready.get(&dat) {
+                Some(r) => *r,
+                None => {
+                    let r = if self.cached.contains(&dat) {
+                        true
+                    } else {
+                        match self.store {
+                            Some(store) if state.downloads < self.cap => {
+                                state.downloads += 1;
+                                matches!(
+                                    store.ensure(&dat),
+                                    Ok(DatStatus::Ready | DatStatus::Stale)
+                                )
+                            }
+                            _ => false,
+                        }
+                    };
+                    state.ready.insert(dat.clone(), r);
+                    r
+                }
+            };
+            if ready {
+                out.push(dat);
+            }
+        }
+        if out.is_empty() {
+            state.unconsulted.insert(sys.id.clone());
+        }
+        out
+    }
+}
+
+impl Catalogue for DatCatalogue<'_> {
+    fn hits(&self, systems: &[String], crc32: &str, size: u64) -> Vec<CatalogueHit> {
+        let mut out = Vec::new();
+        for system in systems {
+            for dat in self.ready_dats(system) {
+                let rows = self.cache.dat_by_crc(&dat, crc32).unwrap_or_default();
+                out.extend(
+                    rows.into_iter()
+                        .filter(|r| r.size.is_none_or(|s| s == size))
+                        .map(|r| CatalogueHit {
+                            system: system.clone(),
+                            game: r.game,
+                            rom_name: r.rom_name,
+                        }),
+                );
+            }
+        }
+        out
+    }
+
+    fn any_hits(&self, crc32: &str, size: u64) -> Vec<CatalogueHit> {
+        self.cache
+            .dat_by_crc_any(crc32, size)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(dat, r)| {
+                let system = self.db.system_for_dat(&dat)?;
+                Some(CatalogueHit {
+                    system: system.id.clone(),
+                    game: r.game,
+                    rom_name: r.rom_name,
+                })
+            })
+            .collect()
+    }
+
+    fn stems(&self, system: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .ready_dats(system)
+            .iter()
+            .flat_map(|dat| self.cache.dat_stems(dat).unwrap_or_default())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    fn stem_systems(&self) -> Vec<String> {
+        let systems: BTreeSet<String> = self
+            .cache
+            .cached_dats()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|dat| self.db.system_for_dat(dat))
+            .map(|s| s.id.clone())
+            .collect();
+        systems.into_iter().collect()
+    }
+
+    fn set_roms(&self, system: &str, set: &str) -> Option<(String, Vec<(String, u64)>)> {
+        for dat in self.ready_dats(system) {
+            // libretro DATs list a set as one ROM named `<set>.zip` under
+            // the game's description; full DATs name the game by the set.
+            let by_stem = self
+                .cache
+                .dat_by_rom_stem(&dat, set)
+                .unwrap_or_default()
+                .into_iter()
+                .next()
+                .map(|r| r.game);
+            let candidates = by_stem
+                .into_iter()
+                .chain([set.to_string(), set.to_lowercase()]);
+            for game in candidates {
+                let rows = self.cache.dat_rows_of_game(&dat, &game).unwrap_or_default();
+                if rows.is_empty() {
+                    continue;
+                }
+                let roms = rows
+                    .into_iter()
+                    .filter_map(|r| Some((r.crc32?, r.size.unwrap_or(0))))
+                    .collect();
+                return Some((game, roms));
+            }
+        }
+        None
+    }
+
+    fn unconsulted(&self) -> Vec<String> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.unconsulted.iter().cloned().collect()
+    }
 }

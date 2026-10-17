@@ -232,3 +232,196 @@ fn an_unread_unique_extension_is_not_content_support() {
     });
     assert_eq!(c.verdict, Verdict::Review);
 }
+
+// --- Catalogue over cached DATs (Task 13) ---
+
+use coverly_core::cache::{Cache, DatRow};
+use coverly_core::identify::dat::{dat_sources, DatStore};
+use coverly_core::net::testing::MockServer;
+use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::organize::evidence::{Catalogue, DatCatalogue, MAX_DAT_DOWNLOADS};
+
+fn row(game: &str, rom: &str, size: u64, crc: &str) -> DatRow {
+    DatRow {
+        game: game.into(),
+        rom_name: rom.into(),
+        size: Some(size),
+        crc32: Some(crc.into()),
+        md5: None,
+        sha1: None,
+    }
+}
+
+fn http() -> PoliteHttp<UreqHttp> {
+    let cfg = NetConfig {
+        retries: 0,
+        ..NetConfig::default()
+    };
+    PoliteHttp::new(UreqHttp::new(&cfg), &cfg)
+}
+
+fn first_dat(db: &SystemDb, id: &str) -> String {
+    dat_sources(db.get(id).unwrap()).remove(0)
+}
+
+#[test]
+fn offline_uses_cached_dats_only_and_reports_the_rest() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "gb"),
+            &[row(
+                "Tetris (World)",
+                "Tetris (World).gb",
+                32768,
+                "46DF91AD",
+            )],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, MAX_DAT_DOWNLOADS);
+    let hits = cat.hits(&["gb".into(), "gbc".into()], "46df91ad", 32768);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].system, "gb");
+    assert_eq!(hits[0].game, "Tetris (World)");
+    assert_eq!(hits[0].rom_name, "Tetris (World).gb");
+    assert_eq!(cat.unconsulted(), ["gbc"]);
+}
+
+#[test]
+fn a_crc_hit_with_another_size_is_not_a_hit() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "gb"),
+            &[row(
+                "Tetris (World)",
+                "Tetris (World).gb",
+                32768,
+                "46DF91AD",
+            )],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    assert!(cat.hits(&["gb".into()], "46DF91AD", 65536).is_empty());
+    assert!(cat.any_hits("46DF91AD", 65536).is_empty());
+}
+
+#[test]
+fn missing_dats_are_downloaded_up_to_the_cap() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let server = MockServer::start();
+    for id in ["gb", "gbc", "gba", "snes", "nes"] {
+        for dat in dat_sources(db.get(id).unwrap()) {
+            server.serve_dat(
+                &dat,
+                "game (\n name \"X\"\n rom ( name \"x\" size 1 crc 00000001 )\n)\n",
+            );
+        }
+    }
+    let http = http();
+    let store = DatStore::new(&http, &cache, server.base());
+    let cat = DatCatalogue::new(&db, &cache, Some(&store), 2);
+    let systems: Vec<String> = ["gb", "gbc", "gba", "snes", "nes"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let hits = cat.hits(&systems, "00000001", 1);
+    assert_eq!(hits.len(), 2, "the two downloaded DATs answer");
+    assert_eq!(cat.unconsulted().len(), 3, "only two downloads per plan");
+    // Asking again never downloads past the cap.
+    let _ = cat.hits(&systems, "00000001", 1);
+    assert_eq!(server.requests().len(), 2);
+}
+
+#[test]
+fn any_hits_names_the_system_of_each_cached_dat() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "gba"),
+            &[row(
+                "Sonic Advance 3 (USA)",
+                "Sonic Advance 3 (USA).gba",
+                16,
+                "ABCDEF01",
+            )],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    let hits = cat.any_hits("abcdef01", 16);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].system, "gba");
+    assert_eq!(hits[0].game, "Sonic Advance 3 (USA)");
+}
+
+#[test]
+fn stems_come_from_ready_dats_and_stem_systems_from_the_cache() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "gb"),
+            &[row(
+                "Tetris (World)",
+                "Tetris (World).gb",
+                32768,
+                "46DF91AD",
+            )],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    assert_eq!(
+        cat.stems("gb"),
+        [("tetris (world)".to_string(), "Tetris (World)".to_string())]
+    );
+    assert!(cat.stems("gbc").is_empty());
+    assert_eq!(cat.stem_systems(), ["gb"]);
+}
+
+#[test]
+fn arcade_sets_by_name_with_their_roms() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "fbneo"),
+            &[
+                row("sf2", "sf2-1.bin", 4, "11111111"),
+                row("sf2", "sf2-2.bin", 4, "22222222"),
+            ],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    let (game, roms) = cat.set_roms("fbneo", "SF2").unwrap();
+    assert_eq!(game, "sf2");
+    assert_eq!(
+        roms,
+        [("11111111".to_string(), 4), ("22222222".to_string(), 4)]
+    );
+    assert!(cat.set_roms("fbneo", "nope").is_none());
+}
+
+#[test]
+fn arcade_sets_listed_by_zip_name_resolve_to_their_description() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .replace_dat(
+            &first_dat(&db, "fbneo"),
+            &[row(
+                "Street Fighter II (World 910522)",
+                "sf2.zip",
+                4,
+                "33333333",
+            )],
+        )
+        .unwrap();
+    let cat = DatCatalogue::new(&db, &cache, None, 0);
+    let (game, roms) = cat.set_roms("fbneo", "sf2").unwrap();
+    assert_eq!(game, "Street Fighter II (World 910522)");
+    assert_eq!(roms, [("33333333".to_string(), 4)]);
+}
