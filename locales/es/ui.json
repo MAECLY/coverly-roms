@@ -25,7 +25,17 @@
     "progressLabel": "Progreso del escaneo",
     "volumes": "Unidades conectadas",
     "noVolumes": "No se encontraron unidades ni tarjetas SD.",
-    "openVolume": "Abrir {name}"
+    "openVolume": "Abrir {name}",
+    "suggestSystemFolders": "Parece una carpeta organizada por sistema",
+    "organizeOffer": {
+      "title": "Esta carpeta no sigue ningún formato conocido",
+      "body": "Contiene {roms} archivos que parecen ROMs. Coverly puede proponerte una carpeta por sistema; no se mueve nada hasta que lo confirmes.",
+      "action": "Organizar esta carpeta…",
+      "other": "Elegir otra carpeta",
+      "openSorted": "Abrir como carpeta por sistema",
+      "broadRoot": "Es una carpeta personal amplia; solo se proponen archivos con pinta de ROM.",
+      "truncated": "Más de {count} archivos; se revisarán todos al organizar."
+    }
   },
   "settings": {
     "open": "Configuración",
@@ -689,6 +699,7 @@
   "organize": {
     "title": "Organizar por sistema",
     "back": "Volver",
+    "layout": "Formato",
     "confidence": {
       "high": "Alta",
       "medium": "Media"

@@ -25,7 +25,17 @@
     "progressLabel": "Scan progress",
     "volumes": "Connected drives",
     "noVolumes": "No drives or SD cards found.",
-    "openVolume": "Open {name}"
+    "openVolume": "Open {name}",
+    "suggestSystemFolders": "Looks like a folder organised by system",
+    "organizeOffer": {
+      "title": "This folder doesn't follow a known layout",
+      "body": "It holds {roms} files that look like ROMs. Coverly can propose one folder per system; nothing moves until you confirm.",
+      "action": "Organise this folder…",
+      "other": "Choose another folder",
+      "openSorted": "Open as organised by system",
+      "broadRoot": "This is a broad personal folder; only files that look like ROMs are proposed.",
+      "truncated": "More than {count} files; all of them are checked when organising."
+    }
   },
   "settings": {
     "open": "Settings",
@@ -689,6 +699,7 @@
   "organize": {
     "title": "Organise by system",
     "back": "Back",
+    "layout": "Layout",
     "confidence": {
       "high": "High",
       "medium": "Medium"

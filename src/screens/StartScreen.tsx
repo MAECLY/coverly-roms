@@ -2,15 +2,28 @@ import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { AppFooter } from '@/components/AppFooter';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
+import {
+  DEFAULT_LAYOUT,
+  OrganizeOffer,
+} from '@/components/organize/OrganizeOffer';
 import { ScanProgressView } from '@/components/ScanProgressView';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
-import { errorKey } from '@/ipc/errors';
-import type { Volume } from '@/ipc/types';
+import { errorKey, type BackendError } from '@/ipc/errors';
+import type { FolderProbe, Volume } from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+
+/** The probe of the folder a `no-profile` error is about. */
+interface ProbeState {
+  error: BackendError;
+  path: string;
+  /** `'failed'` keeps the error text. */
+  probe: FolderProbe | 'failed';
+}
 
 export function StartScreen() {
   const t = useT();
@@ -21,12 +34,40 @@ export function StartScreen() {
   const progress = useLibraryStore((s) => s.progress);
   const error = useLibraryStore((s) => s.error);
   const openingPath = useLibraryStore((s) => s.openingPath);
+  const lastPath = useLibraryStore((s) => s.lastPath);
+  const settings = useSettingsStore((s) => s.settings);
   const loadRecents = useLibraryStore((s) => s.loadRecents);
   const open = useLibraryStore((s) => s.open);
   const forget = useLibraryStore((s) => s.forget);
   const fail = useLibraryStore((s) => s.fail);
   const opening = status === 'opening';
   const [volumes, setVolumes] = useState<Volume[]>([]);
+  const [probed, setProbed] = useState<ProbeState | null>(null);
+  const noProfile =
+    status === 'error' && error?.code === 'no-profile' ? error : null;
+  const probePath = noProfile ? (lastPath ?? noProfile.detail ?? null) : null;
+
+  // A folder with no known layout may still be a pile of ROMs: probe it
+  // once per error (names only) and offer to organise it. Until the answer
+  // for this very error arrives, neither the offer nor the banner shows.
+  useEffect(() => {
+    if (!noProfile || !probePath) return;
+    let alive = true;
+    void getBackend()
+      .then((b) => b.probeFolder(probePath))
+      .then(
+        (probe) => {
+          if (alive) setProbed({ error: noProfile, path: probePath, probe });
+        },
+        () => {
+          if (alive)
+            setProbed({ error: noProfile, path: probePath, probe: 'failed' });
+        },
+      );
+    return () => {
+      alive = false;
+    };
+  }, [noProfile, probePath]);
 
   useEffect(() => {
     void loadRecents();
@@ -88,6 +129,19 @@ export function StartScreen() {
     if (path) await open(path);
   }
 
+  const current = probed && probed.error === error ? probed : null;
+  const probing = noProfile !== null && probePath !== null && !current;
+  const offer =
+    current &&
+    current.probe !== 'failed' &&
+    (current.probe.rom_like > 0 || current.probe.sorted_folders.length > 0)
+      ? { path: current.path, probe: current.probe }
+      : null;
+  const defaultLayout =
+    settings?.organize?.default_layout ||
+    settings?.library?.default_profile ||
+    DEFAULT_LAYOUT;
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="app-header flex items-center justify-end gap-3 px-6 py-3">
@@ -115,7 +169,16 @@ export function StartScreen() {
         </button>
         <p className="hint">{t('start.dropHint')}</p>
         {opening && <ScanProgressView path={openingPath} progress={progress} />}
-        {status === 'error' && error && (
+        {offer && (
+          <OrganizeOffer
+            probe={offer.probe}
+            defaultLayout={defaultLayout}
+            onOrganize={() => useNavStore.getState().openOrganize(offer.path)}
+            onOpenSorted={(layout) => void open(offer.path, layout)}
+            onPickOther={() => void pick()}
+          />
+        )}
+        {status === 'error' && error && !offer && !probing && (
           <p role="alert" className="error-banner">
             {t(errorKey(error.code), { detail: error.detail ?? '' })}
           </p>
