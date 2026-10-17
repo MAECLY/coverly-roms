@@ -1,5 +1,14 @@
+import { ChevronRight, FolderOpen, Play, Undo2 } from 'lucide-react';
 import { useContext, useEffect, useMemo, useState } from 'react';
 
+import { Alert, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -12,6 +21,15 @@ import type {
   OrganizeUndoView,
 } from '@/ipc/types';
 
+import {
+  chevron,
+  fileList,
+  hintText,
+  listViewport,
+  panel,
+  pathText,
+  sectionTitle,
+} from './styles';
 import { undoCounts } from './undoCounts';
 
 interface Props {
@@ -124,11 +142,11 @@ export function OrganizeResult({
       aria-labelledby="organize-result-title"
       className="flex flex-col gap-3"
     >
-      <h2 id="organize-result-title" className="section-title">
+      <h2 id="organize-result-title" className={sectionTitle}>
         {t(paused ? 'organize.pausedTitle' : 'organize.resultTitle')}
       </h2>
       {report && (
-        <p>
+        <p className="m-0 text-dense tabular-nums text-cr-text">
           {t('organize.result', {
             moved: report.moved,
             copied: report.copied,
@@ -138,72 +156,93 @@ export function OrganizeResult({
         </p>
       )}
       {notRemoved > 0 && (
-        <p className="hint">
+        <p className={hintText}>
           {t('organize.copiedNotRemovedCount', { count: notRemoved })}
         </p>
       )}
       {job.state === 'cancelled' && (
-        <p className="hint">{t('organize.stopped')}</p>
+        <p className={hintText}>{t('organize.stopped')}</p>
       )}
       {paused && report?.paused && (
-        <div role="alert" className="pause-banner">
-          <p>{t(`jobs.pause.${report.paused}`)}</p>
+        <Alert variant="warning" role="alert">
+          <AlertTitle>{t(`jobs.pause.${report.paused}`)}</AlertTitle>
           {report.pause_reason && (
-            <p className="hint">{t(`jobs.error.${report.pause_reason}`)}</p>
+            <p className="m-0 text-cr-text-secondary">
+              {t(`jobs.error.${report.pause_reason}`)}
+            </p>
           )}
-        </div>
+        </Alert>
       )}
       {report && report.items.length > 0 && (
-        <details>
-          <summary>{t('organize.details')}</summary>
-          <ul>
-            {report.items.map((o) => (
-              <li key={o.item}>{`${nameOf(o)} · ${outcomeText(t, o)}`}</li>
-            ))}
-          </ul>
-        </details>
+        <Collapsible className={panel}>
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              className="group w-full justify-start rounded-lg px-3"
+            >
+              <ChevronRight aria-hidden className={chevron} />
+              {t('organize.details')}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t border-cr-border">
+            <ScrollArea
+              aria-label={t('organize.details')}
+              viewportClassName={listViewport}
+            >
+              <ul className={fileList}>
+                {report.items.map((o) => (
+                  <li
+                    key={o.item}
+                    className={`${pathText} px-3 py-1.5 text-cr-text`}
+                  >{`${nameOf(o)} · ${outcomeText(t, o)}`}</li>
+                ))}
+              </ul>
+            </ScrollArea>
+          </CollapsibleContent>
+        </Collapsible>
       )}
       {laterIds && (
-        <p role="alert" className="error-banner">
-          {t('organize.undo.laterJobs', { jobs: later })}
-        </p>
+        <Alert variant="warning" role="alert">
+          <p className="m-0">{t('organize.undo.laterJobs', { jobs: later })}</p>
+        </Alert>
       )}
       {error && !laterIds && (
-        <p role="alert" className="error-banner">
-          {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
+        <Alert variant="danger">
+          <p className="m-0">
+            {t(errorKey(error.code), { detail: error.detail ?? '' })}
+          </p>
+        </Alert>
       )}
-      {undone && <p role="status">{t('organize.undone', undone)}</p>}
+      {undone && (
+        <Alert variant="success">
+          <p className="m-0 tabular-nums">{t('organize.undone', undone)}</p>
+        </Alert>
+      )}
       {!undo && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {paused ? (
-            <button type="button" className="primary-button" onClick={onResume}>
+            <Button variant="primary" onClick={onResume}>
+              <Play aria-hidden />
               {t('organize.resume')}
-            </button>
+            </Button>
           ) : (
             job.state !== 'failed' && (
-              <button type="button" className="primary-button" onClick={onOpen}>
+              <Button variant="primary" onClick={onOpen}>
+                <FolderOpen aria-hidden />
                 {t('organize.openLibrary')}
-              </button>
+              </Button>
             )
           )}
           {job.job && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => onUndo(false)}
-            >
+            <Button variant="outline" onClick={() => onUndo(false)}>
+              <Undo2 aria-hidden />
               {t('organize.undo.action')}
-            </button>
+            </Button>
           )}
           {laterIds && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => onUndo(true)}
-            >
+            <Button variant="outline" onClick={() => onUndo(true)}>
               {t('organize.undo.all')}
-            </button>
+            </Button>
           )}
         </div>
       )}

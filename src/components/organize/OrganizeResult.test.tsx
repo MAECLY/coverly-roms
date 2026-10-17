@@ -85,7 +85,7 @@ describe('OrganizeResult', () => {
     setBackend(null);
   });
 
-  it('labels every outcome and counts copies that kept their original', () => {
+  it('labels every outcome and counts copies that kept their original', async () => {
     show(view());
     expect(
       screen.getByText('Moved: 1 · Copied: 1 · Skipped: 1 · Errors: 1'),
@@ -93,6 +93,14 @@ describe('OrganizeResult', () => {
     expect(
       screen.getByText('Copied without removing the original: 1'),
     ).toBeInTheDocument();
+    // The per-file outcomes wait behind a closed disclosure.
+    const details = screen.getByRole('button', {
+      name: 'What happened to each file',
+    });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('a.gba · Moved')).not.toBeInTheDocument();
+    await userEvent.click(details);
+    expect(details).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('a.gba · Moved')).toBeInTheDocument();
     expect(
       screen.getByText("b.gb · Copied; the original couldn't be removed"),
