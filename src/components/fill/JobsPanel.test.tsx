@@ -270,6 +270,28 @@ describe('Jobs panel', () => {
     });
   });
 
+  it('does_not_offer_undo_last_job_for_an_organise_job', async () => {
+    // Like Rust: the library's undo is for fill jobs; an organise job is
+    // undone from the organise screen (it checks later jobs first).
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      { ...real!, job: 'organize-0001', kind: 'organize', complete: true },
+      { ...real!, undone: true },
+    ]);
+    const dialog = await openPanel();
+    const history = await within(dialog).findByRole('list', {
+      name: 'History',
+    });
+    await waitFor(() =>
+      expect(within(history).getAllByRole('listitem')).toHaveLength(2),
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Undo last job' }),
+    ).toBeDisabled();
+  });
+
   it('moves focus into the undo confirmation and back', async () => {
     await running();
     await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));

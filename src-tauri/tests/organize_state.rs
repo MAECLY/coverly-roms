@@ -672,6 +672,36 @@ fn undo_refuses_when_a_later_fill_wrote_under_the_target_and_undoes_all_in_order
     assert!(history.iter().all(|h| h.undone));
 }
 
+/// The library's "Undo last job" undoes fill jobs only: an organise job is
+/// undone from the organise screen (`organize_undo`, which checks later
+/// jobs), never behind the open library's back (organise spec §4.3).
+#[test]
+fn undo_last_job_in_the_organised_library_leaves_the_organise_job_alone() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = gba_pile();
+    let job = apply_all(&st, pile.path());
+    let view = st
+        .open(
+            pile.path(),
+            Some("anbernic-stock"),
+            &SystemDb::builtin(),
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(view.entries.len(), 3);
+
+    assert_eq!(
+        st.undo_last_job(view.generation),
+        Err(IpcError::NothingToUndo)
+    );
+    assert!(pile.path().join("ROMS/GBA/Alpha (USA).gba").is_file());
+    assert!(st.job_history().unwrap().iter().all(|h| !h.undone));
+    // The organise screen still undoes it.
+    st.organize_undo(&job, false).unwrap();
+    assert!(pile.path().join("Alpha (USA).gba").is_file());
+}
+
 #[test]
 fn undo_without_later_jobs_puts_the_pile_back() {
     let config = TempDir::new().unwrap();

@@ -45,7 +45,9 @@ use coverly_core::settings::{
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
 use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{later_jobs, list_jobs, undo_job, undo_jobs_in_order, OverwritePolicy};
+use coverly_core::write::{
+    later_jobs, list_jobs, undo_job, undo_jobs_in_order, JobKind, OverwritePolicy,
+};
 
 use crate::error::IpcError;
 use crate::jobs::view::{
@@ -498,9 +500,11 @@ impl AppState {
         let session = self.session(generation)?;
         let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
         let data_dir = self.fill_config().data_dir.clone();
+        // Fill jobs only: an organise job moves the ROMs themselves and is
+        // undone from the organise screen, which checks later jobs.
         let job = list_jobs(&data_dir)?
             .into_iter()
-            .find(|j| !j.undone && j.root == root)
+            .find(|j| !j.undone && j.root == root && j.kind == JobKind::Fill)
             .ok_or(IpcError::NothingToUndo)?;
         let report = undo_job(&data_dir, &job.job)?;
         let paths: Vec<PathBuf> = report

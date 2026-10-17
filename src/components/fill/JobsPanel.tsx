@@ -110,11 +110,14 @@ export function JobsPanel({
 
   const errors = finished && failed?.job === jobId ? failed.items : [];
   const p = progress && job && progress.job === job.id ? progress : null;
-  // Rust refuses while paused and only undoes journals of the open library.
+  // Rust refuses while paused and only undoes fill journals of the open
+  // library (organise jobs are undone from the organise screen).
   const canUndo =
     !running &&
     job?.state !== 'paused' &&
-    history.some((h) => !h.undone && h.root === view.root);
+    history.some(
+      (h) => !h.undone && h.root === view.root && h.kind !== 'organize',
+    );
 
   // Journal headers come from disk and may be empty or garbage.
   function when(createdAt: string) {
