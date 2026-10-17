@@ -166,23 +166,24 @@ impl Throttle {
         }
     }
 
+    /// Survey workers call this from several threads: the event is sent
+    /// while the lock is held, so the final count is never overtaken by an
+    /// older one (the UI would otherwise stay at `n - 1 / n`).
     pub fn progress(&self, p: OrganizeProgress) {
         let now = Instant::now();
-        {
-            let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
-            let due = match *last {
-                None => true,
-                Some((phase, at)) => {
-                    phase != p.phase
-                        || (p.total > 0 && p.done >= p.total)
-                        || now.duration_since(at) >= PROGRESS_EVERY
-                }
-            };
-            if !due {
-                return;
+        let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        let due = match *last {
+            None => true,
+            Some((phase, at)) => {
+                phase != p.phase
+                    || (p.total > 0 && p.done >= p.total)
+                    || now.duration_since(at) >= PROGRESS_EVERY
             }
-            *last = Some((p.phase, now));
+        };
+        if !due {
+            return;
         }
+        *last = Some((p.phase, now));
         self.events.progress(OrganizeProgressEvent {
             plan_id: self.plan_id,
             phase: p.phase,
@@ -236,6 +237,57 @@ mod tests {
         assert_eq!(got[1].phase, OrganizePhase::Identify);
         assert_eq!(got.last().unwrap().done, 500);
         assert!(got.len() < 10, "throttled: {} events", got.len());
+    }
+
+    /// Blocks inside `progress` for `done == 1` until released.
+    struct Gate {
+        events: Mutex<Vec<OrganizeProgressEvent>>,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl OrganizeEvents for Gate {
+        fn progress(&self, event: OrganizeProgressEvent) {
+            if event.done == 1 {
+                self.entered.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    #[test]
+    fn the_final_count_is_never_overtaken_by_an_older_one() {
+        // Survey workers report from several threads: the event for the
+        // last item must reach the UI last, or it stays at 1/2.
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let gate = Arc::new(Gate {
+            events: Mutex::new(Vec::new()),
+            entered: entered_tx,
+            release: Mutex::new(release_rx),
+        });
+        let t = Arc::new(Throttle::new(1, gate.clone()));
+        let p = |done| OrganizeProgress {
+            phase: OrganizePhase::Identify,
+            done,
+            total: 2,
+        };
+        let first = {
+            let t = Arc::clone(&t);
+            std::thread::spawn(move || t.progress(p(1)))
+        };
+        entered_rx.recv().unwrap();
+        let last = {
+            let t = Arc::clone(&t);
+            std::thread::spawn(move || t.progress(p(2)))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        last.join().unwrap();
+        let got = gate.events.lock().unwrap().clone();
+        assert_eq!(got.last().unwrap().done, 2, "{got:?}");
     }
 
     #[test]
