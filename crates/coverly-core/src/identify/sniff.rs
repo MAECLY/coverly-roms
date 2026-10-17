@@ -16,6 +16,12 @@ pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
 pub const DECISIVE: [&str; 8] = ["gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x"];
+/// Extensions of games (and disc-set companions) that are text by nature:
+/// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
+/// listings, cue sheets and playlists. Only a web page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 10] = [
+    "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd",
+];
 
 /// Bounded reads at given offsets.
 pub trait ReadAt {
@@ -48,9 +54,11 @@ impl ReadAt for FileAt {
         self.0.seek(SeekFrom::Start(offset))?;
         let mut n = 0;
         while n < buf.len() {
-            match self.0.read(&mut buf[n..])? {
-                0 => break,
-                k => n += k,
+            match self.0.read(&mut buf[n..]) {
+                Ok(0) => break,
+                Ok(k) => n += k,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
             }
         }
         Ok(n)
@@ -81,9 +89,11 @@ impl<R: Read> StreamAt<R> {
         let mut chunk = [0u8; 64 * 1024];
         while !self.eof && (self.seen.len() as u64) < end {
             let want = ((end - self.seen.len() as u64) as usize).min(chunk.len());
-            match self.reader.read(&mut chunk[..want])? {
-                0 => self.eof = true,
-                n => self.seen.extend_from_slice(&chunk[..n]),
+            match self.reader.read(&mut chunk[..want]) {
+                Ok(0) => self.eof = true,
+                Ok(n) => self.seen.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
             }
         }
         Ok(())
@@ -165,7 +175,11 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         return s;
     }
     if let Some(kind) = text_kind(&head) {
-        s.not_a_rom = Some(kind);
+        // `[`/`{` also open INI files and configs: under a text-native
+        // extension only markup (an HTML error page) is not a game.
+        if !TEXT_NATIVE_EXTS.contains(&ext.as_str()) || starts_with_markup(&head) {
+            s.not_a_rom = Some(kind);
+        }
         return s;
     }
     if let Some(c) = container(&head) {
@@ -207,6 +221,12 @@ fn text_kind(head: &[u8]) -> Option<NotARom> {
     } else {
         NotARom::Text
     })
+}
+
+/// Text that opens with `<` (HTML/XML), after a BOM and whitespace.
+fn starts_with_markup(head: &[u8]) -> bool {
+    let head = head.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(head);
+    head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<')
 }
 
 fn container(head: &[u8]) -> Option<ContainerMagic> {

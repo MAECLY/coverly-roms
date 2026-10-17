@@ -2,7 +2,11 @@
 //! check reads; everything else is zero.
 
 use coverly_core::identify::sniff::fixtures as fx;
-use coverly_core::identify::sniff::{sniff, ContainerMagic, NotARom, SliceAt, Sniff};
+use std::io::{self, Read, Write};
+
+use coverly_core::identify::sniff::{
+    sniff, ContainerMagic, FileAt, NotARom, ReadAt, SliceAt, Sniff, StreamAt, PREFIX,
+};
 
 fn run(bytes: &[u8], ext: &str) -> Sniff {
     sniff(&mut SliceAt(bytes), bytes.len() as u64, ext)
@@ -99,4 +103,106 @@ fn empty_and_short_inputs_never_panic() {
         let s = run(&vec![0u8; len], "gb");
         assert!(s.hits.is_empty(), "len {len}");
     }
+}
+
+#[test]
+fn text_native_game_formats_are_not_rejected_as_text() {
+    // PICO-8 carts, ScummVM launchers, DOSBox configs and BASIC listings
+    // are games that happen to be text.
+    let p8 = b"pico-8 cartridge // http://www.pico-8.com\nversion 41\n__lua__\nprint(1)\n";
+    assert_eq!(run(p8, "p8").not_a_rom, None);
+    assert_eq!(run(b"monkey\n", "scummvm").not_a_rom, None);
+    assert_eq!(run(b"[sdl]\nfullscreen=true\n", "conf").not_a_rom, None);
+    assert_eq!(run(b"10 PRINT \"HI\"\n20 GOTO 10\n", "bas").not_a_rom, None);
+    // A web page saved under such a name is still a failed download.
+    assert_eq!(
+        run(&fx::html_page(), "p8").not_a_rom,
+        Some(NotARom::WebPage)
+    );
+    // The same text under a ROM extension stays "not a ROM".
+    assert_eq!(run(p8, "gba").not_a_rom, Some(NotARom::Text));
+}
+
+/// Serves zeros for any offset and counts the bytes handed out.
+struct Endless {
+    served: usize,
+}
+
+impl ReadAt for Endless {
+    fn read_at(&mut self, _offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        buf.fill(0);
+        self.served += buf.len();
+        Ok(buf.len())
+    }
+}
+
+#[test]
+fn a_huge_file_is_read_bounded() {
+    let mut src = Endless { served: 0 };
+    let s = sniff(&mut src, 64 * 1024 * 1024 * 1024, "bin");
+    assert_eq!(s.read, PREFIX);
+    // The prefix plus a few small targeted reads, never the whole file.
+    assert!(src.served <= 2 * PREFIX, "served {}", src.served);
+}
+
+#[test]
+fn file_at_reads_at_offsets_and_short_at_the_end() {
+    let mut f = tempfile::tempfile().unwrap();
+    f.write_all(b"0123456789").unwrap();
+    let mut src = FileAt(f);
+    let mut buf = [0u8; 4];
+    assert_eq!(src.read_at(3, &mut buf).unwrap(), 4);
+    assert_eq!(&buf, b"3456");
+    assert_eq!(src.read_at(8, &mut buf).unwrap(), 2);
+    assert_eq!(&buf[..2], b"89");
+    assert_eq!(src.read_at(0, &mut buf).unwrap(), 4, "seeks back");
+    assert_eq!(&buf, b"0123");
+    assert_eq!(src.read_at(100, &mut buf).unwrap(), 0);
+}
+
+#[test]
+fn stream_at_rereads_earlier_bytes_and_stops_at_the_cap() {
+    let data: Vec<u8> = (0..100u8).collect();
+    let mut src = StreamAt::new(&data[..], 50);
+    let mut buf = [0u8; 20];
+    assert_eq!(src.read_at(40, &mut buf).unwrap(), 10, "cut at the cap");
+    assert_eq!(&buf[..10], &data[40..50]);
+    assert_eq!(src.read_at(60, &mut buf).unwrap(), 0, "beyond the cap");
+    assert_eq!(src.read_at(0, &mut buf).unwrap(), 20, "kept, not re-read");
+    assert_eq!(&buf[..], &data[..20]);
+}
+
+#[test]
+fn stream_at_over_an_endless_stream_does_not_hang() {
+    let mut src = StreamAt::new(io::repeat(0xAB), 1024 * 1024);
+    let mut buf = vec![0u8; 16];
+    assert_eq!(src.read_at(u64::MAX - 4, &mut buf).unwrap(), 0);
+    assert_eq!(src.read_at(1024 * 1024 - 8, &mut buf).unwrap(), 8);
+}
+
+/// Fails with `Interrupted` before every chunk, like a signal-heavy pipe.
+struct Flaky<R> {
+    inner: R,
+    interrupt: bool,
+}
+
+impl<R: Read> Read for Flaky<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.interrupt = !self.interrupt;
+        if self.interrupt {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
+        self.inner.read(buf)
+    }
+}
+
+#[test]
+fn stream_at_retries_interrupted_reads() {
+    let nes = fx::nes();
+    let flaky = Flaky {
+        inner: &nes[..],
+        interrupt: false,
+    };
+    let s = sniff(&mut StreamAt::new(flaky, 1 << 20), nes.len() as u64, "nes");
+    assert_eq!(best(&s), Some(("nes".into(), 0.95)));
 }
