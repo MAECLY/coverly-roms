@@ -11,10 +11,12 @@ use std::time::SystemTime;
 
 use clap::{Args, ValueEnum};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
 use coverly_core::identify::sniff::NotARom;
 use coverly_core::net::{PoliteHttp, UreqHttp};
+use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     plan_from_survey, survey, Choice, Decision, ItemNote, LeftReason, NameMode, OrganizeAction,
     OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
@@ -23,6 +25,8 @@ use coverly_core::organize::{
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
 use coverly_core::profiles::Profile;
+use coverly_core::settings::Settings;
+use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREENSCRAPER_BASE};
 use coverly_core::systems::SystemDb;
 
 use crate::fill::write_file;
@@ -90,6 +94,8 @@ pub struct OrganizeArgs {
     cache_dir: Option<PathBuf>,
     #[arg(long, hide = true)]
     database_url: Option<String>,
+    #[arg(long, hide = true)]
+    screenscraper_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -150,6 +156,24 @@ pub(crate) fn parse_assign(s: &str) -> Result<(PathBuf, String), Failure> {
     Ok((PathBuf::from(file), system))
 }
 
+/// Whether a progress event is worth a line: phase starts, ends and
+/// every 25th file (the hash phase reports every file).
+fn progress_due(p: OrganizeProgress) -> bool {
+    p.done == 0 || p.done == p.total || p.done.is_multiple_of(25)
+}
+
+/// ScreenScraper is asked by CRC only when this build has it, the user
+/// enabled it, their account is set and the run is not offline.
+fn online_wanted(s: &Settings, keys: &SourceKeys, offline: bool) -> bool {
+    !offline
+        && keys.screenscraper_dev.is_some()
+        && keys.screenscraper_user.is_some()
+        && s.sources
+            .order
+            .iter()
+            .any(|e| e.id == "screenscraper" && e.enabled)
+}
+
 /// Prints `identify 40/631` lines to stderr, only when it is a terminal.
 fn progress_line(p: OrganizeProgress) {
     let phase = match p.phase {
@@ -159,7 +183,11 @@ fn progress_line(p: OrganizeProgress) {
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
     };
-    eprintln!("{phase} {}/{}", p.done, p.total);
+    if p.total == 0 {
+        eprintln!("{phase}");
+    } else {
+        eprintln!("{phase} {}/{}", p.done, p.total);
+    }
 }
 
 pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
@@ -242,19 +270,44 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         .unwrap_or_else(|| DATABASE_BASE.into());
     let store = DatStore::new(&http, &cache, base);
     let dats = (!opts.offline && opts.download_dats).then_some(&store);
+    let keys = SourceKeys::from_env(|name| std::env::var(name).ok());
+    let screenscraper = online_wanted(s, &keys, opts.offline)
+        .then(|| {
+            let dev = keys.screenscraper_dev.clone()?;
+            let cfg = SsConfig {
+                base: args
+                    .screenscraper_url
+                    .clone()
+                    .unwrap_or_else(|| SCREENSCRAPER_BASE.into()),
+                ..SsConfig::default()
+            };
+            Some(ScreenScraperSource::new(
+                &http,
+                &cache,
+                dev,
+                keys.screenscraper_user.clone(),
+                cfg,
+            ))
+        })
+        .flatten();
+    let lookup = screenscraper
+        .as_ref()
+        .map(|source| ScreenScraperLookup::new(source, &db));
     let env = OrganizeEnv {
         db: &db,
         profiles: &profiles,
         cache: &cache,
         dats,
         probe: &OsMetaProbe,
-        online: None,
+        online: lookup
+            .as_ref()
+            .map(|l| l as &dyn coverly_core::organize::evidence::OnlineLookup),
         now: SystemTime::now(),
     };
 
     let tty = io::stderr().is_terminal();
     let progress = move |p: OrganizeProgress| {
-        if tty {
+        if tty && progress_due(p) {
             progress_line(p);
         }
     };
@@ -279,7 +332,40 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
             plan = plan_from_survey(&found, &opts, &decisions, &env).map_err(organize_failure)?;
         }
     }
+    warn_ignored_assigns(&plan, &assigned, &decisions);
     emit(args, &plan, &db, &opts)
+}
+
+/// An `--assign` on an item that stays where it is (a duplicate, a BIOS…)
+/// changes nothing: say so instead of dropping it silently.
+fn warn_ignored_assigns(
+    plan: &OrganizePlan,
+    assigned: &[(PathBuf, String)],
+    decisions: &[Decision],
+) {
+    for ((file, system), d) in assigned.iter().zip(decisions) {
+        let Some(item) = plan.items.get(d.item) else {
+            continue;
+        };
+        // Duplicates and collisions are settled after the decisions, so
+        // the outcome is what tells.
+        if item.action == OrganizeAction::Auto && item.system_id.as_deref() == Some(system) {
+            continue;
+        }
+        let why = match &item.action {
+            OrganizeAction::Left { reason } => {
+                format!(": it stays where it is ({})", left_text(reason))
+            }
+            _ => String::new(),
+        };
+        eprintln!(
+            "{}",
+            table::terminal_safe(&format!(
+                "warning: --assign {} ignored{why}",
+                file.display()
+            ))
+        );
+    }
 }
 
 /// One [`Choice::Assign`] per `--assign`, matched against the primary
@@ -675,6 +761,53 @@ mod tests {
         assert!(why_text(&ext).starts_with(".gb extension (gb), but"));
         let user = Evidence::new(IdLevel::User, "gbc", 1.0, "");
         assert_eq!(why_text(&user), "Chosen by you");
+    }
+
+    #[test]
+    fn progress_is_printed_sparingly() {
+        let at = |phase, done, total| OrganizeProgress { phase, done, total };
+        assert!(progress_due(at(OrganizePhase::Walk, 0, 0)));
+        assert!(progress_due(at(OrganizePhase::Hash, 0, 500)));
+        assert!(!progress_due(at(OrganizePhase::Hash, 7, 500)));
+        assert!(progress_due(at(OrganizePhase::Hash, 25, 500)));
+        assert!(progress_due(at(OrganizePhase::Hash, 500, 500)));
+    }
+
+    #[test]
+    fn online_lookup_needs_the_source_enabled_an_account_and_the_network() {
+        use coverly_core::credentials::{DevCredentials, Secret, SourceKeys, UserCredentials};
+        let secret = || Secret::new("x");
+        let keys = SourceKeys {
+            steamgriddb: None,
+            screenscraper_user: Some(UserCredentials {
+                user: secret(),
+                password: secret(),
+            }),
+            screenscraper_dev: Some(DevCredentials {
+                id: secret(),
+                password: secret(),
+            }),
+        };
+        let mut s = coverly_core::settings::Settings::default();
+        // Off out of the box.
+        assert!(!online_wanted(&s, &keys, false));
+        for e in &mut s.sources.order {
+            if e.id == "screenscraper" {
+                e.enabled = true;
+            }
+        }
+        assert!(online_wanted(&s, &keys, false));
+        assert!(!online_wanted(&s, &keys, true));
+        let no_user = SourceKeys {
+            screenscraper_user: None,
+            ..keys.clone()
+        };
+        assert!(!online_wanted(&s, &no_user, false));
+        let no_dev = SourceKeys {
+            screenscraper_dev: None,
+            ..keys
+        };
+        assert!(!online_wanted(&s, &no_dev, false));
     }
 
     #[test]

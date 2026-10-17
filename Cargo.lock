@@ -804,6 +804,7 @@ dependencies = [
  "predicates",
  "serde_json",
  "tempfile",
+ "zip 9.0.3",
 ]
 
 [[package]]

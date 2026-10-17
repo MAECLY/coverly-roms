@@ -261,3 +261,75 @@ fn flat_and_target_change_where_the_folders_go() {
     );
     assert_eq!(v["plan"]["mode"], "copy");
 }
+
+#[test]
+fn assign_accepts_a_dot_slash_path() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--assign", "./Odd.gb=gbc"],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains("ROMS/GBC/"))
+    .stdout(contains("Chosen by you"));
+}
+
+#[test]
+fn an_assign_the_plan_cannot_honour_is_reported() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    // Same bytes as Game A.gba: a duplicate that stays where it is.
+    write_old(&p.path().join("Game A copy.gba"), &fx::gba_tagged(1));
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--assign", "Game A copy.gba=gbc"],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stderr(contains("Game A copy.gba"))
+    .stderr(contains("ignored"));
+}
+
+#[test]
+fn catalogues_come_from_the_database_url_when_online() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    // A zipped ROM: its CRC is read from the archive, so the catalogue
+    // answers without hashing the file.
+    let bytes = fx::gba_tagged(9);
+    let crc = format!("{:08X}", crc32fast::hash(&bytes));
+    let zip_path = p.path().join("Game Z.zip");
+    {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("Game Z.gba", opts).unwrap();
+        zip.write_all(&bytes).unwrap();
+        zip.finish().unwrap();
+    }
+    let old = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    filetime::set_file_mtime(&zip_path, old).unwrap();
+    let server = coverly_core::net::testing::MockServer::start();
+    server.serve_dat(
+        "metadat/no-intro/Nintendo - Game Boy Advance.dat",
+        &format!(
+            "game (\n name \"Game Z (USA)\"\n rom ( name \"Game Z (USA).gba\" size {} crc {crc} )\n)\n",
+            bytes.len()
+        ),
+    );
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--database-url", &server.base()],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains(format!(
+        "CRC {crc} in the gba catalogue: Game Z (USA)"
+    )));
+}
