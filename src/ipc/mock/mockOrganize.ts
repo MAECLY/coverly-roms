@@ -50,6 +50,31 @@ import type { MockExport } from './mockJobs';
 export const MOCK_DOWNLOADS = '/Users/demo/Downloads/roms';
 export const MOCK_MIXED = '/Users/demo/Mixed';
 export const MOCK_PLAN_EXPORT = 'coverly-organize-plan.json';
+export const MOCK_PICK_KEY = 'coverly.mock.pick';
+
+/**
+ * What "Open folder…" picks in the browser mock, so the organise offer is
+ * reachable from the start screen: `?mockPick=downloads|mixed|<absolute
+ * path>` (or localStorage `coverly.mock.pick`). Null: the first fixture
+ * library, as before.
+ */
+export function readMockPick(): string | null {
+  const resolve = (v: string | null): string | null => {
+    if (v === 'downloads') return MOCK_DOWNLOADS;
+    if (v === 'mixed') return MOCK_MIXED;
+    return v && v.startsWith('/') ? v : null;
+  };
+  try {
+    const fromUrl = resolve(
+      new URLSearchParams(window.location.search).get('mockPick'),
+    );
+    if (fromUrl) return fromUrl;
+    return resolve(window.localStorage.getItem(MOCK_PICK_KEY));
+  } catch {
+    /* no window or storage */
+    return null;
+  }
+}
 
 /** Items moved between two apply progress events. */
 const STEP = 4;

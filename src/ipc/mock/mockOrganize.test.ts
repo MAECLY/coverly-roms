@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type {
   OrganizeJobView,
@@ -12,7 +12,12 @@ import {
   type MockBackend,
   type MockOptions,
 } from './mockBackend';
-import { MOCK_DOWNLOADS, MOCK_MIXED } from './mockOrganize';
+import {
+  MOCK_DOWNLOADS,
+  MOCK_MIXED,
+  MOCK_PICK_KEY,
+  readMockPick,
+} from './mockOrganize';
 
 function backend(options: MockOptions = {}): MockBackend {
   return createMockBackend({
@@ -488,5 +493,34 @@ describe('mock organise backend', () => {
     const svg = new TextDecoder().decode(art.bytes);
     expect(svg).toContain('&lt;img src=x');
     expect(svg).not.toContain('<img');
+  });
+});
+
+describe('mock folder pick', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+    window.localStorage.removeItem(MOCK_PICK_KEY);
+  });
+
+  it('reads ?mockPick= aliases and absolute paths, then storage, else nothing', () => {
+    expect(readMockPick()).toBeNull();
+    window.history.replaceState(null, '', '/?mockPick=downloads');
+    expect(readMockPick()).toBe(MOCK_DOWNLOADS);
+    window.history.replaceState(null, '', '/?mockPick=mixed');
+    expect(readMockPick()).toBe(MOCK_MIXED);
+    window.history.replaceState(null, '', '/?mockPick=relative/path');
+    expect(readMockPick()).toBeNull();
+    window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
+    expect(readMockPick()).toBe('/Users/demo/Other');
+  });
+
+  it('open folder picks the asked pile, which has no known layout', async () => {
+    window.history.replaceState(null, '', '/?mockPick=downloads');
+    const b = backend();
+    const path = await b.pickFolder();
+    expect(path).toBe(MOCK_DOWNLOADS);
+    expect(await backend({ folder: MOCK_MIXED }).pickFolder()).toBe(MOCK_MIXED);
+    window.history.replaceState(null, '', '/');
+    expect(await backend().pickFolder()).toBe(MOCK_LIBRARIES[0].path);
   });
 });

@@ -14,7 +14,7 @@ import type {
 } from '../types';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
-import { createMockOrganize } from './mockOrganize';
+import { createMockOrganize, readMockPick } from './mockOrganize';
 import { createMockSettings } from './mockSettings';
 import {
   createMockUpdates,
@@ -25,7 +25,7 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
-export { MOCK_DOWNLOADS, MOCK_MIXED } from './mockOrganize';
+export { MOCK_DOWNLOADS, MOCK_MIXED, MOCK_PICK_KEY } from './mockOrganize';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -52,6 +52,9 @@ export interface MockOptions {
   /** What the updater answers (default: `?mockUpdate=`, then localStorage
    * `coverly.mock.update`, then `up-to-date`). */
   update?: MockUpdateScenario;
+  /** What "Open folder…" picks (default: `?mockPick=`, then localStorage
+   * `coverly.mock.pick`, then the first fixture library). */
+  folder?: string;
 }
 
 export interface MockBackend extends Backend {
@@ -439,7 +442,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       entryOf(gen, id);
       revealed.push(id);
     },
-    pickFolder: () => Promise.resolve(MOCK_LIBRARIES[0].path),
+    pickFolder: () =>
+      Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),
     onFolderDrop(cb) {
       const over = (ev: Event) => ev.preventDefault();
       const drop = (ev: Event) => {
