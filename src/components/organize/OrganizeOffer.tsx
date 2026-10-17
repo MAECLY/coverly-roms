@@ -1,9 +1,16 @@
+import { FolderOpen, FolderSearch, FolderTree } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { Field, FieldControl, FieldLabel } from '@/components/ui/field';
+import { NativeSelect } from '@/components/ui/select';
+import { SlotMark } from '@/components/ui/slot-mark';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import type { FolderProbe, ProfileInfo } from '@/ipc/types';
+
+import { hintText, panel, sectionTitle } from './styles';
 
 /** Where `probe_folder` stops counting (organise spec §4.1). */
 export const PROBE_LIMIT = 5000;
@@ -63,60 +70,68 @@ export function OrganizeOffer({
   return (
     <section
       aria-labelledby="organize-offer-title"
-      className="recent w-full max-w-2xl text-left"
+      className={`${panel} grid w-full max-w-2xl gap-3 p-4 text-left`}
     >
-      <h2 id="organize-offer-title" className="section-title">
-        {t('start.organizeOffer.title')}
-      </h2>
-      {sortedOnly ? (
-        <p className="hint">{t('start.suggestSystemFolders')}</p>
-      ) : (
-        <p>{t('start.organizeOffer.body', { roms: count })}</p>
-      )}
-      {probe.broad_root && (
-        <p className="hint">{t('start.organizeOffer.broadRoot')}</p>
-      )}
-      {probe.truncated && !sortedOnly && (
-        <p className="hint">
-          {t('start.organizeOffer.truncated', { count: limit })}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex items-start gap-3">
+        {/* The folder has no shelf yet: a missing slot (brand §2). */}
+        <SlotMark state="missing" size={32} className="mt-0.5" />
+        <div className="grid min-w-0 gap-1">
+          <h2 id="organize-offer-title" className={sectionTitle}>
+            {t('start.organizeOffer.title')}
+          </h2>
+          {sortedOnly ? (
+            <p className={hintText}>{t('start.suggestSystemFolders')}</p>
+          ) : (
+            <p className="m-0 text-ui text-cr-text">
+              {t('start.organizeOffer.body', { roms: count })}
+            </p>
+          )}
+          {probe.broad_root && (
+            <p className={hintText}>{t('start.organizeOffer.broadRoot')}</p>
+          )}
+          {probe.truncated && !sortedOnly && (
+            <p className={hintText}>
+              {t('start.organizeOffer.truncated', { count: limit })}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
         {sortedOnly ? (
           <>
-            <label>
-              {t('organize.layout')}{' '}
-              <select
-                className="select"
-                value={layout}
-                onChange={(e) => setLayout(e.target.value)}
-              >
-                {unlisted !== null && (
-                  <option value={unlisted}>{unlisted}</option>
-                )}
-                {profiles.map((p) => (
-                  <option key={p.profile.id} value={p.profile.id}>
-                    {p.profile.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => onOpenSorted(layout)}
-            >
+            <Field className="w-56">
+              <FieldLabel>{t('organize.layout')}</FieldLabel>
+              <FieldControl>
+                <NativeSelect
+                  value={layout}
+                  onChange={(e) => setLayout(e.target.value)}
+                >
+                  {unlisted !== null && (
+                    <option value={unlisted}>{unlisted}</option>
+                  )}
+                  {profiles.map((p) => (
+                    <option key={p.profile.id} value={p.profile.id}>
+                      {p.profile.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </FieldControl>
+            </Field>
+            <Button variant="primary" onClick={() => onOpenSorted(layout)}>
+              <FolderOpen aria-hidden />
               {t('start.organizeOffer.openSorted')}
-            </button>
+            </Button>
           </>
         ) : (
-          <button type="button" className="primary-button" onClick={onOrganize}>
+          <Button variant="primary" onClick={onOrganize}>
+            <FolderTree aria-hidden />
             {t('start.organizeOffer.action')}
-          </button>
+          </Button>
         )}
-        <button type="button" className="ghost-button" onClick={onPickOther}>
+        <Button variant="outline" onClick={onPickOther}>
+          <FolderSearch aria-hidden />
           {t('start.organizeOffer.other')}
-        </button>
+        </Button>
       </div>
     </section>
   );
