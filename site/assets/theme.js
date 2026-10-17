@@ -63,6 +63,29 @@
     if (e.key === KEY) { mode = read(); apply(mode); }
   });
 
+  function choose(next, x, y) {
+    var update = function () {
+      mode = next;
+      try {
+        if (next === "system") localStorage.removeItem(KEY);
+        else localStorage.setItem(KEY, next);
+      } catch (e) {}
+      apply(next);
+    };
+    var calm = !window.matchMedia || matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!document.startViewTransition || calm || resolve(next) === html.getAttribute("data-theme")) return update();
+    html.style.setProperty("--ink-x", x + "px");
+    html.style.setProperty("--ink-y", y + "px");
+    html.classList.add("vt-ink");
+    var end = function () { html.classList.remove("vt-ink"); };
+    try {
+      document.startViewTransition(update).finished.then(end, end);
+    } catch (e) {
+      end();
+      update();
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     apply(mode);
     /* The phone section menu closes once a link is chosen. */
@@ -70,15 +93,17 @@
     if (menu) menu.addEventListener("click", function (e) {
       if (e.target.closest("a")) menu.open = false;
     });
+    /* The new mode spreads from where it was picked: the pointer, or the
+       chosen pill from the keyboard. */
+    var at = null, picker = document.querySelector(".mode");
+    if (picker) picker.addEventListener("pointerdown", function (e) { at = [e.clientX, e.clientY]; });
     var radios = document.querySelectorAll('input[name="mode"]');
     for (var i = 0; i < radios.length; i++) {
       radios[i].addEventListener("change", function (e) {
-        mode = e.target.value;
-        try {
-          if (mode === "system") localStorage.removeItem(KEY);
-          else localStorage.setItem(KEY, mode);
-        } catch (x) {}
-        apply(mode);
+        var r = e.target.parentNode.getBoundingClientRect();
+        var p = at || [r.left + r.width / 2, r.top + r.height / 2];
+        at = null;
+        choose(e.target.value, p[0], p[1]);
       });
     }
   });

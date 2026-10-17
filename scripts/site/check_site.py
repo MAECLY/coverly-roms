@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the landing page before it ships. Standard library only.
 
-  check_site.py [--site site] [--only files,links,parity,head,budget,contrast]
+  check_site.py [--site site] [--only files,links,parity,head,budget,contrast,motion]
 
 Fills site/ twice into a temporary folder with apply_release.py (once with
 scripts/site/fixtures/release.json, once with --no-release) and runs every
@@ -17,6 +17,11 @@ browser.
             sized, described and lazy
   budget    page, CSS, script and font sizes (raw and gzip), visible words
   contrast  WCAG 2.x contrast of the token pairs the page uses, both modes
+  motion    the motion contract: html.anim/html.motion gates and halt() in
+            the scripts, a reduced-motion block that stops everything, no
+            keyframe or transition on layout properties, scroll-linked
+            effects only inside @supports, motion never hides text or
+            images, no autoplaying video, motion.js size
 
 Exit status 1 when any gate fails; every failure is printed.
 """
@@ -57,10 +62,13 @@ REQUIRED = [
 # Raw bytes / gzip bytes. Each landing page, the stylesheet, all scripts.
 BUDGET = {
     "page": (48_000, 12_500),
-    "css": (40_000, 9_000),
-    "scripts": (12_000, 4_000),
+    "css": (44_000, 10_500),
+    "scripts": (16_000, 5_500),
     "font": (14_336, None),
 }
+# motion.js alone (raw bytes): Versorium keeps 6 KB; the hero story, the
+# terminal and the reveals fit in a little more.
+MOTION_JS = 9_500
 # Versorium keeps 680; this page carries a comparison, a layout table and
 # a download matrix, so it gets more room, and the gate keeps it from growing.
 MAX_WORDS = 1_450
@@ -415,9 +423,165 @@ def gate_contrast(site: Path, r: Report) -> None:
             r.fail("contrast", f"white on tile .{cls} {colour} is {got:.2f}:1")
 
 
+# ── motion ─────────────────────────────────────────────────────────────
+
+# What a keyframe or transition may move: compositor-friendly or paint-only
+# properties. Anything that moves layout (sizes, offsets, margins) shifts
+# the page, so it fails, except the FAQ's height, which answers a click.
+MOVES = {
+    "transform", "opacity", "visibility", "clip-path", "stroke-dashoffset",
+    "background-color", "background-size", "outline-color", "color",
+    "border-color", "box-shadow",
+}
+USER_LAYOUT = {("::details-content", "height"), ("::details-content", "content-visibility")}
+JS_GATES = ("html.anim", "html.motion", "html.vt-ink")
+TEXT = re.compile(r"(^|[\s>+~])(h[1-6]|p|li|a|img|picture|figure|button|\.btn)$")
+
+
+def css_rules(css: str) -> list[tuple[list[str], str, str]]:
+    """(enclosing at-rule preludes, selector, body) for every style rule."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    out: list[tuple[list[str], str, str]] = []
+    stack: list[str] = []
+    buf = ""
+    i = 0
+    while i < len(css):
+        ch = css[i]
+        if ch == "{":
+            prelude = buf.strip()
+            buf = ""
+            if prelude.startswith("@") and not prelude.startswith(("@font-face", "@view-transition")):
+                stack.append(prelude)
+            else:
+                end = css.index("}", i)
+                out.append((stack[:], prelude, css[i + 1:end]))
+                i = end
+        elif ch == "}":
+            if stack:
+                stack.pop()
+            buf = ""
+        else:
+            buf += ch
+        i += 1
+    return out
+
+
+def decls(body: str) -> list[tuple[str, str]]:
+    return [(k.strip().lower(), v.strip()) for k, _, v in
+            (d.partition(":") for d in body.split(";")) if v.strip()]
+
+
+def seconds(tok: str) -> float | None:
+    m = re.fullmatch(r"(-?[\d.]+)(m?s)", tok)
+    if not m:
+        return None
+    return float(m.group(1)) / (1000 if m.group(2) == "ms" else 1)
+
+
+def gate_hiding_keyframes(rules: list[tuple[list[str], str, str]], r: Report) -> None:
+    """Keyframes that start hidden (opacity 0 / visibility hidden) may only
+    hold text hidden while scrolling drives them, or not at all: a delay
+    with a backwards fill keeps a heading invisible until it ends."""
+    hiding: set[str] = set()
+    for stack, sel, body in rules:
+        frames = [p for p in stack if p.startswith("@keyframes")]
+        if frames and any(s.strip() in ("from", "0%") for s in sel.split(",")) and any(
+                (p, v) in (("opacity", "0"), ("visibility", "hidden")) for p, v in decls(body)):
+            hiding.add(frames[-1].split()[1])
+    for stack, sel, body in rules:
+        if any(p.startswith("@keyframes") for p in stack):
+            continue
+        d = dict(decls(body))
+        anim = d.get("animation", d.get("animation-name", ""))
+        for part in anim.split(","):
+            toks = part.split()
+            if not any(t in hiding for t in toks):
+                continue
+            texty = [s.strip() for s in sel.split(",")
+                     if TEXT.search(re.sub(r":[\w-]+(\([^)]*\))?", "", s.strip()))]
+            if not texty:
+                continue
+            times = [t for t in (seconds(x) for x in toks) if t is not None]
+            delay = seconds(d["animation-delay"]) if "animation-delay" in d else \
+                (times[1] if len(times) > 1 else 0.0)
+            fill = d.get("animation-fill-mode", "") + " " + part
+            scrolled = "animation-range" in d and \
+                any("@supports (animation-timeline: view())" in p for p in stack)
+            name = next(t for t in toks if t in hiding)
+            if delay and delay > 1:
+                r.fail("motion", f"{texty[0]}: {name} hides text for {delay:g}s before it shows")
+            elif delay and not scrolled and re.search(r"\b(both|backwards)\b", fill):
+                r.fail("motion", f"{texty[0]}: {name} holds text hidden through its delay")
+
+
+def gate_motion(site: Path, r: Report) -> None:
+    js = (site / "assets/motion.js").read_text(encoding="utf-8")
+    theme = (site / "assets/theme.js").read_text(encoding="utf-8")
+    css = (site / "assets/site.css").read_text(encoding="utf-8").replace('"', "'")
+    raw = len(js.encode())
+    r.note("motion", f"motion.js: {raw} B raw")
+    if raw > MOTION_JS:
+        r.fail("motion", f"motion.js is {raw} B, over {MOTION_JS}")
+    # The gates: html.anim only without reduced motion or Save-Data; any
+    # error or a mid-visit switch to reduced motion runs halt().
+    for need, where, text in (
+        ("prefers-reduced-motion: reduce", "theme.js", theme), ("saveData", "theme.js", theme),
+        ('classList.add("anim")', "theme.js", theme), ("function halt()", "motion.js", js),
+        ('classList.remove("anim", "motion")', "motion.js", js),
+        ('classList.add("motion")', "motion.js", js),
+        ('matchMedia("(prefers-reduced-motion: reduce)")', "motion.js", js),
+    ):
+        if need not in text:
+            r.fail("motion", f"{where} lacks {need!r}")
+    rules = css_rules(css)
+    reduce_body = " ".join(b for st, s, b in rules if any("prefers-reduced-motion: reduce" in p for p in st))
+    reduce_sels = " ".join(s for st, s, b in rules if any("prefers-reduced-motion: reduce" in p for p in st))
+    for need in ("animation: none !important", "transition: none !important"):
+        if need not in reduce_body:
+            r.fail("motion", f"reduced motion block lacks {need!r}")
+    for need in ("::view-transition-new(*)", ".replay"):
+        if need not in reduce_sels:
+            r.fail("motion", f"reduced motion block does not cover {need}")
+    for stack, sel, body in rules:
+        frame = any(p.startswith("@keyframes") for p in stack)
+        quiet = any("prefers-reduced-motion: no-preference" in p for p in stack)
+        for prop, val in decls(body):
+            if frame and prop not in MOVES:
+                r.fail("motion", f"{stack[-1]} animates {prop} (layout)")
+            if prop in ("transition", "transition-property") and not val.startswith("none"):
+                for part in val.split(","):
+                    name = part.split()[0] if part.split() else ""
+                    if name not in MOVES and not any(s in sel and p == name for s, p in USER_LAYOUT):
+                        r.fail("motion", f"{sel}: transition on {name} (layout)")
+            if frame:
+                continue
+            if prop.startswith("animation-timeline") and \
+                    not any("@supports (animation-timeline: view())" in p for p in stack):
+                r.fail("motion", f"{sel}: animation-timeline outside @supports (animation-timeline: view())")
+            moving = (prop in ("animation", "animation-name") and val != "none") or \
+                (prop in ("transition", "transition-property") and val != "none")
+            if moving and not quiet and not any(any(g in s for g in JS_GATES) for s in sel.split(",")) \
+                    and not any("prefers-reduced-motion: reduce" in p for p in stack):
+                r.fail("motion", f"{sel}: {prop} is not behind html.anim/html.motion or no-preference")
+            if (prop, val) in (("opacity", "0"), ("visibility", "hidden")) and \
+                    any(g in sel for g in JS_GATES):
+                for s in sel.split(","):
+                    if TEXT.search(re.sub(r":[\w-]+(\([^)]*\))?", "", s.strip())):
+                        r.fail("motion", f"{s.strip()}: motion hides text or images")
+    gate_hiding_keyframes(rules, r)
+    for rel in PAGES.values():
+        doc = parse(site / rel)
+        for t, a in doc.tags:
+            if t == "video" or "autoplay" in a:
+                r.fail("motion", f"{rel}: <{t}> autoplays or is a video; use a play-once clip")
+            if "replay" in a.get("class", "").split() and (t != "button" or a.get("type") != "button"):
+                r.fail("motion", f"{rel}: .replay is not a <button type=button>")
+
+
 GATES = {
     "files": gate_files, "links": gate_links, "parity": gate_parity,
     "head": gate_head, "budget": gate_budget, "contrast": gate_contrast,
+    "motion": gate_motion,
 }
 
 
