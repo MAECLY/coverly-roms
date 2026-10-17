@@ -3376,6 +3376,8 @@ Write every test body fully following its comment; helpers `fix_gba`/`fix_gb` re
 cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-organize && git add crates/coverly-core && git commit -m "feat(core): plan organising a ROM pile by system"
 ```
 
+**Review fix:** a disc set whose track the walk left (recently modified, symlink, partial download, unreadable) takes that track's reason and stays in place, and the track is no longer listed twice; a raw file as large as an archived ROM's content key is hashed so a loose copy of a zipped game is a duplicate; `probe_folder` skips the walk's ignored folders (`bios`, `saves`, `states`, `Shortcuts`); `DatCatalogue::with_download_progress` lets the planner emit the `Dats` phase around each download. Tests: `a_disc_set_with_a_track_still_being_written_stays_in_place`, `a_disc_set_with_a_symlinked_track_stays_in_place`, `a_raw_file_equal_to_a_zipped_one_is_a_duplicate`, `probe_skips_ignored_folders`, `dat_downloads_report_the_dats_phase`.
+
 ---
 
 ## Group O6 — Safe apply, journal, undo
