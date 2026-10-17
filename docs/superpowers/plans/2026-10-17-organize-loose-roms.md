@@ -2745,6 +2745,8 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
 
 (The `detail` suffix `!` marks "the extension says X but the contents don't look like X"; Task 16 turns it into `ItemNote::ExtensionContradicted`.) `Combined::unknown()` is a small constructor. `gbc` unique `.gbc` + header GB-DMG: `.gbc` is unique to gbc? It is listed by `gbc` only → unique → `gbc` 0.85; header says `gb` 0.95 → gb wins with margin 0.10 → Auto `gb` (harmless direction, spec §6.3).
 
+**Review fix:** a `User` evidence for a system that no hard veto excluded settles `combine` directly (Auto, confidence 1.0, `method = User`, first in `why`, the other systems as alternatives); otherwise a remembered choice tied with another 1.00 score (one CRC in two catalogues) and the item was asked about again on every re-plan (spec §6.6). Tests: `a_remembered_choice_settles_a_tie_and_is_the_method`, `a_remembered_choice_never_overrides_a_hard_veto`, `an_unread_unique_extension_is_not_content_support`.
+
 - [ ] **Step 4: Run tests and gates.**
 
 - [ ] **Step 5: Commit**
