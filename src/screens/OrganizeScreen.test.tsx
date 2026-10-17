@@ -284,6 +284,25 @@ describe('OrganizeScreen', () => {
     );
   });
 
+  it('does not offer to open another target for folders sorted in the source', async () => {
+    tweakPlans(b, ({ plan }) => {
+      plan.items = plan.items.map((i) => ({
+        ...i,
+        action: 'left' as const,
+        reason: { kind: 'already-sorted' as const, folder: 'GBA' },
+      }));
+      plan.counts = { ...plan.counts, roms: 0, auto: 0, systems: 0 };
+      plan.sorted_folders = [['ROMS/GBA', 'gba']];
+      plan.target_root = '/Volumes/EMPTY';
+      plan.roms_dir = '/Volumes/EMPTY/ROMS';
+    });
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    expect(
+      screen.queryByRole('button', { name: 'Open library' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('renders hostile file names as text', async () => {
     const { container } = renderScreen(MOCK_MIXED);
     expect(

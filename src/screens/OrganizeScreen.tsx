@@ -337,7 +337,12 @@ function Proposal({
             {t('organize.apply', { count: counts.auto })}
           </button>
         ) : (
-          plan.sorted_folders.length > 0 && (
+          // Sorted folders live in the source: "open" opens the target,
+          // so offer it only when that is where they are, or when the
+          // target was detected as a library of its own.
+          ((plan.sorted_folders.length > 0 &&
+            plan.target_root === plan.source_root) ||
+            detected !== null) && (
             <button
               type="button"
               className="primary-button"
