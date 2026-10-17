@@ -463,6 +463,7 @@
     "removeNo": "Conservar",
     "busy": "Hay un trabajo de relleno en curso: los cambios de arte esperan a que termine.",
     "mediaUpdated": "{media} actualizada. Puedes deshacerlo desde Trabajos.",
+    "nextSlot": "Ahora: {next}.",
     "mediaRemoved": "{media} quitada. Puedes deshacerlo desde Trabajos.",
     "replaceShort": "La imagen actual se guarda como copia y Deshacer la recupera.",
     "replace": "Reemplazar",

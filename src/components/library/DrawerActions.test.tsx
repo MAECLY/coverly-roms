@@ -55,9 +55,14 @@ describe('Drawer art actions', () => {
     setBackend(null);
   });
 
-  it('fills an empty slot with one click on a candidate', async () => {
+  it('fills an empty slot with one click and moves on to the next empty one', async () => {
     const view = await setup();
-    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const entry = view.entries.find(
+      (e) =>
+        e.art.cover === 'missing' &&
+        e.art.screenshot === 'missing' &&
+        e.art.title === 'present',
+    )!;
     const drawer = show(entry);
     const group = await within(drawer).findByRole('group', {
       name: 'Candidates',
@@ -67,15 +72,32 @@ describe('Drawer art actions', () => {
     await userEvent.click(buttons[1]!);
     expect(
       await within(drawer).findByText(
-        'Cover updated. Undo it from Jobs if needed.',
+        'Cover updated. Undo it from Jobs if needed. Now: Screenshot.',
       ),
     ).toHaveAttribute('role', 'status');
     expect(cover(entry.id)).toBe('present');
-    // The slot shows the new state in place; the list stays for comparison.
     expect(
       within(drawer).getByRole('tab', { name: 'Cover' }),
     ).toHaveAccessibleDescription('present');
-    expect(within(buttons[1]!).getByText('In use')).toBeInTheDocument();
+    const shot = within(drawer).getByRole('tab', { name: 'Screenshot' });
+    expect(shot).toHaveAttribute('aria-selected', 'true');
+    expect(shot).toHaveFocus();
+
+    // The next slot loads its own candidates: one more click fills it, and
+    // with no empty slot left the list stays for comparison.
+    const next = await within(drawer).findByRole('group', {
+      name: 'Candidates',
+    });
+    const picked = within(next).getAllByRole('button')[0]!;
+    await userEvent.click(picked);
+    expect(
+      await within(drawer).findByText(
+        'Screenshot updated. Undo it from Jobs if needed.',
+      ),
+    ).toBeInTheDocument();
+    expect(shot).toHaveAttribute('aria-selected', 'true');
+    expect(within(picked).getByText('In use')).toBeInTheDocument();
+    expect(picked).toHaveFocus();
     expect(
       within(drawer).queryByRole('button', { name: 'Replace' }),
     ).toBeNull();

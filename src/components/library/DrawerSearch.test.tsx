@@ -74,7 +74,7 @@ describe('drawer search by title', () => {
     );
     expect(
       await within(drawer).findByText(
-        'Art updated. This ROM now matches “Golden Sun (Europe)”.',
+        /^Art updated\. This ROM now matches “Golden Sun \(Europe\)”\./,
       ),
     ).toBeInTheDocument();
     expect(useLibraryStore.getState().view!.entries[entry.id]!.art.cover).toBe(

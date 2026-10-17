@@ -463,6 +463,7 @@
     "removeNo": "Keep",
     "busy": "A fill job is running: art changes wait until it ends.",
     "mediaUpdated": "{media} updated. Undo it from Jobs if needed.",
+    "nextSlot": "Now: {next}.",
     "mediaRemoved": "{media} removed. Undo it from Jobs if needed.",
     "replaceShort": "The current image is backed up and Undo brings it back.",
     "replace": "Replace",

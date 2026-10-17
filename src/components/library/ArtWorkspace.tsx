@@ -50,6 +50,7 @@ interface Listing {
   seq: number;
   media: Media;
   kind: ListKind;
+  query: string;
   items: CandidateView[];
 }
 
@@ -182,6 +183,7 @@ export function ArtWorkspace({
             seq: lookup.seq,
             media: lookup.media,
             kind: lookup.kind,
+            query: lookup.query,
             items,
           });
         } catch (e) {
@@ -233,14 +235,44 @@ export function ArtWorkspace({
     setLookup({ seq: seq.current, media, kind, query: q, delay });
   }
 
-  function activate(m: Media) {
-    if (!canWrite(m) || m === active) return;
+  /** Opens a slot and starts its lookup (held back while a job runs). */
+  function goTo(m: Media, kind: ListKind = 'entry', q = '') {
     setActive(m);
     setConfirmRemove(false);
     setApplied(null);
+    startLookup(m, kind, q, AUTO_LOAD_DELAY_MS);
+  }
+
+  function activate(m: Media) {
+    if (!canWrite(m) || m === active) return;
     setStatus(null);
-    // Held back while a job runs; it goes out when the job ends.
-    startLookup(m, 'entry', '', AUTO_LOAD_DELAY_MS);
+    goTo(m);
+  }
+
+  /** The next writable slot still missing its image after `from`, if any. */
+  function nextMissing(from: Media): Media | undefined {
+    const order = MEDIA.filter(canWrite);
+    const at = order.indexOf(from);
+    return [...order.slice(at + 1), ...order.slice(0, at)].find(
+      (m) => entry.art[m] === 'missing',
+    );
+  }
+
+  /** After filling an empty slot, moves on to the next empty one (with the
+   * same kind of list) so filling a ROM is one click per slot. `done` is
+   * the message of the write. Returns whether it moved. */
+  function advance(
+    filled: Media,
+    kind: ListKind,
+    q: string,
+    done: string,
+  ): boolean {
+    const next = nextMissing(filled);
+    if (!next) return false;
+    goTo(next, kind, q);
+    setStatus(`${done} ${t('drawer.nextSlot', { next: mediaName(next) })}`);
+    tabRefs.current.get(next)?.focus();
+    return true;
   }
 
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
@@ -289,6 +321,7 @@ export function ArtWorkspace({
 
   async function apply(c: CandidateView, from: Listing) {
     setPending(null);
+    const wasEmpty = entry.art[from.media] === 'missing';
     const done =
       from.kind === 'search'
         ? t('drawer.searchUpdated', { name: c.name })
@@ -309,10 +342,12 @@ export function ArtWorkspace({
     if (from.kind === 'search') {
       void useIdentityStore.getState().identify(view.generation, entry.id);
     }
+    if (wasEmpty && advance(from.media, from.kind, from.query, done)) return;
     setApplied({ seq: from.seq, index: c.index });
   }
 
   async function fromFile(media: Media) {
+    const wasEmpty = entry.art[media] === 'missing';
     const done = t('drawer.mediaUpdated', { media: mediaName(media) });
     const ok = await attempt(
       (b) => b.setEntryArtFromFile(view.generation, entry.id, media),
@@ -320,6 +355,7 @@ export function ArtWorkspace({
     );
     if (!ok) return;
     setApplied(null);
+    if (wasEmpty) advance(media, 'entry', '', done);
   }
 
   /** D25: replacing an existing image is confirmed unless the setting says
