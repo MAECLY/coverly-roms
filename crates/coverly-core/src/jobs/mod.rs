@@ -106,6 +106,9 @@ pub struct ApplyOptions {
     pub discard_empty: bool,
     /// Journals kept after the job (spec §9 undo history depth).
     pub keep_jobs: usize,
+    /// Days organise journals are kept beyond `keep_jobs`
+    /// (`settings.organize.keep_organize_journals_days`).
+    pub keep_organize_days: u32,
     /// Trim the downloaded-art store to this size after the job.
     pub cache_max_bytes: Option<u64>,
     /// Delete AppleDouble junk in the folders the job wrote to.
@@ -125,6 +128,7 @@ impl Default for ApplyOptions {
             resume_job: None,
             discard_empty: false,
             keep_jobs: crate::fill::KEEP_JOBS,
+            keep_organize_days: crate::write::KEEP_ORGANIZE_DAYS,
             cache_max_bytes: None,
             clean_apple_double: false,
         }

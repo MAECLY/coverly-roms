@@ -619,3 +619,47 @@ fn a_later_organise_of_the_target_is_a_later_job() {
     undo_jobs_in_order(&data, &[first, second]).unwrap();
     assert!(src.join("Tetris.gb").exists());
 }
+
+#[test]
+fn manual_writes_keep_organise_journals_as_long_as_the_settings_say() {
+    use coverly_core::fill::{remove_art, ManualOptions};
+    let (_tmp, _src, root, data) = setup();
+    // Two organise journals from 2025: older than 90 days, younger than
+    // ten years. With one kept by count, `old` only survives by age.
+    let old = "20250101T000000Z-0000-0000";
+    empty_journal(&data, old, "organize");
+    empty_journal(&data, "20250201T000000Z-0000-0000", "organize");
+    let art = root.join("a.png");
+    fs::write(&art, b"x").unwrap();
+    let mut s = coverly_core::settings::Settings::default();
+    s.safety.undo_depth = 1;
+    s.organize.keep_organize_journals_days = 3650;
+    let opts = s.manual_options();
+    assert_eq!(opts.keep_organize_days, 3650);
+    remove_art(&root, &art, &data, &opts).unwrap();
+    let left: Vec<String> = list_jobs(&data)
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect();
+    assert!(left.contains(&old.to_string()), "{left:?}");
+
+    // The default keeps it only 90 days.
+    fs::write(&art, b"x").unwrap();
+    remove_art(
+        &root,
+        &art,
+        &data,
+        &ManualOptions {
+            keep_jobs: 1,
+            ..ManualOptions::default()
+        },
+    )
+    .unwrap();
+    let left: Vec<String> = list_jobs(&data)
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect();
+    assert!(!left.contains(&old.to_string()), "{left:?}");
+}

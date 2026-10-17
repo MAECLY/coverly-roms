@@ -695,7 +695,7 @@ impl AppState {
             &absolute_root(&session)?,
             &path,
             &cfg.data_dir,
-            cfg.settings.manual_options().keep_jobs,
+            &cfg.settings.manual_options(),
         )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
@@ -1146,9 +1146,9 @@ impl AppState {
             rel_path,
             stem: &entry.rom.stem,
         };
-        let keep_jobs = cfg.settings.manual_options().keep_jobs;
+        let history = cfg.settings.manual_options();
         let report = with_env(&cfg, |env| {
-            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, keep_jobs)
+            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, &history)
                 .map_err(IpcError::from)
         })?;
         if let Some(ItemStatus::Failed { kind, message }) = report.items.first().map(|i| &i.status)

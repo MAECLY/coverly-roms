@@ -144,6 +144,7 @@ impl Settings {
             fit: self.fit(),
             jpeg_quality: self.art.jpeg_quality.clamp(1, 100),
             keep_jobs: self.safety.undo_depth.max(1) as usize,
+            keep_organize_days: self.organize.keep_organize_journals_days.max(1),
             cache_max_bytes: Some(u64::from(self.network.cache_max_mb) * 1024 * 1024),
             clean_apple_double: self.safety.clean_apple_double
                 && crate::write::on_removable_volume(root),
@@ -157,6 +158,7 @@ impl Settings {
             fit: self.fit(),
             jpeg_quality: self.art.jpeg_quality.clamp(1, 100),
             keep_jobs: self.safety.undo_depth.max(1) as usize,
+            keep_organize_days: self.organize.keep_organize_journals_days.max(1),
         }
     }
 
