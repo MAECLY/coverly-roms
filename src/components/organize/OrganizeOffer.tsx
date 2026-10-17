@@ -34,9 +34,10 @@ export function OrganizeOffer({
   const locale = useContext(LocaleContext);
   const limit = new Intl.NumberFormat(locale).format(PROBE_LIMIT);
   const sortedOnly = probe.rom_like === 0 && probe.sorted_folders.length > 0;
-  const count = probe.truncated
-    ? `${limit}+`
-    : new Intl.NumberFormat(locale).format(probe.rom_like);
+  // `truncated` means the probe stopped after PROBE_LIMIT entries of any
+  // kind, so the ROMs it saw are a lower bound, not "5 000+ ROMs".
+  const found = new Intl.NumberFormat(locale).format(probe.rom_like);
+  const count = probe.truncated ? `${found}+` : found;
   const [layout, setLayout] = useState(defaultLayout ?? DEFAULT_LAYOUT);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
 
@@ -75,7 +76,7 @@ export function OrganizeOffer({
       {probe.broad_root && (
         <p className="hint">{t('start.organizeOffer.broadRoot')}</p>
       )}
-      {probe.truncated && (
+      {probe.truncated && !sortedOnly && (
         <p className="hint">
           {t('start.organizeOffer.truncated', { count: limit })}
         </p>

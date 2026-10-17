@@ -97,6 +97,24 @@ describe('OrganizeOffer', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not claim 5,000+ ROMs when the probe stopped early on other files', () => {
+    renderOffer({ ...PILE, rom_like: 12, broad_root: true, truncated: true });
+    expect(screen.getByText(/It holds 12\+ files/)).toBeInTheDocument();
+    expect(screen.queryByText(/5,000\+ files/)).not.toBeInTheDocument();
+  });
+
+  it('does not mention organising when only sorted folders were found', () => {
+    renderOffer({
+      ...PILE,
+      rom_like: 0,
+      sorted_folders: ['GBA'],
+      truncated: true,
+    });
+    expect(
+      screen.queryByText(/all of them are checked when organising/),
+    ).not.toBeInTheDocument();
+  });
+
   it('offers to open a folder that is already sorted, with a layout', async () => {
     const h = renderOffer(
       { ...PILE, rom_like: 0, sorted_folders: ['GB', 'GBA'] },
