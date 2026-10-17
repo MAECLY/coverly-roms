@@ -89,7 +89,10 @@ BUDGET = {
     # finale, about 10 KB raw / 2.5 KB gzip, minus the retired hero grid.
     # Raised again to 72,000 / 16,500 for WP4 (demo states and keyframes,
     # gallery develop and row lift, pictogram draw, terminal print/cursor).
-    "css": (72_000, 16_500),
+    # Raised to 78,000 / 17,500 for WP5 (comparison wipe and checks, the
+    # waiting slot and its tag swing, OS card fill, not-yet dash draw, FAQ
+    # and request-counter mini slots).
+    "css": (78_000, 17_500),
     # Every .js under assets/ (recursive, so a vendored file cannot slip
     # past). Raised from 16,000 / 5,500 for shelf.js (see SHELF_JS).
     "scripts": (20_000, 7_000),
