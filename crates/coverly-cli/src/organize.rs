@@ -18,9 +18,11 @@ use coverly_core::identify::sniff::NotARom;
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
-    plan_from_survey, survey, Choice, Decision, ItemNote, LeftReason, NameMode, OrganizeAction,
+    apply_organize, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv, ApplyError,
+    Choice, Decision, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode, OrganizeAction,
     OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
-    OrganizeProgress, OsMetaProbe, PlanWarning, RenameReason, Survey, TransferMode,
+    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
+    TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -113,6 +115,24 @@ impl From<NamesArg> for NameMode {
     }
 }
 
+/// What a run does: show the plan, apply it, or continue a job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    DryRun,
+    Apply,
+    Resume,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Mode::DryRun => "dry-run",
+            Mode::Apply => "apply",
+            Mode::Resume => "resume",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum ReportArg {
     Table,
@@ -137,6 +157,18 @@ fn organize_failure(e: OrganizeError) -> Failure {
     Failure {
         code,
         message: e.to_string(),
+    }
+}
+
+/// Not enough space is an I/O failure that names both numbers; a missing
+/// plan or a journal error is a job error (exit 1).
+fn apply_failure(e: ApplyError, plan_target: Option<&Path>) -> Failure {
+    match (&e, plan_target) {
+        (ApplyError::NoSpace { needed, free }, Some(target)) => fail(format!(
+            "not enough space in {}: {needed} bytes needed, {free} free; nothing was written",
+            target.display()
+        )),
+        _ => fail(e),
     }
 }
 
@@ -239,22 +271,27 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         }
         assigned.push((file, system));
     }
-    if args.resume.is_some() {
-        return Err(Failure::usage(
-            "--resume is not available in this build yet",
-        ));
-    }
-    let apply = args.apply || (!args.dry_run && !s.safety.dry_run_default);
-    if apply {
-        return Err(Failure::usage(
-            "--apply is not available in this build yet; run without it for the plan",
-        ));
-    }
-
     let data = crate::settings::data_dir(args.data_dir.as_deref(), s);
     let dirs = AppDirs::resolve(args.cache_dir.as_deref(), data.as_deref()).ok_or_else(|| {
         fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
     })?;
+    let tty = io::stderr().is_terminal();
+    let progress = move |p: OrganizeProgress| {
+        if tty && progress_due(p) {
+            progress_line(p);
+        }
+    };
+    let cancel = AtomicBool::new(false);
+    if let Some(job) = &args.resume {
+        let env = ApplyEnv {
+            data_dir: &dirs.data,
+            progress: &progress,
+            cancel: &cancel,
+        };
+        return resume(args, job, &source, &env, &db, s);
+    }
+    let apply = args.apply || (!args.dry_run && !s.safety.dry_run_default);
+
     std::fs::create_dir_all(&dirs.cache).map_err(|e| {
         fail(format!(
             "cannot create the cache folder {}: {e}",
@@ -305,13 +342,6 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         now: SystemTime::now(),
     };
 
-    let tty = io::stderr().is_terminal();
-    let progress = move |p: OrganizeProgress| {
-        if tty && progress_due(p) {
-            progress_line(p);
-        }
-    };
-    let cancel = AtomicBool::new(false);
     let found = survey(&source, &opts, &env, &progress, &cancel).map_err(organize_failure)?;
     let mut decisions = assign_decisions(&found, &assigned)?;
     let mut plan = plan_from_survey(&found, &opts, &decisions, &env).map_err(organize_failure)?;
@@ -333,7 +363,70 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         }
     }
     warn_ignored_assigns(&plan, &assigned, &decisions);
-    emit(args, &plan, &db, &opts)
+    if !apply {
+        return emit(args, Mode::DryRun, &plan, None, &db, &opts);
+    }
+    std::fs::create_dir_all(&dirs.data).map_err(|e| {
+        fail(format!(
+            "cannot create the data folder {}: {e}",
+            dirs.data.display()
+        ))
+    })?;
+    let env = ApplyEnv {
+        data_dir: &dirs.data,
+        progress: &progress,
+        cancel: &cancel,
+    };
+    let report =
+        apply_organize(&plan, &env).map_err(|e| apply_failure(e, Some(&plan.target_root)))?;
+    finish(args, Mode::Apply, &plan, &report, &db, &opts)
+}
+
+/// `--resume <job>`: continues the job from its saved plan, which must
+/// be a plan of this source.
+fn resume(
+    args: &OrganizeArgs,
+    job: &str,
+    source: &Path,
+    env: &ApplyEnv,
+    db: &SystemDb,
+    settings: &Settings,
+) -> Result<(), Failure> {
+    let plan = load_plan(env.data_dir, job).map_err(|e| apply_failure(e, None))?;
+    if plan.source_root != source {
+        return Err(Failure::usage(format!(
+            "job {job} organises {}, not {}",
+            plan.source_root.display(),
+            source.display()
+        )));
+    }
+    let report = resume_organize(job, env).map_err(|e| apply_failure(e, None))?;
+    let opts = OrganizeOptions::from_settings(settings, Some(&plan.layout));
+    finish(args, Mode::Resume, &plan, &report, db, &opts)
+}
+
+/// Prints the report of an apply or resume; a paused job is exit 5 with
+/// the command that continues it.
+fn finish(
+    args: &OrganizeArgs,
+    mode: Mode,
+    plan: &OrganizePlan,
+    report: &OrganizeReport,
+    db: &SystemDb,
+    opts: &OrganizeOptions,
+) -> Result<(), Failure> {
+    emit(args, mode, plan, Some(report), db, opts)?;
+    if report.paused.is_none() {
+        return Ok(());
+    }
+    let kind = report.pause_reason.map(|k| k.as_str()).unwrap_or("volume");
+    let message = match &report.job {
+        Some(job) => format!(
+            "paused: {kind}; resume with --resume {job} (or undo with `coverly undo --job {job}`)"
+        ),
+        None => format!("paused: {kind}; nothing was written. Run the same command later"),
+    };
+    Err(Failure { code: 5, message })
 }
 
 /// An `--assign` on an item that stays where it is (a duplicate, a BIOS…)
@@ -409,22 +502,30 @@ fn assign_decisions(
 /// Writes the report (table or JSON) to `--output` or stdout.
 fn emit(
     args: &OrganizeArgs,
+    mode: Mode,
     plan: &OrganizePlan,
+    report: Option<&OrganizeReport>,
     db: &SystemDb,
     opts: &OrganizeOptions,
 ) -> Result<(), Failure> {
     let text = match args.report {
         ReportArg::Json => {
             let v = serde_json::json!({
-                "mode": "dry-run",
+                "mode": mode.name(),
                 "plan": plan,
-                "job": serde_json::Value::Null,
+                "job": report,
             });
             let mut s = serde_json::to_string_pretty(&v).map_err(fail)?;
             s.push('\n');
             s
         }
-        ReportArg::Table => render_table(plan, db, opts),
+        ReportArg::Table => {
+            let mut text = render_table(plan, db, opts, report.is_none());
+            if let Some(report) = report {
+                text.push_str(&render_report(plan, report));
+            }
+            text
+        }
     };
     match &args.output {
         Some(path) => write_file(path, &text),
@@ -610,7 +711,88 @@ fn item_extras(item: &OrganizeItem) -> String {
     }
 }
 
-fn render_table(plan: &OrganizePlan, db: &SystemDb, opts: &OrganizeOptions) -> String {
+/// What happened to an applied plan: counts, skipped and failed items,
+/// how to undo it and how to open the result.
+fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
+    let mut out = String::new();
+    let job = report
+        .job
+        .as_deref()
+        .map(|j| format!(" (job {j})"))
+        .unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "\nOrganised: moved {}, copied {}, skipped {}, failed {}{job}",
+        report.moved, report.copied, report.skipped, report.failed
+    );
+    let label = |o: &ItemOutcome| {
+        plan.items
+            .get(o.item)
+            .map(source_label)
+            .unwrap_or_else(|| format!("item {}", o.item))
+    };
+    for o in &report.items {
+        let line = match &o.status {
+            ItemStatus::Skipped { reason } => format!("skipped: {}", skip_text(*reason)),
+            ItemStatus::Failed { kind, detail } => format!("failed: {} {detail}", kind.as_str()),
+            ItemStatus::CopiedNotRemoved => {
+                "copied, but the source could not be removed".to_string()
+            }
+            ItemStatus::Moved | ItemStatus::Copied => continue,
+        };
+        let _ = writeln!(out, "  {}  {line}", label(o));
+    }
+    if let Some(j) = &report.job {
+        if report.paused.is_some() {
+            let _ = writeln!(
+                out,
+                "{} item(s) not done yet: continue with --resume {j}",
+                report.resumable_items.len()
+            );
+        }
+        let _ = writeln!(out, "Undo with: coverly undo --job {j}");
+    }
+    if report.paused.is_none() && report.moved + report.copied > 0 {
+        let _ = writeln!(
+            out,
+            "Open it with: coverly fill {} --profile {}",
+            shell_word(&plan.target_root.display().to_string()),
+            plan.layout
+        );
+    }
+    table::terminal_safe(&out)
+}
+
+/// `s` quoted for a POSIX shell when it holds anything but plain path
+/// characters.
+fn shell_word(s: &str) -> String {
+    let plain = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+:,@".contains(c));
+    if plain {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+fn skip_text(r: SkipReason) -> &'static str {
+    match r {
+        SkipReason::ChangedSincePlan => "changed since the plan",
+        SkipReason::SourceMissing => "no longer there",
+        SkipReason::AlreadyPresent => "the same file is already at the target",
+        SkipReason::CollisionSet => "a file of the game is taken at the target",
+        SkipReason::NotDecided => "to review: no system chosen",
+        SkipReason::Cancelled => "cancelled",
+    }
+}
+
+fn render_table(
+    plan: &OrganizePlan,
+    db: &SystemDb,
+    opts: &OrganizeOptions,
+    dry_run: bool,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -724,11 +906,13 @@ fn render_table(plan: &OrganizePlan, db: &SystemDb, opts: &OrganizeOptions) -> S
             let _ = writeln!(out, "warning: {}", warning_text(w));
         }
     }
-    let _ = writeln!(
-        out,
-        "\nDry run: nothing was written. Re-run with --apply to organise {} files.",
-        c.auto
-    );
+    if dry_run {
+        let _ = writeln!(
+            out,
+            "\nDry run: nothing was written. Re-run with --apply to organise {} files.",
+            c.auto
+        );
+    }
     table::terminal_safe(&out)
 }
 
@@ -808,6 +992,13 @@ mod tests {
             ..keys
         };
         assert!(!online_wanted(&s, &no_dev, false));
+    }
+
+    #[test]
+    fn shell_words_are_quoted_only_when_needed() {
+        assert_eq!(shell_word("/Volumes/SD"), "/Volumes/SD");
+        assert_eq!(shell_word("/tmp/my roms"), "'/tmp/my roms'");
+        assert_eq!(shell_word("/tmp/it's"), "'/tmp/it'\\''s'");
     }
 
     #[test]

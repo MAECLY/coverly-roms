@@ -49,7 +49,7 @@ enum Command {
     Profiles,
     /// List the known systems and their folder aliases.
     Systems,
-    /// Undo the last fill job.
+    /// Undo the last job (fill or organise), or the one given with --job.
     Undo(undo::UndoArgs),
     /// Check for a newer coverly, or install it (verified with minisign).
     Update(update::UpdateArgs),
