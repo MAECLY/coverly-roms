@@ -432,14 +432,16 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Organise 16 files' }),
     );
-    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Undo 16 files' }),
+    );
     expect(
       await screen.findByText(
         'Restored: 16 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Undo' }),
+      screen.queryByRole('button', { name: /^Undo( \d+ files)?$/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Open library' }),
@@ -452,10 +454,12 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Organise 16 files' }),
     );
-    await screen.findByRole('button', { name: 'Undo' });
+    await screen.findByRole('button', { name: 'Undo 16 files' });
     const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
     await b.setEntryArtFromFile(lib.generation, 0, 'cover');
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Undo 16 files' }),
+    );
     expect(
       await screen.findByText(/^These must be undone first: Covers .+$/),
     ).toBeInTheDocument();

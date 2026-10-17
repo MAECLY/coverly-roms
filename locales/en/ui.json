@@ -874,6 +874,7 @@
     },
     "undo": {
       "action": "Undo",
+      "actionCount": "Undo {count} files",
       "laterJobs": "These must be undone first: {jobs}",
       "laterJob": "{kind} {date}",
       "all": "Undo all in order"

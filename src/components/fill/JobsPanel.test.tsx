@@ -358,7 +358,7 @@ describe('Jobs panel', () => {
       { ...real!, undone: true },
     ]);
     await userEvent.click(
-      within(confirm).getByRole('button', { name: 'Undo' }),
+      within(confirm).getByRole('button', { name: /^Undo \d+ files$/ }),
     );
     await waitFor(() =>
       expect(undo).toHaveBeenCalledWith('organize-0001', false),
@@ -408,7 +408,7 @@ describe('Jobs panel', () => {
     );
     await userEvent.click(
       within(screen.getByRole('alertdialog')).getByRole('button', {
-        name: 'Undo',
+        name: /^Undo \d+ files$/,
       }),
     );
     expect(

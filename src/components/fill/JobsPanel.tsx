@@ -518,7 +518,11 @@ export function JobsPanel({
                                 disabled={running || organizeBusy}
                                 onClick={() => void undoOrganize(h.job, false)}
                               >
-                                {t('jobs.undoYes')}
+                                {h.entries > 0
+                                  ? t('organize.undo.actionCount', {
+                                      count: n.format(h.entries),
+                                    })
+                                  : t('jobs.undoYes')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -536,9 +540,11 @@ export function JobsPanel({
             </Alert>
           )}
           {organizeUndo?.done && (
-            <p role="status" className="m-0">
-              {t('organize.undone', organizeUndo.done)}
-            </p>
+            <Alert variant="success">
+              <p className="m-0 tabular-nums">
+                {t('organize.undone', organizeUndo.done)}
+              </p>
+            </Alert>
           )}
           {organizeUndo?.error?.code === 'later-jobs' && (
             <Alert

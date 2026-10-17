@@ -118,7 +118,7 @@ describe('OrganizeResult', () => {
         'Stopped. What was already organised stays; Undo puts it back.',
       ),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Undo 2 files' }));
     expect(h.onUndo).toHaveBeenCalledWith(false);
     await userEvent.click(screen.getByRole('button', { name: 'Open library' }));
     expect(h.onOpen).toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('OrganizeResult', () => {
       screen.queryByRole('button', { name: 'Open library' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Undo' }),
+      screen.queryByRole('button', { name: /^Undo( \d+ files)?$/ }),
     ).not.toBeInTheDocument();
   });
 
