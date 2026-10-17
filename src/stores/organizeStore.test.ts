@@ -214,4 +214,54 @@ describe('organise store', () => {
     expect(store().status).toBe('idle');
     expect(store().plan).toBeNull();
   });
+
+  it('apply is refused while a newer plan is still being made', async () => {
+    await store().start(MOCK_DOWNLOADS);
+    const apply = vi.spyOn(b, 'organizeApply');
+    let tried = false;
+    const off = useOrganizeStore.subscribe((s) => {
+      if (s.status === 'planning' && !tried) {
+        tried = true;
+        void s.apply();
+      }
+    });
+    // The shown plan is for the old options: applying it would move files
+    // with options the user no longer sees.
+    await store().setOption({ names: 'catalogue' });
+    off();
+    expect(tried).toBe(true);
+    expect(apply).not.toHaveBeenCalled();
+    expect(store().status).toBe('ready');
+  });
+
+  it('cancelling a re-plan restores the options and decisions of the shown plan', async () => {
+    await store().start(MOCK_MIXED);
+    const shown = store().plan;
+    const off = useOrganizeStore.subscribe((s) => {
+      if (s.progress && s.status === 'planning') void s.cancel();
+    });
+    await store().setOption({ names: 'catalogue' });
+    const id = store().plan!.items.find((i) => i.action === 'review')!.id;
+    await store().decide([id], { system: 'gbc' });
+    off();
+    const s = store();
+    expect(s.status).toBe('ready');
+    expect(s.plan).toBe(shown);
+    expect(s.request).toEqual({ source: MOCK_MIXED });
+    expect(s.decisions).toEqual({});
+  });
+
+  it('options and decisions are frozen once an apply started', async () => {
+    await store().start(MOCK_DOWNLOADS);
+    await store().apply();
+    await waitFor(() => expect(store().status).toBe('done'));
+    const plan = vi.spyOn(b, 'organizePlan');
+    const before = store();
+    await store().setOption({ names: 'catalogue' });
+    await store().decide([0], 'leave');
+    expect(plan).not.toHaveBeenCalled();
+    expect(store().status).toBe('done');
+    expect(store().request).toEqual(before.request);
+    expect(store().decisions).toEqual({});
+  });
 });

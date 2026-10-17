@@ -73,6 +73,11 @@ let planning: number | null = null;
 let applyPlan: number | null = null;
 /** Bumped by every `organize-changed` event: an older command result is dropped. */
 let jobEvents = 0;
+/** The request and decisions the shown plan was made with (restored by cancel). */
+let shownWith: {
+  request: OrganizeRequest;
+  decisions: Record<number, OrganizeDecision>;
+} | null = null;
 /** Apply/resume event subscription. */
 let following: Promise<() => void> | null = null;
 
@@ -116,6 +121,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       const view = await b.organizePlan(request, Object.values(decisions));
       if (mine !== seq) return;
       planning = null;
+      shownWith = { request, decisions };
       set({
         status: 'ready',
         planId: view.plan_id,
@@ -200,12 +206,24 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     }
   }
 
+  /** Options and decisions change only before an apply started (and not
+   * while one runs): afterwards the job, not a new plan, is on screen. */
+  function editable(): boolean {
+    const { request, status, job } = get();
+    return (
+      request !== null &&
+      job === null &&
+      (status === 'ready' || status === 'planning' || status === 'error')
+    );
+  }
+
   return {
     ...initial,
     async start(source) {
       unfollow();
       planning = null;
       applyPlan = null;
+      shownWith = null;
       set({
         ...initial,
         status: 'planning',
@@ -216,11 +234,12 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     },
     async setOption(patch) {
       const request = get().request;
-      if (!request) return;
+      if (!request || !editable()) return;
       set({ request: { ...request, ...patch } });
       await plan();
     },
     async decide(itemIds, choice) {
+      if (!editable()) return;
       const decisions = { ...get().decisions };
       for (const item of itemIds) {
         decisions[item] =
@@ -232,8 +251,9 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       await plan();
     },
     async apply() {
-      const { planId, decisions } = get();
-      if (planId === null) return;
+      const { planId, decisions, status } = get();
+      // Only the plan on screen, made with the options on screen.
+      if (planId === null || status !== 'ready') return;
       await run(
         (b) => b.organizeApply(planId, Object.values(decisions)),
         planId,
@@ -245,7 +265,18 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         const id = planning;
         seq += 1;
         planning = null;
-        set({ status: get().plan ? 'ready' : 'idle', progress: null });
+        // Back to the shown plan with the options it was made with, so an
+        // apply cannot run it under options the user no longer sees.
+        if (get().plan && shownWith) {
+          set({
+            status: 'ready',
+            progress: null,
+            request: shownWith.request,
+            decisions: shownWith.decisions,
+          });
+        } else {
+          set({ status: 'idle', progress: null });
+        }
         if (id === null) return;
         try {
           await (await getBackend()).organizeCancel(id);
@@ -290,6 +321,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       seq += 1;
       planning = null;
       applyPlan = null;
+      shownWith = null;
       unfollow();
       set(initial);
     },
