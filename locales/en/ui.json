@@ -226,6 +226,20 @@
       "resetBody": "Every setting goes back to its default. Recent libraries are kept and a copy of the current settings is saved.",
       "resetYes": "Reset settings",
       "cancel": "Cancel"
+    },
+    "organize": {
+      "title": "Organise",
+      "defaultLayout": "Default layout",
+      "nestInRoms": "Put the system folders inside the layout's ROMs folder",
+      "mode": "Mode",
+      "modeAuto": "Move on the same drive, copy otherwise",
+      "modeMove": "Move",
+      "modeCopy": "Copy",
+      "names": "Names",
+      "namesKeep": "Keep file names",
+      "namesCatalogue": "Use the catalogue name",
+      "downloadDats": "Download game catalogues to identify ROMs by their contents",
+      "advancedHint": "Thresholds and lists are edited in Advanced (settings file)."
     }
   },
   "about": {

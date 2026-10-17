@@ -226,6 +226,20 @@
       "resetBody": "Todos los ajustes vuelven a su valor predeterminado. Se conservan las bibliotecas recientes y se guarda una copia de la configuración actual.",
       "resetYes": "Restablecer configuración",
       "cancel": "Cancelar"
+    },
+    "organize": {
+      "title": "Organizar",
+      "defaultLayout": "Formato por defecto",
+      "nestInRoms": "Poner las carpetas de sistema dentro de la carpeta de ROMs del formato",
+      "mode": "Modo",
+      "modeAuto": "Mover en la misma unidad, copiar si no",
+      "modeMove": "Mover",
+      "modeCopy": "Copiar",
+      "names": "Nombres",
+      "namesKeep": "Conservar los nombres",
+      "namesCatalogue": "Usar el nombre del catálogo",
+      "downloadDats": "Descargar catálogos de juegos para identificar las ROMs por su contenido",
+      "advancedHint": "Los umbrales y las listas se editan en Avanzado (archivo de ajustes)."
     }
   },
   "about": {
