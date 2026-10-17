@@ -27,10 +27,15 @@ use crate::identify::hash::hex_upper;
 use crate::time::{compact_utc, rfc3339_utc};
 
 mod noclobber;
+mod transfer;
 use noclobber::is_cross_device;
 #[doc(hidden)]
 pub use noclobber::rename_noclobber_using;
 pub use noclobber::{rename_noclobber, same_volume};
+#[cfg(feature = "test-util")]
+#[doc(hidden)]
+pub use transfer::set_copy_fault;
+pub use transfer::{Collision, CopyFault, CopyStage, MoveOutcome};
 
 /// What to do when the target (or a case-insensitive twin) already exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
