@@ -531,3 +531,53 @@ fn snes_blank_checksum_pair_needs_a_title() {
     blank[0x7FC0..0x7FD5].copy_from_slice(b"HOMEBREW             ");
     assert_eq!(best(&run(&blank, "sfc")), Some(("snes".into(), 0.85)));
 }
+
+#[test]
+fn playstation_by_system_cnf() {
+    for raw in [false, true] {
+        let ps1 = run(&fx::psx_iso(raw, false), if raw { "bin" } else { "iso" });
+        assert_eq!(best(&ps1), Some(("psx".into(), 0.95)), "raw={raw}");
+        let ps2 = run(&fx::psx_iso(raw, true), "iso");
+        assert!(ps2.hits.is_empty(), "PS2 is never psx");
+        assert_eq!(ps2.unsupported.as_deref(), Some("PlayStation 2"));
+    }
+}
+
+#[test]
+fn playstation_without_system_cnf_is_family_only() {
+    let mut iso = fx::psx_iso(false, false);
+    fx::drop_system_cnf(&mut iso);
+    assert_eq!(best(&run(&iso, "iso")), Some(("psx".into(), 0.80)));
+}
+
+#[test]
+fn saturn_dreamcast_psp() {
+    assert_eq!(
+        best(&run(&fx::saturn(), "iso")),
+        Some(("saturn".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::dreamcast_track(), "bin")),
+        Some(("dreamcast".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::psp_iso(), "iso")),
+        Some(("psp".into(), 0.85))
+    );
+    assert_eq!(best(&run(&fx::cso(), "cso")), Some(("psp".into(), 0.85)));
+}
+
+#[test]
+fn random_bytes_never_reach_high_confidence() {
+    for seed in 1..=400u64 {
+        let bytes = fx::xorshift_bytes(seed, 64 * 1024 + (seed as usize % 7) * 512);
+        for ext in ["bin", "gb", "gba", "sfc", "md", "iso", "ws"] {
+            let s = run(&bytes, ext);
+            assert!(
+                s.hits.iter().all(|e| e.weight < 0.95),
+                "seed {seed} ext {ext}: {:?}",
+                s.hits
+            );
+        }
+    }
+}

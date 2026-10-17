@@ -243,8 +243,123 @@ fn container(head: &[u8]) -> Option<ContainerMagic> {
     }
 }
 
-/// Disc images (Task 8 fills this in).
-fn discs(_src: &mut dyn ReadAt, _head: &[u8], _len: u64, _s: &mut Sniff) {}
+/// ISO 9660 primary volume descriptor at sector 16, as a 2048-byte ISO or
+/// a raw 2352-byte Mode 2 image (user data at +24 of each sector).
+#[derive(Clone, Copy)]
+struct IsoLayout {
+    sector: u64,
+    data: u64,
+}
+const ISO: IsoLayout = IsoLayout {
+    sector: 2048,
+    data: 0,
+};
+const RAW: IsoLayout = IsoLayout {
+    sector: 2352,
+    data: 24,
+};
+
+impl IsoLayout {
+    fn offset(self, lba: u64, within: u64) -> u64 {
+        lba * self.sector + self.data + within
+    }
+}
+
+/// Disc images: Saturn and Dreamcast by their boot sector magic, PSP by
+/// `CISO` or the `PSP GAME` volume id, PlayStation by the ISO 9660 system
+/// id, then `SYSTEM.CNF` to tell PS1 (`BOOT`) from PS2 (`BOOT2`).
+fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
+    for (magic, system, detail) in [
+        (&b"SEGA SEGASATURN"[..], "saturn", "SEGA SEGASATURN"),
+        (&b"SEGA SEGAKATANA"[..], "dreamcast", "SEGA SEGAKATANA"),
+    ] {
+        if starts(head, 0, magic) || starts(head, 0x10, magic) {
+            s.hit(system, 0.90, detail);
+            return;
+        }
+    }
+    if starts(head, 0, b"CISO") {
+        s.hit("psp", 0.85, "CSO");
+        return;
+    }
+    for layout in [ISO, RAW] {
+        let Some(pvd) = read_block(src, head, layout.offset(16, 0), 2048, len) else {
+            continue;
+        };
+        if &pvd[1..6] != b"CD001" {
+            continue;
+        }
+        if &pvd[40..48] == b"PSP GAME" {
+            s.hit("psp", 0.85, "PSP GAME");
+            return;
+        }
+        if &pvd[8..19] != b"PLAYSTATION" {
+            return; // another ISO 9660 disc: nothing to say
+        }
+        match system_cnf(src, head, layout, &pvd, len) {
+            Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
+            Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
+            _ => s.hit("psx", 0.80, "PLAYSTATION"),
+        }
+        return;
+    }
+}
+
+/// `n` bytes at `offset`, from the prefix when it covers them.
+fn read_block(
+    src: &mut dyn ReadAt,
+    head: &[u8],
+    offset: u64,
+    n: usize,
+    len: u64,
+) -> Option<Vec<u8>> {
+    if offset.checked_add(n as u64)? > len {
+        return None;
+    }
+    if let Some(slice) = usize::try_from(offset).ok().and_then(|o| at(head, o, n)) {
+        return Some(slice.to_vec());
+    }
+    let mut buf = vec![0u8; n];
+    (read_exact_at(src, offset, &mut buf) == n).then_some(buf)
+}
+
+/// Text of `SYSTEM.CNF` from the root directory (one directory read, at
+/// most 2 sectors, file capped at 2 KiB).
+fn system_cnf(
+    src: &mut dyn ReadAt,
+    head: &[u8],
+    layout: IsoLayout,
+    pvd: &[u8],
+    len: u64,
+) -> Option<String> {
+    let root = &pvd[156..156 + 34];
+    let lba = u64::from(u32::from_le_bytes(root[2..6].try_into().ok()?));
+    let size = u32::from_le_bytes(root[10..14].try_into().ok()?).min(4096) as usize;
+    let mut dir = Vec::new();
+    for i in 0..size.div_ceil(2048) as u64 {
+        dir.extend(read_block(src, head, layout.offset(lba + i, 0), 2048, len)?);
+    }
+    let mut pos = 0;
+    while pos + 33 < dir.len() {
+        let rec_len = dir[pos] as usize;
+        if rec_len == 0 {
+            // Records never cross a sector: skip to the next one.
+            pos = (pos / 2048 + 1) * 2048;
+            continue;
+        }
+        let name_len = dir[pos + 32] as usize;
+        let name = dir.get(pos + 33..pos + 33 + name_len)?;
+        if name.eq_ignore_ascii_case(b"SYSTEM.CNF;1") {
+            let file_lba = u64::from(u32::from_le_bytes(dir[pos + 2..pos + 6].try_into().ok()?));
+            let file_len =
+                (u32::from_le_bytes(dir[pos + 10..pos + 14].try_into().ok()?) as usize).min(2048);
+            let bytes = read_block(src, head, layout.offset(file_lba, 0), file_len, len)?;
+            return Some(String::from_utf8_lossy(&bytes).to_ascii_uppercase());
+        }
+        pos += rec_len;
+    }
+    None
+}
 
 fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
     // NDS before GBA (at the end): NDS cartridges embed a GBA-style area.
@@ -713,6 +828,128 @@ pub mod fixtures {
         b[n - 16] = 0xEA;
         b[n - 9] = u8::from(color);
         b
+    }
+
+    /// Sectors in a synthetic disc image.
+    const DISC_SECTORS: usize = 24;
+
+    /// A disc image of [`DISC_SECTORS`] sectors whose user data is written
+    /// by `fill(lba, data)`: 2048-byte sectors, or raw 2352-byte Mode 2
+    /// sectors (sync, header, user data at +24) when `raw`.
+    fn disc(raw: bool, mut fill: impl FnMut(usize, &mut [u8])) -> Vec<u8> {
+        let (size, data) = if raw { (2352, 24) } else { (2048, 0) };
+        let mut b = zeros(DISC_SECTORS * size);
+        for lba in 0..DISC_SECTORS {
+            let sector = &mut b[lba * size..(lba + 1) * size];
+            if raw {
+                sector[1..11].fill(0xFF);
+                sector[15] = 2;
+            }
+            fill(lba, &mut sector[data..data + 2048]);
+        }
+        b
+    }
+
+    /// An ISO 9660 primary volume descriptor (sector 16) with system id
+    /// `system` and volume id `volume`, root directory at LBA 20.
+    fn pvd(data: &mut [u8], system: &[u8], volume: &[u8]) {
+        data[0] = 1;
+        data[1..6].copy_from_slice(b"CD001");
+        data[6] = 1;
+        data[8..40].fill(b' ');
+        data[8..8 + system.len()].copy_from_slice(system);
+        data[40..72].fill(b' ');
+        data[40..40 + volume.len()].copy_from_slice(volume);
+        dir_record(&mut data[156..190], 20, 2048, b"\0");
+    }
+
+    /// One ISO 9660 directory record pointing at `lba` (`size` bytes).
+    fn dir_record(rec: &mut [u8], lba: u32, size: u32, name: &[u8]) -> usize {
+        let len = (33 + name.len()).next_multiple_of(2);
+        rec[0] = len as u8;
+        rec[2..6].copy_from_slice(&lba.to_le_bytes());
+        rec[6..10].copy_from_slice(&lba.to_be_bytes());
+        rec[10..14].copy_from_slice(&size.to_le_bytes());
+        rec[14..18].copy_from_slice(&size.to_be_bytes());
+        rec[32] = name.len() as u8;
+        rec[33..33 + name.len()].copy_from_slice(name);
+        len
+    }
+
+    /// A PlayStation disc: `PLAYSTATION` PVD, a root directory (LBA 20)
+    /// holding `SYSTEM.CNF;1` (LBA 21) that boots a PS1 (`BOOT`) or PS2
+    /// (`BOOT2`) executable.
+    pub fn psx_iso(raw: bool, boot2: bool) -> Vec<u8> {
+        let cnf: &[u8] = if boot2 {
+            b"BOOT2 = cdrom0:\\SLUS_200.01;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n"
+        } else {
+            b"BOOT = cdrom:\\SLUS_000.01;1\r\nTCB = 4\r\nEVENT = 10\r\n"
+        };
+        disc(raw, |lba, data| match lba {
+            16 => pvd(data, b"PLAYSTATION", b"SYNTHPSX"),
+            20 => {
+                dir_record(data, 21, cnf.len() as u32, b"SYSTEM.CNF;1");
+            }
+            21 => data[..cnf.len()].copy_from_slice(cnf),
+            _ => {}
+        })
+    }
+
+    /// Renames the `SYSTEM.CNF;1` record of a [`psx_iso`] image.
+    pub fn drop_system_cnf(iso: &mut [u8]) {
+        let name = b"SYSTEM.CNF;1";
+        let pos = iso
+            .windows(name.len())
+            .position(|w| w == name)
+            .expect("a SYSTEM.CNF record");
+        iso[pos..pos + name.len()].copy_from_slice(b"README.TXT;1");
+    }
+
+    pub fn saturn() -> Vec<u8> {
+        let mut b = zeros(32 * 1024);
+        b[..15].copy_from_slice(b"SEGA SEGASATURN");
+        b
+    }
+
+    /// The first sector of a Dreamcast high-density data track (IP.BIN).
+    pub fn dreamcast_track() -> Vec<u8> {
+        let mut b = zeros(32 * 1024);
+        b[..15].copy_from_slice(b"SEGA SEGAKATANA");
+        b
+    }
+
+    /// A UMD image: ISO 9660 with the `PSP GAME` volume id.
+    pub fn psp_iso() -> Vec<u8> {
+        disc(false, |lba, data| {
+            if lba == 16 {
+                pvd(data, b"PSP GAME", b"PSP GAME");
+            }
+        })
+    }
+
+    /// A compressed ISO (`CISO` header, 24 bytes).
+    pub fn cso() -> Vec<u8> {
+        let mut b = zeros(32 * 1024);
+        b[..4].copy_from_slice(b"CISO");
+        b[4..8].copy_from_slice(&24u32.to_le_bytes());
+        b[8..16].copy_from_slice(&(48u64 * 1024 * 1024).to_le_bytes());
+        b[16..20].copy_from_slice(&2048u32.to_le_bytes());
+        b[20] = 1;
+        b
+    }
+
+    /// `len` pseudo-random bytes (xorshift64*), reproducible by `seed`.
+    pub fn xorshift_bytes(seed: u64, len: usize) -> Vec<u8> {
+        let mut x = seed.max(1);
+        let mut out = Vec::with_capacity(len + 8);
+        while out.len() < len {
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            out.extend_from_slice(&x.wrapping_mul(0x2545_F491_4F6C_DD1D).to_le_bytes());
+        }
+        out.truncate(len);
+        out
     }
 
     pub fn html_page() -> Vec<u8> {
