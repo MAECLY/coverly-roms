@@ -33,7 +33,7 @@ pub(crate) const COMPANION_EXTS: [&str; 12] = [
 ];
 
 /// BIOS and firmware files, by exact lowercase name.
-const BIOS_NAMES: [&str; 18] = [
+const BIOS_NAMES: [&str; 27] = [
     "gba_bios.bin",
     "gb_bios.bin",
     "gbc_bios.bin",
@@ -52,15 +52,27 @@ const BIOS_NAMES: [&str; 18] = [
     "bios.min",
     "pgm.zip",
     "naomi.zip",
+    "bios.gg",
+    "bios_e.sms",
+    "bios_u.sms",
+    "bios_j.sms",
+    "panafz10.bin",
+    "psxonpsp660.bin",
+    "ps1_rom.bin",
+    "uni-bios.rom",
+    "colecovision.rom",
 ];
 
 /// BIOS families by lowercase prefix and the extension they must have.
-const BIOS_PREFIXES: [(&str, &str); 5] = [
+/// Amiga Kickstarts are `kick<digits>…` or `Kickstart …` (TOSEC): a bare
+/// `kick` prefix would also catch MSX/ColecoVision games (`Kick Off.rom`).
+const BIOS_PREFIXES: [(&str, &str); 6] = [
     ("scph", "bin"),
     ("syscard", "pce"),
     ("bios_cd_", "bin"),
     ("mpr-", "bin"),
-    ("kick", "rom"),
+    ("kickstart", "rom"),
+    ("kick#", "rom"),
 ];
 
 /// Whether `name` is a file a download is still writing.
@@ -86,9 +98,16 @@ pub(crate) fn is_bios_name(name: &str) -> bool {
         return true;
     }
     let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
-    BIOS_PREFIXES
-        .iter()
-        .any(|(prefix, want)| lower.starts_with(prefix) && ext == *want)
+    BIOS_PREFIXES.iter().any(|(prefix, want)| {
+        let head = match prefix.strip_suffix('#') {
+            // `#` stands for "followed by a digit".
+            Some(head) => lower
+                .strip_prefix(head)
+                .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit())),
+            None => lower.starts_with(prefix),
+        };
+        head && ext == *want
+    })
 }
 
 /// macOS AppleDouble twin (`._Game.zip`): never a ROM, never art.
@@ -272,6 +291,7 @@ mod tests {
             "sega_101.bin",
             "mpr-17933.bin",
             "kick34005.A500.rom",
+            "Kickstart v1.3 rev 34.5 (1987)(Commodore)(A500).rom",
         ] {
             assert!(is_bios_name(name), "{name}");
         }
@@ -281,8 +301,28 @@ mod tests {
             "kickoff.zip",
             "mpr-17933.zip",
             "biosphere.gba",
+            // MSX and ColecoVision games are `.rom` too.
+            "Kick Off.rom",
+            "Kickle Cubicle.rom",
         ] {
             assert!(!is_bios_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn common_libretro_bios_names() {
+        for name in [
+            "bios.gg",
+            "bios_E.sms",
+            "bios_U.sms",
+            "bios_J.sms",
+            "panafz10.bin",
+            "PSXONPSP660.bin",
+            "ps1_rom.bin",
+            "uni-bios.rom",
+            "colecovision.rom",
+        ] {
+            assert!(is_bios_name(name), "{name}");
         }
     }
 
