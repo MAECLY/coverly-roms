@@ -737,7 +737,68 @@
       "ambiguousCompanion": "Acompaña a varias ROMs; no se sabe con cuál ir",
       "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
       "unreadable": "No se puede leer",
-      "collisionSet": "Otro juego ya usa esos nombres en el destino"
-    }
+      "collisionSet": "Otro juego ya usa esos nombres en el destino",
+      "title": "Se quedan donde están"
+    },
+    "planning": "Identificando {done} de {total}…",
+    "walking": "Buscando archivos…",
+    "summary": "ROMs: {roms} · Sistemas: {systems} · Por revisar: {review} · Se quedan: {left}",
+    "dryRunHint": "Es una propuesta. Todavía no se ha movido nada.",
+    "cancel": "Cancelar",
+    "otherFiles": "Otros archivos: {count}",
+    "deepFolders": "Carpetas más profundas no revisadas: {count}",
+    "target": {
+      "label": "Destino",
+      "here": "Esta carpeta",
+      "other": "Otra carpeta…",
+      "detected": "El destino ya es una biblioteca {profile}; se usa ese formato.",
+      "mismatch": "El destino usa {profile}; las carpetas nuevas no se verán en ese sistema."
+    },
+    "nest": {
+      "label": "Carpetas",
+      "roms": "Dentro de {folder}/",
+      "flat": "Directamente aquí"
+    },
+    "mode": {
+      "label": "Modo",
+      "move": "Mover",
+      "copy": "Copiar",
+      "moveDisabled": "No se puede mover: la carpeta de origen es de solo lectura."
+    },
+    "names": {
+      "label": "Nombres",
+      "keep": "Conservar los nombres",
+      "catalogue": "Usar el nombre del catálogo"
+    },
+    "review": {
+      "title": "Por revisar",
+      "hint": "Elige el sistema de cada archivo o déjalo donde está.",
+      "leave": "Dejar donde está",
+      "bucket": "{systems}: {count}",
+      "applyAll": "Aplicar a todos",
+      "choose": "Elegir un sistema…",
+      "systemFor": "Sistema para {name}",
+      "items": "Archivos: {count}"
+    },
+    "renamed": "Se guardará como {name} porque ya existe otro distinto",
+    "renamedFrom": "Renombrado; antes era {name}",
+    "renamedShort": "Nombre acortado para no superar la longitud máxima de ruta",
+    "multiRomZip": "Contiene {count} ROMs; la consola cargará solo la primera.",
+    "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
+    "noCatalogue": "Sin catálogo de {system}: decidido por {level}",
+    "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
+    "level": {
+      "hash": "catálogo",
+      "header": "cabecera",
+      "extension": "extensión",
+      "name": "nombre",
+      "online": "ScreenScraper",
+      "user": "tu elección"
+    },
+    "apply": "Organizar {count} archivos",
+    "exportPlan": "Exportar plan (JSON)",
+    "exported": "Plan guardado como {name}.",
+    "openLibrary": "Abrir biblioteca",
+    "showMore": "Mostrar {count} más"
   }
 }

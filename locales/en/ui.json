@@ -737,7 +737,68 @@
       "ambiguousCompanion": "Belongs to several ROMs; unclear which to follow",
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
-      "collisionSet": "Another game already uses those names in the target"
-    }
+      "collisionSet": "Another game already uses those names in the target",
+      "title": "Staying where they are"
+    },
+    "planning": "Identifying {done} of {total}…",
+    "walking": "Looking for files…",
+    "summary": "ROMs: {roms} · Systems: {systems} · To review: {review} · Staying put: {left}",
+    "dryRunHint": "This is a proposal. Nothing has moved yet.",
+    "cancel": "Cancel",
+    "otherFiles": "Other files: {count}",
+    "deepFolders": "Deeper folders not checked: {count}",
+    "target": {
+      "label": "Target",
+      "here": "This folder",
+      "other": "Another folder…",
+      "detected": "The target is already a {profile} library; that layout is used.",
+      "mismatch": "The target uses {profile}; new folders won't show up on that system."
+    },
+    "nest": {
+      "label": "Folders",
+      "roms": "Inside {folder}/",
+      "flat": "Directly here"
+    },
+    "mode": {
+      "label": "Mode",
+      "move": "Move",
+      "copy": "Copy",
+      "moveDisabled": "Can't move: the source folder is read-only."
+    },
+    "names": {
+      "label": "Names",
+      "keep": "Keep file names",
+      "catalogue": "Use the catalogue name"
+    },
+    "review": {
+      "title": "To review",
+      "hint": "Choose each file's system, or leave it where it is.",
+      "leave": "Leave in place",
+      "bucket": "{systems}: {count}",
+      "applyAll": "Apply to all",
+      "choose": "Choose a system…",
+      "systemFor": "System for {name}",
+      "items": "Files: {count}"
+    },
+    "renamed": "Will be saved as {name} because a different file already exists",
+    "renamedFrom": "Renamed; it was {name}",
+    "renamedShort": "Name shortened to fit the path length limit",
+    "multiRomZip": "Holds {count} ROMs; the console will load only the first.",
+    "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
+    "noCatalogue": "No {system} catalogue: decided by {level}",
+    "encrypted": "Encrypted; some emulators can't load it",
+    "level": {
+      "hash": "catalogue",
+      "header": "header",
+      "extension": "extension",
+      "name": "name",
+      "online": "ScreenScraper",
+      "user": "your choice"
+    },
+    "apply": "Organise {count} files",
+    "exportPlan": "Export plan (JSON)",
+    "exported": "Plan saved as {name}.",
+    "openLibrary": "Open library",
+    "showMore": "Show {count} more"
   }
 }

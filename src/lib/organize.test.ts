@@ -8,15 +8,18 @@ import type {
   OrganizeItem,
   OrganizePlan,
 } from '@/ipc/types';
+import { autoItem } from '@/test/organizeFixtures';
 
 import {
   confidenceKey,
   groupBySystem,
+  itemNotes,
   leftItems,
   leftReasonKey,
   leftReasonText,
   reviewBuckets,
   ROWS_PER_GROUP,
+  targetDir,
   whyKey,
 } from './organize';
 
@@ -236,5 +239,33 @@ describe('organise plan helpers', () => {
       expect(has(en, `organize.confidence.${k}`)).toBe(true);
       expect(has(es, `organize.confidence.${k}`)).toBe(true);
     }
+  });
+});
+
+describe('organise row helpers', () => {
+  const t = (key: string, vars?: Record<string, string | number>) =>
+    `${key}${vars ? JSON.stringify(vars) : ''}`;
+
+  it('targetDir is the folder of the target, relative to the target root', () => {
+    expect(targetDir(autoItem(0, 'a.gba', 'gba', 'ROMS/GBA'))).toBe('ROMS/GBA');
+    expect(targetDir(autoItem(0, 'a.gba', 'gba', 'GBA'))).toBe('GBA');
+  });
+
+  it('itemNotes explains renames and notes with names, not ids', () => {
+    const item = autoItem(0, 'a.gba', 'gba', 'ROMS/GBA', {
+      method: 'header',
+      rename: { kind: 'catalogue', from: 'a (1).gba' },
+      notes: [
+        { kind: 'catalogue-missing', system: 'gba' },
+        { kind: 'extension-contradicted', ext: '.gb' },
+        { kind: 'encrypted' },
+      ],
+    });
+    expect(itemNotes(t, item, 'Anbernic stock', () => 'GBA!')).toEqual([
+      'organize.renamedFrom{"name":"a (1).gba"}',
+      'organize.noCatalogue{"system":"GBA!","level":"organize.level.header"}',
+      'organize.why.extensionContradicted{"ext":"gb","system":"GBA!"}',
+      'organize.encrypted',
+    ]);
   });
 });

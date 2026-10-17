@@ -5,10 +5,14 @@
 import type { TranslateVars } from '@/i18n/core';
 import type {
   Evidence,
+  ItemNote,
   LeftReason,
   OrganizeItem,
   OrganizePlan,
+  RenameReason,
 } from '@/ipc/types';
+
+type Translate = (key: string, vars?: TranslateVars) => string;
 
 /** Rows a system group (or bucket) renders before "Show more". */
 export const ROWS_PER_GROUP = 200;
@@ -204,5 +208,70 @@ export function whyKey(
       return { key: 'organize.why.online', vars: { name: e.detail, system } };
     case 'user':
       return { key: 'organize.why.user', vars: { system } };
+  }
+}
+
+/** The folder an item lands in, relative to the target (`ROMS/GBA`). */
+export function targetDir(item: OrganizeItem): string {
+  const target = item.target ?? '';
+  const slash = target.lastIndexOf('/');
+  return slash < 0 ? (item.folder ?? '') : target.slice(0, slash);
+}
+
+/** Rename and note lines of one row; data, never markup. */
+export function itemNotes(
+  t: Translate,
+  item: OrganizeItem,
+  layoutName: string,
+  systemName: (id: string) => string,
+): string[] {
+  const lines: string[] = [];
+  if (item.rename) lines.push(renameText(t, item.rename));
+  const system = item.system_id ? systemName(item.system_id) : '';
+  for (const n of item.notes)
+    lines.push(noteText(t, n, system, layoutName, item));
+  return lines;
+}
+
+function renameText(t: Translate, r: RenameReason): string {
+  switch (r.kind) {
+    case 'collision':
+      return t('organize.renamed', { name: r.name });
+    case 'safe-name':
+    case 'catalogue':
+      return t('organize.renamedFrom', { name: r.from });
+    case 'path-length':
+      return t('organize.renamedShort');
+  }
+}
+
+function noteText(
+  t: Translate,
+  n: ItemNote,
+  system: string,
+  layout: string,
+  item: OrganizeItem,
+): string {
+  switch (n.kind) {
+    case 'multi-rom-zip':
+      return t('organize.multiRomZip', { count: n.count });
+    case 'no-folder-on-device':
+      return t('organize.noFolderOnDevice', {
+        layout,
+        system,
+        folder: n.folder,
+      });
+    case 'extension-contradicted':
+      return t('organize.why.extensionContradicted', {
+        ext: n.ext.replace(/^\./, ''),
+        system,
+      });
+    case 'catalogue-missing':
+      return t('organize.noCatalogue', {
+        system,
+        level: t(`organize.level.${item.method ?? 'extension'}`),
+      });
+    case 'encrypted':
+      return t('organize.encrypted');
   }
 }

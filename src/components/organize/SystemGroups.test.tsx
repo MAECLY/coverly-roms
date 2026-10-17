@@ -1,0 +1,125 @@
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+
+import { SystemGroups } from '@/components/organize/SystemGroups';
+import { I18nProvider } from '@/i18n/I18nProvider';
+import { groupBySystem } from '@/lib/organize';
+import { autoItem, planOf } from '@/test/organizeFixtures';
+
+const NAMES: Record<string, string> = {
+  gba: 'Game Boy Advance',
+  gb: 'Game Boy',
+};
+const systemName = (id: string) => NAMES[id] ?? id;
+
+function renderGroups(items: ReturnType<typeof autoItem>[]) {
+  render(
+    <I18nProvider locale="en">
+      <SystemGroups
+        groups={groupBySystem(planOf(items))}
+        layoutName="Anbernic (stock)"
+        systemName={systemName}
+      />
+    </I18nProvider>,
+  );
+}
+
+describe('SystemGroups', () => {
+  it('shows the target folder, the row, the confidence and the why', () => {
+    renderGroups([
+      autoItem(0, 'Tetris Worlds (USA).zip', 'gba', 'ROMS/GBA', {
+        why: [
+          {
+            kind: 'hash',
+            system: 'gba',
+            weight: 1,
+            detail: '7b729804 Tetris Worlds (USA)',
+          },
+        ],
+      }),
+      autoItem(1, 'Tetris DX.zip', 'gb', 'ROMS/GB', {
+        confidence: 0.9,
+        method: 'header',
+        why: [
+          {
+            kind: 'header',
+            system: 'gb',
+            weight: 0.9,
+            detail: 'Nintendo logo, CGB 0x00',
+          },
+        ],
+      }),
+    ]);
+    const gba = screen.getByText('ROMS/GBA/ (1)').closest('details')!;
+    expect(gba).toHaveAttribute('open');
+    expect(within(gba).getByText('Game Boy Advance')).toBeInTheDocument();
+    expect(
+      within(gba).getByText(
+        'Tetris Worlds (USA).zip → ROMS/GBA/Tetris Worlds (USA).zip',
+      ),
+    ).toBeInTheDocument();
+    expect(within(gba).getByText('High')).toBeInTheDocument();
+    expect(
+      within(gba).getByText(
+        'CRC 7B729804 in the Game Boy Advance catalogue: Tetris Worlds (USA)',
+      ),
+    ).toBeInTheDocument();
+    const gb = screen.getByText('ROMS/GB/ (1)').closest('details')!;
+    expect(within(gb).getByText('Medium')).toBeInTheDocument();
+    expect(
+      within(gb).getByText('The header is Game Boy (Nintendo logo, CGB 0x00)'),
+    ).toBeInTheDocument();
+  });
+
+  it('renders at most 200 rows per group and a show-more button', async () => {
+    const items = Array.from({ length: 450 }, (_, i) =>
+      autoItem(i, `Game ${String(i).padStart(3, '0')}.gba`, 'gba', 'ROMS/GBA'),
+    );
+    renderGroups(items);
+    const group = screen.getByText('ROMS/GBA/ (450)').closest('details')!;
+    // More than 200 rows overall: groups start closed and render no rows.
+    expect(group).not.toHaveAttribute('open');
+    expect(within(group).queryAllByRole('listitem')).toHaveLength(0);
+    group.open = true;
+    fireEvent(group, new Event('toggle'));
+    expect(within(group).getAllByRole('listitem')).toHaveLength(200);
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Show 250 more' }),
+    );
+    expect(within(group).getAllByRole('listitem')).toHaveLength(400);
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Show 50 more' }),
+    );
+    expect(within(group).getAllByRole('listitem')).toHaveLength(450);
+    expect(
+      within(group).queryByRole('button', { name: /more/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('explains renames and notes', () => {
+    renderGroups([
+      autoItem(0, 'Tetris (1).gba', 'gba', 'ROMS/GBA', {
+        rename: { kind: 'collision', name: 'Tetris (2).gba' },
+        target: 'ROMS/GBA/Tetris (2).gba',
+        notes: [
+          { kind: 'multi-rom-zip', count: 3 },
+          { kind: 'no-folder-on-device', folder: 'GBA' },
+        ],
+      }),
+    ]);
+    expect(
+      screen.getByText(
+        'Will be saved as Tetris (2).gba because a different file already exists',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Holds 3 ROMs; the console will load only the first.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Anbernic (stock) has no folder for Game Boy Advance; GBA will be created.',
+      ),
+    ).toBeInTheDocument();
+  });
+});
