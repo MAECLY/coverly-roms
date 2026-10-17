@@ -39,12 +39,30 @@ fn fx(version: &str, body: &[u8], signed_for: Option<&str>) -> Fx {
         "coverly"
     });
     fs::copy(assert_cmd::cargo::cargo_bin("coverly"), &exe).unwrap();
+    wait_until_runnable(&exe);
     Fx {
         server,
         key,
         dir,
         exe,
     }
+}
+
+/// On Linux a child forked by another test can still hold the copy's write
+/// handle until it execs, and running the copy then fails with "Text file
+/// busy" (ETXTBSY). Wait until it runs; later runs cannot hit it again.
+fn wait_until_runnable(exe: &Path) {
+    const ETXTBSY: i32 = 26;
+    for _ in 0..100 {
+        match std::process::Command::new(exe).arg("--version").output() {
+            Err(e) if cfg!(target_os = "linux") && e.raw_os_error() == Some(ETXTBSY) => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(e) => panic!("cannot run {}: {e}", exe.display()),
+            Ok(_) => return,
+        }
+    }
+    panic!("{} stayed busy", exe.display());
 }
 
 fn run(f: &Fx) -> Command {
