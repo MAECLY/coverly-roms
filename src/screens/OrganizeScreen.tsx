@@ -374,6 +374,9 @@ function Proposal({
         groups={groups}
         layoutName={profileName(plan.layout)}
         systemName={systemName}
+        systems={systems}
+        disabled={busy}
+        onDecide={onDecide}
       />
       {buckets.length > 0 && (
         <ReviewBuckets

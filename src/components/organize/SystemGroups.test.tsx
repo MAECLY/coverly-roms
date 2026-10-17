@@ -123,3 +123,50 @@ describe('SystemGroups', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('SystemGroups — a system the user chose', () => {
+  const SYSTEMS = [
+    { id: 'gb', name: 'Game Boy' },
+    { id: 'gba', name: 'Game Boy Advance' },
+  ];
+
+  function renderChosen(onDecide: (ids: number[], c: unknown) => void) {
+    const items = [
+      autoItem(0, 'mystery.rom', 'gb', 'ROMS/GB', {
+        method: 'user',
+        why: [{ kind: 'user', system: 'gb', weight: 1, detail: '' }],
+      }),
+      autoItem(1, 'Tetris DX.zip', 'gb', 'ROMS/GB'),
+    ];
+    render(
+      <I18nProvider locale="en">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Anbernic (stock)"
+          systemName={systemName}
+          systems={SYSTEMS}
+          onDecide={onDecide}
+        />
+      </I18nProvider>,
+    );
+  }
+
+  it('can be changed to another system or left in place', async () => {
+    const calls: [number[], unknown][] = [];
+    renderChosen((ids, c) => calls.push([ids, c]));
+    const select = screen.getByRole('combobox', {
+      name: 'System for mystery.rom',
+    });
+    expect(select).toHaveValue('gb');
+    // Only the user's own choice is changeable, not the ladder's.
+    expect(
+      screen.queryByRole('combobox', { name: 'System for Tetris DX.zip' }),
+    ).toBeNull();
+    await userEvent.selectOptions(select, 'Game Boy Advance');
+    await userEvent.selectOptions(select, 'Leave in place');
+    expect(calls).toEqual([
+      [[0], { system: 'gba' }],
+      [[0], 'leave'],
+    ]);
+  });
+});
