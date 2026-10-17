@@ -3,5 +3,7 @@
 
 pub mod inspect;
 pub mod plan;
+pub mod walk;
 
 pub use plan::{ItemKind, LeftReason, NameMode, TransferMode};
+pub use walk::{is_broad_root, MetaProbe, OsMetaProbe, WalkCandidate, WalkOptions, Walked};

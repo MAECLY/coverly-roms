@@ -27,7 +27,6 @@ pub(crate) const PARTIAL_DOWNLOAD_EXTS: [&str; 10] = [
 /// Extensions that follow a ROM with the same stem when it moves
 /// (default of `settings.organize.companion_exts`; `state*` matches
 /// `state`, `state1`, `state.auto`…).
-#[allow(dead_code)] // consumed by the organise planner
 pub(crate) const COMPANION_EXTS: [&str; 12] = [
     "sav", "srm", "rtc", "state*", "cht", "ips", "bps", "ups", "txt", "nfo", "png", "jpg",
 ];
@@ -91,7 +90,6 @@ pub(crate) fn is_zone_identifier(name: &str) -> bool {
 
 /// Whether `name` is a BIOS or firmware file (left in place by organise:
 /// moving it into a game folder makes it a fake game).
-#[allow(dead_code)] // consumed by the organise planner
 pub(crate) fn is_bios_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     if BIOS_NAMES.contains(&lower.as_str()) {
