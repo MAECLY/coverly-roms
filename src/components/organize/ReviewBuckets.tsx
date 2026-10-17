@@ -87,7 +87,10 @@ function Bucket({
 }) {
   const t = useT();
   const id = useId();
-  const [choice, setChoice] = useState(bucket.systems[0] ?? LEAVE);
+  const hintId = useId();
+  // Start undecided: the candidates are hints until the user picks one, so
+  // nothing looks settled that would be skipped as "no system chosen".
+  const [choice, setChoice] = useState('');
   const [open, setOpen] = useState(false);
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
   const rest = Math.max(0, bucket.items.length - visible);
@@ -95,14 +98,30 @@ function Bucket({
     systems: bucket.systems.map(systemName).join(' / '),
     count: bucket.items.length,
   });
+  const count = bucket.items.length;
+  const likely = t('organize.review.likely', {
+    systems: bucket.systems
+      .map(systemName)
+      .join(t('organize.review.likelyThen')),
+  });
   return (
-    <div role="group" aria-labelledby={id} className={panel}>
+    <div
+      role="group"
+      aria-labelledby={id}
+      aria-describedby={hintId}
+      className={panel}
+    >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
         {/* Dashed: these files have no shelf yet. */}
         <SlotMark state="missing" size={16} />
-        <p id={id} className="m-0 min-w-0 flex-1 text-ui font-medium">
-          {title}
-        </p>
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <p id={id} className="m-0 text-ui font-medium">
+            {title}
+          </p>
+          <p id={hintId} className={hintText}>
+            {likely}
+          </p>
+        </div>
         <NativeSelect
           size="sm"
           className="w-auto max-w-[16rem]"
@@ -111,20 +130,27 @@ function Bucket({
           disabled={disabled}
           onChange={(e) => setChoice(e.target.value)}
         >
+          <option value="" disabled>
+            {t('organize.review.choose')}
+          </option>
           <Options systems={bucket.systems} systemName={systemName} />
         </NativeSelect>
         <Button
           variant="outline"
           size="sm"
-          disabled={disabled}
-          onClick={() =>
+          disabled={disabled || !choice}
+          onClick={() => {
+            if (!choice) return;
             onDecide(
               bucket.items.map((i) => i.id),
               toChoice(choice),
-            )
-          }
+            );
+          }}
         >
-          {t('organize.review.applyAll')}
+          {/* A verb plus the exact count (brand §7). */}
+          {count === 1
+            ? t('organize.review.applyOne')
+            : t('organize.review.applyCount', { count })}
         </Button>
       </div>
       <Collapsible

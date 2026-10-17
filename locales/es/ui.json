@@ -822,8 +822,11 @@
       "hint": "Elige el sistema de cada archivo o déjalo donde está.",
       "leave": "Dejar donde está",
       "bucket": "{systems}: {count}",
-      "applyAll": "Aplicar a todos",
-      "choose": "Elegir un sistema…",
+      "applyCount": "Aplicar a {count} archivos",
+      "applyOne": "Aplicar a 1 archivo",
+      "likely": "Más probable: {systems}",
+      "likelyThen": "; luego, ",
+      "choose": "Elige un sistema…",
       "systemFor": "Sistema para {name}",
       "items": "Archivos: {count}"
     },

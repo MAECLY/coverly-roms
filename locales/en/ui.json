@@ -822,7 +822,10 @@
       "hint": "Choose each file's system, or leave it where it is.",
       "leave": "Leave in place",
       "bucket": "{systems}: {count}",
-      "applyAll": "Apply to all",
+      "applyCount": "Apply to {count} files",
+      "applyOne": "Apply to 1 file",
+      "likely": "Most likely: {systems}",
+      "likelyThen": ", then ",
       "choose": "Choose a system…",
       "systemFor": "System for {name}",
       "items": "Files: {count}"

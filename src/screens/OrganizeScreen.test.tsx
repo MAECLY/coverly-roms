@@ -128,14 +128,16 @@ describe('OrganizeScreen', () => {
       'gbc',
     );
     await userEvent.click(
-      within(bucket).getByRole('button', { name: 'Apply to all' }),
+      within(bucket).getByRole('button', { name: 'Apply to 1 file' }),
     );
-    expect(
+    const row = (
       await screen.findByText(
         'Pokemon Pinball.zip → ROMS/GBC/Pokemon Pinball.zip',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Chosen by you')).toBeInTheDocument();
+      )
+    ).closest('li')!;
+    expect(within(row).getByText('Chosen by you')).toBeInTheDocument();
+    // A manual choice is not a confidence level.
+    expect(within(row).queryByTitle('Confidence')).not.toBeInTheDocument();
     expect(
       screen.queryByRole('group', { name: 'Game Boy / Game Boy Color: 1' }),
     ).not.toBeInTheDocument();

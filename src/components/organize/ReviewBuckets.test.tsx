@@ -64,20 +64,53 @@ describe('ReviewBuckets', () => {
     expect(
       screen.getByRole('group', { name: 'Mega Drive / Master System: 1' }),
     ).toBeInTheDocument();
+    // The backend's candidates are hints, not a decision.
+    expect(bucket).toHaveAccessibleDescription(
+      'Most likely: Game Boy, then Game Boy Color',
+    );
     const select = within(bucket).getByRole('combobox', {
       name: 'Game Boy / Game Boy Color: 2',
     });
+    expect(select).toHaveValue('');
     expect(
       within(select)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['Game Boy', 'Game Boy Color', 'Leave in place']);
+    ).toEqual([
+      'Choose a system…',
+      'Game Boy',
+      'Game Boy Color',
+      'Leave in place',
+    ]);
+    // Nothing is decided until a system is chosen.
+    const apply = within(bucket).getByRole('button', {
+      name: 'Apply to 2 files',
+    });
+    expect(apply).toBeDisabled();
     await userEvent.selectOptions(select, 'gbc');
     expect(onDecide).not.toHaveBeenCalled();
-    await userEvent.click(
-      within(bucket).getByRole('button', { name: 'Apply to all' }),
-    );
+    expect(apply).toBeEnabled();
+    await userEvent.click(apply);
     expect(onDecide).toHaveBeenCalledWith([3, 4], { system: 'gbc' });
+  });
+
+  it('names a single file in the apply button and can leave it in place', async () => {
+    const onDecide = renderBuckets();
+    const bucket = screen.getByRole('group', {
+      name: 'Mega Drive / Master System: 1',
+    });
+    const apply = within(bucket).getByRole('button', {
+      name: 'Apply to 1 file',
+    });
+    expect(apply).toBeDisabled();
+    await userEvent.selectOptions(
+      within(bucket).getByRole('combobox', {
+        name: 'Mega Drive / Master System: 1',
+      }),
+      'leave',
+    );
+    await userEvent.click(apply);
+    expect(onDecide).toHaveBeenCalledWith([7], 'leave');
   });
 
   it('settles one file, or leaves it in place, from its own select', async () => {
