@@ -2,3 +2,6 @@
 //! (organise spec): inspection, identification, planning and apply.
 
 pub mod inspect;
+pub mod plan;
+
+pub use plan::{ItemKind, LeftReason, NameMode, TransferMode};
