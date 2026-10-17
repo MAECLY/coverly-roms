@@ -87,7 +87,9 @@ impl From<coverly_core::write::WriteError> for IpcError {
             W::Denied(p) => IpcError::WriteDenied(p.display().to_string()),
             W::DiskFull => IpcError::DiskFull,
             W::NothingToUndo => IpcError::NothingToUndo,
-            other @ (W::NotAFile(_) | W::Journal(_) | W::Io(_)) => IpcError::Io(other.to_string()),
+            other @ (W::NotAFile(_) | W::CrossDevice(_) | W::Journal(_) | W::Io(_)) => {
+                IpcError::Io(other.to_string())
+            }
         }
     }
 }
@@ -134,6 +136,10 @@ mod tests {
         assert!(matches!(
             IpcError::from(WriteError::Denied("/sd/x.png".into())),
             IpcError::WriteDenied(_)
+        ));
+        assert!(matches!(
+            IpcError::from(WriteError::CrossDevice("/sd/x.gba".into())),
+            IpcError::Io(_)
         ));
         assert!(matches!(
             IpcError::from(coverly_core::fill::ArtError::BadQuery),

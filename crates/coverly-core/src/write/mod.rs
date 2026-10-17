@@ -26,6 +26,12 @@ use unicode_normalization::UnicodeNormalization;
 use crate::identify::hash::hex_upper;
 use crate::time::{compact_utc, rfc3339_utc};
 
+mod noclobber;
+use noclobber::is_cross_device;
+#[doc(hidden)]
+pub use noclobber::rename_noclobber_using;
+pub use noclobber::{rename_noclobber, same_volume};
+
 /// What to do when the target (or a case-insensitive twin) already exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -72,6 +78,8 @@ pub enum WriteError {
     NothingToUndo,
     #[error("not a regular file: {0}")]
     NotAFile(PathBuf),
+    #[error("cannot move across volumes: {0}")]
+    CrossDevice(PathBuf),
     #[error("job journal is damaged: {0}")]
     Journal(String),
     #[error(transparent)]
@@ -608,6 +616,9 @@ fn map_io(e: io::Error, path: &Path) -> WriteError {
         ErrorKind::StorageFull => return WriteError::DiskFull,
         _ => {}
     }
+    if is_cross_device(&e) {
+        return WriteError::CrossDevice(path.to_path_buf());
+    }
     match e.raw_os_error() {
         #[cfg(unix)]
         Some(30) => WriteError::Denied(path.to_path_buf()),
@@ -885,6 +896,18 @@ pub fn prune_jobs(data_dir: &Path, keep: usize) -> Result<(), WriteError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rename_across_volumes_maps_to_cross_device() {
+        #[cfg(unix)]
+        let e = io::Error::from_raw_os_error(18);
+        #[cfg(windows)]
+        let e = io::Error::from_raw_os_error(17);
+        assert!(matches!(
+            map_io(e, Path::new("/sd/x.gba")),
+            WriteError::CrossDevice(p) if p == Path::new("/sd/x.gba")
+        ));
+    }
 
     #[test]
     fn apple_double_is_the_dot_underscore_sibling() {
