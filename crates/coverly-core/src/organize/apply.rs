@@ -5,6 +5,7 @@
 //! read-only or vanished volume and a resume into the same journal, so one
 //! undo reverts every run of a job.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
 use std::path::{Path, PathBuf};
@@ -217,7 +218,7 @@ pub fn apply_organize(plan: &OrganizePlan, env: &ApplyEnv) -> Result<OrganizeRep
         let _ = writer.discard();
         return Err(e.into());
     }
-    Ok(Run::new(plan, env, writer, false).run(&pending, 0, report))
+    Ok(Run::new(plan, env, writer, false, Vec::new()).run(&pending, 0, report))
 }
 
 /// Continues the paused or interrupted job `job` from its saved plan:
@@ -230,6 +231,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let records = job_transfers(env.data_dir, job)?;
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
+    let mut started = HashMap::new();
     for item in &applicable {
         match finished_record(&plan, item, &records) {
             Some(record) => {
@@ -238,7 +240,16 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
                     (true, TransferMode::Copy) => ItemStatus::Copied,
                     (true, TransferMode::Move) => ItemStatus::CopiedNotRemoved,
                 };
-                record_outcome(&mut report, item.id, status, vec![record.target.clone()]);
+                if has_leftovers(&plan, item, &records) {
+                    // The ROM is in place but set members or companions
+                    // are not (a pause or a crash in the middle of the
+                    // item): the run finishes them.
+                    started.insert(item.id, (status, record.target.clone()));
+                    pending.push(*item);
+                } else {
+                    let targets = item_targets(&plan, item, &records);
+                    record_outcome(&mut report, item.id, status, targets);
+                }
             }
             None => pending.push(*item),
         }
@@ -252,7 +263,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     check_space(&plan, &pending)?;
     let writer = Writer::resume(&plan.target_root, env.data_dir, job)?;
     writer.clean_temps(&target_dirs(&plan, &applicable));
-    Ok(Run::new(&plan, env, writer, true).run(&pending, done, report))
+    let mut run = Run::new(&plan, env, writer, true, records);
+    run.started = started;
+    Ok(run.run(&pending, done, report))
 }
 
 /// Items apply moves: automatic ones with a target (review items become
@@ -360,13 +373,54 @@ fn finished_record<'r>(
     item: &OrganizeItem,
     records: &'r [TransferRecord],
 ) -> Option<&'r TransferRecord> {
-    let primary = plan.source_root.join(item.sources.first()?);
+    record_of(
+        records,
+        item.id,
+        &plan.source_root.join(item.sources.first()?),
+    )
+}
+
+/// The finished journal record of `from` (a file of `item`): a finished
+/// copy, or a finished move whose source is gone.
+fn record_of<'r>(
+    records: &'r [TransferRecord],
+    id: usize,
+    from: &Path,
+) -> Option<&'r TransferRecord> {
     records.iter().rev().find(|r| {
-        r.item == Some(item.id)
-            && r.from == primary
+        r.item == Some(id)
+            && r.from == from
             && r.finished
-            && (r.copied || fs::symlink_metadata(&primary).is_err())
+            && (r.copied || fs::symlink_metadata(from).is_err())
     })
+}
+
+/// Set members or companions of a started item still at their source
+/// without a finished record: what a resume still has to transfer.
+fn has_leftovers(plan: &OrganizePlan, item: &OrganizeItem, records: &[TransferRecord]) -> bool {
+    let members = item.sources.iter().skip(1);
+    let companions = item.companions.iter().map(|c| &c.source);
+    members.chain(companions).any(|rel| {
+        let from = plan.source_root.join(rel);
+        fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file())
+            && record_of(records, item.id, &from).is_none()
+    })
+}
+
+/// Where a finished item's files are by the journal: primary, members,
+/// then companions.
+fn item_targets(
+    plan: &OrganizePlan,
+    item: &OrganizeItem,
+    records: &[TransferRecord],
+) -> Vec<PathBuf> {
+    let companions = item.companions.iter().map(|c| &c.source);
+    item.sources
+        .iter()
+        .chain(companions)
+        .filter_map(|rel| record_of(records, item.id, &plan.source_root.join(rel)))
+        .map(|r| r.target.clone())
+        .collect()
 }
 
 /// Every folder the items' files go to (absolute, without repeats).
@@ -459,10 +513,21 @@ struct Run<'a> {
     overrides_path: PathBuf,
     /// The manual identities as the run started; `None` without any.
     overrides: Option<Overrides>,
+    /// The journal's transfers before this run (resume only).
+    records: Vec<TransferRecord>,
+    /// Items whose primary file a previous run already transferred, with
+    /// its status and where it went (resume only).
+    started: HashMap<usize, (ItemStatus, PathBuf)>,
 }
 
 impl<'a> Run<'a> {
-    fn new(plan: &'a OrganizePlan, env: &'a ApplyEnv<'a>, writer: Writer, resumed: bool) -> Self {
+    fn new(
+        plan: &'a OrganizePlan,
+        env: &'a ApplyEnv<'a>,
+        writer: Writer,
+        resumed: bool,
+        records: Vec<TransferRecord>,
+    ) -> Self {
         let overrides_path = env.data_dir.join(OVERRIDES_FILE);
         let overrides = Some(Overrides::read(&overrides_path)).filter(|o| !o.is_empty());
         Run {
@@ -473,6 +538,8 @@ impl<'a> Run<'a> {
             index: DirIndex::new(),
             overrides_path,
             overrides,
+            records,
+            started: HashMap::new(),
         }
     }
 
@@ -620,6 +687,9 @@ impl<'a> Run<'a> {
     }
 
     fn apply_item(&mut self, item: &OrganizeItem) -> Step {
+        if let Some((status, primary)) = self.started.remove(&item.id) {
+            return self.finish_started(item, status, primary);
+        }
         if let Some(step) = self.revalidate(item) {
             return step;
         }
@@ -655,15 +725,100 @@ impl<'a> Run<'a> {
                 self.rekey_override(item.id, from, to);
             }
         }
-        // Companions follow the ROM, under its final name.
-        let planned = dests[0].file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let actual = targets[0]
-            .file_name()
+        if let Some(pause) = self.move_companions(item, &mut targets) {
+            return pause;
+        }
+        Step::Done(status, targets)
+    }
+
+    /// Finishes an item whose primary file an earlier run already put at
+    /// `primary`: the set members and companions still at their source
+    /// follow it, as they would have in one go.
+    fn finish_started(
+        &mut self,
+        item: &OrganizeItem,
+        mut status: ItemStatus,
+        primary: PathBuf,
+    ) -> Step {
+        let root = &self.plan.target_root;
+        let mut targets = vec![primary];
+        for (rel, dest) in item.sources.iter().skip(1).zip(&item.set_targets) {
+            let from = self.plan.source_root.join(rel);
+            if let Some(record) = record_of(&self.records, item.id, &from) {
+                targets.push(record.target.clone());
+                continue;
+            }
+            let dest = root.join(dest);
+            let failed = |detail: String| ItemStatus::Failed {
+                kind: ItemErrorKind::Io,
+                detail,
+            };
+            if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+                let detail = format!("{} of the set is gone", from.display());
+                return Step::Done(failed(detail), targets);
+            }
+            match self.transfer(&from, &dest, Collision::Skip, item.id) {
+                Ok(MoveOutcome::SkippedExists { existing }) => {
+                    let detail = format!(
+                        "{} of the set stayed: {} is taken",
+                        from.display(),
+                        existing.display()
+                    );
+                    return Step::Done(failed(detail), targets);
+                }
+                Ok(outcome) => {
+                    if matches!(outcome, MoveOutcome::CopiedNotRemoved { .. }) {
+                        status = ItemStatus::CopiedNotRemoved;
+                    }
+                    if let MoveOutcome::Moved { to, .. }
+                    | MoveOutcome::Copied { to, .. }
+                    | MoveOutcome::CopiedNotRemoved { to, .. } = outcome
+                    {
+                        targets.push(to);
+                    }
+                }
+                Err(e) => return self.on_error(&e),
+            }
+        }
+        if self.plan.mode == TransferMode::Move {
+            let sources: Vec<PathBuf> = item
+                .sources
+                .iter()
+                .map(|s| self.plan.source_root.join(s))
+                .collect();
+            for (from, to) in sources.iter().zip(targets.clone()) {
+                self.rekey_override(item.id, from, &to);
+            }
+        }
+        if let Some(pause) = self.move_companions(item, &mut targets) {
+            return pause;
+        }
+        Step::Done(status, targets)
+    }
+
+    /// Companions follow the ROM (already at `targets[0]`), under its final
+    /// name; a companion an earlier run transferred is not done again.
+    /// `Some` is a pause: the volume itself is the problem.
+    fn move_companions(&mut self, item: &OrganizeItem, targets: &mut Vec<PathBuf>) -> Option<Step> {
+        let root = &self.plan.target_root;
+        let planned = item
+            .target
+            .as_deref()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let actual = targets
+            .first()
+            .and_then(|t| t.file_name())
             .and_then(|n| n.to_str())
             .unwrap_or("");
         let (planned_stem, actual_stem) = (stem(planned).to_string(), stem(actual).to_string());
         for companion in &item.companions {
             let from = self.plan.source_root.join(&companion.source);
+            if let Some(record) = record_of(&self.records, item.id, &from) {
+                targets.push(record.target.clone());
+                continue;
+            }
             if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
                 continue;
             }
@@ -690,12 +845,12 @@ impl<'a> Run<'a> {
                 // problem.
                 Err(e) => {
                     if let Step::Pause(reason) = self.on_error(&e) {
-                        return Step::Pause(reason);
+                        return Some(Step::Pause(reason));
                     }
                 }
             }
         }
-        Step::Done(status, targets)
+        None
     }
 
     fn apply_single(&mut self, id: usize, from: &Path, want: &Path) -> Step {
@@ -738,8 +893,19 @@ impl<'a> Run<'a> {
         for (from, to) in sources.iter().zip(dests) {
             match self.transfer(from, to, Collision::Skip, id) {
                 Ok(MoveOutcome::SkippedExists { .. }) => {
-                    roll_back(&done);
-                    return skipped(SkipReason::CollisionSet);
+                    let stayed = roll_back(&done);
+                    if stayed.is_empty() {
+                        return skipped(SkipReason::CollisionSet);
+                    }
+                    // A move across volumes cannot be renamed back: say
+                    // where those members are (undo puts them back).
+                    let status = ItemStatus::Failed {
+                        kind: ItemErrorKind::Io,
+                        detail: "a file of the set is taken at the target and the files \
+                                 already moved could not go back"
+                            .into(),
+                    };
+                    return Step::Done(status, stayed);
                 }
                 Ok(outcome) => {
                     if matches!(outcome, MoveOutcome::CopiedNotRemoved { .. }) {
@@ -748,7 +914,7 @@ impl<'a> Run<'a> {
                     done.push((from.clone(), outcome));
                 }
                 Err(e) => {
-                    roll_back(&done);
+                    let _ = roll_back(&done);
                     return self.on_error(&e);
                 }
             }
@@ -798,20 +964,25 @@ fn skipped(reason: SkipReason) -> Step {
 }
 
 /// Puts the members of a set that were already moved back, newest first;
-/// copies are deleted. Best effort: whatever stays is in the journal and
-/// undo handles it.
-fn roll_back(done: &[(PathBuf, MoveOutcome)]) {
+/// copies are deleted. Best effort: returns the members that stayed at
+/// the target (in the journal, so undo handles them; a resume finishes
+/// the set when its first file stayed).
+fn roll_back(done: &[(PathBuf, MoveOutcome)]) -> Vec<PathBuf> {
+    let mut stayed = Vec::new();
     for (from, outcome) in done.iter().rev() {
-        match outcome {
-            MoveOutcome::Moved { to, .. } if to != from => {
-                let _ = rename_noclobber(to, from);
-            }
+        let (to, back) = match outcome {
+            MoveOutcome::Moved { to, .. } if to != from => (to, rename_noclobber(to, from)),
             MoveOutcome::Copied { to, .. } | MoveOutcome::CopiedNotRemoved { to, .. } => {
-                let _ = fs::remove_file(to);
+                (to, fs::remove_file(to))
             }
-            _ => {}
+            _ => continue,
+        };
+        if back.is_err() {
+            stayed.push(to.clone());
         }
     }
+    stayed.reverse();
+    stayed
 }
 
 #[cfg(test)]

@@ -923,6 +923,88 @@ mod plans {
         assert!(pile.join("B.gb").exists());
     }
 
+    fn disk_full_on_sav(stage: CopyStage, path: &Path) -> Option<io::Error> {
+        (stage == CopyStage::Rename && path.extension().is_some_and(|e| e == "sav"))
+            .then(|| io::Error::from_raw_os_error(28))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pause_on_a_companion_is_finished_by_resume() {
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Boy.gb"), &fx::gb_tagged(0x00, 1));
+        put(&pile.join("Boy.sav"), b"save");
+        let world = World::new();
+        let plan = world.plan(&pile, offline());
+        let id = id_of(&plan, "Boy.gb");
+        assert_eq!(plan.items[id].companions.len(), 1, "{:?}", plan.items[id]);
+
+        set_copy_fault(Some(disk_full_on_sav));
+        let report = apply(&plan, &data);
+        set_copy_fault(None);
+        assert_eq!(report.pause_reason, Some(ItemErrorKind::DiskFull));
+        assert_eq!(report.resumable_items, [id]);
+        assert!(pile.join("ROMS/GB/Boy.gb").exists());
+        assert!(pile.join("Boy.sav").exists(), "the save is still behind");
+
+        let job = report.job.clone().unwrap();
+        let resumed = resume(&job, &data);
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert_eq!(resumed.moved, 1, "{resumed:?}");
+        assert_eq!(tree(&pile), set(&["ROMS/GB/Boy.gb", "ROMS/GB/Boy.sav"]));
+        assert_eq!(
+            outcome(&resumed, id).targets,
+            [pile.join("ROMS/GB/Boy.gb"), pile.join("ROMS/GB/Boy.sav")]
+        );
+
+        undo_job(&data, &job).unwrap();
+        assert_eq!(tree(&pile), set(&["Boy.gb", "Boy.sav"]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_resume_does_not_copy_a_companion_twice() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        put(&pile.join("Advance.sav"), b"save");
+        put(&pile.join("Boy.gb"), &fx::gb_tagged(0x00, 1));
+        let card = tmp.path().join("card");
+        let gb_dir = card.join("ROMS/GB");
+        fs::create_dir_all(&gb_dir).unwrap();
+        let world = World::new();
+        let plan = world.plan(
+            &pile,
+            OrganizeOptions {
+                target: Some(card.clone()),
+                mode: Some(TransferMode::Copy),
+                ..offline()
+            },
+        );
+        // The GB copy pauses the run after the GBA game and its save.
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let report = apply(&plan, &data);
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            report.pause_reason,
+            Some(ItemErrorKind::WriteDenied),
+            "{report:?}"
+        );
+        let job = report.job.clone().unwrap();
+
+        let resumed = resume(&job, &data);
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert_eq!(resumed.copied, 2, "{resumed:?}");
+        assert_eq!(
+            tree(&card),
+            set(&[
+                "ROMS/GBA/Advance.gba",
+                "ROMS/GBA/Advance.sav",
+                "ROMS/GB/Boy.gb"
+            ])
+        );
+    }
+
     #[test]
     fn leftover_temps_of_the_job_are_cleaned_on_resume() {
         let world = World::new();
