@@ -47,7 +47,7 @@
 {"@type":"WebSite","@id":"https://coverly-roms.maecly.com/#website","url":"https://coverly-roms.maecly.com/","name":"Coverly ROMs","inLanguage":["es","en"],"publisher":{"@id":"https://www.maecly.com/#org"}},
 {"@type":"Organization","@id":"https://www.maecly.com/#org","name":"MAECLY","url":"https://www.maecly.com/"},
 {"@type":"SoftwareApplication","@id":"https://coverly-roms.maecly.com/#software","name":"Coverly ROMs","description":"Free (AGPL-3.0) desktop app for Windows, macOS and Linux that audits a ROM library, shows which games lack cover, screenshot or title-screen art and fills them from libretro-thumbnails or SteamGridDB, with a dry run first, backups and undo. Writes the Anbernic stock, GarlicOS, Onion OS, MinUI, muOS, ES-DE, Batocera and RetroArch layouts. Includes the coverly command line. No account, no telemetry.","applicationCategory":"UtilitiesApplication","operatingSystem":"Windows 10, Windows 11, macOS 11 or later, Linux x64, Linux ARM64","inLanguage":["es","en"],"license":"https://www.gnu.org/licenses/agpl-3.0.html","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"author":{"@type":"Person","name":"Miguel Esparza"},"publisher":{"@id":"https://www.maecly.com/#org"},"screenshot":"https://coverly-roms.maecly.com/assets/shots/en/library-light.webp","url":"https://coverly-roms.maecly.com/en/"},
-{"@type":"FAQPage","@id":"https://coverly-roms.maecly.com/en/#faq","inLanguage":"en","mainEntity":[{"@type":"Question","name":"Is it free?","acceptedAnswer":{"@type":"Answer","text":"Yes. It costs nothing, needs no account and has no paid tier. The code is AGPL-3.0."}},{"@type":"Question","name":"Does it come with ROMs or cover art?","acceptedAnswer":{"@type":"Answer","text":"No. Coverly ROMs bundles no ROMs, BIOS files or game art. Images are downloaded from libretro-thumbnails and, if you add your own key, SteamGridDB. Every image belongs to its owners."}},{"@type":"Question","name":"Will it overwrite my covers?","acceptedAnswer":{"@type":"Answer","text":"Not unless you ask it to. By default it only fills what is missing. If you choose to replace art, it first keeps a copy in the app's data folder, not on the card, and Undo puts it back."}},{"@type":"Question","name":"Do I need an account?","acceptedAnswer":{"@type":"Answer","text":"No. libretro-thumbnails works without one. SteamGridDB is optional and uses your own key, kept in your system keychain."}},{"@type":"Question","name":"Which handhelds does it work with?","acceptedAnswer":{"@type":"Answer","text":"Any that uses the Anbernic stock, GarlicOS, Onion OS, MinUI and NextUI, muOS, ES-DE, Batocera, Knulli and EmulationStation, or RetroArch layout. For other firmware you can build your own layout with a live preview. It has not been tested on real handhelds yet."}},{"@type":"Question","name":"Why do Gatekeeper and SmartScreen warn me?","acceptedAnswer":{"@type":"Answer","text":"Because the downloads carry no Apple or Microsoft certificate. You can check every file against SHA256SUMS; the download section explains how to open it the first time."}},{"@type":"Question","name":"Does it send data anywhere?","acceptedAnswer":{"@type":"Answer","text":"There is no telemetry. The app only talks to the art sources and, unless you turn it off, to the update check at startup. Images are re-encoded, so they carry no metadata."}},{"@type":"Question","name":"How does it update?","acceptedAnswer":{"@type":"Answer","text":"From inside the app, with GitHub Releases builds verified with minisign before they install. There are stable and beta channels, and it never restarts in the middle of a job. The command line uses coverly update."}}]}
+{"@type":"FAQPage","@id":"https://coverly-roms.maecly.com/en/#faq","inLanguage":"en","mainEntity":[{"@type":"Question","name":"Is it free?","acceptedAnswer":{"@type":"Answer","text":"Yes. It costs nothing, needs no account and has no paid tier. The code is AGPL-3.0."}},{"@type":"Question","name":"Does it come with ROMs or cover art?","acceptedAnswer":{"@type":"Answer","text":"No. Coverly ROMs bundles no ROMs, BIOS files or game art. Images are downloaded from libretro-thumbnails and, if you add your own key, SteamGridDB. Every image belongs to its owners."}},{"@type":"Question","name":"Will it overwrite my covers?","acceptedAnswer":{"@type":"Answer","text":"Not unless you ask it to. By default it only fills what is missing. If you choose to replace art, it first keeps a copy in the app's data folder, not on the card, and Undo puts it back."}},{"@type":"Question","name":"Do I need an account?","acceptedAnswer":{"@type":"Answer","text":"No. libretro-thumbnails works without one. SteamGridDB is optional and uses your own key, kept in your system keychain."}},{"@type":"Question","name":"Which handhelds does it work with?","acceptedAnswer":{"@type":"Answer","text":"Any that uses the Anbernic stock, GarlicOS, Onion OS, MinUI and NextUI, muOS, ES-DE, Batocera, Knulli and EmulationStation, or RetroArch layout. For other firmware you can build your own layout with a live preview. It has not been tested on real handhelds yet."}},{"@type":"Question","name":"Why do Gatekeeper and SmartScreen warn me?","acceptedAnswer":{"@type":"Answer","text":"Because the downloads carry no Apple or Microsoft certificate. The first time, you just confirm that you want to open it, and every release comes with a SHA256SUMS file to check its downloads against."}},{"@type":"Question","name":"Does it send data anywhere?","acceptedAnswer":{"@type":"Answer","text":"There is no telemetry. The app only talks to the art sources and, unless you turn it off, to the update check at startup. Images are re-encoded, so they carry no metadata."}},{"@type":"Question","name":"How does it update?","acceptedAnswer":{"@type":"Answer","text":"From inside the app, with GitHub Releases builds verified with minisign before they install. There are stable and beta channels, and it never restarts in the middle of a job. The command line uses coverly update."}}]}
 ]
 }
 </script>
@@ -76,10 +76,11 @@
 <a href="#layouts">Handhelds</a>
 <a href="#compare">Compare</a>
 <a href="#faq">FAQ</a>
-<a href="#download">Download</a>
+<!-- release:begin --><a href="#download">Download</a><!-- release:end -->
+<!-- norelease:begin --><a href="#download">Release status</a><!-- norelease:end -->
 <a class="menu-lang" href="../" hreflang="es" lang="es">Español</a>
 </nav></details>
-<a class="btn btn-primary btn-small header-cta" href="#download">Download</a>
+<!-- release:begin --><a class="btn btn-primary btn-small header-cta" href="#download">Download</a><!-- release:end -->
 <a class="lang" href="../" hreflang="es" lang="es">ES<span class="sr-only"> · Lee esta página en español</span></a>
 </div>
 </header>
@@ -93,8 +94,10 @@
 <h1 id="title">Every ROM gets its&nbsp;cover.</h1>
 <p class="sub">Coverly ROMs checks your handheld's SD card, shows which games have no cover art and adds it in one go. <strong>It rehearses first, and nothing you already have is touched unless you say so.</strong></p>
 <div class="actions">
-<a class="btn btn-primary" href="#download">Download Coverly ROMs</a>
-<a class="btn" href="#how">See how it works</a>
+<!-- release:begin --><a class="btn btn-primary" href="#download">Download Coverly ROMs</a>
+<a class="btn" href="#how">See how it works</a><!-- release:end -->
+<!-- norelease:begin --><a class="btn btn-primary" href="#how">See how it works</a>
+<a class="btn" href="#download">Release status</a><!-- norelease:end -->
 </div>
 <ul class="facts" aria-label="At a glance">
 <li>Free</li>
@@ -328,7 +331,7 @@
 </div>
 <!-- norelease:end -->
 <div class="dl-more">
-<div>
+<!-- release:begin --><div>
 <h3>Opening it the first time</h3>
 <ul>
 <li>macOS: if it says the developer cannot be verified, go to System Settings, Privacy &amp; Security, and click “Open Anyway”.</li>
@@ -336,7 +339,7 @@
 <li>Linux: make the AppImage executable, or install the .deb.</li>
 </ul>
 <p class="note">They warn because the downloads carry no Apple or Microsoft certificate. Check each file against SHA256SUMS.</p>
-</div>
+</div><!-- release:end -->
 <div>
 <h3>What it does not do yet</h3>
 <ul class="notyet">
@@ -362,7 +365,7 @@
 <details><summary>Will it overwrite my covers?</summary><p>Not unless you ask it to. By default it only fills what is missing. If you choose to replace art, it first keeps a copy in the app's data folder, not on the card, and Undo puts it back.</p></details>
 <details><summary>Do I need an account?</summary><p>No. libretro-thumbnails works without one. SteamGridDB is optional and uses your own key, kept in your system keychain.</p></details>
 <details><summary>Which handhelds does it work with?</summary><p>Any that uses the Anbernic stock, GarlicOS, Onion OS, MinUI and NextUI, muOS, ES-DE, Batocera, Knulli and EmulationStation, or RetroArch layout. For other firmware you can build your own layout with a live preview. It has not been tested on real handhelds yet.</p></details>
-<details><summary>Why do Gatekeeper and SmartScreen warn me?</summary><p>Because the downloads carry no Apple or Microsoft certificate. You can check every file against SHA256SUMS; the download section explains how to open it the first time.</p></details>
+<details><summary>Why do Gatekeeper and SmartScreen warn me?</summary><p>Because the downloads carry no Apple or Microsoft certificate. The first time, you just confirm that you want to open it, and every release comes with a SHA256SUMS file to check its downloads against.</p></details>
 <details><summary>Does it send data anywhere?</summary><p>There is no telemetry. The app only talks to the art sources and, unless you turn it off, to the update check at startup. Images are re-encoded, so they carry no metadata.</p></details>
 <details><summary>How does it update?</summary><p>From inside the app, with GitHub Releases builds verified with minisign before they install. There are stable and beta channels, and it never restarts in the middle of a job. The command line uses coverly update.</p></details>
 </div>
@@ -373,7 +376,7 @@
 <div class="wrap">
 <h2 id="closing-t">Open the card. See what is missing.</h2>
 <p>The rest is your call, with the dry run in front of you.</p>
-<div class="actions"><a class="btn btn-primary" href="#download">Download Coverly ROMs</a></div>
+<div class="actions"><!-- release:begin --><a class="btn btn-primary" href="#download">Download Coverly ROMs</a><!-- release:end --><!-- norelease:begin --><a class="btn btn-primary" href="#download">Release status</a><!-- norelease:end --></div>
 </div>
 </section>
 </main>
