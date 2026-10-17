@@ -2258,6 +2258,262 @@ body::before {
   visibility: hidden;
 }
 
+/* The timeline (2.3s, then a 0.6s hand-off). shelf.js adds .is-armed (the
+   start frame: gaps open, rule undrawn) and .play once the art is 40% on
+   screen; it removes both at the end, which is the frame the HTML already
+   shows. Each beat is one keyframe on one part; --g staggers the two gaps
+   and --k the four photo-corners. */
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .hero.is-armed .rule {
+    stroke-dashoffset: 1;
+  }
+  html.motion .hero.is-armed .kw-slot::before {
+    transform: scaleX(0);
+  }
+  html.motion .hero.is-armed .kw-slot::after,
+  html.motion .hero.is-armed :is(.gap .gd, .gap .ct, .gap .cy, .tb, .tally .tg) {
+    opacity: 0;
+  }
+  html.motion .hero.is-armed .gap :is(.o, .pc) {
+    opacity: 1;
+  }
+  html.motion .hero.is-armed .sp {
+    transform: scaleX(0);
+  }
+  html.motion .hero.is-armed .tn i:first-child {
+    visibility: visible;
+  }
+  html.motion .hero.is-armed .tn i:last-child {
+    visibility: hidden;
+  }
+  html.motion .hero.play .rule {
+    animation: hr-draw 320ms var(--cr-ease-enter) both;
+  }
+  html.motion .hero.play .rule.lo {
+    animation-delay: 80ms;
+  }
+  html.motion .hero.play .kw-slot::before {
+    animation: hr-grow 320ms var(--cr-ease-enter) both;
+  }
+  html.motion .hero.play .gap .o {
+    animation:
+      hr-march var(--cr-duration-slow) var(--cr-ease-standard) calc(120ms + var(--g, 0) * 60ms) both,
+      hr-out var(--cr-duration-slow) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .ct {
+    animation:
+      hr-ghost-t var(--cr-duration-slower) var(--cr-ease-enter) calc(480ms + var(--g, 0) * 60ms) both,
+      hr-reg-t var(--cr-duration-slower) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .cy {
+    animation:
+      hr-ghost-k var(--cr-duration-slower) var(--cr-ease-enter) calc(480ms + var(--g, 0) * 60ms) both,
+      hr-reg-k var(--cr-duration-slower) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .gd {
+    animation: hr-in var(--cr-duration-slow) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .gap .pc {
+    animation: hr-fold var(--cr-duration-fast) var(--cr-ease-exit) calc(1040ms + var(--g, 0) * 140ms + var(--k, 0) * 60ms) both;
+  }
+  html.motion .hero.play .tb {
+    animation: hr-tab var(--cr-duration-base) var(--cr-ease-enter) calc(1300ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .fl {
+    animation: hr-flash var(--cr-duration-base) var(--cr-ease-standard) calc(1300ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .sp {
+    animation: hr-spine var(--cr-duration-slow) var(--cr-ease-ink) calc(1480ms + var(--g, 0) * 80ms) both;
+  }
+  html.motion .hero.play .kw-slot::after,
+  html.motion .hero.play .tally .tg {
+    animation: hr-in var(--cr-duration-slow) var(--cr-ease-ink) calc(1480ms + var(--g, 0) * 80ms) both;
+  }
+  html.motion .hero.play .tn i:first-child {
+    animation: hr-hide 1ms 1560ms both;
+  }
+  html.motion .hero.play .tn i:last-child {
+    animation: hr-show 1ms 1560ms both;
+  }
+  html.motion .hero.play .lean {
+    will-change: transform;
+    animation: hr-nudge 440ms var(--cr-ease-standard) 1800ms both;
+  }
+  html.motion .hero.play .ls {
+    animation: hr-snug 440ms var(--cr-ease-standard) 1800ms both;
+  }
+  html.motion .hero.play .pk1 .o {
+    animation: hr-pulse 600ms var(--cr-ease-standard) 2240ms both;
+  }
+}
+@keyframes hr-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hr-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes hr-march {
+  from {
+    stroke-dashoffset: calc(var(--cy) * 2);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hr-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes hr-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Simulate: a riso proof, tone and key out of register at 45%. Apply: they
+   register (ink easing). */
+@keyframes hr-ghost-t {
+  from {
+    opacity: 0;
+    transform: translate(-0.5px, 0.35px);
+  }
+  to {
+    opacity: 0.45;
+    transform: translate(-0.5px, 0.35px);
+  }
+}
+@keyframes hr-reg-t {
+  from {
+    opacity: 0.45;
+    transform: translate(-0.5px, 0.35px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-ghost-k {
+  from {
+    opacity: 0;
+    transform: translate(0.5px, -0.35px);
+  }
+  to {
+    opacity: 0.45;
+    transform: translate(0.5px, -0.35px);
+  }
+}
+@keyframes hr-reg-k {
+  from {
+    opacity: 0.45;
+    transform: translate(0.5px, -0.35px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-fold {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 1;
+    transform: scale(0);
+  }
+}
+@keyframes hr-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-flash {
+  from {
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes hr-spine {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes hr-hide {
+  from {
+    visibility: visible;
+  }
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes hr-show {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+/* The nudge: lifts a hair and rocks 12° → 9° → 12° on its contact
+   corner. It does not seat; that waits for the closing. */
+@keyframes hr-nudge {
+  from {
+    transform: rotate(12deg);
+  }
+  50% {
+    transform: translateY(-0.6px) rotate(9deg);
+  }
+  to {
+    transform: rotate(12deg);
+  }
+}
+@keyframes hr-snug {
+  50% {
+    opacity: 0.6;
+    transform: scaleX(0.8);
+  }
+}
+@keyframes hr-pulse {
+  from {
+    stroke-dashoffset: 0;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: calc(var(--cy) * -1);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {

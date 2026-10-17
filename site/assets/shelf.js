@@ -43,9 +43,50 @@
   }
   Array.prototype.forEach.call(document.querySelectorAll("svg.art"), function (el) { io.observe(el); });
 
+  /* WP2, the Lean-To: .is-armed shows the start frame, .play runs the CSS
+     timeline once (the wide scene or the mobile strip, whichever is seen
+     first), and both go at the end, the frame the HTML shows. A slow load
+     gets the finished shelf. ↻ replays; it stays put and keeps focus. */
+  function hero(when, stops) {
+    var box = document.querySelector(".hero"), arts = box ? box.querySelectorAll(".hero-art") : [];
+    if (!arts.length) return;
+    var cl = box.classList, replay = box.querySelector(".replay"), t = 0, went = 0;
+    var ready = function (on) {
+      if (!replay) return;
+      if (on) replay.removeAttribute("aria-disabled");
+      else replay.setAttribute("aria-disabled", "true");
+    };
+    var stop = function () {
+      clearTimeout(t);
+      cl.remove("is-armed", "play");
+      cl.add("is-played");
+      ready(true);
+    };
+    var play = function () {
+      went = 1;
+      clearTimeout(t);
+      cl.remove("play");
+      cl.add("is-armed");
+      void box.offsetWidth;
+      cl.add("play");
+      ready(false);
+      t = setTimeout(stop, 2900);
+    };
+    stops.push(stop);
+    if (performance.now() > 4000) return stop();
+    cl.add("is-armed");
+    Array.prototype.forEach.call(arts, function (a) {
+      when(a, 0.4, function () { if (!went) play(); });
+    });
+    if (replay) replay.addEventListener("click", function () {
+      if (replay.getAttribute("aria-disabled")) return;
+      try { play(); } catch (x) { stop(); }
+    });
+  }
+
   /* Modules, one per work package: hero() WP2, demo() WP4, waiting() WP5,
      finale() WP6. Each: find its piece, stops.push(stop), when(...). */
-  var modules = [];
+  var modules = [hero];
   try {
     modules.forEach(function (m) { m(when, stops); });
   } catch (x) {
