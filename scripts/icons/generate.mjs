@@ -259,6 +259,26 @@ function webMark(name) {
     );
 }
 
+/** Rewrite an icns file with its chunks in a fixed (type-name) order. */
+function sortIcns(buf) {
+  if (buf.toString('latin1', 0, 4) !== 'icns')
+    throw new Error('icon.icns: not an icns file');
+  const chunks = [];
+  for (let i = 8; i < buf.length;) {
+    const len = buf.readUInt32BE(i + 4);
+    if (len < 8 || i + len > buf.length)
+      throw new Error('icon.icns: malformed chunk');
+    chunks.push(buf.subarray(i, i + len));
+    i += len;
+  }
+  const type = (c) => c.toString('latin1', 0, 4);
+  chunks.sort((a, b) => (type(a) < type(b) ? -1 : type(a) > type(b) ? 1 : 0));
+  const header = Buffer.alloc(8);
+  header.write('icns', 0, 'latin1');
+  header.writeUInt32BE(buf.length, 4);
+  return Buffer.concat([header, ...chunks]);
+}
+
 // --------------------------------------------------------------------- build
 
 function write(path, data) {
@@ -277,6 +297,10 @@ execFileSync('pnpm', ['tauri', 'icon', SOURCE, '--output', ICONS], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });
+// Tauri writes the icns chunks in hash-map order, so the bytes change on every
+// run; sort them so `pnpm icons` is reproducible.
+const ICNS = join(ICONS, 'icon.icns');
+write(ICNS, sortIcns(readFileSync(ICNS)));
 // Then replace the downscaled small sizes with the hand-tuned glyphs.
 write(
   join(ICONS, 'icon.ico'),
