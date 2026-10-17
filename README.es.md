@@ -86,11 +86,17 @@ las [dependencias de sistema de Tauri 2](https://v2.tauri.app/start/prerequisite
 para tu sistema operativo.
 
 ```sh
-make install                                   # instala las dependencias JS
+make install                                   # instala las dependencias JS y Rust
 make dev                                       # ejecuta la app de escritorio en desarrollo
-cargo run -p coverly-cli -- audit <ruta>       # audita una biblioteca desde la terminal
+make web                                       # solo la interfaz, en el navegador, con un backend simulado
+make example                                   # crea una biblioteca de ejemplo y la audita
+make example-fill                              # planifica rellenar sus portadas (simulación)
+make audit ROOT=<ruta>                         # audita una biblioteca desde la terminal
 make check                                     # lint, formato y todos los tests
 ```
+
+`make help` lista todos los objetivos. La biblioteca de ejemplo vive en
+`target/example` (`make example-apply`, `make example-undo`, `make example-clean`).
 
 ## Contribuir
 
