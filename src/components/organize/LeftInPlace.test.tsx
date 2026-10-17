@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -29,8 +29,14 @@ describe('LeftInPlace', () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getAllByRole('listitem')).toHaveLength(200);
+    // The list scrolls on its own and keyboard users can reach it.
+    const list = screen.getByRole('region', {
+      name: 'Files staying where they are',
+    });
+    expect(list).toHaveAttribute('tabindex', '0');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(200);
     expect(screen.getAllByRole('combobox')).toHaveLength(200);
+    expect(screen.getAllByText('Unknown system')).toHaveLength(200);
     await userEvent.click(
       screen.getByRole('button', { name: 'Show 250 more' }),
     );

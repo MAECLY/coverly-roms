@@ -756,6 +756,7 @@
       "user": "Chosen by you"
     },
     "left": {
+      "files": "Files staying where they are",
       "partialDownload": "Download not finished",
       "recent": "Changed moments ago; it may still be downloading",
       "cloudOnly": "In the cloud, not downloaded",

@@ -756,6 +756,7 @@
       "user": "Elegido por ti"
     },
     "left": {
+      "files": "Archivos que se quedan donde están",
       "partialDownload": "Descarga sin terminar",
       "recent": "Modificado hace un momento; puede que aún se esté descargando",
       "cloudOnly": "Está en la nube, sin descargar",
