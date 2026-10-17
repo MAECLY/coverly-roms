@@ -384,7 +384,8 @@ fn finished_record<'r>(
 }
 
 /// The finished journal record of `from` (a file of `item`): a finished
-/// copy, or a finished move whose source is gone.
+/// copy that is still at its target (a set rolled back deletes the copies
+/// it made), or a finished move whose source is gone.
 fn record_of<'r>(
     records: &'r [TransferRecord],
     id: usize,
@@ -394,7 +395,11 @@ fn record_of<'r>(
         r.item == Some(id)
             && r.from == from
             && r.finished
-            && (r.copied || fs::symlink_metadata(from).is_err())
+            && if r.copied {
+                fs::symlink_metadata(&r.target).is_ok_and(|m| m.file_type().is_file())
+            } else {
+                fs::symlink_metadata(from).is_err()
+            }
     })
 }
 

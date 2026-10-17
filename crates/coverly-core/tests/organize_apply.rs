@@ -1005,6 +1005,71 @@ mod plans {
         );
     }
 
+    fn bad_copy_of_bin(stage: CopyStage, path: &Path) -> Option<io::Error> {
+        (stage == CopyStage::Verify && path.extension().is_some_and(|e| e == "bin"))
+            .then(|| io::Error::new(io::ErrorKind::InvalidData, "copy verification failed"))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copied_set_rolled_back_is_copied_whole_by_resume() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, pile, data) = pile();
+        put(
+            &pile.join("Game.cue"),
+            b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+        );
+        put(&pile.join("Game.bin"), &fx::psx_iso(true, false));
+        put(&pile.join("Zz.gb"), &fx::gb_tagged(0x00, 1));
+        let card = tmp.path().join("card");
+        let gb_dir = card.join("ROMS/GB");
+        fs::create_dir_all(&gb_dir).unwrap();
+        let world = World::new();
+        let plan = world.plan(
+            &pile,
+            OrganizeOptions {
+                target: Some(card.clone()),
+                mode: Some(TransferMode::Copy),
+                ..offline()
+            },
+        );
+        let set_id = id_of(&plan, "Game.cue");
+        assert!(id_of(&plan, "Zz.gb") > set_id, "the set goes first");
+        // The track's copy fails (the cue's copy is rolled back), then the
+        // Game Boy folder pauses the run.
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        set_copy_fault(Some(bad_copy_of_bin));
+        let report = apply(&plan, &data);
+        set_copy_fault(None);
+        fs::set_permissions(&gb_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(outcome(&report, set_id).status, ItemStatus::Failed { .. }),
+            "{report:?}"
+        );
+        assert_eq!(report.pause_reason, Some(ItemErrorKind::WriteDenied));
+        let set_dir = card.join(
+            plan.items[set_id]
+                .target
+                .as_ref()
+                .unwrap()
+                .parent()
+                .unwrap(),
+        );
+        assert!(super::names_in(&set_dir).is_empty(), "the cue went back");
+
+        let resumed = resume(report.job.as_deref().unwrap(), &data);
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert!(
+            matches!(outcome(&resumed, set_id).status, ItemStatus::Copied),
+            "{resumed:?}"
+        );
+        assert_eq!(
+            super::names_in(&set_dir),
+            ["Game.bin", "Game.cue"],
+            "the whole set"
+        );
+    }
+
     #[test]
     fn leftover_temps_of_the_job_are_cleaned_on_resume() {
         let world = World::new();
