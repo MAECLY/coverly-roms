@@ -112,8 +112,9 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut out = Walked::default();
     let mut sorted: Vec<(PathBuf, String)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
-    let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| path_key(p)).collect();
-    let roms_root_key = opts.roms_root.as_deref().map(path_key);
+    let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
+    let roms_root_key = opts.roms_root.as_deref().map(dir_key);
+    let mut partial_dirs: Vec<PathBuf> = Vec::new();
     let ignored: Vec<String> = opts
         .ignored_dirs
         .iter()
@@ -139,7 +140,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if is_hidden(&name) || ignored.contains(&name.to_lowercase()) {
                 return false;
             }
-            let key = path_key(entry.path());
+            // Safari keeps an unfinished download inside `<name>.download/`.
+            if is_partial_download(&name) {
+                partial_dirs.push(entry.path().to_path_buf());
+                return false;
+            }
+            let key = if skip_keys.is_empty() && roms_root_key.is_none() {
+                String::new()
+            } else {
+                dir_key(entry.path())
+            };
             if skip_keys.contains(&key) {
                 return false;
             }
@@ -221,6 +231,11 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
 
     out.left
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
+    out.left.extend(
+        partial_dirs
+            .into_iter()
+            .map(|p| (p, LeftReason::PartialDownload)),
+    );
     out.sorted_folders = sorted;
     out.candidates.sort_by(|a, b| a.path.cmp(&b.path));
     out.left.sort_by(|a, b| a.0.cmp(&b.0));
@@ -303,8 +318,25 @@ fn path_key(path: &Path) -> String {
     }
 }
 
+/// Comparison key of a directory, resolved through symlinks when it
+/// exists so a canonical `skip_dirs` entry matches a walk started from a
+/// symlinked or relative source.
+fn dir_key(path: &Path) -> String {
+    let resolved = fs::canonicalize(path)
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf());
+    path_key(&resolved)
+}
+
+/// Whether `dir` holds anything besides OS metadata and hidden entries.
 fn has_children(dir: &Path) -> bool {
-    fs::read_dir(dir).is_ok_and(|mut it| it.next().is_some())
+    fs::read_dir(dir).is_ok_and(|it| {
+        it.flatten().any(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            !(is_hidden(&name) || is_junk_file(&name) || is_zone_identifier(&name))
+        })
+    })
 }
 
 /// Whether a download is still writing next to `name` (`x.zip` beside
@@ -352,7 +384,11 @@ fn mtime_ns(mtime: SystemTime) -> i64 {
 fn is_companion(name: &str, ext: &str) -> bool {
     let lower = name.to_lowercase();
     COMPANION_EXTS.iter().any(|c| match c.strip_suffix('*') {
-        Some(prefix) => ext.starts_with(prefix) || lower.contains(&format!(".{prefix}")),
+        // `Game.state`, `Game.state1`, `Game.state.auto`; not `x.statements.dmg`.
+        Some(prefix) => {
+            (ext.starts_with(prefix) && ext[prefix.len()..].chars().all(|c| c.is_ascii_digit()))
+                || lower.contains(&format!(".{prefix}."))
+        }
         None => ext == *c,
     })
 }

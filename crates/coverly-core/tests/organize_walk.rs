@@ -213,3 +213,91 @@ fn broad_roots() {
     assert!(is_broad_root(Path::new("/")));
     assert!(!is_broad_root(&home.join("Downloads/roms")));
 }
+
+fn opts_with<'a>(
+    skip_dirs: Vec<PathBuf>,
+    roms_root: Option<PathBuf>,
+    ignored: &'a [String],
+    probe: &'a dyn MetaProbe,
+) -> WalkOptions<'a> {
+    WalkOptions {
+        skip_dirs,
+        roms_root,
+        art_dirs: &[],
+        ignored_dirs: ignored,
+        now: SystemTime::now(),
+        recent: Duration::from_secs(60),
+        probe,
+        max_depth: 4,
+    }
+}
+
+#[test]
+fn a_safari_download_bundle_is_left_and_not_entered() {
+    let tmp = tempfile::tempdir().unwrap();
+    // Safari writes the partial file inside `<name>.download/`.
+    put(tmp.path(), "Tetris.zip.download/Tetris.zip", b"PK\x03\x04");
+    put(tmp.path(), "Tetris.zip.download/Info.plist", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    assert_eq!(
+        reason_of(&w, "Tetris.zip.download"),
+        Some(LeftReason::PartialDownload)
+    );
+    assert!(w.other_files.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn skip_dirs_match_through_a_symlinked_source() {
+    let tmp = tempfile::tempdir().unwrap();
+    let real = tmp.path().join("real");
+    put(&real, "Out/GB/Moved.gb", b"x");
+    put(&real, "Out/Stray.gba", b"x");
+    put(&real, "Pile.gba", b"x");
+    let via = tmp.path().join("via");
+    std::os::unix::fs::symlink(&real, &via).unwrap();
+    let ignored: [String; 0] = [];
+    // The planner may hand the target canonicalised while the source is not.
+    let canonical_out = fs::canonicalize(real.join("Out")).unwrap();
+    let opts = opts_with(vec![canonical_out], None, &ignored, &NoCloud);
+    let w = walk(&via, &SystemDb::builtin(), &opts).unwrap();
+    let names: Vec<_> = w
+        .candidates
+        .iter()
+        .map(|c| c.path.file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(names, ["Pile.gba"]);
+}
+
+#[test]
+fn a_deep_folder_holding_only_junk_is_not_reported() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "a/b/c/d/.DS_Store", b"x");
+    put(tmp.path(), "a/b/c/d/._x", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.deep_folders.is_empty(), "{:?}", w.deep_folders);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_folder_is_left_and_not_followed() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "elsewhere/Far.gba", b"x");
+    let src = tmp.path().join("src");
+    fs::create_dir(&src).unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("elsewhere"), src.join("linked")).unwrap();
+    let w = run(&src, &NoCloud);
+    assert!(w.candidates.is_empty());
+    assert_eq!(reason_of(&w, "linked"), Some(LeftReason::Symlink));
+}
+
+#[test]
+fn only_real_state_slots_are_companions() {
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Game.state.auto", b"x");
+    put(tmp.path(), "bank.statements.dmg", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.companions.len(), 1, "{:?}", w.companions);
+    assert_eq!(w.other_files.len(), 1, "{:?}", w.other_files);
+}
