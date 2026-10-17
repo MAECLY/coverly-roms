@@ -5,6 +5,9 @@ use serde::Serialize;
 
 use super::model::{ProxyChoice, Settings, KNOWN_SOURCES};
 use crate::matching::parse_region_order;
+use crate::profiles::builtin_profiles;
+use crate::profiles::naming::validate_folder_override;
+use crate::systems::SystemDb;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -58,7 +61,7 @@ const fn range(field: &'static str, min: f64, max: f64) -> Range {
     Range { field, min, max }
 }
 
-pub const RANGES: [Range; 12] = [
+pub const RANGES: [Range; 16] = [
     range("art.jpeg_quality", 1.0, 100.0),
     range("art.max_size.width", 16.0, 4096.0),
     range("art.max_size.height", 16.0, 4096.0),
@@ -71,6 +74,10 @@ pub const RANGES: [Range; 12] = [
     range("network.cache_max_mb", 64.0, 102_400.0),
     range("network.index_refresh_hours", 1.0, 720.0),
     range("safety.undo_depth", 1.0, 100.0),
+    range("organize.auto_threshold", 0.0, 1.0),
+    range("organize.review_threshold", 0.0, 1.0),
+    range("organize.recent_seconds", 0.0, 3600.0),
+    range("organize.keep_organize_journals_days", 1.0, 3650.0),
 ];
 
 fn check(out: &mut Vec<FieldError>, rule: &str, field: String, value: f64) {
@@ -209,6 +216,85 @@ impl Settings {
         {
             out.push(FieldError::new("advanced.custom_dir", NotAbsolute));
         }
+        self.validate_organize(known_profiles, &mut out);
         out
+    }
+
+    /// The `organize` group: ranges, threshold order, known layouts, and
+    /// per-layout folder names and arcade orders that name real systems.
+    fn validate_organize(&self, known_profiles: &[String], out: &mut Vec<FieldError>) {
+        use FieldErrorCode::*;
+        let o = &self.organize;
+        // Built-in layouts always exist, even when the caller passes no
+        // profile list: the default layout must never fail validation.
+        let builtins = builtin_profiles();
+        let known = |id: &str| {
+            known_profiles.iter().any(|k| k == id) || builtins.iter().any(|p| p.id == id)
+        };
+        if !known(o.default_layout.trim()) {
+            out.push(FieldError::new("organize.default_layout", Unknown));
+        }
+        simple(out, "organize.auto_threshold", f64::from(o.auto_threshold));
+        simple(
+            out,
+            "organize.review_threshold",
+            f64::from(o.review_threshold),
+        );
+        if o.review_threshold > o.auto_threshold {
+            out.push(FieldError::new("organize.review_threshold", Order));
+        }
+        simple(out, "organize.recent_seconds", f64::from(o.recent_seconds));
+        simple(
+            out,
+            "organize.keep_organize_journals_days",
+            f64::from(o.keep_organize_journals_days),
+        );
+        if o.folder_names.is_empty() && o.arcade_order.is_empty() {
+            return;
+        }
+        let db = SystemDb::builtin();
+        let is_system = |id: &str| db.get(id).is_some_and(|s| s.id == id);
+        for (profile_id, names) in &o.folder_names {
+            if !known(profile_id) {
+                out.push(FieldError::new(
+                    format!("organize.folder_names.{profile_id}"),
+                    Unknown,
+                ));
+                continue;
+            }
+            let profile = builtins.iter().find(|p| &p.id == profile_id);
+            for (system_id, folder) in names {
+                let ok = is_system(system_id)
+                    && match profile {
+                        Some(p) => validate_folder_override(&db, p, system_id, folder).is_ok(),
+                        // A custom layout's host folders are not known
+                        // here: the folder must at least name a system.
+                        // `system_folder` ignores an override that does
+                        // not resolve back when planning.
+                        None => db.resolve_folder(folder.trim()).is_some(),
+                    };
+                if !ok {
+                    out.push(FieldError::new(
+                        format!("organize.folder_names.{profile_id}.{system_id}"),
+                        Invalid,
+                    ));
+                }
+            }
+        }
+        for (profile_id, order) in &o.arcade_order {
+            if !known(profile_id) {
+                out.push(FieldError::new(
+                    format!("organize.arcade_order.{profile_id}"),
+                    Unknown,
+                ));
+            } else if !order.iter().all(|id| is_system(id))
+                || (1..order.len()).any(|i| order[..i].contains(&order[i]))
+            {
+                out.push(FieldError::new(
+                    format!("organize.arcade_order.{profile_id}"),
+                    Invalid,
+                ));
+            }
+        }
     }
 }

@@ -364,6 +364,27 @@ export type OverwriteSetting = 'never' | 'ask' | 'backup';
 export type OutputFormat = 'profile' | 'png' | 'jpg';
 export type ProxyChoice = 'system' | 'env' | 'manual';
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+/** Organise transfer mode (`auto` = move on the same volume, copy otherwise). */
+export type OrganizeModeSetting = 'auto' | 'move' | 'copy';
+/** Organised files keep their name or take the catalogue name. */
+export type OrganizeNameMode = 'keep' | 'catalogue';
+
+export interface OrganizeSettings {
+  default_layout: string;
+  nest_in_roms_root: boolean;
+  mode: OrganizeModeSetting;
+  names: OrganizeNameMode;
+  download_dats: boolean;
+  auto_threshold: number;
+  review_threshold: number;
+  companion_exts: string[];
+  /** Profile id → system id → folder name. */
+  folder_names: Record<string, Record<string, string>>;
+  /** Profile id → arcade system order. */
+  arcade_order: Record<string, string[]>;
+  recent_seconds: number;
+  keep_organize_journals_days: number;
+}
 export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
 export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';
 
@@ -439,6 +460,7 @@ export interface Settings {
     undo_depth: number;
   };
   advanced: { log_level: LogLevel; custom_dir: string | null };
+  organize: OrganizeSettings;
 }
 
 export type SettingsGroup = Exclude<keyof Settings, 'version'>;

@@ -241,7 +241,11 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
             // Cross-field rules reset every field of the rule, so the reset
             // itself cannot fail again.
             let fields: &[&str] = if e.code == FieldErrorCode::Order {
-                &["matching.auto_threshold", "matching.review_threshold"]
+                if e.field.starts_with("organize.") {
+                    &["organize.auto_threshold", "organize.review_threshold"]
+                } else {
+                    &["matching.auto_threshold", "matching.review_threshold"]
+                }
             } else if e.field == "network.proxy_url" {
                 &["network.proxy", "network.proxy_url"]
             } else {
@@ -252,6 +256,28 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
                 let id = id.split('.').next().unwrap_or_default();
                 settings.art.max_size.remove(id);
                 note(&mut fixed, "art.max_size");
+            } else if let Some(rest) = e.field.strip_prefix("organize.folder_names.") {
+                // One bad folder (or every folder of an unknown layout).
+                let mut parts = rest.splitn(2, '.');
+                let profile = parts.next().unwrap_or_default().to_string();
+                let names = &mut settings.organize.folder_names;
+                match parts.next() {
+                    Some(system) => {
+                        if let Some(map) = names.get_mut(&profile) {
+                            map.remove(system);
+                            if map.is_empty() {
+                                names.remove(&profile);
+                            }
+                        }
+                    }
+                    None => {
+                        names.remove(&profile);
+                    }
+                }
+                note(&mut fixed, "organize.folder_names");
+            } else if let Some(profile) = e.field.strip_prefix("organize.arcade_order.") {
+                settings.organize.arcade_order.remove(profile);
+                note(&mut fixed, "organize.arcade_order");
             } else if fields.is_empty() {
                 reset_field(&mut settings, &e.field);
                 let key: String = e.field.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");

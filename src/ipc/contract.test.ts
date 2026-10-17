@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
-import { DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
+import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
 import sample from './contract.sample.json';
@@ -350,6 +350,9 @@ describe('settings contract', () => {
   it('the UI defaults and ranges are the Rust ones', () => {
     expect(DEFAULT_SETTINGS).toEqual(sample.settings);
     expect(RANGES).toEqual(sample.ranges);
+    expect(BUILTIN_LAYOUTS).toEqual(
+      sample.builtin_profiles.map((p) => p.profile.id),
+    );
   });
   it('error and status samples have the TS shapes', () => {
     const e: FieldError = sample.field_error as FieldError;

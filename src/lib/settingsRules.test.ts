@@ -56,6 +56,39 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     );
   });
 
+  it('checks the organize group like Rust', () => {
+    const s = cloneSettings(DEFAULT_SETTINGS);
+    s.organize.auto_threshold = 0.4;
+    s.organize.review_threshold = 0.6;
+    s.organize.recent_seconds = 4000;
+    s.organize.default_layout = 'nope';
+    s.organize.folder_names = { ghost: { gba: 'GBA' } };
+    s.organize.arcade_order = { 'anbernic-stock': ['mame', 'mame'] };
+    expect(codes(s)).toEqual([
+      'organize.default_layout:unknown',
+      'organize.review_threshold:order',
+      'organize.recent_seconds:range',
+      'organize.folder_names.ghost:unknown',
+      'organize.arcade_order.anbernic-stock:invalid',
+    ]);
+    // Built-in layouts are known even when the caller lists none.
+    expect(validateSettings(DEFAULT_SETTINGS, [])).toEqual([]);
+    const fixed = tolerantSettings(
+      { organize: { auto_threshold: 0.4, review_threshold: 0.6 } },
+      known,
+    );
+    expect(fixed.settings.organize.auto_threshold).toBe(0.85);
+    expect(fixed.settings.organize.review_threshold).toBe(0.5);
+    const n = normaliseSettings({
+      ...cloneSettings(DEFAULT_SETTINGS),
+      organize: {
+        ...DEFAULT_SETTINGS.organize,
+        companion_exts: [' SAV ', '', '.Srm', 'sav'],
+      },
+    });
+    expect(n.organize.companion_exts).toEqual(['sav', 'srm']);
+  });
+
   it('merges patches like RFC 7386', () => {
     const next = mergePatch(DEFAULT_SETTINGS, {
       network: { timeout_secs: 60 },

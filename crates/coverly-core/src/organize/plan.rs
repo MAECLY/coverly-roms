@@ -36,7 +36,7 @@ use crate::scan::classify::{
 };
 use crate::scan::multifile::{group_sets, is_list_extension};
 use crate::scan::{find_dir_ignoring_case, ScanOptions, ScanWarning};
-use crate::settings::Settings;
+use crate::settings::{OrganizeModeSetting, Settings};
 use crate::systems::SystemDb;
 
 /// How files reach their system folder.
@@ -306,12 +306,40 @@ impl Default for OrganizeOptions {
 }
 
 impl OrganizeOptions {
-    /// The options the settings ask for, with `layout` when given. Until
-    /// `settings.organize` exists this is the defaults plus the layout.
+    /// The options `settings.organize` asks for; `layout` (a per-run
+    /// choice) replaces `default_layout`, and the folder names and arcade
+    /// order are the ones stored for the chosen layout. `target` and
+    /// `offline` are per run and stay at their defaults.
     pub fn from_settings(settings: &Settings, layout: Option<&str>) -> OrganizeOptions {
-        let _ = settings;
+        let o = &settings.organize;
+        let layout = layout
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .or_else(|| Some(o.default_layout.trim()).filter(|l| !l.is_empty()))
+            .unwrap_or(DEFAULT_LAYOUT)
+            .to_string();
         OrganizeOptions {
-            layout: layout.unwrap_or(DEFAULT_LAYOUT).to_string(),
+            flat: !o.nest_in_roms_root,
+            mode: match o.mode {
+                OrganizeModeSetting::Auto => None,
+                OrganizeModeSetting::Move => Some(TransferMode::Move),
+                OrganizeModeSetting::Copy => Some(TransferMode::Copy),
+            },
+            names: o.names,
+            thresholds: Thresholds {
+                auto: o.auto_threshold,
+                review: o.review_threshold,
+            },
+            companion_exts: o.companion_exts.clone(),
+            folder_names: o.folder_names.get(&layout).cloned().unwrap_or_default(),
+            recent_secs: u64::from(o.recent_seconds),
+            arcade_order: o
+                .arcade_order
+                .get(&layout)
+                .filter(|order| !order.is_empty())
+                .cloned(),
+            download_dats: o.download_dats,
+            layout,
             ..OrganizeOptions::default()
         }
     }
