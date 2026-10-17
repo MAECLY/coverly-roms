@@ -126,6 +126,61 @@ describe('OrganizeResult', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('an undo of several jobs counts the files of every organise job', () => {
+    const job = (id: string, restored: number, modified: number) => ({
+      job: id,
+      removed: [],
+      restored: Array.from({ length: restored }, (_, i) => `/r/${id}/${i}`),
+      skipped_modified: Array.from({ length: modified }, (_, i) => `/m/${i}`),
+      skipped_occupied: [],
+      dirs_removed: [],
+    });
+    render(
+      <I18nProvider locale="en">
+        <OrganizeResult
+          job={view()}
+          plan={null}
+          undo={{
+            report: [
+              job('fill-0004', 9, 9),
+              job('organize-0002', 2, 1),
+              job('organize-0001', 3, 0),
+            ],
+            later_jobs: [
+              {
+                job: 'fill-0004',
+                root: '/Volumes/SD',
+                created_at: '2026-10-17T10:40:00Z',
+                entries: 18,
+                complete: true,
+                undone: true,
+                kind: 'fill',
+                undoable: true,
+              },
+              {
+                job: 'organize-0002',
+                root: '/Volumes/SD',
+                created_at: '2026-10-17T10:32:00Z',
+                entries: 3,
+                complete: true,
+                undone: true,
+                kind: 'organize',
+                undoable: true,
+              },
+            ],
+          }}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Restored: 5 · Left alone because they changed: 1',
+    );
+  });
+
   it('names the later jobs by kind and date, and undoes them all on request', async () => {
     const later: JobHistoryItem = {
       job: 'fill-0003',
