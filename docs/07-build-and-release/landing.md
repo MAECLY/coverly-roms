@@ -79,7 +79,7 @@ What moves:
 
 | Where | What | Trigger |
 | --- | --- | --- |
-| Hero shelf | Plays the app's own sequence. **Armed**: five dashed gaps, "7 of 12". **Dry run**: each gap is marked in the accent colour, "Dry run: 5 covers, nothing written". **Applying**: each cover wipes in as the count reaches 12. **Done**: "5 covers added". Then a ↻ Replay button shows. | 60% of the grid on screen; gives up after 10 s |
+| Hero shelf | Plays the app's own sequence, with the app's words. **Armed**: five dashed gaps, "7 of 12". **Dry run**: each gap is marked in the accent colour, "Dry run ready: 5 covers, nothing written". **Writing art…**: each cover wipes in as the count reaches 12. **Done**: "5 covers added". Then a ↻ Replay button shows; while it replays it stays in place, dimmed (`aria-disabled`), so keyboard focus stays on it. | 40% of the grid on screen, however long that takes (a phone reader may scroll later). Only a load slower than 2.6 s shows the finished shelf straight away. |
 | Header | A reading-progress line under the bar; the Download button appears once the hero's buttons scroll away | Scroll (CSS) |
 | Section headlines | The slot under each H2 fills | Scroll (CSS) |
 | Four steps, ≥1024 px | One sticky screenshot; each step's text cross-fades its own in (named view timelines `--s1`…`--s4`) | Scroll (CSS) |
@@ -101,7 +101,11 @@ What moves:
 - `animation-timeline` only appears inside `@supports`;
 - every other animation or transition sits behind `html.anim`,
   `html.motion` or `prefers-reduced-motion: no-preference`;
-- motion never hides a heading, paragraph, list item, link, button or image;
+- motion never hides a heading, paragraph, list item, link, button or image,
+  neither with a hiding rule nor with keyframes that start at `opacity: 0` or
+  `visibility: hidden`: such an animation on text may not be delayed more than
+  1 s, and may only fill backwards through a delay when scrolling drives it
+  (`animation-range` inside `@supports`);
 - no `<video>` or `autoplay`;
 - `motion.js` is at most 8,000 bytes.
 
