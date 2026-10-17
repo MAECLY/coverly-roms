@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
-import { whyKey, type ReviewBucket } from '@/lib/organize';
+import { ROWS_PER_GROUP, whyKey, type ReviewBucket } from '@/lib/organize';
 
 /** A system for the items, or leave them where they are. */
 export type OrganizeChoice = 'leave' | { system: string };
@@ -65,6 +65,9 @@ function Bucket({
   const t = useT();
   const id = useId();
   const [choice, setChoice] = useState(bucket.systems[0] ?? LEAVE);
+  const [open, setOpen] = useState(false);
+  const [visible, setVisible] = useState(ROWS_PER_GROUP);
+  const rest = Math.max(0, bucket.items.length - visible);
   const title = t('organize.review.bucket', {
     systems: bucket.systems.map(systemName).join(' / '),
     count: bucket.items.length,
@@ -96,22 +99,36 @@ function Bucket({
           {t('organize.review.applyAll')}
         </button>
       </div>
-      <details>
+      <details onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary>
           {t('organize.review.items', { count: bucket.items.length })}
         </summary>
-        <ul className="recent-list">
-          {bucket.items.map((item) => (
-            <ReviewRow
-              key={item.id}
-              item={item}
-              systems={bucket.systems}
-              systemName={systemName}
-              disabled={disabled}
-              onDecide={onDecide}
-            />
-          ))}
-        </ul>
+        {/* Rows reach the DOM only once opened, capped like the groups. */}
+        {open && (
+          <>
+            <ul className="recent-list">
+              {bucket.items.slice(0, visible).map((item) => (
+                <ReviewRow
+                  key={item.id}
+                  item={item}
+                  systems={bucket.systems}
+                  systemName={systemName}
+                  disabled={disabled}
+                  onDecide={onDecide}
+                />
+              ))}
+            </ul>
+            {rest > 0 && (
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setVisible((v) => v + ROWS_PER_GROUP)}
+              >
+                {t('organize.showMore', { count: rest })}
+              </button>
+            )}
+          </>
+        )}
       </details>
     </div>
   );

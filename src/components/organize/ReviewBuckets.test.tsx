@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -43,6 +43,14 @@ function renderBuckets() {
   return onDecide;
 }
 
+/** Opens every bucket's file list (rows render only once opened). */
+function openAll() {
+  for (const details of document.querySelectorAll('details')) {
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+  }
+}
+
 describe('ReviewBuckets', () => {
   it('buckets by candidate set and applies one choice to the whole bucket', async () => {
     const onDecide = renderBuckets();
@@ -76,6 +84,7 @@ describe('ReviewBuckets', () => {
 
   it('settles one file, or leaves it in place, from its own select', async () => {
     const onDecide = renderBuckets();
+    openAll();
     const one = screen.getByRole('combobox', {
       name: 'System for Columns.bin',
     });
@@ -90,10 +99,41 @@ describe('ReviewBuckets', () => {
 
   it('shows the evidence of each file', () => {
     renderBuckets();
+    openAll();
     expect(
       screen.getAllByText(
         '.gb extension, shared by several systems; Game Boy is likely',
       ),
     ).not.toHaveLength(0);
+  });
+
+  it('renders a large bucket capped, and only once opened', async () => {
+    const items = Array.from({ length: 450 }, (_, i) =>
+      reviewItem(i, `Game ${String(i).padStart(3, '0')}.gb`, [
+        ['gb', 0.55],
+        ['gbc', 0.45],
+      ]),
+    );
+    render(
+      <I18nProvider locale="en">
+        <ReviewBuckets
+          buckets={reviewBuckets(planOf(items))}
+          systemName={systemName}
+          onDecide={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    const bucket = screen.getByRole('group', {
+      name: 'Game Boy / Game Boy Color: 450',
+    });
+    const details = bucket.querySelector('details')!;
+    expect(within(bucket).queryAllByRole('listitem')).toHaveLength(0);
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    expect(within(bucket).getAllByRole('listitem')).toHaveLength(200);
+    await userEvent.click(
+      within(bucket).getByRole('button', { name: 'Show 250 more' }),
+    );
+    expect(within(bucket).getAllByRole('listitem')).toHaveLength(400);
   });
 });

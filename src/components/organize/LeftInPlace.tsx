@@ -1,6 +1,8 @@
+import { useState } from 'react';
+
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem, SystemInfo } from '@/ipc/types';
-import { leftReasonText } from '@/lib/organize';
+import { ROWS_PER_GROUP, leftReasonText } from '@/lib/organize';
 
 import type { OrganizeChoice } from './ReviewBuckets';
 
@@ -24,6 +26,8 @@ export function LeftInPlace({
   onDecide,
 }: Props) {
   const t = useT();
+  const [visible, setVisible] = useState(ROWS_PER_GROUP);
+  const rest = Math.max(0, items.length - visible);
   if (items.length === 0 && otherFiles === 0 && deepFolders === 0) return null;
   return (
     <section aria-labelledby="organize-left-title" className="recent">
@@ -32,7 +36,7 @@ export function LeftInPlace({
       </h2>
       {items.length > 0 && (
         <ul className="recent-list">
-          {items.map((item) => {
+          {items.slice(0, visible).map((item) => {
             const name = item.sources[0] ?? '';
             return (
               <li key={item.id}>
@@ -63,6 +67,15 @@ export function LeftInPlace({
             );
           })}
         </ul>
+      )}
+      {rest > 0 && (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => setVisible((v) => v + ROWS_PER_GROUP)}
+        >
+          {t('organize.showMore', { count: rest })}
+        </button>
       )}
       {otherFiles > 0 && (
         <p className="hint">
