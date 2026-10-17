@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -115,6 +115,17 @@ describe('Start screen', () => {
       expect(
         screen.queryByRole('button', { name: /^Empty library/ }),
       ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('names the icon-only forget button in a tooltip on keyboard focus', async () => {
+    renderApp();
+    const forget = await screen.findByRole('button', {
+      name: 'Forget Empty library',
+    });
+    act(() => forget.focus());
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Forget Empty library',
     );
   });
 
@@ -299,9 +310,14 @@ describe('Start screen', () => {
 
   it('switches the language', async () => {
     render(<Root />);
-    const select = screen.getByLabelText('Language');
+    const select = screen.getByRole('combobox', { name: 'Language' });
     await waitFor(() => expect(select).not.toBeDisabled());
-    await userEvent.selectOptions(select, 'es');
+    expect(select).toHaveTextContent('System language');
+    await userEvent.click(select);
+    await userEvent.click(screen.getByRole('option', { name: 'Español' }));
+    expect(
+      await screen.findByRole('combobox', { name: 'Idioma' }),
+    ).toHaveTextContent('Español');
     expect(
       await screen.findByRole('button', { name: 'Abrir carpeta…' }),
     ).toBeInTheDocument();

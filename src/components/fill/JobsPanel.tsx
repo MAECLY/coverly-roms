@@ -1,3 +1,4 @@
+import { Download, Undo2 } from 'lucide-react';
 import {
   Fragment,
   useContext,
@@ -7,7 +8,18 @@ import {
   useState,
 } from 'react';
 
-import { Modal } from '@/components/Modal';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -65,6 +77,7 @@ export function JobsPanel({
   const [confirming, setConfirming] = useState(false);
   const keepRef = useRef<HTMLButtonElement>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const undoTitleRef = useRef<HTMLHeadingElement>(null);
   const wasConfirming = useRef(false);
   const [failed, setFailed] = useState<{
@@ -199,304 +212,366 @@ export function JobsPanel({
   }
 
   return (
-    <Modal labelledBy="jobs-title" onClose={close} className="jobs">
-      <h2 id="jobs-title" className="section-title">
-        {t('jobs.title')}
-      </h2>
-      {job ? (
-        <section aria-labelledby="jobs-current">
-          <h3 id="jobs-current" className="section-title">
-            {t('jobs.current')}
-          </h3>
-          <p>{t(`jobs.state.${job.state}`)}</p>
-          {running && (
-            <div className="progress-row">
-              <progress
-                max={p?.total || 1}
-                value={p?.done ?? 0}
-                aria-label={t('jobs.progressLabel')}
-              />
-              {p && (
-                <p>
-                  {t('jobs.progress', {
-                    phase: t(`jobs.phase.${p.phase}`),
-                    done: n.format(Math.min(p.done + 1, p.total)),
-                    total: n.format(p.total),
-                  })}
-                </p>
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent
+        size="lg"
+        hideClose
+        aria-describedby={undefined}
+        ref={contentRef}
+        // Focus the dialog itself, as before: the first button may be Cancel.
+        onOpenAutoFocus={(ev) => {
+          ev.preventDefault();
+          contentRef.current?.focus();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{t('jobs.title')}</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="grid content-start gap-5">
+          {job ? (
+            <section aria-labelledby="jobs-current" className="grid gap-2.5">
+              <h3 id="jobs-current" className={sectionTitle}>
+                {t('jobs.current')}
+              </h3>
+              <p className="m-0">{t(`jobs.state.${job.state}`)}</p>
+              {running && (
+                <div className="grid gap-2">
+                  <Progress
+                    max={p?.total || 1}
+                    value={Math.min(p?.done ?? 0, p?.total || 1)}
+                    aria-label={t('jobs.progressLabel')}
+                  />
+                  {p && (
+                    <p className="m-0 tabular-nums">
+                      {t('jobs.progress', {
+                        phase: t(`jobs.phase.${p.phase}`),
+                        done: n.format(Math.min(p.done + 1, p.total)),
+                        total: n.format(p.total),
+                      })}
+                    </p>
+                  )}
+                  {p?.label ? (
+                    <p className="hint mono truncate" title={p.label}>
+                      {p.label}
+                    </p>
+                  ) : null}
+                  <div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => void cancel()}
+                    >
+                      {t('jobs.cancel')}
+                    </Button>
+                  </div>
+                </div>
               )}
-              {p?.label ? (
-                <p className="hint truncate" title={p.label}>
-                  {p.label}
-                </p>
-              ) : null}
-              <button
-                type="button"
-                className="ghost-button"
-                disabled={pending}
-                onClick={() => void cancel()}
+              {job.state === 'paused' && job.paused && (
+                <Alert
+                  variant="warning"
+                  role="alert"
+                  action={
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => void cancel()}
+                      >
+                        {t('jobs.cancel')}
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => void resume()}
+                      >
+                        {t('jobs.resume')}
+                      </Button>
+                    </>
+                  }
+                >
+                  <AlertTitle>{t(`jobs.pause.${job.paused.kind}`)}</AlertTitle>
+                  <AlertDescription
+                    className="truncate"
+                    title={job.paused.detail}
+                  >
+                    {job.paused.detail}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {job.error && (
+                <Alert variant="danger">
+                  {t('jobs.failed', { detail: job.error })}
+                </Alert>
+              )}
+              {job.result && (
+                <dl className="jobs-totals">
+                  {TOTALS.map((k) => (
+                    <Fragment key={k}>
+                      <dt>{t(`jobs.totals.${k}`)}</dt>
+                      <dd>{n.format(job.result?.[k] ?? 0)}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              )}
+              {errors.length > 0 && (
+                <ul
+                  className="job-errors"
+                  aria-label={t('jobs.errors', { n: n.format(errors.length) })}
+                >
+                  {errors.map((i) => (
+                    <li key={i.index}>
+                      <span className="truncate" title={i.name}>
+                        {i.name}
+                      </span>
+                      <span className="hint" title={i.outcome?.message ?? ''}>
+                        {t(`art.media.${i.media}`)} ·{' '}
+                        {i.outcome?.error
+                          ? t(`jobs.error.${i.outcome.error}`)
+                          : t('jobs.unknownError')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {job.result && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void exportJob('csv')}
+                  >
+                    <Download aria-hidden />
+                    {t('jobs.exportCsv')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void exportJob('json')}
+                  >
+                    <Download aria-hidden />
+                    {t('jobs.exportJson')}
+                  </Button>
+                </div>
+              )}
+              {saved && (
+                <p className="hint">{t('reports.saved', { name: saved })}</p>
+              )}
+            </section>
+          ) : (
+            <p className="m-0">{t('jobs.none')}</p>
+          )}
+          <section aria-labelledby="jobs-undo" className="grid gap-2.5">
+            <h3
+              id="jobs-undo"
+              className={sectionTitle}
+              ref={undoTitleRef}
+              tabIndex={-1}
+            >
+              {t('jobs.undoTitle')}
+            </h3>
+            {confirming ? (
+              <Alert
+                variant="warning"
+                role="group"
+                aria-labelledby="jobs-undo-confirm"
+                action={
+                  <>
+                    <Button
+                      ref={keepRef}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirming(false)}
+                    >
+                      {t('jobs.undoNo')}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => void undo()}
+                    >
+                      {t('jobs.undoYes')}
+                    </Button>
+                  </>
+                }
               >
-                {t('jobs.cancel')}
-              </button>
-            </div>
-          )}
-          {job.state === 'paused' && job.paused && (
-            <div role="alert" className="pause-banner">
-              <p>{t(`jobs.pause.${job.paused.kind}`)}</p>
-              <p className="hint truncate" title={job.paused.detail}>
-                {job.paused.detail}
-              </p>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={pending}
-                  onClick={() => void cancel()}
+                <p id="jobs-undo-confirm" className="m-0">
+                  {t('jobs.undoConfirm')}
+                </p>
+              </Alert>
+            ) : (
+              <div>
+                <Button
+                  ref={undoRef}
+                  variant="outline"
+                  disabled={!canUndo || pending}
+                  onClick={() => setConfirming(true)}
                 >
-                  {t('jobs.cancel')}
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={pending}
-                  onClick={() => void resume()}
-                >
-                  {t('jobs.resume')}
-                </button>
+                  <Undo2 aria-hidden />
+                  {t('jobs.undo')}
+                </Button>
               </div>
-            </div>
+            )}
+            {lastUndo && (
+              <p role="status" className="m-0">
+                {t('jobs.undone', {
+                  removed: n.format(lastUndo.removed),
+                  restored: n.format(lastUndo.restored),
+                  kept: n.format(lastUndo.kept),
+                })}
+              </p>
+            )}
+          </section>
+          <section aria-labelledby="jobs-history" className="grid gap-2.5">
+            <h3 id="jobs-history" className={sectionTitle}>
+              {t('jobs.history')}
+            </h3>
+            {history.length === 0 ? (
+              <p className="hint">{t('jobs.noHistory')}</p>
+            ) : (
+              <ul className="history-list" aria-labelledby="jobs-history">
+                {history.map((h) => (
+                  <li key={h.job} className="items-center">
+                    <span>{t(`jobs.kind.${h.kind}`)}</span>
+                    <span>{when(h.created_at)}</span>
+                    <span className="tabular-nums">
+                      {h.entries === 1
+                        ? t('jobs.file')
+                        : t('jobs.files', { n: n.format(h.entries) })}
+                    </span>
+                    {h.undone ? (
+                      <Badge variant="neutral">{t('jobs.undoneBadge')}</Badge>
+                    ) : h.complete ? (
+                      <Badge variant="success">{t('jobs.complete')}</Badge>
+                    ) : h.kind === 'organize' ? (
+                      <Badge variant="warning">
+                        {t('organize.interrupted')}
+                      </Badge>
+                    ) : (
+                      <Badge variant="warning">{t('jobs.incomplete')}</Badge>
+                    )}
+                    <span className="flex flex-wrap justify-end gap-1">
+                      {h.kind === 'organize' &&
+                        !h.complete &&
+                        !h.undone &&
+                        h.undoable && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={running}
+                            onClick={() => resumeOrganize(h.job, h.root)}
+                          >
+                            {t('organize.resume')}
+                          </Button>
+                        )}
+                      {h.kind === 'organize' &&
+                        !h.undone &&
+                        h.undoable &&
+                        organizeConfirm !== h.job && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={running || organizeBusy}
+                            aria-label={t('jobs.organizeUndo.label', {
+                              date: when(h.created_at),
+                            })}
+                            onClick={() => setOrganizeConfirm(h.job)}
+                          >
+                            <Undo2 aria-hidden />
+                            {t('organize.undo.action')}
+                          </Button>
+                        )}
+                    </span>
+                    {organizeConfirm === h.job && (
+                      <Alert
+                        variant="warning"
+                        role="group"
+                        aria-labelledby={`jobs-organize-confirm-${h.job}`}
+                        className="col-span-full"
+                        action={
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setOrganizeConfirm(null)}
+                            >
+                              {t('jobs.undoNo')}
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={running || organizeBusy}
+                              onClick={() => void undoOrganize(h.job, false)}
+                            >
+                              {t('jobs.undoYes')}
+                            </Button>
+                          </>
+                        }
+                      >
+                        <p
+                          id={`jobs-organize-confirm-${h.job}`}
+                          className="m-0"
+                        >
+                          {t('jobs.organizeUndo.confirm')}
+                        </p>
+                      </Alert>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          {error && (
+            <Alert variant="danger">
+              {t(errorKey(error.code), { detail: error.detail ?? '' })}
+            </Alert>
           )}
-          {job.error && (
-            <p role="alert" className="error-banner">
-              {t('jobs.failed', { detail: job.error })}
+          {organizeUndo?.done && (
+            <p role="status" className="m-0">
+              {t('organize.undone', organizeUndo.done)}
             </p>
           )}
-          {job.result && (
-            <dl className="jobs-totals">
-              {TOTALS.map((k) => (
-                <Fragment key={k}>
-                  <dt>{t(`jobs.totals.${k}`)}</dt>
-                  <dd>{n.format(job.result?.[k] ?? 0)}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          )}
-          {errors.length > 0 && (
-            <ul
-              className="job-errors"
-              aria-label={t('jobs.errors', { n: n.format(errors.length) })}
+          {organizeUndo?.error?.code === 'later-jobs' && (
+            <Alert
+              variant="warning"
+              role="alert"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={running || organizeBusy}
+                  onClick={() => void undoOrganize(organizeUndo.job, true)}
+                >
+                  {t('organize.undo.all')}
+                </Button>
+              }
             >
-              {errors.map((i) => (
-                <li key={i.index}>
-                  <span className="truncate" title={i.name}>
-                    {i.name}
-                  </span>
-                  <span className="hint" title={i.outcome?.message ?? ''}>
-                    {t(`art.media.${i.media}`)} ·{' '}
-                    {i.outcome?.error
-                      ? t(`jobs.error.${i.outcome.error}`)
-                      : t('jobs.unknownError')}
-                  </span>
-                </li>
-              ))}
-            </ul>
+              <p className="m-0">
+                {t('organize.undo.laterJobs', {
+                  jobs: laterJobs(organizeUndo.error.detail),
+                })}
+              </p>
+            </Alert>
           )}
-          {job.result && (
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => void exportJob('csv')}
-              >
-                {t('jobs.exportCsv')}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => void exportJob('json')}
-              >
-                {t('jobs.exportJson')}
-              </button>
-            </div>
+          {organizeUndo?.error && organizeUndo.error.code !== 'later-jobs' && (
+            <Alert variant="danger">
+              {t(errorKey(organizeUndo.error.code), {
+                detail: organizeUndo.error.detail ?? '',
+              })}
+            </Alert>
           )}
-          {saved && (
-            <p className="hint">{t('reports.saved', { name: saved })}</p>
-          )}
-        </section>
-      ) : (
-        <p>{t('jobs.none')}</p>
-      )}
-      <section aria-labelledby="jobs-undo">
-        <h3
-          id="jobs-undo"
-          className="section-title"
-          ref={undoTitleRef}
-          tabIndex={-1}
-        >
-          {t('jobs.undoTitle')}
-        </h3>
-        {confirming ? (
-          <div className="undo-confirm">
-            <p>{t('jobs.undoConfirm')}</p>
-            <div className="modal-actions">
-              <button
-                ref={keepRef}
-                type="button"
-                className="ghost-button"
-                onClick={() => setConfirming(false)}
-              >
-                {t('jobs.undoNo')}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={pending}
-                onClick={() => void undo()}
-              >
-                {t('jobs.undoYes')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            ref={undoRef}
-            type="button"
-            className="ghost-button"
-            disabled={!canUndo || pending}
-            onClick={() => setConfirming(true)}
-          >
-            {t('jobs.undo')}
-          </button>
-        )}
-        {lastUndo && (
-          <p role="status">
-            {t('jobs.undone', {
-              removed: n.format(lastUndo.removed),
-              restored: n.format(lastUndo.restored),
-              kept: n.format(lastUndo.kept),
-            })}
-          </p>
-        )}
-      </section>
-      <section aria-labelledby="jobs-history">
-        <h3 id="jobs-history" className="section-title">
-          {t('jobs.history')}
-        </h3>
-        {history.length === 0 ? (
-          <p className="hint">{t('jobs.noHistory')}</p>
-        ) : (
-          <ul className="history-list" aria-labelledby="jobs-history">
-            {history.map((h) => (
-              <li key={h.job}>
-                <span>{t(`jobs.kind.${h.kind}`)}</span>
-                <span>{when(h.created_at)}</span>
-                <span>
-                  {h.entries === 1
-                    ? t('jobs.file')
-                    : t('jobs.files', { n: n.format(h.entries) })}
-                </span>
-                <span className="hint">
-                  {h.undone
-                    ? t('jobs.undoneBadge')
-                    : h.complete
-                      ? t('jobs.complete')
-                      : h.kind === 'organize'
-                        ? t('organize.interrupted')
-                        : t('jobs.incomplete')}
-                </span>
-                {h.kind === 'organize' &&
-                  !h.complete &&
-                  !h.undone &&
-                  h.undoable && (
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      disabled={running}
-                      onClick={() => resumeOrganize(h.job, h.root)}
-                    >
-                      {t('organize.resume')}
-                    </button>
-                  )}
-                {h.kind === 'organize' &&
-                  !h.undone &&
-                  h.undoable &&
-                  organizeConfirm !== h.job && (
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      disabled={running || organizeBusy}
-                      aria-label={t('jobs.organizeUndo.label', {
-                        date: when(h.created_at),
-                      })}
-                      onClick={() => setOrganizeConfirm(h.job)}
-                    >
-                      {t('organize.undo.action')}
-                    </button>
-                  )}
-                {organizeConfirm === h.job && (
-                  <div className="undo-confirm">
-                    <p>{t('jobs.organizeUndo.confirm')}</p>
-                    <div className="modal-actions">
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        onClick={() => setOrganizeConfirm(null)}
-                      >
-                        {t('jobs.undoNo')}
-                      </button>
-                      <button
-                        type="button"
-                        className="primary-button"
-                        disabled={running || organizeBusy}
-                        onClick={() => void undoOrganize(h.job, false)}
-                      >
-                        {t('jobs.undoYes')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      {organizeUndo?.done && (
-        <p role="status">{t('organize.undone', organizeUndo.done)}</p>
-      )}
-      {organizeUndo?.error?.code === 'later-jobs' && (
-        <div role="alert" className="error-banner">
-          <p>
-            {t('organize.undo.laterJobs', {
-              jobs: laterJobs(organizeUndo.error.detail),
-            })}
-          </p>
-          <button
-            type="button"
-            className="ghost-button"
-            disabled={running || organizeBusy}
-            onClick={() => void undoOrganize(organizeUndo.job, true)}
-          >
-            {t('organize.undo.all')}
-          </button>
-        </div>
-      )}
-      {organizeUndo?.error && organizeUndo.error.code !== 'later-jobs' && (
-        <p role="alert" className="error-banner">
-          {t(errorKey(organizeUndo.error.code), {
-            detail: organizeUndo.error.detail ?? '',
-          })}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="error-banner">
-          {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
-      )}
-      <div className="modal-actions">
-        <button type="button" className="ghost-button" onClick={close}>
-          {t('jobs.close')}
-        </button>
-      </div>
-    </Modal>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={close}>
+            {t('jobs.close')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
+
+const sectionTitle = 'm-0 text-ui font-semibold text-cr-text outline-none';

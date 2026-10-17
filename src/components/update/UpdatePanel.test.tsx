@@ -60,6 +60,13 @@ describe('updates UI', () => {
     expect(
       within(panel).getByText('Faster scans, two new layouts and fixes.'),
     ).toBeInTheDocument();
+    const notes = within(panel).getByRole('button', { name: "What's new" });
+    expect(notes).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(notes);
+    expect(notes).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      within(panel).queryByText('Faster scans, two new layouts and fixes.'),
+    ).not.toBeInTheDocument();
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Download and install' }),
     );

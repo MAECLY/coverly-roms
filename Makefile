@@ -137,8 +137,17 @@ fmt: ## Format frontend (Prettier) and Rust (rustfmt) sources.
 	pnpm format
 	cargo fmt --all
 
+.PHONY: tokens
+tokens: ## Regenerate src/styles/tokens.css and site/assets/tokens.css from design/tokens.json.
+	pnpm tokens
+
+.PHONY: tokens-check
+tokens-check: ## Fail if the generated token CSS is stale or a contrast pair misses its target.
+	pnpm tokens:check
+
 .PHONY: check
 check: ## Run every quality gate without writing (CI equivalent).
+	pnpm tokens:check
 	pnpm lint
 	pnpm typecheck
 	pnpm format:check
@@ -188,8 +197,13 @@ site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json t
 	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
 
+.PHONY: site-og
+site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs Chrome or Chromium).
+	node scripts/site/og.mjs
+
 .PHONY: site-check
-site-check: ## Check the landing page: links, ES/EN parity, head tags, budgets, contrast.
+site-check: ## Check the landing page: tokens, links, ES/EN parity, head tags, budgets, contrast.
+	node scripts/brand/build_tokens.mjs --check
 	python3 -I scripts/site/check_site.py
 
 # ───────────────────────────────────────────────────────────────────────
@@ -225,7 +239,7 @@ example-clean: ## Delete the example library, its cache and its journals.
 # ───────────────────────────────────────────────────────────────────────
 
 .PHONY: icons
-icons: ## Regenerate the app icons from the source logo.
+icons: ## Regenerate every app and landing icon from design/icon/*.svg.
 	pnpm icons
 
 .PHONY: bump

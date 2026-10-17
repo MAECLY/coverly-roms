@@ -133,9 +133,12 @@ describe('Library screen', () => {
 
   it('toggles between grid and table', async () => {
     await openLibrary();
-    await userEvent.click(screen.getByRole('button', { name: 'List' }));
+    const layout = screen.getByRole('radiogroup', { name: 'Layout' });
+    expect(within(layout).getByRole('radio', { name: 'Grid' })).toBeChecked();
+    await userEvent.click(within(layout).getByRole('radio', { name: 'List' }));
     expect(screen.getByRole('grid', { name: 'ROM list' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Grid' }));
+    expect(within(layout).getByRole('radio', { name: 'List' })).toBeChecked();
+    await userEvent.click(within(layout).getByRole('radio', { name: 'Grid' }));
     expect(
       screen.getByRole('grid', { name: 'ROM covers' }),
     ).toBeInTheDocument();

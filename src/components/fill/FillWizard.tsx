@@ -1,6 +1,30 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
-import { Modal } from '@/components/Modal';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -24,6 +48,7 @@ import {
   wizardDefaults,
   type FillScope,
 } from '@/lib/fill';
+import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useViewStore } from '@/stores/viewStore';
@@ -69,8 +94,8 @@ function Samples({ job }: { job: JobView }) {
   }, [job.id]);
   if (items.length === 0) return null;
   return (
-    <section aria-label={t('fill.samples')}>
-      <h3 className="section-title">{t('fill.samples')}</h3>
+    <section aria-label={t('fill.samples')} className="grid gap-2">
+      <h3 className={groupTitle}>{t('fill.samples')}</h3>
       <ul className="sample-grid">
         {items.map((i) => (
           <li key={i.index}>
@@ -141,6 +166,10 @@ export function FillWizard({
     defaults.overwrite,
   );
   const index = STEPS.indexOf(step);
+  const uid = useId();
+  const contentRef = useRef<HTMLDivElement>(null);
+  /** The last reorder, said by a live region (the buttons move under focus). */
+  const [moved, setMoved] = useState('');
   // Asked once, when Popularity is first chosen: are SteamGridDB votes usable?
   const [sources, setSources] = useState<SourceInfo[] | null>(null);
   const wantSources = strategy === 'popularity' && sources === null;
@@ -213,121 +242,196 @@ export function FillWizard({
     onClose();
   }
 
+  function moveRegion(i: number, delta: -1 | 1) {
+    const r = regions[i];
+    const to = i + delta;
+    if (r === undefined || to < 0 || to >= regions.length) return;
+    setRegions((l) => moveItem(l, i, delta));
+    setMoved(
+      t('fill.moved', {
+        region: regionName(r),
+        n: n.format(to + 1),
+        total: n.format(regions.length),
+      }),
+    );
+  }
+
   let body;
   if (step === 'scope') {
     body = (
-      <fieldset className="wizard-fieldset">
-        <legend className="section-title">{t('fill.scope.title')}</legend>
-        {SCOPES.map((s) => (
-          <label key={s} className="wizard-choice">
-            <input
-              type="radio"
-              name="fill-scope"
-              checked={scope === s}
-              disabled={counts[s] === 0}
-              onChange={() => setScope(s)}
-            />
-            {t(`fill.scope.${s}`, { n: n.format(counts[s]) })}
-          </label>
-        ))}
-      </fieldset>
+      <ChoiceGroup title={t('fill.scope.title')}>
+        {(labelId) => (
+          <RadioGroup
+            aria-labelledby={labelId}
+            value={scope}
+            onValueChange={(v) => setScope(v as FillScope)}
+          >
+            {SCOPES.map((s) => (
+              <RadioRow
+                key={s}
+                id={`${uid}-scope-${s}`}
+                value={s}
+                disabled={counts[s] === 0}
+                label={t(`fill.scope.${s}`, { n: n.format(counts[s]) })}
+              />
+            ))}
+          </RadioGroup>
+        )}
+      </ChoiceGroup>
     );
   } else if (step === 'media') {
     body = (
-      <fieldset className="wizard-fieldset">
-        <legend className="section-title">{t('fill.media.title')}</legend>
-        {view.profile.media.map((m) => (
-          <label key={m} className="wizard-choice">
-            <input
-              type="checkbox"
-              name={`fill-media-${m}`}
-              checked={media.includes(m)}
-              onChange={() =>
-                setMedia((list) =>
-                  list.includes(m) ? list.filter((x) => x !== m) : [...list, m],
-                )
-              }
-            />
-            {t(`art.media.${m}`)}
-          </label>
-        ))}
+      <fieldset className="m-0 grid min-w-0 gap-2.5 border-0 p-0">
+        <legend className={groupTitle}>{t('fill.media.title')}</legend>
+        {view.profile.media.map((m) => {
+          const id = `${uid}-media-${m}`;
+          return (
+            <div key={m} className="flex items-center gap-2.5">
+              <Checkbox
+                id={id}
+                name={`fill-media-${m}`}
+                checked={media.includes(m)}
+                onCheckedChange={() =>
+                  setMedia((list) =>
+                    list.includes(m)
+                      ? list.filter((x) => x !== m)
+                      : [...list, m],
+                  )
+                }
+              />
+              <Label htmlFor={id} className="font-normal">
+                {t(`art.media.${m}`)}
+              </Label>
+            </div>
+          );
+        })}
       </fieldset>
     );
   } else if (step === 'strategy') {
     body = (
-      <>
-        <fieldset className="wizard-fieldset">
-          <legend className="section-title">{t('fill.strategy.title')}</legend>
-          {STRATEGIES.map((s) => (
-            <label key={s} className="wizard-choice">
-              <input
-                type="radio"
-                name="fill-strategy"
-                checked={strategy === s}
-                onChange={() => setStrategy(s)}
-              />
-              <span>
-                {t(`fill.strategy.${s}`)}
-                <span className="hint wizard-hint">
-                  {t(`fill.strategyHint.${s}`)}
-                </span>
-              </span>
-            </label>
-          ))}
-          {strategy === 'popularity' && sources !== null && !sgdbVotes && (
-            <p className="hint">{t('fill.popularityNoKey')}</p>
+      <div className="grid gap-5">
+        <ChoiceGroup title={t('fill.strategy.title')}>
+          {(labelId) => (
+            <RadioGroup
+              aria-labelledby={labelId}
+              value={strategy}
+              onValueChange={(v) => setStrategy(v as StrategyKind)}
+            >
+              {STRATEGIES.map((s) => {
+                const id = `${uid}-strategy-${s}`;
+                const on = strategy === s;
+                return (
+                  <div
+                    key={s}
+                    className={cn(
+                      'grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 rounded-lg border px-3 py-2.5',
+                      'transition-colors duration-fast ease-standard',
+                      on
+                        ? 'border-primary bg-cr-primary-subtle/40'
+                        : 'border-cr-border bg-cr-surface',
+                    )}
+                  >
+                    <RadioGroupItem
+                      id={id}
+                      value={s}
+                      aria-describedby={`${id}-hint`}
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor={id}>{t(`fill.strategy.${s}`)}</Label>
+                    <p
+                      id={`${id}-hint`}
+                      className="col-start-2 m-0 text-caption text-cr-text-secondary"
+                    >
+                      {t(`fill.strategyHint.${s}`)}
+                    </p>
+                  </div>
+                );
+              })}
+            </RadioGroup>
           )}
-        </fieldset>
-        <h3 className="section-title" id="fill-regions">
-          {t('fill.regions')}
-        </h3>
-        <ol className="region-order" aria-labelledby="fill-regions">
-          {regions.map((r, i) => (
-            <li key={r}>
-              <span>{regionName(r)}</span>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={i === 0}
-                aria-label={t('fill.moveUp', { region: regionName(r) })}
-                onClick={() => setRegions((l) => moveItem(l, i, -1))}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={i === regions.length - 1}
-                aria-label={t('fill.moveDown', { region: regionName(r) })}
-                onClick={() => setRegions((l) => moveItem(l, i, 1))}
-              >
-                ↓
-              </button>
-            </li>
-          ))}
-        </ol>
-      </>
+        </ChoiceGroup>
+        {strategy === 'popularity' && sources !== null && !sgdbVotes && (
+          <Alert variant="warning" role="note">
+            <AlertDescription>{t('fill.popularityNoKey')}</AlertDescription>
+          </Alert>
+        )}
+        <section className="grid gap-2" aria-labelledby={`${uid}-regions`}>
+          <h3 id={`${uid}-regions`} className={groupTitle}>
+            {t('fill.regions')}
+          </h3>
+          <TooltipProvider>
+            <ol
+              className="m-0 grid list-none gap-1 p-0"
+              aria-labelledby={`${uid}-regions`}
+            >
+              {regions.map((r, i) => (
+                <li
+                  key={r}
+                  className="flex items-center gap-2 rounded-md border border-cr-border bg-cr-surface py-0.5 pl-2.5 pr-0.5"
+                >
+                  <span
+                    aria-hidden
+                    className="w-4 font-mono text-caption tabular-nums text-cr-text-secondary"
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-ui">
+                    {regionName(r)}
+                  </span>
+                  <IconAction
+                    label={t('fill.moveUp', { region: regionName(r) })}
+                    disabled={i === 0}
+                    onClick={() => moveRegion(i, -1)}
+                  >
+                    <ChevronUp aria-hidden />
+                  </IconAction>
+                  <IconAction
+                    label={t('fill.moveDown', { region: regionName(r) })}
+                    disabled={i === regions.length - 1}
+                    onClick={() => moveRegion(i, 1)}
+                  >
+                    <ChevronDown aria-hidden />
+                  </IconAction>
+                </li>
+              ))}
+            </ol>
+          </TooltipProvider>
+          <p role="status" className="sr-only">
+            {moved}
+          </p>
+        </section>
+      </div>
     );
   } else if (step === 'overwrite') {
     body = (
-      <fieldset className="wizard-fieldset">
-        <legend className="section-title">{t('fill.overwrite.title')}</legend>
-        {OVERWRITES.map((o) => (
-          <label key={o} className="wizard-choice">
-            <input
-              type="radio"
-              name="fill-overwrite"
-              checked={overwrite === o}
-              onChange={() => setOverwrite(o)}
-            />
-            {t(`fill.overwrite.${o}`)}
-          </label>
-        ))}
+      <div className="grid gap-3">
+        <ChoiceGroup title={t('fill.overwrite.title')}>
+          {(labelId) => (
+            <RadioGroup
+              aria-labelledby={labelId}
+              value={overwrite ?? ''}
+              onValueChange={(v) => setOverwrite(v as OverwritePolicy)}
+            >
+              {OVERWRITES.map((o) => (
+                <RadioRow
+                  key={o}
+                  id={`${uid}-overwrite-${o}`}
+                  value={o}
+                  label={t(`fill.overwrite.${o}`)}
+                />
+              ))}
+            </RadioGroup>
+          )}
+        </ChoiceGroup>
         {defaults.overwrite === null && (
-          <p className="hint">{t('fill.overwrite.askHint')}</p>
+          <p className="m-0 text-caption text-cr-text-secondary">
+            {t('fill.overwrite.askHint')}
+          </p>
         )}
-        <p className="hint">{t('fill.overwrite.backupHint')}</p>
-      </fieldset>
+        <p className="m-0 text-caption text-cr-text-secondary">
+          {t('fill.overwrite.backupHint')}
+        </p>
+      </div>
     );
   } else {
     body = renderSummary();
@@ -339,20 +443,20 @@ export function FillWizard({
     if (job.state === 'gathering') {
       const p = progress?.job === job.id ? progress : null;
       return (
-        <div className="progress-row">
-          <p role="status">
+        <div className="grid gap-2">
+          <p role="status" className="m-0">
             {t('fill.gathering', {
               done: n.format(p?.done ?? 0),
               total: n.format(p?.total ?? 0),
             })}
           </p>
-          <progress
+          <Progress
             max={p?.total || 1}
-            value={p?.done ?? 0}
+            value={Math.min(p?.done ?? 0, p?.total || 1)}
             aria-label={t('fill.summary')}
           />
           {p?.label ? (
-            <p className="hint truncate" title={p.label}>
+            <p className="hint mono truncate" title={p.label}>
               {p.label}
             </p>
           ) : null}
@@ -361,25 +465,30 @@ export function FillWizard({
     }
     if (job.state === 'paused' && job.paused) {
       return (
-        <div role="alert" className="pause-banner">
-          <p>{t(`jobs.pause.${job.paused.kind}`)}</p>
-          <p className="hint">{t('fill.pausedHint')}</p>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={pending}
-            onClick={() => void resume()}
-          >
-            {t('jobs.resume')}
-          </button>
-        </div>
+        <Alert
+          variant="warning"
+          role="alert"
+          action={
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={pending}
+              onClick={() => void resume()}
+            >
+              {t('jobs.resume')}
+            </Button>
+          }
+        >
+          <AlertTitle>{t(`jobs.pause.${job.paused.kind}`)}</AlertTitle>
+          <AlertDescription>{t('fill.pausedHint')}</AlertDescription>
+        </Alert>
       );
     }
     if (job.state === 'failed') {
       return (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger">
           {t('fill.failed', { detail: job.error ?? '' })}
-        </p>
+        </Alert>
       );
     }
     if (!job.plan) return null;
@@ -427,84 +536,174 @@ export function FillWizard({
     job.generation === view.generation &&
     job.state === 'planned';
   return (
-    <Modal labelledBy="fill-title" onClose={onClose} className="wizard">
-      <h2 id="fill-title" className="section-title">
-        {t('fill.title')}
-      </h2>
-      <p className="hint">
-        {t('fill.stepOf', { n: index + 1, total: STEPS.length })}
-      </p>
-      {view.profile.gamelist && <p className="hint">{t('fill.gamelist')}</p>}
-      {body}
-      {error && (
-        <p role="alert" className="error-banner">
-          {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
-      )}
-      <div className="modal-actions">
-        {step !== 'summary' && index > 0 && (
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => setStep(STEPS[index - 1] ?? 'scope')}
-          >
-            {t('fill.back')}
-          </button>
-        )}
-        {step === 'summary' && planned && (
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => void discard()}
-          >
-            {t('fill.discard')}
-          </button>
-        )}
-        <button type="button" className="ghost-button" onClick={onClose}>
-          {t('fill.close')}
-        </button>
-        {index < STEPS.indexOf('overwrite') && (
-          <button
-            type="button"
-            className="primary-button"
-            disabled={step === 'media' && media.length === 0}
-            onClick={() => setStep(STEPS[index + 1] ?? 'summary')}
-          >
-            {t('fill.next')}
-          </button>
-        )}
-        {step === 'overwrite' && (
-          <button
-            type="button"
-            className="primary-button"
-            disabled={pending || media.length === 0 || overwrite === null}
-            onClick={() => void preview()}
-          >
-            {t('fill.preview')}
-          </button>
-        )}
-        {planned && job.plan && job.plan.totals.review > 0 && (
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => setOverlay('review')}
-          >
-            {t('review.open', { n: n.format(job.plan.totals.review) })}
-          </button>
-        )}
-        {planned && job.plan && (
-          <button
-            type="button"
-            className="primary-button"
-            disabled={pending}
-            onClick={() => void runJob()}
-          >
-            {t('fill.run', {
-              n: n.format(job.plan.totals.auto + job.decided - job.skipped),
-            })}
-          </button>
-        )}
-      </div>
-    </Modal>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        size="lg"
+        hideClose
+        ref={contentRef}
+        // Focus the dialog itself, as before: the first control may be a
+        // choice the user has not read yet.
+        onOpenAutoFocus={(ev) => {
+          ev.preventDefault();
+          contentRef.current?.focus();
+        }}
+        // A stray click on the scrim must not throw away the choices made.
+        onPointerDownOutside={(ev) => ev.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{t('fill.title')}</DialogTitle>
+          <div className="flex items-center gap-2.5">
+            <Progress
+              slots={STEPS.length}
+              value={index + 1}
+              max={STEPS.length}
+              aria-hidden
+            />
+            <DialogDescription>
+              {t('fill.stepOf', { n: index + 1, total: STEPS.length })}
+            </DialogDescription>
+          </div>
+        </DialogHeader>
+        <DialogBody className="grid content-start gap-4">
+          {view.profile.gamelist && (
+            <p className="m-0 text-caption text-cr-text-secondary">
+              {t('fill.gamelist')}
+            </p>
+          )}
+          {body}
+          {error && (
+            <Alert variant="danger">
+              {t(errorKey(error.code), { detail: error.detail ?? '' })}
+            </Alert>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          {step !== 'summary' && index > 0 && (
+            <Button
+              variant="outline"
+              className="mr-auto"
+              onClick={() => setStep(STEPS[index - 1] ?? 'scope')}
+            >
+              {t('fill.back')}
+            </Button>
+          )}
+          {step === 'summary' && planned && (
+            <Button
+              variant="outline"
+              className="mr-auto"
+              onClick={() => void discard()}
+            >
+              {t('fill.discard')}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            {t('fill.close')}
+          </Button>
+          {index < STEPS.indexOf('overwrite') && (
+            <Button
+              variant="primary"
+              disabled={step === 'media' && media.length === 0}
+              onClick={() => setStep(STEPS[index + 1] ?? 'summary')}
+            >
+              {t('fill.next')}
+            </Button>
+          )}
+          {step === 'overwrite' && (
+            <Button
+              variant="primary"
+              disabled={pending || media.length === 0 || overwrite === null}
+              onClick={() => void preview()}
+            >
+              {t('fill.preview')}
+            </Button>
+          )}
+          {planned && job.plan && job.plan.totals.review > 0 && (
+            <Button variant="outline" onClick={() => setOverlay('review')}>
+              {t('review.open', { n: n.format(job.plan.totals.review) })}
+            </Button>
+          )}
+          {planned && job.plan && (
+            <Button
+              variant="primary"
+              disabled={pending}
+              onClick={() => void runJob()}
+            >
+              {t('fill.run', {
+                n: n.format(job.plan.totals.auto + job.decided - job.skipped),
+              })}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const groupTitle = 'm-0 p-0 text-ui font-semibold text-cr-text';
+
+/** A titled group of choices; the title names the group for screen readers. */
+function ChoiceGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: (labelId: string) => ReactNode;
+}) {
+  const labelId = useId();
+  return (
+    <div className="grid gap-2.5">
+      <h3 id={labelId} className={groupTitle}>
+        {title}
+      </h3>
+      {children(labelId)}
+    </div>
+  );
+}
+
+function RadioRow({
+  id,
+  value,
+  label,
+  disabled = false,
+}: {
+  id: string;
+  value: string;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <RadioGroupItem id={id} value={value} disabled={disabled} />
+      <Label htmlFor={id} className="font-normal">
+        {label}
+      </Label>
+    </div>
+  );
+}
+
+/** An icon-only button: the label is its name and its tooltip. */
+function IconAction({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
+  return (
+    <SimpleTooltip content={label}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={label}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        {children}
+      </Button>
+    </SimpleTooltip>
   );
 }

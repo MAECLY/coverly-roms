@@ -11,6 +11,8 @@ import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useT } from '@/i18n/useT';
 import { useFilterStore } from '@/stores/filterStore';
@@ -29,15 +31,6 @@ function isTyping(target: EventTarget | null): boolean {
     (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type)) ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement
-  );
-}
-
-function Notice({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="notice">
-      <p className="notice-title">{title}</p>
-      {children}
-    </div>
   );
 }
 
@@ -80,8 +73,10 @@ export function LibraryScreen() {
 
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
-      // A modal owns the keyboard; the search sits behind it.
-      if (overlay !== 'none') return;
+      // A modal owns the keyboard; the search sits behind it. A Radix layer
+      // (alert dialog, tooltip) that already handled Escape marks it
+      // defaultPrevented: the drawer stays open.
+      if (overlay !== 'none' || ev.defaultPrevented) return;
       const find = ev.key === 'f' && (ev.metaKey || ev.ctrlKey);
       if (find || (ev.key === '/' && !isTyping(ev.target))) {
         ev.preventDefault();
@@ -116,26 +111,29 @@ export function LibraryScreen() {
   let content: ReactNode;
   if (view.entries.length === 0) {
     content = (
-      <Notice title={t('library.empty')}>
-        <p className="hint">
-          {t('library.emptyHint', { n: view.warnings.length })}
-        </p>
-      </Notice>
+      <EmptyState
+        className="h-full justify-center"
+        title={t('library.empty')}
+        description={t('library.emptyHint', { n: view.warnings.length })}
+      />
     );
   } else if (visible.length === 0) {
     content = (
-      <Notice title={t('library.noMatch')}>
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={() => {
-            clearFilters();
-            setQuery('');
-          }}
-        >
-          {t('filters.clear')}
-        </button>
-      </Notice>
+      <EmptyState
+        className="h-full justify-center"
+        title={t('library.noMatch')}
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearFilters();
+              setQuery('');
+            }}
+          >
+            {t('filters.clear')}
+          </Button>
+        }
+      />
     );
   } else if (layout === 'grid') {
     content = <CoverGrid {...list} />;

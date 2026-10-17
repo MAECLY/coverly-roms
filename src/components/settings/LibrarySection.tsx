@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { NativeSelect } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import type {
@@ -10,7 +14,14 @@ import type {
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { Field, settingId, useFieldError } from './Field';
+import {
+  Field,
+  hintText,
+  sectionTitle,
+  settingId,
+  SwitchSetting,
+  useFieldError,
+} from './Field';
 
 /** A list edited as text, committed on blur. */
 function ListSetting({
@@ -38,10 +49,9 @@ function ListSetting({
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <Field id={id} label={label} hint={hint} error={error}>
-      <textarea
-        id={id}
+      <Textarea
         name={id}
-        className="text-input"
+        mono
         rows={4}
         value={draft ?? join(value)}
         onChange={(e) => setDraft(e.target.value)}
@@ -61,22 +71,20 @@ function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
   const t = useT();
   const org = useSettingsStore((s) => s.settings!.organize);
   const update = useSettingsStore((s) => s.update);
-  const layoutId = settingId('organize.default_layout');
-  const modeId = settingId('organize.mode');
-  const namesId = settingId('organize.names');
   const listed = profiles.some((p) => p.profile.id === org.default_layout);
   return (
-    <fieldset className="setting">
-      <legend className="setting-label">{t('settings.organize.title')}</legend>
+    <fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
+      <legend className={`${sectionTitle} mb-4 p-0`}>
+        {t('settings.organize.title')}
+      </legend>
       <Field
-        id={layoutId}
+        id={settingId('organize.default_layout')}
         label={t('settings.organize.defaultLayout')}
         error={useFieldError('organize.default_layout')}
       >
-        <select
-          id={layoutId}
+        <NativeSelect
           name="organize-default-layout"
-          className="select"
+          className="max-w-xs"
           value={org.default_layout}
           onChange={(e) =>
             void update({ organize: { default_layout: e.target.value } })
@@ -90,28 +98,25 @@ function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
               {p.profile.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="organize-nest-in-roms-root"
-          checked={org.nest_in_roms_root}
-          onChange={(e) =>
-            void update({ organize: { nest_in_roms_root: e.target.checked } })
-          }
-        />
-        {t('settings.organize.nestInRoms')}
-      </label>
+      <SwitchSetting
+        id={settingId('organize.nest_in_roms_root')}
+        name="organize-nest-in-roms-root"
+        label={t('settings.organize.nestInRoms')}
+        checked={org.nest_in_roms_root}
+        onCheckedChange={(on) =>
+          void update({ organize: { nest_in_roms_root: on } })
+        }
+      />
       <Field
-        id={modeId}
+        id={settingId('organize.mode')}
         label={t('settings.organize.mode')}
         error={useFieldError('organize.mode')}
       >
-        <select
-          id={modeId}
+        <NativeSelect
           name="organize-mode"
-          className="select"
+          className="max-w-xs"
           value={org.mode}
           onChange={(e) =>
             void update({
@@ -122,17 +127,16 @@ function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
           <option value="auto">{t('settings.organize.modeAuto')}</option>
           <option value="move">{t('settings.organize.modeMove')}</option>
           <option value="copy">{t('settings.organize.modeCopy')}</option>
-        </select>
+        </NativeSelect>
       </Field>
       <Field
-        id={namesId}
+        id={settingId('organize.names')}
         label={t('settings.organize.names')}
         error={useFieldError('organize.names')}
       >
-        <select
-          id={namesId}
+        <NativeSelect
           name="organize-names"
-          className="select"
+          className="max-w-xs"
           value={org.names}
           onChange={(e) =>
             void update({
@@ -144,20 +148,18 @@ function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
           <option value="catalogue">
             {t('settings.organize.namesCatalogue')}
           </option>
-        </select>
+        </NativeSelect>
       </Field>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="organize-download-dats"
-          checked={org.download_dats}
-          onChange={(e) =>
-            void update({ organize: { download_dats: e.target.checked } })
-          }
-        />
-        {t('settings.organize.downloadDats')}
-      </label>
-      <p className="hint">{t('settings.organize.advancedHint')}</p>
+      <SwitchSetting
+        id={settingId('organize.download_dats')}
+        name="organize-download-dats"
+        label={t('settings.organize.downloadDats')}
+        checked={org.download_dats}
+        onCheckedChange={(on) =>
+          void update({ organize: { download_dats: on } })
+        }
+      />
+      <p className={hintText}>{t('settings.organize.advancedHint')}</p>
     </fieldset>
   );
 }
@@ -206,10 +208,9 @@ export function LibrarySection() {
         label={t('settings.library.defaultProfile')}
         error={useFieldError('library.default_profile')}
       >
-        <select
-          id={settingId('library.default_profile')}
+        <NativeSelect
           name="default-profile"
-          className="select"
+          className="max-w-xs"
           value={lib.default_profile ?? ''}
           onChange={(e) =>
             void update({
@@ -224,7 +225,7 @@ export function LibrarySection() {
               {p.profile.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <ListSetting
         path="library.ignored_dirs"
@@ -244,47 +245,58 @@ export function LibrarySection() {
         join={(l) => l.join(', ')}
         toPatch={(l) => ({ library: { ignored_exts: l } })}
       />
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="include-hidden"
-          checked={lib.include_hidden}
-          onChange={(e) =>
-            void update({ library: { include_hidden: e.target.checked } })
-          }
-        />
-        {t('settings.library.includeHidden')}
-      </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="follow-symlinks"
-          checked={lib.follow_symlinks}
-          onChange={(e) =>
-            void update({ library: { follow_symlinks: e.target.checked } })
-          }
-        />
-        {t('settings.library.followSymlinks')}
-      </label>
-      <p className="hint">{t('settings.library.followSymlinksHint')}</p>
+      <SwitchSetting
+        id={settingId('library.include_hidden')}
+        name="include-hidden"
+        label={t('settings.library.includeHidden')}
+        checked={lib.include_hidden}
+        onCheckedChange={(on) =>
+          void update({ library: { include_hidden: on } })
+        }
+      />
+      <SwitchSetting
+        id={settingId('library.follow_symlinks')}
+        name="follow-symlinks"
+        label={t('settings.library.followSymlinks')}
+        hint={t('settings.library.followSymlinksHint')}
+        checked={lib.follow_symlinks}
+        onCheckedChange={(on) =>
+          void update({ library: { follow_symlinks: on } })
+        }
+      />
       <OrganizeSettings profiles={profiles} />
-      <h2 className="section-title">{t('settings.library.recent')}</h2>
+      <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
-        <p className="hint">{t('settings.library.recentEmpty')}</p>
+        <EmptyState
+          size="sm"
+          titleAs="p"
+          title={t('settings.library.recentEmpty')}
+          className="items-start px-0 py-2 text-left"
+        />
       ) : (
         <ul className="recent-list">
           {recents.map((r) => (
-            <li key={r.path}>
-              <span className="truncate" title={r.path}>
-                {r.name}
+            <li key={r.path} className="flex items-center gap-3">
+              {/* The name in the UI face, the path as the mono readout
+                  (brand §5), the same pair as the start screen rows. */}
+              <span className="grid min-w-0 flex-1">
+                <span className="truncate font-medium" title={r.name}>
+                  {r.name}
+                </span>
+                <span
+                  className="truncate font-mono text-caption text-cr-text-secondary"
+                  title={r.path}
+                >
+                  {r.path}
+                </span>
               </span>
-              <button
-                type="button"
-                className="ghost-button"
+              <Button
+                size="sm"
+                aria-label={t('start.forget', { name: r.name })}
                 onClick={() => void forget(r.path)}
               >
                 {t('settings.library.forget')}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

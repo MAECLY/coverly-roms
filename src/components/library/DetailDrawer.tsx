@@ -1,5 +1,9 @@
+import { FolderOpen, X } from 'lucide-react';
 import { useContext, useState } from 'react';
 
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -13,6 +17,7 @@ import {
 } from '@/stores/identityStore';
 
 import { ArtWorkspace } from './ArtWorkspace';
+import { Tip } from './Tip';
 
 function revealLabel(): string {
   const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
@@ -32,14 +37,24 @@ function IdentityBlock({
 }) {
   const t = useT();
   const [forgetError, setForgetError] = useState<BackendError | null>(null);
-  if (!state) return <p className="hint">{t('drawer.identifyHint')}</p>;
+  if (!state)
+    return (
+      <p className="m-0 mb-2 text-ui text-cr-text-secondary">
+        {t('drawer.identifyHint')}
+      </p>
+    );
   if (state.status === 'loading')
-    return <p role="status">{t('drawer.identifying')}</p>;
+    return (
+      <p role="status" className="m-0 mb-2 flex items-center gap-2 text-ui">
+        <Spinner size="sm" decorative />
+        {t('drawer.identifying')}
+      </p>
+    );
   if (state.status === 'error') {
     return (
-      <p role="alert" className="error-banner">
+      <Alert variant="danger" className="mb-2">
         {t(errorKey(state.error.code), { detail: state.error.detail ?? '' })}
-      </p>
+      </Alert>
     );
   }
   const { identity } = state;
@@ -76,20 +91,20 @@ function IdentityBlock({
           <span>{pct}%</span>
         </dd>
       </dl>
-      {identity.offline && <p className="hint">{t('drawer.offline')}</p>}
+      {identity.offline && (
+        <p className="m-0 mb-2 text-ui text-cr-text-secondary">
+          {t('drawer.offline')}
+        </p>
+      )}
       {identity.method === 'manual' && (
-        <button
-          type="button"
-          className="art-ws__btn"
-          onClick={() => void forget()}
-        >
+        <Button size="sm" className="mb-2" onClick={() => void forget()}>
           {t('drawer.forgetManual')}
-        </button>
+        </Button>
       )}
       {forgetError && (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger" className="mb-2">
           {t(errorKey(forgetError.code), { detail: forgetError.detail ?? '' })}
-        </p>
+        </Alert>
       )}
     </>
   );
@@ -129,44 +144,35 @@ export function DetailDrawer({
         <h2 id="drawer-title" className="drawer-title" title={entry.name}>
           {entry.name}
         </h2>
-        <button
-          type="button"
-          className="icon-button drawer-reveal"
-          aria-label={t(revealLabel())}
-          title={t(revealLabel())}
-          onClick={() => void reveal()}
-        >
-          <svg
-            viewBox="0 0 16 16"
-            width="15"
-            height="15"
-            aria-hidden="true"
-            focusable="false"
+        <Tip content={t(revealLabel())}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-cr-text-secondary hover:text-cr-text"
+            aria-label={t(revealLabel())}
+            onClick={() => void reveal()}
           >
-            <path
-              d="M1.75 4.25v8a1 1 0 0 0 1 1h10.5a1 1 0 0 0 1-1v-6.5a1 1 0 0 0-1-1H8L6.5 3.25H2.75a1 1 0 0 0-1 1Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label={t('drawer.close')}
-          onClick={onClose}
-        >
-          ×
-        </button>
+            <FolderOpen aria-hidden />
+          </Button>
+        </Tip>
+        <Tip content={t('drawer.close')}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-cr-text-secondary hover:text-cr-text"
+            aria-label={t('drawer.close')}
+            onClick={onClose}
+          >
+            <X aria-hidden />
+          </Button>
+        </Tip>
       </header>
       {revealError && (
-        <p role="alert" className="error-banner drawer-reveal-error">
+        <Alert variant="danger" className="mt-2">
           {t(errorKey(revealError.code), {
             detail: revealError.detail ?? '',
           })}
-        </p>
+        </Alert>
       )}
       <ArtWorkspace
         key={`${view.generation}:${entry.id}`}
@@ -180,14 +186,13 @@ export function DetailDrawer({
           generation={view.generation}
           entryId={entry.id}
         />
-        <button
-          type="button"
-          className="art-ws__btn"
+        <Button
+          size="sm"
           disabled={identity?.status === 'loading'}
           onClick={() => void identify(view.generation, entry.id)}
         >
           {t('drawer.identify')}
-        </button>
+        </Button>
       </section>
       <section className="drawer-section drawer-section--quiet">
         <h3 className="drawer-subtitle">{t('drawer.file')}</h3>

@@ -55,6 +55,11 @@ export default defineConfig(
     rules: jsxA11y.configs.recommended.rules,
   },
   {
+    // shadcn-style primitives export their cva variants next to the component.
+    files: ['src/components/ui/**/*.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
+  {
     // Node scripts (icon generation, tooling).
     files: ['scripts/**/*.{js,mjs}'],
     languageOptions: {

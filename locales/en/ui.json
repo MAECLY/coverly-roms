@@ -45,6 +45,7 @@
     "loading": "Loading settings…",
     "retry": "Try again",
     "dismiss": "Dismiss",
+    "moved": "{name}: position {position} of {total}",
     "reopen": "Reopen the library to apply these changes.",
     "reopenNow": "Reopen now",
     "saved": "Saved.",
@@ -161,6 +162,7 @@
       },
       "save": "Save {what}",
       "saveShort": "Save",
+      "show": "Show {what}",
       "remove": "Remove {what}",
       "removeShort": "Remove",
       "stored": "Saved in the system keychain.",
@@ -392,6 +394,7 @@
   "toolbar": {
     "search": "Search by name",
     "searchPlaceholder": "Search… ( / )",
+    "searchShort": "Search…",
     "filters": "Filters",
     "filtersActive": "Filters ({n})",
     "layout": "Layout",
@@ -488,6 +491,7 @@
     "loadingCandidates": "Looking for images…",
     "noCandidates": "No images found for this ROM.",
     "removeConfirm": "Remove this image? It is backed up and Undo brings it back.",
+    "removeTitle": "Remove this image?",
     "removeYes": "Remove image",
     "removeNo": "Keep",
     "busy": "A fill job is running: art changes wait until it ends.",
@@ -533,6 +537,7 @@
     "regionRom": "The ROM's own region",
     "moveUp": "Move {region} up",
     "moveDown": "Move {region} down",
+    "moved": "{region}: position {n} of {total}",
     "overwrite": {
       "title": "Existing art",
       "never": "Only missing art",
@@ -639,7 +644,7 @@
     "position": "{n} of {total} · {decided} decided",
     "current": "Current art",
     "candidates": "Candidates",
-    "meta": "{key}. {source} · {regions} · {score}%",
+    "meta": "{key}. {regions} · {score}%",
     "metaShort": "{regions} · {score}%",
     "votes": "{score} votes (▲{up} ▼{down})",
     "why": "Why: {reason}",
@@ -648,6 +653,17 @@
     "accepted": "Will be written",
     "skipped": "Skipped",
     "keys": "Keys: ← → move · 1–9 choose · Enter accept · S skip · A accept all remaining · Esc back",
+    "shortcuts": {
+      "label": "Keyboard shortcuts",
+      "move": "move",
+      "choose": "choose",
+      "accept": "accept",
+      "skip": "skip",
+      "acceptAll": "accept all remaining",
+      "back": "back",
+      "enter": "Enter",
+      "esc": "Esc"
+    },
     "previous": "Previous",
     "next": "Next",
     "accept": "Accept",
@@ -671,6 +687,7 @@
   "reports": {
     "saved": "Saved as {name}.",
     "title": "Reports",
+    "description": "Missing art per system, and exports of the audit and the last fill job.",
     "audit": "Art audit",
     "system": "System",
     "roms": "ROMs",
@@ -857,5 +874,11 @@
     "undone": "Restored: {restored} · Left alone because they changed: {modified}",
     "resume": "Resume",
     "interrupted": "Interrupted"
+  },
+  "ui": {
+    "close": "Close",
+    "loading": "Loading",
+    "notifications": "Notifications",
+    "dismiss": "Dismiss"
   }
 }

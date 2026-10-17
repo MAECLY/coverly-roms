@@ -1,6 +1,19 @@
+import { Copy, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Modal } from '@/components/Modal';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -8,6 +21,7 @@ import type { ProfileFile, ProfileInfo } from '@/ipc/types';
 import { profileFromBuiltin } from '@/lib/profileTemplate';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+import { hintText } from './Field';
 import { BLANK_PROFILE, ProfileEditor } from './ProfileEditor';
 
 export function ProfilesSection() {
@@ -17,7 +31,9 @@ export function ProfilesSection() {
     initial: ProfileFile;
     replaces: string | null;
   } | null>(null);
+  /** The profile the confirmation is about; kept while it closes. */
   const [deleting, setDeleting] = useState<ProfileInfo | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<BackendError | null>(null);
   useEffect(() => {
     let alive = true;
@@ -33,7 +49,7 @@ export function ProfilesSection() {
   }, []);
 
   async function remove(p: ProfileInfo) {
-    setDeleting(null);
+    setConfirmOpen(false);
     try {
       setProfiles(await (await getBackend()).deleteProfile(p.profile.id));
       // The default profile / max size of a deleted profile changed in the backend.
@@ -60,26 +76,36 @@ export function ProfilesSection() {
   }
   return (
     <div className="settings-group">
-      <p className="hint">{t('profiles.hint')}</p>
-      <button
-        type="button"
-        className="primary-button"
+      <p className={hintText}>{t('profiles.hint')}</p>
+      <Button
+        variant="primary"
+        className="self-start"
         onClick={() => setEditing({ initial: BLANK_PROFILE, replaces: null })}
       >
+        <Plus aria-hidden />
         {t('profiles.new')}
-      </button>
-      <ul aria-label={t('profiles.list')} className="profile-list">
+      </Button>
+      <ul
+        aria-label={t('profiles.list')}
+        className="m-0 grid list-none divide-y divide-cr-border rounded-md border border-cr-border p-0"
+      >
         {profiles.map((p) => (
-          <li key={p.profile.id} aria-label={p.profile.name}>
-            <span className="truncate" title={p.profile.id}>
+          <li
+            key={p.profile.id}
+            aria-label={p.profile.name}
+            className="flex flex-wrap items-center gap-2 px-3 py-2"
+          >
+            <span
+              className="min-w-32 flex-1 truncate text-ui font-medium"
+              title={p.profile.id}
+            >
               {p.profile.name}
             </span>
             {p.builtin ? (
               <>
-                <span className="hint">{t('profiles.builtin')}</span>
-                <button
-                  type="button"
-                  className="ghost-button"
+                <Badge>{t('profiles.builtin')}</Badge>
+                <Button
+                  size="sm"
                   aria-label={t('profiles.duplicate', { name: p.profile.name })}
                   onClick={() =>
                     setEditing({
@@ -92,66 +118,67 @@ export function ProfilesSection() {
                     })
                   }
                 >
+                  <Copy aria-hidden />
                   {t('profiles.duplicateShort')}
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="ghost-button"
+                <Button
+                  size="sm"
                   aria-label={t('profiles.edit', { name: p.profile.name })}
                   onClick={() =>
                     setEditing({ initial: p.profile, replaces: p.profile.id })
                   }
                 >
+                  <Pencil aria-hidden />
                   {t('profiles.editShort')}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button"
+                </Button>
+                <Button
+                  size="sm"
+                  className="text-cr-danger hover:border-cr-danger"
                   aria-label={t('profiles.delete', { name: p.profile.name })}
-                  onClick={() => setDeleting(p)}
+                  onClick={() => {
+                    setDeleting(p);
+                    setConfirmOpen(true);
+                  }}
                 >
+                  <Trash2 aria-hidden />
                   {t('profiles.deleteShort')}
-                </button>
+                </Button>
               </>
             )}
           </li>
         ))}
       </ul>
       {error && (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger">
           {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
+        </Alert>
       )}
-      {deleting && (
-        <Modal
-          labelledBy="delete-profile-title"
-          onClose={() => setDeleting(null)}
-        >
-          <h2 id="delete-profile-title">
-            {t('profiles.deleteTitle', { name: deleting.profile.name })}
-          </h2>
-          <p>{t('profiles.deleteBody')}</p>
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setDeleting(null)}
-            >
-              {t('profiles.cancel')}
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => void remove(deleting)}
-            >
-              {t('profiles.deleteYes')}
-            </button>
-          </div>
-        </Modal>
-      )}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        {deleting && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t('profiles.deleteTitle', { name: deleting.profile.name })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('profiles.deleteBody')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('profiles.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => void remove(deleting)}
+              >
+                {t('profiles.deleteYes')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
     </div>
   );
 }

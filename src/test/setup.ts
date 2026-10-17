@@ -26,3 +26,24 @@ if (typeof URL.revokeObjectURL !== 'function') {
 if (typeof Element.prototype.scrollTo !== 'function') {
   Element.prototype.scrollTo = () => undefined;
 }
+
+// Radix primitives (src/components/ui) use pointer capture and
+// scrollIntoView; Sonner and the theme read matchMedia.
+const elementProto = Element.prototype as unknown as Record<string, unknown>;
+elementProto.hasPointerCapture ??= () => false;
+elementProto.setPointerCapture ??= () => undefined;
+elementProto.releasePointerCapture ??= () => undefined;
+elementProto.scrollIntoView ??= () => undefined;
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}

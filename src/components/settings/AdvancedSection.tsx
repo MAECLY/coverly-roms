@@ -1,6 +1,21 @@
+import { FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 
-import { Modal } from '@/components/Modal';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
 import { getBackend, type Backend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -33,10 +48,9 @@ export function AdvancedSection() {
         id={settingId('advanced.log_level')}
         label={t('settings.advanced.logLevel')}
       >
-        <select
-          id={settingId('advanced.log_level')}
+        <NativeSelect
           name="log-level"
-          className="select"
+          className="max-w-xs"
           value={a.log_level}
           onChange={(e) =>
             void update({ advanced: { log_level: e.target.value as LogLevel } })
@@ -47,28 +61,22 @@ export function AdvancedSection() {
               {t(`settings.advanced.levels.${l}`)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
-      <div className="row-actions">
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={() => void openFolder((b) => b.openLogsFolder())}
-        >
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => void openFolder((b) => b.openLogsFolder())}>
+          <FolderOpen aria-hidden />
           {t('settings.advanced.openLogs')}
-        </button>
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={() => void openFolder((b) => b.openConfigFolder())}
-        >
+        </Button>
+        <Button onClick={() => void openFolder((b) => b.openConfigFolder())}>
+          <FolderOpen aria-hidden />
           {t('settings.advanced.openConfig')}
-        </button>
+        </Button>
       </div>
       {error && (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger">
           {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
+        </Alert>
       )}
       <Field
         id={id}
@@ -76,10 +84,10 @@ export function AdvancedSection() {
         hint={t('settings.advanced.customDirHint')}
         error={dirError}
       >
-        <input
-          id={id}
+        <Input
           name={id}
-          className="text-input"
+          mono
+          className="max-w-md"
           value={dir ?? a.custom_dir ?? ''}
           onChange={(e) => setDir(e.target.value)}
           onBlur={async () => {
@@ -92,38 +100,34 @@ export function AdvancedSection() {
           }}
         />
       </Field>
-      <button
-        type="button"
-        className="ghost-button danger"
-        onClick={() => setConfirm(true)}
-      >
-        {t('settings.advanced.reset')}
-      </button>
-      {confirm && (
-        <Modal labelledBy="reset-title" onClose={() => setConfirm(false)}>
-          <h2 id="reset-title">{t('settings.advanced.resetTitle')}</h2>
-          <p>{t('settings.advanced.resetBody')}</p>
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => setConfirm(false)}
-            >
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
+        <AlertDialogTrigger asChild>
+          <Button className="self-start text-cr-danger hover:border-cr-danger">
+            {t('settings.advanced.reset')}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('settings.advanced.resetTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.advanced.resetBody')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
               {t('settings.advanced.cancel')}
-            </button>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => {
-                setConfirm(false);
-                void reset();
-              }}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void reset()}
             >
               {t('settings.advanced.resetYes')}
-            </button>
-          </div>
-        </Modal>
-      )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

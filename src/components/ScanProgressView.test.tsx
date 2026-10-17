@@ -21,5 +21,19 @@ describe('ScanProgressView', () => {
       </I18nProvider>,
     );
     expect(screen.getByText('12.345 ROMs encontradas')).toBeInTheDocument();
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '3');
+    expect(bar).toHaveAttribute('aria-valuemax', '18');
+  });
+
+  it('is indeterminate until the first folder reports', () => {
+    render(
+      <I18nProvider locale="en">
+        <ScanProgressView path={null} progress={null} />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute(
+      'aria-valuenow',
+    );
   });
 });

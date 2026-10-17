@@ -219,18 +219,21 @@ describe('Detail drawer', () => {
     const calls = spyCandidates();
     const drawer = show(entry);
     const cover = within(drawer).getByRole('tab', { name: 'Cover' });
+    act(() => cover.focus());
     expect(cover).toHaveAttribute('tabindex', '0');
-    fireEvent.keyDown(cover, { key: 'ArrowRight' });
+    await userEvent.keyboard('{ArrowRight}');
     const shot = within(drawer).getByRole('tab', { name: 'Screenshot' });
     expect(shot).toHaveFocus();
-    fireEvent.keyDown(shot, { key: 'ArrowRight' });
+    await userEvent.keyboard('{ArrowRight}');
     const title = within(drawer).getByRole('tab', { name: 'Title screen' });
     expect(title).toHaveFocus();
     expect(title).toHaveAttribute('aria-selected', 'true');
+    expect(cover).toHaveAttribute('tabindex', '-1');
     await within(drawer).findByRole('group', { name: 'Candidates' });
     expect(calls).toEqual(['title']);
-    fireEvent.keyDown(title, { key: 'Home' });
+    await userEvent.keyboard('{Home}');
     expect(cover).toHaveFocus();
+    expect(cover).toHaveAttribute('aria-selected', 'true');
   });
 
   it('ignores a late answer for a slot that is no longer active', async () => {
