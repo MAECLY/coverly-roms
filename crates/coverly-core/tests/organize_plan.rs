@@ -891,3 +891,42 @@ fn probe_skips_ignored_folders() {
     let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
     assert_eq!(probe.rom_like, 1);
 }
+
+#[test]
+fn dat_downloads_report_the_dats_phase() {
+    let dir = TempDir::new().unwrap();
+    zip(
+        &dir.path().join("Game.zip"),
+        "Game.gba",
+        &fx::gba_tagged(31),
+    );
+    let world = World::new();
+    let server = MockServer::start();
+    for dat in dat_sources(world.db.get("gba").unwrap()) {
+        server.serve_dat(
+            &dat,
+            "game (\n name \"x\"\n rom ( name \"x.gba\" size 1 crc 00000000 )\n)\n",
+        );
+    }
+    let http = http();
+    let store = DatStore::new(&http, &world.cache, server.base());
+    let env = OrganizeEnv {
+        dats: Some(&store),
+        ..world.env()
+    };
+    let seen: Mutex<Vec<OrganizeProgress>> = Mutex::new(Vec::new());
+    plan_organize(
+        dir.path(),
+        &defaults("anbernic-stock"),
+        &env,
+        &|p| seen.lock().unwrap().push(p),
+        &AtomicBool::new(false),
+    )
+    .unwrap();
+    let seen = seen.into_inner().unwrap();
+    assert!(
+        seen.iter()
+            .any(|p| p.phase == OrganizePhase::Dats && p.done >= 1),
+        "{seen:?}"
+    );
+}

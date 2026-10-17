@@ -631,7 +631,15 @@ pub fn survey(
     } else {
         env.dats
     };
-    let catalogue = DatCatalogue::new(env.db, env.cache, store, MAX_DAT_DOWNLOADS);
+    let dat_progress = |done: usize, total: usize| {
+        progress(OrganizeProgress {
+            phase: OrganizePhase::Dats,
+            done,
+            total,
+        });
+    };
+    let catalogue = DatCatalogue::new(env.db, env.cache, store, MAX_DAT_DOWNLOADS)
+        .with_download_progress(&dat_progress);
     let arcade_order = opts
         .arcade_order
         .clone()

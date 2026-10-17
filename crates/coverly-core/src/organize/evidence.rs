@@ -269,6 +269,8 @@ pub struct DatCatalogue<'a> {
     cap: usize,
     cached: HashSet<String>,
     state: Mutex<CatalogueState>,
+    /// Told `(attempted, cap)` around each download.
+    on_download: Option<&'a (dyn Fn(usize, usize) + Sync)>,
 }
 
 impl<'a> DatCatalogue<'a> {
@@ -289,7 +291,15 @@ impl<'a> DatCatalogue<'a> {
                 .into_iter()
                 .collect(),
             state: Mutex::default(),
+            on_download: None,
         }
+    }
+
+    /// Reports `(attempted, cap)` before and after each DAT download, so
+    /// a slow download shows as its own phase.
+    pub fn with_download_progress(mut self, f: &'a (dyn Fn(usize, usize) + Sync)) -> Self {
+        self.on_download = Some(f);
+        self
     }
 
     /// The usable DATs of `system`, downloading missing ones within the
@@ -310,8 +320,16 @@ impl<'a> DatCatalogue<'a> {
                     } else {
                         match self.store {
                             Some(store) if state.downloads < self.cap => {
+                                if let Some(f) = self.on_download {
+                                    f(state.downloads, self.cap);
+                                }
                                 state.downloads += 1;
-                                match store.ensure(&dat) {
+                                let attempted = state.downloads;
+                                let outcome = store.ensure(&dat);
+                                if let Some(f) = self.on_download {
+                                    f(attempted, self.cap);
+                                }
+                                match outcome {
                                     Ok(DatStatus::Ready | DatStatus::Stale) => true,
                                     // Offline, timed out or rate limited: the
                                     // next download would fail the same way,
