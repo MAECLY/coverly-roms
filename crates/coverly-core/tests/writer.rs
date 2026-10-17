@@ -152,10 +152,21 @@ fn refuses_symlink_escape() {
 fn unsafe_names_are_refused() {
     let (lib, data, imgs) = setup();
     let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    // Built as text: on Windows `join("a:b.png")` reads `a:` as a drive and
+    // replaces the whole path, so the name would never reach the check.
+    let colon = std::path::PathBuf::from(format!(
+        "{}{}a:b.png",
+        imgs.display(),
+        std::path::MAIN_SEPARATOR
+    ));
     assert!(matches!(
-        w.write(&imgs.join("a:b.png"), b"x", OverwritePolicy::Never),
+        w.write(&colon, b"x", OverwritePolicy::Never),
         Err(WriteError::NameInvalid(_))
     ));
+    // That drive-relative path is refused too, whatever the reason.
+    assert!(w
+        .write(&imgs.join("a:b.png"), b"x", OverwritePolicy::Never)
+        .is_err());
 }
 
 #[test]

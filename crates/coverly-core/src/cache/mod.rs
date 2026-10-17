@@ -423,6 +423,7 @@ mod tests {
     fn mtime_ns_of_the_epoch_and_before_is_zero() {
         assert_eq!(mtime_ns(UNIX_EPOCH), 0);
         assert_eq!(mtime_ns(UNIX_EPOCH - Duration::from_secs(1)), 0);
-        assert_eq!(mtime_ns(UNIX_EPOCH + Duration::from_nanos(7)), 7);
+        // Windows keeps file times in 100 ns ticks, so stay on a whole tick.
+        assert_eq!(mtime_ns(UNIX_EPOCH + Duration::from_nanos(700)), 700);
     }
 }
