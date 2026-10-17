@@ -69,7 +69,7 @@ pub fn set_copy_fault(f: Option<CopyFault>) {
     COPY_FAULT.with(|c| c.set(f));
 }
 
-fn fault(stage: CopyStage, path: &Path) -> Option<io::Error> {
+pub(super) fn fault(stage: CopyStage, path: &Path) -> Option<io::Error> {
     #[cfg(feature = "test-util")]
     {
         COPY_FAULT.with(|c| c.get()).and_then(|f| f(stage, path))
@@ -86,7 +86,7 @@ const CHUNK: usize = 1 << 20;
 /// Names tried after a collision before giving up.
 const MAX_NAMES: u32 = 100;
 
-fn mtime_ns(t: SystemTime) -> i64 {
+pub(super) fn mtime_ns(t: SystemTime) -> i64 {
     match t.duration_since(UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_nanos()).unwrap_or(i64::MAX),
         Err(e) => -i64::try_from(e.duration().as_nanos()).unwrap_or(i64::MAX),
@@ -211,27 +211,7 @@ impl Writer {
     /// AppleDouble sidecars directly in `dirs`, best effort: what a crash
     /// in the middle of a copy leaves behind.
     pub fn clean_temps(&self, dirs: &[PathBuf]) {
-        let prefix = format!(".coverly-{}-", self.job);
-        for dir in dirs {
-            let Ok(read) = fs::read_dir(dir) else {
-                continue;
-            };
-            for entry in read.flatten() {
-                let name = entry.file_name();
-                let Some(name) = name.to_str() else {
-                    continue;
-                };
-                let ours = name
-                    .strip_prefix(&prefix)
-                    .and_then(|rest| rest.strip_suffix(".tmp"))
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
-                let path = entry.path();
-                if ours && fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
-                    let _ = fs::remove_file(&path);
-                    remove_apple_doubles(&[path]);
-                }
-            }
-        }
+        clean_job_temps(&self.job, dirs);
     }
 
     fn transfer(
@@ -427,90 +407,127 @@ impl Writer {
         Err(too_many_collisions(&p.parent, &p.asked))
     }
 
-    /// Copies `from` to `to` through a temp file next to `to`: CRC-32
-    /// while copying, fsync, the source's modification time, a no-clobber
-    /// rename into place, then a re-read that must give the same CRC. On
-    /// any error nothing is left at `to` or in the temp file.
-    /// `AlreadyExists` means `to` was taken meanwhile.
     fn stream_copy(&mut self, from: &Path, to: &Path) -> Result<Fingerprint, WriteError> {
-        let dir = to
-            .parent()
-            .ok_or_else(|| WriteError::OutsideRoot(to.to_path_buf()))?;
-        let mut source = File::open(from).map_err(|e| map_io(e, from))?;
-        let modified = source
-            .metadata()
-            .and_then(|m| m.modified())
-            .map_err(|e| map_io(e, from))?;
-        // A crash (or an earlier run of a resumed job) can leave a temp
-        // file with the next name behind: skip past it.
-        let (tmp, mut file) = loop {
-            let tmp = dir.join(format!(".coverly-{}-{}.tmp", self.job, self.counter));
-            self.counter = self.counter.wrapping_add(1);
-            match OpenOptions::new().write(true).create_new(true).open(&tmp) {
-                Ok(file) => break (tmp, file),
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(map_io(e, to)),
-            }
+        let prefix = format!(".coverly-{}-", self.job);
+        stream_copy(from, to, &prefix, &mut self.counter)
+    }
+}
+
+/// Deletes the temp files of job `job` (`.coverly-<job>-<n>.tmp`) and
+/// their AppleDouble sidecars directly in `dirs`, best effort.
+pub(super) fn clean_job_temps(job: &str, dirs: &[PathBuf]) {
+    let prefix = format!(".coverly-{job}-");
+    for dir in dirs {
+        let Ok(read) = fs::read_dir(dir) else {
+            continue;
         };
-        let copied = (|| {
-            let mut hasher = crc32fast::Hasher::new();
-            let mut buf = vec![0u8; CHUNK];
-            loop {
-                let n = match source.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => n,
-                    Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                    Err(e) => return Err(map_io(e, from)),
-                };
-                hasher.update(&buf[..n]);
-                file.write_all(&buf[..n]).map_err(|e| map_io(e, to))?;
+        for entry in read.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let ours = name
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(".tmp"))
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            let path = entry.path();
+            if ours && fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
+                let _ = fs::remove_file(&path);
+                remove_apple_doubles(&[path]);
             }
-            file.set_modified(modified).map_err(|e| map_io(e, to))?;
-            file.sync_all().map_err(|e| map_io(e, to))?;
-            Ok(hasher.finalize())
-        })();
-        drop(file);
-        let crc = match copied.and_then(|crc| {
-            rename_noclobber(&tmp, to)
-                .map(|()| crc)
-                .map_err(|e| match e.kind() {
-                    ErrorKind::AlreadyExists => WriteError::Io(e),
-                    _ => map_io(e, to),
-                })
-        }) {
-            Ok(crc) => crc,
-            Err(e) => {
-                let _ = fs::remove_file(&tmp);
-                remove_apple_doubles(&[tmp]);
-                return Err(e);
-            }
-        };
-        remove_apple_doubles(&[tmp]);
-        // `to` is new: its sidecar (if the volume made one) is ours.
-        remove_apple_doubles(&[to.to_path_buf()]);
-        let verified = match fault(CopyStage::Verify, to) {
-            Some(e) => Err(WriteError::Io(e)),
-            None => crc_of(to).and_then(|again| {
-                if again == crc {
-                    Ok(())
-                } else {
-                    Err(WriteError::Io(io::Error::new(
-                        ErrorKind::InvalidData,
-                        "copy verification failed",
-                    )))
-                }
-            }),
-        };
-        if let Err(e) = verified {
-            let _ = fs::remove_file(to);
-            if let Some(sidecar) = apple_double(to) {
-                let _ = fs::remove_file(sidecar);
-            }
+        }
+    }
+}
+
+/// Copies `from` to `to` through a temp file next to `to` named
+/// `<tmp_prefix><n>.tmp` (`n` from `counter`): CRC-32 while copying,
+/// fsync, the source's modification time, a no-clobber rename into place,
+/// then a re-read that must give the same CRC. On any error nothing is
+/// left at `to` or in the temp file. `AlreadyExists` means `to` was taken
+/// meanwhile.
+pub(super) fn stream_copy(
+    from: &Path,
+    to: &Path,
+    tmp_prefix: &str,
+    counter: &mut u32,
+) -> Result<Fingerprint, WriteError> {
+    let dir = to
+        .parent()
+        .ok_or_else(|| WriteError::OutsideRoot(to.to_path_buf()))?;
+    let mut source = File::open(from).map_err(|e| map_io(e, from))?;
+    let modified = source
+        .metadata()
+        .and_then(|m| m.modified())
+        .map_err(|e| map_io(e, from))?;
+    // A crash (or an earlier run of a resumed job) can leave a temp
+    // file with the next name behind: skip past it.
+    let (tmp, mut file) = loop {
+        let tmp = dir.join(format!("{tmp_prefix}{counter}.tmp"));
+        *counter = counter.wrapping_add(1);
+        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(file) => break (tmp, file),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(map_io(e, to)),
+        }
+    };
+    let copied = (|| {
+        let mut hasher = crc32fast::Hasher::new();
+        let mut buf = vec![0u8; CHUNK];
+        loop {
+            let n = match source.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(map_io(e, from)),
+            };
+            hasher.update(&buf[..n]);
+            file.write_all(&buf[..n]).map_err(|e| map_io(e, to))?;
+        }
+        file.set_modified(modified).map_err(|e| map_io(e, to))?;
+        file.sync_all().map_err(|e| map_io(e, to))?;
+        Ok(hasher.finalize())
+    })();
+    drop(file);
+    let crc = match copied.and_then(|crc| {
+        rename_noclobber(&tmp, to)
+            .map(|()| crc)
+            .map_err(|e| match e.kind() {
+                ErrorKind::AlreadyExists => WriteError::Io(e),
+                _ => map_io(e, to),
+            })
+    }) {
+        Ok(crc) => crc,
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            remove_apple_doubles(&[tmp]);
             return Err(e);
         }
-        let meta = fs::metadata(to).map_err(|e| map_io(e, to))?;
-        Ok(fingerprint(&meta, Some(crc)))
+    };
+    remove_apple_doubles(&[tmp]);
+    // `to` is new: its sidecar (if the volume made one) is ours.
+    remove_apple_doubles(&[to.to_path_buf()]);
+    let verified = match fault(CopyStage::Verify, to) {
+        Some(e) => Err(WriteError::Io(e)),
+        None => crc_of(to).and_then(|again| {
+            if again == crc {
+                Ok(())
+            } else {
+                Err(WriteError::Io(io::Error::new(
+                    ErrorKind::InvalidData,
+                    "copy verification failed",
+                )))
+            }
+        }),
+    };
+    if let Err(e) = verified {
+        let _ = fs::remove_file(to);
+        if let Some(sidecar) = apple_double(to) {
+            let _ = fs::remove_file(sidecar);
+        }
+        return Err(e);
     }
+    let meta = fs::metadata(to).map_err(|e| map_io(e, to))?;
+    Ok(fingerprint(&meta, Some(crc)))
 }
 
 enum Renamed {
@@ -561,7 +578,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// CRC-32 of the file at `path`, read in 1 MiB chunks.
-fn crc_of(path: &Path) -> Result<u32, WriteError> {
+pub(super) fn crc_of(path: &Path) -> Result<u32, WriteError> {
     let mut file = File::open(path).map_err(|e| map_io(e, path))?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; CHUNK];
