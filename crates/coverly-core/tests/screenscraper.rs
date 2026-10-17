@@ -504,3 +504,53 @@ fn the_lookup_asks_at_most_three_systems_and_never_when_quota_is_gone() {
         .is_empty());
     assert_eq!(w.server.requests().len(), 1);
 }
+
+/// The Golden Sun answer with `jeu` edited by `edit`.
+fn golden_sun_with(edit: impl Fn(&mut serde_json::Value)) -> String {
+    let mut v: serde_json::Value =
+        serde_json::from_str(&fixture("jeu_infos_golden_sun.json")).unwrap();
+    edit(&mut v["response"]["jeu"]);
+    v.to_string()
+}
+
+#[test]
+fn identify_by_hash_trusts_only_an_answer_for_the_asked_system_and_crc() {
+    let inner = "Golden Sun (USA, Europe).gba";
+    let zip = HashOutcome::ZipEntry {
+        crc32: "abcd1234".into(),
+        size: 16,
+        inner_name: inner.into(),
+    };
+    // Asked as Game Boy (9) but the server names a GBA game: the system is
+    // the very question, so the answer says nothing about it.
+    let w1 = w();
+    w1.server.serve_json(
+        &zip_entry_path(9, inner),
+        &fixture("jeu_infos_golden_sun.json"),
+    );
+    let src = ScreenScraperSource::new(&w1.http, &w1.cache, dev(), Some(user()), w1.cfg.clone());
+    assert_eq!(src.identify_by_hash(9, inner, &zip).unwrap(), None);
+
+    // The server matched another ROM (by file name): its CRC differs.
+    let w2 = w();
+    w2.server.serve_json(
+        &zip_entry_path(12, inner),
+        &golden_sun_with(|j| {
+            j["rom"] = serde_json::json!({ "romcrc": "11112222", "romfilename": inner })
+        }),
+    );
+    let src = ScreenScraperSource::new(&w2.http, &w2.cache, dev(), Some(user()), w2.cfg.clone());
+    assert_eq!(src.identify_by_hash(12, inner, &zip).unwrap(), None);
+
+    // The same answer naming our CRC (any case) is trusted.
+    let w3 = w();
+    w3.server.serve_json(
+        &zip_entry_path(12, inner),
+        &golden_sun_with(|j| j["rom"] = serde_json::json!({ "romcrc": "AbCd1234" })),
+    );
+    let src = ScreenScraperSource::new(&w3.http, &w3.cache, dev(), Some(user()), w3.cfg.clone());
+    assert_eq!(
+        src.identify_by_hash(12, inner, &zip).unwrap().as_deref(),
+        Some("Golden Sun")
+    );
+}

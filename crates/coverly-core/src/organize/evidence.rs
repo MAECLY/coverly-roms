@@ -496,7 +496,8 @@ pub struct Identification {
 /// An online source asked by CRC when the offline levels leave a file
 /// below Auto (implemented in Task 24, only when configured).
 pub trait OnlineLookup: Sync {
-    /// `(system, game)` matches among `systems` (all when empty).
+    /// `(system, game)` matches among `systems`; nothing is asked when
+    /// `systems` is empty (nothing bounds the question).
     fn lookup(
         &self,
         systems: &[String],
