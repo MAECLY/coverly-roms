@@ -1645,6 +1645,8 @@ Fixtures:
     }
 ```
 
+> **Review fix (verified on real dumps):** the WonderSwan footer is 16 bytes: 0xEA at `len - 16`, colour flag at `len - 9` (the fixture above is corrected in code). `SNES_MAPS` also holds 0x22 and 0x3A (SPC7110); a checksum pair (not 0xFFFF/0x0000) is strong under a valid map mode *or* a ROM-size byte in 0x08..=0x0D; and a GBA header *with its logo* is checked before SNES (only the logo-less GBA signature stays last).
+
 - [ ] **Step 4: Run tests and gates.**
 
 - [ ] **Step 5: Commit**
