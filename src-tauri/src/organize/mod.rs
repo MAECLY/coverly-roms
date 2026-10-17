@@ -15,6 +15,8 @@ use coverly_core::organize::{
     OrganizeError, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, Survey,
 };
 
+use coverly_core::profiles::Profile;
+
 use crate::error::IpcError;
 use view::{OrganizeProgressEvent, OrganizeRequest};
 
@@ -37,6 +39,11 @@ pub struct StoredPlan {
     pub source: PathBuf,
     /// The options the plan was made with (request over settings).
     pub opts: OrganizeOptions,
+    /// The layout profile as it was when surveyed: the walk skipped its
+    /// ROMs and art folders, so an edited custom profile surveys again.
+    pub layout: Profile,
+    /// Whether online identification was available to the survey.
+    pub online: bool,
     /// What the pile held: re-plans with other decisions, names or mode
     /// reuse it without reading a file.
     pub survey: Arc<Survey>,
@@ -122,14 +129,26 @@ impl OrganizeManager {
     }
 
     /// The newest kept survey of `source` made with options that only
-    /// differ from `opts` in what a plan decides on its own (mode, names).
-    pub fn survey_for(&self, source: &Path, opts: &OrganizeOptions) -> Option<Arc<Survey>> {
+    /// differ from `opts` in what a plan decides on its own (mode, names),
+    /// with the same `layout` profile and online availability.
+    pub fn survey_for(
+        &self,
+        source: &Path,
+        opts: &OrganizeOptions,
+        layout: &Profile,
+        online: bool,
+    ) -> Option<Arc<Survey>> {
         let key = survey_key(opts);
         self.lock()
             .plans
             .iter()
             .rev()
-            .find(|(_, p)| p.source == source && survey_key(&p.opts) == key)
+            .find(|(_, p)| {
+                p.source == source
+                    && survey_key(&p.opts) == key
+                    && p.layout == *layout
+                    && p.online == online
+            })
             .map(|(_, p)| Arc::clone(&p.survey))
     }
 

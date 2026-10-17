@@ -1306,9 +1306,11 @@ impl AppState {
             .into_iter()
             .map(|(p, _)| p)
             .collect();
-        if !profiles.iter().any(|p| p.id == opts.layout) {
-            return Err(IpcError::UnknownProfile(opts.layout.clone()));
-        }
+        let layout = profiles
+            .iter()
+            .find(|p| p.id == opts.layout)
+            .cloned()
+            .ok_or_else(|| IpcError::UnknownProfile(opts.layout.clone()))?;
         let db = SystemDb::builtin();
         fs::create_dir_all(&cfg.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
         let cache = Cache::open(&cfg.cache_dir.join(CACHE_FILE))
@@ -1344,7 +1346,8 @@ impl AppState {
         };
 
         let plan_id = self.organize.next_id();
-        let survey = match self.organize.survey_for(&source, &opts) {
+        let online = lookup.is_some();
+        let survey = match self.organize.survey_for(&source, &opts, &layout, online) {
             Some(kept) => kept,
             None => {
                 let cancel = self.organize.begin(plan_id);
@@ -1366,6 +1369,8 @@ impl AppState {
                 request: req.clone(),
                 source,
                 opts,
+                layout,
+                online,
                 survey,
                 plan,
             },

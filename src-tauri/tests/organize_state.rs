@@ -298,3 +298,63 @@ fn a_plain_pile_still_answers_no_profile() {
         serde_json::json!("no-profile")
     );
 }
+
+fn custom_layout(roms_root: &str) -> coverly_core::profiles::custom::ProfileFile {
+    use coverly_core::profiles::custom::{ProfileFile, SlotFile};
+    use coverly_core::profiles::{FolderNaming, ImageFormat};
+    ProfileFile {
+        id: "mine".into(),
+        name: "Mine".into(),
+        roms_root: roms_root.into(),
+        art_dirs: vec!["covers".into()],
+        gamelist: false,
+        slots: std::collections::BTreeMap::from([(
+            "cover".into(),
+            SlotFile {
+                template: "{system_dir}/covers/{stem}.png".into(),
+                format: ImageFormat::Png,
+                max_width: None,
+                max_height: None,
+            },
+        )]),
+        system_folder: FolderNaming::default(),
+        folder_names: std::collections::BTreeMap::new(),
+        host_folders: std::collections::BTreeMap::new(),
+    }
+}
+
+#[test]
+fn editing_the_chosen_custom_layout_surveys_again() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let saved = st.save_profile(custom_layout("Games"), None).unwrap();
+    assert!(saved.errors.is_empty(), "{:?}", saved.errors);
+    let pile = gba_pile();
+    let req = OrganizeRequest {
+        layout: Some("mine".into()),
+        ..offline(pile.path())
+    };
+    let first = st
+        .organize_plan(&req, &[], Arc::new(Recorder::default()))
+        .unwrap();
+    assert!(
+        first.plan.roms_dir.ends_with("Games"),
+        "{:?}",
+        first.plan.roms_dir
+    );
+
+    // Same id, other layout: a kept survey (walked with the old folders)
+    // must not be reused.
+    let saved = st
+        .save_profile(custom_layout("Library"), Some("mine".into()))
+        .unwrap();
+    assert!(saved.errors.is_empty(), "{:?}", saved.errors);
+    let events = Arc::new(Recorder::default());
+    let second = st.organize_plan(&req, &[], events.clone()).unwrap();
+    assert!(!events.events().is_empty(), "surveyed again");
+    assert!(
+        second.plan.roms_dir.ends_with("Library"),
+        "{:?}",
+        second.plan.roms_dir
+    );
+}
