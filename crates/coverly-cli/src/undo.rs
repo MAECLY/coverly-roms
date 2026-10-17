@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use clap::Args;
 use coverly_core::paths::AppDirs;
-use coverly_core::write::{list_jobs, undo_job, undo_last, JobKind, JobSummary, UndoReport};
+use coverly_core::write::{
+    later_jobs, list_jobs, undo_jobs_in_order, undo_last, JobKind, JobSummary, UndoReport,
+};
 
 use crate::{print_stdout, table, Failure};
 
@@ -19,6 +21,10 @@ pub struct UndoArgs {
     /// List recent jobs instead of undoing.
     #[arg(long, conflicts_with = "job")]
     list: bool,
+    /// With --job: also undo the newer jobs that wrote under its folder or
+    /// took files from it (newest first), instead of refusing.
+    #[arg(long, requires = "job")]
+    include_later: bool,
     /// Data folder (job journals and backups; default: the backup location
     /// setting, else the app data folder).
     #[arg(long, value_name = "DIR")]
@@ -40,24 +46,44 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
     if args.list {
         return print_stdout(&jobs_table(&list_jobs(&dirs.data).map_err(fail)?));
     }
-    // The job about to be undone (the newest one not undone yet without
-    // --job), for its kind.
     let jobs = list_jobs(&dirs.data).map_err(fail)?;
-    let kind = match &args.job {
-        Some(id) => jobs.iter().find(|j| &j.job == id && !j.undone),
-        None => jobs.iter().find(|j| !j.undone),
-    }
-    .map(|j| j.kind)
-    .unwrap_or_default();
-    let report = match &args.job {
-        Some(id) => undo_job(&dirs.data, id),
-        None => undo_last(&dirs.data),
-    }
-    .map_err(fail)?;
-    let text = match kind {
-        JobKind::Organize => organize_text(&report),
-        JobKind::Fill => fill_text(&report),
+    let reports = match &args.job {
+        Some(id) => {
+            // Undoing a job under newer ones that wrote below its folder
+            // or moved its files on would orphan their work: refuse, or
+            // undo them first with --include-later.
+            let pending = jobs.iter().any(|j| &j.job == id && !j.undone);
+            let later = if pending {
+                later_jobs(&dirs.data, id).map_err(fail)?
+            } else {
+                Vec::new()
+            };
+            if !later.is_empty() && !args.include_later {
+                let ids: Vec<&str> = later.iter().map(|j| j.job.as_str()).collect();
+                return Err(fail(format!(
+                    "newer jobs changed the same folder: {}; undo them first, or pass --include-later to undo them too",
+                    ids.join(", ")
+                )));
+            }
+            let mut ids: Vec<String> = later.into_iter().map(|j| j.job).collect();
+            ids.push(id.clone());
+            undo_jobs_in_order(&dirs.data, &ids).map_err(fail)?
+        }
+        None => vec![undo_last(&dirs.data).map_err(fail)?],
     };
+    let kind_of = |job: &str| {
+        jobs.iter()
+            .find(|j| j.job == job)
+            .map(|j| j.kind)
+            .unwrap_or_default()
+    };
+    let text: String = reports
+        .iter()
+        .map(|r| match kind_of(&r.job) {
+            JobKind::Organize => organize_text(r),
+            JobKind::Fill => fill_text(r),
+        })
+        .collect();
     print_stdout(&text)
 }
 

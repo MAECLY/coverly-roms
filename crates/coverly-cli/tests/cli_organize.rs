@@ -519,3 +519,83 @@ fn a_read_only_target_is_exit_5_and_resume_finishes() {
     assert!(other.path().join("ROMS/GB/Game B.gb").is_file());
     assert!(!p.path().join("Game A.gba").exists());
 }
+
+#[test]
+fn resume_refuses_options_that_shape_a_new_plan() {
+    // The saved plan decides layout, target and mode: a `--copy` given
+    // with `--resume` must not be silently ignored (the job would move).
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let before = tree_digest(p.path());
+    for extra in [
+        &["--copy"][..],
+        &["--move"],
+        &["--layout", "es-de"],
+        &["--target", "/tmp"],
+        &["--flat"],
+        &["--names", "catalogue"],
+        &["--assign", "Odd.gb=gb"],
+        &["--include-review"],
+    ] {
+        let mut args = vec!["organize", "--resume", "20990101T000000Z-1-1"];
+        args.extend_from_slice(extra);
+        coverly(data.path(), cache.path(), &args)
+            .arg(p.path())
+            .assert()
+            .code(2);
+    }
+    assert_eq!(tree_digest(p.path()), before);
+}
+
+/// The job id of an applied `organize … --report json` run.
+fn applied_job(out: &[u8]) -> String {
+    json_of(out)["job"]["job"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn undo_of_an_organise_job_with_later_jobs_refuses_unless_include_later() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let sub = other.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    let copy_into = |target: &Path| {
+        let out = coverly(
+            data.path(),
+            cache.path(),
+            &[
+                "organize",
+                "--offline",
+                "--copy",
+                "--apply",
+                "--report",
+                "json",
+                "--target",
+                target.to_str().unwrap(),
+            ],
+        )
+        .arg(p.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+        applied_job(&out)
+    };
+    let first = copy_into(other.path());
+    // Job ids sort by their second: keep the second job in a later one.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let second = copy_into(&sub);
+    undo(data.path(), &["--job", &first])
+        .assert()
+        .code(1)
+        .stderr(contains(second.as_str()))
+        .stderr(contains("--include-later"));
+    assert!(other.path().join("ROMS/GBA/Game A.gba").is_file());
+    assert!(sub.join("ROMS/GBA/Game A.gba").is_file());
+    undo(data.path(), &["--job", &first, "--include-later"])
+        .assert()
+        .success()
+        .stdout(contains(first.as_str()))
+        .stdout(contains(second.as_str()));
+    assert!(!other.path().join("ROMS").exists());
+    assert!(!sub.join("ROMS").exists());
+}
