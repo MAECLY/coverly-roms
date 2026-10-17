@@ -646,6 +646,12 @@ html.anim .tile.gap:not(.is-filled) .art {
 html.anim .shelf:not(.is-done) .done {
   animation: show 0s 4s forwards;
 }
+/* Once motion.js has taken over it waits for the shelf to be seen, and it
+   finishes the fill itself, so the 4 s fallback must not run early. */
+html.anim .shelf.is-live .tile.gap:not(.is-filled) .art,
+html.anim .shelf.is-live:not(.is-done) .done {
+  animation: none;
+}
 @keyframes settle {
   to {
     clip-path: inset(0 0 0 0);

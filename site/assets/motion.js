@@ -35,22 +35,26 @@
   }
 
   /* The hero shelf: each dashed slot gets its cover, one after another,
-     while the status line counts up to the full library. */
+     while the status line counts up to the full library. It waits until
+     most of the grid is on screen (on a phone the gaps sit below the
+     fold), and gives up and shows the finished shelf after WAIT ms. */
+  var WAIT = 10000;
   function shelf() {
     var box = document.querySelector(".shelf");
     if (!box) return;
+    var grid = box.querySelector(".shelf-grid") || box;
     var gaps = box.querySelectorAll(".tile.gap");
     var have = box.querySelector(".have");
     var total = box.querySelectorAll(".tile").length;
-    var r = box.getBoundingClientRect();
-    var visible = r.bottom > 0 && r.top < innerHeight;
-    if (!gaps.length || !visible || performance.now() > 2600) return finish(box, gaps, have, total);
-    var timers = [];
+    if (!gaps.length || performance.now() > 2600) return finish(box, gaps, have, total);
+    var timers = [], io = null, done = false;
     var stop = function () {
+      if (done) return;
+      done = true;
       timers.forEach(clearTimeout);
+      if (io) io.disconnect();
       finish(box, gaps, have, total);
     };
-    if (have) have.textContent = total - gaps.length;
     var step = function (i) {
       timers.push(setTimeout(function () {
         try {
@@ -59,9 +63,29 @@
           if (i + 1 < gaps.length) step(i + 1);
           else timers.push(setTimeout(stop, 500));
         } catch (x) { stop(); }
-      }, i === 0 ? 900 : 380));
+      }, i === 0 ? 600 : 380));
     };
-    step(0);
+    var play = function () {
+      if (io) io.disconnect();
+      io = null;
+      clearTimeout(timers.shift());
+      step(0);
+    };
+    /* motion.js owns the timing now: drop the CSS fallback that would
+       fill the gaps at 4 s whether or not anyone is looking. */
+    box.classList.add("is-live");
+    if (have) have.textContent = total - gaps.length;
+    timers.push(setTimeout(stop, WAIT));
+    if (window.IntersectionObserver) {
+      io = new IntersectionObserver(function (entries) {
+        for (var k = 0; k < entries.length; k++) if (entries[k].intersectionRatio >= 0.6) return play();
+      }, { threshold: [0.6] });
+      io.observe(grid);
+    } else {
+      var r = grid.getBoundingClientRect();
+      if (r.top >= 0 && r.bottom <= innerHeight) play();
+      else stop();
+    }
     var still = matchMedia("(prefers-reduced-motion: reduce)");
     var off = function () { if (still.matches) stop(); };
     if (still.addEventListener) still.addEventListener("change", off);
