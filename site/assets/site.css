@@ -3,92 +3,82 @@
    without it is dashed. The page uses that rule everywhere (the hero shelf,
    the "not yet" lists, the download card before the first release). */
 
+/* Colours, type, radius and motion come from tokens.css (generated from
+   design/tokens.json by scripts/brand/build_tokens.mjs, <link>ed first).
+   This file only adds the landing's layout measures and the slot drawing.
+
+   Faces: SIL OFL 1.1, subset to Latin, Latin-1 and Latin Extended-A. See
+   fonts/OFL-*.txt and THIRD-PARTY-NOTICES.md. */
 @font-face {
-  font-family: 'Archivo Display';
-  /* Archivo (OFL-1.1), instanced at wdth 72 / wght 800, Latin-1 subset.
-     See fonts/OFL.txt and THIRD-PARTY-NOTICES.md. */
-  src: url('fonts/archivo-display-800.woff2') format('woff2');
-  font-weight: 800;
+  font-family: 'Archivo';
+  src: url('fonts/archivo-variable.woff2') format('woff2');
+  font-weight: 600 800;
+  font-stretch: 75% 112%;
+  font-style: normal;
+  font-display: optional;
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  src: url('fonts/atkinson-hyperlegible-next-variable.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: optional;
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible Mono';
+  src: url('fonts/atkinson-hyperlegible-mono-variable.woff2') format('woff2');
+  font-weight: 400 600;
   font-style: normal;
   font-display: optional;
 }
 
-/* tokens:begin  (copied from src/styles/globals.css, keep in sync) */
 :root {
-  --cr-bg: #f7f7f5;
-  --cr-surface: #ffffff;
-  --cr-text: #1c1b1a;
-  --cr-text-muted: #5f5c58;
-  --cr-accent: #4338ca;
-  --cr-accent-text: #ffffff;
-  --cr-border: #e3e1dd;
-  --cr-error: #b91c1c;
-}
-/* tokens:end */
-
-:root {
-  --ok: #15803d;
-  --line: #d6d3ce;
-  --dash: #a8a49e;
-  --code-bg: #1c1b1a;
-  --code-text: #f2f1ee;
-  --code-muted: #a8a49e;
-  --shadow: 0 1px 0 rgb(28 27 26 / 4%), 0 12px 32px -12px rgb(28 27 26 / 22%);
-  --display:
-    'Archivo Display', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
-  --body:
-    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --wrap: 1160px;
   --gutter: clamp(16px, 4vw, 40px);
   --header: 60px;
-  --ease-ink: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.5, 0.64, 1);
-  /* The app's own surfaces in the light screenshots (dialog, art slot),
-     for the step overlays that patch them. */
-  --shot-modal: #ffffff;
-  --shot-slot: #f5f3fd;
-  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --cr-bg: #141413;
-    --cr-surface: #1f1e1c;
-    --cr-text: #f2f1ee;
-    --cr-text-muted: #a8a49e;
-    --cr-accent: #818cf8;
-    --cr-accent-text: #141413;
-    --cr-border: #33312e;
-    --cr-error: #fca5a5;
-    --ok: #4ade80;
-    --line: #3d3b37;
-    --dash: #6b6862;
-    --code-bg: #0c0c0b;
-    --shadow: 0 1px 0 rgb(0 0 0 / 30%), 0 16px 40px -16px rgb(0 0 0 / 70%);
-    --shot-modal: #201e1c;
-    --shot-slot: #262628;
-    color-scheme: dark;
-  }
+/* The missing slot (brand §2): a 1.5px outline, dash 4 / gap 3, plus four
+   photo-corners. Drawn as background layers, never border-style: dashed,
+   so it looks the same in every engine. --dash-ink recolours it. */
+.ph,
+.slot.no,
+.pill.is-soon,
+.pill.is-soon .pill-dot,
+.dl-soon,
+.notyet li {
+  --dash-ink: var(--cr-slot-missing);
+  --dash-x: repeating-linear-gradient(
+    90deg,
+    var(--dash-ink) 0 4px,
+    transparent 4px 7px
+  );
+  --dash-y: repeating-linear-gradient(
+    180deg,
+    var(--dash-ink) 0 4px,
+    transparent 4px 7px
+  );
+  --dash-edges:
+    var(--dash-x) 0 0 / 100% 1.5px no-repeat,
+    var(--dash-x) 0 100% / 100% 1.5px no-repeat,
+    var(--dash-y) 0 0 / 1.5px 100% no-repeat,
+    var(--dash-y) 100% 0 / 1.5px 100% no-repeat;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: var(--dash-edges);
 }
-:root[data-theme='dark'] {
-  --cr-bg: #141413;
-  --cr-surface: #1f1e1c;
-  --cr-text: #f2f1ee;
-  --cr-text-muted: #a8a49e;
-  --cr-accent: #818cf8;
-  --cr-accent-text: #141413;
-  --cr-border: #33312e;
-  --cr-error: #fca5a5;
-  --ok: #4ade80;
-  --line: #3d3b37;
-  --dash: #6b6862;
-  --code-bg: #0c0c0b;
-  --shadow: 0 1px 0 rgb(0 0 0 / 30%), 0 16px 40px -16px rgb(0 0 0 / 70%);
-  --shot-modal: #201e1c;
-  --shot-slot: #262628;
-  color-scheme: dark;
+.ph {
+  --corner: linear-gradient(var(--dash-ink), var(--dash-ink));
+  background:
+    var(--corner) 0 0 / 12px 3px no-repeat,
+    var(--corner) 0 0 / 3px 12px no-repeat,
+    var(--corner) 100% 0 / 12px 3px no-repeat,
+    var(--corner) 100% 0 / 3px 12px no-repeat,
+    var(--corner) 0 100% / 12px 3px no-repeat,
+    var(--corner) 0 100% / 3px 12px no-repeat,
+    var(--corner) 100% 100% / 12px 3px no-repeat,
+    var(--corner) 100% 100% / 3px 12px no-repeat,
+    var(--dash-edges);
 }
 
 /* ── Base ─────────────────────────────────────────────────────────── */
@@ -112,7 +102,7 @@ body {
   margin: 0;
   background: var(--cr-bg);
   color: var(--cr-text);
-  font: 400 1.0625rem/1.6 var(--body);
+  font: var(--cr-type-landing-body);
   overflow-wrap: break-word;
 }
 img {
@@ -121,7 +111,7 @@ img {
   height: auto;
 }
 a {
-  color: var(--cr-accent);
+  color: var(--cr-primary);
   text-underline-offset: 0.18em;
   text-decoration-thickness: 1px;
 }
@@ -129,9 +119,9 @@ a:hover {
   text-decoration-thickness: 2px;
 }
 :focus-visible {
-  outline: 3px solid var(--cr-accent);
-  outline-offset: 3px;
-  border-radius: 4px;
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
+  outline-offset: 2px;
+  border-radius: var(--cr-radius-sm);
 }
 main:focus {
   outline: none;
@@ -152,9 +142,10 @@ h3 {
 }
 h1,
 h2 {
-  font-family: var(--display);
+  font-family: var(--cr-font-display);
+  font-stretch: 75%;
   letter-spacing: -0.01em;
-  line-height: 0.98;
+  line-height: 1.02;
   text-wrap: balance;
 }
 h3 {
@@ -164,8 +155,8 @@ h3 {
 code,
 kbd,
 pre {
-  font-family: var(--mono);
-  font-size: 0.9em;
+  font-family: var(--cr-font-mono);
+  font-size: 0.875em;
 }
 .sr-only {
   position: absolute;
@@ -191,7 +182,7 @@ pre {
   padding-inline: var(--gutter);
 }
 .muted {
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 .skip {
@@ -200,9 +191,9 @@ pre {
   top: -60px;
   z-index: 50;
   padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--cr-accent);
-  color: var(--cr-accent-text);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
   font-weight: 700;
 }
 .skip:focus {
@@ -216,32 +207,33 @@ pre {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 22px;
-  border-radius: 10px;
-  border: 1.5px solid var(--line);
+  min-height: var(--cr-control-landing);
+  padding: 0 20px;
+  border-radius: var(--cr-radius-md);
+  border: 1px solid var(--cr-border-strong);
   background: var(--cr-surface);
   color: var(--cr-text);
-  font: 650 1rem/1 var(--body);
+  font: 600 1rem/1 var(--cr-font-body);
   text-decoration: none;
   white-space: nowrap;
 }
 .btn:hover {
-  border-color: var(--cr-text-muted);
+  border-color: var(--cr-text);
+  background: var(--cr-hover);
 }
 .btn-primary {
-  background: var(--cr-accent);
-  border-color: var(--cr-accent);
-  color: var(--cr-accent-text);
+  background: var(--cr-primary);
+  border-color: var(--cr-primary);
+  color: var(--cr-primary-fg);
 }
 .btn-primary:hover {
-  border-color: var(--cr-text);
+  background: var(--cr-primary-hover);
+  border-color: var(--cr-primary-hover);
 }
 .btn-small {
   min-height: 38px;
   padding: 0 14px;
   font-size: 0.9375rem;
-  border-radius: 8px;
 }
 
 /* ── Header ───────────────────────────────────────────────────────── */
@@ -270,13 +262,24 @@ pre {
   margin-right: auto;
 }
 .wordmark {
-  font: 800 1.5rem/1 var(--display);
-  letter-spacing: -0.005em;
+  display: inline-flex;
+  align-items: center;
+  font: 800 1.5rem/1 var(--cr-font-display);
+  font-stretch: 75%;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
 }
 .wordmark b {
-  font-weight: 800;
-  color: var(--cr-accent);
-  margin-left: 0.2em;
+  margin-left: 0.3em;
+  padding: 0.12em 0.3em;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-manila);
+  color: var(--cr-manila-fg);
+  font-size: 0.62em;
+  font-stretch: 100%;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .topnav {
   display: none;
@@ -291,11 +294,11 @@ pre {
   color: var(--cr-text);
   text-decoration: none;
   font-size: 0.9375rem;
-  border-radius: 8px;
+  border-radius: var(--cr-radius-md);
 }
 .topnav a:hover,
 .navmenu nav a:hover {
-  background: var(--cr-surface);
+  background: var(--cr-hover);
 }
 .lang {
   display: inline-flex;
@@ -310,7 +313,7 @@ pre {
   text-decoration: none;
 }
 .lang:hover {
-  background: var(--cr-surface);
+  background: var(--cr-hover);
 }
 .navmenu {
   position: relative;
@@ -334,7 +337,7 @@ pre {
   height: 20px;
 }
 .navmenu[open] summary {
-  background: var(--cr-surface);
+  background: var(--cr-hover);
 }
 .navmenu nav {
   position: absolute;
@@ -343,10 +346,10 @@ pre {
   min-width: 210px;
   display: grid;
   padding: 6px;
-  border-radius: 12px;
-  background: var(--cr-surface);
+  border-radius: var(--cr-radius-lg);
+  background: var(--cr-surface-raised);
   border: 1px solid var(--cr-border);
-  box-shadow: var(--shadow);
+  box-shadow: var(--cr-shadow-overlay);
 }
 @media (min-width: 900px) {
   .topnav {
@@ -396,8 +399,8 @@ pre {
   gap: 10px;
   margin-bottom: 22px;
   padding: 6px 14px 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
+  border-radius: var(--cr-radius-full);
+  border: 1px solid var(--cr-border);
   background: var(--cr-surface);
   color: var(--cr-text);
   font-size: 0.875rem;
@@ -405,31 +408,30 @@ pre {
   text-decoration: none;
 }
 .pill-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ok);
+  width: 9px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--cr-success);
 }
-.pill.is-soon {
-  border-style: dashed;
-  background: transparent;
-}
+/* Not out yet: the pill is a missing slot (dashes from the slot rule). */
 .pill.is-soon .pill-dot {
-  background: transparent;
-  border: 1.5px dashed var(--cr-text-muted);
+  width: 9px;
+  height: 12px;
 }
 .hero h1 {
-  font-size: clamp(3rem, 5.4vw + 1rem, 5.75rem);
+  font-size: clamp(3rem, 5.4vw + 1rem, 5.5rem);
+  line-height: 0.96;
 }
 .hero .sub {
   margin-top: 24px;
   max-width: 34em;
   font-size: clamp(1.0625rem, 0.4vw + 1rem, 1.25rem);
-  color: var(--cr-text-muted);
+  line-height: 1.5;
+  color: var(--cr-text-secondary);
 }
 .hero .sub strong {
   color: var(--cr-text);
-  font-weight: 650;
+  font-weight: 600;
 }
 .actions {
   display: flex;
@@ -444,7 +446,7 @@ pre {
   margin-top: 22px;
   padding: 0;
   list-style: none;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   font-size: 0.9375rem;
 }
 .facts li {
@@ -455,9 +457,9 @@ pre {
 .facts li::before {
   content: '';
   width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--cr-accent);
+  height: 8px;
+  border-radius: 1px;
+  background: var(--cr-slot-filled);
 }
 
 /* The shelf: twelve invented games, five of them missing their cover until
@@ -483,9 +485,7 @@ pre {
   display: grid;
   place-items: center;
   padding: 6px;
-  border: 1.5px dashed var(--dash);
-  border-radius: 8px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   font-size: 0.75rem;
   text-align: center;
   line-height: 1.2;
@@ -506,65 +506,38 @@ html.anim .tile.is-filled .ph {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--cr-radius-sm);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: 9% 9% 10%;
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
+  /* Filled slots in illustrations are solid ink (brand §2); two inks keep
+     the shelf readable, the motifs tell the covers apart. */
+  background: var(--cr-slot-filled);
+  color: var(--cr-bg);
+  --tint: color-mix(in srgb, var(--cr-bg) 22%, transparent);
+  --tint-soft: color-mix(in srgb, var(--cr-bg) 12%, transparent);
 }
 .art .sys {
   align-self: flex-start;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgb(255 255 255 / 92%);
-  color: #1c1b1a;
-  font: 700 clamp(0.5625rem, 0.5vw + 0.35rem, 0.6875rem)/1.2 var(--body);
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+  font: 500 clamp(0.5625rem, 0.5vw + 0.35rem, 0.6875rem)/1.3 var(--cr-font-mono);
   letter-spacing: 0.02em;
 }
 .art .name {
   position: relative;
-  font: 800 clamp(0.875rem, 1.1vw + 0.35rem, 1.3rem)/0.95 var(--display);
+  font: 800 clamp(0.875rem, 1.1vw + 0.35rem, 1.3rem)/0.95 var(--cr-font-display);
+  font-stretch: 75%;
   text-wrap: balance;
-  text-shadow: 0 1px 0 rgb(0 0 0 / 20%);
 }
-/* Palettes (background) and motifs (::before). */
-.p1 {
-  background: #b4372f;
-}
-.p2 {
-  background: #2f6f4f;
-}
-.p3 {
-  background: #4338ca;
-}
-.p4 {
-  background: #a85f10;
-}
-.p5 {
-  background: #1f5f8b;
-}
-.p6 {
-  background: #7a2f7a;
-}
-.p7 {
-  background: #2b2a28;
-}
-.p8 {
-  background: #6f7a1f;
-}
-.p9 {
-  background: #a3324f;
-}
-.p10 {
-  background: #0f766e;
-}
+.p2,
+.p5,
+.p8,
 .p11 {
-  background: #5b3fb0;
-}
-.p12 {
-  background: #9a4a1c;
+  background: var(--cr-text-secondary);
 }
 .art::before {
   content: '';
@@ -575,7 +548,7 @@ html.anim .tile.is-filled .ph {
 .m-sun::before {
   background: radial-gradient(
     circle at 70% 38%,
-    rgb(255 255 255 / 34%) 0 22%,
+    var(--tint) 0 22%,
     transparent 23%
   );
 }
@@ -583,34 +556,56 @@ html.anim .tile.is-filled .ph {
   background: repeating-linear-gradient(
     180deg,
     transparent 0 14%,
-    rgb(255 255 255 / 16%) 14% 18%
+    var(--tint-soft) 14% 18%
   );
 }
 .m-diag::before {
   background: repeating-linear-gradient(
     135deg,
     transparent 0 10px,
-    rgb(0 0 0 / 16%) 10px 20px
+    var(--tint-soft) 10px 20px
   );
 }
 .m-grid::before {
   background:
-    linear-gradient(rgb(255 255 255 / 14%) 1px, transparent 1px) 0 0 / 18% 18%,
-    linear-gradient(90deg, rgb(255 255 255 / 14%) 1px, transparent 1px) 0 0 /
-      18% 18%;
+    linear-gradient(var(--tint-soft) 1px, transparent 1px) 0 0 / 18% 18%,
+    linear-gradient(90deg, var(--tint-soft) 1px, transparent 1px) 0 0 / 18% 18%;
 }
 .m-peak::before {
   background:
-    linear-gradient(160deg, transparent 52%, rgb(0 0 0 / 26%) 52.5%),
-    linear-gradient(20deg, transparent 60%, rgb(255 255 255 / 14%) 60.5%);
+    linear-gradient(160deg, transparent 52%, var(--tint-soft) 52.5%),
+    linear-gradient(20deg, transparent 60%, var(--tint) 60.5%);
 }
 .m-ring::before {
   background: radial-gradient(
     circle at 30% 42%,
     transparent 0 16%,
-    rgb(255 255 255 / 30%) 16.5% 21%,
+    var(--tint) 16.5% 21%,
     transparent 21.5%
   );
+}
+/* A gap Coverly filled: the Buckram spine band (applied). While the run
+   is on screen, a Manila tab with the source says it can still be undone. */
+.tile.gap .art {
+  box-shadow: inset 0 calc(-1 * var(--cr-border-width-spine)) 0
+    var(--cr-slot-applied);
+}
+.tile.gap::after {
+  content: 'libretro';
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  padding: 1px 4px;
+  border-radius: 0 var(--cr-radius-sm) 0 var(--cr-radius-sm);
+  background: var(--cr-slot-applied-run);
+  color: var(--cr-manila-fg);
+  font: 500 clamp(0.5rem, 0.4vw + 0.3rem, 0.625rem)/1.4 var(--cr-font-mono);
+  opacity: 0;
+}
+html.motion .shelf:is(.applying, .is-done) .tile.gap.is-filled::after {
+  opacity: 1;
+  transition: opacity var(--cr-duration-base) var(--cr-ease-standard) 560ms;
 }
 
 .shelf-status {
@@ -620,17 +615,18 @@ html.anim .tile.is-filled .ph {
   gap: 6px 16px;
   margin-top: 18px;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--cr-radius-lg);
   background: var(--cr-surface);
   border: 1px solid var(--cr-border);
   font-size: 0.875rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .shelf-status b {
   display: inline-block;
   min-width: 2ch;
   text-align: right;
   color: var(--cr-text);
+  font-family: var(--cr-font-mono);
   font-variant-numeric: tabular-nums;
 }
 /* The three states share one cell, so the line never changes height. */
@@ -645,16 +641,16 @@ html.anim .tile.is-filled .ph {
 }
 .shelf-status :is(.s-plan, .s-busy) {
   visibility: hidden;
-  color: var(--cr-accent);
-  font-weight: 650;
+  color: var(--cr-primary);
+  font-weight: 600;
 }
 html.motion .shelf.planning .s-plan,
 html.motion .shelf.applying .s-busy {
   visibility: visible;
 }
 .shelf-status .done {
-  color: var(--ok);
-  font-weight: 650;
+  color: var(--cr-success);
+  font-weight: 600;
 }
 
 /* Caption row under the shelf. The replay button only exists once
@@ -669,7 +665,7 @@ html.motion .shelf.applying .s-busy {
   min-height: 44px;
   margin-top: 6px;
   font-size: 0.8125rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .replay {
   display: none;
@@ -678,14 +674,14 @@ html.motion .shelf.applying .s-busy {
   min-height: 44px;
   padding: 0 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cr-radius-md);
   background: transparent;
   color: var(--cr-text);
-  font: 600 0.875rem/1 var(--body);
+  font: 600 0.875rem/1 var(--cr-font-body);
   cursor: pointer;
 }
 .replay:hover {
-  background: var(--cr-surface);
+  background: var(--cr-hover);
 }
 html.motion .replay {
   display: inline-flex;
@@ -712,7 +708,7 @@ html.anim .tile.gap:not(.is-filled) .art {
   clip-path: inset(0 0 100% 0);
 }
 html.anim .tile.gap .art {
-  transition: clip-path 620ms var(--ease-ink);
+  transition: clip-path 620ms var(--cr-ease-ink);
 }
 html.anim .tile.gap.is-filled .art {
   clip-path: inset(0 0 0 0);
@@ -743,21 +739,20 @@ html.anim .shelf:not(.is-live) :is(.have, .done) {
    each marked gap gets its cover. */
 html.motion .shelf .ph {
   transition:
-    border-color 200ms,
     color 200ms,
     background-color 200ms,
     opacity 0s 640ms;
 }
 html.motion .shelf:is(.planning, .applying) .tile.gap .ph {
-  border-color: var(--cr-accent);
-  color: var(--cr-accent);
-  background-color: color-mix(in srgb, var(--cr-accent) 8%, transparent);
+  --dash-ink: var(--cr-primary);
+  color: var(--cr-primary);
+  background-color: var(--cr-primary-subtle);
 }
 html.motion .shelf.planning .tile.gap .ph {
-  animation: plan 560ms var(--ease-spring) calc(var(--i, 0) * 110ms) both;
+  animation: plan 560ms var(--cr-ease-spring) calc(var(--i, 0) * 110ms) both;
 }
 html.motion .shelf.applying .tile.gap.is-filled {
-  animation: land 520ms var(--ease-spring) both;
+  animation: land 520ms var(--cr-ease-spring) both;
 }
 @keyframes plan {
   45% {
@@ -772,21 +767,32 @@ html.motion .shelf.applying .tile.gap.is-filled {
 
 /* ── Sections ─────────────────────────────────────────────────────── */
 
+/* The shelf rule (brand §2): a 1px --cr-border line with a 3px Buckram cap
+   at the left of the content column, like the edge strip of a shelf. */
 .section {
-  padding: clamp(64px, 9vw, 120px) 0;
-  border-top: 1px solid var(--cr-border);
+  padding: 0 0 clamp(64px, 9vw, 120px);
+}
+.section > .wrap,
+.closing > .wrap {
+  padding-top: clamp(64px, 9vw, 120px);
+  background:
+    linear-gradient(var(--cr-primary), var(--cr-primary)) var(--gutter) 0 / 48px
+      var(--cr-border-width-spine) no-repeat,
+    linear-gradient(var(--cr-border), var(--cr-border)) var(--gutter) 0 /
+      calc(100% - 2 * var(--gutter)) 1px no-repeat;
 }
 .section-head {
   max-width: 46rem;
   margin-bottom: clamp(36px, 5vw, 56px);
 }
 .section-head h2 {
-  font-size: clamp(2.25rem, 3.4vw + 1rem, 3.75rem);
+  font-size: clamp(2.25rem, 3.4vw + 1rem, 3.5rem);
 }
 .section-head p {
   margin-top: 18px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   font-size: 1.125rem;
+  line-height: 1.55;
   max-width: 40em;
 }
 
@@ -816,27 +822,29 @@ html.motion .shelf.applying .tile.gap.is-filled {
 .step-num {
   display: block;
   margin-bottom: 10px;
-  font: 800 3.5rem/0.9 var(--display);
-  color: var(--cr-accent);
+  font: 800 3.5rem/0.9 var(--cr-font-display);
+  font-stretch: 75%;
+  color: var(--cr-text);
   font-variant-numeric: tabular-nums;
 }
 .step h3 {
-  font-size: 1.375rem;
+  font: var(--cr-type-landing-h3);
+  font-stretch: 75%;
   margin-bottom: 10px;
 }
 .step p {
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .step p + p {
   margin-top: 10px;
 }
 
 .shot {
-  border-radius: 12px;
+  border-radius: var(--cr-radius-xl);
   overflow: hidden;
   border: 1px solid var(--cr-border);
   background: var(--cr-surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--cr-shadow-overlay);
 }
 .shot img {
   width: 100%;
@@ -847,7 +855,7 @@ html.motion .shelf.applying .tile.gap.is-filled {
 .shot-cap {
   margin-top: 12px;
   font-size: 0.875rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 /* Safety. */
@@ -873,11 +881,11 @@ html.motion .shelf.applying .tile.gap.is-filled {
   border-bottom: 1px solid var(--cr-border);
 }
 .promises dt {
-  font-weight: 700;
+  font-weight: 600;
 }
 .promises dd {
   margin: 4px 0 0;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 /* Layout profiles. */
@@ -900,7 +908,7 @@ html.motion .shelf.applying .tile.gap.is-filled {
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border-radius: 12px;
+  border-radius: var(--cr-radius-lg);
   border: 1px solid var(--cr-border);
   background: var(--cr-surface);
 }
@@ -915,7 +923,7 @@ table {
 caption {
   text-align: left;
   padding: 14px 16px 0;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   font-size: 0.875rem;
   caption-side: top;
 }
@@ -932,12 +940,12 @@ tbody tr:last-child td {
 }
 thead th {
   font-size: 0.8125rem;
-  font-weight: 650;
-  color: var(--cr-text-muted);
+  font-weight: 600;
+  color: var(--cr-text-secondary);
   white-space: nowrap;
 }
 tbody th {
-  font-weight: 650;
+  font-weight: 600;
 }
 .media td {
   text-align: center;
@@ -950,31 +958,28 @@ tbody th {
   display: inline-block;
   width: 18px;
   height: 24px;
-  border-radius: 3px;
+  border-radius: var(--cr-radius-sm);
   vertical-align: middle;
-  background: var(--cr-accent);
-}
-.slot.no {
-  background: transparent;
-  border: 1.5px dashed var(--dash);
+  background: var(--cr-slot-filled);
 }
 .note {
   margin-top: 14px;
   font-size: 0.9375rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 .term {
-  border-radius: 12px;
+  border-radius: var(--cr-radius-lg);
   overflow: hidden;
-  background: var(--code-bg);
-  color: var(--code-text);
-  box-shadow: var(--shadow);
+  background: var(--cr-code-bg);
+  color: var(--cr-code-fg);
+  box-shadow: var(--cr-shadow-overlay);
 }
 .term-bar {
   padding: 10px 16px;
-  border-bottom: 1px solid rgb(255 255 255 / 10%);
-  color: var(--code-muted);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--cr-code-fg) 12%, transparent);
+  color: var(--cr-code-muted);
   font-size: 0.8125rem;
 }
 .term pre {
@@ -982,20 +987,20 @@ tbody th {
   padding: 18px 16px 20px;
   overflow-x: auto;
   font-size: 0.875rem;
-  line-height: 1.75;
+  line-height: 1.7;
 }
 .term .c {
-  color: var(--code-muted);
+  color: var(--cr-code-muted);
 }
 .term .p {
-  color: #a5b4fc;
+  color: var(--cr-code-accent);
   user-select: none;
 }
 
 /* Comparison. */
 .compare th[scope='col']:nth-child(2),
 .compare td:nth-child(2) {
-  background: color-mix(in srgb, var(--cr-accent) 7%, transparent);
+  background: var(--cr-primary-subtle);
 }
 .compare td,
 .compare th {
@@ -1005,13 +1010,13 @@ tbody th {
   min-width: 11rem;
 }
 .yes {
-  font-weight: 650;
+  font-weight: 600;
 }
 .ahead {
   margin-top: 28px;
   max-width: 46rem;
   padding: 18px 20px;
-  border-radius: 12px;
+  border-radius: var(--cr-radius-lg);
   border: 1px solid var(--cr-border);
   background: var(--cr-surface);
 }
@@ -1019,12 +1024,12 @@ tbody th {
   margin-bottom: 6px;
 }
 .ahead p {
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .sources {
   margin-top: 14px;
   font-size: 0.8125rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 /* Download. */
@@ -1039,16 +1044,17 @@ tbody th {
   flex-direction: column;
   gap: 6px;
   padding: 20px;
-  border-radius: 12px;
+  border-radius: var(--cr-radius-lg);
   background: var(--cr-surface);
-  border: 1.5px solid var(--cr-border);
+  border: 1px solid var(--cr-border);
 }
 .dl-card h3 {
-  font-size: 1.125rem;
+  font: var(--cr-type-landing-h3);
+  font-stretch: 75%;
 }
 .dl-card .req {
   font-size: 0.875rem;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .dl-card .btn {
   margin-top: 4px;
@@ -1066,19 +1072,20 @@ tbody th {
 .dl-card .mine {
   display: none;
   position: absolute;
-  top: -11px;
+  top: -10px;
   right: 14px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cr-accent);
-  color: var(--cr-accent-text);
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-manila);
+  color: var(--cr-manila-fg);
+  font: 500 0.75rem/1.4 var(--cr-font-mono);
 }
 html[data-os='mac'] .dl-card[data-os='mac'],
 html[data-os='win'] .dl-card[data-os='win'],
 html[data-os='linux'] .dl-card[data-os='linux'] {
-  border-color: var(--cr-accent);
+  border-color: var(--cr-border-strong);
+  box-shadow: inset 0 calc(-1 * var(--cr-border-width-spine)) 0
+    var(--cr-primary);
 }
 html[data-os='mac'] .dl-card[data-os='mac'] .mine,
 html[data-os='win'] .dl-card[data-os='win'] .mine,
@@ -1087,8 +1094,6 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .dl-soon {
   padding: clamp(22px, 3vw, 32px);
-  border-radius: 12px;
-  border: 1.5px dashed var(--dash);
   max-width: 46rem;
 }
 .dl-soon h3 {
@@ -1096,7 +1101,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
   margin-bottom: 8px;
 }
 .dl-soon p {
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .dl-soon .actions {
   margin-top: 20px;
@@ -1119,8 +1124,8 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
   align-items: center;
   min-height: 40px;
   padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
+  border-radius: var(--cr-radius-md);
+  border: 1px solid var(--cr-border-strong);
   text-decoration: none;
   font-size: 0.875rem;
   background: var(--cr-surface);
@@ -1155,7 +1160,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .dl-more p,
 .dl-more li {
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .dl-more ul:not(.notyet) {
   padding-left: 1.2em;
@@ -1171,8 +1176,6 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .notyet li {
   padding: 10px 14px;
-  border: 1.5px dashed var(--dash);
-  border-radius: 8px;
 }
 
 /* FAQ. */
@@ -1192,7 +1195,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
   padding: 14px 0;
   cursor: pointer;
   list-style: none;
-  font-weight: 650;
+  font-weight: 600;
 }
 .faq summary::-webkit-details-marker {
   display: none;
@@ -1202,8 +1205,8 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
   flex: none;
   width: 12px;
   height: 12px;
-  border-right: 2px solid var(--cr-text-muted);
-  border-bottom: 2px solid var(--cr-text-muted);
+  border-right: 2px solid var(--cr-text-secondary);
+  border-bottom: 2px solid var(--cr-text-secondary);
   transform: translateY(-3px) rotate(45deg);
 }
 .faq details[open] summary::after {
@@ -1211,15 +1214,17 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .faq details p {
   padding: 0 0 18px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   max-width: 40em;
 }
 
 /* Closing. */
 .closing {
-  padding: clamp(72px, 10vw, 128px) 0;
-  border-top: 1px solid var(--cr-border);
+  padding: 0 0 clamp(72px, 10vw, 128px);
   text-align: left;
+}
+.closing > .wrap {
+  padding-top: clamp(72px, 10vw, 128px);
 }
 .closing h2 {
   font-size: clamp(2.5rem, 4.5vw + 1rem, 4.5rem);
@@ -1227,7 +1232,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .closing p {
   margin-top: 18px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   max-width: 34em;
 }
 
@@ -1249,7 +1254,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .footer .tagline {
   margin-top: 8px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 .footer-links {
   display: flex;
@@ -1267,7 +1272,7 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 .legal,
 .proof {
   margin-top: 18px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
   font-size: 0.875rem;
   max-width: 60rem;
 }
@@ -1290,7 +1295,7 @@ html.js .proof-nojs {
   gap: 2px;
   margin-top: 22px;
   padding: 3px;
-  border-radius: 10px;
+  border-radius: var(--cr-radius-md);
   border: 1px solid var(--cr-border);
   background: var(--cr-surface);
 }
@@ -1303,7 +1308,7 @@ html.js .proof-nojs {
   align-items: center;
   min-height: 40px;
   padding: 0 12px;
-  border-radius: 7px;
+  border-radius: var(--cr-radius-sm);
   cursor: pointer;
   font-size: 0.875rem;
 }
@@ -1315,12 +1320,12 @@ html.js .proof-nojs {
   cursor: pointer;
 }
 .mode label:has(input:checked) {
-  background: var(--cr-accent);
-  color: var(--cr-accent-text);
-  font-weight: 650;
+  background: var(--cr-primary);
+  color: var(--cr-primary-fg);
+  font-weight: 600;
 }
 .mode label:has(input:focus-visible) {
-  outline: 3px solid var(--cr-accent);
+  outline: var(--cr-border-width-focus) solid var(--cr-ring);
   outline-offset: 2px;
 }
 fieldset.mode {
@@ -1350,7 +1355,7 @@ html.js .mode-wrap {
 }
 .nf p {
   margin-top: 16px;
-  color: var(--cr-text-muted);
+  color: var(--cr-text-secondary);
 }
 
 /* ── Motion ───────────────────────────────────────────────────────────
@@ -1383,36 +1388,37 @@ html.js .mode-wrap {
 }
 .fx-hide {
   fill: none;
-  stroke: var(--shot-modal);
+  stroke: var(--cr-surface-raised);
   stroke-width: 7;
 }
 .fx-ring > rect {
   fill: none;
-  stroke: var(--cr-accent);
+  stroke: var(--cr-primary);
   stroke-width: 2.5;
 }
 .fx-key rect {
-  fill: var(--cr-accent);
+  fill: var(--cr-primary);
 }
 .fx-key text {
-  fill: var(--cr-accent-text);
-  font: 700 17px var(--body);
+  fill: var(--cr-primary-fg);
+  font: 600 17px var(--cr-font-mono);
 }
 .fx-press {
-  fill: var(--cr-accent-text);
+  fill: var(--cr-primary-fg);
 }
 .fx-pick {
-  fill: color-mix(in srgb, var(--cr-accent) 10%, transparent);
-  stroke: var(--cr-accent);
+  fill: var(--cr-primary-subtle);
+  fill-opacity: 0.6;
+  stroke: var(--cr-primary);
   stroke-width: 2;
 }
 .fx-slot {
-  fill: var(--shot-slot);
+  fill: var(--cr-surface);
 }
 .fx-ghost {
   --fx-dy: -233px;
   --fx-cy: 377px;
-  filter: drop-shadow(0 6px 8px rgb(0 0 0 / 28%));
+  filter: drop-shadow(0 6px 8px var(--cr-scrim));
 }
 html[lang='en'] .fx-ghost {
   --fx-dy: -220px;
@@ -1420,22 +1426,28 @@ html[lang='en'] .fx-ghost {
 }
 .annot-mark {
   fill: none;
-  stroke: var(--cr-accent);
+  stroke: var(--cr-primary);
   stroke-width: 5;
   stroke-linecap: round;
   stroke-dasharray: 1;
 }
 
 /* Section headlines: a slot under each, dashed until it fills. */
+/* The dashes are a border-image pattern, not border-style: dashed. */
 .section-head h2::after {
   content: '';
   display: block;
   width: 64px;
   height: 8px;
   margin-top: 22px;
-  border: 1.5px dashed var(--dash);
-  border-radius: 2px;
-  background: linear-gradient(var(--cr-accent), var(--cr-accent)) 0 0 / 100%
+  border: 1.5px solid transparent;
+  border-image: repeating-linear-gradient(
+      90deg,
+      var(--cr-slot-missing) 0 4px,
+      transparent 4px 7px
+    )
+    2;
+  background: linear-gradient(var(--cr-primary), var(--cr-primary)) 0 0 / 100%
     100% no-repeat border-box;
 }
 
@@ -1445,8 +1457,8 @@ html.motion .term .t-wait {
 }
 html.motion .t-rest {
   color: transparent;
-  background: linear-gradient(var(--code-text), var(--code-text)) 0 50% / 0.55em
-    1.2em no-repeat;
+  background: linear-gradient(var(--cr-code-fg), var(--cr-code-fg)) 0 50% /
+    0.55em 1.2em no-repeat;
 }
 
 /* Closing: a small shelf whose last slot fills. */
@@ -1454,21 +1466,20 @@ html.motion .t-rest {
   display: block;
   margin-bottom: 28px;
 }
-.closing-mark .p1 {
-  fill: #b4372f;
+.closing-mark .p1,
+.closing-mark .p5 {
+  fill: var(--cr-slot-filled);
 }
 .closing-mark .p2 {
-  fill: #2f6f4f;
+  fill: var(--cr-text-secondary);
 }
-.closing-mark .p5 {
-  fill: #1f5f8b;
-}
+/* The last slot is the one Coverly fills: Buckram. */
 .closing-mark .p3 {
-  fill: var(--cr-accent);
+  fill: var(--cr-slot-applied);
 }
 .closing-mark .cm-gap {
   fill: none;
-  stroke: var(--dash);
+  stroke: var(--cr-slot-missing);
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
 }
@@ -1484,7 +1495,7 @@ html.motion .t-rest {
 @keyframes slot-fill {
   from {
     background-color: transparent;
-    outline-color: var(--dash);
+    outline-color: var(--cr-slot-missing);
     transform: scale(0.86);
   }
   60% {
@@ -1643,7 +1654,7 @@ html.vt-ink::view-transition-old(root) {
   animation: none;
 }
 html.vt-ink::view-transition-new(root) {
-  animation: ink-spread 480ms var(--ease-ink) both;
+  animation: ink-spread 480ms var(--cr-ease-ink) both;
 }
 @view-transition {
   navigation: auto;
@@ -1653,19 +1664,20 @@ html.vt-ink::view-transition-new(root) {
   /* Feedback that answers a hand. */
   .btn {
     transition:
-      border-color 150ms,
-      transform 150ms var(--ease-ink),
-      box-shadow 150ms;
+      border-color var(--cr-duration-fast) var(--cr-ease-standard),
+      background-color var(--cr-duration-fast) var(--cr-ease-standard),
+      transform var(--cr-duration-base) var(--cr-ease-ink),
+      box-shadow var(--cr-duration-base) var(--cr-ease-standard);
   }
   .btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 8px 18px -12px rgb(28 27 26 / 45%);
+    box-shadow: var(--cr-shadow-raised);
   }
   .btn:active {
     transform: none;
   }
   .faq summary::after {
-    transition: transform 220ms var(--ease-ink);
+    transition: transform 220ms var(--cr-ease-ink);
   }
   .faq details {
     interpolate-size: allow-keywords;
@@ -1674,7 +1686,7 @@ html.vt-ink::view-transition-new(root) {
     height: 0;
     overflow: clip;
     transition:
-      height 240ms var(--ease-ink),
+      height 240ms var(--cr-ease-ink),
       content-visibility 240ms allow-discrete;
   }
   .faq details[open]::details-content {
@@ -1690,10 +1702,10 @@ html.vt-ink::view-transition-new(root) {
   }
   html.motion [data-reveal]:not(.is-in) .slot:not(.no) {
     background-color: transparent;
-    outline-color: var(--dash);
+    outline-color: var(--cr-slot-missing);
   }
   html.motion .is-in .slot:not(.no) {
-    animation: slot-fill 420ms var(--ease-ink)
+    animation: slot-fill 420ms var(--cr-ease-ink)
       calc(var(--r, 0) * 70ms + var(--c, 0) * 40ms) both;
   }
   .media tbody tr:nth-child(2) {
@@ -1731,7 +1743,7 @@ html.vt-ink::view-transition-new(root) {
     transform: scaleY(0);
   }
   html.motion .closing-mark.is-in .cm-last {
-    animation: grow-y 620ms var(--ease-spring) 350ms both;
+    animation: grow-y 620ms var(--cr-ease-spring) 350ms both;
   }
   html.motion .clip-fx {
     display: block;
@@ -1748,10 +1760,10 @@ html.vt-ink::view-transition-new(root) {
   }
   html.motion .is-playing .fx-ring {
     transform-origin: 502px 409px;
-    animation: fx-walk 3600ms var(--ease-ink) both;
+    animation: fx-walk 3600ms var(--cr-ease-ink) both;
   }
   html.motion .is-playing .fx-key {
-    animation: fx-key 560ms var(--ease-ink) both;
+    animation: fx-key 560ms var(--cr-ease-ink) both;
   }
   html.motion .is-playing .k1 {
     animation-delay: 560ms;
@@ -1766,18 +1778,18 @@ html.vt-ink::view-transition-new(root) {
     animation: fx-flash 420ms ease-out 2420ms both;
   }
   html.motion .is-playing .fx-pick {
-    animation: fx-pick 1000ms var(--ease-ink) both;
+    animation: fx-pick 1000ms var(--cr-ease-ink) both;
   }
   html.motion .is-playing .fx-ghost {
     transform-origin: 1054px var(--fx-cy);
-    animation: fx-fly 1300ms var(--ease-ink) 350ms both;
+    animation: fx-fly 1300ms var(--cr-ease-ink) 350ms both;
   }
   html.motion .is-playing .fx-slot {
     animation: fx-on 160ms linear 1450ms both;
   }
   html.motion .is-playing .fx-tile {
     transform-origin: 413px 153px;
-    animation: fx-land 560ms var(--ease-spring) 1800ms both;
+    animation: fx-land 560ms var(--cr-ease-spring) 1800ms both;
   }
   html.motion .no-anim,
   html.motion .no-anim * {
@@ -1797,7 +1809,7 @@ html.vt-ink::view-transition-new(root) {
       right: 0;
       bottom: -1px;
       height: 2px;
-      background: var(--cr-accent);
+      background: var(--cr-primary);
       transform-origin: 0 50%;
       animation: feed linear both;
       animation-timeline: scroll(root block);

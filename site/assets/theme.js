@@ -4,7 +4,7 @@
   "use strict";
   var html = document.documentElement;
   var KEY = "coverly:mode";
-  var BG = { light: "#f7f7f5", dark: "#141413" };
+  var BG = { light: "#f2f3ef", dark: "#121514" }; /* --cr-bg (design/tokens.json) */
   var dark = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
 
   html.classList.add("js");
