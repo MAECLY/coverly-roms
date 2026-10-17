@@ -796,3 +796,88 @@ fn ten_thousand_gba_headers_plan_without_hashing() {
         0
     );
 }
+
+#[test]
+fn a_disc_set_with_a_track_still_being_written_stays_in_place() {
+    let dir = TempDir::new().unwrap();
+    put(
+        &dir.path().join("Game.cue"),
+        b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    // The track is modified right now: the walk leaves it as recent.
+    fs::write(dir.path().join("Game.bin"), fx::psx_iso(true, false)).unwrap();
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("anbernic-stock")
+        },
+    );
+    assert_eq!(
+        left_reason(&plan, "Game.cue"),
+        Some(LeftReason::RecentlyModified)
+    );
+    // The track is not listed a second time as an item of its own.
+    let mentions = plan
+        .items
+        .iter()
+        .flat_map(|i| i.sources.iter())
+        .filter(|s| file_name(s) == "Game.bin")
+        .count();
+    assert_eq!(mentions, 1);
+    assert_eq!(plan.counts.roms, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_disc_set_with_a_symlinked_track_stays_in_place() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    put(&outside.path().join("Real.bin"), &fx::psx_iso(true, false));
+    put(
+        &dir.path().join("Game.cue"),
+        b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    std::os::unix::fs::symlink(outside.path().join("Real.bin"), dir.path().join("Game.bin"))
+        .unwrap();
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("anbernic-stock")
+        },
+    );
+    assert_eq!(left_reason(&plan, "Game.cue"), Some(LeftReason::Symlink));
+    assert_eq!(plan.counts.roms, 0);
+}
+
+#[test]
+fn a_raw_file_equal_to_a_zipped_one_is_a_duplicate() {
+    let dir = TempDir::new().unwrap();
+    zip(
+        &dir.path().join("Game.zip"),
+        "Game.gba",
+        &fx::gba_tagged(21),
+    );
+    put(&dir.path().join("Game copy.gba"), &fx::gba_tagged(21));
+    put(&dir.path().join("Other.gba"), &fx::gba_tagged(22));
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("anbernic-stock")
+        },
+    );
+    let dup = ["Game.zip", "Game copy.gba"]
+        .iter()
+        .filter(|n| matches!(left_reason(&plan, n), Some(LeftReason::Duplicate { .. })))
+        .count();
+    assert_eq!(dup, 1, "{:#?}", plan.items);
+    assert_eq!(by_name(&plan, "Other.gba").action, OrganizeAction::Auto);
+}

@@ -668,7 +668,16 @@ pub fn survey(
 
     // 4. Duplicate bucket: raw files sharing size and prefix are hashed so
     //    duplicates can be told apart.
+    //    A raw file as large as an archived ROM is hashed too, so a loose
+    //    copy of a zipped game is seen as the same content.
+    let archived_sizes: BTreeSet<u64> = entries
+        .iter()
+        .filter(|p| p.entry.kind == ItemKind::Archive)
+        .filter_map(|p| p.entry.identification.as_ref()?.content_key.as_ref())
+        .map(|(_, size)| *size)
+        .collect();
     let mut buckets: HashMap<(u64, String), Vec<usize>> = HashMap::new();
+    let mut lone: Vec<usize> = Vec::new();
     for (&i, facts) in &facts_of {
         let entry = &entries[i].entry;
         let Some(id) = &entry.identification else {
@@ -681,7 +690,9 @@ pub fn survey(
         {
             continue;
         }
-        if let Some(head) = &facts.inspection.head_crc {
+        if archived_sizes.contains(&entry.size) {
+            lone.push(i);
+        } else if let Some(head) = &facts.inspection.head_crc {
             buckets
                 .entry((entry.size, head.clone()))
                 .or_default()
@@ -692,6 +703,7 @@ pub fn survey(
         .into_values()
         .filter(|g| g.len() > 1)
         .flatten()
+        .chain(lone)
         .collect();
     to_hash.sort_unstable();
     if !to_hash.is_empty() {
@@ -811,8 +823,16 @@ fn build_entries(
         if !members.is_empty() {
             entry.kind = ItemKind::Set;
         }
+        // A track the walk left (still being written, a symlink, a
+        // partial download, unreadable) holds the whole set back.
+        let member_left = members
+            .iter()
+            .find_map(|m| walked.left.iter().find(|(p, _)| p == m))
+            .map(|(_, reason)| reason.clone());
         entry.left = if !missing.is_empty() {
             Some(LeftReason::SetIncomplete { missing })
+        } else if let Some(reason) = member_left {
+            Some(reason)
         } else if members
             .iter()
             .any(|m| !is_within(m, &base) || !is_within(m, source))
@@ -843,6 +863,7 @@ fn build_entries(
     // Files that travel with a set are not companions or other files.
     walked.companions.retain(|p| !taken.contains(p));
     walked.other_files.retain(|p| !taken.contains(p));
+    walked.left.retain(|(p, _)| !taken.contains(p));
     out
 }
 
