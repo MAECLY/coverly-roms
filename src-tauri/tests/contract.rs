@@ -193,6 +193,8 @@ fn rust_serialises_the_shared_sample() {
             entries: 3,
             complete: true,
             undone: false,
+            kind: coverly_core::write::JobKind::Fill,
+            undoable: true,
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,

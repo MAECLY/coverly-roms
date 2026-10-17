@@ -835,6 +835,8 @@ export function createMockJobs(
           entries: j.changes.length,
           complete: j.complete,
           undone: j.undone,
+          kind: 'fill' as const,
+          undoable: true,
         })),
       ),
     onJobProgress: (cb) => listen(progress, cb),

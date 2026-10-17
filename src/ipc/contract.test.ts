@@ -154,6 +154,8 @@ const HISTORY_KEYS = [
   'entries',
   'complete',
   'undone',
+  'kind',
+  'undoable',
 ] as const;
 const UPDATE_OFFER_KEYS = ['version', 'notes', 'date'] as const;
 const UPDATE_PROGRESS_KEYS = ['downloaded', 'total'] as const;

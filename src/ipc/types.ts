@@ -349,7 +349,13 @@ export interface JobHistoryItem {
   entries: number;
   complete: boolean;
   undone: boolean;
+  /** What the job did: fill art or organise a pile of loose ROMs. */
+  kind: JobKind;
+  /** False for a journal written by a newer Coverly. */
+  undoable: boolean;
 }
+
+export type JobKind = 'fill' | 'organize';
 
 export type ExportFormat = 'csv' | 'json';
 
