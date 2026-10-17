@@ -156,7 +156,12 @@ describe('Drawer art actions', () => {
 
   it('sets the art from a file and removes it after confirmation', async () => {
     const view = await setup();
-    const entry = view.entries.find((e) => e.art.cover === 'missing')!;
+    const entry = view.entries.find(
+      (e) =>
+        e.art.cover === 'missing' &&
+        e.art.screenshot === 'present' &&
+        e.art.title === 'present',
+    )!;
     const drawer = show(entry);
     expect(
       within(drawer).getByRole('button', { name: 'Remove' }),
@@ -190,6 +195,11 @@ describe('Drawer art actions', () => {
       ),
     ).toBeInTheDocument();
     expect(cover(entry.id)).toBe('missing');
+    // Remove is disabled now, so the focus lands on the next header action
+    // rather than on the page.
+    expect(
+      within(drawer).getByRole('button', { name: 'From file…' }),
+    ).toHaveFocus();
   });
 
   it('does nothing when the file picker is cancelled', async () => {

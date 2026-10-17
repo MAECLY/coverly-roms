@@ -200,17 +200,18 @@ export function ArtWorkspace({
   }, [pending]);
 
   // The remove question takes the focus on its safe answer and gives it
-  // back to the header when it closes.
+  // back to the header when it closes; after "Remove image" that waits for
+  // the write to end, since the header buttons are disabled meanwhile.
   useEffect(() => {
     if (confirmRemove) {
       removeAsked.current = true;
       keepRef.current?.focus();
-    } else if (removeAsked.current) {
+    } else if (removeAsked.current && !writing) {
       removeAsked.current = false;
       const back = removeRef.current;
       (back && !back.disabled ? back : fileRef.current)?.focus();
     }
-  }, [confirmRemove]);
+  }, [confirmRemove, writing]);
 
   // The replace bar that held the focus is gone: the applied image keeps it.
   useEffect(() => {
