@@ -557,3 +557,29 @@ fn prune_jobs_keeps_both_kinds() {
         .collect();
     assert_eq!(kinds, [JobKind::Fill, JobKind::Fill, JobKind::Organize]);
 }
+
+#[test]
+fn a_later_organise_of_the_target_is_a_later_job() {
+    let (tmp, src, root, data) = setup();
+    let first = move_into_gb(&src, &root, &data, &["Tetris.gb"]);
+    // Organise the organised tree again, somewhere unrelated.
+    let elsewhere = tmp.path().join("U");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let mut w = organise_job(&elsewhere, &data, &root);
+    w.move_file(
+        &root.join("ROMS/GB/Tetris.gb"),
+        &elsewhere.join("GB/Tetris.gb"),
+        Collision::Rename,
+        None,
+    )
+    .unwrap();
+    let second = w.finish().unwrap();
+    let later: Vec<String> = later_jobs(&data, &first)
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect();
+    assert_eq!(later, std::slice::from_ref(&second));
+    undo_jobs_in_order(&data, &[first, second]).unwrap();
+    assert!(src.join("Tetris.gb").exists());
+}

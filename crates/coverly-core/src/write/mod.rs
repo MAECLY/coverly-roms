@@ -1111,8 +1111,10 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
 }
 
 /// The jobs newer than `job` that are not undone and wrote under its
-/// root (or above it): undoing `job` alone would orphan what they wrote
-/// (art and gamelists of ROMs an organise undo moves back). Newest first.
+/// root (or above it), or took files from there (a later organise of the
+/// organised tree): undoing `job` alone would orphan what they wrote or
+/// moved on (art and gamelists of ROMs an organise undo moves back, ROMs
+/// already moved elsewhere). Newest first.
 pub fn later_jobs(data_dir: &Path, job: &str) -> Result<Vec<JobSummary>, WriteError> {
     let jobs = list_jobs(data_dir)?;
     let this = jobs
@@ -1126,7 +1128,9 @@ pub fn later_jobs(data_dir: &Path, job: &str) -> Result<Vec<JobSummary>, WriteEr
             j.job.as_str() > job
                 && !j.undone
                 && !j.root.as_os_str().is_empty()
-                && (j.root.starts_with(&root) || root.starts_with(&j.root))
+                && std::iter::once(&j.root)
+                    .chain(j.source_root.as_ref())
+                    .any(|p| p.starts_with(&root) || root.starts_with(p))
         })
         .collect())
 }
