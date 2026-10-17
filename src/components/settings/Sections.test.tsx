@@ -68,7 +68,7 @@ describe('settings sections', () => {
       'jpg',
     );
     await userEvent.click(
-      screen.getByRole('checkbox', { name: 'Keep the aspect ratio' }),
+      screen.getByRole('switch', { name: 'Keep the aspect ratio' }),
     );
     const quality = screen.getByRole('textbox', { name: 'JPEG quality' });
     await userEvent.clear(quality);
@@ -145,7 +145,7 @@ describe('settings sections', () => {
     await userEvent.clear(auto);
     await userEvent.type(auto, '95{enter}');
     await userEvent.click(
-      screen.getByRole('checkbox', { name: 'Fuzzy name matching' }),
+      screen.getByRole('switch', { name: 'Fuzzy name matching' }),
     );
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: 'How ROMs are identified' }),
@@ -160,6 +160,41 @@ describe('settings sections', () => {
       fuzzy: false,
       match_method: 'name-only',
     });
+  });
+
+  it('matching: announces a move, removes a region and adds it back from the list', async () => {
+    await open('matching');
+    await userEvent.click(screen.getByRole('button', { name: 'Move USA up' }));
+    expect(screen.getByText('USA: position 2 of 5')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Remove Japan' }));
+    await waitFor(async () =>
+      expect((await saved()).matching.regions).not.toContain('japan'),
+    );
+    await userEvent.click(screen.getByRole('combobox', { name: 'Add region' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Japan' }));
+    await waitFor(async () =>
+      expect((await saved()).matching.regions.at(-1)).toBe('japan'),
+    );
+    // The picker goes back to its placeholder for the next region.
+    expect(
+      screen.getByRole('combobox', { name: 'Add region' }),
+    ).toHaveTextContent('Add region');
+  });
+
+  it('matching: hints and errors are linked to their field', async () => {
+    await open('matching');
+    const langs = screen.getByRole('textbox', { name: 'Preferred languages' });
+    expect(langs).toHaveAccessibleDescription(
+      'Two-letter codes, comma-separated (en, es, fr…). Used to break ties.',
+    );
+    const review = screen.getByRole('textbox', {
+      name: 'Review threshold (%)',
+    });
+    expect(review).not.toHaveAttribute('aria-invalid');
+    await userEvent.clear(review);
+    await userEvent.type(review, 'abc{enter}');
+    expect(review).toHaveAttribute('aria-invalid', 'true');
+    expect(review).toHaveAccessibleDescription('This value is not valid.');
   });
 
   it('matching: a review threshold above the auto one is an error next to the field', async () => {
@@ -180,7 +215,7 @@ describe('settings sections', () => {
 
   it('sources: SteamGridDB turns on once a key is stored; the key never comes back', async () => {
     const panel = await open('sources');
-    const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
+    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
     expect(sgdb).toBeDisabled();
     expect(
       within(panel).getByText('Store an API key below to turn it on'),
@@ -213,10 +248,30 @@ describe('settings sections', () => {
     );
   });
 
+  it('sources: the typed key can be shown, and is hidden again once saved', async () => {
+    const panel = await open('sources');
+    const key = within(panel).getByLabelText('SteamGridDB API key');
+    const show = within(panel).getByRole('button', {
+      name: 'Show SteamGridDB API key',
+    });
+    expect(show).toBeDisabled();
+    await userEvent.type(key, 'sk-PEEK');
+    await userEvent.click(show);
+    expect(show).toHaveAttribute('aria-pressed', 'true');
+    expect(key).toHaveAttribute('type', 'text');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Save SteamGridDB API key' }),
+    );
+    await within(panel).findByText('Saved in the system keychain.');
+    expect(key).toHaveAttribute('type', 'password');
+    expect(show).toHaveAttribute('aria-pressed', 'false');
+    expect(document.body.innerHTML).not.toContain('sk-PEEK');
+  });
+
   it('sources: screenscraper says not available in this build', async () => {
     const panel = await open('sources');
     expect(
-      within(panel).getByRole('checkbox', { name: /ScreenScraper/ }),
+      within(panel).getByRole('switch', { name: /ScreenScraper/ }),
     ).toBeDisabled();
     expect(
       within(panel).getByText('Not available in this build'),
@@ -285,7 +340,7 @@ describe('settings sections', () => {
     });
     await backend.clearCredential('steamgriddb-api-key');
     const panel = await open('sources');
-    const sgdb = within(panel).getByRole('checkbox', { name: /SteamGridDB/ });
+    const sgdb = within(panel).getByRole('switch', { name: /SteamGridDB/ });
     expect(sgdb).toBeChecked();
     expect(sgdb).toBeEnabled();
     await userEvent.click(sgdb);
@@ -375,7 +430,7 @@ describe('settings sections', () => {
     expect(await screen.findByText(/In use: 48/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Clear cache…' }));
     await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', {
+      within(screen.getByRole('alertdialog')).getByRole('button', {
         name: 'Clear cache',
       }),
     );
@@ -386,17 +441,17 @@ describe('settings sections', () => {
   it('safety: backups are locked on; the rest saves', async () => {
     await open('safety');
     expect(
-      screen.getByRole('checkbox', {
+      screen.getByRole('switch', {
         name: 'Back up files before replacing them',
       }),
     ).toBeDisabled();
     await userEvent.click(
-      screen.getByRole('checkbox', {
+      screen.getByRole('switch', {
         name: 'Simulate before writing (dry run first)',
       }),
     );
     await userEvent.click(
-      screen.getByRole('checkbox', {
+      screen.getByRole('switch', {
         name: 'Delete macOS ._ files on removable drives',
       }),
     );
@@ -436,7 +491,11 @@ describe('settings sections', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Reset all settings…' }),
     );
-    const dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('alertdialog', { name: /reset/i });
+    // A destructive confirmation starts on the safe action.
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    ).toHaveFocus();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Cancel' }),
     );
@@ -445,7 +504,7 @@ describe('settings sections', () => {
       screen.getByRole('button', { name: 'Reset all settings…' }),
     );
     await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', {
+      within(screen.getByRole('alertdialog')).getByRole('button', {
         name: 'Reset settings',
       }),
     );

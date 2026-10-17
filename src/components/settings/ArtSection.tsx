@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import {
@@ -10,7 +15,18 @@ import {
 } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { Field, NumberSetting, settingId, useFieldError } from './Field';
+import {
+  errorText,
+  Field,
+  hintText,
+  NumberSetting,
+  sectionTitle,
+  settingId,
+  SwitchSetting,
+  useFieldError,
+} from './Field';
+
+const legendClass = 'mb-1.5 p-0 text-ui font-medium text-cr-text';
 
 /** A positive whole number of pixels, or null. */
 function pixels(text: string): number | null {
@@ -59,6 +75,7 @@ function SizeRow({ info }: { info: ProfileInfo }) {
     }
   }
   const error = local ?? errW ?? errH;
+  const errorId = `max-size-${id.replace(/[^a-zA-Z0-9]+/g, '-')}-error`;
   const placeholder = slot?.max_width
     ? `${slot.max_width}`
     : t('settings.art.noLimit');
@@ -67,11 +84,14 @@ function SizeRow({ info }: { info: ProfileInfo }) {
       <th scope="row">{info.profile.name}</th>
       {(['width', 'height'] as const).map((dim) => (
         <td key={dim}>
-          <input
+          <Input
             name={`max-${dim}-${id}`}
-            className="text-input setting-number"
+            size="sm"
+            mono
+            className="max-w-28"
             inputMode="numeric"
             aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
             aria-label={t(
               `settings.art.max${dim === 'width' ? 'Width' : 'Height'}`,
               { profile: info.profile.name },
@@ -92,7 +112,7 @@ function SizeRow({ info }: { info: ProfileInfo }) {
       ))}
       <td>
         {error && (
-          <span role="alert" className="field-error">
+          <span id={errorId} role="alert" className={errorText}>
             {error}
           </span>
         )}
@@ -121,29 +141,39 @@ export function ArtSection() {
   }, []);
   return (
     <div className="settings-group">
-      <fieldset className="setting">
-        <legend className="setting-label">{t('settings.art.media')}</legend>
-        {MEDIA.map((m) => (
-          <label key={m} className="checkbox-row">
-            <input
-              type="checkbox"
-              name={`media-${m}`}
-              checked={art.media.includes(m)}
-              onChange={(e) =>
-                void update({
-                  art: {
-                    media: e.target.checked
-                      ? [...art.media, m]
-                      : art.media.filter((x) => x !== m),
-                  },
-                })
-              }
-            />
-            {t(`art.media.${m}`)}
-          </label>
-        ))}
+      <fieldset
+        className="m-0 grid gap-2 border-0 p-0"
+        aria-describedby={mediaError ? 'art-media-error' : undefined}
+      >
+        <legend className={legendClass}>{t('settings.art.media')}</legend>
+        {MEDIA.map((m) => {
+          const cid = settingId(`art.media.${m}`);
+          return (
+            <div key={m} className="flex items-center gap-2.5">
+              <Checkbox
+                id={cid}
+                name={`media-${m}`}
+                checked={art.media.includes(m)}
+                aria-invalid={mediaError ? true : undefined}
+                onCheckedChange={(on) =>
+                  void update({
+                    art: {
+                      media:
+                        on === true
+                          ? [...art.media, m]
+                          : art.media.filter((x) => x !== m),
+                    },
+                  })
+                }
+              />
+              <Label htmlFor={cid} className="font-normal">
+                {t(`art.media.${m}`)}
+              </Label>
+            </div>
+          );
+        })}
         {mediaError && (
-          <p role="alert" className="field-error">
+          <p id="art-media-error" role="alert" className={errorText}>
             {mediaError}
           </p>
         )}
@@ -153,10 +183,9 @@ export function ArtSection() {
         label={t('settings.art.singleSlot')}
         hint={t('settings.art.singleSlotHint')}
       >
-        <select
-          id={settingId('art.single_slot_media')}
+        <NativeSelect
           name="single-slot"
-          className="select"
+          className="max-w-xs"
           value={art.single_slot_media}
           onChange={(e) =>
             void update({
@@ -171,17 +200,16 @@ export function ArtSection() {
               {t(`art.media.${m}`)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <Field
         id={settingId('art.output_format')}
         label={t('settings.art.format')}
         hint={t('settings.art.formatHint')}
       >
-        <select
-          id={settingId('art.output_format')}
+        <NativeSelect
           name="output-format"
-          className="select"
+          className="max-w-xs"
           value={art.output_format}
           onChange={(e) =>
             void update({
@@ -194,47 +222,54 @@ export function ArtSection() {
               {t(`settings.art.formats.${f}`)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="keep-aspect"
-          checked={art.keep_aspect}
-          onChange={(e) =>
-            void update({ art: { keep_aspect: e.target.checked } })
-          }
-        />
-        {t('settings.art.keepAspect')}
-      </label>
+      <SwitchSetting
+        id={settingId('art.keep_aspect')}
+        name="keep-aspect"
+        label={t('settings.art.keepAspect')}
+        checked={art.keep_aspect}
+        onCheckedChange={(on) => void update({ art: { keep_aspect: on } })}
+      />
       <NumberSetting
         path="art.jpeg_quality"
         label={t('settings.art.jpegQuality')}
         value={art.jpeg_quality}
         toPatch={(v) => ({ art: { jpeg_quality: v } })}
       />
-      <fieldset className="setting">
-        <legend className="setting-label">{t('settings.art.overwrite')}</legend>
-        {(
-          [
-            'never',
-            'ask',
-            'backup',
-          ] as const satisfies readonly OverwriteSetting[]
-        ).map((o) => (
-          <label key={o} className="radio-row">
-            <input
-              type="radio"
-              name="overwrite"
-              checked={art.overwrite === o}
-              onChange={() => void update({ art: { overwrite: o } })}
-            />
-            {t(`settings.art.overwrites.${o}`)}
-          </label>
-        ))}
+      <fieldset className="m-0 border-0 p-0">
+        <legend id="art-overwrite-legend" className={legendClass}>
+          {t('settings.art.overwrite')}
+        </legend>
+        <RadioGroup
+          name="overwrite"
+          aria-labelledby="art-overwrite-legend"
+          value={art.overwrite}
+          onValueChange={(o) =>
+            void update({ art: { overwrite: o as OverwriteSetting } })
+          }
+        >
+          {(
+            [
+              'never',
+              'ask',
+              'backup',
+            ] as const satisfies readonly OverwriteSetting[]
+          ).map((o) => {
+            const rid = settingId(`art.overwrite.${o}`);
+            return (
+              <div key={o} className="flex items-center gap-2.5">
+                <RadioGroupItem id={rid} value={o} />
+                <Label htmlFor={rid} className="font-normal">
+                  {t(`settings.art.overwrites.${o}`)}
+                </Label>
+              </div>
+            );
+          })}
+        </RadioGroup>
       </fieldset>
-      <h2 className="section-title">{t('settings.art.maxSize')}</h2>
-      <p className="hint">{t('settings.art.maxSizeHint')}</p>
+      <h2 className={sectionTitle}>{t('settings.art.maxSize')}</h2>
+      <p className={hintText}>{t('settings.art.maxSizeHint')}</p>
       <table className="settings-table">
         <thead>
           <tr>

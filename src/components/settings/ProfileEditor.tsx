@@ -1,5 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -13,7 +20,13 @@ import {
   type SlotFile,
 } from '@/ipc/types';
 
-import { fieldErrorText } from './Field';
+import {
+  errorText,
+  Field,
+  fieldErrorText,
+  sectionTitle,
+  SwitchSetting,
+} from './Field';
 
 // eslint-disable-next-line react-refresh/only-export-components -- the blank profile is part of the editor's interface (plan)
 export const BLANK_PROFILE: ProfileFile = {
@@ -168,34 +181,25 @@ export function ProfileEditor({
     value: string,
     onChange: (v: string) => void,
     field: string,
+    /** Paths and templates read better in the mono face. */
+    mono = false,
   ) => {
-    const error = errorFor(field);
     return (
-      <div className="setting">
-        <label htmlFor={id} className="setting-label">
-          {label}
-        </label>
-        <input
-          id={id}
+      <Field id={id} label={label} error={errorFor(field)}>
+        <Input
           name={id}
-          className="text-input"
+          mono={mono}
           value={value}
-          aria-invalid={error ? true : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
-        {error && (
-          <p role="alert" className="field-error">
-            {error}
-          </p>
-        )}
-      </div>
+      </Field>
     );
   };
 
   return (
     <form
       aria-label={t('profiles.editTitle')}
-      className="profile-editor"
+      className="flex max-w-[40rem] flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         void save();
@@ -237,17 +241,15 @@ export function ProfileEditor({
         },
         'art_dirs',
       )}
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="profile-gamelist"
-          checked={draft.gamelist}
-          onChange={(e) => set({ gamelist: e.target.checked })}
-        />
-        {t('profiles.gamelist')}
-      </label>
+      <SwitchSetting
+        id="profile-gamelist"
+        name="profile-gamelist"
+        label={t('profiles.gamelist')}
+        checked={draft.gamelist}
+        onCheckedChange={(on) => set({ gamelist: on })}
+      />
       {slotsError && (
-        <p role="alert" className="field-error">
+        <p role="alert" className={errorText}>
           {slotsError}
         </p>
       )}
@@ -255,73 +257,86 @@ export function ProfileEditor({
         const slot = draft.slots[m];
         const media = t(`art.media.${m}`);
         return (
-          <fieldset key={m} className="setting">
-            <legend className="setting-label">
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  name={`slot-${m}`}
-                  checked={Boolean(slot)}
-                  onChange={(e) => toggleSlot(m, e.target.checked)}
-                />
-                {t('profiles.slot', { media })}
-              </label>
-            </legend>
-            {slot && (
-              <>
-                {text(
-                  `slot-${m}-template`,
-                  t('profiles.template', { media }),
-                  slot.template,
-                  (v) => setSlot(m, { ...slot, template: v }),
-                  `slots.${m}.template`,
+          <Collapsible key={m} open={Boolean(slot)} asChild>
+            <fieldset className="m-0 grid gap-3 rounded-md border border-cr-border p-3 data-[state=closed]:border-dashed">
+              <legend className="px-1">
+                <span className="flex items-center gap-2.5">
+                  <Switch
+                    id={`slot-${m}`}
+                    name={`slot-${m}`}
+                    checked={Boolean(slot)}
+                    onCheckedChange={(on) => toggleSlot(m, on)}
+                  />
+                  <Label htmlFor={`slot-${m}`}>
+                    {t('profiles.slot', { media })}
+                  </Label>
+                </span>
+              </legend>
+              <CollapsibleContent className="grid gap-3">
+                {slot && (
+                  <>
+                    {text(
+                      `slot-${m}-template`,
+                      t('profiles.template', { media }),
+                      slot.template,
+                      (v) => setSlot(m, { ...slot, template: v }),
+                      `slots.${m}.template`,
+                      true,
+                    )}
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`slot-${m}-format`}>
+                        {t('profiles.format')}
+                      </Label>
+                      <NativeSelect
+                        id={`slot-${m}-format`}
+                        name={`slot-${m}-format`}
+                        className="max-w-40"
+                        value={slot.format}
+                        onChange={(e) =>
+                          setSlot(m, {
+                            ...slot,
+                            format: e.target.value as 'png' | 'jpg',
+                          })
+                        }
+                      >
+                        <option value="png">PNG</option>
+                        <option value="jpg">JPEG</option>
+                      </NativeSelect>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(['max_width', 'max_height'] as const).map((f) => {
+                        const field = `slots.${m}.${f}`;
+                        return (
+                          <Fragment key={f}>
+                            {text(
+                              `slot-${m}-${f}`,
+                              t(`profiles.${f}`, { media }),
+                              raw[field] ??
+                                (slot[f] === null ? '' : String(slot[f])),
+                              (v) => {
+                                setRaw((r) => ({ ...r, [field]: v }));
+                                const n = v.trim();
+                                if (n === '' || SIZE.test(n))
+                                  setSlot(m, {
+                                    ...slot,
+                                    [f]: n === '' ? null : Number(n),
+                                  });
+                              },
+                              field,
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
-                <label className="field-label">
-                  {t('profiles.format')}{' '}
-                  <select
-                    name={`slot-${m}-format`}
-                    className="select"
-                    value={slot.format}
-                    onChange={(e) =>
-                      setSlot(m, {
-                        ...slot,
-                        format: e.target.value as 'png' | 'jpg',
-                      })
-                    }
-                  >
-                    <option value="png">PNG</option>
-                    <option value="jpg">JPEG</option>
-                  </select>
-                </label>
-                {(['max_width', 'max_height'] as const).map((f) => {
-                  const field = `slots.${m}.${f}`;
-                  return (
-                    <Fragment key={f}>
-                      {text(
-                        `slot-${m}-${f}`,
-                        t(`profiles.${f}`, { media }),
-                        raw[field] ?? (slot[f] === null ? '' : String(slot[f])),
-                        (v) => {
-                          setRaw((r) => ({ ...r, [field]: v }));
-                          const n = v.trim();
-                          if (n === '' || SIZE.test(n))
-                            setSlot(m, {
-                              ...slot,
-                              [f]: n === '' ? null : Number(n),
-                            });
-                        },
-                        field,
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </>
-            )}
-          </fieldset>
+              </CollapsibleContent>
+            </fieldset>
+          </Collapsible>
         );
       })}
-      <h3 className="section-title">{t('profiles.preview')}</h3>
-      <div className="preview-inputs">
+      <h3 className={sectionTitle}>{t('profiles.preview')}</h3>
+      <div className="grid gap-3">
         {text(
           'example-folder',
           t('profiles.exampleFolder'),
@@ -355,22 +370,15 @@ export function ProfileEditor({
         ))}
       </dl>
       {saveFailed && (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger">
           {t(errorKey(saveFailed.code), { detail: saveFailed.detail ?? '' })}
-        </p>
+        </Alert>
       )}
-      <div className="modal-actions">
-        <button type="button" className="ghost-button" onClick={onCancel}>
-          {t('profiles.cancel')}
-        </button>
-        <button
-          type="submit"
-          className="primary-button"
-          disabled={saving}
-          aria-busy={saving || undefined}
-        >
+      <div className="flex flex-wrap justify-end gap-2 border-t border-cr-border pt-4">
+        <Button onClick={onCancel}>{t('profiles.cancel')}</Button>
+        <Button type="submit" variant="primary" loading={saving}>
           {t('profiles.save')}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -1,15 +1,40 @@
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  NativeSelect,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useT } from '@/i18n/useT';
 import {
   REGIONS,
   STRATEGIES,
   type MatchMethod,
   type RegionPref,
+  type StrategyKind,
 } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { Field, NumberSetting, settingId, useFieldError } from './Field';
+import {
+  errorText,
+  Field,
+  hintText,
+  NumberSetting,
+  sectionTitle,
+  settingId,
+  SwitchSetting,
+  useFieldError,
+} from './Field';
+import { ReorderAnnouncer, useReorderAnnouncer } from './ReorderAnnouncer';
 
 const METHODS: readonly MatchMethod[] = [
   'hash-then-name',
@@ -24,6 +49,7 @@ export function MatchingSection() {
   const regionsError = useFieldError('matching.regions');
   const langError = useFieldError('matching.languages');
   const [langs, setLangs] = useState<string | null>(null);
+  const announcer = useReorderAnnouncer();
   const label = (r: RegionPref) =>
     r === 'rom' ? t('fill.regionRom') : t(`regions.${r}`);
   const setRegions = (next: RegionPref[]) =>
@@ -33,6 +59,7 @@ export function MatchingSection() {
     const [x] = next.splice(i, 1);
     next.splice(i + d, 0, x!);
     setRegions(next);
+    announcer.moved(label(x!), i + d + 1, next.length);
   };
   const missing = (['rom', ...REGIONS] as RegionPref[]).filter(
     (r) => !m.regions.includes(r),
@@ -40,82 +67,128 @@ export function MatchingSection() {
   const langId = settingId('matching.languages');
   return (
     <div className="settings-group">
-      <fieldset className="setting">
-        <legend className="setting-label">
+      <fieldset className="m-0 border-0 p-0">
+        <legend
+          id="matching-strategy-legend"
+          className="mb-1.5 p-0 text-ui font-medium text-cr-text"
+        >
           {t('settings.matching.strategy')}
         </legend>
-        {STRATEGIES.map((s) => (
-          <div key={s}>
-            <label className="radio-row">
-              <input
-                type="radio"
-                name="strategy"
-                checked={m.strategy === s}
-                onChange={() => void update({ matching: { strategy: s } })}
-              />
-              {t(`fill.strategy.${s}`)}
-            </label>
-            <p className="hint">{t(`fill.strategyHint.${s}`)}</p>
-          </div>
-        ))}
-      </fieldset>
-      <h2 className="section-title" id="settings-regions">
-        {t('settings.matching.regions')}
-      </h2>
-      <ol className="region-order" aria-labelledby="settings-regions">
-        {m.regions.map((r, i) => (
-          <li key={r}>
-            <span>{label(r)}</span>
-            <button
-              type="button"
-              className="icon-button"
-              disabled={i === 0}
-              aria-label={t('fill.moveUp', { region: label(r) })}
-              onClick={() => move(i, -1)}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              disabled={i === m.regions.length - 1}
-              aria-label={t('fill.moveDown', { region: label(r) })}
-              onClick={() => move(i, 1)}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={t('settings.matching.remove', { region: label(r) })}
-              onClick={() => setRegions(m.regions.filter((x) => x !== r))}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-      </ol>
-      {missing.length > 0 && (
-        <select
-          name="add-region"
-          className="select"
-          aria-label={t('settings.matching.addRegion')}
-          value=""
-          onChange={(e) =>
-            e.target.value &&
-            setRegions([...m.regions, e.target.value as RegionPref])
+        <RadioGroup
+          name="strategy"
+          aria-labelledby="matching-strategy-legend"
+          className="gap-3"
+          value={m.strategy}
+          onValueChange={(s) =>
+            void update({
+              matching: { strategy: s as StrategyKind },
+            })
           }
         >
-          <option value="">{t('settings.matching.addRegion')}</option>
-          {missing.map((r) => (
-            <option key={r} value={r}>
-              {label(r)}
-            </option>
-          ))}
-        </select>
+          {STRATEGIES.map((s) => {
+            const rid = settingId(`matching.strategy.${s}`);
+            return (
+              <div
+                key={s}
+                className="grid grid-cols-[auto_1fr] items-start gap-x-2.5 gap-y-0.5"
+              >
+                <RadioGroupItem
+                  id={rid}
+                  value={s}
+                  className="mt-0.5"
+                  aria-describedby={`${rid}-hint`}
+                />
+                <Label htmlFor={rid} className="font-normal">
+                  {t(`fill.strategy.${s}`)}
+                </Label>
+                <p id={`${rid}-hint`} className={`${hintText} col-start-2`}>
+                  {t(`fill.strategyHint.${s}`)}
+                </p>
+              </div>
+            );
+          })}
+        </RadioGroup>
+      </fieldset>
+      <h2 className={sectionTitle} id="settings-regions">
+        {t('settings.matching.regions')}
+      </h2>
+      <ol
+        className="m-0 grid list-decimal gap-1 pl-6 marker:text-caption marker:text-cr-text-secondary"
+        aria-labelledby="settings-regions"
+        aria-describedby={regionsError ? 'settings-regions-error' : undefined}
+      >
+        {m.regions.map((r, i) => {
+          const up = t('fill.moveUp', { region: label(r) });
+          const down = t('fill.moveDown', { region: label(r) });
+          const remove = t('settings.matching.remove', { region: label(r) });
+          return (
+            <li key={r} className="pl-1">
+              <div className="flex items-center gap-1">
+                <span className="min-w-0 flex-1 truncate text-ui">
+                  {label(r)}
+                </span>
+                <SimpleTooltip content={up}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={i === 0}
+                    aria-label={up}
+                    onClick={() => move(i, -1)}
+                  >
+                    <ChevronUp aria-hidden />
+                  </Button>
+                </SimpleTooltip>
+                <SimpleTooltip content={down}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={i === m.regions.length - 1}
+                    aria-label={down}
+                    onClick={() => move(i, 1)}
+                  >
+                    <ChevronDown aria-hidden />
+                  </Button>
+                </SimpleTooltip>
+                <SimpleTooltip content={remove}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={remove}
+                    onClick={() => setRegions(m.regions.filter((x) => x !== r))}
+                  >
+                    <X aria-hidden />
+                  </Button>
+                </SimpleTooltip>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <ReorderAnnouncer message={announcer.message} />
+      {missing.length > 0 && (
+        // Remounted with the list so it always shows its placeholder.
+        <Select
+          key={m.regions.join()}
+          name="add-region"
+          onValueChange={(v) => setRegions([...m.regions, v as RegionPref])}
+        >
+          <SelectTrigger
+            className="w-auto min-w-48 max-w-xs"
+            aria-label={t('settings.matching.addRegion')}
+          >
+            <SelectValue placeholder={t('settings.matching.addRegion')} />
+          </SelectTrigger>
+          <SelectContent>
+            {missing.map((r) => (
+              <SelectItem key={r} value={r}>
+                {label(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       {regionsError && (
-        <p role="alert" className="field-error">
+        <p id="settings-regions-error" role="alert" className={errorText}>
           {regionsError}
         </p>
       )}
@@ -125,10 +198,9 @@ export function MatchingSection() {
         hint={t('settings.matching.languagesHint')}
         error={langError}
       >
-        <input
-          id={langId}
+        <Input
           name={langId}
-          className="text-input"
+          className="max-w-xs"
           value={langs ?? m.languages.join(', ')}
           onChange={(e) => setLangs(e.target.value)}
           onBlur={async () => {
@@ -156,36 +228,29 @@ export function MatchingSection() {
         scale={100}
         toPatch={(v) => ({ matching: { review_threshold: v } })}
       />
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="fuzzy"
-          checked={m.fuzzy}
-          onChange={(e) =>
-            void update({ matching: { fuzzy: e.target.checked } })
-          }
-        />
-        {t('settings.matching.fuzzy')}
-      </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="arcade"
-          checked={m.arcade_translation}
-          onChange={(e) =>
-            void update({ matching: { arcade_translation: e.target.checked } })
-          }
-        />
-        {t('settings.matching.arcade')}
-      </label>
+      <SwitchSetting
+        id={settingId('matching.fuzzy')}
+        name="fuzzy"
+        label={t('settings.matching.fuzzy')}
+        checked={m.fuzzy}
+        onCheckedChange={(on) => void update({ matching: { fuzzy: on } })}
+      />
+      <SwitchSetting
+        id={settingId('matching.arcade_translation')}
+        name="arcade"
+        label={t('settings.matching.arcade')}
+        checked={m.arcade_translation}
+        onCheckedChange={(on) =>
+          void update({ matching: { arcade_translation: on } })
+        }
+      />
       <Field
         id={settingId('matching.match_method')}
         label={t('settings.matching.method')}
       >
-        <select
-          id={settingId('matching.match_method')}
+        <NativeSelect
           name="match-method"
-          className="select"
+          className="max-w-xs"
           value={m.match_method}
           onChange={(e) =>
             void update({
@@ -198,7 +263,7 @@ export function MatchingSection() {
               {t(`settings.matching.methods.${x}`)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <NumberSetting
         path="matching.max_hash_mb"

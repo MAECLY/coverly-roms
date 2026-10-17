@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { NativeSelect } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import type { ProfileInfo } from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { Field, settingId, useFieldError } from './Field';
+import {
+  Field,
+  sectionTitle,
+  settingId,
+  SwitchSetting,
+  useFieldError,
+} from './Field';
 
 /** A list edited as text, committed on blur. */
 function ListSetting({
@@ -34,10 +44,9 @@ function ListSetting({
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <Field id={id} label={label} hint={hint} error={error}>
-      <textarea
-        id={id}
+      <Textarea
         name={id}
-        className="text-input"
+        mono
         rows={4}
         value={draft ?? join(value)}
         onChange={(e) => setDraft(e.target.value)}
@@ -95,10 +104,9 @@ export function LibrarySection() {
         label={t('settings.library.defaultProfile')}
         error={useFieldError('library.default_profile')}
       >
-        <select
-          id={settingId('library.default_profile')}
+        <NativeSelect
           name="default-profile"
-          className="select"
+          className="max-w-xs"
           value={lib.default_profile ?? ''}
           onChange={(e) =>
             void update({
@@ -113,7 +121,7 @@ export function LibrarySection() {
               {p.profile.name}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </Field>
       <ListSetting
         path="library.ignored_dirs"
@@ -133,46 +141,57 @@ export function LibrarySection() {
         join={(l) => l.join(', ')}
         toPatch={(l) => ({ library: { ignored_exts: l } })}
       />
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="include-hidden"
-          checked={lib.include_hidden}
-          onChange={(e) =>
-            void update({ library: { include_hidden: e.target.checked } })
-          }
-        />
-        {t('settings.library.includeHidden')}
-      </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="follow-symlinks"
-          checked={lib.follow_symlinks}
-          onChange={(e) =>
-            void update({ library: { follow_symlinks: e.target.checked } })
-          }
-        />
-        {t('settings.library.followSymlinks')}
-      </label>
-      <p className="hint">{t('settings.library.followSymlinksHint')}</p>
-      <h2 className="section-title">{t('settings.library.recent')}</h2>
+      <SwitchSetting
+        id={settingId('library.include_hidden')}
+        name="include-hidden"
+        label={t('settings.library.includeHidden')}
+        checked={lib.include_hidden}
+        onCheckedChange={(on) =>
+          void update({ library: { include_hidden: on } })
+        }
+      />
+      <SwitchSetting
+        id={settingId('library.follow_symlinks')}
+        name="follow-symlinks"
+        label={t('settings.library.followSymlinks')}
+        hint={t('settings.library.followSymlinksHint')}
+        checked={lib.follow_symlinks}
+        onCheckedChange={(on) =>
+          void update({ library: { follow_symlinks: on } })
+        }
+      />
+      <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
-        <p className="hint">{t('settings.library.recentEmpty')}</p>
+        <EmptyState
+          size="sm"
+          titleAs="p"
+          title={t('settings.library.recentEmpty')}
+          className="items-start px-0 py-2 text-left"
+        />
       ) : (
         <ul className="recent-list">
           {recents.map((r) => (
-            <li key={r.path}>
-              <span className="truncate" title={r.path}>
-                {r.name}
+            <li key={r.path} className="flex items-center gap-3">
+              {/* The name in the UI face, the path as the mono readout
+                  (brand §5), the same pair as the start screen rows. */}
+              <span className="grid min-w-0 flex-1">
+                <span className="truncate font-medium" title={r.name}>
+                  {r.name}
+                </span>
+                <span
+                  className="truncate font-mono text-caption text-cr-text-secondary"
+                  title={r.path}
+                >
+                  {r.path}
+                </span>
               </span>
-              <button
-                type="button"
-                className="ghost-button"
+              <Button
+                size="sm"
+                aria-label={t('start.forget', { name: r.name })}
                 onClick={() => void forget(r.path)}
               >
                 {t('settings.library.forget')}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

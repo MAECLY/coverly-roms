@@ -1,5 +1,14 @@
 import { useState, type ReactNode } from 'react';
 
+import {
+  FieldControl,
+  FieldDescription,
+  FieldError as FieldErrorText,
+  FieldLabel,
+  Field as UiField,
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { useT } from '@/i18n/useT';
 import type { FieldError, SettingsPatch } from '@/ipc/types';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -22,36 +31,75 @@ export function useFieldError(path: string): string | null {
   return e ? fieldErrorText(t, e) : null;
 }
 
+/** Group heading inside a settings panel (a shelf label). */
+export const sectionTitle =
+  'm-0 text-dense font-semibold text-cr-text [&:not(:first-child)]:mt-2';
+
+/** Secondary text under a control or a group. */
+export const hintText = 'm-0 text-caption text-cr-text-secondary';
+
+/** An inline error that is not tied to one control (a list, a group). */
+export const errorText = 'm-0 text-caption font-medium text-cr-danger';
+
+/**
+ * Label + control + hint + error. The one child is the control: it gets the
+ * `id`, `aria-describedby` (hint, then error) and `aria-invalid`.
+ */
 export function Field({
   id,
   label,
   hint,
   error,
+  className,
   children,
 }: {
   id: string;
   label: string;
   hint?: string;
   error?: string | null;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="setting">
-      <label htmlFor={id} className="setting-label">
-        {label}
-      </label>
-      {children}
-      {hint && (
-        <p id={`${id}-hint`} className="hint">
-          {hint}
-        </p>
-      )}
-      {error && (
-        <p id={`${id}-error`} role="alert" className="field-error">
-          {error}
-        </p>
-      )}
-    </div>
+    <UiField id={id} className={className}>
+      <FieldLabel>{label}</FieldLabel>
+      <FieldControl>{children}</FieldControl>
+      {hint && <FieldDescription>{hint}</FieldDescription>}
+      <FieldErrorText>{error}</FieldErrorText>
+    </UiField>
+  );
+}
+
+/** A setting that applies at once: a Switch with its label (and hint). */
+export function SwitchSetting({
+  id,
+  name,
+  label,
+  hint,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  id: string;
+  name: string;
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (on: boolean) => void;
+}) {
+  return (
+    <UiField id={id} orientation="horizontal" disabled={disabled ?? false}>
+      <FieldControl>
+        <Switch
+          name={name}
+          checked={checked}
+          {...(onCheckedChange ? { onCheckedChange } : {})}
+        />
+      </FieldControl>
+      <FieldLabel className="font-normal">{label}</FieldLabel>
+      {hint && <FieldDescription>{hint}</FieldDescription>}
+    </UiField>
   );
 }
 
@@ -93,19 +141,12 @@ export function NumberSetting({
   }
   return (
     <Field id={id} label={label} {...(hint ? { hint } : {})} error={error}>
-      <input
-        id={id}
+      <Input
         name={id}
         type="text"
         inputMode="decimal"
-        className="text-input setting-number"
+        className="max-w-40 tabular-nums"
         value={draft ?? String(Math.round(value * scale * 100) / 100)}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={
-          [hint ? `${id}-hint` : '', error ? `${id}-error` : '']
-            .filter(Boolean)
-            .join(' ') || undefined
-        }
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => void commit()}
         onKeyDown={(e) => {

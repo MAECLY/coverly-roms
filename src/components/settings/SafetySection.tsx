@@ -1,11 +1,21 @@
+import { FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { Field, NumberSetting, settingId, useFieldError } from './Field';
+import {
+  Field,
+  NumberSetting,
+  settingId,
+  SwitchSetting,
+  useFieldError,
+} from './Field';
 
 export function SafetySection() {
   const t = useT();
@@ -24,37 +34,31 @@ export function SafetySection() {
   const id = settingId('safety.backup_dir');
   return (
     <div className="settings-group">
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="backup"
-          checked
-          disabled
-          aria-describedby="backup-locked"
-        />
-        {t('settings.safety.backup')}
-      </label>
-      <p id="backup-locked" className="hint">
-        {t('settings.safety.backupHint')}
-      </p>
+      <SwitchSetting
+        id={settingId('safety.backup')}
+        name="backup"
+        label={t('settings.safety.backup')}
+        hint={t('settings.safety.backupHint')}
+        checked
+        disabled
+      />
       <Field
         id={id}
         label={t('settings.safety.backupDir')}
         hint={t('settings.safety.backupDirHint')}
         error={dirError}
       >
-        <input
-          id={id}
+        <Input
           name={id}
-          className="text-input"
+          mono
+          className="max-w-md"
           value={dir ?? s.backup_dir ?? ''}
           onChange={(e) => setDir(e.target.value)}
           onBlur={() => dir !== null && void commitDir(dir)}
         />
       </Field>
-      <button
-        type="button"
-        className="ghost-button"
+      <Button
+        className="self-start"
         onClick={async () => {
           setError(null);
           let picked: string | null;
@@ -67,35 +71,32 @@ export function SafetySection() {
           if (picked) await commitDir(picked);
         }}
       >
+        <FolderOpen aria-hidden />
         {t('settings.safety.choose')}
-      </button>
+      </Button>
       {error && (
-        <p role="alert" className="error-banner">
+        <Alert variant="danger">
           {t(errorKey(error.code), { detail: error.detail ?? '' })}
-        </p>
+        </Alert>
       )}
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="dry-run"
-          checked={s.dry_run_default}
-          onChange={(e) =>
-            void update({ safety: { dry_run_default: e.target.checked } })
-          }
-        />
-        {t('settings.safety.dryRun')}
-      </label>
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          name="apple-double"
-          checked={s.clean_apple_double}
-          onChange={(e) =>
-            void update({ safety: { clean_apple_double: e.target.checked } })
-          }
-        />
-        {t('settings.safety.appleDouble')}
-      </label>
+      <SwitchSetting
+        id={settingId('safety.dry_run_default')}
+        name="dry-run"
+        label={t('settings.safety.dryRun')}
+        checked={s.dry_run_default}
+        onCheckedChange={(on) =>
+          void update({ safety: { dry_run_default: on } })
+        }
+      />
+      <SwitchSetting
+        id={settingId('safety.clean_apple_double')}
+        name="apple-double"
+        label={t('settings.safety.appleDouble')}
+        checked={s.clean_apple_double}
+        onCheckedChange={(on) =>
+          void update({ safety: { clean_apple_double: on } })
+        }
+      />
       <NumberSetting
         path="safety.undo_depth"
         label={t('settings.safety.undoDepth')}

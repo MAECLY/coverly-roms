@@ -162,7 +162,7 @@ describe('profiles editor', () => {
       within(item).getByRole('button', { name: 'Delete My SD' }),
     );
     await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', {
+      within(screen.getByRole('alertdialog')).getByRole('button', {
         name: 'Delete profile',
       }),
     );
@@ -212,10 +212,10 @@ describe('profiles editor', () => {
     await userEvent.type(dirs, ', Art');
     expect(dirs).toHaveValue('Imgs, Art');
     await userEvent.click(
-      within(form).getByRole('checkbox', { name: 'Cover slot' }),
+      within(form).getByRole('switch', { name: 'Cover slot' }),
     );
     await userEvent.click(
-      within(form).getByRole('checkbox', { name: 'Cover slot' }),
+      within(form).getByRole('switch', { name: 'Cover slot' }),
     );
     const width = within(form).getByRole('textbox', {
       name: 'Cover maximum width',
@@ -254,7 +254,7 @@ describe('profiles editor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New profile' }));
     const form = screen.getByRole('form', { name: 'Edit layout profile' });
     await userEvent.click(
-      within(form).getByRole('checkbox', { name: 'Screenshot slot' }),
+      within(form).getByRole('switch', { name: 'Screenshot slot' }),
     );
     const shot = within(form).getByRole('textbox', {
       name: 'Screenshot path template',
@@ -278,7 +278,7 @@ describe('profiles editor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New profile' }));
     const form = screen.getByRole('form', { name: 'Edit layout profile' });
     await userEvent.click(
-      within(form).getByRole('checkbox', { name: 'Cover slot' }),
+      within(form).getByRole('switch', { name: 'Cover slot' }),
     );
     expect(
       await within(form).findByText('Turn on at least one slot.'),
