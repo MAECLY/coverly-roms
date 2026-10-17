@@ -84,6 +84,8 @@ What moves:
 | Section headlines | The slot under each H2 fills | Scroll (CSS) |
 | Four steps, ≥1024 px | One sticky screenshot; each step's text cross-fades its own in (named view timelines `--s1`…`--s4`) | Scroll (CSS) |
 | Steps 1 and 2 | An ellipse is drawn around "4553 without cover" and "Nothing has been written yet" | Scroll (CSS) |
+| Step 3 (clip) | Over the review queue still: the focus ring walks → → to the 95% candidate, ↵ flashes Accept, and the ring goes back to the first candidate of the next game (the still again). 3.6 s. | Pinned (≥1024 px): 60% of the step's text on screen; otherwise 50% of the figure. ↻ Replay in the step's text. |
+| Step 4 (clip) | Over the game panel still: the first candidate is picked, lifts and lands in the empty Cover slot (its "missing" goes), then the same cover lands on the game's grid tile. Ends filled. 3.2 s. | As step 3 |
 | Layout table | Each slot a format can write goes from dashed to solid, row by row | `[data-reveal]` |
 | Terminal | Each command is typed in turn. The untyped rest stays in place, hidden, so no glyph moves. | 45% on screen; skipped if already visible |
 | Closing | The last slot of a small shelf fills | `[data-reveal]` |
@@ -107,7 +109,7 @@ What moves:
   1 s, and may only fill backwards through a delay when scrolling drives it
   (`animation-range` inside `@supports`);
 - no `<video>` or `autoplay`;
-- `motion.js` is at most 8,000 bytes.
+- `motion.js` is at most 9,500 bytes.
 
 The budget gate allows 16,000 / 5,500 bytes (raw / gzip) for all scripts and
 44,000 / 10,500 for the stylesheet.
@@ -122,9 +124,24 @@ The budget gate allows 16,000 / 5,500 bytes (raw / gzip) for all scripts and
   shift after scrolling the whole page too.
 - 0 console errors.
 
+**Step clips.** The step 3 and 4 clips are not recordings: each is an SVG in
+the 1280×800 space of its screenshot (`.clip-fx`, like the step 1 and 2
+ellipses), drawn over the still. The moving cover is cut from the same image
+(`motion.js` points each `<image class="fx-src">` at the `<img>`'s
+`currentSrc`), so it follows the language, the colour mode and the pixel
+density. Two patches use the shots' own surfaces (`--shot-modal`,
+`--shot-slot`). If the screenshots are re-captured, check the coordinates in
+the markup (the review ring, the Accept button, the first candidate; the
+English candidate sits 13 px higher) and the `--fx-dy` / `--fx-cy` values in
+`site.css`. Without `html.motion` the SVG is not displayed, and the replay
+buttons, like the hero's, stay in place and are `aria-disabled` while they
+play.
+
 **Not done yet: recordings of the real app.** These would be play-once
 animated WebP clips, each with a still, as Versorium makes them with
-`tests/landing/record.mjs` and `encode-clips.py`. Planned clips:
+`tests/landing/record.mjs` and `encode-clips.py`. In the mock, running a job
+opens the Jobs dialog over the grid and pauses after 25 items, so a clean
+recording needs app-side changes first. Planned clips:
 
 - Apply: dashed slots turn into covers.
 - Undo: the covers go back to slots.
