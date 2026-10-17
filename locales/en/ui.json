@@ -606,7 +606,11 @@
     "undoneBadge": "Undone",
     "close": "Close",
     "unknownDate": "Unknown date",
-    "unknownError": "Unknown problem"
+    "unknownError": "Unknown problem",
+    "kind": {
+      "fill": "Covers",
+      "organize": "Organisation"
+    }
   },
   "review": {
     "title": "Review doubtful matches",
@@ -832,6 +836,7 @@
       "all": "Undo all in order"
     },
     "undone": "Restored: {restored} · Left alone because they changed: {modified}",
-    "resume": "Resume"
+    "resume": "Resume",
+    "interrupted": "Interrupted"
   }
 }

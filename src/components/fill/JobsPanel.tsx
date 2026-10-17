@@ -19,6 +19,8 @@ import type {
   LibraryView,
 } from '@/ipc/types';
 import { isRunning, useJobStore } from '@/stores/jobStore';
+import { useNavStore } from '@/stores/navStore';
+import { useOrganizeStore } from '@/stores/organizeStore';
 
 const TOTALS: readonly (keyof JobTotals)[] = [
   'filled',
@@ -123,6 +125,12 @@ export function JobsPanel({
   async function exportJob(format: ExportFormat) {
     const name = await exportReport(format);
     if (name) setSaved(name);
+  }
+
+  /** An interrupted organise job resumes on the organise screen. */
+  function resumeOrganize(job: string, source: string) {
+    void useOrganizeStore.getState().resumeJob(job, source);
+    useNavStore.getState().openOrganize(source);
   }
 
   async function undo() {
@@ -320,6 +328,7 @@ export function JobsPanel({
           <ul className="history-list" aria-labelledby="jobs-history">
             {history.map((h) => (
               <li key={h.job}>
+                <span>{t(`jobs.kind.${h.kind}`)}</span>
                 <span>{when(h.created_at)}</span>
                 <span>
                   {h.entries === 1
@@ -331,8 +340,23 @@ export function JobsPanel({
                     ? t('jobs.undoneBadge')
                     : h.complete
                       ? t('jobs.complete')
-                      : t('jobs.incomplete')}
+                      : h.kind === 'organize'
+                        ? t('organize.interrupted')
+                        : t('jobs.incomplete')}
                 </span>
+                {h.kind === 'organize' &&
+                  !h.complete &&
+                  !h.undone &&
+                  h.undoable && (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={running}
+                      onClick={() => resumeOrganize(h.job, h.root)}
+                    >
+                      {t('organize.resume')}
+                    </button>
+                  )}
               </li>
             ))}
           </ul>

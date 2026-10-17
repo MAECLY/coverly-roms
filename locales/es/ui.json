@@ -606,7 +606,11 @@
     "undoneBadge": "Deshecho",
     "close": "Cerrar",
     "unknownDate": "Fecha desconocida",
-    "unknownError": "Problema desconocido"
+    "unknownError": "Problema desconocido",
+    "kind": {
+      "fill": "Portadas",
+      "organize": "Organización"
+    }
   },
   "review": {
     "title": "Revisar coincidencias dudosas",
@@ -832,6 +836,7 @@
       "all": "Deshacer todo en orden"
     },
     "undone": "Restaurados: {restored} · Sin tocar por cambios: {modified}",
-    "resume": "Reanudar"
+    "resume": "Reanudar",
+    "interrupted": "Interrumpido"
   }
 }

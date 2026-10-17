@@ -11,10 +11,13 @@ import {
   MOCK_LIBRARIES,
   type MockOptions,
 } from '@/ipc/mock/mockBackend';
+import { BackendError } from '@/ipc/errors';
 import { mockClass, mockFailure } from '@/ipc/mock/mockJobs';
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
+import { useOrganizeStore } from '@/stores/organizeStore';
 import type { ItemErrorKind } from '@/ipc/types';
 import { stubLayout } from '@/test/layout';
 
@@ -214,6 +217,57 @@ describe('Jobs panel', () => {
       expect(within(history).getAllByRole('listitem')).toHaveLength(3),
     );
     expect(within(history).getAllByText('Unknown date')).toHaveLength(2);
+  });
+
+  it('labels organise jobs and resumes an interrupted one', async () => {
+    const { backend } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      {
+        ...real!,
+        job: 'organize-0002',
+        root: '/Users/demo/Downloads/roms',
+        kind: 'organize',
+        complete: false,
+        undone: false,
+      },
+      { ...real!, job: 'organize-0001', kind: 'organize', complete: true },
+      real!,
+    ]);
+    const resume = vi
+      .spyOn(backend, 'organizeResume')
+      .mockRejectedValue(new BackendError('no-plan', 'organize-0002'));
+    const dialog = await openPanel();
+    const history = await within(dialog).findByRole('list', {
+      name: 'History',
+    });
+    await waitFor(() =>
+      expect(within(history).getAllByRole('listitem')).toHaveLength(3),
+    );
+    const [interrupted, organised, fill] =
+      within(history).getAllByRole('listitem');
+    expect(within(organised!).getByText('Organisation')).toBeInTheDocument();
+    expect(within(fill!).getByText('Covers')).toBeInTheDocument();
+    expect(
+      within(organised!).queryByRole('button', { name: 'Resume' }),
+    ).not.toBeInTheDocument();
+    expect(within(interrupted!).getByText('Interrupted')).toBeInTheDocument();
+    await userEvent.click(
+      within(interrupted!).getByRole('button', { name: 'Resume' }),
+    );
+    await waitFor(() => expect(resume).toHaveBeenCalledWith('organize-0002'));
+    expect(useNavStore.getState()).toMatchObject({
+      screen: 'organize',
+      organizeSource: '/Users/demo/Downloads/roms',
+    });
+    expect(useOrganizeStore.getState().source).toBe(
+      '/Users/demo/Downloads/roms',
+    );
+    act(() => {
+      useOrganizeStore.getState().reset();
+      useNavStore.getState().closeOrganize();
+    });
   });
 
   it('moves focus into the undo confirmation and back', async () => {
