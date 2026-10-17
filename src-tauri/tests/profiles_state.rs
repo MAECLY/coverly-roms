@@ -37,6 +37,7 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         )]),
         system_folder: FolderNaming::default(),
         folder_names: BTreeMap::new(),
+        host_folders: BTreeMap::new(),
     }
 }
 

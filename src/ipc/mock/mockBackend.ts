@@ -83,6 +83,7 @@ const handheld = (id: string, name: string, romsRoot: string): ProfileInfo => ({
     roms_root: romsRoot,
     art_dirs: ['Imgs'],
     gamelist: false,
+    host_folders: { ngpc: 'ngp', wonderswancolor: 'wonderswan' },
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',

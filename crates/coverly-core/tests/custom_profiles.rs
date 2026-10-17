@@ -30,6 +30,7 @@ fn sample() -> ProfileFile {
         )]),
         system_folder: FolderNaming::default(),
         folder_names: BTreeMap::new(),
+        host_folders: BTreeMap::new(),
     }
 }
 
@@ -345,4 +346,45 @@ fn folder_naming_round_trips_and_defaults_stay_out_of_the_file() {
         ProfileFile::from_profile(&esde).system_folder,
         FolderNaming::Id
     );
+}
+
+#[test]
+fn a_copy_of_the_anbernic_layout_keeps_its_shared_folders() {
+    use coverly_core::profiles::naming::system_folder;
+    let stock = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "anbernic-stock")
+        .unwrap();
+    let mut file = ProfileFile::from_profile(&stock);
+    file.id = "my-anbernic".into();
+    assert!(errors(&file).is_empty(), "{:?}", errors(&file));
+    let back = ProfileFile::parse_toml(&file.to_toml()).unwrap();
+    assert_eq!(back, file);
+    let copy = back.to_profile();
+    assert_eq!(copy.host_folders, stock.host_folders);
+    let db = SystemDb::builtin();
+    let ngpc = system_folder(&copy, db.get("ngpc").unwrap(), &db, &BTreeMap::new());
+    assert_eq!(ngpc.folder, "NGP");
+
+    let plain = sample();
+    assert!(!plain.to_toml().contains("host_folders"));
+}
+
+#[test]
+fn host_folders_must_name_two_different_known_systems() {
+    let mut p = sample();
+    p.host_folders.insert("ngpc".into(), "ngp".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    p.host_folders.insert("nope".into(), "ngp".into());
+    p.host_folders.insert("gba".into(), "gba".into());
+    p.host_folders
+        .insert("wonderswancolor".into(), "zzz".into());
+    assert!(has(&p, "host_folders.nope", FieldErrorCode::Invalid));
+    assert!(has(&p, "host_folders.gba", FieldErrorCode::Invalid));
+    assert!(has(
+        &p,
+        "host_folders.wonderswancolor",
+        FieldErrorCode::Invalid
+    ));
+    assert!(!has(&p, "host_folders.ngpc", FieldErrorCode::Invalid));
 }

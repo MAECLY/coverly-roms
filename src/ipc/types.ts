@@ -542,6 +542,9 @@ export interface ProfileFile {
   system_folder?: FolderNaming;
   /** Per-system folder names (system id → folder); absent = none. */
   folder_names?: Record<string, string>;
+  /** Systems kept in another system's folder (system id → host id, e.g.
+   * `ngpc → ngp` on Anbernic cards); absent = none. */
+  host_folders?: Record<string, string>;
 }
 
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */

@@ -64,6 +64,10 @@ pub struct ProfileFile {
     /// Per-system folder names (system id → folder).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub folder_names: BTreeMap<String, String>,
+    /// Systems kept in another system's folder (system id → host id), as
+    /// on Anbernic cards (`ngpc → ngp`): a copy of such a layout keeps them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub host_folders: BTreeMap<String, String>,
 }
 
 fn is_default_naming(n: &FolderNaming) -> bool {
@@ -108,6 +112,7 @@ impl ProfileFile {
                 .collect(),
             system_folder: p.system_folder,
             folder_names: BTreeMap::new(),
+            host_folders: p.host_folders.clone(),
         }
     }
 
@@ -145,10 +150,10 @@ impl ProfileFile {
             fixed_format: false,
             gamelist: self.gamelist,
             slots,
-            system_folder: self.system_folder,
             // Custom `folder_names` are merged under the user settings map
             // by the planner.
-            host_folders: BTreeMap::new(),
+            system_folder: self.system_folder,
+            host_folders: self.host_folders.clone(),
             arcade_order: vec!["fbneo".to_string(), "mame".to_string()],
             known_folders: Vec::new(),
         }
@@ -324,8 +329,17 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
     if mirrors.iter().any(|m| *m) && !mirrors.iter().all(|m| *m) {
         out.push(FieldError::new("slots", Order));
     }
+    let db = SystemDb::builtin();
+    for (system_id, host_id) in &p.host_folders {
+        let known = |id: &str| db.get(id).is_some_and(|s| s.id == id);
+        if !known(system_id) || !known(host_id) || system_id == host_id {
+            out.push(FieldError::new(
+                format!("host_folders.{system_id}"),
+                Invalid,
+            ));
+        }
+    }
     if !p.folder_names.is_empty() {
-        let db = SystemDb::builtin();
         let profile = p.to_profile();
         for (system_id, folder) in &p.folder_names {
             if validate_folder_override(&db, &profile, system_id, folder).is_err() {
