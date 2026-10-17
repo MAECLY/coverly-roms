@@ -1423,7 +1423,7 @@ fn master_system_and_game_gear() {
 
 - [ ] **Step 2: Run to see them fail.**
 
-- [ ] **Step 3: Implement** (in `cartridges`, after the NES/N64/Lynx/7800 checks; Sega CD also lives in `discs` for ISO/raw images)
+- [ ] **Step 3: Implement** (in `cartridges`, after the NES/N64/Lynx/7800 checks and before the GBA check, which stays last; Sega CD also lives in `discs` for ISO/raw images)
 
 ```rust
     // Sega family: most specific first (spec §6.3).
@@ -1554,7 +1554,7 @@ The ExHiROM case needs `len > 0x40FFE0`: the fixture is 4 MiB + 64 KiB of zeros 
 
 - [ ] **Step 2: Run to see them fail.**
 
-- [ ] **Step 3: Implement** (end of `cartridges`)
+- [ ] **Step 3: Implement** (end of `cartridges`, before the GBA check, which stays last)
 
 ```rust
     if let Some(weight) = snes_header(src, head, len) {
