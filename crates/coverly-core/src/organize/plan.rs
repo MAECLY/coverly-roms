@@ -1481,6 +1481,39 @@ pub fn plan_organize(
     plan_from_survey(&survey, opts, &[], env)
 }
 
+/// ROM-like files directly in `dir` (not in its subfolders), by name only:
+/// what a library shows as "loose files" to organise (organise spec §4.5).
+/// Partial downloads, hidden and system files do not count; an unreadable
+/// or missing folder counts 0.
+pub fn count_loose_roms(dir: &Path, db: &SystemDb) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_file()))
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            !(is_appledouble(&name)
+                || is_junk_file(&name)
+                || is_zone_identifier(&name)
+                || is_hidden(&name)
+                || is_partial_download(&name))
+                && db.is_rom_like_extension(&extension(&entry.path()))
+        })
+        .count()
+}
+
+/// [`count_loose_roms`] of a library: its root plus its `roms_root` (found
+/// ignoring case), where no system folder holds them.
+pub fn count_library_loose_roms(root: &Path, roms_root: &str, db: &SystemDb) -> usize {
+    let in_root = count_loose_roms(root, db);
+    if roms_root.trim_matches(['/', '\\']).is_empty() {
+        return in_root;
+    }
+    in_root + find_dir_ignoring_case(root, roms_root).map_or(0, |dir| count_loose_roms(&dir, db))
+}
+
 /// A quick look at `path` by names and metadata only (no file is read):
 /// what the start screen needs to offer organising. Stops after
 /// [`PROBE_LIMIT`] entries.

@@ -103,6 +103,9 @@ export interface LibraryView {
   entries: EntryView[];
   warnings: WarningView[];
   scan_ms: number;
+  /** ROM-like files directly in the root or the ROMs folder, outside any
+   * system folder (what "Organise loose files" sorts). */
+  loose_files: number;
 }
 
 export interface ScanProgress {

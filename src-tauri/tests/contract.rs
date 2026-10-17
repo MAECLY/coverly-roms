@@ -105,6 +105,7 @@ fn rust_serialises_the_shared_sample() {
             message: "permission denied".into(),
         }],
         scan_ms: 42,
+        loose_files: 3,
     };
     let actual = json!({
         "library_view": view,

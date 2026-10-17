@@ -825,6 +825,7 @@ export function createMockOrganize(
       entries,
       warnings: [],
       scan_ms: 0,
+      loose_files: 0,
     };
   }
 

@@ -66,6 +66,7 @@ const VIEW_KEYS = [
   'entries',
   'warnings',
   'scan_ms',
+  'loose_files',
 ] as const;
 const ENTRY_KEYS = [
   'id',

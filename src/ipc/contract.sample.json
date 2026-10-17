@@ -46,7 +46,8 @@
         "message": "permission denied"
       }
     ],
-    "scan_ms": 42
+    "scan_ms": 42,
+    "loose_files": 3
   },
   "scan_progress": {
     "generation": 3,

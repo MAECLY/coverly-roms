@@ -18,9 +18,10 @@ use coverly_core::net::testing::MockServer;
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::organize::inspect::inspect_file;
 use coverly_core::organize::{
-    plan_from_survey, plan_organize, probe_folder, survey, Choice, Decision, LeftReason, MetaProbe,
-    NameMode, OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions,
-    OrganizePhase, OrganizePlan, OrganizeProgress, PlanWarning,
+    count_library_loose_roms, count_loose_roms, plan_from_survey, plan_organize, probe_folder,
+    survey, Choice, Decision, LeftReason, MetaProbe, NameMode, OrganizeAction, OrganizeEnv,
+    OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress,
+    PlanWarning,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::systems::SystemDb;
@@ -754,6 +755,28 @@ fn probe_counts_names_only() {
     assert!(probe.writable);
     assert!(!probe.broad_root);
     assert!(!probe.truncated);
+}
+
+#[test]
+fn loose_roms_are_counted_in_one_folder_only() {
+    let dir = TempDir::new().unwrap();
+    put(&dir.path().join("Tetris Worlds (USA).zip"), b"zip");
+    put(&dir.path().join("Pokemon.gba"), &fx::gba());
+    put(&dir.path().join("Half.zip.crdownload"), b"half");
+    put(&dir.path().join(".DS_Store"), b"junk");
+    put(&dir.path().join("._Pokemon.gba"), b"appledouble");
+    put(&dir.path().join("readme.txt"), b"text");
+    put(&dir.path().join("GBA/sorted.gba"), &fx::gba());
+    put(&dir.path().join("deeper/elsewhere.gba"), &fx::gba());
+    let db = SystemDb::builtin();
+    assert_eq!(count_loose_roms(dir.path(), &db), 2);
+    assert_eq!(count_loose_roms(&dir.path().join("missing"), &db), 0);
+
+    // A library: its root plus its ROMs folder, whatever its casing.
+    put(&dir.path().join("roms/Loose.gb"), b"gb");
+    put(&dir.path().join("roms/GB/sorted.gb"), b"gb");
+    assert_eq!(count_library_loose_roms(dir.path(), "ROMS", &db), 3);
+    assert_eq!(count_library_loose_roms(dir.path(), "", &db), 2);
 }
 
 /// GBA header with a two-byte title tag, complement recomputed.

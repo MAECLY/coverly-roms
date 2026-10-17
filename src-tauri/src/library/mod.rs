@@ -14,7 +14,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use coverly_core::art::resolve_art;
 use coverly_core::identify::names::parse_name;
-use coverly_core::organize::DEFAULT_LAYOUT;
+use coverly_core::organize::{count_library_loose_roms, DEFAULT_LAYOUT};
 use coverly_core::profiles::custom::{find_profile, ProfileFile};
 use coverly_core::profiles::{detect_with_fallback, fit_to_root, Media, Profile};
 use coverly_core::scan::{scan_library_with_progress, RomEntry, ScanOptions, ScanProgress};
@@ -195,6 +195,7 @@ pub fn open_session(
         entries: entry_views,
         warnings,
         scan_ms,
+        loose_files: count_library_loose_roms(root, &profile.roms_root, systems),
     };
     let session = Session {
         generation: req.generation,
