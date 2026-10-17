@@ -101,6 +101,10 @@ pub fn run() {
             ipc::organize_plan,
             ipc::organize_cancel,
             ipc::organize_export_plan,
+            ipc::organize_apply,
+            ipc::organize_resume,
+            ipc::organize_cancel_apply,
+            ipc::organize_undo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

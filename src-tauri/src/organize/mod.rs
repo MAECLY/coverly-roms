@@ -1,7 +1,9 @@
 //! Organising a loose pile from the app (organise spec §4, §11): the plans
 //! the backend keeps under a `plan_id` (the webview only sends the id and
-//! its decisions back), the survey a re-plan reuses, and cancelling the
-//! plan being made. Free of Tauri types; `AppState` drives it.
+//! its decisions back), the survey a re-plan reuses, cancelling the plan
+//! being made, and the one apply (or resume) running on a worker thread
+//! behind the fill jobs' manual-write guard. Free of Tauri types;
+//! `AppState` drives it.
 
 pub mod view;
 
@@ -12,13 +14,15 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use coverly_core::organize::{
-    OrganizeError, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, Survey,
+    ApplyEnv, ApplyError, ItemStatus, OrganizeError, OrganizeOptions, OrganizePhase, OrganizePlan,
+    OrganizeProgress, OrganizeReport, SkipReason, Survey,
 };
 
 use coverly_core::profiles::Profile;
 
 use crate::error::IpcError;
-use view::{OrganizeProgressEvent, OrganizeRequest};
+use crate::jobs::OwnedManualWrite;
+use view::{OrganizeJobState, OrganizeJobView, OrganizeProgressEvent, OrganizeRequest};
 
 /// Plans kept for export, re-planning and apply; older ones are dropped.
 pub const KEPT_PLANS: usize = 4;
@@ -26,9 +30,13 @@ pub const KEPT_PLANS: usize = 4;
 /// Progress is sent at most this often (phase changes and ends always).
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
-/// Where planning reports to (Tauri events in the app, a recorder in tests).
+/// Where planning and applying report to (Tauri events in the app, a
+/// recorder in tests).
 pub trait OrganizeEvents: Send + Sync {
+    /// Throttled progress of a plan or an apply.
     fn progress(&self, event: OrganizeProgressEvent);
+    /// An apply or resume ended (done, paused, cancelled or failed).
+    fn changed(&self, _view: OrganizeJobView) {}
 }
 
 /// One dry run as the backend keeps it.
@@ -57,6 +65,8 @@ struct Inner {
     plans: VecDeque<(u64, Arc<StoredPlan>)>,
     /// The survey being made, with its cancel flag.
     running: Option<(u64, Arc<AtomicBool>)>,
+    /// The current (or last) apply of this app session.
+    apply: Option<Arc<ApplyJob>>,
 }
 
 /// The plans of the organise screen and the one survey in progress.
@@ -156,6 +166,182 @@ impl OrganizeManager {
     pub fn forget_all(&self) {
         self.lock().plans.clear();
     }
+
+    /// Makes `job` the current apply. The caller holds the manual-write
+    /// guard, so no other apply runs.
+    fn install(&self, job: Arc<ApplyJob>) {
+        self.lock().apply = Some(job);
+    }
+
+    /// The current (or last) apply.
+    pub fn current_apply(&self) -> Option<OrganizeJobView> {
+        self.lock().apply.as_ref().map(|j| j.view())
+    }
+
+    /// Asks the running apply to stop before its next item; a no-op when
+    /// none runs.
+    pub fn cancel_apply(&self) {
+        if let Some(job) = &self.lock().apply {
+            if job.view().state == OrganizeJobState::Applying {
+                job.cancel.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// Runs `apply` on a worker thread holding `guard` (fills and other
+    /// writes are refused until it ends) as the current apply. Progress
+    /// goes to `events` (throttled) and the end as `changed`; a panic ends
+    /// it as `failed`.
+    pub fn spawn_apply<F>(
+        &self,
+        start: ApplyStart,
+        guard: OwnedManualWrite,
+        events: Arc<dyn OrganizeEvents>,
+        apply: F,
+    ) -> OrganizeJobView
+    where
+        F: FnOnce(&ApplyEnv) -> Result<OrganizeReport, ApplyError> + Send + 'static,
+    {
+        let job = Arc::new(ApplyJob {
+            plan_id: start.plan_id,
+            target_root: start.target_root,
+            layout: start.layout,
+            data_dir: start.data_dir,
+            cancel: AtomicBool::new(false),
+            data: Mutex::new(ApplyData {
+                job: start.job,
+                state: OrganizeJobState::Applying,
+                progress: None,
+                report: None,
+                error: None,
+            }),
+        });
+        self.install(Arc::clone(&job));
+        let view = job.view();
+        std::thread::spawn(move || {
+            let _guard = guard;
+            let throttle = Throttle::new(job.plan_id, Arc::clone(&events));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let progress = |p: OrganizeProgress| {
+                    job.data().progress = Some(OrganizeProgressEvent {
+                        plan_id: job.plan_id,
+                        phase: p.phase,
+                        done: p.done,
+                        total: p.total,
+                    });
+                    throttle.progress(p);
+                };
+                let env = ApplyEnv {
+                    data_dir: &job.data_dir,
+                    progress: &progress,
+                    cancel: &job.cancel,
+                };
+                apply(&env).map_err(IpcError::from)
+            }))
+            .unwrap_or_else(|_| Err(IpcError::Io("the organise job stopped unexpectedly".into())));
+            job.end(outcome);
+            let view = job.view();
+            match &view.report {
+                Some(r) => log::info!(
+                    "organise job {:?} {:?}: {} moved, {} copied, {} skipped, {} failed",
+                    view.job,
+                    view.state,
+                    r.moved,
+                    r.copied,
+                    r.skipped,
+                    r.failed
+                ),
+                None => log::warn!("organise job {:?} failed: {:?}", view.job, view.error),
+            }
+            events.changed(view);
+        });
+        view
+    }
+}
+
+/// What an apply starts with.
+pub struct ApplyStart {
+    pub plan_id: u64,
+    /// The journal a resume continues.
+    pub job: Option<String>,
+    pub target_root: String,
+    pub layout: String,
+    /// Journals and saved plans (the job's settings snapshot).
+    pub data_dir: PathBuf,
+}
+
+/// One apply (or resume) of an organise plan.
+pub struct ApplyJob {
+    plan_id: u64,
+    target_root: String,
+    layout: String,
+    data_dir: PathBuf,
+    cancel: AtomicBool,
+    data: Mutex<ApplyData>,
+}
+
+struct ApplyData {
+    job: Option<String>,
+    state: OrganizeJobState,
+    progress: Option<OrganizeProgressEvent>,
+    report: Option<OrganizeReport>,
+    error: Option<IpcError>,
+}
+
+impl ApplyJob {
+    fn data(&self) -> MutexGuard<'_, ApplyData> {
+        self.data.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn view(&self) -> OrganizeJobView {
+        let d = self.data();
+        OrganizeJobView {
+            job: d.job.clone(),
+            plan_id: self.plan_id,
+            state: d.state,
+            progress: d.progress,
+            report: d.report.clone(),
+            target_root: self.target_root.clone(),
+            layout: self.layout.clone(),
+            error: d.error.clone(),
+        }
+    }
+
+    /// Records how the worker ended.
+    fn end(&self, outcome: Result<OrganizeReport, IpcError>) {
+        let mut d = self.data();
+        d.progress = None;
+        match outcome {
+            Ok(report) => {
+                d.state = end_state(&report);
+                if report.job.is_some() {
+                    d.job = report.job.clone();
+                }
+                d.report = Some(report);
+            }
+            Err(e) => {
+                d.state = OrganizeJobState::Failed;
+                d.error = Some(e);
+            }
+        }
+    }
+}
+
+/// Paused, cancelled (some item was skipped for it) or done.
+fn end_state(report: &OrganizeReport) -> OrganizeJobState {
+    let cancelled = report.items.iter().any(|i| {
+        i.status
+            == ItemStatus::Skipped {
+                reason: SkipReason::Cancelled,
+            }
+    });
+    if report.paused.is_some() {
+        OrganizeJobState::Paused
+    } else if cancelled {
+        OrganizeJobState::Cancelled
+    } else {
+        OrganizeJobState::Done
+    }
 }
 
 /// The options a survey depends on: everything but the transfer mode and
@@ -222,6 +408,16 @@ impl From<OrganizeError> for IpcError {
             other @ (OrganizeError::UnknownSystem(_) | OrganizeError::UnknownItem(_)) => {
                 IpcError::BadRequest(other.to_string())
             }
+        }
+    }
+}
+
+impl From<ApplyError> for IpcError {
+    fn from(e: ApplyError) -> Self {
+        match e {
+            ApplyError::NoSpace { needed, free } => IpcError::NoSpace(format!("{needed}/{free}")),
+            ApplyError::Write(w) => w.into(),
+            ApplyError::NoPlan(_) => IpcError::NoPlan,
         }
     }
 }
@@ -344,6 +540,42 @@ mod tests {
             ..base.clone()
         };
         assert_ne!(survey_key(&base), survey_key(&flat));
+    }
+
+    #[test]
+    fn apply_errors_keep_stable_codes() {
+        assert_eq!(
+            IpcError::from(ApplyError::NoSpace {
+                needed: 2000,
+                free: 1000
+            }),
+            IpcError::NoSpace("2000/1000".into())
+        );
+        assert_eq!(
+            IpcError::from(ApplyError::NoPlan("j".into())),
+            IpcError::NoPlan
+        );
+        assert_eq!(
+            IpcError::from(ApplyError::Write(coverly_core::write::WriteError::DiskFull)),
+            IpcError::DiskFull
+        );
+    }
+
+    #[test]
+    fn a_report_with_cancelled_items_ends_cancelled() {
+        use coverly_core::organize::ItemOutcome;
+        let mut report = OrganizeReport::default();
+        assert_eq!(end_state(&report), OrganizeJobState::Done);
+        report.items.push(ItemOutcome {
+            item: 0,
+            status: ItemStatus::Skipped {
+                reason: SkipReason::Cancelled,
+            },
+            targets: Vec::new(),
+        });
+        assert_eq!(end_state(&report), OrganizeJobState::Cancelled);
+        report.paused = Some(coverly_core::progress::PauseKind::Volume);
+        assert_eq!(end_state(&report), OrganizeJobState::Paused);
     }
 
     #[test]

@@ -28,8 +28,8 @@ use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::organize::evidence::OnlineLookup;
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
-    plan_from_survey, probe_folder, survey, Decision as OrganizeDecision, OrganizeEnv,
-    OrganizeOptions, OsMetaProbe,
+    apply_organize, load_plan, plan_from_survey, probe_folder, resume_organize, survey,
+    Decision as OrganizeDecision, OrganizeEnv, OrganizeOptions, OrganizePlan, OsMetaProbe,
 };
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::custom::{
@@ -45,7 +45,7 @@ use coverly_core::settings::{
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
 use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
+use coverly_core::write::{later_jobs, list_jobs, undo_job, undo_jobs_in_order, OverwritePolicy};
 
 use crate::error::IpcError;
 use crate::jobs::view::{
@@ -58,8 +58,10 @@ use crate::library::identify::IdentityView;
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
-use crate::organize::view::{FolderProbeView, OrganizePlanView, OrganizeRequest};
-use crate::organize::{OrganizeEvents, OrganizeManager, StoredPlan, Throttle};
+use crate::organize::view::{
+    FolderProbeView, OrganizeJobView, OrganizePlanView, OrganizeRequest, OrganizeUndoView,
+};
+use crate::organize::{ApplyStart, OrganizeEvents, OrganizeManager, StoredPlan, Throttle};
 use crate::prefs::{SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 
@@ -1385,6 +1387,159 @@ impl AppState {
     pub fn organize_cancel(&self, plan_id: u64) -> Result<(), IpcError> {
         self.organize.cancel(plan_id);
         Ok(())
+    }
+
+    /// Plan `plan_id` again from its kept survey with `decisions` (no file
+    /// is read): what apply runs, so the webview never sends a plan.
+    fn decided_plan(
+        &self,
+        plan_id: u64,
+        decisions: &[OrganizeDecision],
+        cfg: &FillConfig,
+    ) -> Result<OrganizePlan, IpcError> {
+        let stored = self.organize.get(plan_id)?;
+        let db = SystemDb::builtin();
+        fs::create_dir_all(&cfg.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        let cache = Cache::open(&cfg.cache_dir.join(CACHE_FILE))
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        // The layout as surveyed, even if its custom profile changed since.
+        let profiles = [stored.layout.clone()];
+        let env = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: None,
+            probe: &OsMetaProbe,
+            online: None,
+            now: SystemTime::now(),
+        };
+        Ok(plan_from_survey(
+            &stored.survey,
+            &stored.opts,
+            decisions,
+            &env,
+        )?)
+    }
+
+    /// Takes the manual-write guard for an organise write: refused while a
+    /// fill gathers, applies or is paused (it resumes into its journal),
+    /// or another write (or apply) runs.
+    fn organize_guard(&self) -> Result<crate::jobs::OwnedManualWrite, IpcError> {
+        if self.jobs.paused() {
+            return Err(IpcError::JobRunning);
+        }
+        self.jobs.begin_manual_owned()
+    }
+
+    /// Applies plan `plan_id` with `decisions` on a worker thread (the
+    /// backend re-plans from its own survey). Fills and other writes are
+    /// refused until it ends; progress and the end arrive through
+    /// `events`. The kept plans are dropped: the pile changes.
+    pub fn organize_apply(
+        &self,
+        plan_id: u64,
+        decisions: &[OrganizeDecision],
+        events: Arc<dyn OrganizeEvents>,
+    ) -> Result<OrganizeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let plan = self.decided_plan(plan_id, decisions, &cfg)?;
+        let guard = self.organize_guard()?;
+        fs::create_dir_all(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        self.organize.forget_all();
+        log::info!(
+            "organise plan {plan_id}: applying {} items",
+            plan.counts.roms
+        );
+        let start = ApplyStart {
+            plan_id,
+            job: None,
+            target_root: plan.target_root.display().to_string(),
+            layout: plan.layout.clone(),
+            data_dir: cfg.data_dir.clone(),
+        };
+        Ok(self
+            .organize
+            .spawn_apply(start, guard, events, move |env| apply_organize(&plan, env)))
+    }
+
+    /// Continues the paused or interrupted organise job `job` from the
+    /// plan saved with it, into the same journal (like [`Self::organize_apply`]).
+    pub fn organize_resume(
+        &self,
+        job: &str,
+        events: Arc<dyn OrganizeEvents>,
+    ) -> Result<OrganizeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let plan = load_plan(&cfg.data_dir, job)?;
+        let summary = list_jobs(&cfg.data_dir)?
+            .into_iter()
+            .find(|j| j.job == job)
+            .ok_or(IpcError::NoPlan)?;
+        if summary.undone || summary.complete {
+            return Err(IpcError::BadRequest(format!(
+                "job {job} has nothing left to resume"
+            )));
+        }
+        let guard = self.organize_guard()?;
+        self.organize.forget_all();
+        let start = ApplyStart {
+            plan_id: self.organize.next_id(),
+            job: Some(job.to_string()),
+            target_root: plan.target_root.display().to_string(),
+            layout: plan.layout.clone(),
+            data_dir: cfg.data_dir.clone(),
+        };
+        let job = job.to_string();
+        Ok(self
+            .organize
+            .spawn_apply(start, guard, events, move |env| resume_organize(&job, env)))
+    }
+
+    /// Stops the running apply before its next item (a no-op otherwise).
+    pub fn organize_cancel_apply(&self) -> Result<(), IpcError> {
+        self.organize.cancel_apply();
+        Ok(())
+    }
+
+    /// The current (or last) organise apply of this app session.
+    pub fn organize_job(&self) -> Option<OrganizeJobView> {
+        self.organize.current_apply()
+    }
+
+    /// Undoes job `job`. Newer jobs that wrote under its folders (a fill
+    /// that added covers to the organised tree) would be orphaned: refused
+    /// with [`IpcError::LaterJobs`] (their ids as detail) unless
+    /// `include_later`, which undoes them too, newest first.
+    pub fn organize_undo(
+        &self,
+        job: &str,
+        include_later: bool,
+    ) -> Result<OrganizeUndoView, IpcError> {
+        if self.jobs.paused() {
+            return Err(IpcError::JobRunning);
+        }
+        let _writing = self.jobs.begin_manual()?;
+        let data_dir = self.fill_config().data_dir.clone();
+        if !list_jobs(&data_dir)?
+            .iter()
+            .any(|j| j.job == job && !j.undone)
+        {
+            return Err(IpcError::NothingToUndo);
+        }
+        let later = later_jobs(&data_dir, job)?;
+        if !later.is_empty() && !include_later {
+            let ids: Vec<&str> = later.iter().map(|j| j.job.as_str()).collect();
+            return Err(IpcError::LaterJobs(ids.join(", ")));
+        }
+        let mut ids: Vec<String> = later.iter().map(|j| j.job.clone()).collect();
+        ids.push(job.to_string());
+        let report = undo_jobs_in_order(&data_dir, &ids)?;
+        self.organize.forget_all();
+        log::info!("undid organise job {job} ({} jobs)", report.len());
+        Ok(OrganizeUndoView {
+            report,
+            later_jobs: later.into_iter().map(JobHistoryView::from).collect(),
+        })
     }
 
     /// Writes plan `plan_id` (as planned, decisions included) to `dest` as JSON.

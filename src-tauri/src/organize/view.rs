@@ -1,11 +1,20 @@
 //! Wire types of organising a loose pile (organise spec §4, §11): snake_case
 //! fields, kebab-case enums, mirrored in `src/ipc/types.ts`.
 
-use coverly_core::organize::{FolderProbe, NameMode, OrganizePhase, OrganizePlan, TransferMode};
+use coverly_core::organize::{
+    FolderProbe, NameMode, OrganizePhase, OrganizePlan, OrganizeReport, TransferMode,
+};
+use coverly_core::write::UndoReport;
 use serde::{Deserialize, Serialize};
 
-/// Event carrying an [`OrganizeProgressEvent`] while a plan is made.
+use crate::error::IpcError;
+use crate::jobs::view::JobHistoryView;
+
+/// Event carrying an [`OrganizeProgressEvent`] while a plan is made or
+/// applied.
 pub const ORGANIZE_PROGRESS_EVENT: &str = "organize-progress";
+/// Event carrying the [`OrganizeJobView`] when an apply or resume ends.
+pub const ORGANIZE_CHANGED_EVENT: &str = "organize-changed";
 
 /// What a quick, name-only look at a folder found (start-screen offer).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -70,6 +79,47 @@ pub struct OrganizeProgressEvent {
     pub phase: OrganizePhase,
     pub done: usize,
     pub total: usize,
+}
+
+/// Where an organise apply (or resume) stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OrganizeJobState {
+    Applying,
+    Done,
+    /// Stopped on a full, read-only or vanished volume: `organize_resume`
+    /// continues it.
+    Paused,
+    Cancelled,
+    Failed,
+}
+
+/// The organise apply of the app (at most one at a time).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OrganizeJobView {
+    /// The journal, once known (always for a resume).
+    pub job: Option<String>,
+    /// The plan applied; a resume gets a new id for its progress events.
+    pub plan_id: u64,
+    pub state: OrganizeJobState,
+    /// The last progress, while applying.
+    pub progress: Option<OrganizeProgressEvent>,
+    /// What was done, once it ended (`done`, `paused`, `cancelled`).
+    pub report: Option<OrganizeReport>,
+    /// The folder the library opens from afterwards.
+    pub target_root: String,
+    /// Profile id of the layout: the library opens with it.
+    pub layout: String,
+    /// Why it failed (`failed` only), as an IPC error (`no-space`, …).
+    pub error: Option<IpcError>,
+}
+
+/// What `organize_undo` did: one report per job, newest first, and the
+/// later jobs undone with it (empty unless asked to include them).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct OrganizeUndoView {
+    pub report: Vec<UndoReport>,
+    pub later_jobs: Vec<JobHistoryView>,
 }
 
 #[cfg(test)]

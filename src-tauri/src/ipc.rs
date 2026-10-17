@@ -25,8 +25,8 @@ use crate::library::art::{entry_path, read_art_bytes};
 use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
 use crate::organize::view::{
-    FolderProbeView, OrganizePlanView, OrganizeProgressEvent, OrganizeRequest,
-    ORGANIZE_PROGRESS_EVENT,
+    FolderProbeView, OrganizeJobView, OrganizePlanView, OrganizeProgressEvent, OrganizeRequest,
+    OrganizeUndoView, ORGANIZE_CHANGED_EVENT, ORGANIZE_PROGRESS_EVENT,
 };
 use crate::organize::OrganizeEvents;
 use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
@@ -725,12 +725,16 @@ pub async fn probe_folder(app: AppHandle, path: String) -> Result<FolderProbeVie
     blocking(move || app.state::<AppState>().probe_folder(Path::new(&path))).await
 }
 
-/// Planning progress as Tauri events.
+/// Planning and apply progress, and the end of an apply, as Tauri events.
 struct TauriOrganizeEvents(AppHandle);
 
 impl OrganizeEvents for TauriOrganizeEvents {
     fn progress(&self, event: OrganizeProgressEvent) {
         let _ = self.0.emit(ORGANIZE_PROGRESS_EVENT, event);
+    }
+
+    fn changed(&self, view: OrganizeJobView) {
+        let _ = self.0.emit(ORGANIZE_CHANGED_EVENT, view);
     }
 }
 
@@ -770,4 +774,48 @@ pub async fn organize_export_plan(
         Ok(Some(shown_name(&path)))
     })
     .await
+}
+
+/// Applies plan `plan_id` with `decisions` (the backend re-plans from its
+/// own survey); progress arrives as `organize-progress`, the end as
+/// `organize-changed`.
+#[tauri::command]
+pub async fn organize_apply(
+    app: AppHandle,
+    plan_id: u64,
+    decisions: Vec<coverly_core::organize::Decision>,
+) -> Result<OrganizeJobView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>()
+            .organize_apply(plan_id, &decisions, events)
+    })
+    .await
+}
+
+/// Continues a paused or interrupted organise job into its journal.
+#[tauri::command]
+pub async fn organize_resume(app: AppHandle, job: String) -> Result<OrganizeJobView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>().organize_resume(&job, events)
+    })
+    .await
+}
+
+/// Stops the running organise apply before its next item.
+#[tauri::command]
+pub fn organize_cancel_apply(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.organize_cancel_apply()
+}
+
+/// Undoes organise job `job`; with `include_later`, the newer jobs that
+/// wrote under it too (newest first), else those make it `later-jobs`.
+#[tauri::command]
+pub async fn organize_undo(
+    app: AppHandle,
+    job: String,
+    include_later: bool,
+) -> Result<OrganizeUndoView, IpcError> {
+    blocking(move || app.state::<AppState>().organize_undo(&job, include_later)).await
 }
