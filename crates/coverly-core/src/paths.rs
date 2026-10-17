@@ -55,16 +55,23 @@ mod tests {
         assert_eq!((ORG, QUALIFIER, APP), ("Maecly", "com", "CoverlyROMs"));
     }
 
+    /// `directories` lowercases the app name on Linux (`~/.cache/coverlyroms`).
+    fn names_the_app(path: &std::path::Path) -> bool {
+        path.to_string_lossy()
+            .to_lowercase()
+            .contains(&APP.to_lowercase())
+    }
+
     #[test]
     fn platform_dirs_are_used_without_overrides() {
         let dirs = AppDirs::resolve(None, Some(std::path::Path::new("/d"))).unwrap();
-        assert!(dirs.cache.to_string_lossy().contains(APP), "{dirs:?}");
+        assert!(names_the_app(&dirs.cache), "{dirs:?}");
         assert_eq!(dirs.data, std::path::Path::new("/d"));
     }
 
     #[test]
     fn config_dir_is_the_app_config_dir() {
         let dir = config_dir().expect("a home dir exists in tests");
-        assert!(dir.to_string_lossy().contains(APP), "{dir:?}");
+        assert!(names_the_app(&dir), "{dir:?}");
     }
 }
