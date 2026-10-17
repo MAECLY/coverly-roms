@@ -168,6 +168,18 @@ describe('library store', () => {
     expect(useLibraryStore.getState().status).toBe('ready');
   });
 
+  it('remembers the last folder it tried to open, even when it fails', async () => {
+    await useLibraryStore.getState().open('/mock/Broken');
+    const s = useLibraryStore.getState();
+    expect(s.status).toBe('error');
+    expect(s.openingPath).toBeNull();
+    expect(s.lastPath).toBe('/mock/Broken');
+    await useLibraryStore.getState().open(SMALL);
+    expect(useLibraryStore.getState().lastPath).toBe(SMALL);
+    resetLibraryStore();
+    expect(useLibraryStore.getState().lastPath).toBeNull();
+  });
+
   it('closes back to idle', async () => {
     await useLibraryStore.getState().open(SMALL);
     useLibraryStore.getState().close();

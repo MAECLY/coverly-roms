@@ -32,6 +32,9 @@ interface LibraryState {
   progress: ScanProgress | null;
   error: BackendError | null;
   openingPath: string | null;
+  /** The folder of the latest `open()`, kept after it fails (the Start
+   * screen probes it on `no-profile`). */
+  lastPath: string | null;
   recents: RecentLibrary[];
   loadRecents(): Promise<void>;
   /** Opens `path`; `profileId` skips layout detection (e.g. right after
@@ -53,6 +56,7 @@ const initial = {
   progress: null,
   error: null,
   openingPath: null,
+  lastPath: null,
   recents: [],
 };
 
@@ -77,7 +81,13 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
     const seq = (requestSeq += 1);
     // Every scan started before this open has a generation <= floor.
     const floor = maxSeenGen;
-    set({ status: 'opening', openingPath: path, progress: null, error: null });
+    set({
+      status: 'opening',
+      openingPath: path,
+      lastPath: path,
+      progress: null,
+      error: null,
+    });
     let unlisten: (() => void) | undefined;
     try {
       const backend = await getBackend();
