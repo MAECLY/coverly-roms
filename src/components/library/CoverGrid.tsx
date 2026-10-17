@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMemo, type KeyboardEvent, type MouseEvent } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { useElementSize } from '@/hooks/useElementSize';
 import { useT } from '@/i18n/useT';
 import type { EntryView, SystemView } from '@/ipc/types';
@@ -159,16 +160,18 @@ export function CoverGrid({
                       {systems[entry.system]?.name ?? ''}
                     </span>
                     {entry.regions.slice(0, 2).map((r) => (
-                      <span
+                      <Badge
                         key={r}
+                        variant="outline"
                         className="cover-tile__region"
                         title={t(`regions.${r}`)}
                       >
                         {r === 'world' ? t('regions.world') : REGION_CODE[r]}
-                      </span>
+                      </Badge>
                     ))}
                     {entry.regions.length > 2 && (
-                      <span
+                      <Badge
+                        variant="outline"
                         className="cover-tile__region"
                         title={entry.regions
                           .slice(2)
@@ -176,7 +179,7 @@ export function CoverGrid({
                           .join(', ')}
                       >
                         +{entry.regions.length - 2}
-                      </span>
+                      </Badge>
                     )}
                   </span>
                 </div>

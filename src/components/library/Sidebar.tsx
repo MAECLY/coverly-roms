@@ -1,15 +1,18 @@
-import {
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from 'react';
+import { ChevronRight } from 'lucide-react';
+import { useContext, useMemo, useState, type ReactNode } from 'react';
 
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LocaleContext } from '@/i18n/core';
 
 import { useT } from '@/i18n/useT';
+import { cn } from '@/lib/utils';
 import type { LibraryView } from '@/ipc/types';
 import { buildFolderTree, type FolderNode } from '@/lib/folderTree';
 import {
@@ -58,7 +61,6 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
   const t = useT();
   const locale = useContext(LocaleContext);
   const n = useMemo(() => new Intl.NumberFormat(locale), [locale]);
-  const tabRefs = useRef(new Map<Tab, HTMLButtonElement>());
   const scope = useViewStore((s) => s.scope);
   const setScope = useViewStore((s) => s.setScope);
   const setSort = useViewStore((s) => s.setSort);
@@ -94,22 +96,6 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
     if (id === 'all') choose({ kind: 'all' });
   }
 
-  /** WAI-ARIA tabs: arrows (and Home/End) move and activate the tab. */
-  function onTabKey(ev: KeyboardEvent<HTMLButtonElement>, id: Tab) {
-    const at = TABS.indexOf(id);
-    let next: number;
-    if (ev.key === 'ArrowRight') next = (at + 1) % TABS.length;
-    else if (ev.key === 'ArrowLeft')
-      next = (at - 1 + TABS.length) % TABS.length;
-    else if (ev.key === 'Home') next = 0;
-    else if (ev.key === 'End') next = TABS.length - 1;
-    else return;
-    ev.preventDefault();
-    const target = TABS[next]!;
-    activate(target);
-    tabRefs.current.get(target)?.focus();
-  }
-
   function toggle(path: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -120,126 +106,146 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
   }
 
   const scopeButton = (target: Scope, label: string, count: number) => (
-    <button
-      type="button"
-      className="sidebar-item"
+    <Button
+      variant="ghost"
+      className={cn(
+        'h-auto min-h-control-sm w-full min-w-0 flex-1 justify-between gap-2 px-3 py-1 text-left font-normal',
+        'aria-[current=true]:bg-cr-primary-subtle aria-[current=true]:font-semibold aria-[current=true]:text-cr-primary-subtle-fg',
+      )}
       aria-current={sameScope(scope, target) ? 'true' : undefined}
       onClick={() => choose(target)}
     >
       <span className="truncate" title={label}>
         {label}
       </span>
-      <span className="sidebar-count">{n.format(count)}</span>
-    </button>
+      <Badge mono className="bg-transparent px-0">
+        {n.format(count)}
+      </Badge>
+    </Button>
   );
 
   function folder(node: FolderNode, depth: number): ReactNode {
+    const indent = { paddingLeft: `${depth * 0.75}rem` };
+    if (node.children.length === 0) {
+      return (
+        <li key={node.path}>
+          <div className="flex items-center" style={indent}>
+            <span className="size-7 shrink-0" aria-hidden="true" />
+            {scopeButton(
+              { kind: 'folder', path: node.path },
+              node.name,
+              node.count,
+            )}
+          </div>
+        </li>
+      );
+    }
     const open = expanded.has(node.path);
     return (
       <li key={node.path}>
-        <div
-          className="sidebar-folder"
-          style={{ paddingLeft: `${depth * 0.75}rem` }}
-        >
-          {node.children.length > 0 ? (
-            <button
-              type="button"
-              className="tree-toggle"
-              aria-expanded={open}
-              aria-label={t(open ? 'sidebar.collapse' : 'sidebar.expand', {
-                name: node.name,
-              })}
-              onClick={() => toggle(node.path)}
-            >
-              {open ? '▾' : '▸'}
-            </button>
-          ) : (
-            <span className="tree-toggle" aria-hidden="true" />
-          )}
-          {scopeButton(
-            { kind: 'folder', path: node.path },
-            node.name,
-            node.count,
-          )}
-        </div>
-        {open && node.children.length > 0 && (
-          <ul className="sidebar-list">
-            {node.children.map((c) => folder(c, depth + 1))}
-          </ul>
-        )}
+        <Collapsible open={open} onOpenChange={() => toggle(node.path)}>
+          <div className="flex items-center" style={indent}>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="group text-cr-text-secondary"
+                aria-label={t(open ? 'sidebar.collapse' : 'sidebar.expand', {
+                  name: node.name,
+                })}
+              >
+                <ChevronRight
+                  aria-hidden
+                  className="transition-transform duration-fast group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+                />
+              </Button>
+            </CollapsibleTrigger>
+            {scopeButton(
+              { kind: 'folder', path: node.path },
+              node.name,
+              node.count,
+            )}
+          </div>
+          <CollapsibleContent asChild>
+            <ul className="m-0 list-none p-0">
+              {node.children.map((c) => folder(c, depth + 1))}
+            </ul>
+          </CollapsibleContent>
+        </Collapsible>
       </li>
     );
   }
 
-  return (
-    <nav className="sidebar" aria-label={t('sidebar.label')}>
-      <div
-        role="tablist"
-        aria-label={t('sidebar.label')}
-        className="sidebar-tabs"
-      >
-        {TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            ref={(el) => {
-              if (el) tabRefs.current.set(id, el);
-              else tabRefs.current.delete(id);
-            }}
-            className="sidebar-tab"
-            onClick={() => activate(id)}
-            onKeyDown={(ev) => onTabKey(ev, id)}
-          >
-            {t(`views.${id}`)}
-          </button>
-        ))}
-      </div>
-      <div
-        role="tabpanel"
-        id={`panel-${tab}`}
-        aria-labelledby={`tab-${tab}`}
-        className="sidebar-panel"
-      >
-        <ul className="sidebar-list">
-          {tab === 'all' && (
-            <li>
+  const panel = (id: Tab): ReactNode => {
+    switch (id) {
+      case 'all':
+        return (
+          <li>
+            {scopeButton(
+              { kind: 'all' },
+              t('views.allRoms'),
+              view.entries.length,
+            )}
+          </li>
+        );
+      case 'systems':
+        return view.systems
+          .filter((s) => s.roms > 0)
+          .map((s) => (
+            <li key={s.index}>
               {scopeButton(
-                { kind: 'all' },
-                t('views.allRoms'),
-                view.entries.length,
+                { kind: 'system', system: s.index },
+                s.name,
+                systemTotals.get(s.index) ?? 0,
               )}
             </li>
-          )}
-          {tab === 'systems' &&
-            view.systems
-              .filter((s) => s.roms > 0)
-              .map((s) => (
-                <li key={s.index}>
-                  {scopeButton(
-                    { kind: 'system', system: s.index },
-                    s.name,
-                    systemTotals.get(s.index) ?? 0,
-                  )}
-                </li>
-              ))}
-          {tab === 'date' &&
-            DATE_BUCKETS.map((b) => (
-              <li key={b}>
-                {scopeButton(
-                  { kind: 'date', bucket: b },
-                  t(`date.${b}`),
-                  buckets[b],
-                )}
-              </li>
-            ))}
-          {tab === 'folders' && tree.children.map((n) => folder(n, 0))}
-        </ul>
-      </div>
+          ));
+      case 'date':
+        return DATE_BUCKETS.map((b) => (
+          <li key={b}>
+            {scopeButton(
+              { kind: 'date', bucket: b },
+              t(`date.${b}`),
+              buckets[b],
+            )}
+          </li>
+        ));
+      case 'folders':
+        return tree.children.map((c) => folder(c, 0));
+    }
+  };
+
+  return (
+    <nav className="sidebar" aria-label={t('sidebar.label')}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => activate(v as Tab)}
+        className="min-h-0 flex-1 gap-0"
+      >
+        <TabsList
+          aria-label={t('sidebar.label')}
+          className="flex justify-between px-2 data-[orientation=horizontal]:gap-0"
+        >
+          {TABS.map((id) => (
+            <TabsTrigger
+              key={id}
+              value={id}
+              className="min-w-0 justify-center px-1.5 text-caption data-[orientation=horizontal]:after:inset-x-1"
+            >
+              <span className="truncate">{t(`views.${id}`)}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {TABS.map((id) => (
+          <TabsContent
+            key={id}
+            value={id}
+            className="min-h-0 flex-1 overflow-auto px-1 py-2"
+          >
+            <ul className="m-0 grid list-none gap-px p-0">{panel(id)}</ul>
+          </TabsContent>
+        ))}
+      </Tabs>
     </nav>
   );
 }

@@ -1,3 +1,4 @@
+import { Search } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -9,6 +10,23 @@ import {
 
 import { CandidateImage } from '@/components/fill/CandidateImage';
 import { CandidateMeta } from '@/components/fill/CandidateMeta';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { SlotMark, type SlotState } from '@/components/ui/slot-mark';
+import { Spinner } from '@/components/ui/spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useT } from '@/i18n/useT';
 import { getBackend, type Backend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -28,6 +46,7 @@ import {
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { cn } from '@/lib/utils';
 
 import { ArtThumb } from './ArtThumb';
 
@@ -63,33 +82,11 @@ function searchTitle(state: IdentityState | undefined, name: string): string {
   return name.replace(/\s*[([][^)\]]*[)\]]/g, '').trim() || name;
 }
 
-function SearchGlyph() {
-  return (
-    <svg
-      className="art-ws__search-glyph"
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle
-        cx="7"
-        cy="7"
-        r="4.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M10.5 10.5 14 14"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+const SLOT_STATE: Record<'present' | 'missing' | 'unsupported', SlotState> = {
+  present: 'filled',
+  missing: 'missing',
+  unsupported: 'unsupported',
+};
 
 /**
  * The drawer's art surface: one slot per media (the layout's writable ones
@@ -123,6 +120,9 @@ export function ArtWorkspace({
     () =>
       writable.find((m) => entry.art[m] === 'missing') ?? writable[0] ?? null,
   );
+  // The slot just opened, ahead of the render: moving the focus onto it
+  // (advance) makes the Radix tab report it again, which must be a no-op.
+  const activeRef = useRef(active);
   const [lookup, setLookup] = useState<Lookup | null>(() =>
     active && entry.art[active] === 'missing'
       ? {
@@ -237,6 +237,7 @@ export function ArtWorkspace({
 
   /** Opens a slot and starts its lookup (held back while a job runs). */
   function goTo(m: Media, kind: ListKind = 'entry', q = '') {
+    activeRef.current = m;
     setActive(m);
     setConfirmRemove(false);
     setApplied(null);
@@ -244,7 +245,7 @@ export function ArtWorkspace({
   }
 
   function activate(m: Media) {
-    if (!canWrite(m) || m === active) return;
+    if (!canWrite(m) || m === activeRef.current) return;
     setStatus(null);
     goTo(m);
   }
@@ -273,26 +274,6 @@ export function ArtWorkspace({
     setStatus(`${done} ${t('drawer.nextSlot', { next: mediaName(next) })}`);
     tabRefs.current.get(next)?.focus();
     return true;
-  }
-
-  function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
-    const order = MEDIA.filter(canWrite);
-    if (!active || order.length === 0) return;
-    const at = order.indexOf(active);
-    let next: Media | undefined;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      next = order[(at + 1) % order.length];
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      next = order[(at - 1 + order.length) % order.length];
-    } else if (e.key === 'Home') {
-      next = order[0];
-    } else if (e.key === 'End') {
-      next = order[order.length - 1];
-    }
-    if (!next) return;
-    e.preventDefault();
-    activate(next);
-    tabRefs.current.get(next)?.focus();
   }
 
   async function attempt(
@@ -408,8 +389,6 @@ export function ArtWorkspace({
     if (ok) setApplied(null);
   }
 
-  const panelId = `${uid}-panel`;
-  const tabId = (m: Media) => `${uid}-tab-${m}`;
   const activeIndex = active ? MEDIA.indexOf(active) : -1;
   const shown = listing && listing.media === active ? listing : null;
 
@@ -418,7 +397,8 @@ export function ArtWorkspace({
     if (loading) {
       body = (
         <>
-          <p role="status" className="art-ws__note">
+          <p role="status" className="art-ws__note flex items-center gap-2">
+            <Spinner size="sm" decorative />
             {t('drawer.loadingCandidates')}
           </p>
           <div className="art-ws__grid" aria-hidden="true">
@@ -445,9 +425,9 @@ export function ArtWorkspace({
             <div className="art-ws__listhead">
               <span className="art-ws__caption">{label}</span>
               {shown.kind === 'search' && (
-                <button
-                  type="button"
-                  className="art-ws__link"
+                <Button
+                  variant="link"
+                  size="sm"
                   disabled={busy}
                   onClick={() => {
                     setTyped(null);
@@ -455,7 +435,7 @@ export function ArtWorkspace({
                   }}
                 >
                   {t('drawer.backToCandidates')}
-                </button>
+                </Button>
               )}
             </div>
             <div role="group" aria-label={label} className="art-ws__grid">
@@ -510,9 +490,7 @@ export function ArtWorkspace({
                         </span>
                         <CandidateMeta c={c} position={c.index + 1} compact />
                         {inUse && (
-                          <span className="art-ws__inuse">
-                            {t('drawer.inUse')}
-                          </span>
+                          <Badge variant="success">{t('drawer.inUse')}</Badge>
                         )}
                       </span>
                     </button>
@@ -525,24 +503,23 @@ export function ArtWorkspace({
                         })}
                       >
                         <p>{t('drawer.replaceShort')}</p>
-                        <div className="art-ws__row">
-                          <button
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
                             ref={replaceRef}
-                            type="button"
-                            className="art-ws__btn art-ws__btn--primary"
+                            variant="primary"
+                            size="sm"
                             onKeyDown={onConfirmKey}
                             onClick={() => void apply(c, shown)}
                           >
                             {t('drawer.replace')}
-                          </button>
-                          <button
-                            type="button"
-                            className="art-ws__btn"
+                          </Button>
+                          <Button
+                            size="sm"
                             onKeyDown={onConfirmKey}
                             onClick={cancelPending}
                           >
                             {t('drawer.cancel')}
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -554,165 +531,140 @@ export function ArtWorkspace({
         );
     } else {
       body = (
-        <button
-          type="button"
-          className="art-ws__more"
+        <Button
+          size="sm"
+          className="justify-self-start"
           disabled={busy}
           onClick={() => startLookup(active, 'entry', '', 0)}
         >
           {t('drawer.showCandidates')}
-        </button>
+        </Button>
       );
     }
   }
 
+  const panelClass = 'art-ws__panel';
+  const edge =
+    activeIndex === 0
+      ? 'start'
+      : activeIndex === MEDIA.length - 1
+        ? 'end'
+        : undefined;
+
   return (
     <section aria-label={t('drawer.art')} className="art-ws">
-      <div
-        role="tablist"
-        aria-label={t('drawer.art')}
-        className="art-ws__slots"
+      <Tabs
+        value={active ?? ''}
+        onValueChange={(v) => activate(v as Media)}
+        className="gap-0"
       >
-        {MEDIA.map((m) => {
-          const mark = entry.art[m];
-          const actionable = canWrite(m);
-          const selected = m === active;
-          const stateId = `${uid}-state-${m}`;
-          return (
-            <button
-              key={m}
-              ref={(el) => {
-                if (el) tabRefs.current.set(m, el);
-                else tabRefs.current.delete(m);
-              }}
-              id={tabId(m)}
-              type="button"
-              role="tab"
-              className="art-ws__slot"
-              data-mark={actionable ? mark : 'unsupported'}
-              aria-label={mediaName(m)}
-              aria-describedby={stateId}
-              aria-selected={selected}
-              aria-controls={selected ? panelId : undefined}
-              tabIndex={selected ? 0 : -1}
-              disabled={!actionable}
-              onKeyDown={onTabKey}
-              onClick={() => activate(m)}
-            >
-              <span className="art-ws__thumb">
-                <ArtThumb
-                  generation={view.generation}
-                  entry={entry}
-                  media={m}
-                />
-              </span>
-              <span className="art-ws__label">{mediaName(m)}</span>
-              <span id={stateId} className="art-ws__state">
-                {actionable
-                  ? t(`art.mark.${mark}`)
-                  : t('drawer.slotUnsupported')}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+        <TabsList
+          aria-label={t('drawer.art')}
+          className="grid grid-cols-3 gap-1 data-[orientation=horizontal]:items-stretch data-[orientation=horizontal]:gap-1 data-[orientation=horizontal]:border-b-0"
+        >
+          {MEDIA.map((m) => {
+            const mark = entry.art[m];
+            const actionable = canWrite(m);
+            const shownMark = actionable ? mark : 'unsupported';
+            const stateId = `${uid}-state-${m}`;
+            return (
+              <TabsTrigger
+                key={m}
+                value={m}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(m, el);
+                  else tabRefs.current.delete(m);
+                }}
+                data-mark={shownMark}
+                aria-label={mediaName(m)}
+                aria-describedby={stateId}
+                disabled={!actionable}
+                className={cn(
+                  'grid h-auto min-w-0 content-start justify-items-stretch gap-0.5 whitespace-normal rounded-lg border border-transparent px-1.5 pb-2 pt-1.5 text-left font-normal text-cr-text after:hidden',
+                  'hover:bg-cr-hover disabled:text-cr-text disabled:opacity-50',
+                  'data-[state=active]:z-[1] data-[state=active]:border-[color:var(--ws-edge)] data-[state=active]:border-b-[color:var(--ws-tint)] data-[state=active]:bg-[var(--ws-tint)]',
+                )}
+              >
+                <span className="art-ws__thumb">
+                  <ArtThumb
+                    generation={view.generation}
+                    entry={entry}
+                    media={m}
+                  />
+                </span>
+                <span className="mt-1 text-ui font-semibold leading-tight [overflow-wrap:anywhere]">
+                  {mediaName(m)}
+                </span>
+                <span
+                  id={stateId}
+                  className="flex items-center gap-1.5 text-caption leading-tight text-cr-text-secondary"
+                >
+                  <SlotMark state={SLOT_STATE[shownMark]} size={11} />
+                  {actionable
+                    ? t(`art.mark.${mark}`)
+                    : t('drawer.slotUnsupported')}
+                </span>
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
 
-      <div
-        id={panelId}
-        role="tabpanel"
-        aria-labelledby={active ? tabId(active) : undefined}
-        className="art-ws__panel"
-        data-edge={
-          activeIndex === 0
-            ? 'start'
-            : activeIndex === MEDIA.length - 1
-              ? 'end'
-              : undefined
-        }
-      >
         {!active ? (
-          <p className="art-ws__note">{t('art.mark.unsupported')}</p>
+          <div className={panelClass}>
+            <p className="art-ws__note">{t('art.mark.unsupported')}</p>
+          </div>
         ) : (
-          <>
+          <TabsContent value={active} className={panelClass} data-edge={edge}>
             <div className="art-ws__head">
-              {confirmRemove ? (
-                <div className="art-ws__remove" role="group">
-                  <p>{t('drawer.removeConfirm')}</p>
-                  <div className="art-ws__row">
-                    <button
-                      type="button"
-                      className="art-ws__btn art-ws__btn--danger"
-                      onClick={() => void remove()}
-                    >
-                      {t('drawer.removeYes')}
-                    </button>
-                    <button
-                      ref={keepRef}
-                      type="button"
-                      className="art-ws__btn"
-                      onClick={() => setConfirmRemove(false)}
-                    >
-                      {t('drawer.removeNo')}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <h3 className="art-ws__title">{mediaName(active)}</h3>
-                  <div className="art-ws__row">
-                    <button
-                      ref={fileRef}
-                      type="button"
-                      className="art-ws__btn"
-                      disabled={busy || writing}
-                      onClick={() => void fromFile(active)}
-                    >
-                      {t('drawer.fromFile')}
-                    </button>
-                    <button
-                      ref={removeRef}
-                      type="button"
-                      className="art-ws__btn"
-                      disabled={
-                        busy || writing || entry.art[active] !== 'present'
-                      }
-                      onClick={() => setConfirmRemove(true)}
-                    >
-                      {t('drawer.remove')}
-                    </button>
-                  </div>
-                </>
-              )}
+              <h3 className="art-ws__title">{mediaName(active)}</h3>
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  ref={fileRef}
+                  size="sm"
+                  disabled={busy || writing}
+                  onClick={() => void fromFile(active)}
+                >
+                  {t('drawer.fromFile')}
+                </Button>
+                <Button
+                  ref={removeRef}
+                  size="sm"
+                  disabled={busy || writing || entry.art[active] !== 'present'}
+                  onClick={() => setConfirmRemove(true)}
+                >
+                  {t('drawer.remove')}
+                </Button>
+              </div>
             </div>
 
             <form
-              className="art-ws__search"
+              className="flex gap-1.5"
               role="search"
               onSubmit={(e) => {
                 e.preventDefault();
                 submitSearch();
               }}
             >
-              <label className="art-ws__field">
+              <label className="relative flex min-w-0 flex-1 items-center">
                 <span className="sr-only">{t('drawer.searchLabel')}</span>
-                <SearchGlyph />
-                <input
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute left-2 size-3.5 text-cr-text-secondary"
+                />
+                <Input
                   type="search"
                   name="drawer-search"
-                  className="art-ws__input"
+                  size="sm"
+                  className="pl-7"
                   value={query}
                   maxLength={120}
                   disabled={busy}
                   onChange={(e) => onQueryChange(e.target.value)}
                 />
               </label>
-              <button
-                type="submit"
-                className="art-ws__btn"
-                disabled={!query.trim() || busy}
-              >
+              <Button type="submit" size="sm" disabled={!query.trim() || busy}>
                 {t('drawer.searchGo')}
-              </button>
+              </Button>
             </form>
 
             {busy && <p className="art-ws__note">{t('drawer.busy')}</p>}
@@ -720,14 +672,48 @@ export function ArtWorkspace({
               {status}
             </p>
             {error && (
-              <p role="alert" className="error-banner">
+              <Alert variant="danger">
                 {t(errorKey(error.code), { detail: error.detail ?? '' })}
-              </p>
+              </Alert>
             )}
             {body}
-          </>
+          </TabsContent>
         )}
-      </div>
+      </Tabs>
+
+      <AlertDialog
+        open={confirmRemove}
+        onOpenChange={(open) => setConfirmRemove(open)}
+      >
+        <AlertDialogContent
+          // Focus goes back to the header (see the effect above), not to
+          // whatever Radix remembers: Remove may be disabled by then.
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            keepRef.current?.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('drawer.removeTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {active ? `${mediaName(active)}. ` : ''}
+              {t('drawer.replaceShort')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel ref={keepRef}>
+              {t('drawer.removeNo')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void remove()}
+            >
+              {t('drawer.removeYes')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

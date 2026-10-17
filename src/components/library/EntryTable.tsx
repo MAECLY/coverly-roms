@@ -1,4 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import {
   useContext,
   useMemo,
@@ -6,6 +7,7 @@ import {
   type MouseEvent,
 } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
@@ -102,30 +104,50 @@ export function EntryTable({
       onClick={onClick}
     >
       <div role="row" aria-rowindex={1} className="entry-row entry-row--head">
-        {COLUMNS.map((c) => (
-          <div
-            key={c.key}
-            role="columnheader"
-            aria-sort={
-              sort.key === c.key
-                ? sort.dir === 'asc'
-                  ? 'ascending'
-                  : 'descending'
-                : 'none'
-            }
-            className={`cell cell--${c.key}`}
-          >
-            <button
-              type="button"
-              className="sort-button"
-              onClick={() => onSort(c.key)}
+        {COLUMNS.map((c) => {
+          const SortIcon =
+            sort.key !== c.key
+              ? ArrowUpDown
+              : sort.dir === 'asc'
+                ? ArrowUp
+                : ArrowDown;
+          return (
+            <div
+              key={c.key}
+              role="columnheader"
+              aria-sort={
+                sort.key === c.key
+                  ? sort.dir === 'asc'
+                    ? 'ascending'
+                    : 'descending'
+                  : 'none'
+              }
+              className={`cell cell--${c.key}`}
             >
-              {t(c.label)}
-            </button>
-          </div>
-        ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2.5 gap-1 font-semibold text-inherit"
+                onClick={() => onSort(c.key)}
+              >
+                {t(c.label)}
+                <SortIcon
+                  aria-hidden
+                  className={
+                    sort.key === c.key ? 'size-3.5' : 'size-3.5 opacity-40'
+                  }
+                />
+              </Button>
+            </div>
+          );
+        })}
         {MEDIA.map((m) => (
-          <div key={m} role="columnheader" className="cell cell--mark">
+          <div
+            key={m}
+            role="columnheader"
+            className="cell cell--mark"
+            title={t(`art.media.${m}`)}
+          >
             {t(`art.media.${m}`)}
           </div>
         ))}

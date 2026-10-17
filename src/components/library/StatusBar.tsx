@@ -29,7 +29,9 @@ export function StatusBar({
         })}
       </span>
       <span>{t('status.missingCover', { n: n.format(missing) })}</span>
-      <span className="hint">{t('status.scan', { ms: n.format(scanMs) })}</span>
+      <span className="text-cr-text-secondary">
+        {t('status.scan', { ms: n.format(scanMs) })}
+      </span>
     </footer>
   );
 }
