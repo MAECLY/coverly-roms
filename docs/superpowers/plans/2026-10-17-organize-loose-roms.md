@@ -2140,6 +2140,7 @@ Notes for the implementer:
 - `zip` 9: check the exact names `by_index_raw`, `name_for_index`, `ZipFile::encrypted()`; prefer `entry.encrypted()` over string matching when available, and record `"encrypted"` before trying `by_index`.
 - Arcade-shaped zips (several entries, none with a Unique/Shared console extension) end with empty `payloads` and full `entries`: the ladder (Task 14) handles them.
 - `inspect_set_primary(track)` = `sniff(&mut FileAt(File::open(track)?), len, ext)`.
+- *As built:* a zip whose **only** file entry has a generic extension (`bin`, `iso`, `img`, `rom`, `dat`) also yields that entry as a payload (Mega Drive `.bin` and PS1 `.iso` zips); next to other entries a generic name stays arcade data and is not counted toward `TooManyRoms`. Encrypted entries are detected with `ZipFile::encrypted()` from the raw pass (CRC kept, not sniffed, note `"encrypted"`); `UnsupportedArchive`/`CompressionMethodNotSupported` give `"unsupported-compression"`; any other entry error, a bad central-directory record or more than `MAX_ZIP_ENTRIES` entries makes the zip `Damaged` with `entries`/`payloads` cleared. `ZipFile::name()` is fallible in `zip` 9: a non-UTF-8 name falls back to a lossy `name_raw()`.
 
 - [ ] **Step 5: Run tests and gates.**
 
