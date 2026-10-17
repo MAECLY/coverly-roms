@@ -946,3 +946,85 @@ fn an_arcade_set_confirmed_by_contents_follows_the_arcade_order() {
     let id = identify_with(&p2, &ArcadeCatalogue, &Cache::in_memory().unwrap(), None);
     assert_eq!(id.combined.verdict, Verdict::Review, "name only");
 }
+
+#[test]
+fn a_cloud_only_file_is_never_auto_even_with_remembered_facts() {
+    // Facts memoised while the file was local still name the system, but a
+    // placeholder is identified by name/extension only (spec §7.1).
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.gba");
+    std::fs::write(&p, fx::gba()).unwrap();
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let cat = FakeCatalogue::empty();
+    let len = std::fs::metadata(&p).unwrap().len();
+    let mut facts = Facts {
+        inspection: inspect_file(&p, len, &db).unwrap(),
+        raw_crcs: vec![],
+        hashed: false,
+    };
+    let env = LadderEnv {
+        db: &db,
+        catalogue: &cat,
+        cache: &cache,
+        thresholds: Thresholds::default(),
+        broad_root: false,
+        need_hash: true,
+        arcade_order: &[],
+        online: None,
+    };
+    let id = identify_candidate(&p, "Game.gba", len, &mut facts, true, &env);
+    assert_eq!(id.combined.verdict, Verdict::Review);
+    assert_eq!(id.combined.system.as_deref(), Some("gba"));
+    assert!(!facts.hashed, "a placeholder is never hashed");
+}
+
+/// Reports a system as not consulted only once something asked for it,
+/// like [`DatCatalogue`] does.
+struct AskedCatalogue(std::sync::Mutex<std::collections::BTreeSet<String>>);
+
+impl Catalogue for AskedCatalogue {
+    fn hits(&self, systems: &[String], _: &str, _: u64) -> Vec<CatalogueHit> {
+        self.0.lock().unwrap().extend(systems.iter().cloned());
+        Vec::new()
+    }
+    fn any_hits(&self, _: &str, _: u64) -> Vec<CatalogueHit> {
+        Vec::new()
+    }
+    fn stems(&self, system: &str) -> Vec<(String, String)> {
+        self.0.lock().unwrap().insert(system.to_string());
+        Vec::new()
+    }
+    fn stem_systems(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn set_roms(&self, system: &str, _: &str) -> Option<(String, Vec<(String, u64)>)> {
+        self.0.lock().unwrap().insert(system.to_string());
+        None
+    }
+    fn unconsulted(&self) -> Vec<String> {
+        self.0.lock().unwrap().iter().cloned().collect()
+    }
+}
+
+#[test]
+fn the_missing_catalogue_note_does_not_depend_on_the_order_of_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = tmp.path().join("Game.gba");
+    std::fs::write(&raw, fx::gba()).unwrap();
+    let zip = tmp.path().join("Other.zip");
+    zip_file(&zip, &[("Other.gba", &fx::gba(), true)]);
+    let cache = Cache::in_memory().unwrap();
+    let cat = AskedCatalogue(std::sync::Mutex::default());
+    let raw_first = identify_with(&raw, &cat, &cache, None);
+    let zipped = identify_with(&zip, &cat, &cache, None);
+    let raw_after = identify_with(&raw, &cat, &cache, None);
+    assert!(zipped.notes.contains(&ItemNote::CatalogueMissing {
+        system: "gba".into()
+    }));
+    assert_eq!(raw_first.notes, raw_after.notes);
+    assert!(
+        raw_after.notes.is_empty(),
+        "the raw file never needed the DAT"
+    );
+}

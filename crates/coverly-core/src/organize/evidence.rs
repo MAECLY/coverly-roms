@@ -632,6 +632,7 @@ fn dat_level(
     crcs: &[(String, u64)],
     evidence: &mut Vec<Evidence>,
     excluded: &[String],
+    asked: &mut BTreeSet<String>,
 ) -> Vec<CatalogueHit> {
     if crcs.is_empty() {
         return Vec::new();
@@ -639,6 +640,7 @@ fn dat_level(
     let systems = candidates(evidence, excluded);
     let mut found: Vec<(String, CatalogueHit)> = Vec::new();
     if !systems.is_empty() {
+        asked.extend(systems.iter().cloned());
         for (crc, size) in crcs {
             found.extend(
                 env.catalogue
@@ -687,11 +689,18 @@ fn dat_level(
 
 /// Fuzzy title match against the DAT stems of `systems`: ≥ 95 → 0.80,
 /// ≥ 85 → 0.70 (spec §6.5).
-fn fuzzy_level(env: &LadderEnv, systems: &[String], keys: &[String], evidence: &mut Vec<Evidence>) {
+fn fuzzy_level(
+    env: &LadderEnv,
+    systems: &[String],
+    keys: &[String],
+    evidence: &mut Vec<Evidence>,
+    asked: &mut BTreeSet<String>,
+) {
     if keys.is_empty() {
         return;
     }
     for system in systems {
+        asked.insert(system.clone());
         let mut best: Option<(u8, String)> = None;
         for (stem, game) in env.catalogue.stems(system) {
             let stem_key = parse_name(&stem, false).key;
@@ -832,7 +841,11 @@ pub fn identify_candidate(
         Container::Raw if facts.hashed => facts.raw_crcs.clone(),
         _ => Vec::new(),
     };
-    let mut hits = dat_level(env, &crcs, &mut evidence, &excluded);
+    // Systems whose catalogue this file asked for: only those can carry a
+    // "catalogue missing" note, so the note never depends on which other
+    // files of the pile were identified first.
+    let mut asked: BTreeSet<String> = BTreeSet::new();
+    let mut hits = dat_level(env, &crcs, &mut evidence, &excluded, &mut asked);
     // 6. Raw hashing, only when it can change the outcome.
     if insp.container == Container::Raw
         && !cloud_only
@@ -862,7 +875,7 @@ pub fn identify_candidate(
             id.content_key = facts.raw_crcs.first().cloned();
             remembered(env, id.content_key.as_ref(), &mut evidence);
             crcs = facts.raw_crcs.clone();
-            hits.extend(dat_level(env, &crcs, &mut evidence, &excluded));
+            hits.extend(dat_level(env, &crcs, &mut evidence, &excluded, &mut asked));
         }
     }
     // 7. Fuzzy name against DAT stems.
@@ -878,7 +891,7 @@ pub fn identify_candidate(
             .collect();
         keys.sort();
         keys.dedup();
-        fuzzy_level(env, &systems, &keys, &mut evidence);
+        fuzzy_level(env, &systems, &keys, &mut evidence, &mut asked);
     }
     // 8. Arcade sets: a zip with entries but no console ROM.
     let mut arcade_games: BTreeMap<String, String> = BTreeMap::new();
@@ -892,6 +905,7 @@ pub fn identify_candidate(
             .collect();
         let mut winner = false;
         for system in env.arcade_order {
+            asked.insert(system.clone());
             let Some((game, roms)) = env.catalogue.set_roms(system, set) else {
                 continue;
             };
@@ -940,14 +954,18 @@ pub fn identify_candidate(
     let mut seen = HashSet::new();
     evidence.retain(|e| seen.insert((e.kind, e.system.clone(), e.detail.clone())));
     let mut combined = decide(&evidence, &excluded);
+    // A cloud-only placeholder is never moved without asking (spec §7.1),
+    // even when facts memoised while it was local name its system.
+    if cloud_only && combined.verdict == Verdict::Auto && combined.method != Some(IdLevel::User) {
+        combined.verdict = Verdict::Review;
+    }
     if let Some(system) = combined.system.clone() {
         id.catalogue_name = hits
             .iter()
             .find(|h| h.system == system)
             .map(|h| h.game.clone())
             .or_else(|| arcade_games.get(&system).cloned());
-        let unconsulted = env.catalogue.unconsulted();
-        if unconsulted.contains(&system) {
+        if asked.contains(&system) && env.catalogue.unconsulted().contains(&system) {
             id.notes.push(ItemNote::CatalogueMissing { system });
         }
     }
