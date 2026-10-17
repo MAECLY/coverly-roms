@@ -93,10 +93,18 @@ make example                                   # crea una biblioteca de ejemplo 
 make example-fill                              # planifica rellenar sus portadas (simulación)
 make audit ROOT=<ruta>                         # audita una biblioteca desde la terminal
 make check                                     # lint, formato y todos los tests
+make site                                      # sirve la página web en http://localhost:8080
 ```
 
 `make help` lista todos los objetivos. La biblioteca de ejemplo vive en
 `target/example` (`make example-apply`, `make example-undo`, `make example-clean`).
+
+La página web de [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
+vive en `site/`. `make site` la enseña como se verá antes de la primera versión;
+`make site RELEASE=scripts/site/fixtures/release.json`, con una versión
+publicada, y `make site-check` pasa sus comprobaciones.
+[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
+explica cómo se publica (en inglés).
 
 ## Contribuir
 
