@@ -61,6 +61,33 @@ A 1px `--cr-border` line with a 3px Buckram cap on the left. Used on section hea
 - **Photo-corners appear only at 24px and larger.** Below that, the missing slot is a plain 1px outline.
 - **Overlaps are drawn in solid ink, never with blend modes,** so they look the same in every webview.
 
+### Landing cover inks (exception)
+
+**Landing only, never in the app UI.** The illustrated covers on the landing
+page (the generated sprite `site/assets/art/covers.svg`, made by
+`scripts/site/gen_covers.mjs`) may each carry **one muted ink**, in two
+strengths over Paper: the key layer at full ink and the tone layer at 28%.
+The inks come from the primitives `info.9`, `success.9`, `warning.11`,
+`danger.9`, `greyboard.11` and `greyboard.9` (and their `-dark`
+counterparts in dark mode), muted 20% toward `greyboard.11`
+(`greyboard-dark.11` in dark) in OKLab. They are classes `.ink-0` to
+`.ink-5`, set per cover on the page.
+
+- Covers are illustrations, not status: an ink never means success, warning
+  or error, and nothing in the page relies on it.
+- **Buckram stays for spines and rules only, Manila for tabs only.** Neither
+  is ever a cover ink.
+- Slot outlines keep `--cr-slot-missing`, at 3:1 or more against what they
+  sit on.
+- The art is geometric and IP-safe: invented titles as seeds, no console
+  silhouettes, pixel fonts, CRT effects or real box art.
+- Fallback, if this exception is withdrawn:
+  `node scripts/site/gen_covers.mjs --palette ink` regenerates every cover
+  in greyboard only, with no other change to the page.
+
+Status: proposed with the landing showcase; it needs the owner's sign-off on
+the contact sheet (`make site-covers CONTACT=<file.html>`).
+
 ---
 
 ## 3. Logo and wordmark
