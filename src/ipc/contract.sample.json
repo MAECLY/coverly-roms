@@ -689,5 +689,257 @@
     { "why": "source-order", "source": "libretro" },
     { "why": "region", "rom": true },
     { "why": "user" }
+  ],
+  "folder_probe": {
+    "broad_root": false,
+    "cloud_only": 0,
+    "partial_downloads": 3,
+    "rom_like": 17,
+    "sorted_folders": [],
+    "truncated": false,
+    "writable": true
+  },
+  "organize_plan_view": {
+    "plan": {
+      "broad_root": false,
+      "counts": {
+        "auto": 1,
+        "bytes": 8388608,
+        "deep_folders": 0,
+        "junk": 1,
+        "left": 1,
+        "other_files": 0,
+        "review": 1,
+        "roms": 2,
+        "systems": 2
+      },
+      "created_at": "2026-10-17T10:32:00Z",
+      "deep_folders": [],
+      "fat32": false,
+      "items": [
+        {
+          "action": "auto",
+          "alternatives": [],
+          "catalogue_name": "Tetris Worlds (USA)",
+          "companions": [],
+          "confidence": 1.0,
+          "folder": "GBA",
+          "fps": [
+            {
+              "mtime_ns": 1700000000000000000,
+              "size": 4194304
+            }
+          ],
+          "id": 0,
+          "kind": "archive",
+          "method": "hash",
+          "notes": [],
+          "rename": {
+            "kind": "collision",
+            "name": "Tetris Worlds (USA) (2).zip"
+          },
+          "set_targets": [],
+          "size": 4194304,
+          "sources": ["Tetris Worlds (USA).zip"],
+          "system_id": "gba",
+          "target": "/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip",
+          "why": [
+            {
+              "detail": "CRC 1A2B3C4D in No-Intro GBA",
+              "kind": "hash",
+              "system": "gba",
+              "weight": 1.0
+            }
+          ]
+        },
+        {
+          "action": "review",
+          "alternatives": [["gbc", 0.25]],
+          "catalogue_name": null,
+          "companions": [],
+          "confidence": 0.5,
+          "folder": "GB",
+          "fps": [
+            {
+              "mtime_ns": 1700000000000000000,
+              "size": 4194304
+            }
+          ],
+          "id": 1,
+          "kind": "archive",
+          "method": "extension",
+          "notes": [
+            {
+              "folder": "GB",
+              "kind": "no-folder-on-device"
+            }
+          ],
+          "rename": null,
+          "set_targets": [],
+          "size": 4194304,
+          "sources": ["Tetris 2.zip"],
+          "system_id": "gb",
+          "target": null,
+          "why": [
+            {
+              "detail": ".gb",
+              "kind": "extension",
+              "system": "gb",
+              "weight": 0.5
+            }
+          ]
+        },
+        {
+          "action": "left",
+          "alternatives": [],
+          "catalogue_name": null,
+          "companions": [],
+          "confidence": 0.0,
+          "folder": null,
+          "fps": [
+            {
+              "mtime_ns": 1700000000000000000,
+              "size": 4194304
+            }
+          ],
+          "id": 2,
+          "kind": "archive",
+          "method": null,
+          "notes": [],
+          "reason": {
+            "kind": "partial-download"
+          },
+          "rename": null,
+          "set_targets": [],
+          "size": 4194304,
+          "sources": ["Tetris Attack.zip.crdownload"],
+          "system_id": null,
+          "target": null,
+          "why": []
+        }
+      ],
+      "layout": "anbernic-stock",
+      "mode": "move",
+      "move_allowed": true,
+      "names": "keep",
+      "other_files": [],
+      "roms_dir": "/Users/me/ROMs-Downloaded/ROMS",
+      "sorted_folders": [],
+      "source_root": "/Users/me/ROMs-Downloaded",
+      "target_detected": null,
+      "target_root": "/Users/me/ROMs-Downloaded",
+      "warnings": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ]
+    },
+    "plan_id": 3
+  },
+  "organize_progress": {
+    "done": 1,
+    "phase": "apply",
+    "plan_id": 3,
+    "total": 2
+  },
+  "organize_job": {
+    "error": null,
+    "job": "20261017T103200Z-1bfb-0000",
+    "layout": "anbernic-stock",
+    "plan_id": 3,
+    "progress": null,
+    "report": {
+      "copied": 0,
+      "failed": 0,
+      "items": [
+        {
+          "item": 0,
+          "status": "moved",
+          "targets": [
+            "/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip"
+          ]
+        },
+        {
+          "item": 1,
+          "reason": "not-decided",
+          "status": "skipped",
+          "targets": []
+        }
+      ],
+      "job": "20261017T103200Z-1bfb-0000",
+      "moved": 1,
+      "pause_reason": "disk-full",
+      "paused": "volume",
+      "resumable_items": [],
+      "skipped": 1
+    },
+    "state": "paused",
+    "target_root": "/Users/me/ROMs-Downloaded"
+  },
+  "organize_job_applying": {
+    "error": null,
+    "job": null,
+    "layout": "anbernic-stock",
+    "plan_id": 3,
+    "progress": {
+      "done": 1,
+      "phase": "apply",
+      "plan_id": 3,
+      "total": 2
+    },
+    "report": null,
+    "state": "applying",
+    "target_root": "/Users/me/ROMs-Downloaded"
+  },
+  "organize_job_failed": {
+    "error": {
+      "code": "no-space",
+      "detail": "8473027/1000"
+    },
+    "job": null,
+    "layout": "anbernic-stock",
+    "plan_id": 3,
+    "progress": null,
+    "report": null,
+    "state": "failed",
+    "target_root": "/Users/me/ROMs-Downloaded"
+  },
+  "organize_undo": {
+    "later_jobs": [
+      {
+        "complete": true,
+        "created_at": "2026-10-17T10:45:00Z",
+        "entries": 1,
+        "job": "20261017T104500Z-1bfb-0001",
+        "kind": "fill",
+        "root": "/Users/me/ROMs-Downloaded",
+        "undoable": true,
+        "undone": false
+      }
+    ],
+    "report": [
+      {
+        "dirs_removed": ["/Users/me/ROMs-Downloaded/ROMS/GBA"],
+        "job": "20261017T103200Z-1bfb-0000",
+        "removed": [],
+        "restored": ["/Users/me/ROMs-Downloaded/Tetris Worlds (USA).zip"],
+        "skipped_modified": [],
+        "skipped_occupied": []
+      }
+    ]
+  },
+  "organize_errors": [
+    {
+      "code": "no-plan"
+    },
+    {
+      "code": "later-jobs",
+      "detail": "20261017T104500Z-1bfb-0001"
+    },
+    {
+      "code": "no-space",
+      "detail": "8473027/1000"
+    }
   ]
 }
