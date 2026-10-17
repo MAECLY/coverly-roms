@@ -749,3 +749,62 @@ fn an_interrupted_job_is_listed_as_resumable() {
         IpcError::NoPlan
     );
 }
+
+#[test]
+fn an_apply_that_finds_the_pile_gone_fails_instead_of_pausing_without_a_journal() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let parent = TempDir::new().unwrap();
+    let pile = parent.path().join("pile");
+    fs::create_dir(&pile).unwrap();
+    for (tag, name) in b"AB"
+        .iter()
+        .copied()
+        .zip(["Alpha (USA).gba", "Beta (USA).gba"])
+    {
+        write_old(&pile, name, &fixtures::gba_tagged(tag));
+    }
+    let plan = st
+        .organize_plan(&offline(&pile), &[], Arc::new(Recorder::default()))
+        .unwrap();
+    // The card is pulled between the plan and the apply.
+    fs::rename(&pile, parent.path().join("elsewhere")).unwrap();
+
+    let events = Arc::new(ApplyRecorder::default());
+    st.organize_apply(plan.plan_id, &[], events.clone())
+        .unwrap();
+    let end = events.wait_end();
+    // Nothing was journaled, so there is nothing `organize_resume` could
+    // continue: a paused state would offer a resume that cannot work.
+    assert_eq!(end.job, None);
+    assert_eq!(end.state, OrganizeJobState::Failed, "{end:?}");
+    assert!(
+        matches!(end.error, Some(IpcError::VolumeGone(_))),
+        "{:?}",
+        end.error
+    );
+    assert!(st.job_history().unwrap().is_empty());
+}
+
+#[test]
+fn apply_refuses_a_backup_folder_inside_the_pile() {
+    let config = TempDir::new().unwrap();
+    let pile = gba_pile();
+    let st = AppState::new(
+        config.path().to_path_buf(),
+        FillConfig::new(
+            config.path().join("cache"),
+            pile.path().join("coverly-data"),
+        ),
+    );
+    let plan = st
+        .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
+        .unwrap();
+    assert!(matches!(
+        st.organize_apply(plan.plan_id, &[], Arc::new(ApplyRecorder::default())),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert!(st.organize_job().is_none(), "nothing started");
+    assert!(pile.path().join("Alpha (USA).gba").is_file());
+    assert!(!pile.path().join("coverly-data").exists());
+}

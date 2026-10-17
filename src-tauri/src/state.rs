@@ -113,7 +113,8 @@ struct EntrySearch {
     candidates: Vec<Candidate>,
 }
 
-fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
+/// The IPC error of a failed (or paused) item.
+pub(crate) fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
     let m = message.to_string();
     match kind {
         ItemErrorKind::NoArt | ItemErrorKind::Network => IpcError::Network(m),
@@ -182,6 +183,29 @@ fn check_data_dir(cfg: &FillConfig, session: &Session) -> Result<(), IpcError> {
         return Err(IpcError::BadRequest(
             "the backup folder is inside the library".into(),
         ));
+    }
+    Ok(())
+}
+
+/// Refuses an organise write whose backup folder (journals, saved plans)
+/// is inside the pile or the organised folder: like a fill, the journal
+/// must never live in the tree it writes to (a later fill there would be
+/// refused, and the files of the job would be organised with the pile).
+fn check_organize_data_dir(cfg: &FillConfig, roots: &[&Path]) -> Result<(), IpcError> {
+    let data = std::path::absolute(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+    let canon = fs::canonicalize(&data).ok();
+    for root in roots {
+        let abs = std::path::absolute(root).map_err(|e| IpcError::Io(e.to_string()))?;
+        let root_canon = fs::canonicalize(&abs).ok();
+        let inside = data.starts_with(&abs)
+            || root_canon.as_ref().is_some_and(|r| {
+                data.starts_with(r) || canon.as_ref().is_some_and(|c| c.starts_with(r))
+            });
+        if inside {
+            return Err(IpcError::BadRequest(
+                "the backup folder is inside the folder being organised".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -1443,6 +1467,7 @@ impl AppState {
     ) -> Result<OrganizeJobView, IpcError> {
         let cfg = self.fill_config();
         let plan = self.decided_plan(plan_id, decisions, &cfg)?;
+        check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
         let guard = self.organize_guard()?;
         fs::create_dir_all(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
         self.organize.forget_all();
@@ -1480,6 +1505,7 @@ impl AppState {
                 "job {job} has nothing left to resume"
             )));
         }
+        check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
         let guard = self.organize_guard()?;
         self.organize.forget_all();
         let start = ApplyStart {

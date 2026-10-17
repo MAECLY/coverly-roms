@@ -18,6 +18,7 @@ use coverly_core::organize::{
     OrganizeProgress, OrganizeReport, SkipReason, Survey,
 };
 
+use coverly_core::jobs::ItemErrorKind;
 use coverly_core::profiles::Profile;
 
 use crate::error::IpcError;
@@ -312,6 +313,15 @@ impl ApplyJob {
         let mut d = self.data();
         d.progress = None;
         match outcome {
+            Ok(report) if report.paused.is_some() && report.job.is_none() => {
+                // Paused before anything was journaled (a root was gone at
+                // the start): there is no job `organize_resume` could
+                // continue, so it ends as failed with the reason.
+                let kind = report.pause_reason.unwrap_or(ItemErrorKind::VolumeGone);
+                d.state = OrganizeJobState::Failed;
+                d.error = Some(crate::state::item_error(kind, &self.target_root));
+                d.report = Some(report);
+            }
             Ok(report) => {
                 d.state = end_state(&report);
                 if report.job.is_some() {
