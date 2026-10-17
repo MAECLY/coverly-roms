@@ -741,6 +741,7 @@
     "back": "Volver",
     "layout": "Formato",
     "confidence": {
+      "label": "Confianza",
       "high": "Alta",
       "medium": "Media"
     },

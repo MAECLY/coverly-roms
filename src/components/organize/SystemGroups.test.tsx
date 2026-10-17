@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -51,21 +51,27 @@ describe('SystemGroups', () => {
         ],
       }),
     ]);
-    const gba = screen.getByText('ROMS/GBA/ (1)').closest('details')!;
-    expect(gba).toHaveAttribute('open');
+    const gba = screen.getByRole('group', { name: /^ROMS\/GBA\/ \(1\)/ });
+    expect(
+      within(gba).getByRole('button', { name: /^ROMS\/GBA\/ \(1\)/ }),
+    ).toHaveAttribute('aria-expanded', 'true');
     expect(within(gba).getByText('Game Boy Advance')).toBeInTheDocument();
     expect(
       within(gba).getByText(
         'Tetris Worlds (USA).zip → ROMS/GBA/Tetris Worlds (USA).zip',
       ),
     ).toBeInTheDocument();
-    expect(within(gba).getByText('High')).toBeInTheDocument();
+    // The confidence is a labelled badge, not colour alone.
+    expect(within(gba).getByText('High')).toHaveAttribute(
+      'title',
+      'Confidence',
+    );
     expect(
       within(gba).getByText(
         'CRC 7B729804 in the Game Boy Advance catalogue: Tetris Worlds (USA)',
       ),
     ).toBeInTheDocument();
-    const gb = screen.getByText('ROMS/GB/ (1)').closest('details')!;
+    const gb = screen.getByRole('group', { name: /^ROMS\/GB\/ \(1\)/ });
     expect(within(gb).getByText('Medium')).toBeInTheDocument();
     expect(
       within(gb).getByText('The header is Game Boy (Nintendo logo, CGB 0x00)'),
@@ -77,12 +83,15 @@ describe('SystemGroups', () => {
       autoItem(i, `Game ${String(i).padStart(3, '0')}.gba`, 'gba', 'ROMS/GBA'),
     );
     renderGroups(items);
-    const group = screen.getByText('ROMS/GBA/ (450)').closest('details')!;
+    const group = screen.getByRole('group', { name: /^ROMS\/GBA\/ \(450\)/ });
+    const toggle = within(group).getByRole('button', {
+      name: /^ROMS\/GBA\/ \(450\)/,
+    });
     // More than 200 rows overall: groups start closed and render no rows.
-    expect(group).not.toHaveAttribute('open');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(within(group).queryAllByRole('listitem')).toHaveLength(0);
-    group.open = true;
-    fireEvent(group, new Event('toggle'));
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(within(group).getAllByRole('listitem')).toHaveLength(200);
     await userEvent.click(
       within(group).getByRole('button', { name: 'Show 250 more' }),
@@ -95,6 +104,9 @@ describe('SystemGroups', () => {
     expect(
       within(group).queryByRole('button', { name: /more/ }),
     ).not.toBeInTheDocument();
+    // Closing it takes the rows out of the DOM again.
+    await userEvent.click(toggle);
+    expect(within(group).queryAllByRole('listitem')).toHaveLength(0);
   });
 
   it('explains renames and notes', () => {
