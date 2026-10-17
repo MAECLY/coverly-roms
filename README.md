@@ -52,7 +52,7 @@ system, the target folder of each file, how sure Coverly is and why, the files
 to review and the ones that stay where they are (unfinished downloads, BIOS
 files, web pages saved as `.zip`, duplicates). Choose the layout, the target
 (this folder or another one, such as an SD card), move or copy and the names,
-then **Organise**. When it ends, **Open library** opens the result like any
+then **Organise {n} files**. When it ends, **Open library** opens the result like any
 other library, ready to fill its covers; **Undo** puts every file back. A
 library with stray ROMs outside its system folders offers **Organise loose
 files…** from the library screen.

@@ -58,7 +58,7 @@ una propuesta —las ROMs por sistema, la carpeta de destino de cada archivo,
 cuánta seguridad tiene Coverly y por qué, los archivos por revisar y los que se
 quedan donde están (descargas sin terminar, BIOS, páginas web guardadas como
 `.zip`, duplicados)—. Elige la estructura, el destino (esta carpeta u otra,
-como una tarjeta SD), mover o copiar y los nombres, y pulsa **Organizar**. Al
+como una tarjeta SD), mover o copiar y los nombres, y pulsa **Organizar {n} archivos**. Al
 terminar, **Abrir biblioteca** abre el resultado como cualquier otra
 biblioteca, listo para rellenar sus carátulas; **Deshacer** devuelve cada
 archivo a su sitio. Una biblioteca con ROMs sueltas fuera de sus carpetas de

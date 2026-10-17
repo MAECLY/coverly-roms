@@ -26,7 +26,7 @@ apply     organize/apply.rs     re-validate → ensure_dir / move_file / copy_fi
 undo      write/undo_organize.rs  reverse order: move back, delete copies, remove empty folders
 ```
 
-`survey` (walk + inspect + ladder for every candidate) is the expensive part; `plan_from_survey` turns a survey plus options and decisions into a plan and does no I/O beyond `stat`, which is why changing the review answers on screen is instant. The app keeps the survey per source and options, so changing only the names or the mode re-plans without surveying again; changing the layout or the online lookup surveys again.
+`survey` (walk + inspect + ladder for every candidate) is the expensive part; `plan_from_survey` turns a survey plus options and decisions into a plan and does no I/O beyond `stat`, which is why changing the review answers on screen is instant. The app keeps the survey per source and options, so changing only the names or the mode re-plans without surveying again; changing anything else (layout, target, *Directly here*, offline, an edited custom layout, online lookup becoming available) surveys again.
 
 ### Workers and progress
 
