@@ -2848,6 +2848,8 @@ fn arcade_sets_by_name_with_their_roms() {
 State (behind `Mutex`): `ready: HashMap<String /*dat*/, bool>`, `downloads: usize`, `unconsulted: BTreeSet<String /*system*/>`. `ensure_system(id)`:
 for each `dat` in `dat_sources(system)`: if `ready` has it → use; else if the cache already has rows (`cached_dats()` snapshot taken in `new`) → ready; else if `store` is `Some` and `downloads < cap` → `downloads += 1; store.ensure(dat)` (`Ready | Stale` → ready, `Missing` or `Err` → not); else not ready. A system with no ready DAT is added to `unconsulted`. `hits` = for each system, for each ready dat, `cache.dat_by_crc(dat, crc)` filtered by size (`r.size.is_none_or(|s| s == size)`), mapped to `CatalogueHit`. `any_hits` = `cache.dat_by_crc_any` mapped with `db.system_for_dat`. `stems(system)` = union over ready DATs of `cache.dat_stems`. `stem_systems` = systems of `cached_dats()`. All errors degrade to "no hit" (logged with `log::warn!` only in the app; the core returns empty).
 
+*Review fixes:* `set_roms` tries the game named by the set (as given, then lower-case) before a ROM-stem lookup, and the stem lookup only accepts archive-named rows (`<set>.zip`/`.7z`, libretro style) — in a full MAME DAT a clone such as `mspacman` ships `pacman.6e`, whose stem would otherwise resolve `pacman` to the clone. A pausing network error from `store.ensure` (offline, timeout, rate limit) sets `downloads = cap`, so the rest of the plan uses cached DATs only instead of waiting on more failing downloads.
+
 - [ ] **Step 4: Run tests and gates.**
 
 - [ ] **Step 5: Commit**
