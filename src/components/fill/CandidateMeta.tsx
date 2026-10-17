@@ -50,13 +50,17 @@ export function reasonText(t: TFn, r: PickReason): string {
   }
 }
 
-/** Source badge, the key/regions/score line, votes and the reason of a pick. */
+/** Source badge, the key/regions/score line, votes and the reason of a pick.
+ * `compact` (narrow lists with no number keys) leaves the key and the
+ * repeated source name out of the line. */
 export function CandidateMeta({
   c,
   position,
+  compact = false,
 }: {
   c: CandidateView;
   position: number;
+  compact?: boolean;
 }) {
   const t = useT();
   const source = sourceName(t, c.source);
@@ -70,7 +74,7 @@ export function CandidateMeta({
         {source}
       </span>
       <span className="hint">
-        {t('review.meta', {
+        {t(compact ? 'review.metaShort' : 'review.meta', {
           key: position,
           source,
           regions: c.regions.map((r) => t(`regions.${r}`)).join(', ') || '—',
