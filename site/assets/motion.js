@@ -113,12 +113,12 @@
     }
   }
 
-  /* Steps 3 and 4 act out what their screenshot shows (SVG over the
-     still, cut from the same image). Pinned, the figures share one spot,
-     so the step's text decides when; ↻ plays it again. */
+  /* Steps 3 and 4 act out what their screenshot shows (SVG drawn over
+     the still; step 4's cover is vector art from the sprite). Pinned, the
+     figures share one spot, so the step's text decides when; ↻ plays it
+     again. */
   function clip(fig) {
-    var step = fig.closest(".step"), img = fig.querySelector("img");
-    var srcs = fig.querySelectorAll(".fx-src"), button = step.querySelector(".clip-replay");
+    var step = fig.closest(".step"), button = step.querySelector(".clip-replay");
     var later = timers(), cl = step.classList;
     var ready = function (on) {
       if (on) button.removeAttribute("aria-disabled");
@@ -128,7 +128,6 @@
     stops.push(stop);
     var play = function () {
       if (button.getAttribute("aria-disabled")) return;
-      for (var i = 0; i < srcs.length; i++) srcs[i].setAttribute("href", img.currentSrc || img.src);
       cl.remove("is-playing", "is-played");
       void fig.offsetWidth;
       cl.add("is-playing");

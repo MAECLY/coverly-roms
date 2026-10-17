@@ -1141,9 +1141,14 @@ html.js .mode-wrap {
 }
 /* Steps 3 and 4 act out their screenshot (motion.js, html.motion only):
    the review ring walks the candidates, a candidate lands in the empty
-   cover slot and on the grid. Coordinates are the shots' 1280×800. */
+   cover slot and on the grid. Coordinates are the shots' 1280×800. Step 4's
+   overlay (.fx-end) is also its finished frame: the cover seated with its
+   Manila tab, so the static page shows the result. */
 .clip-fx {
   display: none;
+}
+.fx-end {
+  display: block;
 }
 .clip-replay {
   margin: 12px 0 0 -12px;
@@ -1169,22 +1174,27 @@ html.js .mode-wrap {
   fill: var(--cr-primary-fg);
 }
 .fx-pick {
+  opacity: 0;
   fill: var(--cr-primary-subtle);
   fill-opacity: 0.6;
   stroke: var(--cr-primary);
   stroke-width: 2;
 }
 .fx-slot {
-  fill: var(--cr-surface);
+  fill: var(--cr-surface-raised);
 }
 .fx-ghost {
-  --fx-dy: -233px;
-  --fx-cy: 377px;
+  --fx-dy: 232px;
   filter: drop-shadow(0 6px 8px var(--cr-scrim));
 }
 html[lang='en'] .fx-ghost {
-  --fx-dy: -220px;
-  --fx-cy: 364px;
+  --fx-dy: 219px;
+}
+.fx-gd {
+  fill: var(--lp-paper);
+}
+.fx-tb {
+  fill: var(--cr-slot-applied-run);
 }
 .annot-mark {
   fill: none;
@@ -1340,21 +1350,26 @@ html.motion .t-rest {
 @keyframes fx-fly {
   0% {
     opacity: 0;
-    transform: none;
+    transform: translateY(var(--fx-dy));
   }
   12% {
     opacity: 1;
-    transform: none;
+    transform: translateY(var(--fx-dy));
   }
   28% {
-    transform: scale(1.08);
+    transform: translateY(var(--fx-dy)) scale(1.08);
   }
   80% {
-    transform: translateY(var(--fx-dy)) scale(1.08);
+    transform: scale(1.08);
   }
   100% {
     opacity: 1;
-    transform: translateY(var(--fx-dy));
+    transform: none;
+  }
+}
+@keyframes fx-peel {
+  50% {
+    transform: rotate(-18deg);
   }
 }
 @keyframes fx-on {
@@ -1519,15 +1534,21 @@ html.vt-ink::view-transition-new(root) {
     animation: fx-pick 1000ms var(--cr-ease-ink) both;
   }
   html.motion .is-playing .fx-ghost {
-    transform-origin: 1054px var(--fx-cy);
+    transform-origin: 1052px 137px;
     animation: fx-fly 1300ms var(--cr-ease-ink) 350ms both;
+  }
+  /* The tab lifts at its corner and settles: undo is still there. */
+  html.motion .is-playing .fx-ghost .fx-tb {
+    transform-box: fill-box;
+    transform-origin: 100% 0;
+    animation: fx-peel 480ms var(--cr-ease-ink) 2500ms both;
   }
   html.motion .is-playing .fx-slot {
     animation: fx-on 160ms linear 1450ms both;
   }
   html.motion .is-playing .fx-tile {
     transform-origin: 413px 153px;
-    animation: fx-land 560ms var(--cr-ease-spring) 1800ms both;
+    animation: fx-land 560ms var(--cr-ease-ink) 1800ms both;
   }
   html.motion .no-anim,
   html.motion .no-anim * {
@@ -2526,7 +2547,7 @@ body::before {
     animation: none !important;
   }
   .replay,
-  .clip-fx {
+  .clip-fx:not(.fx-end) {
     display: none !important;
   }
 }
