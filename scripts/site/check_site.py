@@ -471,6 +471,49 @@ def decls(body: str) -> list[tuple[str, str]]:
             (d.partition(":") for d in body.split(";")) if v.strip()]
 
 
+def seconds(tok: str) -> float | None:
+    m = re.fullmatch(r"(-?[\d.]+)(m?s)", tok)
+    if not m:
+        return None
+    return float(m.group(1)) / (1000 if m.group(2) == "ms" else 1)
+
+
+def gate_hiding_keyframes(rules: list[tuple[list[str], str, str]], r: Report) -> None:
+    """Keyframes that start hidden (opacity 0 / visibility hidden) may only
+    hold text hidden while scrolling drives them, or not at all: a delay
+    with a backwards fill keeps a heading invisible until it ends."""
+    hiding: set[str] = set()
+    for stack, sel, body in rules:
+        frames = [p for p in stack if p.startswith("@keyframes")]
+        if frames and any(s.strip() in ("from", "0%") for s in sel.split(",")) and any(
+                (p, v) in (("opacity", "0"), ("visibility", "hidden")) for p, v in decls(body)):
+            hiding.add(frames[-1].split()[1])
+    for stack, sel, body in rules:
+        if any(p.startswith("@keyframes") for p in stack):
+            continue
+        d = dict(decls(body))
+        anim = d.get("animation", d.get("animation-name", ""))
+        for part in anim.split(","):
+            toks = part.split()
+            if not any(t in hiding for t in toks):
+                continue
+            texty = [s.strip() for s in sel.split(",")
+                     if TEXT.search(re.sub(r":[\w-]+(\([^)]*\))?", "", s.strip()))]
+            if not texty:
+                continue
+            times = [t for t in (seconds(x) for x in toks) if t is not None]
+            delay = seconds(d["animation-delay"]) if "animation-delay" in d else \
+                (times[1] if len(times) > 1 else 0.0)
+            fill = d.get("animation-fill-mode", "") + " " + part
+            scrolled = "animation-range" in d and \
+                any("@supports (animation-timeline: view())" in p for p in stack)
+            name = next(t for t in toks if t in hiding)
+            if delay and delay > 1:
+                r.fail("motion", f"{texty[0]}: {name} hides text for {delay:g}s before it shows")
+            elif delay and not scrolled and re.search(r"\b(both|backwards)\b", fill):
+                r.fail("motion", f"{texty[0]}: {name} holds text hidden through its delay")
+
+
 def gate_motion(site: Path, r: Report) -> None:
     js = (site / "assets/motion.js").read_text(encoding="utf-8")
     theme = (site / "assets/theme.js").read_text(encoding="utf-8")
@@ -525,6 +568,7 @@ def gate_motion(site: Path, r: Report) -> None:
                 for s in sel.split(","):
                     if TEXT.search(re.sub(r":[\w-]+(\([^)]*\))?", "", s.strip())):
                         r.fail("motion", f"{s.strip()}: motion hides text or images")
+    gate_hiding_keyframes(rules, r)
     for rel in PAGES.values():
         doc = parse(site / rel)
         for t, a in doc.tags:
