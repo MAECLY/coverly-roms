@@ -345,7 +345,13 @@ fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
         s.hit("megadrive", 0.90, "SEGA at 0x100");
         return true;
     }
-    if len % 16384 == 512 && at(head, 8, 2) == Some(&[0xAA, 0xBB][..]) {
+    // A Super Wild Card (SNES) copier header also has 0xAA 0xBB at 8–9 and
+    // most SNES sizes + 512 pass the length test: the first block must
+    // also deinterleave to the `SEGA` every Mega Drive header carries.
+    if len % 16384 == 512
+        && at(head, 8, 2) == Some(&[0xAA, 0xBB][..])
+        && (smd_starts(head, 0x100, b"SEGA") || smd_starts(head, 0x101, b"SEGA"))
+    {
         s.hit("megadrive", 0.90, "SMD interleaved");
         return true;
     }
@@ -371,6 +377,21 @@ fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
         }
     }
     false
+}
+
+/// Whether the first SMD block (after the 512-byte header) deinterleaves
+/// to `magic` at `offset`: even bytes sit in the block's second 8 KiB,
+/// odd bytes in its first.
+fn smd_starts(head: &[u8], offset: usize, magic: &[u8]) -> bool {
+    magic.iter().enumerate().all(|(i, want)| {
+        let j = offset + i;
+        let k = if j.is_multiple_of(2) {
+            0x2000 + j / 2
+        } else {
+            j / 2
+        };
+        j < 0x4000 && head.get(512 + k) == Some(want)
+    })
 }
 
 fn contains(hay: &[u8], needle: &[u8]) -> bool {
@@ -514,10 +535,22 @@ pub mod fixtures {
         b
     }
 
+    /// [`md`] in SMD format: 512-byte copier header, then 16 KiB blocks
+    /// with odd bytes in the first half and even bytes in the second.
     pub fn smd_interleaved() -> Vec<u8> {
-        let mut b = zeros(16384 * 8 + 512);
+        let rom = md();
+        let mut b = zeros(512 + rom.len());
+        b[0] = (rom.len() / 16384) as u8;
         b[8] = 0xAA;
         b[9] = 0xBB;
+        b[10] = 0x06;
+        for (n, block) in rom.chunks(16384).enumerate() {
+            let out = &mut b[512 + n * 16384..512 + (n + 1) * 16384];
+            for i in 0..8192 {
+                out[i] = block[2 * i + 1];
+                out[0x2000 + i] = block[2 * i];
+            }
+        }
         b
     }
 

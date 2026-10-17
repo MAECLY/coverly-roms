@@ -354,3 +354,43 @@ fn master_system_and_game_gear() {
     let gg_region = run(&fx::sms_gg(0x7FF0, 0x6C), "bin");
     assert_eq!(best(&gg_region), Some(("gamegear".into(), 0.70)));
 }
+
+#[test]
+fn snes_copier_header_is_not_mistaken_for_an_smd_dump() {
+    // Super Wild Card header: 0xAA 0xBB at 8–9 too (type 0x04 at 10), and
+    // a 512 KiB SNES ROM + 512 also satisfies `len % 16384 == 512`.
+    let mut swc = vec![0u8; 512 * 1024 + 512];
+    swc[8] = 0xAA;
+    swc[9] = 0xBB;
+    swc[10] = 0x04;
+    let s = run(&swc, "smc");
+    assert!(
+        s.hits.iter().all(|e| e.system != "megadrive"),
+        "{:?}",
+        s.hits
+    );
+}
+
+#[test]
+fn sega_near_misses() {
+    // `SEGA` one byte too far.
+    let mut md = vec![0u8; 128 * 1024];
+    md[0x102..0x106].copy_from_slice(b"SEGA");
+    assert_eq!(best(&run(&md, "md")), None);
+    // ` SEGA` at 0x101 is still a Mega Drive header.
+    let mut md101 = vec![0u8; 128 * 1024];
+    md101[0x101..0x105].copy_from_slice(b"SEGA");
+    assert_eq!(best(&run(&md101, "bin")), Some(("megadrive".into(), 0.90)));
+    // 32X by its `MARS` security code under a plain `SEGA` header.
+    let mut mars = fx::md();
+    mars[0x3C0..0x3CF].copy_from_slice(b"MARS CHECK MODE");
+    assert_eq!(best(&run(&mars, "bin")), Some(("sega32x".into(), 0.95)));
+    // SMD header with the wrong length.
+    let mut smd = fx::smd_interleaved();
+    smd.push(0);
+    assert_eq!(best(&run(&smd, "smd")), None);
+    // `TMR SEGA` off by one.
+    let mut tmr = vec![0u8; 32 * 1024];
+    tmr[0x7FF1..0x7FF9].copy_from_slice(b"TMR SEGA");
+    assert_eq!(best(&run(&tmr, "sms")), None);
+}
