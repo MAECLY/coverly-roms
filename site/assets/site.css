@@ -1983,6 +1983,74 @@ body::before {
 }
 /* covers:end */
 
+/* == showcase:topbar == */
+/* The brand mark: the Lean-To (design/icon/glyph-24.svg), in ink. On
+   hover or focus the cover tips upright into place, and back. */
+.mark {
+  flex: none;
+  margin-right: 8px;
+  fill: var(--cr-primary);
+}
+.mark-lean {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+  transform: rotate(12deg);
+}
+.brand:hover .mark-lean,
+.brand:focus-visible .mark-lean {
+  transform: none;
+}
+/* Reading progress: 24 mini slots standing on the header's bottom rule.
+   Dashed until read; the filled Buckram row is uncovered as you scroll.
+   Static (no scroll timelines, reduced motion): the dashed row only. */
+.topbar-inner {
+  position: relative;
+}
+.progress-slots {
+  display: none;
+  position: absolute;
+  left: var(--gutter);
+  bottom: 0;
+}
+.ps-dash {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 3.5 1.5;
+}
+.ps-fill {
+  fill: var(--cr-primary);
+  clip-path: inset(0 100% 0 0);
+}
+@media (min-width: 480px) {
+  .progress-slots {
+    display: block;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.anim .mark-lean {
+    transition: transform var(--cr-duration-slow) var(--cr-ease-standard);
+  }
+  @supports (animation-timeline: view()) {
+    @media (min-width: 480px) {
+      .topbar::after {
+        display: none;
+      }
+    }
+    .ps-fill {
+      animation: ps-fill linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+@keyframes ps-fill {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
