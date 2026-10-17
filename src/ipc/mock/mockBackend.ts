@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
+import { createMockOrganize } from './mockOrganize';
 import { createMockSettings } from './mockSettings';
 import {
   createMockUpdates,
@@ -24,6 +25,7 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
+export { MOCK_DOWNLOADS, MOCK_MIXED } from './mockOrganize';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -44,6 +46,9 @@ export interface MockOptions {
   /** Where settings, custom profiles and credential presence persist
    * (default: `window.localStorage` when usable; null = memory only). */
   storage?: Storage | null;
+  /** The first organise apply of each job pauses (disk full) after this
+   * many items; null = never (default). */
+  organizePauseAfter?: number | null;
   /** What the updater answers (default: `?mockUpdate=`, then localStorage
    * `coverly.mock.update`, then `up-to-date`). */
   update?: MockUpdateScenario;
@@ -243,11 +248,25 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
       sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
+      organizing: () => organize.isApplying(),
     },
     {
       pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
       pick: opts.pick ?? 'image',
     },
+  );
+  const organize = createMockOrganize(
+    {
+      settings: () => settings.current().organize,
+      profiles: () => settings.listProfiles(),
+      fillHistory: () => jobs.jobHistory(),
+      undoFill: (job) => jobs.undoJournal(job),
+      fillBusy: () => jobs.isBusy(),
+      tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
+      now,
+      exports: jobs.exports,
+    },
+    { pauseAfter: opts.organizePauseAfter ?? null },
   );
   const updateLog: string[] = [];
   const updates = createMockUpdates({
@@ -287,6 +306,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     ...jobs,
     ...settings,
     ...updates,
+    ...organize,
+    async jobHistory() {
+      // Fill and organise journals, newest first (ISO stamps sort as text).
+      const all = [...(await jobs.jobHistory()), ...organize.history()];
+      return all.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
     updateLog,
     kind: 'mock',
     revealed,
@@ -297,14 +322,17 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       // Like the real backend: announce the generation before any work.
       emit({ done: 0, total: 0, folder: '', roms: 0 });
       const lib = MOCK_LIBRARIES.find((l) => l.path === path);
-      if (!lib) throw new BackendError('not-found', path);
-      const view = generateLibrary({
-        seed: lib.seed,
-        count: lib.count,
-        root: lib.path,
-        generation: gen,
-        now,
-      });
+      // A pile organised by the mock opens with its layout; a loose one is `no-profile`.
+      const view = lib
+        ? generateLibrary({
+            seed: lib.seed,
+            count: lib.count,
+            root: lib.path,
+            generation: gen,
+            now,
+          })
+        : organize.library(path, gen);
+      if (!view) throw new BackendError('not-found', path);
       let roms = 0;
       for (const [i, s] of view.systems.entries()) {
         await sleep(delayMs);

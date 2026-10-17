@@ -331,6 +331,10 @@
     "update-failed": "The update could not be installed: {detail}",
     "update-not-ready": "Check for updates first.",
     "art-unreadable": "This image cannot be shown.",
+    "cancelled": "Cancelled.",
+    "no-plan": "That organise plan is no longer kept. Plan again.",
+    "later-jobs": "Newer jobs changed files under this folder ({detail}). Undo them too, or keep this organisation.",
+    "no-space": "There is not enough free space for this copy (needed/free bytes: {detail}).",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",

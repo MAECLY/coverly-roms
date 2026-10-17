@@ -1,8 +1,10 @@
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import requests from './contract.requests.json';
 import sample from './contract.sample.json';
 import { BackendError } from './errors';
+import type { OrganizeDecision, OrganizeRequest } from './types';
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => dialog);
@@ -23,6 +25,8 @@ import {
   createTauriBackend,
   ENTRIES_UPDATED_EVENT,
   JOB_CHANGED_EVENT,
+  ORGANIZE_CHANGED_EVENT,
+  ORGANIZE_PROGRESS_EVENT,
   SCAN_PROGRESS_EVENT,
   UPDATE_PROGRESS_EVENT,
 } from './tauriBackend';
@@ -314,5 +318,73 @@ describe('Tauri backend', () => {
       code: 'update-signature',
       detail: 'bad',
     });
+  });
+  it('maps organise commands to snake_case payloads and forwards their events', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      switch (cmd) {
+        case 'probe_folder':
+          return sample.folder_probe;
+        case 'organize_plan':
+          return sample.organize_plan_view;
+        case 'organize_undo':
+          return sample.organize_undo;
+        case 'organize_export_plan':
+          return 'coverly-organize-plan.json';
+        case 'organize_cancel':
+        case 'organize_cancel_apply':
+          return null;
+        default:
+          return sample.organize_job;
+      }
+    });
+    const b = createTauriBackend();
+    const decisions = requests.organize_decisions as OrganizeDecision[];
+    const request = requests.organize_request as OrganizeRequest;
+    await expect(b.probeFolder('/Users/me/ROMs-Downloaded')).resolves.toEqual(
+      sample.folder_probe,
+    );
+    await b.organizePlan(request);
+    await b.organizePlan({ source: '/x' }, decisions);
+    await b.organizeCancel(3);
+    await b.organizeApply(3, decisions);
+    await b.organizeResume('j');
+    await b.organizeCancelApply();
+    await b.organizeUndo('j', true);
+    await expect(b.organizeExportPlan(3)).resolves.toBe(
+      'coverly-organize-plan.json',
+    );
+    expect(calls).toEqual([
+      ['probe_folder', { path: '/Users/me/ROMs-Downloaded' }],
+      ['organize_plan', { request, decisions: null }],
+      ['organize_plan', { request: { source: '/x' }, decisions }],
+      ['organize_cancel', { planId: 3 }],
+      ['organize_apply', { planId: 3, decisions }],
+      ['organize_resume', { job: 'j' }],
+      ['organize_cancel_apply', {}],
+      ['organize_undo', { job: 'j', includeLater: true }],
+      ['organize_export_plan', { planId: 3 }],
+    ]);
+
+    const seen: unknown[] = [];
+    const offProgress = await b.onOrganizeProgress((e) => seen.push(e));
+    await b.onOrganizeChanged((v) => seen.push(v));
+    events.handlers.get(ORGANIZE_PROGRESS_EVENT)!({
+      payload: sample.organize_progress,
+    });
+    events.handlers.get(ORGANIZE_CHANGED_EVENT)!({
+      payload: sample.organize_job,
+    });
+    expect(seen).toEqual([sample.organize_progress, sample.organize_job]);
+    offProgress();
+    expect(events.handlers.has(ORGANIZE_PROGRESS_EVENT)).toBe(false);
+  });
+
+  it('maps organise refusals to their codes', async () => {
+    mockIPC(() => Promise.reject({ code: 'later-jobs', detail: 'j2' }));
+    await expect(
+      createTauriBackend().organizeUndo('j', false),
+    ).rejects.toMatchObject({ code: 'later-jobs', detail: 'j2' });
   });
 });

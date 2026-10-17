@@ -1,5 +1,7 @@
 /** Wire types: mirror of src-tauri/src/library/{view,identify}.rs. */
 
+import type { ErrorCode } from './errors';
+
 export type Media = 'cover' | 'screenshot' | 'title';
 export const MEDIA: readonly Media[] = ['cover', 'screenshot', 'title'];
 
@@ -631,4 +633,284 @@ export interface UpdateInstall {
 export interface Volume {
   path: string;
   name: string;
+}
+
+/* Organising a loose pile of ROMs — mirror of coverly_core::organize
+ * (plan.rs, apply.rs), coverly_core::identify::evidence and
+ * src-tauri/src/organize/view.rs. */
+
+/** How files reach their system folder. */
+export type TransferMode = 'move' | 'copy';
+/** Organised files keep their name or take the catalogue (DAT) name. */
+export type NameMode = OrganizeNameMode;
+/** The rung of the identification ladder a clue comes from. */
+export type IdLevel =
+  'hash' | 'header' | 'extension' | 'name' | 'online' | 'user';
+
+/** One clue: `detail` is data for the UI (a CRC, `CGB 0xC0`, `.gb`), never prose. */
+export interface Evidence {
+  kind: IdLevel;
+  system: string;
+  weight: number;
+  detail: string;
+}
+
+/** Why a file stays where it is. */
+export type LeftReason =
+  | { kind: 'partial-download' }
+  | { kind: 'recently-modified' }
+  | { kind: 'cloud-only' }
+  | { kind: 'not-a-rom'; what: 'web-page' | 'text' }
+  | { kind: 'bios' }
+  | { kind: 'damaged-archive' }
+  | { kind: 'unsupported-archive' }
+  | { kind: 'multi-game-archive'; count: number }
+  | { kind: 'unsupported-system'; name: string }
+  | { kind: 'unknown' }
+  | { kind: 'duplicate'; of: string }
+  | { kind: 'already-present'; at: string }
+  | { kind: 'already-sorted'; folder: string }
+  | { kind: 'symlink' }
+  | { kind: 'set-incomplete'; missing: string[] }
+  | { kind: 'set-outside-folder' }
+  | { kind: 'shared-track' }
+  | { kind: 'ambiguous-companion' }
+  | { kind: 'too-big-for-fat' }
+  | { kind: 'unreadable' }
+  | { kind: 'collision-set' };
+
+/** Something worth telling about an item that still moves. */
+export type ItemNote =
+  | { kind: 'multi-rom-zip'; count: number }
+  | { kind: 'no-folder-on-device'; folder: string }
+  | { kind: 'extension-contradicted'; ext: string }
+  | { kind: 'catalogue-missing'; system: string }
+  | { kind: 'encrypted' };
+
+/** Why an item's target name differs from its source name. */
+export type RenameReason =
+  | { kind: 'collision'; name: string }
+  | { kind: 'safe-name'; from: string }
+  | { kind: 'path-length' }
+  | { kind: 'catalogue'; from: string };
+
+/** Something about the whole plan. */
+export type PlanWarning =
+  | { kind: 'catalogue-missing'; system: string }
+  | { kind: 'target-layout-mismatch'; profile: string }
+  | { kind: 'move-unavailable' }
+  | { kind: 'sorted-only' };
+
+/** A save, patch or note that follows its ROM. */
+export interface Companion {
+  /** Relative to the source root. */
+  source: string;
+  /** Relative to the target root. */
+  target: string;
+}
+
+/** Size and mtime of a source when planned (apply re-validates them). */
+export interface SourceFp {
+  size: number;
+  mtime_ns: number;
+}
+
+export type OrganizeItemKind = 'file' | 'archive' | 'set';
+
+export type OrganizeAction =
+  | { action: 'auto' }
+  | { action: 'review' }
+  | { action: 'left'; reason: LeftReason };
+
+/** One game of the plan: a file, an archive or a disc set. */
+export type OrganizeItem = OrganizeAction & {
+  id: number;
+  /** Relative to the source root; the primary file first. */
+  sources: string[];
+  kind: OrganizeItemKind;
+  size: number;
+  fps: SourceFp[];
+  /** Relative to the target root (the primary file). */
+  target: string | null;
+  /** The other members of a set, in the order of `sources[1..]`. */
+  set_targets: string[];
+  system_id: string | null;
+  /** The system folder name actually used. */
+  folder: string | null;
+  confidence: number;
+  method: IdLevel | null;
+  why: Evidence[];
+  /** Other systems with their weight, best first. */
+  alternatives: [string, number][];
+  rename: RenameReason | null;
+  notes: ItemNote[];
+  companions: Companion[];
+  catalogue_name: string | null;
+};
+
+export interface OrganizeCounts {
+  /** Items that move (automatically or once reviewed). */
+  roms: number;
+  systems: number;
+  auto: number;
+  review: number;
+  left: number;
+  junk: number;
+  other_files: number;
+  deep_folders: number;
+  /** Bytes of the items that move. */
+  bytes: number;
+}
+
+/** A dry run: what would move where, and why. */
+export interface OrganizePlan {
+  source_root: string;
+  target_root: string;
+  /** The folder holding the system folders. */
+  roms_dir: string;
+  /** Profile id of the target layout. */
+  layout: string;
+  mode: TransferMode;
+  names: NameMode;
+  items: OrganizeItem[];
+  counts: OrganizeCounts;
+  /** Relative to the source root, with the system they resolve to. */
+  sorted_folders: [string, string][];
+  deep_folders: string[];
+  other_files: string[];
+  warnings: PlanWarning[];
+  broad_root: boolean;
+  fat32: boolean;
+  move_allowed: boolean;
+  /** The layout the target already looks like, when not the chosen one. */
+  target_detected: string | null;
+  created_at: string;
+}
+
+/** What to plan; missing fields take `settings.organize`. */
+export interface OrganizeRequest {
+  source: string;
+  layout?: string | null;
+  /** Where the system folders go (default: the source). */
+  target?: string | null;
+  /** System folders straight in the target, without the ROMs folder. */
+  flat?: boolean | null;
+  mode?: TransferMode | null;
+  names?: NameMode | null;
+  /** Cached catalogues only: no download, no online lookup. */
+  offline?: boolean | null;
+}
+
+/** The user's answer for one plan item. */
+export type OrganizeDecision = { item: number } & (
+  | { choice: 'accept' }
+  | { choice: 'assign'; system: string }
+  | { choice: 'leave' }
+);
+
+/** A quick, name-only look at a folder no layout was detected in. */
+export interface FolderProbe {
+  rom_like: number;
+  partial_downloads: number;
+  cloud_only: number;
+  /** Names of folders that already resolve to a system. */
+  sorted_folders: string[];
+  writable: boolean;
+  broad_root: boolean;
+  /** Stopped after 5 000 entries: counts are "5 000+". */
+  truncated: boolean;
+}
+
+/** A dry run kept by the backend: the UI sends back only its id and decisions. */
+export interface OrganizePlanView {
+  plan_id: number;
+  plan: OrganizePlan;
+}
+
+export type OrganizePhase = 'walk' | 'identify' | 'dats' | 'hash' | 'apply';
+
+/** The `organize-progress` event (planning and applying). */
+export interface OrganizeProgressEvent {
+  plan_id: number;
+  phase: OrganizePhase;
+  done: number;
+  total: number;
+}
+
+export type OrganizeSkipReason =
+  | 'changed-since-plan'
+  | 'source-missing'
+  | 'already-present'
+  | 'collision-set'
+  | 'not-decided'
+  | 'cancelled';
+
+export type OrganizeItemStatus =
+  | { status: 'moved' }
+  | { status: 'copied' }
+  /** A cross-volume move whose source could not be deleted: both exist. */
+  | { status: 'copied-not-removed' }
+  | { status: 'skipped'; reason: OrganizeSkipReason }
+  | { status: 'failed'; kind: ItemErrorKind; detail: string };
+
+/** One plan item and what happened to it. */
+export type OrganizeItemOutcome = OrganizeItemStatus & {
+  item: number;
+  /** Where its files are now (absolute). */
+  targets: string[];
+};
+
+/** What an apply (or resume) did. */
+export interface OrganizeReport {
+  job: string | null;
+  moved: number;
+  copied: number;
+  skipped: number;
+  failed: number;
+  items: OrganizeItemOutcome[];
+  /** Set when the run stopped on a full, read-only or vanished volume. */
+  paused: PauseKind | null;
+  pause_reason: ItemErrorKind | null;
+  /** Items not attempted yet: what a resume does. */
+  resumable_items: number[];
+}
+
+export type OrganizeJobState =
+  'applying' | 'done' | 'paused' | 'cancelled' | 'failed';
+
+/** An IPC error as data (inside a view). */
+export interface WireError {
+  code: ErrorCode;
+  detail?: string | null;
+}
+
+/** The organise apply of the app (`organize-changed` event). */
+export interface OrganizeJobView {
+  job: string | null;
+  plan_id: number;
+  state: OrganizeJobState;
+  progress: OrganizeProgressEvent | null;
+  report: OrganizeReport | null;
+  /** The folder the library opens from afterwards. */
+  target_root: string;
+  /** Profile id the library opens with. */
+  layout: string;
+  /** Why it failed (`failed` only). */
+  error: WireError | null;
+}
+
+/** Rust `UndoReport` (paths, unlike the fill `UndoView` counts). */
+export interface OrganizeUndoReport {
+  job: string;
+  removed: string[];
+  restored: string[];
+  skipped_modified: string[];
+  skipped_occupied: string[];
+  dirs_removed: string[];
+}
+
+/** One report per job undone (newest first) and the later jobs included. */
+export interface OrganizeUndoView {
+  report: OrganizeUndoReport[];
+  later_jobs: JobHistoryItem[];
 }

@@ -331,6 +331,10 @@
     "update-failed": "No se pudo instalar la actualización: {detail}",
     "update-not-ready": "Busca actualizaciones primero.",
     "art-unreadable": "No se puede mostrar esta imagen.",
+    "cancelled": "Cancelado.",
+    "no-plan": "Ese plan de organización ya no se conserva. Vuelve a planificar.",
+    "later-jobs": "Trabajos posteriores cambiaron archivos en esta carpeta ({detail}). Deshazlos también o conserva esta organización.",
+    "no-space": "No hay espacio libre suficiente para esta copia (bytes necesarios/libres: {detail}).",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
