@@ -214,6 +214,7 @@ fn broad_roots() {
     assert!(!is_broad_root(&home.join("Downloads/roms")));
 }
 
+#[cfg(unix)]
 fn opts_with<'a>(
     skip_dirs: Vec<PathBuf>,
     roms_root: Option<PathBuf>,
