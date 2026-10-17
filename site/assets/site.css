@@ -388,7 +388,7 @@ pre {
   gap: clamp(40px, 6vw, 72px);
   align-items: center;
 }
-@media (min-width: 960px) {
+@media (min-width: 1024px) {
   .hero-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
@@ -2049,6 +2049,213 @@ body::before {
   to {
     clip-path: inset(0 0 0 0);
   }
+}
+
+/* == showcase:hero == */
+/* The Lean-To (spec §3). Inline SVG, so the first paint needs no request:
+   a wide scene in the right column (≥ 1024px) and a 64px strip between the
+   H1 and .sub below that. The HTML is the end frame: two gaps applied (cover,
+   Manila tab, Buckram spine), the last slot empty with a cover leaning on
+   it at 12°, the icon's pose. Slots are drawn in 30×40 units and scaled, so
+   both pieces share one set of parts (svg.hero-defs). The shelf runs out
+   past the right edge of the viewport. */
+.hero {
+  overflow-x: clip;
+}
+.hero-defs {
+  position: absolute;
+}
+.shelf {
+  --bleed: max(var(--gutter), calc((100vw - var(--wrap)) / 2));
+  position: relative;
+  display: none;
+}
+.shelf-art {
+  position: relative;
+  aspect-ratio: 640 / 420;
+}
+.hero-scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% + var(--bleed));
+  height: 100%;
+  --sw: 0.48;
+  --gw: 0.32;
+  --da: 0.0091 0.0068;
+  --cy: 0.0159;
+  view-transition-name: shelf;
+}
+.hero-strip {
+  display: block;
+  width: calc(100% + var(--gutter));
+  height: 64px;
+  margin-top: 22px;
+  --sw: 1.2;
+  --gw: 0.8;
+  --da: 0.026 0.0195;
+  --cy: 0.0455;
+}
+@media (min-width: 1024px) {
+  .shelf {
+    display: block;
+  }
+  .hero-strip {
+    display: none;
+  }
+}
+.hero-art .rule {
+  fill: none;
+  stroke: var(--cr-border-strong);
+  stroke-width: 1.2;
+  stroke-dasharray: 1 1;
+}
+.hero-art .cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3.4;
+}
+.hero-strip .cap {
+  stroke-width: 3;
+}
+.hero-art .sh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.hero-art .gd {
+  fill: var(--cr-surface);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--gw);
+}
+.hero-art .o {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--sw);
+  stroke-dasharray: var(--da);
+}
+.hero-art .pc {
+  fill: var(--cr-slot-missing);
+  transform-box: fill-box;
+}
+.hero-art .c1 {
+  transform-origin: 0 0;
+}
+.hero-art .c2 {
+  --k: 1;
+  transform-origin: 100% 0;
+}
+.hero-art .c3 {
+  --k: 2;
+  transform-origin: 0 100%;
+}
+.hero-art .c4 {
+  --k: 3;
+  transform-origin: 100% 100%;
+}
+.hero-art .tb {
+  fill: var(--cr-slot-applied-run);
+}
+.hero-art .fl {
+  fill: var(--cr-manila);
+  opacity: 0;
+}
+.hero-art .sp {
+  fill: var(--cr-slot-applied);
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+}
+/* Applied gaps: the outline and corners are gone (folded away). */
+.gap :is(.o, .pc) {
+  opacity: 0;
+}
+.g2 {
+  --g: 1;
+}
+.pk1 {
+  opacity: 0.6;
+}
+.pk2 {
+  opacity: 0.36;
+}
+.pk3 {
+  opacity: 0.2;
+}
+.pk4 {
+  opacity: 0.1;
+}
+.lean {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+  transform: rotate(12deg);
+}
+.hero-art .ls {
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+}
+/* The H1's keyword stands on a slot underline: dashed (missing) under a
+   solid Buckram band (committed). */
+.kw {
+  position: relative;
+  white-space: nowrap;
+}
+.kw-slot {
+  position: absolute;
+  left: 0.02em;
+  right: 0.02em;
+  bottom: -0.04em;
+  height: max(3px, 0.05em);
+  pointer-events: none;
+}
+.kw-slot::before,
+.kw-slot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1px;
+}
+.kw-slot::before {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--cr-slot-missing) 0 0.14em,
+    transparent 0.14em 0.22em
+  );
+  transform-origin: 0 50%;
+}
+.kw-slot::after {
+  background: var(--cr-slot-applied);
+}
+/* Tally under the scene: seven mini slots and the count. */
+.count {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  font: 500 0.8125rem/1 var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cr-text-secondary);
+}
+.tally {
+  margin-right: 8px;
+}
+.tally .tf {
+  fill: var(--cr-slot-filled);
+}
+.tally .tg {
+  fill: var(--cr-slot-applied);
+}
+.tally .td {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 2 1;
+}
+.tn {
+  display: inline-grid;
+  color: var(--cr-text);
+}
+.tn i {
+  grid-area: 1 / 1;
+  font-style: normal;
+}
+.tn i:first-child {
+  visibility: hidden;
 }
 
 /* == showcase:reduce == */
