@@ -1,6 +1,6 @@
 # Identification
 
-> **TL;DR.** Before looking for art, `coverly fill` works out which game each ROM is. Non-arcade ROMs are hashed (CRC32, MD5 and SHA1 in one pass, with copier headers skipped) and looked up in the libretro-database DATs, which are downloaded on demand into the cache. Arcade sets are looked up by short name in the MAME/FBNeo DATs. When neither works, the ROM is identified by its normalised file name. Every identity records its **method** (`hash`, `arcade-dat`, `name` or `unknown`) and a **confidence**. Decision: [ADR-0006](../adr/0006-hash-then-name-identification.md). Spec: [§16.2–§16.7](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15). Code: `crates/coverly-core/src/identify/`.
+> **TL;DR.** Before looking for art, `coverly fill` works out which game each ROM is. Non-arcade ROMs are hashed (CRC32, MD5 and SHA1 in one pass, with copier headers skipped) and looked up in the libretro-database DATs, which are downloaded on demand into the cache. Arcade sets are looked up by short name in the MAME/FBNeo DATs. When neither works, the ROM is identified by its normalised file name. Every identity records its **method** (`hash`, `arcade-dat`, `name` or `unknown`) and a **confidence**. Decision: [ADR-0006](../adr/0006-hash-then-name-identification.md). Spec: [§16.2–§16.7](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15). Code: `crates/coverly-core/src/identify/`. Organising a loose pile adds a second question, **which system** a file belongs to, answered with header magic (`identify::sniff`), evidence levels and content support: see [Header magic (organise)](#header-magic-organise) and [organize.md](./organize.md).
 
 ## Method setting
 
@@ -83,6 +83,57 @@ Handheld packs often number ROMs (`001 Golden Sun.gba`, `12) Foo`, `7. Bar`, `3 
 ## Output
 
 `identify::Identity { parsed, canonical, method, confidence, hash }`. `canonical` is the DAT or arcade name when there is one, and it is what [art sources](./art-sources.md) try first. A `hash`/`arcade-dat` identity has confidence 1.0. A `name` identity has 0.0 here: its final confidence comes from how well the art matched (see [fill-pipeline.md](./fill-pipeline.md#plan-classes-and-thresholds)).
+
+## Header magic (organise)
+
+Organising a loose pile ([organize.md](./organize.md)) also needs to know **which system** a file belongs to, not only which game. `identify::sniff::sniff(src, len, ext)` answers from the bytes: a 128 KiB prefix plus a few targeted reads (raw files seek; a deflated zip entry is inflated as a stream up to the offset, capped at 8 MiB), never the whole file. It returns header evidence, hard vetoes, an unsupported system, a not-a-ROM verdict or a container magic. The extension only settles ties the bytes cannot (Master System vs Game Gear; the WonderSwan footer is only checked for `.ws`/`.wsc`, O-D4).
+
+Order: text first, then containers, then disc images, then cartridges, most specific first inside a family (Sega CD → 32X → Pico → Mega Drive; FDS before NES; NDS before GBA; a GBA header with its logo before SNES; a GBA header without its logo last).
+
+| System (`id`) | Signature | Weight |
+|---|---|---|
+| — (not a ROM) | first 512 bytes printable UTF-8 text; `web-page` when it opens with `<!doctype`, `<html`, `<?xml`, `<head`, `<body`, `{` or `[`. Under a text-native extension (`p8`, `scummvm`, `svm`, `conf`, `bat`, `bas`, `cue`, `m3u`, `gdi`, `ccd`) only markup counts | veto |
+| — (container) | `PK\x03\x04` / `PK\x05\x06` zip, `37 7A BC AF 27 1C` 7z, `MComprHD` CHD, `Rar!\x1A\x07` RAR | — |
+| `saturn` / `dreamcast` | `SEGA SEGASATURN` / `SEGA SEGAKATANA` at 0 or 0x10 | 0.90 |
+| `psp` | `CISO` with an uncompressed size ≤ 1.8 GB; or ISO 9660 `CD001` at sector 16 with `PSP GAME` as system or volume id | 0.85 |
+| `psx` / *(PS2)* | `CD001` + `PLAYSTATION` system id (2048- or raw 2352-byte sectors), then `SYSTEM.CNF` from the root directory: `BOOT2` → PS2 (unsupported), `BOOT` → psx 0.95; not found → psx 0.80, or PS2 when the image is larger than any CD | 0.80–0.95 |
+| `nds` | logo CRC16 `0xCF56` at 0x15C **and** header CRC16 at 0x15E over 0x000–0x15D | 0.95 |
+| `gb` / `gbc` | logo prefix `CE ED 66 66 CC 0D 00 0B` at 0x104 **and** header checksum at 0x14D; CGB flag 0x143: `0xC0` → gbc 0.95 and **`gb` vetoed**, `0x80` (dual mode) → gbc 0.85, otherwise gb 0.95 | 0.85–0.95 |
+| `fds` | `FDS\x1A` at 0, or `\x01*NINTENDO-HVC*` at 0 or 16 | 0.95 |
+| `nes` | `NES\x1A` (iNES / NES 2.0) or `UNIF` at 0 | 0.95 |
+| `n64` | `80 37 12 40` (z64), `37 80 40 12` (v64), `40 12 37 80` (n64) at 0 | 0.95 |
+| `lynx` / `a7800` | `LYNX` at 0 / `ATARI7800` at 1 | 0.95 |
+| `segacd` | `SEGADISCSYSTEM` at 0 or 0x10 | 0.95 |
+| `sega32x` | `SEGA 32X` at 0x100, or `SEGA` at 0x100/0x101 and `MARS` in the first 0x400 bytes | 0.95 |
+| *(Sega Pico)* | `SEGA PICO` at 0x100 | unsupported |
+| `megadrive` | `SEGA` at 0x100 or 0x101; interleaved SMD when `len % 16384 == 512`, `AA BB` at 8–9 **and** the first block deinterleaves to `SEGA` | 0.90 |
+| `mastersystem` / `gamegear` | `TMR SEGA` at 0x7FF0, 0x3FF0 or 0x1FF0: `.sms` / `.gg` → that system 0.90; otherwise the region nibble picks one at 0.70 and the other gets 0.60 | 0.60–0.90 |
+| `gba` | fixed byte `0x96` at 0xB2 **and** header complement at 0xBD; with the logo prefix `24 FF AE 51` at 0x04 it is checked before SNES, without it last | 0.95 |
+| `snes` | internal header at 0x7FC0 / 0xFFC0 / 0x40FFC0 (+0x200 when `len % 1024 == 512`): checksum XOR complement = `0xFFFF` with a valid map mode or ROM size → 0.95; a valid map mode under a printable title → 0.85 | 0.85–0.95 |
+| `ngp` / `ngpc` | `COPYRIGHT BY SNK CORPORATION` or ` LICENSED BY SNK CORPORATION` at 0; byte 0x23 = `0x10` → ngpc | 0.90 |
+| `wonderswan` / `wonderswancolor` | `.ws`/`.wsc`, `len % 65536 == 0`, footer byte `len − 16` = `0xEA`; colour bit at `len − 9` | 0.85 |
+| others (PC Engine, Atari 2600/5200, MSX, …) | no reliable magic: DAT, extension and name only | — |
+
+A deterministic random-bytes test checks that noise never produces evidence at 0.95 or more.
+
+### Evidence levels
+
+Every clue is an `identify::evidence::Evidence { kind, system, weight, detail }`; `detail` is data for the UI (a CRC and game name, `CGB 0xC0`, an extension), never a sentence. Levels, strongest first:
+
+| `IdLevel` | Source | Weights |
+|---|---|---|
+| `hash` | CRC (zip central directory, or `hash_rom` digests) in a DAT | 1.00 in a candidate system's DAT, 0.97 in another cached DAT; arcade sets 1.00 / 0.99 confirmed, 0.70 by name |
+| `header` | `sniff` | 0.60–0.95 (table above) |
+| `extension` | `SystemDb::systems_for_extension` | 0.85 unique, 0.50 shared, 0.60 unique but contradicted by a decisive signature; generic extensions give none |
+| `name` | tags, GBA scene groups, fuzzy title against DAT stems | 0.60 hints; 0.70 / 0.80 fuzzy |
+| `online` | ScreenScraper by CRC, only when configured | 0.80 |
+| `user` | the user's choice, remembered by CRC + size | 1.00 |
+
+**Decisive signatures** (O-D5): every real dump of `gb`, `gbc`, `gba`, `nds`, `n64`, `nes`, `fds` and `sega32x` carries its signature, so a failed sniff there is negative evidence (the unique extension drops to 0.60 and the item goes to review). SNES, Mega Drive, SMS and the disc systems have legitimate dumps without the checked bytes: a failed sniff there is simply no evidence.
+
+### Content support
+
+A system may be placed automatically only with **content support**: a DAT hit, header evidence at 0.85 or more, a user choice, or a unique extension of a system **without** a decisive signature whose bytes were actually read (not cloud-only, not inside a 7z or CHD). Extension, name and tag bonuses alone never reach Auto, so a `.7z` or an unreadable `.gba` always asks. The full combining rules (score, margin, thresholds, vetoes) are in [organize.md](./organize.md#combine).
 
 ## Deviation: 7z
 

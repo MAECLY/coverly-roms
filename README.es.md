@@ -31,17 +31,50 @@ Previstas para la v1 (ver [la especificación de diseño](docs/superpowers/specs
   cortos de arcade, varias estrategias (prioridad, región de la ROM,
   popularidad), vista previa sin cambios, copias de seguridad y deshacer. Las
   coincidencias dudosas pasan a una cola de revisión.
+- **Organizar una carpeta de ROMs sueltas** —una carpeta de descargas llena de
+  zips— en una carpeta por sistema con la estructura que elijas (por defecto
+  Anbernic de serie: `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Cada archivo se
+  identifica por su contenido (CRC del catálogo y luego la cabecera) antes que
+  por su extensión o su nombre, con una confianza y un motivo; los dudosos
+  pasan a una lista de revisión. No se mueve nada hasta que lo confirmas, no
+  se sobrescribe nada y se puede deshacer.
 - **Nunca sobrescribe** imágenes existentes salvo que lo pidas; nunca escribe
   fuera de la raíz de la biblioteca.
 - **Explorar** la biblioteca por carpeta, por sistema o por fecha, con filtros
   (imágenes que faltan, sistema, extensión, región) y búsqueda.
 - Fuentes secundarias opcionales (SteamGridDB, más adelante ScreenScraper).
-- Una **herramienta de línea de comandos**, `coverly`, para auditar y rellenar
-  sin interfaz.
+- Una **herramienta de línea de comandos**, `coverly`, para auditar, rellenar
+  y organizar sin interfaz.
 - Interfaz en inglés y español, temas claro y oscuro, actualizaciones
   automáticas desde GitHub Releases.
 
 Coverly ROMs no incluye ROMs, BIOS ni imágenes de juegos.
+
+## Organizar una carpeta de ROMs
+
+Si eliges una carpeta que no sigue ninguna estructura conocida, Coverly te
+ofrece organizarla en lugar de detenerse: **Organizar esta carpeta…** muestra
+una propuesta —las ROMs por sistema, la carpeta de destino de cada archivo,
+cuánta seguridad tiene Coverly y por qué, los archivos por revisar y los que se
+quedan donde están (descargas sin terminar, BIOS, páginas web guardadas como
+`.zip`, duplicados)—. Elige la estructura, el destino (esta carpeta u otra,
+como una tarjeta SD), mover o copiar y los nombres, y pulsa **Organizar**. Al
+terminar, **Abrir biblioteca** abre el resultado como cualquier otra
+biblioteca, listo para rellenar sus carátulas; **Deshacer** devuelve cada
+archivo a su sitio. Una biblioteca con ROMs sueltas fuera de sus carpetas de
+sistema ofrece **Organizar archivos sueltos…** desde la pantalla de la
+biblioteca.
+
+Desde el terminal:
+
+```bash
+coverly organize ~/Downloads/roms                 # simulación: propuesta por sistema
+coverly organize ~/Downloads/roms --apply         # mover a ~/Downloads/roms/ROMS/<SIS>/
+coverly organize ~/Downloads/roms --target /Volumes/SD --copy --apply
+coverly undo                                      # devolver todo a su sitio
+```
+
+Cómo funciona (en inglés): [docs/04-architecture/organize.md](docs/04-architecture/organize.md).
 
 ## Instalar
 

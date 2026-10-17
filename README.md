@@ -26,16 +26,47 @@ Planned for v1 (see [the design spec](docs/superpowers/specs/2026-10-15-coverly-
   identification by hash and by name, arcade short-name translation, a choice
   of strategies (priority, ROM region, popularity), a dry-run preview, backups
   and undo. Doubtful matches go to a review queue.
+- **Organise a folder of loose ROMs** — a downloads folder full of zips — into
+  one folder per system in the layout you choose (by default Anbernic stock:
+  `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Each file is identified by its
+  contents (catalogue CRC, then header) before its extension or name, with a
+  confidence and a reason; doubtful files go to a review list. Nothing moves
+  until you confirm, nothing is overwritten, and it can be undone.
 - **Never overwrites** existing art unless you ask; never writes outside the
   library root.
 - **Browse** the library by folder, by system or by date, with filters
   (missing art, system, extension, region) and search.
 - Optional secondary sources (SteamGridDB, later ScreenScraper).
-- A **command-line tool**, `coverly`, for headless audits and fills.
+- A **command-line tool**, `coverly`, for headless audits, fills and
+  organising.
 - English and Spanish interface, light and dark themes, automatic updates from
   GitHub Releases.
 
 Coverly ROMs does not include ROMs, BIOS files or game art.
+
+## Organise a folder of ROMs
+
+Pick a folder that follows no known layout and Coverly offers to organise it
+instead of stopping: **Organise this folder…** shows a proposal — ROMs per
+system, the target folder of each file, how sure Coverly is and why, the files
+to review and the ones that stay where they are (unfinished downloads, BIOS
+files, web pages saved as `.zip`, duplicates). Choose the layout, the target
+(this folder or another one, such as an SD card), move or copy and the names,
+then **Organise**. When it ends, **Open library** opens the result like any
+other library, ready to fill its covers; **Undo** puts every file back. A
+library with stray ROMs outside its system folders offers **Organise loose
+files…** from the library screen.
+
+From the terminal:
+
+```bash
+coverly organize ~/Downloads/roms                 # dry run: proposal by system
+coverly organize ~/Downloads/roms --apply         # move into ~/Downloads/roms/ROMS/<SYS>/
+coverly organize ~/Downloads/roms --target /Volumes/SD --copy --apply
+coverly undo                                      # put everything back
+```
+
+How it works: [docs/04-architecture/organize.md](docs/04-architecture/organize.md).
 
 ## Install
 

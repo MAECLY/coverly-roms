@@ -46,6 +46,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [M0 + M1 implementation plan](./superpowers/plans/2026-10-15-m0-m1-foundation-and-audit.md) — foundation and audit, task by task
 - [M2 implementation plan](./superpowers/plans/2026-10-16-m2-identify-and-fill.md) — identification, art sources and fill, task by task
 - [M7 implementation plan](./superpowers/plans/2026-10-16-m7-release.md) — release pipeline, signed updates, the owner's steps, task by task
+- [Organise spec](./superpowers/specs/2026-10-17-organize-loose-roms-design.md) and [plan](./superpowers/plans/2026-10-17-organize-loose-roms.md) — organising a folder of loose ROMs into one folder per system, task by task
 - [Tracker](./TRACKER.md) — task status with evidence (Spanish)
 
 ### 02 — Research
@@ -62,10 +63,11 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 ### 04 — Architecture
 
 - [System Architecture](./04-architecture/system-architecture.md) — containers, modules, domain model, data flow, performance
-- [Identification](./04-architecture/identification.md) — hashing, header rules, DATs, arcade names, name normalisation
+- [Identification](./04-architecture/identification.md) — hashing, header rules, DATs, arcade names, name normalisation, header magic per system and evidence levels
 - [Art Sources](./04-architecture/art-sources.md) — `ArtSource` trait, libretro-thumbnails, hostile names, polite HTTP
 - [Fill Pipeline](./04-architecture/fill-pipeline.md) — gather, plan, strategies, image limits, safe writes, undo, CLI, E2E evidence
-- [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, art security, UI stores, browser mock, performance
+- [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, organise screen, art security, UI stores, browser mock, performance
+- [Organise](./04-architecture/organize.md) — loose ROMs into one folder per system: walk, archives, identification ladder, combine, target layout, safe apply, journal ops and undo, cache v2, CLI
 - [Updates](./04-architecture/updates.md) — update manifest and channels, minisign key, check/download/install with the fill-job gate, CLI self-update, errors, connected drives
 
 ### 07 — Build & Release
