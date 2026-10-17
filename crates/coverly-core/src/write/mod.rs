@@ -208,29 +208,126 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
     hex_upper(&Sha1::digest(bytes))
 }
 
-/// One line of a job journal.
+/// What a job did: fill art (and gamelists) or organise a ROM pile.
+/// Journals written before organise jobs existed have no kind: fill.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobKind {
+    #[default]
+    Fill,
+    Organize,
+}
+
+/// Enough of a file's state to tell, at undo time, whether it is still the
+/// file the job left there, without re-reading multi-GB files: size and
+/// modification time, plus the CRC-32 when the job computed one (copies).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fingerprint {
+    pub size: u64,
+    pub mtime_ns: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crc32: Option<u32>,
+}
+
+/// How a moved file got to its target: a rename on the same volume, or a
+/// verified copy followed by deleting the source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Via {
+    Rename,
+    Copy,
+}
+
+/// The header fields of a new job besides its root.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct JobMeta {
+    pub kind: JobKind,
+    /// Where an organise job takes files from (absolute); `None` means the
+    /// job root.
+    pub source_root: Option<PathBuf>,
+}
+
+/// One line of a job journal. Fields added after the first format are all
+/// optional, so older journals parse unchanged; older builds ignore them.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum Line {
     Header {
         job: String,
         root: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_root: Option<PathBuf>,
+        #[serde(default)]
+        kind: JobKind,
         created_at: String,
     },
     Entry {
         target: PathBuf,
         op: Op,
-        sha1: String,
+        /// SHA-1 of the bytes written (fill ops). Organise ops use `fp`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sha1: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fp: Option<Fingerprint>,
+        /// Index of the plan item the entry belongs to (organise jobs).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item: Option<usize>,
     },
     Done,
 }
 
+// The organise ops are written by `Writer::move_file` / `copy_file` /
+// `ensure_dir` and the override rewrite of `organize::apply`.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum Op {
     Created,
-    Replaced { backup: PathBuf },
-    Removed { backup: PathBuf },
+    Replaced {
+        backup: PathBuf,
+    },
+    Removed {
+        backup: PathBuf,
+    },
+    /// `target` came from `from` (absolute, inside the source root).
+    Moved {
+        from: PathBuf,
+        via: Via,
+    },
+    /// `target` is a copy of `from`; the source stays.
+    Copied {
+        from: PathBuf,
+    },
+    /// The job created the folder `target`.
+    DirCreated,
+    /// A manual-override entry keyed by `from` was rekeyed to `to`.
+    OverrideMoved {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// An op this build does not know (a journal from a newer Coverly):
+    /// the job is listed but cannot be undone.
+    #[serde(other)]
+    Unknown,
+}
+
+impl Op {
+    /// The ops whose undo this build implements.
+    fn undoable(&self) -> bool {
+        matches!(self, Op::Created | Op::Replaced { .. } | Op::Removed { .. })
+    }
+}
+
+/// Whether every entry of a journal can be undone by this build.
+fn entries_undoable(entries: &[Line]) -> bool {
+    !entries.iter().any(|e| {
+        matches!(
+            e,
+            Line::Entry {
+                op: Op::Unknown,
+                ..
+            }
+        )
+    })
 }
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -247,6 +344,9 @@ fn new_job_id() -> String {
 /// A write job: every file it writes is journaled before `write` returns.
 pub struct Writer {
     root: PathBuf,
+    /// Where moved and copied files come from; the root for fill jobs.
+    source_root: PathBuf,
+    kind: JobKind,
     job: String,
     backups: PathBuf,
     journal: File,
@@ -261,8 +361,18 @@ impl Writer {
     /// Starts a job writing into `root` (must be absolute: the journal
     /// keeps it so `undo` works from any working directory).
     pub fn begin(root: &Path, data_dir: &Path) -> Result<Writer, WriteError> {
+        Writer::begin_with(root, data_dir, JobMeta::default())
+    }
+
+    /// Starts a job of `meta.kind` writing into `root`; an organise job
+    /// also names the folder its files come from (absolute, journaled in
+    /// the header so undo can put them back).
+    pub fn begin_with(root: &Path, data_dir: &Path, meta: JobMeta) -> Result<Writer, WriteError> {
         if !root.is_absolute() {
             return Err(WriteError::OutsideRoot(root.to_path_buf()));
+        }
+        if let Some(source) = meta.source_root.as_deref().filter(|s| !s.is_absolute()) {
+            return Err(WriteError::OutsideRoot(source.to_path_buf()));
         }
         let jobs = data_dir.join("jobs");
         fs::create_dir_all(&jobs).map_err(|e| map_io(e, &jobs))?;
@@ -277,6 +387,11 @@ impl Writer {
         };
         let mut writer = Writer {
             root: root.to_path_buf(),
+            source_root: meta
+                .source_root
+                .clone()
+                .unwrap_or_else(|| root.to_path_buf()),
+            kind: meta.kind,
             backups: data_dir.join("backups").join(&job),
             job,
             journal,
@@ -288,6 +403,8 @@ impl Writer {
         let header = Line::Header {
             job: writer.job.clone(),
             root: writer.root.clone(),
+            source_root: meta.source_root,
+            kind: meta.kind,
             created_at: rfc3339_utc(SystemTime::now()),
         };
         writer.append(&header)?;
@@ -315,7 +432,10 @@ impl Writer {
         }
         let (header, entries, _) = parse(&path)?;
         let Line::Header {
-            root: journal_root, ..
+            root: journal_root,
+            source_root,
+            kind,
+            ..
         } = header
         else {
             unreachable!("parse returns a header first")
@@ -333,6 +453,8 @@ impl Writer {
             .map_err(|e| map_io(e, &path))?;
         Ok(Writer {
             root: root.to_path_buf(),
+            source_root: source_root.unwrap_or_else(|| root.to_path_buf()),
+            kind,
             job: job.to_string(),
             backups: data_dir.join("backups").join(job),
             journal,
@@ -345,6 +467,16 @@ impl Writer {
 
     pub fn job_id(&self) -> &str {
         &self.job
+    }
+
+    pub fn kind(&self) -> JobKind {
+        self.kind
+    }
+
+    /// Where the job's files come from: the root unless the header names
+    /// another folder.
+    pub fn source_root(&self) -> &Path {
+        &self.source_root
     }
 
     /// Writes `bytes` to `target` atomically under `policy`.
@@ -413,11 +545,7 @@ impl Writer {
                 },
             ),
         };
-        self.append(&Line::Entry {
-            target: dest,
-            op,
-            sha1: sha1_hex(bytes),
-        })?;
+        self.append_entry(dest, op, Some(sha1_hex(bytes)), None, None)?;
         Ok(outcome)
     }
 
@@ -436,13 +564,15 @@ impl Writer {
         }
         let bytes = fs::read(&target).map_err(|e| map_io(e, &target))?;
         let backup = self.back_up(&target)?;
-        self.append(&Line::Entry {
-            target: target.clone(),
-            op: Op::Removed {
+        self.append_entry(
+            target.clone(),
+            Op::Removed {
                 backup: backup.clone(),
             },
-            sha1: sha1_hex(&bytes),
-        })?;
+            Some(sha1_hex(&bytes)),
+            None,
+            None,
+        )?;
         // A failed delete leaves the file as it was: the entry stays in the
         // journal (its undo is a no-op) but it is not a change.
         fs::remove_file(&target).map_err(|e| map_io(e, &target))?;
@@ -507,6 +637,24 @@ impl Writer {
         file.write_all(&old).map_err(|e| map_io(e, &backup))?;
         file.sync_all().map_err(|e| map_io(e, &backup))?;
         Ok(backup)
+    }
+
+    /// Appends (and flushes) one journal entry.
+    fn append_entry(
+        &mut self,
+        target: PathBuf,
+        op: Op,
+        sha1: Option<String>,
+        fp: Option<Fingerprint>,
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        self.append(&Line::Entry {
+            target,
+            op,
+            sha1,
+            fp,
+            item,
+        })
     }
 
     fn append(&mut self, line: &Line) -> Result<(), WriteError> {
@@ -649,6 +797,13 @@ pub struct JobSummary {
     pub entries: usize,
     pub complete: bool,
     pub undone: bool,
+    pub kind: JobKind,
+    /// The folder an organise job took its files from, when the journal
+    /// names one.
+    pub source_root: Option<PathBuf>,
+    /// False for a journal this build cannot undo (written by a newer
+    /// Coverly, or unreadable).
+    pub undoable: bool,
 }
 
 /// A parsed journal file.
@@ -763,7 +918,11 @@ pub fn list_jobs(data_dir: &Path) -> Result<Vec<JobSummary>, WriteError> {
         let summary = match parse(&journal.path) {
             Ok((
                 Line::Header {
-                    root, created_at, ..
+                    root,
+                    source_root,
+                    kind,
+                    created_at,
+                    ..
                 },
                 entries,
                 done,
@@ -774,6 +933,9 @@ pub fn list_jobs(data_dir: &Path) -> Result<Vec<JobSummary>, WriteError> {
                 entries: entries.len(),
                 complete: done,
                 undone: journal.undone,
+                kind,
+                source_root,
+                undoable: entries_undoable(&entries),
             },
             _ => JobSummary {
                 job: journal.job,
@@ -782,6 +944,9 @@ pub fn list_jobs(data_dir: &Path) -> Result<Vec<JobSummary>, WriteError> {
                 entries: 0,
                 complete: false,
                 undone: journal.undone,
+                kind: JobKind::default(),
+                source_root: None,
+                undoable: false,
             },
         };
         out.push(summary);
@@ -815,6 +980,21 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     let Line::Header { root, .. } = header else {
         unreachable!("parse returns a header first")
     };
+    // Refuse before touching anything: undoing part of a journal from a
+    // newer build would leave the library half reverted.
+    if !entries_undoable(&entries) {
+        return Err(WriteError::Journal(
+            "written by a newer Coverly; update to undo it".to_string(),
+        ));
+    }
+    if entries
+        .iter()
+        .any(|e| matches!(e, Line::Entry { op, .. } if !op.undoable()))
+    {
+        return Err(WriteError::Journal(
+            "organise jobs cannot be undone by this build yet".to_string(),
+        ));
+    }
     let backups = data_dir.join("backups").join(&journal.job);
     let mut report = UndoReport {
         job: journal.job.clone(),
@@ -827,13 +1007,22 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     // last write is restored, the earlier replace entries are done too.
     let mut restored_here: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
     for (n, entry) in entries.into_iter().rev().enumerate() {
-        let Line::Entry { target, op, sha1 } = entry else {
+        let Line::Entry {
+            target, op, sha1, ..
+        } = entry
+        else {
             continue;
         };
         let target = ensure_within(&root, &target)?;
         if matches!(op, Op::Replaced { .. }) && restored_here.contains(&target) {
             continue;
         }
+        // A fill entry without its checksum cannot prove the file is still
+        // the one the job wrote: leave it.
+        let Some(sha1) = sha1 else {
+            report.skipped_modified.push(target);
+            continue;
+        };
         let current = match fs::read(&target) {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == ErrorKind::NotFound => None,
@@ -870,6 +1059,15 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 restored_here.insert(target.clone());
                 report.restored.push(target);
             }
+            // Refused above, before anything was touched.
+            (
+                Op::Moved { .. }
+                | Op::Copied { .. }
+                | Op::DirCreated
+                | Op::OverrideMoved { .. }
+                | Op::Unknown,
+                _,
+            ) => unreachable!("checked before undoing"),
         }
     }
     let undone = journal
