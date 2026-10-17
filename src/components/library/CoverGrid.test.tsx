@@ -131,6 +131,43 @@ describe('CoverGrid', () => {
     );
   });
 
+  it('shows the title, system and region tags under each cover', () => {
+    const entry = big.entries.find((e) => e.regions.join() === 'usa,europe')!;
+    const { container } = render(<Harness entries={[entry]} />);
+    const tile = container.querySelector('.cover-tile')!;
+    expect(tile).toHaveAttribute('title', entry.name);
+    expect(tile.querySelector('.cover-tile__name')).toHaveTextContent(
+      entry.name.replace(' (USA, Europe)', ''),
+    );
+    expect(tile.querySelector('.cover-tile__system')).toHaveTextContent(
+      big.systems[entry.system]!.name,
+    );
+    const tags = [...tile.querySelectorAll('.cover-tile__region')];
+    expect(tags.map((el) => el.textContent)).toEqual(['US', 'EU']);
+    expect(tags.map((el) => el.getAttribute('title'))).toEqual([
+      'USA',
+      'Europe',
+    ]);
+  });
+
+  it('shows no region tag when the name has none', () => {
+    const entry = big.entries.find((e) => e.regions.length === 0)!;
+    const { container } = render(<Harness entries={[entry]} />);
+    expect(container.querySelector('.cover-tile__region')).toBeNull();
+    expect(container.querySelector('.cover-tile__name')).toHaveTextContent(
+      entry.name,
+    );
+  });
+
+  it('keeps every tile inside its row', () => {
+    const { container } = render(<Harness entries={big.entries} />);
+    const row = container.querySelector<HTMLElement>('.cover-row')!;
+    const tile = container.querySelector<HTMLElement>('.cover-tile')!;
+    expect(parseFloat(row.style.height)).toBe(
+      parseFloat(tile.style.height) + 12,
+    );
+  });
+
   it('renders_hostile_names_as_text', () => {
     const small = generateLibrary({
       seed: 7,

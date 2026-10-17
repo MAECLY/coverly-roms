@@ -5,12 +5,16 @@ import { useElementSize } from '@/hooks/useElementSize';
 import { useT } from '@/i18n/useT';
 import type { EntryView, SystemView } from '@/ipc/types';
 import { nextIndex } from '@/lib/keyboardNav';
+import { REGION_CODE, titleWithoutRegions } from '@/lib/tileLabel';
 
 import { ArtStatusIcon } from './ArtStatusIcon';
 import { ArtThumb } from './ArtThumb';
 
 export const TILE_W = 168;
-export const TILE_H = 264;
+// Fixed parts, so a tile never grows into the row below (see .cover-tile):
+// 2px border + 6px padding each side, the 25:36 cover (152 x 219), a 6px gap,
+// two 16px lines of title and the 18px system/region line.
+export const TILE_H = 296;
 export const GAP = 12;
 
 export interface EntryListProps {
@@ -114,7 +118,7 @@ export function CoverGrid({
             className="cover-row"
             style={{
               transform: `translateY(${row.start}px)`,
-              height: TILE_H,
+              height: TILE_H + GAP,
               gap: GAP,
               paddingLeft: GAP,
             }}
@@ -129,25 +133,51 @@ export function CoverGrid({
                   aria-selected={entry.id === selectedId}
                   data-entry-id={entry.id}
                   className="cover-tile"
-                  style={{ width: TILE_W }}
+                  style={{ width: TILE_W, height: TILE_H }}
                   title={entry.name}
                 >
-                  <ArtThumb
-                    generation={generation}
-                    entry={entry}
-                    media="cover"
-                  />
-                  <span className="cover-tile__name">{entry.name}</span>
-                  <span className="cover-tile__meta">
-                    {systems[entry.system]?.folder ?? ''} · {entry.ext}
-                  </span>
-                  <span className="cover-tile__marks">
-                    <ArtStatusIcon media="cover" mark={entry.art.cover} />
-                    <ArtStatusIcon
-                      media="screenshot"
-                      mark={entry.art.screenshot}
+                  <div className="cover-tile__art">
+                    <ArtThumb
+                      generation={generation}
+                      entry={entry}
+                      media="cover"
                     />
-                    <ArtStatusIcon media="title" mark={entry.art.title} />
+                    <span className="cover-tile__marks">
+                      <ArtStatusIcon media="cover" mark={entry.art.cover} />
+                      <ArtStatusIcon
+                        media="screenshot"
+                        mark={entry.art.screenshot}
+                      />
+                      <ArtStatusIcon media="title" mark={entry.art.title} />
+                    </span>
+                  </div>
+                  <span className="cover-tile__name">
+                    {titleWithoutRegions(entry.name)}
+                  </span>
+                  <span className="cover-tile__info">
+                    <span className="cover-tile__system">
+                      {systems[entry.system]?.name ?? ''}
+                    </span>
+                    {entry.regions.slice(0, 2).map((r) => (
+                      <span
+                        key={r}
+                        className="cover-tile__region"
+                        title={t(`regions.${r}`)}
+                      >
+                        {r === 'world' ? t('regions.world') : REGION_CODE[r]}
+                      </span>
+                    ))}
+                    {entry.regions.length > 2 && (
+                      <span
+                        className="cover-tile__region"
+                        title={entry.regions
+                          .slice(2)
+                          .map((r) => t(`regions.${r}`))
+                          .join(', ')}
+                      >
+                        +{entry.regions.length - 2}
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}
