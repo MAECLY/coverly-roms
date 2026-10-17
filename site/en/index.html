@@ -297,7 +297,7 @@
 <h2 id="download-t">Ready to download.</h2>
 <p>Version {{release.version}}, released {{release.date_en}}. Free, for good.</p>
 </div>
-<div class="dl-grid">
+<div class="dl-grid" data-reveal>
 <div class="dl-card" data-os="mac"><span class="mine">Your computer</span><h3>macOS</h3><p class="req">macOS 11 or later, Apple silicon and Intel</p><a class="btn btn-primary" href="{{release.macos_universal.url}}">Download .dmg ({{release.macos_universal.mib_en}}&nbsp;MiB)</a></div>
 <div class="dl-card" data-os="win"><span class="mine">Your computer</span><h3>Windows</h3><p class="req">Windows 10 and 11, x64</p><a class="btn btn-primary" href="{{release.windows_x64.url}}">Download installer ({{release.windows_x64.mib_en}}&nbsp;MiB)</a><a class="alt" href="{{release.windows_x64_msi.url}}">Or the .msi ({{release.windows_x64_msi.mib_en}}&nbsp;MiB)</a></div>
 <div class="dl-card" data-os="linux"><span class="mine">Your computer</span><h3>Linux x64</h3><p class="req">AppImage or .deb package</p><a class="btn btn-primary" href="{{release.linux_x64_appimage.url}}">Download AppImage ({{release.linux_x64_appimage.mib_en}}&nbsp;MiB)</a><a class="alt" href="{{release.linux_x64_deb.url}}">Or the .deb ({{release.linux_x64_deb.mib_en}}&nbsp;MiB)</a></div>
@@ -324,6 +324,7 @@
 <h2 id="download-t">Almost ready to download.</h2>
 <p>The first release is being prepared. When it lands, the installers for macOS, Windows and Linux, and the command line, will be right here.</p>
 </div>
+<div class="dl-wait">
 <div class="dl-soon">
 <h3>No release published yet</h3>
 <p>This slot fills itself on release day. Until then you can build it from source: the README walks you through it.</p>
@@ -331,6 +332,8 @@
 <a class="btn btn-primary" href="https://github.com/MAECLY/coverly-roms/blob/main/README.md#build-from-source">Build from source</a>
 <a class="btn" href="https://github.com/MAECLY/coverly-roms/releases">See releases</a>
 </div>
+</div>
+<svg class="art waiting" viewBox="0 56 200 186" width="200" height="186" aria-hidden="true" focusable="false" data-reveal><ellipse class="contact" cx="100" cy="233" rx="64" ry="2"/><path class="w-rule" d="M0 234.5h200"/><path class="w-cap" d="M0 234.5h24"/><rect class="w-slot" x="40.75" y="70.75" width="118.5" height="158.5" rx="1" pathLength="560"/><path class="w-pc" d="M38 68h14v3H41v11h-3zm124 0h-14v3h11v11h3zM38 232h14v-3H41v-11h-3zm124 0h-14v-3h11v-11h3z"/><g class="w-tag"><path class="w-str" d="M158 72v34"/><path class="w-tb" fill-rule="evenodd" d="M146 98h24l6 7v49a2 2 0 0 1-2 2h-32a2 2 0 0 1-2-2v-49zm12 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 1 0 0-5z"/><path class="w-ln" d="M144 134h28m-28 6h20"/><circle class="w-ln" cx="158" cy="106" r="4.5" fill="none"/><g class="w-gl"><use href="../assets/art/covers.svg#g-v" x="143" y="118" width="5" height="8.33"/><use href="../assets/art/covers.svg#g-0" x="148" y="118" width="5" height="8.33"/><use href="../assets/art/covers.svg#g-dot" x="153" y="118" width="5" height="8.33"/><use href="../assets/art/covers.svg#g-1" x="158" y="118" width="5" height="8.33"/><use href="../assets/art/covers.svg#g-dot" x="163" y="118" width="5" height="8.33"/><use href="../assets/art/covers.svg#g-0" x="168" y="118" width="5" height="8.33"/></g><circle cx="158" cy="72" r="2.5"/></g></svg>
 </div>
 <!-- norelease:end -->
 <div class="dl-more">

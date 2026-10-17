@@ -2942,6 +2942,140 @@ html.motion .t-rest::before {
   }
 }
 
+/* == showcase:download == */
+/* No release: the slot that fills on release day, its v0.1.0 accession
+   tag on a string; on the way in the dashes march once and the tag swings
+   and settles. Release: the OS cards fill like slots, the detected one's
+   tag drops in. The not-yet list draws its dashes. */
+.dl-wait {
+  display: grid;
+  gap: 24px;
+  align-items: center;
+}
+@media (min-width: 760px) {
+  .dl-wait {
+    grid-template-columns: minmax(0, 46rem) 240px;
+    gap: clamp(32px, 7vw, 112px);
+  }
+}
+.waiting {
+  width: min(240px, 44vw);
+  height: auto;
+  justify-self: center;
+  color: var(--cr-slot-missing);
+  fill: currentColor;
+  stroke: currentColor;
+}
+.w-slot {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.w-rule {
+  stroke: var(--cr-border-strong);
+}
+.w-cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3;
+}
+.w-pc,
+.w-tb {
+  stroke: none;
+}
+.w-tag {
+  color: var(--cr-text-secondary);
+  transform-box: view-box;
+  transform-origin: 158px 72px;
+}
+.w-str {
+  stroke-width: 0.75;
+}
+.w-tb {
+  fill: var(--cr-manila);
+}
+.w-ln,
+.w-gl {
+  color: var(--cr-manila-fg);
+  stroke-opacity: 0.4;
+}
+.w-gl {
+  stroke-opacity: 1;
+}
+.dl-card + .dl-card {
+  --n: 1;
+}
+.dl-card + .dl-card + .dl-card {
+  --n: 2;
+}
+.dl-card + .dl-card + .dl-card + .dl-card {
+  --n: 3;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .waiting:not(.is-in) .w-tag {
+    transform: rotate(16deg);
+  }
+  html.motion .waiting.is-in:not(.no-anim) .w-tag {
+    animation: swing 1.2s var(--lp-ease-swing) both;
+  }
+  html.motion .waiting.is-in:not(.no-anim) .w-slot {
+    animation: march 1.2s var(--cr-ease-standard);
+  }
+  html.motion .dl-card {
+    outline: 1.5px dashed transparent;
+    outline-offset: -1.5px;
+  }
+  html.motion .dl-grid:not(.is-in) .dl-card {
+    border-color: transparent;
+    outline-color: var(--cr-slot-missing);
+    background-color: transparent;
+    box-shadow: none;
+  }
+  html.motion .dl-grid:not(.is-in) .mine {
+    opacity: 0;
+  }
+  html.motion .dl-grid.is-in:not(.no-anim) .dl-card {
+    animation: card-fill var(--cr-duration-slow) var(--cr-ease-ink)
+      calc(var(--n, 0) * 90ms) both;
+  }
+  html.motion .dl-grid.is-in:not(.no-anim) .mine {
+    animation: dm-tab var(--cr-duration-base) var(--cr-ease-spring)
+      calc(var(--n, 0) * 90ms + 240ms) both;
+  }
+  @supports (animation-timeline: view()) {
+    html.motion .notyet li {
+      animation: dash-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 10% entry 100%;
+    }
+  }
+}
+@keyframes swing {
+  from {
+    transform: rotate(16deg);
+  }
+}
+@keyframes march {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes card-fill {
+  from {
+    border-color: transparent;
+    outline-color: var(--cr-slot-missing);
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+@keyframes dash-draw {
+  from {
+    background-size: 0 1.5px, 0 1.5px, 1.5px 0, 1.5px 0;
+  }
+  50% {
+    background-size: 100% 1.5px, 0 1.5px, 1.5px 100%, 1.5px 0;
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
