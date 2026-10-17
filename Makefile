@@ -25,6 +25,12 @@ VERSION ?=
 # Port the Vite dev server listens on (see vite.config.ts).
 DEV_PORT := 1431
 
+# `make site`: where the filled landing page goes, its port, and an optional
+# GitHub release JSON to preview (e.g. scripts/site/fixtures/release.json).
+SITE_OUT := target/site
+SITE_PORT ?= 8080
+RELEASE ?=
+
 # Throwaway example library built by `make example` (git-ignored).
 EXAMPLE_DIR := target/example
 EXAMPLE_LIB := $(EXAMPLE_DIR)/library
@@ -165,6 +171,25 @@ cli: ## Run the coverly CLI: make cli ARGS="systems"
 fill: ## Plan a fill without writing (dry run): make fill ROOT=/path/to/roms
 	@if [ -z "$(ROOT)" ]; then echo "usage: make fill ROOT=/path/to/roms" >&2; exit 2; fi
 	$(CLI) fill "$(ROOT)" --dry-run
+
+# ───────────────────────────────────────────────────────────────────────
+# Landing page (site/, published by .github/workflows/pages.yml)
+# ───────────────────────────────────────────────────────────────────────
+
+.PHONY: site
+site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json to preview a release).
+	rm -rf "$(SITE_OUT)"
+	@if [ -n "$(RELEASE)" ]; then \
+	  python3 -I scripts/site/apply_release.py --release-json "$(RELEASE)" --repo MAECLY/coverly-roms --site site --out "$(SITE_OUT)"; \
+	else \
+	  python3 -I scripts/site/apply_release.py --no-release --repo MAECLY/coverly-roms --site site --out "$(SITE_OUT)"; \
+	fi
+	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
+	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
+
+.PHONY: site-check
+site-check: ## Check the landing page: links, ES/EN parity, head tags, budgets, contrast.
+	python3 -I scripts/site/check_site.py
 
 # ───────────────────────────────────────────────────────────────────────
 # Example library (throwaway, under target/example)

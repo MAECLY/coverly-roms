@@ -1,0 +1,112 @@
+{
+  "tag_name": "v9.8.7",
+  "name": "Coverly ROMs v9.8.7 (fixture for local previews and tests)",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2027-03-05T23:59:00Z",
+  "html_url": "https://github.com/MAECLY/coverly-roms/releases/tag/v9.8.7",
+  "assets": [
+    {
+      "name": "Coverly.ROMs_9.8.7_universal.dmg",
+      "state": "uploaded",
+      "size": 18934784,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_universal.dmg"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_universal.app.tar.gz",
+      "state": "uploaded",
+      "size": 17825792,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_universal.app.tar.gz"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_universal.app.tar.gz.sig",
+      "state": "uploaded",
+      "size": 420,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_universal.app.tar.gz.sig"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_x64-setup.exe",
+      "state": "uploaded",
+      "size": 9542041,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_x64-setup.exe"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_x64-setup.exe.sig",
+      "state": "uploaded",
+      "size": 420,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_x64-setup.exe.sig"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_x64_en-US.msi",
+      "state": "uploaded",
+      "size": 11010048,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_x64_en-US.msi"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_amd64.AppImage",
+      "state": "uploaded",
+      "size": 84934656,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_amd64.AppImage"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_amd64.deb",
+      "state": "uploaded",
+      "size": 10485760,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_amd64.deb"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_aarch64.AppImage",
+      "state": "uploaded",
+      "size": 83886080,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_aarch64.AppImage"
+    },
+    {
+      "name": "Coverly.ROMs_9.8.7_arm64.deb",
+      "state": "uploaded",
+      "size": 9961472,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/Coverly.ROMs_9.8.7_arm64.deb"
+    },
+    {
+      "name": "coverly-9.8.7-darwin-aarch64",
+      "state": "uploaded",
+      "size": 7340032,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/coverly-9.8.7-darwin-aarch64"
+    },
+    {
+      "name": "coverly-9.8.7-darwin-x86_64",
+      "state": "uploaded",
+      "size": 7864320,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/coverly-9.8.7-darwin-x86_64"
+    },
+    {
+      "name": "coverly-9.8.7-windows-x86_64.exe",
+      "state": "uploaded",
+      "size": 7654400,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/coverly-9.8.7-windows-x86_64.exe"
+    },
+    {
+      "name": "coverly-9.8.7-linux-x86_64",
+      "state": "uploaded",
+      "size": 8388608,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/coverly-9.8.7-linux-x86_64"
+    },
+    {
+      "name": "coverly-9.8.7-linux-aarch64",
+      "state": "uploaded",
+      "size": 8126464,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/coverly-9.8.7-linux-aarch64"
+    },
+    {
+      "name": "SHA256SUMS",
+      "state": "uploaded",
+      "size": 1650,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/SHA256SUMS"
+    },
+    {
+      "name": "latest.json",
+      "state": "uploaded",
+      "size": 3100,
+      "browser_download_url": "https://github.com/MAECLY/coverly-roms/releases/download/v9.8.7/latest.json"
+    }
+  ]
+}

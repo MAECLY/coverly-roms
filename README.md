@@ -85,10 +85,18 @@ make example                                   # build a small example library a
 make example-fill                              # plan filling its covers (dry run)
 make audit ROOT=<path>                         # audit a library from the terminal
 make check                                     # lint, format check and all tests
+make site                                      # serve the landing page on http://localhost:8080
 ```
 
 `make help` lists every target. The example library lives in `target/example`
 (`make example-apply`, `make example-undo`, `make example-clean`).
+
+The landing page at [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
+lives in `site/`. `make site` shows it as it looks before the first release;
+`make site RELEASE=scripts/site/fixtures/release.json` shows it with a release,
+and `make site-check` runs its checks.
+[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
+explains how it is published.
 
 ## Contributing
 

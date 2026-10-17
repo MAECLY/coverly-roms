@@ -10,6 +10,16 @@ The notices for Rust crates and npm packages are added here as dependencies are
 added, and will be generated from `Cargo.lock` and `pnpm-lock.yaml` before the
 first release. `docs/09-legal/license.md` explains the project's own licence.
 
+## Landing page
+
+The website in `site/` (not part of the application bundles) self-hosts one
+font file, `site/assets/fonts/archivo-display-800.woff2`: Archivo, Copyright
+2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo),
+licensed under the SIL Open Font License 1.1. It is a modified version
+(instanced at width 72 and weight 800 and subset to Latin-1), served under
+the family name "Archivo Display". The full licence is in
+`site/assets/fonts/OFL.txt`.
+
 ## Art and metadata sources
 
 Art sources are fetched at the user's request and are not distributed with
