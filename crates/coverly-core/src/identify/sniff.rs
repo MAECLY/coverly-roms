@@ -302,8 +302,11 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         s.hit("a7800", 0.95, "ATARI7800");
         return;
     }
-    // Tasks 6–7 add Sega, SNES, SNK and Bandai here.
-    let _ = (src, len, ext);
+    if sega(head, len, ext, s) {
+        return;
+    }
+    // Task 7 adds SNES, SNK and Bandai here.
+    let _ = src;
     // GBA last: its signature is one fixed byte plus a one-byte complement
     // (16 bits), weaker than any magic above, so a file that carries one of
     // those and matches it by chance keeps its own system.
@@ -317,6 +320,61 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
             s.hit("gba", 0.95, logo);
         }
     }
+}
+
+/// The Sega family, most specific first (spec §6.3): Sega CD, 32X and Pico
+/// also carry `SEGA` at 0x100, so they are checked before Mega Drive.
+/// Returns whether a signature matched (a hit or the Pico veto).
+fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
+    if starts(head, 0, b"SEGADISCSYSTEM") || starts(head, 0x10, b"SEGADISCSYSTEM") {
+        s.hit("segacd", 0.95, "SEGADISCSYSTEM");
+        return true;
+    }
+    let sega_at_100 = starts(head, 0x100, b"SEGA") || starts(head, 0x101, b"SEGA");
+    if starts(head, 0x100, b"SEGA 32X")
+        || (sega_at_100 && contains(&head[..0x400.min(head.len())], b"MARS"))
+    {
+        s.hit("sega32x", 0.95, "SEGA 32X");
+        return true;
+    }
+    if starts(head, 0x100, b"SEGA PICO") {
+        s.unsupported = Some("Sega Pico".into());
+        return true;
+    }
+    if sega_at_100 {
+        s.hit("megadrive", 0.90, "SEGA at 0x100");
+        return true;
+    }
+    if len % 16384 == 512 && at(head, 8, 2) == Some(&[0xAA, 0xBB][..]) {
+        s.hit("megadrive", 0.90, "SMD interleaved");
+        return true;
+    }
+    for offset in [0x7FF0usize, 0x3FF0, 0x1FF0] {
+        if starts(head, offset, b"TMR SEGA") {
+            // Region nibble: 3/4 SMS, 5/6/7 Game Gear. Only a tiebreak;
+            // a `.gg`/`.sms` extension decides.
+            let region = head.get(offset + 0xF).map_or(0, |b| b >> 4);
+            match ext {
+                "gg" => s.hit("gamegear", 0.90, "TMR SEGA"),
+                "sms" => s.hit("mastersystem", 0.90, "TMR SEGA"),
+                _ => {
+                    let (system, other) = if (5..=7).contains(&region) {
+                        ("gamegear", "mastersystem")
+                    } else {
+                        ("mastersystem", "gamegear")
+                    };
+                    s.hit(system, 0.70, format!("TMR SEGA, region {region}"));
+                    s.hit(other, 0.60, "TMR SEGA");
+                }
+            }
+            return true;
+        }
+    }
+    false
+}
+
+fn contains(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
 }
 
 /// First bytes of the Nintendo logo every Game Boy header carries at 0x104.
@@ -448,6 +506,47 @@ pub mod fixtures {
 
     pub fn nds() -> Vec<u8> {
         nds_with(|_| {})
+    }
+
+    pub fn md() -> Vec<u8> {
+        let mut b = zeros(128 * 1024);
+        b[0x100..0x10F].copy_from_slice(b"SEGA MEGA DRIVE");
+        b
+    }
+
+    pub fn smd_interleaved() -> Vec<u8> {
+        let mut b = zeros(16384 * 8 + 512);
+        b[8] = 0xAA;
+        b[9] = 0xBB;
+        b
+    }
+
+    pub fn sega32x() -> Vec<u8> {
+        let mut b = zeros(128 * 1024);
+        b[0x100..0x108].copy_from_slice(b"SEGA 32X");
+        b
+    }
+
+    pub fn pico() -> Vec<u8> {
+        let mut b = zeros(128 * 1024);
+        b[0x100..0x109].copy_from_slice(b"SEGA PICO");
+        b
+    }
+
+    /// `SEGADISCSYSTEM` at 0 (ISO) or 0x10 (raw 2352-byte sectors).
+    pub fn segacd_iso(raw: bool) -> Vec<u8> {
+        let mut b = zeros(64 * 1024);
+        let at = if raw { 0x10 } else { 0 };
+        b[at..at + 14].copy_from_slice(b"SEGADISCSYSTEM");
+        b
+    }
+
+    /// `TMR SEGA` at `offset` with `region_byte` at +0xF.
+    pub fn sms_gg(offset: usize, region_byte: u8) -> Vec<u8> {
+        let mut b = zeros((offset + 0x10).max(32 * 1024));
+        b[offset..offset + 8].copy_from_slice(b"TMR SEGA");
+        b[offset + 0xF] = region_byte;
+        b
     }
 
     pub fn html_page() -> Vec<u8> {

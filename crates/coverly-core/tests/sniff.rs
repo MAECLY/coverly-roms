@@ -304,3 +304,53 @@ fn weak_gba_signature_never_beats_a_stronger_magic() {
         assert_eq!(s.hits.len(), 1, "{want}: only its own evidence");
     }
 }
+
+#[test]
+fn mega_drive_and_interleaved_smd() {
+    assert_eq!(
+        best(&run(&fx::md(), "md")),
+        Some(("megadrive".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::smd_interleaved(), "smd")),
+        Some(("megadrive".into(), 0.90))
+    );
+}
+
+#[test]
+fn sega_cd_32x_and_pico_never_come_out_as_mega_drive() {
+    assert_eq!(
+        best(&run(&fx::segacd_iso(false), "iso")).unwrap().0,
+        "segacd"
+    );
+    assert_eq!(
+        best(&run(&fx::segacd_iso(true), "bin")).unwrap().0,
+        "segacd"
+    );
+    assert_eq!(
+        best(&run(&fx::sega32x(), "32x")),
+        Some(("sega32x".into(), 0.95))
+    );
+    let pico = run(&fx::pico(), "md");
+    assert!(pico.hits.is_empty());
+    assert_eq!(pico.unsupported.as_deref(), Some("Sega Pico"));
+}
+
+#[test]
+fn master_system_and_game_gear() {
+    // TMR SEGA at any of the three offsets → SMS family.
+    for offset in [0x7FF0usize, 0x3FF0, 0x1FF0] {
+        let sms = run(&fx::sms_gg(offset, 0x4C), "sms");
+        assert_eq!(
+            best(&sms),
+            Some(("mastersystem".into(), 0.90)),
+            "{offset:#x}"
+        );
+    }
+    // The extension decides even against the region code.
+    let gg_with_sms_region = run(&fx::sms_gg(0x7FF0, 0x4C), "gg");
+    assert_eq!(best(&gg_with_sms_region), Some(("gamegear".into(), 0.90)));
+    // Without a deciding extension the region is only a tiebreak.
+    let gg_region = run(&fx::sms_gg(0x7FF0, 0x6C), "bin");
+    assert_eq!(best(&gg_region), Some(("gamegear".into(), 0.70)));
+}
