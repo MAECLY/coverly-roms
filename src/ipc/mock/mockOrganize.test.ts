@@ -8,6 +8,7 @@ import type {
 import { FIXTURE_NOW } from './fixture';
 import {
   createMockBackend,
+  MOCK_LIBRARIES,
   type MockBackend,
   type MockOptions,
 } from './mockBackend';
@@ -267,6 +268,9 @@ describe('mock organise backend', () => {
   it('skips undecided review items and applies the decided ones', async () => {
     const b = backend();
     const { plan_id, plan } = await b.organizePlan({ source: MOCK_MIXED });
+    await expect(
+      b.organizeApply(plan_id, [{ item: 99, choice: 'accept' }]),
+    ).rejects.toMatchObject({ code: 'bad-request' });
     const review = plan.items.filter((i) => i.action === 'review');
     const done = ended(b);
     await b.organizeApply(plan_id, [
@@ -283,9 +287,6 @@ describe('mock organise backend', () => {
     await expect(b.organizeApply(999, [])).rejects.toMatchObject({
       code: 'no-plan',
     });
-    await expect(
-      b.organizeApply(plan_id, [{ item: 99, choice: 'accept' }]),
-    ).rejects.toMatchObject({ code: 'bad-request' });
   });
 
   it('refuses undo when a later fill exists unless asked', async () => {
@@ -310,9 +311,20 @@ describe('mock organise backend', () => {
   it('keeps organise applies and fill jobs apart', async () => {
     const b = backend();
     const { plan_id } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const lib = await b.openLibrary(MOCK_LIBRARIES[1].path);
     const done = ended(b);
     await b.organizeApply(plan_id, []);
-    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject({
+    // While it runs: no fill, and no undo (Rust's manual-write guard).
+    await expect(
+      b.startFill(lib.generation, {
+        entry_ids: null,
+        media: ['cover'],
+        strategy: 'rom-region',
+        regions: ['rom'],
+        overwrite: 'never',
+      }),
+    ).rejects.toMatchObject({ code: 'job-running' });
+    await expect(b.organizeUndo('organize-0001', false)).rejects.toMatchObject({
       code: 'job-running',
     });
     await b.organizeCancelApply();
@@ -345,7 +357,7 @@ describe('mock organise backend', () => {
     expect(d.report?.moved).toBe(10);
     expect((await b.openLibrary(MOCK_DOWNLOADS)).entries).toHaveLength(16);
     await expect(b.organizeResume('nope')).rejects.toMatchObject({
-      code: 'no-job',
+      code: 'no-plan',
     });
   });
 
@@ -373,6 +385,95 @@ describe('mock organise backend', () => {
     expect(saved.items).toHaveLength(20);
     await expect(c.organizeExportPlan(999)).rejects.toMatchObject({
       code: 'no-plan',
+    });
+  });
+
+  it('drops the kept plans once an apply or an undo runs, like Rust', async () => {
+    const b = backend();
+    const view = await applied(b);
+    // The pile changed: the plan applied (and any other) is gone.
+    await expect(b.organizeApply(view.plan_id, [])).rejects.toMatchObject({
+      code: 'no-plan',
+    });
+    await expect(b.organizeExportPlan(view.plan_id)).rejects.toMatchObject({
+      code: 'no-plan',
+    });
+    const again = await b.organizePlan({ source: MOCK_MIXED });
+    await b.organizeUndo(view.job!, false);
+    await expect(b.organizeApply(again.plan_id, [])).rejects.toMatchObject({
+      code: 'no-plan',
+    });
+  });
+
+  it('resumes only an unfinished job, with the Rust codes', async () => {
+    const b = backend();
+    const view = await applied(b);
+    await expect(b.organizeResume('nope')).rejects.toMatchObject({
+      code: 'no-plan',
+    });
+    await expect(b.organizeResume(view.job!)).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+  });
+
+  it('counts a later organise into the same tree as a later job', async () => {
+    const b = backend();
+    const first = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      target: '/Volumes/SD',
+      mode: 'copy',
+    });
+    let done = ended(b);
+    await b.organizeApply(first.plan_id, []);
+    const one = await done;
+    const second = await b.organizePlan({
+      source: MOCK_MIXED,
+      target: '/Volumes/SD',
+      mode: 'copy',
+    });
+    done = ended(b);
+    await b.organizeApply(second.plan_id, []);
+    const two = await done;
+
+    await expect(b.organizeUndo(one.job!, false)).rejects.toMatchObject({
+      code: 'later-jobs',
+      detail: two.job,
+    });
+    const undo = await b.organizeUndo(one.job!, true);
+    expect(undo.later_jobs.map((j) => j.job)).toEqual([two.job]);
+    expect(undo.report.map((r) => r.job)).toEqual([two.job, one.job]);
+    expect((await b.jobHistory()).every((h) => h.undone)).toBe(true);
+    await expect(b.openLibrary('/Volumes/SD')).rejects.toMatchObject({
+      code: 'not-found',
+    });
+  });
+
+  it('refuses an undo while a fill is paused', async () => {
+    const b = backend({ pauseAfter: 3 });
+    const view = await applied(b);
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    const planned = new Promise<number>((resolve) => {
+      void b.onJobChanged((v) => {
+        if (v.state === 'planned') resolve(v.id);
+      });
+    });
+    await b.startFill(lib.generation, {
+      entry_ids: null,
+      media: ['cover'],
+      strategy: 'rom-region',
+      regions: ['rom', 'world', 'usa', 'europe', 'japan'],
+      overwrite: 'never',
+    });
+    const id = await planned;
+    const paused = new Promise<void>((resolve) => {
+      void b.onJobChanged((v) => {
+        if (v.state === 'paused') resolve();
+      });
+    });
+    await b.runFill(id);
+    await paused;
+    await expect(b.organizeUndo(view.job!, true)).rejects.toMatchObject({
+      code: 'job-running',
     });
   });
 

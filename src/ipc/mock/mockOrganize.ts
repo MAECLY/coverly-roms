@@ -3,8 +3,9 @@
  * two deterministic piles that `openLibrary` answers with `no-profile`,
  * dry runs with the identification "why", decisions, an apply with
  * progress (steps of 4 items) that turns the pile into a library of the
- * chosen layout, pause/resume, cancel and undo (refused while later fill
- * journals wrote under the target, unless asked).
+ * chosen layout, pause/resume, cancel and undo (refused while later fill or
+ * organise jobs wrote under the target, unless asked). Like Rust, an apply,
+ * a resume or an undo drops every kept plan.
  *
  * - `MOCK_DOWNLOADS` has the shape of the owner's real sample: 16 ROMs
  *   that go to GBA/GB/GBC/SFC, 1 duplicate, 3 partial downloads and a
@@ -251,6 +252,8 @@ const stemOf = (name: string) => {
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 const under = (root: string, path: string) =>
   path === root || path.startsWith(`${root}/`);
+/** One folder holds the other (Rust `later_jobs`: under or above). */
+const overlap = (a: string, b: string) => under(a, b) || under(b, a);
 
 const TAG_REGIONS: [RegExp, Region][] = [
   [/\((USA|U)[),]/, 'usa'],
@@ -825,19 +828,65 @@ export function createMockOrganize(
     };
   }
 
+  /** The organise journals, newest first. */
+  function historyItems(): JobHistoryItem[] {
+    return [...journals].reverse().map((j) => ({
+      job: j.job,
+      root: j.target,
+      created_at: j.createdAt,
+      entries: j.placed.length,
+      complete: j.complete,
+      undone: j.undone,
+      kind: 'organize' as const,
+      undoable: true,
+    }));
+  }
+
+  /** Undoes organise journal `j` alone: moves back or removes its files. */
+  function undoOne(j: OrgJournal): OrganizeUndoReport {
+    const t = targets.get(j.target);
+    const restored: string[] = [];
+    const removed: string[] = [];
+    for (const p of [...j.placed].reverse()) {
+      if (j.mode === 'move') {
+        loose.get(j.source)!.add(p.file.name);
+        restored.push(`${j.source}/${p.file.name}`);
+      } else {
+        removed.push(`${j.target}/${p.rel}`);
+      }
+    }
+    const dirsRemoved: string[] = [];
+    if (t) {
+      const before = new Set(
+        t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
+      );
+      t.files = t.files.filter((p) => p.job !== j.job);
+      const after = new Set(
+        t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
+      );
+      for (const dir of [...before].sort((a, b) => collator.compare(a, b))) {
+        if (!after.has(dir)) dirsRemoved.push(`${j.target}/${dir}`);
+      }
+      if (t.files.length === 0) {
+        if (t.romsRel) dirsRemoved.push(`${j.target}/${t.romsRel}`);
+        targets.delete(j.target);
+      }
+    }
+    j.undone = true;
+    j.remaining = [];
+    return {
+      job: j.job,
+      removed,
+      restored,
+      skipped_modified: [],
+      skipped_occupied: [],
+      dirs_removed: dirsRemoved,
+    };
+  }
+
   return {
     isApplying: () => applying !== null,
-    history: () =>
-      [...journals].reverse().map((j) => ({
-        job: j.job,
-        root: j.target,
-        created_at: j.createdAt,
-        entries: j.placed.length,
-        complete: j.complete,
-        undone: j.undone,
-        kind: 'organize' as const,
-        undoable: true,
-      })),
+    history: historyItems,
     library(path, generation) {
       const t = targets.get(path);
       if (t) return libraryView(t, generation);
@@ -899,6 +948,8 @@ export function createMockOrganize(
       const { plan, files } = planOf(r, decisions);
       const fills = await host.fillHistory();
       notApplying();
+      // Like Rust: the pile changes, so no kept plan stays valid.
+      plans.clear();
       const outcomes: OrganizeItemOutcome[] = plan.items
         .filter((i) => i.action === 'review')
         .map((i) => ({
@@ -913,7 +964,8 @@ export function createMockOrganize(
       const j: OrgJournal = {
         job: `organize-${String(journals.length + 1).padStart(4, '0')}`,
         // Between the fill journals written before and after it.
-        createdAt: iso(host.now + fills.length * 60 + 30),
+        // (+ its index: two organise jobs in a row still sort apart).
+        createdAt: iso(host.now + fills.length * 60 + 30 + journals.length),
         source: r.source,
         target: r.target,
         layout: r.layout,
@@ -941,8 +993,16 @@ export function createMockOrganize(
     },
     async organizeResume(job) {
       const j = journalOf(job);
-      if (!j || j.undone || j.complete) throw new BackendError('no-job');
+      // Rust: no saved plan for the id → `no-plan`; a finished one → `bad-request`.
+      if (!j) throw new BackendError('no-plan', job);
+      if (j.undone || j.complete) {
+        throw new BackendError(
+          'bad-request',
+          `job ${job} has nothing left to resume`,
+        );
+      }
       notApplying();
+      plans.clear();
       seq += 1;
       const planId = seq;
       if (!targets.has(j.target)) {
@@ -964,13 +1024,30 @@ export function createMockOrganize(
       if (applying) applying.cancel = true;
     },
     async organizeUndo(job, includeLater) {
-      if (applying) throw new BackendError('job-running');
+      // Rust takes the manual-write guard: refused while an apply runs or
+      // a fill gathers, applies or is paused.
+      notApplying();
       const j = journalOf(job);
       if (!j || j.undone) throw new BackendError('nothing-to-undo');
-      const later = (await host.fillHistory()).filter(
-        (f) =>
-          !f.undone && !j.fillsBefore.has(f.job) && under(j.target, f.root),
+      // Rust `later_jobs`: newer, not undone, writing under (or above) its
+      // root, or taking files from there — fills and organise jobs alike.
+      const touches = (root: string, source?: string) =>
+        overlap(j.target, root) ||
+        (source !== undefined && overlap(j.target, source));
+      const laterFills = (await host.fillHistory()).filter(
+        (f) => !f.undone && !j.fillsBefore.has(f.job) && touches(f.root),
       );
+      const laterOrganise = journals.filter(
+        (o) =>
+          journals.indexOf(o) > journals.indexOf(j) &&
+          !o.undone &&
+          touches(o.target, o.source),
+      );
+      const historyOf = new Map(historyItems().map((h) => [h.job, h] as const));
+      const later: JobHistoryItem[] = [
+        ...laterFills,
+        ...laterOrganise.map((o) => historyOf.get(o.job)!),
+      ].sort((a, b) => b.created_at.localeCompare(a.created_at));
       if (later.length > 0 && !includeLater) {
         throw new BackendError(
           'later-jobs',
@@ -979,46 +1056,12 @@ export function createMockOrganize(
       }
       const reports: OrganizeUndoReport[] = [];
       for (const f of later) {
-        const r = host.undoFill(f.job);
+        const o = journalOf(f.job);
+        const r = o ? undoOne(o) : host.undoFill(f.job);
         if (r) reports.push(r);
       }
-      const t = targets.get(j.target);
-      const restored: string[] = [];
-      const removed: string[] = [];
-      for (const p of [...j.placed].reverse()) {
-        if (j.mode === 'move') {
-          loose.get(j.source)!.add(p.file.name);
-          restored.push(`${j.source}/${p.file.name}`);
-        } else {
-          removed.push(`${j.target}/${p.rel}`);
-        }
-      }
-      const dirsRemoved: string[] = [];
-      if (t) {
-        const before = new Set(
-          t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
-        );
-        t.files = t.files.filter((p) => p.job !== j.job);
-        const after = new Set(
-          t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
-        );
-        for (const dir of [...before].sort((a, b) => collator.compare(a, b))) {
-          if (!after.has(dir)) dirsRemoved.push(`${j.target}/${dir}`);
-        }
-        if (t.files.length === 0) {
-          if (t.romsRel) dirsRemoved.push(`${j.target}/${t.romsRel}`);
-          targets.delete(j.target);
-        }
-      }
-      j.undone = true;
-      reports.push({
-        job: j.job,
-        removed,
-        restored,
-        skipped_modified: [],
-        skipped_occupied: [],
-        dirs_removed: dirsRemoved,
-      });
+      reports.push(undoOne(j));
+      plans.clear();
       return { report: reports, later_jobs: later };
     },
     async organizeExportPlan(planId) {
