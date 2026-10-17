@@ -602,6 +602,7 @@
     "current": "Arte actual",
     "candidates": "Candidatas",
     "meta": "{key}. {source} · {regions} · {score} %",
+    "metaShort": "{regions} · {score} %",
     "votes": "{score} votos (▲{up} ▼{down})",
     "why": "Por qué: {reason}",
     "variantNote": "La mejor imagen es una beta, un prototipo, un hack o una variante sin licencia: revísala antes de escribirla.",

@@ -375,7 +375,7 @@ export function ArtWorkspace({
             {t('drawer.loadingCandidates')}
           </p>
           <div className="art-ws__grid" aria-hidden="true">
-            {[0, 1].map((i) => (
+            {[0, 1, 2].map((i) => (
               <div key={i} className="art-ws__skeleton" />
             ))}
           </div>
@@ -437,28 +437,35 @@ export function ArtWorkspace({
                       disabled={busy || writing}
                       onClick={() => pick(c, shown)}
                     >
-                      <CandidateImage
-                        source={{
-                          kind: shown.kind,
-                          generation: view.generation,
-                          entryId: entry.id,
-                          media: shown.media,
-                          candidate: c.index,
-                        }}
-                        label={c.name}
-                        className={
-                          shown.media === 'cover' ? '' : 'art-thumb--wide'
-                        }
-                      />
-                      {inUse && (
-                        <span className="art-ws__inuse">
-                          {t('drawer.inUse')}
-                        </span>
-                      )}
-                      <span className="art-ws__name truncate" title={c.name}>
-                        {c.name}
+                      <span
+                        className="art-ws__pic"
+                        data-wide={shown.media !== 'cover' || undefined}
+                      >
+                        <CandidateImage
+                          source={{
+                            kind: shown.kind,
+                            generation: view.generation,
+                            entryId: entry.id,
+                            media: shown.media,
+                            candidate: c.index,
+                          }}
+                          label={c.name}
+                          className={
+                            shown.media === 'cover' ? '' : 'art-thumb--wide'
+                          }
+                        />
                       </span>
-                      <CandidateMeta c={c} position={c.index + 1} />
+                      <span className="art-ws__info">
+                        <span className="art-ws__name" title={c.name}>
+                          {c.name}
+                        </span>
+                        <CandidateMeta c={c} position={c.index + 1} compact />
+                        {inUse && (
+                          <span className="art-ws__inuse">
+                            {t('drawer.inUse')}
+                          </span>
+                        )}
+                      </span>
                     </button>
                     {isPending && (
                       <div
@@ -469,23 +476,25 @@ export function ArtWorkspace({
                         })}
                       >
                         <p>{t('drawer.replaceShort')}</p>
-                        <button
-                          ref={replaceRef}
-                          type="button"
-                          className="art-ws__btn art-ws__btn--primary"
-                          onKeyDown={onConfirmKey}
-                          onClick={() => void apply(c, shown)}
-                        >
-                          {t('drawer.replace')}
-                        </button>
-                        <button
-                          type="button"
-                          className="art-ws__btn"
-                          onKeyDown={onConfirmKey}
-                          onClick={cancelPending}
-                        >
-                          {t('drawer.cancel')}
-                        </button>
+                        <div className="art-ws__row">
+                          <button
+                            ref={replaceRef}
+                            type="button"
+                            className="art-ws__btn art-ws__btn--primary"
+                            onKeyDown={onConfirmKey}
+                            onClick={() => void apply(c, shown)}
+                          >
+                            {t('drawer.replace')}
+                          </button>
+                          <button
+                            type="button"
+                            className="art-ws__btn"
+                            onKeyDown={onConfirmKey}
+                            onClick={cancelPending}
+                          >
+                            {t('drawer.cancel')}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
