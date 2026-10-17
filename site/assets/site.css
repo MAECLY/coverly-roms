@@ -2878,6 +2878,70 @@ html.motion .t-rest::before {
   }
 }
 
+/* == showcase:compare == */
+/* The Coverly column's highlight wipes down row by row (--r) and its
+   checks draw in, scrubbed by the table's view timeline. */
+.ck {
+  margin-right: 6px;
+  vertical-align: -1px;
+  color: var(--cr-primary);
+}
+.compare tr:nth-child(2) {
+  --r: 2;
+}
+.compare tr:nth-child(3) {
+  --r: 3;
+}
+.compare tr:nth-child(4) {
+  --r: 4;
+}
+.compare tr:nth-child(5) {
+  --r: 5;
+}
+.compare tr:nth-child(6) {
+  --r: 6;
+}
+.compare tr:nth-child(7) {
+  --r: 7;
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    html.motion .table-scroll {
+      view-timeline-name: --cmp;
+    }
+    html.motion .compare :is(th, td):nth-child(2) {
+      position: relative;
+      isolation: isolate;
+      background: none;
+    }
+    html.motion .compare :is(th, td):nth-child(2)::before,
+    html.motion .ck use {
+      animation: wipe-d linear both;
+      animation-timeline: --cmp;
+      animation-range: cover calc(14% + var(--r, 1) * 3.5%) cover
+        calc(18% + var(--r, 1) * 3.5%);
+    }
+    html.motion .compare :is(th, td):nth-child(2)::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: var(--cr-primary-subtle);
+    }
+    html.motion .ck use {
+      stroke-dasharray: 1;
+      animation-name: draw;
+      animation-range: cover calc(17% + var(--r, 1) * 3.5%) cover
+        calc(23% + var(--r, 1) * 3.5%);
+    }
+  }
+}
+@keyframes wipe-d {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
 /* == showcase:reduce == */
 
 @media (prefers-reduced-motion: reduce) {
