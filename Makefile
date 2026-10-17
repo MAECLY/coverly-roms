@@ -224,7 +224,7 @@ example-clean: ## Delete the example library, its cache and its journals.
 # ───────────────────────────────────────────────────────────────────────
 
 .PHONY: icons
-icons: ## Regenerate the app icons from the source logo.
+icons: ## Regenerate every app and landing icon from design/icon/*.svg.
 	pnpm icons
 
 .PHONY: bump
