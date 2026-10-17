@@ -24,6 +24,21 @@ pub fn rename_noclobber(from: &Path, to: &Path) -> io::Result<()> {
     )
 }
 
+/// [`rename_noclobber`] for a caller that keeps a directory index and has
+/// checked that no case/NFC twin of `to` exists: the folder is not listed
+/// first (once per file is O(n²) for thousands of files landing in one
+/// folder). The exclusive rename and the hard link still refuse an
+/// existing `to`, and the FAT/exFAT fallback still checks for twins.
+pub(crate) fn rename_noclobber_indexed(from: &Path, to: &Path) -> io::Result<()> {
+    rename_noclobber_inner(
+        from,
+        to,
+        false,
+        &|f, t| with_sharing_retries(|| exclusive_rename(f, t)),
+        &|f, t| with_sharing_retries(|| std::fs::hard_link(f, t)),
+    )
+}
+
 /// [`rename_noclobber`] with the exclusive rename and the hard link
 /// injected, so the fallbacks can be tested on any file system.
 #[doc(hidden)]
@@ -33,9 +48,19 @@ pub fn rename_noclobber_using(
     exclusive: &dyn Fn(&Path, &Path) -> io::Result<()>,
     link: &dyn Fn(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
+    rename_noclobber_inner(from, to, true, exclusive, link)
+}
+
+fn rename_noclobber_inner(
+    from: &Path,
+    to: &Path,
+    list_first: bool,
+    exclusive: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    link: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     // A twin under another case/NFC spelling counts as taken on every
     // volume (the library may later be copied to FAT).
-    if twin_exists(to)? {
+    if list_first && twin_exists(to)? {
         return Err(io::Error::from(ErrorKind::AlreadyExists));
     }
     match exclusive(from, to) {

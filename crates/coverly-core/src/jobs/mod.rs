@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cache::Cache;
 use crate::csv_util::{media_name, write_row};
@@ -132,7 +132,7 @@ impl Default for ApplyOptions {
 }
 
 /// Why one item failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ItemErrorKind {
     NoArt,
@@ -160,6 +160,22 @@ impl ItemErrorKind {
             ItemErrorKind::OutsideRoot => "outside-root",
             ItemErrorKind::VolumeGone => "volume-gone",
             ItemErrorKind::Io => "io",
+        }
+    }
+}
+
+impl From<&WriteError> for ItemErrorKind {
+    fn from(e: &WriteError) -> Self {
+        match e {
+            WriteError::Denied(_) => ItemErrorKind::WriteDenied,
+            WriteError::DiskFull => ItemErrorKind::DiskFull,
+            WriteError::NameInvalid(_) => ItemErrorKind::NameInvalid,
+            WriteError::OutsideRoot(_) => ItemErrorKind::OutsideRoot,
+            WriteError::NothingToUndo
+            | WriteError::NotAFile(_)
+            | WriteError::CrossDevice(_)
+            | WriteError::Journal(_)
+            | WriteError::Io(_) => ItemErrorKind::Io,
         }
     }
 }

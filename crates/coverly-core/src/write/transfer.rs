@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use super::noclobber::{is_cross_device, with_sharing_retries};
+use super::noclobber::{is_cross_device, rename_noclobber_indexed, with_sharing_retries};
 use super::{
     apple_double, ensure_within, find_twin, map_io, name_key, remove_apple_doubles,
     rename_noclobber, safe_file_name, same_volume, Fingerprint, Op, Via, WriteError, Writer,
@@ -145,6 +145,8 @@ struct Prepared {
     asked: String,
     /// The next `n` to try after a collision.
     next_n: u32,
+    /// The caller's directory index vouches for the name: no listing.
+    indexed: bool,
 }
 
 impl Writer {
@@ -192,7 +194,22 @@ impl Writer {
         collision: Collision,
         item: Option<usize>,
     ) -> Result<MoveOutcome, WriteError> {
-        self.transfer(from, to, collision, item, Mode::Move)
+        self.transfer(from, to, collision, item, Mode::Move, true)
+    }
+
+    /// [`Writer::move_file`] for a caller that keeps a directory index and
+    /// has checked that `to`'s name (ignoring case) is free: the target
+    /// folder is not listed again (once per file is O(n²) for thousands of
+    /// files landing in one folder). The no-clobber rename and the
+    /// exclusive create still refuse a name taken meanwhile.
+    pub fn move_file_indexed(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+    ) -> Result<MoveOutcome, WriteError> {
+        self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
     /// Copies `from` (inside the source root) to `to` (inside the root),
@@ -204,7 +221,19 @@ impl Writer {
         collision: Collision,
         item: Option<usize>,
     ) -> Result<MoveOutcome, WriteError> {
-        self.transfer(from, to, collision, item, Mode::Copy)
+        self.transfer(from, to, collision, item, Mode::Copy, true)
+    }
+
+    /// [`Writer::copy_file`] without listing the target folder (see
+    /// [`Writer::move_file_indexed`]).
+    pub fn copy_file_indexed(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+    ) -> Result<MoveOutcome, WriteError> {
+        self.transfer(from, to, collision, item, Mode::Copy, false)
     }
 
     /// Deletes this job's temp files (`.coverly-<job>-*.tmp`) and their
@@ -221,6 +250,7 @@ impl Writer {
         collision: Collision,
         item: Option<usize>,
         mode: Mode,
+        list_target: bool,
     ) -> Result<MoveOutcome, WriteError> {
         let from = ensure_within(&self.source_root, from)?;
         let to = ensure_within(&self.root, to)?;
@@ -254,8 +284,14 @@ impl Writer {
             name: asked.clone(),
             asked,
             next_n: 2,
+            indexed: !list_target,
         };
-        if let Some(existing) = find_twin(&prepared.parent, &prepared.name)? {
+        let twin = if list_target {
+            find_twin(&prepared.parent, &prepared.name)?
+        } else {
+            None
+        };
+        if let Some(existing) = twin {
             // The twin is the source itself, reached through a folder that
             // only differs by case (`gba/x.gba` asked as `GBA/x.gba` on a
             // case-insensitive volume): already there.
@@ -283,6 +319,8 @@ impl Writer {
         let (name, n) = next_free(&p.parent, &p.asked, p.next_n)?;
         p.name = name;
         p.next_n = n + 1;
+        // The index was wrong about this folder: list it from now on.
+        p.indexed = false;
         Ok(())
     }
 
@@ -311,6 +349,7 @@ impl Writer {
             )?;
             let result = with_sharing_retries(|| match fault(CopyStage::Rename, &p.from) {
                 Some(e) => Err(e),
+                None if p.indexed => rename_noclobber_indexed(&p.from, &target),
                 None => rename_noclobber(&p.from, &target),
             });
             match result {
@@ -358,7 +397,7 @@ impl Writer {
         for _ in 0..MAX_NAMES {
             let target = p.parent.join(&p.name);
             self.append_entry(target.clone(), op(), None, None, item)?;
-            let fp = match self.stream_copy(&p.from, &target) {
+            let fp = match self.stream_copy(&p.from, &target, !p.indexed) {
                 Ok(fp) => fp,
                 Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {
                     if collision == Collision::Skip {
@@ -407,9 +446,14 @@ impl Writer {
         Err(too_many_collisions(&p.parent, &p.asked))
     }
 
-    fn stream_copy(&mut self, from: &Path, to: &Path) -> Result<Fingerprint, WriteError> {
+    fn stream_copy(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        list_target: bool,
+    ) -> Result<Fingerprint, WriteError> {
         let prefix = format!(".coverly-{}-", self.job);
-        stream_copy(from, to, &prefix, &mut self.counter)
+        stream_copy(from, to, &prefix, &mut self.counter, list_target)
     }
 }
 
@@ -444,12 +488,14 @@ pub(super) fn clean_job_temps(job: &str, dirs: &[PathBuf]) {
 /// fsync, the source's modification time, a no-clobber rename into place,
 /// then a re-read that must give the same CRC. On any error nothing is
 /// left at `to` or in the temp file. `AlreadyExists` means `to` was taken
-/// meanwhile.
+/// meanwhile. `list_target: false` skips listing `to`'s folder for case
+/// twins (the caller's directory index checked it).
 pub(super) fn stream_copy(
     from: &Path,
     to: &Path,
     tmp_prefix: &str,
     counter: &mut u32,
+    list_target: bool,
 ) -> Result<Fingerprint, WriteError> {
     let dir = to
         .parent()
@@ -489,12 +535,15 @@ pub(super) fn stream_copy(
     })();
     drop(file);
     let crc = match copied.and_then(|crc| {
-        rename_noclobber(&tmp, to)
-            .map(|()| crc)
-            .map_err(|e| match e.kind() {
-                ErrorKind::AlreadyExists => WriteError::Io(e),
-                _ => map_io(e, to),
-            })
+        let renamed = if list_target {
+            rename_noclobber(&tmp, to)
+        } else {
+            rename_noclobber_indexed(&tmp, to)
+        };
+        renamed.map(|()| crc).map_err(|e| match e.kind() {
+            ErrorKind::AlreadyExists => WriteError::Io(e),
+            _ => map_io(e, to),
+        })
     }) {
         Ok(crc) => crc,
         Err(e) => {

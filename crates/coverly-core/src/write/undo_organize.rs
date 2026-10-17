@@ -224,7 +224,7 @@ fn put_back(ctx: &mut Ctx<'_>, target: &Path, from: &Path) -> Result<bool, Write
         Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(false),
         Err(e) if is_cross_device(&e) => {
             let prefix = format!(".coverly-undo-{}-", ctx.job);
-            match stream_copy(target, from, &prefix, &mut ctx.counter) {
+            match stream_copy(target, from, &prefix, &mut ctx.counter, true) {
                 Ok(_) => {}
                 Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => return Ok(false),
                 Err(e) => return Err(e),

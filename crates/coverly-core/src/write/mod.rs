@@ -582,6 +582,29 @@ impl Writer {
         })
     }
 
+    /// Journals that the manual identity keyed by `from` is about to be
+    /// rekeyed to `to` (both absolute), so undo puts it back. The caller
+    /// rewrites the overrides file after this returns.
+    pub fn record_override_moved(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        self.append_entry(
+            to.to_path_buf(),
+            Op::OverrideMoved {
+                from: from.to_path_buf(),
+                to: to.to_path_buf(),
+            },
+            None,
+            None,
+            item,
+        )?;
+        self.changes += 1;
+        Ok(())
+    }
+
     /// Marks the job complete and returns its id.
     pub fn finish(mut self) -> Result<String, WriteError> {
         self.append(&Line::Done)?;
@@ -675,6 +698,8 @@ pub(crate) fn name_key(name: &str) -> String {
 /// The entry of `dir` whose name equals `name` ignoring case (NFC, lower
 /// case): FAT and exFAT are case-insensitive. An exact match wins.
 pub(crate) fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, WriteError> {
+    #[cfg(feature = "test-util")]
+    TWIN_LISTINGS.with(|c| c.set(c.get() + 1));
     let key = name_key;
     let wanted = key(name);
     let mut found = None;
@@ -692,6 +717,19 @@ pub(crate) fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, Write
         }
     }
     Ok(found)
+}
+
+#[cfg(feature = "test-util")]
+thread_local! {
+    static TWIN_LISTINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test hook: how many folders the writer listed to look for a case twin
+/// on the calling thread so far.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn twin_listings() -> usize {
+    TWIN_LISTINGS.with(std::cell::Cell::get)
 }
 
 /// `dir/._name`: the AppleDouble file macOS keeps next to `path` on
@@ -914,6 +952,68 @@ fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
         }
     }
     Ok((header, entries, done))
+}
+
+/// A move or copy an organise journal records, as resume needs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransferRecord {
+    /// The plan item it belongs to.
+    pub item: Option<usize>,
+    /// Absolute, inside the job's source root.
+    pub from: PathBuf,
+    pub target: PathBuf,
+    /// A copy (the source stays) rather than a move.
+    pub copied: bool,
+    /// The entry carries the target's fingerprint: the copy finished (a
+    /// rename is journaled with it before it happens, so a move by rename
+    /// is only done once the source is gone).
+    pub finished: bool,
+}
+
+/// The moves and copies journaled by job `job` (not undone), in order.
+pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, WriteError> {
+    if !valid_job_id(job) {
+        return Err(WriteError::Journal(format!("not a job id: {job}")));
+    }
+    let path = data_dir.join("jobs").join(format!("{job}.jsonl"));
+    let (header, entries, _) = parse(&path)?;
+    let Line::Header {
+        root, source_root, ..
+    } = header
+    else {
+        unreachable!("parse returns a header first")
+    };
+    let source_root = source_root.unwrap_or(root);
+    Ok(entries
+        .into_iter()
+        .filter_map(|line| match line {
+            Line::Entry {
+                target,
+                op,
+                fp,
+                item,
+                ..
+            } => {
+                let (from, copied) = match op {
+                    Op::Moved { from, .. } => (from, false),
+                    Op::Copied { from } => (from, true),
+                    _ => return None,
+                };
+                Some(TransferRecord {
+                    item,
+                    from: if from.is_absolute() {
+                        from
+                    } else {
+                        source_root.join(from)
+                    },
+                    target,
+                    copied,
+                    finished: fp.is_some(),
+                })
+            }
+            _ => None,
+        })
+        .collect())
 }
 
 /// All journaled jobs, newest first.
