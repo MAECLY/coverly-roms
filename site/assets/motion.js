@@ -57,89 +57,27 @@
     return t;
   }
 
-  /* The hero shelf runs the app's own order: a dry run marks the five
-     gaps (nothing written), then each gets its cover while the count goes
-     7 → 12, then the result. Waits, armed, until most of the grid is on
-     screen; a slow load shows the finished shelf instead. */
-  function hero() {
-    var box = document.querySelector(".shelf");
-    if (!box) return;
-    var grid = box.querySelector(".shelf-grid") || box;
-    var gaps = box.querySelectorAll(".tile.gap"), n = gaps.length;
-    var have = box.querySelector(".have"), total = box.querySelectorAll(".tile").length;
-    var later = timers(), io = null, replay = box.querySelector(".replay");
-    var ready = function (on) {
-      if (!replay) return;
-      if (on) replay.removeAttribute("aria-disabled");
-      else replay.setAttribute("aria-disabled", "true");
-    };
-    var cl = box.classList, phases = ["armed", "planning", "applying", "is-done", "is-played"];
-    var count = function (v) { if (have) have.textContent = v; };
-    var each = function (fn) { for (var i = 0; i < n; i++) fn(gaps[i], i); };
-    var stop = function () {
-      later.clear();
-      if (io) io.disconnect();
-      cl.remove("armed", "planning", "applying");
-      each(function (g) { g.classList.add("is-filled"); });
-      count(total);
-      cl.add("is-done", "is-played");
-      ready(true);
-    };
-    stops.push(stop);
-    var fill = function (i) {
-      gaps[i].classList.add("is-filled");
-      count(total - n + i + 1);
-      if (i + 1 < n) return later(function () { fill(i + 1); }, 380, stop);
-      later(function () { cl.remove("applying", "armed"); cl.add("is-done"); }, 640, stop);
-      later(function () { cl.add("is-played"); ready(true); }, 1300, stop);
-    };
-    var play = function () {
-      later.clear();
-      cl.remove.apply(cl, phases);
-      ready(false);
-      each(function (g) { g.classList.remove("is-filled"); });
-      cl.add("armed");
-      count(total - n);
-      later(function () { cl.add("planning"); }, 150, stop);
-      later(function () { cl.remove("planning"); cl.add("applying"); fill(0); }, 1500, stop);
-    };
-    /* motion.js owns the timing now: drop the CSS fallback that fills the
-       gaps at 4 s whether or not anyone is looking. */
-    cl.add("is-live");
-    each(function (g, i) { g.style.setProperty("--i", i); });
-    if (!n || performance.now() > 2600) stop();
-    else {
-      cl.add("armed");
-      count(total - n);
-      io = once(grid, 0.4, function () { later(play, 250, stop); });
-    }
-    /* Replaying, the button stays in place and keeps focus: it is only
-       marked unavailable until the shelf is full again. */
-    if (replay) replay.addEventListener("click", function () {
-      if (replay.getAttribute("aria-disabled")) return;
-      try { play(); } catch (x) { stop(); }
-    });
-  }
-
   /* The terminal types each command in turn; a line shows when its turn
-     comes. The untyped rest stays in place, hidden, so no glyph moves.
-     Skipped when it is already on screen. */
+     comes, and its output 200ms after the command. The untyped rest stays
+     in place, hidden, so no glyph moves. Skipped when already on screen. */
   function terminal() {
     var term = document.querySelector(".term");
     var steps = term ? term.querySelectorAll(".t-step") : [];
     if (!steps.length || onScreen(term)) return;
-    var cmds = [], texts = [], later = timers();
+    var cmds = [], texts = [], outs = [], later = timers();
     var done = document.createElement("span"), rest = document.createElement("span");
     rest.className = "t-rest";
     for (var k = 0; k < steps.length; k++) {
       cmds[k] = steps[k].querySelector(".t-cmd");
       texts[k] = cmds[k].textContent;
+      outs[k] = steps[k].querySelector(".t-out") || done;
     }
     var stop = function () {
       later.clear();
       for (var j = 0; j < steps.length; j++) {
         cmds[j].textContent = texts[j];
         steps[j].classList.remove("t-wait");
+        outs[j].classList.remove("t-hold");
       }
       term.classList.remove("typing");
     };
@@ -159,11 +97,17 @@
       }
       done.textContent = text.slice(0, i);
       rest.textContent = text.slice(i);
-      if (i >= text.length) return later(function () { type(s + 1, 0); }, 420, stop);
+      if (i >= text.length) return later(function () {
+        outs[s].classList.remove("t-hold");
+        later(function () { type(s + 1, 0); }, 420, stop);
+      }, 200, stop);
       later(function () { type(s, i + 1); }, 18 + ((i * 37) % 17) + (text.charAt(i) === " " ? 30 : 0), stop);
     };
     term.classList.add("typing");
-    for (var m = 0; m < steps.length; m++) steps[m].classList.add("t-wait");
+    for (var m = 0; m < steps.length; m++) {
+      steps[m].classList.add("t-wait");
+      outs[m].classList.add("t-hold");
+    }
     once(term, 0.45, function () { later(function () { type(0, 0); }, 300, stop); });
   }
 
@@ -177,12 +121,12 @@
     }
   }
 
-  /* Steps 3 and 4 act out what their screenshot shows (SVG over the
-     still, cut from the same image). Pinned, the figures share one spot,
-     so the step's text decides when; ↻ plays it again. */
+  /* Steps 3 and 4 act out what their screenshot shows (SVG drawn over
+     the still; step 4's cover is vector art from the sprite). Pinned, the
+     figures share one spot, so the step's text decides when; ↻ plays it
+     again. */
   function clip(fig) {
-    var step = fig.closest(".step"), img = fig.querySelector("img");
-    var srcs = fig.querySelectorAll(".fx-src"), button = step.querySelector(".clip-replay");
+    var step = fig.closest(".step"), button = step.querySelector(".clip-replay");
     var later = timers(), cl = step.classList;
     var ready = function (on) {
       if (on) button.removeAttribute("aria-disabled");
@@ -192,7 +136,6 @@
     stops.push(stop);
     var play = function () {
       if (button.getAttribute("aria-disabled")) return;
-      for (var i = 0; i < srcs.length; i++) srcs[i].setAttribute("href", img.currentSrc || img.src);
       cl.remove("is-playing", "is-played");
       void fig.offsetWidth;
       cl.add("is-playing");
@@ -208,15 +151,16 @@
     });
   }
 
+  /* shelf.js listens for "cr-halt" and finishes its pieces too. */
   function halt() {
     stops.forEach(function (s) { try { s(); } catch (x) {} });
+    try { document.dispatchEvent(new Event("cr-halt")); } catch (x) {}
     html.classList.remove("anim", "motion");
   }
 
   counter();
   if (!html.classList.contains("anim") || !window.IntersectionObserver || !window.matchMedia) return html.classList.remove("anim");
   try {
-    hero();
     terminal();
     reveals();
     Array.prototype.forEach.call(document.querySelectorAll("[data-clip]"), clip);
