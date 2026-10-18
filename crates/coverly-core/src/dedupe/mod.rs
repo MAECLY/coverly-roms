@@ -271,14 +271,19 @@ impl Default for DedupeOptions {
     }
 }
 
-/// The stable id of a group: a hash of its sorted content keys, so the same
-/// copies give the same id in every run, whatever order they were found in.
-/// Kept within 53 bits so it survives a JavaScript number.
-pub fn group_id<S: AsRef<str>>(keys: &[S]) -> u64 {
+/// The stable id of a group: a hash of its system and its sorted content
+/// keys, so the same copies give the same id in every run, whatever order
+/// they were found in. The system is part of it because groups never cross
+/// systems: identical bytes in two system folders are two groups, and a
+/// decision sent by id must reach only one. Kept within 53 bits so it
+/// survives a JavaScript number.
+pub fn group_id<S: AsRef<str>>(system: &str, keys: &[S]) -> u64 {
     let mut sorted: Vec<&str> = keys.iter().map(AsRef::as_ref).collect();
     sorted.sort_unstable();
     sorted.dedup();
     let mut h = Sha1::new();
+    h.update(system.as_bytes());
+    h.update([0u8]);
     for k in sorted {
         h.update(k.as_bytes());
         h.update([0u8]);
@@ -366,7 +371,7 @@ mod tests {
             profile_id: "anbernic-stock".into(),
             groups: vec![
                 group(
-                    group_id(&["a", "b"]),
+                    group_id("PS", &["a", "b"]),
                     GroupAction::Act,
                     KeepReason::Region {
                         kept: Region::World,
@@ -476,10 +481,20 @@ mod tests {
 
     #[test]
     fn group_id_is_stable_and_order_free() {
-        let a = group_id(&["sha1:aa", "sha1:bb"]);
-        assert_eq!(a, group_id(&["sha1:bb", "sha1:aa"]));
-        assert_eq!(a, group_id(&["sha1:bb", "sha1:aa", "sha1:aa"]));
-        assert_ne!(a, group_id(&["sha1:aa", "sha1:cc"]));
+        let a = group_id("GB", &["sha1:aa", "sha1:bb"]);
+        assert_eq!(a, group_id("GB", &["sha1:bb", "sha1:aa"]));
+        assert_eq!(a, group_id("GB", &["sha1:bb", "sha1:aa", "sha1:aa"]));
+        assert_ne!(a, group_id("GB", &["sha1:aa", "sha1:cc"]));
         assert!(a < (1u64 << 53));
+    }
+
+    #[test]
+    fn group_id_never_crosses_systems() {
+        // The same bytes grouped in GB and in GBC are two groups; a pick or
+        // a skip on one must never reach the other.
+        let keys = ["sha1:aa", "sha1:bb"];
+        assert_ne!(group_id("GB", &keys), group_id("GBC", &keys));
+        // The system cannot bleed into the first key.
+        assert_ne!(group_id("GB", &["Csha1:aa"]), group_id("GBC", &["sha1:aa"]));
     }
 }

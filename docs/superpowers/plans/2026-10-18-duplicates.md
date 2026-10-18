@@ -389,7 +389,7 @@ pub use keeper::KeepReason;  // enum per spec §6.2, plus Played { playcount }
 pub struct Member { pub id: usize, pub unit: UnitRef, pub relation: Relation, pub size: u64,
                     pub travels: Vec<Travel>, pub stays: Vec<SharedStay>, pub dest: Option<PathBuf>,
                     pub catalogue_name: Option<String>, pub serials: Vec<String>, pub confidence: f32 }
-pub struct DupGroup { pub id: u64 /* stable: hash of sorted content keys */, pub system: String,
+pub struct DupGroup { pub id: u64 /* stable: group_id(system, sorted content keys) */, pub system: String,
                       pub title: String, pub keeper: usize, pub reason: KeepReason, pub runner_up: Option<(usize, KeepReason)>,
                       pub members: Vec<Member>, pub action: GroupAction, pub tie: bool }
 pub struct DedupePlan { pub version: u32 /* 1 */, pub root: PathBuf, pub roms_dir: PathBuf, pub quarantine: PathBuf,

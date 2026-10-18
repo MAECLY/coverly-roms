@@ -58,7 +58,8 @@ pub enum KeepReason {
         kept: String,
         other: String,
     },
-    /// Containers as in the order (`chd`, `pbp`, `zip`, `raw`).
+    /// Containers as named in `dedupe.container_order` (`chd`, `pbp`,
+    /// `cue`, `zip`, `raw`).
     Container {
         kept: String,
         other: String,
