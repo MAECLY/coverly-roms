@@ -243,6 +243,10 @@ fn redact(plan: &OrganizePlan) -> serde_json::Value {
     value["fat32"] = serde_json::Value::Bool(false);
     if let Some(items) = value["items"].as_array_mut() {
         for item in items {
+            // One snapshot for every OS: targets use `/` like on Unix.
+            if let Some(target) = item["target"].as_str().map(|s| s.replace('\\', "/")) {
+                item["target"] = serde_json::Value::String(target);
+            }
             if let Some(fps) = item["fps"].as_array_mut() {
                 for fp in fps {
                     fp["mtime_ns"] = serde_json::Value::from(0);
@@ -523,6 +527,8 @@ fn decisions_round_trip_as_json() {
     assert_eq!(back.len(), 2);
 }
 
+// Windows finds the home folder through the Known Folder API, not HOME.
+#[cfg(unix)]
 #[test]
 fn generic_files_in_a_broad_folder_are_never_proposed() {
     let home = TempDir::new().unwrap();
