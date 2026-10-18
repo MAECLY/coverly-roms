@@ -39,8 +39,8 @@
 <p align="center">
   <a href="https://coverly-roms.maecly.com/en/">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/library-dark.webp">
-      <img src="site/assets/shots/en/library-light.webp" width="100%" alt="The Coverly ROMs library on an ES-DE card of 12,000 ROMs. The sidebar lists each system with its game count, from Dreamcast to WonderSwan. The grid shows one tile per game: those with art show their cover, those without show a dashed “No cover” slot. Each tile has three small marks for cover, screenshot and title, and a region label. The status bar reads “4,553 without cover”.">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/library-dark.webp">
+      <img src="docs/assets/shots/en/library-light.webp" width="100%" alt="The Coverly ROMs library on an ES-DE card of 12,000 ROMs. The sidebar lists each system with its game count, from Dreamcast to WonderSwan. The grid shows one tile per game: those with art show their cover, those without show a dashed “No cover” slot. Each tile has three small marks for cover, screenshot and title, and a region label. The status bar reads “4,553 without cover”.">
     </picture>
   </a>
 </p>
@@ -129,14 +129,14 @@ Four steps. The first two write nothing.
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/fill-dark.webp">
-        <img src="site/assets/shots/en/fill-light.webp" alt="The Fill missing art wizard at step 5 of 5. It says “Nothing has been written yet.” and lists each system with how many images are automatic, to review and with no art, for a total of 13,347 automatic, 3,751 to review and 1,906 with no art. The buttons read “Review (3,751)” and “Run (13,347)”.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/fill-dark.webp">
+        <img src="docs/assets/shots/en/fill-light.webp" alt="The Fill missing art wizard at step 5 of 5. It says “Nothing has been written yet.” and lists each system with how many images are automatic, to review and with no art, for a total of 13,347 automatic, 3,751 to review and 1,906 with no art. The buttons read “Review (3,751)” and “Run (13,347)”.">
       </picture>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/review-dark.webp">
-        <img src="site/assets/shots/en/review-light.webp" alt="The Review doubtful matches dialog, 1 of 3,751. The current title screen slot is empty, and three candidates from libretro-thumbnails are shown: Europe 82 %, Japan 78 % and USA 95 %. The Europe one is picked, with the reason “preferred region in your order”. Keyboard hints list arrows to move, 1–9 to choose, Enter to accept, S to skip and A to accept all remaining.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/review-dark.webp">
+        <img src="docs/assets/shots/en/review-light.webp" alt="The Review doubtful matches dialog, 1 of 3,751. The current title screen slot is empty, and three candidates from libretro-thumbnails are shown: Europe 82 %, Japan 78 % and USA 95 %. The Europe one is picked, with the reason “preferred region in your order”. Keyboard hints list arrows to move, 1–9 to choose, Enter to accept, S to skip and A to accept all remaining.">
       </picture>
     </td>
   </tr>
