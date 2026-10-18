@@ -8,6 +8,8 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-17
+
 ### Added
 
 - Organise a folder of loose ROMs by system: picking a folder with no known
@@ -40,7 +42,7 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - First-open help for the unsigned builds, in the landing, the README and the
   release notes: why macOS says the app is damaged and how to clear the
   quarantine flag (`xattr -rd com.apple.quarantine "/Applications/Coverly
-  ROMs.app"`) or use Open Anyway, SmartScreen's More info → Run anyway, and
+ROMs.app"`) or use Open Anyway, SmartScreen's More info → Run anyway, and
   the Linux `.deb` dependencies.
 - Brand identity: the Lean-To icon, design tokens shared by the app and the
   landing (light and dark, checked for contrast), Archivo and Atkinson

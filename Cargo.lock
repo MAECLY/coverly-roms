@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "coverly-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -809,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "coverly-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "coverly-core",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "coverly-roms"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "coverly-core",
  "keyring",

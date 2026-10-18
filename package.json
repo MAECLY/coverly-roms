@@ -1,7 +1,7 @@
 {
   "name": "coverly-roms",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Audit and fill the missing cover art of your ROM library.",
   "license": "AGPL-3.0-only",
   "type": "module",
