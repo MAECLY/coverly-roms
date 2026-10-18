@@ -187,9 +187,12 @@ The landing page follows on its own, two ways:
 - **At once, in the browser.** `site/assets/release.js` asks
   `api.github.com/repos/MAECLY/coverly-roms/releases/latest` and, when every
   file the page links is in the newer release, swaps the links, sizes, version
-  and date (before the first deploy with a release, it shows a note linking the
-  release instead). Open <https://coverly-roms.maecly.com/#descargar> in a
-  private window: the version is the new one, and the `.dmg` link names it.
+  and date. Before the first deploy with a release, it swaps the "first
+  release on its way" wording for the released one, shows the first-open
+  steps and offers the installer for the visitor's system (the universal
+  `.dmg`, the x64 `-setup.exe` or the x64/ARM64 AppImage) next to the release
+  page. Open <https://coverly-roms.maecly.com/#descargar> in a private window:
+  the version is the new one, and the download names it.
 - **For good, a minute later.** Publishing fires `pages.yml`, whose `redeploy`
   job runs it again on `main`; `apply_release.py` bakes the release into the
   page (so it also works without JavaScript and for search engines). Check
