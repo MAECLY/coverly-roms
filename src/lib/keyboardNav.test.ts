@@ -77,6 +77,13 @@ describe('createTypeAhead', () => {
     ta.push('a', 0);
     expect(ta.push('b', 150)).toBe('b');
   });
+  it('reports the buffer still open, empty after the silence', () => {
+    const ta = createTypeAhead();
+    expect(ta.pending(0)).toBe('');
+    ta.push('s', 1000);
+    expect(ta.pending(1400)).toBe('s');
+    expect(ta.pending(1600)).toBe('');
+  });
 });
 
 describe('findByPrefix', () => {

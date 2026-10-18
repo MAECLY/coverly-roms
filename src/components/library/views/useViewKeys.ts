@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 
 import type { EntryView } from '@/ipc/types';
 import type { Section } from '@/lib/grouping';
@@ -37,7 +37,7 @@ function repeatsOneChar(buffer: string): boolean {
 
 /**
  * The keyboard model every view shares (spec §B.8), in this order: Enter
- * opens, Space previews, ⌥↑/⌥↓ jump between groups, a typed letter jumps to
+ * opens, Space previews (or, mid-word, continues the typed name), ⌥↑/⌥↓ jump between groups, a typed letter jumps to
  * the next matching name (500 ms buffer), anything else goes to the view's
  * `move`. Tab is never handled, so it always leaves the view.
  */
@@ -45,10 +45,22 @@ export function useViewKeys(
   o: ViewKeysOptions,
 ): (ev: KeyboardEvent<HTMLElement>) => void {
   const typeAhead = useRef<TypeAhead | null>(null);
+  // The selection can move without a key here (Quick look's ←/→, the
+  // drawer, a new sort): keep it in view so focus never lands off screen.
+  const scrollTo = useRef(o.scrollToIndex);
+  useEffect(() => {
+    scrollTo.current = o.scrollToIndex;
+  });
+  const { selectedIndex } = o;
+  useEffect(() => {
+    if (selectedIndex >= 0) scrollTo.current(selectedIndex);
+  }, [selectedIndex]);
 
   return (ev) => {
     // Keys pressed on a focusable child belong to that child.
     if (ev.target !== ev.currentTarget || ev.key === 'Tab') return;
+    // An input method is still composing: the key is not a letter yet.
+    if (ev.nativeEvent.isComposing) return;
     const selected = o.entries[o.selectedIndex];
     const go = (next: number | null) => {
       const entry = next === null ? undefined : o.entries[next];
@@ -65,7 +77,11 @@ export function useViewKeys(
       }
       return;
     }
-    if (ev.key === ' ') {
+    const now = Date.now();
+    // Mid-word, Space is part of the name ("super m"), as in Finder.
+    const typing =
+      ev.key === ' ' && (typeAhead.current?.pending(now) ?? '') !== '';
+    if (ev.key === ' ' && !typing) {
       // Never scroll the view, even with nothing to preview.
       ev.preventDefault();
       if (selected) o.onPreview(selected.id);
@@ -81,9 +97,14 @@ export function useViewKeys(
       go(next);
       return;
     }
-    if (isPrintable(ev.key) && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    if (
+      (typing || isPrintable(ev.key)) &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey
+    ) {
       typeAhead.current ??= createTypeAhead();
-      const buffer = typeAhead.current.push(ev.key, Date.now());
+      const buffer = typeAhead.current.push(ev.key, now);
       const cycling = [...buffer].length === 1 || repeatsOneChar(buffer);
       ev.preventDefault();
       go(

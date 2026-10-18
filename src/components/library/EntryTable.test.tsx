@@ -193,10 +193,14 @@ describe('EntryTable', () => {
       titleWithoutRegions(big.entries[i]!.name).toLowerCase();
     const prefix = title(300).slice(0, 2);
     const want = big.entries.findIndex((_, i) => title(i).startsWith(prefix));
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
     for (const ch of prefix) fireEvent.keyDown(grid, { key: ch });
     const id = big.entries[want]!.id;
     expect(grid).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    // Space after the type-ahead pause previews instead of extending the name.
+    now.mockReturnValue(2_000);
     expect(fireEvent.keyDown(grid, { key: ' ' })).toBe(false);
+    now.mockRestore();
     expect(onPreview).toHaveBeenCalledWith(id);
   });
 });

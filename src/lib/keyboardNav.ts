@@ -73,6 +73,8 @@ export function groupJump(
 export interface TypeAhead {
   /** Adds `ch` typed at `now` (ms) and returns the whole buffer. */
   push(ch: string, now: number): string;
+  /** The buffer still open at `now` (typed within `ms`), else ''. */
+  pending(now: number): string;
 }
 
 /** Finder-style type-ahead: the buffer resets after `ms` of silence. */
@@ -84,6 +86,9 @@ export function createTypeAhead(ms = 500): TypeAhead {
       buffer = now - last > ms ? ch : buffer + ch;
       last = now;
       return buffer;
+    },
+    pending(now) {
+      return now - last > ms ? '' : buffer;
     },
   };
 }

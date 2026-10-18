@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
@@ -77,7 +77,10 @@ function Harness({
         generation={1}
         media="cover"
         previewId={previewId}
-        onSelect={setSelected}
+        onSelect={(id) => {
+          setSelected(id);
+          setPreviewId(id);
+        }}
         onClose={() => setPreviewId(null)}
       />
     </I18nProvider>
@@ -422,6 +425,51 @@ describe('CoversView keyboard model', () => {
     expect(screen.getByRole('button', { name: 'after' })).toHaveFocus();
     await user.tab({ shift: true });
     expect(grid).toHaveFocus();
+  });
+
+  it('Space mid-word is part of the typed name, not a quick look', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    const spaced = big.entries.find((e) => / ./.test(titleOf(e)))!;
+    const title = titleOf(spaced);
+    const prefix = title.slice(0, title.indexOf(' ') + 2);
+    await user.keyboard(prefix);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const want = big.entries.find((e) => titleOf(e).startsWith(prefix))!;
+    expect(grid).toHaveAttribute('aria-activedescendant', `entry-${want.id}`);
+  });
+
+  it('keeps the entry stepped to in Quick look scrolled into view', async () => {
+    const user = userEvent.setup();
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => 1_000_000,
+    });
+    try {
+      render(<Harness entries={big.entries} />);
+      const grid = screen.getByRole('grid');
+      grid.focus();
+      await user.keyboard('{ArrowRight} ');
+      scrollTo.mockClear();
+      // Far past the first screen of tiles, with no key reaching the grid.
+      for (let i = 0; i < 60; i++) await user.keyboard('{ArrowRight}');
+      expect(grid).toHaveAttribute(
+        'aria-activedescendant',
+        `entry-${big.entries[60]!.id}`,
+      );
+      const top = (scrollTo.mock.lastCall?.[0] as { top: number }).top;
+      expect(top).toBeGreaterThan(0);
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+    }
   });
 });
 
