@@ -2272,13 +2272,13 @@ body::before {
   transform-origin: var(--cx) var(--cy);
 }
 .cam-1 {
-  --cx: 14.8%;
+  --cx: 14.4%;
   --cy: 98%;
   --cz: 1.9;
 }
 .cam-2 {
   --cx: 34.6%;
-  --cy: 8%;
+  --cy: 12.2%;
   --cz: 1.8;
 }
 .cam-3 {
