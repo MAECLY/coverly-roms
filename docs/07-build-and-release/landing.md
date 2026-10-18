@@ -3,9 +3,10 @@
 The public page at **https://coverly-roms.maecly.com** is the static site in
 `site/`: Spanish at `/` (also `x-default`), English at `/en/`, plus `404.html`,
 `robots.txt`, `sitemap.xml`, `llms.txt`, `agents.txt` and the web manifests.
-Plain HTML, one stylesheet and two small scripts (`theme.js` for the colour
-mode and OS hint, `motion.js` for the motion described below and the
-third-party request counter). No framework, no build step, no request to any
+Plain HTML, one stylesheet, three small scripts (`theme.js` for the colour
+mode and OS hint, `motion.js` for the reveals, step clips, terminal and the
+third-party request counter, `shelf.js` for the showcase choreography) and
+the decorative art under `site/assets/art/`. No framework, no build step, no request to any
 other server (the CSP forbids it).
 
 It follows the conventions of the Pluryprint and Versorium landings: the same
@@ -53,76 +54,118 @@ WCAG contrast of the token pairs and the motion contract (see Motion).
 
 ## Motion
 
-The motion follows the Pluryprint and Versorium landings, and the same
-rules hold:
+The page is one long library shelf, "The Living Shelf"
+([landing-showcase-spec.md](landing-showcase-spec.md) is the design record;
+[landing-motion-research.md](landing-motion-research.md) the research behind
+it). It opens on the app icon's pose, a cover leaning at 12° against an empty
+slot, and closes with that cover seated. The motion only ever enacts the slot
+grammar: **dashed = not yet, solid = done, Buckram spine = Coverly did it,
+Manila tab = you can still undo it.**
+
+Rules, the same as on the Pluryprint and Versorium landings:
 
 - **The HTML is the finished page.** Motion only plays towards it. Text,
-  headings and screenshots are never faded or slid in; only decorative
-  parts (the hero's gaps, the layout table's slots, the closing mark, the
-  annotation strokes) get a starting pose.
-- **Two gates.** `theme.js` sets `html.anim` in `<head>`, before the first
-  paint, unless the visitor asked for reduced motion or turned on
-  Save-Data. `motion.js` adds `html.motion` once its setup worked. Any
-  error, or reduced motion switched on mid-visit, runs `halt()`: each
-  piece's `stop()` puts it in its finished state and both classes go.
-- **Shown, not played.** Anything already on screen at load gets
-  `.is-in.no-anim`; a load slower than 2.6 s shows the hero finished.
-- **CSS fallbacks.** Without `motion.js`, the hero's covers still arrive at
-  4 s. Scroll-linked effects sit inside
-  `@supports (animation-timeline: view())`; without it (Firefox, older
-  Safari) everything stays finished.
-- **Reduced motion** stops every animation, transition and view
-  transition, and hides the replay button. Easing tokens are
-  `--ease-ink` and `--ease-spring`.
+  headings and screenshots are never faded or slid in; only decorative SVG
+  (`svg.art`) and the steps' camera get a starting pose.
+- **Two gates.** `theme.js` sets `html.anim` in `<head>` unless the visitor
+  asked for reduced motion or turned on Save-Data. `motion.js` adds
+  `html.motion` once its setup worked. Any error, or reduced motion switched
+  on mid-visit, runs `halt()`, which also dispatches `cr-halt`; `shelf.js`
+  listens and runs its own `stop()`s. Every `stop()` puts its piece in the
+  frame the HTML already shows: halting means finishing.
+- **One loud moment.** The hero plays once; nothing else moves while it
+  does. Everything else is a quiet beat, scrolled or clicked.
+- **Scroll-linked parts** sit inside `@supports (animation-timeline:
+  view())`, declared after the `animation` shorthand, with `fill-mode:
+  both`. Without support (Firefox 154, Safari before 26) they show finished;
+  the closing shelf instead plays the same frames once by the clock
+  (`.landed`).
+- **Off screen, paused.** `shelf.js`'s one `IntersectionObserver` marks
+  `svg.art` that leaves the screen with `[data-off]`, which pauses its
+  animations.
+- **Reduced motion is a finished still life**, not a stripped copy: every
+  animation, transition and view transition stops, the replay buttons go,
+  and the #seguro demo still answers clicks with instant swaps (150 ms
+  opacity at most).
+- Easing comes from `design/tokens.json`: `--cr-ease-ink` for every apply,
+  fill, register and undo, `--cr-ease-spring` only for tag drops,
+  `--cr-ease-standard` for the rest. The landing adds `--lp-ease-swing` (the
+  accession tag) and `--lp-dur-hero`.
 
 What moves:
 
 | Where | What | Trigger |
 | --- | --- | --- |
-| Hero shelf | Plays the app's own sequence, with the app's words. **Armed**: five dashed gaps, "7 of 12". **Dry run**: each gap is marked in the accent colour, "Dry run ready: 5 covers, nothing written". **Writing art…**: each cover wipes in as the count reaches 12. **Done**: "5 covers added". Then a ↻ Replay button shows; while it replays it stays in place, dimmed (`aria-disabled`), so keyboard focus stays on it. | 40% of the grid on screen, however long that takes (a phone reader may scroll later). Only a load slower than 2.6 s shows the finished shelf straight away. |
-| Header | A reading-progress line under the bar; the Download button appears once the hero's buttons scroll away | Scroll (CSS) |
-| Section headlines | The slot under each H2 fills | Scroll (CSS) |
-| Four steps, ≥1024 px | One sticky screenshot; each step's text cross-fades its own in (named view timelines `--s1`…`--s4`) | Scroll (CSS) |
-| Steps 1 and 2 | An ellipse is drawn around "4553 without cover" and "Nothing has been written yet" | Scroll (CSS) |
-| Step 3 (clip) | Over the review queue still: the focus ring walks → → to the 95% candidate, ↵ flashes Accept, and the ring goes back to the first candidate of the next game (the still again). 3.6 s. | Pinned (≥1024 px): 60% of the step's text on screen; otherwise 50% of the figure. ↻ Replay in the step's text. |
-| Step 4 (clip) | Over the game panel still: the first candidate is picked, lifts and lands in the empty Cover slot (its "missing" goes), then the same cover lands on the game's grid tile. Ends filled. 3.2 s. | As step 3 |
-| Layout table | Each slot a format can write goes from dashed to solid, row by row | `[data-reveal]` |
-| Terminal | Each command is typed in turn. The untyped rest stays in place, hidden, so no glyph moves. | 45% on screen; skipped if already visible |
-| Closing | The last slot of a small shelf fills | `[data-reveal]` |
-| Colour mode | The new mode spreads from the click (`startViewTransition`); ES/EN switches cross-fade (`@view-transition`) | Click or key |
-| Buttons, FAQ | 1 px lift on hover; answers open with a height transition | Hover, open |
+| Header | The Lean-To mark tips upright and back on hover or focus. A row of 24 mini slots under the bar fills with the reading progress. | Hover/focus; scroll (CSS) |
+| Hero, "The Lean-To" | Inline SVG (a wide scene ≥ 1024 px, a 64 px strip between the H1 and the copy below). The shelf rule draws, the two gaps' dashes march, a riso ghost proof appears in each (simulate), the layers register while the photo-corners fold away and the Manila tabs drop (apply), the Buckram spines draw and the tally reads 6/7 (commit), and the leaning cover rocks 12° → 9° → 12° without seating. The H1's keyword stands on a slot underline that turns solid. 2.3 s. ↻ Replay stays in place, `aria-disabled` while it plays. | 40% of the art on screen, at once if it already is; a load slower than 4 s shows the end frame |
+| Section heads | Each H2's shelf rule draws out from its Buckram cap | Scroll (CSS) |
+| #como (greyboard-dark band) | Each screenshot's camera moves in on the spot that matters; a slot rail fills step by step; the callouts and the stamp draw | Scroll (CSS) |
+| Step 3 and 4 clips | See **Step clips** below | 60% of the step's text (pinned) or 50% of the figure |
+| #seguro | The visitor runs the round trip: Simular → Aplicar → Deshacer, with a polite live region; the card ends exactly as it began. The five pictograms draw. | Click (also under reduced motion); scroll (CSS) |
+| #formatos | One gallery row develops once (grounds, covers, spines); hovering a layout row lifts its run. The terminal types each command and prints one output line; the cursor is a dashed slot that blinks three times. | `[data-reveal]`; hover; 45% on screen |
+| #comparar | The Coverly column's highlight wipes down row by row and its checks draw | Scroll (CSS) |
+| #descargar | No release: a waiting slot whose dashes march once and whose `v0.1.0` accession tag swings and settles. Release: the OS cards fill like slots and the detected one's tag drops in. | Scroll (CSS) / `[data-reveal]` |
+| FAQ | The marker is a mini slot: dashed closed, solid Buckram open | Open |
+| Closing | A shelf across the viewport (25 slots, 7 on phones) with the hero's cover at its centre, leaning. The covers wipe on left to right, their spines just after; two slots (one on phones) stay dashed and pulse once, with `152` over them (Coverly never guesses); the leaning cover tips upright into its slot, its Manila tab drops and the CTA's Buckram spine draws under the button. | Scroll (CSS, pixel ranges on the shelf's own view timeline so the end is reached on any viewport); without scroll timelines `.landed` at 50% of the section, 1.6 s |
+| Footer | The "requests to other servers" count sits in a dashed mini slot that stays empty | Static |
+| Colour mode, ES/EN | The new mode spreads from the click; ES/EN cross-fade, the hero shelf rule held still (`view-transition-name: shelf`) | Click or key |
 
-`check_site.py`'s `motion` gate holds the contract:
+The art: `assets/art/covers.svg` (40 generative covers and a 7-glyph stroke
+font, from `scripts/site/gen_covers.mjs`, deterministic, invented titles as
+seeds, one muted ink per cover as the brand's landing exception allows),
+`kit.svg` (slot parts and pictograms), `grain.svg` and `weave.svg`. Every
+symbol is `currentColor`; the page colours each `<use>` with a class
+(`.ink-0`…`.ink-5`, generated light and dark). The hero inlines its covers
+so the first paint needs no request. Serve the site over http to preview it:
+external `<use>` does not work from `file://`.
 
-- the gates and `halt()` are present in the scripts;
-- a reduced-motion block stops animations, transitions, view transitions
-  and the replay button;
-- keyframes and transitions only move transform, opacity, visibility,
-  clip-path, SVG strokes and colours (the FAQ's height is the one exception,
-  since it answers a click);
-- `animation-timeline` only appears inside `@supports`;
-- every other animation or transition sits behind `html.anim`,
-  `html.motion` or `prefers-reduced-motion: no-preference`;
-- motion never hides a heading, paragraph, list item, link, button or image,
-  neither with a hiding rule nor with keyframes that start at `opacity: 0` or
-  `visibility: hidden`: such an animation on text may not be delayed more than
-  1 s, and may only fill backwards through a delay when scrolling drives it
-  (`animation-range` inside `@supports`);
-- no `<video>` or `autoplay`;
-- `motion.js` is at most 9,500 bytes.
+The gates in `check_site.py`:
 
-The budget gate allows 16,000 / 5,500 bytes (raw / gzip) for all scripts and
-44,000 / 10,500 for the stylesheet.
+- **motion**: the gates, `halt()` and `cr-halt` in both scripts, the
+  reduced-motion matchMedia in `shelf.js`; a reduced-motion block that stops
+  animations, transitions, view transitions and the replay buttons;
+  keyframes and transitions only move transform, opacity, visibility,
+  clip-path, stroke-dashoffset, background size, box-shadow and colours (the FAQ's height is the one
+  exception, since it answers a click); `animation-timeline` only inside
+  `@supports`; every other animation behind `html.anim`, `html.motion` or
+  `prefers-reduced-motion: no-preference`; motion never hides text or
+  images; no `<video>` or `autoplay`.
+- **art**: every inline `svg.art` is `aria-hidden="true"
+  focusable="false"`, has a `viewBox` and `width`/`height` (CLS 0), and holds
+  no `text`, `image`, `img`, `script` or `foreignObject`; the files under
+  `assets/art/` reference nothing outside themselves.
+- **links**: a `#fragment` into an `.svg` must name an `id` in that file.
+- **files**: `gen_covers.mjs --check` (the sprite and the ink block are not
+  stale).
 
-**Before merging a motion change, check it in a browser:**
+Budgets (raw / gzip bytes):
 
-- Chrome at 1280×800 and 360×780, light and dark, with reduced motion
-  emulated on and off.
-- With reduced motion: `document.getAnimations()` returns nothing, and every
-  heading, paragraph and image has opacity 1.
-- A performance trace on load: CLS 0 and no long tasks. Measure the layout
-  shift after scrolling the whole page too.
-- 0 console errors.
+| What | Budget |
+| --- | --- |
+| Each page (`index.html`, `en/index.html`) | 60,000 / 14,000 |
+| Stylesheets (`tokens.css` + `site.css`) | 82,000 / 18,500 |
+| All scripts under `assets/` (recursive) | 20,000 / 7,000 |
+| `motion.js` alone | 9,500 |
+| `shelf.js` alone | 5,000 |
+| Art (`assets/art/*.svg`) | 24,000 / 7,000 |
+| `covers.svg` alone | 18,000 |
+| Fonts | 128,000 |
+| Visible words, each locale | 1,450 |
+
+**Before merging a motion change, check it in a browser** (Chrome DevTools,
+the release-filled copy on a local port):
+
+- 1440×900 and 390×844, light and dark, reduced motion on and off, both
+  locales.
+- With reduced motion: `document.getAnimations().length === 0`, the
+  finished still life, and the #seguro demo still works.
+- Without JS: the same finished page; the demo's buttons stay hidden.
+- Keyboard: header, ↻ Replay, the demo buttons (`aria-pressed`, live
+  region) and the FAQ.
+- A performance trace at 4× CPU and Slow 4G: LCP stays `p.sub` (about
+  2.3 s locally without compression), CLS 0. Lighthouse mobile ≥ 90.
+- Firefox for the finished states without scroll timelines.
+- 0 console errors and no CSP reports.
 
 **Step clips.** The step 3 and 4 clips are not recordings: each is an SVG in
 the 1280×800 space of its screenshot (`.clip-fx`, like the step 1 and 2
@@ -167,14 +210,14 @@ placeholder art, so no capture shows real box art. Capture each screen at a
 `make site-og` (`scripts/site/og.mjs`) renders the 1200×630 cards
 `site/assets/og.png` and `og-en.png`: the Lean-To app icon from
 `design/icon/app.svg`, the wordmark with its Manila `ROMs` tag, the headline and
-the shelf rule, laid out in HTML with the landing's Archivo woff2 and
-screenshotted by headless Chrome or Chromium (`$CHROME` to pick one).
+the shelf rule, laid out in HTML with the landing's variable Archivo woff2
+(at width 75, as the page's headings) and screenshotted by headless Chrome or Chromium (`$CHROME` to pick one).
 
 The favicon, touch and manifest icons (including the maskable one) and the nav
 mark (`site/assets/mark.svg`, `mark-dark.svg`, swapped by `theme.js` like the
 screenshots) are rasterised or cropped from `design/icon/` by `pnpm icons`; the
-footer keeps the wordmark only, as `docs/08-brand/brand.md` asks. The display face is Archivo (OFL-1.1), instanced at width
-72 and weight 800 and subset to Latin-1 (`site/assets/fonts/`).
+footer keeps the wordmark only, as `docs/08-brand/brand.md` asks. The display face is Archivo (OFL-1.1), variable (width 75–112,
+weight 600–800) and subset to Latin (`site/assets/fonts/`).
 
 ## One-time setup (maintainer)
 
