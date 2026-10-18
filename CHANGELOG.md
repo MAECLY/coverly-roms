@@ -30,6 +30,22 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Organise settings in Settings → Library (default layout, ROMs folder,
   mode, names, catalogue downloads).
 
+- Landing page at coverly-roms.maecly.com, in Spanish and English: what it
+  does, the safe round trip (dry run, backups, undo), supported layouts,
+  comparison, downloads per system and FAQ, with motion that stops for
+  reduced motion and no third-party requests. Pages fills it with the
+  latest release when one is published, and the page also reads the latest
+  release in the browser, so the download links follow a new version at
+  once.
+- First-open help for the unsigned builds, in the landing, the README and the
+  release notes: why macOS says the app is damaged and how to clear the
+  quarantine flag (`xattr -rd com.apple.quarantine "/Applications/Coverly
+  ROMs.app"`) or use Open Anyway, SmartScreen's More info → Run anyway, and
+  the Linux `.deb` dependencies.
+- Brand identity: the Lean-To icon, design tokens shared by the app and the
+  landing (light and dark, checked for contrast), Archivo and Atkinson
+  Hyperlegible type, and UI primitives built on them across the app.
+
 - Release pipeline (M7): signed builds for macOS (universal `.dmg`), Windows
   (`.msi` and NSIS) and Linux (`.AppImage`, `.deb`), a `latest.json` update
   manifest with stable and beta channels, and `SHA256SUMS`.
