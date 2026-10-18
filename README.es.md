@@ -95,16 +95,59 @@ Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 `sha256sum -c SHA256SUMS --ignore-missing` (Linux) o
 `Get-FileHash <archivo>` (PowerShell en Windows).
 
-- **macOS:** la app no está firmada con un certificado de Apple, así que la
-  primera vez macOS dice que no puede comprobarla. Abre **Ajustes del Sistema →
-  Privacidad y seguridad**, baja, pulsa **Abrir igualmente** y confirma.
-- **Windows:** el instalador no está firmado con un certificado de Windows, así
-  que SmartScreen puede avisar. Pulsa **Más información → Ejecutar de todas
-  formas**.
-- **Linux:** haz ejecutable el AppImage (`chmod +x Coverly*.AppImage`) y
-  ábrelo, o instala el `.deb` (`sudo apt install ./Coverly*.deb`).
-- **CLI:** renombra el binario a `coverly` (`coverly.exe` en Windows), hazlo
-  ejecutable (`chmod +x`) y ponlo en tu `PATH`.
+> [!WARNING]
+> Las versiones todavía no están firmadas con un certificado de Apple ni de
+> Microsoft, así que macOS y Windows te avisan la primera vez. Sigue estos pasos
+> solo con un archivo que hayas bajado de las versiones de este repositorio y
+> comprobado con `SHA256SUMS`.
+>
+> <details>
+> <summary><b>macOS dice que la app está dañada, o que Apple no puede comprobarla.</b> No lo está.</summary>
+>
+> macOS pone en cuarentena las apps sin Apple Developer ID. Mueve Coverly ROMs a
+> Aplicaciones y quita la marca una vez, en Terminal (las comillas importan: el
+> nombre lleva un espacio):
+>
+> ```bash
+> xattr -rd com.apple.quarantine "/Applications/Coverly ROMs.app"
+> ```
+>
+> Esa marca es la comprobación que te protege de una descarga manipulada. En
+> lugar de Terminal, también puedes intentar abrirla una vez, ir a **Ajustes del
+> Sistema → Privacidad y seguridad**, bajar y pulsar **Abrir igualmente**. El
+> binario `coverly` para macOS queda en cuarentena igual si lo baja un
+> navegador: `xattr -d com.apple.quarantine coverly-<versión>-darwin-<arq>`.
+>
+> </details>
+>
+> <details>
+> <summary><b>Windows muestra «Windows protegió su PC».</b></summary>
+>
+> Elige **Más información** y luego **Ejecutar de todas formas**. Si en su lugar
+> ves una **Advertencia de seguridad** con **Editor: Editor desconocido**, elige
+> **Ejecutar**. Con Smart App Control activado no hay **Ejecutar de todas
+> formas**: bloquea las apps sin firmar, y puede que desactivarlo no tenga
+> vuelta atrás sin reinstalar Windows. Coverly ROMs necesita Windows 10 u 11 en x64.
+> El `-setup.exe` instala para tu usuario sin permisos de administrador; el
+> `.msi` instala para todos los usuarios. Los dos usan Microsoft Edge WebView2:
+> Windows 11 ya lo trae, y en Windows 10 el instalador lo descarga si falta
+> (necesita internet).
+>
+> </details>
+>
+> <details>
+> <summary><b>Linux</b></summary>
+>
+> Marca el AppImage como ejecutable (`chmod +x`) si tu gestor de archivos no lo
+> ha hecho. El `.deb` depende de `libwebkit2gtk-4.1-0` y `libgtk-3-0`;
+> `sudo apt install ./Coverly.ROMs_<versión>_amd64.deb` (o `_arm64.deb`) los
+> instala. Los dos se compilan en Ubuntu 22.04 para x64 y ARM64, así que
+> necesitan glibc 2.35 o posterior (Ubuntu 22.04, Debian 12 o posteriores).
+>
+> </details>
+
+**Línea de comandos.** Renombra el binario a `coverly` (`coverly.exe` en
+Windows), hazlo ejecutable (`chmod +x`) y ponlo en tu `PATH`.
 
 **Actualizaciones.** La app busca actualizaciones al iniciarse (Configuración →
 General; si lo desactivas no hace ninguna petición) y desde Configuración →
