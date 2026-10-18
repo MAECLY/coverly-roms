@@ -51,16 +51,21 @@ async function main() {
 
   const icons = {};
   for (const [id, { file }] of Object.entries(SYSTEM_ICON_SOURCES)) {
-    const source = raw.get(file);
-    const sourceViewBox = readViewBox(source) ?? synthesiseViewBox(source);
-    const withViewBox = readViewBox(source)
-      ? source
-      : source.replace(/<svg\b/, `<svg viewBox="${sourceViewBox}"`);
-    const clean = normaliseSvg(withViewBox);
-    const { viewBox, aspect } = cropViewBox(clean, sourceViewBox);
-    const body = innerMarkup(clean);
-    assertClean(id, body);
-    icons[id] = { viewBox, body, aspect };
+    try {
+      const source = raw.get(file);
+      const sourceViewBox = readViewBox(source) ?? synthesiseViewBox(source);
+      const withViewBox = readViewBox(source)
+        ? source
+        : source.replace(/<svg\b/, `<svg viewBox="${sourceViewBox}"`);
+      const clean = normaliseSvg(withViewBox);
+      const { viewBox, aspect } = cropViewBox(clean, sourceViewBox);
+      const body = innerMarkup(clean);
+      assertClean(id, body);
+      icons[id] = { viewBox, body, aspect };
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      throw new Error(`${id} (${file}): ${why}`);
+    }
   }
 
   await mkdir(ASSETS, { recursive: true });

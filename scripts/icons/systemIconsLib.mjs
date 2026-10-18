@@ -470,6 +470,8 @@ const DIRTY = [
   [/<script\b/, '<script'],
   [/\son[a-z]+=/i, 'event handler'],
   [/\b(?:xlink:)?href=/, 'href'],
+  [/<foreignObject\b/, '<foreignObject'],
+  [/<(?:animate\w*|set)\b/, 'animation'],
 ];
 
 /** Throws naming the offending token: #fff, #ffffff, <text, <image, style=, fill="<other>". */
