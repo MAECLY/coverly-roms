@@ -113,7 +113,9 @@ fn junk_bios_and_symlinks() {
     std::os::unix::fs::symlink(tmp.path().join("gba_bios.bin"), tmp.path().join("link.gba"))
         .unwrap();
     let w = run(tmp.path(), &NoCloud);
-    assert_eq!(w.junk, 3);
+    // On NTFS `Game.gba:Zone.Identifier` is a stream of `Game.gba`, not a
+    // file of its own, so the walk never sees it.
+    assert_eq!(w.junk, if cfg!(windows) { 2 } else { 3 });
     assert_eq!(reason_of(&w, "gba_bios.bin"), Some(LeftReason::Bios));
     #[cfg(unix)]
     assert_eq!(reason_of(&w, "link.gba"), Some(LeftReason::Symlink));
