@@ -54,6 +54,26 @@ describe('SystemIcon', () => {
     expect(m.style.height).toBe('1em');
     expect(m.style.width).toBe('1.5em');
   });
+  it('sizes a silhouette from a CSS length through style', () => {
+    const { container } = render(
+      <SystemIcon systemId="gb" size="var(--row-icon)" />,
+    );
+    const svg = container.querySelector<SVGSVGElement>(
+      'svg[data-system-icon="gb"]',
+    )!;
+    expect(svg).not.toHaveAttribute('width');
+    expect(svg.style.height).toBe('var(--row-icon)');
+    expect(svg.style.width).toBe('calc(var(--row-icon) * 1.5)');
+  });
+  it('reads a bare numeric string as pixels', () => {
+    const { container } = render(<SystemIcon systemId="cps2" size="24" />);
+    const m = container.querySelector<HTMLElement>(
+      '[data-system-icon="cps2"]',
+    )!;
+    expect(box(m)).toEqual([36, 24]);
+    expect(m).toHaveClass('system-mount--outline');
+    expect(container.querySelectorAll('.system-mount__corner')).toHaveLength(4);
+  });
   it('uses the first four letters of a user-defined id', () => {
     const { container } = render(<SystemIcon systemId="x68000" size={16} />);
     expect(

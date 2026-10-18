@@ -33,11 +33,16 @@ function cssLength(v: number | string): string {
 
 function SystemIconImpl({
   systemId,
-  size = '1em',
+  size: rawSize = '1em',
   title,
   className,
 }: SystemIconProps): JSX.Element {
   const t = useT();
+  // A bare numeric string ('16') is pixels, like a number; CSS would drop it.
+  const size =
+    typeof rawSize === 'string' && /^\s*\d*\.?\d+\s*$/.test(rawSize)
+      ? Number(rawSize)
+      : rawSize;
   const width = widen(size);
   // String sizes follow the text, which is always below the 20px floor.
   const px = typeof size === 'number' ? size : 0;
@@ -73,8 +78,15 @@ function SystemIconImpl({
         viewBox={icon.viewBox}
         preserveAspectRatio="xMidYMid meet"
         fill="currentColor"
-        width={width}
-        height={size}
+        // Numbers stay attributes; CSS lengths (em, calc()) go through style,
+        // since an SVG width attribute does not accept calc().
+        width={typeof width === 'number' ? width : undefined}
+        height={typeof size === 'number' ? size : undefined}
+        style={
+          typeof size === 'number'
+            ? undefined
+            : { width: cssLength(width), height: cssLength(size) }
+        }
         {...a11y}
         // The one allowed dangerouslySetInnerHTML (no lint rule exists for it
         // here): a trusted repo constant from systemIcons.generated.ts, cleaned
