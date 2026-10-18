@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { Button } from '@/components/ui/button';
 import {
   Collapsible,
@@ -127,6 +128,9 @@ function Bucket({
             id={id}
             className="m-0 flex flex-wrap items-center gap-2 text-ui font-medium"
           >
+            {bucket.systems.map((id) => (
+              <SystemIcon key={id} systemId={id} size={16} />
+            ))}
             {title}
             <NewCount count={fresh} />
           </p>
