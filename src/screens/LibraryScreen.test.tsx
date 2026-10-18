@@ -158,6 +158,30 @@ describe('Library screen', () => {
     act(() => useViewStore.getState().setView('covers'));
   });
 
+  it('previews the active game with Space and keeps the drawer on Escape', async () => {
+    const user = userEvent.setup();
+    const view = await openLibrary();
+    const grid = screen.getByRole('grid', { name: 'ROM covers' });
+    grid.focus();
+    await user.keyboard('{ArrowRight}{Enter}');
+    const first = useViewStore.getState().drawerOpen;
+    expect(first).toBe(true);
+    grid.focus();
+    await user.keyboard(' ');
+    const entry =
+      view.entries[
+        Number(grid.getAttribute('aria-activedescendant')!.slice(6))
+      ]!;
+    expect(
+      screen.getByRole('dialog', { name: entry.name }),
+    ).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: entry.name })).toBeNull();
+    expect(useViewStore.getState().drawerOpen).toBe(true);
+    expect(grid).toHaveFocus();
+    act(() => useViewStore.getState().closeDrawer());
+  });
+
   it('enables Fill missing art', async () => {
     await openLibrary();
     expect(

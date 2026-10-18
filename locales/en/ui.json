@@ -420,6 +420,9 @@
     "densityCompact": "Compact",
     "seeAllCount": "See all {n}",
     "preview": "Quick look",
+    "previewPosition": "{n} of {total}",
+    "previewPrev": "Previous game",
+    "previewNext": "Next game",
     "size": "Size",
     "sizeStops": {
       "xs": "Smallest",

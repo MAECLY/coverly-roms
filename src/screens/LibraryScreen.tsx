@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
@@ -10,6 +16,7 @@ import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
+import { QuickLook } from '@/components/library/views/QuickLook';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -44,6 +51,8 @@ export function LibraryScreen() {
   const clearFilters = useFilterStore((s) => s.clear);
   const setQuery = useFilterStore((s) => s.setQuery);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Space in a view: the entry shown large in Quick look, if any.
+  const [previewId, setPreviewId] = useState<number | null>(null);
   const root = view?.root;
   const loadPrefsFor = useViewStore((s) => s.loadFor);
 
@@ -140,12 +149,19 @@ export function LibraryScreen() {
         {...list}
         sections={sections}
         prefs={prefs}
-        // Quick look arrives with the shared keyboard model.
-        onPreview={() => undefined}
+        onPreview={setPreviewId}
       />
     );
   } else {
-    content = <EntryTable {...list} sort={sort} onSort={toggleSort} />;
+    content = (
+      <EntryTable
+        {...list}
+        sections={sections}
+        onPreview={setPreviewId}
+        sort={sort}
+        onSort={toggleSort}
+      />
+    );
   }
 
   return (
@@ -181,6 +197,15 @@ export function LibraryScreen() {
         visible={visible}
         total={view.entries.length}
         scanMs={view.scan_ms}
+      />
+      <QuickLook
+        entries={visible}
+        systems={view.systems}
+        generation={view.generation}
+        media={prefs.art}
+        previewId={previewId}
+        onSelect={select}
+        onClose={() => setPreviewId(null)}
       />
       {overlay === 'wizard' && (
         <FillWizard

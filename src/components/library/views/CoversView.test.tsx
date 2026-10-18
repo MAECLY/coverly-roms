@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -13,11 +14,13 @@ import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import { MEDIA, REGIONS, type EntryView } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
 import { groupEntries } from '@/lib/grouping';
+import { titleWithoutRegions } from '@/lib/tileLabel';
 import { DEFAULT_PREFS, type GroupBy } from '@/lib/viewPrefs';
 import { stubLayout } from '@/test/layout';
 
 import { CoverGrid } from '../CoverGrid';
 import { CoversView } from './CoversView';
+import { QuickLook } from './QuickLook';
 
 /** The performance budget: tiles mounted at once. */
 const MAX_TILES = 120;
@@ -47,14 +50,16 @@ function Harness({
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [opened, setOpened] = useState<number | null>(null);
+  const [previewId, setPreviewId] = useState<number | null>(null);
   const { ordered: entries, sections } = grouped(input, groupBy);
   return (
     <I18nProvider locale="en">
+      <button type="button">before</button>
       <CoversView
         entries={entries}
         sections={sections}
         prefs={{ ...DEFAULT_PREFS, groupBy }}
-        onPreview={() => undefined}
+        onPreview={setPreviewId}
         systems={big.systems}
         generation={1}
         selectedId={selected}
@@ -65,6 +70,16 @@ function Harness({
         }}
       />
       <output data-testid="opened">{opened ?? ''}</output>
+      <button type="button">after</button>
+      <QuickLook
+        entries={entries}
+        systems={big.systems}
+        generation={1}
+        media="cover"
+        previewId={previewId}
+        onSelect={setSelected}
+        onClose={() => setPreviewId(null)}
+      />
     </I18nProvider>
   );
 }
@@ -314,6 +329,99 @@ describe('CoversView', () => {
       'aria-activedescendant',
       `entry-${ordered[9]!.id}`,
     );
+  });
+});
+
+describe('CoversView keyboard model', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1280, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+  });
+  afterEach(() => {
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  const titleOf = (e: EntryView) => titleWithoutRegions(e.name).toLowerCase();
+
+  it('typing letters selects the first name that starts with them', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    // A two-letter prefix whose first match is well into the library.
+    const prefix = titleOf(big.entries[500]!).slice(0, 2);
+    await user.keyboard(prefix);
+    const want = big.entries.find((e) => titleOf(e).startsWith(prefix))!;
+    expect(big.entries.indexOf(want)).toBeGreaterThan(0);
+    expect(grid).toHaveAttribute('aria-activedescendant', `entry-${want.id}`);
+    expect(document.getElementById(`entry-${want.id}`)).not.toBeNull();
+  });
+
+  it('pressing the same letter again goes to the next match', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    await user.keyboard('tt');
+    const matches = big.entries.filter((e) => titleOf(e).startsWith('t'));
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${matches[1]!.id}`,
+    );
+  });
+
+  it('Space opens a quick look and Escape gives focus back', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    await user.keyboard('{ArrowRight}');
+    await user.keyboard(' ');
+    expect(
+      screen.getByRole('dialog', { name: big.entries[0]!.name }),
+    ).toBeInTheDocument();
+    await user.keyboard('{ArrowRight}');
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${big.entries[1]!.id}`,
+    );
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(grid).toHaveFocus());
+  });
+
+  it('Alt+ArrowDown and Alt+ArrowUp jump between groups', () => {
+    const { ordered, sections } = grouped(big.entries, 'system');
+    render(<Harness entries={big.entries} groupBy="system" />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    const second = ordered[sections[1]!.start]!;
+    expect(grid).toHaveAttribute('aria-activedescendant', `entry-${second.id}`);
+    expect(document.getElementById(`entry-${second.id}`)).not.toBeNull();
+    fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${ordered[0]!.id}`,
+    );
+  });
+
+  it('Tab leaves the grid and Shift+Tab comes back', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    await user.keyboard('{ArrowRight}');
+    await user.tab();
+    expect(document.activeElement).not.toBe(grid);
+    expect(screen.getByRole('button', { name: 'after' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(grid).toHaveFocus();
   });
 });
 

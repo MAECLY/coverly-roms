@@ -290,7 +290,8 @@ time {
    renders differently in WebKit and Chromium. */
 .cover-tile__art .art-placeholder,
 .art-ws__thumb .art-placeholder,
-.review-current .art-placeholder {
+.review-current .art-placeholder,
+.quick-look__art .art-placeholder {
   --slot-w: var(--cr-border-width-slot);
   --slot-solid: linear-gradient(var(--cr-slot-missing), var(--cr-slot-missing));
   --slot-dash-x: repeating-linear-gradient(
@@ -567,6 +568,63 @@ time {
 
 .art-thumb--wide {
   aspect-ratio: 4 / 3;
+}
+
+/* Quick look (Space): the art large, on its own mount. The size is fixed by
+   the media's shape, so stepping with ←/→ never moves the buttons. */
+.quick-look__title {
+  font-family: var(--cr-font-display);
+  font-stretch: 87.5%;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.quick-look__system {
+  display: flex;
+  min-width: 0;
+}
+
+.quick-look__art {
+  align-self: center;
+  height: min(62vh, 600px);
+  max-width: 100%;
+  aspect-ratio: 25 / 36;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+}
+
+.quick-look__art--wide {
+  height: auto;
+  width: min(100%, calc(min(62vh, 600px) * 4 / 3));
+  aspect-ratio: 4 / 3;
+}
+
+.quick-look__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.quick-look__art .art-placeholder {
+  width: 100%;
+  height: 100%;
+}
+
+.quick-look__steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.quick-look__position {
+  min-width: 6rem;
+  color: var(--cr-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .drawer-section {

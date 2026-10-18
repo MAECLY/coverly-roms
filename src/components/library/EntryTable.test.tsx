@@ -7,6 +7,7 @@ import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW, generateLibrary } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
 import { DEFAULT_SORT, type SortKey } from '@/lib/sort';
+import { titleWithoutRegions } from '@/lib/tileLabel';
 import { stubLayout } from '@/test/layout';
 
 import { EntryTable, ROW_H } from './EntryTable';
@@ -23,9 +24,11 @@ const big = generateLibrary({
 function Harness({
   onSort,
   onOpen = () => undefined,
+  onPreview = () => undefined,
 }: {
   onSort: (k: SortKey) => void;
   onOpen?: (id: number) => void;
+  onPreview?: (id: number) => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   return (
@@ -42,6 +45,7 @@ function Harness({
         }}
         sort={DEFAULT_SORT}
         onSort={onSort}
+        onPreview={onPreview}
       />
     </I18nProvider>
   );
@@ -179,5 +183,20 @@ describe('EntryTable', () => {
     fireEvent.scroll(grid);
     expect(document.getElementById(active)).not.toBeNull();
     expect(screen.getAllByRole('row').length).toBeLessThanOrEqual(MAX_ROWS);
+  });
+
+  it('jumps to a typed name and previews it with Space', () => {
+    const onPreview = vi.fn();
+    render(<Harness onSort={() => undefined} onPreview={onPreview} />);
+    const grid = screen.getByRole('grid');
+    const title = (i: number) =>
+      titleWithoutRegions(big.entries[i]!.name).toLowerCase();
+    const prefix = title(300).slice(0, 2);
+    const want = big.entries.findIndex((_, i) => title(i).startsWith(prefix));
+    for (const ch of prefix) fireEvent.keyDown(grid, { key: ch });
+    const id = big.entries[want]!.id;
+    expect(grid).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    expect(fireEvent.keyDown(grid, { key: ' ' })).toBe(false);
+    expect(onPreview).toHaveBeenCalledWith(id);
   });
 });

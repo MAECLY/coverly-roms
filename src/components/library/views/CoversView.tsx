@@ -1,10 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import {
-  useCallback,
-  useMemo,
-  type KeyboardEvent,
-  type MouseEvent,
-} from 'react';
+import { useCallback, useMemo, type MouseEvent } from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +15,7 @@ import { ArtStatusIcon } from '../ArtStatusIcon';
 import { ArtThumb } from '../ArtThumb';
 import { SECTION_ROW_H, SectionHeaderRow } from './SectionHeaderRow';
 import { entryIdOf, type ViewProps } from './types';
+import { useViewKeys } from './useViewKeys';
 
 export const TILE_W = 168;
 // Fixed parts, so a tile never grows into the row below (see .cover-tile):
@@ -60,6 +56,7 @@ export function CoversView({
   selectedId,
   onSelect,
   onOpen,
+  onPreview,
 }: ViewProps) {
   const t = useT();
   const [ref, size, element] = useElementSize<HTMLDivElement>();
@@ -117,31 +114,26 @@ export function CoversView({
   });
   const stuck = stickyHeaderAt(headerRows, virtualizer.range?.startIndex ?? 0);
 
-  function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
-    // Keys pressed on a focusable child belong to that child.
-    if (ev.target !== ev.currentTarget) return;
-    if (ev.key === 'Enter') {
-      if (selectedId !== null) {
-        ev.preventDefault();
-        onOpen(selectedId);
-      }
-      return;
-    }
-    const dir = VERTICAL[ev.key];
-    const next =
-      dir !== undefined && selectedIndex >= 0
+  const onKeyDown = useViewKeys({
+    entries,
+    sections,
+    selectedIndex,
+    onSelect,
+    onOpen,
+    onPreview,
+    scrollToIndex: (i) =>
+      virtualizer.scrollToIndex(rowOfIndex[i] ?? 0, { align: 'auto' }),
+    move: (key) => {
+      const dir = VERTICAL[key];
+      return dir !== undefined && selectedIndex >= 0
         ? moveVertical(
             model,
             selectedIndex,
-            ev.key.startsWith('Page') ? dir * pageRows : dir,
+            key.startsWith('Page') ? dir * pageRows : dir,
           )
-        : nextIndex(ev.key, selectedIndex, entries.length, 1, pageRows);
-    const entry = next === null ? undefined : entries[next];
-    if (next === null || !entry) return;
-    ev.preventDefault();
-    onSelect(entry.id);
-    virtualizer.scrollToIndex(rowOfIndex[next] ?? 0, { align: 'auto' });
-  }
+        : nextIndex(key, selectedIndex, entries.length, 1, pageRows);
+    },
+  });
 
   function onClick(ev: MouseEvent<HTMLDivElement>) {
     const id = entryIdOf(ev.target);

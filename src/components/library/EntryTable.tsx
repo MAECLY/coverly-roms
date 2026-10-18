@@ -1,11 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
-import {
-  useContext,
-  useMemo,
-  type KeyboardEvent,
-  type MouseEvent,
-} from 'react';
+import { useContext, useMemo, type MouseEvent } from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Button } from '@/components/ui/button';
@@ -15,11 +10,13 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { MEDIA } from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
+import type { Section } from '@/lib/grouping';
 import { nextIndex } from '@/lib/keyboardNav';
 import type { Sort, SortKey } from '@/lib/sort';
 
 import { ArtStatusIcon } from './ArtStatusIcon';
 import { entryIdOf, type EntryListProps } from './views/types';
+import { useViewKeys } from './views/useViewKeys';
 
 export const ROW_H = 34;
 
@@ -33,7 +30,14 @@ const COLUMNS: readonly { key: SortKey; label: string }[] = [
 export interface EntryTableProps extends EntryListProps {
   sort: Sort;
   onSort(key: SortKey): void;
+  /** Section ranges into `entries`, for ⌥↑/⌥↓; none means one group. */
+  sections?: readonly Section[];
+  /** Space: quick look at the active entry. */
+  onPreview?(id: number): void;
 }
+
+const NO_SECTIONS: readonly Section[] = [];
+const noPreview = () => undefined;
 
 export function EntryTable({
   entries,
@@ -43,6 +47,8 @@ export function EntryTable({
   onOpen,
   sort,
   onSort,
+  sections = NO_SECTIONS,
+  onPreview = noPreview,
 }: EntryTableProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
@@ -72,23 +78,16 @@ export function EntryTable({
     initialRect: size,
   });
 
-  function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
-    // Keys pressed on a header sort button belong to that button.
-    if (ev.target !== ev.currentTarget) return;
-    if (ev.key === 'Enter') {
-      if (selectedId !== null) {
-        ev.preventDefault();
-        onOpen(selectedId);
-      }
-      return;
-    }
-    const next = nextIndex(ev.key, selectedIndex, entries.length, 1, pageRows);
-    const entry = next === null ? undefined : entries[next];
-    if (next === null || !entry) return;
-    ev.preventDefault();
-    onSelect(entry.id);
-    virtualizer.scrollToIndex(next, { align: 'auto' });
-  }
+  const onKeyDown = useViewKeys({
+    entries,
+    sections,
+    selectedIndex,
+    onSelect,
+    onOpen,
+    onPreview,
+    scrollToIndex: (i) => virtualizer.scrollToIndex(i, { align: 'auto' }),
+    move: (key) => nextIndex(key, selectedIndex, entries.length, 1, pageRows),
+  });
 
   function onClick(ev: MouseEvent<HTMLDivElement>) {
     const id = entryIdOf(ev.target);
