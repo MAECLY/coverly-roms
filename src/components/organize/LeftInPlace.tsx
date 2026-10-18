@@ -7,6 +7,7 @@ import { useT } from '@/i18n/useT';
 import type { OrganizeItem, SystemInfo } from '@/ipc/types';
 import { ROWS_PER_GROUP, leftReasonText } from '@/lib/organize';
 
+import { NewBadge, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
   fileList,
@@ -26,6 +27,8 @@ interface Props {
   deepFolders: number;
   disabled?: boolean;
   onDecide(itemIds: number[], choice: OrganizeChoice): void;
+  /** Files the last "scan again" found. */
+  isNew?: IsNew;
 }
 
 /** What stays where it is, with the reason (spec §4.2.5). */
@@ -36,6 +39,7 @@ export function LeftInPlace({
   deepFolders,
   disabled = false,
   onDecide,
+  isNew,
 }: Props) {
   const t = useT();
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
@@ -55,10 +59,15 @@ export function LeftInPlace({
           <ul className={fileList}>
             {items.slice(0, visible).map((item) => {
               const name = item.sources[0] ?? '';
+              const fresh = isNew?.(item) ?? false;
               return (
-                <li key={item.id} className={fileRow}>
+                <li
+                  key={item.id}
+                  className={fresh ? `${fileRow} ${newRow}` : fileRow}
+                >
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className={`${pathText} min-w-0 flex-1`}>{name}</span>
+                    {fresh && <NewBadge />}
                     {item.action === 'left' &&
                       item.reason.kind === 'unknown' && (
                         <NativeSelect
