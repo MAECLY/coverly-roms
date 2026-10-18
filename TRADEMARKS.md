@@ -50,16 +50,16 @@ reads files for. Those names belong to their owners, and their use here only
 describes compatibility: Tauri, React, libretro, RetroArch, EmulationStation,
 ES-DE, Batocera, Knulli, muOS, Onion, GarlicOS, MinUI, NextUI, Anbernic, Miyoo,
 TrimUI, ScreenScraper, SteamGridDB, TheGamesDB, Skraper, Skyscraper, Nintendo,
-Sega, Sony, PlayStation, SNK, Neo Geo, Atari, NEC, Bandai, WonderSwan,
-Commodore, Capcom, CP System, MSX, IGS, PGM, Lexaloffle, PICO-8, ScummVM, MAME,
-FinalBurn Neo, Apple, macOS, Finder, Microsoft, Windows, Explorer, Linux,
-GitHub, and similar marks. WonderSwan is a trademark of Bandai, and MSX of MSX
+Pokémon, Sega, Sony, PlayStation, SNK, Neo Geo, Atari, NEC, Bandai,
+WonderSwan, Commodore, Capcom, CP System, MSX, IGS, PGM, Lexaloffle, PICO-8,
+ScummVM, MAME, FinalBurn Neo, Apple, macOS, Finder, Microsoft, Windows,
+Explorer, Linux, GitHub, and similar marks. WonderSwan is a trademark of Bandai, and MSX of MSX
 Licensing Corporation (not Microsoft). Game titles, box art and screenshots
 belong to their respective publishers and developers.
 
 System icons are simplified silhouettes of compatible hardware, shown next to
 the system's name only to identify it. They are not the makers' logos and
-imply no endorsement. Licence notices for the third-party code compiled into the app are
-in `THIRD-PARTY-NOTICES.md`.
+imply no endorsement. Licence notices for the third-party code compiled into
+the app, and for the icons, are in `THIRD-PARTY-NOTICES.md`.
 
 Copyright © 2026 Miguel Angel Esparza Calero (MAECLY).
