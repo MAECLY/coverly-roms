@@ -616,7 +616,8 @@ these files by hand; change the source map in
 
 - Recoloured: every fill and stroke other than \`none\` is \`currentColor\`.
 - Optimised with SVGO (metadata, editor data, ids, classes and styles removed;
-  path data re-encoded losslessly, the drawn shape is unchanged).
+  path data re-encoded with coordinates rounded to 3 decimals, which leaves the
+  drawn shape visually unchanged).
 - Full-canvas clip paths removed; the cropped viewBox does the same job.
 - ViewBoxes synthesised from \`width\`/\`height\` where the source had none,
   then cropped to the drawing plus 2% on each axis.
