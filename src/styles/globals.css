@@ -1025,6 +1025,22 @@ time {
   color: inherit;
 }
 
+/* Icon + name (SystemLabel): the name truncates, the icon keeps its box. */
+.system-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375em;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.system-label__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The abbreviation mount: the brand's Slot made small. Its font-size is the
    box height (set inline), so the text sizes below are fractions of it. */
 .system-mount {
