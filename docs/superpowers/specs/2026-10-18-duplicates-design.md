@@ -1,6 +1,7 @@
 # Coverly ROMs — Duplicates (Design Spec)
 
 > Status: **Draft for review** · Date: 2026-10-18 · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Revised after an adversarial review (false positives, data loss, UX traps, 50k-file scale): functional headers, arcade set names, soft patches, BIOS by hash, overlapping sets, level 3 volume fingerprint, off-card saves, pile-side quarantine, honest space wording, cross-volume preflight, volume-UUID cache keys, bulk confirm.
 > Extends [`2026-10-17-organize-loose-roms-design.md`](2026-10-17-organize-loose-roms-design.md) (its §2 listed "deleting duplicates" and "1G1R curation" as non-goals; this spec brings them in, without ever deleting).
 > Branch: `feat/organize-dedupe`. Depends on the archive and disc work in `feat/organize-disc-archives` (§7.4). Spec and plan only: no code in this branch until the plan is approved.
 
@@ -25,7 +26,7 @@ Coverly must be able to:
 | OS Trash optional, off by default, never hard delete | Trash undo is "restore by hand" and says so before you choose it (§7.2) |
 | Level 2 (1G1R) opt-in, report-only by default | Level 2 also needs both copies identified by the catalogue; unknown dumps never join a level 2 group |
 | Exact copies with different saves: warn, touch nothing | A blank memory card or an all-`0xFF` save counts as "no save" (§8.2) |
-| Never decide by file name alone | File names are never a grouping key at any level; they appear only as display and as the last tie-breaker among already-identical copies |
+| Never decide by file name alone | File names are never a grouping key at any level. A name may only **split or downgrade** a group (arcade set names §5.2, hack/translation tags §5.4), never create or upgrade one; otherwise names appear only as display and as the last tie-breaker among copies proven to be the same game |
 | Organise step + library action + `coverly dedupe` (dry run unless `--apply`) | Library action opens its own screen, `navStore.screen = 'duplicates'` (§10) |
 
 ## 2. Goals and non-goals
@@ -51,7 +52,7 @@ Coverly must be able to:
 
 ## 3. Users and success
 
-- **Handheld owner tidying a card** (primary): opens the library, presses **Duplicados**, reads "89 copias de más en 88 juegos. Liberarías 1,53 GB.", checks two groups, presses **Apartar 89 archivos**, gets `_Duplicados/` next to `ROMS/` with the same folder shape inside, and can undo in one click.
+- **Handheld owner tidying a card** (primary): opens the library, presses **Duplicados**, reads "89 copias de más en 88 juegos. Quitarías 1,53 GB de ROMS/.", checks two groups, presses **Apartar 89 archivos**, gets `_Duplicados/` next to `ROMS/` with the same folder shape inside, and can undo in one click.
 - **Organising a pile into an existing card**: the Organise proposal says "6 ya están en tu biblioteca" and sets those aside instead of copying them in.
 - **Curator who wants 1G1R**: turns on "Apartar también otras versiones", reorders regions in Matching, applies.
 - **Scripter**: `coverly dedupe /Volumes/SD --report json` in a cron job, `--apply` when happy.
@@ -66,7 +67,7 @@ Success on the owner's real library `~/Documents/ROMS` (§15): the dry run finds
 | **Library action** | One library (all systems, or the systems you pick) against itself | `DuplicatesScreen`, job `JobKind::Dedupe` |
 | **CLI** | `coverly dedupe <ROOT>` | Table or JSON report; `--apply` writes a `Dedupe` job |
 
-The Organise step replaces today's `mark_duplicates` ("shortest file name wins", `organize/target.rs:700`) with the keeper rules, and fixes the content key so a headered and a headerless dump match (§5.2). Pile items that are already in the target system folder become `LeftReason::InLibrary{path, relation}` and are offered to the quarantine, never copied in.
+The Organise step replaces today's `mark_duplicates` ("shortest file name wins", `organize/target.rs:700`) with the keeper rules, and fixes the content key so a headered and a headerless dump match (§5.2). Pile items that are already in the target system folder become `LeftReason::InLibrary{path, relation}` and are offered to the pile-side quarantine (`<pile root>/_Duplicados/`, §7.1), never copied in or onto the card.
 
 ## 5. Detection
 
@@ -77,6 +78,10 @@ The planner works on **units**, not files:
 - A **single ROM** (raw file or single-entry zip).
 - A **set**: a `.cue` with its tracks, a `.gdi` with its tracks, a `.ccd/.img/.sub` triple, an arcade zip (all entries), a multi-disc `.m3u` with its discs, a multi-disc `.pbp`. A set is never split, and a track that belongs to a set is never a unit on its own.
 - **Excluded** before grouping: anything under `PORTS/`, `BIOS/`, `APPS/`, art folders (`art_dir_names`), `Saves/` folders, the quarantine folder itself, files the walk classes as BIOS (e.g. `PS/Grandia.bios`), partial downloads, unreadable files (reported, never fatal), and multi-game archives.
+- **BIOS anywhere**, not only by folder: files whose hash or name is in the libretro `System.dat` firmware list (`scph1001.bin`, `scph5501.bin`, `scph7003.bin`, `disksys.rom`, `gba_bios.bin`, `bios7.bin`…), DAT entries with `isbios="yes"` or a `[BIOS]` name, and arcade BIOS/device sets (`neogeo.zip`, `pgm.zip`, `qsound.zip`…). Several PS BIOS files are byte-identical under different names and each core asks for its own name, so "setting aside the copy" breaks a core. They are never units.
+- **Not a ROM**: zero-byte files and files whose magic contradicts their extension (an HTML error page saved as `.zip`, §15.5). Identical junk would otherwise form large "exact" groups. Reported as "No es una ROM", never grouped. AppleDouble `._*`, `.DS_Store` and hidden files are already skipped by `scan/classify.rs`; the dedupe walk uses the same predicates.
+- **Links**: a symlinked file is not a unit (its target may be the keeper, and moving the target would break it); it is reported. Two paths with the same file id (hard links) are one unit, since moving one frees nothing.
+- **Overlapping sets**: sets are built as a reference graph (m3u → cue → bin). Two units that reference the same file (two `.cue` sheets over one `.bin`, an m3u and a loose cue listing the same disc) are merged into one unit before grouping, so a shared track can never move away from a keeper that needs it.
 
 **Scope key**: every key below starts with the unit's **system id**, taken from its system folder (library) or from the organise identification (pile). Two units in different systems are never compared. This is a hard rule in the grouping function, not a filter in the UI.
 
@@ -91,14 +96,21 @@ Same game data, whatever the name, container, header or compression.
 | Single-entry zip | candidate `(system, inner crc32, inner size)` from the central directory; confirmed by `sha1(inner payload)` (decompressed, header rule applied) | 1.00 once confirmed, 0.97 CRC-only | confirmed only |
 | Raw vs zip of the same ROM | both reduce to the same payload key | 1.00 | yes |
 | Arcade / multi-entry zip | `(system, sorted multiset of (crc32, size) over all entries)`; entry names ignored | 0.99 (two or more 32-bit CRCs must all agree) | yes |
-| Disc set (cue/gdi/ccd) | `(system, ordered list of per-track sha1)`; cue sheet text ignored | 1.00 | yes |
-| CHD | `(system, rawsha1)` from the CHD v5 header (bytes 64–83, covers the uncompressed data); v3/v4 use their `sha1` field | 1.00 | yes |
+| Disc set (cue/gdi/ccd) | `(system, ordered list of per-track sha1, normalised track layout)`; layout = track count, mode, `INDEX`/`PREGAP`/`POSTGAP` per track; file names, comments and `REM` lines ignored | 1.00 | yes |
+| CHD | `(system, sha1)` from the CHD v4/v5 header: the combined hash of data **and** metadata (track layout), independent of compressors and hunk size; v3 uses its `sha1` | 1.00 | yes |
+| CHD, same `rawsha1`, different combined `sha1` | same data, different track metadata (one may have a broken layout) | 0.97 | report-only ("Sin confirmar") |
 | PBP, CSO, RVZ, ISO | `(system, sha1(file), size)`, hashed only when another unit of the same system has the same size | 1.00 | yes |
 | 7z / rar / tar.gz (via the other branch's reader) | same as single-entry zip, using the reader's CRC listing | 0.97 → 1.00 after a bounded decode | confirmed only |
 
 **Bucketing keeps it cheap.** Per system: bucket by payload size → within a bucket of two or more, compare a 128 KiB prefix CRC (`sniff::PREFIX`) → full SHA1 only for units still colliding. Zips bucket on central-directory CRC for free. A singleton bucket is never hashed. The existing `max_hash_mb` cap (64 MiB) does **not** apply to a unit that is already in a colliding size bucket; the user sees "Comparando 2 archivos de 693 MB…" instead.
 
 **CRC-only matches** (a zip whose entry is too big to decode within the per-file budget, or an archive the reader can list but not decode) are shown as level 1 with the badge "Sin confirmar / Not confirmed" and are **report-only**.
+
+**Functional headers are not copier headers.** The NES (iNES/NES 2.0), Lynx (`LYNX` rotation) and Atari 7800 (`ATARI7800` cart type, POKEY) headers tell the emulator how to run the game, and a wrong header gives a broken game. The payload key still groups them, but when the 16/64/128-byte headers of two members differ the group is **report-only** (`ReportOnly{HeaderDiffers}`, "Mismo juego, cabecera distinta") unless exactly one header matches the header database the identify step already uses; that member is then the only keeper candidate. A headerless NES copy is never preferred over a headered one. SNES/SMS/GG copier headers and the FDS fwNES header carry nothing a core needs and do not block.
+
+**Arcade: the file name is the driver.** MAME and FBNeo load a set by its zip stem, so two byte-identical zips with two **valid** set names (`ffight.zip`, `ffightu.zip`; a parent and a clone that happen to share every ROM) run different drivers and are not duplicates. In arcade systems a level 1 group forms only among members whose stem is not a known set name for that system (`ffight (1).zip`, `ffight copy.zip`) plus at most one member whose stem is; that member is the forced keeper. With no arcade DAT cached, arcade groups are report-only. This is the "names may split, never join" rule of §1.
+
+**Soft patches make a different game.** RetroArch and most frontends apply a same-stem `.ips`/`.bps`/`.ups`/`.xdelta`/`.ppf` at load time. `Game.sfc` + `Game.ips` and an unpatched `Game (1).sfc` are byte-identical files but different games. A unit's key includes the sorted SHA1s of its soft-patch companions; units with different patch sets never share a level 1 key.
 
 A unit with a DAT hit also carries `dat_game` (system, game name). It is not part of the level 1 key: two dumps of the same DAT game with different bytes (`[b]` bad dump vs good) are level 2, not level 1.
 
@@ -108,10 +120,11 @@ Revisions, regions, betas and prototypes of one game. Only units with a **catalo
 
 **Key:** `(system, title_key(dat_game), disc_no)` where `title_key` comes from a new `identify::names::parse_tags` (§12.2) applied to the **DAT game name** (never to the file name):
 
-- Strips **known** groups: regions and languages (No-Intro words and GoodTools letters `(JUE)`), `(Rev N)` / `(Rev A)` / `(V1.1)` / `(v1.02)`, dump flags `[!] [a] [b] [o] [h] [t] [f]`, `(SGB Enhanced)`, `(GB Compatible)`, `(Rumble Version)`, `(Virtual Console)`, dates, `(Beta)`, `(Proto)`, `(Demo)`, `(Sample)`, `(Kiosk)`.
+- Strips **known** groups: regions and languages (No-Intro words and GoodTools letters `(JUE)`), `(Rev N)` / `(Rev A)` / `(V1.1)` / `(v1.02)`, dump-quality flags `[!] [a] [b] [o]` only, `(SGB Enhanced)`, `(GB Compatible)`, `(Rumble Version)`, `(Virtual Console)`, dates, `(Beta)`, `(Proto)`, `(Demo)`, `(Sample)`, `(Kiosk)`.
 - **Keeps** the disc number (`(Disc 2)` is never merged with `(Disc 1)`).
 - **Keeps every unknown group** as part of the key. `Hippo Teeth (Sporty Time & Fun)` and `(Mini Time & Fun)` stay apart; an unrecognised edition tag is evidence of a different product until a P/C list says otherwise.
-- **Keeps** translations, hacks and `(Unl)` / `(Pirate)` in their own class: `Heracles no Eikou (Japan)` and `(Translated En)` are not offered as one game (open question 3).
+- **Keeps** translations, hacks and `(Unl)` / `(Pirate)` in their own class: `Heracles no Eikou (Japan)` and `(Translated En)` are not offered as one game (open question 3). GoodTools modification flags are part of that class and are **not** stripped: `[h…]` hack, `[t…]` trainer, `[T+…]`/`[T-…]` translation, `[f…]` fixed, `[p…]` pirate. They name modified programs, not worse dumps of the same one.
+- Never groups DAT entries flagged as BIOS (§5.1).
 - Folds case, accents, punctuation and roman numerals as `compare_key` does today.
 
 Each unit also records `class` (retail, beta, proto, demo, sample), `revision` (parsed into a comparable `(major, minor, letter)`; GoodTools `V1.1`, No-Intro `Rev 1`, `Rev A` and `v1.02` all normalise) and `regions`.
@@ -135,14 +148,21 @@ Rules:
 - Different serials are never merged, even with the same name and size class: `Driver 2.img` (SLUS-01161) and `Driver 2.bin` (SLUS-01318) are discs 1 and 2, not copies (§15).
 - When the cached Redump DAT maps the serial (schema v3, §12.3) to game names with **different** `title_key`s, the group is report-only (some demo and compilation discs reuse serials).
 - Without a serial (CHD that the reader cannot open, CDI), the unit only takes part in level 1.
+- **`disc_no` must be known.** Saturn, Sega CD and Dreamcast reuse one product number on every disc of a game; the disc number comes from the `IP.BIN` device field (`CD-ROM2/3`, `GD-ROM1/2`), PS from `PARAM.SFO` / the m3u position. A unit whose `disc_no` is unknown takes part in level 3 only when the DAT says that serial has a single disc; otherwise level 1 only.
+
+**A serial names a product, not a build.** Fan translations, undubs, LibCrypt/PPF-patched images and most hacks keep the original `SYSTEM.CNF`, so they share its serial; so do many reprints and revisions (`Greatest Hits`, `Platinum`, `Rev 1`). A level 3 match therefore also needs a **volume fingerprint** read through the same disc reader: the ISO 9660 primary volume descriptor's volume space size and creation/modification timestamps, plus the SHA1 of the disc's own boot file (`SYSTEM.CNF` for PS1/PS2, `IP.BIN` for Sega, `PSP_GAME/PARAM.SFO` inside a UMD image). Never the outer EBOOT `PARAM.SFO` of a PS1 PBP: converters rewrite its title and ID, so it would split real copies. These sit in the first sectors of the data track, survive any container (bin, img, iso, chd, pbp, cso) and change with a remaster or a re-mastered translation.
+
+- Same serial list **and** same fingerprint (or every member hits the same Redump entry by hash): the group acts.
+- Same serial, different or unreadable fingerprint: report-only, `ReportOnly{BuildDiffers}`, "Mismo número de serie, contenido distinto (¿otra revisión o un parche?)". With 1G1R on, it is treated as a level 2 group.
+- **Names can only veto.** If any member's file name carries a modification tag (`[T+…]`, `[h…]`, `Hack`, `Translated`, `Traducido`, `Undub`, `(Patched)`, a same-stem `.ppf`), the group is report-only. A tag never makes anything act.
 
 | Evidence | Confidence |
 |---|---|
-| Same serial list, Redump DAT agrees on one game | 0.97 |
-| Same serial list, no DAT row for it | 0.90 |
-| Partial set, conflicting DAT names | report-only |
+| Same serial list + same volume fingerprint, Redump DAT agrees on one game | 0.97 |
+| Same serial list + same volume fingerprint, no DAT row for it | 0.90 |
+| Same serial, different fingerprint; partial set; conflicting DAT names; modification tag | report-only |
 
-Level 3 acts by default, like level 1 (owner's decision).
+Level 3 acts by default, like level 1 (owner's decision), within these limits.
 
 ### 5.5 Building groups
 
@@ -164,17 +184,20 @@ Rules compare members **pairwise in order**; the first rule that tells two membe
 |---|---|---|---|
 | 0 | `user` | The copy you chose for this group before (remembered by group content, §9.3) | all |
 | 1 | `has_save` | The copy with a real save or state (§8.2) | all |
+| 1b | `played` | The copy the frontend says you played: `gamelist.xml` `<playcount>` / `<lastplayed>` / `<favorite>` (profiles with a gamelist); a hint that a save may live off the card (§8.2) | all |
 | 2 | `in_library` | A copy already in a system folder over a pile copy (Organise step only) | all |
-| 3 | `verified` | DAT hash hit > unknown; good dump > `[b]`/`[o]`/`[h]`/`[t]`/`[f]`; headerless clean dump > copier-headered | all |
+| 3 | `verified` | DAT hash hit > unknown; good dump > `[b]`/`[o]`; for copier headers (SNES, SMS/GG) headerless > headered. Never prefers a headerless NES/Lynx/A7800 copy (§5.2). Modified programs (`[h]`/`[t]`/`[T]`/`[f]`) are never in the same group as their original, so this rule never weighs them | all |
 | 4 | `retail` | Retail > beta > proto > demo/sample | level 2 |
 | 5 | `region` | First match in `settings.matching.regions` (`rom` entry skipped) | level 2 (level 1/3 copies share regions; ignored when equal) |
 | 6 | `revision` | Highest revision | level 2 |
 | 7 | `container` | Earliest in the profile's container order (§6.3) | all |
 | 8 | `cover` | Has art in at least one of the profile's slots | all |
-| 9 | `catalogue_name` | File stem equals the DAT game name (normalised) — among already identical copies only | all |
+| 9 | `catalogue_name` | File stem equals the DAT game name (normalised) — only among members proven to be the same game (level 1, or level 3 with a matching volume fingerprint); never in level 2 | levels 1 and 3 |
 | 10 | `tie` | Oldest modified time, then path order. Marked as a tie in the UI | all |
 
-`has_save` is above everything automatic because moving the copy you play away from its save is the worst outcome of a dedupe. `catalogue_name` is the only place a file name is read, and only to choose among copies already proven equal.
+`has_save` is above everything automatic because moving the copy you play away from its save is the worst outcome of a dedupe. `catalogue_name` is the only place a file name is read to choose a keeper, and only among copies already proven to be the same game.
+
+**A remembered pick never outranks a new save.** `user` sits above `has_save` only for a pick made in this session. A remembered pick (§9.3) is dropped, and the group flagged "Tu elección anterior ya no vale: la otra copia tiene ahora una partida", when a non-keeper has a real save the keeper lacks, or any member's save changed since the pick. When you pick, in the session, a keeper that sends a real save into the quarantine, the tray row warns inline: "Su partida {save} se irá con ella a {folder}; el juego que se queda no la verá."
 
 ### 6.2 The reason
 
@@ -184,6 +207,7 @@ The planner returns a typed `KeepReason` with the rule and the two values that d
 pub enum KeepReason {
     UserChoice,
     HasSave { path: PathBuf },
+    Played { playcount: u32 },
     InLibrary,
     Verified { kept: DumpQuality, other: DumpQuality },
     Retail { other: ReleaseClass },
@@ -226,6 +250,10 @@ Extras move to `<quarantine>/<system folder>/<rel_dir>/<file name>`, keeping the
 - The writer uses one root that holds both (organise spec "option B"), so ROM moves, art moves and `gamelist.xml` edits share one journal and stay instant renames on one volume.
 - If the parent is not writable, is a volume list (`/Volumes`) or a system root, the quarantine falls back to `<library root>/_Duplicados` and the planner adds it to the walk's skip list and the scan's ignored folders.
 - A **custom folder** (`dedupe.quarantine_dir`, `--quarantine`) may be anywhere. On another volume the writer uses root = quarantine and source root = library: moves become verified copies + delete (organise `copy_into`), the space check runs, and `gamelist.xml` edits are skipped with a note ("La lista de juegos de {system} no se ha actualizado").
+- **Pile extras stay on the pile's side.** In the Organise step, a pile item that is already in the library (or loses to another pile item) moves to `<pile root>/_Duplicados/`, on the pile's volume, as an instant rename. It is never copied onto the card just to be set aside, which would spend card space on a file the user does not want there. Library extras use the library-side quarantine.
+- **Same volume frees nothing on that volume.** Moving to `/Volumes/SD/_Duplicados` takes 1,53 GB out of `ROMS/` (shorter game lists) but the card is exactly as full. Every count of bytes says **where** they leave ("Quitarías 1,53 GB de ROMS/"), never "liberar" alone; the done state adds "La tarjeta sigue igual de llena hasta que vacíes {folder} o lo muevas a tu ordenador" when the quarantine shares the volume with the library and that volume is removable. The `Cambiar…` picker suggests a folder on the computer for removable libraries.
+- **Cross-volume preflight.** Before the first move to a quarantine on another volume, the planner probes the destination file system and marks items that cannot land there as `SkipReason::DestinationLimit` (never a mid-copy failure): files over 4 GiB on FAT32 (PS2 ISOs, large CHDs), names with characters FAT/exFAT/NTFS reject (`: * ? " < > |`, trailing dot or space), paths over the destination's length limit, and collisions that only exist on a case-insensitive destination (`Tetris.gb` vs `tetris.gb`; `Collision::Rename` compares with the destination's case rule). Free space is checked against the sum of the items that will copy.
+- **Verified copy means read back.** On a cross-volume move the copy is fsynced and re-hashed from the destination before the source is unlinked (organise `copy_into`); a mismatch removes the copy and leaves the source.
 - The quarantine folder is **always** skipped by Organise walks, library scans, detection and later dedupe runs.
 - Each job writes `<quarantine>/<job id>.txt` (journaled `Created`): one line per extra, `kept → set aside`, with the reason. It is for people who look at the folder without Coverly.
 
@@ -236,6 +264,7 @@ Extras move to `<quarantine>/<system folder>/<rel_dir>/<file name>`, keeping the
 - Uses the `trash` crate (new dependency, platform API, no shelling out). Each file is journaled as a new op `Trashed { from }` with its fingerprint **before** the call.
 - **Undo cannot restore automatically** on every OS. The undo report lists each trashed path with "Recupéralo desde la Papelera (Volver a poner)" / "Restore it from the Trash (Put Back)". This is said in the setting's help text and in the confirm dialog before the first trash apply.
 - On a removable volume, the Trash lives on the card (`.Trashes`) and frees no space until emptied; the confirm dialog says so. If the volume has no Trash (FAT on some systems), that item fails and the file stays.
+- The extra's travelling companions and art (§9.1) go to the Trash with it, each journaled as its own `Trashed`; shared-stem companions stay, as with the quarantine.
 - Older builds see `Trashed` as `Unknown` and mark the job not undoable. That is the intended safe reading.
 
 ### 7.3 Report only
@@ -255,11 +284,17 @@ No file action. Applies to: level 2 without 1G1R, CRC-only matches, partial disc
 7. Never hard delete. The only unlink of a ROM is the source delete after a verified cross-volume copy.
 8. Exact copies with different saves: no action for the whole group (§8.3).
 9. Revalidate every extra (size + mtime) before moving; changed → `ChangedSincePlan`, left alone.
-10. Everything below `PORTS/`, `BIOS/`, `APPS/`, art and save folders is out of scope.
+10. Everything below `PORTS/`, `BIOS/`, `APPS/`, art and save folders is out of scope; BIOS files are out of scope wherever they are (§5.1).
+11. Never move a file another unit references (overlapping sets are merged, §5.1) and never move the target of a symlink.
+12. Never act on a group where a file name signals a modification, functional headers differ, or a disc build differs (§5.2, §5.4): report-only.
+13. Never write a quarantine copy that the destination file system cannot hold; preflight, then skip with a reason (§7.1).
 
 ### 8.2 What counts as a save
 
-A **save** is a companion with a save extension (`.sav .srm .rtc .eep .fla .mpk .state .state1… .state.auto`, plus any in `organize.companion_exts` marked as save) with the unit's stem in the same folder or in the profile's save folder.
+A **save** is a companion with a save extension (`.sav .srm .rtc .eep .sra .fla .mpk .dsv .mcd .mcr .state .state1… .state.auto`, plus any in `organize.companion_exts` marked as save) with the unit's stem in the same folder or in the profile's save folders, **including per-core subfolders** (`saves/<core>/<stem>.srm`, `states/<core>/<stem>.state*`, RetroArch "sort by core").
+
+- **Saves keyed by serial or title, not stem** (DuckStation `memcards/<serial>.mcd`, PPSSPP `SAVEDATA/<serial>*`, MAME `nvram/<set>/`) are shared by every member of a level 3 group and always stay.
+- **Saves that live off the scanned tree.** Some profiles keep saves on the device's internal storage (muOS internal, stock firmwares writing beside the frontend). The profile declares `save_locations`; when any is outside the library root, `has_save` cannot see them, so the screen shows once per system: "Este dispositivo puede guardar partidas fuera de la tarjeta. Si juegas a {system}, comprueba qué copia usas antes de apartar." and the `played` rule (§6.1) is the only evidence.
 
 A save is **blank** (counts as "no save") when it is all `0x00` or all `0xFF`, or when it is a PS1 memory card with the `MC` header and no used directory frames. The owner's library has three identical blank PS cards (`Crash Bash.srm`, `Tekken 3.srm`, `Iron fist 3.srm`, md5 `36c002e5…`, 128 KiB, 193 non-zero bytes): they must not trigger a conflict and must not decide `has_save`.
 
@@ -267,7 +302,7 @@ A save is **blank** (counts as "no save") when it is all `0x00` or all `0xFF`, o
 
 A group where two or more members have **real saves with different content** is a conflict:
 
-- Shown as its own block, warning icon, "No se tocará nada".
+- Shown as its own block, warning icon, "No se tocará nada". Each save is listed with its size and modified date (mono) and an "Abrir carpeta" link, so you can decide by hand which copy you play.
 - No keeper radio, no destination, not counted in the apply total.
 - The CLI lists it under `conflicts` and exits 0 (a dry run that finds conflicts is still a success).
 - If the saves are byte-identical, the group is not a conflict: the keeper keeps its own copy and the extra's save travels with it.
@@ -286,6 +321,10 @@ For each extra the planner collects:
 
 Companions keep their names (dedupe never renames). A companion that fails to move is left in place and reported; it never fails the item.
 
+**Art leaving with the extra.** When an extra takes art from a slot where the keeper has none (different stems, the keeper won on a rule above `cover`), the tray row says "La portada se va con esta copia; {keeper} se quedará sin portada" and the done state offers "Buscar portadas para {count} juegos" (a Fill run on those keepers). Dedupe itself never writes art for the keeper (hard rule 3).
+
+**AppleDouble.** On FAT/exFAT volumes written by macOS, a `._<name>` beside the extra or its companions moves with it; it is never left orphaned and never a unit.
+
 ### 9.2 Journal and undo
 
 - New `JobKind::Dedupe` (`write/mod.rs:221`). Header carries `root`, `source_root`, `kind`, `created_at`, plus `quarantine` (optional field).
@@ -297,17 +336,21 @@ Companions keep their names (dedupe never renames). A companion that fails to mo
 
 ### 9.3 Remembered choices
 
-`dedupe_choices` table, keyed by the group's **content signature** (sorted member content keys), holds the chosen keeper's content key. A later run on the same content restores your pick (`KeepReason::UserChoice`) even after renames or moves. Clearing: "Volver a aplicar las reglas" in the screen, `--reset-choices` in the CLI.
+`dedupe_choices` table, keyed by `(system, chosen keeper's content key)`, with the group signature (sorted member content keys) and the saves fingerprint at the time of the pick stored alongside. A later run restores your pick (`KeepReason::UserChoice`) whenever that content is still a member of the group, even after renames, moves or a new copy joining; it is dropped under the save rule of §6.1. Clearing: "Volver a aplicar las reglas" in the screen, `--reset-choices` in the CLI.
 
 ## 10. Performance and caching
 
 - **Library path** uses the existing `quick_ids` memo (path + size + mtime → `HashOutcome`), extended with headerless SHA1 and payload SHA1 for zips (`HashOutcome` v2, old rows re-hashed lazily).
-- **Content side table** `content_keys` (schema v3): `(dev, inode, size, mtime_ns) → keys JSON` plus a reverse index by key. A quarantine move or undo on one volume keeps dev + inode, so the next run does not hash again. On a cross-volume move the writer re-keys the row to the new path, as `rekey_override` does.
+- **Content side table** `content_keys` (schema v3): `(volume_uuid, path, size, mtime_ns) → keys JSON`, plus `file_id` and a reverse index by key. `dev_t` is **not** a key: it is assigned per mount and changes every time a card is reinserted. The file id (inode) is used only as a **hint** to follow a renamed file, and only on file systems with stable ids (APFS, HFS+, ext4, NTFS file id). On FAT/exFAT the id is derived from the directory slot, changes on move and can be reused by another file, so a hit there is trusted only on the same path with the same size and mtime. A quarantine move or undo re-keys the row to the new path, as `rekey_override` does.
+- **Keys from the cache never act alone across paths.** A level 1 group whose key came from a row found by file id on another path is re-confirmed (full SHA1) before apply.
 - **Serials** cached in the same row (`serials`, `disc_no`).
 - **Work order:** list (stat only) → size buckets → prefix CRC on colliders → SHA1 on colliders → serial reads (bounded: `SYSTEM.CNF`, `PARAM.SFO`, header blocks; never a full disc) → DAT lookups.
 - **Workers:** 4, 2 on removable or network volumes (organise rule).
 - **DATs:** the library action uses cached DATs and downloads missing ones up to `dedupe.max_dat_downloads` (default 12, separate from organise's 4) with progress. Offline: levels 1 and 3 still run; level 2 and the `verified`/`catalogue_name` rules are skipped and the summary says which systems had no catalogue.
 - **Budget on the owner's library** (§15): ~6,200 ROM-like files under 64 MiB; only colliding buckets are hashed. The read-only scan that produced §15 took about 30 s for 91 GB with the same bucketing. Target: first run < 2 min SSD, < 10 min SD; warm run < 5 s.
+- **Size buckets are not small for cartridges.** Cartridge ROMs come in power-of-two sizes, so on a 50,000-file library thousands of raw ROMs share 256 KiB, 512 KiB, 1 MiB, 2 MiB… buckets. Bucketing saves little there; what saves the reads is reuse: (1) zips use the central-directory CRC, no read; (2) raw ROMs under `max_hash_mb` reuse the CRC/SHA1 the library scan's `quick_ids` already computed (`HashOutcome` v2 adds the headerless SHA1 in the same pass, so dedupe adds **no** read for a file the scan has hashed); (3) only raw files the scan has never hashed get the 128 KiB prefix CRC. Bucket key is the **payload** size (after the header rule), not the file size.
+- **Worst-case budget at 50k files** (cold cache, all raw, SD at ~40 MB/s): 50,000 × 128 KiB ≈ 6.4 GB of prefix reads ≈ 3 min, plus full reads of real colliders. The planner reports this phase with its own counter, and a warm run (no changed files) does no reads at all. Disc units need a few random sector reads each for the serial and volume fingerprint (§5.4), cached with the row.
+- **Pathological groups.** A group with more than 50 members (a backup folder copied into itself, placeholder files) is shown collapsed with a folder-level summary ("GB/old/ es una copia de GB/: 3.112 archivos") and is report-only until opened and confirmed (§11.3).
 - **Planning is cancellable** between units; partial results are discarded, the cache is kept.
 
 ## 11. UI and UX
@@ -361,7 +404,7 @@ Phases are a real sequence, so they are shown in order with a check when done.
 Duplicados
 /Volumes/SD/ROMS
 
-89 copias de más en 88 juegos. Liberarías 1,53 GB.
+89 copias de más en 88 juegos. Quitarías 1,53 GB de ROMS/.
 Es una propuesta: todavía no se ha movido nada.
 
 ┌ Qué buscar ──────────────────────────────────────────────────────────────┐
@@ -379,7 +422,7 @@ Es una propuesta: todavía no se ha movido nada.
   ▌(•) Ecco the Dolphin.sms                      512 KB   Se queda
   │    Se queda: tiene portada; la otra no.
   │  ┌──────────────────────────────────────────────────────────────────┐
-  │  │ ( ) Adventures of Dolphins.sms           512 KB                   │
+  │  │ ( ) Quedarme con esta  Adventures of Dolphins.sms  512 KB         │
   │  │     → _Duplicados/SMS/Adventures of Dolphins.sms                  │
   │  └──────────────────────────────────────────────────────────────────┘
   ─────────────────────────────────────────────────────────────────────────
@@ -391,10 +434,10 @@ Es una propuesta: todavía no se ha movido nada.
   ▌(•) Crash Bash.PBP                          79,6 MB   Se queda
   │    Se queda: formato preferido en Anbernic (PBP); las otras son BIN.
   │  ┌──────────────────────────────────────────────────────────────────┐
-  │  │ ( ) Crash Bash.bin                       178 MB  Otro formato     │
+  │  │ ( ) Quedarme con esta  Crash Bash.bin   178 MB  Otro formato     │
   │  │     → _Duplicados/PS/Crash Bash.bin                               │
   │  │     La partida Crash Bash.srm se queda con Crash Bash.PBP.        │
-  │  │ ( ) Crash Bash 1.bin                     178 MB  Copia exacta     │
+  │  │ ( ) Quedarme con esta  Crash Bash 1.bin 178 MB  Copia exacta     │
   │  │     → _Duplicados/PS/Crash Bash 1.bin                             │
   │  └──────────────────────────────────────────────────────────────────┘
   [ ] No tocar este juego
@@ -412,7 +455,7 @@ Anatomy, top to bottom:
 2. **Summary sentence** with exact counts and bytes, then the dry-run line. Counts are in mono.
 3. **Options strip**: levels as a multi-select `ToggleGroup` with live counts; the action as a `RadioGroup` with the destination path in mono and "Cambiar…" (`pickFolder()`); the 1G1R `Checkbox`. Changing an option re-groups from cache, no re-hash.
 4. **Conflicts alert** (`Alert variant="warning"`), always above the groups, with "Ver" scrolling to the first conflict.
-5. **Systems**: one `Collapsible` per system, trigger `SMS  Master System  23 juegos · 23 copias · 7,7 MB`. Systems with conflicts open by default; others open when total groups ≤ 50.
+5. **Systems**: one `Collapsible` per system, trigger `SMS  Master System  23 juegos · 23 copias · 7,7 MB`. Systems with conflicts open by default; others open when total groups ≤ 50. A closed system mounts no rows; an open system with more than 200 groups renders them windowed (only the visible groups plus a margin are in the DOM), so a 50k-file library with thousands of groups stays responsive. Keyboard focus and `Tab` order follow the data, not the DOM window.
 6. **Group**: title line (catalogue game name when known, else keeper stem; serial in mono for discs), relation `Badge` with icon (`Copia exacta` ⧉, `Otro formato` ◫, `Otra versión` ⟲, `Sin confirmar` ?), confidence in mono.
    - **Keeper row** on the shelf: radio checked, name, size, `Badge variant="primary"` "Se queda", and the **why line** under it.
    - **Tray** with extras: radio, name, size, relation, `→ destination` in mono, companions that travel ("+ 1 portada · + 1 partida"), and shared saves that stay ("La partida X se queda con Y").
@@ -421,17 +464,19 @@ Anatomy, top to bottom:
 7. **Sin cambios**: report-only and excluded groups, collapsed, with their reason.
 8. **Sticky action bar** (OrganizeScreen pattern): primary verb + exact count, Export report (JSON, same schema as the CLI), Cancel, and freed bytes on the right in mono. Disabled with a reason when the count is 0.
 
-**Change-keeper control.** Each group is a `RadioGroup` (`role="radiogroup"`, labelled by the group title): exactly one copy stays, which a radio expresses natively. Picking another row makes it the keeper, the shelf cap moves, the why line becomes "Se queda: lo has elegido tú.", and the choice is saved (§9.3). Arrow keys move within the group (native radio behaviour); `Tab` goes to the next group; `X` toggles "No tocar este juego" for the focused group. Shortcuts are listed in a `Kbd` legend under the options strip.
+**Change-keeper control.** Each group is a `RadioGroup` (`role="radiogroup"`, labelled by the group title): exactly one copy stays, which a radio expresses natively. **Trap to avoid:** an empty radio in a tray of "files to remove" reads like a checkbox, and people tick it to mark a file for removal, which does the opposite (it keeps that file and sends the old keeper to the tray). So every tray radio carries a visible text label, "Quedarme con esta" (`dedupe.keepThis`), and the change is confirmed in place by the moving shelf cap plus a polite live-region line "Ahora se queda {name}; {old} pasa a apartarse." with an inline "Deshacer" for 10 s. There are no per-file checkboxes for "move this one": the only per-group off switch is "No tocar este juego". Picking another row makes it the keeper, the shelf cap moves, the why line becomes "Se queda: lo has elegido tú.", and the choice is saved (§9.3). Arrow keys move within the group (native radio behaviour); `Tab` goes to the next group; `X` toggles "No tocar este juego" for the focused group. Shortcuts are listed in a `Kbd` legend under the options strip.
 
 **Bulk actions.** Per system, in the trigger's menu (`DropdownMenu`): "No tocar {system}", "Volver a aplicar las reglas en {system}". Global, under the sticky bar's overflow: "Volver a aplicar las reglas" (drops your picks for this library), "Solo copias exactas" preset.
 
-**Apply.** Quarantine: no confirm dialog (it is undoable in one click; brand §7 "say what will happen" is the button itself). Trash: `AlertDialog` with destructive action "Enviar 89 archivos a la Papelera", body naming the count, the bytes, that undo cannot restore them automatically, and the card-Trash caveat when removable. Progress: "Apartando {done} de {total}…" with `<Progress slots={16}>` and Cancel (between items).
+**Options that change the count say by how much.** Turning on "Apartar también las otras versiones" or another level shows the delta next to the control ("+37 archivos") and the primary button updates in the same frame; the change is announced in the live region. A count never grows silently at the bottom of the screen.
+
+**Apply.** Quarantine: no confirm dialog for an ordinary plan (it is undoable in one click; brand §7 "say what will happen" is the button itself). A confirm `AlertDialog` **is** shown when the plan looks unlike a tidy-up: more than 500 files, more than 25 % of the library's ROM bytes, any pathological group (§10) the user opened and confirmed, or the quarantine on another volume (moves become copies). Its body names the count, the bytes, the largest system share ("2.940 de ellos en GB/") and the destination. Trash: `AlertDialog` with destructive action "Enviar 89 archivos a la Papelera", body naming the count, the bytes, that undo cannot restore them automatically, and the card-Trash caveat when removable. Progress: "Apartando {done} de {total}…" with `<Progress slots={16}>` and Cancel (between items).
 
 **Done.**
 
 ```
 ✓ 89 archivos apartados en _Duplicados/. Deshacer está a un clic.
-  Liberado en ROMS/: 1,53 GB          [Abrir _Duplicados]  [Deshacer]  [Volver a la biblioteca]
+  Fuera de ROMS/: 1,53 GB          [Abrir _Duplicados]  [Deshacer]  [Volver a la biblioteca]
   ▸ Detalle (89)
 ```
 
@@ -472,7 +517,7 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `dedupe.phase.serials` | Números de serie | Serial numbers |
 | `dedupe.phase.catalogue` | Catálogos | Catalogues |
 | `dedupe.planning` | Comparando huellas: {done} de {total} | Comparing fingerprints: {done} of {total} |
-| `dedupe.summary` | {extras} copias de más en {groups} juegos. Liberarías {bytes}. | {extras} extra copies across {groups} games. You would free {bytes}. |
+| `dedupe.summary` | {extras} copias de más en {groups} juegos. Quitarías {bytes} de {folder}. | {extras} extra copies across {groups} games. {bytes} would leave {folder}. |
 | `dedupe.dryRunHint` | Es una propuesta: todavía no se ha movido nada. | This is a proposal: nothing has moved yet. |
 | `dedupe.level.exact` | Copias exactas | Exact copies |
 | `dedupe.level.format` | Otros formatos | Other formats |
@@ -509,6 +554,23 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `dedupe.travels.saves` | + {count} partidas | + {count} saves |
 | `dedupe.sharedSaveStays` | La partida {save} se queda con {keeper}. | The save {save} stays with {keeper}. |
 | `dedupe.catalogueCalls` | El catálogo lo llama {name} | The catalogue calls it {name} |
+| `dedupe.keepThis` | Quedarme con esta | Keep this one |
+| `dedupe.keeperChanged` | Ahora se queda {name}; {old} pasa a apartarse. | {name} now stays; {old} will be set aside. |
+| `dedupe.why.played` | Se queda: es la que has jugado ({count} veces). | Stays: it's the one you played ({count} times). |
+| `dedupe.saveLeaves` | Su partida {save} se irá con ella a {folder}; el juego que se queda no la verá. | Its save {save} goes with it to {folder}; the copy that stays won't see it. |
+| `dedupe.choiceDropped` | Tu elección anterior ya no vale: la otra copia tiene ahora una partida. | Your earlier pick no longer applies: the other copy now has a save. |
+| `dedupe.artLeaves` | La portada se va con esta copia; {keeper} se quedará sin portada. | The cover goes with this copy; {keeper} will have none. |
+| `dedupe.offCardSaves` | Este dispositivo puede guardar partidas fuera de la tarjeta. Si juegas a {system}, comprueba qué copia usas antes de apartar. | This device may keep saves off the card. If you play {system}, check which copy you use before setting any aside. |
+| `dedupe.report.headerDiffers` | Mismo juego, cabecera distinta | Same game, different header |
+| `dedupe.report.buildDiffers` | Mismo número de serie, contenido distinto (¿otra revisión o un parche?) | Same serial, different content (another revision or a patch?) |
+| `dedupe.report.modified` | Uno de los nombres indica un parche o traducción | One of the names marks a patch or translation |
+| `dedupe.report.bigGroup` | {folder} es una copia de {other}: {count} archivos | {folder} is a copy of {other}: {count} files |
+| `dedupe.notRom` | No es una ROM | Not a ROM |
+| `dedupe.skip.destinationLimit` | {folder} no admite este archivo ({why}); sigue en su sitio. | {folder} can't hold this file ({why}); still in place. |
+| `dedupe.delta` | +{count} archivos | +{count} files |
+| `dedupe.bulk.confirmTitle` | ¿Apartar {count} archivos? | Set aside {count} files? |
+| `dedupe.bulk.confirmBody` | Son {bytes}, {share} de ellos en {system}. Irán a {folder}. | That is {bytes}, {share} of them in {system}. They'll go to {folder}. |
+| `dedupe.findCovers` | Buscar portadas para {count} juegos | Find covers for {count} games |
 | `dedupe.skipGroup` | No tocar este juego | Leave this game alone |
 | `dedupe.skipSystem` | No tocar {system} | Leave {system} alone |
 | `dedupe.resetRules` | Volver a aplicar las reglas | Apply the rules again |
@@ -522,7 +584,8 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `dedupe.applying` | Apartando {done} de {total}… | Setting aside {done} of {total}… |
 | `dedupe.done` | {count} archivos apartados en {folder}. Deshacer está a un clic. | Set aside {count} files in {folder}. Undo is one click away. |
 | `dedupe.doneTrash` | {count} archivos enviados a la Papelera. | Sent {count} files to the Trash. |
-| `dedupe.freed` | Liberado en {folder}: {bytes} | Freed in {folder}: {bytes} |
+| `dedupe.freed` | Fuera de {folder}: {bytes} | Out of {folder}: {bytes} |
+| `dedupe.sameVolumeNote` | La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador. | The card is just as full until you empty {quarantine} or move it to your computer. |
 | `dedupe.openFolder` | Abrir {folder} | Open {folder} |
 | `dedupe.partial` | Apartados: {done} · Sin tocar: {skipped} | Set aside: {done} · Left alone: {skipped} |
 | `dedupe.skip.keeperChanged` | El archivo que se queda ha cambiado; no se ha movido nada de este juego. | The file that stays has changed; nothing in this game was moved. |
@@ -568,8 +631,8 @@ Organise integration: `organize/plan.rs` calls `dedupe::group_units` on the pile
 ### 12.3 Cache schema v3
 
 - `dat_roms` + `serial TEXT`, `region TEXT`; `dat.rs::parse_game` / `parse_rom` keep `serial`, `region`, and `cloneof` when present. Index `(dat, serial)`.
-- `content_keys(dev, inode, size, mtime_ns, path, keys_json, serials_json)` + `content_key_index(key, dev, inode)`.
-- `dedupe_choices(signature PRIMARY KEY, keeper_key, chosen_at)`.
+- `content_keys(volume_uuid, path, size, mtime_ns, file_id, keys_json, serials_json, volume_fp)` + `content_key_index(key, volume_uuid, path)` (§10: `dev_t` is never stored as a key).
+- `dedupe_choices(system, keeper_key, signature, saves_fp, chosen_at, PRIMARY KEY(system, keeper_key))`.
 - Migration `2 → 3` adds columns and tables; old rows stay valid.
 
 ### 12.4 Contract with `feat/organize-disc-archives`
@@ -581,11 +644,16 @@ pub trait ArchiveReader {
     fn entries(&self) -> io::Result<Vec<ArchiveEntry>>;          // name, size, crc32: Option<u32>
     fn open(&self, entry: usize, budget: u64) -> io::Result<Box<dyn Read>>;
 }
-pub struct DiscId { pub serials: Vec<String>, pub disc_no: Option<u8>, pub source: DiscIdSource }
+pub struct DiscId {
+    pub serials: Vec<String>,
+    pub disc_no: Option<u8>,              // from IP.BIN device field, PARAM.SFO, m3u position
+    pub volume: Option<VolumeFingerprint>, // PVD space size + timestamps, sha1 of the disc's own boot file (§5.4)
+    pub source: DiscIdSource,
+}
 pub fn read_disc_id(path: &Path, system: SystemId) -> io::Result<Option<DiscId>>;
 ```
 
-If it is not merged when dedupe is built: zip only through the existing reader; level 3 disabled with "Otros formatos: necesita leer discos (próxima versión)"; 7z/rar units are name-only and never grouped.
+If it is not merged when dedupe is built: zip only through the existing reader; level 3 disabled with "Otros formatos: necesita leer discos (próxima versión)"; 7z/rar units are name-only and never grouped. If it lands without `volume`, level 3 groups are found but stay report-only (`BuildDiffers` cannot be ruled out).
 
 ### 12.5 App
 
@@ -603,7 +671,7 @@ New `settings.dedupe` (`settings/model.rs`), shown as a **Duplicados** block in 
 | `one_game_one_rom` | `false` | switch "Una ROM por juego" |
 | `action` | `"quarantine"` | radio: Apartar / Papelera |
 | `quarantine_dir` | `null` (= next to the ROMs folder, §7.1) | mono input + "Elegir…" (SafetySection pattern) |
-| `keep_rules` | `has_save, in_library, verified, retail, region, revision, container, cover, catalogue_name` | reorderable list (MatchingSection pattern), each with on/off |
+| `keep_rules` | `has_save, played, in_library, verified, retail, region, revision, container, cover, catalogue_name` | reorderable list (MatchingSection pattern), each with on/off |
 | `container_order` | §6.3 | per-profile list editor, collapsed |
 | `exclude_systems` | `["ports", "bios", "apps"]` | multi-select |
 | `max_dat_downloads` | `12` | advanced |
@@ -663,6 +731,8 @@ Source: `~/Documents/ROMS` (91 GB, 22,605 files, 55 systems) and `~/Documents/RO
 
 (Bytes assume the largest member stays; the real keeper rules may change the total slightly.)
 
+**Re-measure after this review.** The scan stripped NES iNES headers without comparing them. Under §5.2 an FC group whose two iNES headers differ is report-only, so the acting FC count may fall below 17 (and the bytes with it). The real-sample test asserts the **found** totals above and records the acting totals from a fresh dry run; any FC group that drops to report-only is listed with its two headers in the evidence.
+
 Cases the tests must cover:
 
 - **Only found with headers removed** (7 SFC groups): `F-1 Grand Prix Part III.smc` = `F-1 Grand Prix 3.smc`; `Slayers.smc` = `Bahamut Lagoon.smc`; `Great Battle 4.smc` = `The Great Battle 4.smc`; `Super Bomberman-Panic Bomber W.smc` = `Super Bomber Man World.smc`; plus `Spider-Man-Lethal Foes`, `F-1 Grand Prix`, `The Great Battle V`. Keeper rule `verified` prefers the headerless copy.
@@ -685,6 +755,8 @@ Cases the tests must cover:
 | SCUS-94570 | `Crash Bash.PBP` 79.6 MB · `Crash Bash.bin` = `Crash Bash 1.bin` 178 MB (same SHA1) | `Crash Bash.PBP` (container); both `.bin` set aside; blank `Crash Bash.srm` stays (shared stem) |
 | SCUS-94194 | `GranTurismo1.PBP` 454 MB · `Gran Turismo.img` 693 MB | `GranTurismo1.PBP` (container) |
 | SLPS-01300 | `Tekken 3.PBP` 504,223,641 B · `Iron fist 3.PBP` 504,238,976 B | `Tekken 3.PBP` (`catalogue_name`); blank `Iron fist 3.srm` travels |
+
+These keepers hold only if the members' volume fingerprints match (§5.4). The two Tekken 3 PBPs differ by 15,335 bytes; if that is only EBOOT packaging (icon, outer `PARAM.SFO` title) the fingerprint matches and the row stands; if the disc data differs the group is report-only `BuildDiffers`. The test records which.
 
 24 `.chd` files gave no serial from a byte scan; they need the CHD reader (§12.4) for level 3, and use `rawsha1` for level 1.
 
@@ -710,6 +782,7 @@ All fixtures are synthetic and generated in tests; no ROM data is committed.
 - **Saves**: all-zero, all-`0xFF`, blank PS card (`MC` header, empty frames) → no save; real saves equal → not a conflict, extra's save travels; real saves different → conflict, nothing in the plan acts; shared-stem save stays with the keeper (Crash Bash shape).
 - **Apply/undo** (tempdirs): quarantine path mirrors `rel_dir`; art in `Imgs/` follows; gamelist entry removed and restored; collision in the quarantine → `(2)`; keeper changed after plan → group skipped; extra changed → `ChangedSincePlan`; set moved all-or-nothing; cross-volume fallback via injected `EXDEV`; disk full → pause + resume; undo restores ROM, companions, art, gamelist; undo with a later job refuses unless `include_later`; trash op journaled, undo reports manual restore (trash backend injected); pruning keeps dedupe jobs 90 days; older journals still parse; `header_kind("dedupe")`.
 - **Exclusions**: files under `PORTS/`, `BIOS/`, `Imgs/`, `Saves/`, the quarantine folder → never units; Organise walk and library scan skip the quarantine.
+- **Adversarial review cases** (§5–§10): `PS/scph1001.bin` = `PS/scph5501.bin` (synthetic bytes, real names) → no group; `neogeo.zip` copies → no group; two zero-byte `.gba` and two identical HTML pages named `.zip` → "No es una ROM", no group; symlink → target pair → no unit for the link, target never moved; two `.cue` over one `.bin` → one unit; NES pair with equal PRG/CHR and different iNES mapper → report-only `HeaderDiffers`; NES headered vs headerless → headered stays; `ffight.zip` vs `ffightu.zip` identical with a mock arcade DAT → no group; `ffight.zip` vs `ffight (1).zip` → group, `ffight.zip` forced keeper; arcade with no DAT → report-only; `Game.sfc`+`Game.ips` vs `Game (1).sfc` → no group, and with equal `.ips` → group; CHD equal `rawsha1`, different combined `sha1` → report-only; cue/bin with equal tracks and a different `INDEX 01` → no level 1 group; DAT names with `[h1]`/`[T+Eng]` vs clean → no level 2 group; level 3 same serial + different PVD timestamp → `BuildDiffers`; PBP with rewritten outer `PARAM.SFO` + same disc → group; same serial with `[T+Spa]` in a name → report-only; Saturn two discs sharing a product number with `disc_no` unknown → no level 3; RetroArch `saves/<core>/<stem>.srm` found; DuckStation `memcards/<serial>.mcd` stays; remembered pick + new save on the other copy → pick dropped; FAT32 destination with a 4.2 GiB ISO → `DestinationLimit` before any copy; `Game:1.gb` to exFAT → `DestinationLimit`; `Tetris.gb` + `tetris.gb` (case-sensitive source) to a case-insensitive quarantine → `(2)`; content cache on FAT with a reused file id at another path → not trusted; `played` rule from `gamelist.xml`; >500-file plan → bulk confirm; 60-member group → collapsed report-only until confirmed; pile extra lands in `<pile>/_Duplicados`.
 - **Organise step**: pile item equal to a library ROM under another name → `InLibrary`, set aside; pile pair with header/headerless → one group (regression for `raw_crcs.first()`); `mark_duplicates` removed, no "shortest name" behaviour left (test asserts keeper ≠ shortest name when rules say so).
 - **Performance** (`#[ignore]`, CI-local): 10,000 synthetic files with 2% duplicates plan with `hash_rom` calls ≤ colliders; warm second run hashes 0 files; a moved file keeps its cache row (dev+inode).
 - **CLI** (`assert_cmd`): dry run writes nothing (tree hash before/after, also with `safety.dry_run_default = false`); `--apply` creates the quarantine; `--trash` with an injected backend; `--report json` matches the schema; `--keep PATH` overrides; `coverly undo` restores.
@@ -742,3 +815,6 @@ All fixtures are synthetic and generated in tests; no ROM data is committed.
 6. **Zip vs raw on handhelds.** Leave "no preference" (proposed) or prefer `zip` to save space on stock firmwares that load zips?
 7. **Organise default.** Should the Organise step set aside duplicates by default (proposed: yes, they are pile files) or only report them?
 8. **Trash Put Back.** Confirm per OS which `trash` crate backend supports Finder/Explorer "Put Back" before wording `dedupe.undo.trashed`.
+9. **Card space.** A same-volume quarantine on an SD card frees no space (§7.1). Default stays on the card (instant, undoable) with the honest wording — or default to a folder on the computer for removable libraries, accepting slower copies?
+10. **Level 3 strictness.** The volume fingerprint (§5.4) will turn some true copies (a PBP whose converter re-mastered the ISO) into report-only. Accept the false negatives, or allow acting on serial + Redump single-entry agreement alone when no member's name carries a modification tag?
+11. **Bulk confirm thresholds.** 500 files / 25 % of ROM bytes (§11.3) are guesses; tune after the real-sample run.
