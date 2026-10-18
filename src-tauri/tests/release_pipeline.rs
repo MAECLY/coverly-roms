@@ -493,9 +493,21 @@ fn release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
         "Ejecutar de todas formas",
         "SHA256SUMS",
         "<version>",
+        "<versión>",
+        "## English",
+        "## Español",
+        // The app bundle's name has a space: the command only works quoted.
+        "xattr -rd com.apple.quarantine \"/Applications/Coverly ROMs.app\"",
+        "«Windows protegió su PC»",
+        "libwebkit2gtk-4.1-0",
+        // GitHub's names for the uploaded files (release.yml stages them so).
+        "Coverly.ROMs_<version>_universal.dmg",
+        "Coverly.ROMs_<versión>_x64-setup.exe",
     ] {
         assert!(notes.contains(needle), "{needle}");
     }
+    assert!(!notes.contains("Coverly ROMs_<"), "use the uploaded names");
+    assert!(!notes.contains('!'), "brand voice: no exclamation marks");
 }
 
 #[test]

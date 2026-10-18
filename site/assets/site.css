@@ -396,6 +396,12 @@ pre {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
 }
+/* release.js swaps these once a release is out (see its header). */
+[data-rel-new][hidden],
+[data-rel-old][hidden],
+[data-rel-file][hidden] {
+  display: none;
+}
 .pill {
   display: inline-flex;
   align-items: center;
@@ -950,6 +956,27 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .dl-more li + li {
   margin-top: 6px;
+}
+/* The first-open command and its copy button (release.js shows it). */
+.cmd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.cmd pre {
+  flex: 1 1 15rem;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-code-bg);
+  color: var(--cr-code-fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cmd [hidden] {
+  display: none;
 }
 .notyet {
   display: grid;

@@ -209,7 +209,7 @@ site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs 
 	node scripts/site/og.mjs
 
 .PHONY: site-check
-site-check: ## Check the landing page: tokens, cover sprite, links, ES/EN parity, head tags, budgets, contrast, motion, art.
+site-check: ## Check the landing page: tokens, cover sprite, links, ES/EN parity, head tags, budgets, contrast, motion, art, live release.
 	node scripts/brand/build_tokens.mjs --check
 	node scripts/site/gen_covers.mjs --check
 	python3 -I scripts/site/check_site.py

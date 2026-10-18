@@ -3,10 +3,11 @@
 > **TL;DR.** Push a tag `vX.Y.Z` and `.github/workflows/release.yml` builds every
 > platform into a **draft** GitHub release, signed with the project's minisign
 > key. A person checks the draft and clicks **Publish**; from that moment the
-> app and `coverly update` offer the new version. Before the very first release
-> the owner does three one-time things: create the signing key and its two
-> secrets (§2), commit the public key to `crates/coverly-core/updater.pub` (§2),
-> and make the repository public (§3).
+> app and `coverly update` offer the new version, and the landing page links
+> it. Before the very first release the owner does three one-time things:
+> create the signing key and its two secrets (§2), commit the public key to
+> `crates/coverly-core/updater.pub` (§2), and make the repository public (§3).
+> All three are done: the key is committed and the repository is public.
 
 This runbook is for the maintainer. The design is in
 [ADR-0008](docs/adr/0008-updater-public-releases.md) (what) and
@@ -60,6 +61,10 @@ The two manifests the app and the CLI read:
 
 ## 2. One-time owner setup: the signing key
 
+**Status: done.** The real public key is in `crates/coverly-core/updater.pub`
+(commit `chore(release): add the updater public key`). Repeat this section only
+to rotate the key (§9).
+
 Only the owner does this, once, on a trusted machine. The key signs every
 update forever; the public half is compiled into every build.
 
@@ -98,6 +103,9 @@ Rules:
   intended state of a development checkout.
 
 ## 3. One-time: make the repository public
+
+**Status: done.** `MAECLY/coverly-roms` is public, with Pages served from
+`coverly-roms.maecly.com`.
 
 Settings → General → Danger zone → **Change visibility** → Public.
 
@@ -142,7 +150,7 @@ beta channel; one without is stable.
 
 When `release.yml` is green, open the draft on the Releases page and check:
 
-- every platform file is there: `Coverly ROMs_<version>_universal.dmg`, the
+- every platform file is there: `Coverly.ROMs_<version>_universal.dmg`, the
   macOS `.app.tar.gz`, the Windows `-setup.exe` and (stable only) `.msi`, the Linux
   `.AppImage` and `.deb` (x64 and ARM64), the five `coverly-<version>-<os>-<arch>`
   CLI binaries, and the `.sig` of every update artifact;
@@ -173,6 +181,28 @@ prints the new version for a stable release. Then try a real update:
 - with the previous CLI: `coverly update check` says the new version is
   available, and `coverly update install --dry-run` downloads and verifies it
   without replacing the binary; then `coverly update install`.
+
+The landing page follows on its own, two ways:
+
+- **At once, in the browser.** `site/assets/release.js` asks
+  `api.github.com/repos/MAECLY/coverly-roms/releases/latest` and, when every
+  file the page links is in the newer release, swaps the links, sizes, version
+  and date. Before the first deploy with a release, it swaps the "first
+  release on its way" wording for the released one, shows the first-open
+  steps and offers the installer for the visitor's system (the universal
+  `.dmg`, the x64 `-setup.exe` or the x64/ARM64 AppImage) next to the release
+  page. Open <https://coverly-roms.maecly.com/#descargar> in a private window:
+  the version is the new one, and the download names it.
+- **For good, a minute later.** Publishing fires `pages.yml`, whose `redeploy`
+  job runs it again on `main`; `apply_release.py` bakes the release into the
+  page (so it also works without JavaScript and for search engines). Check
+  that the run is green and that `view-source:` shows the new version.
+
+Last, try the first-open steps on a fresh download, as the landing, the README
+and the notes describe them: on macOS, `xattr -rd com.apple.quarantine
+"/Applications/Coverly ROMs.app"` lets the app open (and Open Anyway works
+without it); on Windows, SmartScreen's **More info → Run anyway**; on Linux,
+the AppImage after `chmod +x` and `sudo apt install ./<file>.deb`.
 
 ## 6. Beta channel
 

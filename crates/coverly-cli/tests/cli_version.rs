@@ -8,5 +8,8 @@ fn prints_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicates::str::contains("coverly 0.0.1"));
+        .stdout(predicates::str::contains(format!(
+            "coverly {}",
+            env!("CARGO_PKG_VERSION")
+        )));
 }

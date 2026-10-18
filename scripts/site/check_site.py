@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the landing page before it ships. Standard library only.
 
-  check_site.py [--site site] [--only files,links,parity,head,budget,contrast,motion,art]
+  check_site.py [--site site] [--only files,links,parity,head,budget,contrast,motion,art,release]
 
 Fills site/ twice into a temporary folder with apply_release.py (once with
 scripts/site/fixtures/release.json, once with --no-release) and runs every
@@ -28,6 +28,11 @@ browser.
   art       decorative SVG (inline svg.art and assets/art/*.svg): hidden
             from assistive tech, sized, no <text>, raster, script or
             foreignObject, and the cover sprite under its cap
+  release   the live-release layer: both pages load release.js, every
+            download link is marked data-asset (release.js swaps only those,
+            by file name), the notes, version and date are marked, the
+            "out now" note of the unpublished page starts hidden, and
+            release.js asks only this repository's latest release
 
 Exit status 1 when any gate fails; every failure is printed.
 """
@@ -53,7 +58,7 @@ REPO = "MAECLY/coverly-roms"
 HOST = "coverly-roms.maecly.com"
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
-    "font-src 'self'; connect-src 'self'; manifest-src 'self'; object-src 'none'; "
+    "font-src 'self'; connect-src 'self' https://api.github.com; manifest-src 'self'; object-src 'none'; "
     "base-uri 'self'; form-action 'none'"
 )
 PAGES = {"es": "index.html", "en": "en/index.html"}
@@ -61,7 +66,7 @@ REQUIRED = [
     "index.html", "en/index.html", "404.html", "CNAME", ".nojekyll", "robots.txt",
     "sitemap.xml", "llms.txt", "agents.txt", "site.webmanifest",
     "en/site.webmanifest", "favicon.ico", "assets/site.css", "assets/theme.js",
-    "assets/motion.js", "assets/favicon.svg", "assets/icon-192.png",
+    "assets/motion.js", "assets/release.js", "assets/favicon.svg", "assets/icon-192.png",
     "assets/icon-512.png", "assets/apple-touch-icon.png", "assets/og.png",
     "assets/og-en.png", "assets/tokens.css", "assets/shelf.js",
     "assets/art/covers.svg", "assets/art/kit.svg", "assets/art/grain.svg",
@@ -84,7 +89,10 @@ BUDGET = {
     # and the terminal output lines (about 5 KB raw of inline art, 1 KB gz).
     # Raised to 60,000 / 14,000 for WP6: the closing shelf (desktop and
     # mobile, 27 sprite covers, two slot patterns), about 5 KB raw / 0.6 KB gz.
-    "page": (60_000, 14_000),
+    # Raised to 62,000 / 14,500 for the first-open warning (the quarantine
+    # command and its copy button, mirroring Versorium and Pluryprint) and
+    # the data-rel/data-asset hooks of release.js, about 1.4 KB raw.
+    "page": (62_000, 14_500),
     # site.css + the generated tokens.css. Raised from 54,000 / 12,500 for
     # the showcase (docs/07-build-and-release/landing-showcase-spec.md §8):
     # hero keyframes, step camera and rail, demo, gallery and the closing
@@ -96,10 +104,13 @@ BUDGET = {
     # and request-counter mini slots).
     # Raised to 82,000 / 18,500 for WP6 (closing shelf scrub, its .landed
     # fallback and the CTA spine, minus the retired closing mark).
-    "css": (82_000, 18_500),
+    # Raised to 83,000 / 18,700 for the first-open command block (.cmd).
+    "css": (83_000, 18_700),
     # Every .js under assets/ (recursive, so a vendored file cannot slip
-    # past). Raised from 16,000 / 5,500 for shelf.js (see SHELF_JS).
-    "scripts": (20_000, 7_000),
+    # past). Raised from 16,000 / 5,500 for shelf.js (see SHELF_JS), then
+    # to 22,000 / 7,500 for release.js (see RELEASE_JS), then to
+    # 23,000 / 7,800 for its installer offer before the first release.
+    "scripts": (23_000, 7_800),
     # Every .svg under assets/art/: the generated cover sprite plus the
     # static grain and weave tiles. Cached and shared by both locales.
     "art": (24_000, 7_000),
@@ -114,11 +125,18 @@ MOTION_JS = 9_500
 # replay, the shared IntersectionObserver, the #seguro demo state machine,
 # view-transition swaps). Kept out of motion.js so that file keeps its cap.
 SHELF_JS = 5_000
+# release.js alone (raw bytes): the latest release read in the browser
+# (fetch, cache, file-by-file swap) and the copy buttons. Raised to 6,500 for
+# the page built before the first release: the wording swap and the one
+# installer for the visitor's system.
+RELEASE_JS = 6_500
 # The generated cover sprite alone (raw bytes).
 COVERS_SVG = 18_000
 # Versorium keeps 680; this page carries a comparison, a layout table and
 # a download matrix, so it gets more room, and the gate keeps it from growing.
-MAX_WORDS = 1_450
+# Raised from 1,450 for the first-open warning (macOS quarantine, SmartScreen,
+# Linux packages), which Versorium and Pluryprint also carry.
+MAX_WORDS = 1_500
 ACTION_PIN = re.compile(r"uses:\s*[\w./-]+@([0-9a-f]{40})\s+#\s*v\d")
 
 
@@ -728,10 +746,84 @@ def gate_art(site: Path, r: Report) -> None:
             r.fail("art", f"covers.svg is {n} B, over {COVERS_SVG}")
 
 
+# ── release ────────────────────────────────────────────────────────────
+
+API = f"https://api.github.com/repos/{REPO}/releases/latest"
+DOWNLOAD = f"https://github.com/{REPO}/releases/download/v"
+RELEASE_TEST = ROOT / "scripts/site/release.test.mjs"
+
+
+def gate_release(site: Path, r: Report) -> None:
+    # release.js rewrites only a[data-asset] (by file name, the old version
+    # swapped for the new one) and [data-rel]; anything unmarked would keep
+    # pointing at the release the page was built with.
+    js_path = site / "assets/release.js"
+    js = js_path.read_text(encoding="utf-8") if js_path.is_file() else ""
+    n = len(js.encode())
+    r.note("release", f"release.js: {n} B raw")
+    if n > RELEASE_JS:
+        r.fail("release", f"release.js is {n} B, over {RELEASE_JS}")
+    for need in (f'"{API}"', f'"https://github.com/{REPO}/releases/"', "rel.draft || rel.prerelease",
+                 "sessionStorage", "abort()", "a[data-asset]"):
+        if need not in js:
+            r.fail("release", f"release.js lacks {need!r}")
+    released = any((site / rel).read_text(encoding="utf-8").count("/releases/download/")
+                   for rel in PAGES.values())
+    for rel in PAGES.values():
+        doc = parse(site / rel)
+        src = [a.get("src", "") for a, _ in doc.scripts if "src" in a]
+        js_src = [s for s in src if s.endswith("assets/release.js")]
+        if len(js_src) != 1 or not any(
+                t == "script" and a.get("src") == js_src[0] and "defer" in a for t, a in doc.tags):
+            r.fail("release", f"{rel}: does not load assets/release.js once, deferred")
+        anchors = [a for t, a in doc.tags if t == "a"]
+        for a in anchors:
+            href, marked = a.get("href", ""), "data-asset" in a
+            if ("/releases/download/" in href) != marked:
+                r.fail("release", f"{rel}: {href} is {'marked' if marked else 'not marked'} data-asset")
+            elif marked and not href.startswith(DOWNLOAD):
+                r.fail("release", f"{rel}: data-asset {href} is not a download of {REPO}")
+            if a.get("data-rel") == "notes" and f"github.com/{REPO}/releases/" not in href:
+                r.fail("release", f"{rel}: release notes link {href}")
+        rels = [a.get("data-rel") for t, a in doc.tags if "data-rel" in a]
+        if released:
+            if sum(1 for a in anchors if "data-asset" in a) < 13:
+                r.fail("release", f"{rel}: fewer than 13 data-asset links (12 downloads and SHA256SUMS)")
+            for need in ("version", "date", "notes"):
+                if need not in rels:
+                    r.fail("release", f"{rel}: nothing marked data-rel={need}")
+        else:
+            # Before the first release: the wording release.js shows ([data-rel-new],
+            # hidden), the wording it hides ([data-rel-old]) and the one
+            # installer it offers (a[data-rel-file], hidden, on the release page
+            # until then).
+            fresh = [a for t, a in doc.tags if "data-rel-new" in a]
+            if not fresh or any("hidden" not in a for a in fresh):
+                r.fail("release", f"{rel}: needs [data-rel-new] wording, hidden until release.js shows it")
+            if not any("data-rel-old" in a for t, a in doc.tags):
+                r.fail("release", f"{rel}: nothing marked [data-rel-old] for release.js to hide")
+            offer = [(t, a) for t, a in doc.tags if "data-rel-file" in a]
+            if len(offer) != 1 or offer[0][0] != "a" or "hidden" not in offer[0][1] or \
+                    offer[0][1].get("href") != f"https://github.com/{REPO}/releases/latest":
+                r.fail("release", f"{rel}: needs one hidden a[data-rel-file] on the latest release page")
+        for t, a in doc.tags:
+            if "data-copy" in a and (t != "button" or a.get("type") != "button" or "hidden" not in a):
+                r.fail("release", f"{rel}: [data-copy] must be a hidden <button type=button>")
+    # The behaviour itself: scripts/site/release.test.mjs runs release.js
+    # against both filled pages (once, with the release build).
+    node = shutil.which("node")
+    if released and node and RELEASE_TEST.is_file():
+        run = subprocess.run([node, "--test", str(RELEASE_TEST)], capture_output=True, text=True)
+        if run.returncode != 0:
+            r.fail("release", f"release.test.mjs:\n{run.stdout[-2000:]}{run.stderr[-1000:]}")
+    elif released:
+        r.note("release", "node not found: release.test.mjs skipped")
+
+
 GATES = {
     "files": gate_files, "links": gate_links, "parity": gate_parity,
     "head": gate_head, "budget": gate_budget, "contrast": gate_contrast,
-    "motion": gate_motion, "art": gate_art,
+    "motion": gate_motion, "art": gate_art, "release": gate_release,
 }
 
 
