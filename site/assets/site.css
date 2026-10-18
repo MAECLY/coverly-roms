@@ -834,6 +834,24 @@ tbody th {
 .dl-card .alt {
   font-size: 0.875rem;
 }
+/* Equal cards, actions on one line: the requirement line takes the slack,
+   so the button and the alternative sit at the bottom of every card. With
+   subgrid the four cards share their rows, so the buttons also match in
+   height when one label wraps. */
+.dl-card .req {
+  flex-grow: 1;
+}
+@supports (grid-template-rows: subgrid) {
+  .dl-card {
+    display: grid;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    row-gap: 6px;
+  }
+  .dl-card .alt {
+    justify-self: start;
+  }
+}
 .dl-card .mine {
   display: none;
   position: absolute;
