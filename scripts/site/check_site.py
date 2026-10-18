@@ -747,6 +747,7 @@ def gate_art(site: Path, r: Report) -> None:
 
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOAD = f"https://github.com/{REPO}/releases/download/v"
+RELEASE_TEST = ROOT / "scripts/site/release.test.mjs"
 
 
 def gate_release(site: Path, r: Report) -> None:
@@ -795,6 +796,15 @@ def gate_release(site: Path, r: Report) -> None:
         for t, a in doc.tags:
             if "data-copy" in a and (t != "button" or a.get("type") != "button" or "hidden" not in a):
                 r.fail("release", f"{rel}: [data-copy] must be a hidden <button type=button>")
+    # The behaviour itself: scripts/site/release.test.mjs runs release.js
+    # against both filled pages (once, with the release build).
+    node = shutil.which("node")
+    if released and node and RELEASE_TEST.is_file():
+        run = subprocess.run([node, "--test", str(RELEASE_TEST)], capture_output=True, text=True)
+        if run.returncode != 0:
+            r.fail("release", f"release.test.mjs:\n{run.stdout[-2000:]}{run.stderr[-1000:]}")
+    elif released:
+        r.note("release", "node not found: release.test.mjs skipped")
 
 
 GATES = {
