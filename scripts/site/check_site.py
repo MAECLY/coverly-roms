@@ -82,7 +82,9 @@ BUDGET = {
     # Raised from 48,000 / 12,500 for WP4: the #seguro round-trip scene,
     # its buttons and status, five pictograms, the #formatos gallery row
     # and the terminal output lines (about 5 KB raw of inline art, 1 KB gz).
-    "page": (54_000, 13_500),
+    # Raised to 60,000 / 14,000 for WP6: the closing shelf (desktop and
+    # mobile, 27 sprite covers, two slot patterns), about 5 KB raw / 0.6 KB gz.
+    "page": (60_000, 14_000),
     # site.css + the generated tokens.css. Raised from 54,000 / 12,500 for
     # the showcase (docs/07-build-and-release/landing-showcase-spec.md §8):
     # hero keyframes, step camera and rail, demo, gallery and the closing
@@ -92,7 +94,9 @@ BUDGET = {
     # Raised to 78,000 / 17,500 for WP5 (comparison wipe and checks, the
     # waiting slot and its tag swing, OS card fill, not-yet dash draw, FAQ
     # and request-counter mini slots).
-    "css": (78_000, 17_500),
+    # Raised to 82,000 / 18,500 for WP6 (closing shelf scrub, its .landed
+    # fallback and the CTA spine, minus the retired closing mark).
+    "css": (82_000, 18_500),
     # Every .js under assets/ (recursive, so a vendored file cannot slip
     # past). Raised from 16,000 / 5,500 for shelf.js (see SHELF_JS).
     "scripts": (20_000, 7_000),
