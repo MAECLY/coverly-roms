@@ -100,7 +100,7 @@ export const DEFAULT_PREFS: ViewPrefs = Object.freeze({
   coverSize: 'm',
   groupBy: 'none',
   art: 'cover',
-  columns: DEFAULT_COLUMNS.map((id) => Object.freeze({ id })),
+  columns: Object.freeze(DEFAULT_COLUMNS.map((id) => Object.freeze({ id }))),
   density: 'comfortable',
   inspector: false,
 }) as ViewPrefs;

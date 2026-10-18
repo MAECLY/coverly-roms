@@ -85,6 +85,8 @@ export const useViewStore = create<ViewState>()((set, get) => {
     setView: (view) => get().setPrefs({ view }),
     setPrefs(patch) {
       const prefs = sanitisePrefs({ ...get().prefs, ...patch });
+      // Re-picking the current value neither rewrites storage nor re-renders.
+      if (JSON.stringify(prefs) === JSON.stringify(get().prefs)) return;
       const root = get().root;
       file =
         root === null ? { ...file, last: prefs } : remember(file, root, prefs);

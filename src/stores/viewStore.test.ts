@@ -78,6 +78,17 @@ describe('viewStore prefs', () => {
     expect(file.byLibrary).toEqual({});
   });
 
+  it('does not rewrite storage or re-render when nothing changes', () => {
+    store.getState().loadFor('/a');
+    store.getState().setView('details');
+    const before = store.getState().prefs;
+    const setItem = vi.spyOn(storage, 'setItem');
+    store.getState().setView('details');
+    store.getState().setPrefs({ density: 'comfortable' });
+    expect(setItem).not.toHaveBeenCalled();
+    expect(store.getState().prefs).toBe(before);
+  });
+
   it('reset() keeps prefs and root', () => {
     store.getState().loadFor('/a');
     store.getState().setView('gallery');

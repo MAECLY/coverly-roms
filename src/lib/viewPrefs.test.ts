@@ -143,6 +143,7 @@ describe('view prefs', () => {
     const a = sanitisePrefs({});
     a.columns.push({ id: 'ext' });
     expect(DEFAULT_PREFS.columns.map((c) => c.id)).not.toContain('ext');
+    expect(Object.isFrozen(DEFAULT_PREFS.columns)).toBe(true);
   });
 
   it('keeps prefs per library and falls back to last', () => {
