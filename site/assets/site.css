@@ -396,6 +396,12 @@ pre {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
 }
+/* release.js swaps these once a release is out (see its header). */
+[data-rel-new][hidden],
+[data-rel-old][hidden],
+[data-rel-file][hidden] {
+  display: none;
+}
 .pill {
   display: inline-flex;
   align-items: center;
