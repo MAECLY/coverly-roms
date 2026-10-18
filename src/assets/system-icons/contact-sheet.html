@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>System icons</title>
 <style>
-  :root { color-scheme: light dark; --paper: #f4efe4; --ink: #2b2620; --muted: #6d6458; --rule: #d8cfbd; }
-  @media (prefers-color-scheme: dark) { :root { --paper: #1d1a17; --ink: #ece4d4; --muted: #a39887; --rule: #3a342d; } }
+  /* Greyboard roles from src/styles/tokens.css: bg, text, text-secondary, border. */
+  :root { color-scheme: light dark; --paper: #f2f3ef; --ink: #1b1e1b; --muted: #535a52; --rule: #d3d7cf; }
+  @media (prefers-color-scheme: dark) { :root { --paper: #121514; --ink: #eceeea; --muted: #a8afab; --rule: #2d3331; } }
   body { margin: 0; padding: 24px 16px; background: var(--paper); color: var(--ink); font: 13px/1.4 system-ui, sans-serif; }
   h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
   p { margin: 0 0 16px; color: var(--muted); }
