@@ -31,4 +31,20 @@ describe('audit summary', () => {
     );
     expect(s.systems.every((r) => r.roms > 0)).toBe(true);
   });
+
+  it('keys each row on the canonical system id, and the total on none', () => {
+    const view = generateLibrary({
+      seed: 7,
+      count: 240,
+      root: '/mock/a',
+      generation: 1,
+      now: FIXTURE_NOW,
+    });
+    const s = auditSummary(view);
+    for (const r of s.systems) {
+      const sys = view.systems.find((x) => x.folder === r.folder)!;
+      expect(r.system_id).toBe(sys.system_id);
+    }
+    expect(s.total.system_id).toBeNull();
+  });
 });
