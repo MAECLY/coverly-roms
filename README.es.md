@@ -85,8 +85,8 @@ Descarga el archivo para tu ordenador desde la
 
 | Sistema                                     | Archivo                                                                            |
 | ------------------------------------------- | ---------------------------------------------------------------------------------- |
-| macOS 11 o superior (Apple silicon e Intel) | `Coverly ROMs_<versión>_universal.dmg`                                             |
-| Windows 10/11 (x64)                         | `Coverly ROMs_<versión>_x64-setup.exe` (recomendado) o `.msi`                      |
+| macOS 11 o superior (Apple silicon e Intel) | `Coverly.ROMs_<versión>_universal.dmg`                                             |
+| Windows 10/11 (x64)                         | `Coverly.ROMs_<versión>_x64-setup.exe` (recomendado) o `.msi`                      |
 | Linux (x64, ARM64)                          | `.AppImage` o `.deb`                                                               |
 | Línea de comandos (`coverly`)               | `coverly-<versión>-<os>-<arq>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
 

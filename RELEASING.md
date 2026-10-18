@@ -142,7 +142,7 @@ beta channel; one without is stable.
 
 When `release.yml` is green, open the draft on the Releases page and check:
 
-- every platform file is there: `Coverly ROMs_<version>_universal.dmg`, the
+- every platform file is there: `Coverly.ROMs_<version>_universal.dmg`, the
   macOS `.app.tar.gz`, the Windows `-setup.exe` and (stable only) `.msi`, the Linux
   `.AppImage` and `.deb` (x64 and ARM64), the five `coverly-<version>-<os>-<arch>`
   CLI binaries, and the `.sig` of every update artifact;

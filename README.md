@@ -77,8 +77,8 @@ Download the file for your computer from the
 
 | System                                      | File                                                                                |
 | ------------------------------------------- | ----------------------------------------------------------------------------------- |
-| macOS 11 or newer (Apple silicon and Intel) | `Coverly ROMs_<version>_universal.dmg`                                              |
-| Windows 10/11 (x64)                         | `Coverly ROMs_<version>_x64-setup.exe` (recommended) or `.msi`                      |
+| macOS 11 or newer (Apple silicon and Intel) | `Coverly.ROMs_<version>_universal.dmg`                                              |
+| Windows 10/11 (x64)                         | `Coverly.ROMs_<version>_x64-setup.exe` (recommended) or `.msi`                      |
 | Linux (x64, ARM64)                          | `.AppImage` or `.deb`                                                               |
 | Command line (`coverly`)                    | `coverly-<version>-<os>-<arch>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
 
