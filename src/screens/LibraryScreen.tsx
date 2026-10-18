@@ -204,7 +204,10 @@ export function LibraryScreen() {
         generation={view.generation}
         media={prefs.art}
         previewId={previewId}
-        onSelect={select}
+        onSelect={(id) => {
+          select(id);
+          setPreviewId(id);
+        }}
         onClose={() => setPreviewId(null)}
       />
       {overlay === 'wizard' && (

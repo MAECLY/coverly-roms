@@ -175,8 +175,16 @@ describe('Library screen', () => {
     expect(
       screen.getByRole('dialog', { name: entry.name }),
     ).toBeInTheDocument();
+    // Each step moves both the preview and the selection on.
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    const id = Number(grid.getAttribute('aria-activedescendant')!.slice(6));
+    expect(id).not.toBe(entry.id);
+    const stepped = view.entries[id]!;
+    expect(
+      screen.getByRole('dialog', { name: stepped.name }),
+    ).toHaveTextContent(/^.*3 of /);
     await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: entry.name })).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(useViewStore.getState().drawerOpen).toBe(true);
     expect(grid).toHaveFocus();
     act(() => useViewStore.getState().closeDrawer());
