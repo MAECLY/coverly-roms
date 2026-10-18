@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' https://api.github.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>Coverly ROMs · The missing cover art in your ROMs | MAECLY</title>
 <meta name="description" content="Coverly ROMs checks your handheld's SD card, shows which games have no cover art and adds it in one go, with a dry run first and undo after. Free and AGPL-3.0 for Windows, macOS and Linux.">
 <meta name="author" content="Miguel Esparza · MAECLY">
@@ -26,6 +26,7 @@
 <script src="../assets/theme.js"></script>
 <script src="../assets/motion.js" defer></script>
 <script src="../assets/shelf.js" defer></script>
+<script src="../assets/release.js" defer></script>
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Coverly ROMs">
 <meta property="og:locale" content="en_GB">
@@ -94,7 +95,7 @@
 <svg class="hero-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs><symbol id="h08" viewBox="0 0 30 40"><path fill-opacity=".28" d="M-5 21a13 13 0 1 1 26 0a13 13 0 1 1 -26 0z"/><path d="M1 18a10 10 0 1 1 20 0a10 10 0 1 1 -20 0zM3.5 18a7.5 7.5 0 1 0 15 0a7.5 7.5 0 1 0 -15 0zM8.5 18a2.5 2.5 0 1 1 5 0a2.5 2.5 0 1 1 -5 0zM9 32.5h18v3h-18zM9 30h9v1h-9z"/></symbol><symbol id="h17" viewBox="0 0 30 40"><path fill-opacity=".28" d="M0 21L30 13v5L0 26zM0 30L30 22v3L0 33zM0 39L30 31v4L0 43z"/><path d="M0 16L30 8v5L0 21zM0 26L30 18v4L0 30zM0 35L30 27v4L0 39zM11 4h16v3h-16zM11 8.5h7.5v1h-7.5z"/></symbol><symbol id="h28" viewBox="0 0 30 40"><path fill-opacity=".28" d="M19 0h11v40h-11z"/><path d="M3 29.5h18v4.5h-18zM3 26h16v2.5h-16zM3 20.5h20v4.5h-20zM3 16h14v3.5h-14zM3 4h14v3h-14zM3 8.5h6v1h-6z"/></symbol><symbol id="h36" viewBox="0 0 30 40"><path fill-opacity=".28" d="M0 27C10 21 20 33 30 27V40H0z"/><path d="M0 10C10 4 20 16 30 10v3C20 19 10 7 0 13zM0 16C10 10 20 22 30 16v4C20 26 10 14 0 20zM0 23C10 17 20 29 30 23v3C20 32 10 20 0 26zM3 32.5h12v3h-12zM3 30h10.5v1h-10.5z"/></symbol><symbol id="h01" viewBox="0 0 30 40"><path fill-opacity=".28" d="M0 0h15v40h-15z"/><path d="M6 7h5v5h-5zM12.5 7h5v5h-5zM19 7h5v5h-5zM12.5 13.5h5v5h-5zM6 20h5v5h-5zM3 32.5h16v3h-16zM3 30h9v1h-9z"/></symbol><symbol id="h13t" viewBox="0 0 30 40"><path fill-opacity=".28" d="M0 0h30v27h-30z"/></symbol><symbol id="h13k" viewBox="0 0 30 40"><path d="M11 27a7 7 0 0 1 14 0zM0 27h30v13h-30zM0 30v1h30v-1zM0 33.5v1.5h30v-1.5zM3 4h20v3h-20zM3 8.5h9v1h-9z"/></symbol><symbol id="h21t" viewBox="0 0 30 40"><path fill-opacity=".28" d="M0 40L15 18L30 40z"/></symbol><symbol id="h21k" viewBox="0 0 30 40"><path d="M0 20L15 11L30 20v4.5L15 15.5L0 24.5zM0 27.5L15 18.5L30 27.5v4.5L15 23L0 32zM7 4h20v3h-20zM7 8.5h6v1h-6z"/></symbol><rect id="hg" width="30" height="40" rx=".6"/><path id="ho" pathLength="1" d="M1 .5h28a.5.5 0 0 1 .5.5v38a.5.5 0 0 1-.5.5H1a.5.5 0 0 1-.5-.5V1A.5.5 0 0 1 1 .5z"/><path id="hc1" d="M0 0h3.2v1H1v2.2H0z"/><path id="hc2" d="M30 0h-3.2v1H29v2.2h1z"/><path id="hc3" d="M0 40h3.2v-1H1v-2.2H0z"/><path id="hc4" d="M30 40h-3.2v-1H29v-2.2h1z"/><path id="ht" d="M23.6 0h5.8a.6.6 0 0 1 .6.6v5.8z"/><rect id="hs" y="39" width="30" height="1"/><ellipse id="hk" cx="15" cy="40.4" rx="14.5" ry=".9"/></defs></svg>
 <div class="wrap hero-grid">
 <div class="hero-copy">
-<!-- release:begin --><a class="pill" href="#download"><span class="pill-dot" aria-hidden="true"></span>Version {{release.version}} is out</a><!-- release:end -->
+<!-- release:begin --><a class="pill" href="#download"><span class="pill-dot" aria-hidden="true"></span>Version <span data-rel="version">{{release.version}}</span> is out</a><!-- release:end -->
 <!-- norelease:begin --><a class="pill is-soon" href="#download"><span class="pill-dot" aria-hidden="true"></span>First release on its way</a><!-- norelease:end -->
 <h1 id="title">Every ROM gets its&nbsp;<span class="kw">cover<span class="kw-slot" aria-hidden="true"></span></span>.</h1>
 <svg class="art hero-art hero-strip" viewBox="0 0 320 64" width="320" height="64" preserveAspectRatio="xMinYMid meet" aria-hidden="true" focusable="false"><path class="rule strip" pathLength="1" d="M0 54.6H900"/><path class="rule cap strip" pathLength="1" d="M0 54.6h12"/><g transform="translate(2 10)scale(1.1)"><use class="sh" href="#hk"/><use class="gd" href="#hg"/><use class="ink-1" href="#h08" width="30" height="40"/></g><g class="gap g1" transform="translate(42 10)scale(1.1)"><use class="sh" href="#hk"/><use class="gd" href="#hg"/><use class="ct ink-2" href="#h13t" width="30" height="40"/><use class="cy ink-2" href="#h13k" width="30" height="40"/><use class="fl" href="#hg"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/><use class="tb" href="#ht"/><use class="sp" href="#hs"/></g><g transform="translate(82 10)scale(1.1)"><use class="sh" href="#hk"/><use class="gd" href="#hg"/><use class="ink-3" href="#h28" width="30" height="40"/></g><g class="gap g2" transform="translate(122 10)scale(1.1)"><use class="sh" href="#hk"/><use class="gd" href="#hg"/><use class="ct ink-1" href="#h21t" width="30" height="40"/><use class="cy ink-1" href="#h21k" width="30" height="40"/><use class="fl" href="#hg"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/><use class="tb" href="#ht"/><use class="sp" href="#hs"/></g><g transform="translate(160 10)scale(1.1)"><use class="sh ls" href="#hk"/><g class="lean" transform="rotate(12 30 40)"><use class="gd" href="#hg"/><use class="ink-0" href="#h01" width="30" height="40"/></g></g><g class="miss" transform="translate(203 10)scale(1.1)"><use class="sh" href="#hk"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/></g><g class="miss pk pk1" transform="translate(243 10)scale(1.1)"><use class="sh" href="#hk"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/></g><g class="miss pk pk2" transform="translate(283 10)scale(1.1)"><use class="sh" href="#hk"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/></g><g class="miss pk pk3" transform="translate(323 10)scale(1.1)"><use class="sh" href="#hk"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/></g><g class="miss pk pk4" transform="translate(363 10)scale(1.1)"><use class="sh" href="#hk"/><use class="o" href="#ho"/><use class="pc c1" href="#hc1"/><use class="pc c2" href="#hc2"/><use class="pc c3" href="#hc3"/><use class="pc c4" href="#hc4"/></g></svg>
@@ -295,27 +296,27 @@
 <!-- release:begin -->
 <div class="section-head">
 <h2 id="download-t">Ready to download.</h2>
-<p>Version {{release.version}}, released {{release.date_en}}. Free, for good.</p>
+<p>Version <span data-rel="version">{{release.version}}</span>, released <span data-rel="date">{{release.date_en}}</span>. Free, for good.</p>
 </div>
 <div class="dl-grid" data-reveal>
-<div class="dl-card" data-os="mac"><span class="mine">Your computer</span><h3>macOS</h3><p class="req">macOS 11 or later, Apple silicon and Intel</p><a class="btn btn-primary" href="{{release.macos_universal.url}}">Download .dmg ({{release.macos_universal.mib_en}}&nbsp;MiB)</a></div>
-<div class="dl-card" data-os="win"><span class="mine">Your computer</span><h3>Windows</h3><p class="req">Windows 10 and 11, x64</p><a class="btn btn-primary" href="{{release.windows_x64.url}}">Download installer ({{release.windows_x64.mib_en}}&nbsp;MiB)</a><a class="alt" href="{{release.windows_x64_msi.url}}">Or the .msi ({{release.windows_x64_msi.mib_en}}&nbsp;MiB)</a></div>
-<div class="dl-card" data-os="linux"><span class="mine">Your computer</span><h3>Linux x64</h3><p class="req">AppImage or .deb package</p><a class="btn btn-primary" href="{{release.linux_x64_appimage.url}}">Download AppImage ({{release.linux_x64_appimage.mib_en}}&nbsp;MiB)</a><a class="alt" href="{{release.linux_x64_deb.url}}">Or the .deb ({{release.linux_x64_deb.mib_en}}&nbsp;MiB)</a></div>
-<div class="dl-card" data-os="linux"><span class="mine">Your computer</span><h3>Linux ARM64</h3><p class="req">AppImage or .deb package</p><a class="btn btn-primary" href="{{release.linux_arm64_appimage.url}}">Download AppImage ({{release.linux_arm64_appimage.mib_en}}&nbsp;MiB)</a><a class="alt" href="{{release.linux_arm64_deb.url}}">Or the .deb ({{release.linux_arm64_deb.mib_en}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="mac"><span class="mine">Your computer</span><h3>macOS</h3><p class="req">macOS 11 or later, Apple silicon and Intel</p><a class="btn btn-primary" data-asset href="{{release.macos_universal.url}}">Download .dmg ({{release.macos_universal.mib_en}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="win"><span class="mine">Your computer</span><h3>Windows</h3><p class="req">Windows 10 and 11, x64</p><a class="btn btn-primary" data-asset href="{{release.windows_x64.url}}">Download installer ({{release.windows_x64.mib_en}}&nbsp;MiB)</a><a class="alt" data-asset href="{{release.windows_x64_msi.url}}">Or the .msi ({{release.windows_x64_msi.mib_en}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="linux"><span class="mine">Your computer</span><h3>Linux x64</h3><p class="req">AppImage or .deb package</p><a class="btn btn-primary" data-asset href="{{release.linux_x64_appimage.url}}">Download AppImage ({{release.linux_x64_appimage.mib_en}}&nbsp;MiB)</a><a class="alt" data-asset href="{{release.linux_x64_deb.url}}">Or the .deb ({{release.linux_x64_deb.mib_en}}&nbsp;MiB)</a></div>
+<div class="dl-card" data-os="linux"><span class="mine">Your computer</span><h3>Linux ARM64</h3><p class="req">AppImage or .deb package</p><a class="btn btn-primary" data-asset href="{{release.linux_arm64_appimage.url}}">Download AppImage ({{release.linux_arm64_appimage.mib_en}}&nbsp;MiB)</a><a class="alt" data-asset href="{{release.linux_arm64_deb.url}}">Or the .deb ({{release.linux_arm64_deb.mib_en}}&nbsp;MiB)</a></div>
 </div>
 <div class="cli-files">
 <h3>Just the command line</h3>
 <ul>
-<li><a href="{{release.cli_macos_arm64.url}}">macOS Apple silicon</a></li>
-<li><a href="{{release.cli_macos_x64.url}}">macOS Intel</a></li>
-<li><a href="{{release.cli_windows_x64.url}}">Windows x64</a></li>
-<li><a href="{{release.cli_linux_x64.url}}">Linux x64</a></li>
-<li><a href="{{release.cli_linux_arm64.url}}">Linux ARM64</a></li>
+<li><a data-asset href="{{release.cli_macos_arm64.url}}">macOS Apple silicon</a></li>
+<li><a data-asset href="{{release.cli_macos_x64.url}}">macOS Intel</a></li>
+<li><a data-asset href="{{release.cli_windows_x64.url}}">Windows x64</a></li>
+<li><a data-asset href="{{release.cli_linux_x64.url}}">Linux x64</a></li>
+<li><a data-asset href="{{release.cli_linux_arm64.url}}">Linux ARM64</a></li>
 </ul>
 </div>
 <ul class="dl-links">
-<li><a href="{{release.notes_url}}">Release notes</a></li>
-<li><a href="{{release.sha256sums_url}}">SHA256SUMS</a></li>
+<li><a data-rel="notes" href="{{release.notes_url}}">Release notes</a></li>
+<li><a data-asset href="{{release.sha256sums_url}}">SHA256SUMS</a></li>
 <li><a href="https://github.com/MAECLY/coverly-roms/releases">All releases</a></li>
 </ul>
 <!-- release:end -->
@@ -328,6 +329,7 @@
 <div class="dl-soon">
 <h3>No release published yet</h3>
 <p>This slot fills itself on release day. Until then you can build it from source: the README walks you through it.</p>
+<p data-rel-new hidden>Version <span data-rel="version"></span> is out: <a data-rel="notes" href="https://github.com/MAECLY/coverly-roms/releases/latest">download it from GitHub</a>.</p>
 <div class="actions">
 <a class="btn btn-primary" href="https://github.com/MAECLY/coverly-roms/blob/main/README.md#build-from-source">Build from source</a>
 <a class="btn" href="https://github.com/MAECLY/coverly-roms/releases">See releases</a>
