@@ -1237,10 +1237,14 @@ html.motion .t-rest {
     transform: translateY(4px);
   }
 }
+/* The next shot wipes down over the last, like a sheet laid on the desk:
+   a cross-fade would double-expose two busy screenshots. */
 @keyframes fig-in {
   from {
-    opacity: 0;
-    transform: scale(0.985);
+    clip-path: inset(-48px -48px 100% -48px);
+  }
+  to {
+    clip-path: inset(-48px);
   }
 }
 @keyframes fx-hold {
