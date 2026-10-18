@@ -240,7 +240,9 @@ describe('CoversView', () => {
       'aria-colspan',
       grid.getAttribute('aria-colcount'),
     );
-    expect(header).toHaveAccessibleName(`${first.label}, ${first.count} games`);
+    expect(header).toHaveAccessibleName(
+      `${first.label}, ${first.count.toLocaleString('en')} games`,
+    );
     expect(header.parentElement).toHaveAttribute('role', 'row');
     expect(
       header.querySelector(`[data-system-icon="${first.systemId}"]`),
@@ -312,5 +314,34 @@ describe('CoversView', () => {
       'aria-activedescendant',
       `entry-${ordered[9]!.id}`,
     );
+  });
+});
+
+describe('CoversView row offsets', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1280, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+  });
+  afterEach(() => {
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  it('re-lays rows out when the sections change but the row count does not', () => {
+    const a = big.entries.filter((e) => e.system === 0);
+    const b = big.entries.filter((e) => e.system === 1);
+    const before = [...a.slice(0, 10), ...b.slice(0, 3)];
+    const after = [...a.slice(0, 3), ...b.slice(0, 10)];
+    const { rerender } = render(<Harness entries={before} groupBy="system" />);
+    // H 7 3 H 3 → H 3 H 7 3: five rows both times, at new offsets.
+    rerender(<Harness entries={after} groupBy="system" />);
+    const { ordered } = grouped(after, 'system');
+    const rowOf = (i: number) =>
+      document.getElementById(`entry-${ordered[i]!.id}`)!.parentElement!;
+    // Header 32 + a 3-tile row 308 + header 32.
+    expect(rowOf(3).style.transform).toBe('translateY(372px)');
+    expect(rowOf(10).style.transform).toBe('translateY(680px)');
   });
 });

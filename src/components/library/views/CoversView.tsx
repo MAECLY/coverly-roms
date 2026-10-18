@@ -1,5 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useMemo, type KeyboardEvent, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +88,20 @@ export function CoversView({
     activeRow < 0 ? null : stickyHeaderAt(headerRows, activeRow),
     headerRows,
   );
+  // Row identity, not position: TanStack Virtual memoises offsets on
+  // `count` and `getItemKey` only, so a new row model with the same row
+  // count (another filter, another grouping) must hand it a new key function
+  // or the old header/tile offsets stay.
+  const getItemKey = useCallback(
+    (i: number) => {
+      const row = rows[i];
+      if (!row) return i;
+      return row.kind === 'header'
+        ? `h:${row.section.key}`
+        : `r:${row.sectionIndex}:${row.start}`;
+    },
+    [rows],
+  );
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is not memoisable by the React Compiler
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -90,6 +109,7 @@ export function CoversView({
     estimateSize: (i) =>
       rows[i]?.kind === 'header' ? SECTION_ROW_H : TILE_H + GAP,
     overscan: 2,
+    getItemKey,
     rangeExtractor,
     // A row scrolled to never hides under the stuck header.
     scrollPaddingStart: headerRows.length > 0 ? SECTION_ROW_H : 0,
