@@ -611,9 +611,18 @@ export function createMockOrganize(
   /** The loose files of a pile, in name order, with their item. */
   function looseFiles(r: Resolved): PileFile[] {
     const names = surveyed.get(r.source) ?? loose.get(r.source)!;
-    return allFiles(r.source)
-      .filter((f) => names.has(f.name))
-      .sort((a, b) => collator.compare(a.name, b.name));
+    return (
+      allFiles(r.source)
+        .filter((f) => names.has(f.name))
+        // Like Rust, a copy whose original is gone is the only one left,
+        // so it is filed like any other ROM.
+        .map((f): PileFile => {
+          if (f.left?.kind !== 'duplicate' || names.has(f.left.of)) return f;
+          const { left: _copyOf, ...only } = f;
+          return only;
+        })
+        .sort((a, b) => collator.compare(a.name, b.name))
+    );
   }
 
   function decide(

@@ -561,6 +561,17 @@ describe('mock organise: the folder changes between scans', () => {
     expect(back.plan.items).toHaveLength(fresh.plan.items.length);
   });
 
+  it('files a copy once its original is gone', async () => {
+    const b = backend();
+    await b.organizePlan({ source: MOCK_MIXED });
+    b.organizeTouch(MOCK_MIXED, { remove: ['Super Mario Land (World).gb'] });
+    const fresh = await b.organizePlan({ source: MOCK_MIXED, rescan: true });
+    const copy = fresh.plan.items.find(
+      (i) => i.sources[0] === 'Super Mario Land (World) (1).gb',
+    )!;
+    expect(copy).toMatchObject({ action: 'auto', system_id: 'gb' });
+  });
+
   it('refuses a folder it does not know', () => {
     const b = backend();
     expect(() => b.organizeTouch('/nowhere', { add: 1 })).toThrow();
