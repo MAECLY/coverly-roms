@@ -5,4 +5,4 @@
 # (the contents of updater.key.pub). Until the owner replaces it, it is the
 # placeholder UNSET and both the app and `coverly update install` refuse to
 # install anything ("this build cannot update itself"). See RELEASING.md §2.
-UNSET
+dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFNUYyNzJENTg3NzMwMDIKUldRQ01IZFlMU2RmdmthZlFCMjR3VUEvazdVVEhXUXpIcVU0aVh4b2JDWVlkR1VqMVVaZDFXUHgK
