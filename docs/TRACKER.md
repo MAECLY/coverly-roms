@@ -10,7 +10,7 @@
 - **Fecha:** 2026-10-17
 - **Fase:** M0–M7 mergeados en `main`. M7 ([PR #8](https://github.com/MAECLY/coverly-roms/pull/8), merge `be69375`) deja preparado todo lo que no depende de Miguel: una sola versión con `scripts/bump-version.sh` y CHANGELOG; versiones reales en Acerca de y el pie; updater en la app (desde Rust, estable/beta, comprobación al inicio opcional y silenciosa, nunca interrumpe un job) y `coverly update check|install` con verificación minisign; `release.yml` con builds de solo lectura y `finalize` como único escritor y firmante (D42) + `release-channels.yml`; unidades conectadas en Inicio (M3-06); endurecimiento de ajustes.
 - **Siguiente paso:** v0.1.0 publicada. Pendiente de Miguel: copia de seguridad fuera del Mac de `~/.coverly-release/updater.key` y su contraseña; API key de SteamGridDB, credenciales de ScreenScraper, M2-12 en la consola real y pruebas manuales en Tauri.
-- **En curso:** —. Pendientes de la landing en [`TODO.md`](../TODO.md).
+- **En curso:** —. La landing vive en https://github.com/MAECLY/coverly-roms-landing (pendientes en su `TODO.md`).
 - **Fuente de ROMs para pruebas:** copia local completa `/Users/miguelangelesparzacalero/Documents/ROMS` (55 sistemas, 91 GB; la SD puede estar expulsada). Solo lectura; escrituras siempre sobre copias en el scratchpad.
 
 ## Contexto clave (para no perderlo)

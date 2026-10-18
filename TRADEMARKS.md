@@ -35,8 +35,9 @@ them are created as the app is built; the list names where each one will live):
 - `locales/en/ui.json` and `locales/es/ui.json` - `app.name`, the product name
   in the interface copy.
 - `design/icon/` - the master SVGs of the mark. `pnpm icons` rasterises them
-  into `src-tauri/icons/` (the desktop icon set), `public/favicon.png` and the
-  landing icons in `site/` (`favicon.ico`, `assets/favicon.svg`,
+  into `src-tauri/icons/` (the desktop icon set) and `public/favicon.png`, and,
+  with `--site`, the landing icons of
+  [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing) (`favicon.ico`, `assets/favicon.svg`,
   `assets/apple-touch-icon.png`, `assets/icon-*.png`).
 - `index.html` - the page `<title>`.
 

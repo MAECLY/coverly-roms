@@ -39,8 +39,8 @@
 <p align="center">
   <a href="https://coverly-roms.maecly.com/">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/es/library-dark.webp">
-      <img src="site/assets/shots/es/library-light.webp" width="100%" alt="La biblioteca de Coverly ROMs con una tarjeta ES-DE de 12.000 ROMs. La barra lateral lista cada sistema con su número de juegos, de Dreamcast a WonderSwan. La cuadrícula muestra una ficha por juego: los que tienen imagen enseñan su portada y los que no, un hueco discontinuo «Sin portada». Cada ficha lleva tres marcas pequeñas para portada, captura y título, y una etiqueta de región. La barra de estado indica cuántos juegos siguen sin portada.">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/es/library-dark.webp">
+      <img src="docs/assets/shots/es/library-light.webp" width="100%" alt="La biblioteca de Coverly ROMs con una tarjeta ES-DE de 12.000 ROMs. La barra lateral lista cada sistema con su número de juegos, de Dreamcast a WonderSwan. La cuadrícula muestra una ficha por juego: los que tienen imagen enseñan su portada y los que no, un hueco discontinuo «Sin portada». Cada ficha lleva tres marcas pequeñas para portada, captura y título, y una etiqueta de región. La barra de estado indica cuántos juegos siguen sin portada.">
     </picture>
   </a>
 </p>
@@ -135,14 +135,14 @@ Cuatro pasos. Los dos primeros no escriben nada.
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/es/fill-dark.webp">
-        <img src="site/assets/shots/es/fill-light.webp" alt="El asistente para rellenar imágenes, en el último paso. Indica que todavía no se ha escrito nada y lista cada sistema con cuántas imágenes van solas, cuántas hay que revisar y cuántas no tienen imagen. Los botones permiten revisar las dudosas o ejecutar el plan.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/es/fill-dark.webp">
+        <img src="docs/assets/shots/es/fill-light.webp" alt="El asistente para rellenar imágenes, en el último paso. Indica que todavía no se ha escrito nada y lista cada sistema con cuántas imágenes van solas, cuántas hay que revisar y cuántas no tienen imagen. Los botones permiten revisar las dudosas o ejecutar el plan.">
       </picture>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/es/review-dark.webp">
-        <img src="site/assets/shots/es/review-light.webp" alt="El diálogo para revisar coincidencias dudosas. El hueco de la pantalla de título actual está vacío y se muestran tres candidatas de libretro-thumbnails, de Europa, Japón y EE. UU., cada una con su porcentaje. La de Europa está elegida, con el motivo: región preferida en tu orden. Abajo, los atajos de teclado para moverse, elegir, aceptar, saltar y aceptar todas las restantes.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/es/review-dark.webp">
+        <img src="docs/assets/shots/es/review-light.webp" alt="El diálogo para revisar coincidencias dudosas. El hueco de la pantalla de título actual está vacío y se muestran tres candidatas de libretro-thumbnails, de Europa, Japón y EE. UU., cada una con su porcentaje. La de Europa está elegida, con el motivo: región preferida en tu orden. Abajo, los atajos de teclado para moverse, elegir, aceptar, saltar y aceptar todas las restantes.">
       </picture>
     </td>
   </tr>
@@ -537,7 +537,6 @@ siguen [SECURITY.md](SECURITY.md) (un aviso privado en GitHub, o
 | `crates/coverly-cli`  | La herramienta de línea de comandos `coverly`                              |
 | `src-tauri`           | La app de escritorio y sus órdenes                                         |
 | `src`                 | La interfaz en React                                                       |
-| `site`                | La página web                                                              |
 
 **Requisitos:** [Rust](https://rustup.rs/) 1.90 o superior,
 [Node.js](https://nodejs.org/) 22.22.2 o superior con [pnpm](https://pnpm.io/), y
@@ -552,7 +551,6 @@ make example                                   # crea una biblioteca de ejemplo 
 make example-fill                              # planifica rellenar sus portadas (simulación)
 make audit ROOT=<ruta>                         # audita una biblioteca desde la terminal
 make check                                     # lint, formato y todos los tests
-make site                                      # sirve la página web en http://localhost:8080
 ```
 
 Además: `make build` (un paquete de la app sin firmar), `make cli ARGS="systems"`
@@ -562,11 +560,8 @@ Además: `make build` (un paquete de la app sin firmar), `make cli ARGS="systems
 `target/example` (`make example-apply`, `make example-undo`, `make example-clean`).
 
 La página web de [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-vive en `site/`. `make site` la enseña como se verá antes de la primera versión;
-`make site RELEASE=scripts/site/fixtures/release.json`, con una versión
-publicada, y `make site-check` pasa sus comprobaciones.
-[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
-explica cómo se publica (en inglés).
+vive en su propio repositorio, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+que explica cómo verla en local, comprobarla y publicarla (en inglés).
 
 **Documentación** (en inglés). [docs/README.md](docs/README.md) es el índice.
 La arquitectura está en [docs/04-architecture/](docs/04-architecture/system-architecture.md),

@@ -56,3 +56,5 @@ pnpm-debug.log*
 
 # Vite timestamped config bundles
 vite.config.ts.timestamp-*
+.vercel
+.env*

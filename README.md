@@ -39,8 +39,8 @@
 <p align="center">
   <a href="https://coverly-roms.maecly.com/en/">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/library-dark.webp">
-      <img src="site/assets/shots/en/library-light.webp" width="100%" alt="The Coverly ROMs library on an ES-DE card of 12,000 ROMs. The sidebar lists each system with its game count, from Dreamcast to WonderSwan. The grid shows one tile per game: those with art show their cover, those without show a dashed “No cover” slot. Each tile has three small marks for cover, screenshot and title, and a region label. The status bar reads “4,553 without cover”.">
+      <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/library-dark.webp">
+      <img src="docs/assets/shots/en/library-light.webp" width="100%" alt="The Coverly ROMs library on an ES-DE card of 12,000 ROMs. The sidebar lists each system with its game count, from Dreamcast to WonderSwan. The grid shows one tile per game: those with art show their cover, those without show a dashed “No cover” slot. Each tile has three small marks for cover, screenshot and title, and a region label. The status bar reads “4,553 without cover”.">
     </picture>
   </a>
 </p>
@@ -129,14 +129,14 @@ Four steps. The first two write nothing.
   <tr>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/fill-dark.webp">
-        <img src="site/assets/shots/en/fill-light.webp" alt="The Fill missing art wizard at step 5 of 5. It says “Nothing has been written yet.” and lists each system with how many images are automatic, to review and with no art, for a total of 13,347 automatic, 3,751 to review and 1,906 with no art. The buttons read “Review (3,751)” and “Run (13,347)”.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/fill-dark.webp">
+        <img src="docs/assets/shots/en/fill-light.webp" alt="The Fill missing art wizard at step 5 of 5. It says “Nothing has been written yet.” and lists each system with how many images are automatic, to review and with no art, for a total of 13,347 automatic, 3,751 to review and 1,906 with no art. The buttons read “Review (3,751)” and “Run (13,347)”.">
       </picture>
     </td>
     <td width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/en/review-dark.webp">
-        <img src="site/assets/shots/en/review-light.webp" alt="The Review doubtful matches dialog, 1 of 3,751. The current title screen slot is empty, and three candidates from libretro-thumbnails are shown: Europe 82 %, Japan 78 % and USA 95 %. The Europe one is picked, with the reason “preferred region in your order”. Keyboard hints list arrows to move, 1–9 to choose, Enter to accept, S to skip and A to accept all remaining.">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/shots/en/review-dark.webp">
+        <img src="docs/assets/shots/en/review-light.webp" alt="The Review doubtful matches dialog, 1 of 3,751. The current title screen slot is empty, and three candidates from libretro-thumbnails are shown: Europe 82 %, Japan 78 % and USA 95 %. The Europe one is picked, with the reason “preferred region in your order”. Keyboard hints list arrows to move, 1–9 to choose, Enter to accept, S to skip and A to accept all remaining.">
       </picture>
     </td>
   </tr>
@@ -514,7 +514,6 @@ through [SECURITY.md](SECURITY.md) (a private GitHub advisory, or
 | `crates/coverly-cli`  | The `coverly` command-line tool                                    |
 | `src-tauri`           | The desktop shell and its commands                                 |
 | `src`                 | The React interface                                                |
-| `site`                | The landing page                                                   |
 
 **Prerequisites:** [Rust](https://rustup.rs/) 1.90 or newer,
 [Node.js](https://nodejs.org/) 22.22.2 or newer with [pnpm](https://pnpm.io/), and
@@ -529,7 +528,6 @@ make example                                   # build a small example library a
 make example-fill                              # plan filling its covers (dry run)
 make audit ROOT=<path>                         # audit a library from the terminal
 make check                                     # lint, format check and all tests
-make site                                      # serve the landing page on http://localhost:8080
 ```
 
 Also: `make build` (an unsigned release bundle), `make cli ARGS="systems"`
@@ -539,11 +537,8 @@ Also: `make build` (an unsigned release bundle), `make cli ARGS="systems"`
 (`make example-apply`, `make example-undo`, `make example-clean`).
 
 The landing page at [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-lives in `site/`. `make site` shows it as it looks before the first release;
-`make site RELEASE=scripts/site/fixtures/release.json` shows it with a release,
-and `make site-check` runs its checks.
-[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
-explains how it is published.
+lives in its own repository, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+which explains how to preview, check and publish it.
 
 **Docs.** [docs/README.md](docs/README.md) is the index. Architecture in
 [docs/04-architecture/](docs/04-architecture/system-architecture.md), decisions

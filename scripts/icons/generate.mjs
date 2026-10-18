@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Rasterise the Coverly ROMs icon from its master SVGs and rebuild every size
- * the app and the landing ask for.
+ * the app asks for and, with --site, the landing's icons.
  *
  * Single source: design/icon/ (see design/icon/README.md).
  *   app.svg          1024 squircle app icon (Tauri source, Linux, macOS legacy)
@@ -15,11 +15,14 @@
  *                                    (16/24/32 from the hand-tuned glyphs)
  *   src-tauri/icons/32x32.png        then rewritten from glyph-32.svg
  *   public/favicon.png               32 px, app dev favicon (glyph-32.svg)
- *   site/favicon.ico                 16, 32, 48
- *   site/assets/favicon.svg          16 px glyph with a prefers-color-scheme switch
- *   site/assets/apple-touch-icon.png 180 px, opaque, full bleed
- *   site/assets/icon-192.png, icon-512.png, icon-maskable-512.png
- *   site/assets/mark.svg, mark-dark.svg  landing nav lockup: the glyph cropped
+ *
+ * Landing output, only with --site <dir> (the site/ folder of a checkout of
+ * https://github.com/MAECLY/coverly-roms-landing):
+ *   <dir>/favicon.ico                 16, 32, 48
+ *   <dir>/assets/favicon.svg          16 px glyph with a prefers-color-scheme switch
+ *   <dir>/assets/apple-touch-icon.png 180 px, opaque, full bleed
+ *   <dir>/assets/icon-192.png, icon-512.png, icon-maskable-512.png
+ *   <dir>/assets/mark.svg, mark-dark.svg  landing nav lockup: the glyph cropped
  *                                    to its box plus the lockup gap on the right
  *
  * Rasteriser: @resvg/resvg-js (devDependency, pinned). If it is missing, the
@@ -27,6 +30,7 @@
  * error naming all three if none is available.
  *
  * Run: pnpm icons   (or: make icons, node scripts/icons/generate.mjs)
+ *      node scripts/icons/generate.mjs --site ../coverly-roms-landing/site
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -44,7 +48,11 @@ import { deflateSync } from 'node:zlib';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SRC = join(REPO, 'design', 'icon');
 const ICONS = join(REPO, 'src-tauri', 'icons');
-const SITE = join(REPO, 'site');
+const siteArg = process.argv.indexOf('--site');
+if (siteArg !== -1 && !process.argv[siteArg + 1]) {
+  throw new Error('--site needs the landing site/ folder');
+}
+const SITE = siteArg === -1 ? null : resolve(process.argv[siteArg + 1]);
 const PUBLIC = join(REPO, 'public');
 
 const svg = (name) => readFileSync(join(SRC, name), 'utf8');
@@ -309,21 +317,23 @@ write(
 write(join(ICONS, '32x32.png'), rasterise(GLYPH[32], 32));
 write(join(PUBLIC, 'favicon.png'), rasterise(GLYPH[32], 32));
 
-// Landing.
-write(join(SITE, 'favicon.ico'), encodeIco([16, 32, 48].map(icoLayer)));
-write(join(SITE, 'assets', 'favicon.svg'), faviconSvg());
-write(
-  join(SITE, 'assets', 'apple-touch-icon.png'),
-  rasterise(fullBleed(APP), 180, { opaque: true }),
-);
-write(join(SITE, 'assets', 'icon-192.png'), rasterise(APP, 192));
-write(join(SITE, 'assets', 'icon-512.png'), rasterise(APP, 512));
-write(
-  join(SITE, 'assets', 'icon-maskable-512.png'),
-  rasterise(MASKABLE, 512, { opaque: true }),
-);
+// Landing, only when asked for.
+if (SITE) {
+  write(join(SITE, 'favicon.ico'), encodeIco([16, 32, 48].map(icoLayer)));
+  write(join(SITE, 'assets', 'favicon.svg'), faviconSvg());
+  write(
+    join(SITE, 'assets', 'apple-touch-icon.png'),
+    rasterise(fullBleed(APP), 180, { opaque: true }),
+  );
+  write(join(SITE, 'assets', 'icon-192.png'), rasterise(APP, 192));
+  write(join(SITE, 'assets', 'icon-512.png'), rasterise(APP, 512));
+  write(
+    join(SITE, 'assets', 'icon-maskable-512.png'),
+    rasterise(MASKABLE, 512, { opaque: true }),
+  );
 
-write(join(SITE, 'assets', 'mark.svg'), webMark('mark.svg'));
-write(join(SITE, 'assets', 'mark-dark.svg'), webMark('mark-dark.svg'));
+  write(join(SITE, 'assets', 'mark.svg'), webMark('mark.svg'));
+  write(join(SITE, 'assets', 'mark-dark.svg'), webMark('mark-dark.svg'));
+}
 
 console.log('icons regenerated from design/icon/');

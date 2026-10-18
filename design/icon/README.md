@@ -1,11 +1,13 @@
 # Coverly ROMs icon: Lean-To
 
-The single source of the Coverly ROMs mark. Every icon the app and the landing
-ship (`src-tauri/icons/`, `public/favicon.png`, `site/favicon.ico`,
-`site/assets/favicon.svg`, `site/assets/apple-touch-icon.png`,
-`site/assets/icon-*.png`) is rasterised from the SVGs in this folder by
-`pnpm icons` (`make icons`, `scripts/icons/generate.mjs`). Edit the SVGs here,
-then regenerate; never edit the PNG/ICO/ICNS outputs by hand.
+The single source of the Coverly ROMs mark. Every icon the app ships
+(`src-tauri/icons/`, `public/favicon.png`) is rasterised from the SVGs in this
+folder by `pnpm icons` (`make icons`, `scripts/icons/generate.mjs`). The
+landing's icons (`favicon.ico`, `assets/favicon.svg`,
+`assets/apple-touch-icon.png`, `assets/icon-*.png`, `assets/mark*.svg` in the
+`site/` folder of [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing))
+come from the same SVGs with `pnpm icons --site <landing checkout>/site`. Edit
+the SVGs here, then regenerate; never edit the PNG/ICO/ICNS outputs by hand.
 
 **Chosen 2026-10-17 from round 2, v05 "Lean-To".** A solid cover leans about
 12° against an upright empty slot, and both rest on a shelf rule: the gap in the
@@ -20,9 +22,9 @@ and the brand rules in [`docs/08-brand/brand.md`](../../docs/08-brand/brand.md#9
 | File | What it is | Use it for |
 |---|---|---|
 | `app.svg` | 1024 canvas, 824 px Buckram squircle body (rx 185.4, 100 px gutter), paper cover and slot, Manila shelf | App icon at 48 px and up: Tauri source, macOS, Linux, `icon-192/512.png`. Cropped to its body (corners squared) for `apple-touch-icon.png` |
-| `glyph-32.svg` | 32 px full-bleed tile, pixel-snapped, paper shelf | 32 px: `icon.ico`, `32x32.png`, `public/favicon.png`, `site/favicon.ico` |
+| `glyph-32.svg` | 32 px full-bleed tile, pixel-snapped, paper shelf | 32 px: `icon.ico`, `32x32.png`, `public/favicon.png`, the landing's `favicon.ico` |
 | `glyph-24.svg` | 24 px full-bleed tile, pixel-snapped, paper shelf | 24 px layer of `icon.ico` |
-| `glyph-16.svg` | 16 px full-bleed tile, the lean drawn as a one-pixel step with three mid-tone pixels | 16 px: `icon.ico`, `site/favicon.ico`, and the source of `site/assets/favicon.svg` (which adds a dark-scheme palette) |
+| `glyph-16.svg` | 16 px full-bleed tile, the lean drawn as a one-pixel step with three mid-tone pixels | 16 px: `icon.ico`, the landing's `favicon.ico`, and the source of its `assets/favicon.svg` (which adds a dark-scheme palette) |
 | `app-mono.svg` | Glyph only, one ink (`#000`), transparent canvas, same geometry as `app.svg` | macOS 26 Tinted/Clear template, Windows unplated tiles, single-ink print, embossing. Only the alpha matters: recolour it |
 | `maskable.svg` | Full-bleed Buckram square, glyph at 88% so every pixel sits inside the 40% safe-zone circle (farthest point r ≈ 367 of 409.6) | `icon-maskable-512.png` (PWA `purpose: maskable`), Android adaptive icons |
 | `mark.svg` | Glyph only in Buckram `#0E5E6F`, transparent | The mark on light backgrounds (lockups, docs, print) |

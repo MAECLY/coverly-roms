@@ -1,0 +1,43 @@
+name: Landing redeploy
+
+# The landing lives in https://github.com/MAECLY/coverly-roms-landing and is
+# built and served by Vercel (project coverly-roms-landing), which deploys
+# that repo's main on every push. The landing names no version: its build
+# fills the {{release.*}} markers from the latest published release of this
+# repo. So publishing a release here changes no landing file, and this
+# workflow asks Vercel for a fresh production build through a deploy hook. A
+# release published with GITHUB_TOKEN would not trigger this; ours are
+# published by a person, and Run workflow redeploys by hand.
+#
+# VERCEL_DEPLOY_HOOK_URL is a repository secret holding the hook URL
+# (Vercel → Project coverly-roms-landing → Settings → Git → Deploy Hooks,
+# branch main). See the landing repo's README.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# The hook URL is the only credential; no GITHUB_TOKEN scope is needed.
+permissions: {}
+
+concurrency:
+  group: landing-redeploy
+  cancel-in-progress: false
+
+jobs:
+  redeploy:
+    name: Redeploy the landing on Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the Vercel deploy hook
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOOK:-}" ]; then
+            echo "::error::The VERCEL_DEPLOY_HOOK_URL secret is empty or missing; set it to the coverly-roms-landing deploy hook for main." >&2
+            exit 1
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Vercel accepted the deploy hook: a production build of main is queued."

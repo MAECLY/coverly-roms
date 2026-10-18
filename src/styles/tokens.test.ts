@@ -19,9 +19,7 @@ describe('design token build', () => {
     const first = buildAll(tokens);
     const second = buildAll(structuredClone(tokens));
     expect(second).toEqual(first);
-    expect(Object.keys(first).sort()).toEqual(
-      [OUTPUTS.app, OUTPUTS.site].sort(),
-    );
+    expect(Object.keys(first)).toEqual([OUTPUTS.app]);
   });
 
   it('matches the generated files on disk (run pnpm tokens if not)', () => {
@@ -42,13 +40,6 @@ describe('design token build', () => {
     expect(css).toMatch(/--cr-primary-rgb: 14 94 111;/);
     expect(css).toMatch(/--background: #f2f3ef;/);
     expect(css).toMatch(/--cr-accent: #0e5e6f;/);
-  });
-
-  it('emits the landing selectors without app-only channels', () => {
-    const css = buildCss(tokens, 'site');
-    expect(css).toContain(":root:not([data-theme='light']) {\n");
-    expect(css).toContain(":root[data-theme='dark'] {\n");
-    expect(css).not.toMatch(/-rgb:/);
   });
 
   it('maps every Tailwind colour to an emitted channel variable', () => {

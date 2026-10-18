@@ -65,7 +65,8 @@ A 1px `--cr-border` line with a 3px Buckram cap on the left. Used on section hea
 
 **Landing only, never in the app UI.** The illustrated covers on the landing
 page (the generated sprite `site/assets/art/covers.svg`, made by
-`scripts/site/gen_covers.mjs`) may each carry **one muted ink**, in two
+`scripts/site/gen_covers.mjs`, both in
+[MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing)) may each carry **one muted ink**, in two
 strengths over Paper: the key layer at full ink and the tone layer at 28%.
 The inks come from the primitives `info.9`, `success.9`, `warning.11`,
 `danger.9`, `greyboard.11` and `greyboard.9` (and their `-dark`
@@ -86,7 +87,8 @@ counterparts in dark mode), muted 20% toward `greyboard.11`
   in greyboard only, with no other change to the page.
 
 Status: proposed with the landing showcase; it needs the owner's sign-off on
-the contact sheet (`make site-covers CONTACT=<file.html>`).
+the contact sheet (`make site-covers CONTACT=<file.html>` in the landing
+repository).
 
 ---
 
@@ -584,15 +586,19 @@ Under `prefers-reduced-motion: reduce` all durations become 0ms through the toke
 design/tokens.json              # source of truth (DTCG 2025.10): primitives -> semantic (light/dark) -> legacy + shadcn aliases
 scripts/brand/build_tokens.mjs  # zero-dependency: resolve aliases, emit CSS, check contrast, --check mode for CI
 src/styles/tokens.css           # GENERATED, imported first by src/styles/globals.css
-site/assets/tokens.css          # GENERATED, <link> before site.css on the landing
 ```
+
+The landing lives in [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing) and keeps its own
+`design/tokens.json` (a copy of this one) and its generated
+`site/assets/tokens.css` with only the landing roles. Its weekly `Sync tokens`
+workflow fetches this JSON from `main` and opens a pull request when it changed.
 
 - **Three tiers.** Primitives (`--cr-buckram-9`, `--cr-greyboard-11` …) are never used directly by components. Components use semantic roles (`--cr-primary`, `--cr-text-secondary` …). Legacy and shadcn names are aliases.
 - **Emitted format.** `--cr-<role>` is a full colour (`--cr-primary: #0e5e6f`), so plain CSS and the legacy names keep working with `var(--cr-*)`. The app file also emits RGB channels for Tailwind 3 opacity modifiers (`--cr-primary-rgb: 14 94 111`), the shadcn/ui names as full colours (`--background: #f2f3ef`) and the primitive scales; the landing file carries only the roles. Every hex is in sRGB, so no `oklch()` is emitted. No relative colour syntax at runtime. Run `pnpm tokens` (`make tokens`) after editing the JSON; `pnpm tokens:check` (`make tokens-check`, CI) fails on stale output or a contrast pair below its target.
 - **Themes.** `:root` gets light. `:root[data-theme='dark']` gets dark, and so does the OS fallback, under the selector each surface already used: `:root:not([data-theme])` in the app (before the settings load) and `:root:not([data-theme='light'])` on the landing (no-JS visitors). Both blocks are generated, never hand-copied.
 - **Tailwind.** `darkMode: ['selector', '[data-theme="dark"]']` so `dark:` variants follow the real theme toggle. `tailwind.config.ts` reads `design/tokens.json` through the generator, so colours map as `primary: 'rgb(var(--cr-primary-rgb) / <alpha-value>)'` (every role is also `cr-<role>`). Radius, duration, easing, shadows and font families map to the `--cr-*` variables.
 - **Landing.** Uses `var(--cr-primary-c)` style full colours. Its private tokens (`--ok`, `--line`, `--dash`, `--code-*`, `--shot-*`, `--shadow`, `--ease-*`) are deleted and replaced by `--cr-success`, `--cr-border`, `--cr-slot-missing`, `--cr-code-*`, `--cr-shadow-*`, `--cr-ease-*`.
-- **Drift guard.** `scripts/site/check_site.py`'s token-sync check runs `build_tokens.mjs --check`, which fails when a generated file differs from a fresh build or when any contrast pair in §4 drops below its target.
+- **Drift guard.** `pnpm tokens:check` (CI) runs `build_tokens.mjs --check`, which fails when the generated file differs from a fresh build or when any contrast pair in §4 drops below its target. The landing repository checks its own copy.
 - **Hard-coded colours.** Every literal in `globals.css` and `site.css` (Tailwind greens/reds/yellows, source badge colours, the `#a5b4fc` terminal prompt) moves to a token. Source badges become Manila tags with mono labels, identical across sources (the label text tells them apart, not the colour).
 
 ---
@@ -622,11 +628,11 @@ Masters live in `design/icon/`; every raster is generated from them.
 
 | Master | Use | Generated outputs |
 |---|---|---|
-| `app.svg` | App icon, 48 px and up | `src-tauri/icons/source.png` → `icon.icns`, `128x128.png`, `128x128@2x.png`, `Square*Logo.png`, `android/`, `ios/`, ico 48/64/256 layers; `site/assets/icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (cropped to the body, opaque) |
-| `glyph-32.svg` | 32 px | `src-tauri/icons/32x32.png`, ico 32 layer, `public/favicon.png` (app `index.html`), `site/favicon.ico` 32 |
+| `app.svg` | App icon, 48 px and up | `src-tauri/icons/source.png` → `icon.icns`, `128x128.png`, `128x128@2x.png`, `Square*Logo.png`, `android/`, `ios/`, ico 48/64/256 layers; with `--site`, the landing's `assets/icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (cropped to the body, opaque) |
+| `glyph-32.svg` | 32 px | `src-tauri/icons/32x32.png`, ico 32 layer, `public/favicon.png` (app `index.html`), the landing's `favicon.ico` 32 |
 | `glyph-24.svg` | 24 px | ico 24 layer |
-| `glyph-16.svg` | 16 px | ico 16 layer, `site/favicon.ico` 16, `site/assets/favicon.svg` (with a `prefers-color-scheme: dark` palette) |
-| `maskable.svg` | PWA / Android adaptive | `site/assets/icon-maskable-512.png` (glyph inside the 40% safe zone) |
+| `glyph-16.svg` | 16 px | ico 16 layer, the landing's `favicon.ico` 16 and `assets/favicon.svg` (with a `prefers-color-scheme: dark` palette) |
+| `maskable.svg` | PWA / Android adaptive | the landing's `assets/icon-maskable-512.png` (glyph inside the 40% safe zone) |
 | `app-mono.svg` | Tinted, unplated, single-ink print | used as is (recolour the alpha) |
 | `mark.svg` / `mark-dark.svg` | Mark on light / dark backgrounds (lockups, docs, `Logo.tsx`) | used as is |
 
@@ -672,7 +678,7 @@ The brief below produced both exploration rounds. Where it differs from the cons
 
 ## 10. Checklist for applying the brand
 
-- [x] `scripts/brand/build_tokens.mjs` emits `src/styles/tokens.css` and `site/assets/tokens.css` from `design/tokens.json`; `--check` wired into the local CI gates.
+- [x] `scripts/brand/build_tokens.mjs` emits `src/styles/tokens.css` from `design/tokens.json` (the landing's `site/assets/tokens.css` now lives in MAECLY/coverly-roms-landing); `--check` wired into the local CI gates.
 - [x] `tailwind.config.ts` maps shadcn names, radius, motion and fonts; `darkMode` uses the `data-theme` selector.
 - [x] Fonts (Archivo variable, Atkinson Hyperlegible Next, Atkinson Hyperlegible Mono) self-hosted in both app and landing with their OFL files.
 - [x] All hard-coded colours in `globals.css` and `site.css` replaced by tokens.

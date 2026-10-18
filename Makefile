@@ -25,14 +25,6 @@ VERSION ?=
 # Port the Vite dev server listens on (see vite.config.ts).
 DEV_PORT := 1431
 
-# `make site`: where the filled landing page goes, its port, and an optional
-# GitHub release JSON to preview (e.g. scripts/site/fixtures/release.json).
-SITE_OUT := target/site
-SITE_PORT ?= 8080
-RELEASE ?=
-# `make site-covers CONTACT=/tmp/sheet.html`: also write a contact sheet.
-CONTACT ?=
-
 # Throwaway example library built by `make example` (git-ignored).
 EXAMPLE_DIR := target/example
 EXAMPLE_LIB := $(EXAMPLE_DIR)/library
@@ -140,7 +132,7 @@ fmt: ## Format frontend (Prettier) and Rust (rustfmt) sources.
 	cargo fmt --all
 
 .PHONY: tokens
-tokens: ## Regenerate src/styles/tokens.css and site/assets/tokens.css from design/tokens.json.
+tokens: ## Regenerate src/styles/tokens.css from design/tokens.json.
 	pnpm tokens
 
 .PHONY: tokens-check
@@ -184,35 +176,7 @@ fill: ## Plan a fill without writing (dry run): make fill ROOT=/path/to/roms
 	@if [ -z "$(ROOT)" ]; then echo "usage: make fill ROOT=/path/to/roms" >&2; exit 2; fi
 	$(CLI) fill "$(ROOT)" --dry-run
 
-# ───────────────────────────────────────────────────────────────────────
-# Landing page (site/, published by .github/workflows/pages.yml)
-# ───────────────────────────────────────────────────────────────────────
-
-.PHONY: site
-site: ## Serve the landing page on http://localhost:8080 (RELEASE=release.json to preview a release).
-	node scripts/site/gen_covers.mjs --check
-	rm -rf "$(SITE_OUT)"
-	@if [ -n "$(RELEASE)" ]; then \
-	  python3 -I scripts/site/apply_release.py --release-json "$(RELEASE)" --repo MAECLY/coverly-roms --site site --out "$(SITE_OUT)"; \
-	else \
-	  python3 -I scripts/site/apply_release.py --no-release --repo MAECLY/coverly-roms --site site --out "$(SITE_OUT)"; \
-	fi
-	@echo "Serving $(SITE_OUT) on http://localhost:$(SITE_PORT) (Ctrl+C to stop)"
-	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 -d "$(SITE_OUT)"
-
-.PHONY: site-covers
-site-covers: ## Regenerate the landing cover sprite and inks (CONTACT=sheet.html also writes a review sheet).
-	node scripts/site/gen_covers.mjs $(if $(CONTACT),--contact "$(CONTACT)")
-
-.PHONY: site-og
-site-og: ## Render the Open Graph cards site/assets/og.png and og-en.png (needs Chrome or Chromium).
-	node scripts/site/og.mjs
-
-.PHONY: site-check
-site-check: ## Check the landing page: tokens, cover sprite, links, ES/EN parity, head tags, budgets, contrast, motion, art, live release.
-	node scripts/brand/build_tokens.mjs --check
-	node scripts/site/gen_covers.mjs --check
-	python3 -I scripts/site/check_site.py
+# The landing page lives in https://github.com/MAECLY/coverly-roms-landing.
 
 # ───────────────────────────────────────────────────────────────────────
 # Example library (throwaway, under target/example)
@@ -247,7 +211,7 @@ example-clean: ## Delete the example library, its cache and its journals.
 # ───────────────────────────────────────────────────────────────────────
 
 .PHONY: icons
-icons: ## Regenerate every app and landing icon from design/icon/*.svg.
+icons: ## Regenerate every app icon from design/icon/*.svg.
 	pnpm icons
 
 .PHONY: bump

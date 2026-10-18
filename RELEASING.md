@@ -104,7 +104,8 @@ Rules:
 
 ## 3. One-time: make the repository public
 
-**Status: done.** `MAECLY/coverly-roms` is public, with Pages served from
+**Status: done.** `MAECLY/coverly-roms` is public, and its landing page
+(repository [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing), served by Vercel) is at
 `coverly-roms.maecly.com`.
 
 Settings → General → Danger zone → **Change visibility** → Public.
@@ -184,7 +185,8 @@ prints the new version for a stable release. Then try a real update:
 
 The landing page follows on its own, two ways:
 
-- **At once, in the browser.** `site/assets/release.js` asks
+- **At once, in the browser.** The landing's `site/assets/release.js` (in
+  [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing)) asks
   `api.github.com/repos/MAECLY/coverly-roms/releases/latest` and, when every
   file the page links is in the newer release, swaps the links, sizes, version
   and date. Before the first deploy with a release, it swaps the "first
@@ -193,10 +195,16 @@ The landing page follows on its own, two ways:
   `.dmg`, the x64 `-setup.exe` or the x64/ARM64 AppImage) next to the release
   page. Open <https://coverly-roms.maecly.com/#descargar> in a private window:
   the version is the new one, and the download names it.
-- **For good, a minute later.** Publishing fires `pages.yml`, whose `redeploy`
-  job runs it again on `main`; `apply_release.py` bakes the release into the
-  page (so it also works without JavaScript and for search engines). Check
-  that the run is green and that `view-source:` shows the new version.
+- **For good, a minute later.** Publishing fires `landing-redeploy.yml`,
+  which calls the Vercel deploy hook (secret `VERCEL_DEPLOY_HOOK_URL`) for a
+  fresh production build of the landing's `main`; its
+  `scripts/site/vercel_build.sh` runs `apply_release.py`, which bakes the
+  release into the page (so it also works without JavaScript and for search
+  engines). Check that the run is green,
+  that the newest production deployment of `coverly-roms-landing` is Ready
+  (Vercel dashboard or `vercel ls coverly-roms-landing`), and that
+  `view-source:` shows the new version. If the run failed, fix the secret and
+  use **Actions → Landing redeploy → Run workflow**.
 
 Last, try the first-open steps on a fresh download, as the landing, the README
 and the notes describe them: on macOS, `xattr -rd com.apple.quarantine
