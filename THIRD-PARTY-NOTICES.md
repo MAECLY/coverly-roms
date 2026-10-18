@@ -12,9 +12,10 @@ first release. `docs/09-legal/license.md` explains the project's own licence.
 
 ## Fonts
 
-The application (`src/assets/fonts/`, bundled into every build) and the
-website (`site/assets/fonts/`, not part of the application bundles) self-host
-the same three typefaces, each licensed under the SIL Open Font License 1.1:
+The application (`src/assets/fonts/`, bundled into every build) self-hosts
+three typefaces, each licensed under the SIL Open Font License 1.1 (the
+website, in [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing), ships the same fonts with
+its own notices):
 
 - **Archivo**, Copyright 2020 The Archivo Project Authors
   (https://github.com/Omnibus-Type/Archivo). Licence: `OFL-Archivo.txt`.
@@ -34,7 +35,7 @@ Mono wght 400-600), they are subset to Latin, Latin-1 Supplement and Latin
 Extended-A, hinting is removed, and they are converted to WOFF2. They keep
 their original family names, which the OFL allows because none of these
 fonts declares a Reserved Font Name. Each licence file sits next to the font
-files in both folders.
+files.
 
 ## Art and metadata sources
 

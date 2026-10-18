@@ -514,7 +514,6 @@ through [SECURITY.md](SECURITY.md) (a private GitHub advisory, or
 | `crates/coverly-cli`  | The `coverly` command-line tool                                    |
 | `src-tauri`           | The desktop shell and its commands                                 |
 | `src`                 | The React interface                                                |
-| `site`                | The landing page                                                   |
 
 **Prerequisites:** [Rust](https://rustup.rs/) 1.90 or newer,
 [Node.js](https://nodejs.org/) 22.22.2 or newer with [pnpm](https://pnpm.io/), and
@@ -529,7 +528,6 @@ make example                                   # build a small example library a
 make example-fill                              # plan filling its covers (dry run)
 make audit ROOT=<path>                         # audit a library from the terminal
 make check                                     # lint, format check and all tests
-make site                                      # serve the landing page on http://localhost:8080
 ```
 
 Also: `make build` (an unsigned release bundle), `make cli ARGS="systems"`
@@ -539,11 +537,8 @@ Also: `make build` (an unsigned release bundle), `make cli ARGS="systems"`
 (`make example-apply`, `make example-undo`, `make example-clean`).
 
 The landing page at [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-lives in `site/`. `make site` shows it as it looks before the first release;
-`make site RELEASE=scripts/site/fixtures/release.json` shows it with a release,
-and `make site-check` runs its checks.
-[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
-explains how it is published.
+lives in its own repository, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+which explains how to preview, check and publish it.
 
 **Docs.** [docs/README.md](docs/README.md) is the index. Architecture in
 [docs/04-architecture/](docs/04-architecture/system-architecture.md), decisions

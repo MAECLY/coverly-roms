@@ -73,7 +73,7 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 ### 07 — Build & Release
 
 - [CI / CD](./07-build-and-release/ci-cd.md) — GitHub Actions on Linux, Windows and macOS: CI, `release.yml`, `release-channels.yml`
-- [Landing page](./07-build-and-release/landing.md) — `site/`, how the Vercel build fills it from the latest release, local preview, checks, hosting and the DNS setup
+- [Landing page](https://github.com/MAECLY/coverly-roms-landing) — lives in its own repository, MAECLY/coverly-roms-landing: how the Vercel build fills it from the latest release, local preview, checks, hosting and the DNS setup
 - [RELEASING.md](../RELEASING.md) — the owner's runbook: signing key and secrets, public repository, cutting, checking and publishing a release, beta channel, local builds, recovery
 
 ### 09 — Legal

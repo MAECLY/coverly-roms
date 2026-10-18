@@ -537,7 +537,6 @@ siguen [SECURITY.md](SECURITY.md) (un aviso privado en GitHub, o
 | `crates/coverly-cli`  | La herramienta de línea de comandos `coverly`                              |
 | `src-tauri`           | La app de escritorio y sus órdenes                                         |
 | `src`                 | La interfaz en React                                                       |
-| `site`                | La página web                                                              |
 
 **Requisitos:** [Rust](https://rustup.rs/) 1.90 o superior,
 [Node.js](https://nodejs.org/) 22.22.2 o superior con [pnpm](https://pnpm.io/), y
@@ -552,7 +551,6 @@ make example                                   # crea una biblioteca de ejemplo 
 make example-fill                              # planifica rellenar sus portadas (simulación)
 make audit ROOT=<ruta>                         # audita una biblioteca desde la terminal
 make check                                     # lint, formato y todos los tests
-make site                                      # sirve la página web en http://localhost:8080
 ```
 
 Además: `make build` (un paquete de la app sin firmar), `make cli ARGS="systems"`
@@ -562,11 +560,8 @@ Además: `make build` (un paquete de la app sin firmar), `make cli ARGS="systems
 `target/example` (`make example-apply`, `make example-undo`, `make example-clean`).
 
 La página web de [coverly-roms.maecly.com](https://coverly-roms.maecly.com)
-vive en `site/`. `make site` la enseña como se verá antes de la primera versión;
-`make site RELEASE=scripts/site/fixtures/release.json`, con una versión
-publicada, y `make site-check` pasa sus comprobaciones.
-[docs/07-build-and-release/landing.md](docs/07-build-and-release/landing.md)
-explica cómo se publica (en inglés).
+vive en su propio repositorio, [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing),
+que explica cómo verla en local, comprobarla y publicarla (en inglés).
 
 **Documentación** (en inglés). [docs/README.md](docs/README.md) es el índice.
 La arquitectura está en [docs/04-architecture/](docs/04-architecture/system-architecture.md),

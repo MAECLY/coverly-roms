@@ -11,4 +11,4 @@ Mergeado en `main` con el [PR #15](https://github.com/MAECLY/coverly-roms/pull/1
 | W3 Aplicar marca | tokens en `globals.css` + `site/assets/site.css`, tipografía, capturas | ✅ hecho (PR #15) |
 | W4 Icono | aplicar el icono elegido (Lean-To, ronda 2 v05): `design/icon/` + `pnpm icons` → `src-tauri/icons`, favicons, manifest; `Logo.tsx` en inicio y Acerca de; README; `brand.md` §9. Rama `feat/brand-icon` | ✅ hecho (PR #15) |
 
-Reglas: commits conventional sin coautor y con push; PR en inglés sin firma; CI verde en 3 SO antes de mergear; E2E con Chrome DevTools MCP (`make web` en :1431, `make site` en :8080).
+Reglas: commits conventional sin coautor y con push; PR en inglés sin firma; CI verde en 3 SO antes de mergear; E2E con Chrome DevTools MCP (`make web` en :1431, la landing en su repo, MAECLY/coverly-roms-landing).
