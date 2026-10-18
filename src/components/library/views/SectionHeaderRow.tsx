@@ -33,6 +33,8 @@ export function SectionHeaderRow({
   const t = useT();
   const locale = useContext(LocaleContext);
   const group = sectionLabel(section, t);
+  // Spoken and shown the same way ("1,204", "1.204").
+  const count = section.count.toLocaleString(locale);
   return (
     <div
       role="row"
@@ -43,16 +45,14 @@ export function SectionHeaderRow({
       <div
         role="rowheader"
         aria-colspan={colSpan}
-        aria-label={t('layouts.groupCount', { group, n: section.count })}
+        aria-label={t('layouts.groupCount', { group, n: count })}
         className="section-row__label"
       >
         {section.systemId !== undefined && (
           <SystemIcon systemId={section.systemId} size={20} />
         )}
         <span className="section-row__name">{group}</span>
-        <span className="section-row__count">
-          {section.count.toLocaleString(locale)}
-        </span>
+        <span className="section-row__count">{count}</span>
       </div>
     </div>
   );
