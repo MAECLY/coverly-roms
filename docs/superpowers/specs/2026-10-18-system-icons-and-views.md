@@ -1,6 +1,7 @@
 # System icons and library views
 
-Status: design spec, 2026-10-18. Branch `feat/system-icons-views`.
+Status: design spec, 2026-10-18, revised after an adversarial design,
+accessibility and performance review. Branch `feat/system-icons-views`.
 Builds on the research in
 [`docs/02-research/system-icons-and-views.md`](../../02-research/system-icons-and-views.md).
 
@@ -39,6 +40,7 @@ that.
      no room for one.
   2. A view earns its place only if it shows something no other view
      shows: more items, more metadata, the hierarchy, or the art itself.
+     A difference of density or row height is an option, not a view.
   3. The Slot is the one bold element. The new **Mounts** view (B.4.5)
      shows a row's three art slots (cover, title, screenshot) side by side,
      so missing art is visible at a glance. The other views stay quiet.
@@ -51,6 +53,41 @@ trackpad and screen readers at 12,000 rows. The first draft also had an
 Explorer-style "Content" view, which only repeated Details with a larger
 thumbnail. It became **Mounts**, the one view tied to Coverly's actual
 job, which no ROM manager offers.
+
+**What changed after the adversarial review (design, a11y, perf).** The
+second draft had eight views. Two of them failed principle 2:
+
+- **Tiles** showed a small cover, the name, the system and the art pips.
+  Covers at size S already shows the small cover and name, and Mounts shows
+  the art status better (the real slots, not pips). Dropped.
+- **Compact list** was Details with shorter rows and no columns. Windows
+  Explorer itself treats this as a density switch ("Compact view"), not a
+  separate layout. It became a **Row density** option of Details
+  (comfortable 34px, compact 24px), and with the column picker it gives
+  the same screen.
+
+Six views remain. With five cover sizes, two densities, six group keys and
+three art types, the owner still gets far more ways to look at the library
+than Grid and List, without eight look-alike buttons. Six fit in one
+segmented control, so the "More views" menu was removed too: the signature
+view is no longer hidden behind `⋯`. The review also fixed the keyboard
+model (§B.8), icon legibility at small sizes (§A.2, §A.4, §A.5), an
+invalid ARIA role on section headers, a duplicated metadata pane, and a
+trademark misattribution (MSX). Each fix is in place below.
+
+**How the six map to what the owner named:**
+
+| Finder / Explorer / ROM managers | Coverly |
+|---|---|
+| Finder Icons, Explorer Extra large / Large / Medium / Small icons, LaunchBox Boxes, Steam S/M/L | Covers + size slider (XS–XL) |
+| Finder List, Explorer Details, Playnite/LaunchBox/GOG list | Details |
+| Explorer List, Explorer "Compact view" | Details, compact density |
+| Finder Columns | Columns |
+| Finder Gallery, Playnite Details, RetroArch Ozone thumbnails | Gallery |
+| Explorer Tiles / Content | Art slots (Mounts) |
+| Steam shelves, Pegasus rows, Big Box Platform Hybrid | Shelves |
+| Explorer Group by, Finder Use Groups | Group by (every view) |
+| Explorer per-folder view memory | per-library view prefs |
 
 ---
 
@@ -66,7 +103,8 @@ commit `d9f969054dc7fbb6fa89519036d2b971e0855b51`.
 |---|---|
 | Licence | CC BY 4.0 (repo `COPYING`). The FSF lists CC BY 4.0 as compatible with every GPL version, so it can ship in an AGPL-3.0 app with attribution and a note of changes. |
 | Style | Solid, single-colour silhouettes of the console or its controller, drawn in white so code can recolour them. They work with `currentColor` in both themes. |
-| Coverage | 41 of the 54 systems use their icon directly. 13 use the fallback (§A.4). |
+| Coverage | 41 of the 54 systems use a silhouette (3 of them through the FBNeo cabinet proxy). 13 use the fallback (§A.4). The unit test (§C.1) is the source of truth for these counts. |
+| Legibility | Checked by rendering samples at 14, 16 and 64px (review, 2026-10-18). Handhelds and pads read as "a handheld" or "a pad" at 16px, but families collapse: `gb` and `gbc` are identical at 16px, `psx` and `ps2` nearly so, `md`, `saturn` and `snes` close. Landscape pads fill only half the height of their square viewBox, so they render about 16×8px. Consequences: the icon is never the only cue (§A.6), lone icons are at least 20px, and the generator crops each viewBox to the glyph (§A.2). |
 | Precedent | RomM (AGPL-3.0) ships the same icons with a CC BY 4.0 attribution file. |
 | Weight | About 87 KB after SVGO (about 38 KB gzipped) for every icon in the set. Bundled eagerly; no lazy loading. |
 
@@ -93,7 +131,12 @@ Coverly meets each of its three parts:
 2. **Use only as much as is needed.** A generic 16px silhouette of the
    hardware is used, never the maker's logo or wordmark. The
    monochrome icons that are wordmarks (CPS I/II/III, MAME, DOS, ScummVM,
-   RPG Maker) are replaced by the fallback.
+   RPG Maker) are replaced by the fallback. A silhouette also must not
+   carry a maker's mark inside it: no PlayStation face-button symbols
+   (△ ○ × □ are registered marks), no Dreamcast swirl, no badge or
+   wordmark on the shell. The pads in the set use plain dots for buttons;
+   the per-icon audit (§A.2) records this for each file, and an icon that
+   fails it goes to the fallback.
 3. **No implied endorsement.** `TRADEMARKS.md` already disclaims it. This
    work extends that list and adds a paragraph about icons.
 
@@ -116,12 +159,14 @@ landing page, or in marketing images.
   - Add a "System icons" section: RetroArch Assets, XMB Monochrome theme,
     © libretro contributors, CC BY 4.0, source URL and commit. Changes
     made: recoloured to `currentColor`, optimised with SVGO, viewBoxes
-    normalised.
+    cropped to the drawing (paths unchanged).
   - Add lucide-react (ISC), which is missing today.
 - **`LICENSES/CC-BY-4.0.txt`**: the full licence text.
 - **`TRADEMARKS.md`, "Other names"**
-  - Add Bandai (WonderSwan), Commodore, Capcom, Microsoft (MSX), IGS,
-    Lexaloffle (PICO-8) and ScummVM.
+  - Add Bandai (WonderSwan), Commodore, Capcom, MSX Licensing
+    Corporation (MSX; the mark is not Microsoft's), IGS, Lexaloffle
+    (PICO-8) and ScummVM. Check each holder against the current
+    register before committing; do not guess.
   - Add one sentence: system icons are simplified silhouettes of
     compatible hardware, used only to identify it, and imply no
     endorsement.
@@ -136,22 +181,35 @@ time.
 
 ```
 scripts/icons/systems.mjs          pnpm system-icons
-  SYSTEM_ICON_SOURCES (id → RetroArch file, pinned commit)
+  SYSTEM_ICON_SOURCES (id → { file, depicts: 'console'|'handheld'|'pad'
+                               |'cabinet', audit: string }, pinned commit)
   → fetch → svgo (multipass, removeDimensions, fills → currentColor,
     strip ids/styles/classes, drop fill:none paths' fill attr)
+  → synthesise a viewBox from width/height when the source has none
+  → crop the viewBox to the glyph's bounding box (svg-path-bbox) + 2%
   → src/assets/system-icons/<id>.svg          (reviewable copies)
   → src/components/system/systemIcons.generated.ts
-       export const SYSTEM_ICONS: Record<string, {viewBox, body}>
-  → src/assets/system-icons/README.md         (source, commit, changes)
+       export const SYSTEM_ICONS: Record<string, {viewBox, body, aspect}>
+  → src/assets/system-icons/README.md         (source, commit, changes,
+                                                per-icon audit table)
+  → src/assets/system-icons/contact-sheet.html (every icon at 14/16/20/48px)
 ```
 
 - The generated file is committed. The build does not need network access.
 - The script fails if any output still contains `#fff`, `#ffffff`,
   `<text`, `<image`, `style=` or a `fill` other than `currentColor` or
-  `none`.
-- Each icon keeps its own `viewBox` (some are `0 128 64 64`, some
-  `0 0 256 256`). The component scales them in CSS; the paths are never
-  rewritten.
+  `none`, if a source has neither a `viewBox` nor `width`/`height`, or if
+  a glyph's bounding box is empty or falls outside its viewBox.
+- **ViewBoxes.** The sources disagree: most are `0 128 64 64`, some
+  `0 0 256 256`, and some (`Sony - PlayStation 2`, `SNK - Neo Geo`) have
+  **no viewBox at all**, only `width="64" height="64"`, so they do not
+  scale and render blank at 16px. The generator gives every icon a viewBox
+  cropped to its drawing. Only the viewBox changes; the path data is never
+  rewritten. `aspect` (width ÷ height of the crop) lets the component fit
+  landscape pads to the icon box (§A.3).
+- **Audit.** Every source-map entry says what the glyph depicts and
+  carries a one-line audit ("pad, plain dots, no marks"). Review of the
+  contact sheet is part of commit 1 in §D.
 
 ## A.3 Component API
 
@@ -175,6 +233,13 @@ interface SystemIconProps {
   `<svg data-system-icon={id ?? 'unknown'} fill="currentColor"
   viewBox=…>` with the `body` paths. It is not a `<img>`, so it inherits
   the colour.
+- **The icon box.** `size` sets the box **height**. The box is always
+  `1.5 × size` wide, and the glyph is fitted inside it
+  (`preserveAspectRatio="xMidYMid meet"`, from the cropped viewBox). A
+  landscape pad at `size=16` therefore draws about 24×12 instead of
+  16×8, and a portrait handheld stays 16 tall. Because every icon, mount
+  and folder glyph has the same box width, names in a column start on one
+  edge (§A.6 rule 1).
 - It is a `memo` component with no state and no effects, so it is cheap
   in grids of 12,000 entries. The virtualiser renders only about 60
   of them at once.
@@ -201,13 +266,13 @@ summary and the review queue.
 
 ## A.4 Fallback
 
-Three cases, all handled inside `SystemIcon`:
+Four cases, all handled inside `SystemIcon`:
 
 | Case | Example | Renders |
 |---|---|---|
 | Known id with a source icon | `gb`, `psx` | the silhouette |
 | Known id without a usable icon | `cps2`, `mame`, `dos`, `pico8` | **abbreviation mount** |
-| User-defined id | `x68000` | abbreviation mount with the first 3–4 letters of the id, upper-case (`X68K` if a map entry exists, else `X680`) |
+| User-defined id (not in `systems.toml`) | `x68000` | abbreviation mount with the first 4 letters of the id, upper-case (`X680`) |
 | `systemId === null` (unrecognised folder) | `Misc/` | lucide `Folder` |
 
 **The abbreviation mount** (`FALLBACK_ABBR` map in
@@ -215,19 +280,24 @@ Three cases, all handled inside `SystemIcon`:
 small:
 
 ```
- 16px                   24px and up (photo-corners appear, brand §2)
- ┌────┐                 ◤──────◥
- │CPS2│                 │ CPS2 │
- └────┘                 ◣──────◢
+ 16px (no outline)      20px (outline)         24px and up (photo-corners, brand §2)
+  CPS2                  ┌────┐                 ◤──────◥
+                        │CPS2│                 │ CPS2 │
+                        └────┘                 ◣──────◢
 ```
 
-- A 1px `currentColor` outline with radius 2px. Width fits the text; height
-  is 1em.
-- Text is Atkinson Hyperlegible Mono, weight 700, at 0.5em, with tabular
-  figures.
-- At 24px and larger, the four photo-corners from `slot-mark.tsx` are
-  added, matching brand §2 (corners appear only at 24px and up).
-- Abbreviations: `cps1 CPS1`, `cps2 CPS2`, `cps3 CPS3`, `mame MAME`,
+- The mount fills the same `1.5 × size` box as the silhouettes, so it
+  never changes the alignment of a column.
+- **Below 20px there is no outline.** A 1px border inside a 16px box
+  would leave 8px text, which is not legible. Instead the text alone is
+  drawn at `0.625em` (10px at 16px), Atkinson Hyperlegible Mono 700,
+  letter-spacing `-0.02em`. Four characters fit the 24px box.
+- **From 20px:** a 1px `currentColor` outline with radius 2px; text at
+  `0.5em`.
+- **From 24px:** the four photo-corners from `slot-mark.tsx` are added,
+  matching brand §2 (corners appear only at 24px and up).
+- Abbreviations are at most 4 characters (unit-tested):
+  `cps1 CPS1`, `cps2 CPS2`, `cps3 CPS3`, `mame MAME`,
   `hbmame HB`, `dos DOS`, `scummvm SVM`, `easyrpg RPG`, `ons ONS`,
   `openbor BOR`, `pico8 P8`, `atomiswave AW`, `naomi NAO`.
 - `fbneo`, `varcade` and `pgm2` use the neutral FBNeo arcade-cabinet
@@ -245,16 +315,19 @@ touch `crates/coverly-core` while `feat/organize-disc-archives` is open.
   so it is never a lone colour spot.
 - **Never** a status colour and never Manila. Buckram is used only through
   selection. Icons are never tinted by maker.
-- **Sizes** (all in px; each is `1em` of the surrounding text unless noted):
+- **Sizes** are box heights in px (§A.3). **16 is the floor** next to a
+  name and **20 the floor** for an icon shown alone. The review found
+  14px too small to tell a pad from a handheld; it is not used anywhere.
 
 | Context | Size |
 |---|---|
-| Table cells, filter checkboxes, compact rows, organise trigger | 16 |
-| Cover-tile meta line (12px text) | 14 |
+| Table cells, filter checkboxes, compact-density rows, organise trigger | 16 |
+| Cover-tile meta line (12px text; the line is 16px tall) | 16 |
+| Fill review queue item meta | 16 |
 | Sidebar systems tab, Columns view system pane | 16 |
 | Group headers, shelf headers | 20 |
 | Inspector (DetailDrawer) "System" row, Gallery metadata | 20 |
-| Standalone corner badge on S-size covers | 14 + `title` |
+| Standalone corner badge on XS and S covers | 20 + `title` |
 | Empty state "No games in {system}" | 48 (`size` prop) |
 
 ## A.6 Placement rules
@@ -265,30 +338,37 @@ touch `crates/coverly-core` while `feat/organize-disc-archives` is open.
    edge and can be scanned like a legend.
 2. **Trailing (right of the text) when the game title leads and the system
    is a suffix.** That is the Columns view's game pane when it lists
-   several systems at once, the Gallery filmstrip caption and search
-   results. Here the icon is shown alone, right-aligned, with `title` set
-   to the system name, so the title column stays aligned on the left.
-3. **Alone with `title` when there is no room for the name.** That is the
-   badge in the top-left corner of S-size covers, and Shelf items.
+   several systems at once and the Gallery filmstrip caption. Here the
+   icon is 20px, right-aligned, with `title` set to the system name, so
+   the title column stays aligned on the left.
+3. **Alone with `title` only when there is no room for the name**, at
+   20px or more. That is the corner badge on XS and S covers. Shelf items
+   show no icon when shelves are grouped by system (the header already
+   names it) and a 20px badge otherwise.
 4. **Never inside native `<option>`s.** They cannot hold SVG. Where a
    native select picks a system, the icon of the current value sits to the
    left of the select, as an adornment.
 5. **Never inside interpolated prose** (warnings, "why" notes, toasts).
    The sentence stays plain text.
+6. **Never the only cue.** Similar systems share a silhouette at small
+   sizes (`gb`/`gbc`, `psx`/`ps2`). Every lone icon has a `title`, its
+   tooltip shows the full name, and the name is always one step away (the
+   inspector, or the meta line at larger sizes). No feature may depend on
+   telling two systems apart by icon alone.
 
 ## A.7 Every site to update
 
 | # | Site | Change | Data |
 |---|---|---|---|
-| L1 | `CoverGrid.tsx:159` tile meta line | `SystemLabel` 14px, leading, before the region badges | `systems[e.system].system_id` |
+| L1 | `CoverGrid.tsx:159` tile meta line | `SystemLabel` 16px, leading, before the region badges | `systems[e.system].system_id` |
 | L2 | `EntryTable.tsx:176` system cell | `SystemLabel` 16px | same |
 | L3 | `Sidebar.tsx:191` systems tab | `scopeButton` gets an `icon` slot; 16px leading | `view.systems` |
 | L4 | `FilterPanel.tsx:203` systems checkboxes | `Option` gets an `icon` slot; between the checkbox and the label | same |
 | L5 | `DetailDrawer.tsx:202` "System" row | `SystemLabel` 20px | same |
-| L6 | New views (Part B): tiles, compact, mounts, columns, gallery, shelves, group headers | the rules above | same |
+| L6 | New views (Part B): mounts, columns, gallery, shelves, group headers | the rules above | same |
 | R1 | `ReportsPanel.tsx:118` audit row header | `SystemLabel`; add `system_id` to `AuditRow` in `lib/audit.ts` | `view.systems` |
 | F1 | `FillWizard.tsx:513` per-system summary | resolve folder through `systemLookup` → `SystemLabel` | folder |
-| F2 | `ReviewQueue.tsx:229` item meta | leading 14px icon before `{folder}` | folder |
+| F2 | `ReviewQueue.tsx:229` item meta | leading 16px icon before `{folder}` | folder |
 | O1 | `organize/SystemGroups.tsx:107` group trigger | insert `SystemIcon` 16px before the system name. **Only this insertion.** | `group.systemId` |
 | O2 | `organize/SystemGroups.tsx:180` system select | adornment to the left of the `NativeSelect` (rule 4) | current value |
 | O3 | `organize/ReviewBuckets.tsx:141` bucket header | a row of 16px icons, one per candidate system, before the title text, which stays as it is | `systems[]` |
@@ -312,20 +392,21 @@ options. Each option is stored for each library.
 
 ```ts
 export type ViewId =
-  | 'covers' | 'tiles' | 'details' | 'compact'
-  | 'mounts' | 'columns' | 'gallery' | 'shelves';
+  | 'covers' | 'details' | 'columns' | 'gallery' | 'mounts' | 'shelves';
 
 export type CoverSize = 'xs' | 's' | 'm' | 'l' | 'xl';      // slider stops
 export type GroupBy = 'none' | 'system' | 'folder' | 'region' | 'art' | 'letter';
 export type ArtShown = 'cover' | 'title' | 'screenshot';    // = Media
+export type Density = 'comfortable' | 'compact';            // details rows
 
 export interface ViewPrefs {
   view: ViewId;
-  coverSize: CoverSize;           // covers, tiles, shelves
+  coverSize: CoverSize;           // covers, shelves
   groupBy: GroupBy;               // views that group (see B.5)
   art: ArtShown;                  // covers, shelves, gallery
-  columns: DetailsColumn[];       // details: visible, ordered
-  inspector: boolean;             // docked inspector on/off
+  columns: DetailsColumn[];       // details: visible, ordered, widths
+  density: Density;               // details
+  inspector: boolean;             // docked inspector (not in columns/gallery)
 }
 ```
 
@@ -351,32 +432,38 @@ export interface ViewPrefs {
 - **Grouping.** `src/lib/grouping.ts` is a pure function:
   `(entries, groupBy, systems) → Section[]` with
   `{ key, label, systemId?, start, count }`. It is memoised on
-  `(generation, filters, sort, groupBy)`. Every view reads sections from
-  it; no view groups entries on its own.
+  `(generation, scope, filters, sort, groupBy)`. Every view reads
+  sections from it; no view groups entries on its own.
+- **Grouping by art while a fill runs.** Art status changes as art is
+  applied, so `art` groups would move items under the user's cursor. While
+  a fill run is active, `art` sections are frozen at the run's start; they
+  are recomputed when the run ends, and the selection is kept by entry id
+  and scrolled into view.
 
 ## B.2 The views
 
-Eight views, shown in the switcher in this order. Shortcuts use ⌘ on macOS
-and Ctrl elsewhere.
+Six views, shown in the switcher in this order. The first four are
+Finder's four, in Finder's order and on Finder's shortcuts. Shortcuts use
+⌘ on macOS and Ctrl elsewhere.
 
 | ⌘ | View | Based on | Shows that no other view shows | Research |
 |---|---|---|---|---|
 | 1 | **Covers** | current CoverGrid | art at five sizes, from overview to close look | Finder Icon slider; Explorer S/M/L/XL icons; LaunchBox Boxes; Steam S/M/L |
-| 2 | **Tiles** | grid variant | small cover plus 3 lines: name, system, art status | Explorer Tiles; GOG grid with info |
-| 3 | **Details** | current EntryTable | every column, sortable, column picker, thumbnail column | Finder List; Explorer Details; Playnite/LaunchBox/GOG List |
-| 4 | **Compact list** | new, light | most rows on screen (24px rows) | Explorer List; RetroArch list "small"; ES-DE textlist |
-| 5 | **Mounts** | new, signature | the 3 art slots of each game side by side | Explorer Content, reworked for Coverly's job |
-| 6 | **Columns** | new | the hierarchy: system → folder → game → preview | Finder Column (Miller) |
-| 7 | **Gallery** | new | one game's art large, with metadata | Finder Gallery; Playnite Details; RetroArch Ozone thumbnail pane |
-| 8 | **Shelves** | new | one row per system, for browsing across the whole library | Steam home shelves; Pegasus rows; Big Box Platform Hybrid |
+| 2 | **Details** | current EntryTable | every column, sortable, column picker, thumbnail column, two densities | Finder List; Explorer Details and List; Explorer "Compact view"; Playnite/LaunchBox/GOG List; ES-DE textlist |
+| 3 | **Columns** | new | the hierarchy: system → folder → game → preview | Finder Column (Miller) |
+| 4 | **Gallery** | new | one game's art large, with metadata | Finder Gallery; Playnite Details; RetroArch Ozone thumbnail pane |
+| 5 | **Mounts** (shown as "Art slots") | new, signature | the 3 art slots of each game side by side | Explorer Tiles and Content, reworked for Coverly's job |
+| 6 | **Shelves** | new | one row per system, for browsing across the whole library | Steam home shelves; Pegasus rows; Big Box Platform Hybrid |
 
 ## B.3 Views not included, and why
 
 | Candidate | Why not |
 |---|---|
 | Carousel / Wheel / CoverFlow | A pattern for TV and controller launchers. About 5 items per screen, poor for managing 12k entries, and it needs motion that reduced-motion users switch off. Gallery covers the "look closely at one" need. |
-| Explorer horizontal "List" (column-major) | Scrolls sideways, which fights the trackpad, the virtualiser and screen-reader reading order. Compact list gives the same density, vertically. |
+| Explorer horizontal "List" (column-major) | Scrolls sideways, which fights the trackpad, the virtualiser and screen-reader reading order. Details at compact density gives the same density, vertically. |
 | Explorer "Content" as is | Same information as Details with a larger thumbnail. Replaced by Mounts. |
+| Tiles (Explorer Tiles, GOG grid with info) | Was in the second draft. Small cover + name is Covers at S; art status is shown better by Mounts. Fails principle 2. |
+| Compact list as its own view | Was in the second draft. Only a row height and a column set apart from Details, so it is a Details option (Row density), as in Explorer. |
 | Finder free-arrange icons | Positions mean nothing in a ROM library and cannot be kept across rescans. |
 | ES-DE "Video" view | Coverly does not manage videos. |
 | Big Box platform wheel | The sidebar's Systems tab plus Shelves already does this. |
@@ -388,7 +475,7 @@ at the bottom; the inspector is an optional docked pane on the right
 (`inspector: true`) that reuses the DetailDrawer content.
 
 ```
-┌ Sidebar ─────┬ Toolbar: [search] [Filters] [▦ ☰ ▥ ◫ | ⋯] [View ▾]   [Fill] ┐
+┌ Sidebar ─────┬ Toolbar: [search] [Filters] [▦ ☰ ▥ ◫ ▤ ≡] [◐ ▾]    [Fill] ┐
 │ Folders      │                                                │ Inspector  │
 │ Systems      │                 <view body>                    │ (optional) │
 │  ▣ Game Boy  │                                                │            │
@@ -424,22 +511,14 @@ below are used by `CoverGrid` instead of the constants it has today.
   or screenshot. That is the `MEDIA` set the app already has. An entry
   with no art of that type shows the dashed Slot plus its name, as LaunchBox
   falls back to text.
-- ⌘+ and ⌘− (or ⌘ + scroll wheel) move one stop. ⌘0 returns to M.
+- ⌘+ and ⌘− move one stop (⌘= is accepted as ⌘+, since + needs Shift on
+  most layouts). ⌘0 returns to M. They apply in Covers and Shelves only;
+  in other views they do nothing and are not `preventDefault`ed.
+  ⌘ + scroll wheel (and trackpad pinch, which arrives as Ctrl + wheel)
+  moves one stop per 100px of accumulated delta, with `preventDefault`
+  so the webview never zooms.
 
-### B.4.2 Tiles (⌘2)
-
-```
- ┌────┐ Super Mario Land          ┌────┐ Tetris
- │art │ ▣ Game Boy                │art │ ▣ Game Boy
- └────┘ ■ cover ■ title ▢ shot    └────┘ ■ cover ▢ title ▢ shot
-```
-
-- The cell is 300×88 with a 64×85 cover and three text lines: name,
-  `SystemLabel`, and the three art pips (filled = has art, dashed = missing,
-  Buckram band = applied). Columns fill the available width.
-- The same virtualised row-of-N layout as Covers, with a different cell.
-
-### B.4.3 Details (⌘3)
+### B.4.2 Details (⌘2)
 
 The current EntryTable, with these additions:
 
@@ -452,8 +531,11 @@ The current EntryTable, with these additions:
 
 - **Column picker:** right-click any header, or open View options →
   Columns. Columns can be shown, hidden and reordered. Name is always
-  shown. Available columns:
-  - **Thumb**: a 24px cover. This is the LaunchBox feature request.
+  shown. The header context menu is also reachable from the keyboard
+  (Shift+F10 or the context-menu key on a focused header). Available
+  columns:
+  - **Thumb**: a 24px cover, off by default (it loads one image per row;
+    see §B.7). This is the LaunchBox feature request.
   - **Name**, **System**, **Folder**, **Regions**, **Extension**,
     **Size**, **Modified**.
   - **Cover**, **Title**, **Screenshot**: the art marks.
@@ -462,19 +544,86 @@ The current EntryTable, with these additions:
 - Sorting by clicking a header works as it does today.
 - When grouping is on, group rows are sticky (the shelf rule: 1px border
   with a 3px Buckram cap on the left, brand §2).
-
-### B.4.4 Compact list (⌘4)
+- **Row density** (View options): comfortable, 34px rows (today's), or
+  compact, 24px rows. Compact is Explorer's "Compact view" and gives
+  about 30 rows on a laptop screen against 20. At compact density the
+  Thumb column, if shown, shrinks to 20px. Rows stay at least 24px, the
+  WCAG 2.5.8 target size.
 
 ```
+ compact, columns Name + C T S:
  ▣ Kirby's Dream Land                                  ■▢▢
  ▣ Super Mario Land                                    ■■▢
- ▣ Tetris                                              ■▢▢
 ```
 
-- Rows are 24px (34px in Details), with a 16px system icon, the name and
-  the art pips. No headers and no columns.
-- This is the "how many games is that" view: about 30 rows on a laptop
-  screen, against 20 in Details.
+### B.4.3 Columns (⌘3)
+
+Finder's Miller columns. The hierarchy comes from data the app already
+has.
+
+```
+ ┌ Systems ─────────┬ Folders ───────┬ Games ──────────────┬ Preview ─────────┐
+ │ ▣ Game Boy    412│ ▸ (root)    380│ Kirby's Dream Land  │  ┌──────────┐    │
+ │▶▣ Game Boy Adv 980│▶  Hacks       32│▶Super Mario Land    │  │  cover   │    │
+ │ ▣ Mega Drive  1.2k│                │ Tetris              │  └──────────┘    │
+ │ ▢ Misc/          7│                │                     │  ▣ Game Boy · USA │
+ └──────────────────┴────────────────┴─────────────────────┴──────────────────┘
+```
+
+- Panes:
+  1. Systems, in sidebar order, with a 16px icon and a count.
+  2. Sub-folders inside that system (from `folderTree.ts`). This pane is
+     left out when the system has no sub-folders.
+  3. Games.
+  4. Preview: the art for the shown media, plus the inspector fields.
+- **Scope and panes are separate state.** The sidebar scope filters what
+  pane 1 lists; choosing a row in pane 1 or 2 is local browse state and
+  does not change the sidebar scope (otherwise one click would hide the
+  pane you clicked in). When the scope is already one system, pane 1 is
+  hidden.
+- **Group by does not apply.** Pane 2 is always folders. (The second
+  draft let `region` and `letter` replace it; that made one option mean
+  different things in different views.) The Group-by control is hidden
+  in this view.
+- **No docked inspector.** The preview pane is the inspector here, so the
+  Inspector switch is hidden and ⌘I does nothing in this view.
+- Each pane is its own virtualised list. Only the selected path is
+  rendered.
+- Keyboard: ↑↓ within a pane; → on a branch goes into the next pane;
+  ← goes back. **Enter on a game opens it, as in every view**; Enter on a
+  branch also goes in. Typing letters jumps to a name in the focused pane.
+- Panes are 220px wide (the games pane is flexible). If the window is too
+  narrow for all of them, the left panes scroll out of view, as in Finder.
+
+### B.4.4 Gallery (⌘4)
+
+```
+ ┌──────────────────────────────────────────────┬ Metadata ──────────┐
+ │                                              │ Super Mario Land   │
+ │               large art                      │ ▣ Game Boy         │
+ │          (cover / title / shot)              │ USA · 64 KB · .gb  │
+ │                                              │ Cover   ■ has      │
+ │                                              │ Title   ■ has      │
+ ├──────────────────────────────────────────────┤ Shot    ╎ missing  │
+ │ ◂ ▢ ▢ ▣ [▣] ▣ ▢ ▣ ▢ ▣ ▢ ▣ ▢ ▣ ▸   filmstrip  │ [Fill this game]   │
+ └──────────────────────────────────────────────┴────────────────────┘
+```
+
+- The filmstrip is a horizontal virtualiser with 64px thumbnails. Only one
+  large image loads at a time, and the large image is requested only after
+  selection has stayed still for 120 ms, so fast arrowing does not queue
+  up images.
+- ←→ moves along the filmstrip; Enter opens, Space previews, as in every
+  view (§B.8).
+- The art choice (cover, title, screenshot) is a normal `Tabs` tablist
+  above the large art, reached with Tab in the usual order. **Tab is not
+  overridden**: the second draft used Tab to cycle art, which trapped
+  keyboard users in the view (WCAG 2.1.2).
+- **No docked inspector.** The metadata pane is the inspector here, so
+  the Inspector switch is hidden and ⌘I does nothing in this view.
+- Group boundaries show as a thin shelf-rule marker in the filmstrip, with
+  the group name in a tooltip. The markers are `aria-hidden`; each option's
+  accessible description carries the group name when it starts a group.
 
 ### B.4.5 Mounts (⌘5), the signature view
 
@@ -496,65 +645,19 @@ slots of one game, side by side, each drawn in its Slot state.
 - Slot states are exactly those of brand §2: dashed with corners = missing,
   solid = has art, Buckram bottom band = applied, Manila corner tab =
   applied this run. No new visual language.
-- Selecting a missing slot and pressing Enter opens the ArtWorkspace on
-  that media. This view leads straight to the fix.
-- It uses three thumbnails per row, so it loads at most about 3 × 10
-  images per screen.
+- **Cells.** Each row has four cells in reading order: name, cover,
+  title, screenshot (the name cell is drawn on the right but is first in
+  the DOM, so screen readers hear the game before its slots). ←→ move
+  between cells, ↑↓ move between rows and keep the cell column, Home/End
+  go to the first/last row.
+- **Enter is the same as everywhere else on the name cell** (opens the
+  inspector). On a slot cell it opens the ArtWorkspace on that media, so
+  this view leads straight to the fix. Each slot cell is labelled
+  "{media}: has art" / "No {media}" (`layouts.slotMissing`).
+- It uses three thumbnails per row, so at 1440×900 it loads about
+  3 × 8 images per screen, plus one screen of overscan (§B.7).
 
-### B.4.6 Columns (⌘6)
-
-Finder's Miller columns. The hierarchy comes from data the app already
-has.
-
-```
- ┌ Systems ─────────┬ Folders ───────┬ Games ──────────────┬ Preview ─────────┐
- │ ▣ Game Boy    412│ ▸ (root)    380│ Kirby's Dream Land  │  ┌──────────┐    │
- │▶▣ Game Boy Adv 980│▶  Hacks       32│▶Super Mario Land    │  │  cover   │    │
- │ ▣ Mega Drive  1.2k│                │ Tetris              │  └──────────┘    │
- │ ▢ Misc/          7│                │                     │  ▣ Game Boy · USA │
- └──────────────────┴────────────────┴─────────────────────┴──────────────────┘
-```
-
-- Panes:
-  1. Systems, in sidebar order, with a 16px icon and a count.
-  2. Sub-folders inside that system (from `folderTree.ts`). This pane is
-     left out when the system has no sub-folders.
-  3. Games.
-  4. Preview: the art for the shown media, plus the inspector fields.
-- When the sidebar scope is already one system, pane 1 is hidden.
-- With grouping set to `region` or `letter`, pane 2 shows those buckets
-  instead of folders.
-- Each pane is its own virtualised list. Only the selected path is
-  rendered.
-- Keyboard: ↑↓ within a pane, → or Enter on a branch goes into the next
-  pane, ← goes back, and typing letters jumps to a name.
-- Panes are 220px wide (the games pane is flexible). If the window is too
-  narrow for all of them, the left panes scroll out of view, as in Finder.
-
-### B.4.7 Gallery (⌘7)
-
-```
- ┌──────────────────────────────────────────────┬ Metadata ──────────┐
- │                                              │ Super Mario Land   │
- │               large art                      │ ▣ Game Boy         │
- │          (cover / title / shot)              │ USA · 64 KB · .gb  │
- │                                              │ Cover   ■ has      │
- │                                              │ Title   ■ has      │
- ├──────────────────────────────────────────────┤ Shot    ╎ missing  │
- │ ◂ ▢ ▢ ▣ [▣] ▣ ▢ ▣ ▢ ▣ ▢ ▣ ▢ ▣ ▸   filmstrip  │ [Fill this game]   │
- └──────────────────────────────────────────────┴────────────────────┘
-```
-
-- The filmstrip is a horizontal virtualiser with 64px thumbnails. Only one
-  large image loads at a time, and the large image is requested only after
-  selection has stayed still for 120 ms, so fast arrowing does not queue
-  up images.
-- ←→ moves along the filmstrip. Space opens the full-size art (Quick Look),
-  and Tab moves between the art tabs (cover, title, screenshot).
-- Group boundaries show as a thin shelf-rule marker in the filmstrip, with
-  the group name in a tooltip.
-
-### B.4.8 Shelves (⌘8)
+### B.4.6 Shelves (⌘6)
 
 ```
  ─── ▣ Game Boy · 412 ───────────────────────────────────── See all ─
@@ -567,11 +670,16 @@ has.
 - One shelf per section. Shelves group by system by default; folder,
   region, art status or letter can be chosen instead. The header uses the
   shelf rule plus a 20px icon.
-- "See all" sets the scope to that system and switches to Covers.
+- "See all" sets the scope to that system (or the filter for that
+  group) and switches to Covers.
 - Each shelf shows at most 60 items and scrolls sideways, virtualised.
-  Shelves themselves are virtualised vertically.
-- ↑↓ moves between shelves and keeps the column position; ←→ moves within
-  a shelf.
+  Shelves themselves are virtualised vertically. When a shelf holds more,
+  its last cell is a "See all {n}" cell, so End on a shelf reaches it and
+  Enter on it does the same as the header link.
+- ↑↓ moves to the item in the next shelf whose left edge is nearest the
+  current item's left edge on screen (shelves scroll independently, so an
+  index would land off screen); ←→ moves within a shelf. Each shelf keeps
+  its own horizontal scroll while you move between shelves.
 - The default sort inside a shelf is the current sort. "Missing art first"
   is a useful choice here and is one click away in View options.
 
@@ -579,9 +687,9 @@ has.
 
 | View | Group-by | Sort |
 |---|---|---|
-| Covers, Tiles, Compact, Mounts | yes: sticky section header rows | current sort within each group |
+| Covers, Mounts | yes: sticky section header rows | current sort within each group |
 | Details | yes: sticky group rows | click headers |
-| Columns | grouping sets what pane 2 shows (folder by default) | sorts the games pane |
+| Columns | no (pane 2 is always folders; the control is hidden) | sorts the games pane |
 | Gallery | filmstrip markers only | yes |
 | Shelves | always grouped; `none` is shown as `system` | sorts within each shelf |
 
@@ -601,65 +709,94 @@ has.
 ## B.6 View switcher UX
 
 ```
- [ ▦ | ☰ | ▥ | ◫ ]  [⋯ ▾]   [◐ View options ▾]
-   1    3   6   7    more
+ [ ▦ | ☰ | ▥ | ◫ ‖ ▤ | ≡ ]   [◐ View options ▾]
+   1    2   3   4    5   6
+   Finder's four   Coverly's two
 ```
 
-- **Segmented control** (the current `SegmentedControl`, Radix
-  toggle-group) with Finder's four: Covers, Details, Columns, Gallery.
-  These icons are icon-only with a tooltip, using the current pattern.
-- **"More views" menu** (`DropdownMenu`, `DropdownMenuRadioGroup` sharing
-  the same value) with Tiles, Compact list, Mounts and Shelves.
-  - When one of these is active, the trigger shows its icon and is
-    pressed, so the current view is always visible.
-  - Each menu item shows its shortcut (`Kbd`).
+- **One segmented control** (the current `SegmentedControl`, Radix
+  toggle-group) with all six views, icon-only with a tooltip that names
+  the view and its shortcut, using the current pattern. A hairline
+  separator sits between Finder's four (Covers, Details, Columns,
+  Gallery) and Coverly's two (Art slots, Shelves). The second draft hid
+  four views behind a `⋯` menu; with six there is room, the signature
+  view stays discoverable, and there is one radiogroup instead of a
+  radiogroup and a menu sharing a value.
 - **View options** popover (`Popover`). It shows only the controls that
   apply to the current view:
-  - Size slider with five stops (`Slider`), labelled XS to XL. Covers,
-    Tiles and Shelves.
-  - Show art: cover / title / screenshot (`RadioGroup`).
-  - Group by (`Select`).
+  - Size slider with five stops (`Slider`), labelled XS to XL. Covers and
+    Shelves.
+  - Row density: comfortable / compact (`RadioGroup`). Details only.
+  - Show art: cover / title / screenshot (`RadioGroup`). Covers, Shelves.
+    (Gallery has its own tabs; Mounts shows all three.)
+  - Group by (`Select`). Not in Columns.
   - Sort by (`Select` plus a direction toggle). Not shown in Details,
     where headers sort.
   - Columns (Details only): checkbox list, reordered with ↑ and ↓
     buttons. No drag-and-drop is needed in v1.
-  - Inspector pane (`Switch`).
-- **Narrow windows (below 1180px):** the segmented control and "More"
-  collapse into one `View ▾` menu that lists all eight. This matches how
-  the toolbar labels already collapse.
+  - Inspector pane (`Switch`). Not in Columns or Gallery, which have their
+    own preview pane.
+- **Narrow windows (below 1180px):** the segmented control collapses into
+  one `View ▾` menu (`DropdownMenuRadioGroup`) that lists all six with
+  their shortcuts (`Kbd`). This matches how the toolbar labels already
+  collapse.
 - **Shortcuts:**
-  - ⌘1–⌘8 switch views.
-  - ⌘+ / ⌘− / ⌘0 change the size.
-  - ⌘I toggles the inspector.
-  - Handled in `LibraryScreen`'s existing `keydown` listener. They are
-    ignored while focus is in an input, a textarea or a dialog, except
-    ⌘1–8, which never insert text.
-  - The Tauri webview has no default zoom shortcuts, so ⌘+ and ⌘− are
-    free. Check this in the desktop app.
-- **Lucide icons per view:** `LayoutGrid` (Covers), `LayoutList` (Tiles),
-  `Table2` (Details), `List` (Compact), `GalleryHorizontalEnd` (Mounts),
-  `Columns3` (Columns), `GalleryThumbnails` (Gallery), `Library`
-  (Shelves). The "more" trigger is `Ellipsis`; View options is
-  `Settings2`.
+  - ⌘1–⌘6 switch views. ⌘1–⌘4 match Finder's.
+  - ⌘+ / ⌘− / ⌘0 change the size (Covers, Shelves).
+  - ⌘I toggles the inspector (not in Columns or Gallery).
+  - Handled in `LibraryScreen`'s existing `keydown` listener.
+  - ⌘1–⌘6 work while focus is in the search box (they never insert
+    text), but **not while a modal dialog, sheet or the ArtWorkspace is
+    open**: the listener already stands down for a Radix modal layer
+    (`LibraryScreen.tsx:66`), and view shortcuts follow the same rule so
+    the library never changes behind a dialog.
+  - ⌘+ / ⌘− / ⌘0 / ⌘I are ignored while focus is in an input or
+    textarea, where the user may expect text-editing behaviour.
+  - Tauri 2 leaves `zoomHotkeysEnabled` off by default, so ⌘+ and ⌘− do
+    not zoom the webview. Keep it off, and check the desktop app (§C.4).
+    In the mock web app the handler calls `preventDefault` so the browser
+    does not zoom either.
+- **Lucide icons per view:** `LayoutGrid` (Covers), `Table2` (Details),
+  `Columns3` (Columns), `GalleryThumbnails` (Gallery),
+  `GalleryHorizontalEnd` (Art slots), `Library` (Shelves). View options
+  is `Settings2`.
 
 ## B.7 Performance at 12,000 entries
 
 - **Never render the full list.** Every view uses `@tanstack/react-virtual`
   with fixed sizes per view and per size stop, so offsets are O(1) and need
   no measuring:
-  - Grid rows of N for Covers and Tiles.
-  - Fixed rows for Details (34), Compact (24) and Mounts (112).
+  - Grid rows of N for Covers; a section's last row may be partial.
+  - Fixed rows for Details (34 comfortable, 24 compact) and Mounts (112).
   - Section header rows are 32 in every view.
+  - Shelves: a vertical virtualiser of shelves (fixed height per size
+    stop), each holding a horizontal virtualiser of at most 61 cells.
+  - Columns: one vertical virtualiser per visible pane.
+  - Gallery: one horizontal virtualiser for the filmstrip.
 - **Grouping is computed once.** `grouping.ts` is memoised and returns
   index ranges, not copies of the entries. Header rows go into a flat
   `RowModel[]` (`{kind:'header', section} | {kind:'items', start, end}`),
   which the virtualiser reads. Sticky headers use `rangeExtractor`.
+  The `RowModel` is rebuilt when the column count changes (window
+  resize, size stop); that is O(sections), not O(entries).
+- **The active item is always rendered.** `aria-activedescendant` must
+  point at an element that exists. Each view's `rangeExtractor` always
+  adds the selected row (and the sticky header) to the rendered range,
+  even after the user scrolls it away with the wheel. Today's
+  `CoverGrid` and `EntryTable` do not do this; fix it there too.
 - **Thumbnails.**
-  - Use the existing `ArtThumb` lazy loading and cache.
+  - Use the existing `ArtThumb` lazy loading and cache, with
+    `decoding="async"` on the `<img>`.
   - Mounts and Gallery request at most what is on screen, plus one screen
     of overscan.
-  - If the IPC has no thumbnail size, request the full image and scale it
-    in CSS. Size buckets on the backend are a follow-up.
+  - `ArtThumb` has no size parameter today, so a 24px Thumb cell or a
+    96px Mounts slot decodes the full image. That is acceptable for
+    covers, but screenshots and title screens can be large. **Budget:**
+    scrolling Mounts on the mock at 12k must hold 60 fps with no long
+    task over 50 ms (§C.3 step 4). If it does not, adding a `maxPx`
+    argument to the art URL IPC (in `src-tauri`, not in the organise core)
+    is in scope for this branch, not a follow-up. The Thumb column is off
+    by default for the same reason.
 - **Switching view keeps work low.** Selection and sort live in the store,
   so a switch mounts one new virtualiser and scrolls to the selected index.
   Target: under 100 ms at 12k (React profiler, mock).
@@ -668,26 +805,44 @@ has.
 
 ## B.8 Accessibility
 
-| View | Roles | Keyboard |
-|---|---|---|
-| Covers, Tiles, Shelves | `role="grid"`, rows, `gridcell`s, `aria-activedescendant` (current pattern) | 2D arrows via `nextIndex`, Page Up/Down, Home/End, Enter opens, type-ahead |
-| Details | `role="grid"` with `columnheader` + `aria-sort` (current) | as today |
-| Compact, Mounts | `role="grid"`, one column; in Mounts each art slot is a `gridcell` (←→ moves between slots) | ↑↓ rows, ←→ slots in Mounts, Enter |
-| Columns | each pane is a `listbox` with an `aria-label` from the pane name, `aria-activedescendant` | ↑↓, → / Enter go in, ← goes back, type-ahead |
-| Gallery | filmstrip is a `listbox`, `aria-orientation="horizontal"`; the large art is an `img` with alt "{name}, {media}" | ←→, Home/End, Space |
+**One keyboard model for every view.** The same key does the same thing
+everywhere; a view only adds keys for its extra dimension.
 
-- **Section headers** are rows with `role="rowheader"`, labelled
-  "{group}, {n} games". Arrow keys skip them. ⌥↑ and ⌥↓ (Alt) jump to the
-  previous or next group.
-- `aria-rowcount` and `aria-rowindex` are set to the real totals, so
-  screen readers report the full size despite virtualisation.
-- **The switcher** uses radio semantics (toggle-group) for the four
-  segments, and `menuitemradio` items in the menu. Both share one value,
-  and the active state is announced.
-- **View change announcement:** a polite live region says "Columns view"
-  ("Vista de columnas").
-- **Focus:** after a view switch, focus goes to the new view's container,
-  and the selected item stays active.
+| Key | Every view |
+|---|---|
+| Arrows | move the active item (2D in grids, 1D in lists) |
+| Home / End, Page Up / Page Down | first / last, one screen |
+| Enter | open the active game (the inspector), as today |
+| Space | preview the active art large (Quick Look-style overlay); Esc or Space closes it |
+| Type letters | type-ahead: jump to the next name that starts with what was typed (500 ms buffer). **New**; no view has it today, so it lives in `keyboardNav.ts` and every view uses it |
+| ⌥↑ / ⌥↓ | previous / next group, when grouping is on |
+| Tab | leaves the view to the next control; never cycles inside it |
+
+| View | Roles | Extra keys |
+|---|---|---|
+| Covers | `role="grid"`, rows, `gridcell`s, `aria-activedescendant` (current pattern) | none |
+| Details | `role="grid"` with `columnheader` + `aria-sort` (current) | Shift+F10 on a header opens the column menu |
+| Mounts | `role="grid"`, four cells per row (name, cover, title, screenshot) | ←→ between cells; Enter on a slot opens the ArtWorkspace on it |
+| Columns | each pane is a `listbox` with an `aria-label` from the pane name, `aria-activedescendant` | → goes into the next pane, ← back. ←→ do not move within a pane |
+| Gallery | filmstrip is a `listbox`, `aria-orientation="horizontal"`; the large art is an `img` with alt "{name}, {media}" | ←→ along the filmstrip (↑↓ do nothing) |
+| Shelves | `role="grid"`, one row per shelf | ↑↓ to the nearest item in the next shelf (§B.4.6) |
+
+- **Section headers** are rows (`role="row"`) holding one cell with
+  `role="rowheader"` and `aria-colspan` equal to the column count,
+  labelled "{group}, {n} games". (The second draft put `rowheader` on the
+  row itself, which is not a valid row role.) Arrow keys skip them;
+  ⌥↑ / ⌥↓ land on the first item of a group.
+- `aria-rowcount` and `aria-rowindex` count header rows too and are set to
+  the real totals, so screen readers report the full size despite
+  virtualisation.
+- **The switcher** is one toggle-group with radio semantics (or one
+  `menuitemradio` group when collapsed); the active state is announced.
+- **View change and focus:** after a view switch, focus goes to the new
+  view's container and the selected item stays active. The container's
+  accessible name includes the view ("Columns view", `layouts.announce`),
+  so moving focus is the announcement. There is **no extra live region**:
+  the second draft had one, and with the focus move it made screen
+  readers say the view twice.
 - **System icons** are `aria-hidden` next to a name, and `role="img"`
   with a label when shown alone (A.3).
 - **Contrast:** icons use `--cr-text-secondary`, which is 6.38:1 in light
@@ -714,15 +869,16 @@ sidebar tabs. The existing `toolbar.layout`, `toolbar.grid` and
 |---|---|---|
 | `layouts.label` | Vista | View |
 | `layouts.covers` | Portadas | Covers |
-| `layouts.tiles` | Mosaico | Tiles |
 | `layouts.details` | Detalles | Details |
-| `layouts.compact` | Lista compacta | Compact list |
 | `layouts.mounts` | Huecos de arte | Art slots |
 | `layouts.columns` | Columnas | Columns |
 | `layouts.gallery` | Galería | Gallery |
 | `layouts.shelves` | Estantes | Shelves |
-| `layouts.more` | Más vistas | More views |
 | `layouts.options` | Opciones de vista | View options |
+| `layouts.density` | Densidad de filas | Row density |
+| `layouts.densityComfortable` / `densityCompact` | Cómoda / Compacta | Comfortable / Compact |
+| `layouts.seeAllCount` | Ver los {n} | See all {n} |
+| `layouts.preview` | Vista rápida | Quick look |
 | `layouts.size` | Tamaño | Size |
 | `layouts.sizeStops` | Mínimo · Pequeño · Mediano · Grande · Máximo | Smallest · Small · Medium · Large · Largest |
 | `layouts.art` | Arte que se muestra | Art shown |
@@ -746,8 +902,8 @@ Notes on the names:
 - **Mounts** is the code id. The label shown to users is "Art slots" /
   "Huecos de arte", because it describes what the view shows. "Mounts" is
   the brand's metaphor, not a word users search for.
-- "Mosaico" is Explorer's Spanish name for Tiles. "Detalles", "Columnas"
-  and "Galería" match Finder and Explorer in Spanish.
+- "Detalles", "Columnas" and "Galería" match Finder and Explorer in
+  Spanish.
 - The `layouts.sizeStops` row lists five separate labels, one per stop.
 
 ---
@@ -766,13 +922,18 @@ The gate is `pnpm check-all`: tokens, lint, format, typecheck and vitest.
   - No generated `body` contains `#fff`, `#ffffff`, `<text`, `<image`,
     `style=` or `fill="` with any value other than `currentColor` or
     `none`.
-  - Every `viewBox` matches `^-?\d+ -?\d+ \d+ \d+$`.
+  - Every `viewBox` matches `^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$` (cropped
+    boxes are not integers), and `aspect` is between 0.5 and 2.5.
+  - Every source-map entry has a `depicts` value and a non-empty `audit`.
+  - Every `FALLBACK_ABBR` value is 1–4 characters.
 - **`SystemIcon`**
   - A known id renders `svg[data-system-icon="gb"]` with `aria-hidden`.
   - With `title`, it renders `role="img"` and the accessible name.
   - A fallback id renders the abbreviation text.
-  - At `size >= 24` it draws the photo-corners, and below that it does
-    not.
+  - The box is `1.5 × size` wide for silhouettes, mounts and the folder
+    glyph alike.
+  - Below 20 the mount has no outline; from 20 it has one; at `size >= 24`
+    it draws the photo-corners, and below that it does not.
   - `null` renders the folder glyph.
   - A user-defined id renders an abbreviation made from the id.
 - **`SystemLabel`**: the accessible name equals the name. A long name
@@ -795,28 +956,35 @@ The gate is `pnpm check-all`: tokens, lint, format, typecheck and vitest.
   - It is stable across calls (memoised).
   - It handles 12,000 entries in under 30 ms (perf smoke test).
 - **`keyboardNav`**: header rows are skipped; ⌥↑ and ⌥↓ jump to groups;
-  the Columns pane moves (← and →).
+  the Columns pane moves (← and →); type-ahead finds the next match,
+  wraps, and resets after 500 ms; Shelves ↑↓ picks the nearest left edge.
 - **Each new view component** (`stubLayout(w, h)`)
   - Renders about one screen of rows for 12,000 entries, not 12,000.
   - Arrow, Home/End and Page keys move the active item; Enter calls
     `onOpen`.
-  - The roles and `aria-activedescendant` from §B.8 are set.
+  - The roles and `aria-activedescendant` from §B.8 are set, and the
+    element it names exists after the list is scrolled far away with
+    `scrollTop` (the active row is kept rendered).
+  - Section headers are `row > [role=rowheader][aria-colspan]`.
+  - Space opens the preview and Esc closes it; Tab leaves the view.
   - Mounts: missing slots show the dashed state, and Enter on a slot opens
     the ArtWorkspace on that media.
   - Covers: each size stop produces the expected column count at a fixed
     width.
   - Details: the column picker hides and shows columns; sticky group rows
-    render.
+    render; compact density gives 24px rows.
+  - Columns and Gallery: the Inspector switch and ⌘I are absent.
+  - Shelves: a shelf of more than 60 ends in a "See all {n}" cell.
 
 ## C.2 Integration (`LibraryScreen.test.tsx`)
 
 - Switching views:
-  - the four segments and the four menu items all switch views;
-  - the active view is shown pressed in the segmented control or on the
-    "more" trigger;
-  - the live region announces the new view.
-- ⌘1–⌘8 and Ctrl+1–8 switch views, and do nothing while focus is in the
-  search box (except ⌘1–8, see §B.6).
+  - all six segments switch views, and the active one is pressed;
+  - focus moves to the new view, whose accessible name includes the view
+    name; there is no separate live region.
+- ⌘1–⌘6 and Ctrl+1–6 switch views, also while focus is in the search box;
+  they do nothing while a dialog or the ArtWorkspace is open (§B.6).
+  ⌘+ / ⌘− do nothing in Details.
 - The selection survives a switch, and the selected item is active and
   scrolled into view in the new view.
 - **Persistence:** pick Columns, unmount, mount again, and Columns is
@@ -824,6 +992,7 @@ The gate is `pnpm check-all`: tokens, lint, format, typecheck and vitest.
 - **Group-by:** choosing "System" shows section headers with
   `svg[data-system-icon]` in Covers, Details and Shelves.
 - At narrow widths (below 1180px) the switcher collapses into one menu.
+- Choosing compact density in Details persists like any other pref.
 - **Existing tests:** update the `radiogroup 'Layout'` test in
   `LibraryScreen.test.tsx:134` for the new names. The text assertions on
   system names in DetailDrawer, Reports, FillWizard, ReviewQueue and the
@@ -837,7 +1006,7 @@ Mock web app on port 1457:
 `lsof -ti tcp:1457 -sTCP:LISTEN | xargs kill`.
 
 1. Load the mock library at about 12,000 entries (the mock fixture's large
-   library). For each of the eight views:
+   library). For each of the six views:
    - take a snapshot;
    - check the role tree;
    - count the rendered rows with `evaluate_script`. It must stay under
@@ -849,16 +1018,22 @@ Mock web app on port 1457:
      Reports, the fill summary and the organise group triggers;
    - each one has `aria-hidden="true"` or a `role="img"` with a label.
 3. Keyboard:
-   - ⌘1…⌘8 cycle through the views;
+   - ⌘1…⌘6 cycle through the views;
+   - with the Fill dialog open, ⌘3 does nothing;
+   - type-ahead jumps to a name in Covers, Details and Columns;
+   - Tab always leaves the view (no trap), Gallery included;
    - in Columns, → and ← walk the panes;
    - in Gallery, ←→ moves along the filmstrip;
-   - in Shelves, ↑↓ keeps the column.
+   - in Shelves, ↑↓ lands on the nearest item in the next shelf.
 4. **Performance:** record a trace while switching from Covers to Details
    to Gallery to Shelves and scrolling Covers to the end. Check that no
    long task exceeds 200 ms and that the view switch takes under 100 ms of
-   scripting.
-5. **Persistence:** choose Mounts with size L, reload the page, and the
-   same view and size come back.
+   scripting. Record a second trace while scrolling Art slots from top to
+   bottom: no long task over 50 ms (§B.7 budget; failing it brings the
+   `maxPx` IPC into this branch).
+5. **Persistence:** choose Shelves with size L, reload the page, and the
+   same view and size come back. Then choose Details at compact density,
+   reload, and both come back.
 6. **Reduced motion:** `emulate` with `prefers-reduced-motion: reduce`.
    The Gallery image changes with no transition (check computed
    `transition-duration`).
@@ -868,12 +1043,16 @@ Mock web app on port 1457:
    - icons are monochrome and follow the text colour when selected;
    - no icon shows the maker's colours;
    - the fallback abbreviations are legible at 16px;
+   - a screenshot of `src/assets/system-icons/contact-sheet.html` (served
+     by vite) at 14/16/20/48px shows no blank or clipped icon (PS2 and Neo
+     Geo in particular), and landscape pads fill the box width;
    - the dashed Slots in Mounts pass 3:1 against their surface.
 8. **Console:** no errors or React key warnings in any view.
 
 ## C.4 Desktop check (Tauri, manual)
 
-- ⌘1–⌘8, ⌘+ and ⌘− do not trigger webview zoom or the native menu.
+- ⌘1–⌘6, ⌘+ and ⌘− do not trigger webview zoom or the native menu
+  (`zoomHotkeysEnabled` stays off).
 - Icons render in the same weight in the WebKit webview as in Chromium.
 
 ---
@@ -888,13 +1067,15 @@ Mock web app on port 1457:
 6. `feat(organize): show system icon on system group triggers`
 7. `feat(views): per-library view prefs with layout migration`
 8. `feat(views): grouping model and section headers`
-9. `feat(views): cover size slider and Tiles view`
-10. `feat(views): Details column picker and thumbnail column`
-11. `feat(views): Compact list and Art slots views`
-12. `feat(views): Columns view`
-13. `feat(views): Gallery view`
-14. `feat(views): Shelves view`
-15. `feat(toolbar): view switcher with more-views menu, options and shortcuts`
-16. `test(views): store, grouping, keyboard and integration coverage`
+9. `feat(views): shared keyboard model with type-ahead and preview`
+10. `feat(views): cover size slider`
+11. `feat(views): Details column picker, thumbnail column and row density`
+12. `feat(views): Art slots view`
+13. `feat(views): Columns view`
+14. `feat(views): Gallery view`
+15. `feat(views): Shelves view`
+16. `feat(toolbar): six-view switcher, view options and shortcuts`
+17. `test(views): LibraryScreen integration coverage`
 
-Each commit passes `pnpm check-all` on its own.
+Each commit carries its own unit tests and passes `pnpm check-all` on its
+own; commit 17 only adds the cross-view integration tests of §C.2.
