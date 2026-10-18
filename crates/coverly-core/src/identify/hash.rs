@@ -87,6 +87,11 @@ pub enum HeaderRule {
     Lynx,
     /// Atari 7800: `ATARI7800` at offset 1, 128 bytes.
     A7800,
+    /// Nintendo 64: no header, but a `.v64`/`.n64` image is rewritten in
+    /// big-endian order for its payload SHA1. Only this rule does that, so a
+    /// file of another system is never byte-swapped.
+    #[serde(rename = "n64-order")]
+    N64,
 }
 
 impl HeaderRule {
@@ -100,6 +105,7 @@ impl HeaderRule {
             "sms-copier" => HeaderRule::SmsCopier,
             "lynx" => HeaderRule::Lynx,
             "a7800" => HeaderRule::A7800,
+            "n64-order" => HeaderRule::N64,
             _ => return None,
         })
     }
@@ -307,8 +313,9 @@ pub(crate) fn hex_upper(bytes: &[u8]) -> String {
 
 /// Hashes `size` bytes of `reader` with `rule` in one pass: every byte feeds
 /// the full digests, bytes after the header feed the headerless digests and
-/// the payload SHA1 (through a byte-order fix when the bytes are a
-/// byte-swapped or little-endian N64 image).
+/// the payload SHA1 (through a byte-order fix when `rule` is
+/// [`HeaderRule::N64`] and the bytes are a byte-swapped or little-endian
+/// image).
 pub fn hash_stream<R: Read>(mut reader: R, size: u64, rule: HeaderRule) -> io::Result<RomHashes> {
     let mut buf = vec![0u8; CHUNK];
     let mut full = Hasher::new();
@@ -326,7 +333,7 @@ pub fn hash_stream<R: Read>(mut reader: R, size: u64, rule: HeaderRule) -> io::R
             let len = rule.header_len(&buf[..n], size);
             header = Some(len);
             to_skip = len;
-            if len == 0 {
+            if rule == HeaderRule::N64 {
                 n64 = n64_to_z64(&buf[..n])
                     .filter(|o| *o != N64Order::Z64)
                     .map(|o| (o, Sha1::new()));

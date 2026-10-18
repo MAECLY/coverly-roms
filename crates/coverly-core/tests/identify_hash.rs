@@ -244,7 +244,7 @@ fn n64_three_orders_share_payload_sha1() {
     for (name, bytes) in [("a.z64", &z), ("a.v64", &v), ("a.n64", &n)] {
         let p = file(&dir, name, bytes);
         let ext = name.rsplit('.').next().unwrap();
-        let h = content(hash_rom(&p, ext, HeaderRule::Plain, DEFAULT_HASH_MAX_BYTES).unwrap());
+        let h = content(hash_rom(&p, ext, HeaderRule::N64, DEFAULT_HASH_MAX_BYTES).unwrap());
         assert_eq!(
             h.full.sha1,
             sha1_hex(bytes),
@@ -417,4 +417,27 @@ fn headerless_sha1_is_computed_in_the_same_pass() {
         Some(sha1_hex(&body).as_str())
     );
     assert_eq!(h.payload_sha1, Some(sha1_hex(&body)));
+}
+
+#[test]
+fn n64_byte_order_is_only_normalised_for_the_n64_rule() {
+    assert_eq!(HeaderRule::parse("n64-order"), Some(HeaderRule::N64));
+    let z = z64_image();
+    let v = v64(&z);
+    let dir = TempDir::new().unwrap();
+    let p = file(&dir, "a.v64", &v);
+    let n64 = content(hash_rom(&p, "v64", HeaderRule::N64, DEFAULT_HASH_MAX_BYTES).unwrap());
+    assert_eq!(n64.payload_sha1, Some(sha1_hex(&z)));
+    assert_eq!(n64.headerless, None, "byte order is not a header");
+    // The same bytes under another system are that system's bytes: a file
+    // that merely starts like a swapped N64 image is never rewritten.
+    let other = content(hash_rom(&p, "bin", HeaderRule::Plain, DEFAULT_HASH_MAX_BYTES).unwrap());
+    assert_eq!(other.payload_sha1, Some(sha1_hex(&v)));
+    let copier = hash_stream(
+        std::io::Cursor::new(v.clone()),
+        v.len() as u64,
+        HeaderRule::SnesCopier,
+    )
+    .unwrap();
+    assert_eq!(copier.payload_sha1, Some(sha1_hex(&v)));
 }

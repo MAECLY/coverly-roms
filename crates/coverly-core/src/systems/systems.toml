@@ -267,6 +267,7 @@ name = "Nintendo 64"
 aliases = ["N64", "nintendo64"]
 extensions = ["n64", "v64", "z64", "zip", "7z"]
 libretro = "Nintendo - Nintendo 64"
+header = "n64-order"
 screenscraper = 14
 
 [[system]]
