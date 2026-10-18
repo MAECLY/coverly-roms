@@ -13,8 +13,9 @@ export interface SystemLabelProps {
   /** Icon height in px; defaults to the text size (1em). */
   size?: number;
   className?: string;
-  /** Icon after the name (spec §A.6 rule 2); it then carries the name as
-   *  its title so the tooltip names the system. */
+  /** Icon after the name (spec §A.6 rule 2). The label then carries the
+   *  name as a native tooltip; the icon stays decorative, since the name is
+   *  already visible and labelling the icon too would read it twice. */
   trailing?: boolean;
 }
 
@@ -29,14 +30,13 @@ export function SystemLabel({
   trailing = false,
 }: SystemLabelProps): JSX.Element {
   const icon = (
-    <SystemIcon
-      systemId={systemId}
-      {...(size === undefined ? {} : { size })}
-      {...(trailing ? { title: name } : {})}
-    />
+    <SystemIcon systemId={systemId} {...(size === undefined ? {} : { size })} />
   );
   return (
-    <span className={cn('system-label', className)}>
+    <span
+      className={cn('system-label', className)}
+      {...(trailing ? { title: name } : {})}
+    >
       {!trailing && icon}
       <span className="system-label__name">{name}</span>
       {trailing && icon}

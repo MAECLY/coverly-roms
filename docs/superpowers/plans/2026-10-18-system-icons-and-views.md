@@ -439,7 +439,7 @@ describe('SystemIcon', () => {
 ```ts
 export function SystemLabel(p: { systemId: string | null; name: string; size?: number; className?: string; trailing?: boolean }): JSX.Element;
 // <span class="system-label"><SystemIcon aria-hidden/><span class="system-label__name">{name}</span></span>
-// trailing: icon after the name (spec §A.6 rule 2) — then the icon gets title={name}.
+// trailing: icon after the name (spec §A.6 rule 2) — icon stays aria-hidden; the label gets title={name}.
 
 export function systemByFolder(systems: readonly SystemView[], folderOrDir: string): SystemView | undefined;
 // exact `folder` match, then `dir` match, then case-insensitive `folder`.
