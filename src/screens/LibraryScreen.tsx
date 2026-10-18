@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
@@ -47,7 +47,8 @@ export function LibraryScreen() {
   const loadPrefsFor = useViewStore((s) => s.loadFor);
 
   // Each library opens with its own view prefs (or the last ones used).
-  useEffect(() => {
+  // Before paint, so the last library's view never flashes or mounts.
+  useLayoutEffect(() => {
     if (root !== undefined) loadPrefsFor(root);
   }, [root, loadPrefsFor]);
 

@@ -13,6 +13,7 @@ import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
+import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
 
 const SMALL = MOCK_LIBRARIES[1].path;
@@ -142,6 +143,19 @@ describe('Library screen', () => {
     expect(
       screen.getByRole('grid', { name: 'ROM covers' }),
     ).toBeInTheDocument();
+  });
+
+  it('opens each library with the view it was left in', async () => {
+    const views = useViewStore.getState();
+    views.loadFor(SMALL);
+    views.setView('details');
+    views.loadFor('/elsewhere');
+    views.setView('covers');
+    await openLibrary();
+    expect(useViewStore.getState().root).toBe(SMALL);
+    expect(screen.getByRole('grid', { name: 'ROM list' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'ROM covers' })).toBeNull();
+    act(() => useViewStore.getState().setView('covers'));
   });
 
   it('enables Fill missing art', async () => {
