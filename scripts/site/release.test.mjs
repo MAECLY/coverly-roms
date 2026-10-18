@@ -37,16 +37,16 @@ function filled(release, lang) {
 const entity = (s) => s.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
 
 // The elements release.js looks for: a[data-asset], [data-rel=...],
-// [data-rel-new], button[data-copy]. Their own markup holds no nesting
+// [data-rel-new], [data-rel-old], a[data-rel-file], button[data-copy]. Their own markup holds no nesting
 // release.js depends on, so a flat scan is enough.
-function dom(html) {
+function dom(html, os = 'other') {
   const els = [];
-  const tag = /<(a|span|p|button)\b([^>]*)>/g;
+  const tag = /<(a|span|p|h3|div|button)\b([^>]*)>/g;
   let m;
   while ((m = tag.exec(html))) {
     const attrs = {};
     for (const [, k, , v] of m[2].matchAll(/([\w-]+)(="([^"]*)")?/g)) attrs[k] = v ?? '';
-    if (!['data-asset', 'data-rel', 'data-rel-new', 'data-copy'].some((k) => k in attrs)) continue;
+    if (!['data-asset', 'data-rel', 'data-rel-new', 'data-rel-old', 'data-rel-file', 'data-copy'].some((k) => k in attrs)) continue;
     const end = html.indexOf(`</${m[1]}>`, tag.lastIndex);
     els.push({
       tag: m[1], attrs, textContent: entity(html.slice(tag.lastIndex, end)), hidden: 'hidden' in attrs,
@@ -61,7 +61,7 @@ function dom(html) {
   return {
     els,
     document: {
-      documentElement: { lang: /<html lang="(\w+)"/.exec(html)[1] },
+      documentElement: { lang: /<html lang="(\w+)"/.exec(html)[1], getAttribute: (k) => (k === 'data-os' ? os : null) },
       querySelectorAll: (sel) => els.filter(match(sel)),
       createElement: () => ({ setAttribute() {} }),
     },
@@ -77,12 +77,12 @@ function release(version, edit = (r) => r) {
   return edit(r);
 }
 
-async function run(html, answer, store = {}) {
-  const page = dom(html);
+async function run(html, answer, store = {}, os = 'other', userAgent = '') {
+  const page = dom(html, os);
   const calls = [];
   const ctx = {
     document: page.document,
-    navigator: {},
+    navigator: { userAgent },
     sessionStorage: {
       getItem: (k) => (k in store ? store[k] : null),
       setItem: (k, v) => { store[k] = v; },
@@ -184,6 +184,37 @@ test('before the first release, a published one shows the hidden note', async ()
     assert.equal(page.els.find((e) => 'data-rel-new' in e.attrs).hidden, false);
     assert.equal(rel('version')[0].textContent, '0.1.0');
     assert.equal(rel('notes')[0].attrs.href, `${BASE}tag/v0.1.0`);
+    for (const e of page.els) {
+      if ('data-rel-new' in e.attrs) assert.equal(e.hidden, false, e.textContent);
+      if ('data-rel-old' in e.attrs) assert.equal(e.hidden, true, e.textContent);
+    }
+    const offer = page.els.find((e) => 'data-rel-file' in e.attrs);
+    assert.ok(offer.hidden, 'no installer offered to an unknown system');
+    assert.equal(offer.attrs.href, `${BASE}latest`);
+  }
+});
+
+test('before the first release, the installer for this system is offered', async () => {
+  const cases = [
+    ['mac', '', 'Coverly.ROMs_0.1.0_universal.dmg', 'macOS', ['19,1', '19.1']],
+    ['win', '', 'Coverly.ROMs_0.1.0_x64-setup.exe', 'Windows', ['10,1', '10.1']],
+    ['linux', 'X11; Linux x86_64', 'Coverly.ROMs_0.1.0_amd64.AppImage', 'Linux x64', ['82,0', '82.0']],
+    ['linux', 'X11; Linux aarch64', 'Coverly.ROMs_0.1.0_aarch64.AppImage', 'Linux ARM64', ['81,0', '81.0']],
+  ];
+  for (const lang of ['es', 'en']) {
+    const html = filled(false, lang);
+    for (const [os, ua, file, label, mib] of cases) {
+      const { page, rel } = await run(html, { status: 200, body: release('0.1.0') }, {}, os, ua);
+      const offer = page.els.find((e) => 'data-rel-file' in e.attrs);
+      assert.equal(offer.hidden, false, `${lang} ${os} ${ua}`);
+      assert.equal(offer.attrs.href, `${BASE}download/v0.1.0/${file}`);
+      assert.equal(rel('os')[0].textContent, label);
+      assert.equal(rel('mib')[0].textContent, mib[lang === 'es' ? 0 : 1]);
+    }
+    const missing = release('0.1.0', (r) => ({ ...r, assets: r.assets.filter((a) => !a.name.endsWith('.dmg')) }));
+    const { page } = await run(html, { status: 200, body: missing }, {}, 'mac');
+    assert.ok(page.els.find((e) => 'data-rel-file' in e.attrs).hidden, 'a missing file is not offered');
+    assert.equal(page.els.find((e) => 'data-rel-new' in e.attrs).hidden, false, 'the release is still announced');
   }
 });
 

@@ -108,8 +108,9 @@ BUDGET = {
     "css": (83_000, 18_700),
     # Every .js under assets/ (recursive, so a vendored file cannot slip
     # past). Raised from 16,000 / 5,500 for shelf.js (see SHELF_JS), then
-    # to 22,000 / 7,500 for release.js (see RELEASE_JS).
-    "scripts": (22_000, 7_500),
+    # to 22,000 / 7,500 for release.js (see RELEASE_JS), then to
+    # 23,000 / 7,800 for its installer offer before the first release.
+    "scripts": (23_000, 7_800),
     # Every .svg under assets/art/: the generated cover sprite plus the
     # static grain and weave tiles. Cached and shared by both locales.
     "art": (24_000, 7_000),
@@ -125,8 +126,10 @@ MOTION_JS = 9_500
 # view-transition swaps). Kept out of motion.js so that file keeps its cap.
 SHELF_JS = 5_000
 # release.js alone (raw bytes): the latest release read in the browser
-# (fetch, cache, file-by-file swap) and the copy buttons.
-RELEASE_JS = 5_000
+# (fetch, cache, file-by-file swap) and the copy buttons. Raised to 6,500 for
+# the page built before the first release: the wording swap and the one
+# installer for the visitor's system.
+RELEASE_JS = 6_500
 # The generated cover sprite alone (raw bytes).
 COVERS_SVG = 18_000
 # Versorium keeps 680; this page carries a comparison, a layout table and
@@ -790,9 +793,19 @@ def gate_release(site: Path, r: Report) -> None:
                 if need not in rels:
                     r.fail("release", f"{rel}: nothing marked data-rel={need}")
         else:
+            # Before the first release: the wording release.js shows ([data-rel-new],
+            # hidden), the wording it hides ([data-rel-old]) and the one
+            # installer it offers (a[data-rel-file], hidden, on the release page
+            # until then).
             fresh = [a for t, a in doc.tags if "data-rel-new" in a]
-            if len(fresh) != 1 or "hidden" not in fresh[0]:
-                r.fail("release", f"{rel}: needs one [data-rel-new] note, hidden until release.js shows it")
+            if not fresh or any("hidden" not in a for a in fresh):
+                r.fail("release", f"{rel}: needs [data-rel-new] wording, hidden until release.js shows it")
+            if not any("data-rel-old" in a for t, a in doc.tags):
+                r.fail("release", f"{rel}: nothing marked [data-rel-old] for release.js to hide")
+            offer = [(t, a) for t, a in doc.tags if "data-rel-file" in a]
+            if len(offer) != 1 or offer[0][0] != "a" or "hidden" not in offer[0][1] or \
+                    offer[0][1].get("href") != f"https://github.com/{REPO}/releases/latest":
+                r.fail("release", f"{rel}: needs one hidden a[data-rel-file] on the latest release page")
         for t, a in doc.tags:
             if "data-copy" in a and (t != "button" or a.get("type") != "button" or "hidden" not in a):
                 r.fail("release", f"{rel}: [data-copy] must be a hidden <button type=button>")
