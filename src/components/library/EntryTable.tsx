@@ -7,6 +7,7 @@ import {
   type MouseEvent,
 } from 'react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Button } from '@/components/ui/button';
 import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
@@ -174,7 +175,11 @@ export function EntryTable({
                 {e.name}
               </div>
               <div role="gridcell" className="cell cell--system">
-                {systems[e.system]?.name ?? ''}
+                <SystemLabel
+                  systemId={systems[e.system]?.system_id ?? null}
+                  name={systems[e.system]?.name ?? ''}
+                  size={16}
+                />
               </div>
               <div role="gridcell" className="cell cell--size">
                 {formatSize(e.size, locale)}

@@ -1,6 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMemo, type KeyboardEvent, type MouseEvent } from 'react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Badge } from '@/components/ui/badge';
 import { useElementSize } from '@/hooks/useElementSize';
 import { useT } from '@/i18n/useT';
@@ -157,7 +158,11 @@ export function CoverGrid({
                   </span>
                   <span className="cover-tile__info">
                     <span className="cover-tile__system">
-                      {systems[entry.system]?.name ?? ''}
+                      <SystemLabel
+                        systemId={systems[entry.system]?.system_id ?? null}
+                        name={systems[entry.system]?.name ?? ''}
+                        size={16}
+                      />
                     </span>
                     {entry.regions.slice(0, 2).map((r) => (
                       <Badge

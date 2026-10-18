@@ -152,4 +152,16 @@ describe('EntryTable', () => {
     expect(onSort).toHaveBeenCalledWith('name');
     expect(onOpen).not.toHaveBeenCalled();
   });
+
+  it('shows the system icon beside the name', () => {
+    render(<Harness onSort={() => undefined} />);
+    const first = big.entries[0]!;
+    const system = big.systems[first.system]!;
+    const row = document.getElementById(`entry-${first.id}`)!;
+    const cell = row.querySelector('.cell--system')!;
+    expect(within(row).getByText(system.name)).toBeInTheDocument();
+    const icon = cell.querySelector(`[data-system-icon="${system.system_id}"]`);
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+  });
 });

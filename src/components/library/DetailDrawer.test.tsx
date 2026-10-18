@@ -83,6 +83,20 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the system icon beside the name', async () => {
+    const view = await setup();
+    const entry = view.entries[0]!;
+    const system = view.systems[entry.system]!;
+    const drawer = show(entry);
+    const name = within(drawer).getByText(system.name);
+    const dd = name.closest('dd')!;
+    expect(dd).not.toBeNull();
+    const icon = dd.querySelector(`[data-system-icon="${system.system_id}"]`);
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(icon).toHaveAttribute('height', '20');
+  });
+
   it('shows a placeholder for missing art and loads present art', async () => {
     const view = await setup();
     const entry = view.entries.find(

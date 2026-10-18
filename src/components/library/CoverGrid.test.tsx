@@ -186,4 +186,22 @@ describe('CoverGrid', () => {
     expect(container.querySelector('img[src="x"]')).toBeNull();
     expect(container.querySelector('[onerror]')).toBeNull();
   });
+
+  it('shows the system icon beside the name', () => {
+    render(<Harness entries={big.entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    const first = big.entries[0]!;
+    const tile = document.getElementById(`entry-${first.id}`)!;
+    expect(tile).toHaveAttribute('aria-selected', 'true');
+    const system = big.systems[first.system]!;
+    const label = tile.querySelector('.cover-tile__system')!;
+    expect(label).toHaveTextContent(system.name);
+    const icon = label.querySelector(
+      `[data-system-icon="${system.system_id}"]`,
+    );
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+  });
 });

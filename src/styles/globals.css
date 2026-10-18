@@ -321,11 +321,14 @@ time {
 }
 
 .cover-tile__system {
+  display: flex;
   flex: 1;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
   color: var(--cr-text-muted);
   font-size: 0.75rem;
+  line-height: 1.125rem;
   white-space: nowrap;
   text-overflow: ellipsis;
 }

@@ -1,6 +1,7 @@
 import { FolderOpen, X } from 'lucide-react';
 import { useContext, useState } from 'react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -200,7 +201,13 @@ export function DetailDrawer({
           <dt>{t('drawer.path')}</dt>
           <dd className="break-all">{entry.rel_path}</dd>
           <dt>{t('columns.system')}</dt>
-          <dd>{system?.name ?? ''}</dd>
+          <dd>
+            <SystemLabel
+              systemId={system?.system_id ?? null}
+              name={system?.name ?? ''}
+              size={20}
+            />
+          </dd>
           <dt>{t('drawer.ext')}</dt>
           <dd>.{entry.ext}</dd>
           <dt>{t('columns.size')}</dt>
