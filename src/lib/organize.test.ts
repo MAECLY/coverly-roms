@@ -13,6 +13,7 @@ import { autoItem } from '@/test/organizeFixtures';
 import {
   confidenceKey,
   groupBySystem,
+  itemKey,
   itemNotes,
   leftItems,
   leftReasonKey,
@@ -273,5 +274,15 @@ describe('organise row helpers', () => {
       'organize.why.extensionContradicted{"ext":"gb","system":"GBA!"}',
       'organize.encrypted',
     ]);
+  });
+});
+
+describe('itemKey', () => {
+  it('names an item by its primary file, whatever the case or slashes', () => {
+    const a = item(0, { action: 'auto', sources: ['Roms\\Tetris (USA).GB'] });
+    const b = item(7, { action: 'auto', sources: ['roms/tetris (usa).gb'] });
+    expect(itemKey(a)).toBe('roms/tetris (usa).gb');
+    expect(itemKey(a)).toBe(itemKey(b));
+    expect(itemKey(item(1, { action: 'auto', sources: [] }))).toBe('');
   });
 });

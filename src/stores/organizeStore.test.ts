@@ -316,6 +316,160 @@ describe('organise store', () => {
     expect(store().job?.report?.moved).toBe(8);
   });
 
+  describe('refresh (scan again)', () => {
+    const byName = (name: string) =>
+      store().plan!.items.find((i) => i.sources[0] === name)!;
+
+    it('reads the folder again and counts the new and gone files', async () => {
+      await store().start(MOCK_MIXED);
+      b.organizeTouch(MOCK_MIXED, {
+        add: ['Wario Land 4 (USA).gba', 'Zelda DX (USA).gbc'],
+        remove: ['mystery.rom'],
+      });
+      const plan = vi.spyOn(b, 'organizePlan');
+      await store().refresh();
+      const s = store();
+      expect(plan).toHaveBeenCalledTimes(1);
+      expect(plan.mock.calls[0]![0]).toEqual({
+        source: MOCK_MIXED,
+        rescan: true,
+      });
+      // `rescan` is never kept: later option changes reuse the new scan.
+      expect(s.request).toEqual({ source: MOCK_MIXED });
+      expect(s.status).toBe('ready');
+      expect(s.plan!.items).toHaveLength(11);
+      expect(s.lastRefresh).toEqual({
+        added: ['wario land 4 (usa).gba', 'zelda dx (usa).gbc'],
+        gone: 1,
+        kept: 0,
+        dropped: 0,
+      });
+    });
+
+    it('says nothing changed when the folder holds the same files', async () => {
+      await store().start(MOCK_MIXED);
+      const before = store().plan!.items.length;
+      await store().refresh();
+      expect(store().plan!.items).toHaveLength(before);
+      expect(store().lastRefresh).toEqual({
+        added: [],
+        gone: 0,
+        kept: 0,
+        dropped: 0,
+      });
+    });
+
+    it('keeps decisions by file, not by position, and drops those of gone files', async () => {
+      await store().start(MOCK_MIXED);
+      await store().decide([byName('Pokemon Pinball.zip').id], {
+        system: 'gbc',
+      });
+      await store().decide([byName('Columns.bin').id], 'leave');
+      // A new first file shifts every id; Columns.bin goes away.
+      b.organizeTouch(MOCK_MIXED, {
+        add: ['000 First (USA).gba'],
+        remove: ['Columns.bin'],
+      });
+      const plan = vi.spyOn(b, 'organizePlan');
+      await store().refresh();
+      // One rescan, then one re-plan with the remapped decision.
+      expect(plan).toHaveBeenCalledTimes(2);
+      expect(plan.mock.calls[1]![0]).toEqual({ source: MOCK_MIXED });
+      const pinball = byName('Pokemon Pinball.zip');
+      expect(pinball).toMatchObject({
+        action: 'auto',
+        system_id: 'gbc',
+        method: 'user',
+      });
+      expect(store().decisions).toEqual({
+        [pinball.id]: { item: pinball.id, choice: 'assign', system: 'gbc' },
+      });
+      expect(store().lastRefresh).toMatchObject({
+        added: ['000 first (usa).gba'],
+        gone: 1,
+        kept: 1,
+        dropped: 1,
+      });
+    });
+
+    it('matches files whatever their case', async () => {
+      await store().start(MOCK_MIXED);
+      await store().decide([byName('Pokemon Pinball.zip').id], {
+        system: 'gbc',
+      });
+      b.organizeTouch(MOCK_MIXED, {
+        add: ['POKEMON PINBALL.ZIP'],
+        remove: ['Pokemon Pinball.zip'],
+      });
+      await store().refresh();
+      expect(store().lastRefresh).toMatchObject({
+        added: [],
+        gone: 0,
+        kept: 1,
+        dropped: 0,
+      });
+    });
+
+    it('cancel goes back to the shown plan with its decisions', async () => {
+      await store().start(MOCK_MIXED);
+      await store().decide([byName('Pokemon Pinball.zip').id], {
+        system: 'gbc',
+      });
+      const shown = store().plan;
+      const decisions = store().decisions;
+      b.organizeTouch(MOCK_MIXED, { add: 3 });
+      const off = useOrganizeStore.subscribe((s) => {
+        if (s.progress && s.status === 'planning') void s.cancel();
+      });
+      await store().refresh();
+      off();
+      const s = store();
+      expect(s.status).toBe('ready');
+      expect(s.plan).toBe(shown);
+      expect(s.decisions).toEqual(decisions);
+      expect(s.request).toEqual({ source: MOCK_MIXED });
+      expect(s.lastRefresh).toBeNull();
+    });
+
+    it('a folder that went away keeps the last plan, stale, and can be retried', async () => {
+      await store().start(MOCK_MIXED);
+      const shown = store().plan;
+      b.organizeTouch(MOCK_MIXED, { gone: true });
+      await store().refresh();
+      expect(store().status).toBe('error');
+      expect(store().error?.code).toBe('not-found');
+      expect(store().plan).toBe(shown);
+      b.organizeTouch(MOCK_MIXED, { gone: false });
+      await store().refresh();
+      expect(store().status).toBe('ready');
+      expect(store().error).toBeNull();
+    });
+
+    it('a change of option or decision clears the summary', async () => {
+      await store().start(MOCK_MIXED);
+      await store().refresh();
+      expect(store().lastRefresh).not.toBeNull();
+      await store().setOption({ names: 'catalogue' });
+      expect(store().lastRefresh).toBeNull();
+      await store().refresh();
+      await store().decide([byName('Columns.bin').id], 'leave');
+      expect(store().lastRefresh).toBeNull();
+    });
+
+    it('does nothing while a plan runs or once an apply started', async () => {
+      await store().start(MOCK_DOWNLOADS);
+      const plan = vi.spyOn(b, 'organizePlan');
+      const replan = store().setOption({ names: 'catalogue' });
+      await store().refresh();
+      await replan;
+      expect(plan).toHaveBeenCalledTimes(1);
+      await store().apply();
+      await waitFor(() => expect(store().status).toBe('done'));
+      await store().refresh();
+      expect(plan).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('openOrganize keeps the launch options until it closes', () => {
     useNavStore.getState().openOrganize('/Volumes/SD', {
       layout: 'muos',

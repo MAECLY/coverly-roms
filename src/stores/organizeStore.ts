@@ -12,13 +12,27 @@ import type {
   OrganizeDecision,
   OrganizeJobView,
   OrganizePlan,
+  OrganizePlanView,
   OrganizeProgressEvent,
   OrganizeRequest,
   OrganizeUndoView,
 } from '@/ipc/types';
+import { itemKey } from '@/lib/organize';
 
 import { useLibraryStore } from './libraryStore';
 import { useNavStore, type OrganizeLaunch } from './navStore';
+
+/** What the last "scan again" found, by file (see `itemKey`). */
+export interface OrganizeRefresh {
+  /** Keys of the files that were not in the previous plan. */
+  added: string[];
+  /** Files of the previous plan that are no longer in the folder. */
+  gone: number;
+  /** Decisions carried over to the new plan. */
+  kept: number;
+  /** Decisions dropped because their file is gone. */
+  dropped: number;
+}
 
 export type OrganizeStatus =
   'idle' | 'planning' | 'ready' | 'applying' | 'done' | 'paused' | 'error';
@@ -37,12 +51,17 @@ interface OrganizeState {
   error: BackendError | null;
   /** Organising the loose files of a library: its layout and target stay. */
   locked: boolean;
+  /** The change summary of the last refresh; cleared by any other edit. */
+  lastRefresh: OrganizeRefresh | null;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
   decide(
     itemIds: number[],
     choice: 'leave' | { system: string },
   ): Promise<void>;
+  /** Reads the folder again (files added or removed), keeping decisions
+   * by file. No-op while a plan runs or once an apply started. */
+  refresh(): Promise<void>;
   apply(): Promise<void>;
   cancel(): Promise<void>;
   resume(): Promise<void>;
@@ -66,6 +85,7 @@ const initial = {
   undo: null,
   error: null,
   locked: false,
+  lastRefresh: null,
 };
 
 /** Bumped by every plan request (and by cancel/reset): older answers are dropped. */
@@ -99,49 +119,126 @@ function unfollow() {
 }
 
 export const useOrganizeStore = create<OrganizeState>()((set, get) => {
-  async function plan(): Promise<void> {
-    const { request, decisions } = get();
-    if (!request) return;
+  /** Supersedes the dry run in flight; the answer counts while `mine === seq`. */
+  function startPlanning(): { mine: number; previous: number | null } {
     const previous = planning;
     const mine = (seq += 1);
     planning = null;
     set({ status: 'planning', progress: null, error: null });
-    let off: (() => void) | undefined;
+    return { mine, previous };
+  }
+
+  async function backendFor(previous: number | null): Promise<Backend> {
+    const b = await getBackend();
+    if (seenOn !== b) {
+      seenOn = b;
+      maxSeenPlan = 0;
+    }
+    // A superseded dry run is no longer wanted.
+    if (previous !== null)
+      void b.organizeCancel(previous).catch(() => undefined);
+    return b;
+  }
+
+  /** One `organize_plan` call, following its progress while it is ours. */
+  async function dryRun(
+    b: Backend,
+    request: OrganizeRequest,
+    decisions: OrganizeDecision[],
+    mine: number,
+  ): Promise<OrganizePlanView> {
+    // Every dry run started before this one has an id <= floor.
+    const floor = maxSeenPlan;
+    const off = await b.onOrganizeProgress((p) => {
+      if (p.phase === 'apply') return;
+      maxSeenPlan = Math.max(maxSeenPlan, p.plan_id);
+      if (mine !== seq || p.plan_id <= floor || p.plan_id < maxSeenPlan) return;
+      planning = p.plan_id;
+      set({ progress: p });
+    });
     try {
-      const b = await getBackend();
-      if (seenOn !== b) {
-        seenOn = b;
-        maxSeenPlan = 0;
-      }
-      // Every dry run started before this one has an id <= floor.
-      const floor = maxSeenPlan;
-      // A superseded dry run is no longer wanted.
-      if (previous !== null)
-        void b.organizeCancel(previous).catch(() => undefined);
-      off = await b.onOrganizeProgress((p) => {
-        if (p.phase === 'apply') return;
-        maxSeenPlan = Math.max(maxSeenPlan, p.plan_id);
-        if (mine !== seq || p.plan_id <= floor || p.plan_id < maxSeenPlan)
-          return;
-        planning = p.plan_id;
-        set({ progress: p });
-      });
-      const view = await b.organizePlan(request, Object.values(decisions));
+      return await b.organizePlan(request, decisions);
+    } finally {
+      off();
+    }
+  }
+
+  function shown(
+    view: OrganizePlanView,
+    request: OrganizeRequest,
+    decisions: Record<number, OrganizeDecision>,
+    lastRefresh: OrganizeRefresh | null = null,
+  ) {
+    planning = null;
+    shownWith = { request, decisions };
+    set({
+      status: 'ready',
+      planId: view.plan_id,
+      plan: view.plan,
+      decisions,
+      progress: null,
+      lastRefresh,
+    });
+  }
+
+  function failed(e: unknown, mine: number) {
+    if (mine !== seq) return;
+    planning = null;
+    set({ status: 'error', error: toBackendError(e), progress: null });
+  }
+
+  async function plan(): Promise<void> {
+    const { request, decisions } = get();
+    if (!request) return;
+    const { mine, previous } = startPlanning();
+    try {
+      const b = await backendFor(previous);
+      const view = await dryRun(b, request, Object.values(decisions), mine);
       if (mine !== seq) return;
-      planning = null;
-      shownWith = { request, decisions };
-      set({
-        status: 'ready',
-        planId: view.plan_id,
-        plan: view.plan,
-        progress: null,
+      shown(view, request, decisions);
+    } catch (e) {
+      failed(e, mine);
+    }
+  }
+
+  /** Scan again: decisions travel by file, since ids are positions. */
+  async function refresh(): Promise<void> {
+    const { request, plan: before, decisions, status } = get();
+    if (!request || !editable() || status === 'planning') return;
+    const byId = new Map(before?.items.map((i) => [i.id, i]) ?? []);
+    const carried = new Map<string, OrganizeDecision>();
+    for (const d of Object.values(decisions)) {
+      const item = byId.get(d.item);
+      if (item) carried.set(itemKey(item), d);
+    }
+    set({ lastRefresh: null });
+    const { mine, previous } = startPlanning();
+    try {
+      const b = await backendFor(previous);
+      // `rescan` goes with this call only: the kept request never has it.
+      let view = await dryRun(b, { ...request, rescan: true }, [], mine);
+      if (mine !== seq) return;
+      const remapped: Record<number, OrganizeDecision> = {};
+      for (const item of view.plan.items) {
+        const d = carried.get(itemKey(item));
+        if (d) remapped[item.id] = { ...d, item: item.id };
+      }
+      const kept = Object.keys(remapped).length;
+      // Reuses the scan just made: no file is read again.
+      if (kept > 0) {
+        view = await dryRun(b, request, Object.values(remapped), mine);
+        if (mine !== seq) return;
+      }
+      const oldKeys = new Set(before?.items.map(itemKey) ?? []);
+      const newKeys = new Set(view.plan.items.map(itemKey));
+      shown(view, request, remapped, {
+        added: before ? [...newKeys].filter((k) => !oldKeys.has(k)) : [],
+        gone: [...oldKeys].filter((k) => !newKeys.has(k)).length,
+        kept,
+        dropped: carried.size - kept,
       });
     } catch (e) {
-      if (mine !== seq) return;
-      planning = null;
-      set({ status: 'error', error: toBackendError(e), progress: null });
-    } finally {
-      off?.();
+      failed(e, mine);
     }
   }
 
@@ -257,7 +354,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         delete next.flat;
       }
       if (Object.keys(next).length === 0) return;
-      set({ request: { ...request, ...next } });
+      set({ request: { ...request, ...next }, lastRefresh: null });
       await plan();
     },
     async decide(itemIds, choice) {
@@ -269,9 +366,10 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
             ? { item, choice: 'leave' }
             : { item, choice: 'assign', system: choice.system };
       }
-      set({ decisions });
+      set({ decisions, lastRefresh: null });
       await plan();
     },
+    refresh,
     async apply() {
       const { planId, decisions, status } = get();
       // Only the plan on screen, made with the options on screen.

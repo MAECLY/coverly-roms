@@ -17,6 +17,15 @@ type Translate = (key: string, vars?: TranslateVars) => string;
 /** Rows a system group (or bucket) renders before "Show more". */
 export const ROWS_PER_GROUP = 200;
 
+/**
+ * Who an item is across scans: its primary file, `\` as `/`, lower-cased
+ * (FAT and macOS volumes ignore case). Ids are positions and shift as soon
+ * as the folder gains or loses a file.
+ */
+export function itemKey(item: OrganizeItem): string {
+  return (item.sources[0] ?? '').replace(/\\/g, '/').toLowerCase();
+}
+
 const collator = new Intl.Collator('en', {
   sensitivity: 'base',
   numeric: true,
