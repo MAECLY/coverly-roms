@@ -43,6 +43,13 @@ export function LibraryScreen() {
   const clearFilters = useFilterStore((s) => s.clear);
   const setQuery = useFilterStore((s) => s.setQuery);
   const searchRef = useRef<HTMLInputElement>(null);
+  const root = view?.root;
+  const loadPrefsFor = useViewStore((s) => s.loadFor);
+
+  // Each library opens with its own view prefs (or the last ones used).
+  useEffect(() => {
+    if (root !== undefined) loadPrefsFor(root);
+  }, [root, loadPrefsFor]);
 
   // Job events while this screen lives (shared with App's subscription).
   useEffect(() => {

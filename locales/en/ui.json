@@ -406,6 +406,73 @@
     "jobsPaused": "Jobs (paused)",
     "reports": "Reports"
   },
+  "layouts": {
+    "label": "View",
+    "covers": "Covers",
+    "details": "Details",
+    "mounts": "Art slots",
+    "columns": "Columns",
+    "gallery": "Gallery",
+    "shelves": "Shelves",
+    "options": "View options",
+    "density": "Row density",
+    "densityComfortable": "Comfortable",
+    "densityCompact": "Compact",
+    "seeAllCount": "See all {n}",
+    "preview": "Quick look",
+    "size": "Size",
+    "sizeStops": {
+      "xs": "Smallest",
+      "s": "Small",
+      "m": "Medium",
+      "l": "Large",
+      "xl": "Largest"
+    },
+    "art": "Art shown",
+    "artCover": "Cover",
+    "artTitle": "Title screen",
+    "artScreenshot": "Screenshot",
+    "groupBy": "Group by",
+    "group": {
+      "none": "None",
+      "system": "System",
+      "folder": "Folder",
+      "region": "Region",
+      "art": "Art status",
+      "letter": "First letter",
+      "missingCover": "No cover",
+      "missingOther": "Other art missing",
+      "complete": "Complete",
+      "root": "{system} (root)",
+      "noRegion": "No region"
+    },
+    "groupCount": "{group}, {n} games",
+    "sortBy": "Sort by",
+    "columnsPicker": "Visible columns",
+    "column": {
+      "thumb": "Thumbnail",
+      "name": "Name",
+      "system": "System",
+      "folder": "Folder",
+      "regions": "Regions",
+      "ext": "Extension",
+      "size": "Size",
+      "mtime": "Modified",
+      "cover": "Cover",
+      "title": "Title screen",
+      "screenshot": "Screenshot"
+    },
+    "inspector": "Details pane",
+    "seeAll": "See all",
+    "announce": "{view} view",
+    "pane": {
+      "systems": "Systems",
+      "folders": "Folders",
+      "games": "Games",
+      "preview": "Preview"
+    },
+    "slotMissing": "No {media}"
+  },
   "filters": {
     "art": "Art",
     "artOptions": {

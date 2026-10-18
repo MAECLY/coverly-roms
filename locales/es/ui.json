@@ -406,6 +406,73 @@
     "jobsPaused": "Trabajos (en pausa)",
     "reports": "Informes"
   },
+  "layouts": {
+    "label": "Vista",
+    "covers": "Portadas",
+    "details": "Detalles",
+    "mounts": "Huecos de arte",
+    "columns": "Columnas",
+    "gallery": "Galería",
+    "shelves": "Estantes",
+    "options": "Opciones de vista",
+    "density": "Densidad de filas",
+    "densityComfortable": "Cómoda",
+    "densityCompact": "Compacta",
+    "seeAllCount": "Ver los {n}",
+    "preview": "Vista rápida",
+    "size": "Tamaño",
+    "sizeStops": {
+      "xs": "Mínimo",
+      "s": "Pequeño",
+      "m": "Mediano",
+      "l": "Grande",
+      "xl": "Máximo"
+    },
+    "art": "Arte que se muestra",
+    "artCover": "Portada",
+    "artTitle": "Pantalla de título",
+    "artScreenshot": "Captura",
+    "groupBy": "Agrupar por",
+    "group": {
+      "none": "Sin agrupar",
+      "system": "Sistema",
+      "folder": "Carpeta",
+      "region": "Región",
+      "art": "Estado del arte",
+      "letter": "Inicial",
+      "missingCover": "Sin portada",
+      "missingOther": "Falta otro arte",
+      "complete": "Completo",
+      "root": "{system} (raíz)",
+      "noRegion": "Sin región"
+    },
+    "groupCount": "{group}, {n} juegos",
+    "sortBy": "Ordenar por",
+    "columnsPicker": "Columnas visibles",
+    "column": {
+      "thumb": "Miniatura",
+      "name": "Nombre",
+      "system": "Sistema",
+      "folder": "Carpeta",
+      "regions": "Regiones",
+      "ext": "Extensión",
+      "size": "Tamaño",
+      "mtime": "Modificado",
+      "cover": "Portada",
+      "title": "Pantalla de título",
+      "screenshot": "Captura"
+    },
+    "inspector": "Panel de detalles",
+    "seeAll": "Ver todo",
+    "announce": "Vista: {view}",
+    "pane": {
+      "systems": "Sistemas",
+      "folders": "Carpetas",
+      "games": "Juegos",
+      "preview": "Vista previa"
+    },
+    "slotMissing": "Falta {media}"
+  },
   "filters": {
     "art": "Arte",
     "artOptions": {
