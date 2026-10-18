@@ -3154,6 +3154,15 @@ html.motion .t-rest::before {
 .f152 {
   color: var(--cr-text-secondary);
 }
+/* The 152 over the gaps is the terminal example's 4553 minus its 4401
+   applied; the note under the shelf says so, in the same mono. */
+.closing .fin-note {
+  margin-top: 14px;
+  padding: 0 var(--gutter);
+  max-width: calc(44em + 2 * var(--gutter));
+  font: 500 0.8125rem/1.5 var(--cr-font-mono);
+  text-wrap: balance;
+}
 .flean,
 .ftab,
 .fseat {
