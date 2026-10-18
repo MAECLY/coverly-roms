@@ -284,6 +284,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'mode',
   'names',
   'offline',
+  'rescan',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */

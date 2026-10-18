@@ -838,3 +838,77 @@ fn apply_refuses_a_backup_folder_inside_the_pile() {
     assert!(pile.path().join("Alpha (USA).gba").is_file());
     assert!(!pile.path().join("coverly-data").exists());
 }
+
+#[test]
+fn rescan_reads_the_folder_again_and_sees_added_and_removed_files() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = gba_pile();
+    let req = offline(pile.path());
+
+    let first = st
+        .organize_plan(&req, &[], Arc::new(Recorder::default()))
+        .unwrap();
+    assert_eq!(first.plan.items.len(), 3);
+
+    // The pile changes on disk after the first scan.
+    fs::remove_file(pile.path().join("Beta (USA).gba")).unwrap();
+    write_old(pile.path(), "Delta (USA).gba", &fixtures::gba_tagged(b'D'));
+    write_old(
+        pile.path(),
+        "Epsilon (USA).gba",
+        &fixtures::gba_tagged(b'E'),
+    );
+
+    // A plain re-plan reuses the kept survey: it still sees the old pile.
+    let kept_events = Arc::new(Recorder::default());
+    let kept = st.organize_plan(&req, &[], kept_events.clone()).unwrap();
+    assert!(kept_events.events().is_empty());
+    assert_eq!(kept.plan.items.len(), 3);
+
+    // `rescan` surveys again, with progress.
+    let rescan = OrganizeRequest {
+        rescan: true,
+        ..offline(pile.path())
+    };
+    let fresh_events = Arc::new(Recorder::default());
+    let fresh = st
+        .organize_plan(&rescan, &[], fresh_events.clone())
+        .unwrap();
+    assert!(
+        !fresh_events.events().is_empty(),
+        "the folder was read again"
+    );
+    let names: Vec<String> = fresh
+        .plan
+        .items
+        .iter()
+        .map(|i| i.sources[0].display().to_string())
+        .collect();
+    assert_eq!(names.len(), 4);
+    assert!(names.iter().any(|n| n.contains("Delta")));
+    assert!(names.iter().any(|n| n.contains("Epsilon")));
+    assert!(!names.iter().any(|n| n.contains("Beta")));
+
+    // The next plain re-plan reuses the fresh survey (no file read).
+    let after_events = Arc::new(Recorder::default());
+    let after = st.organize_plan(&req, &[], after_events.clone()).unwrap();
+    assert!(after_events.events().is_empty());
+    assert_eq!(after.plan.items.len(), 4);
+
+    // A folder that is gone answers `not-found`.
+    let gone = TempDir::new().unwrap();
+    let gone_path = gone.path().to_path_buf();
+    drop(gone);
+    assert!(matches!(
+        st.organize_plan(
+            &OrganizeRequest {
+                rescan: true,
+                ..offline(&gone_path)
+            },
+            &[],
+            Arc::new(Recorder::default())
+        ),
+        Err(IpcError::NotFound(_))
+    ));
+}

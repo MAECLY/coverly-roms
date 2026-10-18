@@ -601,10 +601,15 @@ fn rust_reads_the_shared_organise_requests() {
     assert_eq!(full.mode, Some(TransferMode::Copy));
     assert_eq!(full.names, Some(NameMode::Catalogue));
     assert_eq!(full.offline, Some(true));
+    assert!(full.rescan);
     let bare: OrganizeRequest =
         serde_json::from_value(req["organize_request_bare"].clone()).unwrap();
     assert_eq!(bare.source, "/Users/me/ROMs-Downloaded");
     assert_eq!(bare.layout, None);
+    assert!(
+        !bare.rescan,
+        "a request reuses the kept survey unless asked"
+    );
     let decisions: Vec<OrganizeDecision> =
         serde_json::from_value(req["organize_decisions"].clone()).unwrap();
     assert_eq!(
