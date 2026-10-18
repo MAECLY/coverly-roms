@@ -894,7 +894,7 @@
       "kept": "Tus decisiones se mantienen: {count}",
       "dropped": "Decisiones de archivos que ya no están: {count} (descartadas)",
       "new": "Nuevo",
-      "newCount": "{count} nuevos",
+      "newCount": "Nuevos: {count}",
       "retry": "Reintentar",
       "nothingMoved": "No se ha movido nada."
     }

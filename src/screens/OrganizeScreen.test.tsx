@@ -583,7 +583,7 @@ describe('OrganizeScreen', () => {
         .closest('li')!;
       expect(within(row).getByText('New')).toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: /GBA\/ \(1\).*1 new/ }),
+        screen.getByRole('button', { name: /GBA\/ \(1\).*New: 1/ }),
       ).toBeInTheDocument();
       expect(screen.queryByText('mystery.rom')).not.toBeInTheDocument();
       // Dismissed, the summary and the marks stay until the next change.

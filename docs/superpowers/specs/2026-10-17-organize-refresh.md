@@ -117,8 +117,9 @@ press always gets an answer.
 
 **New rows.** Rows whose key is in `lastRefresh.added` get a small
 `Badge variant="info"` reading **Nuevo / New** after the file name, and
-a soft `bg-cr-info-bg` tint that settles to transparent over
-`duration.slow` once (brand "ink settles"). Under
+a soft `--cr-info-bg` tint that settles to transparent once over
+4 × `duration.slower` with `easing.ink` (brand "ink settles"; a single
+`slow` step was too quick to notice). Under
 `prefers-reduced-motion` the token durations are 0ms, so the tint is
 simply absent and the badge alone marks the row. The badge stays until
 the next option change, decision or refresh. Manila and Buckram are
@@ -135,7 +136,7 @@ landed. Rows are passed an `isNew(item)` predicate from `Proposal`;
 - **Folder deleted or card unmounted.** `organize_plan` rejects with
   `not-found` (`existing_folder`). The screen shows the existing danger
   alert with the error text plus a **Reintentar / Try again** action
-  (Alert `action`) that calls `refresh()` again, and keeps the
+  (Alert `action`, offered for any failed plan) that calls `refresh()` again, and keeps the
   **Back** button working. The last plan stays visible but `stale`, so
   Apply and Export are disabled (they already key on `status !==
   'ready'`). No dead end: retry, change target, or go back. The error
@@ -167,8 +168,8 @@ cambió desde el último análisis · Volver a analizar".
 
 ## 7. Contract and mock
 
-- `OrganizeRequest.rescan?: boolean | null` in `src/ipc/types.ts`, the
-  Rust `OrganizeRequest` (`#[serde(default)]`), `contract.requests.json`
+- `OrganizeRequest.rescan?: boolean` in `src/ipc/types.ts`, the
+  Rust `OrganizeRequest` (`rescan: bool`, struct-level `#[serde(default)]`), `contract.requests.json`
   and the contract test. Excluded from the kept plan's request so an
   export or re-plan never re-surveys by accident.
 - Mock (`src/ipc/mock/mockOrganize.ts`): honour `rescan`, and expose a

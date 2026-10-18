@@ -894,7 +894,7 @@
       "kept": "Your choices kept: {count}",
       "dropped": "Choices for files that are gone: {count} (dropped)",
       "new": "New",
-      "newCount": "{count} new",
+      "newCount": "New: {count}",
       "retry": "Try again",
       "nothingMoved": "Nothing was moved."
     }

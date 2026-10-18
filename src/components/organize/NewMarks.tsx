@@ -15,7 +15,7 @@ export function NewBadge() {
 }
 
 /** "+3" on a group or bucket header, so a closed one still says where the
- * new files landed. Read as "3 new". */
+ * new files landed. Read as "New: 3". */
 export function NewCount({ count }: { count: number }) {
   const t = useT();
   if (count === 0) return null;
