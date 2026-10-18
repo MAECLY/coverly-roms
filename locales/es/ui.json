@@ -904,5 +904,8 @@
     "loading": "Cargando",
     "notifications": "Notificaciones",
     "dismiss": "Descartar"
+  },
+  "systems": {
+    "unknown": "Carpeta sin sistema reconocido"
   }
 }

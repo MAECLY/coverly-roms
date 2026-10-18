@@ -904,5 +904,8 @@
     "loading": "Loading",
     "notifications": "Notifications",
     "dismiss": "Dismiss"
+  },
+  "systems": {
+    "unknown": "Folder with no known system"
   }
 }
