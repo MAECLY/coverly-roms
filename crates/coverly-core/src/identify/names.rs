@@ -567,6 +567,10 @@ pub fn parse_tags(name: &str) -> NameTags {
 /// `[T+…]`, `[T-…]`, `[h…]`, `[t…]`, `[f…]`, or the words Hack, Translated,
 /// Traducido, Undub, Patched. Names may only veto a group, never form one.
 pub fn has_modification_tag(name: &str) -> bool {
+    // File names often arrive decomposed (NFD on macOS); compose first so
+    // "Traducción" is one word.
+    let name: String = name.nfc().collect();
+    let name = name.as_str();
     let (_, groups) = split_all_groups(name);
     let bracket = groups.iter().any(|(open, g)| {
         *open == '['

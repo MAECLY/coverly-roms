@@ -215,3 +215,10 @@ fn title_key_folds_like_compare_key() {
         "pokemon edicion roja"
     );
 }
+
+#[test]
+fn modification_tag_detector_reads_decomposed_file_names() {
+    // macOS often hands back file names in NFD: "ó" as "o" + U+0301.
+    assert!(has_modification_tag("Mother 3 Traduccio\u{301}n"));
+    assert!(has_modification_tag("Mother 3 Traducción"));
+}
