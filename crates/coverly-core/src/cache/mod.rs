@@ -49,7 +49,11 @@ CREATE TABLE IF NOT EXISTS organize_choices (crc32 TEXT NOT NULL, size INTEGER N
 /// v2 → v3 (spec §12.3): DAT serials and game fields, the duplicate
 /// finder's content keys per file (keyed by volume UUID, never `dev_t`)
 /// with a reverse index by key, and the user's keeper picks. Old rows stay
-/// valid. Runs once, under the migration lock.
+/// valid, but older DAT rows have no serials and a conditional request
+/// would keep them so (304), so every cached DAT (`identify::dat` meta
+/// namespace `dat-meta`) loses its ETag and fetch time and downloads again
+/// on next use; its old rows remain the offline fallback. Runs once, under
+/// the migration lock.
 const SCHEMA_V3: &str = "
 ALTER TABLE dat_roms ADD COLUMN serial TEXT;
 ALTER TABLE dat_roms ADD COLUMN region TEXT;
@@ -65,6 +69,7 @@ CREATE TABLE IF NOT EXISTS content_key_index (key TEXT NOT NULL, volume_uuid TEX
 CREATE INDEX IF NOT EXISTS content_key_index_path ON content_key_index (volume_uuid, path);
 CREATE TABLE IF NOT EXISTS dedupe_choices (system TEXT NOT NULL, keeper_key TEXT NOT NULL, signature TEXT NOT NULL,
   saves_fp TEXT NOT NULL, chosen_at INTEGER NOT NULL, PRIMARY KEY (system, keeper_key));
+UPDATE kv SET etag = NULL, fetched_at = 0 WHERE ns = 'dat-meta';
 ";
 
 /// Why the cache could not be used.

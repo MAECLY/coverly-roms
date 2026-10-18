@@ -715,3 +715,47 @@ fn volume_uuid_is_stable_for_one_volume() {
     assert!(!one.is_empty());
     assert!(coverly_core::volumes::volume_uuid(Path::new("/definitely/not/here")).is_none());
 }
+
+#[test]
+fn migrating_to_v3_makes_cached_dats_download_again_for_their_serials() {
+    // v2 rows have no serials. A conditional request would get a 304 and
+    // keep them serial-less, so the serial checks (spec §5.4) would see
+    // no DAT game at all. The migration drops the ETag and the fetch time
+    // so the next use downloads the whole DAT; the old rows stay for an
+    // offline fallback.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(V1_SCHEMA_FOR_TEST).unwrap();
+        conn.execute_batch(V2_SCHEMA_FOR_TEST).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO kv VALUES ('dat-meta','psx.dat','{\"found\":true}','\"e1\"',1700000000)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO kv VALUES ('other','k','1','\"e2\"',1700000000)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO dat_roms VALUES ('psx.dat','G','g.bin','g',9,'11111111',NULL,NULL)",
+            [],
+        )
+        .unwrap();
+    }
+    let cache = Cache::open(&path).unwrap();
+    let meta = cache
+        .get_json::<serde_json::Value>("dat-meta", "psx.dat")
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.etag, None);
+    assert_eq!(meta.fetched_at, 0);
+    assert_eq!(meta.value["found"], true);
+    let other = cache.get_json::<u8>("other", "k").unwrap().unwrap();
+    assert_eq!(other.etag.as_deref(), Some("\"e2\""));
+    assert_eq!(other.fetched_at, 1_700_000_000);
+    assert_eq!(cache.dat_by_crc("psx.dat", "11111111").unwrap().len(), 1);
+}
