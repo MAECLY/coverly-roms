@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useT } from '@/i18n/useT';
+import { isTyping } from '@/lib/keyboard';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -22,17 +23,6 @@ import { useNavStore } from '@/stores/navStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useVisibleEntries } from '@/stores/useVisibleEntries';
 import { useViewStore } from '@/stores/viewStore';
-
-const TEXT_INPUTS = new Set(['text', 'search', 'number', 'date']);
-
-/** Text entry where '/' is a character, not the search shortcut. */
-function isTyping(target: EventTarget | null): boolean {
-  return (
-    (target instanceof HTMLInputElement && TEXT_INPUTS.has(target.type)) ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  );
-}
 
 export function LibraryScreen() {
   const t = useT();
