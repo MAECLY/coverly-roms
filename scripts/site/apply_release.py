@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Fill the landing page in site/ with the published release, or with none.
 
-Used by .github/workflows/pages.yml, so the landing follows every release on
-its own: nothing in site/ names a version, a date, a download link or a file
+Used by scripts/site/vercel_build.sh, the Vercel build of the landing
+(vercel.json), so the landing follows every release on its own: nothing in site/ names a version, a date, a download link or a file
 size. Those places carry markers instead, and this script copies site/ to an
 output folder with every marker replaced from the release's GitHub API record
-(GET /repos/<repo>/releases/latest). The generated folder is what Pages
-publishes; it is never committed.
+(GET /repos/<repo>/releases/latest). The generated folder is what Vercel
+serves; it is never committed.
 
 Plain standard-library Python, so the runner needs nothing installed, and
 src-tauri/tests/site_release.rs runs it against a fixture.
@@ -43,7 +43,7 @@ unknown, left over or outside a release block, a block is unbalanced, a
 download is linked nowhere, or a JSON file or JSON-LD block no longer parses.
 There is no flag to skip any of that: the landing never links a file that is
 not there. --no-release only exists for the time before the first release
-(the workflow uses it only when the API answers 404 for the latest release).
+(vercel_build.sh uses it only when the API answers 404 for the latest release).
 """
 
 from __future__ import annotations

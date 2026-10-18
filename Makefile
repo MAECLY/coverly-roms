@@ -185,7 +185,7 @@ fill: ## Plan a fill without writing (dry run): make fill ROOT=/path/to/roms
 	$(CLI) fill "$(ROOT)" --dry-run
 
 # ───────────────────────────────────────────────────────────────────────
-# Landing page (site/, published by .github/workflows/pages.yml)
+# Landing page (site/, built and served by Vercel: vercel.json)
 # ───────────────────────────────────────────────────────────────────────
 
 .PHONY: site

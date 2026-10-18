@@ -1,5 +1,5 @@
-/* The newest release, read in the browser. pages.yml already fills the page
-   with the latest release when it deploys; this only covers the minutes
+/* The newest release, read in the browser. The Vercel build already fills
+   the page with the latest release when it deploys; this covers the minutes
    before that redeploy (or a failed one). It changes nothing unless every
    download on the page has its file in the newer release, and any error
    leaves the built page as it is. A page built before the first release
