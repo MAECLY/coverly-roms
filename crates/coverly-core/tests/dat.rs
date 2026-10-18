@@ -358,7 +358,7 @@ game (
 	region "USA"
 	serial "SCUS-94570"
 	rom ( name "Crash Bash (USA).cue" size 85 crc AAAAAAAA )
-	rom ( name "Crash Bash (USA).bin" size 1234 crc BBBBBBBB serial "SCUS_945.70" )
+	rom ( name "Crash Bash (USA).bin" size 1234 crc BBBBBBBB serial "SCUS_945.71" )
 )
 game (
 	name "Driver 2 (USA) (Disc 1)"
@@ -372,7 +372,7 @@ fn parses_serial_from_rom_line_and_game_block() {
     // The game block's serial fills a ROM line without one.
     assert_eq!(games[0].roms[0].serial.as_deref(), Some("SCUS-94570"));
     // A ROM line's own serial wins and is normalised.
-    assert_eq!(games[0].roms[1].serial.as_deref(), Some("SCUS-94570"));
+    assert_eq!(games[0].roms[1].serial.as_deref(), Some("SCUS-94571"));
     assert_eq!(games[1].roms[0].serial.as_deref(), Some("SLUS-01161"));
 }
 
@@ -465,4 +465,16 @@ fn serial_is_normalised() {
     assert_eq!(normalise_serial(""), None);
     assert_eq!(normalise_serial("   "), None);
     assert_eq!(normalise_serial("cdrom:\\SLUS_005.43;1"), None);
+}
+
+#[test]
+fn a_serial_list_keeps_its_first_real_serial() {
+    let dat = r#"game (
+	name "Compilation (USA)"
+	serial "n/a, SLUS_011.61, SLUS-01318"
+	rom ( name "Compilation (USA).bin" size 4 crc 01234567 )
+)
+"#;
+    let games = parse_clrmamepro(dat).unwrap();
+    assert_eq!(games[0].roms[0].serial.as_deref(), Some("SLUS-01161"));
 }
