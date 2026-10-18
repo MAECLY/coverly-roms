@@ -5,12 +5,14 @@
 
 Fills site/ twice into a temporary folder with apply_release.py (once with
 scripts/site/fixtures/release.json, once with --no-release) and runs every
-gate on both copies, the way Pages would publish them. Ported, in spirit,
+gate on both copies, the way Vercel would publish them (vercel.json →
+scripts/site/vercel_build.sh). Ported, in spirit,
 from the Versorium landing checks (tests/landing): the gates that need no
 browser.
 
-  files     CNAME, required files, generated tokens in sync with the app and
-            design/tokens.json, workflow pins
+  files     required files, generated tokens in sync with the app and
+            design/tokens.json, vercel.json (output folder and build
+            command), action pins in the workflows that deploy the landing
   links     every internal href/src/srcset resolves, every #fragment exists
   parity    Spanish and English pages have the same structure, and each
             page's FAQPage JSON-LD equals its visible FAQ
@@ -63,7 +65,7 @@ CSP = (
 )
 PAGES = {"es": "index.html", "en": "en/index.html"}
 REQUIRED = [
-    "index.html", "en/index.html", "404.html", "CNAME", ".nojekyll", "robots.txt",
+    "index.html", "en/index.html", "404.html", "robots.txt",
     "sitemap.xml", "llms.txt", "agents.txt", "site.webmanifest",
     "en/site.webmanifest", "favicon.ico", "assets/site.css", "assets/theme.js",
     "assets/motion.js", "assets/release.js", "assets/favicon.svg", "assets/icon-192.png",
@@ -137,6 +139,10 @@ COVERS_SVG = 18_000
 # Raised from 1,450 for the first-open warning (macOS quarantine, SmartScreen,
 # Linux packages), which Versorium and Pluryprint also carry.
 MAX_WORDS = 1_500
+# Vercel builds the landing (vercel.json); these workflows deploy it.
+VERCEL_OUT = "target/site"
+VERCEL_BUILD = "scripts/site/vercel_build.sh"
+LANDING_WORKFLOWS = ["landing-redeploy.yml"]
 ACTION_PIN = re.compile(r"uses:\s*[\w./-]+@([0-9a-f]{40})\s+#\s*v\d")
 
 
@@ -256,9 +262,6 @@ def gate_files(site: Path, r: Report) -> None:
     for rel in REQUIRED:
         if not (site / rel).is_file():
             r.fail("files", f"missing {rel}")
-    cname = (site / "CNAME").read_text(encoding="utf-8").strip() if (site / "CNAME").is_file() else ""
-    if cname != HOST:
-        r.fail("files", f"CNAME is {cname!r}, not {HOST}")
     # Both token files are generated from design/tokens.json: the landing
     # copy must carry the generator's header and the app's values.
     app = (ROOT / "src/styles/tokens.css").read_text(encoding="utf-8")
@@ -290,12 +293,41 @@ def gate_files(site: Path, r: Report) -> None:
             r.fail("files", f"cover sprite: {(run.stderr or run.stdout).strip()}")
     else:
         r.note("files", "node not found: gen_covers.mjs --check skipped")
-    wf = ROOT / ".github/workflows/pages.yml"
-    if wf.is_file():
-        for line in wf.read_text(encoding="utf-8").splitlines():
+    gate_vercel(r)
+    # Every workflow that deploys the landing pins its actions to a full SHA
+    # (landing-redeploy.yml only calls the deploy hook and uses none).
+    for wf in LANDING_WORKFLOWS:
+        path = ROOT / ".github/workflows" / wf
+        if not path.is_file():
+            r.fail("files", f"missing .github/workflows/{wf}")
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip().startswith("- uses:") or line.strip().startswith("uses:"):
                 if not ACTION_PIN.search(line):
-                    r.fail("files", f"pages.yml action not pinned to a SHA: {line.strip()}")
+                    r.fail("files", f"{wf} action not pinned to a SHA: {line.strip()}")
+
+
+def gate_vercel(r: Report) -> None:
+    """vercel.json builds with vercel_build.sh and serves its target/site."""
+    path = ROOT / "vercel.json"
+    if not path.is_file():
+        r.fail("files", "missing vercel.json")
+        return
+    try:
+        conf = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        r.fail("files", f"vercel.json is not valid JSON: {e}")
+        return
+    if not isinstance(conf, dict):
+        r.fail("files", "vercel.json is not a JSON object")
+        return
+    if conf.get("outputDirectory") != VERCEL_OUT:
+        r.fail("files", f"vercel.json outputDirectory is {conf.get('outputDirectory')!r}, not {VERCEL_OUT!r}")
+    build = conf.get("buildCommand")
+    if not isinstance(build, str) or VERCEL_BUILD not in build.split():
+        r.fail("files", f"vercel.json buildCommand {build!r} does not run {VERCEL_BUILD}")
+    if not (ROOT / VERCEL_BUILD).is_file():
+        r.fail("files", f"missing {VERCEL_BUILD}")
 
 
 # ── links ──────────────────────────────────────────────────────────────

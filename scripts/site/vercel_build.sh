@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the landing for Vercel (vercel.json → buildCommand), the same way
-# the old GitHub Pages job did: check site/, then fill its {{release.*}}
+# Builds the landing for Vercel (vercel.json → buildCommand), so that it
+# follows the releases: check site/, then fill its {{release.*}}
 # markers from the latest published release into target/site.
 #
 # The latest release comes from the public GitHub API. GITHUB_TOKEN, when the
@@ -41,5 +41,3 @@ case "$status" in
     exit 1
     ;;
 esac
-# GitHub Pages files that mean nothing on Vercel.
-rm -f "$OUT/CNAME" "$OUT/.nojekyll"

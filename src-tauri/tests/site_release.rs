@@ -8,9 +8,10 @@
 //!   the latest release into a copy of `site/` and refuses a release that
 //!   lacks any download or SHA256SUMS, or, with `--no-release`, keeps only the
 //!   "not published yet" state (exercised here where a `python3` exists);
-//! - `.github/workflows/pages.yml` runs it before uploading the Pages
-//!   artifact, publishes that copy and not `site/`, and redeploys when a
-//!   release is published.
+//! - Vercel builds the landing with `scripts/site/vercel_build.sh`
+//!   (`vercel.json`), which checks `site/`, runs it and serves that copy, not
+//!   `site/`; `.github/workflows/landing-redeploy.yml` calls the deploy hook
+//!   when a release is published.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -113,12 +114,44 @@ fn site_sources_link_no_release_by_hand() {
         }
     }
     assert!(read("site/agents.txt").contains("Release: {{release.notes_url}}"));
-    assert_eq!(read("site/CNAME").trim(), "coverly-roms.maecly.com");
 }
 
 #[test]
-fn pages_workflow_fills_the_release_before_publishing() {
-    let wf = read(".github/workflows/pages.yml");
+fn vercel_build_fills_the_release_before_publishing() {
+    let conf: Value = serde_json::from_str(&read("vercel.json")).expect("vercel.json is JSON");
+    assert_eq!(conf["outputDirectory"], "target/site");
+    assert_eq!(conf["buildCommand"], "bash scripts/site/vercel_build.sh");
+
+    let sh = read("scripts/site/vercel_build.sh");
+    assert!(sh.contains("set -euo pipefail"));
+    let check = sh
+        .find("python3 -I scripts/site/check_site.py")
+        .expect("vercel_build.sh checks the landing");
+    let fetch = sh
+        .find("https://api.github.com/repos/$REPO/releases/latest")
+        .expect("vercel_build.sh asks for the latest release");
+    let fill = sh
+        .find("python3 -I scripts/site/apply_release.py --release-json")
+        .expect("vercel_build.sh fills the release");
+    let none = sh.find("--no-release").expect("a not-published-yet state");
+    assert!(
+        check < fetch && fetch < fill && fill < none,
+        "check, fetch, then fill"
+    );
+    assert!(sh.contains("OUT=\"target/site\""));
+    // Only "no release yet" selects the not-published state; any other
+    // answer fails the build.
+    assert!(sh.contains("  404)\n"));
+    assert!(sh.contains("  *)\n"));
+    assert!(sh[sh.find("  *)\n").unwrap()..].contains("exit 1"));
+    for bypass in ["|| true", "--skip", "--allow"] {
+        assert!(!sh.contains(bypass), "{bypass}");
+    }
+}
+
+#[test]
+fn landing_redeploys_when_a_release_is_published() {
+    let wf = read(".github/workflows/landing-redeploy.yml");
     let on = wf
         .split_once("\non:\n")
         .unwrap()
@@ -128,52 +161,13 @@ fn pages_workflow_fills_the_release_before_publishing() {
         .0;
     assert!(on.contains("  release:\n    types: [published]\n"), "{on}");
     assert!(on.contains("  workflow_dispatch:"), "{on}");
-    assert!(on.contains("      - 'site/**'"), "{on}");
-    assert!(on.contains("      - 'scripts/site/**'"), "{on}");
-
-    let check = wf
-        .find("python3 -I scripts/site/check_site.py")
-        .expect("pages.yml checks the landing");
-    let fill = wf
-        .find("python3 -I scripts/site/apply_release.py")
-        .expect("pages.yml runs apply_release.py");
-    let upload = wf.find("actions/upload-pages-artifact@").unwrap();
-    assert!(check < fill && fill < upload, "check, fill, then upload");
-    assert!(wf.contains("gh api \"repos/$REPO/releases/latest\" > \"$RUNNER_TEMP/release.json\""));
-    // Only "no release yet" selects the not-published state.
-    assert!(wf.contains("grep -q \"HTTP 404\" \"$RUNNER_TEMP/release.err\""));
-    // The filled copy is what Pages gets, never site/ with its markers.
-    assert!(wf.contains("--out \"$RUNNER_TEMP/site\""));
-    assert!(wf.contains("          path: ${{ runner.temp }}/site\n"));
-    assert!(!wf.contains("          path: site\n"));
-    let step = &wf[fill..upload];
-    for bypass in ["continue-on-error", "|| true", "--skip", "--allow"] {
-        assert!(!wf.contains(bypass) && !step.contains(bypass), "{bypass}");
-    }
-    // Least privilege.
+    // Least privilege: the hook URL is the only credential.
     assert!(wf.contains("\npermissions: {}\n"));
-    assert!(!wf.contains("contents: write"));
-    // Every action pinned to a full commit SHA.
-    for line in wf
-        .lines()
-        .filter(|l| l.trim_start().starts_with("- uses:") || l.trim_start().starts_with("uses:"))
-    {
-        let rev = line.split_once('@').unwrap().1;
-        assert!(
-            rev.len() > 40 && rev[..40].chars().all(|c| c.is_ascii_hexdigit()),
-            "{line}"
-        );
-    }
-
-    let redeploy =
-        &wf[wf.find("  redeploy:\n").expect("a redeploy job")..wf.find("  deploy:\n").unwrap()];
-    assert!(redeploy.contains("if: github.event_name == 'release'"));
-    assert!(redeploy.contains("actions: write"));
-    assert!(
-        redeploy.contains("gh workflow run pages.yml --repo \"$REPO\" --ref \"$DEFAULT_BRANCH\"")
-    );
-    let deploy = &wf[wf.find("  deploy:\n").unwrap()..];
-    assert!(deploy.contains("if: github.event_name != 'release'"));
+    assert!(wf.contains("HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"));
+    assert!(wf.contains("if [ -z \"${HOOK:-}\" ]; then"));
+    assert!(wf.contains("curl -fsS -X POST \"$HOOK\""));
+    assert!(!wf.contains("uses:"), "no third-party action");
+    assert!(!wf.contains("continue-on-error") && !wf.contains("|| true"));
 }
 
 /// Same rule as release_pipeline.rs: never on Windows, only with a python3.
@@ -257,10 +251,7 @@ fn apply_release_fills_every_marker_from_the_release() {
             "{file} keeps the norelease state"
         );
     }
-    assert_eq!(
-        std::fs::read(filled.join("CNAME")).unwrap(),
-        std::fs::read(repo().join("site/CNAME")).unwrap()
-    );
+    assert!(!filled.join("CNAME").exists(), "no GitHub Pages leftovers");
     let es = std::fs::read_to_string(filled.join("index.html")).unwrap();
     let en = std::fs::read_to_string(filled.join("en/index.html")).unwrap();
     for (_, name) in DOWNLOADS {
