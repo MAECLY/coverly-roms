@@ -14,7 +14,11 @@ import type {
 } from '../types';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
-import { createMockOrganize, readMockPick } from './mockOrganize';
+import {
+  createMockOrganize,
+  readMockPick,
+  type MockOrganizeTouch,
+} from './mockOrganize';
 import { createMockSettings } from './mockSettings';
 import {
   createMockUpdates,
@@ -67,6 +71,8 @@ export interface MockBackend extends Backend {
   /** Updater calls (`check:startup`, `check:manual`, `download`, `install`,
    * `restart`), for tests. */
   readonly updateLog: string[];
+  /** Adds or removes files of an organise pile between scans (dev, tests). */
+  organizeTouch(path: string, change: MockOrganizeTouch): void;
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {

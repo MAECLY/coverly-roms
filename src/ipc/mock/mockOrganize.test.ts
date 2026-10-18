@@ -506,6 +506,67 @@ describe('mock organise backend', () => {
   });
 });
 
+describe('mock organise: the folder changes between scans', () => {
+  const names = (plan: { items: { sources: string[] }[] }) =>
+    plan.items.map((i) => i.sources[0]!);
+
+  it('keeps the first scan until asked to read the folder again', async () => {
+    const b = backend();
+    const first = await b.organizePlan({ source: MOCK_MIXED });
+    expect(first.plan.items).toHaveLength(10);
+
+    b.organizeTouch(MOCK_MIXED, {
+      add: ['Wario Land 4 (USA).gba', 'Zelda DX (USA).gbc'],
+      remove: ['mystery.rom'],
+    });
+
+    // Like Rust: a plain re-plan reuses the kept survey.
+    const kept = await b.organizePlan({ source: MOCK_MIXED });
+    expect(names(kept.plan)).toEqual(names(first.plan));
+
+    const seen: OrganizeProgressEvent[] = [];
+    await b.onOrganizeProgress((e) => seen.push(e));
+    const fresh = await b.organizePlan({ source: MOCK_MIXED, rescan: true });
+    expect(seen.some((e) => e.plan_id === fresh.plan_id)).toBe(true);
+    const now = names(fresh.plan);
+    expect(now).toHaveLength(11);
+    expect(now).toContain('Wario Land 4 (USA).gba');
+    expect(now).toContain('Zelda DX (USA).gbc');
+    expect(now).not.toContain('mystery.rom');
+    // An added file is identified by its extension and filed.
+    const wario = fresh.plan.items.find(
+      (i) => i.sources[0] === 'Wario Land 4 (USA).gba',
+    )!;
+    expect(wario).toMatchObject({ action: 'auto', system_id: 'gba' });
+
+    // Later re-plans keep the fresh scan.
+    const after = await b.organizePlan({ source: MOCK_MIXED, names: 'keep' });
+    expect(names(after.plan)).toEqual(now);
+  });
+
+  it('adds and removes by count, and a folder can go missing', async () => {
+    const b = backend();
+    const first = await b.organizePlan({ source: MOCK_MIXED });
+    b.organizeTouch(MOCK_MIXED, { add: 2, remove: 1 });
+    const fresh = await b.organizePlan({ source: MOCK_MIXED, rescan: true });
+    expect(fresh.plan.items).toHaveLength(first.plan.items.length + 1);
+    expect((await b.probeFolder(MOCK_MIXED)).rom_like).toBeGreaterThan(0);
+
+    b.organizeTouch(MOCK_MIXED, { gone: true });
+    await expect(
+      b.organizePlan({ source: MOCK_MIXED, rescan: true }),
+    ).rejects.toMatchObject({ code: 'not-found' });
+    b.organizeTouch(MOCK_MIXED, { gone: false });
+    const back = await b.organizePlan({ source: MOCK_MIXED, rescan: true });
+    expect(back.plan.items).toHaveLength(fresh.plan.items.length);
+  });
+
+  it('refuses a folder it does not know', () => {
+    const b = backend();
+    expect(() => b.organizeTouch('/nowhere', { add: 1 })).toThrow();
+  });
+});
+
 describe('mock folder pick', () => {
   afterEach(() => {
     window.history.replaceState(null, '', '/');

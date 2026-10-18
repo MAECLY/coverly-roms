@@ -223,6 +223,14 @@ export interface Backend {
   restartApp(): Promise<void>;
 }
 
+/** Dev helpers the mock puts on `window` (never in the app). */
+type MockWindow = Window & {
+  mockOrganizeTouch?: (
+    path: string,
+    change: import('./mock/mockOrganize').MockOrganizeTouch,
+  ) => void;
+};
+
 let current: Backend | null = null;
 let pending: Promise<Backend> | null = null;
 
@@ -232,7 +240,12 @@ async function createBackend(): Promise<Backend> {
     return createTauriBackend();
   }
   const { createMockBackend } = await import('./mock/mockBackend');
-  return createMockBackend();
+  const mock = createMockBackend();
+  // The browser check changes a pile between scans from the console:
+  // `mockOrganizeTouch('/Users/demo/Mixed', { add: 2, remove: 1 })`.
+  if (typeof window !== 'undefined')
+    (window as MockWindow).mockOrganizeTouch = mock.organizeTouch;
+  return mock;
 }
 
 /**
