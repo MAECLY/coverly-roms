@@ -1036,7 +1036,13 @@ fn duplicate_rule_is_rejected() {
 
 #[test]
 fn quarantine_inside_a_system_folder_is_rejected() {
+    // Absolute on every platform: `/x` is relative on Windows.
     let check = |dir: &str| {
+        let dir = if cfg!(windows) && dir.starts_with('/') {
+            format!("C:{dir}")
+        } else {
+            dir.to_string()
+        };
         let mut s = Settings::default();
         s.dedupe.quarantine_dir = Some(PathBuf::from(dir));
         codes(&s.validate(&known()))
@@ -1063,6 +1069,20 @@ fn quarantine_inside_a_system_folder_is_rejected() {
     assert!(check("/Volumes/SD/_Duplicados").is_empty());
     assert!(check("/Users/me/Documents/ROMS _Duplicados").is_empty());
     assert!(check("/Users/me/Desktop/Duplicates").is_empty());
+    // A card or disk label is not a ROMs or system folder.
+    assert!(check("/Volumes/ROMS/_Duplicados").is_empty());
+    assert!(check("/Volumes/GBA/_Duplicados").is_empty());
+    assert!(check("/media/me/ROMS/_Duplicados").is_empty());
+    assert!(check("/run/media/me/ROMS/_Duplicados").is_empty());
+    assert!(check("/mnt/ROMS/_Duplicados").is_empty());
+    assert_eq!(
+        check("/Volumes/ROMS/ROMS/_Duplicados"),
+        [FieldErrorCode::Invalid]
+    );
+    assert_eq!(
+        check("/media/me/ROMS/Roms/_Duplicados"),
+        [FieldErrorCode::Invalid]
+    );
     // The folder name is one plain name.
     for bad in ["", "  ", "a/b", "..", "."] {
         let mut s = Settings::default();

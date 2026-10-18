@@ -324,15 +324,18 @@ impl Settings {
                 out.push(FieldError::new("dedupe.quarantine_dir", NotAbsolute));
             } else {
                 let db = SystemDb::builtin();
-                let inside = dir.components().any(|c| {
-                    let Component::Normal(name) = c else {
-                        return false;
-                    };
-                    let name = name.to_string_lossy();
+                let names: Vec<_> = dir
+                    .components()
+                    .filter_map(|c| match c {
+                        Component::Normal(name) => Some(name.to_string_lossy()),
+                        _ => None,
+                    })
+                    .collect();
+                let inside = names[mount_label_len(&names)..].iter().any(|name| {
                     builtins
                         .iter()
-                        .any(|p| !p.roms_root.is_empty() && p.roms_root.eq_ignore_ascii_case(&name))
-                        || db.resolve_folder(&name).is_some()
+                        .any(|p| !p.roms_root.is_empty() && p.roms_root.eq_ignore_ascii_case(name))
+                        || db.resolve_folder(name).is_some()
                 });
                 if inside {
                     out.push(FieldError::new("dedupe.quarantine_dir", Invalid));
@@ -385,6 +388,20 @@ impl Settings {
             }
         }
     }
+}
+
+/// Leading components that name a mount point and its label
+/// (`/Volumes/<label>`, `/mnt/<label>`, `/media/<user>/<label>`,
+/// `/run/media/<user>/<label>`): a card called `ROMS` is not a ROMs folder.
+fn mount_label_len<S: AsRef<str>>(names: &[S]) -> usize {
+    let at = |i: usize| names.get(i).map(AsRef::as_ref);
+    let len = match (at(0), at(1)) {
+        (Some("Volumes" | "mnt"), _) => 2,
+        (Some("media"), _) => 3,
+        (Some("run"), Some("media")) => 4,
+        _ => 0,
+    };
+    len.min(names.len())
 }
 
 fn has_repeat<T: PartialEq>(items: &[T]) -> bool {
