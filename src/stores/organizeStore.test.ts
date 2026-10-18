@@ -327,8 +327,11 @@ describe('organise store', () => {
         remove: ['mystery.rom'],
       });
       const plan = vi.spyOn(b, 'organizePlan');
-      await store().refresh();
+      const pending = store().refresh();
+      expect(store()).toMatchObject({ status: 'planning', refreshing: true });
+      await pending;
       const s = store();
+      expect(s.refreshing).toBe(false);
       expect(plan).toHaveBeenCalledTimes(1);
       expect(plan.mock.calls[0]![0]).toEqual({
         source: MOCK_MIXED,
@@ -429,6 +432,7 @@ describe('organise store', () => {
       expect(s.decisions).toEqual(decisions);
       expect(s.request).toEqual({ source: MOCK_MIXED });
       expect(s.lastRefresh).toBeNull();
+      expect(s.refreshing).toBe(false);
     });
 
     it('a folder that went away keeps the last plan, stale, and can be retried', async () => {
@@ -439,6 +443,7 @@ describe('organise store', () => {
       expect(store().status).toBe('error');
       expect(store().error?.code).toBe('not-found');
       expect(store().plan).toBe(shown);
+      expect(store().refreshing).toBe(false);
       b.organizeTouch(MOCK_MIXED, { gone: false });
       await store().refresh();
       expect(store().status).toBe('ready');

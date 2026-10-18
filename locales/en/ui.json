@@ -885,7 +885,19 @@
     },
     "undone": "Restored: {restored} · Left alone because they changed: {modified}",
     "resume": "Resume",
-    "interrupted": "Interrupted"
+    "interrupted": "Interrupted",
+    "refresh": {
+      "button": "Scan again",
+      "tooltip": "Reads the folder again. Your choices stay.",
+      "changed": "The folder changed. New: {added} · Gone: {gone}",
+      "same": "No changes. The folder holds the same files.",
+      "kept": "Your choices kept: {count}",
+      "dropped": "Choices for files that are gone: {count} (dropped)",
+      "new": "New",
+      "newCount": "{count} new",
+      "retry": "Try again",
+      "nothingMoved": "Nothing was moved."
+    }
   },
   "ui": {
     "close": "Close",

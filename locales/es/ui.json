@@ -885,7 +885,19 @@
     },
     "undone": "Restaurados: {restored} · Sin tocar por cambios: {modified}",
     "resume": "Reanudar",
-    "interrupted": "Interrumpido"
+    "interrupted": "Interrumpido",
+    "refresh": {
+      "button": "Volver a analizar",
+      "tooltip": "Vuelve a leer la carpeta. Tus decisiones se mantienen.",
+      "changed": "La carpeta cambió. Nuevos: {added} · Ya no están: {gone}",
+      "same": "Sin cambios. La carpeta tiene los mismos archivos.",
+      "kept": "Tus decisiones se mantienen: {count}",
+      "dropped": "Decisiones de archivos que ya no están: {count} (descartadas)",
+      "new": "Nuevo",
+      "newCount": "{count} nuevos",
+      "retry": "Reintentar",
+      "nothingMoved": "No se ha movido nada."
+    }
   },
   "ui": {
     "close": "Cerrar",

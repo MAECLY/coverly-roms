@@ -53,6 +53,8 @@ interface OrganizeState {
   locked: boolean;
   /** The change summary of the last refresh; cleared by any other edit. */
   lastRefresh: OrganizeRefresh | null;
+  /** The plan in flight is a refresh (the button shows it is busy). */
+  refreshing: boolean;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
   decide(
@@ -86,6 +88,7 @@ const initial = {
   error: null,
   locked: false,
   lastRefresh: null,
+  refreshing: false,
 };
 
 /** Bumped by every plan request (and by cancel/reset): older answers are dropped. */
@@ -120,11 +123,14 @@ function unfollow() {
 
 export const useOrganizeStore = create<OrganizeState>()((set, get) => {
   /** Supersedes the dry run in flight; the answer counts while `mine === seq`. */
-  function startPlanning(): { mine: number; previous: number | null } {
+  function startPlanning(refreshing = false): {
+    mine: number;
+    previous: number | null;
+  } {
     const previous = planning;
     const mine = (seq += 1);
     planning = null;
-    set({ status: 'planning', progress: null, error: null });
+    set({ status: 'planning', progress: null, error: null, refreshing });
     return { mine, previous };
   }
 
@@ -178,13 +184,19 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       decisions,
       progress: null,
       lastRefresh,
+      refreshing: false,
     });
   }
 
   function failed(e: unknown, mine: number) {
     if (mine !== seq) return;
     planning = null;
-    set({ status: 'error', error: toBackendError(e), progress: null });
+    set({
+      status: 'error',
+      error: toBackendError(e),
+      progress: null,
+      refreshing: false,
+    });
   }
 
   async function plan(): Promise<void> {
@@ -212,7 +224,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       if (item) carried.set(itemKey(item), d);
     }
     set({ lastRefresh: null });
-    const { mine, previous } = startPlanning();
+    const { mine, previous } = startPlanning(true);
     try {
       const b = await backendFor(previous);
       // `rescan` goes with this call only: the kept request never has it.
@@ -393,9 +405,10 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
             progress: null,
             request: shownWith.request,
             decisions: shownWith.decisions,
+            refreshing: false,
           });
         } else {
-          set({ status: 'idle', progress: null });
+          set({ status: 'idle', progress: null, refreshing: false });
         }
         if (id === null) return;
         try {

@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -553,5 +560,131 @@ describe('OrganizeScreen', () => {
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
     );
     expect(useNavStore.getState().screen).toBe('main');
+  });
+  describe('scan again', () => {
+    const scanAgain = () => screen.getByRole('button', { name: 'Scan again' });
+
+    it('reads the folder again, says what changed and marks the new files', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      b.organizeTouch(MOCK_MIXED, {
+        add: ['Wario Land 4 (USA).gba'],
+        remove: ['mystery.rom'],
+      });
+      const plan = vi.spyOn(b, 'organizePlan');
+      await userEvent.click(scanAgain());
+      expect(plan.mock.calls[0]![0]).toMatchObject({ rescan: true });
+      const summary = await screen.findByText(
+        'The folder changed. New: 1 · Gone: 1',
+      );
+      expect(summary.closest('[role="status"]')).not.toBeNull();
+      const row = screen
+        .getByText(/^Wario Land 4 \(USA\)\.gba →/)
+        .closest('li')!;
+      expect(within(row).getByText('New')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /GBA\/ \(1\).*1 new/ }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('mystery.rom')).not.toBeInTheDocument();
+      // Dismissed, the summary and the marks stay until the next change.
+      await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(
+        screen.queryByText('The folder changed. New: 1 · Gone: 1'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('answers even when nothing changed, and keeps the choices made', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      await userEvent.selectOptions(
+        screen.getByRole('combobox', {
+          name: 'System for mystery.rom',
+        }),
+        'gba',
+      );
+      await ready();
+      await userEvent.click(scanAgain());
+      expect(
+        await screen.findByText('No changes. The folder holds the same files.'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Your choices kept: 1')).toBeInTheDocument();
+      expect(screen.queryByText('New')).not.toBeInTheDocument();
+    });
+
+    it('is disabled while a plan is made and busy while it scans', async () => {
+      renderScreen(MOCK_MIXED);
+      expect(scanAgain()).toBeDisabled();
+      await ready();
+      expect(scanAgain()).toBeEnabled();
+      act(() => void useOrganizeStore.getState().refresh());
+      expect(scanAgain()).toHaveAttribute('aria-busy', 'true');
+      expect(scanAgain()).toBeDisabled();
+      await ready();
+      expect(scanAgain()).not.toHaveAttribute('aria-busy');
+    });
+
+    it('⌘R or Ctrl+R scans again instead of reloading the page', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      const plan = vi.spyOn(b, 'organizePlan');
+      expect(fireEvent.keyDown(window, { key: 'r', metaKey: true })).toBe(
+        false,
+      );
+      await ready();
+      expect(plan).toHaveBeenCalledTimes(1);
+      expect(plan.mock.calls[0]![0]).toMatchObject({ rescan: true });
+      expect(fireEvent.keyDown(window, { key: 'R', ctrlKey: true })).toBe(
+        false,
+      );
+      await ready();
+      expect(plan).toHaveBeenCalledTimes(2);
+      // Typing in a text field: no scan, and still no reload.
+      const input = document.createElement('input');
+      document.body.append(input);
+      expect(fireEvent.keyDown(input, { key: 'r', metaKey: true })).toBe(false);
+      input.remove();
+      expect(plan).toHaveBeenCalledTimes(2);
+      // A plain R is just a key.
+      expect(fireEvent.keyDown(window, { key: 'r' })).toBe(true);
+    });
+
+    it('a folder that went away keeps the plan, blocks apply and offers try again', async () => {
+      renderScreen(MOCK_DOWNLOADS);
+      await ready();
+      b.organizeTouch(MOCK_DOWNLOADS, { gone: true });
+      await userEvent.click(scanAgain());
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        `This folder does not exist: ${MOCK_DOWNLOADS}`,
+      );
+      expect(alert).toHaveTextContent('Nothing was moved.');
+      expect(
+        screen.getByRole('button', { name: 'Organise 16 files' }),
+      ).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+      b.organizeTouch(MOCK_DOWNLOADS, { gone: false });
+      await userEvent.click(
+        within(alert).getByRole('button', { name: 'Try again' }),
+      );
+      await ready();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Organise 16 files' }),
+      ).toBeEnabled();
+    });
+
+    it('is not offered once the files were organised', async () => {
+      renderScreen(MOCK_DOWNLOADS);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Organise 16 files' }),
+      );
+      await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0');
+      expect(
+        screen.queryByRole('button', { name: 'Scan again' }),
+      ).not.toBeInTheDocument();
+      const plan = vi.spyOn(b, 'organizePlan');
+      fireEvent.keyDown(window, { key: 'r', metaKey: true });
+      expect(plan).not.toHaveBeenCalled();
+    });
   });
 });
