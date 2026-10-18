@@ -1,9 +1,7 @@
 /* The showcase choreography (docs/07-build-and-release/landing-showcase-spec.md).
-   Runs after motion.js and only when it set html.motion (no reduced motion,
-   no Save-Data, setup worked). It only toggles classes; CSS does the moving.
-   Every module registers a stop() that puts its piece in the finished state
-   the HTML already shows, so halt() means "finish", never "cancel". motion.js
-   halts with a "cr-halt" event; reduced motion turned on mid-visit halts too. */
+   Runs after motion.js, only when it set html.motion. It toggles classes;
+   CSS moves. Each module's stop() leaves the finished HTML frame, so
+   halt() (motion.js "cr-halt", or reduced motion mid-visit) = finish. */
 /* WP4, the #seguro round trip: user-started, so it also runs under
    reduced motion (instant swaps). HTML = applied; this arms "before". */
 (function () {
@@ -44,9 +42,8 @@
   if (still.addEventListener) still.addEventListener("change", off);
   else if (still.addListener) still.addListener(off);
 
-  /* One shared observer. when(el, ratio, fn) runs fn once, as soon as that
-     share of el is on screen (at once if it already is). Art that leaves the
-     screen gets [data-off], which pauses its animations (CSS). */
+  /* when(el, ratio, fn): fn once, when that share of el is on screen.
+     Art off screen gets [data-off] (CSS pauses it). */
   var waits = [];
   var io = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
@@ -69,10 +66,9 @@
   }
   Array.prototype.forEach.call(document.querySelectorAll("svg.art"), function (el) { io.observe(el); });
 
-  /* WP2, the Lean-To: .is-armed shows the start frame, .play runs the CSS
-     timeline once (the wide scene or the mobile strip, whichever is seen
-     first), and both go at the end, the frame the HTML shows. A slow load
-     gets the finished shelf. ↻ replays; it stays put and keeps focus. */
+  /* WP2, the Lean-To: .is-armed = start frame, .play runs the CSS
+     timeline once (scene or strip, whichever is seen first); both go at
+     the end. A slow load gets the finished shelf. ↻ replays, keeps focus. */
   function hero(when, stops) {
     var box = document.querySelector(".hero"), arts = box ? box.querySelectorAll(".hero-art") : [];
     if (!arts.length) return;
@@ -110,9 +106,17 @@
     });
   }
 
-  /* Modules, one per work package: hero() WP2, demo() WP4, waiting() WP5,
-     finale() WP6. Each: find its piece, stops.push(stop), when(...). */
-  var modules = [hero];
+  /* WP6, the closing shelf. Scroll timelines scrub it in CSS; without
+     them, .landed plays the same frames once at half the section seen. */
+  function finale(when, stops) {
+    var box = document.querySelector(".closing");
+    if (!box || !box.querySelector(".fin") || CSS.supports("animation-timeline: view()")) return;
+    var stop = function () { box.classList.add("landed"); };
+    stops.push(stop);
+    when(box, 0.5, stop);
+  }
+
+  var modules = [hero, finale];
   try {
     modules.forEach(function (m) { m(when, stops); });
   } catch (x) {

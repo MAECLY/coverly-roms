@@ -1203,29 +1203,6 @@ html.motion .t-rest {
   color: transparent;
 }
 
-/* Closing: a small shelf whose last slot fills. */
-.closing-mark {
-  display: block;
-  margin-bottom: 28px;
-}
-.closing-mark .p1,
-.closing-mark .p5 {
-  fill: var(--cr-slot-filled);
-}
-.closing-mark .p2 {
-  fill: var(--cr-text-secondary);
-}
-/* The last slot is the one Coverly fills: Buckram. */
-.closing-mark .p3 {
-  fill: var(--cr-slot-applied);
-}
-.closing-mark .cm-gap {
-  fill: none;
-  stroke: var(--cr-slot-missing);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
-}
-
 @keyframes draw {
   from {
     stroke-dashoffset: 1;
@@ -1246,11 +1223,6 @@ html.motion .t-rest {
   to {
     outline-color: transparent;
     transform: none;
-  }
-}
-@keyframes grow-y {
-  from {
-    transform: scaleY(0);
   }
 }
 @keyframes feed {
@@ -1473,16 +1445,6 @@ html.vt-ink::view-transition-new(root) {
   }
   .media td:nth-child(4) {
     --c: 2;
-  }
-  html.motion .closing-mark .cm-last {
-    transform-box: fill-box;
-    transform-origin: 50% 0;
-  }
-  html.motion .closing-mark:not(.is-in) .cm-last {
-    transform: scaleY(0);
-  }
-  html.motion .closing-mark.is-in .cm-last {
-    animation: grow-y 620ms var(--cr-ease-spring) 350ms both;
   }
   html.motion .clip-fx {
     display: block;
@@ -3103,6 +3065,239 @@ html.motion .t-rest::before {
   line-height: 1;
   vertical-align: middle;
   color: var(--cr-text);
+}
+
+/* == showcase:closing == */
+/* The payoff (spec §4.10). One shelf across the viewport, the Lean-To
+   from the hero at its centre, right above the CTA. The HTML is the end
+   frame: every slot filled but two, which stay dashed (Coverly never
+   guesses), 152 over them, the Lean-To seated with its Manila tab and a
+   Buckram spine under the button. Scrolled in, the covers wipe on left to
+   right, their spines just after, the gaps pulse once and the cover from
+   the hero tips upright into its slot. Without scroll timelines shelf.js
+   adds .landed and the same frames play once, by the clock. */
+.closing {
+  overflow-x: clip;
+  text-align: center;
+}
+.closing h2,
+.closing p {
+  margin-inline: auto;
+}
+.fin {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1440 / 108;
+  margin-top: clamp(24px, 4vw, 48px);
+}
+.finale-m {
+  display: none;
+  aspect-ratio: 390 / 108;
+}
+@media (max-width: 767.98px) {
+  .finale {
+    display: none;
+  }
+  .finale-m {
+    display: block;
+  }
+}
+.fin-cta {
+  justify-content: center;
+  margin-top: 20px;
+  padding: 0 var(--gutter);
+}
+.fin-cta .btn-primary {
+  box-shadow:
+    0 2px 0 var(--cr-bg),
+    0 5px 0 var(--cr-slot-applied);
+}
+.fin .frl {
+  stroke: var(--cr-border-strong);
+}
+.fsh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.fin .gd {
+  fill: var(--lp-paper);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.25;
+}
+.fo {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 0.0196 0.0147;
+}
+.fpc {
+  fill: var(--cr-slot-missing);
+}
+.fin .tb {
+  fill: var(--cr-slot-applied-run);
+}
+.fin .sp {
+  fill: var(--cr-slot-applied);
+}
+.fsp {
+  fill: none;
+  stroke: var(--cr-slot-applied);
+  stroke-dasharray: 30 10;
+}
+.finale-m .fsp {
+  stroke-dasharray: 30 6;
+}
+.f152 {
+  color: var(--cr-text-secondary);
+}
+.flean,
+.ftab,
+.fseat {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+}
+.ftab {
+  transform-origin: 50% 0;
+}
+.fseat {
+  transform-origin: 0 50%;
+}
+@keyframes fin-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+@keyframes fin-pulse {
+  50% {
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: -0.0343;
+  }
+}
+@keyframes fin-seat {
+  from {
+    transform: rotate(12deg);
+  }
+  80% {
+    transform: translateY(-0.7px);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes fin-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes fin-cta {
+  from {
+    box-shadow:
+      0 2px 0 var(--cr-bg),
+      0 2px 0 var(--cr-slot-applied);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .fcv,
+  html.motion .fsp {
+    animation: fin-wipe 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .fgap {
+    animation: fin-pulse 1ms var(--cr-ease-standard) both;
+  }
+  html.motion .f152 {
+    animation: dm-in 1ms var(--cr-ease-enter) both;
+  }
+  html.motion .flean {
+    animation: fin-seat 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .ftab {
+    animation: fin-tab 1ms var(--cr-ease-spring) both;
+  }
+  html.motion .fseat {
+    animation: feed 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .fin-cta .btn-primary {
+    animation: fin-cta 1ms var(--cr-ease-ink) both;
+  }
+  @supports (animation-timeline: view()) {
+    .finale {
+      view-timeline: --fin block;
+    }
+    .finale-m {
+      view-timeline: --fim block;
+    }
+    html.motion .fin * {
+      animation-timeline: --fin;
+    }
+    html.motion .finale-m * {
+      animation-timeline: --fim;
+    }
+    html.motion .fcv {
+      animation-range: cover 40px cover 300px;
+    }
+    html.motion .fsp {
+      animation-range: cover 80px cover 340px;
+    }
+    html.motion .fgap {
+      animation-range: cover 330px cover 410px;
+    }
+    html.motion .f152 {
+      animation-range: cover 350px cover 410px;
+    }
+    html.motion .flean {
+      animation-range: cover 380px cover 480px;
+    }
+    html.motion .ftab {
+      animation-range: cover 460px cover 520px;
+    }
+    html.motion .fseat {
+      animation-range: cover 480px cover 520px;
+    }
+    html.motion .fin-cta .btn-primary {
+      animation-timeline: view();
+      animation-range: cover 330px cover 400px;
+    }
+  }
+  /* No scroll timelines: the start frame waits for .landed (shelf.js),
+     then the same frames run once, in 1.6s. */
+  @supports not (animation-timeline: view()) {
+    html.motion .closing:not(.landed) * {
+      animation-play-state: paused;
+    }
+    html.motion .closing.landed .fcv {
+      animation-duration: 640ms;
+    }
+    html.motion .closing.landed .fsp {
+      animation-duration: 560ms;
+      animation-delay: 200ms;
+    }
+    html.motion .closing.landed .fgap {
+      animation-duration: 400ms;
+      animation-delay: 720ms;
+    }
+    html.motion .closing.landed .f152 {
+      animation-duration: 240ms;
+      animation-delay: 760ms;
+    }
+    html.motion .closing.landed .flean {
+      animation-duration: 400ms;
+      animation-delay: 880ms;
+    }
+    html.motion .closing.landed :is(.ftab, .fseat) {
+      animation-duration: 240ms;
+      animation-delay: 1240ms;
+    }
+    html.motion .closing.landed .btn-primary {
+      animation-duration: 240ms;
+      animation-delay: 1360ms;
+    }
+  }
 }
 
 /* == showcase:reduce == */
