@@ -164,4 +164,20 @@ describe('EntryTable', () => {
     expect(icon).not.toBeNull();
     expect(icon).toHaveAttribute('aria-hidden', 'true');
   });
+
+  it('keeps the active row rendered', () => {
+    render(<Harness onSort={() => undefined} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    const active = grid.getAttribute('aria-activedescendant')!;
+    expect(active).toBe(`entry-${big.entries[3]!.id}`);
+    Object.defineProperty(grid, 'scrollTop', {
+      configurable: true,
+      value: 200_000,
+    });
+    fireEvent.scroll(grid);
+    expect(document.getElementById(active)).not.toBeNull();
+    expect(screen.getAllByRole('row').length).toBeLessThanOrEqual(MAX_ROWS);
+  });
 });

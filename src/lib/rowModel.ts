@@ -46,3 +46,34 @@ export function buildRowModel(
   });
   return { rows, rowOfIndex, headerRows };
 }
+
+/**
+ * ↑/↓ (and a page of them) in a grid of rows: the item in the same column
+ * `delta` items rows away, skipping header rows. A shorter row (a section's
+ * partial last row) clamps to its last item; at either end the move stops
+ * at the furthest row there is, so the index stays put at the edge.
+ */
+export function moveVertical(
+  model: RowModel,
+  index: number,
+  delta: number,
+): number {
+  const from = model.rowOfIndex[index] ?? -1;
+  const row = model.rows[from];
+  if (row?.kind !== 'items' || delta === 0) return index;
+  const column = index - row.start;
+  const dir = delta > 0 ? 1 : -1;
+  let left = Math.abs(delta);
+  let target = row;
+  for (
+    let r = from + dir;
+    left > 0 && r >= 0 && r < model.rows.length;
+    r += dir
+  ) {
+    const next = model.rows[r];
+    if (next?.kind !== 'items') continue;
+    target = next;
+    left--;
+  }
+  return Math.min(target.start + column, target.end - 1);
+}

@@ -9,6 +9,7 @@ import {
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Button } from '@/components/ui/button';
+import { useActiveRange } from '@/hooks/useActiveRange';
 import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
@@ -18,7 +19,7 @@ import { nextIndex } from '@/lib/keyboardNav';
 import type { Sort, SortKey } from '@/lib/sort';
 
 import { ArtStatusIcon } from './ArtStatusIcon';
-import { entryIdOf, type EntryListProps } from './CoverGrid';
+import { entryIdOf, type EntryListProps } from './views/types';
 
 export const ROW_H = 34;
 
@@ -47,6 +48,15 @@ export function EntryTable({
   const locale = useContext(LocaleContext);
   const [ref, size, element] = useElementSize<HTMLDivElement>();
   const pageRows = Math.max(1, Math.floor(size.height / ROW_H) - 1);
+  const indexOf = useMemo(
+    () => new Map(entries.map((e, i) => [e.id, i])),
+    [entries],
+  );
+  const selectedIndex =
+    selectedId === null ? -1 : (indexOf.get(selectedId) ?? -1);
+  // The selected row stays mounted when the wheel scrolls it away, so
+  // aria-activedescendant always names an element that exists.
+  const rangeExtractor = useActiveRange(selectedIndex, null);
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is not memoisable by the React Compiler
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -58,14 +68,9 @@ export function EntryTable({
     // visible.
     scrollMargin: ROW_H,
     scrollPaddingStart: ROW_H,
+    rangeExtractor,
     initialRect: size,
   });
-  const indexOf = useMemo(
-    () => new Map(entries.map((e, i) => [e.id, i])),
-    [entries],
-  );
-  const selectedIndex =
-    selectedId === null ? -1 : (indexOf.get(selectedId) ?? -1);
 
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
     // Keys pressed on a header sort button belong to that button.
@@ -97,7 +102,9 @@ export function EntryTable({
       aria-label={t('library.table.label')}
       aria-rowcount={entries.length + 1}
       aria-activedescendant={
-        selectedId === null ? undefined : `entry-${selectedId}`
+        selectedIndex < 0 || selectedId === null
+          ? undefined
+          : `entry-${selectedId}`
       }
       tabIndex={0}
       className="entry-table"

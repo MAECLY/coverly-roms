@@ -27,8 +27,9 @@ import { useViewStore } from '@/stores/viewStore';
 export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
-  const { visible, facets, now } = useVisibleEntries();
+  const { visible, sections, facets, now } = useVisibleEntries();
   const layout = useViewStore((s) => s.layout);
+  const prefs = useViewStore((s) => s.prefs);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const drawerOpen = useViewStore((s) => s.drawerOpen);
   const sort = useViewStore((s) => s.sort);
@@ -134,7 +135,15 @@ export function LibraryScreen() {
       />
     );
   } else if (layout === 'grid') {
-    content = <CoverGrid {...list} />;
+    content = (
+      <CoverGrid
+        {...list}
+        sections={sections}
+        prefs={prefs}
+        // Quick look arrives with the shared keyboard model.
+        onPreview={() => undefined}
+      />
+    );
   } else {
     content = <EntryTable {...list} sort={sort} onSort={toggleSort} />;
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Section } from './grouping';
-import { buildRowModel, type Row } from './rowModel';
+import { buildRowModel, moveVertical, type Row } from './rowModel';
 
 const A: Section = { key: 'system:0', label: 'Game Boy', start: 0, count: 5 };
 const B: Section = { key: 'system:1', label: 'Mega Drive', start: 5, count: 3 };
@@ -62,5 +62,32 @@ describe('buildRowModel', () => {
       '6-7',
       '7-8',
     ]);
+  });
+});
+
+describe('moveVertical', () => {
+  // perRow 4: H0, 0-4, 4-5, H1, 5-8
+  const m = buildRowModel([A, B], 4, true);
+
+  it('keeps the column in the next items row and skips headers', () => {
+    expect(moveVertical(m, 1, 1)).toBe(4); // partial row clamps
+    expect(moveVertical(m, 4, 1)).toBe(5); // into the next section
+    expect(moveVertical(m, 6, -1)).toBe(4);
+    expect(moveVertical(m, 4, -1)).toBe(0);
+  });
+
+  it('clamps a partial row to its last item', () => {
+    expect(moveVertical(m, 3, 1)).toBe(4);
+  });
+
+  it('stays put at either end', () => {
+    expect(moveVertical(m, 2, -1)).toBe(2);
+    expect(moveVertical(m, 7, 1)).toBe(7);
+  });
+
+  it('moves several rows for a page and stops at the last row', () => {
+    expect(moveVertical(m, 1, 2)).toBe(6);
+    expect(moveVertical(m, 1, 99)).toBe(6);
+    expect(moveVertical(m, 7, -99)).toBe(2);
   });
 });

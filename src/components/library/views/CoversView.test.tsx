@@ -10,11 +10,14 @@ import {
   HOSTILE_NAMES,
 } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
-import type { EntryView } from '@/ipc/types';
+import { MEDIA, REGIONS, type EntryView } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
+import { groupEntries } from '@/lib/grouping';
+import { DEFAULT_PREFS, type GroupBy } from '@/lib/viewPrefs';
 import { stubLayout } from '@/test/layout';
 
-import { CoverGrid } from './CoverGrid';
+import { CoverGrid } from '../CoverGrid';
+import { CoversView } from './CoversView';
 
 /** The performance budget: tiles mounted at once. */
 const MAX_TILES = 120;
@@ -27,13 +30,31 @@ const big = generateLibrary({
   now: FIXTURE_NOW,
 });
 
-function Harness({ entries }: { entries: readonly EntryView[] }) {
+function grouped(entries: readonly EntryView[], groupBy: GroupBy) {
+  return groupEntries(entries, groupBy, {
+    systems: big.systems,
+    regionOrder: REGIONS,
+    artMedia: MEDIA,
+  });
+}
+
+function Harness({
+  entries: input,
+  groupBy = 'none',
+}: {
+  entries: readonly EntryView[];
+  groupBy?: GroupBy;
+}) {
   const [selected, setSelected] = useState<number | null>(null);
   const [opened, setOpened] = useState<number | null>(null);
+  const { ordered: entries, sections } = grouped(input, groupBy);
   return (
     <I18nProvider locale="en">
-      <CoverGrid
+      <CoversView
         entries={entries}
+        sections={sections}
+        prefs={{ ...DEFAULT_PREFS, groupBy }}
+        onPreview={() => undefined}
         systems={big.systems}
         generation={1}
         selectedId={selected}
@@ -48,7 +69,7 @@ function Harness({ entries }: { entries: readonly EntryView[] }) {
   );
 }
 
-describe('CoverGrid', () => {
+describe('CoversView', () => {
   let restore: () => void;
   beforeEach(() => {
     restore = stubLayout(1280, 800);
@@ -203,5 +224,93 @@ describe('CoverGrid', () => {
     );
     expect(icon).not.toBeNull();
     expect(icon).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('keeps CoverGrid as an alias of CoversView', () => {
+    expect(CoverGrid).toBe(CoversView);
+  });
+
+  it('renders section headers as row > rowheader[aria-colspan]', () => {
+    render(<Harness entries={big.entries} groupBy="system" />);
+    const grid = screen.getByRole('grid');
+    const { sections } = grouped(big.entries, 'system');
+    const first = sections[0]!;
+    const header = screen.getAllByRole('rowheader')[0]!;
+    expect(header).toHaveAttribute(
+      'aria-colspan',
+      grid.getAttribute('aria-colcount'),
+    );
+    expect(header).toHaveAccessibleName(`${first.label}, ${first.count} games`);
+    expect(header.parentElement).toHaveAttribute('role', 'row');
+    expect(
+      header.querySelector(`[data-system-icon="${first.systemId}"]`),
+    ).not.toBeNull();
+    // Header rows count in the totals.
+    const rows = Number(grid.getAttribute('aria-rowcount'));
+    expect(rows).toBe(
+      sections.length +
+        sections.reduce((n, s) => n + Math.ceil(s.count / 7), 0),
+    );
+  });
+
+  it('mounts only the visible tiles of a grouped 12k library', () => {
+    render(<Harness entries={big.entries} groupBy="system" />);
+    expect(screen.getAllByRole('gridcell').length).toBeLessThanOrEqual(
+      MAX_TILES,
+    );
+  });
+
+  it('keeps the active tile rendered after scrolling away', () => {
+    render(<Harness entries={big.entries} groupBy="system" />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    const active = grid.getAttribute('aria-activedescendant')!;
+    expect(document.getElementById(active)).not.toBeNull();
+    Object.defineProperty(grid, 'scrollTop', {
+      configurable: true,
+      value: 1_000_000,
+    });
+    fireEvent.scroll(grid);
+    expect(grid.getAttribute('aria-activedescendant')).toBe(active);
+    expect(document.getElementById(active)).not.toBeNull();
+    expect(screen.getAllByRole('gridcell').length).toBeLessThanOrEqual(
+      MAX_TILES,
+    );
+  });
+
+  it('ArrowDown at a partial last row of a section lands in the next section', () => {
+    const a = big.entries.filter((e) => e.system === 0).slice(0, 10);
+    const b = big.entries.filter((e) => e.system === 1).slice(0, 10);
+    const { ordered } = grouped([...a, ...b], 'system');
+    render(<Harness entries={[...a, ...b]} groupBy="system" />);
+    const grid = screen.getByRole('grid');
+    expect(grid).toHaveAttribute('aria-colcount', '7');
+    grid.focus();
+    // Index 8: second column of the section's partial last row.
+    for (let i = 0; i < 9; i++) fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${ordered[8]!.id}`,
+    );
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${ordered[11]!.id}`,
+    );
+    // Up again: back to the same column of the partial row.
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${ordered[8]!.id}`,
+    );
+    // Column 4 of the full row above clamps into the partial row.
+    fireEvent.keyDown(grid, { key: 'Home' });
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${ordered[9]!.id}`,
+    );
   });
 });

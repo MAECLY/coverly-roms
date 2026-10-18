@@ -178,6 +178,62 @@ time {
   padding-top: 12px;
 }
 
+/* Section header rows: the shelf rule (brand §2). A 1px --cr-border line
+   with a 3px Buckram cap at the leading edge, under the group label (Archivo)
+   and its count. 32px in every view (spec §B.7). */
+.section-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  padding: 0 12px;
+  background: var(--cr-bg);
+}
+
+.section-row--sticky {
+  position: sticky;
+  z-index: 2;
+}
+
+.section-row__label {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  height: 100%;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+  font: var(--cr-type-app-label);
+}
+
+.section-row__label::after {
+  content: '';
+  position: absolute;
+  bottom: calc(-1 * var(--cr-border-width-hairline));
+  left: 0;
+  width: 2rem;
+  height: var(--cr-border-width-spine);
+  background: var(--cr-primary);
+}
+
+.section-row__name {
+  overflow: hidden;
+  font-family: var(--cr-font-display);
+  font-stretch: 87.5%;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-row__count {
+  flex-shrink: 0;
+  color: var(--cr-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 .cover-tile {
   display: flex;
   flex-direction: column;
