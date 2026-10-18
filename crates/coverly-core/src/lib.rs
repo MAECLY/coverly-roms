@@ -39,6 +39,14 @@ mod tests {
 
     #[test]
     fn version_matches_package() {
-        assert_eq!(VERSION, "0.0.1");
+        // The workspace `Cargo.toml` is the one version source
+        // (scripts/bump-version.sh); the constant must follow it.
+        let manifest = include_str!("../../../Cargo.toml");
+        let line = manifest
+            .lines()
+            .skip_while(|l| l.trim() != "[workspace.package]")
+            .find(|l| l.trim_start().starts_with("version"))
+            .expect("version in [workspace.package]");
+        assert_eq!(line.split('"').nth(1), Some(VERSION));
     }
 }
