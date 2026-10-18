@@ -756,3 +756,66 @@ fn pile_units_come_from_organise_facts() {
         "no system: not ours to report"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_target_is_never_a_unit() {
+    // Moving the target would break the link (spec §8.1 rule 11): the
+    // target and its byte-identical copy must not form a group.
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let rom = rom_bytes(1, 2048);
+    let target = put(root, "ROMS/GB/Tetris.gb", &rom);
+    let copy = put(root, "ROMS/GB/Tetris (1).gb", &rom);
+    let link = root.join("ROMS/GB/Link.gb");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    // A cue whose track is a link protects the track's target too.
+    let bin = put(root, "ROMS/PS/Game.bin", &rom_bytes(2, 2352));
+    let shelf = root.join("ROMS/PS/linked");
+    fs::create_dir_all(&shelf).unwrap();
+    std::os::unix::fs::symlink(&bin, shelf.join("Game.bin")).unwrap();
+    let linked_cue = put(
+        root,
+        "ROMS/PS/linked/Game.cue",
+        b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n",
+    );
+    let set = units_of(root);
+
+    assert_eq!(primaries(&set), vec![copy], "{:?}", set.excluded);
+    assert_eq!(set.units[0].id, 0);
+    assert_eq!(excluded_as(&set, &link), Some(Exclusion::Symlink));
+    assert_eq!(excluded_as(&set, &target), Some(Exclusion::Symlink));
+    assert_eq!(excluded_as(&set, &linked_cue), Some(Exclusion::Symlink));
+    assert_eq!(excluded_as(&set, &bin), Some(Exclusion::Symlink));
+}
+
+#[test]
+fn an_empty_arcade_zip_is_not_a_rom() {
+    // Two empty zips would otherwise share the empty entry list as a key.
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let p = root.join("ROMS/FBNEO/ffight (1).zip");
+    fs::create_dir_all(p.parent().unwrap()).unwrap();
+    common::roms::zip_file(&p, &[]);
+    let set = units_of(root);
+    assert!(set.units.is_empty(), "{:?}", primaries(&set));
+    assert_eq!(excluded_as(&set, &p), Some(Exclusion::NotARom));
+}
+
+#[test]
+fn xdelta_and_ppf_are_soft_patches() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let gba = put(root, "ROMS/GBA/Game.gba", &rom_bytes(1, 2048));
+    let xdelta = put(root, "ROMS/GBA/Game.xdelta", b"\xD6\xC3\xC4\0");
+    put(root, "ROMS/PS/Game.bin", &rom_bytes(2, 2352));
+    let cue = put(
+        root,
+        "ROMS/PS/Game.cue",
+        b"FILE \"Game.bin\" BINARY\n  TRACK 01 MODE2/2352\n",
+    );
+    let ppf = put(root, "ROMS/PS/Game.ppf", b"PPF30\0");
+    let set = units_of(root);
+    assert_eq!(unit_at(&set, &gba).patches, vec![xdelta]);
+    assert_eq!(unit_at(&set, &cue).patches, vec![ppf]);
+}

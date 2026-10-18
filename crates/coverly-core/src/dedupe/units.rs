@@ -35,7 +35,7 @@ use super::UnitRef;
 pub const OUT_OF_SCOPE_DIRS: [&str; 5] = ["ports", "bios", "apps", "saves", "states"];
 
 /// Soft-patch extensions: a same-stem patch changes what the ROM plays.
-const PATCH_EXTS: [&str; 3] = ["ips", "bps", "ups"];
+const PATCH_EXTS: [&str; 5] = ["ips", "bps", "ups", "xdelta", "ppf"];
 
 /// Bytes read to check that a file is what its extension says.
 const MAGIC_PROBE: usize = 512;
@@ -85,7 +85,8 @@ pub struct Unit {
     pub mtime_ns: i64,
     /// File id (inode) of `primary`, where the platform has one.
     pub file_id: Option<u64>,
-    /// Same-stem soft patches (`.ips`, `.bps`, `.ups`) beside `primary`.
+    /// Same-stem soft patches (`.ips`, `.bps`, `.ups`, `.xdelta`, `.ppf`)
+    /// beside `primary`.
     pub patches: Vec<PathBuf>,
     /// Folder of `primary` relative to its system folder.
     pub rel_dir: PathBuf,
@@ -121,7 +122,8 @@ pub enum Exclusion {
     Bios,
     /// Empty, or its bytes contradict its extension (a web page as `.zip`).
     NotARom,
-    /// A symlink: its target may be the keeper.
+    /// A symlink, or a unit with a file a symlink points to: moving the
+    /// target would break the link.
     Symlink,
     /// Another path of a file already taken (a hard link): moving it frees
     /// nothing.
@@ -226,6 +228,7 @@ struct Draft {
 pub fn units_from_scan(scan: &LibraryScan, db: &SystemDb, opts: &UnitOptions) -> UnitSet {
     let mut excluded = Vec::new();
     let mut drafts = Vec::new();
+    let mut link_targets = HashSet::new();
     for sys in &scan.systems {
         if opts.out_of_scope(&sys.folder_name) {
             excluded.push((sys.dir.clone(), Exclusion::Folder));
@@ -239,14 +242,20 @@ pub fn units_from_scan(scan: &LibraryScan, db: &SystemDb, opts: &UnitOptions) ->
         for rom in &sys.roms {
             match draft_from_rom(rom, system, db, opts, &mut dir_cache) {
                 Ok(draft) => found.push(draft),
-                Err(Some(why)) => excluded.push((rom.path.clone(), why)),
+                Err(Some(why)) => {
+                    if why == Exclusion::Symlink {
+                        let files = std::iter::once(&rom.path).chain(&rom.companions);
+                        link_targets.extend(files.filter_map(|f| symlink_target(f)));
+                    }
+                    excluded.push((rom.path.clone(), why));
+                }
                 Err(None) => {}
             }
         }
         attach_ccd_tracks(&mut found, &mut dir_cache);
         drafts.extend(merge_overlaps(found));
     }
-    finish(drafts, excluded)
+    finish(drafts, excluded, &link_targets)
 }
 
 /// Units of an organise pile: `facts[i]` belongs to the system
@@ -259,6 +268,7 @@ pub fn units_from_facts(
 ) -> UnitSet {
     let mut excluded = Vec::new();
     let mut drafts = Vec::new();
+    let mut link_targets = HashSet::new();
     let mut dir_cache = DirCache::default();
     for (i, (path, fact)) in facts.iter().enumerate() {
         let Some(system) = system_of(i) else {
@@ -266,15 +276,25 @@ pub fn units_from_facts(
         };
         match draft_from_facts(path, fact, &system, &mut dir_cache) {
             Ok(draft) => drafts.push(draft),
-            Err(Some(why)) => excluded.push((path.clone(), why)),
+            Err(Some(why)) => {
+                if why == Exclusion::Symlink {
+                    link_targets.extend(symlink_target(path));
+                }
+                excluded.push((path.clone(), why));
+            }
             Err(None) => {}
         }
     }
-    finish(drafts, excluded)
+    finish(drafts, excluded, &link_targets)
 }
 
-/// Drops hard-link twins, numbers the units and sorts the exclusions.
-fn finish(drafts: Vec<Draft>, mut excluded: Vec<(PathBuf, Exclusion)>) -> UnitSet {
+/// Drops hard-link twins and units a symlink points into, numbers the
+/// units and sorts the exclusions. `link_targets` are canonical paths.
+fn finish(
+    drafts: Vec<Draft>,
+    mut excluded: Vec<(PathBuf, Exclusion)>,
+    link_targets: &HashSet<PathBuf>,
+) -> UnitSet {
     let mut seen: HashSet<(u64, u64)> = HashSet::new();
     let mut units = Vec::new();
     for draft in drafts {
@@ -283,6 +303,16 @@ fn finish(drafts: Vec<Draft>, mut excluded: Vec<(PathBuf, Exclusion)>) -> UnitSe
                 excluded.push((draft.unit.primary, Exclusion::HardLinkTwin));
                 continue;
             }
+        }
+        if !link_targets.is_empty()
+            && draft
+                .unit
+                .files
+                .iter()
+                .any(|f| fs::canonicalize(f).is_ok_and(|c| link_targets.contains(&c)))
+        {
+            excluded.push((draft.unit.primary, Exclusion::Symlink));
+            continue;
         }
         let mut unit = draft.unit;
         unit.id = units.len();
@@ -519,6 +549,10 @@ fn zip_kind(
         Ok(Some(entries)) => entries,
         Ok(None) | Err(_) => return Err(Some(Exclusion::Unreadable)),
     };
+    if entries.is_empty() {
+        // An empty zip holds no game; identical ones would group.
+        return Err(Some(Exclusion::NotARom));
+    }
     if system.arcade {
         return Ok((UnitKind::Arcade, Some(entries.iter().map(|e| e.size).sum())));
     }
@@ -532,7 +566,6 @@ fn zip_kind(
         .collect();
     match roms.as_slice() {
         [one] => Ok((UnitKind::Zip, Some(*one))),
-        [] if entries.is_empty() => Err(Some(Exclusion::NotARom)),
         // Nothing ROM-like by name: still one unit, compared whole.
         [] => Ok((UnitKind::Zip, None)),
         _ => Err(Some(Exclusion::MultiGameArchive)),
@@ -708,6 +741,15 @@ impl DirCache {
 
 fn patches_of(path: &Path, dirs: &mut DirCache) -> Vec<PathBuf> {
     dirs.same_stem(path, |e| PATCH_EXTS.contains(&e))
+}
+
+/// The canonical path `path` points to, when it is a symlink.
+fn symlink_target(path: &Path) -> Option<PathBuf> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_symlink() {
+        return None;
+    }
+    fs::canonicalize(path).ok()
 }
 
 fn file_name(path: &Path) -> String {
