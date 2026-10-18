@@ -120,6 +120,29 @@ describe('Fill wizard', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the system icon beside each folder in the dry-run summary', async () => {
+    const { view } = await setup();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Fill missing art' });
+    await toPreview(dialog, /Whole library/);
+    const table = await within(dialog).findByRole('table', { name: 'Dry run' });
+    const heads = within(table)
+      .getAllByRole('rowheader')
+      .filter((th) => th.textContent !== 'Total');
+    expect(heads.length).toBeGreaterThan(0);
+    for (const th of heads) {
+      // A fallback mount carries text of its own; read the label's name.
+      const folder = th.querySelector('.system-label__name')?.textContent;
+      const sys = view.systems.find((s) => s.folder === folder);
+      expect(sys).toBeDefined();
+      expect(
+        th.querySelector(`[data-system-icon="${sys!.system_id ?? 'unknown'}"]`),
+      ).toHaveAttribute('aria-hidden', 'true');
+    }
+  });
+
   it('explains popularity and says when SteamGridDB votes cannot be used', async () => {
     await setup();
     await userEvent.click(

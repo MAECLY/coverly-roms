@@ -121,6 +121,23 @@ describe('Review queue', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the system icon before the folder of the current item', async () => {
+    const { view, review } = await planned();
+    const dialog = await openQueue();
+    const first = review[0]!;
+    await within(dialog).findByRole('heading', { level: 3, name: first.name });
+    const sys = view.systems[first.system]!;
+    const hint = within(dialog).getByText(
+      (_, el) =>
+        el?.tagName === 'P' && !!el.textContent?.includes(`${sys.folder} · `),
+    );
+    const icon = hint.querySelector(
+      `[data-system-icon="${sys.system_id ?? 'unknown'}"]`,
+    );
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(hint.firstElementChild).toBe(icon);
+  });
+
   it('shows the source, the votes and why the first image was chosen', async () => {
     await planned();
     const dialog = await openQueue();
