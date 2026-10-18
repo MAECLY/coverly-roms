@@ -128,8 +128,8 @@ function Bucket({
             id={id}
             className="m-0 flex flex-wrap items-center gap-2 text-ui font-medium"
           >
-            {bucket.systems.map((id) => (
-              <SystemIcon key={id} systemId={id} size={16} />
+            {bucket.systems.map((systemId) => (
+              <SystemIcon key={systemId} systemId={systemId} size={16} />
             ))}
             {title}
             <NewCount count={fresh} />
