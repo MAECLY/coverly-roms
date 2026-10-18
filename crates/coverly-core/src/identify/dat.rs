@@ -384,14 +384,11 @@ impl<'a> DatStore<'a> {
             }
             200..=299 => {
                 let text = String::from_utf8_lossy(&resp.body);
-                let rows: Vec<DatRow> = parse_clrmamepro(&text)?
-                    .into_iter()
-                    .flat_map(|g| g.roms)
-                    .collect();
-                if rows.is_empty() {
+                let games = parse_clrmamepro(&text)?;
+                if games.iter().all(|g| g.roms.is_empty()) {
                     return Err(DatError::Empty);
                 }
-                self.cache.replace_dat(dat, &rows)?;
+                self.cache.replace_dat_games(dat, &games)?;
                 self.cache
                     .put_json(NS, dat, &DatMeta { found: true }, resp.etag.as_deref())?;
                 Ok(DatStatus::Ready)
