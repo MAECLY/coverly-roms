@@ -60,7 +60,7 @@ const icon = readFileSync(join(REPO, 'design', 'icon', 'app.svg'), 'utf8')
   .replace(/<title>[^<]*<\/title>\n?/, '')
   .replace('<svg ', '<svg class="icon" aria-hidden="true" ');
 const font = readFileSync(
-  join(REPO, 'site', 'assets', 'fonts', 'archivo-display-800.woff2'),
+  join(REPO, 'site', 'assets', 'fonts', 'archivo-variable.woff2'),
 ).toString('base64');
 
 const esc = (s) =>
@@ -73,7 +73,7 @@ function page(lang) {
 <head>
 <meta charset="utf-8">
 <style>
-@font-face { font-family: 'Archivo Display'; font-weight: 800; font-display: block;
+@font-face { font-family: 'Archivo Display'; font-weight: 600 800; font-stretch: 75% 112%; font-display: block;
   src: url(data:font/woff2;base64,${font}) format('woff2'); }
 * { box-sizing: border-box; margin: 0; }
 html, body { width: ${W}px; height: ${H}px; overflow: hidden; background: ${C.bg}; }
@@ -90,6 +90,8 @@ p { margin-top: 24px; font-size: 25px; line-height: 1.4; color: ${C.muted}; }
 .shelf { position: absolute; left: 72px; right: 72px; bottom: 64px; height: 1px; background: ${C.border}; }
 .shelf::before { content: ''; position: absolute; left: 0; top: -1px; width: 96px; height: 3px; background: ${C.primary}; }
 .host { position: absolute; right: 72px; bottom: 30px; font: 500 20px/1 ui-monospace, 'SF Mono', Menlo, monospace; color: ${C.muted}; }
+/* The site sets its headings at wdth 75 (after the font shorthands). */
+h1, .wordmark, .tag { font-stretch: 75%; }
 </style>
 </head>
 <body>
