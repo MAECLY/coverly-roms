@@ -1,17 +1,17 @@
 name: Landing redeploy
 
-# The landing (site/) is built and served by Vercel (project
-# coverly-roms-landing, see vercel.json and scripts/site/vercel_build.sh),
-# which deploys main on every push. site/ names no version: the build fills
-# its {{release.*}} markers from the latest published release. So publishing
-# a release changes no file, and this workflow asks Vercel for a fresh
-# production build of main through a deploy hook. A release published with
-# GITHUB_TOKEN would not trigger this; ours are published by a person, and
-# Run workflow redeploys by hand.
+# The landing lives in https://github.com/MAECLY/coverly-roms-landing and is
+# built and served by Vercel (project coverly-roms-landing), which deploys
+# that repo's main on every push. The landing names no version: its build
+# fills the {{release.*}} markers from the latest published release of this
+# repo. So publishing a release here changes no landing file, and this
+# workflow asks Vercel for a fresh production build through a deploy hook. A
+# release published with GITHUB_TOKEN would not trigger this; ours are
+# published by a person, and Run workflow redeploys by hand.
 #
 # VERCEL_DEPLOY_HOOK_URL is a repository secret holding the hook URL
-# (Vercel → Project → Settings → Git → Deploy Hooks, branch main). See
-# docs/07-build-and-release/landing.md.
+# (Vercel → Project coverly-roms-landing → Settings → Git → Deploy Hooks,
+# branch main). See the landing repo's README.
 on:
   release:
     types: [published]

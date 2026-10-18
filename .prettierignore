@@ -6,6 +6,3 @@ src-tauri/target
 src-tauri/gen
 pnpm-lock.yaml
 docs/
-# The landing is hand-tuned and partly generated (gen_covers.mjs writes a
-# block of site/assets/site.css); check_site.py gates it, not Prettier.
-site/

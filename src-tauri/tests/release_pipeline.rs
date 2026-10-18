@@ -1684,3 +1684,26 @@ fn finalize_downloads_every_build_separately_and_stages_them_by_name() {
     );
     assert!(finalize.contains("stage-builds --from downloads"));
 }
+
+/// The landing (MAECLY/coverly-roms-landing) fills its download links from
+/// the latest release, so publishing one here asks Vercel to rebuild it.
+#[test]
+fn landing_redeploys_when_a_release_is_published() {
+    let wf = read(".github/workflows/landing-redeploy.yml");
+    let on = wf
+        .split_once("\non:\n")
+        .unwrap()
+        .1
+        .split_once("\npermissions:")
+        .unwrap()
+        .0;
+    assert!(on.contains("  release:\n    types: [published]\n"), "{on}");
+    assert!(on.contains("  workflow_dispatch:"), "{on}");
+    // Least privilege: the hook URL is the only credential.
+    assert!(wf.contains("\npermissions: {}\n"));
+    assert!(wf.contains("HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"));
+    assert!(wf.contains("if [ -z \"${HOOK:-}\" ]; then"));
+    assert!(wf.contains("curl -fsS -X POST \"$HOOK\""));
+    assert!(!wf.contains("uses:"), "no third-party action");
+    assert!(!wf.contains("continue-on-error") && !wf.contains("|| true"));
+}
