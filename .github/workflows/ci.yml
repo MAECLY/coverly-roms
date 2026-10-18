@@ -17,7 +17,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only superseded PR runs are cancelled. Every push to main finishes, so
+  # the README status badge never shows a cancelled run as failing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   frontend:
