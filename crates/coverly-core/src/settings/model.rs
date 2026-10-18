@@ -391,6 +391,197 @@ impl Default for OrganizeSettings {
     }
 }
 
+choice!(/// A dedupe level (duplicates spec §5): exact copies, the same game in
+    /// another format, other versions of a game (acts only with
+    /// `one_game_one_rom`, reported otherwise).
+    DedupeLevel { Exact, Format, Version });
+choice!(/// Where extra copies go: the quarantine folder or the OS Trash.
+    DedupeActionSetting { Quarantine, Trash });
+choice!(/// What Organise does with ROMs already in the library (spec §10).
+    OrganizeDedupeMode { SetAside, Report, Off });
+
+/// A keeper rule that can be reordered or turned off (duplicates spec
+/// §6.1). The user's pick (always first) and the tie-breaker (always last)
+/// are not settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeepRule {
+    HasSave,
+    Played,
+    InLibrary,
+    Verified,
+    Retail,
+    Region,
+    Revision,
+    Container,
+    Cover,
+    CatalogueName,
+}
+
+impl KeepRule {
+    /// Every rule, in the default order.
+    pub const ALL: [KeepRule; 10] = [
+        KeepRule::HasSave,
+        KeepRule::Played,
+        KeepRule::InLibrary,
+        KeepRule::Verified,
+        KeepRule::Retail,
+        KeepRule::Region,
+        KeepRule::Revision,
+        KeepRule::Container,
+        KeepRule::Cover,
+        KeepRule::CatalogueName,
+    ];
+}
+
+/// One keeper rule in the user's order, on or off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleToggle {
+    pub rule: KeepRule,
+    pub on: bool,
+}
+
+/// The kind of system a container order applies to, after the system id
+/// itself (`container_order` keys `disc`, `cart`, `arcade`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContainerClass {
+    Disc,
+    Cart,
+    Arcade,
+}
+
+impl ContainerClass {
+    /// The `container_order` key of the class.
+    pub fn key(self) -> &'static str {
+        match self {
+            ContainerClass::Disc => "disc",
+            ContainerClass::Cart => "cart",
+            ContainerClass::Arcade => "arcade",
+        }
+    }
+}
+
+/// `container_order` keys that are not system ids.
+pub const CONTAINER_CLASS_KEYS: [&str; 4] = ["disc", "cart", "arcade", "*"];
+
+/// Disc order of the handheld profiles (duplicates spec §6.3).
+const HANDHELD_DISC_ORDER: [&str; 6] = ["chd", "pbp", "cue", "iso", "img", "bin"];
+/// Disc order of the frontends, which read cue sheets well.
+const FRONTEND_DISC_ORDER: [&str; 6] = ["chd", "cue", "pbp", "iso", "img", "bin"];
+
+fn default_container_order() -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+    let disc = |order: &[&str]| {
+        BTreeMap::from([(
+            "disc".to_string(),
+            order.iter().map(|c| (*c).to_string()).collect(),
+        )])
+    };
+    let mut out = BTreeMap::new();
+    for p in ["anbernic-stock", "garlicos", "onion", "muos", "minui"] {
+        out.insert(p.to_string(), disc(&HANDHELD_DISC_ORDER));
+    }
+    for p in ["esde", "batocera", "retroarch"] {
+        out.insert(p.to_string(), disc(&FRONTEND_DISC_ORDER));
+    }
+    // Never prefer an unzipped arcade set.
+    out.insert(
+        "*".to_string(),
+        BTreeMap::from([("arcade".to_string(), vec!["zip".to_string()])]),
+    );
+    out
+}
+
+/// Finding and setting aside duplicate ROMs (duplicates spec §13).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DedupeSettings {
+    /// Levels looked for; `version` acts only with `one_game_one_rom`.
+    pub levels: Vec<DedupeLevel>,
+    /// Also set aside other versions of a game (1G1R).
+    pub one_game_one_rom: bool,
+    pub action: DedupeActionSetting,
+    /// Absolute; `None` = next to the ROMs folder.
+    pub quarantine_dir: Option<PathBuf>,
+    /// Quarantine folder name, fixed at first run from the app language
+    /// (`_Duplicados` / `_Duplicates`); `None` = not chosen yet.
+    pub quarantine_name: Option<String>,
+    /// Every [`KeepRule`] once, in the order they are weighed.
+    pub keep_rules: Vec<RuleToggle>,
+    /// Profile id (or `*`) → system id, `disc`, `cart`, `arcade` (or `*`)
+    /// → containers, preferred first (lowercase extensions, `zip`, `raw`).
+    /// Missing or empty = no preference.
+    pub container_order: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// Folder names or system ids never looked at (lowercase).
+    pub exclude_systems: Vec<String>,
+    /// DATs a library run may download.
+    pub max_dat_downloads: u32,
+    pub organize_step: OrganizeDedupeMode,
+}
+
+impl Default for DedupeSettings {
+    fn default() -> Self {
+        DedupeSettings {
+            levels: vec![
+                DedupeLevel::Exact,
+                DedupeLevel::Format,
+                DedupeLevel::Version,
+            ],
+            one_game_one_rom: false,
+            action: DedupeActionSetting::Quarantine,
+            quarantine_dir: None,
+            quarantine_name: None,
+            keep_rules: KeepRule::ALL
+                .map(|rule| RuleToggle { rule, on: true })
+                .to_vec(),
+            container_order: default_container_order(),
+            exclude_systems: ["ports", "bios", "apps"].map(String::from).to_vec(),
+            max_dat_downloads: 12,
+            organize_step: OrganizeDedupeMode::SetAside,
+        }
+    }
+}
+
+impl DedupeSettings {
+    /// The container order for one system: the profile's entries before
+    /// `*`'s, and in each the system id before its class before `*`.
+    /// `None` = no preference.
+    pub fn container_for(
+        &self,
+        profile: &str,
+        system: &str,
+        class: ContainerClass,
+    ) -> Option<&[String]> {
+        [profile, "*"]
+            .iter()
+            .filter_map(|p| self.container_order.get(*p))
+            .flat_map(|m| [system, class.key(), "*"].map(|k| m.get(k)))
+            .flatten()
+            .next()
+            .map(Vec::as_slice)
+            .filter(|order| !order.is_empty())
+    }
+
+    /// Spelling and duplicates of the lists; missing rules appended, on.
+    fn normalise(&mut self) {
+        let mut excluded: Vec<String> = Vec::new();
+        for e in &self.exclude_systems {
+            let e = e.trim().to_lowercase();
+            if !e.is_empty() && !excluded.contains(&e) {
+                excluded.push(e);
+            }
+        }
+        self.exclude_systems = excluded;
+        if let Some(name) = &mut self.quarantine_name {
+            *name = name.trim().to_string();
+        }
+        for rule in KeepRule::ALL {
+            if !self.keep_rules.iter().any(|t| t.rule == rule) {
+                self.keep_rules.push(RuleToggle { rule, on: true });
+            }
+        }
+    }
+}
+
 /// Every setting of spec §9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -405,6 +596,7 @@ pub struct Settings {
     pub safety: SafetySettings,
     pub advanced: AdvancedSettings,
     pub organize: OrganizeSettings,
+    pub dedupe: DedupeSettings,
 }
 
 impl Default for Settings {
@@ -420,6 +612,7 @@ impl Default for Settings {
             safety: SafetySettings::default(),
             advanced: AdvancedSettings::default(),
             organize: OrganizeSettings::default(),
+            dedupe: DedupeSettings::default(),
         }
     }
 }
@@ -499,5 +692,6 @@ impl Settings {
         }
         self.organize.companion_exts = companions;
         self.organize.default_layout = self.organize.default_layout.trim().to_string();
+        self.dedupe.normalise();
     }
 }

@@ -895,3 +895,258 @@ fn built_in_layouts_are_known_without_a_profile_list() {
         .insert("esde".into(), vec!["fbneo".into()]);
     assert!(s.validate(&[]).is_empty(), "{:?}", s.validate(&[]));
 }
+
+#[test]
+fn defaults_match_the_spec() {
+    let d = Settings::default().dedupe;
+    assert_eq!(
+        d.levels,
+        [
+            DedupeLevel::Exact,
+            DedupeLevel::Format,
+            DedupeLevel::Version
+        ]
+    );
+    assert!(!d.one_game_one_rom);
+    assert_eq!(d.action, DedupeActionSetting::Quarantine);
+    assert_eq!(d.quarantine_dir, None);
+    assert_eq!(d.quarantine_name, None);
+    let rules: Vec<KeepRule> = d.keep_rules.iter().map(|t| t.rule).collect();
+    assert_eq!(rules, KeepRule::ALL);
+    assert_eq!(
+        rules,
+        [
+            KeepRule::HasSave,
+            KeepRule::Played,
+            KeepRule::InLibrary,
+            KeepRule::Verified,
+            KeepRule::Retail,
+            KeepRule::Region,
+            KeepRule::Revision,
+            KeepRule::Container,
+            KeepRule::Cover,
+            KeepRule::CatalogueName,
+        ]
+    );
+    assert!(d.keep_rules.iter().all(|t| t.on));
+    assert_eq!(d.exclude_systems, ["ports", "bios", "apps"]);
+    assert_eq!(d.max_dat_downloads, 12);
+    assert_eq!(d.organize_step, OrganizeDedupeMode::SetAside);
+    assert!(Settings::default().validate(&known()).is_empty());
+    // Wire spelling.
+    let v = serde_json::to_value(&d).unwrap();
+    assert_eq!(v["levels"], json!(["exact", "format", "version"]));
+    assert_eq!(v["action"], json!("quarantine"));
+    assert_eq!(
+        v["keep_rules"][0],
+        json!({ "rule": "has_save", "on": true })
+    );
+    assert_eq!(v["keep_rules"][9]["rule"], json!("catalogue_name"));
+    assert_eq!(v["organize_step"], json!("set-aside"));
+    assert_eq!(
+        serde_json::to_value(DedupeActionSetting::Trash).unwrap(),
+        json!("trash")
+    );
+    let range = RANGES
+        .iter()
+        .find(|r| r.field == "dedupe.max_dat_downloads")
+        .unwrap();
+    assert_eq!((range.min, range.max), (0.0, 100.0));
+}
+
+#[test]
+fn old_settings_file_without_dedupe_loads_defaults() {
+    let s: Settings = serde_json::from_str(r#"{"version":2}"#).unwrap();
+    assert_eq!(s.dedupe, DedupeSettings::default());
+    let s: Settings =
+        serde_json::from_str(r#"{"version":2,"dedupe":{"one_game_one_rom":true}}"#).unwrap();
+    assert!(s.dedupe.one_game_one_rom);
+    assert_eq!(s.dedupe.keep_rules, DedupeSettings::default().keep_rules);
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":2,"general":{"theme":"dark"},"organize":{"mode":"copy"}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.dedupe, DedupeSettings::default());
+    assert_eq!(s.version, SETTINGS_VERSION);
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+}
+
+#[test]
+fn duplicate_rule_is_rejected() {
+    let mut s = Settings::default();
+    s.dedupe.keep_rules[1] = RuleToggle {
+        rule: KeepRule::HasSave,
+        on: false,
+    };
+    let got = codes(&s.validate(&known()));
+    assert!(
+        got.contains(&("dedupe.keep_rules".to_string(), FieldErrorCode::Duplicate)),
+        "{got:?}"
+    );
+    let patch = json!({ "dedupe": { "keep_rules": [
+        { "rule": "region", "on": true },
+        { "rule": "region", "on": false }
+    ] } });
+    let err = Settings::default()
+        .with_patch(&patch, &known())
+        .unwrap_err();
+    assert!(err
+        .iter()
+        .any(|e| e.field == "dedupe.keep_rules" && e.code == FieldErrorCode::Duplicate));
+    // Two levels the same, an unknown rule.
+    let mut s = Settings::default();
+    s.dedupe.levels = vec![DedupeLevel::Exact, DedupeLevel::Exact];
+    let got = codes(&s.validate(&known()));
+    assert!(got.contains(&("dedupe.levels".to_string(), FieldErrorCode::Duplicate)));
+    let patch = json!({ "dedupe": { "keep_rules": [{ "rule": "user", "on": true }] } });
+    let err = Settings::default()
+        .with_patch(&patch, &known())
+        .unwrap_err();
+    assert_eq!(err[0].field, "dedupe.keep_rules");
+    // A rule left out of a reordered list comes back at the end, on.
+    let patch = json!({ "dedupe": { "keep_rules": [
+        { "rule": "cover", "on": false },
+        { "rule": "has_save", "on": true }
+    ] } });
+    let s = Settings::default().with_patch(&patch, &known()).unwrap();
+    let rules: Vec<KeepRule> = s.dedupe.keep_rules.iter().map(|t| t.rule).collect();
+    assert_eq!(rules.len(), KeepRule::ALL.len());
+    assert_eq!(
+        &rules[..3],
+        [KeepRule::Cover, KeepRule::HasSave, KeepRule::Played]
+    );
+    assert!(!s.dedupe.keep_rules[0].on);
+    assert!(s.dedupe.keep_rules[2..].iter().all(|t| t.on));
+    // A duplicate in a file is fixed back to the default order.
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"dedupe":{"keep_rules":[{"rule":"cover","on":true},{"rule":"cover","on":false}],"max_dat_downloads":500}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.dedupe.keep_rules, DedupeSettings::default().keep_rules);
+    assert_eq!(s.dedupe.max_dat_downloads, 12);
+    assert!(report.fixed.contains(&"dedupe.keep_rules".to_string()));
+    assert!(report
+        .fixed
+        .contains(&"dedupe.max_dat_downloads".to_string()));
+}
+
+#[test]
+fn quarantine_inside_a_system_folder_is_rejected() {
+    let check = |dir: &str| {
+        let mut s = Settings::default();
+        s.dedupe.quarantine_dir = Some(PathBuf::from(dir));
+        codes(&s.validate(&known()))
+            .into_iter()
+            .filter(|(f, _)| f == "dedupe.quarantine_dir")
+            .map(|(_, c)| c)
+            .collect::<Vec<_>>()
+    };
+    // The absolute check against the open library is in the planner; here
+    // only the shape: a system folder or a ROMs folder on the way.
+    assert_eq!(
+        check("/Volumes/SD/ROMS/GB/_Duplicados"),
+        [FieldErrorCode::Invalid]
+    );
+    assert_eq!(
+        check("/Volumes/SD/Roms/_Duplicados"),
+        [FieldErrorCode::Invalid]
+    );
+    assert_eq!(
+        check("/Volumes/SD/sfc/_Duplicates"),
+        [FieldErrorCode::Invalid]
+    );
+    assert_eq!(check("_Duplicados"), [FieldErrorCode::NotAbsolute]);
+    assert!(check("/Volumes/SD/_Duplicados").is_empty());
+    assert!(check("/Users/me/Documents/ROMS _Duplicados").is_empty());
+    assert!(check("/Users/me/Desktop/Duplicates").is_empty());
+    // The folder name is one plain name.
+    for bad in ["", "  ", "a/b", "..", "."] {
+        let mut s = Settings::default();
+        s.dedupe.quarantine_name = Some(bad.into());
+        let got = codes(&s.validate(&known()));
+        assert!(
+            got.contains(&(
+                "dedupe.quarantine_name".to_string(),
+                FieldErrorCode::Invalid
+            )),
+            "{bad:?}: {got:?}"
+        );
+    }
+    let mut s = Settings::default();
+    s.dedupe.quarantine_name = Some("_Duplicados".into());
+    assert!(s.validate(&known()).is_empty());
+}
+
+#[test]
+fn container_order_default_for_anbernic_puts_chd_first() {
+    let d = DedupeSettings::default();
+    let disc = |profile: &str| d.container_order[profile]["disc"].clone();
+    for p in ["anbernic-stock", "garlicos", "onion", "muos", "minui"] {
+        assert_eq!(disc(p), ["chd", "pbp", "cue", "iso", "img", "bin"], "{p}");
+        // Cartridges: zip or raw, no preference.
+        assert!(!d.container_order[p].contains_key("cart"), "{p}");
+    }
+    for p in ["esde", "batocera", "retroarch"] {
+        assert_eq!(disc(p), ["chd", "cue", "pbp", "iso", "img", "bin"], "{p}");
+    }
+    assert_eq!(d.container_order["*"]["arcade"], ["zip"]);
+    assert_eq!(
+        d.container_for("anbernic-stock", "psx", ContainerClass::Disc),
+        Some(&["chd", "pbp", "cue", "iso", "img", "bin"].map(String::from)[..])
+    );
+    assert_eq!(
+        d.container_for("anbernic-stock", "mame", ContainerClass::Arcade),
+        Some(&["zip".to_string()][..])
+    );
+    assert_eq!(
+        d.container_for("anbernic-stock", "gba", ContainerClass::Cart),
+        None
+    );
+    // A system entry wins over its class, a profile over `*`.
+    let mut d = d;
+    d.container_order
+        .entry("onion".into())
+        .or_default()
+        .insert("psx".into(), vec!["pbp".into(), "chd".into()]);
+    assert_eq!(
+        d.container_for("onion", "psx", ContainerClass::Disc),
+        Some(&["pbp".to_string(), "chd".to_string()][..])
+    );
+    // Unknown profiles, unknown keys and repeated containers are rejected.
+    let mut s = Settings::default();
+    s.dedupe
+        .container_order
+        .insert("ghost".into(), [("disc".into(), vec!["chd".into()])].into());
+    s.dedupe
+        .container_order
+        .insert("minui".into(), [("nope".into(), vec!["chd".into()])].into());
+    s.dedupe.container_order.insert(
+        "esde".into(),
+        [("disc".into(), vec!["chd".into(), "CHD".into()])].into(),
+    );
+    let got = codes(&s.validate(&known()));
+    for want in [
+        ("dedupe.container_order.ghost", FieldErrorCode::Unknown),
+        ("dedupe.container_order.minui", FieldErrorCode::Invalid),
+        ("dedupe.container_order.esde", FieldErrorCode::Invalid),
+    ] {
+        assert!(
+            got.contains(&(want.0.to_string(), want.1)),
+            "missing {want:?} in {got:?}"
+        );
+    }
+}
+
+#[test]
+fn normalise_cleans_dedupe_lists() {
+    let mut s = Settings::default();
+    s.dedupe.exclude_systems = vec![" Ports ".into(), "".into(), "ports".into(), "BIOS".into()];
+    s.dedupe.quarantine_name = Some(" _Duplicados ".into());
+    s.normalise();
+    assert_eq!(s.dedupe.exclude_systems, ["ports", "bios"]);
+    assert_eq!(s.dedupe.quarantine_name.as_deref(), Some("_Duplicados"));
+}

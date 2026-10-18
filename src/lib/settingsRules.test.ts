@@ -156,6 +156,31 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     );
   });
 
+  it('reads and normalises the dedupe group like Rust', () => {
+    const { settings, fixed } = tolerantSettings(
+      {
+        dedupe: {
+          one_game_one_rom: true,
+          action: 'shred',
+          exclude_systems: [' Ports ', 'ports', 'BIOS'],
+          keep_rules: [{ rule: 'cover', on: false }],
+        },
+      },
+      known,
+    );
+    expect(fixed).toEqual(['dedupe.action']);
+    expect(settings.dedupe.one_game_one_rom).toBe(true);
+    expect(settings.dedupe.action).toBe('quarantine');
+    expect(settings.dedupe.exclude_systems).toEqual(['ports', 'bios']);
+    const rules = settings.dedupe.keep_rules;
+    expect(rules).toHaveLength(10);
+    expect(rules[0]).toEqual({ rule: 'cover', on: false });
+    expect(rules[1]).toEqual({ rule: 'has_save', on: true });
+    expect(tolerantSettings({ version: 2 }, known).settings.dedupe).toEqual(
+      DEFAULT_SETTINGS.dedupe,
+    );
+  });
+
   it('knows which changes need a reopen', () => {
     const b = cloneSettings(DEFAULT_SETTINGS);
     b.general.theme = 'dark';

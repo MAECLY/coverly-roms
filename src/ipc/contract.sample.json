@@ -183,6 +183,41 @@
       "arcade_order": {},
       "recent_seconds": 60,
       "keep_organize_journals_days": 90
+    },
+    "dedupe": {
+      "levels": ["exact", "format", "version"],
+      "one_game_one_rom": false,
+      "action": "quarantine",
+      "quarantine_dir": null,
+      "quarantine_name": null,
+      "keep_rules": [
+        { "rule": "has_save", "on": true },
+        { "rule": "played", "on": true },
+        { "rule": "in_library", "on": true },
+        { "rule": "verified", "on": true },
+        { "rule": "retail", "on": true },
+        { "rule": "region", "on": true },
+        { "rule": "revision", "on": true },
+        { "rule": "container", "on": true },
+        { "rule": "cover", "on": true },
+        { "rule": "catalogue_name", "on": true }
+      ],
+      "container_order": {
+        "*": { "arcade": ["zip"] },
+        "anbernic-stock": {
+          "disc": ["chd", "pbp", "cue", "iso", "img", "bin"]
+        },
+        "batocera": { "disc": ["chd", "cue", "pbp", "iso", "img", "bin"] },
+        "esde": { "disc": ["chd", "cue", "pbp", "iso", "img", "bin"] },
+        "garlicos": { "disc": ["chd", "pbp", "cue", "iso", "img", "bin"] },
+        "minui": { "disc": ["chd", "pbp", "cue", "iso", "img", "bin"] },
+        "muos": { "disc": ["chd", "pbp", "cue", "iso", "img", "bin"] },
+        "onion": { "disc": ["chd", "pbp", "cue", "iso", "img", "bin"] },
+        "retroarch": { "disc": ["chd", "cue", "pbp", "iso", "img", "bin"] }
+      },
+      "exclude_systems": ["ports", "bios", "apps"],
+      "max_dat_downloads": 12,
+      "organize_step": "set-aside"
     }
   },
   "identity": {
@@ -421,6 +456,11 @@
       "field": "organize.keep_organize_journals_days",
       "min": 1.0,
       "max": 3650.0
+    },
+    {
+      "field": "dedupe.max_dat_downloads",
+      "min": 0.0,
+      "max": 100.0
     }
   ],
   "field_error": {

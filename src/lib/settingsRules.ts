@@ -14,6 +14,12 @@ import {
   type SettingsGroup,
   type SourceId,
 } from '@/ipc/types';
+import {
+  DEDUPE_ACTIONS,
+  DEDUPE_LEVELS,
+  KEEP_RULES,
+  ORGANIZE_DEDUPE_MODES,
+} from '@/ipc/dedupeTypes';
 
 export interface Range {
   field: string;
@@ -152,6 +158,28 @@ export const DEFAULT_SETTINGS: Settings = {
     recent_seconds: 60,
     keep_organize_journals_days: 90,
   },
+  dedupe: {
+    levels: ['exact', 'format', 'version'],
+    one_game_one_rom: false,
+    action: 'quarantine',
+    quarantine_dir: null,
+    quarantine_name: null,
+    keep_rules: KEEP_RULES.map((rule) => ({ rule, on: true })),
+    container_order: {
+      '*': { arcade: ['zip'] },
+      'anbernic-stock': { disc: ['chd', 'pbp', 'cue', 'iso', 'img', 'bin'] },
+      batocera: { disc: ['chd', 'cue', 'pbp', 'iso', 'img', 'bin'] },
+      esde: { disc: ['chd', 'cue', 'pbp', 'iso', 'img', 'bin'] },
+      garlicos: { disc: ['chd', 'pbp', 'cue', 'iso', 'img', 'bin'] },
+      minui: { disc: ['chd', 'pbp', 'cue', 'iso', 'img', 'bin'] },
+      muos: { disc: ['chd', 'pbp', 'cue', 'iso', 'img', 'bin'] },
+      onion: { disc: ['chd', 'pbp', 'cue', 'iso', 'img', 'bin'] },
+      retroarch: { disc: ['chd', 'cue', 'pbp', 'iso', 'img', 'bin'] },
+    },
+    exclude_systems: ['ports', 'bios', 'apps'],
+    max_dat_downloads: 12,
+    organize_step: 'set-aside',
+  },
 };
 
 export const RANGES: readonly Range[] = [
@@ -171,6 +199,7 @@ export const RANGES: readonly Range[] = [
   { field: 'organize.review_threshold', min: 0, max: 1 },
   { field: 'organize.recent_seconds', min: 0, max: 3600 },
   { field: 'organize.keep_organize_journals_days', min: 1, max: 3650 },
+  { field: 'dedupe.max_dat_downloads', min: 0, max: 100 },
 ];
 
 export const GROUPS: readonly SettingsGroup[] = [
@@ -183,6 +212,7 @@ export const GROUPS: readonly SettingsGroup[] = [
   'safety',
   'advanced',
   'organize',
+  'dedupe',
 ];
 
 export function cloneSettings(s: Settings): Settings {
@@ -256,6 +286,13 @@ const isFolderNames: Kind = (v) =>
   Object.values(v).every((m) => isObject(m) && Object.values(m).every(isStr));
 const isArcadeOrders: Kind = (v) =>
   isObject(v) && Object.values(v).every(listOf(isStr));
+const isRuleToggle: Kind = (v) =>
+  isObject(v) && oneOf(KEEP_RULES)(v.rule) && isBool(v.on);
+const isContainerOrders: Kind = (v) =>
+  isObject(v) &&
+  Object.values(v).every(
+    (m) => isObject(m) && Object.values(m).every(listOf(isStr)),
+  );
 
 const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
   general: {
@@ -326,6 +363,18 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
     arcade_order: isArcadeOrders,
     recent_seconds: isUint(),
     keep_organize_journals_days: isUint(),
+  },
+  dedupe: {
+    levels: listOf(oneOf(DEDUPE_LEVELS)),
+    one_game_one_rom: isBool,
+    action: oneOf(DEDUPE_ACTIONS),
+    quarantine_dir: isOptStr,
+    quarantine_name: isOptStr,
+    keep_rules: listOf(isRuleToggle),
+    container_order: isContainerOrders,
+    exclude_systems: listOf(isStr),
+    max_dat_downloads: isUint(),
+    organize_step: oneOf(ORGANIZE_DEDUPE_MODES),
   },
 };
 
@@ -559,6 +608,14 @@ export function normaliseSettings(input: Settings): Settings {
       .filter(Boolean),
   );
   s.organize.default_layout = s.organize.default_layout.trim();
+  s.dedupe.exclude_systems = uniq(
+    s.dedupe.exclude_systems.map((e) => e.trim().toLowerCase()).filter(Boolean),
+  );
+  if (s.dedupe.quarantine_name !== null)
+    s.dedupe.quarantine_name = s.dedupe.quarantine_name.trim();
+  for (const rule of KEEP_RULES)
+    if (!s.dedupe.keep_rules.some((t) => t.rule === rule))
+      s.dedupe.keep_rules.push({ rule, on: true });
   return s;
 }
 
