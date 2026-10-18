@@ -1,0 +1,5 @@
+# Build output and caches never need uploading; the build recreates target/site.
+/target
+/src-tauri/target
+node_modules
+/.review
