@@ -49,6 +49,7 @@ fn hashes() -> HashOutcome {
             size: 16,
         },
         headerless: None,
+        payload_sha1: None,
     })
 }
 
@@ -520,6 +521,7 @@ fn identify_by_hash_trusts_only_an_answer_for_the_asked_system_and_crc() {
         crc32: "abcd1234".into(),
         size: 16,
         inner_name: inner.into(),
+        payload_sha1: None,
     };
     // Asked as Game Boy (9) but the server names a GBA game: the system is
     // the very question, so the answer says nothing about it.

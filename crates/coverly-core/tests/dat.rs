@@ -117,6 +117,7 @@ fn downloads_once_then_looks_up_headerless_and_zip_crcs() {
     let headered = HashOutcome::Content(RomHashes {
         full: digests("99999999", 25),
         headerless: Some(digests("CBF43926", 9)),
+        payload_sha1: None,
     });
     assert_eq!(
         store.lookup(&dats, &headered).unwrap().as_deref(),
@@ -126,6 +127,7 @@ fn downloads_once_then_looks_up_headerless_and_zip_crcs() {
         crc32: "22222222".into(),
         size: 3,
         inner_name: "q.nes".into(),
+        payload_sha1: None,
     };
     assert_eq!(
         store.lookup(&dats, &zipped).unwrap().as_deref(),
@@ -135,6 +137,7 @@ fn downloads_once_then_looks_up_headerless_and_zip_crcs() {
         crc32: "22222222".into(),
         size: 4,
         inner_name: "q.nes".into(),
+        payload_sha1: None,
     };
     assert_eq!(store.lookup(&dats, &wrong_size).unwrap(), None);
     assert_eq!(store.lookup(&dats, &HashOutcome::NameOnly).unwrap(), None);
@@ -152,6 +155,7 @@ fn a_sha1_mismatch_rejects_a_crc_collision() {
     let outcome = HashOutcome::Content(RomHashes {
         full: d,
         headerless: None,
+        payload_sha1: None,
     });
     assert_eq!(store.lookup(&[path.to_string()], &outcome).unwrap(), None);
 }
@@ -206,6 +210,7 @@ fn offline_with_stale_rows_uses_them() {
         crc32: "22222222".into(),
         size: 3,
         inner_name: "q".into(),
+        payload_sha1: None,
     };
     assert!(store
         .lookup(&[path.to_string()], &zipped)
@@ -243,6 +248,7 @@ fn a_failed_refresh_is_remembered_for_the_process() {
         crc32: "22222222".into(),
         size: 3,
         inner_name: "q".into(),
+        payload_sha1: None,
     };
     for (name, resp) in [
         ("500", MockResponse::status(500)),

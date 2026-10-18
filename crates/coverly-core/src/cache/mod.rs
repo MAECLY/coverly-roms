@@ -12,10 +12,24 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::identify::dat::DatGame;
-use crate::identify::hash::HashOutcome;
+use crate::identify::hash::{HashOutcome, HASH_OUTCOME_VERSION};
+
+/// A `quick_ids` row: the outcome tagged with its shape version. A v1 row
+/// (the bare outcome) has no `v` and so never reads back.
+#[derive(Deserialize)]
+struct StoredOutcome {
+    v: u32,
+    outcome: HashOutcome,
+}
+
+#[derive(Serialize)]
+struct StoredOutcomeRef<'a> {
+    v: u32,
+    outcome: &'a HashOutcome,
+}
 pub use crate::time::now_unix;
 
 /// Schema version stored in `PRAGMA user_version`.
@@ -259,8 +273,12 @@ impl Cache {
                 |r| r.get(0),
             )
             .optional()?;
-        // An outcome that no longer deserialises (older format) is a miss.
-        Ok(row.and_then(|json| serde_json::from_str(&json).ok()))
+        // An outcome of another version, or one that no longer deserialises,
+        // is a miss: the file is hashed again and the row replaced.
+        Ok(row
+            .and_then(|json| serde_json::from_str::<StoredOutcome>(&json).ok())
+            .filter(|s| s.v == HASH_OUTCOME_VERSION)
+            .map(|s| s.outcome))
     }
 
     /// Memoises the hashes of `path` at this size and mtime.
@@ -277,7 +295,10 @@ impl Cache {
                 path.to_string_lossy(),
                 size as i64,
                 mtime_ns,
-                serde_json::to_string(outcome)?
+                serde_json::to_string(&StoredOutcomeRef {
+                    v: HASH_OUTCOME_VERSION,
+                    outcome,
+                })?
             ],
         )?;
         Ok(())

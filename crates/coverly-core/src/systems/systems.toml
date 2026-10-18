@@ -197,6 +197,7 @@ name = "Sega Game Gear"
 aliases = ["GG", "gamegear"]
 extensions = ["gg", "zip", "7z"]
 libretro = "Sega - Game Gear"
+header = "sms-copier"
 screenscraper = 21
 
 [[system]]
@@ -429,6 +430,7 @@ name = "Sega Master System"
 aliases = ["SMS", "mastersystem", "Master System"]
 extensions = ["sms", "zip", "7z"]
 libretro = "Sega - Master System - Mark III"
+header = "sms-copier"
 screenscraper = 2
 
 [[system]]

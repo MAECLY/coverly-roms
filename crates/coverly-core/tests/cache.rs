@@ -12,6 +12,7 @@ fn zip_outcome() -> HashOutcome {
         crc32: "CBF43926".into(),
         size: 9,
         inner_name: "a.gba".into(),
+        payload_sha1: None,
     }
 }
 
