@@ -658,8 +658,9 @@ mod tests {
 
     #[test]
     fn mtimes_before_the_epoch_are_negative() {
-        let t = UNIX_EPOCH - std::time::Duration::from_nanos(5);
-        assert_eq!(mtime_ns(t), -5);
+        // 500 ns: a whole number of Windows' 100 ns ticks.
+        let t = UNIX_EPOCH - std::time::Duration::from_nanos(500);
+        assert_eq!(mtime_ns(t), -500);
         assert_eq!(
             mtime_ns(UNIX_EPOCH + std::time::Duration::from_secs(1)),
             1_000_000_000
