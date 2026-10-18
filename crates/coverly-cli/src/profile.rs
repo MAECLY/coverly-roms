@@ -21,13 +21,19 @@ pub(crate) struct Chosen {
 
 /// Exit 3 unless `root` is an existing folder.
 pub(crate) fn check_root(root: &Path) -> Result<(), Failure> {
-    let message = match root.metadata() {
+    check_folder(root, "library root")
+}
+
+/// Exit 3 unless `path` is an existing folder; `what` names it in the
+/// message (`library root`, `source`).
+pub(crate) fn check_folder(path: &Path, what: &str) -> Result<(), Failure> {
+    let message = match path.metadata() {
         Ok(meta) if meta.is_dir() => return Ok(()),
-        Ok(_) => format!("library root is not a folder: {}", root.display()),
+        Ok(_) => format!("{what} is not a folder: {}", path.display()),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            format!("library root not found: {}", root.display())
+            format!("{what} not found: {}", path.display())
         }
-        Err(e) => format!("cannot read library root {}: {e}", root.display()),
+        Err(e) => format!("cannot read {what} {}: {e}", path.display()),
     };
     Err(Failure { code: 3, message })
 }

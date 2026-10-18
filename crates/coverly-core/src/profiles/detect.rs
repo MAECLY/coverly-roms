@@ -4,6 +4,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::builtin_profiles;
+use crate::systems::SystemDb;
+
+/// Profile suggested when `fallback` is not a built-in profile id.
+const DEFAULT_FALLBACK: &str = "anbernic-stock";
+/// Evidence label of the weak rule in [`detect_with_fallback`].
+const SYSTEM_FOLDERS: &str = "system-folders";
 
 /// One candidate profile for a library.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +53,57 @@ pub fn detect(library_root: &Path) -> Vec<Detection> {
         .collect();
     found.sort_by_key(|d| std::cmp::Reverse(d.score));
     found
+}
+
+/// [`detect`], or, when no marker scored, a weak suggestion for a tree that
+/// is already organised by system (e.g. freshly organised loose ROMs).
+///
+/// The weak rule fires when a `roms` child (any casing) holds at least one
+/// folder that resolves to a system in `db` and directly holds a file, or
+/// the root itself holds at least two such folders. It returns a single
+/// `Detection { profile_id: fallback, score: 1, evidence: ["system-folders"] }`;
+/// `fallback` must be a built-in profile id, otherwise `anbernic-stock` is
+/// used. Hidden files (`.DS_Store`, AppleDouble `._*`) never fill a folder.
+pub fn detect_with_fallback(library_root: &Path, fallback: &str, db: &SystemDb) -> Vec<Detection> {
+    let found = detect(library_root);
+    if !found.is_empty() || !organised_by_system(library_root, db) {
+        return found;
+    }
+    let profile_id = if builtin_profiles().iter().any(|p| p.id == fallback) {
+        fallback
+    } else {
+        DEFAULT_FALLBACK
+    };
+    vec![Detection {
+        profile_id: profile_id.to_string(),
+        score: 1,
+        evidence: vec![SYSTEM_FOLDERS.to_string()],
+    }]
+}
+
+/// Whether `root` looks organised by system (see [`detect_with_fallback`]).
+fn organised_by_system(root: &Path, db: &SystemDb) -> bool {
+    let root_entries = list(root);
+    let filled_system_dirs = |entries: &[Entry]| {
+        entries
+            .iter()
+            .filter(|e| e.is_dir && db.resolve_folder(&e.lower).is_some())
+            .filter(|e| holds_a_file(&e.path))
+            .count()
+    };
+    if let Some(roms) = find_dir(&root_entries, "roms") {
+        if filled_system_dirs(&list(&roms)) >= 1 {
+            return true;
+        }
+    }
+    filled_system_dirs(&root_entries) >= 2
+}
+
+/// Whether `dir` directly holds a regular, non-hidden file.
+fn holds_a_file(dir: &Path) -> bool {
+    list(dir)
+        .iter()
+        .any(|e| !e.is_dir && !e.lower.starts_with('.') && e.path.is_file())
 }
 
 /// A marker folder or file looked for by [`detect`].
@@ -333,5 +390,70 @@ mod tests {
         assert!(all.len() > 1, "Imgs also hints Garlic and Onion: {all:?}");
         assert!(all.windows(2).all(|w| w[0].score >= w[1].score), "{all:?}");
         assert!(all.iter().all(|d| d.score > 0 && !d.evidence.is_empty()));
+    }
+
+    #[test]
+    fn a_freshly_organised_tree_is_suggested_with_the_fallback() {
+        let tmp = tree(&["ROMS/GBA"], &["ROMS/GBA/a.gba"]);
+        let found = detect_with_fallback(tmp.path(), "anbernic-stock", &SystemDb::builtin());
+        assert_eq!(found[0].profile_id, "anbernic-stock");
+        assert_eq!(found[0].evidence, ["system-folders"]);
+        assert_eq!(found[0].score, 1);
+    }
+
+    #[test]
+    fn bare_root_needs_two_system_folders_with_files() {
+        let one = tree(&["gb"], &["gb/a.gb"]);
+        assert!(detect_with_fallback(one.path(), "esde", &SystemDb::builtin()).is_empty());
+        let two = tree(&["gb", "GBA"], &["gb/a.gb", "GBA/b.gba"]);
+        assert_eq!(
+            detect_with_fallback(two.path(), "esde", &SystemDb::builtin())[0].profile_id,
+            "esde"
+        );
+    }
+
+    #[test]
+    fn empty_system_folders_are_not_enough() {
+        let tmp = tree(&["ROMS/GBA", "ROMS/GB"], &[]);
+        assert!(
+            detect_with_fallback(tmp.path(), "anbernic-stock", &SystemDb::builtin()).is_empty()
+        );
+    }
+
+    #[test]
+    fn markers_win_over_the_weak_rule() {
+        let tmp = tree(&["anbernic", "ROMS/GBA"], &["ROMS/GBA/a.gba"]);
+        let found = detect_with_fallback(tmp.path(), "esde", &SystemDb::builtin());
+        assert_eq!(found[0].profile_id, "anbernic-stock");
+        assert!(found.iter().all(|d| d.evidence != ["system-folders"]));
+    }
+
+    #[test]
+    fn an_unknown_fallback_suggests_anbernic_stock() {
+        let tmp = tree(&["Roms/GBA"], &["Roms/GBA/a.gba"]);
+        let found = detect_with_fallback(tmp.path(), "nope", &SystemDb::builtin());
+        assert_eq!(found[0].profile_id, "anbernic-stock");
+    }
+
+    #[test]
+    fn appledouble_and_hidden_files_do_not_fill_a_folder() {
+        let tmp = tree(
+            &["ROMS/GBA/sub"],
+            &["ROMS/GBA/._a.gba", "ROMS/GBA/.DS_Store"],
+        );
+        assert!(
+            detect_with_fallback(tmp.path(), "anbernic-stock", &SystemDb::builtin()).is_empty()
+        );
+    }
+
+    #[test]
+    fn folders_that_are_not_systems_do_not_count() {
+        let tmp = tree(
+            &["ROMS/Stuff", "Docs", "Music"],
+            &["ROMS/Stuff/a.gba", "Docs/a.txt", "Music/b.mp3"],
+        );
+        assert!(
+            detect_with_fallback(tmp.path(), "anbernic-stock", &SystemDb::builtin()).is_empty()
+        );
     }
 }

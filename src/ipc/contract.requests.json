@@ -55,5 +55,32 @@
     "system_folder": "SFC",
     "rel_dir": "",
     "file_name": "Zelda.sfc"
-  }
+  },
+  "organize_request": {
+    "source": "/Users/me/ROMs-Downloaded",
+    "layout": "anbernic-stock",
+    "target": "/Volumes/SD",
+    "flat": false,
+    "mode": "copy",
+    "names": "catalogue",
+    "offline": true
+  },
+  "organize_request_bare": {
+    "source": "/Users/me/ROMs-Downloaded"
+  },
+  "organize_decisions": [
+    {
+      "item": 1,
+      "choice": "accept"
+    },
+    {
+      "item": 2,
+      "choice": "assign",
+      "system": "gbc"
+    },
+    {
+      "item": 3,
+      "choice": "leave"
+    }
+  ]
 }

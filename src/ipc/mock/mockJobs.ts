@@ -42,6 +42,7 @@ import {
   type JobView,
   type LibraryView,
   type Media,
+  type OrganizeUndoReport,
   type Phase,
   type PickReason,
   type PlanSummary,
@@ -244,6 +245,8 @@ export interface MockJobsHost {
   sgdbReady(): boolean;
   /** SteamGridDB is enabled but its stored key is refused. */
   sgdbRefused(): boolean;
+  /** An organise apply runs: fills refuse to start (Rust's manual guard). */
+  organizing?(): boolean;
 }
 
 export interface MockJobsOptions {
@@ -283,6 +286,8 @@ type JobsApi = Pick<
   isBusy(): boolean;
   /** The manual identity ("Search by title" pick) of an entry, if any. */
   manualIdentity(generation: number, id: number): string | null;
+  /** Undoes fill journal `job` (an organise undo taking later jobs with it). */
+  undoJournal(job: string): OrganizeUndoReport | null;
 };
 
 /** Longest title "Search by title" accepts (`MAX_QUERY_CHARS` in Rust). */
@@ -417,6 +422,26 @@ export function createMockJobs(
     };
     journals.push(j);
     return j;
+  }
+  /** Marks `journal` undone and puts back the marks it changed; the art
+   * files it removed and restored (paths are illustrative). */
+  function revert(journal: Journal) {
+    journal.undone = true;
+    const updates: (EntryArtUpdate | null)[] = [];
+    const removed: string[] = [];
+    const restored: string[] = [];
+    for (const c of [...journal.changes].reverse()) {
+      const e = fresh(c.id);
+      const path = `${journal.root}/${e ? `${e.dir}/${e.name}` : c.id}.${c.media}.png`;
+      if (c.before === 'present') restored.push(path);
+      else removed.push(path);
+      if (e) {
+        const update = { id: c.id, art: { ...e.art, [c.media]: c.before } };
+        host.patch([update]);
+        updates.push(update);
+      }
+    }
+    return { removed, restored, updates };
   }
   /**
    * Sets one mark of entry `id` (whose marks were `art` in library
@@ -631,6 +656,7 @@ export function createMockJobs(
     async startFill(generation, request) {
       const view = library(generation);
       notRunning();
+      if (host.organizing?.()) throw new BackendError('job-running');
       const media = MEDIA.filter(
         (m) => request.media.includes(m) && view.profile.media.includes(m),
       );
@@ -804,26 +830,26 @@ export function createMockJobs(
         .reverse()
         .find((j) => !j.undone && j.root === view.root);
       if (!journal) throw new BackendError('nothing-to-undo');
-      journal.undone = true;
-      const updates: (EntryArtUpdate | null)[] = [];
-      let removed = 0;
-      let restored = 0;
-      for (const c of [...journal.changes].reverse()) {
-        if (c.before === 'present') restored += 1;
-        else removed += 1;
-        const e = fresh(c.id);
-        if (e) {
-          const update = { id: c.id, art: { ...e.art, [c.media]: c.before } };
-          host.patch([update]);
-          updates.push(update);
-        }
-      }
+      const { removed, restored, updates } = revert(journal);
       return {
         job: journal.job,
-        removed,
-        restored,
+        removed: removed.length,
+        restored: restored.length,
         kept: 0,
         entries: merged(updates),
+      };
+    },
+    undoJournal(job) {
+      const journal = journals.find((j) => j.job === job && !j.undone);
+      if (!journal) return null;
+      const { removed, restored } = revert(journal);
+      return {
+        job,
+        removed,
+        restored,
+        skipped_modified: [],
+        skipped_occupied: [],
+        dirs_removed: [],
       };
     },
     jobHistory: () =>
@@ -835,6 +861,8 @@ export function createMockJobs(
           entries: j.changes.length,
           complete: j.complete,
           undone: j.undone,
+          kind: 'fill' as const,
+          undoable: true,
         })),
       ),
     onJobProgress: (cb) => listen(progress, cb),

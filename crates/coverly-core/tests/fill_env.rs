@@ -10,7 +10,7 @@ use coverly_core::cache::Cache;
 use coverly_core::credentials::SourceKeys;
 use coverly_core::fill::{
     remove_art, write_local_image, ArtError, Endpoints, FillEnv, FillSettings, ManualOptions,
-    RomRef, KEEP_JOBS,
+    RomRef,
 };
 use coverly_core::image::probe_dimensions;
 use coverly_core::jobs::{ApplyOptions, ItemStatus};
@@ -301,7 +301,13 @@ fn removed_art_is_backed_up_and_undo_brings_it_back() {
     let w = world();
     let target = w.img(SUN);
     common::write(w.lib.path(), &format!("ROMS/GBA/Imgs/{SUN}.png"), "old art");
-    let (_, out) = remove_art(w.lib.path(), &target, w.data.path(), KEEP_JOBS).unwrap();
+    let (_, out) = remove_art(
+        w.lib.path(),
+        &target,
+        w.data.path(),
+        &ManualOptions::default(),
+    )
+    .unwrap();
     assert!(matches!(out, RemoveOutcome::Removed { .. }));
     assert!(!target.exists());
     undo_last(w.data.path()).unwrap();
@@ -370,7 +376,12 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
         Ok((None, WriteOutcome::SkippedExists { .. }))
     ));
     assert!(matches!(
-        remove_art(w.lib.path(), &folder, w.data.path(), KEEP_JOBS),
+        remove_art(
+            w.lib.path(),
+            &folder,
+            w.data.path(),
+            &ManualOptions::default()
+        ),
         Err(WriteError::NotAFile(_))
     ));
     assert!(matches!(
@@ -378,12 +389,17 @@ fn refused_or_no_op_manual_writes_leave_no_job_behind() {
             w.lib.path(),
             &w.img("Nothing Here"),
             w.data.path(),
-            KEEP_JOBS
+            &ManualOptions::default()
         ),
         Ok((None, RemoveOutcome::Missing))
     ));
     assert!(matches!(
-        remove_art(w.lib.path(), &outside, w.data.path(), KEEP_JOBS),
+        remove_art(
+            w.lib.path(),
+            &outside,
+            w.data.path(),
+            &ManualOptions::default()
+        ),
         Err(WriteError::OutsideRoot(_))
     ));
     assert_eq!(job_ids(&w), std::slice::from_ref(&job));
@@ -402,13 +418,13 @@ fn failed_manual_writes_never_prune_a_real_job() {
             w.lib.path(),
             &w.img("Nothing Here"),
             w.data.path(),
-            KEEP_JOBS,
+            &ManualOptions::default(),
         );
         let _ = remove_art(
             w.lib.path(),
             &w.data.path().join("x.png"),
             w.data.path(),
-            KEEP_JOBS,
+            &ManualOptions::default(),
         );
     }
     assert_eq!(job_ids(&w), [job]);
@@ -443,7 +459,12 @@ fn a_read_only_art_folder_leaves_no_job_and_no_backup() {
         w.data.path(),
         &ManualOptions::default(),
     );
-    let removed = remove_art(w.lib.path(), &w.img(SUN), w.data.path(), KEEP_JOBS);
+    let removed = remove_art(
+        w.lib.path(),
+        &w.img(SUN),
+        w.data.path(),
+        &ManualOptions::default(),
+    );
     fs::set_permissions(&imgs, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(
         matches!(new, Err(ArtError::Write(WriteError::Denied(_)))),
@@ -701,7 +722,7 @@ fn a_manual_pick_writes_to_the_rom_name_and_undo_removes_it() {
             Media::Cover,
             &w.img(RUSH),
             &japan,
-            10,
+            &ManualOptions::default(),
         )
         .unwrap();
     assert_eq!(report.filled, 1, "{report:?}");

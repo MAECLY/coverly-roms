@@ -309,3 +309,167 @@ fn a_job_with_entries_is_never_discarded() {
     undo_last(data.path()).unwrap();
     assert!(!imgs.join("a.png").exists());
 }
+
+/// `path` as the inside of a JSON string (backslashes escaped on Windows).
+fn json_path(path: &Path) -> String {
+    let quoted = serde_json::to_string(path).unwrap();
+    quoted[1..quoted.len() - 1].to_string()
+}
+
+#[test]
+fn an_old_fill_journal_still_parses_and_undoes() {
+    let (lib, data) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let job = "20261001T120000Z-1234-0000";
+    let imgs = lib.path().join("ROMS/GBA/Imgs");
+    fs::create_dir_all(&imgs).unwrap();
+    fs::write(imgs.join("Tetris.png"), b"TETRIS-ART").unwrap();
+    fs::write(imgs.join("Old.png"), b"NEW-ART").unwrap();
+    let backup = data.path().join("backups").join(job).join("ROMS/GBA/Imgs");
+    fs::create_dir_all(&backup).unwrap();
+    fs::write(backup.join("Old.png"), b"USER-ART").unwrap();
+
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/journals/fill-v1.jsonl");
+    let text = fs::read_to_string(fixture)
+        .unwrap()
+        .replace("@ROOT@", &json_path(lib.path()))
+        .replace("@DATA@", &json_path(data.path()));
+    fs::create_dir_all(data.path().join("jobs")).unwrap();
+    fs::write(data.path().join("jobs").join(format!("{job}.jsonl")), text).unwrap();
+
+    let jobs = list_jobs(data.path()).unwrap();
+    assert_eq!(jobs.len(), 1);
+    let s = &jobs[0];
+    assert_eq!(s.job, job);
+    assert_eq!((s.kind, s.source_root.as_deref()), (JobKind::Fill, None));
+    assert_eq!((s.entries, s.complete, s.undoable), (2, true, true));
+
+    let report = undo_last(data.path()).unwrap();
+    assert_eq!(report.removed, [imgs.join("Tetris.png")]);
+    assert_eq!(report.restored, [imgs.join("Old.png")]);
+    assert!(!imgs.join("Tetris.png").exists());
+    assert_eq!(fs::read(imgs.join("Old.png")).unwrap(), b"USER-ART");
+}
+
+#[test]
+fn a_new_fill_journal_is_a_fill_job() {
+    let (lib, data, imgs) = setup();
+    let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    w.write(&imgs.join("a.png"), b"x", OverwritePolicy::Never)
+        .unwrap();
+    w.finish().unwrap();
+    let s = &list_jobs(data.path()).unwrap()[0];
+    assert_eq!(
+        (s.kind, s.source_root.as_deref(), s.undoable),
+        (JobKind::Fill, None, true)
+    );
+}
+
+#[test]
+fn an_organise_header_round_trips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (root, src, data) = (
+        tmp.path().join("T"),
+        tmp.path().join("S"),
+        tmp.path().join("d"),
+    );
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&src).unwrap();
+    let w = Writer::begin_with(
+        &root,
+        &data,
+        JobMeta {
+            kind: JobKind::Organize,
+            source_root: Some(src.clone()),
+        },
+    )
+    .unwrap();
+    let job = w.finish().unwrap();
+    let s = list_jobs(&data)
+        .unwrap()
+        .into_iter()
+        .find(|j| j.job == job)
+        .unwrap();
+    assert_eq!(
+        (s.kind, s.source_root.as_deref()),
+        (JobKind::Organize, Some(src.as_path()))
+    );
+    assert!(s.undoable);
+    // A resumed organise job keeps its kind and source root.
+    let w = Writer::resume(&root, &data, &job).unwrap();
+    assert_eq!(w.kind(), JobKind::Organize);
+    assert_eq!(w.source_root(), src.as_path());
+}
+
+#[test]
+fn begin_with_requires_an_absolute_source_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    assert!(matches!(
+        Writer::begin_with(
+            tmp.path(),
+            &tmp.path().join("d"),
+            JobMeta {
+                kind: JobKind::Organize,
+                source_root: Some(PathBuf::from("relative/pile")),
+            },
+        ),
+        Err(WriteError::OutsideRoot(_))
+    ));
+}
+
+#[test]
+fn a_journal_from_a_newer_version_is_listed_as_not_undoable() {
+    let (lib, data, imgs) = setup();
+    let created = imgs.join("a.png");
+    let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    let job = w.job_id().to_string();
+    w.write(&created, b"x", OverwritePolicy::Never).unwrap();
+    drop(w);
+    let journal = data.path().join("jobs").join(format!("{job}.jsonl"));
+    let mut text = fs::read_to_string(&journal).unwrap();
+    text.push_str(&format!(
+        "{{\"type\":\"entry\",\"target\":\"{}\",\"op\":{{\"kind\":\"teleported\",\"to\":\"/elsewhere\"}},\"later\":1}}\n",
+        json_path(&imgs.join("b.png"))
+    ));
+    fs::write(&journal, text).unwrap();
+
+    let s = &list_jobs(data.path()).unwrap()[0];
+    assert_eq!(
+        (s.job.as_str(), s.entries, s.undoable),
+        (job.as_str(), 2, false)
+    );
+    let err = undo_job(data.path(), &job).unwrap_err();
+    assert!(
+        matches!(&err, WriteError::Journal(m) if m.contains("newer")),
+        "{err}"
+    );
+    let err = undo_last(data.path()).unwrap_err();
+    assert!(
+        matches!(&err, WriteError::Journal(m) if m.contains("newer")),
+        "{err}"
+    );
+    // Nothing was touched and the job is still pending.
+    assert_eq!(fs::read(&created).unwrap(), b"x");
+    assert!(!list_jobs(data.path()).unwrap()[0].undone);
+}
+
+#[test]
+fn a_fill_entry_without_a_checksum_is_left_alone() {
+    let (lib, data, imgs) = setup();
+    let created = imgs.join("a.png");
+    let mut w = Writer::begin(lib.path(), data.path()).unwrap();
+    let job = w.job_id().to_string();
+    w.write(&created, b"x", OverwritePolicy::Never).unwrap();
+    drop(w);
+    let journal = data.path().join("jobs").join(format!("{job}.jsonl"));
+    let text = fs::read_to_string(&journal).unwrap();
+    let start = text.find(",\"sha1\":").unwrap();
+    let end = start + text[start..].find('}').unwrap();
+    let stripped = format!("{}{}", &text[..start], &text[end..]);
+    assert!(!stripped.contains("sha1"), "{stripped}");
+    fs::write(&journal, stripped).unwrap();
+
+    let report = undo_last(data.path()).unwrap();
+    assert_eq!(report.skipped_modified, std::slice::from_ref(&created));
+    assert!(created.exists());
+}

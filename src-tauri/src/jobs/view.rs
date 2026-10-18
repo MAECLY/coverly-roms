@@ -11,7 +11,7 @@ use coverly_core::plan::{
 use coverly_core::profiles::Media;
 use coverly_core::progress::{PauseKind, Phase};
 use coverly_core::sources::{Candidate, MatchKind, Votes};
-use coverly_core::write::{JobSummary, OverwritePolicy, UndoReport};
+use coverly_core::write::{JobKind, JobSummary, OverwritePolicy, UndoReport};
 use serde::{Deserialize, Serialize};
 
 use crate::library::refresh::EntryArtUpdate;
@@ -379,6 +379,10 @@ pub struct JobHistoryView {
     pub entries: usize,
     pub complete: bool,
     pub undone: bool,
+    /// What the job did: fill art or organise a pile.
+    pub kind: JobKind,
+    /// False for a journal this build cannot undo (a newer Coverly's).
+    pub undoable: bool,
 }
 
 impl From<JobSummary> for JobHistoryView {
@@ -390,6 +394,8 @@ impl From<JobSummary> for JobHistoryView {
             entries: s.entries,
             complete: s.complete,
             undone: s.undone,
+            kind: s.kind,
+            undoable: s.undoable,
         }
     }
 }

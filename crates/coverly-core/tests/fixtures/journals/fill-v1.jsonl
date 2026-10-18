@@ -1,0 +1,4 @@
+{"type":"header","job":"20261001T120000Z-1234-0000","root":"@ROOT@","created_at":"2026-10-01T12:00:00Z"}
+{"type":"entry","target":"@ROOT@/ROMS/GBA/Imgs/Tetris.png","op":{"kind":"created"},"sha1":"5238360EB89D63C6CFB6BC3707F297B4248AE497"}
+{"type":"entry","target":"@ROOT@/ROMS/GBA/Imgs/Old.png","op":{"kind":"replaced","backup":"@DATA@/backups/20261001T120000Z-1234-0000/ROMS/GBA/Imgs/Old.png"},"sha1":"361FBB1B564B15DAD2147EFA300CD7F6F949DD92"}
+{"type":"done"}

@@ -136,7 +136,10 @@ The image is fitted into the profile slot's box (`Contain` keeps the aspect rati
 ```
 
   The root is stored as an **absolute** path, so `undo` works from any working directory. A torn last line (crash) is ignored, and an unfinished job can still be undone.
-- **Undo** (`coverly undo [--job ID] [--list]`) walks the entries in reverse. A `created` file is removed only if its SHA1 still matches. A `replaced` file is restored from its backup, atomically, only if its SHA1 still matches. A `removed` file (drawer "Remove", M4) is restored from its backup unless the user put a file there since. A file the user changed or deleted after the job is **kept** and reported. Job ids are validated before use, and backup paths must stay inside the job's backup folder. The journal is renamed `<job>.undone.jsonl`. The newest 10 journals and their backups are kept.
+- **Job kinds.** The header carries an optional `kind`: `fill` (the default, so journals written before organise jobs existed read as fill) or `organize`. Organise journals also carry `source_root`, a fingerprint `fp` (`size`, `mtime_ns`, `crc32` for copies) instead of `sha1` (now optional), the plan item index, and the ops `moved`, `copied`, `dir-created` and `override-moved` ([organize.md](./organize.md#journal-ops)). A line with an op this build does not know (a journal from a newer Coverly) makes the job `undoable: false` in `list_jobs` instead of failing the listing. `JobSummary` (and the app's job history) exposes `kind` and `undoable`.
+- **Undo** (`coverly undo [--job ID] [--list]`) walks the entries in reverse. A `created` file is removed only if its SHA1 still matches. A `replaced` file is restored from its backup, atomically, only if its SHA1 still matches. A `removed` file (drawer "Remove", M4) is restored from its backup unless the user put a file there since. A file the user changed or deleted after the job is **kept** and reported. Job ids are validated before use, and backup paths must stay inside the job's backup folder. The journal is renamed `<job>.undone.jsonl`.
+- **Later jobs.** `write::later_jobs(job)` lists the newer, not-undone jobs whose root or source root overlaps the job's root. `coverly undo --job ID` refuses while there are any (undoing an organise job under a fill that added covers to the organised folders would orphan that art) unless `--include-later`, which undoes them too, newest first (`undo_jobs_in_order`); the app's organise undo does the same with *Undo all in order*.
+- **Pruning** (`prune_jobs_at`, at the end of every fill run): fill and organise journals are counted **separately**, the newest `safety.undo_depth` (default 10) of each kind are kept, and organise journals are also kept while younger than `settings.organize.keep_organize_journals_days` (default 90; the job id gives the age). A few fill runs therefore never delete the only way to put hundreds of moved ROMs back. A pruned job loses its journal, its `backups/<job>` folder and its `jobs/<job>.plan.json`.
 
 ## Apply
 
@@ -199,8 +202,10 @@ coverly fill <ROOT> [--profile ID|auto] [--system GBA,FC] [--media cover,screens
              [--dry-run | --apply [--auto-only]] [--overwrite never|backup]
              [--report table|json] [--output FILE] [--concurrency 1-6] [--refresh]
              [--sources libretro,steamgriddb] [--cache-dir DIR] [--data-dir DIR]
-coverly undo [--job ID] [--list] [--data-dir DIR]
+coverly undo [--job ID [--include-later]] [--list] [--data-dir DIR]
 ```
+
+`coverly organize` (loose ROMs into one folder per system) is documented in [organize.md](./organize.md#cli); `coverly undo` undoes its jobs too.
 
 - Dry run is the default. `--scope all` replaces existing art and needs `--overwrite backup`.
 - `--sources` overrides the order and enabled set of the sources setting. The CLI has no keychain: keys come from `COVERLY_SGDB_KEY`, `COVERLY_SS_USER` and `COVERLY_SS_PASSWORD`. Hidden `--steamgriddb-url` / `--screenscraper-url` point the sources at a mock in tests.

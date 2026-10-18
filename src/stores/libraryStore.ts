@@ -32,9 +32,14 @@ interface LibraryState {
   progress: ScanProgress | null;
   error: BackendError | null;
   openingPath: string | null;
+  /** The folder of the latest `open()`, kept after it fails (the Start
+   * screen probes it on `no-profile`). */
+  lastPath: string | null;
   recents: RecentLibrary[];
   loadRecents(): Promise<void>;
-  open(path: string): Promise<void>;
+  /** Opens `path`; `profileId` skips layout detection (e.g. right after
+   * organising a pile into that layout). */
+  open(path: string, profileId?: string): Promise<void>;
   forget(path: string): Promise<void>;
   /** Shows an error raised outside `open()` (e.g. the folder picker). */
   fail(e: unknown): void;
@@ -51,6 +56,7 @@ const initial = {
   progress: null,
   error: null,
   openingPath: null,
+  lastPath: null,
   recents: [],
 };
 
@@ -71,11 +77,17 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
       set({ recents: [] });
     }
   },
-  async open(path) {
+  async open(path, profileId) {
     const seq = (requestSeq += 1);
     // Every scan started before this open has a generation <= floor.
     const floor = maxSeenGen;
-    set({ status: 'opening', openingPath: path, progress: null, error: null });
+    set({
+      status: 'opening',
+      openingPath: path,
+      lastPath: path,
+      progress: null,
+      error: null,
+    });
     let unlisten: (() => void) | undefined;
     try {
       const backend = await getBackend();
@@ -86,7 +98,7 @@ export const useLibraryStore = create<LibraryState>()((set, get) => ({
         if (progress.generation < maxSeenGen) return;
         set({ progress });
       });
-      const view = await backend.openLibrary(path);
+      const view = await backend.openLibrary(path, profileId);
       if (seq !== requestSeq) return;
       useFilterStore.getState().reset();
       useViewStore.getState().reset();

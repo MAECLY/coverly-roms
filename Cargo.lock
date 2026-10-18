@@ -800,9 +800,11 @@ dependencies = [
  "clap",
  "coverly-core",
  "crc32fast",
+ "filetime",
  "predicates",
  "serde_json",
  "tempfile",
+ "zip 9.0.3",
 ]
 
 [[package]]
@@ -817,6 +819,7 @@ dependencies = [
  "flate2",
  "image",
  "insta",
+ "libc",
  "md-5",
  "minisign",
  "minisign-verify",
@@ -833,6 +836,7 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "walkdir",
+ "windows-sys 0.61.2",
  "zip 9.0.3",
 ]
 
@@ -6377,6 +6381,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2d98561b612a84ae525331a7a094429ef8a5772514ed507ff6db5f54badc971"
 dependencies = [
  "crc32fast",
+ "flate2",
  "indexmap 2.14.2",
  "memchr",
  "nix",

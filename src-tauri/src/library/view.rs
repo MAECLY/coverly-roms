@@ -121,6 +121,9 @@ pub struct LibraryView {
     pub warnings: Vec<WarningView>,
     /// Scan + art resolution time.
     pub scan_ms: u64,
+    /// ROM-like files directly in the root or the ROMs folder, outside any
+    /// system folder: what "Organise loose files" offers to sort.
+    pub loose_files: usize,
 }
 
 /// Payload of the `library-scan-progress` event.

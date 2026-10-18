@@ -6,12 +6,17 @@ import { NativeSelect } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
-import type { ProfileInfo } from '@/ipc/types';
+import type {
+  OrganizeModeSetting,
+  OrganizeNameMode,
+  ProfileInfo,
+} from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import {
   Field,
+  hintText,
   sectionTitle,
   settingId,
   SwitchSetting,
@@ -57,6 +62,105 @@ function ListSetting({
         }}
       />
     </Field>
+  );
+}
+
+/** Defaults of the organise screen (organise spec §12); thresholds and
+ * lists stay in the settings file. */
+function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
+  const t = useT();
+  const org = useSettingsStore((s) => s.settings!.organize);
+  const update = useSettingsStore((s) => s.update);
+  const listed = profiles.some((p) => p.profile.id === org.default_layout);
+  return (
+    <fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
+      <legend className={`${sectionTitle} mb-4 p-0`}>
+        {t('settings.organize.title')}
+      </legend>
+      <Field
+        id={settingId('organize.default_layout')}
+        label={t('settings.organize.defaultLayout')}
+        error={useFieldError('organize.default_layout')}
+      >
+        <NativeSelect
+          name="organize-default-layout"
+          className="max-w-xs"
+          value={org.default_layout}
+          onChange={(e) =>
+            void update({ organize: { default_layout: e.target.value } })
+          }
+        >
+          {!listed && (
+            <option value={org.default_layout}>{org.default_layout}</option>
+          )}
+          {profiles.map((p) => (
+            <option key={p.profile.id} value={p.profile.id}>
+              {p.profile.name}
+            </option>
+          ))}
+        </NativeSelect>
+      </Field>
+      <SwitchSetting
+        id={settingId('organize.nest_in_roms_root')}
+        name="organize-nest-in-roms-root"
+        label={t('settings.organize.nestInRoms')}
+        checked={org.nest_in_roms_root}
+        onCheckedChange={(on) =>
+          void update({ organize: { nest_in_roms_root: on } })
+        }
+      />
+      <Field
+        id={settingId('organize.mode')}
+        label={t('settings.organize.mode')}
+        error={useFieldError('organize.mode')}
+      >
+        <NativeSelect
+          name="organize-mode"
+          className="max-w-xs"
+          value={org.mode}
+          onChange={(e) =>
+            void update({
+              organize: { mode: e.target.value as OrganizeModeSetting },
+            })
+          }
+        >
+          <option value="auto">{t('settings.organize.modeAuto')}</option>
+          <option value="move">{t('settings.organize.modeMove')}</option>
+          <option value="copy">{t('settings.organize.modeCopy')}</option>
+        </NativeSelect>
+      </Field>
+      <Field
+        id={settingId('organize.names')}
+        label={t('settings.organize.names')}
+        error={useFieldError('organize.names')}
+      >
+        <NativeSelect
+          name="organize-names"
+          className="max-w-xs"
+          value={org.names}
+          onChange={(e) =>
+            void update({
+              organize: { names: e.target.value as OrganizeNameMode },
+            })
+          }
+        >
+          <option value="keep">{t('settings.organize.namesKeep')}</option>
+          <option value="catalogue">
+            {t('settings.organize.namesCatalogue')}
+          </option>
+        </NativeSelect>
+      </Field>
+      <SwitchSetting
+        id={settingId('organize.download_dats')}
+        name="organize-download-dats"
+        label={t('settings.organize.downloadDats')}
+        checked={org.download_dats}
+        onCheckedChange={(on) =>
+          void update({ organize: { download_dats: on } })
+        }
+      />
+      <p className={hintText}>{t('settings.organize.advancedHint')}</p>
+    </fieldset>
   );
 }
 
@@ -160,6 +264,7 @@ export function LibrarySection() {
           void update({ library: { follow_symlinks: on } })
         }
       />
+      <OrganizeSettings profiles={profiles} />
       <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
         <EmptyState

@@ -1,12 +1,15 @@
 //! `coverly undo`: remove the files a fill job wrote and restore what it
-//! replaced.
+//! replaced, or put back the files an organise job moved (and remove its
+//! copies and the folders it created).
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use clap::Args;
 use coverly_core::paths::AppDirs;
-use coverly_core::write::{list_jobs, undo_job, undo_last, JobSummary};
+use coverly_core::write::{
+    later_jobs, list_jobs, undo_jobs_in_order, undo_last, JobKind, JobSummary, UndoReport,
+};
 
 use crate::{print_stdout, table, Failure};
 
@@ -18,6 +21,10 @@ pub struct UndoArgs {
     /// List recent jobs instead of undoing.
     #[arg(long, conflicts_with = "job")]
     list: bool,
+    /// With --job: also undo the newer jobs that wrote under its folder or
+    /// took files from it (newest first), instead of refusing.
+    #[arg(long, requires = "job")]
+    include_later: bool,
     /// Data folder (job journals and backups; default: the backup location
     /// setting, else the app data folder).
     #[arg(long, value_name = "DIR")]
@@ -39,11 +46,55 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
     if args.list {
         return print_stdout(&jobs_table(&list_jobs(&dirs.data).map_err(fail)?));
     }
-    let report = match &args.job {
-        Some(id) => undo_job(&dirs.data, id),
-        None => undo_last(&dirs.data),
+    let jobs = list_jobs(&dirs.data).map_err(fail)?;
+    let reports = match &args.job {
+        Some(id) => {
+            // Undoing a job under newer ones that wrote below its folder
+            // or moved its files on would orphan their work: refuse, or
+            // undo them first with --include-later.
+            let pending = jobs.iter().any(|j| &j.job == id && !j.undone);
+            let later = if pending {
+                later_jobs(&dirs.data, id).map_err(fail)?
+            } else {
+                Vec::new()
+            };
+            if !later.is_empty() && !args.include_later {
+                let ids: Vec<&str> = later.iter().map(|j| j.job.as_str()).collect();
+                return Err(fail(format!(
+                    "newer jobs changed the same folder: {}; undo them first, or pass --include-later to undo them too",
+                    ids.join(", ")
+                )));
+            }
+            let mut ids: Vec<String> = later.into_iter().map(|j| j.job).collect();
+            ids.push(id.clone());
+            undo_jobs_in_order(&dirs.data, &ids).map_err(fail)?
+        }
+        None => vec![undo_last(&dirs.data).map_err(fail)?],
+    };
+    let kind_of = |job: &str| {
+        jobs.iter()
+            .find(|j| j.job == job)
+            .map(|j| j.kind)
+            .unwrap_or_default()
+    };
+    let text: String = reports
+        .iter()
+        .map(|r| match kind_of(&r.job) {
+            JobKind::Organize => organize_text(r),
+            JobKind::Fill => fill_text(r),
+        })
+        .collect();
+    print_stdout(&text)
+}
+
+fn kind_name(kind: JobKind) -> &'static str {
+    match kind {
+        JobKind::Fill => "fill",
+        JobKind::Organize => "organize",
     }
-    .map_err(fail)?;
+}
+
+fn fill_text(report: &UndoReport) -> String {
     let mut text = format!(
         "Undid job {}: removed {}, restored {}",
         report.job,
@@ -61,7 +112,36 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
         }
     }
     text.push('\n');
-    print_stdout(&text)
+    text
+}
+
+/// `Undid organise job …: moved back 2, removed 0 copies, kept 0 changed,
+/// 2 folders removed`, then the files left as they are.
+fn organize_text(report: &UndoReport) -> String {
+    let mut text = format!(
+        "Undid organise job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
+        report.job,
+        report.restored.len(),
+        report.removed.len(),
+        report.skipped_modified.len(),
+        report.dirs_removed.len()
+    );
+    if !report.skipped_occupied.is_empty() {
+        let _ = write!(
+            text,
+            ", left {} whose original place is taken",
+            report.skipped_occupied.len()
+        );
+    }
+    for p in report
+        .skipped_modified
+        .iter()
+        .chain(&report.skipped_occupied)
+    {
+        let _ = write!(text, "\n  kept {}", p.display());
+    }
+    text.push('\n');
+    text
 }
 
 fn jobs_table(jobs: &[JobSummary]) -> String {
@@ -70,6 +150,7 @@ fn jobs_table(jobs: &[JobSummary]) -> String {
     }
     let mut rows = vec![vec![
         "JOB".to_string(),
+        "KIND".into(),
         "CREATED".into(),
         "ROOT".into(),
         "FILES".into(),
@@ -85,6 +166,7 @@ fn jobs_table(jobs: &[JobSummary]) -> String {
         };
         rows.push(vec![
             j.job.clone(),
+            kind_name(j.kind).into(),
             j.created_at.clone(),
             j.root.display().to_string(),
             j.entries.to_string(),

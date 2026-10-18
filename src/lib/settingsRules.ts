@@ -33,6 +33,18 @@ export const AVAILABLE_SOURCES: readonly SourceId[] = [
   'steamgriddb',
 ];
 
+/** Built-in profile ids (`builtin_profiles` in Rust). */
+export const BUILTIN_LAYOUTS: readonly string[] = [
+  'anbernic-stock',
+  'garlicos',
+  'onion',
+  'muos',
+  'minui',
+  'esde',
+  'batocera',
+  'retroarch',
+];
+
 export const DEFAULT_SETTINGS: Settings = {
   version: 2,
   general: {
@@ -113,6 +125,33 @@ export const DEFAULT_SETTINGS: Settings = {
     undo_depth: 10,
   },
   advanced: { log_level: 'info', custom_dir: null },
+  organize: {
+    default_layout: 'anbernic-stock',
+    nest_in_roms_root: true,
+    mode: 'auto',
+    names: 'keep',
+    download_dats: true,
+    auto_threshold: 0.85,
+    review_threshold: 0.5,
+    companion_exts: [
+      'sav',
+      'srm',
+      'rtc',
+      'state*',
+      'cht',
+      'ips',
+      'bps',
+      'ups',
+      'txt',
+      'nfo',
+      'png',
+      'jpg',
+    ],
+    folder_names: {},
+    arcade_order: {},
+    recent_seconds: 60,
+    keep_organize_journals_days: 90,
+  },
 };
 
 export const RANGES: readonly Range[] = [
@@ -128,6 +167,10 @@ export const RANGES: readonly Range[] = [
   { field: 'network.cache_max_mb', min: 64, max: 102400 },
   { field: 'network.index_refresh_hours', min: 1, max: 720 },
   { field: 'safety.undo_depth', min: 1, max: 100 },
+  { field: 'organize.auto_threshold', min: 0, max: 1 },
+  { field: 'organize.review_threshold', min: 0, max: 1 },
+  { field: 'organize.recent_seconds', min: 0, max: 3600 },
+  { field: 'organize.keep_organize_journals_days', min: 1, max: 3650 },
 ];
 
 export const GROUPS: readonly SettingsGroup[] = [
@@ -139,6 +182,7 @@ export const GROUPS: readonly SettingsGroup[] = [
   'network',
   'safety',
   'advanced',
+  'organize',
 ];
 
 export function cloneSettings(s: Settings): Settings {
@@ -207,6 +251,11 @@ const isMaxSizes: Kind = (v) =>
   );
 const isSourceEntry: Kind = (v) =>
   isObject(v) && isStr(v.id) && isBool(v.enabled);
+const isFolderNames: Kind = (v) =>
+  isObject(v) &&
+  Object.values(v).every((m) => isObject(m) && Object.values(m).every(isStr));
+const isArcadeOrders: Kind = (v) =>
+  isObject(v) && Object.values(v).every(listOf(isStr));
 
 const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
   general: {
@@ -263,6 +312,20 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
   advanced: {
     log_level: oneOf(['error', 'warn', 'info', 'debug']),
     custom_dir: isOptStr,
+  },
+  organize: {
+    default_layout: isStr,
+    nest_in_roms_root: isBool,
+    mode: oneOf(['auto', 'move', 'copy']),
+    names: oneOf(['keep', 'catalogue']),
+    download_dats: isBool,
+    auto_threshold: isNum,
+    review_threshold: isNum,
+    companion_exts: listOf(isStr),
+    folder_names: isFolderNames,
+    arcade_order: isArcadeOrders,
+    recent_seconds: isUint(),
+    keep_organize_journals_days: isUint(),
   },
 };
 
@@ -419,6 +482,30 @@ export function validateSettings(
   simple('safety.undo_depth', sf.undo_depth);
   if (s.advanced.custom_dir !== null && !isAbsolute(s.advanced.custom_dir))
     out.push(err('advanced.custom_dir', 'not-absolute'));
+  // `organize`: the mock has no system database, so folder names and
+  // arcade orders are only checked for a known layout (Rust also checks
+  // that they name real systems).
+  const o = s.organize;
+  // Built-in layouts always exist (Rust adds them to `known` too).
+  const layouts = [...known, ...BUILTIN_LAYOUTS];
+  const layoutKnown = (id: string) => layouts.includes(id);
+  if (!layoutKnown(o.default_layout.trim()))
+    out.push(err('organize.default_layout', 'unknown'));
+  simple('organize.auto_threshold', o.auto_threshold);
+  simple('organize.review_threshold', o.review_threshold);
+  if (o.review_threshold > o.auto_threshold)
+    out.push(err('organize.review_threshold', 'order'));
+  simple('organize.recent_seconds', o.recent_seconds);
+  simple('organize.keep_organize_journals_days', o.keep_organize_journals_days);
+  for (const id of Object.keys(o.folder_names))
+    if (!layoutKnown(id))
+      out.push(err(`organize.folder_names.${id}`, 'unknown'));
+  for (const [id, order] of Object.entries(o.arcade_order)) {
+    if (!layoutKnown(id))
+      out.push(err(`organize.arcade_order.${id}`, 'unknown'));
+    else if (new Set(order).size !== order.length)
+      out.push(err(`organize.arcade_order.${id}`, 'invalid'));
+  }
   return out;
 }
 
@@ -466,6 +553,12 @@ export function normaliseSettings(input: Settings): Settings {
     if (!order.some((o) => o.id === id)) order.push({ id, enabled: false });
   s.sources.order = order;
   s.network.proxy_url = s.network.proxy_url.trim();
+  s.organize.companion_exts = uniq(
+    s.organize.companion_exts
+      .map((e) => e.trim().replace(/^\.+/, '').toLowerCase())
+      .filter(Boolean),
+  );
+  s.organize.default_layout = s.organize.default_layout.trim();
   return s;
 }
 
@@ -484,9 +577,27 @@ export function tolerantSettings(
   let s = normaliseSettings(shaped.settings);
   for (const e of validateSettings(s, known)) {
     const [g, f] = e.field.split('.') as [SettingsGroup, string];
-    if (e.code === 'order') {
+    if (e.code === 'order' && g === 'organize') {
+      s.organize.auto_threshold = DEFAULT_SETTINGS.organize.auto_threshold;
+      s.organize.review_threshold = DEFAULT_SETTINGS.organize.review_threshold;
+    } else if (e.code === 'order') {
       s.matching.auto_threshold = DEFAULT_SETTINGS.matching.auto_threshold;
       s.matching.review_threshold = DEFAULT_SETTINGS.matching.review_threshold;
+    } else if (
+      g === 'organize' &&
+      (f === 'folder_names' || f === 'arcade_order')
+    ) {
+      // One layout's entry, like Rust: the other layouts' overrides stay.
+      const layout = e.field.slice(`organize.${f}.`.length).split('.')[0] ?? '';
+      if (f === 'folder_names') {
+        const names = { ...s.organize.folder_names };
+        delete names[layout];
+        s.organize.folder_names = names;
+      } else {
+        const orders = { ...s.organize.arcade_order };
+        delete orders[layout];
+        s.organize.arcade_order = orders;
+      }
     } else {
       const def = DEFAULT_SETTINGS[g] as unknown as Record<string, unknown>;
       (s[g] as unknown as Record<string, unknown>)[f] = structuredClone(def[f]);

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -12,6 +12,7 @@ import { dateBucket } from '@/lib/scope';
 import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
+import { useOrganizeStore } from '@/stores/organizeStore';
 import { stubLayout } from '@/test/layout';
 
 const SMALL = MOCK_LIBRARIES[1].path;
@@ -298,5 +299,30 @@ describe('Library screen', () => {
     expect(
       screen.getByRole('button', { name: 'Open folder…' }),
     ).toBeInTheDocument();
+  });
+
+  it('offers to organise loose files only when the scan saw some', async () => {
+    const view = await openLibrary();
+    expect(
+      screen.queryByRole('button', { name: 'Organise loose files…' }),
+    ).not.toBeInTheDocument();
+    act(() => useLibraryStore.setState({ view: { ...view, loose_files: 3 } }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Organise loose files…' }),
+    );
+    expect(useNavStore.getState()).toMatchObject({
+      screen: 'organize',
+      organizeSource: view.root,
+      organizeLaunch: {
+        layout: view.profile.id,
+        mode: 'move',
+        locked: true,
+        flat: view.profile.fitted,
+      },
+    });
+    act(() => {
+      useOrganizeStore.getState().reset();
+      useNavStore.getState().closeOrganize();
+    });
   });
 });

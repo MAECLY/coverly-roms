@@ -25,7 +25,17 @@
     "progressLabel": "Progreso del escaneo",
     "volumes": "Unidades conectadas",
     "noVolumes": "No se encontraron unidades ni tarjetas SD.",
-    "openVolume": "Abrir {name}"
+    "openVolume": "Abrir {name}",
+    "suggestSystemFolders": "Parece una carpeta organizada por sistema",
+    "organizeOffer": {
+      "title": "Esta carpeta no sigue ningún formato conocido",
+      "body": "Contiene {roms} archivos que parecen ROMs. Coverly puede proponerte una carpeta por sistema; no se mueve nada hasta que lo confirmes.",
+      "action": "Organizar esta carpeta…",
+      "other": "Elegir otra carpeta",
+      "openSorted": "Abrir como carpeta por sistema",
+      "broadRoot": "Es una carpeta personal amplia; solo se proponen archivos con pinta de ROM.",
+      "truncated": "Más de {count} archivos; se revisarán todos al organizar."
+    }
   },
   "settings": {
     "open": "Configuración",
@@ -218,6 +228,20 @@
       "resetBody": "Todos los ajustes vuelven a su valor predeterminado. Se conservan las bibliotecas recientes y se guarda una copia de la configuración actual.",
       "resetYes": "Restablecer configuración",
       "cancel": "Cancelar"
+    },
+    "organize": {
+      "title": "Organizar",
+      "defaultLayout": "Formato por defecto",
+      "nestInRoms": "Poner las carpetas de sistema dentro de la carpeta de ROMs del formato",
+      "mode": "Modo",
+      "modeAuto": "Mover en la misma unidad, copiar si no",
+      "modeMove": "Mover",
+      "modeCopy": "Copiar",
+      "names": "Nombres",
+      "namesKeep": "Conservar los nombres",
+      "namesCatalogue": "Usar el nombre del catálogo",
+      "downloadDats": "Descargar catálogos de juegos para identificar las ROMs por su contenido",
+      "advancedHint": "Los umbrales y las listas se editan en Avanzado (archivo de ajustes)."
     }
   },
   "about": {
@@ -267,7 +291,8 @@
     },
     "empty": "No se han encontrado ROMs en esta carpeta.",
     "emptyHint": "Comprueba que has elegido la tarjeta SD o su carpeta de ROMs. Avisos: {n}.",
-    "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros."
+    "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros.",
+    "organizeLoose": "Organizar archivos sueltos…"
   },
   "footer": {
     "version": "Versión {version}",
@@ -333,6 +358,10 @@
     "update-failed": "No se pudo instalar la actualización: {detail}",
     "update-not-ready": "Busca actualizaciones primero.",
     "art-unreadable": "No se puede mostrar esta imagen.",
+    "cancelled": "Cancelado.",
+    "no-plan": "Ese plan de organización ya no se conserva. Vuelve a planificar.",
+    "later-jobs": "Trabajos posteriores cambiaron archivos en esta carpeta ({detail}). Deshazlos también o conserva esta organización.",
+    "no-space": "No hay espacio libre suficiente para esta copia (bytes necesarios/libres: {detail}).",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
@@ -587,6 +616,11 @@
     "undoConfirm": "¿Deshacer el último trabajo? Se quitan las imágenes escritas y se restauran las sustituidas; las que hayas cambiado después se conservan.",
     "undoYes": "Deshacer",
     "undoNo": "Conservar",
+    "organizeUndo": {
+      "label": "Deshacer la organización del {date}",
+      "title": "¿Deshacer la organización del {date}?",
+      "confirm": "Los archivos vuelven a donde estaban; los que hayas cambiado después se quedan donde están."
+    },
     "undone": "Deshecho: {removed} quitadas, {restored} restauradas, {kept} conservadas porque las cambiaste.",
     "history": "Historial",
     "noHistory": "Todavía no hay trabajos.",
@@ -597,7 +631,11 @@
     "undoneBadge": "Deshecho",
     "close": "Cerrar",
     "unknownDate": "Fecha desconocida",
-    "unknownError": "Problema desconocido"
+    "unknownError": "Problema desconocido",
+    "kind": {
+      "fill": "Portadas",
+      "organize": "Organización"
+    }
   },
   "review": {
     "title": "Revisar coincidencias dudosas",
@@ -698,6 +736,156 @@
       "slotsOrder": "O todas las plantillas usan {rel_dir} o ninguna.",
       "slotsRequired": "Activa al menos un hueco."
     }
+  },
+  "organize": {
+    "title": "Organizar por sistema",
+    "back": "Volver",
+    "layout": "Formato",
+    "confidence": {
+      "label": "Confianza",
+      "high": "Alta",
+      "medium": "Media"
+    },
+    "why": {
+      "hash": "CRC {crc} en el catálogo de {system}: {name}",
+      "header": "La cabecera es de {system} ({detail})",
+      "extension": "Extensión .{ext}, propia de {system}",
+      "extensionShared": "Extensión .{ext}, compartida por varios sistemas; probablemente {system}",
+      "extensionContradicted": "Extensión .{ext} de {system}, pero la cabecera no coincide",
+      "name": "El nombre se parece a {name} ({system})",
+      "online": "ScreenScraper lo conoce como {name} ({system})",
+      "user": "Elegido por ti"
+    },
+    "left": {
+      "files": "Archivos que se quedan donde están",
+      "partialDownload": "Descarga sin terminar",
+      "recent": "Modificado hace un momento; puede que aún se esté descargando",
+      "cloudOnly": "Está en la nube, sin descargar",
+      "notARom": "No es una ROM ({what})",
+      "webPage": "página web",
+      "text": "texto",
+      "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
+      "damagedArchive": "Archivo comprimido dañado",
+      "unsupportedArchive": "Formato comprimido no compatible",
+      "multiGameArchive": "Comprimido con varios juegos; descomprímelo antes",
+      "unsupportedSystem": "Sistema no compatible ({name})",
+      "unknown": "Sistema desconocido",
+      "duplicate": "Igual que {name}",
+      "alreadyPresent": "Ya está en {path}",
+      "alreadySorted": "Ya está en la carpeta de sistema {folder}",
+      "symlink": "Enlace simbólico; se deja tal cual",
+      "setIncomplete": "Faltan archivos del juego: {missing}",
+      "setOutsideFolder": "Parte de sus archivos está fuera de esta carpeta",
+      "sharedTrack": "Pista compartida por varios juegos",
+      "ambiguousCompanion": "Acompaña a varias ROMs; no se sabe con cuál ir",
+      "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
+      "unreadable": "No se puede leer",
+      "collisionSet": "Otro juego ya usa esos nombres en el destino",
+      "title": "Se quedan donde están"
+    },
+    "planning": "Identificando {done} de {total}…",
+    "walking": "Buscando archivos…",
+    "summary": "ROMs: {roms} · Sistemas: {systems} · Por revisar: {review} · Se quedan: {left}",
+    "empty": {
+      "title": "Nada que archivar",
+      "body": "Ningún archivo de aquí necesita una carpeta de sistema."
+    },
+    "dryRunHint": "Es una propuesta. Todavía no se ha movido nada.",
+    "cancel": "Cancelar",
+    "otherFiles": "Otros archivos: {count}",
+    "deepFolders": "Carpetas más profundas no revisadas: {count}",
+    "target": {
+      "label": "Destino",
+      "here": "Esta carpeta",
+      "other": "Otra carpeta…",
+      "detected": "El destino ya es una biblioteca {profile}; se usa ese formato.",
+      "mismatch": "El destino usa {profile}; las carpetas nuevas no se verán en ese sistema."
+    },
+    "nest": {
+      "label": "Carpetas",
+      "roms": "Dentro de {folder}/",
+      "flat": "Directamente aquí"
+    },
+    "mode": {
+      "label": "Modo",
+      "move": "Mover",
+      "copy": "Copiar",
+      "moveDisabled": "No se puede mover: la carpeta de origen es de solo lectura."
+    },
+    "names": {
+      "label": "Nombres",
+      "keep": "Conservar los nombres",
+      "catalogue": "Usar el nombre del catálogo"
+    },
+    "review": {
+      "title": "Por revisar",
+      "hint": "Elige el sistema de cada archivo o déjalo donde está.",
+      "leave": "Dejar donde está",
+      "bucket": "{systems}: {count}",
+      "applyCount": "Aplicar a {count} archivos",
+      "applyOne": "Aplicar a 1 archivo",
+      "likely": "Más probable: {systems}",
+      "likelyThen": "; luego, ",
+      "choose": "Elige un sistema…",
+      "systemFor": "Sistema para {name}",
+      "items": "Archivos: {count}"
+    },
+    "renamed": "Se guardará como {name} porque ya existe otro distinto",
+    "renamedFrom": "Renombrado; antes era {name}",
+    "renamedShort": "Nombre acortado para no superar la longitud máxima de ruta",
+    "multiRomZip": "Contiene {count} ROMs; la consola cargará solo la primera.",
+    "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
+    "noCatalogue": "Sin catálogo de {system}: decidido por {level}",
+    "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
+    "level": {
+      "hash": "catálogo",
+      "header": "cabecera",
+      "extension": "extensión",
+      "name": "nombre",
+      "online": "ScreenScraper",
+      "user": "tu elección"
+    },
+    "apply": "Organizar {count} archivos",
+    "exportPlan": "Exportar plan (JSON)",
+    "exported": "Plan guardado como {name}.",
+    "openLibrary": "Abrir biblioteca",
+    "showMore": "Mostrar {count} más",
+    "applying": "Moviendo {done} de {total}…",
+    "copying": "Copiando {done} de {total}…",
+    "organizing": "Organizando {done} de {total}…",
+    "starting": "Empezando…",
+    "progressLabel": "Progreso de la organización",
+    "resultTitle": "Resultado",
+    "pausedTitle": "En pausa",
+    "result": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
+    "copiedNotRemoved": "Copiado; el original no se pudo borrar",
+    "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
+    "stopped": "Detenido. Lo ya organizado se queda; Deshacer lo devuelve a su sitio.",
+    "details": "Qué ha pasado con cada archivo",
+    "outcome": {
+      "moved": "Movido",
+      "copied": "Copiado",
+      "failed": "Error: {reason}",
+      "skipped": {
+        "changed-since-plan": "Omitido: ha cambiado desde la propuesta",
+        "source-missing": "Omitido: ya no está",
+        "already-present": "Omitido: ya está en el destino",
+        "collision-set": "Omitido: otro juego ya usa esos nombres",
+        "not-decided": "Omitido: sin sistema elegido",
+        "cancelled": "Omitido: se detuvo antes de llegar"
+      }
+    },
+    "undo": {
+      "action": "Deshacer",
+      "actionCount": "Deshacer {count} archivos",
+      "confirmTitle": "¿Deshacer esta organización?",
+      "laterJobs": "Primero hay que deshacer: {jobs}",
+      "laterJob": "{kind} {date}",
+      "all": "Deshacer todo en orden"
+    },
+    "undone": "Restaurados: {restored} · Sin tocar por cambios: {modified}",
+    "resume": "Reanudar",
+    "interrupted": "Interrumpido"
   },
   "ui": {
     "close": "Cerrar",

@@ -438,6 +438,52 @@ describe('settings sections', () => {
     expect(await backend.cacheUsage()).toBe(0);
   });
 
+  it('library: the organise defaults show and save', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Organise' });
+    const layout = within(group).getByRole('combobox', {
+      name: 'Default layout',
+    });
+    await waitFor(() =>
+      expect(
+        within(layout).getByRole('option', { name: 'ES-DE' }),
+      ).toBeInTheDocument(),
+    );
+    expect(layout).toHaveValue('anbernic-stock');
+    const nest = within(group).getByRole('switch', {
+      name: "Put the system folders inside the layout's ROMs folder",
+    });
+    expect(nest).toBeChecked();
+    const mode = within(group).getByRole('combobox', { name: 'Mode' });
+    expect(mode).toHaveValue('auto');
+    await userEvent.selectOptions(layout, 'esde');
+    await userEvent.click(nest);
+    await userEvent.selectOptions(mode, 'copy');
+    await userEvent.selectOptions(
+      within(group).getByRole('combobox', { name: 'Names' }),
+      'catalogue',
+    );
+    await userEvent.click(
+      within(group).getByRole('switch', {
+        name: 'Download game catalogues to identify ROMs by their contents',
+      }),
+    );
+    expect(
+      within(group).getByText(
+        'Thresholds and lists are edited in Advanced (settings file).',
+      ),
+    ).toBeInTheDocument();
+    await waitFor(async () =>
+      expect((await saved()).organize).toMatchObject({
+        default_layout: 'esde',
+        nest_in_roms_root: false,
+        mode: 'copy',
+        names: 'catalogue',
+        download_dats: false,
+      }),
+    );
+  });
+
   it('safety: backups are locked on; the rest saves', async () => {
     await open('safety');
     expect(

@@ -9,6 +9,17 @@ import {
 } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,14 +34,19 @@ import { Progress } from '@/components/ui/progress';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
-import { errorKey } from '@/ipc/errors';
+import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import type {
   ExportFormat,
+  JobHistoryItem,
   JobItemView,
   JobTotals,
   LibraryView,
 } from '@/ipc/types';
+import { undoCounts } from '@/components/organize/undoCounts';
 import { isRunning, useJobStore } from '@/stores/jobStore';
+import { useLibraryStore } from '@/stores/libraryStore';
+import { useNavStore } from '@/stores/navStore';
+import { useOrganizeStore } from '@/stores/organizeStore';
 
 const TOTALS: readonly (keyof JobTotals)[] = [
   'filled',
@@ -80,6 +96,16 @@ export function JobsPanel({
     items: JobItemView[];
   } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /** The organise job whose undo awaits confirmation, in its history row. */
+  const [organizeConfirm, setOrganizeConfirm] = useState<string | null>(null);
+  const [organizeBusy, setOrganizeBusy] = useState(false);
+  const [organizeUndo, setOrganizeUndo] = useState<{
+    job: string;
+    done: { restored: number; modified: number } | null;
+    error: BackendError | null;
+  } | null>(null);
+  /** An organise undo moved ROMs: the open library rescans on close. */
+  const moved = useRef(false);
   const running = isRunning(job);
   const jobId = job?.id ?? null;
   const state = job?.state ?? null;
@@ -121,11 +147,15 @@ export function JobsPanel({
 
   const errors = finished && failed?.job === jobId ? failed.items : [];
   const p = progress && job && progress.job === job.id ? progress : null;
-  // Rust refuses while paused and only undoes journals of the open library.
+  // Rust refuses while paused and only undoes fill journals of the open
+  // library (an organise job is undone from its history row below, which
+  // checks later jobs first).
   const canUndo =
     !running &&
     job?.state !== 'paused' &&
-    history.some((h) => !h.undone && h.root === view.root);
+    history.some(
+      (h) => !h.undone && h.root === view.root && h.kind !== 'organize',
+    );
 
   // Journal headers come from disk and may be empty or garbage.
   function when(createdAt: string) {
@@ -138,13 +168,62 @@ export function JobsPanel({
     if (name) setSaved(name);
   }
 
+  /** An interrupted organise job resumes on the organise screen. */
+  function resumeOrganize(job: string, source: string) {
+    void useOrganizeStore.getState().resumeJob(job, source);
+    useNavStore.getState().openOrganize(source);
+  }
+
   async function undo() {
     setConfirming(false);
     await undoLast(view.generation);
   }
 
+  /** Organise spec §4.3: an organise job is also undone later from the
+   * history; newer jobs that wrote under it are listed first. */
+  async function undoOrganize(job: string, includeLater: boolean) {
+    setOrganizeConfirm(null);
+    setOrganizeBusy(true);
+    try {
+      const b = await getBackend();
+      const result = await b.organizeUndo(job, includeLater);
+      moved.current = true;
+      setOrganizeUndo({ job, done: undoCounts(result), error: null });
+      await loadHistory();
+    } catch (e) {
+      setOrganizeUndo({ job, done: null, error: toBackendError(e) });
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  function laterJobs(detail: string | undefined) {
+    return (detail ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((id) => {
+        const h = history.find((x: JobHistoryItem) => x.job === id);
+        return h
+          ? t('organize.undo.laterJob', {
+              kind: t(`jobs.kind.${h.kind}`),
+              date: when(h.created_at),
+            })
+          : id;
+      })
+      .join(', ');
+  }
+
+  function close() {
+    if (moved.current) {
+      moved.current = false;
+      void useLibraryStore.getState().open(view.root, view.profile.id);
+    }
+    onClose();
+  }
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
         size="lg"
         hideClose
@@ -367,6 +446,7 @@ export function JobsPanel({
               <ul className="history-list" aria-labelledby="jobs-history">
                 {history.map((h) => (
                   <li key={h.job} className="items-center">
+                    <span>{t(`jobs.kind.${h.kind}`)}</span>
                     <span>{when(h.created_at)}</span>
                     <span className="tabular-nums">
                       {h.entries === 1
@@ -377,9 +457,78 @@ export function JobsPanel({
                       <Badge variant="neutral">{t('jobs.undoneBadge')}</Badge>
                     ) : h.complete ? (
                       <Badge variant="success">{t('jobs.complete')}</Badge>
+                    ) : h.kind === 'organize' ? (
+                      <Badge variant="warning">
+                        {t('organize.interrupted')}
+                      </Badge>
                     ) : (
                       <Badge variant="warning">{t('jobs.incomplete')}</Badge>
                     )}
+                    <span className="flex flex-wrap justify-end gap-1">
+                      {h.kind === 'organize' &&
+                        !h.complete &&
+                        !h.undone &&
+                        h.undoable && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={running}
+                            onClick={() => resumeOrganize(h.job, h.root)}
+                          >
+                            {t('organize.resume')}
+                          </Button>
+                        )}
+                      {h.kind === 'organize' && !h.undone && h.undoable && (
+                        <AlertDialog
+                          open={organizeConfirm === h.job}
+                          onOpenChange={(on) =>
+                            setOrganizeConfirm(on ? h.job : null)
+                          }
+                        >
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={running || organizeBusy}
+                              aria-label={t('jobs.organizeUndo.label', {
+                                date: when(h.created_at),
+                              })}
+                            >
+                              <Undo2 aria-hidden />
+                              {t('organize.undo.action')}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {t('jobs.organizeUndo.title', {
+                                  date: when(h.created_at),
+                                })}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t('jobs.organizeUndo.confirm')}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                {t('jobs.undoNo')}
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                disabled={running || organizeBusy}
+                                onClick={() => void undoOrganize(h.job, false)}
+                              >
+                                {h.entries > 0
+                                  ? t('organize.undo.actionCount', {
+                                      count: n.format(h.entries),
+                                    })
+                                  : t('jobs.undoYes')}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -390,9 +539,45 @@ export function JobsPanel({
               {t(errorKey(error.code), { detail: error.detail ?? '' })}
             </Alert>
           )}
+          {organizeUndo?.done && (
+            <Alert variant="success">
+              <p className="m-0 tabular-nums">
+                {t('organize.undone', organizeUndo.done)}
+              </p>
+            </Alert>
+          )}
+          {organizeUndo?.error?.code === 'later-jobs' && (
+            <Alert
+              variant="warning"
+              role="alert"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={running || organizeBusy}
+                  onClick={() => void undoOrganize(organizeUndo.job, true)}
+                >
+                  {t('organize.undo.all')}
+                </Button>
+              }
+            >
+              <p className="m-0">
+                {t('organize.undo.laterJobs', {
+                  jobs: laterJobs(organizeUndo.error.detail),
+                })}
+              </p>
+            </Alert>
+          )}
+          {organizeUndo?.error && organizeUndo.error.code !== 'later-jobs' && (
+            <Alert variant="danger">
+              {t(errorKey(organizeUndo.error.code), {
+                detail: organizeUndo.error.detail ?? '',
+              })}
+            </Alert>
+          )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={close}>
             {t('jobs.close')}
           </Button>
         </DialogFooter>

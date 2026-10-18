@@ -839,6 +839,11 @@ time {
   unicode-bidi: plaintext;
 }
 
+/* Kind, date, files, status, row actions (organise resume/undo). */
+.history-list li {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+
 /* Settings screen (spec §9). */
 .settings-screen {
   display: flex;

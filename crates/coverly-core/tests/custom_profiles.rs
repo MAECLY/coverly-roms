@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use coverly_core::profiles::custom::*;
-use coverly_core::profiles::{builtin_profiles, ImageFormat, Media};
+use coverly_core::profiles::{builtin_profiles, FolderNaming, ImageFormat, Media};
 use coverly_core::settings::FieldErrorCode;
 use coverly_core::systems::SystemDb;
 
@@ -28,6 +28,9 @@ fn sample() -> ProfileFile {
                 max_height: Some(360),
             },
         )]),
+        system_folder: FolderNaming::default(),
+        folder_names: BTreeMap::new(),
+        host_folders: BTreeMap::new(),
     }
 }
 
@@ -304,4 +307,84 @@ fn folders_and_links_named_like_profiles_are_skipped_with_a_warning() {
     let (loaded, warnings) = ProfileStore::new(pdir).load();
     assert!(loaded.is_empty());
     assert_eq!(warnings.len(), 2, "{warnings:?}");
+}
+
+#[test]
+fn folder_names_must_resolve_to_their_system() {
+    let mut p = sample();
+    p.folder_names.insert("gba".into(), "GBA".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    p.folder_names.insert("snes".into(), "GBA".into());
+    p.folder_names.insert("nes".into(), "My Stuff".into());
+    assert!(has(&p, "folder_names.snes", FieldErrorCode::Invalid));
+    assert!(has(&p, "folder_names.nes", FieldErrorCode::Invalid));
+    assert!(!has(&p, "folder_names.gba", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn folder_naming_round_trips_and_defaults_stay_out_of_the_file() {
+    let plain = sample();
+    let text = plain.to_toml();
+    assert!(!text.contains("system_folder"), "{text}");
+    assert!(!text.contains("folder_names"), "{text}");
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), plain);
+
+    let mut named = sample();
+    named.system_folder = FolderNaming::Id;
+    named.folder_names.insert("gba".into(), "gba".into());
+    let text = named.to_toml();
+    assert!(text.contains("system_folder = \"id\""), "{text}");
+    let back = ProfileFile::parse_toml(&text).unwrap();
+    assert_eq!(back, named);
+    assert_eq!(back.to_profile().system_folder, FolderNaming::Id);
+
+    let esde = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "esde")
+        .unwrap();
+    assert_eq!(
+        ProfileFile::from_profile(&esde).system_folder,
+        FolderNaming::Id
+    );
+}
+
+#[test]
+fn a_copy_of_the_anbernic_layout_keeps_its_shared_folders() {
+    use coverly_core::profiles::naming::system_folder;
+    let stock = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "anbernic-stock")
+        .unwrap();
+    let mut file = ProfileFile::from_profile(&stock);
+    file.id = "my-anbernic".into();
+    assert!(errors(&file).is_empty(), "{:?}", errors(&file));
+    let back = ProfileFile::parse_toml(&file.to_toml()).unwrap();
+    assert_eq!(back, file);
+    let copy = back.to_profile();
+    assert_eq!(copy.host_folders, stock.host_folders);
+    let db = SystemDb::builtin();
+    let ngpc = system_folder(&copy, db.get("ngpc").unwrap(), &db, &BTreeMap::new());
+    assert_eq!(ngpc.folder, "NGP");
+
+    let plain = sample();
+    assert!(!plain.to_toml().contains("host_folders"));
+}
+
+#[test]
+fn host_folders_must_name_two_different_known_systems() {
+    let mut p = sample();
+    p.host_folders.insert("ngpc".into(), "ngp".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    p.host_folders.insert("nope".into(), "ngp".into());
+    p.host_folders.insert("gba".into(), "gba".into());
+    p.host_folders
+        .insert("wonderswancolor".into(), "zzz".into());
+    assert!(has(&p, "host_folders.nope", FieldErrorCode::Invalid));
+    assert!(has(&p, "host_folders.gba", FieldErrorCode::Invalid));
+    assert!(has(
+        &p,
+        "host_folders.wonderswancolor",
+        FieldErrorCode::Invalid
+    ));
+    assert!(!has(&p, "host_folders.ngpc", FieldErrorCode::Invalid));
 }

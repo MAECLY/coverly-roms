@@ -233,3 +233,17 @@ fn broken_symlink_is_a_warning() {
     assert_eq!(scan.warnings[0].path, link);
     assert_eq!(stems(system(&scan, "SFC")), ["MARIO", "Zelda (USA)"]);
 }
+
+#[test]
+fn partial_downloads_are_not_roms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let gba = tmp.path().join("ROMS/GBA");
+    std::fs::create_dir_all(&gba).unwrap();
+    std::fs::write(gba.join("Done.gba"), b"x").unwrap();
+    std::fs::write(gba.join("Half.gba.crdownload"), b"x").unwrap();
+    // A colon is not a valid file-name character on Windows.
+    #[cfg(unix)]
+    std::fs::write(gba.join("Done.gba:Zone.Identifier"), b"x").unwrap();
+    let scan = scan(tmp.path(), "anbernic-stock");
+    assert_eq!(stems(system(&scan, "GBA")), ["Done"]);
+}

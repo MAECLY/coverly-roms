@@ -76,6 +76,15 @@ pub enum IpcError {
     UpdateFailed(String),
     #[error("check for updates first")]
     UpdateNotReady,
+    #[error("cancelled")]
+    Cancelled,
+    #[error("that organise plan is no longer kept; plan again")]
+    NoPlan,
+    #[error("newer jobs wrote under this folder: {0}")]
+    LaterJobs(String),
+    /// Detail: `"<needed>/<free>"` bytes.
+    #[error("not enough space (needed/free bytes): {0}")]
+    NoSpace(String),
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {
@@ -87,7 +96,9 @@ impl From<coverly_core::write::WriteError> for IpcError {
             W::Denied(p) => IpcError::WriteDenied(p.display().to_string()),
             W::DiskFull => IpcError::DiskFull,
             W::NothingToUndo => IpcError::NothingToUndo,
-            other @ (W::NotAFile(_) | W::Journal(_) | W::Io(_)) => IpcError::Io(other.to_string()),
+            other @ (W::NotAFile(_) | W::CrossDevice(_) | W::Journal(_) | W::Io(_)) => {
+                IpcError::Io(other.to_string())
+            }
         }
     }
 }
@@ -136,6 +147,10 @@ mod tests {
             IpcError::WriteDenied(_)
         ));
         assert!(matches!(
+            IpcError::from(WriteError::CrossDevice("/sd/x.gba".into())),
+            IpcError::Io(_)
+        ));
+        assert!(matches!(
             IpcError::from(coverly_core::fill::ArtError::BadQuery),
             IpcError::BadRequest(_)
         ));
@@ -155,5 +170,21 @@ mod tests {
         );
         let json = serde_json::to_value(IpcError::JobRunning).unwrap();
         assert_eq!(json, serde_json::json!({ "code": "job-running" }));
+        assert_eq!(
+            serde_json::to_value(IpcError::NoPlan).unwrap(),
+            serde_json::json!({ "code": "no-plan" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::Cancelled).unwrap(),
+            serde_json::json!({ "code": "cancelled" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::NoSpace("2000/1000".into())).unwrap(),
+            serde_json::json!({ "code": "no-space", "detail": "2000/1000" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::LaterJobs("a, b".into())).unwrap(),
+            serde_json::json!({ "code": "later-jobs", "detail": "a, b" })
+        );
     }
 }

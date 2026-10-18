@@ -12,8 +12,9 @@ import type {
   RecentLibrary,
   ScanProgress,
 } from '../types';
-import { generateLibrary } from './fixture';
+import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
+import { createMockOrganize, readMockPick } from './mockOrganize';
 import { createMockSettings } from './mockSettings';
 import {
   createMockUpdates,
@@ -24,6 +25,7 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
+export { MOCK_DOWNLOADS, MOCK_MIXED, MOCK_PICK_KEY } from './mockOrganize';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -44,9 +46,15 @@ export interface MockOptions {
   /** Where settings, custom profiles and credential presence persist
    * (default: `window.localStorage` when usable; null = memory only). */
   storage?: Storage | null;
+  /** The first organise apply of each job pauses (disk full) after this
+   * many items; null = never (default). */
+  organizePauseAfter?: number | null;
   /** What the updater answers (default: `?mockUpdate=`, then localStorage
    * `coverly.mock.update`, then `up-to-date`). */
   update?: MockUpdateScenario;
+  /** What "Open folder…" picks (default: `?mockPick=`, then localStorage
+   * `coverly.mock.pick`, then the first fixture library). */
+  folder?: string;
 }
 
 export interface MockBackend extends Backend {
@@ -83,6 +91,7 @@ const handheld = (id: string, name: string, romsRoot: string): ProfileInfo => ({
     roms_root: romsRoot,
     art_dirs: ['Imgs'],
     gamelist: false,
+    host_folders: { ngpc: 'ngp', wonderswancolor: 'wonderswan' },
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
@@ -116,6 +125,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'ROMS',
       art_dirs: [],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png('{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png'),
         screenshot: png(
@@ -145,6 +155,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'ROMs',
       art_dirs: [],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png(
           '{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png',
@@ -167,6 +178,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],
       gamelist: true,
+      system_folder: 'id',
       slots: {
         cover: png('{system_dir}/images/{stem}-image.png'),
         screenshot: png('{system_dir}/images/{stem}-screenshot.png'),
@@ -183,6 +195,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       roms_root: '',
       art_dirs: ['thumbnails'],
       gamelist: false,
+      system_folder: 'id',
       slots: {
         cover: png('{root}/thumbnails/{libretro}/Named_Boxarts/{stem}.png'),
         screenshot: png('{root}/thumbnails/{libretro}/Named_Snaps/{stem}.png'),
@@ -238,11 +251,25 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
       sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
+      organizing: () => organize.isApplying(),
     },
     {
       pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
       pick: opts.pick ?? 'image',
     },
+  );
+  const organize = createMockOrganize(
+    {
+      settings: () => settings.current().organize,
+      profiles: () => settings.listProfiles(),
+      fillHistory: () => jobs.jobHistory(),
+      undoFill: (job) => jobs.undoJournal(job),
+      fillBusy: () => jobs.isBusy(),
+      tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
+      now,
+      exports: jobs.exports,
+    },
+    { pauseAfter: opts.organizePauseAfter ?? null },
   );
   const updateLog: string[] = [];
   const updates = createMockUpdates({
@@ -282,6 +309,18 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     ...jobs,
     ...settings,
     ...updates,
+    ...organize,
+    async jobHistory() {
+      // Fill and organise journals, newest first (ISO stamps sort as text).
+      const all = [...(await jobs.jobHistory()), ...organize.history()];
+      return all.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+    listSystems: () =>
+      Promise.resolve(
+        FIXTURE_SYSTEMS.map(({ id, name }) => ({ id, name })).sort((a, b) =>
+          a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+        ),
+      ),
     updateLog,
     kind: 'mock',
     revealed,
@@ -292,14 +331,17 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       // Like the real backend: announce the generation before any work.
       emit({ done: 0, total: 0, folder: '', roms: 0 });
       const lib = MOCK_LIBRARIES.find((l) => l.path === path);
-      if (!lib) throw new BackendError('not-found', path);
-      const view = generateLibrary({
-        seed: lib.seed,
-        count: lib.count,
-        root: lib.path,
-        generation: gen,
-        now,
-      });
+      // A pile organised by the mock opens with its layout; a loose one is `no-profile`.
+      const view = lib
+        ? generateLibrary({
+            seed: lib.seed,
+            count: lib.count,
+            root: lib.path,
+            generation: gen,
+            now,
+          })
+        : organize.library(path, gen);
+      if (!view) throw new BackendError('not-found', path);
       let roms = 0;
       for (const [i, s] of view.systems.entries()) {
         await sleep(delayMs);
@@ -400,7 +442,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       entryOf(gen, id);
       revealed.push(id);
     },
-    pickFolder: () => Promise.resolve(MOCK_LIBRARIES[0].path),
+    pickFolder: () =>
+      Promise.resolve(opts.folder ?? readMockPick() ?? MOCK_LIBRARIES[0].path),
     onFolderDrop(cb) {
       const over = (ev: Event) => ev.preventDefault();
       const drop = (ev: Event) => {

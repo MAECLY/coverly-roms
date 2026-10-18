@@ -55,6 +55,17 @@ describe('mock backend', () => {
     expect(seen).toEqual([1]);
   });
 
+  it('lists the fixture systems by name', async () => {
+    const systems = await createMockBackend({ delayMs: 0 }).listSystems();
+    expect(systems).toContainEqual({ id: 'gba', name: 'Game Boy Advance' });
+    const names = systems.map((s) => s.name);
+    expect(names).toEqual(
+      [...names].sort((a, b) =>
+        a.localeCompare(b, 'en', { sensitivity: 'base' }),
+      ),
+    );
+  });
+
   it('rejects unknown folders as not-found', async () => {
     await expect(backend().openLibrary('/mock/Broken')).rejects.toMatchObject({
       code: 'not-found',

@@ -13,6 +13,7 @@ import type {
   EntryArtUpdate,
   ExportFormat,
   FillRequest,
+  FolderProbe,
   IdentityView,
   ItemFilter,
   JobHistoryItem,
@@ -24,9 +25,16 @@ import type {
   LibraryView,
   LinkId,
   Media,
+  OrganizeDecision,
+  OrganizeJobView,
+  OrganizePlanView,
+  OrganizeProgressEvent,
+  OrganizeRequest,
+  OrganizeUndoView,
   PreviewExample,
   ProfileFile,
   ProfileInfo,
+  SystemInfo,
   ProfilePreview,
   ProfileSaveOutcome,
   RecentLibrary,
@@ -111,6 +119,37 @@ export interface Backend {
   exportAudit(generation: number, format: ExportFormat): Promise<string | null>;
   exportJobReport(job: number, format: ExportFormat): Promise<string | null>;
 
+  /* Organising a loose pile (organise spec §4, §11): the backend keeps
+   * each dry run; the UI sends back only its id and the decisions. */
+  /** A quick, name-only look at a folder no layout was detected in. */
+  probeFolder(path: string): Promise<FolderProbe>;
+  /** Plans organising `request.source` (progress via `onOrganizeProgress`). */
+  organizePlan(
+    request: OrganizeRequest,
+    decisions?: OrganizeDecision[],
+  ): Promise<OrganizePlanView>;
+  /** Stops planning `planId`; its `organizePlan` rejects with `cancelled`. */
+  organizeCancel(planId: number): Promise<void>;
+  /** Starts applying plan `planId`; the end arrives via `onOrganizeChanged`.
+   * `job-running` while a fill job runs or is paused (and fills refuse meanwhile). */
+  organizeApply(
+    planId: number,
+    decisions: OrganizeDecision[],
+  ): Promise<OrganizeJobView>;
+  /** Continues a paused or interrupted organise job into its journal. */
+  organizeResume(job: string): Promise<OrganizeJobView>;
+  /** Stops the running organise apply before its next item. */
+  organizeCancelApply(): Promise<void>;
+  /** Undoes organise job `job`; newer jobs under it refuse with
+   * `later-jobs` unless `includeLater`. */
+  organizeUndo(job: string, includeLater: boolean): Promise<OrganizeUndoView>;
+  /** Saves plan `planId` as JSON through a native dialog; null when cancelled. */
+  organizeExportPlan(planId: number): Promise<string | null>;
+  onOrganizeProgress(
+    cb: (e: OrganizeProgressEvent) => void,
+  ): Promise<() => void>;
+  onOrganizeChanged(cb: (v: OrganizeJobView) => void): Promise<() => void>;
+
   /* Settings (§9): field problems come back as data, not errors. */
   getSettings(): Promise<SettingsView>;
   updateSettings(patch: SettingsPatch): Promise<SettingsUpdate>;
@@ -128,6 +167,8 @@ export interface Backend {
 
   /* Layout profiles: built-ins read-only, custom ones editable. */
   listProfiles(): Promise<ProfileInfo[]>;
+  /** The systems Coverly knows, by name (organise pickers). */
+  listSystems(): Promise<SystemInfo[]>;
   /** `replaces` = the id the profile had (a rename), null for a new one. */
   saveProfile(
     profile: ProfileFile,

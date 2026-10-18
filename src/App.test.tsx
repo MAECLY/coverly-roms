@@ -8,6 +8,7 @@ import { setBackend } from './ipc/backend';
 import { createMockBackend } from './ipc/mock/mockBackend';
 import { createTauriBackend } from './ipc/tauriBackend';
 import { resetLibraryStore } from './stores/libraryStore';
+import { useNavStore } from './stores/navStore';
 
 function renderApp(locale: 'en' | 'es' = 'en') {
   return render(
@@ -65,5 +66,28 @@ describe('App start screen', () => {
     renderApp();
     expect(await screen.findByText('Version 9.9.9')).toBeInTheDocument();
     expect(screen.getByText('Core 1.2.3')).toBeInTheDocument();
+  });
+});
+
+describe('App organise screen', () => {
+  beforeEach(() => {
+    setBackend(createMockBackend({ delayMs: 0 }));
+    resetLibraryStore();
+  });
+  afterEach(() => {
+    useNavStore.getState().closeOrganize();
+    setBackend(null);
+  });
+
+  it('shows the organise screen and goes back to Start', async () => {
+    useNavStore.getState().openOrganize('/Users/demo/Downloads/roms');
+    renderApp();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Organise by system' }),
+    ).toBeInTheDocument();
+    screen.getByRole('button', { name: 'Back' }).click();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Coverly ROMs' }),
+    ).toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::time::SystemTime;
 
 use crate::art::SystemArt;
 use crate::cache::Cache;
@@ -33,8 +34,8 @@ use crate::sources::steamgriddb::{self, SgdbConfig, SteamGridDbSource, STEAMGRID
 use crate::sources::{sort_candidates, ArtQuery, ArtSource, Candidate, SourceError};
 use crate::systems::{System, SystemDb};
 use crate::write::{
-    ensure_within, prune_jobs, safe_file_name, OverwritePolicy, RemoveOutcome, WriteError,
-    WriteOutcome, Writer,
+    ensure_within, prune_jobs_at, safe_file_name, OverwritePolicy, RemoveOutcome, WriteError,
+    WriteOutcome, Writer, KEEP_ORGANIZE_DAYS,
 };
 
 /// Journals (and their backups) kept for undo (spec §9 undo history depth).
@@ -262,6 +263,8 @@ pub struct ManualOptions {
     pub fit: Fit,
     pub jpeg_quality: u8,
     pub keep_jobs: usize,
+    /// Days organise journals are kept beyond `keep_jobs`.
+    pub keep_organize_days: u32,
 }
 
 impl Default for ManualOptions {
@@ -270,6 +273,7 @@ impl Default for ManualOptions {
             fit: Fit::Contain,
             jpeg_quality: 90,
             keep_jobs: KEEP_JOBS,
+            keep_organize_days: KEEP_ORGANIZE_DAYS,
         }
     }
 }
@@ -435,7 +439,12 @@ impl FillEnv<'_> {
             cancel,
         )?;
         // Pruning and trimming only free space: failing is not an error.
-        let _ = prune_jobs(self.data_dir, opts.keep_jobs.max(1));
+        let _ = prune_jobs_at(
+            self.data_dir,
+            opts.keep_jobs.max(1),
+            opts.keep_organize_days,
+            SystemTime::now(),
+        );
         if let Some(max) = opts.cache_max_bytes {
             let _ = crate::jobs::trim_art_store(self.cache_dir, max);
         }
@@ -505,7 +514,7 @@ impl FillEnv<'_> {
         media: Media,
         target: &Path,
         c: &Candidate,
-        keep_jobs: usize,
+        history: &ManualOptions,
     ) -> Result<JobReport, WriteError> {
         let item = PlanItem {
             system_id: rom.system_id.to_string(),
@@ -532,7 +541,8 @@ impl FillEnv<'_> {
             include_review: false,
             concurrency: 1,
             discard_empty: true,
-            keep_jobs,
+            keep_jobs: history.keep_jobs,
+            keep_organize_days: history.keep_organize_days,
             ..ApplyOptions::default()
         };
         self.apply(&plan, profile, &opts, &NoProgress, &AtomicBool::new(false))
@@ -605,7 +615,7 @@ pub fn write_local_image(
         }
     }
     settle(
-        close(writer, data_dir, opts.keep_jobs),
+        close(writer, data_dir, opts),
         outcome.map_err(ArtError::from),
     )
 }
@@ -617,12 +627,12 @@ pub fn remove_art(
     root: &Path,
     target: &Path,
     data_dir: &Path,
-    keep_jobs: usize,
+    opts: &ManualOptions,
 ) -> Result<(Option<String>, RemoveOutcome), WriteError> {
     ensure_within(root, target)?;
     let mut writer = Writer::begin(root, data_dir)?;
     let outcome = writer.remove(target);
-    settle(close(writer, data_dir, keep_jobs), outcome)
+    settle(close(writer, data_dir, opts), outcome)
 }
 
 /// The checks `Writer::write` makes before touching anything, made before
@@ -650,15 +660,24 @@ fn settle<T, E: From<WriteError>>(
 }
 
 /// Finishes (and prunes old journals after) a job that changed the
-/// library (keeping the newest `keep` journals); discards one that did not.
-fn close(writer: Writer, data_dir: &Path, keep: usize) -> Result<Option<String>, WriteError> {
+/// library (keeping the history `opts` asks for); discards one that did not.
+fn close(
+    writer: Writer,
+    data_dir: &Path,
+    opts: &ManualOptions,
+) -> Result<Option<String>, WriteError> {
     if !writer.has_entries() {
         writer.discard()?;
         return Ok(None);
     }
     let job = writer.finish()?;
     // Pruning only frees space: failing to prune is not an error.
-    let _ = prune_jobs(data_dir, keep.max(1));
+    let _ = prune_jobs_at(
+        data_dir,
+        opts.keep_jobs.max(1),
+        opts.keep_organize_days,
+        SystemTime::now(),
+    );
     Ok(Some(job))
 }
 

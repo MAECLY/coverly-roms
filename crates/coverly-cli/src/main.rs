@@ -1,8 +1,10 @@
 //! `coverly`: command-line interface of Coverly ROMs.
 //!
-//! Exit codes: 0 ok, 1 I/O, cache or job error (or no app folders), 2 bad
-//! usage, 3 library root not found or not a folder, 4 no layout profile
-//! detected and none given, 5 paused: offline, rate limited, or the library
+//! Exit codes: 0 ok (`organize` too when files stay in place), 1 I/O,
+//! cache or job error (or no app folders), 2 bad usage (including an
+//! unknown layout or system id), 3 library root or organise source not
+//! found or not a folder, 4 no layout profile detected and none given
+//! (never for `organize`), 5 paused: offline, rate limited, or the library
 //! volume is full / read-only, 6 an update was refused (bad or missing
 //! signature, or this build has no update key).
 //!
@@ -11,6 +13,7 @@
 
 mod audit;
 mod fill;
+mod organize;
 mod profile;
 mod settings;
 mod table;
@@ -39,11 +42,14 @@ enum Command {
     Audit(audit::AuditArgs),
     /// Fill missing art from the enabled sources (dry run unless --apply).
     Fill(Box<fill::FillArgs>),
+    /// Sort a pile of loose ROMs into one folder per system (dry run
+    /// unless --apply).
+    Organize(Box<organize::OrganizeArgs>),
     /// List the built-in and custom layout profiles.
     Profiles,
     /// List the known systems and their folder aliases.
     Systems,
-    /// Undo the last fill job.
+    /// Undo the last job (fill or organise), or the one given with --job.
     Undo(undo::UndoArgs),
     /// Check for a newer coverly, or install it (verified with minisign).
     Update(update::UpdateArgs),
@@ -83,6 +89,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Audit(args) => audit::run(&args),
         Command::Fill(args) => fill::run(&args),
+        Command::Organize(args) => organize::run(&args),
         Command::Undo(args) => undo::run(&args),
         Command::Update(args) => update::run(&args),
         Command::Profiles => print_stdout(&profiles_table()),

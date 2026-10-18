@@ -4,7 +4,7 @@
 
 ## The model (`settings::model`)
 
-`Settings { version: 2, general, library, art, matching, sources, network, safety, advanced }`, with one struct per §9 group. Every struct has `#[serde(default)]`, so a missing group or field is its default.
+`Settings { version: 2, general, library, art, matching, sources, network, safety, advanced, organize }`, with one struct per §9 group (plus `organize`, added with [organising loose ROMs](./organize.md); a file without it reads the defaults, so the format stays 2). Every struct has `#[serde(default)]`, so a missing group or field is its default.
 
 | Group | Field | Default | Notes |
 |---|---|---|---|
@@ -35,6 +35,14 @@
 | | `backup_dir` | `null` (app data dir) | absolute, not inside the open library (D27) |
 | | `dry_run_default`, `clean_apple_double`, `undo_depth` | `true`, `true`, `10` | depth 1–100 |
 | advanced | `log_level`, `custom_dir` | `info`, `null` | custom profiles folder |
+| organize | `default_layout` | `anbernic-stock` | layout proposed for a loose pile; must be a built-in or custom id |
+| | `nest_in_roms_root` | `true` | system folders inside the layout's ROMs folder (`<picked>/ROMS/<SYS>`); off = directly in the picked folder (`--flat`) |
+| | `mode`, `names` | `auto`, `keep` | `auto` = move on the same volume, copy otherwise; `move`/`copy`; names `keep`/`catalogue` |
+| | `download_dats` | `true` | download missing catalogues while planning (at most 4 per plan) |
+| | `auto_threshold`, `review_threshold` | `0.85`, `0.50` | 0–1, review ≤ auto; separate from the matching thresholds |
+| | `companion_exts` | `sav, srm, rtc, state*, cht, ips, bps, ups, txt, nfo, png, jpg` | files with a moved ROM's stem that follow it (`state*` = prefix) |
+| | `folder_names`, `arcade_order` | `{}`, `{}` | per layout id: system id → folder name (must resolve back to that system), arcade systems in order |
+| | `recent_seconds`, `keep_organize_journals_days` | `60`, `90` | 0–3600, 1–3650; organise journals are kept at least this long ([fill-pipeline.md](./fill-pipeline.md#writer-guarantees)) |
 
 ## Loading (`settings::load`, D24)
 
@@ -51,7 +59,7 @@ The app shows the notice once, together with the backup path (`SettingsView { se
 
 ## Validation and updates
 
-- `validate(&Settings, known_ids) -> Vec<FieldError>`. A `FieldError` is `{ field: "group.field", code, min?, max? }` with codes `range`, `required`, `invalid`, `order`, `unknown`, `duplicate`, `not-absolute`. The UI shows them as `settings.field.<code>` next to the field. `RANGES` (12 numeric rules) is mirrored in `src/lib/settingsRules.ts`; the contract sample pins both.
+- `validate(&Settings, known_ids) -> Vec<FieldError>`. A `FieldError` is `{ field: "group.field", code, min?, max? }` with codes `range`, `required`, `invalid`, `order`, `unknown`, `duplicate`, `not-absolute`. The UI shows them as `settings.field.<code>` next to the field. `RANGES` (16 numeric rules) is mirrored in `src/lib/settingsRules.ts`; the contract sample pins both.
 - **Updates are JSON merge patches** (`Settings::with_patch(patch, known)`). A patch must be an object of groups (anything else is `invalid`). `null` resets a group or field to its default. The merged result is normalised and validated. Errors come back as **data** and nothing is saved, so the user can fix the field (`SettingsUpdateView { settings, errors, reopen }`).
 - `needs_reopen(prev, next)` is true when the change affects the open library's scan or art paths: ignored folders/extensions, hidden files, symlinks, single-slot media, output format, max sizes, custom profiles folder. The UI then shows "Reopen the library to apply these changes." with a "Reopen now" button.
 - **Reset** keeps the recent libraries, makes a backup copy first and returns the defaults.
@@ -67,8 +75,9 @@ The core never reads the file itself. Callers turn `Settings` into the options t
 | `art_profile(&base)` | the profile with the single-slot media, output format and max size applied |
 | `fit()` | image fitting (keep aspect, JPEG quality) |
 | `net_config()` | `net` (concurrency, timeout, retries, proxy) |
-| `apply_options(root)` | the writer (`._*` cleanup on removable volumes, undo depth) |
-| `manual_options()` | drawer writes |
+| `apply_options(root)` | the writer (`._*` cleanup on removable volumes, undo depth, organise journal retention) |
+| `manual_options()` | drawer writes (same retention) |
+| `OrganizeOptions::from_settings(settings, layout)` | organise plans (`organize/plan.rs`): layout, nesting, mode, names, thresholds, companions, the chosen layout's folder names and arcade order, catalogue downloads |
 | `data_dir(default)` | the job data folder (backup location, D27) |
 | `needs_reopen(next)` | the reopen notice |
 
@@ -99,6 +108,7 @@ max_height = 360
 - **Tokens:** `{root} {system_dir} {rel_dir} {stem} {system_id} {libretro}`, each only as a whole path segment (or `{stem}` plus an extension). A template must start with `{root}` or `{system_dir}` and its last segment must contain `{stem}`. `..`, `.`, absolute paths, unknown tokens and a `{rel_dir}` in only some slots are refused. Width and height are given together or not at all.
 - **Validation** returns `FieldError`s per field (`slots.cover.template`, `id`, `name`, …). `preview(profile, example)` renders the library-relative path of an example ROM. A template that would leave the library has no preview.
 - **Store:** files are untrusted. Files over 64 KiB, bad TOML, an id that differs from the file name, or a built-in id are skipped with a warning. Saving is atomic. Renaming or deleting a profile moves or clears `default_profile` and `max_size` entries that pointed to it. Built-ins are read-only and can be duplicated (the copy's name is translated: "Onion OS (copy)" / "(copia)").
+- **Organise keys** (optional): `system_folder = "first-alias" | "id"` (how organise names the system folders; default `first-alias`), `[folder_names]` (system id → folder) and `[host_folders]` (system id → host system id, e.g. `ngpc = "ngp"`). A copy of a built-in keeps its naming and host folders. See [organize.md](./organize.md#target-layout).
 - Custom systems keep M1's `systems.toml` override. Only the folder setting is new.
 
 ## Credentials (`credentials`, `src-tauri/src/keychain.rs`, D30)

@@ -1,0 +1,867 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: redact(&plan)
+---
+{
+  "broad_root": false,
+  "counts": {
+    "auto": 16,
+    "bytes": 5353,
+    "deep_folders": 0,
+    "junk": 1,
+    "left": 1,
+    "other_files": 0,
+    "review": 0,
+    "roms": 16,
+    "systems": 4
+  },
+  "created_at": "<created_at>",
+  "deep_folders": [],
+  "fat32": false,
+  "items": [
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 295
+        }
+      ],
+      "id": 0,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 295,
+      "sources": [
+        "0319 - Crash Bandicoot XS (E)(Paracox).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/0319 - Crash Bandicoot XS (E)(Paracox).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "Paracox",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 285
+        }
+      ],
+      "id": 1,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 285,
+      "sources": [
+        "1490 - Sonic Advance 3 (U)(Venom).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/1490 - Sonic Advance 3 (U)(Venom).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "Venom",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 255
+        }
+      ],
+      "id": 2,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 255,
+      "sources": [
+        "1792 - Tomb Raider - The Prophecy (U)(BatMan).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/1792 - Tomb Raider - The Prophecy (U)(BatMan).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "BatMan",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 88
+        }
+      ],
+      "id": 3,
+      "kind": "archive",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "not-a-rom",
+        "what": "web-page"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 88,
+      "sources": [
+        "3-D Tetris (USA).zip"
+      ],
+      "system_id": null,
+      "target": null,
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 289
+        }
+      ],
+      "id": 4,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 289,
+      "sources": [
+        "Fire Emblem (E)(Independent).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/Fire Emblem (E)(Independent).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "Independent",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GBC",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 252
+        }
+      ],
+      "id": 5,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gbc"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 252,
+      "sources": [
+        "Magical Tetris Challenge (USA).zip"
+      ],
+      "system_id": "gbc",
+      "target": "ROMS/GBC/Magical Tetris Challenge (USA).zip",
+      "why": [
+        {
+          "detail": "CGB 0xC0",
+          "kind": "header",
+          "system": "gbc",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gbc",
+          "kind": "extension",
+          "system": "gbc",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 264
+        }
+      ],
+      "id": 6,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 264,
+      "sources": [
+        "Pokemon Verde Hoja (S)(Rising Sun).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/Pokemon Verde Hoja (S)(Rising Sun).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "Rising Sun",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 232
+        }
+      ],
+      "id": 7,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 232,
+      "sources": [
+        "Tetris (JUE) (V1.0) [!].zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris (JUE) (V1.0) [!].zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 232
+        }
+      ],
+      "id": 8,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 232,
+      "sources": [
+        "Tetris (JUE) (V1.1) [!].zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris (JUE) (V1.1) [!].zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 214
+        }
+      ],
+      "id": 9,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 214,
+      "sources": [
+        "Tetris 2 (1).zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris 2 (1).zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "SFC",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 684
+        }
+      ],
+      "id": 10,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "snes"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 684,
+      "sources": [
+        "Tetris 2.zip"
+      ],
+      "system_id": "snes",
+      "target": "ROMS/SFC/Tetris 2.zip",
+      "why": [
+        {
+          "detail": "internal header",
+          "kind": "header",
+          "system": "snes",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "sfc",
+          "kind": "extension",
+          "system": "snes",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 224
+        }
+      ],
+      "id": 11,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 224,
+      "sources": [
+        "Tetris Attack (1).zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris Attack (1).zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "SFC",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1204
+        }
+      ],
+      "id": 12,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "snes"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 1204,
+      "sources": [
+        "Tetris Attack.zip"
+      ],
+      "system_id": "snes",
+      "target": "ROMS/SFC/Tetris Attack.zip",
+      "why": [
+        {
+          "detail": "internal header",
+          "kind": "header",
+          "system": "snes",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "sfc",
+          "kind": "extension",
+          "system": "snes",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 222
+        }
+      ],
+      "id": 13,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 222,
+      "sources": [
+        "Tetris Blast.zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris Blast.zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gb",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.8799999952316284,
+      "folder": "GBC",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 223
+        }
+      ],
+      "id": 14,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gbc"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 223,
+      "sources": [
+        "Tetris DX.zip"
+      ],
+      "system_id": "gbc",
+      "target": "ROMS/GBC/Tetris DX.zip",
+      "why": [
+        {
+          "detail": "CGB 0x80",
+          "kind": "header",
+          "system": "gbc",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gbc",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "gbc",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GB",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 220
+        }
+      ],
+      "id": 15,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gb"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 220,
+      "sources": [
+        "Tetris Plus (1).zip"
+      ],
+      "system_id": "gb",
+      "target": "ROMS/GB/Tetris Plus (1).zip",
+      "why": [
+        {
+          "detail": "DMG",
+          "kind": "header",
+          "system": "gb",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gb",
+          "kind": "extension",
+          "system": "gb",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 258
+        }
+      ],
+      "id": 16,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 258,
+      "sources": [
+        "Tetris Worlds (USA).zip"
+      ],
+      "system_id": "gba",
+      "target": "ROMS/GBA/Tetris Worlds (USA).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        }
+      ]
+    }
+  ],
+  "layout": "anbernic-stock",
+  "mode": "move",
+  "move_allowed": true,
+  "names": "keep",
+  "other_files": [],
+  "roms_dir": "<roms_dir>",
+  "sorted_folders": [],
+  "source_root": "<source_root>",
+  "target_detected": null,
+  "target_root": "<target_root>",
+  "warnings": [
+    {
+      "kind": "catalogue-missing",
+      "system": "gb"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "gba"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "gbc"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "snes"
+    }
+  ]
+}

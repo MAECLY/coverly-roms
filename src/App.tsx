@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { LibraryScreen } from './screens/LibraryScreen';
+import { OrganizeScreen } from './screens/OrganizeScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { StartScreen } from './screens/StartScreen';
 import { useJobStore } from './stores/jobStore';
@@ -40,5 +41,6 @@ export default function App() {
     shown.current = screen;
   }, [screen]);
   if (screen === 'settings') return <SettingsScreen />;
+  if (screen === 'organize') return <OrganizeScreen />;
   return ready ? <LibraryScreen /> : <StartScreen />;
 }

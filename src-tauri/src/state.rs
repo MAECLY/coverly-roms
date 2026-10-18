@@ -19,25 +19,35 @@ use coverly_core::credentials::{
 };
 use coverly_core::fill::{remove_art, write_local_image, FillSettings, RomRef};
 use coverly_core::gather::Scope;
+use coverly_core::identify::dat::DatStore;
 use coverly_core::identify::overrides::{
     forget_manual, remember_manual, Overrides, OVERRIDES_FILE,
 };
 use coverly_core::jobs::{write_report_csv, ApplyOptions, ItemErrorKind, ItemStatus};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+use coverly_core::organize::evidence::OnlineLookup;
+use coverly_core::organize::online::ScreenScraperLookup;
+use coverly_core::organize::{
+    apply_organize, load_plan, plan_from_survey, probe_folder, resume_organize, survey,
+    Decision as OrganizeDecision, OrganizeEnv, OrganizeOptions, OrganizePlan, OsMetaProbe,
+};
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::custom::{
     all_profiles, preview_paths, validate_profile, PreviewExample, ProfileFile, ProfileStore,
     PROFILES_DIR,
 };
-use coverly_core::profiles::{builtin_profiles, Media};
+use coverly_core::profiles::{builtin_profiles, Media, Profile};
 use coverly_core::progress::NoProgress;
 use coverly_core::settings::{
     backup_settings, load_settings, save_settings, FieldError, FieldErrorCode, LoadReport,
     RecentLibrary, Settings,
 };
+use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
 use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
-use coverly_core::write::{list_jobs, undo_job, OverwritePolicy};
+use coverly_core::write::{
+    later_jobs, list_jobs, undo_job, undo_jobs_in_order, JobKind, OverwritePolicy,
+};
 
 use crate::error::IpcError;
 use crate::jobs::view::{
@@ -50,6 +60,10 @@ use crate::library::identify::IdentityView;
 use crate::library::refresh::{ids_for_art_paths, refresh_entries, subset_scan, EntryArtUpdate};
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView, ScanProgressEvent};
 use crate::library::{open_session, OpenRequest, Session};
+use crate::organize::view::{
+    FolderProbeView, OrganizeJobView, OrganizePlanView, OrganizeRequest, OrganizeUndoView,
+};
+use crate::organize::{ApplyStart, OrganizeEvents, OrganizeManager, StoredPlan, Throttle};
 use crate::prefs::{SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 
@@ -67,6 +81,8 @@ pub struct AppState {
     /// The source keys last read from `credentials`, so drawing thumbnails
     /// or listing history never goes back to the keychain.
     keys: Mutex<KeyCache>,
+    /// Organise plans by id and the survey in progress.
+    organize: OrganizeManager,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -99,7 +115,8 @@ struct EntrySearch {
     candidates: Vec<Candidate>,
 }
 
-fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
+/// The IPC error of a failed (or paused) item.
+pub(crate) fn item_error(kind: ItemErrorKind, message: &str) -> IpcError {
     let m = message.to_string();
     match kind {
         ItemErrorKind::NoArt | ItemErrorKind::Network => IpcError::Network(m),
@@ -172,6 +189,29 @@ fn check_data_dir(cfg: &FillConfig, session: &Session) -> Result<(), IpcError> {
     Ok(())
 }
 
+/// Refuses an organise write whose backup folder (journals, saved plans)
+/// is inside the pile or the organised folder: like a fill, the journal
+/// must never live in the tree it writes to (a later fill there would be
+/// refused, and the files of the job would be organised with the pile).
+fn check_organize_data_dir(cfg: &FillConfig, roots: &[&Path]) -> Result<(), IpcError> {
+    let data = std::path::absolute(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+    let canon = fs::canonicalize(&data).ok();
+    for root in roots {
+        let abs = std::path::absolute(root).map_err(|e| IpcError::Io(e.to_string()))?;
+        let root_canon = fs::canonicalize(&abs).ok();
+        let inside = data.starts_with(&abs)
+            || root_canon.as_ref().is_some_and(|r| {
+                data.starts_with(r) || canon.as_ref().is_some_and(|c| c.starts_with(r))
+            });
+        if inside {
+            return Err(IpcError::BadRequest(
+                "the backup folder is inside the folder being organised".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -239,6 +279,7 @@ impl AppState {
             searches: Mutex::new(None),
             credentials: Arc::new(MemoryStore::default()),
             keys: Mutex::new(KeyCache::default()),
+            organize: OrganizeManager::default(),
         }
     }
 
@@ -459,9 +500,11 @@ impl AppState {
         let session = self.session(generation)?;
         let root = std::path::absolute(&session.root).map_err(|e| IpcError::Io(e.to_string()))?;
         let data_dir = self.fill_config().data_dir.clone();
+        // Fill jobs only: an organise job moves the ROMs themselves and is
+        // undone from the organise screen, which checks later jobs.
         let job = list_jobs(&data_dir)?
             .into_iter()
-            .find(|j| !j.undone && j.root == root)
+            .find(|j| !j.undone && j.root == root && j.kind == JobKind::Fill)
             .ok_or(IpcError::NothingToUndo)?;
         let report = undo_job(&data_dir, &job.job)?;
         let paths: Vec<PathBuf> = report
@@ -695,7 +738,7 @@ impl AppState {
             &absolute_root(&session)?,
             &path,
             &cfg.data_dir,
-            cfg.settings.manual_options().keep_jobs,
+            &cfg.settings.manual_options(),
         )?;
         self.refresh_entries(generation, &[id], &SystemDb::builtin())
     }
@@ -1146,9 +1189,9 @@ impl AppState {
             rel_path,
             stem: &entry.rom.stem,
         };
-        let keep_jobs = cfg.settings.manual_options().keep_jobs;
+        let history = cfg.settings.manual_options();
         let report = with_env(&cfg, |env| {
-            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, keep_jobs)
+            env.apply_candidate(&root, &session.profile, &rom, media, &target, &c, &history)
                 .map_err(IpcError::from)
         })?;
         if let Some(ItemStatus::Failed { kind, message }) = report.items.first().map(|i| &i.status)
@@ -1202,6 +1245,340 @@ fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0)
+}
+
+/// The folder at `path`, or why it cannot be used.
+fn existing_folder(path: &Path) -> Result<(), IpcError> {
+    let shown = path.display().to_string();
+    match fs::metadata(path) {
+        Ok(meta) if meta.is_dir() => Ok(()),
+        Ok(_) => Err(IpcError::NotAFolder(shown)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(IpcError::NotFound(shown)),
+        Err(_) => Err(IpcError::Unreadable(shown)),
+    }
+}
+
+/// ScreenScraper is asked by CRC only when it is enabled, its account is
+/// set and the plan is not offline (organise spec §6.5).
+fn online_wanted(s: &Settings, keys: &SourceKeys, offline: bool) -> bool {
+    !offline
+        && keys.screenscraper_dev.is_some()
+        && keys.screenscraper_user.is_some()
+        && s.sources
+            .order
+            .iter()
+            .any(|e| e.id == "screenscraper" && e.enabled)
+}
+
+/// Organising a loose pile (organise spec §4): the probe, plans kept by id.
+impl AppState {
+    /// The plans of the organise screen (apply and undo use them too).
+    pub fn organize(&self) -> &OrganizeManager {
+        &self.organize
+    }
+
+    /// A quick, name-only look at `path` (no file is read).
+    pub fn probe_folder(&self, path: &Path) -> Result<FolderProbeView, IpcError> {
+        existing_folder(path)?;
+        probe_folder(path, &SystemDb::builtin(), &OsMetaProbe)
+            .map(FolderProbeView::from)
+            .map_err(|_| IpcError::Unreadable(path.display().to_string()))
+    }
+
+    /// The options of `req` over `settings.organize`, with absolute paths.
+    fn organize_options(
+        settings: &Settings,
+        req: &OrganizeRequest,
+    ) -> Result<(PathBuf, OrganizeOptions), IpcError> {
+        if req.source.trim().is_empty() {
+            return Err(IpcError::BadRequest("no folder to organise".into()));
+        }
+        let source =
+            std::path::absolute(Path::new(&req.source)).map_err(|e| IpcError::Io(e.to_string()))?;
+        let mut opts = OrganizeOptions::from_settings(settings, req.layout.as_deref());
+        opts.target = req
+            .target
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .map(|t| std::path::absolute(Path::new(t)).map_err(|e| IpcError::Io(e.to_string())))
+            .transpose()?;
+        if let Some(flat) = req.flat {
+            opts.flat = flat;
+        }
+        if let Some(mode) = req.mode {
+            opts.mode = Some(mode);
+        }
+        if let Some(names) = req.names {
+            opts.names = names;
+        }
+        opts.offline = req.offline.unwrap_or(false);
+        Ok((source, opts))
+    }
+
+    /// Plans organising `req.source` (blocking) with `decisions`. A survey
+    /// kept for the same pile and options is reused (no file is read and
+    /// no progress is sent); otherwise the pile is surveyed with throttled
+    /// progress and can be cancelled with [`Self::organize_cancel`]. The
+    /// plan is kept under a new id.
+    pub fn organize_plan(
+        &self,
+        req: &OrganizeRequest,
+        decisions: &[OrganizeDecision],
+        events: Arc<dyn OrganizeEvents>,
+    ) -> Result<OrganizePlanView, IpcError> {
+        let cfg = self.fill_config();
+        let (source, opts) = Self::organize_options(&cfg.settings, req)?;
+        existing_folder(&source)?;
+        if let Some(target) = &opts.target {
+            existing_folder(target)?;
+        }
+        let profiles: Vec<Profile> = all_profiles(&self.custom_profiles())
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        let layout = profiles
+            .iter()
+            .find(|p| p.id == opts.layout)
+            .cloned()
+            .ok_or_else(|| IpcError::UnknownProfile(opts.layout.clone()))?;
+        let db = SystemDb::builtin();
+        fs::create_dir_all(&cfg.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        let cache = Cache::open(&cfg.cache_dir.join(CACHE_FILE))
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        let http = PoliteHttp::new(UreqHttp::new(&cfg.net), &cfg.net);
+        let store = DatStore::new(&http, &cache, cfg.endpoints.database.clone());
+        let screenscraper = online_wanted(&cfg.settings, &cfg.keys, opts.offline)
+            .then(|| {
+                let dev = cfg.keys.screenscraper_dev.clone()?;
+                Some(ScreenScraperSource::new(
+                    &http,
+                    &cache,
+                    dev,
+                    cfg.keys.screenscraper_user.clone(),
+                    SsConfig {
+                        base: cfg.endpoints.screenscraper.clone(),
+                        ..SsConfig::default()
+                    },
+                ))
+            })
+            .flatten();
+        let lookup = screenscraper
+            .as_ref()
+            .map(|source| ScreenScraperLookup::new(source, &db));
+        let env = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: (!opts.offline && opts.download_dats).then_some(&store),
+            probe: &OsMetaProbe,
+            online: lookup.as_ref().map(|l| l as &dyn OnlineLookup),
+            now: SystemTime::now(),
+        };
+
+        let plan_id = self.organize.next_id();
+        let online = lookup.is_some();
+        let survey = match self.organize.survey_for(&source, &opts, &layout, online) {
+            Some(kept) => kept,
+            None => {
+                let cancel = self.organize.begin(plan_id);
+                let throttle = Throttle::new(plan_id, events);
+                let found = survey(&source, &opts, &env, &|p| throttle.progress(p), &cancel);
+                self.organize.finish(plan_id);
+                let found = found?;
+                log::info!(
+                    "organise plan {plan_id}: surveyed {} items",
+                    found.entries.len()
+                );
+                Arc::new(found)
+            }
+        };
+        let plan = plan_from_survey(&survey, &opts, decisions, &env)?;
+        let stored = self.organize.store(
+            plan_id,
+            StoredPlan {
+                request: req.clone(),
+                source,
+                opts,
+                layout,
+                online,
+                survey,
+                plan,
+            },
+        );
+        Ok(OrganizePlanView {
+            plan_id,
+            plan: stored.plan.clone(),
+        })
+    }
+
+    /// Cancels plan `plan_id` while its survey runs; a no-op otherwise.
+    pub fn organize_cancel(&self, plan_id: u64) -> Result<(), IpcError> {
+        self.organize.cancel(plan_id);
+        Ok(())
+    }
+
+    /// Plan `plan_id` again from its kept survey with `decisions` (no file
+    /// is read): what apply runs, so the webview never sends a plan.
+    fn decided_plan(
+        &self,
+        plan_id: u64,
+        decisions: &[OrganizeDecision],
+        cfg: &FillConfig,
+    ) -> Result<OrganizePlan, IpcError> {
+        let stored = self.organize.get(plan_id)?;
+        let db = SystemDb::builtin();
+        fs::create_dir_all(&cfg.cache_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        let cache = Cache::open(&cfg.cache_dir.join(CACHE_FILE))
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        // The layout as surveyed, even if its custom profile changed since.
+        let profiles = [stored.layout.clone()];
+        let env = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: None,
+            probe: &OsMetaProbe,
+            online: None,
+            now: SystemTime::now(),
+        };
+        Ok(plan_from_survey(
+            &stored.survey,
+            &stored.opts,
+            decisions,
+            &env,
+        )?)
+    }
+
+    /// Takes the manual-write guard for an organise write: refused while a
+    /// fill gathers, applies or is paused (it resumes into its journal),
+    /// or another write (or apply) runs.
+    fn organize_guard(&self) -> Result<crate::jobs::OwnedManualWrite, IpcError> {
+        if self.jobs.paused() {
+            return Err(IpcError::JobRunning);
+        }
+        self.jobs.begin_manual_owned()
+    }
+
+    /// Applies plan `plan_id` with `decisions` on a worker thread (the
+    /// backend re-plans from its own survey). Fills and other writes are
+    /// refused until it ends; progress and the end arrive through
+    /// `events`. The kept plans are dropped: the pile changes.
+    pub fn organize_apply(
+        &self,
+        plan_id: u64,
+        decisions: &[OrganizeDecision],
+        events: Arc<dyn OrganizeEvents>,
+    ) -> Result<OrganizeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let plan = self.decided_plan(plan_id, decisions, &cfg)?;
+        check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
+        let guard = self.organize_guard()?;
+        fs::create_dir_all(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        self.organize.forget_all();
+        log::info!(
+            "organise plan {plan_id}: applying {} items",
+            plan.counts.roms
+        );
+        let start = ApplyStart {
+            plan_id,
+            job: None,
+            target_root: plan.target_root.display().to_string(),
+            layout: plan.layout.clone(),
+            data_dir: cfg.data_dir.clone(),
+        };
+        Ok(self
+            .organize
+            .spawn_apply(start, guard, events, move |env| apply_organize(&plan, env)))
+    }
+
+    /// Continues the paused or interrupted organise job `job` from the
+    /// plan saved with it, into the same journal (like [`Self::organize_apply`]).
+    pub fn organize_resume(
+        &self,
+        job: &str,
+        events: Arc<dyn OrganizeEvents>,
+    ) -> Result<OrganizeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let plan = load_plan(&cfg.data_dir, job)?;
+        let summary = list_jobs(&cfg.data_dir)?
+            .into_iter()
+            .find(|j| j.job == job)
+            .ok_or(IpcError::NoPlan)?;
+        if summary.undone || summary.complete {
+            return Err(IpcError::BadRequest(format!(
+                "job {job} has nothing left to resume"
+            )));
+        }
+        check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
+        let guard = self.organize_guard()?;
+        self.organize.forget_all();
+        let start = ApplyStart {
+            plan_id: self.organize.next_id(),
+            job: Some(job.to_string()),
+            target_root: plan.target_root.display().to_string(),
+            layout: plan.layout.clone(),
+            data_dir: cfg.data_dir.clone(),
+        };
+        let job = job.to_string();
+        Ok(self
+            .organize
+            .spawn_apply(start, guard, events, move |env| resume_organize(&job, env)))
+    }
+
+    /// Stops the running apply before its next item (a no-op otherwise).
+    pub fn organize_cancel_apply(&self) -> Result<(), IpcError> {
+        self.organize.cancel_apply();
+        Ok(())
+    }
+
+    /// The current (or last) organise apply of this app session.
+    pub fn organize_job(&self) -> Option<OrganizeJobView> {
+        self.organize.current_apply()
+    }
+
+    /// Undoes job `job`. Newer jobs that wrote under its folders (a fill
+    /// that added covers to the organised tree) would be orphaned: refused
+    /// with [`IpcError::LaterJobs`] (their ids as detail) unless
+    /// `include_later`, which undoes them too, newest first.
+    pub fn organize_undo(
+        &self,
+        job: &str,
+        include_later: bool,
+    ) -> Result<OrganizeUndoView, IpcError> {
+        if self.jobs.paused() {
+            return Err(IpcError::JobRunning);
+        }
+        let _writing = self.jobs.begin_manual()?;
+        let data_dir = self.fill_config().data_dir.clone();
+        if !list_jobs(&data_dir)?
+            .iter()
+            .any(|j| j.job == job && !j.undone)
+        {
+            return Err(IpcError::NothingToUndo);
+        }
+        let later = later_jobs(&data_dir, job)?;
+        if !later.is_empty() && !include_later {
+            let ids: Vec<&str> = later.iter().map(|j| j.job.as_str()).collect();
+            return Err(IpcError::LaterJobs(ids.join(", ")));
+        }
+        let mut ids: Vec<String> = later.iter().map(|j| j.job.clone()).collect();
+        ids.push(job.to_string());
+        let report = undo_jobs_in_order(&data_dir, &ids)?;
+        self.organize.forget_all();
+        log::info!("undid organise job {job} ({} jobs)", report.len());
+        Ok(OrganizeUndoView {
+            report,
+            later_jobs: later.into_iter().map(JobHistoryView::from).collect(),
+        })
+    }
+
+    /// Writes plan `plan_id` (as planned, decisions included) to `dest` as JSON.
+    pub fn organize_export_plan(&self, plan_id: u64, dest: &Path) -> Result<(), IpcError> {
+        let stored = self.organize.get(plan_id)?;
+        write_export(dest, |w| {
+            serde_json::to_writer_pretty(w, &stored.plan).map_err(io::Error::other)
+        })
+    }
 }
 
 #[cfg(test)]

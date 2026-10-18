@@ -471,7 +471,8 @@ fn emit(
     }
 }
 
-fn write_file(path: &Path, text: &str) -> Result<(), Failure> {
+/// Writes `text` to `path` (the `--output` file).
+pub(crate) fn write_file(path: &Path, text: &str) -> Result<(), Failure> {
     let cannot = |e: io::Error| fail(format!("cannot write {}: {e}", path.display()));
     let mut file = BufWriter::new(File::create(path).map_err(cannot)?);
     file.write_all(text.as_bytes()).map_err(cannot)?;

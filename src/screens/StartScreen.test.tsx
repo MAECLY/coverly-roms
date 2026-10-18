@@ -1,12 +1,16 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
-import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
+import {
+  createMockBackend,
+  MOCK_DOWNLOADS,
+  type MockBackend,
+} from '@/ipc/mock/mockBackend';
 import { Root } from '@/Root';
 import { resetLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
@@ -32,6 +36,7 @@ describe('Start screen', () => {
   });
   afterEach(() => {
     useNavStore.getState().closeSettings();
+    useNavStore.getState().closeOrganize();
     setBackend(null);
   });
 
@@ -186,6 +191,120 @@ describe('Start screen', () => {
     window.dispatchEvent(new Event('focus'));
     expect(
       await within(section).findByRole('button', { name: 'Open Card' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers to organise a plain pile on no-profile', async () => {
+    backend.pickFolder = () => Promise.resolve(MOCK_DOWNLOADS);
+    const probe = vi.spyOn(backend, 'probeFolder');
+    renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    expect(
+      await screen.findByRole('heading', {
+        name: "This folder doesn't follow a known layout",
+      }),
+    ).toBeInTheDocument();
+    expect(probe).toHaveBeenCalledWith(MOCK_DOWNLOADS);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(/It holds 17 files that look like ROMs/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Organise this folder…' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Choose another folder' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the error text when nothing looks like a ROM', async () => {
+    backend.pickFolder = () => Promise.resolve(MOCK_DOWNLOADS);
+    backend.probeFolder = () =>
+      Promise.resolve({
+        rom_like: 0,
+        partial_downloads: 0,
+        cloud_only: 0,
+        sorted_folders: [],
+        writable: true,
+        broad_root: false,
+        truncated: false,
+      });
+    renderApp('es');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Abrir carpeta…' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(MOCK_DOWNLOADS);
+    expect(
+      screen.queryByRole('button', { name: 'Organizar esta carpeta…' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the error text when the probe fails', async () => {
+    backend.pickFolder = () => Promise.resolve(MOCK_DOWNLOADS);
+    backend.probeFolder = () => Promise.reject(new Error('denied'));
+    renderApp();
+    expect(
+      await screen.findByRole('button', { name: 'Open folder…' }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No known layout was found',
+    );
+  });
+
+  it('opens a folder sorted by system with the selected layout', async () => {
+    backend.pickFolder = () => Promise.resolve(MOCK_DOWNLOADS);
+    backend.probeFolder = () =>
+      Promise.resolve({
+        rom_like: 0,
+        partial_downloads: 0,
+        cloud_only: 0,
+        sorted_folders: ['GB', 'GBA'],
+        writable: true,
+        broad_root: false,
+        truncated: false,
+      });
+    const openLibrary = vi.spyOn(backend, 'openLibrary');
+    renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    const button = await screen.findByRole('button', {
+      name: 'Open as organised by system',
+    });
+    await screen.findByRole('option', { name: 'muOS' });
+    await userEvent.selectOptions(screen.getByLabelText('Layout'), 'muos');
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(openLibrary).toHaveBeenLastCalledWith(MOCK_DOWNLOADS, 'muos'),
+    );
+  });
+
+  it('organise button opens the organise screen with the source', async () => {
+    backend.pickFolder = () => Promise.resolve(MOCK_DOWNLOADS);
+    renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Organise this folder…' }),
+    );
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'Organise by system',
+      }),
+    ).toBeInTheDocument();
+    expect(useNavStore.getState().organizeSource).toBe(MOCK_DOWNLOADS);
+  });
+
+  it('choose another folder opens the picker again', async () => {
+    const picks = [MOCK_DOWNLOADS, '/mock/Small library'];
+    backend.pickFolder = () => Promise.resolve(picks.shift() ?? null);
+    renderApp();
+    await userEvent.click(screen.getByRole('button', { name: 'Open folder…' }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Choose another folder' }),
+    );
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Small library' }),
     ).toBeInTheDocument();
   });
 

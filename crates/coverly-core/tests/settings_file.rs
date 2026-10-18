@@ -757,3 +757,141 @@ fn read_settings_checked_names_the_problem_without_touching_disk() {
         Some(ReadProblem::Unreadable)
     );
 }
+
+#[test]
+fn a_settings_file_without_organize_loads_with_defaults() {
+    let s: Settings = serde_json::from_str(r#"{"version":1}"#).unwrap();
+    let o = &s.organize;
+    assert_eq!(o.default_layout, "anbernic-stock");
+    assert!(o.nest_in_roms_root);
+    assert_eq!(o.mode, OrganizeModeSetting::Auto);
+    assert_eq!(o.names, coverly_core::organize::NameMode::Keep);
+    assert!(o.download_dats);
+    assert_eq!(o.auto_threshold, 0.85);
+    assert_eq!(o.review_threshold, 0.50);
+    assert!(o.companion_exts.contains(&"state*".to_string()));
+    assert!(o.folder_names.is_empty());
+    assert!(o.arcade_order.is_empty());
+    assert_eq!(o.recent_seconds, 60);
+    assert_eq!(o.keep_organize_journals_days, 90);
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), r#"{"version":2,"general":{"theme":"dark"}}"#);
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.organize, OrganizeSettings::default());
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+}
+
+#[test]
+fn organize_values_are_validated() {
+    let mut s = Settings::default();
+    s.organize.auto_threshold = 1.5;
+    s.organize.recent_seconds = 4000;
+    s.organize.keep_organize_journals_days = 0;
+    s.organize.default_layout = "nope".into();
+    s.organize.folder_names.insert(
+        "anbernic-stock".into(),
+        [("gba".into(), "SFC".into())].into(),
+    );
+    s.organize
+        .folder_names
+        .insert("ghost".into(), [("gba".into(), "GBA".into())].into());
+    s.organize
+        .arcade_order
+        .insert("ghost".into(), vec!["fbneo".into()]);
+    let got = codes(&s.validate(&known()));
+    for want in [
+        ("organize.auto_threshold", FieldErrorCode::Range),
+        ("organize.recent_seconds", FieldErrorCode::Range),
+        (
+            "organize.keep_organize_journals_days",
+            FieldErrorCode::Range,
+        ),
+        ("organize.default_layout", FieldErrorCode::Unknown),
+        (
+            "organize.folder_names.anbernic-stock.gba",
+            FieldErrorCode::Invalid,
+        ),
+        ("organize.folder_names.ghost", FieldErrorCode::Unknown),
+        ("organize.arcade_order.ghost", FieldErrorCode::Unknown),
+    ] {
+        assert!(
+            got.contains(&(want.0.to_string(), want.1)),
+            "missing {want:?} in {got:?}"
+        );
+    }
+
+    let mut s = Settings::default();
+    s.organize.auto_threshold = 0.6;
+    s.organize.review_threshold = 0.7;
+    s.organize.folder_names.insert(
+        "anbernic-stock".into(),
+        [("gba".into(), "gba".into())].into(),
+    );
+    s.organize
+        .arcade_order
+        .insert("anbernic-stock".into(), vec!["mame".into(), "nope".into()]);
+    let got = codes(&s.validate(&known()));
+    assert!(got.contains(&(
+        "organize.review_threshold".to_string(),
+        FieldErrorCode::Order
+    )));
+    assert!(got.contains(&(
+        "organize.arcade_order.anbernic-stock".to_string(),
+        FieldErrorCode::Invalid
+    )));
+    assert!(
+        !got.iter()
+            .any(|(f, _)| f.starts_with("organize.folder_names")),
+        "a folder that resolves back is fine: {got:?}"
+    );
+    // Thresholds share the 0..=1 range.
+    let fields: Vec<&str> = RANGES.iter().map(|r| r.field).collect();
+    for f in [
+        "organize.auto_threshold",
+        "organize.review_threshold",
+        "organize.recent_seconds",
+        "organize.keep_organize_journals_days",
+    ] {
+        assert!(fields.contains(&f), "{f}");
+    }
+}
+
+#[test]
+fn normalise_cleans_companion_extensions() {
+    let mut s = Settings::default();
+    s.organize.companion_exts = vec![" SAV ".into(), "".into(), ".Srm".into(), "sav".into()];
+    s.normalise();
+    assert_eq!(s.organize.companion_exts, ["sav", "srm"]);
+}
+
+#[test]
+fn bad_organize_values_in_a_file_are_fixed_one_by_one() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"organize":{"auto_threshold":0.4,"review_threshold":0.9,"default_layout":"nope",
+            "folder_names":{"anbernic-stock":{"gba":"SFC","snes":"SFC"}},"mode":"copy"}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.organize.auto_threshold, 0.85);
+    assert_eq!(s.organize.review_threshold, 0.50);
+    assert_eq!(s.organize.default_layout, "anbernic-stock");
+    assert_eq!(s.organize.mode, OrganizeModeSetting::Copy);
+    let names = &s.organize.folder_names["anbernic-stock"];
+    assert_eq!(names.get("snes").map(String::as_str), Some("SFC"));
+    assert!(!names.contains_key("gba"));
+    assert!(report.fixed.contains(&"organize.folder_names".to_string()));
+    assert!(report
+        .fixed
+        .contains(&"organize.default_layout".to_string()));
+}
+
+#[test]
+fn built_in_layouts_are_known_without_a_profile_list() {
+    let mut s = Settings::default();
+    s.organize.default_layout = "esde".into();
+    s.organize
+        .arcade_order
+        .insert("esde".into(), vec!["fbneo".into()]);
+    assert!(s.validate(&[]).is_empty(), "{:?}", s.validate(&[]));
+}

@@ -24,6 +24,11 @@ use crate::jobs::JobEvents;
 use crate::library::art::{entry_path, read_art_bytes};
 use crate::library::refresh::EntryArtUpdate;
 use crate::library::view::{LibrarySettingsView, LibraryView, RecentView};
+use crate::organize::view::{
+    FolderProbeView, OrganizeJobView, OrganizePlanView, OrganizeProgressEvent, OrganizeRequest,
+    OrganizeUndoView, ORGANIZE_CHANGED_EVENT, ORGANIZE_PROGRESS_EVENT,
+};
+use crate::organize::OrganizeEvents;
 use crate::prefs::{link_url, LinkId, SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use crate::sources::SourceInfoView;
@@ -64,6 +69,28 @@ pub fn app_info() -> AppInfo {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         core_version: coverly_core::VERSION.to_owned(),
     }
+}
+
+/// One system Coverly knows, for the organise screen's system pickers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SystemInfo {
+    pub id: String,
+    pub name: String,
+}
+
+/// The built-in systems, by display name (case-insensitive).
+#[tauri::command]
+pub fn list_systems() -> Vec<SystemInfo> {
+    let mut systems: Vec<SystemInfo> = SystemDb::builtin()
+        .all()
+        .iter()
+        .map(|s| SystemInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+        })
+        .collect();
+    systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));
+    systems
 }
 
 async fn blocking<T: Send + 'static>(
@@ -712,4 +739,105 @@ pub fn restart_app(
 ) -> Result<(), IpcError> {
     updates.can_restart(job_blocks_update(state.jobs().current().map(|j| j.state)))?;
     app.restart()
+}
+
+/// A quick, name-only look at a folder no layout was detected in.
+#[tauri::command]
+pub async fn probe_folder(app: AppHandle, path: String) -> Result<FolderProbeView, IpcError> {
+    blocking(move || app.state::<AppState>().probe_folder(Path::new(&path))).await
+}
+
+/// Planning and apply progress, and the end of an apply, as Tauri events.
+struct TauriOrganizeEvents(AppHandle);
+
+impl OrganizeEvents for TauriOrganizeEvents {
+    fn progress(&self, event: OrganizeProgressEvent) {
+        let _ = self.0.emit(ORGANIZE_PROGRESS_EVENT, event);
+    }
+
+    fn changed(&self, view: OrganizeJobView) {
+        let _ = self.0.emit(ORGANIZE_CHANGED_EVENT, view);
+    }
+}
+
+/// Plans organising a loose pile (a dry run), emitting `organize-progress`.
+#[tauri::command]
+pub async fn organize_plan(
+    app: AppHandle,
+    request: OrganizeRequest,
+    decisions: Option<Vec<coverly_core::organize::Decision>>,
+) -> Result<OrganizePlanView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>()
+            .organize_plan(&request, &decisions.unwrap_or_default(), events)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn organize_cancel(state: State<'_, AppState>, plan_id: u64) -> Result<(), IpcError> {
+    state.organize_cancel(plan_id)
+}
+
+/// Saves plan `plan_id` as JSON where the user picks; `None` when cancelled.
+#[tauri::command]
+pub async fn organize_export_plan(
+    app: AppHandle,
+    plan_id: u64,
+) -> Result<Option<String>, IpcError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        state.organize().get(plan_id)?;
+        let Some(path) = save_path(&app, "coverly-organize-plan.json", ExportFormat::Json)? else {
+            return Ok(None);
+        };
+        state.organize_export_plan(plan_id, &path)?;
+        Ok(Some(shown_name(&path)))
+    })
+    .await
+}
+
+/// Applies plan `plan_id` with `decisions` (the backend re-plans from its
+/// own survey); progress arrives as `organize-progress`, the end as
+/// `organize-changed`.
+#[tauri::command]
+pub async fn organize_apply(
+    app: AppHandle,
+    plan_id: u64,
+    decisions: Vec<coverly_core::organize::Decision>,
+) -> Result<OrganizeJobView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>()
+            .organize_apply(plan_id, &decisions, events)
+    })
+    .await
+}
+
+/// Continues a paused or interrupted organise job into its journal.
+#[tauri::command]
+pub async fn organize_resume(app: AppHandle, job: String) -> Result<OrganizeJobView, IpcError> {
+    blocking(move || {
+        let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
+        app.state::<AppState>().organize_resume(&job, events)
+    })
+    .await
+}
+
+/// Stops the running organise apply before its next item.
+#[tauri::command]
+pub fn organize_cancel_apply(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.organize_cancel_apply()
+}
+
+/// Undoes organise job `job`; with `include_later`, the newer jobs that
+/// wrote under it too (newest first), else those make it `later-jobs`.
+#[tauri::command]
+pub async fn organize_undo(
+    app: AppHandle,
+    job: String,
+    include_later: bool,
+) -> Result<OrganizeUndoView, IpcError> {
+    blocking(move || app.state::<AppState>().organize_undo(&job, include_later)).await
 }

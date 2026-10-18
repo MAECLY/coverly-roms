@@ -1,7 +1,7 @@
 //! Progress reporting for long phases (gather, apply). The core sends
 //! typed events; the CLI and the app decide how to show them.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A long-running phase of a fill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -15,7 +15,7 @@ pub enum Phase {
 
 /// Why a phase or a job paused (spec §10). The app shows a reason and a
 /// Resume button.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PauseKind {
     /// HTTP 403 / 429 from a source.
