@@ -1006,8 +1006,9 @@ time {
 }
 
 /* System icons (spec §A.3–A.5): a box 1.5 × its height wide, so names in a
-   column start on one edge. Quieter than the name at rest; on a selected row
-   or a pressed toggle the icon takes the row's ink, never a colour of its own. */
+   column start on one edge. Quieter than the name at rest; on a selected row,
+   the current sidebar scope or a pressed toggle the icon takes the row's ink,
+   never a colour of its own. */
 .system-icon,
 .system-mount {
   display: inline-flex;
@@ -1020,6 +1021,8 @@ time {
 
 [aria-selected='true'] .system-icon,
 [aria-selected='true'] .system-mount,
+[aria-current='true'] .system-icon,
+[aria-current='true'] .system-mount,
 [data-state='on'] .system-icon,
 [data-state='on'] .system-mount {
   color: inherit;
