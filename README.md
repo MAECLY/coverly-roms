@@ -33,7 +33,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#questions">FAQ</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="README.es.md">Español</a>
+  <b>English</b> · <a href="README.es.md">Español</a>
 </p>
 
 <p align="center">
@@ -47,10 +47,11 @@
 
 > [!NOTE]
 > **Early days, said plainly.** v0.1.0 is the first release. Coverly ROMs has
-> not been tested on real handhelds yet. The builds are not signed with an Apple or Microsoft certificate yet, so the first
-> launch shows a warning (see [Install](#install)). If you try it on a
-> handheld, an [issue](https://github.com/MAECLY/coverly-roms/issues) saying
-> how it went helps a lot.
+> not been tested on real handhelds yet. The builds are not signed with an
+> Apple or Microsoft certificate yet, so the first launch shows a warning (see
+> [Install](#install)). If you try it on a handheld, an
+> [issue](https://github.com/MAECLY/coverly-roms/issues) saying how it went
+> helps a lot.
 
 ---
 
@@ -323,7 +324,7 @@ make it executable (`chmod +x`) and put it on your `PATH`.
 
 ## Updates
 
-**Updates.** The app checks for updates on start (Settings → General; turn it
+The app checks for updates on start (Settings → General; turn it
 off and it requests nothing) and from Settings → About, and never restarts
 while a fill job is running. The CLI: `coverly update check` and
 `coverly update install`. Every update is verified with the project's minisign
@@ -362,7 +363,7 @@ coverly undo                                  # undo the last job
 **`fill`:** `--profile ID|auto`, `--regions rom,world,usa,europe,japan`,
 `--match hash-then-name|hash-only|name-only`, `--scope missing|all` (`all`
 needs `--overwrite backup`), `--concurrency 1-6`, `--refresh` (ignore cached
-indexes), `--report table|json`, `--output FILE`.
+candidates and indexes), `--report table|json`, `--output FILE`.
 
 **`organize`:** `--layout PROFILE_ID`, `--target DIR`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign FILE=SYSTEM_ID`
@@ -516,7 +517,7 @@ through [SECURITY.md](SECURITY.md) (a private GitHub advisory, or
 | `site`                | The landing page                                                   |
 
 **Prerequisites:** [Rust](https://rustup.rs/) 1.90 or newer,
-[Node.js](https://nodejs.org/) 22 or newer with [pnpm](https://pnpm.io/), and
+[Node.js](https://nodejs.org/) 22.22.2 or newer with [pnpm](https://pnpm.io/), and
 the [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/)
 for your OS. `make doctor` shows which ones are installed.
 

@@ -334,7 +334,7 @@ sigue el [feed de versiones](https://github.com/MAECLY/coverly-roms/releases.ato
 
 ## Actualizaciones
 
-**Actualizaciones.** La app busca actualizaciones al iniciarse (Configuración →
+La app busca actualizaciones al iniciarse (Configuración →
 General; si lo desactivas no hace ninguna petición) y desde Configuración →
 Acerca de, y nunca se reinicia mientras un trabajo de relleno está en marcha.
 La CLI: `coverly update check` y `coverly update install`. Cada actualización
@@ -375,7 +375,7 @@ coverly undo                                  # deshace el último trabajo
 **`fill`:** `--profile ID|auto`, `--regions rom,world,usa,europe,japan`,
 `--match hash-then-name|hash-only|name-only`, `--scope missing|all` (`all`
 necesita `--overwrite backup`), `--concurrency 1-6`, `--refresh` (ignora los
-índices en caché), `--report table|json`, `--output ARCHIVO`.
+candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 
 **`organize`:** `--layout PERFIL`, `--target CARPETA`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign ARCHIVO=SISTEMA`
@@ -540,7 +540,7 @@ siguen [SECURITY.md](SECURITY.md) (un aviso privado en GitHub, o
 | `site`                | La página web                                                              |
 
 **Requisitos:** [Rust](https://rustup.rs/) 1.90 o superior,
-[Node.js](https://nodejs.org/) 22 o superior con [pnpm](https://pnpm.io/), y
+[Node.js](https://nodejs.org/) 22.22.2 o superior con [pnpm](https://pnpm.io/), y
 las [dependencias de sistema de Tauri 2](https://v2.tauri.app/start/prerequisites/)
 para tu sistema operativo. `make doctor` muestra cuáles tienes instaladas.
 
