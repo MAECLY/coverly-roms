@@ -2579,6 +2579,11 @@ body::before {
   stroke: var(--cr-slot-applied);
   stroke-width: 3;
 }
+/* The route runs from the card's right edge (x 4 + width 400) to the
+   folder's mouth (y 130 + 6/36 of its 72, the top of the front), under
+   the backup cover's centre (457 + 42/2). It lives in the same viewBox
+   as both, so it meets the folder at every width. pathLength 111 ends the
+   3 3 dashes on a dash (its real length is about 113). */
 .dm-route {
   fill: none;
   stroke: var(--cr-slot-missing);
