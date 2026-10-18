@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   FileText,
+  FolderTree,
   LayoutGrid,
   List,
   ListChecks,
@@ -37,6 +38,7 @@ export function Toolbar({
   onFill,
   onJobs,
   onReports,
+  onOrganizeLoose,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -44,6 +46,8 @@ export function Toolbar({
   onFill(): void;
   onJobs(): void;
   onReports(): void;
+  /** Sorts the ROMs lying outside any system folder (spec §4.5). */
+  onOrganizeLoose(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -152,6 +156,14 @@ export function Toolbar({
         </Tip>
       </SegmentedControl>
       <span className="toolbar-spacer" />
+      {view.loose_files > 0 && (
+        <Tip content={t('library.organizeLoose')}>
+          <Button variant="outline" onClick={onOrganizeLoose}>
+            <FolderTree aria-hidden className="toolbar-icon" />
+            <span className="toolbar-label">{t('library.organizeLoose')}</span>
+          </Button>
+        </Tip>
+      )}
       <Button variant="primary" onClick={onFill}>
         {t('toolbar.fill')}
       </Button>

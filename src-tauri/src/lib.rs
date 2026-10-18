@@ -6,6 +6,7 @@ pub mod jobs;
 pub mod keychain;
 pub mod library;
 pub mod logging;
+pub mod organize;
 pub mod prefs;
 pub mod profiles;
 pub mod sources;
@@ -80,6 +81,7 @@ pub fn run() {
             ipc::cache_usage,
             ipc::clear_cache,
             ipc::list_profiles,
+            ipc::list_systems,
             ipc::save_profile,
             ipc::delete_profile,
             ipc::preview_profile,
@@ -96,6 +98,14 @@ pub fn run() {
             ipc::download_update,
             ipc::install_update,
             ipc::restart_app,
+            ipc::probe_folder,
+            ipc::organize_plan,
+            ipc::organize_cancel,
+            ipc::organize_export_plan,
+            ipc::organize_apply,
+            ipc::organize_resume,
+            ipc::organize_cancel_apply,
+            ipc::organize_undo,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");
@@ -111,6 +121,26 @@ mod tests {
         assert_eq!(info.name, "Coverly ROMs");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(info.core_version, coverly_core::VERSION);
+    }
+
+    #[test]
+    fn list_systems_names_every_builtin_system_by_name() {
+        let systems = ipc::list_systems();
+        assert_eq!(
+            systems.len(),
+            coverly_core::systems::SystemDb::builtin().all().len()
+        );
+        let gba = systems.iter().find(|s| s.id == "gba").unwrap();
+        assert_eq!(gba.name, "Game Boy Advance");
+        let names: Vec<String> = systems.iter().map(|s| s.name.to_lowercase()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted);
+        let json = serde_json::to_value(gba).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "id": "gba", "name": "Game Boy Advance" })
+        );
     }
 
     #[test]

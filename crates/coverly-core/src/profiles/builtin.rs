@@ -1,12 +1,81 @@
 //! Built-in layout profiles (spec §5 and §16.8, paths verified in
 //! `docs/02-research/layouts.md`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use super::{ImageFormat, Media, MediaSlot, Profile};
+use super::{FolderNaming, ImageFormat, Media, MediaSlot, Profile};
 
 /// Largest cover Onion, GarlicOS and Anbernic stock display well (§16.8).
 const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
+
+/// Arcade systems preferred first when a set is in several DATs.
+const DEFAULT_ARCADE: [&str; 2] = ["fbneo", "mame"];
+/// Systems the Anbernic family keeps in another system's folder.
+const ANBERNIC_HOSTS: [(&str, &str); 2] = [("ngpc", "ngp"), ("wonderswancolor", "wonderswan")];
+/// Arcade order of the Anbernic family (its card has one folder each).
+const ANBERNIC_ARCADE: [&str; 6] = ["fbneo", "mame", "cps1", "cps2", "cps3", "neogeo"];
+/// Folder names of the stock Anbernic card (reference `~/Documents/ROMS`).
+const ANBERNIC_FOLDERS: [&str; 55] = [
+    "A2600",
+    "A5200",
+    "A7800",
+    "A800",
+    "AMIGA",
+    "APPS",
+    "ATARIST",
+    "ATOMISWAVE",
+    "C64",
+    "CPS1",
+    "CPS2",
+    "CPS3",
+    "DOS",
+    "DREAMCAST",
+    "EASYRPG",
+    "FBNEO",
+    "FC",
+    "FDS",
+    "GB",
+    "GBA",
+    "GBC",
+    "GG",
+    "GW",
+    "HBMAME",
+    "JAVA",
+    "LYNX",
+    "MAME",
+    "MD",
+    "MDCD",
+    "MSX",
+    "N64",
+    "NAOMI",
+    "NDS",
+    "NEOCD",
+    "NEOGEO",
+    "NGP",
+    "ONS",
+    "OPENBOR",
+    "PCE",
+    "PCECD",
+    "PGM2",
+    "PICO",
+    "POKE",
+    "PORTS",
+    "PS",
+    "PSP",
+    "SATURN",
+    "SCUMMVM",
+    "SEGA32X",
+    "SFC",
+    "SMS",
+    "VARCADE",
+    "VB",
+    "VIC20",
+    "WS",
+];
+
+fn strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|s| s.to_string()).collect()
+}
 
 /// The built-in profiles, in detection tie-break order.
 ///
@@ -14,7 +83,10 @@ const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
 /// `docs/02-research/layouts.md`); their templates are editable defaults.
 pub fn builtin_profiles() -> Vec<Profile> {
     vec![
-        imgs_profile("anbernic-stock", "Anbernic stock", "ROMS"),
+        Profile {
+            known_folders: strings(&ANBERNIC_FOLDERS),
+            ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS")
+        },
         imgs_profile("garlicos", "GarlicOS", "Roms"),
         imgs_profile("onion", "Onion OS", "Roms"),
         profile(
@@ -35,15 +107,18 @@ pub fn builtin_profiles() -> Vec<Profile> {
             ],
             None,
         ),
-        profile(
-            "minui",
-            "MinUI / NextUI",
-            "Roms",
-            &[".media", ".res"],
-            true,
-            &[(Media::Cover, "{system_dir}/{rel_dir}/.media/{stem}.png")],
-            None,
-        ),
+        Profile {
+            system_folder: FolderNaming::FirstAlias,
+            ..profile(
+                "minui",
+                "MinUI / NextUI",
+                "Roms",
+                &[".media", ".res"],
+                true,
+                &[(Media::Cover, "{system_dir}/{rel_dir}/.media/{stem}.png")],
+                None,
+            )
+        },
         profile(
             "esde",
             "ES-DE",
@@ -114,17 +189,27 @@ pub fn builtin_profiles() -> Vec<Profile> {
 }
 
 /// Single-slot handheld layout: `<SYS>/Imgs/<stem>.png`, mirroring
-/// subfolders, capital `I` (Onion's folder is case sensitive).
+/// subfolders, capital `I` (Onion's folder is case sensitive). Folders are
+/// named like the Anbernic card (`GBA`, `SFC`…), colour handhelds share
+/// their host's folder.
 fn imgs_profile(id: &str, name: &str, roms_root: &str) -> Profile {
-    profile(
-        id,
-        name,
-        roms_root,
-        &["Imgs"],
-        true,
-        &[(Media::Cover, "{system_dir}/{rel_dir}/Imgs/{stem}.png")],
-        HANDHELD_COVER,
-    )
+    Profile {
+        system_folder: FolderNaming::FirstAlias,
+        host_folders: ANBERNIC_HOSTS
+            .iter()
+            .map(|&(s, h)| (s.to_string(), h.to_string()))
+            .collect(),
+        arcade_order: strings(&ANBERNIC_ARCADE),
+        ..profile(
+            id,
+            name,
+            roms_root,
+            &["Imgs"],
+            true,
+            &[(Media::Cover, "{system_dir}/{rel_dir}/Imgs/{stem}.png")],
+            HANDHELD_COVER,
+        )
+    }
 }
 
 /// Builds a profile whose slots are all PNG with the same size limit.
@@ -156,6 +241,10 @@ fn profile(
             .collect::<HashMap<_, _>>(),
         fixed_format: false,
         gamelist: false,
+        system_folder: FolderNaming::Id,
+        host_folders: BTreeMap::new(),
+        arcade_order: strings(&DEFAULT_ARCADE),
+        known_folders: Vec::new(),
     }
 }
 

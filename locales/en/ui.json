@@ -25,7 +25,17 @@
     "progressLabel": "Scan progress",
     "volumes": "Connected drives",
     "noVolumes": "No drives or SD cards found.",
-    "openVolume": "Open {name}"
+    "openVolume": "Open {name}",
+    "suggestSystemFolders": "Looks like a folder organised by system",
+    "organizeOffer": {
+      "title": "This folder doesn't follow a known layout",
+      "body": "It holds {roms} files that look like ROMs. Coverly can propose one folder per system; nothing moves until you confirm.",
+      "action": "Organise this folder…",
+      "other": "Choose another folder",
+      "openSorted": "Open as organised by system",
+      "broadRoot": "This is a broad personal folder; only files that look like ROMs are proposed.",
+      "truncated": "More than {count} files; all of them are checked when organising."
+    }
   },
   "settings": {
     "open": "Settings",
@@ -218,6 +228,20 @@
       "resetBody": "Every setting goes back to its default. Recent libraries are kept and a copy of the current settings is saved.",
       "resetYes": "Reset settings",
       "cancel": "Cancel"
+    },
+    "organize": {
+      "title": "Organise",
+      "defaultLayout": "Default layout",
+      "nestInRoms": "Put the system folders inside the layout's ROMs folder",
+      "mode": "Mode",
+      "modeAuto": "Move on the same drive, copy otherwise",
+      "modeMove": "Move",
+      "modeCopy": "Copy",
+      "names": "Names",
+      "namesKeep": "Keep file names",
+      "namesCatalogue": "Use the catalogue name",
+      "downloadDats": "Download game catalogues to identify ROMs by their contents",
+      "advancedHint": "Thresholds and lists are edited in Advanced (settings file)."
     }
   },
   "about": {
@@ -267,7 +291,8 @@
     },
     "empty": "No ROMs found in this folder.",
     "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
-    "noMatch": "No ROMs match the search and filters."
+    "noMatch": "No ROMs match the search and filters.",
+    "organizeLoose": "Organise loose files…"
   },
   "footer": {
     "version": "Version {version}",
@@ -333,6 +358,10 @@
     "update-failed": "The update could not be installed: {detail}",
     "update-not-ready": "Check for updates first.",
     "art-unreadable": "This image cannot be shown.",
+    "cancelled": "Cancelled.",
+    "no-plan": "That organise plan is no longer kept. Plan again.",
+    "later-jobs": "Newer jobs changed files under this folder ({detail}). Undo them too, or keep this organisation.",
+    "no-space": "There is not enough free space for this copy (needed/free bytes: {detail}).",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",
@@ -587,6 +616,11 @@
     "undoConfirm": "Undo the last job? Written images are removed and replaced ones restored; images you changed since are kept.",
     "undoYes": "Undo",
     "undoNo": "Keep",
+    "organizeUndo": {
+      "label": "Undo the organisation of {date}",
+      "title": "Undo the organisation of {date}?",
+      "confirm": "The files go back where they were; files you changed since stay where they are."
+    },
     "undone": "Undone: {removed} removed, {restored} restored, {kept} kept because you changed them.",
     "history": "History",
     "noHistory": "No jobs yet.",
@@ -597,7 +631,11 @@
     "undoneBadge": "Undone",
     "close": "Close",
     "unknownDate": "Unknown date",
-    "unknownError": "Unknown problem"
+    "unknownError": "Unknown problem",
+    "kind": {
+      "fill": "Covers",
+      "organize": "Organisation"
+    }
   },
   "review": {
     "title": "Review doubtful matches",
@@ -698,6 +736,156 @@
       "slotsOrder": "Either every slot template uses {rel_dir} or none does.",
       "slotsRequired": "Turn on at least one slot."
     }
+  },
+  "organize": {
+    "title": "Organise by system",
+    "back": "Back",
+    "layout": "Layout",
+    "confidence": {
+      "label": "Confidence",
+      "high": "High",
+      "medium": "Medium"
+    },
+    "why": {
+      "hash": "CRC {crc} in the {system} catalogue: {name}",
+      "header": "The header is {system} ({detail})",
+      "extension": ".{ext} extension, used only by {system}",
+      "extensionShared": ".{ext} extension, shared by several systems; {system} is likely",
+      "extensionContradicted": ".{ext} extension of {system}, but the header doesn't match",
+      "name": "The name resembles {name} ({system})",
+      "online": "ScreenScraper knows it as {name} ({system})",
+      "user": "Chosen by you"
+    },
+    "left": {
+      "files": "Files staying where they are",
+      "partialDownload": "Download not finished",
+      "recent": "Changed moments ago; it may still be downloading",
+      "cloudOnly": "In the cloud, not downloaded",
+      "notARom": "Not a ROM ({what})",
+      "webPage": "web page",
+      "text": "text",
+      "bios": "BIOS: belongs in the device's BIOS folder",
+      "damagedArchive": "Damaged archive",
+      "unsupportedArchive": "Unsupported archive format",
+      "multiGameArchive": "Archive with several games; extract it first",
+      "unsupportedSystem": "Unsupported system ({name})",
+      "unknown": "Unknown system",
+      "duplicate": "Same as {name}",
+      "alreadyPresent": "Already in {path}",
+      "alreadySorted": "Already in the {folder} system folder",
+      "symlink": "Symbolic link; left as it is",
+      "setIncomplete": "Game files missing: {missing}",
+      "setOutsideFolder": "Some of its files are outside this folder",
+      "sharedTrack": "Track shared by several games",
+      "ambiguousCompanion": "Belongs to several ROMs; unclear which to follow",
+      "tooBigForFat": "Too big for FAT32 (exFAT needed)",
+      "unreadable": "Can't be read",
+      "collisionSet": "Another game already uses those names in the target",
+      "title": "Staying where they are"
+    },
+    "planning": "Identifying {done} of {total}…",
+    "walking": "Looking for files…",
+    "summary": "ROMs: {roms} · Systems: {systems} · To review: {review} · Staying put: {left}",
+    "empty": {
+      "title": "Nothing to file away",
+      "body": "No file here needs a system folder."
+    },
+    "dryRunHint": "This is a proposal. Nothing has moved yet.",
+    "cancel": "Cancel",
+    "otherFiles": "Other files: {count}",
+    "deepFolders": "Deeper folders not checked: {count}",
+    "target": {
+      "label": "Target",
+      "here": "This folder",
+      "other": "Another folder…",
+      "detected": "The target is already a {profile} library; that layout is used.",
+      "mismatch": "The target uses {profile}; new folders won't show up on that system."
+    },
+    "nest": {
+      "label": "Folders",
+      "roms": "Inside {folder}/",
+      "flat": "Directly here"
+    },
+    "mode": {
+      "label": "Mode",
+      "move": "Move",
+      "copy": "Copy",
+      "moveDisabled": "Can't move: the source folder is read-only."
+    },
+    "names": {
+      "label": "Names",
+      "keep": "Keep file names",
+      "catalogue": "Use the catalogue name"
+    },
+    "review": {
+      "title": "To review",
+      "hint": "Choose each file's system, or leave it where it is.",
+      "leave": "Leave in place",
+      "bucket": "{systems}: {count}",
+      "applyCount": "Apply to {count} files",
+      "applyOne": "Apply to 1 file",
+      "likely": "Most likely: {systems}",
+      "likelyThen": ", then ",
+      "choose": "Choose a system…",
+      "systemFor": "System for {name}",
+      "items": "Files: {count}"
+    },
+    "renamed": "Will be saved as {name} because a different file already exists",
+    "renamedFrom": "Renamed; it was {name}",
+    "renamedShort": "Name shortened to fit the path length limit",
+    "multiRomZip": "Holds {count} ROMs; the console will load only the first.",
+    "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
+    "noCatalogue": "No {system} catalogue: decided by {level}",
+    "encrypted": "Encrypted; some emulators can't load it",
+    "level": {
+      "hash": "catalogue",
+      "header": "header",
+      "extension": "extension",
+      "name": "name",
+      "online": "ScreenScraper",
+      "user": "your choice"
+    },
+    "apply": "Organise {count} files",
+    "exportPlan": "Export plan (JSON)",
+    "exported": "Plan saved as {name}.",
+    "openLibrary": "Open library",
+    "showMore": "Show {count} more",
+    "applying": "Moving {done} of {total}…",
+    "copying": "Copying {done} of {total}…",
+    "organizing": "Organising {done} of {total}…",
+    "starting": "Starting…",
+    "progressLabel": "Organising progress",
+    "resultTitle": "Result",
+    "pausedTitle": "Paused",
+    "result": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
+    "copiedNotRemoved": "Copied; the original couldn't be removed",
+    "copiedNotRemovedCount": "Copied without removing the original: {count}",
+    "stopped": "Stopped. What was already organised stays; Undo puts it back.",
+    "details": "What happened to each file",
+    "outcome": {
+      "moved": "Moved",
+      "copied": "Copied",
+      "failed": "Error: {reason}",
+      "skipped": {
+        "changed-since-plan": "Skipped: changed since the proposal",
+        "source-missing": "Skipped: no longer there",
+        "already-present": "Skipped: already in the target",
+        "collision-set": "Skipped: another game already uses those names",
+        "not-decided": "Skipped: no system chosen",
+        "cancelled": "Skipped: stopped before it"
+      }
+    },
+    "undo": {
+      "action": "Undo",
+      "actionCount": "Undo {count} files",
+      "confirmTitle": "Undo this organisation?",
+      "laterJobs": "These must be undone first: {jobs}",
+      "laterJob": "{kind} {date}",
+      "all": "Undo all in order"
+    },
+    "undone": "Restored: {restored} · Left alone because they changed: {modified}",
+    "resume": "Resume",
+    "interrupted": "Interrupted"
   },
   "ui": {
     "close": "Close",

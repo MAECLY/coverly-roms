@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::identify::MatchMethod;
 use crate::matching::StrategyKind;
+use crate::organize::target::default_companion_exts;
+use crate::organize::{NameMode, DEFAULT_LAYOUT};
 use crate::profiles::Media;
 use crate::scan::ScanOptions;
 
@@ -59,6 +61,8 @@ choice!(/// Output image format (`profile` = what the layout says).
     OutputFormat { Profile, Png, Jpg });
 choice!(/// Proxy source (D26: `system` reads the standard environment variables).
     ProxyChoice { System, Env, Manual });
+choice!(/// Organise transfer mode (`auto` = move on the same volume, copy otherwise).
+    OrganizeModeSetting { Auto, Move, Copy });
 
 /// App log level.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +343,54 @@ pub struct AdvancedSettings {
     pub custom_dir: Option<PathBuf>,
 }
 
+/// Organising a pile of loose ROMs (organise spec §12).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrganizeSettings {
+    /// Profile id of the layout proposed by default.
+    pub default_layout: String,
+    /// System folders go under the layout's ROMs folder (`<picked>/ROMS/<SYS>`);
+    /// off = straight in the picked folder.
+    pub nest_in_roms_root: bool,
+    pub mode: OrganizeModeSetting,
+    pub names: NameMode,
+    /// Download missing DATs while planning.
+    pub download_dats: bool,
+    /// 0–1; items at or above it are moved without asking.
+    pub auto_threshold: f32,
+    /// 0–1, at most `auto_threshold`; items at or above it go to review.
+    pub review_threshold: f32,
+    /// Lowercase extensions that follow their ROM (`state*` = prefix).
+    pub companion_exts: Vec<String>,
+    /// Profile id → system id → folder name.
+    pub folder_names: BTreeMap<String, BTreeMap<String, String>>,
+    /// Profile id → arcade system order (missing = the profile's own).
+    pub arcade_order: BTreeMap<String, Vec<String>>,
+    /// Files modified more recently than this are left in place.
+    pub recent_seconds: u32,
+    /// How long organise journals are kept for undo.
+    pub keep_organize_journals_days: u32,
+}
+
+impl Default for OrganizeSettings {
+    fn default() -> Self {
+        OrganizeSettings {
+            default_layout: DEFAULT_LAYOUT.to_string(),
+            nest_in_roms_root: true,
+            mode: OrganizeModeSetting::Auto,
+            names: NameMode::Keep,
+            download_dats: true,
+            auto_threshold: 0.85,
+            review_threshold: 0.50,
+            companion_exts: default_companion_exts(),
+            folder_names: BTreeMap::new(),
+            arcade_order: BTreeMap::new(),
+            recent_seconds: 60,
+            keep_organize_journals_days: 90,
+        }
+    }
+}
+
 /// Every setting of spec §9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -352,6 +404,7 @@ pub struct Settings {
     pub network: NetworkSettings,
     pub safety: SafetySettings,
     pub advanced: AdvancedSettings,
+    pub organize: OrganizeSettings,
 }
 
 impl Default for Settings {
@@ -366,6 +419,7 @@ impl Default for Settings {
             network: NetworkSettings::default(),
             safety: SafetySettings::default(),
             advanced: AdvancedSettings::default(),
+            organize: OrganizeSettings::default(),
         }
     }
 }
@@ -436,5 +490,14 @@ impl Settings {
         }
         self.sources.order = order;
         self.network.proxy_url = self.network.proxy_url.trim().to_string();
+        let mut companions: Vec<String> = Vec::new();
+        for e in &self.organize.companion_exts {
+            let e = e.trim().trim_start_matches('.').to_ascii_lowercase();
+            if !e.is_empty() && !companions.contains(&e) {
+                companions.push(e);
+            }
+        }
+        self.organize.companion_exts = companions;
+        self.organize.default_layout = self.organize.default_layout.trim().to_string();
     }
 }

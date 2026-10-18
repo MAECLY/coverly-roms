@@ -36,6 +36,10 @@ export const ERROR_CODES = [
   'update-failed',
   'update-not-ready',
   'art-unreadable',
+  'cancelled',
+  'no-plan',
+  'later-jobs',
+  'no-space',
   'unknown',
 ] as const;
 

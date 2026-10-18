@@ -120,6 +120,13 @@ struct SsGame {
     names: Vec<(String, String)>,
     /// (type, region)
     medias: Vec<(String, String)>,
+    /// The game's `systeme.id` (absent in answers cached before it was kept).
+    #[serde(default)]
+    system: Option<u32>,
+    /// Upper-case CRCs of the ROMs the answer says it matched (`rom`,
+    /// `roms`); empty when it names none.
+    #[serde(default)]
+    rom_crcs: Vec<String>,
 }
 
 impl SsGame {
@@ -189,8 +196,39 @@ fn parse_game(v: &Value) -> Option<SsGame> {
             medias.push(entry);
         }
     }
-    Some(SsGame { id, names, medias })
+    let system = v
+        .get("systeme")
+        .and_then(|s| s.get("id"))
+        .and_then(num)
+        .and_then(|n| u32::try_from(n).ok());
+    let mut rom_crcs: Vec<String> = Vec::new();
+    let roms = v.get("rom").into_iter().chain(
+        v.get("roms")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten(),
+    );
+    for r in roms.take(MAX_ROM_CRCS) {
+        let Some(crc) = r.get("romcrc").and_then(text) else {
+            continue;
+        };
+        let crc = crc.trim().to_ascii_uppercase();
+        if crc.len() == 8 && crc.bytes().all(|b| b.is_ascii_hexdigit()) && !rom_crcs.contains(&crc)
+        {
+            rom_crcs.push(crc);
+        }
+    }
+    Some(SsGame {
+        id,
+        names,
+        medias,
+        system,
+        rom_crcs,
+    })
 }
+
+/// Most ROM CRCs kept from one answer (hostile-safe bound).
+const MAX_ROM_CRCS: usize = 64;
 
 /// Query parameters that identify a ROM by its hashes; `None` when it was
 /// not hashed (too large or name-only: search by title instead).
@@ -408,14 +446,11 @@ impl<'a> ScreenScraperSource<'a> {
     /// The game for `q`: by hash (canonical, 100) when the ROM was hashed,
     /// else by title when names may be used (title-exact, 95).
     fn game(&self, sid: u32, q: &ArtQuery) -> Result<Option<(SsGame, MatchKind, u8)>, SourceError> {
-        let mut params = vec![("systemeid", sid.to_string())];
-        if let Some(h) = q.hash.and_then(|h| hash_params(q.file_name, h)) {
-            params.extend(h);
-            let found = self.lookup("jeuInfos.php", &params, "", |v| {
-                v["response"].get("jeu").and_then(parse_game)
-            })?;
+        if let Some(h) = q.hash.filter(|h| hash_params(q.file_name, h).is_some()) {
+            let found = self.game_by_hash(sid, q.file_name, h)?;
             return Ok(found.map(|g| (g, MatchKind::Canonical, 100)));
         }
+        let mut params = vec![("systemeid", sid.to_string())];
         if !q.by_name {
             return Ok(None);
         }
@@ -442,6 +477,55 @@ impl<'a> ScreenScraperSource<'a> {
                 })
         })?;
         Ok(found.map(|g| (g, MatchKind::TitleExact, 95)))
+    }
+
+    /// The game `jeuInfos.php` names for a hashed ROM on system `sid`
+    /// (`None` when the ROM was not hashed or the server does not know it).
+    fn game_by_hash(
+        &self,
+        sid: u32,
+        file_name: &str,
+        hash: &HashOutcome,
+    ) -> Result<Option<SsGame>, SourceError> {
+        let Some(h) = hash_params(file_name, hash) else {
+            return Ok(None);
+        };
+        let mut params = vec![("systemeid", sid.to_string())];
+        params.extend(h);
+        self.lookup("jeuInfos.php", &params, "", |v| {
+            v["response"].get("jeu").and_then(parse_game)
+        })
+    }
+
+    /// The game name for a ROM hash on system `sid` (cached like every
+    /// ScreenScraper answer; organise asks it when offline levels are not
+    /// enough). `None` for an unhashed ROM, an unknown hash, or an answer
+    /// for another system or another ROM's CRC.
+    pub fn identify_by_hash(
+        &self,
+        sid: u32,
+        file_name: &str,
+        hash: &HashOutcome,
+    ) -> Result<Option<String>, SourceError> {
+        let Some(game) = self.game_by_hash(sid, file_name, hash)? else {
+            return Ok(None);
+        };
+        // The system is the question: an answer for another system (the
+        // server may match across systems) says nothing about it.
+        if game.system.is_some_and(|s| s != sid) {
+            return Ok(None);
+        }
+        // An answer that names the ROMs it matched must name our CRC; else
+        // the server matched something else (by file name, say).
+        let crc = match hash {
+            HashOutcome::Content(r) => r.full.crc32.to_ascii_uppercase(),
+            HashOutcome::ZipEntry { crc32, .. } => crc32.to_ascii_uppercase(),
+            HashOutcome::TooLarge { .. } | HashOutcome::NameOnly => return Ok(None),
+        };
+        if !game.rom_crcs.is_empty() && !game.rom_crcs.contains(&crc) {
+            return Ok(None);
+        }
+        Ok(game.name().map(str::to_string))
     }
 
     /// A cached or fresh answer of `endpoint`, read by `pick`.

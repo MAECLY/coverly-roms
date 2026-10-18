@@ -92,6 +92,36 @@ pub(crate) fn compact_utc(time: SystemTime) -> String {
     rfc3339_utc(time).replace(['-', ':'], "")
 }
 
+/// The time of a [`compact_utc`] string (`20261016T030000Z`), or of the
+/// start of one (a job id such as `20261016T030000Z-1a2b-0003`); `None`
+/// for anything else.
+pub(crate) fn parse_compact_utc(text: &str) -> Option<SystemTime> {
+    let s = text.get(..16)?;
+    let b = s.as_bytes();
+    if b[8] != b'T' || b[15] != b'Z' {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| -> Option<u32> {
+        let part = &s[range];
+        part.bytes()
+            .all(|c| c.is_ascii_digit())
+            .then(|| part.parse().ok())
+            .flatten()
+    };
+    let (year, month, day) = (i64::from(num(0..4)?), num(4..6)?, num(6..8)?);
+    let (h, m, sec) = (num(9..11)?, num(11..13)?, num(13..15)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || h > 23 || m > 59 || sec > 60 {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    if civil_from_days(days) != (year, month, day) {
+        return None;
+    }
+    let secs = days * 86_400 + i64::from(h * 3600 + m * 60 + sec);
+    let secs = u64::try_from(secs).ok()?;
+    Some(UNIX_EPOCH + std::time::Duration::from_secs(secs))
+}
+
 /// Seconds since the Unix epoch, now.
 pub fn now_unix() -> i64 {
     SystemTime::now()
@@ -136,6 +166,26 @@ mod tests {
         let time = UNIX_EPOCH + Duration::from_secs(1_792_119_600);
         assert_eq!(rfc3339_utc(time), "2026-10-16T03:00:00Z");
         assert_eq!(compact_utc(time), "20261016T030000Z");
+    }
+
+    #[test]
+    fn parses_compact_utc_and_job_ids() {
+        let time = UNIX_EPOCH + Duration::from_secs(1_792_119_600);
+        assert_eq!(parse_compact_utc("20261016T030000Z"), Some(time));
+        assert_eq!(parse_compact_utc("20261016T030000Z-1a2b-0003"), Some(time));
+        assert_eq!(parse_compact_utc(&compact_utc(time)), Some(time));
+        for bad in [
+            "",
+            "20261016T0300",
+            "20261016X030000Z",
+            "20261316T030000Z",
+            "20260431T030000Z",
+            "20261016T250000Z",
+            "2026101AT030000Z",
+            "19691231T235959Z",
+        ] {
+            assert_eq!(parse_compact_utc(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

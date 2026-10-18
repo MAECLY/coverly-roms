@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
-import { DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
+import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
+import { ERROR_CODES } from './errors';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
@@ -26,6 +27,20 @@ import {
   type JobProgressEvent,
   type JobView,
   type LibraryView,
+  type FolderProbe,
+  type OrganizeItemOutcome,
+  type LeftReason,
+  type OrganizeCounts,
+  type OrganizeDecision,
+  type OrganizeItem,
+  type OrganizeJobView,
+  type OrganizePlan,
+  type OrganizePlanView,
+  type OrganizeProgressEvent,
+  type OrganizeReport,
+  type OrganizeRequest,
+  type OrganizeUndoView,
+  type OrganizeUndoReport,
   type ProfileView,
   type RecentLibrary,
   type ScanProgress,
@@ -51,6 +66,7 @@ const VIEW_KEYS = [
   'entries',
   'warnings',
   'scan_ms',
+  'loose_files',
 ] as const;
 const ENTRY_KEYS = [
   'id',
@@ -154,6 +170,8 @@ const HISTORY_KEYS = [
   'entries',
   'complete',
   'undone',
+  'kind',
+  'undoable',
 ] as const;
 const UPDATE_OFFER_KEYS = ['version', 'notes', 'date'] as const;
 const UPDATE_PROGRESS_KEYS = ['downloaded', 'total'] as const;
@@ -165,6 +183,107 @@ const REQUEST_KEYS = [
   'strategy',
   'regions',
   'overwrite',
+] as const;
+
+const PROBE_KEYS = [
+  'rom_like',
+  'partial_downloads',
+  'cloud_only',
+  'sorted_folders',
+  'writable',
+  'broad_root',
+  'truncated',
+] as const;
+const PLAN_VIEW_KEYS = ['plan_id', 'plan'] as const;
+const PLAN_KEYS = [
+  'source_root',
+  'target_root',
+  'roms_dir',
+  'layout',
+  'mode',
+  'names',
+  'items',
+  'counts',
+  'sorted_folders',
+  'deep_folders',
+  'other_files',
+  'warnings',
+  'broad_root',
+  'fat32',
+  'move_allowed',
+  'target_detected',
+  'created_at',
+] as const;
+const ORGANIZE_ITEM_KEYS = [
+  'id',
+  'sources',
+  'kind',
+  'size',
+  'fps',
+  'target',
+  'set_targets',
+  'system_id',
+  'folder',
+  'confidence',
+  'method',
+  'why',
+  'alternatives',
+  'rename',
+  'notes',
+  'companions',
+  'catalogue_name',
+  'action',
+] as const;
+const COUNTS_KEYS = [
+  'roms',
+  'systems',
+  'auto',
+  'review',
+  'left',
+  'junk',
+  'other_files',
+  'deep_folders',
+  'bytes',
+] as const;
+const ORGANIZE_PROGRESS_KEYS = ['plan_id', 'phase', 'done', 'total'] as const;
+const ORGANIZE_JOB_KEYS = [
+  'job',
+  'plan_id',
+  'state',
+  'progress',
+  'report',
+  'target_root',
+  'layout',
+  'error',
+] as const;
+const ORGANIZE_REPORT_KEYS = [
+  'job',
+  'moved',
+  'copied',
+  'skipped',
+  'failed',
+  'items',
+  'paused',
+  'pause_reason',
+  'resumable_items',
+] as const;
+const ORGANIZE_UNDO_KEYS = ['report', 'later_jobs'] as const;
+const UNDO_REPORT_KEYS = [
+  'job',
+  'removed',
+  'restored',
+  'skipped_modified',
+  'skipped_occupied',
+  'dirs_removed',
+] as const;
+const ORGANIZE_REQUEST_KEYS = [
+  'source',
+  'layout',
+  'target',
+  'flat',
+  'mode',
+  'names',
+  'offline',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */
@@ -284,6 +403,82 @@ const checks: [string, readonly string[], object][] = [
     sample.volume,
   ],
   [
+    'FolderProbe',
+    PROBE_KEYS satisfies AllKeys<FolderProbe, typeof PROBE_KEYS>,
+    sample.folder_probe,
+  ],
+  [
+    'OrganizePlanView',
+    PLAN_VIEW_KEYS satisfies AllKeys<OrganizePlanView, typeof PLAN_VIEW_KEYS>,
+    sample.organize_plan_view,
+  ],
+  [
+    'OrganizePlan',
+    PLAN_KEYS satisfies AllKeys<OrganizePlan, typeof PLAN_KEYS>,
+    sample.organize_plan_view.plan,
+  ],
+  [
+    'OrganizeItem',
+    ORGANIZE_ITEM_KEYS satisfies AllKeys<
+      OrganizeItem,
+      typeof ORGANIZE_ITEM_KEYS
+    >,
+    sample.organize_plan_view.plan.items[0]!,
+  ],
+  [
+    'OrganizeCounts',
+    COUNTS_KEYS satisfies AllKeys<OrganizeCounts, typeof COUNTS_KEYS>,
+    sample.organize_plan_view.plan.counts,
+  ],
+  [
+    'OrganizeProgressEvent',
+    ORGANIZE_PROGRESS_KEYS satisfies AllKeys<
+      OrganizeProgressEvent,
+      typeof ORGANIZE_PROGRESS_KEYS
+    >,
+    sample.organize_progress,
+  ],
+  [
+    'OrganizeJobView',
+    ORGANIZE_JOB_KEYS satisfies AllKeys<
+      OrganizeJobView,
+      typeof ORGANIZE_JOB_KEYS
+    >,
+    sample.organize_job,
+  ],
+  [
+    'OrganizeReport',
+    ORGANIZE_REPORT_KEYS satisfies AllKeys<
+      OrganizeReport,
+      typeof ORGANIZE_REPORT_KEYS
+    >,
+    sample.organize_job.report,
+  ],
+  [
+    'OrganizeUndoView',
+    ORGANIZE_UNDO_KEYS satisfies AllKeys<
+      OrganizeUndoView,
+      typeof ORGANIZE_UNDO_KEYS
+    >,
+    sample.organize_undo,
+  ],
+  [
+    'OrganizeUndoReport',
+    UNDO_REPORT_KEYS satisfies AllKeys<
+      OrganizeUndoReport,
+      typeof UNDO_REPORT_KEYS
+    >,
+    sample.organize_undo.report[0]!,
+  ],
+  [
+    'OrganizeRequest',
+    ORGANIZE_REQUEST_KEYS satisfies AllKeys<
+      OrganizeRequest,
+      typeof ORGANIZE_REQUEST_KEYS
+    >,
+    requests.organize_request,
+  ],
+  [
     'FillRequest',
     REQUEST_KEYS satisfies AllKeys<FillRequest, typeof REQUEST_KEYS>,
     requests.fill_request,
@@ -350,6 +545,9 @@ describe('settings contract', () => {
   it('the UI defaults and ranges are the Rust ones', () => {
     expect(DEFAULT_SETTINGS).toEqual(sample.settings);
     expect(RANGES).toEqual(sample.ranges);
+    expect(BUILTIN_LAYOUTS).toEqual(
+      sample.builtin_profiles.map((p) => p.profile.id),
+    );
   });
   it('error and status samples have the TS shapes', () => {
     const e: FieldError = sample.field_error as FieldError;
@@ -392,5 +590,62 @@ describe('settings contract', () => {
     const patch: SettingsPatch = requests.settings_patch as SettingsPatch;
     expect(patch.safety?.backup_dir).toBeNull();
     expect(requests.credential_keys).toEqual([...CREDENTIAL_KEYS]);
+  });
+});
+
+describe('organise contract', () => {
+  const plan = sample.organize_plan_view.plan as OrganizePlan;
+
+  it('plan items use the Rust tags', () => {
+    expect(plan.items.map((i) => i.action)).toEqual(['auto', 'review', 'left']);
+    const left = plan.items[2]!;
+    const reason: LeftReason | null =
+      left.action === 'left' ? left.reason : null;
+    expect(reason).toEqual({ kind: 'partial-download' });
+    expect(plan.items[0]!.rename).toEqual({
+      kind: 'collision',
+      name: 'Tetris Worlds (USA) (2).zip',
+    });
+    expect(plan.items[0]!.why[0]!.kind).toBe('hash');
+    expect(plan.items[1]!.alternatives).toEqual([['gbc', 0.25]]);
+    expect(plan.items[1]!.notes).toEqual([
+      { kind: 'no-folder-on-device', folder: 'GB' },
+    ]);
+    expect(plan.warnings).toEqual([
+      { kind: 'catalogue-missing', system: 'gb' },
+    ]);
+  });
+
+  it('job views, outcomes and undo use the Rust spellings', () => {
+    const job = sample.organize_job as OrganizeJobView;
+    const outcomes: OrganizeItemOutcome[] = job.report!.items;
+    expect(outcomes.map((o) => o.status)).toEqual(['moved', 'skipped']);
+    expect(outcomes[1]).toMatchObject({ reason: 'not-decided' });
+    expect(job.report).toMatchObject({
+      paused: 'volume',
+      pause_reason: 'disk-full',
+    });
+    expect((sample.organize_job_applying as OrganizeJobView).progress).toEqual(
+      sample.organize_progress,
+    );
+    const failed = sample.organize_job_failed as OrganizeJobView;
+    expect(failed.error).toEqual({ code: 'no-space', detail: '8473027/1000' });
+    const undo = sample.organize_undo as OrganizeUndoView;
+    expect(undo.later_jobs[0]!.kind).toBe('fill');
+  });
+
+  it('requests, decisions and organise errors match Rust', () => {
+    const bare: OrganizeRequest = requests.organize_request_bare;
+    expect(bare).toEqual({ source: '/Users/me/ROMs-Downloaded' });
+    const decisions = requests.organize_decisions as OrganizeDecision[];
+    expect(decisions.map((d) => d.choice)).toEqual([
+      'accept',
+      'assign',
+      'leave',
+    ]);
+    for (const e of sample.organize_errors) {
+      expect(ERROR_CODES).toContain(e.code);
+    }
+    expect(ERROR_CODES).toContain('cancelled');
   });
 });

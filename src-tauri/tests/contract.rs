@@ -105,6 +105,7 @@ fn rust_serialises_the_shared_sample() {
             message: "permission denied".into(),
         }],
         scan_ms: 42,
+        loose_files: 3,
     };
     let actual = json!({
         "library_view": view,
@@ -193,6 +194,8 @@ fn rust_serialises_the_shared_sample() {
             entries: 3,
             complete: true,
             undone: false,
+            kind: coverly_core::write::JobKind::Fill,
+            undoable: true,
         },
         "error": IpcError::NotFound("/Volumes/SD".into()),
         "item_error_kinds": ALL_ITEM_ERROR_KINDS,
@@ -362,4 +365,265 @@ fn settings_requests_deserialize() {
         assert!(CredentialKey::parse(k.as_str().unwrap()).is_some());
     }
     serde_json::from_value::<PreviewExample>(req["preview_example"].clone()).unwrap();
+}
+
+/// One organise plan with an automatic, a review and a left item.
+fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        Counts as OrganizeCounts, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
+        OrganizeItem, OrganizePlan, PlanWarning, RenameReason, SourceFp, TransferMode,
+    };
+    let item = |id: usize, source: &str, action: OrganizeAction| OrganizeItem {
+        id,
+        sources: vec![source.into()],
+        kind: ItemKind::Archive,
+        size: 4_194_304,
+        fps: vec![SourceFp {
+            size: 4_194_304,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: None,
+        set_targets: vec![],
+        system_id: None,
+        folder: None,
+        confidence: 0.0,
+        method: None,
+        why: vec![],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![],
+        companions: vec![],
+        catalogue_name: None,
+        action,
+    };
+    let auto = OrganizeItem {
+        target: Some("/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip".into()),
+        system_id: Some("gba".into()),
+        folder: Some("GBA".into()),
+        confidence: 1.0,
+        method: Some(IdLevel::Hash),
+        why: vec![Evidence::new(
+            IdLevel::Hash,
+            "gba",
+            1.0,
+            "CRC 1A2B3C4D in No-Intro GBA",
+        )],
+        rename: Some(RenameReason::Collision {
+            name: "Tetris Worlds (USA) (2).zip".into(),
+        }),
+        catalogue_name: Some("Tetris Worlds (USA)".into()),
+        ..item(0, "Tetris Worlds (USA).zip", OrganizeAction::Auto)
+    };
+    let review = OrganizeItem {
+        system_id: Some("gb".into()),
+        folder: Some("GB".into()),
+        confidence: 0.5,
+        method: Some(IdLevel::Extension),
+        why: vec![Evidence::new(IdLevel::Extension, "gb", 0.5, ".gb")],
+        alternatives: vec![("gbc".into(), 0.25)],
+        notes: vec![ItemNote::NoFolderOnDevice {
+            folder: "GB".into(),
+        }],
+        ..item(1, "Tetris 2.zip", OrganizeAction::Review)
+    };
+    let left = item(
+        2,
+        "Tetris Attack.zip.crdownload",
+        OrganizeAction::Left {
+            reason: LeftReason::PartialDownload,
+        },
+    );
+    OrganizePlan {
+        source_root: "/Users/me/ROMs-Downloaded".into(),
+        target_root: "/Users/me/ROMs-Downloaded".into(),
+        roms_dir: "/Users/me/ROMs-Downloaded/ROMS".into(),
+        layout: "anbernic-stock".into(),
+        mode: TransferMode::Move,
+        names: NameMode::Keep,
+        items: vec![auto, review, left],
+        counts: OrganizeCounts {
+            roms: 2,
+            systems: 2,
+            auto: 1,
+            review: 1,
+            left: 1,
+            junk: 1,
+            other_files: 0,
+            deep_folders: 0,
+            bytes: 8_388_608,
+        },
+        sorted_folders: vec![],
+        deep_folders: vec![],
+        other_files: vec![],
+        warnings: vec![PlanWarning::CatalogueMissing {
+            system: "gb".into(),
+        }],
+        broad_root: false,
+        fat32: false,
+        move_allowed: true,
+        target_detected: None,
+        created_at: "2026-10-17T10:32:00Z".into(),
+    }
+}
+
+#[test]
+fn organise_views_match_the_shared_sample() {
+    use coverly_core::organize::{
+        ItemOutcome, ItemStatus as OrganizeItemStatus, OrganizePhase, OrganizeReport, SkipReason,
+    };
+    use coverly_core::write::{JobKind, UndoReport};
+    use coverly_roms_lib::organize::view::{
+        FolderProbeView, OrganizeJobState, OrganizeJobView, OrganizePlanView,
+        OrganizeProgressEvent, OrganizeUndoView,
+    };
+
+    let job = "20261017T103200Z-1bfb-0000";
+    let progress = OrganizeProgressEvent {
+        plan_id: 3,
+        phase: OrganizePhase::Apply,
+        done: 1,
+        total: 2,
+    };
+    let actual = json!({
+        "folder_probe": FolderProbeView {
+            rom_like: 17,
+            partial_downloads: 3,
+            cloud_only: 0,
+            sorted_folders: vec![],
+            writable: true,
+            broad_root: false,
+            truncated: false,
+        },
+        "organize_plan_view": OrganizePlanView { plan_id: 3, plan: organize_plan_sample() },
+        "organize_progress": progress,
+        "organize_job": OrganizeJobView {
+            job: Some(job.into()),
+            plan_id: 3,
+            state: OrganizeJobState::Paused,
+            progress: None,
+            report: Some(OrganizeReport {
+                job: Some(job.into()),
+                moved: 1,
+                copied: 0,
+                skipped: 1,
+                failed: 0,
+                items: vec![
+                    ItemOutcome {
+                        item: 0,
+                        status: OrganizeItemStatus::Moved,
+                        targets: vec!["/Users/me/ROMs-Downloaded/ROMS/GBA/Tetris Worlds (USA).zip".into()],
+                    },
+                    ItemOutcome {
+                        item: 1,
+                        status: OrganizeItemStatus::Skipped { reason: SkipReason::NotDecided },
+                        targets: vec![],
+                    },
+                ],
+                paused: Some(PauseKind::Volume),
+                pause_reason: Some(ItemErrorKind::DiskFull),
+                resumable_items: vec![],
+            }),
+            target_root: "/Users/me/ROMs-Downloaded".into(),
+            layout: "anbernic-stock".into(),
+            error: None,
+        },
+        "organize_job_applying": OrganizeJobView {
+            job: None,
+            plan_id: 3,
+            state: OrganizeJobState::Applying,
+            progress: Some(progress),
+            report: None,
+            target_root: "/Users/me/ROMs-Downloaded".into(),
+            layout: "anbernic-stock".into(),
+            error: None,
+        },
+        "organize_job_failed": OrganizeJobView {
+            job: None,
+            plan_id: 3,
+            state: OrganizeJobState::Failed,
+            progress: None,
+            report: None,
+            target_root: "/Users/me/ROMs-Downloaded".into(),
+            layout: "anbernic-stock".into(),
+            error: Some(IpcError::NoSpace("8473027/1000".into())),
+        },
+        "organize_undo": OrganizeUndoView {
+            report: vec![UndoReport {
+                job: job.into(),
+                removed: vec![],
+                restored: vec!["/Users/me/ROMs-Downloaded/Tetris Worlds (USA).zip".into()],
+                skipped_modified: vec![],
+                skipped_occupied: vec![],
+                dirs_removed: vec!["/Users/me/ROMs-Downloaded/ROMS/GBA".into()],
+            }],
+            later_jobs: vec![JobHistoryView {
+                job: "20261017T104500Z-1bfb-0001".into(),
+                root: "/Users/me/ROMs-Downloaded".into(),
+                created_at: "2026-10-17T10:45:00Z".into(),
+                entries: 1,
+                complete: true,
+                undone: false,
+                kind: JobKind::Fill,
+                undoable: true,
+            }],
+        },
+        "organize_errors": [
+            IpcError::NoPlan,
+            IpcError::LaterJobs("20261017T104500Z-1bfb-0001".into()),
+            IpcError::NoSpace("8473027/1000".into()),
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn rust_reads_the_shared_organise_requests() {
+    use coverly_core::organize::{Choice, Decision as OrganizeDecision, NameMode, TransferMode};
+    use coverly_roms_lib::organize::view::OrganizeRequest;
+
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let full: OrganizeRequest = serde_json::from_value(req["organize_request"].clone()).unwrap();
+    assert_eq!(full.source, "/Users/me/ROMs-Downloaded");
+    assert_eq!(full.layout.as_deref(), Some("anbernic-stock"));
+    assert_eq!(full.target.as_deref(), Some("/Volumes/SD"));
+    assert_eq!(full.flat, Some(false));
+    assert_eq!(full.mode, Some(TransferMode::Copy));
+    assert_eq!(full.names, Some(NameMode::Catalogue));
+    assert_eq!(full.offline, Some(true));
+    let bare: OrganizeRequest =
+        serde_json::from_value(req["organize_request_bare"].clone()).unwrap();
+    assert_eq!(bare.source, "/Users/me/ROMs-Downloaded");
+    assert_eq!(bare.layout, None);
+    let decisions: Vec<OrganizeDecision> =
+        serde_json::from_value(req["organize_decisions"].clone()).unwrap();
+    assert_eq!(
+        decisions,
+        vec![
+            OrganizeDecision {
+                item: 1,
+                choice: Choice::Accept
+            },
+            OrganizeDecision {
+                item: 2,
+                choice: Choice::Assign {
+                    system: "gbc".into()
+                }
+            },
+            OrganizeDecision {
+                item: 3,
+                choice: Choice::Leave
+            },
+        ]
+    );
 }

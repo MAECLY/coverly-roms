@@ -186,3 +186,26 @@ fn wire_format_is_snake_case_with_kebab_errors() {
         json!({ "code": "unknown-entry", "detail": 5 })
     );
 }
+
+#[test]
+fn counts_loose_roms_in_the_root_and_the_roms_folder() {
+    let tree = anbernic_tree(&["GBA"], 2, 0);
+    write(tree.path(), "Stray (USA).zip", b"zip");
+    write(tree.path(), "ROMS/Loose (USA).gb", b"gb");
+    write(tree.path(), "ROMS/Half.zip.crdownload", b"half");
+    write(tree.path(), "ROMS/notes.txt", b"text");
+    let (_, view) = open(tree.path(), None).unwrap();
+    assert_eq!(view.profile.id, "anbernic-stock");
+    assert_eq!(view.loose_files, 2);
+    assert_eq!(
+        serde_json::to_value(&view).unwrap()["loose_files"],
+        json!(2)
+    );
+}
+
+#[test]
+fn a_sorted_library_has_no_loose_roms() {
+    let tree = anbernic_tree(&["GBA", "SFC"], 2, 1);
+    let (_, view) = open(tree.path(), None).unwrap();
+    assert_eq!(view.loose_files, 0);
+}

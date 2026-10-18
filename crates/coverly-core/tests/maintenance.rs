@@ -47,6 +47,7 @@ fn apply_options_follow_art_network_and_safety() {
     s.network.concurrency = 3;
     s.network.cache_max_mb = 100;
     s.safety.undo_depth = 4;
+    s.organize.keep_organize_journals_days = 365;
     let o = s.apply_options(Path::new("/Users/me/sd-copy"));
     assert_eq!(o.fit, coverly_core::image::Fit::Stretch);
     assert_eq!(o.jpeg_quality, 70);
@@ -56,6 +57,7 @@ fn apply_options_follow_art_network_and_safety() {
     assert!(!o.clean_apple_double, "not a removable volume");
     let m = s.manual_options();
     assert_eq!((m.jpeg_quality, m.keep_jobs), (70, 4));
+    assert_eq!((o.keep_organize_days, m.keep_organize_days), (365, 365));
 }
 
 #[test]

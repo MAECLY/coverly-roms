@@ -85,6 +85,7 @@ dev: ## Run the full Tauri dev loop (Rust backend + Vite + WebView).
 .PHONY: web
 web: ## Run only the web UI in a browser with the mock backend (http://localhost:1431).
 	@echo "Mock scenarios: add ?mockUpdate=available|offline|no-key|up-to-date|bad-signature to the URL"
+	@echo "Open folder… picks a loose ROM pile with ?mockPick=downloads|mixed"
 	pnpm dev
 
 .PHONY: stop

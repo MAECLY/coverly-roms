@@ -1,6 +1,8 @@
 //! Local SQLite cache (spec §6 `cache/`, §16.1): quick-id memo
 //! (`path + size + mtime → hashes`), source indexes and gathered candidates
-//! as JSON values with ETag and fetch time, DAT rows, downloaded art files.
+//! as JSON values with ETag and fetch time, DAT rows, downloaded art files,
+//! and (schema v2) the organiser's per-file facts and the user's remembered
+//! system choices.
 //! It is only a cache: a corrupt or newer database is set aside and rebuilt.
 //! A database that is merely busy, locked or unreachable is left alone.
 
@@ -15,7 +17,7 @@ use crate::identify::hash::HashOutcome;
 pub use crate::time::now_unix;
 
 /// Schema version stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 /// File name of the cache database inside the app cache dir.
 pub const CACHE_FILE: &str = "coverly.sqlite3";
 
@@ -30,6 +32,16 @@ CREATE TABLE dat_roms (dat TEXT NOT NULL, game TEXT NOT NULL, rom_name TEXT NOT 
 CREATE INDEX dat_roms_crc ON dat_roms (dat, crc32);
 CREATE INDEX dat_roms_stem ON dat_roms (dat, rom_stem);
 CREATE TABLE art_files (url TEXT PRIMARY KEY, sha1 TEXT NOT NULL, len INTEGER NOT NULL, fetched_at INTEGER NOT NULL);
+";
+
+/// v1 → v2: CRC lookups across every DAT, rows of one game, the organiser's
+/// memoised facts (`path + size + mtime → JSON`) and the user's system
+/// choices keyed by content (`crc32 + size`). Idempotent.
+const SCHEMA_V2: &str = "
+CREATE INDEX IF NOT EXISTS dat_roms_crc_any ON dat_roms (crc32);
+CREATE INDEX IF NOT EXISTS dat_roms_game ON dat_roms (dat, game);
+CREATE TABLE IF NOT EXISTS organize_ids (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, facts TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS organize_choices (crc32 TEXT NOT NULL, size INTEGER NOT NULL, system_id TEXT NOT NULL, PRIMARY KEY (crc32, size));
 ";
 
 /// Why the cache could not be used.
@@ -309,17 +321,119 @@ impl Cache {
             "SELECT game, rom_name, size, crc32, md5, sha1 FROM dat_roms \
              WHERE dat = ?1 AND {column} = ?2 ORDER BY game, rom_name"
         ))?;
-        let rows = stmt.query_map(params![dat, value], |r| {
-            Ok(DatRow {
-                game: r.get(0)?,
-                rom_name: r.get(1)?,
-                size: r.get::<_, Option<i64>>(2)?.map(|s| s as u64),
-                crc32: r.get(3)?,
-                md5: r.get(4)?,
-                sha1: r.get(5)?,
-            })
+        let rows = stmt.query_map(params![dat, value], |r| dat_row(r, 0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Rows of every cached DAT with this CRC32 (any case) whose size is
+    /// `size` or unknown, as `(dat, row)` ordered by DAT, game and ROM name.
+    pub fn dat_by_crc_any(
+        &self,
+        crc32: &str,
+        size: u64,
+    ) -> Result<Vec<(String, DatRow)>, CacheError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT dat, game, rom_name, size, crc32, md5, sha1 FROM dat_roms \
+             WHERE crc32 = ?1 AND (size IS NULL OR size = ?2) ORDER BY dat, game, rom_name",
+        )?;
+        let rows = stmt.query_map(params![crc32.to_uppercase(), size as i64], |r| {
+            Ok((r.get(0)?, dat_row(r, 1)?))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every ROM row of `game` in `dat` (a disc set's tracks, a multi-ROM
+    /// game), ordered by ROM name.
+    pub fn dat_rows_of_game(&self, dat: &str, game: &str) -> Result<Vec<DatRow>, CacheError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT game, rom_name, size, crc32, md5, sha1 FROM dat_roms \
+             WHERE dat = ?1 AND game = ?2 ORDER BY rom_name",
+        )?;
+        let rows = stmt.query_map(params![dat, game], |r| dat_row(r, 0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// `(rom_stem, game)` of every row of `dat`, ordered by stem then game
+    /// so fuzzy-match ties resolve the same way on every run; stems are
+    /// lower-case.
+    pub fn dat_stems(&self, dat: &str) -> Result<Vec<(String, String)>, CacheError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT rom_stem, game FROM dat_roms WHERE dat = ?1 ORDER BY rom_stem, game",
+        )?;
+        let rows = stmt.query_map(params![dat], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Names of the DATs with rows in the cache, sorted.
+    pub fn cached_dats(&self) -> Result<Vec<String>, CacheError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT DISTINCT dat FROM dat_roms ORDER BY dat")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The organiser's facts (JSON) memoised for `path`, only if its size
+    /// and mtime match.
+    pub fn organize_facts(
+        &self,
+        path: &Path,
+        size: u64,
+        mtime_ns: i64,
+    ) -> Result<Option<String>, CacheError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT facts FROM organize_ids WHERE path = ?1 AND size = ?2 AND mtime_ns = ?3",
+                params![path.to_string_lossy(), size as i64, mtime_ns],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Memoises the organiser's facts (JSON) for `path` at this size and
+    /// mtime, replacing any older entry for the path.
+    pub fn put_organize_facts(
+        &self,
+        path: &Path,
+        size: u64,
+        mtime_ns: i64,
+        json: &str,
+    ) -> Result<(), CacheError> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO organize_ids (path, size, mtime_ns, facts) VALUES (?1, ?2, ?3, ?4)",
+            params![path.to_string_lossy(), size as i64, mtime_ns, json],
+        )?;
+        Ok(())
+    }
+
+    /// The system the user chose for content with this CRC32 (any case)
+    /// and size.
+    pub fn organize_choice(&self, crc32: &str, size: u64) -> Result<Option<String>, CacheError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT system_id FROM organize_choices WHERE crc32 = ?1 AND size = ?2",
+                params![crc32.to_uppercase(), size as i64],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Remembers the user's system for content with this CRC32 and size.
+    pub fn put_organize_choice(
+        &self,
+        crc32: &str,
+        size: u64,
+        system_id: &str,
+    ) -> Result<(), CacheError> {
+        self.conn().execute(
+            "INSERT OR REPLACE INTO organize_choices (crc32, size, system_id) VALUES (?1, ?2, ?3)",
+            params![crc32.to_uppercase(), size as i64, system_id],
+        )?;
+        Ok(())
     }
 
     /// Records a downloaded art file: its SHA-1 and length.
@@ -342,6 +456,19 @@ impl Cache {
             )
             .optional()?)
     }
+}
+
+/// A `DatRow` from columns `game, rom_name, size, crc32, md5, sha1`
+/// starting at `at`.
+fn dat_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<DatRow> {
+    Ok(DatRow {
+        game: r.get(at)?,
+        rom_name: r.get(at + 1)?,
+        size: r.get::<_, Option<i64>>(at + 2)?.map(|s| s as u64),
+        crc32: r.get(at + 3)?,
+        md5: r.get(at + 4)?,
+        sha1: r.get(at + 5)?,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -375,16 +502,42 @@ fn prepare(conn: Connection) -> Result<Connection, CacheError> {
     conn.busy_timeout(BUSY_TIMEOUT)?;
     let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     match version {
-        0 => {
-            conn.execute_batch(SCHEMA_V1)?;
-            conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-        }
         SCHEMA_VERSION => {}
+        0 | 1 => migrate(&conn)?,
         _ => return Err(CacheError::Sql(rusqlite::Error::InvalidQuery)),
     }
     // Touch a table so a garbage file fails here, not on first use.
     conn.query_row("SELECT count(*) FROM kv", [], |r| r.get::<_, i64>(0))?;
     Ok(conn)
+}
+
+/// Brings a v0 (empty) or v1 database to `SCHEMA_VERSION` in one write
+/// transaction. The version is read again under the lock, so a second
+/// process that raced here finds the work done and changes nothing.
+fn migrate(conn: &Connection) -> Result<(), CacheError> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| -> Result<(), CacheError> {
+        let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        match version {
+            0 => {
+                conn.execute_batch(SCHEMA_V1)?;
+                conn.execute_batch(SCHEMA_V2)?;
+            }
+            1 => conn.execute_batch(SCHEMA_V2)?,
+            SCHEMA_VERSION => return Ok(()),
+            _ => return Err(CacheError::Sql(rusqlite::Error::InvalidQuery)),
+        }
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn.execute_batch("COMMIT")?,
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(err);
+        }
+    }
+    Ok(())
 }
 
 /// A file modification time as nanoseconds since the Unix epoch (0 before).

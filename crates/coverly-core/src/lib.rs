@@ -16,6 +16,7 @@ pub mod image;
 pub mod jobs;
 pub mod matching;
 pub mod net;
+pub mod organize;
 pub mod paths;
 pub mod plan;
 pub mod profiles;

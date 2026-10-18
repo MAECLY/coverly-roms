@@ -13,6 +13,7 @@ import type {
   CredentialStatus,
   EntriesUpdated,
   EntryArtUpdate,
+  FolderProbe,
   IdentityView,
   JobHistoryItem,
   JobItemView,
@@ -21,7 +22,12 @@ import type {
   KeyCheck,
   LibrarySettings,
   LibraryView,
+  OrganizeJobView,
+  OrganizePlanView,
+  OrganizeProgressEvent,
+  OrganizeUndoView,
   ProfileInfo,
+  SystemInfo,
   ProfilePreview,
   ProfileSaveOutcome,
   RecentLibrary,
@@ -43,6 +49,8 @@ export const JOB_CHANGED_EVENT = 'fill-job-changed';
 export const ENTRIES_UPDATED_EVENT = 'library-entries-updated';
 export const SETTINGS_CHANGED_EVENT = 'settings-changed';
 export const UPDATE_PROGRESS_EVENT = 'update-progress';
+export const ORGANIZE_PROGRESS_EVENT = 'organize-progress';
+export const ORGANIZE_CHANGED_EVENT = 'organize-changed';
 
 async function call<T>(
   cmd: string,
@@ -148,6 +156,27 @@ export function createTauriBackend(): Backend {
       call<string | null>('export_audit', { generation, format }),
     exportJobReport: (job, format) =>
       call<string | null>('export_job_report', { job, format }),
+    probeFolder: (path) => call<FolderProbe>('probe_folder', { path }),
+    organizePlan: (request, decisions) =>
+      call<OrganizePlanView>('organize_plan', {
+        request,
+        decisions: decisions ?? null,
+      }),
+    organizeCancel: (planId) => call<void>('organize_cancel', { planId }),
+    organizeApply: (planId, decisions) =>
+      call<OrganizeJobView>('organize_apply', { planId, decisions }),
+    organizeResume: (job) => call<OrganizeJobView>('organize_resume', { job }),
+    organizeCancelApply: () => call<void>('organize_cancel_apply'),
+    organizeUndo: (job, includeLater) =>
+      call<OrganizeUndoView>('organize_undo', { job, includeLater }),
+    organizeExportPlan: (planId) =>
+      call<string | null>('organize_export_plan', { planId }),
+    onOrganizeProgress: (cb) =>
+      listen<OrganizeProgressEvent>(ORGANIZE_PROGRESS_EVENT, (e) =>
+        cb(e.payload),
+      ),
+    onOrganizeChanged: (cb) =>
+      listen<OrganizeJobView>(ORGANIZE_CHANGED_EVENT, (e) => cb(e.payload)),
     getSettings: () => call<SettingsView>('get_settings'),
     updateSettings: (patch) =>
       call<SettingsUpdate>('update_settings', { patch }),
@@ -160,6 +189,7 @@ export function createTauriBackend(): Backend {
     cacheUsage: () => call<number>('cache_usage'),
     clearCache: () => call<number>('clear_cache'),
     listProfiles: () => call<ProfileInfo[]>('list_profiles'),
+    listSystems: () => call<SystemInfo[]>('list_systems'),
     saveProfile: (profile, replaces) =>
       call<ProfileSaveOutcome>('save_profile', { profile, replaces }),
     deleteProfile: (id) => call<ProfileInfo[]>('delete_profile', { id }),

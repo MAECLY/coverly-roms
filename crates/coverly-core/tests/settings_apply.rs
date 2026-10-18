@@ -453,3 +453,57 @@ fn normalise_turns_screenscraper_off_in_a_build_without_dev_credentials() {
     );
     assert!(!available_sources().contains(&"screenscraper"));
 }
+
+#[test]
+fn organize_options_follow_the_organize_group() {
+    use coverly_core::organize::{NameMode, OrganizeOptions, TransferMode};
+    use coverly_core::settings::OrganizeModeSetting;
+
+    let defaults = OrganizeOptions::from_settings(&Settings::default(), None);
+    assert_eq!(defaults.layout, "anbernic-stock");
+    assert!(!defaults.flat);
+    assert_eq!(defaults.mode, None);
+    assert_eq!(defaults.thresholds.auto, 0.85);
+    assert_eq!(defaults.recent_secs, 60);
+
+    let mut s = Settings::default();
+    s.organize.default_layout = "esde".into();
+    s.organize.nest_in_roms_root = false;
+    s.organize.mode = OrganizeModeSetting::Copy;
+    s.organize.names = NameMode::Catalogue;
+    s.organize.download_dats = false;
+    s.organize.auto_threshold = 0.9;
+    s.organize.review_threshold = 0.6;
+    s.organize.companion_exts = vec!["sav".into()];
+    s.organize.recent_seconds = 5;
+    s.organize.folder_names.insert(
+        "anbernic-stock".into(),
+        BTreeMap::from([("gba".to_string(), "gba".to_string())]),
+    );
+    s.organize
+        .arcade_order
+        .insert("anbernic-stock".into(), vec!["mame".into()]);
+    let o = OrganizeOptions::from_settings(&s, None);
+    assert_eq!(o.layout, "esde");
+    assert!(o.flat);
+    assert_eq!(o.mode, Some(TransferMode::Copy));
+    assert_eq!(o.names, NameMode::Catalogue);
+    assert!(!o.download_dats);
+    assert_eq!((o.thresholds.auto, o.thresholds.review), (0.9, 0.6));
+    assert_eq!(o.companion_exts, ["sav"]);
+    assert_eq!(o.recent_secs, 5);
+    // Overrides are per layout: es-de has none.
+    assert!(o.folder_names.is_empty());
+    assert_eq!(o.arcade_order, None);
+
+    let o = OrganizeOptions::from_settings(&s, Some("anbernic-stock"));
+    assert_eq!(o.layout, "anbernic-stock");
+    assert_eq!(o.folder_names.get("gba").map(String::as_str), Some("gba"));
+    assert_eq!(o.arcade_order, Some(vec!["mame".to_string()]));
+
+    s.organize.mode = OrganizeModeSetting::Move;
+    assert_eq!(
+        OrganizeOptions::from_settings(&s, None).mode,
+        Some(TransferMode::Move)
+    );
+}

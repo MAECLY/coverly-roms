@@ -14,8 +14,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use coverly_core::art::resolve_art;
 use coverly_core::identify::names::parse_name;
+use coverly_core::organize::{count_library_loose_roms, DEFAULT_LAYOUT};
 use coverly_core::profiles::custom::{find_profile, ProfileFile};
-use coverly_core::profiles::{detect, fit_to_root, Media, Profile};
+use coverly_core::profiles::{detect_with_fallback, fit_to_root, Media, Profile};
 use coverly_core::scan::{scan_library_with_progress, RomEntry, ScanOptions, ScanProgress};
 use coverly_core::settings::Settings;
 use coverly_core::systems::SystemDb;
@@ -92,8 +93,17 @@ pub fn open_session(
         Err(_) => return Err(IpcError::Unreadable(shown)),
     }
     let root_canon = fs::canonicalize(root).map_err(|_| IpcError::Unreadable(shown.clone()))?;
-    let (base, detected, evidence) =
-        choose_profile(root, req.profile_id, req.custom, req.default_profile)?;
+    let fallback = req
+        .settings
+        .map_or(DEFAULT_LAYOUT, |s| s.organize.default_layout.as_str());
+    let (base, detected, evidence) = choose_profile(
+        root,
+        req.profile_id,
+        req.custom,
+        req.default_profile,
+        fallback,
+        systems,
+    )?;
     let fitted_profile = fit_to_root(&base, root, systems);
     let fitted = fitted_profile.roms_root != base.roms_root;
     let profile = req.settings.map_or_else(
@@ -185,6 +195,7 @@ pub fn open_session(
         entries: entry_views,
         warnings,
         scan_ms,
+        loose_files: count_library_loose_roms(root, &profile.roms_root, systems),
     };
     let session = Session {
         generation: req.generation,
@@ -198,12 +209,15 @@ pub fn open_session(
 }
 
 /// The requested profile (built-in or custom), else the default profile
-/// when it still exists, else the best detected one.
+/// when it still exists, else the best detected one; a tree organised by
+/// system without markers suggests `fallback` (evidence `system-folders`).
 fn choose_profile(
     root: &Path,
     id: Option<&str>,
     custom: &[ProfileFile],
     default: Option<&str>,
+    fallback: &str,
+    systems: &SystemDb,
 ) -> Result<(Profile, bool, Vec<String>), IpcError> {
     if let Some(id) = id {
         return find_profile(custom, id)
@@ -213,7 +227,7 @@ fn choose_profile(
     if let Some(p) = default.and_then(|d| find_profile(custom, d)) {
         return Ok((p, false, Vec::new()));
     }
-    let found = detect(root);
+    let found = detect_with_fallback(root, fallback, systems);
     let best = found
         .first()
         .ok_or_else(|| IpcError::NoProfile(root.display().to_string()))?;

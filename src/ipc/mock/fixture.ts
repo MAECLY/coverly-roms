@@ -306,5 +306,6 @@ export function generateLibrary(o: FixtureOptions): LibraryView {
     entries,
     warnings: [],
     scan_ms: 0,
+    loose_files: 0,
   };
 }

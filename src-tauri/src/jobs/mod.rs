@@ -471,8 +471,9 @@ fn spawn_apply(
 pub struct JobManager {
     seq: AtomicU64,
     current: Mutex<Option<Arc<Job>>>,
-    /// A manual write (drawer change, local image, removal, undo) runs.
-    manual: AtomicBool,
+    /// A manual write (drawer change, local image, removal, undo, an
+    /// organise apply) runs.
+    manual: Arc<AtomicBool>,
 }
 
 /// A manual write in progress; dropping it ends it.
@@ -485,6 +486,17 @@ impl Drop for ManualWrite<'_> {
     }
 }
 
+/// A manual write a worker thread holds (an organise apply); dropping it
+/// ends it, like [`ManualWrite`].
+#[must_use]
+pub struct OwnedManualWrite(Arc<AtomicBool>);
+
+impl Drop for OwnedManualWrite {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 impl JobManager {
     /// Marks a manual write in progress until the guard drops, so the
     /// library never has two writers: refused while a job gathers or
@@ -492,6 +504,26 @@ impl JobManager {
     /// `resume` are refused while it is held. The check and the mark are
     /// made under the locks those take.
     pub fn begin_manual(&self) -> Result<ManualWrite<'_>, IpcError> {
+        self.mark_manual()?;
+        Ok(ManualWrite(&self.manual))
+    }
+
+    /// [`Self::begin_manual`] for a write that outlives the call (it runs
+    /// on a worker thread that drops the guard when it ends).
+    pub fn begin_manual_owned(&self) -> Result<OwnedManualWrite, IpcError> {
+        self.mark_manual()?;
+        Ok(OwnedManualWrite(Arc::clone(&self.manual)))
+    }
+
+    /// Whether the job is paused (it resumes into its journal: nothing
+    /// else may move the files under it meanwhile).
+    pub fn paused(&self) -> bool {
+        lock(&self.current)
+            .as_ref()
+            .is_some_and(|j| lock(&j.data).state == JobState::Paused)
+    }
+
+    fn mark_manual(&self) -> Result<(), IpcError> {
         let slot = lock(&self.current);
         let data = slot.as_ref().map(|j| lock(&j.data));
         let running = data
@@ -505,7 +537,7 @@ impl JobManager {
         {
             return Err(IpcError::JobRunning);
         }
-        Ok(ManualWrite(&self.manual))
+        Ok(())
     }
 
     fn manual_running(&self) -> bool {

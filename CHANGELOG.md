@@ -10,6 +10,26 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ### Added
 
+- Organise a folder of loose ROMs by system: picking a folder with no known
+  layout offers "Organise this folder…" instead of an error. Each file is
+  identified by catalogue CRC (zip entries included), header magic,
+  extension and name — plus ScreenScraper by CRC when configured — with a
+  confidence and a reason; doubtful files are grouped for review and
+  unfinished downloads, BIOS files, web pages, damaged or multi-game
+  archives and duplicates stay where they are. The proposal follows any
+  layout profile (Anbernic stock by default, `ROMS/<SYS>/`), into the same
+  folder or another one, moving or copying. Applying never overwrites
+  (no-clobber renames, verified copies across drives), journals every step,
+  pauses and resumes on a full, read-only or removed drive, and is undone
+  like a fill job; "Open library" opens the result with that layout.
+  Libraries with stray ROMs outside their system folders offer "Organise
+  loose files…". `coverly organize` does the same from the terminal (dry run
+  unless `--apply`; `--copy`, `--target`, `--assign`, `--resume`).
+- `coverly undo --job ID --include-later` also undoes the newer jobs that
+  wrote under the same folder, newest first.
+- Organise settings in Settings → Library (default layout, ROMs folder,
+  mode, names, catalogue downloads).
+
 - Release pipeline (M7): signed builds for macOS (universal `.dmg`), Windows
   (`.msi` and NSIS) and Linux (`.AppImage`, `.deb`), a `latest.json` update
   manifest with stable and beta channels, and `SHA256SUMS`.
@@ -40,6 +60,14 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   documents.
 
 ### Changed
+
+- Job journals record their kind (fill or organise); fill and organise
+  journals are kept separately, and organise journals at least 90 days, so
+  later fills never delete the way back. Undoing a job that newer jobs built
+  on is refused unless they are undone too. Journals from older versions
+  still undo.
+- A folder already organised by system but without layout markers opens
+  with a suggested layout instead of failing detection.
 
 - Detail drawer: the cover, screenshot and title screen are now slots that
   open one workspace in place. Candidates load on their own (the first missing

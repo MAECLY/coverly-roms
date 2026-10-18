@@ -1,6 +1,6 @@
 # Desktop App (Tauri shell, IPC and UI state)
 
-> **TL;DR.** The desktop app is a thin Tauri 2 shell over `coverly-core`. Opening a library scans it once into a compact `LibraryView` that the webview browses entirely in memory (filters, facets, sort, folder tree are pure TypeScript). The backend keeps the paths: the webview asks for art, identification and "reveal" by `(generation, entry id)`, never by path. Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview. Settings (M5) are one typed `settings.json` edited from a Settings screen, applied live (theme, language, log level) or on the next open/job; see [settings.md](./settings.md). Updates (M7) are checked, downloaded and installed from Rust, never while a fill job runs; see [updates.md](./updates.md). In a plain browser the same UI runs on a deterministic mock backend. Spec: [§6, §7, §8, §9, §11](../superpowers/specs/2026-10-15-coverly-roms-design.md). Code: `src-tauri/src/`, `src/ipc/`, `src/stores/`, `src/lib/`, `src/components/library/`, `src/components/settings/`.
+> **TL;DR.** The desktop app is a thin Tauri 2 shell over `coverly-core`. Opening a library scans it once into a compact `LibraryView` that the webview browses entirely in memory (filters, facets, sort, folder tree are pure TypeScript). The backend keeps the paths: the webview asks for art, identification and "reveal" by `(generation, entry id)`, never by path. Fills run as one backend job at a time (dry run → review → apply, pausable and resumable); only the entries a job touched are re-scanned and pushed to the webview. Settings (M5) are one typed `settings.json` edited from a Settings screen, applied live (theme, language, log level) or on the next open/job; see [settings.md](./settings.md). Updates (M7) are checked, downloaded and installed from Rust, never while a fill job runs; see [updates.md](./updates.md). A folder with no known layout is not a dead end: the app offers to organise its loose ROMs into one folder per system (proposal → apply → open, undoable); see [Organise](#organise) and [organize.md](./organize.md). In a plain browser the same UI runs on a deterministic mock backend. Spec: [§6, §7, §8, §9, §11](../superpowers/specs/2026-10-15-coverly-roms-design.md). Code: `src-tauri/src/`, `src/ipc/`, `src/stores/`, `src/lib/`, `src/components/library/`, `src/components/settings/`, `src/components/organize/`.
 
 ## Layers
 
@@ -12,6 +12,7 @@
 | Platform | `src-tauri/src/keychain.rs`, `logging.rs` | OS keychain `CredentialStore`; the file logger whose level follows the settings |
 | Updates | `src-tauri/src/update.rs` | `UpdateManager` (phases, startup and job gates) over `tauri-plugin-updater`; the key comes from `crates/coverly-core/updater.pub` ([updates.md](./updates.md)) |
 | Jobs | `src-tauri/src/jobs/` | `JobManager` (one job), worker threads, `JobEvents`, wire views (`jobs/view.rs`) |
+| Organise | `src-tauri/src/organize/` | `OrganizeManager`: the dry runs kept by `plan_id` (newest 4) with their survey, the survey being made and its cancel flag, the one apply/resume on a worker thread; wire views (`organize/view.rs`) |
 | Commands | `src-tauri/src/ipc.rs` | one-liners over the two layers above; blocking work on the blocking pool |
 | Backend adapter | `src/ipc/` | `Backend` interface; `tauriBackend` (invoke/listen/dialog/webview) or `mockBackend` |
 | Stores | `src/stores/` | zustand: library, filters, view, selection, identity, job, settings, nav |
@@ -23,7 +24,7 @@ JS argument names are camelCase; payload fields are Rust snake_case. The shapes 
 
 | Command | Arguments | Returns | Errors |
 |---|---|---|---|
-| `open_library` | `path`, `profileId` (null = detect) | `LibraryView` | `not-found`, `not-a-folder`, `unreadable`, `no-profile`, `unknown-profile`, `superseded` |
+| `open_library` | `path`, `profileId` (null = detect; organise opens its result with the layout it used) | `LibraryView` (with `loose_files`: ROM-like files outside the system folders) | `not-found`, `not-a-folder`, `unreadable`, `no-profile`, `unknown-profile`, `superseded` |
 | `recent_libraries` | — | `RecentView[]` (with `available`) | — |
 | `forget_recent_library` | `path` | `RecentView[]` | `settings` |
 | `library_settings` | — | `{ ignored_dirs }` (kept from M3; the Settings screen uses `update_settings`) | — |
@@ -56,6 +57,7 @@ JS argument names are camelCase; payload fields are Rust snake_case. The shapes 
 | `open_link` | `link` (`repo`/`license`/`notices`/`trademarks`/`releases`/`issues`) | `null` | `io` |
 | `cache_usage` / `clear_cache` | — | bytes used / bytes freed | `job-running` (clear), `io` |
 | `list_profiles` | — | `ProfileInfoView[]` (`profile`, `builtin`, `mirror_subdirs`) | — |
+| `list_systems` | — | `SystemInfo[]` (`id`, `name`), sorted by name; organise system pickers | — |
 | `save_profile` | `profile` (`ProfileFile`), `replaces` (old id or null) | `ProfileSaveView` (`profiles`, `errors`; nothing saved when `errors` is not empty) | `bad-request` (`replaces` is not a custom profile), `io`, `settings` |
 | `delete_profile` | `id` | `ProfileInfoView[]` | `bad-request` (built-in), `unknown-profile`, `io` |
 | `preview_profile` | `profile`, `example` (`system_folder`, `rel_dir`, `file_name`) | `ProfilePreviewView` (`paths`, `errors`) | — |
@@ -70,6 +72,14 @@ JS argument names are camelCase; payload fields are Rust snake_case. The shapes 
 | `download_update` | — | `null`; emits `update-progress` | `update-not-ready`, `update-offline`, `update-signature`, `update-failed` |
 | `install_update` | — | `UpdateInstallView` (`restart_required`) | `update-not-ready`, `job-running` (a fill job is running or paused), `update-failed` |
 | `restart_app` | — | does not return | `update-not-ready`, `job-running` |
+| `probe_folder` | `path` | `FolderProbeView` (`rom_like`, `partial_downloads`, `cloud_only`, `sorted_folders`, `writable`, `broad_root`, `truncated` after 5 000 entries); names and `stat` only | `not-found`, `not-a-folder`, `unreadable` |
+| `organize_plan` | `request` (`OrganizeRequest`: `source`, `layout`, `target`, `flat`, `mode`, `names`, `offline`; null fields take `settings.organize`), `decisions` (`OrganizeDecision[]` or null) | `OrganizePlanView` (`plan_id`, `plan`); emits `organize-progress` | `bad-request` (no source, unknown system or item in a decision), `not-found`, `not-a-folder`, `unreadable`, `unknown-profile`, `cancelled`, `io` |
+| `organize_cancel` | `planId` | `null` (stops the survey of that plan; a no-op otherwise) | — |
+| `organize_export_plan` | `planId` (the save dialog opens in Rust) | file name or `null` (cancelled) | `no-plan`, `io` |
+| `organize_apply` | `planId`, `decisions` (the backend re-plans from its kept survey; the webview never sends a plan) | `OrganizeJobView` (`applying`); emits `organize-progress`, then `organize-changed` | `no-plan`, `job-running`, `bad-request` (the job data folder is inside the pile), `io`; a run that cannot start ends `failed` with its error (`no-space` with `"<needed>/<free>"`) |
+| `organize_resume` | `job` | `OrganizeJobView` | `no-plan`, `bad-request` (nothing left to resume, data folder inside the pile), `job-running`, `io` |
+| `organize_cancel_apply` | — | `null` (stops before the next item) | — |
+| `organize_undo` | `job`, `includeLater` | `OrganizeUndoView` (`report`: one `UndoReport` per job, newest first; `later_jobs`) | `later-jobs` (detail: the newer job ids), `nothing-to-undo`, `job-running`, `io` |
 
 Event `library-scan-progress` → `{ generation, done, total, folder, roms }`: once before the first system folder, then after each.
 
@@ -78,6 +88,8 @@ Job events: `fill-job-progress` → `{ job, phase (gather/apply), done, total, l
 Settings event: `settings-changed` → `Settings` after every saved update or reset (the log level is applied at the same time).
 
 Update event: `update-progress` → `{ downloaded, total }` while an update downloads (throttled to ~10 a second, the last always).
+
+Organise events: `organize-progress` → `{ plan_id, phase (walk/identify/dats/hash/apply), done, total }` (at most every 100 ms; phase changes and ends always); `organize-changed` → `OrganizeJobView` when an apply or resume ends (`done`, `paused`, `cancelled`, `failed`).
 
 Errors are `{ "code": "<kebab-case>", "detail"?: … }`; the UI shows `errors.<code>` from `locales/{en,es}/ui.json` (`src/ipc/errors.ts`). Codes are stable.
 
@@ -104,6 +116,16 @@ paused    → gathering | applying (resume) | cancelled
 - **Crash safety.** Worker phases are guarded: a panicking worker ends the job `failed` instead of leaving it busy forever.
 - **Re-scan of touched entries.** `subset_scan` re-scans only the folders of the written entries and `resolve_art` re-resolves their art; `refresh_entries` installs a new `Session` for the **same** generation and returns `EntryArtUpdate`s (no full re-open, no new generation).
 
+## Organise
+
+Organising a loose pile is described in [organize.md](./organize.md); this is the app side (`src/screens/OrganizeScreen.tsx`, `src/components/organize/`, `src/stores/organizeStore.ts`).
+
+- **Entry points.** On `no-profile` the Start screen calls `probe_folder` and, when the folder holds ROM-like files, replaces the error with an offer (`OrganizeOffer`): *Organise this folder…* / *Choose another folder*; a folder that only holds system folders offers *Open as organised by system* with a layout `<select>` instead; broad roots get a warning line; counts are a lower bound when the probe stopped at 5 000 entries. A library whose scan found loose ROMs (`loose_files > 0`) shows *Organise loose files…*, which opens the screen with the library root as source and target and the library's layout locked. A folder found by the weak `system-folders` detection rule is shown as a suggestion. The job history (`JobsPanel`) labels organise jobs, and an interrupted one offers *Resume*, which continues on the organise screen; every organise row that is not undone offers *Undo* (with a confirmation) through `organize_undo`, which lists newer jobs that wrote under it and offers *Undo all in order*; the open library rescans when the panel closes. The library's *Undo last job* is for fill journals only, so it never moves ROMs from under the open library.
+- **Proposal** (`navStore.screen = 'organize'`). Options bar (`OptionsBar`: layout, target, inside the ROMs folder or directly here, move/copy — move disabled with the reason when the source is read-only — and names); every change re-plans. A summary line, the plan warnings (catalogues not consulted, target already another layout, move unavailable), one `<details>` per system (`SystemGroups`) with source → target, confidence and the "why", review items bucketed by candidate set with one `<select>` + *Apply to all* per bucket (`ReviewBuckets`), and the items left in place with their reason (`LeftInPlace`; unknown items keep a system `<select>`). Lists render 200 rows and a *Show {n} more* button; groups start open only for plans of 200 rows or fewer. *Export plan (JSON)* saves the plan through `organize_export_plan`.
+- **Apply, result, undo** (`OrganizeResult`). Apply shows progress and a cancel button; a pause offers *Resume*. The result shows moved/copied/skipped/failed counts and the per-item list, **Open library** (`libraryStore.open(target, layout)`, so no detection is needed) and **Undo**. When newer jobs wrote under the organised folder, undo names them and offers *Undo all in order*. The screen stays open while files are moving.
+- **Store.** `organizeStore` keeps `status` (idle, planning, ready, applying, done, paused, error), the request, `planId`, the plan, the decisions by item id, progress, the job view, the last undo and `locked`. It sends only `plan_id` + decisions; a sequence number drops plan answers a newer request superseded, and progress events of another plan are ignored. Apply, resume and undo drop every plan the backend kept, like Rust.
+- **Guards.** Apply, resume and undo take the `JobManager` manual-write guard: refused with `job-running` while a fill gathers, applies or is paused, and fills are refused while an organise apply runs. Job history entries carry `kind` (`fill` / `organize`) and `undoable`.
+
 ## Security
 
 - The webview never sends a path except the folder the user picked. Art and reveal resolve paths from the scan, canonicalise them and refuse anything outside the canonical library root (symlinks included) — `outside-library`. Art over 20 MiB is refused.
@@ -121,8 +143,9 @@ paused    → gathering | applying (resume) | cancelled
 | `selectionStore` | selected entry id |
 | `identityStore` | identify results per `(generation, id)` |
 | `settingsStore` | `settings`, load `notice`/`backup`/`fixed`, per-field `errors`, `reopen`, `saveError`; `update(patch)` numbers each save and ignores answers older than one already applied |
-| `navStore` | which screen shows (library/start or Settings) and the open Settings section |
+| `navStore` | which screen shows (`main` = library/start, `settings`, `organize`), the open Settings section, and the organise source and launch options (locked layout and target for loose files of a library) |
 | `jobStore` | the current `JobView`, progress, error, history, last undo, `pending`; mirrors `fill-job-*` events (a command result older than an event is dropped) and applies `library-entries-updated` to the library store |
+| `organizeStore` | the organise proposal and its apply: see [Organise](#organise) |
 | `updateStore` | update `status` (idle, checking, up-to-date, available, downloading, waiting-for-job, installing, ready, error), `offer`, `progress`, `error`, banner dismissal; the startup check runs once and only with the setting on, its errors are silent; install waits while `blocksUpdate(job)` |
 
 `useVisibleEntries()` derives scope → filters → sort plus the facet counts with memoised pure functions; the filter input is deferred (`useDeferredValue`) so typing stays responsive on 12k entries.
@@ -135,7 +158,7 @@ paused    → gathering | applying (resume) | cancelled
 
 `getBackend()` picks Tauri when `window.__TAURI_INTERNALS__` exists and lazily imports `src/ipc/mock/mockBackend.ts` otherwise (its own chunk). The mock serves seeded libraries from `generateLibrary` (mulberry32): `/mock/Fixture SD (12k)` (12,000 entries, 18 systems, mixed cover/screenshot/title, hostile names, dates over 3 years), `/mock/Small library` (240), `/mock/Empty library` (0), an unavailable `/Volumes/EJECTED` recent, and `not-found` for anything else. `pickFolder()` opens the 12k fixture; dropping a folder named `X` opens `/mock/X`. Art is an escaped SVG per entry; identify answers hash for `id % 3 == 0`, offline for `id % 3 == 2`.
 
-Fill jobs in the mock (`src/ipc/mock/mockJobs.ts`, deterministic): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so Undo restores the previous marks, refused while a job runs or is paused and only for journals of the open library. Options: `pauseAfter` (the first apply of each job pauses with a rate limit after this many items; default 25, `null` = never) and `pick` (what "From file…" picks: `image`, `cancel`, `not-image`). Exports are downloaded through Blob URLs (`coverly-job-<id>.csv/json`, `coverly-audit.csv/json`). Each subscription is its own listener, like Tauri's `listen`, so React StrictMode's double connect keeps its events. Settings, custom profiles and credential presence persist in `localStorage` (`coverly.mock.settings`, `coverly.mock.profiles`, `coverly.mock.credentials` with booleans only). The validation rules are the TypeScript mirror of the Rust ones. Search by title answers three regional variants of the typed title. Updates follow `?mockUpdate=available|up-to-date|offline|bad-signature|no-key` (or localStorage `coverly.mock.update`; default `up-to-date`, so no startup banner), and `mountedVolumes` lists `/mock/Small library`.
+Fill jobs in the mock (`src/ipc/mock/mockJobs.ts`, deterministic): an entry/media is `auto` when `(id + mediaIndex) % 10 < 7`, `review` when `7` or `8` (`8` = an unreleased-variant note), `none` when `9`; an `auto` item of an entry with `id % 13 === 0` fails on apply with `['no-art', 'network', 'decode', 'name-invalid'][id % 4]`; undecided review items are skipped; each write is journaled (`mock-0001`…) so Undo restores the previous marks, refused while a job runs or is paused and only for journals of the open library. Options: `pauseAfter` (the first apply of each job pauses with a rate limit after this many items; default 25, `null` = never) and `pick` (what "From file…" picks: `image`, `cancel`, `not-image`). Exports are downloaded through Blob URLs (`coverly-job-<id>.csv/json`, `coverly-audit.csv/json`). Each subscription is its own listener, like Tauri's `listen`, so React StrictMode's double connect keeps its events. Settings, custom profiles and credential presence persist in `localStorage` (`coverly.mock.settings`, `coverly.mock.profiles`, `coverly.mock.credentials` with booleans only). The validation rules are the TypeScript mirror of the Rust ones. Search by title answers three regional variants of the typed title. Updates follow `?mockUpdate=available|up-to-date|offline|bad-signature|no-key` (or localStorage `coverly.mock.update`; default `up-to-date`, so no startup banner), and `mountedVolumes` lists `/mock/Small library`. Organising (`src/ipc/mock/mockOrganize.ts`, deterministic) knows two piles that `openLibrary` answers with `no-profile`: `/Users/demo/Downloads/roms` (the shape of the owner's real sample: 16 ROMs for GBA/GB/GBC/SFC, 1 duplicate, 3 partial downloads, a `.DS_Store`) and `/Users/demo/Mixed` (4 sure ROMs, 2 for review, 1 unknown, 1 duplicate, 2 partial downloads). Apply runs in steps of 4 items with pause/resume and turns the pile into a library of the chosen layout; undo refuses while later jobs wrote under the target unless asked. Any other organise source is `not-found`.
 
 ## Performance
 
