@@ -18,6 +18,9 @@ pub mod keeper;
 mod keys;
 mod plan;
 pub mod saves;
+pub mod source;
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing;
 pub mod units;
 
 pub use companions::{SharedStay, Travel, TravelKind};
