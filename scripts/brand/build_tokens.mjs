@@ -69,6 +69,7 @@ const SURFACES = {
     channels: false,
     shadcn: false,
     primitives: false,
+    band: '.band-dark',
   },
 };
 
@@ -413,6 +414,24 @@ function header(kind) {
    theme toggle. See docs/08-brand/brand.md §8. */`;
 }
 
+/* Landing only: a section that is greyboard-dark in either mode (the
+   #como band, landing-showcase-spec.md §4.4). It carries the dark roles, so
+   every pair the contrast matrix checks in dark holds inside it; in dark
+   mode its ground sinks to surface-sunken so it still reads as a band.
+   Status, chart and legacy roles stay out: the band only shows content. */
+const BAND_SKIP =
+  /^--cr-(chart|warning|danger|info|success-bg|text-muted|accent|error)/;
+function bandBlocks(surface, darkScheme) {
+  const roles = darkScheme.filter(([name]) => !BAND_SKIP.test(name));
+  const sunken = darkScheme.find(([name]) => name === '--cr-surface-sunken')[1];
+  const sink = [['--cr-bg', sunken]];
+  return [
+    rule([surface.band], roles),
+    `@media (prefers-color-scheme: dark) {\n${rule([`${surface.media} ${surface.band}`], sink, 2)}\n}`,
+    rule([`${surface.dark} ${surface.band}`], sink),
+  ];
+}
+
 export function buildCss(tokens, kind) {
   const surface = SURFACES[kind];
   if (!surface) throw new Error(`unknown output ${kind}`);
@@ -439,6 +458,7 @@ export function buildCss(tokens, kind) {
     );
     blocks.push(rule([surface.dark], darkScheme));
   }
+  if (surface.band) blocks.push(...bandBlocks(surface, darkScheme));
   const still = entries(tokens.duration).map(([name]) => [
     `--cr-duration-${name}`,
     '0ms',

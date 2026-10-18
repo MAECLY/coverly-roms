@@ -46,7 +46,10 @@
 .pill.is-soon,
 .pill.is-soon .pill-dot,
 .dl-soon,
-.notyet li {
+.notyet li,
+.faq summary::after,
+.req-count,
+html.motion .t-rest::before {
   --dash-ink: var(--cr-slot-missing);
   --dash-x: repeating-linear-gradient(
     90deg,
@@ -388,7 +391,7 @@ pre {
   gap: clamp(40px, 6vw, 72px);
   align-items: center;
 }
-@media (min-width: 960px) {
+@media (min-width: 1024px) {
   .hero-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
@@ -462,19 +465,7 @@ pre {
   background: var(--cr-slot-filled);
 }
 
-/* The shelf: twelve invented games, five of them missing their cover until
-   the fill runs. The HTML is the finished state; motion.js only plays
-   towards it. Every title is made up and the art is drawn in CSS. */
-.shelf {
-  position: relative;
-}
-.shelf-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(10px, 1.6vw, 16px);
-  padding: 0;
-  list-style: none;
-}
+/* The 404's lone missing slot (the hero's own art is in showcase:hero). */
 .tile {
   position: relative;
   aspect-ratio: 3 / 4;
@@ -489,168 +480,6 @@ pre {
   font-size: 0.75rem;
   text-align: center;
   line-height: 1.2;
-}
-.tile:not(.gap) .ph,
-html:not(.anim) .tile .ph,
-.shelf.is-done .ph {
-  display: none;
-}
-.nf .tile .ph {
-  display: grid;
-}
-html.anim .tile.is-filled .ph {
-  opacity: 0;
-  transition: opacity 0s 640ms;
-}
-.art {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: var(--cr-radius-sm);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 9% 9% 10%;
-  /* Filled slots in illustrations are solid ink (brand §2); two inks keep
-     the shelf readable, the motifs tell the covers apart. */
-  background: var(--cr-slot-filled);
-  color: var(--cr-bg);
-  --tint: color-mix(in srgb, var(--cr-bg) 22%, transparent);
-  --tint-soft: color-mix(in srgb, var(--cr-bg) 12%, transparent);
-}
-.art .sys {
-  align-self: flex-start;
-  padding: 1px 5px;
-  border-radius: 2px;
-  background: var(--cr-bg);
-  color: var(--cr-text);
-  font: 500 clamp(0.5625rem, 0.5vw + 0.35rem, 0.6875rem)/1.3 var(--cr-font-mono);
-  letter-spacing: 0.02em;
-}
-.art .name {
-  position: relative;
-  font: 800 clamp(0.875rem, 1.1vw + 0.35rem, 1.3rem)/0.95 var(--cr-font-display);
-  font-stretch: 75%;
-  text-wrap: balance;
-}
-.p2,
-.p5,
-.p8,
-.p11 {
-  background: var(--cr-text-secondary);
-}
-.art::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.m-sun::before {
-  background: radial-gradient(
-    circle at 70% 38%,
-    var(--tint) 0 22%,
-    transparent 23%
-  );
-}
-.m-bands::before {
-  background: repeating-linear-gradient(
-    180deg,
-    transparent 0 14%,
-    var(--tint-soft) 14% 18%
-  );
-}
-.m-diag::before {
-  background: repeating-linear-gradient(
-    135deg,
-    transparent 0 10px,
-    var(--tint-soft) 10px 20px
-  );
-}
-.m-grid::before {
-  background:
-    linear-gradient(var(--tint-soft) 1px, transparent 1px) 0 0 / 18% 18%,
-    linear-gradient(90deg, var(--tint-soft) 1px, transparent 1px) 0 0 / 18% 18%;
-}
-.m-peak::before {
-  background:
-    linear-gradient(160deg, transparent 52%, var(--tint-soft) 52.5%),
-    linear-gradient(20deg, transparent 60%, var(--tint) 60.5%);
-}
-.m-ring::before {
-  background: radial-gradient(
-    circle at 30% 42%,
-    transparent 0 16%,
-    var(--tint) 16.5% 21%,
-    transparent 21.5%
-  );
-}
-/* A gap Coverly filled: the Buckram spine band (applied). While the run
-   is on screen, a Manila tab with the source says it can still be undone. */
-.tile.gap .art {
-  box-shadow: inset 0 calc(-1 * var(--cr-border-width-spine)) 0
-    var(--cr-slot-applied);
-}
-.tile.gap::after {
-  content: 'libretro';
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 1;
-  padding: 1px 4px;
-  border-radius: 0 var(--cr-radius-sm) 0 var(--cr-radius-sm);
-  background: var(--cr-slot-applied-run);
-  color: var(--cr-manila-fg);
-  font: 500 clamp(0.5rem, 0.4vw + 0.3rem, 0.625rem)/1.4 var(--cr-font-mono);
-  opacity: 0;
-}
-html.motion .shelf:is(.applying, .is-done) .tile.gap.is-filled::after {
-  opacity: 1;
-  transition: opacity var(--cr-duration-base) var(--cr-ease-standard) 560ms;
-}
-
-.shelf-status {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 6px 16px;
-  margin-top: 18px;
-  padding: 12px 16px;
-  border-radius: var(--cr-radius-lg);
-  background: var(--cr-surface);
-  border: 1px solid var(--cr-border);
-  font-size: 0.875rem;
-  color: var(--cr-text-secondary);
-}
-.shelf-status b {
-  display: inline-block;
-  min-width: 2ch;
-  text-align: right;
-  color: var(--cr-text);
-  font-family: var(--cr-font-mono);
-  font-variant-numeric: tabular-nums;
-}
-/* The three states share one cell, so the line never changes height. */
-.shelf-status .state {
-  display: grid;
-  justify-items: end;
-  margin-left: auto;
-  text-align: right;
-}
-.state > * {
-  grid-area: 1 / 1;
-}
-.shelf-status :is(.s-plan, .s-busy) {
-  visibility: hidden;
-  color: var(--cr-primary);
-  font-weight: 600;
-}
-html.motion .shelf.planning .s-plan,
-html.motion .shelf.applying .s-busy {
-  visibility: visible;
-}
-.shelf-status .done {
-  color: var(--cr-success);
-  font-weight: 600;
 }
 
 /* Caption row under the shelf. The replay button only exists once
@@ -699,70 +528,6 @@ html.motion .replay[aria-disabled='true'] {
 .replay[aria-disabled='true'] {
   opacity: 0.5;
   cursor: default;
-}
-
-/* Motion: armed before first paint by theme.js (html.anim), so the gaps
-   never flash full. motion.js plays dry run → apply → done (html.motion),
-   or removes both classes on any error and the finished shelf shows. */
-html.anim .tile.gap:not(.is-filled) .art {
-  clip-path: inset(0 0 100% 0);
-}
-html.anim .tile.gap .art {
-  transition: clip-path 620ms var(--cr-ease-ink);
-}
-html.anim .tile.gap.is-filled .art {
-  clip-path: inset(0 0 0 0);
-}
-/* Until motion.js sets the count, "12 of 12" would sit over five gaps. */
-html.anim .shelf:not(.is-live) .have,
-html.anim .shelf:not(.is-done) .done {
-  visibility: hidden;
-}
-/* If motion.js never runs, the covers still arrive. */
-html.anim .shelf:not(.is-live) .tile.gap:not(.is-filled) .art {
-  animation: settle 0s 4s forwards;
-}
-html.anim .shelf:not(.is-live) :is(.have, .done) {
-  animation: show 0s 4s forwards;
-}
-@keyframes settle {
-  to {
-    clip-path: inset(0 0 0 0);
-  }
-}
-@keyframes show {
-  to {
-    visibility: visible;
-  }
-}
-/* Dry run: the plan marks each gap (nothing is written yet); applying:
-   each marked gap gets its cover. */
-html.motion .shelf .ph {
-  transition:
-    color 200ms,
-    background-color 200ms,
-    opacity 0s 640ms;
-}
-html.motion .shelf:is(.planning, .applying) .tile.gap .ph {
-  --dash-ink: var(--cr-primary);
-  color: var(--cr-primary);
-  background-color: var(--cr-primary-subtle);
-}
-html.motion .shelf.planning .tile.gap .ph {
-  animation: plan 560ms var(--cr-ease-spring) calc(var(--i, 0) * 110ms) both;
-}
-html.motion .shelf.applying .tile.gap.is-filled {
-  animation: land 520ms var(--cr-ease-spring) both;
-}
-@keyframes plan {
-  45% {
-    transform: scale(0.93);
-  }
-}
-@keyframes land {
-  from {
-    transform: scale(0.94);
-  }
 }
 
 /* ── Sections ─────────────────────────────────────────────────────── */
@@ -1069,6 +834,24 @@ tbody th {
 .dl-card .alt {
   font-size: 0.875rem;
 }
+/* Equal cards, actions on one line: the requirement line takes the slack,
+   so the button and the alternative sit at the bottom of every card. With
+   subgrid the four cards share their rows, so the buttons also match in
+   height when one label wraps. */
+.dl-card .req {
+  flex-grow: 1;
+}
+@supports (grid-template-rows: subgrid) {
+  .dl-card {
+    display: grid;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    row-gap: 6px;
+  }
+  .dl-card .alt {
+    justify-self: start;
+  }
+}
 .dl-card .mine {
   display: none;
   position: absolute;
@@ -1199,18 +982,6 @@ html[data-os='linux'] .dl-card[data-os='linux'] .mine {
 }
 .faq summary::-webkit-details-marker {
   display: none;
-}
-.faq summary::after {
-  content: '';
-  flex: none;
-  width: 12px;
-  height: 12px;
-  border-right: 2px solid var(--cr-text-secondary);
-  border-bottom: 2px solid var(--cr-text-secondary);
-  transform: translateY(-3px) rotate(45deg);
-}
-.faq details[open] summary::after {
-  transform: translateY(3px) rotate(225deg);
 }
 .faq details p {
   padding: 0 0 18px;
@@ -1379,9 +1150,14 @@ html.js .mode-wrap {
 }
 /* Steps 3 and 4 act out their screenshot (motion.js, html.motion only):
    the review ring walks the candidates, a candidate lands in the empty
-   cover slot and on the grid. Coordinates are the shots' 1280×800. */
+   cover slot and on the grid. Coordinates are the shots' 1280×800. Step 4's
+   overlay (.fx-end) is also its finished frame: the cover seated with its
+   Manila tab, so the static page shows the result. */
 .clip-fx {
   display: none;
+}
+.fx-end {
+  display: block;
 }
 .clip-replay {
   margin: 12px 0 0 -12px;
@@ -1407,22 +1183,27 @@ html.js .mode-wrap {
   fill: var(--cr-primary-fg);
 }
 .fx-pick {
+  opacity: 0;
   fill: var(--cr-primary-subtle);
   fill-opacity: 0.6;
   stroke: var(--cr-primary);
   stroke-width: 2;
 }
 .fx-slot {
-  fill: var(--cr-surface);
+  fill: var(--cr-surface-raised);
 }
 .fx-ghost {
-  --fx-dy: -233px;
-  --fx-cy: 377px;
+  --fx-dy: 232px;
   filter: drop-shadow(0 6px 8px var(--cr-scrim));
 }
 html[lang='en'] .fx-ghost {
-  --fx-dy: -220px;
-  --fx-cy: 364px;
+  --fx-dy: 219px;
+}
+.fx-gd {
+  fill: var(--lp-paper);
+}
+.fx-tb {
+  fill: var(--cr-slot-applied-run);
 }
 .annot-mark {
   fill: none;
@@ -1432,56 +1213,12 @@ html[lang='en'] .fx-ghost {
   stroke-dasharray: 1;
 }
 
-/* Section headlines: a slot under each, dashed until it fills. */
-/* The dashes are a border-image pattern, not border-style: dashed. */
-.section-head h2::after {
-  content: '';
-  display: block;
-  width: 64px;
-  height: 8px;
-  margin-top: 22px;
-  border: 1.5px solid transparent;
-  border-image: repeating-linear-gradient(
-      90deg,
-      var(--cr-slot-missing) 0 4px,
-      transparent 4px 7px
-    )
-    2;
-  background: linear-gradient(var(--cr-primary), var(--cr-primary)) 0 0 / 100%
-    100% no-repeat border-box;
-}
-
 /* Terminal: lines wait their turn while motion.js types. */
 html.motion .term .t-wait {
   visibility: hidden;
 }
 html.motion .t-rest {
   color: transparent;
-  background: linear-gradient(var(--cr-code-fg), var(--cr-code-fg)) 0 50% /
-    0.55em 1.2em no-repeat;
-}
-
-/* Closing: a small shelf whose last slot fills. */
-.closing-mark {
-  display: block;
-  margin-bottom: 28px;
-}
-.closing-mark .p1,
-.closing-mark .p5 {
-  fill: var(--cr-slot-filled);
-}
-.closing-mark .p2 {
-  fill: var(--cr-text-secondary);
-}
-/* The last slot is the one Coverly fills: Buckram. */
-.closing-mark .p3 {
-  fill: var(--cr-slot-applied);
-}
-.closing-mark .cm-gap {
-  fill: none;
-  stroke: var(--cr-slot-missing);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
 }
 
 @keyframes draw {
@@ -1506,11 +1243,6 @@ html.motion .t-rest {
     transform: none;
   }
 }
-@keyframes grow-y {
-  from {
-    transform: scaleY(0);
-  }
-}
 @keyframes feed {
   from {
     transform: scaleX(0);
@@ -1523,15 +1255,14 @@ html.motion .t-rest {
     transform: translateY(4px);
   }
 }
-@keyframes bar-fill {
-  from {
-    background-size: 0% 100%;
-  }
-}
+/* The next shot wipes down over the last, like a sheet laid on the desk:
+   a cross-fade would double-expose two busy screenshots. */
 @keyframes fig-in {
   from {
-    opacity: 0;
-    transform: scale(0.985);
+    clip-path: inset(-48px -48px 100% -48px);
+  }
+  to {
+    clip-path: inset(-48px);
   }
 }
 @keyframes fx-hold {
@@ -1602,21 +1333,26 @@ html.motion .t-rest {
 @keyframes fx-fly {
   0% {
     opacity: 0;
-    transform: none;
+    transform: translateY(var(--fx-dy));
   }
   12% {
     opacity: 1;
-    transform: none;
+    transform: translateY(var(--fx-dy));
   }
   28% {
-    transform: scale(1.08);
+    transform: translateY(var(--fx-dy)) scale(1.08);
   }
   80% {
-    transform: translateY(var(--fx-dy)) scale(1.08);
+    transform: scale(1.08);
   }
   100% {
     opacity: 1;
-    transform: translateY(var(--fx-dy));
+    transform: none;
+  }
+}
+@keyframes fx-peel {
+  50% {
+    transform: rotate(-18deg);
   }
 }
 @keyframes fx-on {
@@ -1676,9 +1412,6 @@ html.vt-ink::view-transition-new(root) {
   .btn:active {
     transform: none;
   }
-  .faq summary::after {
-    transition: transform 220ms var(--cr-ease-ink);
-  }
   .faq details {
     interpolate-size: allow-keywords;
   }
@@ -1735,16 +1468,6 @@ html.vt-ink::view-transition-new(root) {
   .media td:nth-child(4) {
     --c: 2;
   }
-  html.motion .closing-mark .cm-last {
-    transform-box: fill-box;
-    transform-origin: 50% 0;
-  }
-  html.motion .closing-mark:not(.is-in) .cm-last {
-    transform: scaleY(0);
-  }
-  html.motion .closing-mark.is-in .cm-last {
-    animation: grow-y 620ms var(--cr-ease-spring) 350ms both;
-  }
   html.motion .clip-fx {
     display: block;
   }
@@ -1781,23 +1504,26 @@ html.vt-ink::view-transition-new(root) {
     animation: fx-pick 1000ms var(--cr-ease-ink) both;
   }
   html.motion .is-playing .fx-ghost {
-    transform-origin: 1054px var(--fx-cy);
+    transform-origin: 1052px 137px;
     animation: fx-fly 1300ms var(--cr-ease-ink) 350ms both;
+  }
+  /* The tab lifts at its corner and settles: undo is still there. */
+  html.motion .is-playing .fx-ghost .fx-tb {
+    transform-box: fill-box;
+    transform-origin: 100% 0;
+    animation: fx-peel 480ms var(--cr-ease-ink) 2500ms both;
   }
   html.motion .is-playing .fx-slot {
     animation: fx-on 160ms linear 1450ms both;
   }
   html.motion .is-playing .fx-tile {
     transform-origin: 413px 153px;
-    animation: fx-land 560ms var(--cr-ease-spring) 1800ms both;
+    animation: fx-land 560ms var(--cr-ease-ink) 1800ms both;
   }
   html.motion .no-anim,
   html.motion .no-anim * {
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
-  }
-  html.motion .t-rest {
-    animation: caret 1.06s steps(1) infinite;
   }
 
   /* Scroll-linked, where supported; elsewhere it all stays finished. */
@@ -1824,11 +1550,6 @@ html.vt-ink::view-transition-new(root) {
       animation: cta-in linear both;
       animation-timeline: --hero-cta;
       animation-range: exit 0% exit 100%;
-    }
-    .section-head h2::after {
-      animation: bar-fill linear both;
-      animation-timeline: view();
-      animation-range: entry 40% cover 35%;
     }
     .annot-mark {
       animation: draw linear both;
@@ -1903,6 +1624,1720 @@ html.vt-ink::view-transition-new(root) {
   }
 }
 
+/* == showcase:surface == */
+/* Landing-only curves (prefixed --lp-, so the token gates ignore them),
+   the one light model (top-left light: every slot and cover in the art
+   stands on a contact shadow) and the paper grain, which never moves. */
+:root {
+  --lp-ease-swing: linear(0, 0.255, 0.63, 1, 1.274, 1.409, 1.407, 1.303, 1.151, 1, 0.888, 0.834, 0.835, 0.877, 0.939, 1, 1.045, 1.068, 1.067, 1.05, 1.025, 1, 0.982, 0.973, 0.973, 0.98, 0.99, 1, 1.007, 1.011, 1);
+  --lp-dur-hero: 2300ms;
+  --lp-grain: 0.04;
+  --lp-contact: 0.12;
+}
+:root[data-theme='dark'] {
+  --lp-grain: 0.03;
+  --lp-contact: 0.2;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --lp-grain: 0.03;
+    --lp-contact: 0.2;
+  }
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: url('art/grain.svg') 0 0 / 160px 160px;
+  opacity: var(--lp-grain);
+}
+.art .contact {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+/* shelf.js marks art that is off screen; its loops wait there. */
+[data-off],
+[data-off] * {
+  animation-play-state: paused !important;
+}
+
+/* covers:begin GENERATED by scripts/site/gen_covers.mjs */
+/* palette: cover. One muted ink per cover (brand.md §2, "Landing cover
+   inks"); the page sets it per <use> with a class, and fill follows it. */
+:root {
+  --lp-ink-0: #365c96; --lp-ink-1: #366b3e; --lp-ink-2: #915025; --lp-ink-3: #a2392c; --lp-ink-4: #535a52; --lp-ink-5: #787f76;
+}
+:root[data-theme='dark'] {
+  --lp-ink-0: #94b3e4; --lp-ink-1: #7bc48c; --lp-ink-2: #e3a66e; --lp-ink-3: #f09389; --lp-ink-4: #a8afab; --lp-ink-5: #79817e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --lp-ink-0: #94b3e4; --lp-ink-1: #7bc48c; --lp-ink-2: #e3a66e; --lp-ink-3: #f09389; --lp-ink-4: #a8afab; --lp-ink-5: #79817e;
+  }
+}
+.ink-0 {
+  color: var(--lp-ink-0);
+  fill: currentColor;
+}
+.ink-1 {
+  color: var(--lp-ink-1);
+  fill: currentColor;
+}
+.ink-2 {
+  color: var(--lp-ink-2);
+  fill: currentColor;
+}
+.ink-3 {
+  color: var(--lp-ink-3);
+  fill: currentColor;
+}
+.ink-4 {
+  color: var(--lp-ink-4);
+  fill: currentColor;
+}
+.ink-5 {
+  color: var(--lp-ink-5);
+  fill: currentColor;
+}
+/* covers:end */
+
+/* == showcase:topbar == */
+/* The brand mark: the Lean-To (design/icon/glyph-24.svg), in ink. On
+   hover or focus the cover tips upright into place, and back. */
+.mark {
+  flex: none;
+  margin-right: 8px;
+  fill: var(--cr-primary);
+}
+.mark-lean {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+  transform: rotate(12deg);
+}
+.brand:hover .mark-lean,
+.brand:focus-visible .mark-lean {
+  transform: none;
+}
+/* Reading progress: 24 mini slots standing on the header's bottom rule.
+   Dashed until read; the filled Buckram row is uncovered as you scroll.
+   Static (no scroll timelines, reduced motion): the dashed row only. */
+.topbar-inner {
+  position: relative;
+}
+.progress-slots {
+  display: none;
+  position: absolute;
+  left: var(--gutter);
+  bottom: 0;
+}
+.ps-dash {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 3.5 1.5;
+}
+.ps-fill {
+  fill: var(--cr-primary);
+  clip-path: inset(0 100% 0 0);
+}
+@media (min-width: 480px) {
+  .progress-slots {
+    display: block;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.anim .mark-lean {
+    transition: transform var(--cr-duration-slow) var(--cr-ease-standard);
+  }
+  @supports (animation-timeline: view()) {
+    @media (min-width: 480px) {
+      .topbar::after {
+        display: none;
+      }
+    }
+    .ps-fill {
+      animation: ps-fill linear both;
+      animation-timeline: scroll(root block);
+    }
+  }
+}
+@keyframes ps-fill {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* == showcase:hero == */
+/* The Lean-To (spec §3). Inline SVG, so the first paint needs no request:
+   a wide scene in the right column (≥ 1024px) and a 64px strip between the
+   H1 and .sub below that. The HTML is the end frame: two gaps applied (cover,
+   Manila tab, Buckram spine), the last slot empty with a cover leaning on
+   it at 12°, the icon's pose. Slots are drawn in 30×40 units and scaled, so
+   both pieces share one set of parts (svg.hero-defs). The shelf runs out
+   past the right edge of the viewport. */
+.hero {
+  overflow-x: clip;
+}
+.hero-defs {
+  position: absolute;
+}
+.shelf {
+  --bleed: max(var(--gutter), calc((100vw - var(--wrap)) / 2));
+  position: relative;
+  display: none;
+}
+.shelf-art {
+  position: relative;
+  aspect-ratio: 640 / 420;
+}
+.hero-scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% + var(--bleed));
+  height: 100%;
+  --sw: 0.48;
+  --gw: 0.32;
+  --da: 0.0091 0.0068;
+  --cy: 0.0159;
+  view-transition-name: shelf;
+}
+.hero-strip {
+  display: block;
+  width: calc(100% + var(--gutter));
+  height: 64px;
+  margin-top: 22px;
+  --sw: 1.2;
+  --gw: 0.8;
+  --da: 0.026 0.0195;
+  --cy: 0.0455;
+}
+@media (min-width: 1024px) {
+  .shelf {
+    display: block;
+  }
+  .hero-strip {
+    display: none;
+  }
+}
+.hero-art .rule {
+  fill: none;
+  stroke: var(--cr-border-strong);
+  stroke-width: 1.2;
+  stroke-dasharray: 1 1;
+}
+.hero-art .cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3.4;
+}
+.hero-strip .cap {
+  stroke-width: 3;
+}
+.hero-art .sh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.hero-art .gd {
+  fill: var(--cr-surface);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--gw);
+}
+.hero-art .o {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--sw);
+  stroke-dasharray: var(--da);
+}
+.hero-art .pc {
+  fill: var(--cr-slot-missing);
+  transform-box: fill-box;
+}
+.hero-art .c1 {
+  transform-origin: 0 0;
+}
+.hero-art .c2 {
+  --k: 1;
+  transform-origin: 100% 0;
+}
+.hero-art .c3 {
+  --k: 2;
+  transform-origin: 0 100%;
+}
+.hero-art .c4 {
+  --k: 3;
+  transform-origin: 100% 100%;
+}
+.hero-art .tb {
+  fill: var(--cr-slot-applied-run);
+}
+.hero-art .fl {
+  fill: var(--cr-manila);
+  opacity: 0;
+}
+.hero-art .sp {
+  fill: var(--cr-slot-applied);
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+}
+/* Applied gaps: the outline and corners are gone (folded away). */
+.gap :is(.o, .pc) {
+  opacity: 0;
+}
+.g2 {
+  --g: 1;
+}
+.pk1 {
+  opacity: 0.6;
+}
+.pk2 {
+  opacity: 0.36;
+}
+.pk3 {
+  opacity: 0.2;
+}
+.pk4 {
+  opacity: 0.1;
+}
+.lean {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+  transform: rotate(12deg);
+}
+.hero-art .ls {
+  transform-box: fill-box;
+  transform-origin: 100% 50%;
+}
+/* The H1's keyword stands on a slot underline: dashed (missing) under a
+   solid Buckram band (committed). */
+.kw {
+  position: relative;
+  white-space: nowrap;
+}
+.kw-slot {
+  position: absolute;
+  left: 0.02em;
+  right: 0.02em;
+  bottom: -0.04em;
+  height: max(3px, 0.05em);
+  pointer-events: none;
+}
+.kw-slot::before,
+.kw-slot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1px;
+}
+.kw-slot::before {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--cr-slot-missing) 0 0.14em,
+    transparent 0.14em 0.22em
+  );
+  transform-origin: 0 50%;
+}
+.kw-slot::after {
+  background: var(--cr-slot-applied);
+}
+/* Tally under the scene: seven mini slots and the count. */
+.count {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  font: 500 0.8125rem/1 var(--cr-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cr-text-secondary);
+}
+.tally {
+  margin-right: 8px;
+}
+.tally .tf {
+  fill: var(--cr-slot-filled);
+}
+.tally .tg {
+  fill: var(--cr-slot-applied);
+}
+.tally .td {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 2 1;
+}
+.tn {
+  display: inline-grid;
+  color: var(--cr-text);
+}
+.tn i {
+  grid-area: 1 / 1;
+  font-style: normal;
+}
+.tn i:first-child {
+  visibility: hidden;
+}
+
+/* The timeline (2.3s, then a 0.6s hand-off). shelf.js adds .is-armed (the
+   start frame: gaps open, rule undrawn) and .play once the art is 40% on
+   screen; it removes both at the end, which is the frame the HTML already
+   shows. Each beat is one keyframe on one part; --g staggers the two gaps
+   and --k the four photo-corners. */
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .hero.is-armed .rule {
+    stroke-dashoffset: 1;
+  }
+  html.motion .hero.is-armed .kw-slot::before {
+    transform: scaleX(0);
+  }
+  html.motion .hero.is-armed .kw-slot::after,
+  html.motion .hero.is-armed :is(.gap .gd, .gap .ct, .gap .cy, .tb, .tally .tg) {
+    opacity: 0;
+  }
+  html.motion .hero.is-armed .gap :is(.o, .pc) {
+    opacity: 1;
+  }
+  html.motion .hero.is-armed .sp {
+    transform: scaleX(0);
+  }
+  html.motion .hero.is-armed .tn i:first-child {
+    visibility: visible;
+  }
+  html.motion .hero.is-armed .tn i:last-child {
+    visibility: hidden;
+  }
+  html.motion .hero.play .rule {
+    animation: hr-draw 320ms var(--cr-ease-enter) both;
+  }
+  html.motion .hero.play .rule.lo {
+    animation-delay: 80ms;
+  }
+  html.motion .hero.play .kw-slot::before {
+    animation: hr-grow 320ms var(--cr-ease-enter) both;
+  }
+  html.motion .hero.play .gap .o {
+    animation:
+      hr-march var(--cr-duration-slow) var(--cr-ease-standard) calc(120ms + var(--g, 0) * 60ms) both,
+      hr-out var(--cr-duration-slow) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .ct {
+    animation:
+      hr-ghost-t var(--cr-duration-slower) var(--cr-ease-enter) calc(480ms + var(--g, 0) * 60ms) both,
+      hr-reg-t var(--cr-duration-slower) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .cy {
+    animation:
+      hr-ghost-k var(--cr-duration-slower) var(--cr-ease-enter) calc(480ms + var(--g, 0) * 60ms) both,
+      hr-reg-k var(--cr-duration-slower) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) forwards;
+  }
+  html.motion .hero.play .gap .gd {
+    animation: hr-in var(--cr-duration-slow) var(--cr-ease-ink) calc(1040ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .gap .pc {
+    animation: hr-fold var(--cr-duration-fast) var(--cr-ease-exit) calc(1040ms + var(--g, 0) * 140ms + var(--k, 0) * 60ms) both;
+  }
+  html.motion .hero.play .tb {
+    animation: hr-tab var(--cr-duration-base) var(--cr-ease-enter) calc(1300ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .fl {
+    animation: hr-flash var(--cr-duration-base) var(--cr-ease-standard) calc(1300ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .hero.play .sp {
+    animation: hr-spine var(--cr-duration-slow) var(--cr-ease-ink) calc(1480ms + var(--g, 0) * 80ms) both;
+  }
+  html.motion .hero.play .kw-slot::after,
+  html.motion .hero.play .tally .tg {
+    animation: hr-in var(--cr-duration-slow) var(--cr-ease-ink) calc(1480ms + var(--g, 0) * 80ms) both;
+  }
+  html.motion .hero.play .tn i:first-child {
+    animation: hr-hide 1ms 1560ms both;
+  }
+  html.motion .hero.play .tn i:last-child {
+    animation: hr-show 1ms 1560ms both;
+  }
+  html.motion .hero.play .lean {
+    will-change: transform;
+    animation: hr-nudge 440ms var(--cr-ease-standard) 1800ms both;
+  }
+  html.motion .hero.play .ls {
+    animation: hr-snug 440ms var(--cr-ease-standard) 1800ms both;
+  }
+  html.motion .hero.play .pk1 .o {
+    animation: hr-pulse 600ms var(--cr-ease-standard) 2240ms both;
+  }
+}
+@keyframes hr-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hr-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes hr-march {
+  from {
+    stroke-dashoffset: calc(var(--cy) * 2);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hr-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes hr-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Simulate: a riso proof, tone and key out of register at 45%. Apply: they
+   register (ink easing). */
+@keyframes hr-ghost-t {
+  from {
+    opacity: 0;
+    transform: translate(-0.5px, 0.35px);
+  }
+  to {
+    opacity: 0.45;
+    transform: translate(-0.5px, 0.35px);
+  }
+}
+@keyframes hr-reg-t {
+  from {
+    opacity: 0.45;
+    transform: translate(-0.5px, 0.35px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-ghost-k {
+  from {
+    opacity: 0;
+    transform: translate(0.5px, -0.35px);
+  }
+  to {
+    opacity: 0.45;
+    transform: translate(0.5px, -0.35px);
+  }
+}
+@keyframes hr-reg-k {
+  from {
+    opacity: 0.45;
+    transform: translate(0.5px, -0.35px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-fold {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 1;
+    transform: scale(0);
+  }
+}
+@keyframes hr-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hr-flash {
+  from {
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes hr-spine {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes hr-hide {
+  from {
+    visibility: visible;
+  }
+  to {
+    visibility: hidden;
+  }
+}
+@keyframes hr-show {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+/* The nudge: lifts a hair and rocks 12° → 9° → 12° on its contact
+   corner. It does not seat; that waits for the closing. */
+@keyframes hr-nudge {
+  from {
+    transform: rotate(12deg);
+  }
+  50% {
+    transform: translateY(-0.6px) rotate(9deg);
+  }
+  to {
+    transform: rotate(12deg);
+  }
+}
+@keyframes hr-snug {
+  50% {
+    opacity: 0.6;
+    transform: scaleX(0.8);
+  }
+}
+@keyframes hr-pulse {
+  from {
+    stroke-dashoffset: 0;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: calc(var(--cy) * -1);
+  }
+}
+
+/* == showcase:heads == */
+/* Every H2 stands on a short shelf rule (brand §2): a 1px line with its
+   3px Buckram cap. As the head scrolls in it draws from the cap out.
+   Static: drawn. */
+.section-head h2::after {
+  content: '';
+  display: block;
+  width: min(100%, 12rem);
+  height: 3px;
+  margin-top: 22px;
+  background:
+    linear-gradient(var(--cr-primary), var(--cr-primary)) 0 0 / 48px 3px
+      no-repeat,
+    linear-gradient(var(--cr-border-strong), var(--cr-border-strong)) 0 0 /
+      100% 1px no-repeat;
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .section-head h2::after {
+      animation: rule-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 30%;
+    }
+  }
+}
+@keyframes rule-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+/* == showcase:steps == */
+/* #como, the greyboard-dark band (tokens.css .band-dark) under a still
+   weave; its screenshots are the dark ones. --lp-paper keeps the page's
+   own ground (taken at :root) for covers drawn inside it. */
+:root {
+  --lp-paper: var(--cr-bg);
+}
+.band-dark {
+  position: relative;
+  isolation: isolate;
+  background: var(--cr-bg);
+  color: var(--cr-text);
+}
+.band-dark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--cr-text);
+  mask: url('art/weave.svg') 0 0 / 8px 8px;
+  opacity: 0.04;
+}
+/* Camera: each shot scales about the spot that matters, so that spot
+   stays put and the frame never shows past the edge. Static: whole shot. */
+.cam {
+  position: relative;
+  transform-origin: var(--cx) var(--cy);
+}
+.cam-1 {
+  --cx: 14.4%;
+  --cy: 99.7%;
+  --cz: 1.9;
+}
+.cam-2 {
+  --cx: 34.6%;
+  --cy: 12.2%;
+  --cz: 1.8;
+}
+.cam-3 {
+  --cx: 37.9%;
+  --cy: 66.9%;
+  --cz: 1.6;
+}
+.cam-4 {
+  --cx: 82.2%;
+  --cy: 17.1%;
+  --cz: 1.9;
+}
+/* Callouts: a leader from that spot to a mono label. */
+.call path {
+  fill: none;
+  stroke: var(--cr-text-secondary);
+  stroke-width: 1.25;
+  stroke-dasharray: 1;
+  vector-effect: non-scaling-stroke;
+}
+.callout {
+  position: absolute;
+  left: var(--lx);
+  top: var(--ly);
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border: 1px solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-raised);
+  font: 500 0.6875rem/1.4 var(--cr-font-mono);
+  white-space: nowrap;
+}
+.co-1 {
+  --lx: 25.8%;
+  --ly: 86.3%;
+}
+.co-3 {
+  --lx: 50%;
+  --ly: 80%;
+}
+.co-4 {
+  --lx: auto;
+  --ly: 12.3%;
+  right: 30.9%;
+}
+/* Step 2's proof stamp, printed twice out of register: nothing written. */
+.stamp {
+  fill: none;
+  stroke: var(--cr-primary);
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.st-slot {
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3.5;
+}
+.st-b {
+  opacity: 0.45;
+}
+/* Step rail beside the pinned desk: dashed, then solid with a spine. */
+.rail {
+  display: none;
+}
+.rl-o {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+.rl-f {
+  fill: var(--cr-slot-filled);
+}
+.rl-s {
+  fill: var(--cr-slot-applied);
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .steps {
+      --tl: --shot;
+    }
+    .shot {
+      view-timeline-name: --shot;
+    }
+    .cam,
+    .stamp,
+    .call path,
+    .callout {
+      animation: cam linear both;
+      animation-timeline: var(--tl);
+      animation-range: cover 5% cover 70%;
+    }
+    .stamp {
+      animation-name: stamp;
+    }
+    .call path {
+      animation-name: draw;
+      animation-range: cover 30% cover 40%;
+    }
+    .callout {
+      animation-name: co-in;
+      animation-range: cover 38% cover 44%;
+    }
+    @media (min-width: 1024px) {
+      .cam-1 {
+        animation-range: cover 25% cover 75%;
+      }
+      .step:nth-child(1) {
+        --tl: --s1;
+      }
+      .step:nth-child(2) {
+        --tl: --s2;
+      }
+      .step:nth-child(3) {
+        --tl: --s3;
+      }
+      .step:nth-child(4) {
+        --tl: --s4;
+      }
+      .rail {
+        display: block;
+        grid-column: 1;
+        grid-row: 1 / 5;
+        justify-self: end;
+        position: sticky;
+        top: calc(max(var(--header) + 32px, 50vh - 250px) + 170px);
+        margin-right: -38px;
+      }
+      .rl-f,
+      .rl-s {
+        transform-box: fill-box;
+        transform-origin: 0 100%;
+        animation: rl-fill linear both;
+        animation-timeline: --s1;
+        animation-range: entry 30% entry 80%;
+      }
+      .rl-s {
+        animation-name: rl-spine;
+        animation-range: entry 80% cover 50%;
+      }
+      .r2 > * {
+        animation-timeline: --s2;
+      }
+      .r3 > * {
+        animation-timeline: --s3;
+      }
+      .r4 > * {
+        animation-timeline: --s4;
+      }
+    }
+  }
+}
+@keyframes cam {
+  0%,
+  20% {
+    transform: none;
+  }
+  45%,
+  72% {
+    transform: scale(var(--cz));
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes stamp {
+  0%,
+  30% {
+    opacity: 0.001;
+    transform: scale(1.08);
+  }
+  36%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0.001;
+    transform: translateY(-4px) scale(1.04);
+  }
+}
+@keyframes co-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rl-fill {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes rl-spine {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* == showcase:safety == */
+/* #seguro: the round trip the visitor runs. The HTML is the applied card
+   (the finished page, also without JS); shelf.js arms "before" and shows
+   the buttons. State on .demo: is-before, is-sim, is-applied, is-undo
+   (which ends on the before frame). Reduced motion: instant swaps, a
+   short crossfade. --g staggers the three slots that change. */
+.demo {
+  display: grid;
+  gap: 20px 40px;
+  margin-bottom: clamp(40px, 5vw, 64px);
+  padding: clamp(16px, 3vw, 28px);
+  border: 1px solid var(--cr-border);
+  border-radius: var(--cr-radius-xl);
+  background: var(--cr-surface);
+}
+@media (min-width: 960px) {
+  .demo {
+    grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+    align-items: center;
+  }
+}
+.dm,
+.gal {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dm-leg {
+  display: flex;
+  max-width: 560px;
+  font: 500 clamp(0.625rem, 2.6vw, 0.75rem) / 1.4 var(--cr-font-mono);
+  white-space: nowrap;
+  color: var(--cr-text-secondary);
+  text-align: center;
+}
+.dm-leg span:first-child {
+  width: 73%;
+}
+.dm-leg span:last-child {
+  flex: 1;
+}
+.dm-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 44px;
+}
+.dm-ctl [hidden] {
+  display: none;
+}
+.dm-ctl [aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.dm-ctl [aria-pressed='true'] {
+  opacity: 1;
+  border-color: var(--cr-primary);
+  background: var(--cr-primary-subtle);
+  color: var(--cr-primary-subtle-fg);
+}
+.demo-status {
+  min-height: 3em;
+  margin-top: 14px;
+  font: 500 0.875rem/1.5 var(--cr-font-mono);
+  color: var(--cr-text-secondary);
+}
+.dm-card {
+  color: var(--cr-border-strong);
+}
+.dm-pin {
+  fill: var(--cr-border);
+}
+.dm-rule,
+.gal .rl {
+  stroke: var(--cr-border-strong);
+}
+.dm-cap,
+.gal .cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3;
+}
+/* The route runs from the card's right edge (x 4 + width 400) to the
+   folder's mouth (y 130 + 6/36 of its 72, the top of the front), under
+   the backup cover's centre (457 + 42/2). It lives in the same viewBox
+   as both, so it meets the folder at every width. pathLength 111 ends the
+   3 3 dashes on a dash (its real length is about 113). */
+.dm-route {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 3 3;
+}
+.dm-ftab {
+  color: var(--cr-manila);
+}
+.dm-fold {
+  color: var(--cr-border);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.75;
+}
+.dm .sh,
+.gsh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.dm .gd,
+.g-gd {
+  fill: var(--lp-paper);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.35;
+}
+.dm .tb {
+  fill: var(--cr-slot-applied-run);
+  transform-box: fill-box;
+  transform-origin: 100% 0;
+}
+.dm .mi,
+.gm {
+  color: var(--cr-slot-missing);
+}
+.dm :is(.mi, .old) {
+  opacity: 0;
+}
+.dm .dk {
+  --dm-off: translate(1.5px, -1px);
+}
+.dm .bk {
+  transform-origin: 457px 104px;
+  --dm-at: translate(-134px, -28px) scale(1.5714);
+}
+.d2 {
+  --g: 1;
+}
+.d3 {
+  --g: 2;
+}
+.demo:is(.is-before, .is-sim, .is-undo) :is(.gn, .dt, .dk, .tb, .bk) {
+  opacity: 0;
+}
+.demo:is(.is-before, .is-sim, .is-undo) :is(.mi, .old) {
+  opacity: 1;
+}
+.demo.is-sim :is(.dt, .dk) {
+  opacity: 0.45;
+}
+.demo.is-sim .dk {
+  transform: var(--dm-off);
+}
+/* Pictograms before each promise, line-drawn as each one scrolls in. */
+.pict {
+  margin-right: 10px;
+  vertical-align: -4px;
+  color: var(--cr-primary);
+  view-timeline-name: --pict;
+}
+.cam-r {
+  --cx: 45.6%;
+  --cy: 72%;
+  --cz: 1.7;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .is-sim :is(.dt, .dk) {
+    animation: dm-in var(--cr-duration-slower) var(--cr-ease-enter)
+      calc(var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .bk {
+    animation: dm-bk var(--cr-duration-slower) var(--cr-ease-ink) both;
+  }
+  html.motion .is-applied :is(.dt, .dk) {
+    animation: dm-reg var(--cr-duration-slower) var(--cr-ease-ink)
+      calc(400ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied :is(.gn, .old) {
+    animation: dm-in var(--cr-duration-base) linear
+      calc(400ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .old {
+    animation-name: dm-out;
+  }
+  html.motion .is-applied .mi {
+    animation: dm-out var(--cr-duration-fast) var(--cr-ease-exit)
+      calc(600ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-applied .tb {
+    animation: dm-tab var(--cr-duration-base) var(--cr-ease-enter)
+      calc(800ms + var(--g, 0) * 140ms) both;
+  }
+  html.motion .is-undo .tb {
+    animation: dm-peel 480ms var(--cr-ease-ink) calc(var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo :is(.gn, .dt, .dk) {
+    animation: dm-down var(--cr-duration-slower) var(--cr-ease-ink)
+      calc(320ms + var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo .mi {
+    animation: dm-in var(--cr-duration-slow) linear
+      calc(560ms + var(--g, 0) * 100ms) both;
+  }
+  html.motion .is-undo .bk {
+    animation: dm-back var(--cr-duration-slower) var(--cr-ease-ink) 640ms both;
+  }
+  html.motion .is-undo .old {
+    animation: dm-in 1ms 1040ms both;
+  }
+  @supports (animation-timeline: view()) {
+    .safe {
+      --tl: --shot;
+    }
+    .pict use {
+      stroke-dasharray: 1;
+      animation: draw linear both;
+      animation-timeline: --pict;
+      animation-range: entry 60% cover 40%;
+    }
+  }
+}
+@keyframes dm-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dm-out {
+  from {
+    opacity: 1;
+  }
+}
+@keyframes dm-reg {
+  from {
+    opacity: 0.45;
+    transform: var(--dm-off, none);
+  }
+}
+@keyframes dm-bk {
+  from {
+    transform: var(--dm-at);
+  }
+}
+@keyframes dm-back {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  96% {
+    opacity: 1;
+    transform: var(--dm-at);
+  }
+  to {
+    opacity: 0;
+    transform: var(--dm-at);
+  }
+}
+@keyframes dm-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@keyframes dm-peel {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  55% {
+    opacity: 1;
+    transform: rotate(-18deg);
+  }
+  to {
+    opacity: 0;
+    transform: rotate(-18deg);
+  }
+}
+@keyframes dm-down {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* == showcase:formats == */
+/* One shelf of covers in runs, one run per layout row (its ink chip in
+   the table). It develops once on the way in: grounds, covers, spines.
+   Hovering a row lifts its run off its shadow. One slot stays empty. */
+.gal {
+  margin-bottom: 16px;
+}
+.g-sp {
+  fill: var(--cr-slot-applied);
+}
+.chip {
+  display: inline-block;
+  width: 6px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.split:has(tbody tr:nth-child(1):hover) .q1,
+.split:has(tbody tr:nth-child(2):hover) .q2,
+.split:has(tbody tr:nth-child(3):hover) .q3,
+.split:has(tbody tr:nth-child(4):hover) .q4,
+.split:has(tbody tr:nth-child(5):hover) .q5,
+.split:has(tbody tr:nth-child(6):hover) .q6,
+.split:has(tbody tr:nth-child(7):hover) .q7,
+.split:has(tbody tr:nth-child(8):hover) .q8 {
+  transform: translateY(-3px);
+}
+/* Terminal: each command prints one line of output, 200ms after it is
+   typed; the cursor is a small dashed slot that blinks three times. */
+.t-out {
+  color: var(--cr-code-accent);
+}
+html.motion .t-hold {
+  visibility: hidden;
+}
+html.motion .t-rest::before {
+  --dash-ink: var(--cr-code-fg);
+  content: '';
+  display: inline-block;
+  width: 1ch;
+  height: 1.33ch;
+  margin-right: -1ch;
+  vertical-align: -0.1em;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gal :is(.g-gd, .g-cv, .g-sp) > * {
+    transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+  }
+  html.motion .gal:not(.is-in) > g {
+    opacity: 0;
+  }
+  html.motion .gal.is-in > g {
+    animation: dm-in var(--cr-duration-slower) var(--cr-ease-enter) both;
+  }
+  html.motion .gal.is-in .g-cv {
+    animation: develop 640ms var(--cr-ease-ink) 160ms both;
+  }
+  html.motion .gal.is-in .g-sp {
+    animation: develop var(--cr-duration-slower) var(--cr-ease-ink) 640ms both;
+  }
+  html.motion .typing .t-out:not(.t-hold) {
+    animation: develop 280ms steps(12) both;
+  }
+  html.motion .t-rest::before {
+    animation: caret 1.06s steps(1) 3;
+  }
+}
+@keyframes develop {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+/* == showcase:compare == */
+/* The Coverly column's highlight wipes down row by row (--r) and its
+   checks draw in, scrubbed by the table's view timeline. */
+.ck {
+  margin-right: 6px;
+  vertical-align: -1px;
+  color: var(--cr-primary);
+}
+.compare tr:nth-child(2) {
+  --r: 2;
+}
+.compare tr:nth-child(3) {
+  --r: 3;
+}
+.compare tr:nth-child(4) {
+  --r: 4;
+}
+.compare tr:nth-child(5) {
+  --r: 5;
+}
+.compare tr:nth-child(6) {
+  --r: 6;
+}
+.compare tr:nth-child(7) {
+  --r: 7;
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    html.motion .table-scroll {
+      view-timeline-name: --cmp;
+    }
+    html.motion .compare :is(th, td):nth-child(2) {
+      position: relative;
+      isolation: isolate;
+      background: none;
+    }
+    html.motion .compare :is(th, td):nth-child(2)::before,
+    html.motion .ck use {
+      animation: wipe-d linear both;
+      animation-timeline: --cmp;
+      animation-range: cover calc(14% + var(--r, 1) * 3.5%) cover
+        calc(18% + var(--r, 1) * 3.5%);
+    }
+    html.motion .compare :is(th, td):nth-child(2)::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: var(--cr-primary-subtle);
+    }
+    html.motion .ck use {
+      stroke-dasharray: 1;
+      animation-name: draw;
+      animation-range: cover calc(17% + var(--r, 1) * 3.5%) cover
+        calc(23% + var(--r, 1) * 3.5%);
+    }
+  }
+}
+@keyframes wipe-d {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+/* == showcase:download == */
+/* No release: the slot that fills on release day, its v0.1.0 accession
+   tag on a string; on the way in the dashes march once and the tag swings
+   and settles. Release: the OS cards fill like slots, the detected one's
+   tag drops in. The not-yet list draws its dashes. */
+.dl-wait {
+  display: grid;
+  gap: 24px;
+  align-items: center;
+}
+@media (min-width: 760px) {
+  .dl-wait {
+    grid-template-columns: minmax(0, 46rem) 240px;
+    gap: clamp(32px, 7vw, 112px);
+  }
+}
+.waiting {
+  width: min(240px, 44vw);
+  height: auto;
+  justify-self: center;
+  color: var(--cr-slot-missing);
+  fill: currentColor;
+  stroke: currentColor;
+}
+.w-slot {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.w-rule {
+  stroke: var(--cr-border-strong);
+}
+.w-cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: 3;
+}
+.w-pc,
+.w-tb {
+  stroke: none;
+}
+.w-tag {
+  color: var(--cr-text-secondary);
+  transform-box: view-box;
+  transform-origin: 158px 72px;
+}
+.w-str {
+  stroke-width: 0.75;
+}
+.w-tb {
+  fill: var(--cr-manila);
+}
+.w-ln,
+.w-gl {
+  color: var(--cr-manila-fg);
+  stroke-opacity: 0.4;
+}
+.w-gl {
+  stroke-opacity: 1;
+}
+.dl-card + .dl-card {
+  --n: 1;
+}
+.dl-card + .dl-card + .dl-card {
+  --n: 2;
+}
+.dl-card + .dl-card + .dl-card + .dl-card {
+  --n: 3;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .waiting:not(.is-in) .w-tag {
+    transform: rotate(16deg);
+  }
+  html.motion .waiting.is-in:not(.no-anim) .w-tag {
+    animation: swing 1.2s var(--lp-ease-swing) both;
+  }
+  html.motion .waiting.is-in:not(.no-anim) .w-slot {
+    animation: march 1.2s var(--cr-ease-standard);
+  }
+  html.motion .dl-card {
+    outline: 1.5px dashed transparent;
+    outline-offset: -1.5px;
+  }
+  html.motion .dl-grid:not(.is-in) .dl-card {
+    border-color: transparent;
+    outline-color: var(--cr-slot-missing);
+    background-color: transparent;
+    box-shadow: none;
+  }
+  html.motion .dl-grid:not(.is-in) .mine {
+    opacity: 0;
+  }
+  html.motion .dl-grid.is-in:not(.no-anim) .dl-card {
+    animation: card-fill var(--cr-duration-slow) var(--cr-ease-ink)
+      calc(var(--n, 0) * 90ms) both;
+  }
+  html.motion .dl-grid.is-in:not(.no-anim) .mine {
+    animation: dm-tab var(--cr-duration-base) var(--cr-ease-spring)
+      calc(var(--n, 0) * 90ms + 240ms) both;
+  }
+  @supports (animation-timeline: view()) {
+    html.motion .notyet li {
+      animation: dash-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 10% entry 100%;
+    }
+  }
+}
+@keyframes swing {
+  from {
+    transform: rotate(16deg);
+  }
+}
+@keyframes march {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes card-fill {
+  from {
+    border-color: transparent;
+    outline-color: var(--cr-slot-missing);
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+@keyframes dash-draw {
+  from {
+    background-size: 0 1.5px, 0 1.5px, 1.5px 0, 1.5px 0;
+  }
+  50% {
+    background-size: 100% 1.5px, 0 1.5px, 1.5px 100%, 1.5px 0;
+  }
+}
+
+/* == showcase:faq == */
+/* The marker is a 12x16 mini slot: dashed closed, solid Buckram with a 2px
+   spine open (the ring covers the dashes). */
+.faq summary::after {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 16px;
+  margin-right: 2px;
+  border-radius: 1px;
+  box-shadow:
+    inset 0 0 0 1.5px transparent,
+    inset 0 -3.5px 0 transparent;
+}
+.faq [open] summary::after {
+  background-color: var(--cr-primary-subtle);
+  box-shadow:
+    inset 0 0 0 1.5px var(--cr-slot-applied),
+    inset 0 -3.5px 0 var(--cr-slot-applied);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .faq summary::after {
+    transition:
+      box-shadow var(--cr-duration-fast) var(--cr-ease-standard),
+      background-color var(--cr-duration-fast) var(--cr-ease-standard);
+  }
+}
+
+/* == showcase:footer == */
+/* Requests to other servers: a mini slot meant to stay empty, dashed. */
+.req-count {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 1.25em;
+  height: 1.66em;
+  padding: 0 0.2em;
+  line-height: 1;
+  vertical-align: middle;
+  color: var(--cr-text);
+}
+
+/* == showcase:closing == */
+/* The payoff (spec §4.10). One shelf across the viewport, the Lean-To
+   from the hero at its centre, right above the CTA. The HTML is the end
+   frame: every slot filled but two, which stay dashed (Coverly never
+   guesses), 152 over them, the Lean-To seated with its Manila tab and a
+   Buckram spine under the button. Scrolled in, the covers wipe on left to
+   right, their spines just after, the gaps pulse once and the cover from
+   the hero tips upright into its slot. Without scroll timelines shelf.js
+   adds .landed and the same frames play once, by the clock. */
+.closing {
+  overflow-x: clip;
+  text-align: center;
+}
+.closing h2,
+.closing p {
+  margin-inline: auto;
+}
+.fin {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1440 / 108;
+  margin-top: clamp(24px, 4vw, 48px);
+}
+.finale-m {
+  display: none;
+  aspect-ratio: 390 / 108;
+}
+@media (max-width: 767.98px) {
+  .finale {
+    display: none;
+  }
+  .finale-m {
+    display: block;
+  }
+}
+.fin-cta {
+  justify-content: center;
+  margin-top: 20px;
+  padding: 0 var(--gutter);
+}
+.fin-cta .btn-primary {
+  box-shadow:
+    0 2px 0 var(--cr-bg),
+    0 5px 0 var(--cr-slot-applied);
+}
+.fin .frl {
+  stroke: var(--cr-border-strong);
+}
+.fsh {
+  fill: var(--cr-text);
+  fill-opacity: var(--lp-contact);
+}
+.fin .gd {
+  fill: var(--lp-paper);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.25;
+}
+.fo {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 0.0196 0.0147;
+}
+.fpc {
+  fill: var(--cr-slot-missing);
+}
+.fin .tb {
+  fill: var(--cr-slot-applied-run);
+}
+.fin .sp {
+  fill: var(--cr-slot-applied);
+}
+.fsp {
+  fill: none;
+  stroke: var(--cr-slot-applied);
+  stroke-dasharray: 30 10;
+}
+.finale-m .fsp {
+  stroke-dasharray: 30 6;
+}
+.f152 {
+  color: var(--cr-text-secondary);
+}
+/* The 152 over the gaps is the terminal example's 4553 minus its 4401
+   applied; the note under the shelf says so, in the same mono. */
+.closing .fin-note {
+  margin-top: 14px;
+  padding: 0 var(--gutter);
+  max-width: calc(44em + 2 * var(--gutter));
+  font: 500 0.8125rem/1.5 var(--cr-font-mono);
+  text-wrap: balance;
+}
+.flean,
+.ftab,
+.fseat {
+  transform-box: fill-box;
+  transform-origin: 100% 100%;
+}
+.ftab {
+  transform-origin: 50% 0;
+}
+.fseat {
+  transform-origin: 0 50%;
+}
+@keyframes fin-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+@keyframes fin-pulse {
+  50% {
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: -0.0343;
+  }
+}
+@keyframes fin-seat {
+  from {
+    transform: rotate(12deg);
+  }
+  80% {
+    transform: translateY(-0.7px);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes fin-tab {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes fin-cta {
+  from {
+    box-shadow:
+      0 2px 0 var(--cr-bg),
+      0 2px 0 var(--cr-slot-applied);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.motion .fcv,
+  html.motion .fsp {
+    animation: fin-wipe 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .fgap {
+    animation: fin-pulse 1ms var(--cr-ease-standard) both;
+  }
+  html.motion .f152 {
+    animation: dm-in 1ms var(--cr-ease-enter) both;
+  }
+  html.motion .flean {
+    animation: fin-seat 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .ftab {
+    animation: fin-tab 1ms var(--cr-ease-spring) both;
+  }
+  html.motion .fseat {
+    animation: feed 1ms var(--cr-ease-ink) both;
+  }
+  html.motion .fin-cta .btn-primary {
+    animation: fin-cta 1ms var(--cr-ease-ink) both;
+  }
+  @supports (animation-timeline: view()) {
+    .finale {
+      view-timeline: --fin block;
+    }
+    .finale-m {
+      view-timeline: --fim block;
+    }
+    html.motion .fin * {
+      animation-timeline: --fin;
+    }
+    html.motion .finale-m * {
+      animation-timeline: --fim;
+    }
+    html.motion .fcv {
+      animation-range: cover 40px cover 300px;
+    }
+    html.motion .fsp {
+      animation-range: cover 80px cover 340px;
+    }
+    html.motion .fgap {
+      animation-range: cover 330px cover 410px;
+    }
+    html.motion .f152 {
+      animation-range: cover 350px cover 410px;
+    }
+    html.motion .flean {
+      animation-range: cover 380px cover 480px;
+    }
+    html.motion .ftab {
+      animation-range: cover 460px cover 520px;
+    }
+    html.motion .fseat {
+      animation-range: cover 480px cover 520px;
+    }
+    html.motion .fin-cta .btn-primary {
+      animation-timeline: view();
+      animation-range: cover 330px cover 400px;
+    }
+  }
+  /* No scroll timelines: the start frame waits for .landed (shelf.js),
+     then the same frames run once, in 1.6s. */
+  @supports not (animation-timeline: view()) {
+    html.motion .closing:not(.landed) * {
+      animation-play-state: paused;
+    }
+    html.motion .closing.landed .fcv {
+      animation-duration: 640ms;
+    }
+    html.motion .closing.landed .fsp {
+      animation-duration: 560ms;
+      animation-delay: 200ms;
+    }
+    html.motion .closing.landed .fgap {
+      animation-duration: 400ms;
+      animation-delay: 720ms;
+    }
+    html.motion .closing.landed .f152 {
+      animation-duration: 240ms;
+      animation-delay: 760ms;
+    }
+    html.motion .closing.landed .flean {
+      animation-duration: 400ms;
+      animation-delay: 880ms;
+    }
+    html.motion .closing.landed :is(.ftab, .fseat) {
+      animation-duration: 240ms;
+      animation-delay: 1240ms;
+    }
+    html.motion .closing.landed .btn-primary {
+      animation-duration: 240ms;
+      animation-delay: 1360ms;
+    }
+  }
+}
+
+/* == showcase:reduce == */
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1917,8 +3352,11 @@ html.vt-ink::view-transition-new(root) {
     animation: none !important;
   }
   .replay,
-  .clip-fx {
+  .clip-fx:not(.fx-end) {
     display: none !important;
+  }
+  .dm :is(.gn, .dt, .dk, .tb, .bk, .mi, .old) {
+    transition: opacity 150ms !important;
   }
 }
 
