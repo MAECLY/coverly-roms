@@ -2,7 +2,9 @@
    with the latest release when it deploys; this only covers the minutes
    before that redeploy (or a failed one). It changes nothing unless every
    download on the page has its file in the newer release, and any error
-   leaves the built page as it is. Also: the copy buttons. */
+   leaves the built page as it is. A page built before the first release
+   swaps its "on its way" wording for the release and offers the installer
+   for this system. Also: the copy buttons. */
 (function () {
   "use strict";
   var BASE = "https://github.com/MAECLY/coverly-roms/releases/";
@@ -48,8 +50,31 @@
     }
     var notes = all('a[data-rel="notes"]');
     for (i = 0; i < notes.length; i++) notes[i].setAttribute("href", rel.html_url);
-    var fresh = all("[data-rel-new]");
+    var fresh = all("[data-rel-new]"), stale = all("[data-rel-old]");
     for (i = 0; i < fresh.length; i++) fresh[i].hidden = false;
+    for (i = 0; i < stale.length; i++) stale[i].hidden = true;
+    if (!b) offer(files, tag, v);
+  }
+
+  /* Built before the first release: the one installer for this system, by
+     its exact name. A phone, an unknown system or a missing file keeps the
+     link to the release page beside it. */
+  function offer(files, tag, v) {
+    var os = document.documentElement.getAttribute("data-os");
+    var arm = /aarch64|arm64/i.test(navigator.userAgent || "");
+    var end = { mac: "_universal.dmg", win: "_x64-setup.exe",
+      linux: arm ? "_aarch64.AppImage" : "_amd64.AppImage" }[os];
+    var name = "Coverly.ROMs_" + v + end, f = end && files[name];
+    var url = BASE + "download/" + tag + "/" + name;
+    if (!f || f.state !== "uploaded" || !(f.size > 0) || f.browser_download_url !== url) return;
+    var mib = (f.size / 1048576).toFixed(1), say = { mac: "macOS", win: "Windows", linux: "Linux" }[os];
+    var btn = all("a[data-rel-file]"), part, i;
+    for (i = 0; i < btn.length; i++) btn[i].setAttribute("href", url);
+    part = all('[data-rel="os"]');
+    for (i = 0; i < part.length; i++) part[i].textContent = say + (os === "linux" ? (arm ? " ARM64" : " x64") : "");
+    part = all('[data-rel="mib"]');
+    for (i = 0; i < part.length; i++) part[i].textContent = es ? mib.replace(".", ",") : mib;
+    for (i = 0; i < btn.length; i++) btn[i].hidden = false;
   }
 
   /* One request per tab every 10 minutes: unauthenticated, GitHub allows
