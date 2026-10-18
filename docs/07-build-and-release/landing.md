@@ -99,7 +99,7 @@ What moves:
 | Header | The Lean-To mark tips upright and back on hover or focus. A row of 24 mini slots under the bar fills with the reading progress. | Hover/focus; scroll (CSS) |
 | Hero, "The Lean-To" | Inline SVG (a wide scene ≥ 1024 px, a 64 px strip between the H1 and the copy below). The shelf rule draws, the two gaps' dashes march, a riso ghost proof appears in each (simulate), the layers register while the photo-corners fold away and the Manila tabs drop (apply), the Buckram spines draw and the tally reads 6/7 (commit), and the leaning cover rocks 12° → 9° → 12° without seating. The H1's keyword stands on a slot underline that turns solid. 2.3 s. ↻ Replay stays in place, `aria-disabled` while it plays. | 40% of the art on screen, at once if it already is; a load slower than 4 s shows the end frame |
 | Section heads | Each H2's shelf rule draws out from its Buckram cap | Scroll (CSS) |
-| #como (greyboard-dark band) | Each screenshot's camera moves in on the spot that matters; a slot rail fills step by step; the callouts and the stamp draw | Scroll (CSS) |
+| #como (greyboard-dark band) | From 1024 px the four shots share one pinned desk: each step's text wipes its shot down over the last (`clip-path`, never a cross-fade, which would double-expose two busy screenshots). Each screenshot's camera moves in on the spot that matters (`--cx`/`--cy` sit on the mark, so the mark stays put and inside the frame); a slot rail fills step by step; the callouts and the stamp draw | Scroll (CSS) |
 | Step 3 and 4 clips | See **Step clips** below | 60% of the step's text (pinned) or 50% of the figure |
 | #seguro | The visitor runs the round trip: Simular → Aplicar → Deshacer, with a polite live region; the card ends exactly as it began. The five pictograms draw. | Click (also under reduced motion); scroll (CSS) |
 | #formatos | One gallery row develops once (grounds, covers, spines); hovering a layout row lifts its run. The terminal types each command and prints one output line; the cursor is a dashed slot that blinks three times. | `[data-reveal]`; hover; 45% on screen |
@@ -163,7 +163,11 @@ the release-filled copy on a local port):
 - Keyboard: header, ↻ Replay, the demo buttons (`aria-pressed`, live
   region) and the FAQ.
 - A performance trace at 4× CPU and Slow 4G: LCP stays `p.sub` (about
-  2.3 s locally without compression), CLS 0. Lighthouse mobile ≥ 90.
+  2.3 s locally without compression), CLS 0. Lighthouse mobile ≥ 90 and
+  LCP < 2.5 s, measured with gzip on (GitHub Pages compresses; `python3 -m
+  http.server` does not, and costs about 7 points and 1 s of simulated LCP).
+  Reference, October 2026 with the fixture release: mobile 97, LCP 2.48 s;
+  desktop 100; `main` before the showcase: mobile 98, LCP 2.40 s.
 - Firefox for the finished states without scroll timelines.
 - 0 console errors and no CSP reports.
 
@@ -176,7 +180,9 @@ density. Two patches use the shots' own surfaces (`--shot-modal`,
 `--shot-slot`). If the screenshots are re-captured, check the coordinates in
 the markup (the review ring, the Accept button, the first candidate; the
 English candidate sits 13 px higher) and the `--fx-dy` / `--fx-cy` values in
-`site.css`. Without `html.motion` the SVG is not displayed, and the replay
+`site.css`; also the step 1 and 2 ellipses (`.annot-mark`, centred on the
+measured text of each locale's shot, not on a guess) and each `.cam-N`
+origin, which must sit on its mark. Without `html.motion` the SVG is not displayed, and the replay
 buttons, like the hero's, stay in place and are `aria-disabled` while they
 play.
 
