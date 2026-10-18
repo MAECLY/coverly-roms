@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { Button } from '@/components/ui/button';
+
 import { SystemIcon } from './SystemIcon';
 
 const box = (el: Element) => [
@@ -106,5 +108,24 @@ describe('SystemIcon', () => {
     expect(
       screen.getByRole('img', { name: 'Folder with no known system' }),
     ).toHaveAttribute('data-system-icon', 'unknown');
+  });
+  it('keeps its 1.5x box in style, so a Button cannot square it', () => {
+    // Button sizes every svg it holds to 1rem through a class rule, which
+    // beats width/height attributes; only an inline style holds the box.
+    render(
+      <Button>
+        <SystemIcon systemId="gb" size={16} />
+        <SystemIcon systemId={null} size={16} />
+      </Button>,
+    );
+    const svg = document.querySelector<SVGElement>(
+      'svg[data-system-icon="gb"]',
+    )!;
+    expect(svg.style.width).toBe('24px');
+    expect(svg.style.height).toBe('16px');
+    const folder = document.querySelector<HTMLElement>(
+      '[data-system-icon="unknown"] svg',
+    )!;
+    expect(folder.style.width).toBe('16px');
   });
 });

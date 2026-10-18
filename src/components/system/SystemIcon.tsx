@@ -62,7 +62,12 @@ function SystemIconImpl({
         style={{ width: cssLength(width), height: cssLength(size) }}
         {...a11y}
       >
-        <Folder aria-hidden="true" width={cssLength(size)} height="100%" />
+        <Folder
+          aria-hidden="true"
+          width={cssLength(size)}
+          height="100%"
+          style={{ width: cssLength(size), height: '100%' }}
+        />
       </span>
     );
   }
@@ -78,15 +83,13 @@ function SystemIconImpl({
         viewBox={icon.viewBox}
         preserveAspectRatio="xMidYMid meet"
         fill="currentColor"
-        // Numbers stay attributes; CSS lengths (em, calc()) go through style,
-        // since an SVG width attribute does not accept calc().
+        // Numbers stay attributes; CSS lengths (em, calc()) only go through
+        // style, since an SVG width attribute does not accept calc(). The box
+        // is always set in style too: a presentational width loses to any CSS
+        // rule, and Button squares every svg it holds to 1rem.
         width={typeof width === 'number' ? width : undefined}
         height={typeof size === 'number' ? size : undefined}
-        style={
-          typeof size === 'number'
-            ? undefined
-            : { width: cssLength(width), height: cssLength(size) }
-        }
+        style={{ width: cssLength(width), height: cssLength(size) }}
         {...a11y}
         // The one allowed dangerouslySetInnerHTML (no lint rule exists for it
         // here): a trusted repo constant from systemIcons.generated.ts, cleaned
