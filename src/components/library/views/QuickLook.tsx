@@ -1,5 +1,11 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useMemo, useRef, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Button } from '@/components/ui/button';
@@ -96,24 +102,45 @@ export function QuickLook({
   const entry = entries[index];
   const prev = entries[index - 1];
   const next = entries[index + 1];
+  // Said after a step only (the dialog's name covers opening it).
+  const [stepped, setStepped] = useState(false);
+
+  // The previewed entry left the list (another library, a filter): forget
+  // it, so it never reopens on its own when an entry with that id returns.
+  useEffect(() => {
+    if (previewId !== null && index < 0) onClose();
+  }, [previewId, index, onClose]);
+
+  function step(to: EntryView | undefined) {
+    if (!to) return;
+    setStepped(true);
+    onSelect(to.id);
+  }
+  function close() {
+    setStepped(false);
+    onClose();
+  }
 
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
     if (ev.key === ' ') {
       ev.preventDefault();
-      onClose();
+      close();
     } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
       ev.preventDefault();
-      const to = ev.key === 'ArrowLeft' ? prev : next;
-      if (to) onSelect(to.id);
+      step(ev.key === 'ArrowLeft' ? prev : next);
     }
   }
 
   const system = entry ? systems[entry.system] : undefined;
+  const position = t('layouts.previewPosition', {
+    n: index + 1,
+    total: entries.length,
+  });
   return (
     <Dialog
       open={entry !== undefined}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(open) => !open && close()}
     >
       {entry && (
         <DialogContent
@@ -158,26 +185,24 @@ export function QuickLook({
               size="icon-sm"
               aria-label={t('layouts.previewPrev')}
               disabled={!prev}
-              onClick={() => prev && onSelect(prev.id)}
+              onClick={() => step(prev)}
             >
               <ChevronLeft aria-hidden />
             </Button>
-            <span className="quick-look__position">
-              {t('layouts.previewPosition', {
-                n: index + 1,
-                total: entries.length,
-              })}
-            </span>
+            <span className="quick-look__position">{position}</span>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label={t('layouts.previewNext')}
               disabled={!next}
-              onClick={() => next && onSelect(next.id)}
+              onClick={() => step(next)}
             >
               <ChevronRight aria-hidden />
             </Button>
           </div>
+          <p className="sr-only" aria-live="polite" aria-atomic>
+            {stepped ? `${entry.name}, ${position}` : ''}
+          </p>
         </DialogContent>
       )}
     </Dialog>

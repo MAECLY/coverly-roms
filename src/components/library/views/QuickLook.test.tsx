@@ -124,6 +124,36 @@ describe('QuickLook', () => {
     expect(screen.queryByRole('img', { name: /Screenshot/ })).toBeNull();
   });
 
+  it('announces the entry stepped to, not the one it opened on', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const live = screen
+      .getByRole('dialog')
+      .querySelector('[aria-live="polite"]')!;
+    expect(live).toHaveTextContent('');
+    await user.keyboard('{ArrowRight}');
+    expect(live).toHaveTextContent(`${entries[2]!.name}, 3 of 5`);
+  });
+
+  it('forgets a previewed entry that left the list', () => {
+    const onClose = vi.fn();
+    render(
+      <I18nProvider locale="en">
+        <QuickLook
+          entries={entries}
+          systems={lib.systems}
+          generation={1}
+          media="cover"
+          previewId={-7}
+          onSelect={() => undefined}
+          onClose={onClose}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('renders nothing with no entry to preview', () => {
     render(<Harness start={-1} />);
     expect(screen.queryByRole('dialog')).toBeNull();
