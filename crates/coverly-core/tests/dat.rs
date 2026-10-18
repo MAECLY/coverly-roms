@@ -1,6 +1,6 @@
 use coverly_core::cache::Cache;
 use coverly_core::identify::dat::{
-    dat_sources, encode_path, parse_clrmamepro, DatStatus, DatStore,
+    dat_sources, encode_path, normalise_serial, parse_clrmamepro, DatStatus, DatStore,
 };
 use coverly_core::identify::hash::{Digests, HashOutcome, RomHashes};
 use coverly_core::net::testing::{HangingServer, MockResponse, MockServer};
@@ -347,4 +347,122 @@ fn a_timeout_is_not_remembered_so_the_job_can_pause_and_resume() {
         );
     }
     assert_eq!(hang.connections(), 2);
+}
+
+const REDUMP_DAT: &str = r#"clrmamepro (
+	name "Sony - PlayStation"
+)
+
+game (
+	name "Crash Bash (USA)"
+	region "USA"
+	serial "SCUS-94570"
+	rom ( name "Crash Bash (USA).cue" size 85 crc AAAAAAAA )
+	rom ( name "Crash Bash (USA).bin" size 1234 crc BBBBBBBB serial "SCUS_945.70" )
+)
+game (
+	name "Driver 2 (USA) (Disc 1)"
+	rom ( name "Driver 2 (USA) (Disc 1).bin" size 99 crc CCCCCCCC serial "SLUS-01161" )
+)
+"#;
+
+#[test]
+fn parses_serial_from_rom_line_and_game_block() {
+    let games = parse_clrmamepro(REDUMP_DAT).unwrap();
+    // The game block's serial fills a ROM line without one.
+    assert_eq!(games[0].roms[0].serial.as_deref(), Some("SCUS-94570"));
+    // A ROM line's own serial wins and is normalised.
+    assert_eq!(games[0].roms[1].serial.as_deref(), Some("SCUS-94570"));
+    assert_eq!(games[1].roms[0].serial.as_deref(), Some("SLUS-01161"));
+}
+
+#[test]
+fn parses_cloneof_and_region() {
+    let dat = r#"game (
+	name "Street Fighter II (USA)"
+	region "USA"
+	cloneof "Street Fighter II (World)"
+	rom ( name "sf2u.sfc" size 4 crc 01234567 )
+)
+game (
+	name "Street Fighter II (World)"
+	region "World"
+	rom ( name "sf2.sfc" size 4 crc 89ABCDEF )
+)
+"#;
+    let games = parse_clrmamepro(dat).unwrap();
+    assert_eq!(games[0].region.as_deref(), Some("USA"));
+    assert_eq!(
+        games[0].cloneof.as_deref(),
+        Some("Street Fighter II (World)")
+    );
+    assert_eq!(games[1].region.as_deref(), Some("World"));
+    assert_eq!(games[1].cloneof, None);
+    assert!(!games[0].is_bios && !games[1].is_bios);
+}
+
+#[test]
+fn isbios_yes_and_bios_name_mark_bios() {
+    let dat = r#"game (
+	name "neogeo"
+	isbios "yes"
+	rom ( name "sp-s2.sp1" size 4 crc 9036D879 )
+)
+game (
+	name "[BIOS] PlayStation (USA) (v3.0)"
+	rom ( name "scph5501.bin" size 4 crc 8D8CB7E4 )
+)
+game (
+	name "mslug"
+	isbios "no"
+	rom ( name "201-p1.p1" size 4 crc 08D8DAA5 )
+)
+"#;
+    let games = parse_clrmamepro(dat).unwrap();
+    assert!(games[0].is_bios);
+    assert!(games[1].is_bios);
+    assert!(!games[2].is_bios);
+}
+
+#[test]
+fn old_dats_without_fields_still_parse() {
+    let games = parse_clrmamepro(MAME_DAT).unwrap();
+    assert_eq!(games.len(), 1);
+    assert_eq!(games[0].region, None);
+    assert_eq!(games[0].cloneof, None);
+    assert!(!games[0].is_bios);
+    assert_eq!(games[0].roms[0].serial, None);
+    let nes = parse_clrmamepro(NES_DAT).unwrap();
+    assert_eq!(nes[0].region.as_deref(), Some("USA"));
+    assert!(nes.iter().flat_map(|g| &g.roms).all(|r| r.serial.is_none()));
+}
+
+#[test]
+fn serial_is_normalised() {
+    assert_eq!(
+        normalise_serial("SLUS_005.43").as_deref(),
+        Some("SLUS-00543")
+    );
+    assert_eq!(
+        normalise_serial("slus-00543").as_deref(),
+        Some("SLUS-00543")
+    );
+    assert_eq!(normalise_serial("SLUS00543").as_deref(), Some("SLUS-00543"));
+    assert_eq!(
+        normalise_serial(" SCES_123.45 ").as_deref(),
+        Some("SCES-12345")
+    );
+    assert_eq!(
+        normalise_serial("SLUS-20001").as_deref(),
+        Some("SLUS-20001")
+    );
+    // Sega product numbers stay as they are.
+    assert_eq!(normalise_serial("T-5704H").as_deref(), Some("T-5704H"));
+    assert_eq!(normalise_serial("MK-81009").as_deref(), Some("MK-81009"));
+    assert_eq!(normalise_serial("HDR-0001").as_deref(), Some("HDR-0001"));
+    assert_eq!(normalise_serial("mk-81009").as_deref(), Some("MK-81009"));
+    // Garbage is not a serial.
+    assert_eq!(normalise_serial(""), None);
+    assert_eq!(normalise_serial("   "), None);
+    assert_eq!(normalise_serial("cdrom:\\SLUS_005.43;1"), None);
 }

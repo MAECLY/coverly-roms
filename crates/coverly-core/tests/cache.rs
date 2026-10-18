@@ -65,6 +65,7 @@ fn dat_rows_are_replaced_and_found_by_crc_and_stem() {
         crc32: Some(crc.into()),
         md5: None,
         sha1: None,
+        serial: None,
     };
     cache
         .replace_dat("mame", &[row("Old", "old.zip", "00000000")])
@@ -201,6 +202,7 @@ fn row(game: &str, rom: &str, size: u64, crc: &str) -> DatRow {
         crc32: Some(crc.into()),
         md5: None,
         sha1: None,
+        serial: None,
     }
 }
 

@@ -118,6 +118,9 @@ pub struct DatRow {
     pub crc32: Option<String>,
     pub md5: Option<String>,
     pub sha1: Option<String>,
+    /// The normalised disc or product serial (`SLUS-00543`), when the DAT
+    /// gives one on the ROM line or the game block.
+    pub serial: Option<String>,
 }
 
 /// The cache database. `Send + Sync`: one connection behind a mutex.
@@ -468,6 +471,7 @@ fn dat_row(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<DatRow> {
         crc32: r.get(at + 3)?,
         md5: r.get(at + 4)?,
         sha1: r.get(at + 5)?,
+        serial: None,
     })
 }
 
