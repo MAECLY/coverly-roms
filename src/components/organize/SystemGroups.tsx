@@ -21,6 +21,7 @@ import {
   type SystemGroup,
 } from '@/lib/organize';
 
+import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
   chevron,
@@ -44,6 +45,8 @@ interface Props {
   systems?: SystemInfo[];
   disabled?: boolean;
   onDecide?(itemIds: number[], choice: OrganizeChoice): void;
+  /** Files the last "scan again" found. */
+  isNew?: IsNew;
 }
 
 interface RowProps {
@@ -52,6 +55,7 @@ interface RowProps {
   systems?: SystemInfo[];
   disabled?: boolean;
   onDecide?(itemIds: number[], choice: OrganizeChoice): void;
+  isNew?: IsNew;
 }
 
 /** The items that move, one collapsible per system folder (spec §4.2.3). */
@@ -83,6 +87,8 @@ function Group({
   const rows = group.items.slice(0, visible);
   const rest = group.items.length - rows.length;
   const dir = targetDir(group.items[0]!);
+  const isNew = row.isNew;
+  const fresh = isNew ? group.items.filter(isNew).length : 0;
   return (
     <Collapsible
       open={open}
@@ -101,6 +107,7 @@ function Group({
           <span className="text-caption font-normal text-cr-text-secondary">
             {row.systemName(group.systemId)}
           </span>
+          <NewCount count={fresh} />
         </Button>
       </CollapsibleTrigger>
       {/* Rows mount only while open (Radix unmounts closed content). */}
@@ -135,6 +142,7 @@ function Row({
   systems,
   disabled = false,
   onDecide,
+  isNew,
 }: RowProps & { item: OrganizeItem }) {
   const t = useT();
   // A manual choice is the user's decision, not a detection level.
@@ -147,12 +155,14 @@ function Row({
   // the review list must not need starting over.
   const changeable =
     item.method === 'user' && !!onDecide && !!systems && !!item.system_id;
+  const fresh = isNew?.(item) ?? false;
   return (
-    <li className={fileRow}>
+    <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={`${pathText} min-w-0 flex-1`}>
           {`${name} → ${item.target ?? ''}`}
         </span>
+        {fresh && <NewBadge />}
         {confidence && (
           <Badge
             variant={

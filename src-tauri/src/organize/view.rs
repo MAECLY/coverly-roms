@@ -61,6 +61,9 @@ pub struct OrganizeRequest {
     pub names: Option<NameMode>,
     /// Cached catalogues only: no download, no online lookup.
     pub offline: Option<bool>,
+    /// Read the folder again instead of reusing a kept survey (the user
+    /// added or removed files). Never kept with a stored plan.
+    pub rescan: bool,
 }
 
 /// A dry run kept by the backend under `plan_id`: the webview only sends

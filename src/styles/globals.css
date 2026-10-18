@@ -987,3 +987,20 @@ time {
   max-width: 24rem;
   accent-color: var(--cr-accent);
 }
+
+/* Organise: a row the last "scan again" found. The tint settles to the
+   paper once ("ink settles"); with reduced motion the token durations are
+   0ms, so there is no tint and the "New" badge alone marks the row. */
+.organize-new-row {
+  animation: organize-new-settle calc(var(--cr-duration-slower) * 4)
+    var(--cr-ease-ink) both;
+}
+
+@keyframes organize-new-settle {
+  from {
+    background-color: var(--cr-info-bg);
+  }
+  to {
+    background-color: transparent;
+  }
+}

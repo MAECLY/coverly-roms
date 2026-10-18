@@ -808,6 +808,9 @@ export interface OrganizeRequest {
   names?: NameMode | null;
   /** Cached catalogues only: no download, no online lookup. */
   offline?: boolean | null;
+  /** Read the folder again instead of reusing the kept survey (files were
+   * added or removed). Sent only by a refresh, never kept in a request. */
+  rescan?: boolean;
 }
 
 /** The user's answer for one plan item. */

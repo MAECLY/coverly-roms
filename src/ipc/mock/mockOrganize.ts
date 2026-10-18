@@ -15,6 +15,10 @@
  *
  * Only these two folders exist for organising; any other source is
  * `not-found`. Targets are not checked.
+ *
+ * Like Rust, a plan reuses the kept read of its pile (a survey) until the
+ * request asks for `rescan`; `organizeTouch` adds or removes files (or the
+ * whole folder) between scans, for tests and the browser check.
  */
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
@@ -389,6 +393,27 @@ export interface MockOrganizeOptions {
   pauseAfter: number | null;
 }
 
+/** How `organizeTouch` changes a pile on "disk". */
+export interface MockOrganizeTouch {
+  /** File names to add, or how many made-up GBA ROMs. */
+  add?: string[] | number;
+  /** File names to remove, or how many loose files (in name order). */
+  remove?: string[] | number;
+  /** The folder disappears (true) or comes back (false). */
+  gone?: boolean;
+}
+
+/** Placement of a file added by `organizeTouch`, by its extension. */
+const ADDED_BY_EXT: Record<string, Partial<PileFile>> = {
+  '.gba': header('gba', 'Nintendo logo, GBA header'),
+  '.gb': header('gb', 'Nintendo logo, DMG'),
+  '.gbc': GBC_HEADER,
+  '.sfc': SFC_HEADER,
+  '.smc': SFC_HEADER,
+  '.md': header('megadrive', 'SEGA header'),
+  '.nes': header('nes', 'iNES header'),
+};
+
 type OrganizeApi = Pick<
   Backend,
   | 'probeFolder'
@@ -409,6 +434,8 @@ type OrganizeApi = Pick<
   /** The organised library at `path`; `no-profile` for a pile not organised
    * there, null for a folder the mock does not know. */
   library(path: string, generation: number): LibraryView | null;
+  /** Dev and tests only: changes pile `path` on "disk" between scans. */
+  organizeTouch(path: string, change: MockOrganizeTouch): void;
 };
 
 export function createMockOrganize(
@@ -421,6 +448,13 @@ export function createMockOrganize(
   const loose = new Map(
     PILES.map((p) => [p.path, new Set(p.files.map((f) => f.name))]),
   );
+  /** Files `organizeTouch` added to each pile. */
+  const added = new Map<string, PileFile[]>(PILES.map((p) => [p.path, []]));
+  /** Piles whose folder `organizeTouch` removed. */
+  const gone = new Set<string>();
+  /** The kept read of each pile: the names its last survey found. */
+  const surveyed = new Map<string, Set<string>>();
+  let madeUp = 0;
   const targets = new Map<string, Target>();
   const journals: OrgJournal[] = [];
   const plans = new Map<number, Resolved>();
@@ -446,8 +480,55 @@ export function createMockOrganize(
 
   function pile(path: string): PileDef {
     const p = PILES.find((d) => d.path === path);
-    if (!p) throw new BackendError('not-found', path);
+    if (!p || gone.has(path)) throw new BackendError('not-found', path);
     return p;
+  }
+
+  /** Every file the pile ever had, added ones included. */
+  function allFiles(path: string): PileFile[] {
+    return [...pile(path).files, ...(added.get(path) ?? [])];
+  }
+
+  /** Like Rust: the pile changed, so no kept plan or survey stays valid. */
+  function forget() {
+    plans.clear();
+    surveyed.clear();
+  }
+
+  function touch(path: string, change: MockOrganizeTouch) {
+    if (!PILES.some((d) => d.path === path))
+      throw new BackendError('not-found', path);
+    if (change.gone !== undefined) {
+      if (change.gone) gone.add(path);
+      else gone.delete(path);
+    }
+    const names = loose.get(path)!;
+    const extra = added.get(path)!;
+    const toAdd =
+      typeof change.add === 'number'
+        ? Array.from({ length: change.add }, () => {
+            madeUp += 1;
+            return `Added ROM ${madeUp} (USA).gba`;
+          })
+        : (change.add ?? []);
+    for (const name of toAdd) {
+      if (!extra.some((f) => f.name === name)) {
+        const known = ADDED_BY_EXT[extOf(name)];
+        extra.push(
+          known
+            ? { name, size: 4_194_304, ...known }
+            : { name, size: 32_768, left: { kind: 'unknown' } },
+        );
+      }
+      names.add(name);
+    }
+    const toRemove =
+      typeof change.remove === 'number'
+        ? [...names]
+            .sort((a, b) => collator.compare(a, b))
+            .slice(0, change.remove)
+        : (change.remove ?? []);
+    for (const name of toRemove) names.delete(name);
   }
 
   async function resolve(req: OrganizeRequest): Promise<Resolved> {
@@ -529,10 +610,19 @@ export function createMockOrganize(
 
   /** The loose files of a pile, in name order, with their item. */
   function looseFiles(r: Resolved): PileFile[] {
-    const names = loose.get(r.source)!;
-    return pile(r.source)
-      .files.filter((f) => names.has(f.name))
-      .sort((a, b) => collator.compare(a.name, b.name));
+    const names = surveyed.get(r.source) ?? loose.get(r.source)!;
+    return (
+      allFiles(r.source)
+        .filter((f) => names.has(f.name))
+        // Like Rust, a copy whose original is gone is the only one left,
+        // so it is filed like any other ROM.
+        .map((f): PileFile => {
+          if (f.left?.kind !== 'duplicate' || names.has(f.left.of)) return f;
+          const { left: _copyOf, ...only } = f;
+          return only;
+        })
+        .sort((a, b) => collator.compare(a.name, b.name))
+    );
   }
 
   function decide(
@@ -946,6 +1036,7 @@ export function createMockOrganize(
 
   return {
     isApplying: () => applying !== null,
+    organizeTouch: touch,
     history: historyItems,
     library(path, generation) {
       const t = targets.get(path);
@@ -955,9 +1046,8 @@ export function createMockOrganize(
       return null;
     },
     async probeFolder(path) {
-      const p = pile(path);
       const names = loose.get(path)!;
-      const files = p.files.filter((f) => names.has(f.name));
+      const files = allFiles(path).filter((f) => names.has(f.name));
       const partial = files.filter(
         (f) => f.left?.kind === 'partial-download',
       ).length;
@@ -979,6 +1069,9 @@ export function createMockOrganize(
     },
     async organizePlan(request, decisions = []) {
       const r = await resolve(request);
+      // A new read of the pile, or the kept one (like Rust's survey).
+      if (request.rescan || !surveyed.has(r.source))
+        surveyed.set(r.source, new Set(loose.get(r.source)));
       seq += 1;
       const planId = seq;
       const total = looseFiles(r).length;
@@ -1009,7 +1102,7 @@ export function createMockOrganize(
       const fills = await host.fillHistory();
       notApplying();
       // Like Rust: the pile changes, so no kept plan stays valid.
-      plans.clear();
+      forget();
       const outcomes: OrganizeItemOutcome[] = plan.items
         .filter((i) => i.action === 'review')
         .map((i) => ({
@@ -1062,7 +1155,7 @@ export function createMockOrganize(
         );
       }
       notApplying();
-      plans.clear();
+      forget();
       seq += 1;
       const planId = seq;
       if (!targets.has(j.target)) {
@@ -1121,7 +1214,7 @@ export function createMockOrganize(
         if (r) reports.push(r);
       }
       reports.push(undoOne(j));
-      plans.clear();
+      forget();
       return { report: reports, later_jobs: later };
     },
     async organizeExportPlan(planId) {

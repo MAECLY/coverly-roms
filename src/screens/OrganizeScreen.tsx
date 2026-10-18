@@ -1,7 +1,14 @@
-import { ArrowLeft, FileJson, FolderOpen, FolderTree } from 'lucide-react';
+import {
+  ArrowLeft,
+  FileJson,
+  FolderOpen,
+  FolderTree,
+  RotateCw,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
+import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
 import { OrganizeResult } from '@/components/organize/OrganizeResult';
 import {
@@ -13,8 +20,10 @@ import { SystemGroups } from '@/components/organize/SystemGroups';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
+import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -24,9 +33,15 @@ import type {
   ProfileInfo,
   SystemInfo,
 } from '@/ipc/types';
-import { groupBySystem, leftItems, reviewBuckets } from '@/lib/organize';
+import { isTyping, modKeyLabel } from '@/lib/keyboard';
+import {
+  groupBySystem,
+  itemKey,
+  leftItems,
+  reviewBuckets,
+} from '@/lib/organize';
 import { useNavStore } from '@/stores/navStore';
-import { useOrganizeStore } from '@/stores/organizeStore';
+import { useOrganizeStore, type OrganizeRefresh } from '@/stores/organizeStore';
 
 /** Slots of the apply progress (same row as the library scan). */
 const SLOTS = 16;
@@ -111,7 +126,11 @@ export function OrganizeScreen() {
   const job = useOrganizeStore((s) => s.job);
   const undo = useOrganizeStore((s) => s.undo);
   const locked = useOrganizeStore((s) => s.locked);
+  const lastRefresh = useOrganizeStore((s) => s.lastRefresh);
+  const refreshing = useOrganizeStore((s) => s.refreshing);
   const { profiles, systems } = useCatalogues();
+  /** The change summary the user closed (the "New" marks stay). */
+  const [dismissed, setDismissed] = useState<OrganizeRefresh | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
   const [exportError, setExportError] = useState<BackendError | null>(null);
@@ -185,11 +204,46 @@ export function OrganizeScreen() {
     }
   };
 
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  /** Scans again. The button (and the controls) are disabled while the scan
+   * runs, which drops keyboard focus to the page: it comes back to the
+   * button, so the next Tab starts where the user was. */
+  const refresh = useCallback(() => {
+    setExported(null);
+    void useOrganizeStore
+      .getState()
+      .refresh()
+      .then(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) refreshButton.current?.focus();
+      });
+  }, []);
+
   const applying = status === 'applying';
   const showResult = job !== null && !applying;
   const proposing =
     !showResult &&
     (status === 'planning' || status === 'ready' || status === 'error');
+  // The folder can be read again while a proposal (or its error) is shown.
+  const canRefresh = proposing && request !== null;
+  const planFailed = status === 'error' && job === null && error !== null;
+
+  // ⌘R / Ctrl+R scans again; the webview never reloads the page under it.
+  useEffect(() => {
+    if (!canRefresh) return;
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key.toLowerCase() !== 'r' || !(ev.metaKey || ev.ctrlKey)) return;
+      if (ev.altKey) return;
+      ev.preventDefault();
+      // A select is not text entry for a modified key: the system pickers
+      // are selects, and ⌘R right after a choice must still scan.
+      if (isTyping(ev.target) && !(ev.target instanceof HTMLSelectElement))
+        return;
+      refresh();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canRefresh, refresh]);
   // Options and decisions wait for the plan in flight; an apply or an
   // export only takes the plan made with the options on screen.
   const busy = status === 'planning';
@@ -207,12 +261,53 @@ export function OrganizeScreen() {
       </header>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
         {source && (
-          <p
-            className="m-0 truncate font-mono text-caption text-cr-text-secondary"
-            title={source}
-          >
-            {source}
-          </p>
+          // The folder, and the one action that reads it again.
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p
+              className="m-0 min-w-0 flex-1 truncate font-mono text-caption text-cr-text-secondary"
+              title={source}
+            >
+              {source}
+            </p>
+            {canRefresh && (
+              <TooltipProvider>
+                <SimpleTooltip
+                  side="bottom"
+                  content={
+                    <span className="flex items-center gap-2">
+                      {t('organize.refresh.tooltip')}
+                      <KbdGroup aria-hidden>
+                        <Kbd>{modKeyLabel()}</Kbd>
+                        <Kbd>R</Kbd>
+                      </KbdGroup>
+                    </span>
+                  }
+                >
+                  <Button
+                    ref={refreshButton}
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    // Its own scan keeps it focusable (aria-disabled), so a
+                    // keyboard user stays on it; a plan from an option
+                    // change disables it outright.
+                    disabled={status === 'planning' && !refreshing}
+                    aria-disabled={refreshing || undefined}
+                    aria-busy={refreshing || undefined}
+                    aria-keyshortcuts="Meta+R Control+R"
+                    onClick={refreshing ? undefined : refresh}
+                  >
+                    {refreshing ? (
+                      <Spinner size="sm" decorative />
+                    ) : (
+                      <RotateCw aria-hidden />
+                    )}
+                    {t('organize.refresh.button')}
+                  </Button>
+                </SimpleTooltip>
+              </TooltipProvider>
+            )}
+          </div>
         )}
         {status === 'planning' && (
           <div className="flex flex-wrap items-center gap-3">
@@ -235,10 +330,23 @@ export function OrganizeScreen() {
           </div>
         )}
         {shown && !showResult && !applying && (
-          <Alert variant="danger">
+          <Alert
+            variant="danger"
+            action={
+              planFailed && (
+                <Button variant="outline" size="sm" onClick={refresh}>
+                  {t('organize.refresh.retry')}
+                </Button>
+              )
+            }
+          >
             <p className="m-0">
               {t(errorKey(shown.code), { detail: shown.detail ?? '' })}
             </p>
+            {/* A plan never touches a file (brand §7: say what was not). */}
+            {planFailed && (
+              <p className="m-0">{t('organize.refresh.nothingMoved')}</p>
+            )}
           </Alert>
         )}
         {applying && (
@@ -298,6 +406,9 @@ export function OrganizeScreen() {
                 : null
             }
             exported={exported}
+            lastRefresh={lastRefresh}
+            summaryShown={lastRefresh !== null && dismissed !== lastRefresh}
+            onDismissSummary={() => setDismissed(lastRefresh)}
             systemName={systemName}
             profileName={profileName}
             onOption={setOption}
@@ -326,6 +437,10 @@ interface ProposalProps {
   /** Name of the layout taken from the target, when that happened. */
   detected: string | null;
   exported: string | null;
+  /** What the last "scan again" found (null: no refresh since the last edit). */
+  lastRefresh: OrganizeRefresh | null;
+  summaryShown: boolean;
+  onDismissSummary(): void;
   systemName(id: string): string;
   profileName(id: string): string;
   onOption(patch: Partial<OrganizeRequest>): void;
@@ -346,6 +461,9 @@ function Proposal({
   stale,
   detected,
   exported,
+  lastRefresh,
+  summaryShown,
+  onDismissSummary,
   systemName,
   profileName,
   onOption,
@@ -363,6 +481,11 @@ function Proposal({
   const { counts } = plan;
   const warnings = warningLines(t, plan, systemName, profileName);
   const nothingToFile = groups.length === 0 && buckets.length === 0;
+  const isNew = useMemo<IsNew | undefined>(() => {
+    if (!lastRefresh || lastRefresh.added.length === 0) return undefined;
+    const added = new Set(lastRefresh.added);
+    return (item) => added.has(itemKey(item));
+  }, [lastRefresh]);
   return (
     <>
       <OptionsBar
@@ -373,6 +496,9 @@ function Proposal({
         onChange={onOption}
         onPickTarget={onPickTarget}
       />
+      {lastRefresh && summaryShown && (
+        <RefreshSummary refresh={lastRefresh} onDismiss={onDismissSummary} />
+      )}
       {detected && (
         <Alert variant="info">
           <p className="m-0">
@@ -416,6 +542,7 @@ function Proposal({
           systems={systems}
           disabled={busy}
           onDecide={onDecide}
+          {...(isNew ? { isNew } : {})}
         />
       )}
       {buckets.length > 0 && (
@@ -424,6 +551,7 @@ function Proposal({
           systemName={systemName}
           disabled={busy}
           onDecide={onDecide}
+          {...(isNew ? { isNew } : {})}
         />
       )}
       <LeftInPlace
@@ -433,6 +561,7 @@ function Proposal({
         deepFolders={counts.deep_folders}
         disabled={busy}
         onDecide={onDecide}
+        {...(isNew ? { isNew } : {})}
       />
       {/* The action bar sits on the page, ruled off like a shelf edge
           (brand §2), and lines up with the panels above it. */}
@@ -469,5 +598,39 @@ function Proposal({
         )}
       </div>
     </>
+  );
+}
+
+/** What a "scan again" found, in counts (brand §7: exact numbers). */
+function RefreshSummary({
+  refresh,
+  onDismiss,
+}: {
+  refresh: OrganizeRefresh;
+  onDismiss(): void;
+}) {
+  const t = useT();
+  const changed = refresh.added.length > 0 || refresh.gone > 0;
+  return (
+    <Alert variant="info" onDismiss={onDismiss}>
+      <p className="m-0 tabular-nums">
+        {changed
+          ? t('organize.refresh.changed', {
+              added: refresh.added.length,
+              gone: refresh.gone,
+            })
+          : t('organize.refresh.same')}
+      </p>
+      {refresh.kept > 0 && (
+        <p className="m-0 tabular-nums text-cr-text-secondary">
+          {t('organize.refresh.kept', { count: refresh.kept })}
+        </p>
+      )}
+      {refresh.dropped > 0 && (
+        <p className="m-0 tabular-nums text-cr-text-secondary">
+          {t('organize.refresh.dropped', { count: refresh.dropped })}
+        </p>
+      )}
+    </Alert>
   );
 }

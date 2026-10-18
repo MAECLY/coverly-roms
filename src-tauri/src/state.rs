@@ -1377,7 +1377,12 @@ impl AppState {
 
         let plan_id = self.organize.next_id();
         let online = lookup.is_some();
-        let survey = match self.organize.survey_for(&source, &opts, &layout, online) {
+        let kept = if req.rescan {
+            None
+        } else {
+            self.organize.survey_for(&source, &opts, &layout, online)
+        };
+        let survey = match kept {
             Some(kept) => kept,
             None => {
                 let cancel = self.organize.begin(plan_id);
@@ -1396,7 +1401,11 @@ impl AppState {
         let stored = self.organize.store(
             plan_id,
             StoredPlan {
-                request: req.clone(),
+                // A kept plan never asks to read the folder again.
+                request: OrganizeRequest {
+                    rescan: false,
+                    ..req.clone()
+                },
                 source,
                 opts,
                 layout,

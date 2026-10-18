@@ -14,6 +14,7 @@ import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { ROWS_PER_GROUP, whyKey, type ReviewBucket } from '@/lib/organize';
 
+import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import {
   chevron,
   fileList,
@@ -35,6 +36,8 @@ interface Props {
   systemName(id: string): string;
   disabled?: boolean;
   onDecide(itemIds: number[], choice: OrganizeChoice): void;
+  /** Files the last "scan again" found. */
+  isNew?: IsNew;
 }
 
 const toChoice = (value: string): OrganizeChoice =>
@@ -49,6 +52,7 @@ export function ReviewBuckets({
   systemName,
   disabled = false,
   onDecide,
+  isNew,
 }: Props) {
   const t = useT();
   return (
@@ -67,6 +71,7 @@ export function ReviewBuckets({
             systemName={systemName}
             disabled={disabled}
             onDecide={onDecide}
+            isNew={isNew}
           />
         ))}
       </div>
@@ -79,11 +84,13 @@ function Bucket({
   systemName,
   disabled,
   onDecide,
+  isNew,
 }: {
   bucket: ReviewBucket;
   systemName(id: string): string;
   disabled: boolean;
   onDecide(itemIds: number[], choice: OrganizeChoice): void;
+  isNew?: IsNew | undefined;
 }) {
   const t = useT();
   const id = useId();
@@ -99,6 +106,7 @@ function Bucket({
     count: bucket.items.length,
   });
   const count = bucket.items.length;
+  const fresh = isNew ? bucket.items.filter(isNew).length : 0;
   const likely = t('organize.review.likely', {
     systems: bucket.systems
       .map(systemName)
@@ -115,8 +123,12 @@ function Bucket({
         {/* Dashed: these files have no shelf yet. */}
         <SlotMark state="missing" size={16} />
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <p id={id} className="m-0 text-ui font-medium">
+          <p
+            id={id}
+            className="m-0 flex flex-wrap items-center gap-2 text-ui font-medium"
+          >
             {title}
+            <NewCount count={fresh} />
           </p>
           <p id={hintId} className={hintText}>
             {likely}
@@ -180,6 +192,7 @@ function Bucket({
                   systemName={systemName}
                   disabled={disabled}
                   onDecide={onDecide}
+                  fresh={isNew?.(item) ?? false}
                 />
               ))}
             </ul>
@@ -227,19 +240,22 @@ function ReviewRow({
   systemName,
   disabled,
   onDecide,
+  fresh,
 }: {
   item: OrganizeItem;
   systems: string[];
   systemName(id: string): string;
   disabled: boolean;
   onDecide(itemIds: number[], choice: OrganizeChoice): void;
+  fresh: boolean;
 }) {
   const t = useT();
   const name = item.sources[0] ?? '';
   return (
-    <li className={fileRow}>
+    <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={`${pathText} min-w-0 flex-1`}>{name}</span>
+        {fresh && <NewBadge />}
         <NativeSelect
           size="sm"
           className="w-auto max-w-[16rem]"
