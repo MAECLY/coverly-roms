@@ -27,10 +27,13 @@ export const WORDMARK_IDS: readonly string[] = [
   'easyrpg',
 ];
 
-/** Known abbreviation, else the first 4 letters of the id upper-cased (user systems). */
+/**
+ * Known abbreviation, else the first 4 letters of the id upper-cased (user systems).
+ * Own-key lookup only: a user id such as `constructor` must not read Object.prototype.
+ */
 export function abbreviationFor(id: string): string {
   return (
-    FALLBACK_ABBR[id] ??
+    (Object.hasOwn(FALLBACK_ABBR, id) ? FALLBACK_ABBR[id] : undefined) ??
     (id
       .replace(/[^a-z0-9]/gi, '')
       .slice(0, 4)

@@ -25,9 +25,12 @@ describe('system icon data', () => {
     ])
       expect(IDS, id).toContain(id);
   });
-  it('no wordmark id is mapped to a silhouette', () => {
-    for (const id of WORDMARK_IDS)
+  it('no wordmark id is mapped to a silhouette; each has an abbreviation', () => {
+    for (const id of WORDMARK_IDS) {
+      expect(IDS, id).toContain(id);
       expect(SYSTEM_ICONS, id).not.toHaveProperty(id);
+      expect(FALLBACK_ABBR, id).toHaveProperty(id);
+    }
   });
   it('bodies are clean', () => {
     for (const [id, icon] of Object.entries(SYSTEM_ICONS)) {
@@ -50,8 +53,19 @@ describe('system icon data', () => {
     }
   });
   it('abbreviations are 1–4 chars; user ids use their first four letters', () => {
-    for (const v of Object.values(FALLBACK_ABBR)) expect(v).toMatch(/^.{1,4}$/);
+    for (const v of Object.values(FALLBACK_ABBR))
+      expect(v).toMatch(/^[A-Z0-9]{1,4}$/);
+    expect(new Set(Object.values(FALLBACK_ABBR)).size).toBe(
+      Object.keys(FALLBACK_ABBR).length,
+    );
     expect(abbreviationFor('x68000')).toBe('X680');
     expect(abbreviationFor('cps2')).toBe('CPS2');
+    expect(abbreviationFor('my-pc_98')).toBe('MYPC');
+    expect(abbreviationFor('---')).toBe('?');
+  });
+  it('never reads inherited keys for user ids', () => {
+    expect(abbreviationFor('constructor')).toBe('CONS');
+    expect(abbreviationFor('toString')).toBe('TOST');
+    expect(abbreviationFor('__proto__')).toBe('PROT');
   });
 });
