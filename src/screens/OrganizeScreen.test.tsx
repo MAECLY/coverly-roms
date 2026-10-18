@@ -618,9 +618,40 @@ describe('OrganizeScreen', () => {
       expect(scanAgain()).toBeEnabled();
       act(() => void useOrganizeStore.getState().refresh());
       expect(scanAgain()).toHaveAttribute('aria-busy', 'true');
-      expect(scanAgain()).toBeDisabled();
+      // Its own scan: inert but still focusable, so focus is not lost.
+      expect(scanAgain()).toHaveAttribute('aria-disabled', 'true');
       await ready();
       expect(scanAgain()).not.toHaveAttribute('aria-busy');
+      expect(scanAgain()).not.toHaveAttribute('aria-disabled');
+    });
+
+    it('keeps keyboard focus on the button through the scan', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      b.organizeTouch(MOCK_MIXED, { add: 1 });
+      scanAgain().focus();
+      await userEvent.keyboard('{Enter}');
+      expect(scanAgain()).toHaveFocus();
+      // A second press while it scans starts nothing.
+      const plan = vi.spyOn(b, 'organizePlan');
+      await userEvent.keyboard('{Enter}');
+      expect(plan).not.toHaveBeenCalled();
+      await screen.findByText('The folder changed. New: 1 · Gone: 0');
+      expect(scanAgain()).toHaveFocus();
+    });
+
+    it('try again hands focus back to the scan button', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      b.organizeTouch(MOCK_MIXED, { gone: true });
+      await userEvent.click(scanAgain());
+      const alert = await screen.findByRole('alert');
+      b.organizeTouch(MOCK_MIXED, { gone: false });
+      await userEvent.click(
+        within(alert).getByRole('button', { name: 'Try again' }),
+      );
+      await screen.findByText('No changes. The folder holds the same files.');
+      expect(scanAgain()).toHaveFocus();
     });
 
     it('⌘R or Ctrl+R scans again instead of reloading the page', async () => {
@@ -646,6 +677,25 @@ describe('OrganizeScreen', () => {
       expect(plan).toHaveBeenCalledTimes(2);
       // A plain R is just a key.
       expect(fireEvent.keyDown(window, { key: 'r' })).toBe(true);
+    });
+
+    it('⌘R works right after picking a system in a select', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      const select = screen.getByRole('combobox', {
+        name: 'System for mystery.rom',
+      });
+      await userEvent.selectOptions(select, 'gba');
+      await ready();
+      const plan = vi.spyOn(b, 'organizePlan');
+      const picked = screen.getByRole('combobox', {
+        name: 'System for mystery.rom',
+      });
+      expect(fireEvent.keyDown(picked, { key: 'r', metaKey: true })).toBe(
+        false,
+      );
+      await ready();
+      expect(plan.mock.calls[0]![0]).toMatchObject({ rescan: true });
     });
 
     it('a folder that went away keeps the plan, blocks apply and offers try again', async () => {

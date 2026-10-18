@@ -204,10 +204,20 @@ export function OrganizeScreen() {
     }
   };
 
-  const refresh = () => {
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  /** Scans again. The button (and the controls) are disabled while the scan
+   * runs, which drops keyboard focus to the page: it comes back to the
+   * button, so the next Tab starts where the user was. */
+  const refresh = useCallback(() => {
     setExported(null);
-    void useOrganizeStore.getState().refresh();
-  };
+    void useOrganizeStore
+      .getState()
+      .refresh()
+      .then(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body) refreshButton.current?.focus();
+      });
+  }, []);
 
   const applying = status === 'applying';
   const showResult = job !== null && !applying;
@@ -225,13 +235,15 @@ export function OrganizeScreen() {
       if (ev.key.toLowerCase() !== 'r' || !(ev.metaKey || ev.ctrlKey)) return;
       if (ev.altKey) return;
       ev.preventDefault();
-      if (isTyping(ev.target)) return;
-      setExported(null);
-      void useOrganizeStore.getState().refresh();
+      // A select is not text entry for a modified key: the system pickers
+      // are selects, and ⌘R right after a choice must still scan.
+      if (isTyping(ev.target) && !(ev.target instanceof HTMLSelectElement))
+        return;
+      refresh();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canRefresh]);
+  }, [canRefresh, refresh]);
   // Options and decisions wait for the plan in flight; an apply or an
   // export only takes the plan made with the options on screen.
   const busy = status === 'planning';
@@ -272,15 +284,24 @@ export function OrganizeScreen() {
                   }
                 >
                   <Button
+                    ref={refreshButton}
                     variant="outline"
                     size="sm"
                     className="ml-auto"
-                    loading={refreshing}
-                    disabled={status === 'planning'}
+                    // Its own scan keeps it focusable (aria-disabled), so a
+                    // keyboard user stays on it; a plan from an option
+                    // change disables it outright.
+                    disabled={status === 'planning' && !refreshing}
+                    aria-disabled={refreshing || undefined}
+                    aria-busy={refreshing || undefined}
                     aria-keyshortcuts="Meta+R Control+R"
-                    onClick={refresh}
+                    onClick={refreshing ? undefined : refresh}
                   >
-                    {!refreshing && <RotateCw aria-hidden />}
+                    {refreshing ? (
+                      <Spinner size="sm" decorative />
+                    ) : (
+                      <RotateCw aria-hidden />
+                    )}
                     {t('organize.refresh.button')}
                   </Button>
                 </SimpleTooltip>
