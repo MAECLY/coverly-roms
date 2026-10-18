@@ -589,8 +589,9 @@ src/styles/tokens.css           # GENERATED, imported first by src/styles/global
 ```
 
 The landing lives in [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing) and keeps its own
-`site/assets/tokens.css`, a copy of the landing roles of this JSON; a token
-change here is carried over there by hand.
+`design/tokens.json` (a copy of this one) and its generated
+`site/assets/tokens.css` with only the landing roles. Its weekly `Sync tokens`
+workflow fetches this JSON from `main` and opens a pull request when it changed.
 
 - **Three tiers.** Primitives (`--cr-buckram-9`, `--cr-greyboard-11` …) are never used directly by components. Components use semantic roles (`--cr-primary`, `--cr-text-secondary` …). Legacy and shadcn names are aliases.
 - **Emitted format.** `--cr-<role>` is a full colour (`--cr-primary: #0e5e6f`), so plain CSS and the legacy names keep working with `var(--cr-*)`. The app file also emits RGB channels for Tailwind 3 opacity modifiers (`--cr-primary-rgb: 14 94 111`), the shadcn/ui names as full colours (`--background: #f2f3ef`) and the primitive scales; the landing file carries only the roles. Every hex is in sRGB, so no `oklch()` is emitted. No relative colour syntax at runtime. Run `pnpm tokens` (`make tokens`) after editing the JSON; `pnpm tokens:check` (`make tokens-check`, CI) fails on stale output or a contrast pair below its target.
