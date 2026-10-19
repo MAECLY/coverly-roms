@@ -145,6 +145,19 @@ function Shelf({
       virtualizer.scrollToIndex(activeCell, { align: 'auto' });
   }, [activeCell, virtualizer]);
 
+  // When the shelf narrows (the details pane opens beside it), bring the
+  // active cell back into view once the strip has its new width.
+  const lastWidth = useRef(width);
+  useEffect(() => {
+    if (lastWidth.current === width) return;
+    lastWidth.current = width;
+    if (activeCell < 0) return;
+    const frame = requestAnimationFrame(() =>
+      virtualizer.scrollToIndex(activeCell, { align: 'auto' }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [width, activeCell, virtualizer]);
+
   return (
     <div
       role="rowgroup"
