@@ -93,6 +93,23 @@ export function createTypeAhead(ms = 500): TypeAhead {
   };
 }
 
+/**
+ * Where a type-ahead search starts and what it looks for. One letter, or
+ * the same letter again ("sss"), cycles through the names that start with
+ * it, from the one after `index`; a longer word keeps the current match
+ * while it still fits, so it searches from `index` itself.
+ */
+export function typeAheadQuery(
+  buffer: string,
+  index: number,
+): { from: number; prefix: string } {
+  const chars = [...buffer];
+  const cycling = chars.every((c) => c === chars[0]);
+  return cycling
+    ? { from: index, prefix: chars[0] ?? '' }
+    : { from: index - 1, prefix: buffer };
+}
+
 /** Lower case without diacritics, so "É" matches "e". */
 function fold(s: string): string {
   return s.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();

@@ -8,6 +8,7 @@ import {
   nearestByLeft,
   nextIndex,
   paneMove,
+  typeAheadQuery,
 } from './keyboardNav';
 
 describe('nextIndex', () => {
@@ -106,6 +107,16 @@ describe('findByPrefix', () => {
     expect(findByPrefix(at, names.length, 0, 'z')).toBeNull();
     expect(findByPrefix(at, 0, -1, 'a')).toBeNull();
     expect(findByPrefix(at, names.length, 0, '')).toBeNull();
+  });
+});
+
+describe('typeAheadQuery', () => {
+  it('cycles from the next name on one letter or the same letter again', () => {
+    expect(typeAheadQuery('s', 3)).toEqual({ from: 3, prefix: 's' });
+    expect(typeAheadQuery('sss', 3)).toEqual({ from: 3, prefix: 's' });
+  });
+  it('keeps the current match while a longer word still fits', () => {
+    expect(typeAheadQuery('game b', 3)).toEqual({ from: 2, prefix: 'game b' });
   });
 });
 

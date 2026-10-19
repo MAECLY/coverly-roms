@@ -29,6 +29,7 @@ import {
   findByPrefix,
   nextIndex,
   paneMove,
+  typeAheadQuery,
   type TypeAhead,
 } from '@/lib/keyboardNav';
 import { cn } from '@/lib/utils';
@@ -87,10 +88,9 @@ function inFolder(rel: string, folder: string | null): boolean {
   return rel === folder || rel.startsWith(`${folder}/`);
 }
 
-/** A single printable character without modifiers (not Space). */
-function typedChar(ev: KeyboardEvent<HTMLElement>): string | null {
-  if (ev.ctrlKey || ev.metaKey || ev.altKey) return null;
-  return ev.key !== ' ' && [...ev.key].length === 1 ? ev.key : null;
+/** A single printable character (not Space, which only continues a name). */
+function isPrintable(key: string): boolean {
+  return key !== ' ' && [...key].length === 1;
 }
 
 interface PaneListProps {
@@ -370,7 +370,8 @@ export function ColumnsView({
     const name = (i: number) =>
       (sys ? shownSystems[i]?.name : folderRows[i]?.label) ?? '';
     const choose = sys ? chooseSystem : chooseFolder;
-    if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
+    const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+    if (plain && (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft')) {
       ev.preventDefault();
       const to = paneMove(
         ev.key,
@@ -388,21 +389,19 @@ export function ColumnsView({
       enterFrom(kind);
       return;
     }
-    if (ev.key === ' ') {
+    const ahead = (typeAheads.current[kind] ??= createTypeAhead());
+    const now = ev.timeStamp;
+    // Mid-word, Space is part of the name ("game b"), as in the games pane;
+    // otherwise there is no art to preview on a branch.
+    const typing = ev.key === ' ' && ahead.pending(now) !== '';
+    if (ev.key === ' ' && !typing) {
       ev.preventDefault();
       return;
     }
-    const ch = typedChar(ev);
-    if (ch) {
+    if (plain && (typing || isPrintable(ev.key))) {
       ev.preventDefault();
-      const ahead = (typeAheads.current[kind] ??= createTypeAhead());
-      const buffer = ahead.push(ch, ev.timeStamp);
-      const hit = findByPrefix(
-        name,
-        count,
-        [...buffer].length === 1 ? index : index - 1,
-        buffer,
-      );
+      const { from, prefix } = typeAheadQuery(ahead.push(ev.key, now), index);
+      const hit = findByPrefix(name, count, from, prefix);
       if (hit !== null) choose(hit);
       return;
     }
@@ -500,6 +499,8 @@ export function ColumnsView({
               <div
                 key={s.index}
                 id={`${baseId}-s${i}`}
+                aria-setsize={shownSystems.length}
+                aria-posinset={i + 1}
                 role="option"
                 aria-selected={chosen}
                 data-index={i}
@@ -551,6 +552,8 @@ export function ColumnsView({
               <div
                 key={row.path}
                 id={`${baseId}-f${i}`}
+                aria-setsize={folderRows.length}
+                aria-posinset={i + 1}
                 role="option"
                 aria-selected={i === folderIndex}
                 data-index={i}
@@ -605,6 +608,8 @@ export function ColumnsView({
             <div
               key={entry.id}
               id={`entry-${entry.id}`}
+              aria-setsize={games.length}
+              aria-posinset={i + 1}
               role="option"
               aria-selected={i === gameIndex}
               data-index={i}

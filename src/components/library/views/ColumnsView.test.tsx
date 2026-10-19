@@ -245,6 +245,46 @@ describe('ColumnsView', () => {
     expect(chosen?.textContent?.toLowerCase().startsWith('ga')).toBe(true);
   });
 
+  it('types through a space and cycles on a repeated letter', async () => {
+    const user = userEvent.setup();
+    render(<Harness entries={lib.entries} />);
+    const systems = screen.getByRole('listbox', { name: 'Systems' });
+    const active = () =>
+      document.getElementById(systems.getAttribute('aria-activedescendant')!)
+        ?.textContent ?? '';
+    const names = lib.systems
+      .filter((s) => lib.entries.some((e) => e.system === s.index))
+      .map((s) => s.name);
+    const spaced = names.find((n) => /^\S+ \S/.test(n))!;
+    const word = spaced.slice(0, spaced.indexOf(' ') + 2);
+    systems.focus();
+    await user.keyboard(word.replace(/ /g, '[Space]'));
+    expect(active().toLowerCase().startsWith(word.toLowerCase())).toBe(true);
+    // The same letter again moves on to the next name with that letter.
+    const letter = names.find((n, i) =>
+      names.some((m, j) => j !== i && m[0] === n[0]),
+    )![0]!;
+    await new Promise((r) => setTimeout(r, 600));
+    await user.keyboard(letter);
+    const first = active();
+    await user.keyboard(letter);
+    expect(active()[0]).toBe(letter);
+    expect(active()).not.toBe(first);
+  });
+
+  it('tells assistive tech where each row sits in the whole list', () => {
+    render(<Harness entries={flat(2)} initial={flat(2)[3]!.id} />);
+    const games = screen.getByRole('listbox', { name: 'Games' });
+    const row = document.getElementById(
+      games.getAttribute('aria-activedescendant')!,
+    )!;
+    expect(row).toHaveAttribute('aria-setsize', String(lib.entries.length));
+    expect(row).toHaveAttribute(
+      'aria-posinset',
+      String(Number(row.getAttribute('data-index')) + 1),
+    );
+  });
+
   it('renders about one screen of a 12k games pane, active row kept', () => {
     const big = generateLibrary({
       seed: 12,

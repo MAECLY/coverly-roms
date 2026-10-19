@@ -6,6 +6,7 @@ import {
   createTypeAhead,
   findByPrefix,
   groupJump,
+  typeAheadQuery,
   type TypeAhead,
 } from '@/lib/keyboardNav';
 import { titleWithoutRegions } from '@/lib/tileLabel';
@@ -27,12 +28,6 @@ export interface ViewKeysOptions {
 /** A single printable character (not Space, which previews). */
 function isPrintable(key: string): boolean {
   return key !== ' ' && [...key].length === 1;
-}
-
-/** "sss" is the same letter pressed again: cycle through "s…" names. */
-function repeatsOneChar(buffer: string): boolean {
-  const chars = [...buffer];
-  return chars.length > 1 && chars.every((c) => c === chars[0]);
 }
 
 /**
@@ -105,15 +100,14 @@ export function useViewKeys(
     ) {
       typeAhead.current ??= createTypeAhead();
       const buffer = typeAhead.current.push(ev.key, now);
-      const cycling = [...buffer].length === 1 || repeatsOneChar(buffer);
+      const { from, prefix } = typeAheadQuery(buffer, o.selectedIndex);
       ev.preventDefault();
       go(
         findByPrefix(
           (i) => titleWithoutRegions(o.entries[i]?.name ?? ''),
           o.entries.length,
-          // A longer prefix keeps the current match when it still fits.
-          cycling ? o.selectedIndex : o.selectedIndex - 1,
-          cycling ? ([...buffer][0] ?? '') : buffer,
+          from,
+          prefix,
         ),
       );
       return;
