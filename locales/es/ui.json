@@ -391,6 +391,56 @@
     "year": "Este año",
     "older": "Más antiguas"
   },
+  "dedupe": {
+    "relation": {
+      "exact": "Copia exacta",
+      "format": "Otro formato",
+      "version": "Otra versión",
+      "unconfirmed": "Sin confirmar",
+      "partialSet": "Juego incompleto"
+    },
+    "why": {
+      "user": "Se queda: lo has elegido tú.",
+      "hasSave": "Se queda: tiene tu partida ({path}).",
+      "played": "Se queda: es la que has jugado ({count} veces).",
+      "inLibrary": "Se queda: ya estaba en tu biblioteca.",
+      "verified": "Se queda: {kept}; {other}.",
+      "retail": "Se queda: versión comercial; la otra es {other}.",
+      "region": "Se queda: región preferida ({kept}); la otra es {other}.",
+      "revision": "Se queda: revisión más nueva ({kept}); la otra es {other}.",
+      "container": "Se queda: formato preferido en {profile} ({kept}); la otra es {other}.",
+      "cover": "Se queda: tiene portada; la otra no.",
+      "catalogueName": "Se queda: se llama como en el catálogo.",
+      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres."
+    },
+    "quality": {
+      "kept": {
+        "dat-match": "volcado verificado en el catálogo",
+        "unknown": "volcado sin verificar",
+        "good": "volcado bueno",
+        "bad": "volcado defectuoso",
+        "overdump": "volcado sobredimensionado",
+        "headerless": "sin cabecera de copiadora",
+        "headered": "con cabecera de copiadora"
+      },
+      "other": {
+        "dat-match": "la otra está en el catálogo",
+        "unknown": "la otra no está en el catálogo",
+        "good": "la otra es un volcado bueno",
+        "bad": "la otra es un volcado defectuoso [b]",
+        "overdump": "la otra es un volcado sobredimensionado [o]",
+        "headerless": "la otra no lleva cabecera",
+        "headered": "la otra lleva cabecera de copiadora"
+      }
+    },
+    "release": {
+      "retail": "comercial",
+      "beta": "una beta",
+      "proto": "un prototipo",
+      "demo": "una demo",
+      "sample": "una muestra"
+    }
+  },
   "toolbar": {
     "search": "Buscar por nombre",
     "searchPlaceholder": "Buscar… ( / )",

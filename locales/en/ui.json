@@ -391,6 +391,56 @@
     "year": "This year",
     "older": "Older"
   },
+  "dedupe": {
+    "relation": {
+      "exact": "Exact copy",
+      "format": "Other format",
+      "version": "Other version",
+      "unconfirmed": "Not confirmed",
+      "partialSet": "Partial set"
+    },
+    "why": {
+      "user": "Stays: you chose it.",
+      "hasSave": "Stays: it has your save ({path}).",
+      "played": "Stays: it's the one you played ({count} times).",
+      "inLibrary": "Stays: it was already in your library.",
+      "verified": "Stays: {kept}; {other}.",
+      "retail": "Stays: retail release; the other is {other}.",
+      "region": "Stays: preferred region ({kept}); the other is {other}.",
+      "revision": "Stays: newer revision ({kept}); the other is {other}.",
+      "container": "Stays: preferred format on {profile} ({kept}); the other is {other}.",
+      "cover": "Stays: it has a cover; the other doesn't.",
+      "catalogueName": "Stays: named as in the catalogue.",
+      "tie": "They are identical; the oldest stays. Pick another if you prefer."
+    },
+    "quality": {
+      "kept": {
+        "dat-match": "verified dump in the catalogue",
+        "unknown": "unverified dump",
+        "good": "good dump",
+        "bad": "bad dump",
+        "overdump": "overdump",
+        "headerless": "no copier header",
+        "headered": "with a copier header"
+      },
+      "other": {
+        "dat-match": "the other is in the catalogue",
+        "unknown": "the other isn't in the catalogue",
+        "good": "the other is a good dump",
+        "bad": "the other is a bad dump [b]",
+        "overdump": "the other is an overdump [o]",
+        "headerless": "the other has no header",
+        "headered": "the other has a copier header"
+      }
+    },
+    "release": {
+      "retail": "retail",
+      "beta": "a beta",
+      "proto": "a prototype",
+      "demo": "a demo",
+      "sample": "a sample"
+    }
+  },
   "toolbar": {
     "search": "Search by name",
     "searchPlaceholder": "Search… ( / )",
