@@ -1088,8 +1088,13 @@ time {
   font: var(--cr-type-app-base);
 }
 
+/* Subgrid, not display: contents, which drops the list-item role in
+   WebKit (the macOS webview). */
 .gallery__slot {
-  display: contents;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
 }
 
 .gallery__slot-state {
