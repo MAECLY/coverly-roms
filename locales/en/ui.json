@@ -283,12 +283,6 @@
   "library": {
     "count": "{n} ROMs",
     "close": "Close library",
-    "grid": {
-      "label": "ROM covers"
-    },
-    "table": {
-      "label": "ROM list"
-    },
     "empty": "No ROMs found in this folder.",
     "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
     "noMatch": "No ROMs match the search and filters.",
