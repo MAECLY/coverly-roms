@@ -120,7 +120,18 @@ pub fn companions_for(
     units: &[Unit],
     ctx: &CompanionCtx,
 ) -> Vec<MemberCompanions> {
-    let mut dirs = Dirs::default();
+    companions_with(group, keeper, units, ctx, &mut DirListings::default())
+}
+
+/// [`companions_for`] with folder listings kept across calls: a planner
+/// looking at many groups in one folder lists it once.
+pub fn companions_with(
+    group: &RawGroup,
+    keeper: usize,
+    units: &[Unit],
+    ctx: &CompanionCtx,
+    dirs: &mut DirListings,
+) -> Vec<MemberCompanions> {
     let in_group: HashSet<usize> = group.members.iter().map(|(u, _)| *u).collect();
     let extra_stems: HashSet<String> = group
         .members
@@ -158,10 +169,10 @@ pub fn companions_for(
     // What units outside the group use: never moved.
     let mut outside: HashSet<String> = HashSet::new();
     for n in &neighbours {
-        for (path, _) in same_stem(n, ctx, &unit_files, &mut dirs) {
+        for (path, _) in same_stem(n, ctx, &unit_files, dirs) {
             outside.insert(path_key(&path));
         }
-        for (_, path) in art_of(n, ctx, &mut dirs) {
+        for (_, path) in art_of(n, ctx, dirs) {
             outside.insert(path_key(&path));
         }
     }
@@ -170,10 +181,10 @@ pub fn companions_for(
     let mut kept: HashSet<String> = HashSet::new();
     let mut keeper_art: HashMap<Media, PathBuf> = HashMap::new();
     if let Some(k) = keeper_unit {
-        for (path, _) in same_stem(k, ctx, &unit_files, &mut dirs) {
+        for (path, _) in same_stem(k, ctx, &unit_files, dirs) {
             kept.insert(path_key(&path));
         }
-        for (media, path) in art_of(k, ctx, &mut dirs) {
+        for (media, path) in art_of(k, ctx, dirs) {
             kept.insert(path_key(&path));
             keeper_art.insert(media, path);
         }
@@ -207,7 +218,7 @@ pub fn companions_for(
                 }
             };
 
-            for (path, kind) in same_stem(unit, ctx, &unit_files, &mut dirs) {
+            for (path, kind) in same_stem(unit, ctx, &unit_files, dirs) {
                 take(path, kind, &mut travels);
             }
             for patch in &unit.patches {
@@ -215,7 +226,7 @@ pub fn companions_for(
                     take(patch.clone(), TravelKind::Patch, &mut travels);
                 }
             }
-            for (media, path) in art_of(unit, ctx, &mut dirs) {
+            for (media, path) in art_of(unit, ctx, dirs) {
                 if take(path, TravelKind::Art(media), &mut travels)
                     && !keeper_art.contains_key(&media)
                 {
@@ -231,7 +242,7 @@ pub fn companions_for(
                 .chain(travels.iter().map(|t| t.from.clone()))
                 .collect();
             for path in movers {
-                if let Some(twin) = apple_double(&path, &mut dirs) {
+                if let Some(twin) = apple_double(&path, dirs) {
                     take(twin, TravelKind::AppleDouble, &mut travels);
                 }
             }
@@ -245,6 +256,12 @@ pub fn companions_for(
         .collect()
 }
 
+/// Whether `unit` has art in at least one of the profile's media slots
+/// (the `cover` rule).
+pub fn has_art(unit: &Unit, ctx: &CompanionCtx) -> bool {
+    !art_of(unit, ctx, &mut DirListings::default()).is_empty()
+}
+
 fn empty() -> MemberCompanions {
     (Vec::new(), Vec::new(), None, ArtLeaves::default())
 }
@@ -256,27 +273,23 @@ fn same_stem(
     unit: &Unit,
     ctx: &CompanionCtx,
     unit_files: &HashSet<String>,
-    dirs: &mut Dirs,
+    dirs: &mut DirListings,
 ) -> Vec<(PathBuf, TravelKind)> {
     let stems = file_stems(unit);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for (folder, stem) in &stems {
-        for (name, path) in dirs.list(folder).iter() {
-            if name.starts_with("._") || unit_files.contains(&path_key(path)) {
+        for (name, path, dots) in dirs.with_prefix(folder, stem) {
+            if name.starts_with("._") || unit_files.contains(&path_key(&path)) {
                 continue;
             }
             // The stem may end at any dot, the last one first.
-            let kind = name
-                .match_indices('.')
-                .map(|(i, _)| i)
-                .rev()
-                .filter(|&i| i > 0 && i + 1 < name.len())
-                .filter(|&i| name_key(&name[..i]) == *stem)
-                .find_map(|i| kind_of(&name[i + 1..], ctx.companion_exts));
+            let kind = dots
+                .iter()
+                .find_map(|&i| kind_of(&name[i + 1..], ctx.companion_exts));
             if let Some(kind) = kind {
-                if seen.insert(path_key(path)) {
-                    out.push((path.clone(), kind));
+                if seen.insert(path_key(&path)) {
+                    out.push((path, kind));
                 }
             }
         }
@@ -340,7 +353,7 @@ fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
 
 /// The art of `unit` on disk, per media slot of the profile. The rendered
 /// file is found ignoring case, in PNG or JPEG.
-fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut Dirs) -> Vec<(Media, PathBuf)> {
+fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut DirListings) -> Vec<(Media, PathBuf)> {
     let Some(system) = ctx.db.get(&unit.system) else {
         return Vec::new();
     };
@@ -380,7 +393,7 @@ fn art_of(unit: &Unit, ctx: &CompanionCtx, dirs: &mut Dirs) -> Vec<(Media, PathB
 }
 
 /// The `._` twin of `path`, ignoring case.
-fn apple_double(path: &Path, dirs: &mut Dirs) -> Option<PathBuf> {
+fn apple_double(path: &Path, dirs: &mut DirListings) -> Option<PathBuf> {
     let folder = path.parent()?;
     let name = path.file_name()?.to_string_lossy();
     let wanted = name_key(&format!("._{name}"));
@@ -424,12 +437,15 @@ fn path_key(path: &Path) -> String {
 }
 
 /// Folder listings (hidden files included), read once.
-#[derive(Default)]
-struct Dirs {
+#[derive(Debug, Default)]
+pub struct DirListings {
     listed: HashMap<PathBuf, Vec<(String, PathBuf)>>,
+    /// Per folder: the FAT-compared name before each dot → `(entry, dot)`,
+    /// entries in listing order and dots last first.
+    prefixes: HashMap<PathBuf, HashMap<String, Vec<(usize, usize)>>>,
 }
 
-impl Dirs {
+impl DirListings {
     fn list(&mut self, dir: &Path) -> &[(String, PathBuf)] {
         self.listed.entry(dir.to_path_buf()).or_insert_with(|| {
             let Ok(read) = fs::read_dir(dir) else {
@@ -443,5 +459,36 @@ impl Dirs {
             out.sort();
             out
         })
+    }
+
+    /// Entries of `dir` whose name, up to a dot that is neither first nor
+    /// last, compares as `key`: `(name, path, those dots, last first)`, in
+    /// listing order.
+    fn with_prefix(&mut self, dir: &Path, key: &str) -> Vec<(String, PathBuf, Vec<usize>)> {
+        if !self.prefixes.contains_key(dir) {
+            let mut index: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+            for (n, (name, _)) in self.list(dir).iter().enumerate() {
+                let dots = name
+                    .match_indices('.')
+                    .map(|(i, _)| i)
+                    .rev()
+                    .filter(|&i| i > 0 && i + 1 < name.len());
+                for i in dots {
+                    index.entry(name_key(&name[..i])).or_default().push((n, i));
+                }
+            }
+            self.prefixes.insert(dir.to_path_buf(), index);
+        }
+        // Both were filled above (a folder is indexed after it is listed).
+        let list = &self.listed[dir];
+        let mut out: Vec<(String, PathBuf, Vec<usize>)> = Vec::new();
+        for &(n, i) in self.prefixes[dir].get(key).map_or(&[][..], Vec::as_slice) {
+            let (name, path) = &list[n];
+            match out.last_mut() {
+                Some(last) if last.1 == *path => last.2.push(i),
+                _ => out.push((name.clone(), path.clone(), vec![i])),
+            }
+        }
+        out
     }
 }

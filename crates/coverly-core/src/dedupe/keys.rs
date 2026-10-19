@@ -719,7 +719,7 @@ fn hash_raw(u: &Unit, rule: HeaderRule, f: &Facts, ctx: &KeyCtx) -> io::Result<F
 
 /// The whole file's CRC, then the CRC after the header rule when it
 /// differs: catalogues list one or the other.
-fn catalogue_crcs(h: &RomHashes) -> Vec<(u32, u64)> {
+pub(crate) fn catalogue_crcs(h: &RomHashes) -> Vec<(u32, u64)> {
     let mut out = Vec::new();
     for d in std::iter::once(&h.full).chain(h.headerless.as_ref()) {
         if let Ok(crc) = u32::from_str_radix(&d.crc32, 16) {

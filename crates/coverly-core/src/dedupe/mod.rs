@@ -16,7 +16,7 @@ pub mod companions;
 pub mod group;
 pub mod keeper;
 pub mod keys;
-mod plan;
+pub mod plan;
 pub mod saves;
 pub mod source;
 #[cfg(any(test, feature = "test-util"))]
@@ -25,6 +25,10 @@ pub mod units;
 
 pub use companions::{ArtLeaves, GamelistEntry, SharedStay, Travel, TravelKind};
 pub use keeper::{DumpQuality, KeepReason};
+pub use plan::{
+    default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
+    DedupeProgress, PlanInternals, QuarantineSpot, DEFAULT_QUARANTINE_NAME,
+};
 pub use saves::{SaveInfo, SaveKey};
 pub use units::UnitKind;
 
@@ -144,6 +148,13 @@ pub struct Member {
     pub serials: Vec<String>,
     /// 0.0–1.0.
     pub confidence: f32,
+    /// The copy's entry in its system's game list, removed when it is set
+    /// aside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gamelist: Option<GamelistEntry>,
+    /// Art slots this copy takes away while the keeper has none there.
+    #[serde(default, skip_serializing_if = "ArtLeaves::is_empty")]
+    pub art_leaves: ArtLeaves,
 }
 
 /// Copies of one game inside one system.
@@ -163,6 +174,10 @@ pub struct DupGroup {
     pub action: GroupAction,
     /// The keeper was chosen by the tie-breaker alone.
     pub tie: bool,
+    /// A remembered pick no longer holds: another copy has a save now, or
+    /// a save changed since the pick (spec §6.1).
+    #[serde(default)]
+    pub choice_dropped: bool,
 }
 
 /// Counts for the summary. Conflicts and report-only groups are not in
@@ -206,6 +221,12 @@ pub struct DedupePlan {
     /// Systems whose saves may live off the card.
     pub off_card_saves: Vec<String>,
     pub totals: Totals,
+    /// What the planner knew, so options and picks can change without
+    /// reading the library again. Not serialised: a plan read back from
+    /// disk has none.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub internals: PlanInternals,
 }
 
 impl Default for DedupePlan {
@@ -226,6 +247,7 @@ impl Default for DedupePlan {
             chd_unread: 0,
             off_card_saves: Vec::new(),
             totals: Totals::default(),
+            internals: PlanInternals::default(),
         }
     }
 }
@@ -353,6 +375,8 @@ mod tests {
             catalogue_name: Some("Crash Bash (USA)".into()),
             serials: vec!["SCUS-94570".into()],
             confidence: 0.97,
+            gamelist: None,
+            art_leaves: ArtLeaves::default(),
         }
     }
 
@@ -381,6 +405,7 @@ mod tests {
             members: vec![member(0, Relation::Exact), member(1, Relation::Format)],
             action,
             tie: false,
+            choice_dropped: false,
         };
         DedupePlan {
             root: PathBuf::from("/Volumes/SD"),
