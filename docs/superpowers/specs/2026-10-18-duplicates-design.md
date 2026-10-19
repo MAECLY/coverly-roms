@@ -336,7 +336,7 @@ Companions keep their names (dedupe never renames). A companion that fails to mo
 
 ### 9.3 Remembered choices
 
-`dedupe_choices` table, keyed by `(system, chosen keeper's content key)`, with the group signature (sorted member content keys) and the saves fingerprint at the time of the pick stored alongside. A later run restores your pick (`KeepReason::UserChoice`) whenever that content is still a member of the group, even after renames, moves or a new copy joining; it is dropped under the save rule of §6.1. Clearing: "Volver a aplicar las reglas" in the screen, `--reset-choices` in the CLI.
+`dedupe_choices` table, keyed by `(system, chosen keeper's content key)`, with the group signature (sorted member content keys) and the saves fingerprint at the time of the pick stored alongside. A later run restores your pick (`KeepReason::UserChoice`) whenever that content is still a member of the group, even after renames, moves or a new copy joining (following a rename needs the file id, which std only exposes on Unix; on Windows a pick survives moves the scan can match by content, but a renamed copy falls back to the rules); it is dropped under the save rule of §6.1. Clearing: "Volver a aplicar las reglas" in the screen, `--reset-choices` in the CLI.
 
 ## 10. Performance and caching
 

@@ -272,28 +272,41 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, (u64, i64, String)> {
 
 /// The plan as JSON with the temporary root and the times taken out.
 fn normalised(plan: &DedupePlan, root: &Path) -> serde_json::Value {
-    let mut text = serde_json::to_string(plan).unwrap();
+    let mut roots = vec![root.display().to_string()];
     if let Ok(real) = root.canonicalize() {
-        text = text.replace(&real.display().to_string(), "[root]");
+        roots.insert(0, real.display().to_string());
     }
-    text = text.replace(&root.display().to_string(), "[root]");
-    let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
-    fn walk(v: &mut serde_json::Value) {
+    let mut v = serde_json::to_value(plan).unwrap();
+    // Paths are compared as text: the temporary root becomes `[root]` and
+    // Windows separators become `/`, so one snapshot serves every OS.
+    fn walk(v: &mut serde_json::Value, roots: &[String]) {
         match v {
+            serde_json::Value::String(s) => {
+                let mut out = s.clone();
+                for r in roots {
+                    out = out.replace(r.as_str(), "[root]");
+                }
+                *s = out.replace('\\', "/");
+            }
             serde_json::Value::Object(map) => {
                 for (k, x) in map.iter_mut() {
                     if k == "mtime_ns" {
                         *x = serde_json::Value::from(0);
                     } else {
-                        walk(x);
+                        walk(x, roots);
                     }
                 }
             }
-            serde_json::Value::Array(list) => list.iter_mut().for_each(walk),
+            // f32 fields widen to f64 in a Value (0.9 → 0.8999999761…).
+            serde_json::Value::Number(n) if n.is_f64() => {
+                let x = n.as_f64().unwrap_or_default();
+                *v = serde_json::json!((x * 1e6).round() / 1e6);
+            }
+            serde_json::Value::Array(list) => list.iter_mut().for_each(|x| walk(x, roots)),
             _ => {}
         }
     }
-    walk(&mut v);
+    walk(&mut v, &roots);
     v
 }
 
@@ -689,9 +702,17 @@ fn set_keeper_persists_and_survives_a_rename() {
     ));
     assert_eq!(plan, before);
 
-    // A later run remembers the pick, even after the copy is renamed.
-    let renamed = root.join("ROMS/GB/Tetris (Kept).gb");
-    fs::rename(&pick, &renamed).unwrap();
+    // A later run remembers the pick. On Unix it follows the file through a
+    // rename (by inode); Windows has no stable file id in std, so there the
+    // pick is remembered by path and the copy keeps its name.
+    #[cfg(unix)]
+    let renamed = {
+        let renamed = root.join("ROMS/GB/Tetris (Kept).gb");
+        fs::rename(&pick, &renamed).unwrap();
+        renamed
+    };
+    #[cfg(not(unix))]
+    let renamed = pick.clone();
     let plan = fx.plan(&scan(root), &fx.opts());
     let g = group_of(&plan, "gb");
     assert_eq!(g.members[g.keeper].unit.primary, renamed);
