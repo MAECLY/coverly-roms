@@ -13,7 +13,7 @@ import {
   Image,
   Undo2,
 } from 'lucide-react';
-import { useContext } from 'react';
+import { useContext, useId } from 'react';
 
 import { Alert, AlertTitle } from '@/components/ui/alert';
 import {
@@ -104,6 +104,7 @@ export function DedupeResult({
 }: DedupeResultProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
+  const titleId = `${useId()}-title`;
   const folder = `${fileName(plan.quarantine)}/`;
   const roms = `${fileName(plan.roms_dir)}/`;
 
@@ -124,17 +125,17 @@ export function DedupeResult({
   const covers = report.art_left.length;
 
   return (
-    <section className="dup-result" aria-labelledby="dup-result-title">
+    <section className="dup-result" aria-labelledby={titleId}>
       {left.length === 0 ? (
         <Alert variant="success">
-          <AlertTitle id="dup-result-title">{headline}</AlertTitle>
+          <AlertTitle id={titleId}>{headline}</AlertTitle>
           <p className="dup-result__freed">
             {t('dedupe.freed', { folder: roms, bytes })}
           </p>
         </Alert>
       ) : (
         <Alert variant="warning">
-          <AlertTitle id="dup-result-title" className="tabular-nums">
+          <AlertTitle id={titleId} className="tabular-nums">
             {t('dedupe.partial', { done: moved, skipped: left.length })}
           </AlertTitle>
           <ul className="dup-result__left">

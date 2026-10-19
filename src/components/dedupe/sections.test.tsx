@@ -366,6 +366,38 @@ describe('DedupeResult', () => {
     return props;
   }
 
+  it('each result is a region named by its own headline', () => {
+    const plan = dedupeFixture();
+    const r = report(plan);
+    const noop = () => {};
+    wrap(
+      <>
+        <DedupeResult
+          plan={plan}
+          report={r}
+          action="quarantine"
+          onOpenFolder={noop}
+          onUndo={noop}
+          onBack={noop}
+        />
+        <DedupeResult
+          plan={plan}
+          report={r}
+          action="trash"
+          onOpenFolder={noop}
+          onUndo={noop}
+          onBack={noop}
+        />
+      </>,
+    );
+    const [a, b] = [...document.querySelectorAll('section.dup-result')];
+    expect(a!.getAttribute('aria-labelledby')).not.toBe(
+      b!.getAttribute('aria-labelledby'),
+    );
+    expect(a).toHaveAccessibleName(/apartados en _Duplicados/);
+    expect(b).not.toHaveAccessibleName(/apartados en _Duplicados/);
+  });
+
   it('result_same_volume_says_the_card_is_as_full', () => {
     const plan = dedupeFixture();
     result(plan, report(plan));
