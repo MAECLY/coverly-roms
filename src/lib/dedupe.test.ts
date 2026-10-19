@@ -6,7 +6,9 @@ import {
   DUMP_QUALITIES,
   KEEP_REASON_KINDS,
   RELEASE_CLASSES,
+  REPORT_WHY_KINDS,
   type DupGroupView,
+  type ReportWhyView,
   type KeepReasonView,
 } from '@/ipc/dedupeTypes';
 import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
@@ -18,9 +20,12 @@ import {
   destOf,
   extrasFor,
   formatBytes,
+  levelCounts,
   reasonText,
+  reportWhyText,
   relationMeta,
   sortGroups,
+  systemStartsOpen,
   systemSummary,
   weakestExtra,
 } from './dedupe';
@@ -334,5 +339,35 @@ describe('destinations and badges', () => {
     expect(weakestExtra(g.members, 0)?.id).toBe(1);
     expect(weakestExtra(g.members, 1)?.relation).toBe('exact');
     expect(weakestExtra([g.members[0]!], 0)).toBeNull();
+  });
+});
+
+describe('report-only and per-level counts', () => {
+  it('every_report_why_has_text_in_both_locales', () => {
+    for (const locale of ['es', 'en'] as const)
+      for (const kind of REPORT_WHY_KINDS) {
+        const why = (
+          kind === 'big-group' ? { kind, members: 3000 } : { kind }
+        ) as ReportWhyView;
+        const text = reportWhyText(tr(locale), why);
+        expect(text, `${locale} ${kind}`).not.toMatch(/dedupe\.|\{|\}/);
+        expect(text.length).toBeGreaterThan(8);
+      }
+  });
+
+  it('level_counts_count_the_copies_each_level_finds', () => {
+    expect(levelCounts(dedupeFixture())).toEqual({
+      exact: 85,
+      format: 4,
+      version: 37,
+    });
+  });
+
+  it('systems open with a conflict or at most 50 groups', () => {
+    const s = systemSummary(dedupeFixture().groups);
+    const open = Object.fromEntries(
+      s.map((x) => [x.system, systemStartsOpen(x)]),
+    );
+    expect(open).toEqual({ GB: true, GBA: false, PS: true, SMS: true });
   });
 });

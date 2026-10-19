@@ -14,12 +14,14 @@ import {
 import type { TranslateVars } from '@/i18n/core';
 import {
   RELATIONS,
+  type DedupeLevel,
   type DedupePlanView,
   type DedupeViewOptions,
   type DupGroupView,
   type KeepReasonView,
   type MemberView,
   type RelationView,
+  type ReportWhyView,
 } from '@/ipc/dedupeTypes';
 
 export { formatSize as formatBytes } from './format';
@@ -287,4 +289,86 @@ export function weakestExtra(
       worst = m;
   }
   return worst;
+}
+
+/** Why a group is only reported, in one line. */
+export function reportWhyText(t: Translate, why: ReportWhyView): string {
+  switch (why.kind) {
+    case 'level-two-off':
+      return t('dedupe.report.levelTwoOff');
+    case 'unconfirmed':
+      return t('dedupe.report.unconfirmed');
+    case 'header-differs':
+      return t('dedupe.report.headerDiffers');
+    case 'build-differs':
+      return t('dedupe.report.buildDiffers');
+    case 'partial-set':
+      return t('dedupe.report.partialSet');
+    case 'serial-conflict':
+      return t('dedupe.report.serialConflict');
+    case 'modified':
+      return t('dedupe.report.modified');
+    case 'arcade-no-dat':
+      return t('dedupe.report.arcadeNoDat');
+    case 'big-group':
+      return t('dedupe.report.bigGroupMembers', { count: why.members });
+    case 'user-skipped':
+      return t('dedupe.report.userSkipped');
+    case 'chd-metadata-differs':
+      return t('dedupe.report.chdMetadataDiffers');
+  }
+}
+
+/**
+ * Copies each level finds, whether it is on or not: the extras of groups
+ * that act or are held back only by one-ROM-per-game, by relation.
+ */
+export function levelCounts(plan: DedupePlanView): Record<DedupeLevel, number> {
+  const out: Record<DedupeLevel, number> = { exact: 0, format: 0, version: 0 };
+  for (const g of plan.groups) {
+    const a = g.action;
+    if (
+      a.kind !== 'act' &&
+      !(a.kind === 'report-only' && a.why.kind === 'level-two-off')
+    )
+      continue;
+    for (const m of extrasOf(g)) out[m.relation] += 1;
+  }
+  return out;
+}
+
+/** A system with this many groups or fewer starts open (spec §11.3). */
+export const OPEN_SYSTEM_MAX = 50;
+
+/** Above this many groups an open system renders them windowed. */
+export const WINDOW_ABOVE = 200;
+
+/** Systems with a conflict start open, and so do small ones. */
+export function systemStartsOpen(s: SystemSummary): boolean {
+  return s.conflicts > 0 || s.total <= OPEN_SYSTEM_MAX;
+}
+
+/** A group that changes nothing, and why. */
+export interface UnchangedItem {
+  group: DupGroupView;
+  why: ReportWhyView;
+}
+
+/**
+ * The groups of "Sin cambios": report-only ones and those you asked to
+ * leave alone, in plan order. Conflicts have their own block.
+ */
+export function unchangedItems(
+  groups: DupGroupView[],
+  skipped?: ReadonlySet<number>,
+): UnchangedItem[] {
+  const out: UnchangedItem[] = [];
+  for (const g of groups) {
+    if (g.action.kind === 'conflict') continue;
+    if (skipped?.has(g.id))
+      out.push({ group: g, why: { kind: 'user-skipped' } });
+    else if (g.action.kind === 'report-only')
+      out.push({ group: g, why: g.action.why });
+  }
+  return out;
 }

@@ -422,10 +422,19 @@
     "oneGameOneRom": "Also set aside other versions (one ROM per game)",
     "conflicts": {
       "alert": "{count} games have copies with different saves. Nothing in them will be touched.",
-      "row": "Different save: {path}"
+      "row": "Different save: {path}",
+      "badge": "Different saves",
+      "note": "Nothing in this game will be touched. Look at the saves and decide by hand which copy you play.",
+      "openFolder": "Open folder",
+      "openFolderOf": "Open the folder of {path}"
     },
     "system": {
-      "summary": "{name}: {groups} games, {extras} copies"
+      "summary": "{name}: {groups} games, {extras} copies",
+      "summaryOneGame": "{name}: 1 game, {extras} copies",
+      "summaryOne": "{name}: 1 game, 1 copy",
+      "summaryNone": "{name}: nothing to set aside",
+      "conflicts": "{count} with different saves",
+      "menu": "More actions in {system}"
     },
     "confidence": "Confidence: {value}",
     "relation": {
@@ -499,13 +508,25 @@
       "headerDiffers": "Same game, different header",
       "buildDiffers": "Same serial, different content (another revision or a patch?)",
       "modified": "One of the names marks a patch or translation",
-      "bigGroup": "{folder} is a copy of {other}: {count} files"
+      "bigGroup": "{folder} is a copy of {other}: {count} files",
+      "levelTwoOff": "Other versions, report only",
+      "unconfirmed": "Only the CRC matches; not confirmed",
+      "partialSet": "Partial set: files of the set are missing",
+      "serialConflict": "The serial numbers don't match",
+      "arcadeNoDat": "Arcade without a catalogue: can't tell if it's the same game",
+      "bigGroupMembers": "Too many copies to decide by itself: {count} files",
+      "userSkipped": "You asked to leave it alone",
+      "chdMetadataDiffers": "Same content, different CHD metadata"
     },
     "notRom": "Not a ROM",
     "skip": {
       "destinationLimit": "{folder} can't hold this file ({why}); still in place.",
       "keeperChanged": "The file that stays has changed; nothing in this game was moved.",
-      "changed": "Changed since the proposal; still in place."
+      "changed": "Changed since the proposal; still in place.",
+      "sourceMissing": "It was no longer there; not moved.",
+      "excluded": "You left it out; still in place.",
+      "conflict": "It has different saves; still in place.",
+      "cancelled": "Cancelled before reaching it; still in place."
     },
     "delta": "+{count} files",
     "bulk": {
@@ -525,7 +546,8 @@
     "trash": {
       "confirmTitle": "Send {count} files to the Trash?",
       "confirmBody": "That is {bytes}. Undo can't bring them back by itself: you'll restore them from the Trash.",
-      "cardNote": "On an SD card the Trash is on the card itself; space is freed only when you empty it."
+      "cardNote": "On an SD card the Trash is on the card itself; space is freed only when you empty it.",
+      "caveat": "Undo can't bring them back by itself: you'll restore them from the Trash."
     },
     "applying": "Setting aside {done} of {total}…",
     "done": "Set aside {count} files in {folder}. Undo is one click away.",
@@ -537,7 +559,8 @@
     "undo": {
       "title": "Put {count} files back?",
       "action": "Put back {count} files",
-      "trashed": "Restore it from the Trash (Put Back): {path}"
+      "trashed": "Restore it from the Trash (Put Back): {path}",
+      "button": "Undo"
     },
     "empty": {
       "title": "No duplicates in {systems} systems.",
@@ -545,7 +568,32 @@
     },
     "noCatalogue": "Other versions: no catalogue for {count} systems ({systems}).",
     "error": "Couldn't compare {path}. Nothing was moved.",
-    "gamelistSkipped": "The {system} game list wasn't updated."
+    "gamelistSkipped": "The {system} game list wasn't updated.",
+    "resetSystem": "Apply the rules again in {system}",
+    "deltaLess": "−{count} files",
+    "deltaAnnounce": "{delta}. {total} files would be set aside.",
+    "keys": {
+      "label": "Keyboard shortcuts",
+      "pick": "Pick the copy that stays",
+      "next": "Next game"
+    },
+    "showMore": "Show {count} more",
+    "details": "Details ({count})",
+    "outcome": {
+      "quarantined": "Set aside",
+      "trashed": "In the Trash",
+      "failed": "Couldn't set it aside ({reason}); still in place."
+    },
+    "limit": {
+      "fat32-size": "over 4 GB on FAT32",
+      "bad-name": "a name not allowed there",
+      "path-too-long": "a path too long",
+      "case-collision": "another file with the same name in other case"
+    },
+    "nothingElse": "Nothing else was moved.",
+    "findCoversOne": "Find a cover for 1 game",
+    "backToLibrary": "Back to the library",
+    "levelsLabel": "What to look for"
   },
   "toolbar": {
     "search": "Search by name",

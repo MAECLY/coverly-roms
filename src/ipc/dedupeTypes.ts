@@ -2,6 +2,8 @@
  * Task 18 on, of coverly_core::dedupe). Kept apart from `types.ts` until
  * the archive branch lands; Phase B re-exports it from there. */
 
+import type { ItemErrorKind } from './types';
+
 export const DEDUPE_LEVELS = ['exact', 'format', 'version'] as const;
 export type DedupeLevel = (typeof DEDUPE_LEVELS)[number];
 
@@ -131,6 +133,20 @@ export type KeepReasonView =
   | { kind: 'catalogue-name'; name: string }
   | { kind: 'tie' };
 
+export const REPORT_WHY_KINDS = [
+  'level-two-off',
+  'unconfirmed',
+  'header-differs',
+  'build-differs',
+  'partial-set',
+  'serial-conflict',
+  'modified',
+  'arcade-no-dat',
+  'big-group',
+  'user-skipped',
+  'chd-metadata-differs',
+] as const;
+
 export type ReportWhyView =
   | { kind: 'level-two-off' }
   | { kind: 'unconfirmed' }
@@ -258,6 +274,42 @@ export interface DedupePlanView {
   chd_unread: number;
   off_card_saves: string[];
   totals: TotalsView;
+}
+
+/* ---- Apply report: mirror of coverly_core::dedupe::apply (Task 23) ----
+ * Phase B wires it to the backend; the result view is built on it now. */
+
+export const DEST_LIMITS = [
+  'fat32-size',
+  'bad-name',
+  'path-too-long',
+  'case-collision',
+] as const;
+export type DestLimitView = (typeof DEST_LIMITS)[number];
+
+export type DedupeSkipView =
+  | { kind: 'keeper-changed' }
+  | { kind: 'changed-since-plan' }
+  | { kind: 'source-missing' }
+  | { kind: 'destination-limit'; why: DestLimitView }
+  | { kind: 'excluded' }
+  | { kind: 'conflict' }
+  | { kind: 'cancelled' };
+
+export type DedupeItemStatusView =
+  | { status: 'quarantined' }
+  | { status: 'trashed' }
+  | { status: 'skipped'; reason: DedupeSkipView }
+  | { status: 'failed'; kind: ItemErrorKind; detail: string };
+
+export interface DedupeReportView {
+  job: string;
+  /** `[group id, MemberView.id, what happened]`, one per extra. */
+  outcomes: [number, number, DedupeItemStatusView][];
+  /** Bytes that left the ROMs folder. */
+  bytes_out: number;
+  /** Covers that left with an extra: keepers now without one. */
+  art_left: string[];
 }
 
 /** The options the UI can change without a new scan. */
