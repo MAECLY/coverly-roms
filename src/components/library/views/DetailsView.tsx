@@ -25,6 +25,7 @@ import {
   MAX_COLUMN_WIDTH,
   ROW_HEIGHT,
   fitWidth,
+  gridMinWidth,
   gridTemplate,
   resizeColumn,
   widthOf,
@@ -358,6 +359,7 @@ export function DetailsView({
   const ctx: CellContext = { t, locale, systems, generation };
   const gridStyle = {
     '--details-cols': gridTemplate(columns),
+    '--details-min-width': `${gridMinWidth(columns)}px`,
   } as CSSProperties;
   const rowClass = cn('entry-row', compact && 'entry-row--compact');
 

@@ -6,6 +6,7 @@ import {
   FIT_MIN,
   ROW_HEIGHT,
   fitWidth,
+  gridMinWidth,
   gridTemplate,
   moveColumn,
   resizeColumn,
@@ -115,6 +116,18 @@ describe('detailsColumns', () => {
     );
     expect(gridTemplate(DEFAULT_PREFS.columns).split(' ')).toHaveLength(
       DEFAULT_PREFS.columns.length,
+    );
+  });
+
+  it('gives every row the same minimum width, whatever its content', () => {
+    expect(
+      gridMinWidth([
+        { id: 'name' },
+        { id: 'size', width: 150 },
+        { id: 'cover' },
+      ]),
+    ).toBe(
+      COLUMN_DEFS.name.defaultWidth + 150 + COLUMN_DEFS.cover.defaultWidth,
     );
   });
 

@@ -471,7 +471,9 @@ time {
   );
   align-items: center;
   width: 100%;
-  min-width: max-content;
+  /* The sum of the column widths (DetailsView sets it). Not max-content:
+     that let a long name widen its own row and push its cells out of line. */
+  min-width: var(--details-min-width, max-content);
   border-bottom: 1px solid var(--cr-border);
   cursor: pointer;
 }

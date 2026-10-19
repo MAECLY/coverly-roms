@@ -344,6 +344,9 @@ describe('DetailsView', () => {
     expect(grid.style.getPropertyValue('--details-cols')).toBe(
       'minmax(200px,1fr) 150px',
     );
+    // A fixed floor, not max-content, so a long name cannot widen its own
+    // row's flexible track and push the other cells out of their columns.
+    expect(grid.style.getPropertyValue('--details-min-width')).toBe('350px');
   });
 
   it('resizes a column with the arrow keys on its edge', () => {

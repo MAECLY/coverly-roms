@@ -140,3 +140,12 @@ export function gridTemplate(cols: readonly DetailsColumn[]): string {
     )
     .join(' ');
 }
+
+/**
+ * The narrowest a row may be: the sum of the column widths. Rows use it as
+ * their `min-width` so every row resolves the flexible name track the same
+ * way (with `max-content`, a long name widened only its own row).
+ */
+export function gridMinWidth(cols: readonly DetailsColumn[]): number {
+  return cols.reduce((sum, c) => sum + widthOf(c), 0);
+}
