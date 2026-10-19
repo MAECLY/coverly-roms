@@ -14,12 +14,15 @@ import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 import {
   badgeRelation,
   deltaFor,
+  destLabel,
+  destOf,
   extrasFor,
   formatBytes,
   reasonText,
   relationMeta,
   sortGroups,
   systemSummary,
+  weakestExtra,
 } from './dedupe';
 
 const tr = (locale: Locale) => (key: string, vars?: TranslateVars) =>
@@ -267,5 +270,36 @@ describe('fixture', () => {
     });
     expect(typeof plan.plan_id).toBe('number');
     expect(new Set(plan.groups.map((g) => g.id)).size).toBe(plan.groups.length);
+  });
+});
+
+describe('destinations and badges', () => {
+  const crash = () =>
+    dedupeFixture().groups.find((g) => g.title === 'Crash Bash')!;
+
+  it('a former keeper goes under the quarantine at its library path', () => {
+    const [keeper, bin] = crash().members;
+    const q = '/Volumes/SD/_Duplicados';
+    expect(destOf(keeper!, q)).toBe(`${q}/PS/Crash Bash.PBP`);
+    expect(destOf(bin!, q)).toBe(bin!.dest);
+    const abs = {
+      ...keeper!,
+      unit: { ...keeper!.unit, primary: '/Volumes/SD/ROMS/PS/x.bin' },
+    };
+    expect(destOf(abs, `${q}/`)).toBe(`${q}/x.bin`);
+    expect(destOf(abs, 'D:\\_Duplicados')).toBe('D:\\_Duplicados\\x.bin');
+  });
+
+  it('writes destinations from the quarantine folder down', () => {
+    const q = '/Volumes/SD/_Duplicados';
+    expect(destLabel(`${q}/SMS/a.sms`, q)).toBe('_Duplicados/SMS/a.sms');
+    expect(destLabel('/elsewhere/a.sms', q)).toBe('/elsewhere/a.sms');
+  });
+
+  it('the weakest link names the badge, then the lowest confidence', () => {
+    const g = crash();
+    expect(weakestExtra(g.members, 0)?.id).toBe(1);
+    expect(weakestExtra(g.members, 1)?.relation).toBe('exact');
+    expect(weakestExtra([g.members[0]!], 0)).toBeNull();
   });
 });

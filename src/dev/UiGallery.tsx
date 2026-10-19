@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { DupGroup } from '@/components/dedupe/DupGroup';
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +111,8 @@ import {
 } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
+import type { DupGroupView } from '@/ipc/dedupeTypes';
+import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 import { applyTheme } from '@/lib/theme';
 
 function Specimen({
@@ -138,6 +142,39 @@ function Specimen({
     </section>
   );
 }
+
+const DEDUPE = dedupeFixture();
+const DEDUPE_SHOWCASE: DupGroupView[] = [
+  ...['Ecco the Dolphin', 'Crash Bash', 'Tetris'].map((title) =>
+    DEDUPE.groups.find((g) => g.title === title)!,
+  ),
+  {
+    ...DEDUPE.groups.find((g) => g.title === 'GB Game 01')!,
+    id: 9_999_001,
+    title: 'Pokemon Blue',
+    reason: { kind: 'has-save', path: 'GB/Pokemon Blue.sav' },
+    members: DEDUPE.groups
+      .find((g) => g.title === 'GB Game 01')!
+      .members.map((m, i) => ({
+        ...m,
+        unit: {
+          ...m.unit,
+          primary: i === 0 ? 'GB/Pokemon Blue.gb' : 'GB/Pokemon Blue (1).gb',
+        },
+        dest: i === 0 ? null : `${DEDUPE.quarantine}/GB/Pokemon Blue (1).gb`,
+        travels:
+          i === 0
+            ? [{ from: 'GB/Pokemon Blue.sav', kind: { kind: 'save' as const } }]
+            : [
+                {
+                  from: 'GB/Imgs/Pokemon Blue (1).png',
+                  kind: { kind: 'art' as const, media: 'cover' as const },
+                },
+              ],
+        ...(i === 1 ? { art_leaves: { media: ['cover' as const] } } : {}),
+      })),
+  },
+];
 
 const Row = ({ children }: { children: ReactNode }) => (
   <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -197,6 +234,19 @@ export function UiGallery() {
           </header>
 
           <main className="mx-auto grid max-w-[1160px] gap-4 px-6 py-6 lg:grid-cols-2">
+            <Specimen name="Duplicates: DupGroup" wide>
+              <div className="rounded-lg border border-cr-border bg-cr-surface px-4">
+                {DEDUPE_SHOWCASE.map((g) => (
+                  <DupGroup
+                    key={g.id}
+                    group={g}
+                    quarantine={DEDUPE.quarantine}
+                    profileName="Anbernic (stock)"
+                  />
+                ))}
+              </div>
+            </Specimen>
+
             <Specimen name="Button" wide>
               <Row>
                 <Button variant="primary">Apply 41 covers</Button>

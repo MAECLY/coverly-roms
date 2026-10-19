@@ -12,13 +12,14 @@ import {
 } from 'lucide-react';
 
 import type { TranslateVars } from '@/i18n/core';
-import type {
-  DedupePlanView,
-  DedupeViewOptions,
-  DupGroupView,
-  KeepReasonView,
-  MemberView,
-  RelationView,
+import {
+  RELATIONS,
+  type DedupePlanView,
+  type DedupeViewOptions,
+  type DupGroupView,
+  type KeepReasonView,
+  type MemberView,
+  type RelationView,
 } from '@/ipc/dedupeTypes';
 
 export { formatSize as formatBytes } from './format';
@@ -31,7 +32,8 @@ export interface ReasonCtx {
   profileName?: string;
 }
 
-function fileName(path: string): string {
+/** Last segment of a `/` or `\` path. */
+export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
@@ -203,4 +205,51 @@ export function sortGroups(groups: DupGroupView[]): DupGroupView[] {
       a.system.localeCompare(b.system) ||
       a.title.localeCompare(b.title),
   );
+}
+
+function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/**
+ * Where a copy goes when it leaves. The plan carries `dest` for the copies
+ * the rules set aside; a former keeper (after a pick) has none, so it goes
+ * to the same place under the quarantine as its library path.
+ */
+export function destOf(m: MemberView, quarantine: string): string {
+  if (m.dest) return m.dest;
+  const sep =
+    quarantine.includes('\\') && !quarantine.includes('/') ? '\\' : '/';
+  const rel = isAbsolute(m.unit.primary)
+    ? fileName(m.unit.primary)
+    : m.unit.primary;
+  return `${quarantine.replace(/[\\/]+$/, '')}${sep}${rel}`;
+}
+
+/** A destination as the UI writes it: from the quarantine folder down. */
+export function destLabel(dest: string, quarantine: string): string {
+  const q = quarantine.replace(/[\\/]+$/, '');
+  const name = fileName(q);
+  return dest.startsWith(q) ? `${name}${dest.slice(q.length)}` : dest;
+}
+
+/**
+ * The copy that names a group's badge: the weakest link (exact < format <
+ * version), then the lowest confidence. `null` when only the keeper is left.
+ */
+export function weakestExtra(
+  members: MemberView[],
+  keeper: number,
+): MemberView | null {
+  let worst: MemberView | null = null;
+  for (const m of members) {
+    if (m.id === keeper) continue;
+    if (
+      !worst ||
+      RELATIONS.indexOf(m.relation) > RELATIONS.indexOf(worst.relation) ||
+      (m.relation === worst.relation && m.confidence < worst.confidence)
+    )
+      worst = m;
+  }
+  return worst;
 }

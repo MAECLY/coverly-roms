@@ -392,6 +392,42 @@
     "older": "Older"
   },
   "dedupe": {
+    "title": "Duplicates",
+    "entry": {
+      "find": "Find duplicates",
+      "count": "Duplicates {count}"
+    },
+    "phase": {
+      "list": "Listing",
+      "sizes": "Sizes",
+      "hash": "Fingerprints",
+      "serials": "Serial numbers",
+      "catalogue": "Catalogues"
+    },
+    "planning": "Comparing fingerprints: {done} of {total}",
+    "summary": "{extras} extra copies across {groups} games. {bytes} would leave {folder}.",
+    "dryRunHint": "This is a proposal: nothing has moved yet.",
+    "level": {
+      "exact": "Exact copies",
+      "format": "Other formats",
+      "version": "Other versions"
+    },
+    "reportOnly": "report only",
+    "action": {
+      "label": "What to do with the copies",
+      "quarantine": "Set aside in {folder}",
+      "trash": "Send to the Trash",
+      "change": "Change…"
+    },
+    "oneGameOneRom": "Also set aside other versions (one ROM per game)",
+    "conflicts": {
+      "alert": "{count} games have copies with different saves. Nothing in them will be touched.",
+      "row": "Different save: {path}"
+    },
+    "system": {
+      "summary": "{name}: {groups} games, {extras} copies"
+    },
+    "confidence": "Confidence: {value}",
     "relation": {
       "exact": "Exact copy",
       "format": "Other format",
@@ -399,6 +435,8 @@
       "unconfirmed": "Not confirmed",
       "partialSet": "Partial set"
     },
+    "keeper": "Stays",
+    "alsoStays": "Also stays (report only)",
     "why": {
       "user": "Stays: you chose it.",
       "hasSave": "Stays: it has your save ({path}).",
@@ -440,7 +478,74 @@
       "proto": "a prototype",
       "demo": "a demo",
       "sample": "a sample"
-    }
+    },
+    "dest": "→ {path}",
+    "travels": {
+      "art": "+ {count} covers",
+      "artOne": "+ 1 cover",
+      "saves": "+ {count} saves",
+      "savesOne": "+ 1 save"
+    },
+    "sharedSaveStays": "The save {save} stays with {keeper}.",
+    "catalogueCalls": "The catalogue calls it {name}",
+    "keepThis": "Keep this one",
+    "keeperChanged": "{name} now stays; {old} will be set aside.",
+    "undoPick": "Undo",
+    "saveLeaves": "Its save {save} goes with it to {folder}; the copy that stays won't see it.",
+    "choiceDropped": "Your earlier pick no longer applies: the other copy now has a save.",
+    "artLeaves": "The cover goes with this copy; {keeper} will have none.",
+    "offCardSaves": "This device may keep saves off the card. If you play {system}, check which copy you use before setting any aside.",
+    "report": {
+      "headerDiffers": "Same game, different header",
+      "buildDiffers": "Same serial, different content (another revision or a patch?)",
+      "modified": "One of the names marks a patch or translation",
+      "bigGroup": "{folder} is a copy of {other}: {count} files"
+    },
+    "notRom": "Not a ROM",
+    "skip": {
+      "destinationLimit": "{folder} can't hold this file ({why}); still in place.",
+      "keeperChanged": "The file that stays has changed; nothing in this game was moved.",
+      "changed": "Changed since the proposal; still in place."
+    },
+    "delta": "+{count} files",
+    "bulk": {
+      "confirmTitle": "Set aside {count} files?",
+      "confirmBody": "That is {bytes}, {share} of them in {system}. They'll go to {folder}."
+    },
+    "findCovers": "Find covers for {count} games",
+    "skipGroup": "Leave this game alone",
+    "skipSystem": "Leave {system} alone",
+    "resetRules": "Apply the rules again",
+    "unchanged": "Unchanged ({count})",
+    "apply": {
+      "quarantine": "Set aside {count} files",
+      "trash": "Send {count} files to the Trash",
+      "none": "Nothing to set aside"
+    },
+    "trash": {
+      "confirmTitle": "Send {count} files to the Trash?",
+      "confirmBody": "That is {bytes}. Undo can't bring them back by itself: you'll restore them from the Trash.",
+      "cardNote": "On an SD card the Trash is on the card itself; space is freed only when you empty it."
+    },
+    "applying": "Setting aside {done} of {total}…",
+    "done": "Set aside {count} files in {folder}. Undo is one click away.",
+    "doneTrash": "Sent {count} files to the Trash.",
+    "freed": "Out of {folder}: {bytes}",
+    "sameVolumeNote": "The card is just as full until you empty {quarantine} or move it to your computer.",
+    "openFolder": "Open {folder}",
+    "partial": "Set aside: {done} · Left alone: {skipped}",
+    "undo": {
+      "title": "Put {count} files back?",
+      "action": "Put back {count} files",
+      "trashed": "Restore it from the Trash (Put Back): {path}"
+    },
+    "empty": {
+      "title": "No duplicates in {systems} systems.",
+      "body": "This shelf is in order."
+    },
+    "noCatalogue": "Other versions: no catalogue for {count} systems ({systems}).",
+    "error": "Couldn't compare {path}. Nothing was moved.",
+    "gamelistSkipped": "The {system} game list wasn't updated."
   },
   "toolbar": {
     "search": "Search by name",

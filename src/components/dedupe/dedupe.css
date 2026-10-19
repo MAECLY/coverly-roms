@@ -1,0 +1,256 @@
+/*
+ * Duplicates: the shelf and the tray (spec §11.1, plan "UI design brief").
+ * The copy that stays sits on the shelf, under the brand shelf rule (a
+ * hairline with a 3px Buckram cap on the left). The copies that leave sit
+ * in a recessed tray below it, each with its destination in mono. Sizes
+ * are the last column, a fixed 9ch, so the bytes line up down the page.
+ */
+
+.dup-group {
+  --dup-size-col: 9ch;
+  --dup-tray-inset: 24px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 0 16px;
+  color: var(--cr-text);
+  font: var(--cr-type-app-base);
+}
+
+.dup-group + .dup-group {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.dup-group__title {
+  margin: 0;
+  font: var(--cr-type-app-label);
+  font-size: 14px;
+  font-weight: var(--cr-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.dup-group__serial,
+.dup-row__name,
+.dup-row__size,
+.dup-row__dest {
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-group__serial {
+  color: var(--cr-text-secondary);
+}
+
+.dup-group__badge {
+  align-self: center;
+  cursor: default;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-group__badge:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* ---- The shelf ------------------------------------------------------ */
+
+.dup-shelf {
+  --dup-cap-shift: 0px;
+  position: relative;
+  /* Right padding matches the tray's, so sizes share one column. */
+  padding: 8px 12px 2px 14px;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+/* The cap is drawn apart from the row so it can slide from the row you
+ * picked up to the shelf (FLIP: the group sets the shift, then clears it). */
+.dup-shelf::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: 0;
+  left: 0;
+  width: var(--cr-border-width-spine);
+  border-radius: 0 0 var(--cr-radius-sm) 0;
+  background: var(--cr-primary);
+  transform: translateY(var(--dup-cap-shift));
+  transition: transform var(--dup-cap-duration, var(--cr-duration-base))
+    var(--cr-ease-standard);
+}
+
+.dup-shelf[data-cap-jump]::before {
+  transition: none;
+}
+
+/* ---- The tray ------------------------------------------------------- */
+
+.dup-tray {
+  display: grid;
+  margin: 2px 0 0 var(--dup-tray-inset);
+  padding: 4px 12px;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+}
+
+.dup-tray > .dup-row + .dup-row {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-group[data-skipped] .dup-tray {
+  opacity: 0.6;
+}
+
+/* ---- Rows (shelf and tray share the grid) ---------------------------- */
+
+.dup-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 6px 0;
+}
+
+.dup-row__pick {
+  grid-row: 1;
+  grid-column: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+}
+
+.dup-row__keep {
+  color: var(--cr-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dup-row__name {
+  grid-row: 1;
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dup-row__meta {
+  grid-row: 1;
+  grid-column: 3;
+  display: inline-flex;
+  gap: 6px;
+  justify-self: end;
+}
+
+.dup-row__size {
+  grid-row: 1;
+  grid-column: 4;
+  justify-self: end;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dup-row__detail {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+/* Report-only rows have no radio: close the gap it would leave. */
+.dup-row__pick:empty {
+  margin-right: -10px;
+}
+
+.dup-row__dest {
+  color: var(--cr-text);
+  overflow-wrap: anywhere;
+}
+
+.dup-row__why {
+  color: var(--cr-text-muted);
+}
+
+.dup-row__warn {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--cr-warning);
+}
+
+.dup-row__warn svg {
+  flex: none;
+  align-self: center;
+}
+
+/* ---- Under the group ------------------------------------------------ */
+
+.dup-group__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 28px;
+}
+
+.dup-group__skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.dup-group__notice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.dup-group__notice p {
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+/* Narrow windows (spec §11.3): badges drop to a second line (the size
+ * keeps its column, so bytes still line up), the destination wraps under
+ * the name, the tray inset halves. */
+@media (max-width: 899px) {
+  .dup-group {
+    --dup-tray-inset: 12px;
+  }
+
+  .dup-row {
+    grid-template-columns: auto minmax(0, 1fr) var(--dup-size-col);
+  }
+
+  .dup-row__size {
+    grid-column: 3;
+  }
+
+  .dup-row__meta {
+    grid-row: 2;
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+
+  .dup-row__meta:empty {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-shelf::before {
+    transition: none;
+  }
+}
