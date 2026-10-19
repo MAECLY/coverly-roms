@@ -646,3 +646,52 @@ fn headered_nes_in_a_zip_and_a_headerless_raw_share_a_key() {
     assert_eq!(keys[0].header.as_deref(), Some(nes_header(2).as_slice()));
     assert_eq!(keys[1].header, None);
 }
+
+#[test]
+fn a_cached_disc_key_is_dropped_when_a_track_changes_behind_its_sheet() {
+    // A same-size hard patch of a track (a translation) leaves the cue's
+    // size and mtime as they were: the cache must not hand back the old key.
+    let dir = TempDir::new().unwrap();
+    let track = rom_bytes(30, 2352 * 40);
+    let sheet = |stem: &str| {
+        format!("FILE \"{stem}.bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n")
+    };
+    let mut files = Vec::new();
+    for stem in ["A", "B"] {
+        let bin = put(dir.path(), &format!("PS/{stem}.bin"), &track);
+        let cue = put(
+            dir.path(),
+            &format!("PS/{stem}.cue"),
+            sheet(stem).as_bytes(),
+        );
+        files.push([cue, bin]);
+    }
+    let units_now = || {
+        numbered(
+            files
+                .iter()
+                .map(|f| unit_of("psx", UnitKind::DiscSet, f, None))
+                .collect(),
+        )
+    };
+    let cache = Cache::in_memory().unwrap();
+    let db = SystemDb::builtin();
+    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    ctx.cache = Some(&cache);
+    ctx.volume_uuid = Some("VOL-1");
+
+    let before = units_now();
+    let first = run(&before, &ctx);
+    assert_eq!(exact(&first[0]), exact(&first[1]));
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(&files[1][1], rom_bytes(31, 2352 * 40)).unwrap();
+    let after = units_now();
+    assert_eq!(
+        (after[1].size, after[1].mtime_ns),
+        (before[1].size, before[1].mtime_ns),
+        "the unit's own size and mtime do not see the change"
+    );
+    let second = run(&after, &ctx);
+    assert_ne!(second[0].exact, second[1].exact);
+}

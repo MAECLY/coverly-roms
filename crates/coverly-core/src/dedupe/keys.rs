@@ -230,6 +230,11 @@ struct Facts {
     exact: Option<ExactKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     chd_raw: Option<String>,
+    /// Size and mtime of every file of a multi-file unit but the primary:
+    /// the row is keyed by the primary alone, and a track can change
+    /// behind an untouched sheet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    members: Option<String>,
 }
 
 /// How a unit of the payload class is read.
@@ -399,7 +404,26 @@ fn cached_facts(u: &Unit, ctx: &KeyCtx) -> Option<Facts> {
         .ok()??;
     serde_json::from_str::<Facts>(&row.keys_json)
         .ok()
-        .filter(|f| f.v == FACTS_VERSION)
+        .filter(|f| f.v == FACTS_VERSION && members_of(u).is_ok_and(|m| m == f.members))
+}
+
+/// The fingerprint of a multi-file unit's other files: `Ok(None)` for a
+/// one-file unit, `Err` when a member cannot be read (then nothing is
+/// cached or trusted).
+fn members_of(u: &Unit) -> io::Result<Option<String>> {
+    if u.files.len() < 2 {
+        return Ok(None);
+    }
+    let mut parts = Vec::with_capacity(u.files.len() - 1);
+    for f in &u.files[1..] {
+        let m = std::fs::metadata(f)?;
+        let mtime = m
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        parts.push(format!("{}:{mtime}", m.len()));
+    }
+    Ok(Some(sha1_of(parts.join(",").as_bytes())))
 }
 
 /// Facts the scan's `quick_ids` memo already holds, read nothing.
@@ -454,7 +478,14 @@ fn store_facts(u: &Unit, f: &Facts, ctx: &KeyCtx) {
     let (Some(cache), Some(volume)) = (ctx.cache, ctx.volume_uuid) else {
         return;
     };
-    let Ok(keys_json) = serde_json::to_string(f) else {
+    let Ok(members) = members_of(u) else {
+        return;
+    };
+    let f = Facts {
+        members,
+        ..f.clone()
+    };
+    let Ok(keys_json) = serde_json::to_string(&f) else {
         return;
     };
     let row = ContentRow {
