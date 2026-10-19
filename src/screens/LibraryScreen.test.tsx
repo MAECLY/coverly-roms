@@ -483,7 +483,13 @@ describe('Library views', () => {
         within(switcher).getByRole('radio', { name: VIEW_NAMES[id] }),
       ).toBeChecked();
       const root = viewRoot(id);
-      expect(root).toContainElement(document.activeElement as HTMLElement);
+      // The group roots (Columns, Gallery) hand the focus on to their
+      // active listbox inside the named group; grid roots take it themselves.
+      if (VIEW_ROLES[id] === 'group') {
+        expect(root).toContainElement(document.activeElement as HTMLElement);
+      } else {
+        expect(document.activeElement).toBe(root);
+      }
       // The view's own name is the announcement: no extra live region.
       expect(screen.queryAllByRole('status')).toHaveLength(statuses);
     }
@@ -518,20 +524,28 @@ describe('Library views', () => {
     act(() => useViewStore.getState().closeOverlay());
   });
 
-  it('does not resize covers with Ctrl+= in Details', async () => {
+  it('resizes covers with Ctrl+= in Covers only, not in Details', async () => {
     await openLibrary();
-    press(document.body, '2', 'ctrl');
-    const grid = viewRoot('details');
+    const zoomIn = (target: Element) => {
+      const ev = new KeyboardEvent('keydown', {
+        key: '=',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        target.dispatchEvent(ev);
+      });
+      return ev;
+    };
+    // Control: the same key does reach the shortcut in Covers.
+    const before = useViewStore.getState().prefs.coverSize;
+    expect(zoomIn(viewRoot('covers')).defaultPrevented).toBe(true);
     const size = useViewStore.getState().prefs.coverSize;
-    const ev = new KeyboardEvent('keydown', {
-      key: '=',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    act(() => {
-      grid.dispatchEvent(ev);
-    });
+    expect(size).not.toBe(before);
+
+    press(document.body, '2', 'ctrl');
+    const ev = zoomIn(viewRoot('details'));
     expect(ev.defaultPrevented).toBe(false);
     expect(useViewStore.getState().prefs.coverSize).toBe(size);
   });
@@ -593,6 +607,11 @@ describe('Library views', () => {
     // Saved for this library, where a fresh start reads it back.
     expect(prefsFor(readPrefsFile(storage), SMALL).view).toBe('columns');
     cleanup();
+    // Forget what the store holds so the screen has to load this library's
+    // saved prefs on mount.
+    act(() =>
+      useViewStore.setState({ prefs: { ...DEFAULT_PREFS }, root: null }),
+    );
     mountApp();
     expect(viewRoot('columns')).toBeInTheDocument();
   });
@@ -669,6 +688,9 @@ describe('Library views', () => {
     await userEvent.keyboard('{Escape}');
     expect(prefsFor(readPrefsFile(storage), SMALL).density).toBe('compact');
     cleanup();
+    act(() =>
+      useViewStore.setState({ prefs: { ...DEFAULT_PREFS }, root: null }),
+    );
     mountApp();
     const rows = () =>
       viewRoot('details').querySelectorAll('[role="row"][data-entry-id]');
