@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { stepSize } from '@/lib/coverSizes';
 import {
   INSPECTOR_VIEWS,
+  VIEW_IDS,
   type CoverSize,
   type ViewId,
   type ViewPrefs,
@@ -11,6 +12,7 @@ import {
 /** Views with a cover size slider (spec §B.4.1). */
 const SIZED_VIEWS: ReadonlySet<ViewId> = new Set(['covers', 'shelves']);
 const INSPECTOR_SET: ReadonlySet<ViewId> = new Set(INSPECTOR_VIEWS);
+const ALL_VIEWS: ReadonlySet<ViewId> = new Set(VIEW_IDS);
 /** Accumulated wheel delta, in px, per size stop. */
 export const WHEEL_STEP_PX = 100;
 /** `WheelEvent.deltaMode` lines and pages, roughly in px. */
@@ -45,6 +47,19 @@ function behindDialog(): boolean {
   );
 }
 
+/**
+ * The view ⌘1–⌘6 asks for, by the digit typed or, where the digit row
+ * types something else without Shift (AZERTY), by the physical key.
+ */
+function viewForKey(ev: KeyboardEvent): ViewId | null {
+  const digit = /^[1-9]$/.test(ev.key)
+    ? ev.key
+    : /^Digit[1-9]$/.test(ev.code)
+      ? ev.code.slice(-1)
+      : null;
+  return digit === null ? null : (VIEW_IDS[Number(digit) - 1] ?? null);
+}
+
 function sizeForKey(key: string, size: CoverSize): CoverSize | null {
   if (key === '+' || key === '=') return stepSize(size, 1);
   if (key === '-' || key === '_') return stepSize(size, -1);
@@ -53,7 +68,8 @@ function sizeForKey(key: string, size: CoverSize): CoverSize | null {
 }
 
 /**
- * Library view shortcuts on `window`: ⌘+ (or ⌘=), ⌘− and ⌘0 move the cover
+ * Library view shortcuts on `window`: ⌘1–⌘6 (or Ctrl) switch views in
+ * switcher order, also from the search box. ⌘+ (or ⌘=), ⌘− and ⌘0 move the cover
  * size one stop or back to M, and ⌘/Ctrl + wheel (a trackpad pinch arrives
  * as Ctrl + wheel) moves one stop per 100px of accumulated delta. Only in
  * Covers and Shelves; elsewhere the events are left alone. ⌘I docks or
@@ -90,6 +106,17 @@ export function useViewShortcuts({
 
     function onKey(ev: KeyboardEvent): void {
       if (ev.defaultPrevented || ev.altKey || !(ev.metaKey || ev.ctrlKey)) {
+        return;
+      }
+      // ⌘1–⌘6 never type text, so they also work from the search box.
+      const view = ev.shiftKey ? null : viewForKey(ev);
+      if (view !== null) {
+        if (!active(ALL_VIEWS)) return;
+        ev.preventDefault();
+        const cur = latest.current;
+        if (view === cur.prefs.view) return;
+        cur.prefs = { ...cur.prefs, view };
+        cur.setPrefs({ view });
         return;
       }
       if (inField(ev.target)) return;

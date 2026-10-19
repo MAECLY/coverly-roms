@@ -37,6 +37,7 @@ function Harness({
     <>
       <div data-testid="size">{prefs.coverSize}</div>
       <div data-testid="inspector">{String(prefs.inspector)}</div>
+      <div data-testid="current">{prefs.view}</div>
       <input type="search" aria-label="Search" />
       <button type="button" data-testid="view">
         view
@@ -226,6 +227,116 @@ describe('useViewShortcuts', () => {
       document.body.append(dialog);
       expect(press(window, 'i')).toBe(false);
       dialog.remove();
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+  describe('⌘1–⌘6', () => {
+    function dialogOpen(role = 'dialog') {
+      const el = document.createElement('div');
+      el.setAttribute('role', role);
+      el.setAttribute('data-state', 'open');
+      document.body.append(el);
+      return el;
+    }
+
+    it('Ctrl+3 and ⌘3 switch to Columns', () => {
+      const spy = vi.fn();
+      const { getByTestId } = render(<Harness spy={spy} />);
+      expect(press(getByTestId('view'), '3', { ctrlKey: true })).toBe(true);
+      expect(spy).toHaveBeenLastCalledWith({ view: 'columns' });
+      expect(getByTestId('current')).toHaveTextContent('columns');
+      expect(press(window, '1')).toBe(true);
+      expect(press(window, '3')).toBe(true);
+      expect(spy).toHaveBeenLastCalledWith({ view: 'columns' });
+    });
+
+    it('maps 1–6 to the views in switcher order', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} view="shelves" />);
+      const order = [
+        'covers',
+        'details',
+        'columns',
+        'gallery',
+        'mounts',
+        'shelves',
+      ];
+      order.forEach((view, i) => {
+        expect(press(window, String(i + 1))).toBe(true);
+        expect(spy).toHaveBeenLastCalledWith({ view });
+      });
+    });
+
+    it('follows the physical key on layouts where the digit needs Shift', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} />);
+      // AZERTY: the 2 key without Shift types "é".
+      expect(press(window, 'é', { metaKey: true, code: 'Digit2' })).toBe(true);
+      expect(spy).toHaveBeenLastCalledWith({ view: 'details' });
+    });
+
+    it('works with focus in the search box, without typing a digit', () => {
+      const spy = vi.fn();
+      const { getByRole } = render(<Harness spy={spy} />);
+      const search = getByRole('searchbox');
+      search.focus();
+      expect(press(search, '2', { ctrlKey: true })).toBe(true);
+      expect(spy).toHaveBeenLastCalledWith({ view: 'details' });
+    });
+
+    it('takes the key but asks for nothing when the view is already shown', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} />);
+      expect(press(window, '1')).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('ignores 0, 7–9, Alt, Shift and a plain digit', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} view="details" />);
+      expect(press(window, '7')).toBe(false);
+      expect(press(window, '3', {})).toBe(false);
+      expect(press(window, '3', { metaKey: true, altKey: true })).toBe(false);
+      expect(
+        press(window, '#', { metaKey: true, shiftKey: true, code: 'Digit3' }),
+      ).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it.each(['dialog', 'alertdialog'])(
+      'stands down behind an open Radix %s',
+      (role) => {
+        const spy = vi.fn();
+        render(<Harness spy={spy} />);
+        const el = dialogOpen(role);
+        expect(press(window, '3', { ctrlKey: true })).toBe(false);
+        el.remove();
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('stands down while disabled (an overlay is open)', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} enabled={false} />);
+      expect(press(window, '3', { ctrlKey: true })).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('leaves a key another handler already took', () => {
+      const spy = vi.fn();
+      const { getByTestId } = render(<Harness spy={spy} />);
+      const view = getByTestId('view');
+      const taken = (ev: Event) => ev.preventDefault();
+      view.addEventListener('keydown', taken);
+      press(view, '3', { ctrlKey: true });
+      view.removeEventListener('keydown', taken);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('⌘+ in Details is still left alone', () => {
+      const spy = vi.fn();
+      render(<Harness spy={spy} view="details" />);
+      expect(press(window, '+')).toBe(false);
       expect(spy).not.toHaveBeenCalled();
     });
   });
