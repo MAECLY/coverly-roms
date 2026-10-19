@@ -129,6 +129,19 @@ describe('reasonText', () => {
     ).toBe('Se queda: tiene tu partida (Tetris.sav).');
   });
 
+  it('a single play reads in the singular', () => {
+    const once: KeepReasonView = { kind: 'played', playcount: 1 };
+    expect(reasonText(tr('es'), once, {})).toBe(
+      'Se queda: es la que has jugado (1 vez).',
+    );
+    expect(reasonText(tr('en'), once, {})).toBe(
+      "Stays: it's the one you played (once).",
+    );
+    expect(reasonText(tr('es'), { kind: 'played', playcount: 3 }, {})).toBe(
+      'Se queda: es la que has jugado (3 veces).',
+    );
+  });
+
   it('never says eliminar or borrar in Spanish', () => {
     for (const reason of samples())
       expect(reasonText(tr('es'), reason, {})).not.toMatch(/elimin|borr/i);

@@ -47,7 +47,9 @@ export function reasonText(
     case 'has-save':
       return t('dedupe.why.hasSave', { path: fileName(reason.path) });
     case 'played':
-      return t('dedupe.why.played', { count: reason.playcount });
+      return reason.playcount === 1
+        ? t('dedupe.why.playedOnce')
+        : t('dedupe.why.played', { count: reason.playcount });
     case 'in-library':
       return t('dedupe.why.inLibrary');
     case 'verified':

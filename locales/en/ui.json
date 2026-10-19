@@ -403,6 +403,7 @@
       "user": "Stays: you chose it.",
       "hasSave": "Stays: it has your save ({path}).",
       "played": "Stays: it's the one you played ({count} times).",
+      "playedOnce": "Stays: it's the one you played (once).",
       "inLibrary": "Stays: it was already in your library.",
       "verified": "Stays: {kept}; {other}.",
       "retail": "Stays: retail release; the other is {other}.",

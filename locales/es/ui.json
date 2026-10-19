@@ -403,6 +403,7 @@
       "user": "Se queda: lo has elegido tú.",
       "hasSave": "Se queda: tiene tu partida ({path}).",
       "played": "Se queda: es la que has jugado ({count} veces).",
+      "playedOnce": "Se queda: es la que has jugado (1 vez).",
       "inLibrary": "Se queda: ya estaba en tu biblioteca.",
       "verified": "Se queda: {kept}; {other}.",
       "retail": "Se queda: versión comercial; la otra es {other}.",
