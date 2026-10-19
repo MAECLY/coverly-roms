@@ -522,7 +522,8 @@ export function ShelvesView({
     <div
       ref={ref}
       role="grid"
-      aria-label={t('layouts.shelves')}
+      aria-label={t('layouts.announce', { view: t('layouts.shelves') })}
+      data-view-root=""
       aria-rowcount={sections.length * 2}
       aria-colcount={maxCells}
       aria-activedescendant={activeDescendant}

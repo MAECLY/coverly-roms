@@ -188,7 +188,8 @@ export function MountsView({
     <div
       ref={ref}
       role="grid"
-      aria-label={t('layouts.mounts')}
+      aria-label={t('layouts.announce', { view: t('layouts.mounts') })}
+      data-view-root=""
       aria-rowcount={rows.length}
       aria-colcount={COLS}
       aria-activedescendant={

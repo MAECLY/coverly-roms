@@ -465,6 +465,7 @@ export function ColumnsView({
       ref={rootRef}
       role="group"
       aria-label={t('layouts.announce', { view: t('layouts.columns') })}
+      data-view-root=""
       tabIndex={-1}
       className="miller"
       onFocus={(ev) => {

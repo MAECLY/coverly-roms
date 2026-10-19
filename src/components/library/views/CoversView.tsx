@@ -123,7 +123,8 @@ export function CoversView({
     <div
       ref={ref}
       role="grid"
-      aria-label={t('library.grid.label')}
+      aria-label={t('layouts.announce', { view: t('layouts.covers') })}
+      data-view-root=""
       aria-rowcount={rows.length}
       aria-colcount={columns}
       aria-activedescendant={

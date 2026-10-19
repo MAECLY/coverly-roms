@@ -366,7 +366,8 @@ export function DetailsView({
       <div
         ref={ref}
         role="grid"
-        aria-label={t('library.table.label')}
+        aria-label={t('layouts.announce', { view: t('layouts.details') })}
+        data-view-root=""
         aria-rowcount={rows.length + 1}
         aria-colcount={columns.length}
         aria-activedescendant={

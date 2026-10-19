@@ -231,7 +231,7 @@ describe('Detail drawer', () => {
     const view = await setup();
     act(() => useViewStore.getState().setPrefs({ view: 'mounts' }));
     try {
-      const grid = screen.getByRole('grid', { name: 'Art slots' });
+      const grid = screen.getByRole('grid', { name: 'Art slots view' });
       grid.focus();
       fireEvent.keyDown(grid, { key: 'ArrowDown' });
       const id = Number(
@@ -373,7 +373,7 @@ describe('Detail drawer', () => {
   it('follows the keyboard selection', async () => {
     const view = await setup();
     show(view.entries[0]!);
-    const grid = screen.getByRole('grid', { name: 'ROM covers' });
+    const grid = screen.getByRole('grid', { name: 'Covers view' });
     fireEvent.keyDown(grid, { key: 'ArrowRight' });
     expect(
       screen.getByRole('complementary', { name: view.entries[1]!.name }),
@@ -411,7 +411,7 @@ describe('Detail drawer', () => {
     it('opens on selection and leaves the focus in the view', async () => {
       const view = await setup();
       dock('covers');
-      const grid = screen.getByRole('grid', { name: 'ROM covers' });
+      const grid = screen.getByRole('grid', { name: 'Covers view' });
       expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
       grid.focus();
       act(() => useSelectionStore.getState().select(view.entries[0]!.id));

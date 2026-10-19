@@ -69,7 +69,7 @@ function Harness({
   );
 }
 
-const grid = () => screen.getByRole('grid', { name: 'Shelves' });
+const grid = () => screen.getByRole('grid', { name: 'Shelves view' });
 const active = () =>
   document.getElementById(grid().getAttribute('aria-activedescendant') ?? '');
 const stripOf = (i: number) =>

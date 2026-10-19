@@ -81,7 +81,7 @@ describe('MountsView', () => {
 
   it('is a four-column grid with fixed 112px rows', () => {
     render(<Harness entries={big.entries.slice(0, 20)} />);
-    const grid = screen.getByRole('grid', { name: 'Art slots' });
+    const grid = screen.getByRole('grid', { name: 'Art slots view' });
     expect(grid).toHaveAttribute('aria-colcount', '4');
     const row = screen.getAllByRole('row')[0]!;
     expect(row.style.height).toBe(`${MOUNT_ROW_H}px`);

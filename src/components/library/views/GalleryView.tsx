@@ -260,6 +260,7 @@ export function GalleryView({
     <div
       role="group"
       aria-label={t('layouts.announce', { view: t('layouts.gallery') })}
+      data-view-root=""
       tabIndex={-1}
       className="gallery"
       onFocus={(ev) => {
