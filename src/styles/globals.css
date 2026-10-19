@@ -653,6 +653,14 @@ time {
   overflow-wrap: anywhere;
 }
 
+/* A slot with art whose image is still loading (or failed to load) is
+   still a filled slot: solid, never the dashed missing outline. */
+.mount-slot[data-slot-state='filled'] .art-placeholder {
+  background-image: none;
+  background-color: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+  box-shadow: inset 0 0 0 var(--cr-border-width-slot) var(--cr-slot-filled);
+}
+
 .mount-slot__unsupported {
   display: grid;
   place-items: center;
