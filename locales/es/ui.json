@@ -465,6 +465,9 @@
       "title": "Pantalla de título",
       "screenshot": "Captura"
     },
+    "columnMoveLeft": "Mover a la izquierda",
+    "columnMoveRight": "Mover a la derecha",
+    "columnResize": "Ajustar el ancho de {column}",
     "inspector": "Panel de detalles",
     "seeAll": "Ver todo",
     "announce": "Vista: {view}",

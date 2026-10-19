@@ -465,6 +465,9 @@
       "title": "Title screen",
       "screenshot": "Screenshot"
     },
+    "columnMoveLeft": "Move left",
+    "columnMoveRight": "Move right",
+    "columnResize": "Resize {column}",
     "inspector": "Details pane",
     "seeAll": "See all",
     "announce": "{view} view",

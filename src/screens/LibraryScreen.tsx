@@ -166,6 +166,8 @@ export function LibraryScreen() {
       <EntryTable
         {...list}
         sections={sections}
+        prefs={prefs}
+        setPrefs={setPrefs}
         onPreview={setPreviewId}
         sort={sort}
         onSort={toggleSort}

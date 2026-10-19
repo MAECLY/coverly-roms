@@ -17,6 +17,21 @@ export interface RowModel {
   headerRows: readonly number[];
 }
 
+/** Sections that cover `count` entries exactly, or one section for all. */
+export function coveringSections(
+  sections: readonly Section[],
+  count: number,
+): readonly Section[] {
+  let next = 0;
+  for (const s of sections) {
+    if (s.start !== next) break;
+    next += s.count;
+  }
+  return sections.length > 0 && next === count
+    ? sections
+    : [{ key: ALL_SECTION_KEY, label: '', start: 0, count }];
+}
+
 /** `perRow` items per row (1 for lists). With one 'none' section no header row is emitted. */
 export function buildRowModel(
   sections: readonly Section[],

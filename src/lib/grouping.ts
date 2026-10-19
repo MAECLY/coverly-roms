@@ -66,7 +66,10 @@ export function letterOf(name: string): string {
 }
 
 /** `dir` relative to the system folder (`''` at the system root). */
-function relativeDir(dir: string, system: SystemView | undefined): string {
+export function relativeDir(
+  dir: string,
+  system: SystemView | undefined,
+): string {
   if (!system) return dir;
   if (dir === system.dir) return '';
   const prefix = `${system.dir}/`;

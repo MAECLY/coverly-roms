@@ -25,6 +25,8 @@ export function ArtThumb({
         src={url}
         alt=""
         draggable={false}
+        loading="lazy"
+        decoding="async"
         className={`art-thumb ${className}`}
       />
     );

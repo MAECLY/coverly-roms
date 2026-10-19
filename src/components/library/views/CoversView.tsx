@@ -16,9 +16,8 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { COVER_GAP, COVER_SIZES, columnsFor } from '@/lib/coverSizes';
 import { formatSize } from '@/lib/format';
-import { ALL_SECTION_KEY, type Section } from '@/lib/grouping';
 import { nextIndex } from '@/lib/keyboardNav';
-import { buildRowModel, moveVertical } from '@/lib/rowModel';
+import { buildRowModel, coveringSections, moveVertical } from '@/lib/rowModel';
 import { REGION_CODE, titleWithoutRegions } from '@/lib/tileLabel';
 
 import { ArtStatusIcon } from '../ArtStatusIcon';
@@ -36,21 +35,6 @@ const VERTICAL: Readonly<Record<string, 1 | -1>> = {
   PageDown: 1,
   PageUp: -1,
 };
-
-/** Sections that cover `count` entries exactly, or one section for all. */
-function coveringSections(
-  sections: readonly Section[],
-  count: number,
-): readonly Section[] {
-  let next = 0;
-  for (const s of sections) {
-    if (s.start !== next) break;
-    next += s.count;
-  }
-  return sections.length > 0 && next === count
-    ? sections
-    : [{ key: ALL_SECTION_KEY, label: '', start: 0, count }];
-}
 
 /** Covers (⌘1): the cover grid, in rows of tiles under section headers. */
 export function CoversView({

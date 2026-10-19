@@ -295,7 +295,8 @@ time {
 .cover-tile__art .art-placeholder,
 .art-ws__thumb .art-placeholder,
 .review-current .art-placeholder,
-.quick-look__art .art-placeholder {
+.quick-look__art .art-placeholder,
+.cell--thumb .art-placeholder {
   --slot-w: var(--cr-border-width-slot);
   --slot-solid: linear-gradient(var(--cr-slot-missing), var(--cr-slot-missing));
   --slot-dash-x: repeating-linear-gradient(
@@ -460,9 +461,14 @@ time {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) 10rem 6rem 8rem repeat(3, 5.5rem);
+  /* From the picked columns and their widths (DetailsView sets it). */
+  grid-template-columns: var(
+    --details-cols,
+    minmax(200px, 1fr) 160px 90px 128px repeat(3, 88px)
+  );
   align-items: center;
   width: 100%;
+  min-width: max-content;
   border-bottom: 1px solid var(--cr-border);
   cursor: pointer;
 }
@@ -473,11 +479,17 @@ time {
 
 .entry-row--head {
   position: sticky;
-  z-index: 1;
+  z-index: 3;
   height: 34px;
   background: var(--cr-surface);
   font-weight: 600;
   cursor: default;
+}
+
+/* Compact density (Explorer's compact view): 24px rows, still the
+   WCAG 2.5.8 target size. */
+.entry-row--compact {
+  height: 24px;
 }
 
 .cell {
@@ -489,18 +501,96 @@ time {
 }
 
 .cell--size,
-.cell--mark {
+.cell--cover,
+.cell--title,
+.cell--screenshot {
   text-align: right;
 }
 
-/* Narrow windows: tighter columns so the three art columns, the point of
-   the list, stay on screen instead of behind a horizontal scroll. */
-@media (max-width: 1180px) {
-  .entry-row {
-    grid-template-columns: minmax(8rem, 1fr) 7rem 5rem 7rem repeat(3, 4rem);
-  }
+.cell--ext {
+  color: var(--cr-text-secondary);
+}
 
-  .cell--mark {
+.cell--head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.cell--size.cell--head,
+.cell--cover.cell--head,
+.cell--title.cell--head,
+.cell--screenshot.cell--head {
+  justify-content: flex-end;
+}
+
+.cell__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The column edge: an 8px grab area on the header's trailing edge, drawn
+   as a hairline that darkens on hover and takes the Buckram focus ring. */
+.column-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.column-edge::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  right: 0;
+  bottom: 25%;
+  width: var(--cr-border-width-hairline);
+  background: var(--cr-border);
+}
+
+.column-edge:hover::after {
+  background: var(--cr-text-secondary);
+}
+
+.column-edge:focus-visible::after,
+.column-edge:active::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cr-primary);
+}
+
+/* Thumb column: a 24px cover (20px compact), loaded lazily. */
+.cell--thumb {
+  display: flex;
+  align-items: center;
+}
+
+.cell--thumb .art-thumb {
+  width: 24px;
+  height: 24px;
+  aspect-ratio: auto;
+  padding: 0;
+  border-radius: var(--cr-radius-sm);
+  object-fit: cover;
+}
+
+.entry-row--compact .cell--thumb .art-thumb {
+  width: 20px;
+  height: 20px;
+}
+
+/* Narrow windows: tighter mark cells so the art columns, the point of the
+   list, keep their marks in view. */
+@media (max-width: 1180px) {
+  .cell--cover,
+  .cell--title,
+  .cell--screenshot {
     padding: 0 0.25rem;
   }
 }
