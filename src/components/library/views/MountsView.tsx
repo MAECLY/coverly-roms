@@ -280,7 +280,7 @@ export function MountsView({
                   mark === 'present'
                     ? `${mediaName}: ${t('layouts.slotHas')}`
                     : mark === 'missing'
-                      ? t('layouts.slotMissing', { media: mediaName })
+                      ? t(`art.none.${media}`)
                       : t('art.status', {
                           media: mediaName,
                           state: t('art.mark.unsupported'),

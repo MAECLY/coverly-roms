@@ -110,10 +110,10 @@ describe('MountsView', () => {
     ]);
   });
 
-  it('draws a missing slot dashed and names it "No Cover"', () => {
+  it('draws a missing slot dashed and names it as its placeholder reads', () => {
     const entry = big.entries.find((e) => e.art.cover === 'missing')!;
     render(<Harness entries={[entry]} />);
-    const cell = screen.getByRole('gridcell', { name: 'No Cover' });
+    const cell = screen.getByRole('gridcell', { name: 'No cover' });
     expect(cell).toHaveAttribute('data-slot-state', 'missing');
   });
 
