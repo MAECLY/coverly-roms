@@ -258,6 +258,13 @@ pub trait DatLookup: Send + Sync {
 
     /// Entries of `system`'s catalogues with this normalised serial.
     fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit>;
+
+    /// Whether `name` is a set (game) name in `system`'s catalogues: an
+    /// arcade core loads a set by its zip stem. `None` when no catalogue
+    /// of `system` is at hand, so names cannot be told apart.
+    fn set_name(&self, _system: &str, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// A [`DatLookup`] with no catalogue: offline, or nothing cached.
@@ -308,6 +315,24 @@ impl DatLookup for CacheDats<'_> {
             .flat_map(|dat| self.cache.dat_by_serial(dat, serial).unwrap_or_default())
             .map(|r| hit(r.game))
             .collect()
+    }
+
+    fn set_name(&self, system: &str, name: &str) -> Option<bool> {
+        let cached = self.cache.cached_dats().ok()?;
+        let dats: Vec<String> = self
+            .dats(system)
+            .into_iter()
+            .filter(|d| cached.contains(d))
+            .collect();
+        if dats.is_empty() {
+            return None;
+        }
+        let name = name.to_lowercase();
+        Some(dats.iter().any(|dat| {
+            self.cache
+                .dat_rows_of_game(dat, &name)
+                .is_ok_and(|rows| !rows.is_empty())
+        }))
     }
 }
 

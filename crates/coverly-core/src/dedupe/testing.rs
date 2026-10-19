@@ -272,6 +272,8 @@ impl<L: EntryListing> EntryListing for CountingListing<L> {
 pub struct FakeDats {
     crcs: HashMap<(String, u32), Vec<DatHit>>,
     serials: HashMap<(String, String), Vec<DatHit>>,
+    /// Systems with a set-name list, and their names.
+    sets: HashMap<String, HashSet<String>>,
 }
 
 impl FakeDats {
@@ -314,6 +316,18 @@ impl FakeDats {
     }
 }
 
+impl FakeDats {
+    /// `system`'s catalogue lists a set named `name`; a system with any
+    /// set listed has a catalogue for [`DatLookup::set_name`].
+    pub fn with_set(mut self, system: &str, name: &str) -> FakeDats {
+        self.sets
+            .entry(system.to_string())
+            .or_default()
+            .insert(name.to_lowercase());
+        self
+    }
+}
+
 impl DatLookup for FakeDats {
     fn by_crc(&self, system: &str, crc32: u32, _size: u64) -> Vec<DatHit> {
         self.crcs
@@ -327,5 +341,11 @@ impl DatLookup for FakeDats {
             .get(&(system.to_string(), serial.to_string()))
             .cloned()
             .unwrap_or_default()
+    }
+
+    fn set_name(&self, system: &str, name: &str) -> Option<bool> {
+        self.sets
+            .get(system)
+            .map(|names| names.contains(&name.to_lowercase()))
     }
 }

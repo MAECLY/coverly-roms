@@ -13,7 +13,7 @@ use sha1::{Digest, Sha1};
 use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 
 pub mod companions;
-mod group;
+pub mod group;
 pub mod keeper;
 pub mod keys;
 mod plan;
