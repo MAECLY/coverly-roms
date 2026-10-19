@@ -1,6 +1,13 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '@/App';
 import { I18nProvider } from '@/i18n/I18nProvider';
@@ -9,12 +16,21 @@ import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
 import { applyFilters, EMPTY_FILTERS } from '@/lib/filters';
 import { dateBucket } from '@/lib/scope';
+import {
+  DEFAULT_PREFS,
+  prefsFor,
+  readPrefsFile,
+  VIEW_IDS,
+  type ViewId,
+} from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
+import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
 import { stubLayout } from '@/test/layout';
+import { MemoryStorage } from '@/test/storage';
 
 const SMALL = MOCK_LIBRARIES[1].path;
 const EMPTY = MOCK_LIBRARIES[2].path;
@@ -130,27 +146,6 @@ describe('Library screen', () => {
       within(panel).getByRole('button', { name: 'Clear filters' }),
     );
     expect(await screen.findByText('240 of 240 ROMs')).toBeInTheDocument();
-  });
-
-  it('toggles between covers and details', async () => {
-    await openLibrary();
-    const layout = screen.getByRole('radiogroup', { name: 'View' });
-    expect(within(layout).getByRole('radio', { name: 'Covers' })).toBeChecked();
-    await userEvent.click(
-      within(layout).getByRole('radio', { name: 'Details' }),
-    );
-    expect(
-      screen.getByRole('grid', { name: 'Details view' }),
-    ).toBeInTheDocument();
-    expect(
-      within(layout).getByRole('radio', { name: 'Details' }),
-    ).toBeChecked();
-    await userEvent.click(
-      within(layout).getByRole('radio', { name: 'Covers' }),
-    );
-    expect(
-      screen.getByRole('grid', { name: 'Covers view' }),
-    ).toBeInTheDocument();
   });
 
   it('moves focus to the new view, named after it, only after a switch', async () => {
@@ -402,5 +397,319 @@ describe('Library screen', () => {
       useOrganizeStore.getState().reset();
       useNavStore.getState().closeOrganize();
     });
+  });
+});
+
+const VIEW_NAMES: Record<ViewId, string> = {
+  covers: 'Covers',
+  details: 'Details',
+  columns: 'Columns',
+  gallery: 'Gallery',
+  mounts: 'Art slots',
+  shelves: 'Shelves',
+};
+/** The role of each view's root (spec §B.8). */
+const VIEW_ROLES: Record<ViewId, 'grid' | 'group'> = {
+  covers: 'grid',
+  details: 'grid',
+  columns: 'group',
+  gallery: 'group',
+  mounts: 'grid',
+  shelves: 'grid',
+};
+
+function viewRoot(id: ViewId): HTMLElement {
+  return screen.getByRole(VIEW_ROLES[id], { name: `${VIEW_NAMES[id]} view` });
+}
+
+function mountApp() {
+  return render(
+    <I18nProvider locale="en">
+      <App />
+    </I18nProvider>,
+  );
+}
+
+/** Every library touched here back to the default prefs. */
+function resetPrefs() {
+  act(() => {
+    for (const root of [EMPTY, SMALL]) {
+      useViewStore.getState().loadFor(root);
+      useViewStore.getState().setPrefs({ ...DEFAULT_PREFS });
+    }
+    useViewStore.getState().reset();
+    useSelectionStore.getState().select(null);
+  });
+}
+
+function press(target: Element, key: string, mod: 'meta' | 'ctrl') {
+  return fireEvent.keyDown(target, {
+    key,
+    metaKey: mod === 'meta',
+    ctrlKey: mod === 'ctrl',
+  });
+}
+
+describe('Library views', () => {
+  let restore: () => void;
+  let storage: MemoryStorage;
+  beforeEach(() => {
+    restore = stubLayout(1440, 900);
+    storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+  });
+  afterEach(() => {
+    resetPrefs();
+    vi.unstubAllGlobals();
+    restore();
+    setBackend(null);
+  });
+
+  it('switches through all six views from the segments', async () => {
+    await openLibrary();
+    const switcher = screen.getByRole('radiogroup', { name: 'View' });
+    const radios = within(switcher).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('aria-label'))).toEqual(
+      VIEW_IDS.map((id) => VIEW_NAMES[id]),
+    );
+    const statuses = screen.queryAllByRole('status').length;
+    // Covers first is not a switch; start from Details so every view is one.
+    for (const id of [...VIEW_IDS.slice(1), 'covers' as const]) {
+      await userEvent.click(
+        within(switcher).getByRole('radio', { name: VIEW_NAMES[id] }),
+      );
+      expect(useViewStore.getState().prefs.view).toBe(id);
+      expect(
+        within(switcher).getByRole('radio', { name: VIEW_NAMES[id] }),
+      ).toBeChecked();
+      const root = viewRoot(id);
+      expect(root).toContainElement(document.activeElement as HTMLElement);
+      // The view's own name is the announcement: no extra live region.
+      expect(screen.queryAllByRole('status')).toHaveLength(statuses);
+    }
+  });
+
+  it.each(['meta', 'ctrl'] as const)(
+    'switches views with %s+1–6, also from the search box',
+    async (mod) => {
+      await openLibrary();
+      const search = screen.getByRole('searchbox', { name: 'Search by name' });
+      search.focus();
+      press(search, '3', mod);
+      expect(
+        await screen.findByRole('group', { name: 'Columns view' }),
+      ).toBeInTheDocument();
+      for (const [i, id] of VIEW_IDS.entries()) {
+        press(document.activeElement ?? document.body, String(i + 1), mod);
+        expect(useViewStore.getState().prefs.view).toBe(id);
+        expect(viewRoot(id)).toBeInTheDocument();
+      }
+    },
+  );
+
+  it('leaves the view alone while Fill is open', async () => {
+    await openLibrary();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Fill missing art' }),
+    );
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    press(document.activeElement ?? document.body, '3', 'ctrl');
+    expect(useViewStore.getState().prefs.view).toBe('covers');
+    act(() => useViewStore.getState().closeOverlay());
+  });
+
+  it('does not resize covers with Ctrl+= in Details', async () => {
+    await openLibrary();
+    press(document.body, '2', 'ctrl');
+    const grid = viewRoot('details');
+    const size = useViewStore.getState().prefs.coverSize;
+    const ev = new KeyboardEvent('keydown', {
+      key: '=',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      grid.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(false);
+    expect(useViewStore.getState().prefs.coverSize).toBe(size);
+  });
+
+  it('keeps the selection active across views', async () => {
+    const view = await openLibrary();
+    const covers = viewRoot('covers');
+    const tiles = covers.querySelectorAll<HTMLElement>('[id^="entry-"]');
+    const tile = tiles[2]!;
+    await userEvent.click(tile);
+    const id = useSelectionStore.getState().selectedId;
+    expect(id).not.toBeNull();
+    expect(tile.id).toBe(`entry-${id}`);
+    const switcher = screen.getByRole('radiogroup', { name: 'View' });
+
+    await userEvent.click(
+      within(switcher).getByRole('radio', { name: 'Details' }),
+    );
+    const details = viewRoot('details');
+    expect(details).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    const row = details.querySelector(`[id="entry-${id}"]`)!;
+    expect(row).toHaveAttribute('role', 'row');
+    expect(row).toHaveAttribute('aria-selected', 'true');
+
+    await userEvent.click(
+      within(switcher).getByRole('radio', { name: 'Columns' }),
+    );
+    const games = within(viewRoot('columns')).getByRole('listbox', {
+      name: /Games/,
+    });
+    expect(games).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    expect(games.querySelector(`[id="entry-${id}"]`)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    await userEvent.click(
+      within(switcher).getByRole('radio', { name: 'Gallery' }),
+    );
+    const strip = within(viewRoot('gallery')).getByRole('listbox', {
+      name: 'Filmstrip',
+    });
+    expect(strip).toHaveAttribute('aria-activedescendant', `entry-${id}`);
+    const entry = view.entries.find((e) => e.id === id)!;
+    expect(
+      within(strip).getByRole('option', { name: entry.name }),
+    ).toHaveAttribute('aria-selected', 'true');
+    expect(useSelectionStore.getState().selectedId).toBe(id);
+  });
+
+  it('restores the view after a remount', async () => {
+    await openLibrary();
+    await userEvent.click(
+      within(screen.getByRole('radiogroup', { name: 'View' })).getByRole(
+        'radio',
+        { name: 'Columns' },
+      ),
+    );
+    // Saved for this library, where a fresh start reads it back.
+    expect(prefsFor(readPrefsFile(storage), SMALL).view).toBe('columns');
+    cleanup();
+    mountApp();
+    expect(viewRoot('columns')).toBeInTheDocument();
+  });
+
+  it('keeps separate views for two libraries', async () => {
+    await openLibrary();
+    press(document.body, '3', 'ctrl');
+    expect(viewRoot('columns')).toBeInTheDocument();
+    await act(() => useLibraryStore.getState().open(EMPTY));
+    expect(useViewStore.getState().root).toBe(EMPTY);
+    act(() => useViewStore.getState().setView('shelves'));
+    await act(() => useLibraryStore.getState().open(SMALL));
+    expect(useViewStore.getState().root).toBe(SMALL);
+    expect(useViewStore.getState().prefs.view).toBe('columns');
+    expect(viewRoot('columns')).toBeInTheDocument();
+    const file = readPrefsFile(storage);
+    expect(prefsFor(file, EMPTY).view).toBe('shelves');
+    expect(prefsFor(file, SMALL).view).toBe('columns');
+  });
+
+  it.each(['covers', 'details', 'shelves'] as const)(
+    'shows system icons in the section headers of %s when grouped by system',
+    async (id) => {
+      const view = await openLibrary();
+      act(() =>
+        useViewStore.getState().setPrefs({ view: id, groupBy: 'system' }),
+      );
+      const headers = within(viewRoot(id)).getAllByRole('rowheader');
+      expect(headers.length).toBeGreaterThan(0);
+      const known = new Set(view.systems.map((s) => s.system_id ?? 'unknown'));
+      for (const header of headers) {
+        const icon = header.querySelector('[data-system-icon]');
+        expect(icon).not.toBeNull();
+        expect(known.has(icon!.getAttribute('data-system-icon')!)).toBe(true);
+      }
+    },
+  );
+
+  it('collapses the switcher into a usable menu when narrow', async () => {
+    restore();
+    restore = stubLayout(1000, 800);
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width: 1180px'),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    await openLibrary();
+    const trigger = screen.getByRole('button', { name: 'View, Covers' });
+    await userEvent.click(trigger);
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(6);
+    await userEvent.click(
+      within(menu).getByRole('menuitemradio', { name: /Gallery/ }),
+    );
+    expect(viewRoot('gallery')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'View, Gallery' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps compact rows in Details across a remount', async () => {
+    await openLibrary();
+    press(document.body, '2', 'ctrl');
+    await userEvent.click(screen.getByRole('button', { name: 'View options' }));
+    const dialog = await screen.findByRole('dialog', { name: 'View options' });
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: 'Compact' }),
+    );
+    await userEvent.keyboard('{Escape}');
+    expect(prefsFor(readPrefsFile(storage), SMALL).density).toBe('compact');
+    cleanup();
+    mountApp();
+    const rows = () =>
+      viewRoot('details').querySelectorAll('[role="row"][data-entry-id]');
+    expect(rows()[0]).toHaveClass('entry-row--compact');
+  });
+
+  it('shows system icons in the sidebar, the Details system cell and the drawer', async () => {
+    const view = await openLibrary();
+    const nav = screen.getByRole('navigation', { name: 'Views' });
+    await userEvent.click(within(nav).getByRole('tab', { name: 'Systems' }));
+    const gba = view.systems.find((s) => s.folder === 'GBA')!;
+    const item = within(nav).getByText(gba.name).closest('button')!;
+    expect(
+      item.querySelector(`[data-system-icon="${gba.system_id}"]`),
+    ).toHaveAttribute('aria-hidden', 'true');
+
+    act(() => useViewStore.getState().setView('details'));
+    const row = viewRoot('details').querySelector<HTMLElement>(
+      '[role="row"][data-entry-id]',
+    )!;
+    const entry = view.entries.find(
+      (e) => String(e.id) === row.dataset.entryId,
+    )!;
+    const system = view.systems[entry.system]!;
+    expect(
+      row.querySelector(
+        `[data-system-icon="${system.system_id ?? 'unknown'}"]`,
+      ),
+    ).not.toBeNull();
+
+    act(() => {
+      useSelectionStore.getState().select(entry.id);
+      useViewStore.getState().openDrawer();
+    });
+    const drawer = await screen.findByRole('complementary', {
+      name: entry.name,
+    });
+    expect(
+      drawer.querySelector(
+        `[data-system-icon="${system.system_id ?? 'unknown'}"]`,
+      ),
+    ).not.toBeNull();
   });
 });
