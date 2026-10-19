@@ -561,6 +561,54 @@ fn gamelist_path(system_dir: &Path) -> PathBuf {
     variant.unwrap_or_else(|| system_dir.join(GAMELIST_FILE))
 }
 
+/// The text of the gamelist at `path`, bounded; `None` when there is none.
+fn read_existing(path: &Path) -> Result<Option<String>, String> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => {
+            if m.len() > MAX_GAMELIST_BYTES as u64 {
+                return Err(MergeError::TooLarge.to_string());
+            }
+            // Bounded even if the file grows or is swapped after the check.
+            let mut bytes = Vec::new();
+            fs::File::open(path)
+                .and_then(|f| {
+                    f.take(MAX_GAMELIST_BYTES as u64 + 1)
+                        .read_to_end(&mut bytes)
+                })
+                .map_err(|e| e.to_string())?;
+            if bytes.len() > MAX_GAMELIST_BYTES {
+                return Err(MergeError::TooLarge.to_string());
+            }
+            Ok(Some(
+                String::from_utf8(bytes).map_err(|_| MergeError::NotUtf8.to_string())?,
+            ))
+        }
+        Ok(_) => Err(MergeError::NotAFile.to_string()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// The plain-text fields of the `<game>` of `system_dir/gamelist.xml`
+/// whose `<path>` is `rom` (relative to the system dir), in file order:
+/// the exact spelling first, then ignoring case (as ES does). `None` when
+/// there is no gamelist, it cannot be read or parsed, or no game matches.
+/// Fields holding markup are left out.
+pub fn game_fields(system_dir: &Path, rom: &Path) -> Option<Vec<(String, String)>> {
+    let xml = read_existing(&gamelist_path(system_dir)).ok()??;
+    let doc = scan(&xml).ok()?;
+    let index = PathIndex::new(&xml, &doc);
+    let i = index.find(&norm(&rel_slash(rom)), &[])?;
+    let game = doc.games.get(i)?;
+    Some(
+        game.children
+            .iter()
+            .filter(|c| sliceable(&xml, c))
+            .filter_map(|c| text_of(&xml, c).map(|t| (c.name.clone(), t)))
+            .collect(),
+    )
+}
+
 /// Merges `games` into `system_dir/gamelist.xml` (or its on-disk spelling)
 /// through `writer` (backed up and journaled; Undo restores it).
 /// `Ok(false)` when nothing changed. Errors are warnings for the job
@@ -575,28 +623,7 @@ pub fn merge_into(
         return Err("no system folder for gamelist.xml".into());
     }
     let path = gamelist_path(system_dir);
-    let existing = match fs::symlink_metadata(&path) {
-        Ok(m) if m.file_type().is_file() => {
-            if m.len() > MAX_GAMELIST_BYTES as u64 {
-                return Err(MergeError::TooLarge.to_string());
-            }
-            // Bounded even if the file grows or is swapped after the check.
-            let mut bytes = Vec::new();
-            fs::File::open(&path)
-                .and_then(|f| {
-                    f.take(MAX_GAMELIST_BYTES as u64 + 1)
-                        .read_to_end(&mut bytes)
-                })
-                .map_err(|e| e.to_string())?;
-            if bytes.len() > MAX_GAMELIST_BYTES {
-                return Err(MergeError::TooLarge.to_string());
-            }
-            Some(String::from_utf8(bytes).map_err(|_| MergeError::NotUtf8.to_string())?)
-        }
-        Ok(_) => return Err(MergeError::NotAFile.to_string()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e.to_string()),
-    };
+    let existing = read_existing(&path)?;
     let exists = |rel: &str| {
         let n = norm(rel);
         let p = Path::new(&n);

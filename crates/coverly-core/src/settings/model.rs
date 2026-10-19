@@ -491,6 +491,24 @@ fn default_container_order() -> BTreeMap<String, BTreeMap<String, Vec<String>>> 
     out
 }
 
+/// The container order for one system in a `container_order` map (as
+/// [`DedupeSettings::container_for`]); `None` = no preference.
+pub fn container_order_for<'a>(
+    map: &'a BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    profile: &str,
+    system: &str,
+    class: ContainerClass,
+) -> Option<&'a [String]> {
+    [profile, "*"]
+        .iter()
+        .filter_map(|p| map.get(*p))
+        .flat_map(|m| [system, class.key(), "*"].map(|k| m.get(k)))
+        .flatten()
+        .next()
+        .map(Vec::as_slice)
+        .filter(|order| !order.is_empty())
+}
+
 /// Finding and setting aside duplicate ROMs (duplicates spec §13).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -551,14 +569,7 @@ impl DedupeSettings {
         system: &str,
         class: ContainerClass,
     ) -> Option<&[String]> {
-        [profile, "*"]
-            .iter()
-            .filter_map(|p| self.container_order.get(*p))
-            .flat_map(|m| [system, class.key(), "*"].map(|k| m.get(k)))
-            .flatten()
-            .next()
-            .map(Vec::as_slice)
-            .filter(|order| !order.is_empty())
+        container_order_for(&self.container_order, profile, system, class)
     }
 
     /// Spelling and duplicates of the lists; missing rules appended, on.
