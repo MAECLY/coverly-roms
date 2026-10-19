@@ -480,7 +480,9 @@
     "folderRoot": "(root)",
     "previewEmpty": "Choose a game to see its art and file.",
     "slotHas": "has art",
-    "slotMissing": "No {media}"
+    "slotMissing": "No {media}",
+    "filmstrip": "Filmstrip",
+    "fillThisGame": "Fill this game"
   },
   "filters": {
     "art": "Art",

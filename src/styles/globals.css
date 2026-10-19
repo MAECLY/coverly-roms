@@ -886,6 +886,237 @@ time {
   font: var(--cr-type-app-base);
 }
 
+/* Gallery (spec §B.4.4): one game's art large on a sunken mat, its facts in
+   a 280px pane beside it, and an 88px filmstrip of 64px thumbnails below.
+   Group boundaries are a shelf rule stood on end: a hairline with the 3px
+   Buckram cap, in the gutter before the group's first game. */
+.gallery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(0, 1fr) 88px;
+  height: 100%;
+  outline: none;
+}
+
+.gallery__stage {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  gap: 0;
+  background: var(--cr-surface-sunken);
+}
+
+.gallery__tabs {
+  padding: 0 1rem;
+  background: var(--cr-surface);
+}
+
+.gallery__frame {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 1.5rem;
+  outline: none;
+}
+
+.gallery__art {
+  height: 100%;
+  max-width: 100%;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+  box-shadow: var(--cr-shadow-raised);
+}
+
+.gallery__art--cover {
+  aspect-ratio: 25 / 36;
+}
+
+.gallery__art--wide {
+  aspect-ratio: 4 / 3;
+}
+
+/* No art yet: the Slot itself, dashed, with no lift off the mat. */
+.gallery__art[data-slot-state='missing'],
+.gallery__art[data-slot-state='unsupported'] {
+  box-shadow: none;
+}
+
+.gallery__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.gallery__placeholder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  font: var(--cr-type-app-base);
+}
+
+.gallery__strip {
+  grid-column: 1;
+  grid-row: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  background: var(--cr-surface);
+  outline: none;
+}
+
+.gallery__strip:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
+.gallery__track {
+  height: 100%;
+}
+
+.gallery__cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+.gallery__thumb {
+  position: relative;
+  width: 56px;
+  height: 64px;
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+}
+
+.gallery__thumb .art-thumb {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: var(--cr-radius-sm);
+}
+
+.gallery__thumb:hover {
+  box-shadow: 0 0 0 1px var(--cr-border-strong);
+}
+
+/* The chosen game: a ring, and the Buckram spine under it, as a tab. */
+.gallery__thumb[aria-selected='true'] {
+  box-shadow: 0 0 0 2px var(--cr-border-strong);
+}
+
+.gallery__strip:focus .gallery__thumb[aria-selected='true'] {
+  box-shadow: 0 0 0 2px var(--cr-accent);
+}
+
+.gallery__thumb[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: -8px;
+  left: 8px;
+  height: var(--cr-border-width-spine);
+  border-radius: var(--cr-radius-full);
+  background: var(--cr-primary);
+}
+
+.gallery__marker {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: var(--cr-border-width-hairline);
+  background: var(--cr-border-strong);
+}
+
+.gallery__marker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--cr-border-width-hairline));
+  width: var(--cr-border-width-spine);
+  height: 1.25rem;
+  background: var(--cr-primary);
+}
+
+.gallery__meta {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  padding: 1.25rem 1rem;
+  overflow-y: auto;
+  border-left: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.gallery__title {
+  font-family: var(--cr-font-display);
+  font-size: 1.125rem;
+  font-stretch: 87.5%;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.gallery__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery__slots {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem 0.625rem;
+  align-items: center;
+  margin: 0.25rem 0 0;
+  padding: 0.75rem 0 0;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  list-style: none;
+  font: var(--cr-type-app-base);
+}
+
+.gallery__slot {
+  display: contents;
+}
+
+.gallery__slot-state {
+  color: var(--cr-text-secondary);
+}
+
+.gallery__fill {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.gallery__empty {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+}
+
+/* The only motion here: each new large image fades in over 120 ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .gallery__art img {
+    transition: opacity 120ms var(--cr-ease-standard);
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
 /* Narrow windows: tighter mark cells so the art columns, the point of the
    list, keep their marks in view. */
 @media (max-width: 1180px) {
