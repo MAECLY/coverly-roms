@@ -80,6 +80,24 @@ describe('Reports panel', () => {
     expect(backend.exports[0]?.name).toBe('coverly-audit.csv');
   });
 
+  it('shows the system icon beside each audit row', async () => {
+    const view = await setup();
+    await userEvent.click(screen.getByRole('button', { name: 'Reports' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Reports' });
+    const table = within(dialog).getByRole('table', { name: 'Art audit' });
+    const first = auditSummary(view).systems[0]!;
+    const row = within(table).getByRole('row', {
+      name: new RegExp(`^${escapeRe(first.name)} ${first.roms} `),
+    });
+    const icon = row.querySelector(
+      `th [data-system-icon="${first.system_id ?? 'unknown'}"]`,
+    );
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(within(row).getByText(first.name)).toBeInTheDocument();
+    const total = within(table).getByRole('row', { name: /^Total / });
+    expect(total.querySelector('[data-system-icon]')).toBeNull();
+  });
+
   it('exports the last job report', async () => {
     const view = await setup();
     await useJobStore.getState().start(view.generation, {

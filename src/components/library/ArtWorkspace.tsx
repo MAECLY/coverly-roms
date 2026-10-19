@@ -97,9 +97,13 @@ const SLOT_STATE: Record<'present' | 'missing' | 'unsupported', SlotState> = {
 export function ArtWorkspace({
   view,
   entry,
+  initialMedia = null,
 }: {
   view: LibraryView;
   entry: EntryView;
+  /** The slot to open on (Art slots: Enter on a slot); else the first
+   *  missing one the layout can store. */
+  initialMedia?: Media | null;
 }) {
   const t = useT();
   const uid = useId();
@@ -116,9 +120,12 @@ export function ArtWorkspace({
   const canWrite = (m: Media) => writable.includes(m);
 
   const seq = useRef(0);
-  const [active, setActive] = useState<Media | null>(
-    () =>
-      writable.find((m) => entry.art[m] === 'missing') ?? writable[0] ?? null,
+  const [active, setActive] = useState<Media | null>(() =>
+    initialMedia !== null && writable.includes(initialMedia)
+      ? initialMedia
+      : (writable.find((m) => entry.art[m] === 'missing') ??
+        writable[0] ??
+        null),
   );
   // The slot just opened, ahead of the render: moving the focus onto it
   // (advance) makes the Radix tab report it again, which must be a no-op.

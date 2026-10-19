@@ -8,6 +8,36 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+
+- System icons beside every system name: sidebar, filters, the Details system
+  column and group rows, covers, the inspector, Reports, the fill wizard and
+  the organise screen. Neutral hardware silhouettes from RetroArch Assets'
+  Monochrome theme (CC BY 4.0, attributed in THIRD-PARTY-NOTICES.md), or a
+  short label in a Slot-shaped mount for systems with no neutral drawing and
+  for your own systems; a folder for one Coverly did not recognise.
+  `pnpm system-icons` regenerates them from a pinned commit.
+- Six library views, on ⌘/Ctrl+1–6: Covers, Details, Columns (system →
+  folder → game → preview), Gallery (large art with a filmstrip), Art slots
+  (cover, title and screenshot side by side) and Shelves (one row per
+  system). A View options popover holds what applies to the current view:
+  cover size in five stops (also ⌘/Ctrl +/−/0 and ⌘/Ctrl + wheel), art
+  shown, group by (system, folder, region, art status, first letter), sort,
+  Details columns (pick, reorder, resize, thumbnail column) and row density,
+  and a docked inspector (⌘/Ctrl+I).
+- One keyboard model in every view: arrows, Home/End, Page Up/Down, Enter to
+  open, type-ahead by name, ⌥↑/⌥↓ between groups, and Space for a Quick look
+  that steps through games with ←/→.
+- Each library remembers its view and options (the 20 most recent); a new
+  library opens with the last ones used.
+
+### Changed
+
+- Grid and List became Covers and Details. The saved choice carries over:
+  List opens Details, Grid opens Covers.
+- The narrow-window toolbar folds the views into one View menu that lists
+  their shortcuts.
+
 ## [0.1.0] - 2026-10-17
 
 ### Added

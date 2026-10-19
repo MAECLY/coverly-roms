@@ -56,6 +56,12 @@ describe('SystemGroups', () => {
       within(gba).getByRole('button', { name: /^ROMS\/GBA\/ \(1\)/ }),
     ).toHaveAttribute('aria-expanded', 'true');
     expect(within(gba).getByText('Game Boy Advance')).toBeInTheDocument();
+    // The system's icon sits beside its name on the group trigger.
+    expect(
+      within(gba)
+        .getByRole('button', { name: /^ROMS\/GBA\/ \(1\)/ })
+        .querySelector('[data-system-icon="gba"][aria-hidden="true"]'),
+    ).not.toBeNull();
     expect(
       within(gba).getByText(
         'Tetris Worlds (USA).zip → ROMS/GBA/Tetris Worlds (USA).zip',
@@ -184,6 +190,11 @@ describe('SystemGroups — a system the user chose', () => {
       name: 'System for mystery.rom',
     });
     expect(select).toHaveValue('gb');
+    // The chosen system's icon adorns the select, outside its wrapper.
+    const adornment = select.parentElement!.previousElementSibling;
+    expect(adornment).toHaveAttribute('data-system-icon', 'gb');
+    expect(adornment).toHaveAttribute('aria-hidden', 'true');
+    expect(select.querySelector('[data-system-icon]')).toBeNull();
     // Only the user's own choice is changeable, not the ladder's.
     expect(
       screen.queryByRole('combobox', { name: 'System for Tetris DX.zip' }),

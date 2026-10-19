@@ -283,12 +283,6 @@
   "library": {
     "count": "{n} ROMs",
     "close": "Cerrar biblioteca",
-    "grid": {
-      "label": "Portadas de las ROMs"
-    },
-    "table": {
-      "label": "Lista de ROMs"
-    },
     "empty": "No se han encontrado ROMs en esta carpeta.",
     "emptyHint": "Comprueba que has elegido la tarjeta SD o su carpeta de ROMs. Avisos: {n}.",
     "noMatch": "Ninguna ROM coincide con la búsqueda y los filtros.",
@@ -397,14 +391,94 @@
     "searchShort": "Buscar…",
     "filters": "Filtros",
     "filtersActive": "Filtros ({n})",
-    "layout": "Vista",
-    "grid": "Cuadrícula",
-    "list": "Lista",
     "fill": "Rellenar arte que falta",
     "jobs": "Trabajos",
     "jobsRunning": "Trabajos (en curso)",
     "jobsPaused": "Trabajos (en pausa)",
     "reports": "Informes"
+  },
+  "layouts": {
+    "label": "Vista",
+    "covers": "Portadas",
+    "details": "Detalles",
+    "mounts": "Huecos de arte",
+    "columns": "Columnas",
+    "gallery": "Galería",
+    "shelves": "Estantes",
+    "options": "Opciones de vista",
+    "density": "Densidad de filas",
+    "densityComfortable": "Cómoda",
+    "densityCompact": "Compacta",
+    "seeAllCount": "Ver los {n}",
+    "seeAllIn": "Ver los {n} de {group}",
+    "preview": "Vista rápida",
+    "previewPosition": "{n} de {total}",
+    "previewPrev": "Juego anterior",
+    "previewNext": "Juego siguiente",
+    "size": "Tamaño",
+    "sizeStops": {
+      "xs": "Mínimo",
+      "s": "Pequeño",
+      "m": "Mediano",
+      "l": "Grande",
+      "xl": "Máximo"
+    },
+    "art": "Arte que se muestra",
+    "artCover": "Portada",
+    "artTitle": "Pantalla de título",
+    "artScreenshot": "Captura",
+    "groupBy": "Agrupar por",
+    "group": {
+      "none": "Sin agrupar",
+      "system": "Sistema",
+      "folder": "Carpeta",
+      "region": "Región",
+      "art": "Estado del arte",
+      "letter": "Inicial",
+      "missingCover": "Sin portada",
+      "missingOther": "Falta otro arte",
+      "complete": "Completo",
+      "root": "{system} (raíz)",
+      "noRegion": "Sin región"
+    },
+    "groupCount": "{group}, {n} juegos",
+    "sortBy": "Ordenar por",
+    "sortLibrary": "Orden de la biblioteca",
+    "sortDescending": "Descendente",
+    "missingArtFirst": "Arte que falta primero",
+    "columnsPicker": "Columnas visibles",
+    "column": {
+      "thumb": "Miniatura",
+      "name": "Nombre",
+      "system": "Sistema",
+      "folder": "Carpeta",
+      "regions": "Regiones",
+      "ext": "Extensión",
+      "size": "Tamaño",
+      "mtime": "Modificado",
+      "cover": "Portada",
+      "title": "Pantalla de título",
+      "screenshot": "Captura"
+    },
+    "columnMoveLeft": "Mover a la izquierda",
+    "columnMoveRight": "Mover a la derecha",
+    "columnMoveUp": "Subir {column}",
+    "columnMoveDown": "Bajar {column}",
+    "columnResize": "Ajustar el ancho de {column}",
+    "inspector": "Panel de detalles",
+    "seeAll": "Ver todo",
+    "announce": "Vista: {view}",
+    "pane": {
+      "systems": "Sistemas",
+      "folders": "Carpetas",
+      "games": "Juegos",
+      "preview": "Vista previa"
+    },
+    "folderRoot": "(raíz)",
+    "previewEmpty": "Elige un juego para ver su arte y su archivo.",
+    "slotHas": "con arte",
+    "filmstrip": "Tira de juegos",
+    "fillThisGame": "Rellenar este juego"
   },
   "filters": {
     "art": "Arte",
@@ -904,5 +978,8 @@
     "loading": "Cargando",
     "notifications": "Notificaciones",
     "dismiss": "Descartar"
+  },
+  "systems": {
+    "unknown": "Carpeta sin sistema reconocido"
   }
 }

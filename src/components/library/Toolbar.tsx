@@ -2,8 +2,6 @@ import {
   ChevronLeft,
   FileText,
   FolderTree,
-  LayoutGrid,
-  List,
   ListChecks,
   Search,
   Settings,
@@ -17,19 +15,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from '@/components/ui/toggle-group';
 import { useT } from '@/i18n/useT';
 import type { LibraryView } from '@/ipc/types';
 import { activeFilterCount } from '@/lib/filters';
 import { useFilterStore } from '@/stores/filterStore';
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
-import { useViewStore, type Layout } from '@/stores/viewStore';
+import { useViewStore } from '@/stores/viewStore';
 
 import { Tip } from './Tip';
+import { ViewOptions } from './ViewOptions';
+import { ViewSwitcher } from './ViewSwitcher';
 
 export function Toolbar({
   view,
@@ -52,8 +48,6 @@ export function Toolbar({
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
   const setQuery = useFilterStore((s) => s.setQuery);
-  const layout = useViewStore((s) => s.layout);
-  const setLayout = useViewStore((s) => s.setLayout);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const toggleFilters = useViewStore((s) => s.toggleFilters);
   const close = useLibraryStore((s) => s.close);
@@ -133,28 +127,8 @@ export function Toolbar({
           </Badge>
         )}
       </Button>
-      <SegmentedControl
-        aria-label={t('toolbar.layout')}
-        value={layout}
-        onValueChange={(v) => setLayout(v as Layout)}
-      >
-        {/* Icon-only segments: the name is the aria-label, the tooltip
-            sits on a wrapper so it does not take the item's data-state. */}
-        <Tip content={t('toolbar.grid')}>
-          <span className="inline-flex">
-            <SegmentedControlItem value="grid" aria-label={t('toolbar.grid')}>
-              <LayoutGrid aria-hidden />
-            </SegmentedControlItem>
-          </span>
-        </Tip>
-        <Tip content={t('toolbar.list')}>
-          <span className="inline-flex">
-            <SegmentedControlItem value="list" aria-label={t('toolbar.list')}>
-              <List aria-hidden />
-            </SegmentedControlItem>
-          </span>
-        </Tip>
-      </SegmentedControl>
+      <ViewSwitcher />
+      <ViewOptions />
       <span className="toolbar-spacer" />
       {view.loose_files > 0 && (
         <Tip content={t('library.organizeLoose')}>

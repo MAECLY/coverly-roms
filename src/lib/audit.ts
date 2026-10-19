@@ -2,6 +2,9 @@ import type { LibraryView, Media } from '@/ipc/types';
 
 export interface AuditRow {
   folder: string;
+  /** Canonical system id, for the row's icon; null for the total row and
+   *  for a folder Coverly did not recognise. */
+  system_id: string | null;
   name: string;
   roms: number;
   /** ROMs missing each media the layout can store. */
@@ -25,6 +28,7 @@ export function auditSummary(view: LibraryView): AuditSummary {
     >;
   const rows: AuditRow[] = view.systems.map((s) => ({
     folder: s.folder,
+    system_id: s.system_id,
     name: s.name,
     roms: 0,
     missing: zero(),
@@ -32,6 +36,7 @@ export function auditSummary(view: LibraryView): AuditSummary {
   }));
   const total: AuditRow = {
     folder: '',
+    system_id: null,
     name: '',
     roms: 0,
     missing: zero(),

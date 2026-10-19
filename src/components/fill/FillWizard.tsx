@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -48,6 +49,7 @@ import {
   wizardDefaults,
   type FillScope,
 } from '@/lib/fill';
+import { systemByFolder } from '@/lib/systemLookup';
 import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -512,7 +514,16 @@ export function FillWizard({
           <tbody>
             {per_system.map((s) => (
               <tr key={s.folder}>
-                <th scope="row">{s.folder}</th>
+                <th scope="row">
+                  {/* The text stays the folder, as the plan reports it. */}
+                  <SystemLabel
+                    systemId={
+                      systemByFolder(view.systems, s.folder)?.system_id ?? null
+                    }
+                    name={s.folder}
+                    size={16}
+                  />
+                </th>
                 <td>{n.format(s.auto)}</td>
                 <td>{n.format(s.review)}</td>
                 <td>{n.format(s.none)}</td>

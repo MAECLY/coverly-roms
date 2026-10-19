@@ -1,6 +1,7 @@
 import { ChevronRight, Folder } from 'lucide-react';
 import { useId, useState } from 'react';
 
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -104,6 +105,7 @@ function Group({
           <span className="font-mono text-ui text-cr-text [overflow-wrap:anywhere]">
             {`${dir}/ (${group.items.length})`}
           </span>
+          <SystemIcon systemId={group.systemId} size={16} />
           <span className="text-caption font-normal text-cr-text-secondary">
             {row.systemName(group.systemId)}
           </span>
@@ -173,6 +175,7 @@ function Row({
             {t(confidence)}
           </Badge>
         )}
+        {changeable && <SystemIcon systemId={item.system_id} size={16} />}
         {changeable && (
           <NativeSelect
             size="sm"

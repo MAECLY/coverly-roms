@@ -8,6 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LocaleContext } from '@/i18n/core';
 
@@ -105,7 +106,12 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
     });
   }
 
-  const scopeButton = (target: Scope, label: string, count: number) => (
+  const scopeButton = (
+    target: Scope,
+    label: string,
+    count: number,
+    icon?: ReactNode,
+  ) => (
     <Button
       variant="ghost"
       className={cn(
@@ -115,8 +121,11 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
       aria-current={sameScope(scope, target) ? 'true' : undefined}
       onClick={() => choose(target)}
     >
-      <span className="truncate" title={label}>
-        {label}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {icon}
+        <span className="truncate" title={label}>
+          {label}
+        </span>
       </span>
       <Badge mono className="bg-transparent px-0">
         {n.format(count)}
@@ -197,6 +206,7 @@ export function Sidebar({ view, now }: { view: LibraryView; now: number }) {
                 { kind: 'system', system: s.index },
                 s.name,
                 systemTotals.get(s.index) ?? 0,
+                <SystemIcon systemId={s.system_id} size={16} />,
               )}
             </li>
           ));
