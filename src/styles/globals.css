@@ -1264,12 +1264,13 @@ time {
 
 /* Narrow windows: secondary toolbar actions go icon-only (the label stays
    for screen readers and shows in the tooltip), so the toolbar keeps one
-   row down to 900px instead of wrapping. */
+   row down to 900px instead of wrapping. With the six view segments and
+   every label the row needs ~1460px, so the labels go below 1480px. */
 .toolbar-search {
   width: 14rem;
 }
 
-@media (min-width: 1181px) {
+@media (min-width: 1481px) {
   .toolbar-icon {
     display: none;
   }
@@ -1336,7 +1337,7 @@ time {
   }
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1480px) {
   .toolbar-search {
     width: 11rem;
   }
