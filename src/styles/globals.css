@@ -422,7 +422,11 @@ time {
 
 .cover-tile--xs .art-placeholder {
   padding: 0.25rem;
+  overflow: hidden;
   font-size: 0.6875rem;
+  line-height: 0.875rem;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
 }
 
 .cover-tile--s .cover-tile__name {

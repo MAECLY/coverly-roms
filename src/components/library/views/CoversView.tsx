@@ -218,18 +218,27 @@ export function CoversView({
                     id={`entry-${entry.id}`}
                     role="gridcell"
                     aria-selected={entry.id === selectedId}
-                    // Without a visible name, the tile is named by it.
-                    aria-label={badge ? entry.name : undefined}
                     data-entry-id={entry.id}
                     className={`cover-tile cover-tile--${stop}`}
                     style={tileStyle}
                     title={entry.name}
                   >
+                    {metrics.nameLines === 0 && (
+                      // No name line: the cell is still named by the game
+                      // first, then the system badge and the art marks.
+                      <span className="sr-only">{entry.name}</span>
+                    )}
                     <div className="cover-tile__art">
                       <ArtThumb
                         generation={generation}
                         entry={entry}
                         media={prefs.art}
+                        // An empty slot with no name below shows the name.
+                        placeholder={
+                          metrics.nameLines === 0
+                            ? titleWithoutRegions(entry.name)
+                            : undefined
+                        }
                       />
                       {badge && (
                         <span className="cover-tile__badge">

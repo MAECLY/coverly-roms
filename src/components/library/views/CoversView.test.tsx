@@ -558,13 +558,27 @@ describe('CoversView sizes and art', () => {
         <Harness entries={[entry]} coverSize="xs" />,
       );
       const cell = screen.getByRole('gridcell');
-      expect(cell).toHaveAccessibleName(entry.name);
+      const system = big.systems[entry.system]!;
+      // Named by the game first, and still says the system, as at M.
+      expect(cell).not.toHaveAttribute('aria-label');
+      expect(cell.firstElementChild).toHaveClass('sr-only');
+      expect(cell.firstElementChild).toHaveTextContent(entry.name);
+      expect(cell).toHaveAccessibleName(expect.stringContaining(system.name));
       expect(cell).toHaveAttribute('title', entry.name);
       expect(container.querySelector('.cover-tile__name')).toBeNull();
       expect(container.querySelector('.cover-tile__info')).toBeNull();
-      const system = big.systems[entry.system]!;
       const badge = within(cell).getByRole('img', { name: system.name });
       expect(badge.closest('.cover-tile__badge')).not.toBeNull();
+    });
+
+    it('XS shows the name in an empty slot, since there is no name line', () => {
+      const entry = big.entries.find((e) => e.art.cover !== 'present')!;
+      const { container } = render(
+        <Harness entries={[entry]} coverSize="xs" />,
+      );
+      const slot = container.querySelector('.art-placeholder')!;
+      expect(slot).toHaveTextContent(titleWithoutRegions(entry.name));
+      expect(slot).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('S shows one line of name and the corner badge', () => {

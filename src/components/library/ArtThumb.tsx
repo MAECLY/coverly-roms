@@ -7,11 +7,14 @@ export function ArtThumb({
   entry,
   media,
   className = '',
+  placeholder,
 }: {
   generation: number;
   entry: EntryView;
   media: Media;
   className?: string;
+  /** Text for the empty slot instead of "No cover" (a tile with no name line). */
+  placeholder?: string | undefined;
 }) {
   const t = useT();
   const mark = entry.art[media];
@@ -33,7 +36,8 @@ export function ArtThumb({
     >
       {mark === 'present'
         ? ''
-        : t(mark === 'missing' ? `art.none.${media}` : 'art.mark.unsupported')}
+        : (placeholder ??
+          t(mark === 'missing' ? `art.none.${media}` : 'art.mark.unsupported'))}
     </div>
   );
 }
