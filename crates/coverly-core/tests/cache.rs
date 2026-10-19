@@ -684,6 +684,26 @@ fn choices_round_trip_and_clear_by_system() {
 }
 
 #[test]
+fn choices_are_forgotten_by_content_in_one_system() {
+    let cache = Cache::in_memory().unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:AA")).unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:BB")).unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:CC")).unwrap();
+    cache.put_dedupe_choice(&choice("psx", "sha1:AA")).unwrap();
+    let keys = [
+        "sha1:AA".to_owned(),
+        "sha1:BB".to_owned(),
+        "sha1:ZZ".to_owned(),
+    ];
+    assert_eq!(cache.forget_dedupe_choices("gb", &keys).unwrap(), 2);
+    assert_eq!(cache.dedupe_choice("gb", "sha1:AA").unwrap(), None);
+    assert_eq!(cache.dedupe_choice("gb", "sha1:BB").unwrap(), None);
+    assert!(cache.dedupe_choice("gb", "sha1:CC").unwrap().is_some());
+    assert!(cache.dedupe_choice("psx", "sha1:AA").unwrap().is_some());
+    assert_eq!(cache.forget_dedupe_choices("gb", &[]).unwrap(), 0);
+}
+
+#[test]
 fn a_v3_database_opened_by_v2_code_is_refused_cleanly() {
     // Older code sees a newer `user_version` and sets the file aside; this
     // code does the same for the version after it, never touching its rows.

@@ -705,6 +705,54 @@ fn set_keeper_persists_and_survives_a_rename() {
 }
 
 #[test]
+fn the_latest_pick_is_the_one_remembered() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    let a = put(root, "ROMS/GB/Tetris.gb", &tetris);
+    let b = put(root, "ROMS/GB/Tetris (Copy).gb", &tetris);
+    let fx = Fx::new();
+    let library = scan(root);
+
+    // Each pick is made in a later run than the one before it, and the
+    // next run keeps that one, whichever copy is listed first.
+    for pick in [&a, &b, &a, &b] {
+        let mut plan = fx.plan(&library, &fx.opts());
+        let g = group_of(&plan, "gb").clone();
+        set_keeper(&mut plan, g.id, member_at(&g, pick).id, &fx.cache).unwrap();
+
+        let plan = fx.plan(&library, &fx.opts());
+        let g = group_of(&plan, "gb");
+        assert_eq!(&g.members[g.keeper].unit.primary, pick);
+        assert_eq!(g.reason, KeepReason::UserChoice);
+    }
+}
+
+#[test]
+fn a_plan_never_groups_across_systems_or_by_name() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    // The same bytes in two systems' folders.
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GBC/Tetris.gbc", &tetris);
+    // The same name, other bytes, in one system.
+    put(root, "ROMS/GB/Zelda.gb", &rom_bytes(2, 32 * 1024));
+    put(root, "ROMS/GB/old/Zelda.gb", &rom_bytes(3, 32 * 1024));
+    put(root, "ROMS/GB/Zelda (USA).gb", &rom_bytes(4, 32 * 1024));
+    let fx = Fx::new();
+    let mut opts = fx.opts();
+    opts.levels = vec![
+        DedupeLevel::Exact,
+        DedupeLevel::Version,
+        DedupeLevel::Format,
+    ];
+    opts.one_game_one_rom = true;
+    let plan = fx.plan(&scan(root), &opts);
+    assert!(plan.groups.is_empty(), "{:#?}", plan.groups);
+}
+
+#[test]
 fn skip_group_reports_only_and_comes_back() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();

@@ -728,6 +728,27 @@ impl Cache {
         Ok(())
     }
 
+    /// Forgets the picks of `keys` (content keys) in `system`; returns how
+    /// many. A new pick in a group forgets the older picks of its other
+    /// members, so the latest one is the one restored.
+    pub fn forget_dedupe_choices(
+        &self,
+        system: &str,
+        keys: &[String],
+    ) -> Result<usize, CacheError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut forgotten = 0;
+        for key in keys {
+            forgotten += tx.execute(
+                "DELETE FROM dedupe_choices WHERE system = ?1 AND keeper_key = ?2",
+                params![system, key],
+            )?;
+        }
+        tx.commit()?;
+        Ok(forgotten)
+    }
+
     /// Forgets every keeper pick of `systems`; returns how many. An empty
     /// list forgets nothing.
     pub fn clear_dedupe_choices(&self, systems: &[String]) -> Result<usize, CacheError> {

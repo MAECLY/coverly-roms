@@ -494,6 +494,15 @@ pub fn set_keeper(
     let keeper_key = base.content_key(unit).ok_or(DedupeError::NoState)?;
     let facts: Vec<Arc<UnitFacts>> = raw.members.iter().map(|(u, _)| base.facts_of(*u)).collect();
     let saves_fp = saves_fingerprint(&base.candidates(raw, &facts));
+    // An older pick of another copy in this group would compete with this
+    // one on the next run: only the latest pick is remembered.
+    let others: Vec<String> = raw
+        .members
+        .iter()
+        .filter(|(u, _)| *u != unit)
+        .filter_map(|(u, _)| base.content_key(*u))
+        .collect();
+    cache.forget_dedupe_choices(&raw.system, &others)?;
     cache.put_dedupe_choice(&StoredChoice {
         system: raw.system.clone(),
         keeper_key,
