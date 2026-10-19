@@ -1,0 +1,490 @@
+---
+source: crates/coverly-core/tests/dedupe_plan.rs
+expression: "normalised(&plan, root)"
+---
+{
+  "chd_unread": 0,
+  "groups": [
+    {
+      "action": {
+        "kind": "act"
+      },
+      "choice_dropped": false,
+      "id": 4140383850558350,
+      "keeper": 2,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": "[root]/_Duplicados/GB/Tetris.gb",
+          "id": 0,
+          "relation": "exact",
+          "serials": [],
+          "size": 32768,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/GB/Tetris.gb"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/GB/Tetris.gb"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": "[root]/_Duplicados/GB/Tetris.zip",
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 32884,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/GB/Tetris.zip"
+            ],
+            "in_library": true,
+            "kind": "zip",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/GB/Tetris.zip"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 2,
+          "relation": "exact",
+          "serials": [],
+          "size": 32768,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/GB/Tetris (1).gb"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/GB/Tetris (1).gb"
+          }
+        }
+      ],
+      "reason": {
+        "kind": "has-cover"
+      },
+      "runner_up": [
+        0,
+        {
+          "kind": "has-cover"
+        }
+      ],
+      "system": "gb",
+      "tie": false,
+      "title": "Tetris (1)"
+    },
+    {
+      "action": {
+        "kind": "report-only",
+        "why": {
+          "kind": "level-two-off"
+        }
+      },
+      "choice_dropped": false,
+      "id": 1266874836608058,
+      "keeper": 1,
+      "members": [
+        {
+          "catalogue_name": "Advance Wars (Europe)",
+          "confidence": 0.9,
+          "dest": null,
+          "id": 0,
+          "relation": "version",
+          "serials": [],
+          "size": 4100,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/GBA/Advance Wars (Europe).gba"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/GBA/Advance Wars (Europe).gba"
+          }
+        },
+        {
+          "catalogue_name": "Advance Wars (USA)",
+          "confidence": 1.0,
+          "dest": null,
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 4096,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/GBA/Advance Wars (USA).gba"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/GBA/Advance Wars (USA).gba"
+          }
+        }
+      ],
+      "reason": {
+        "kept": "usa",
+        "kind": "region",
+        "other": "europe"
+      },
+      "runner_up": [
+        0,
+        {
+          "kept": "usa",
+          "kind": "region",
+          "other": "europe"
+        }
+      ],
+      "system": "gba",
+      "tie": false,
+      "title": "Advance Wars (USA)"
+    },
+    {
+      "action": {
+        "kind": "conflict",
+        "saves": [
+          {
+            "keyed_by": "stem",
+            "mtime_ns": 0,
+            "path": "[root]/ROMS/MD/Sonic (1).srm",
+            "sha1": "93b6f1d91fbee319ddd5c8591173dc6f50c7f99a",
+            "size": 8192
+          },
+          {
+            "keyed_by": "stem",
+            "mtime_ns": 0,
+            "path": "[root]/ROMS/MD/Sonic.srm",
+            "sha1": "f9f56c39a0938401609454cce396a2773f375c75",
+            "size": 8192
+          }
+        ]
+      },
+      "choice_dropped": false,
+      "id": 6581628177990925,
+      "keeper": 0,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 0,
+          "relation": "exact",
+          "serials": [],
+          "size": 8192,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/MD/Sonic.md"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/MD/Sonic.md"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 8192,
+          "stays": [],
+          "travels": [
+            {
+              "from": "[root]/ROMS/MD/Sonic (1).srm",
+              "kind": {
+                "kind": "save"
+              }
+            }
+          ],
+          "unit": {
+            "files": [
+              "[root]/ROMS/MD/Sonic (1).md"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/MD/Sonic (1).md"
+          }
+        }
+      ],
+      "reason": {
+        "kind": "tie"
+      },
+      "runner_up": [
+        1,
+        {
+          "kind": "tie"
+        }
+      ],
+      "system": "megadrive",
+      "tie": true,
+      "title": "Sonic"
+    },
+    {
+      "action": {
+        "kind": "report-only",
+        "why": {
+          "kind": "header-differs"
+        }
+      },
+      "choice_dropped": false,
+      "id": 7885947129953348,
+      "keeper": 0,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 0,
+          "relation": "exact",
+          "serials": [],
+          "size": 16400,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/FC/Zelda.nes"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/FC/Zelda.nes"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 16400,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/FC/Zelda (alt).nes"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/FC/Zelda (alt).nes"
+          }
+        }
+      ],
+      "reason": {
+        "kind": "tie"
+      },
+      "runner_up": [
+        1,
+        {
+          "kind": "tie"
+        }
+      ],
+      "system": "nes",
+      "tie": true,
+      "title": "Zelda"
+    },
+    {
+      "action": {
+        "kind": "act"
+      },
+      "choice_dropped": false,
+      "id": 5472066944056322,
+      "keeper": 1,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 0.9,
+          "dest": "[root]/_Duplicados/PS/Crash Bash.cue",
+          "id": 0,
+          "relation": "format",
+          "serials": [
+            "SCUS-94570"
+          ],
+          "size": 9481,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/PS/Crash Bash.cue",
+              "[root]/ROMS/PS/Crash Bash.bin"
+            ],
+            "in_library": true,
+            "kind": "disc-set",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/PS/Crash Bash.cue"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 1,
+          "relation": "exact",
+          "serials": [
+            "SCUS-94570"
+          ],
+          "size": 4100,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/PS/Crash Bash.pbp"
+            ],
+            "in_library": true,
+            "kind": "image",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/PS/Crash Bash.pbp"
+          }
+        }
+      ],
+      "reason": {
+        "kept": "pbp",
+        "kind": "container",
+        "other": "cue",
+        "profile": "anbernic-stock"
+      },
+      "runner_up": [
+        0,
+        {
+          "kept": "pbp",
+          "kind": "container",
+          "other": "cue",
+          "profile": "anbernic-stock"
+        }
+      ],
+      "system": "psx",
+      "tie": false,
+      "title": "Crash Bash"
+    },
+    {
+      "action": {
+        "kind": "act"
+      },
+      "choice_dropped": false,
+      "id": 267505990218002,
+      "keeper": 0,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 0,
+          "relation": "exact",
+          "serials": [],
+          "size": 65536,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/SFC/Mario.sfc"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/SFC/Mario.sfc"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": "[root]/_Duplicados/SFC/Mario (h).smc",
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 66048,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "[root]/ROMS/SFC/Mario (h).smc"
+            ],
+            "in_library": true,
+            "kind": "single",
+            "mtime_ns": 0,
+            "primary": "[root]/ROMS/SFC/Mario (h).smc"
+          }
+        }
+      ],
+      "reason": {
+        "kept": "headerless",
+        "kind": "verified",
+        "other": "headered"
+      },
+      "runner_up": [
+        1,
+        {
+          "kept": "headerless",
+          "kind": "verified",
+          "other": "headered"
+        }
+      ],
+      "system": "snes",
+      "tie": false,
+      "title": "Mario"
+    }
+  ],
+  "no_catalogue": [
+    "gb",
+    "megadrive",
+    "nes",
+    "psx",
+    "snes"
+  ],
+  "not_roms": [],
+  "off_card_saves": [],
+  "profile_id": "anbernic-stock",
+  "quarantine": "[root]/_Duplicados",
+  "removable": false,
+  "roms_dir": "[root]/ROMS",
+  "root": "[root]",
+  "same_volume": true,
+  "totals": {
+    "by_system": {
+      "gb": [
+        1,
+        2,
+        65652
+      ],
+      "psx": [
+        1,
+        1,
+        9481
+      ],
+      "snes": [
+        1,
+        1,
+        66048
+      ]
+    },
+    "bytes": 141181,
+    "conflicts": 1,
+    "extras": 4,
+    "groups": 6
+  },
+  "unchanged": [],
+  "unreadable": [],
+  "version": 1
+}

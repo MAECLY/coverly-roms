@@ -12,6 +12,7 @@
 //! [`settings::SETTINGS_ENV`]); flags override them.
 
 mod audit;
+mod dedupe;
 mod fill;
 mod organize;
 mod profile;
@@ -40,6 +41,9 @@ enum Command {
     /// Report which ROMs of a library lack cover, screenshot or title art
     /// (read-only).
     Audit(audit::AuditArgs),
+    /// Find the same game stored more than once inside one system and show
+    /// which copy stays (dry run).
+    Dedupe(Box<dedupe::DedupeArgs>),
     /// Fill missing art from the enabled sources (dry run unless --apply).
     Fill(Box<fill::FillArgs>),
     /// Sort a pile of loose ROMs into one folder per system (dry run
@@ -88,6 +92,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Audit(args) => audit::run(&args),
+        Command::Dedupe(args) => dedupe::run(&args),
         Command::Fill(args) => fill::run(&args),
         Command::Organize(args) => organize::run(&args),
         Command::Undo(args) => undo::run(&args),

@@ -246,6 +246,7 @@ fn hash_params(file_name: &str, h: &HashOutcome) -> Option<Vec<(&'static str, St
             crc32,
             size,
             inner_name,
+            ..
         } => Some(vec![
             ("romtype", "rom".into()),
             ("romnom", inner_name.clone()),

@@ -32,7 +32,7 @@ pub(crate) const COMPANION_EXTS: [&str; 12] = [
 ];
 
 /// BIOS and firmware files, by exact lowercase name.
-const BIOS_NAMES: [&str; 27] = [
+const BIOS_NAMES: [&str; 28] = [
     "gba_bios.bin",
     "gb_bios.bin",
     "gbc_bios.bin",
@@ -50,6 +50,7 @@ const BIOS_NAMES: [&str; 27] = [
     "7800 bios (u).rom",
     "bios.min",
     "pgm.zip",
+    "qsound.zip",
     "naomi.zip",
     "bios.gg",
     "bios_e.sms",
@@ -324,6 +325,8 @@ mod tests {
             "ps1_rom.bin",
             "uni-bios.rom",
             "colecovision.rom",
+            // Arcade device set every QSound game needs (duplicates §5.1).
+            "qsound.zip",
         ] {
             assert!(is_bios_name(name), "{name}");
         }

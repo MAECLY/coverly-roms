@@ -40,6 +40,7 @@ impl OnlineLookup for ScreenScraperLookup<'_> {
             crc32: crc32.to_string(),
             size,
             inner_name: file_name.to_string(),
+            payload_sha1: None,
         };
         let asked = systems
             .iter()

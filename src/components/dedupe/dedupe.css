@@ -1,0 +1,619 @@
+/*
+ * Duplicates: the shelf and the tray (spec §11.1, plan "UI design brief").
+ * The copy that stays sits on the shelf, under the brand shelf rule (a
+ * hairline with a 3px Buckram cap on the left). The copies that leave sit
+ * in a recessed tray below it, each with its destination in mono. Sizes
+ * are the last column, a fixed 9ch, so the bytes line up down the page.
+ */
+
+.dup-group {
+  --dup-size-col: 9ch;
+  --dup-tray-inset: 24px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 0 16px;
+  color: var(--cr-text);
+  font: var(--cr-type-app-base);
+}
+
+.dup-group + .dup-group {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.dup-group__title {
+  margin: 0;
+  font: var(--cr-type-app-label);
+  font-size: 14px;
+  font-weight: var(--cr-font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.dup-group__serial,
+.dup-row__name,
+.dup-row__size,
+.dup-row__dest {
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-group__serial {
+  color: var(--cr-text-secondary);
+}
+
+.dup-group__badge {
+  align-self: center;
+  cursor: default;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-group__badge:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* ---- The shelf ------------------------------------------------------ */
+
+.dup-shelf {
+  --dup-cap-shift: 0px;
+  position: relative;
+  /* Right padding matches the tray's, so sizes share one column. */
+  padding: 8px 12px 2px 14px;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+/* The cap is drawn apart from the row so it can slide from the row you
+ * picked up to the shelf (FLIP: the group sets the shift, then clears it). */
+.dup-shelf::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: 0;
+  left: 0;
+  width: var(--cr-border-width-spine);
+  border-radius: 0 0 var(--cr-radius-sm) 0;
+  background: var(--cr-primary);
+  transform: translateY(var(--dup-cap-shift));
+  transition: transform var(--dup-cap-duration, var(--cr-duration-base))
+    var(--cr-ease-standard);
+}
+
+.dup-shelf[data-cap-jump]::before {
+  transition: none;
+}
+
+/* ---- The tray ------------------------------------------------------- */
+
+.dup-tray {
+  display: grid;
+  margin: 2px 0 0 var(--dup-tray-inset);
+  padding: 4px 12px;
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-bg);
+}
+
+.dup-tray > .dup-row + .dup-row {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-group[data-skipped] .dup-tray {
+  opacity: 0.6;
+}
+
+/* ---- Rows (shelf and tray share the grid) ---------------------------- */
+
+.dup-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 6px 0;
+}
+
+.dup-row__pick {
+  grid-row: 1;
+  grid-column: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+}
+
+.dup-row__keep {
+  color: var(--cr-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dup-row__name {
+  grid-row: 1;
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dup-row__meta {
+  grid-row: 1;
+  grid-column: 3;
+  display: inline-flex;
+  gap: 6px;
+  justify-self: end;
+}
+
+.dup-row__size {
+  grid-row: 1;
+  grid-column: 4;
+  justify-self: end;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.dup-row__detail {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+/* Report-only rows have no radio: close the gap it would leave. */
+.dup-row__pick:empty {
+  margin-right: -10px;
+}
+
+.dup-row__dest {
+  color: var(--cr-text);
+  overflow-wrap: anywhere;
+}
+
+.dup-row__why {
+  color: var(--cr-text-muted);
+}
+
+.dup-row__warn {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  color: var(--cr-warning);
+}
+
+.dup-row__warn svg {
+  flex: none;
+  align-self: center;
+}
+
+/* ---- Under the group ------------------------------------------------ */
+
+.dup-group__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 28px;
+}
+
+.dup-group__skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.dup-group__notice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.dup-group__notice p {
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+/* Narrow windows (spec §11.3): badges drop to a second line (the size
+ * keeps its column, so bytes still line up), the destination wraps under
+ * the name, the tray inset halves. */
+@media (max-width: 899px) {
+  .dup-group {
+    --dup-tray-inset: 12px;
+  }
+
+  .dup-row {
+    grid-template-columns: auto minmax(0, 1fr) var(--dup-size-col);
+  }
+
+  .dup-row__size {
+    grid-column: 3;
+  }
+
+  .dup-row__meta {
+    grid-row: 2;
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+
+  .dup-row__meta:empty {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-shelf::before {
+    transition: none;
+  }
+}
+
+/* ---- Shared ----------------------------------------------------------- */
+
+.dup-mono {
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- A system: one continuous panel (spec §11.1) ---------------------- */
+
+.dup-system {
+  --dup-size-col: 9ch;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-radius: var(--cr-radius-md);
+  background: var(--cr-surface);
+}
+
+.dup-system__head {
+  display: grid;
+  /* Same right edge and size column as the rows below (shelf/tray 12px). */
+  grid-template-columns: minmax(0, 1fr) auto auto var(--dup-size-col);
+  align-items: center;
+  column-gap: 10px;
+  padding: 4px 28px 4px 4px;
+}
+
+.dup-system__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text);
+  font: var(--cr-type-app-base);
+  font-weight: var(--cr-font-weight-semibold);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dup-system__trigger:hover {
+  background: var(--cr-hover);
+}
+
+.dup-system__trigger:focus-visible,
+.dup-unchanged__trigger:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+.dup-system__chevron {
+  flex: none;
+  color: var(--cr-text-secondary);
+  transition: transform var(--cr-duration-fast) var(--cr-ease-standard);
+}
+
+.group[data-state='open'] .dup-system__chevron {
+  transform: rotate(90deg);
+}
+
+.dup-system__name {
+  overflow-wrap: anywhere;
+}
+
+.dup-system__conflicts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cr-warning);
+  font: var(--cr-type-app-caption);
+  white-space: nowrap;
+}
+
+.dup-system__menu {
+  color: var(--cr-text-secondary);
+}
+
+.dup-system__size {
+  grid-column: 4;
+  justify-self: end;
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dup-system__body {
+  padding: 0 16px;
+}
+
+.dup-system__slot:not(:first-child) > .dup-group {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+/* ---- A conflict: nothing moves, so no shelf and no tray --------------- */
+
+.dup-conflict__note {
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-conflict__list {
+  display: grid;
+  padding: 0 12px 0 14px;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-conflict__list > .dup-row + .dup-row {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-conflict__save .dup-row__name {
+  color: var(--cr-text-secondary);
+}
+
+.dup-conflict__date {
+  color: var(--cr-text-secondary);
+  white-space: nowrap;
+}
+
+.dup-conflict__open {
+  height: auto;
+  padding: 0;
+}
+
+/* ---- Options strip ----------------------------------------------------- */
+
+.dup-options {
+  display: grid;
+  gap: 10px;
+  color: var(--cr-text);
+  font: var(--cr-type-app-base);
+}
+
+.dup-options__row {
+  display: grid;
+  grid-template-columns: minmax(10rem, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 16px;
+}
+
+.dup-options__label {
+  color: var(--cr-text-secondary);
+}
+
+.dup-options__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.dup-options__controls--stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.dup-options__actions {
+  display: grid;
+  gap: 6px;
+}
+
+.dup-options__choice,
+.dup-options__check {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.dup-options__choice label,
+.dup-options__check {
+  cursor: pointer;
+}
+
+.dup-options__muted {
+  color: var(--cr-text-muted);
+  font-weight: var(--cr-font-weight-regular, 400);
+}
+
+.dup-options__delta {
+  color: var(--cr-primary);
+}
+
+.dup-options__caveats {
+  display: grid;
+  gap: 2px;
+  max-width: 68ch;
+  padding-left: 24px;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-options__caveats p {
+  margin: 0;
+}
+
+.dup-options__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-options__keys li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- Unchanged and the result's detail -------------------------------- */
+
+.dup-unchanged__trigger {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  /* Chevrons line up with the system triggers above. */
+  padding: 6px 8px 6px 13px;
+  border: 0;
+  border-radius: var(--cr-radius-sm);
+  background: transparent;
+  color: var(--cr-text);
+  font: var(--cr-type-app-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dup-unchanged__trigger:hover {
+  background: var(--cr-hover);
+}
+
+.dup-unchanged__trigger .dup-system__chevron {
+  align-self: center;
+}
+
+.dup-unchanged__count {
+  flex: none;
+  font-weight: var(--cr-font-weight-semibold);
+}
+
+.dup-unchanged__reasons {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cr-text-muted);
+  font: var(--cr-type-app-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dup-unchanged__list {
+  margin: 0 0 0 32px;
+  padding: 0;
+  list-style: none;
+}
+
+.dup-unchanged__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 6px 0;
+}
+
+.dup-unchanged__row + .dup-unchanged__row {
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-unchanged__title {
+  font-weight: var(--cr-font-weight-semibold);
+}
+
+.dup-unchanged__system,
+.dup-unchanged__file {
+  color: var(--cr-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.dup-unchanged__why {
+  flex-basis: 100%;
+  color: var(--cr-text-muted);
+  font: var(--cr-type-app-caption);
+}
+
+/* ---- Result ------------------------------------------------------------ */
+
+.dup-result {
+  display: grid;
+  gap: 12px;
+}
+
+.dup-result__freed,
+.dup-result__left {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-result__left {
+  padding: 0;
+  list-style: none;
+}
+
+.dup-result__left li span:last-child {
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.dup-result__note {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 899px) {
+  .dup-system__head {
+    grid-template-columns: minmax(0, 1fr) auto var(--dup-size-col);
+    padding-right: 28px;
+  }
+
+  .dup-system__conflicts {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    padding-left: 32px;
+  }
+
+  .dup-system__size {
+    grid-column: 3;
+  }
+
+  .dup-options__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dup-options__label:empty {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-system__chevron {
+    transition: none;
+  }
+}
+
+.dup-conflict__label {
+  font: var(--cr-type-app-base);
+}

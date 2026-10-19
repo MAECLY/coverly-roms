@@ -385,6 +385,210 @@
     "year": "Este año",
     "older": "Más antiguas"
   },
+  "dedupe": {
+    "title": "Duplicados",
+    "entry": {
+      "find": "Buscar duplicados",
+      "count": "Duplicados {count}"
+    },
+    "phase": {
+      "list": "Listando",
+      "sizes": "Tamaños",
+      "hash": "Huellas",
+      "serials": "Números de serie",
+      "catalogue": "Catálogos"
+    },
+    "planning": "Comparando huellas: {done} de {total}",
+    "summary": "{extras} copias de más en {groups} juegos. Quitarías {bytes} de {folder}.",
+    "dryRunHint": "Es una propuesta: todavía no se ha movido nada.",
+    "level": {
+      "exact": "Copias exactas",
+      "format": "Otros formatos",
+      "version": "Otras versiones"
+    },
+    "reportOnly": "solo informe",
+    "action": {
+      "label": "Qué hacer con las copias",
+      "quarantine": "Apartar en {folder}",
+      "trash": "Enviar a la Papelera",
+      "change": "Cambiar…"
+    },
+    "oneGameOneRom": "Apartar también las otras versiones (una ROM por juego)",
+    "conflicts": {
+      "alert": "{count} juegos tienen copias con partidas distintas. No se tocará nada en ellos.",
+      "row": "Partida distinta: {path}",
+      "badge": "Partidas distintas",
+      "note": "No se tocará nada en este juego. Mira las partidas y decide a mano qué copia juegas.",
+      "openFolder": "Abrir carpeta",
+      "openFolderOf": "Abrir carpeta de {path}"
+    },
+    "system": {
+      "summary": "{name}: {groups} juegos, {extras} copias",
+      "summaryOneGame": "{name}: 1 juego, {extras} copias",
+      "summaryOne": "{name}: 1 juego, 1 copia",
+      "summaryNone": "{name}: nada que apartar",
+      "conflicts": "{count} con partidas distintas",
+      "menu": "Más acciones en {system}"
+    },
+    "confidence": "Confianza: {value}",
+    "relation": {
+      "exact": "Copia exacta",
+      "format": "Otro formato",
+      "version": "Otra versión",
+      "unconfirmed": "Sin confirmar",
+      "partialSet": "Juego incompleto"
+    },
+    "keeper": "Se queda",
+    "alsoStays": "Se queda también (solo informe)",
+    "why": {
+      "user": "Se queda: lo has elegido tú.",
+      "hasSave": "Se queda: tiene tu partida ({path}).",
+      "played": "Se queda: es la que has jugado ({count} veces).",
+      "playedOnce": "Se queda: es la que has jugado (1 vez).",
+      "inLibrary": "Se queda: ya estaba en tu biblioteca.",
+      "verified": "Se queda: {kept}; {other}.",
+      "retail": "Se queda: versión comercial; la otra es {other}.",
+      "region": "Se queda: región preferida ({kept}); la otra es {other}.",
+      "revision": "Se queda: revisión más nueva ({kept}); la otra es {other}.",
+      "container": "Se queda: formato preferido en {profile} ({kept}); la otra es {other}.",
+      "cover": "Se queda: tiene portada; la otra no.",
+      "catalogueName": "Se queda: se llama como en el catálogo.",
+      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres."
+    },
+    "quality": {
+      "kept": {
+        "dat-match": "volcado verificado en el catálogo",
+        "unknown": "volcado sin verificar",
+        "good": "volcado bueno",
+        "bad": "volcado defectuoso",
+        "overdump": "volcado sobredimensionado",
+        "headerless": "sin cabecera de copiadora",
+        "headered": "con cabecera de copiadora"
+      },
+      "other": {
+        "dat-match": "la otra está en el catálogo",
+        "unknown": "la otra no está en el catálogo",
+        "good": "la otra es un volcado bueno",
+        "bad": "la otra es un volcado defectuoso [b]",
+        "overdump": "la otra es un volcado sobredimensionado [o]",
+        "headerless": "la otra no lleva cabecera",
+        "headered": "la otra lleva cabecera de copiadora"
+      }
+    },
+    "release": {
+      "retail": "comercial",
+      "beta": "una beta",
+      "proto": "un prototipo",
+      "demo": "una demo",
+      "sample": "una muestra"
+    },
+    "dest": "→ {path}",
+    "travels": {
+      "art": "+ {count} portadas",
+      "artOne": "+ 1 portada",
+      "saves": "+ {count} partidas",
+      "savesOne": "+ 1 partida"
+    },
+    "sharedSaveStays": "La partida {save} se queda con {keeper}.",
+    "catalogueCalls": "El catálogo lo llama {name}",
+    "keepThis": "Quedarme con esta",
+    "keeperChanged": "Ahora se queda {name}; {old} pasa a apartarse.",
+    "undoPick": "Deshacer",
+    "saveLeaves": "Su partida {save} se irá con ella a {folder}; el juego que se queda no la verá.",
+    "choiceDropped": "Tu elección anterior ya no vale: la otra copia tiene ahora una partida.",
+    "artLeaves": "La portada se va con esta copia; {keeper} se quedará sin portada.",
+    "offCardSaves": "Este dispositivo puede guardar partidas fuera de la tarjeta. Si juegas a {system}, comprueba qué copia usas antes de apartar.",
+    "report": {
+      "headerDiffers": "Mismo juego, cabecera distinta",
+      "buildDiffers": "Mismo número de serie, contenido distinto (¿otra revisión o un parche?)",
+      "modified": "Uno de los nombres indica un parche o traducción",
+      "bigGroup": "{folder} es una copia de {other}: {count} archivos",
+      "levelTwoOff": "Otras versiones, solo informe",
+      "unconfirmed": "Solo coincide el CRC; sin confirmar",
+      "partialSet": "Juego incompleto: faltan archivos del conjunto",
+      "serialConflict": "Los números de serie no coinciden",
+      "arcadeNoDat": "Arcade sin catálogo: no se sabe si es el mismo juego",
+      "bigGroupMembers": "Demasiadas copias para decidir solo: {count} archivos",
+      "userSkipped": "Has pedido no tocarlo",
+      "chdMetadataDiffers": "Mismo contenido, metadatos del CHD distintos"
+    },
+    "notRom": "No es una ROM",
+    "skip": {
+      "destinationLimit": "{folder} no admite este archivo ({why}); sigue en su sitio.",
+      "keeperChanged": "El archivo que se queda ha cambiado; no se ha movido nada de este juego.",
+      "changed": "Ha cambiado desde la propuesta; sigue en su sitio.",
+      "sourceMissing": "Ya no estaba en su sitio; no se ha movido.",
+      "excluded": "Lo has dejado fuera; sigue en su sitio.",
+      "conflict": "Tiene partidas distintas; sigue en su sitio.",
+      "cancelled": "Cancelado antes de llegar a él; sigue en su sitio."
+    },
+    "delta": "+{count} archivos",
+    "bulk": {
+      "confirmTitle": "¿Apartar {count} archivos?",
+      "confirmBody": "Son {bytes}, {share} de ellos en {system}. Irán a {folder}."
+    },
+    "findCovers": "Buscar portadas para {count} juegos",
+    "skipGroup": "No tocar este juego",
+    "skipSystem": "No tocar {system}",
+    "resetRules": "Volver a aplicar las reglas",
+    "unchanged": "Sin cambios ({count})",
+    "apply": {
+      "quarantine": "Apartar {count} archivos",
+      "trash": "Enviar {count} archivos a la Papelera",
+      "none": "No hay nada que apartar"
+    },
+    "trash": {
+      "confirmTitle": "¿Enviar {count} archivos a la Papelera?",
+      "confirmBody": "Son {bytes}. Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera.",
+      "cardNote": "En una tarjeta SD la Papelera está en la propia tarjeta; el espacio no se libera hasta vaciarla.",
+      "caveat": "Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera."
+    },
+    "applying": "Apartando {done} de {total}…",
+    "done": "{count} archivos apartados en {folder}. Deshacer está a un clic.",
+    "doneTrash": "{count} archivos enviados a la Papelera.",
+    "freed": "Fuera de {folder}: {bytes}",
+    "sameVolumeNote": "La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador.",
+    "openFolder": "Abrir {folder}",
+    "partial": "Apartados: {done} · Sin tocar: {skipped}",
+    "undo": {
+      "title": "¿Devolver {count} archivos a su sitio?",
+      "action": "Devolver {count} archivos",
+      "trashed": "Recupéralo desde la Papelera (Volver a poner): {path}",
+      "button": "Deshacer"
+    },
+    "empty": {
+      "title": "No hay duplicados en {systems} sistemas.",
+      "body": "Este estante está en orden."
+    },
+    "noCatalogue": "Otras versiones: sin catálogo para {count} sistemas ({systems}).",
+    "error": "No se pudo comparar {path}. No se ha movido nada.",
+    "gamelistSkipped": "La lista de juegos de {system} no se ha actualizado.",
+    "resetSystem": "Volver a aplicar las reglas en {system}",
+    "deltaLess": "−{count} archivos",
+    "deltaAnnounce": "{delta}. Se apartarían {total} archivos.",
+    "keys": {
+      "label": "Atajos de teclado",
+      "pick": "Elegir qué copia se queda",
+      "next": "Siguiente juego"
+    },
+    "showMore": "Mostrar {count} más",
+    "details": "Detalle ({count})",
+    "outcome": {
+      "quarantined": "Apartado",
+      "trashed": "En la Papelera",
+      "failed": "No se pudo apartar ({reason}); sigue en su sitio."
+    },
+    "limit": {
+      "fat32-size": "más de 4 GB en FAT32",
+      "bad-name": "un nombre que allí no vale",
+      "path-too-long": "una ruta demasiado larga",
+      "case-collision": "otro archivo con el mismo nombre en otras mayúsculas"
+    },
+    "nothingElse": "No se ha movido nada más.",
+    "findCoversOne": "Buscar portada para 1 juego",
+    "backToLibrary": "Volver a la biblioteca",
+    "levelsLabel": "Qué buscar"
+  },
   "toolbar": {
     "search": "Buscar por nombre",
     "searchPlaceholder": "Buscar… ( / )",

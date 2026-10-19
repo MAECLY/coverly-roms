@@ -251,6 +251,7 @@ fn row(game: &str, rom: &str, size: u64, crc: &str) -> DatRow {
         crc32: Some(crc.into()),
         md5: None,
         sha1: None,
+        serial: None,
     }
 }
 

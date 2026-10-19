@@ -36,6 +36,12 @@ pub(crate) const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
 pub struct DatGame {
     pub name: String,
     pub roms: Vec<DatRow>,
+    /// The parent game this one is a clone of (`cloneof`).
+    pub cloneof: Option<String>,
+    /// The DAT's `region` field, as written.
+    pub region: Option<String>,
+    /// `isbios "yes"`, or a `[BIOS]` mark in the name.
+    pub is_bios: bool,
 }
 
 /// Why a DAT could not be parsed, fetched or stored.
@@ -208,6 +214,10 @@ fn block_end(toks: &[(Tok, usize)], open: usize) -> Result<usize, DatError> {
 
 fn parse_game(body: &[(Tok, usize)]) -> Result<DatGame, DatError> {
     let mut name = String::new();
+    let mut cloneof = None;
+    let mut region = None;
+    let mut serial = None;
+    let mut isbios = false;
     let mut roms = Vec::new();
     let mut i = 0;
     while i < body.len() {
@@ -220,8 +230,13 @@ fn parse_game(body: &[(Tok, usize)]) -> Result<DatGame, DatError> {
                 i = end + 1;
             }
             (Tok::Word(k), Some(Tok::Word(v))) => {
-                if k == "name" {
-                    name = v.clone();
+                match k.as_str() {
+                    "name" => name = v.clone(),
+                    "cloneof" if !v.is_empty() => cloneof = Some(v.clone()),
+                    "region" if !v.is_empty() => region = Some(v.clone()),
+                    "serial" => serial = first_serial(v),
+                    "isbios" => isbios = v.eq_ignore_ascii_case("yes"),
+                    _ => {}
                 }
                 i += 2;
             }
@@ -230,8 +245,18 @@ fn parse_game(body: &[(Tok, usize)]) -> Result<DatGame, DatError> {
     }
     for r in &mut roms {
         r.game = name.clone();
+        if r.serial.is_none() {
+            r.serial = serial.clone();
+        }
     }
-    Ok(DatGame { name, roms })
+    let is_bios = isbios || name.contains("[BIOS]");
+    Ok(DatGame {
+        name,
+        roms,
+        cloneof,
+        region,
+        is_bios,
+    })
 }
 
 fn parse_rom(body: &[(Tok, usize)]) -> DatRow {
@@ -242,6 +267,7 @@ fn parse_rom(body: &[(Tok, usize)]) -> DatRow {
         crc32: None,
         md5: None,
         sha1: None,
+        serial: None,
     };
     for pair in body.windows(2) {
         if let (Tok::Word(k), Tok::Word(v)) = (&pair[0].0, &pair[1].0) {
@@ -251,6 +277,7 @@ fn parse_rom(body: &[(Tok, usize)]) -> DatRow {
                 "crc" => row.crc32 = Some(v.to_uppercase()),
                 "md5" => row.md5 = Some(v.to_uppercase()),
                 "sha1" => row.sha1 = Some(v.to_uppercase()),
+                "serial" => row.serial = first_serial(v),
                 _ => {}
             }
         }
@@ -357,14 +384,11 @@ impl<'a> DatStore<'a> {
             }
             200..=299 => {
                 let text = String::from_utf8_lossy(&resp.body);
-                let rows: Vec<DatRow> = parse_clrmamepro(&text)?
-                    .into_iter()
-                    .flat_map(|g| g.roms)
-                    .collect();
-                if rows.is_empty() {
+                let games = parse_clrmamepro(&text)?;
+                if games.iter().all(|g| g.roms.is_empty()) {
                     return Err(DatError::Empty);
                 }
-                self.cache.replace_dat(dat, &rows)?;
+                self.cache.replace_dat_games(dat, &games)?;
                 self.cache
                     .put_json(NS, dat, &DatMeta { found: true }, resp.etag.as_deref())?;
                 Ok(DatStatus::Ready)
@@ -438,4 +462,40 @@ impl<'a> DatStore<'a> {
         }
         Ok(None)
     }
+}
+
+/// The first serial of a DAT `serial` field, which may list several
+/// (`"SLUS-00543, SLUS-00544"`).
+fn first_serial(v: &str) -> Option<String> {
+    v.split(',').find_map(normalise_serial)
+}
+
+/// A disc or product serial in one canonical form, or `None` when `raw` is
+/// not one. Sony-style codes (four letters, five digits) become
+/// `AAAA-NNNNN` whatever the separator: `SLUS_005.43`, `slus-00543` and
+/// `SLUS00543` are all `SLUS-00543`. Other codes (Sega `T-5704H`,
+/// `MK-81009`, `HDR-0001`) are only uppercased.
+pub fn normalise_serial(raw: &str) -> Option<String> {
+    let s = raw.trim().to_ascii_uppercase();
+    if s.is_empty()
+        || !s
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_. ".contains(&b))
+    {
+        return None;
+    }
+    let compact: String = s.chars().filter(|c| !"-_. ".contains(*c)).collect();
+    let b = compact.as_bytes();
+    if b.len() == 9
+        && b[..4].iter().all(u8::is_ascii_alphabetic)
+        && b[4..].iter().all(u8::is_ascii_digit)
+    {
+        return Some(format!("{}-{}", &compact[..4], &compact[4..]));
+    }
+    if !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !s.bytes().any(|b| b.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    Some(s)
 }

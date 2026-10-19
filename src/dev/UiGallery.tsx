@@ -13,6 +13,12 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
+import { DedupeResult } from '@/components/dedupe/DedupeResult';
+import { DupGroup } from '@/components/dedupe/DupGroup';
+import { SystemSection } from '@/components/dedupe/SystemSection';
+import { UnchangedList } from '@/components/dedupe/UnchangedList';
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +115,13 @@ import {
 } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
+import type {
+  DedupeActionSetting,
+  DedupeReportView,
+  DedupeViewOptions,
+  DupGroupView,
+} from '@/ipc/dedupeTypes';
+import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 import { applyTheme } from '@/lib/theme';
 
 function Specimen({
@@ -136,6 +149,86 @@ function Specimen({
       </div>
       <div className="flex flex-col gap-4">{children}</div>
     </section>
+  );
+}
+
+const DEDUPE = dedupeFixture();
+const DEDUPE_SHOWCASE: DupGroupView[] = [
+  ...['Ecco the Dolphin', 'Crash Bash', 'Tetris'].map((title) =>
+    DEDUPE.groups.find((g) => g.title === title)!,
+  ),
+  {
+    ...DEDUPE.groups.find((g) => g.title === 'GB Game 01')!,
+    id: 9_999_001,
+    title: 'Pokemon Blue',
+    reason: { kind: 'has-save', path: 'GB/Pokemon Blue.sav' },
+    members: DEDUPE.groups
+      .find((g) => g.title === 'GB Game 01')!
+      .members.map((m, i) => ({
+        ...m,
+        unit: {
+          ...m.unit,
+          primary: i === 0 ? 'GB/Pokemon Blue.gb' : 'GB/Pokemon Blue (1).gb',
+        },
+        dest: i === 0 ? null : `${DEDUPE.quarantine}/GB/Pokemon Blue (1).gb`,
+        travels:
+          i === 0
+            ? [{ from: 'GB/Pokemon Blue.sav', kind: { kind: 'save' as const } }]
+            : [
+                {
+                  from: 'GB/Imgs/Pokemon Blue (1).png',
+                  kind: { kind: 'art' as const, media: 'cover' as const },
+                },
+              ],
+        ...(i === 1 ? { art_leaves: { media: ['cover' as const] } } : {}),
+      })),
+  },
+];
+
+const DEDUPE_SYSTEMS: [string, string][] = [
+  ['GB', 'Game Boy'],
+  ['PS', 'PlayStation'],
+  ['SMS', 'Master System'],
+  ['GBA', 'Game Boy Advance'],
+];
+
+const DEDUPE_REPORT: DedupeReportView = (() => {
+  const outcomes: DedupeReportView['outcomes'] = [];
+  for (const g of DEDUPE.groups) {
+    if (g.action.kind !== 'act') continue;
+    for (const m of g.members)
+      if (m.id !== g.keeper)
+        outcomes.push([g.id, m.id, { status: 'quarantined' }]);
+  }
+  outcomes[1]![2] = {
+    status: 'skipped',
+    reason: { kind: 'destination-limit', why: 'fat32-size' },
+  };
+  return {
+    job: 'gallery',
+    outcomes,
+    bytes_out: DEDUPE.totals.bytes,
+    art_left: ['SMS/Imgs/Adventures of Dolphins.png'],
+  };
+})();
+
+const noop = () => undefined;
+
+function DedupeOptionsSpecimen() {
+  const [options, setOptions] = useState<DedupeViewOptions>({
+    levels: ['exact', 'format', 'version'],
+    one_game_one_rom: false,
+  });
+  const [action, setAction] = useState<DedupeActionSetting>('quarantine');
+  return (
+    <DedupeOptions
+      plan={DEDUPE}
+      options={options}
+      action={action}
+      onOptionsChange={setOptions}
+      onActionChange={setAction}
+      onChangeFolder={noop}
+    />
   );
 }
 
@@ -197,6 +290,56 @@ export function UiGallery() {
           </header>
 
           <main className="mx-auto grid max-w-[1160px] gap-4 px-6 py-6 lg:grid-cols-2">
+            <Specimen name="Duplicates: DedupeOptions" wide>
+              <DedupeOptionsSpecimen />
+            </Specimen>
+
+            <Specimen name="Duplicates: SystemSection, UnchangedList" wide>
+              <div className="grid gap-2">
+                {DEDUPE_SYSTEMS.map(([id, name]) => (
+                  <SystemSection
+                    key={id}
+                    system={id}
+                    name={name}
+                    groups={DEDUPE.groups.filter(
+                      (g) => g.system === id && g.action.kind !== 'report-only',
+                    )}
+                    quarantine={DEDUPE.quarantine}
+                    profileName="Anbernic (stock)"
+                    onSkipSystem={noop}
+                    onResetSystem={noop}
+                    onReveal={noop}
+                  />
+                ))}
+                <UnchangedList groups={DEDUPE.groups} />
+              </div>
+            </Specimen>
+
+            <Specimen name="Duplicates: DedupeResult" wide>
+              <DedupeResult
+                plan={DEDUPE}
+                report={DEDUPE_REPORT}
+                action="quarantine"
+                onOpenFolder={noop}
+                onUndo={noop}
+                onBack={noop}
+                onFindCovers={noop}
+              />
+            </Specimen>
+
+            <Specimen name="Duplicates: DupGroup" wide>
+              <div className="rounded-lg border border-cr-border bg-cr-surface px-4">
+                {DEDUPE_SHOWCASE.map((g) => (
+                  <DupGroup
+                    key={g.id}
+                    group={g}
+                    quarantine={DEDUPE.quarantine}
+                    profileName="Anbernic (stock)"
+                  />
+                ))}
+              </div>
+            </Specimen>
+
             <Specimen name="Button" wide>
               <Row>
                 <Button variant="primary">Apply 41 covers</Button>

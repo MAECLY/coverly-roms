@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use coverly_core::cache::{Cache, DatRow, CACHE_FILE};
+use coverly_core::cache::{Cache, ContentRow, DatRow, StoredChoice, CACHE_FILE, SCHEMA_VERSION};
+use coverly_core::identify::dat::DatGame;
 use coverly_core::identify::hash::HashOutcome;
 use coverly_core::paths::AppDirs;
 use tempfile::TempDir;
@@ -11,6 +12,7 @@ fn zip_outcome() -> HashOutcome {
         crc32: "CBF43926".into(),
         size: 9,
         inner_name: "a.gba".into(),
+        payload_sha1: None,
     }
 }
 
@@ -65,6 +67,7 @@ fn dat_rows_are_replaced_and_found_by_crc_and_stem() {
         crc32: Some(crc.into()),
         md5: None,
         sha1: None,
+        serial: None,
     };
     cache
         .replace_dat("mame", &[row("Old", "old.zip", "00000000")])
@@ -201,6 +204,7 @@ fn row(game: &str, rom: &str, size: u64, crc: &str) -> DatRow {
         crc32: Some(crc.into()),
         md5: None,
         sha1: None,
+        serial: None,
     }
 }
 
@@ -234,7 +238,7 @@ fn a_v1_database_migrates_to_v2_and_keeps_its_rows() {
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
     assert_eq!(version, coverly_core::cache::SCHEMA_VERSION);
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 }
 
 #[test]
@@ -354,4 +358,425 @@ fn user_choices_are_remembered_by_content() {
         cache.organize_choice("ABCDEF01", 100).unwrap().as_deref(),
         Some("gb")
     );
+}
+
+/// The v2 DDL, copied from `cache/mod.rs` as it shipped in schema v2.
+const V2_SCHEMA_FOR_TEST: &str = "
+CREATE INDEX IF NOT EXISTS dat_roms_crc_any ON dat_roms (crc32);
+CREATE INDEX IF NOT EXISTS dat_roms_game ON dat_roms (dat, game);
+CREATE TABLE IF NOT EXISTS organize_ids (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, facts TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS organize_choices (crc32 TEXT NOT NULL, size INTEGER NOT NULL, system_id TEXT NOT NULL, PRIMARY KEY (crc32, size));
+";
+
+fn user_version(path: &Path) -> i32 {
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap()
+}
+
+#[test]
+fn migrates_v2_to_v3_keeping_rows() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(V1_SCHEMA_FOR_TEST).unwrap();
+        conn.execute_batch(V2_SCHEMA_FOR_TEST).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO dat_roms VALUES ('d.dat','Tetris (World)','t.gb','t',32768,'46DF91AD',NULL,NULL)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO organize_ids VALUES ('/pile/a.zip', 1, 2, '{}')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO organize_choices VALUES ('ABCDEF01', 100, 'gbc')",
+            [],
+        )
+        .unwrap();
+    }
+    let cache = Cache::open(&path).unwrap();
+    let hits = cache.dat_by_crc("d.dat", "46DF91AD").unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].serial, None);
+    assert_eq!(
+        cache
+            .organize_facts(Path::new("/pile/a.zip"), 1, 2)
+            .unwrap()
+            .as_deref(),
+        Some("{}")
+    );
+    assert_eq!(
+        cache.organize_choice("ABCDEF01", 100).unwrap().as_deref(),
+        Some("gbc")
+    );
+    // The new tables work on the migrated database.
+    cache.put_content_row(&content("/lib/a.gb")).unwrap();
+    drop(cache);
+    assert!(!dir_names(tmp.path())
+        .iter()
+        .any(|n| n.contains(".corrupt-")));
+    assert_eq!(user_version(&path), 3);
+}
+
+#[test]
+fn fresh_database_is_v3() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    drop(Cache::open(&path).unwrap());
+    assert_eq!(SCHEMA_VERSION, 3);
+    assert_eq!(user_version(&path), 3);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    for table in ["content_keys", "content_key_index", "dedupe_choices"] {
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "{table}");
+    }
+    for column in ["serial", "region", "cloneof", "isbios"] {
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('dat_roms') WHERE name = ?1",
+                [column],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "{column}");
+    }
+}
+
+fn content(path: &str) -> ContentRow {
+    ContentRow {
+        volume_uuid: "VOL-1".into(),
+        path: path.into(),
+        size: 32_768,
+        mtime_ns: 1_000,
+        file_id: Some(42),
+        keys_json: r#"{"l1":"sha1:AA"}"#.into(),
+        serials_json: Some(r#"{"serials":["SLUS-00543"]}"#.into()),
+        volume_fp: Some("fp".into()),
+        index_keys: vec!["sha1:AA".into(), "crc:BB".into()],
+    }
+}
+
+#[test]
+fn content_row_round_trip() {
+    let cache = Cache::in_memory().unwrap();
+    let row = content("/lib/GB/Tetris.gb");
+    cache.put_content_row(&row).unwrap();
+    let p = Path::new("/lib/GB/Tetris.gb");
+    let got = cache.content_row("VOL-1", p, 32_768, 1_000).unwrap();
+    let mut want = row.clone();
+    want.index_keys.sort();
+    assert_eq!(got.as_ref(), Some(&want));
+    // A stale size or mtime, another volume or another path is a miss.
+    assert_eq!(cache.content_row("VOL-1", p, 32_769, 1_000).unwrap(), None);
+    assert_eq!(cache.content_row("VOL-1", p, 32_768, 1_001).unwrap(), None);
+    assert_eq!(cache.content_row("VOL-2", p, 32_768, 1_000).unwrap(), None);
+    // The file id finds the row whatever its path; only on that volume.
+    assert_eq!(cache.content_by_file_id("VOL-1", 42).unwrap(), Some(want));
+    assert_eq!(cache.content_by_file_id("VOL-2", 42).unwrap(), None);
+    assert_eq!(cache.content_by_file_id("VOL-1", 43).unwrap(), None);
+    // Replacing the row replaces its index too.
+    let mut newer = row.clone();
+    newer.mtime_ns = 2_000;
+    newer.index_keys = vec!["sha1:CC".into()];
+    newer.serials_json = None;
+    newer.file_id = None;
+    cache.put_content_row(&newer).unwrap();
+    assert_eq!(cache.content_row("VOL-1", p, 32_768, 1_000).unwrap(), None);
+    assert_eq!(
+        cache.content_row("VOL-1", p, 32_768, 2_000).unwrap(),
+        Some(newer)
+    );
+    assert!(cache.content_by_key("sha1:AA").unwrap().is_empty());
+    assert_eq!(
+        cache.content_by_key("sha1:CC").unwrap(),
+        [("VOL-1".to_owned(), p.to_path_buf())]
+    );
+}
+
+#[test]
+fn rekey_moves_the_row_and_its_index() {
+    let cache = Cache::in_memory().unwrap();
+    let from = Path::new("/lib/GB/Tetris (1).gb");
+    let to = Path::new("/lib/_Duplicados/GB/Tetris (1).gb");
+    let mut row = content(&from.to_string_lossy());
+    cache.put_content_row(&row).unwrap();
+    // A stale row already at the destination is replaced.
+    let mut stale = content(&to.to_string_lossy());
+    stale.index_keys = vec!["sha1:OLD".into()];
+    cache.put_content_row(&stale).unwrap();
+    cache.rekey_content("VOL-1", from, to).unwrap();
+    assert_eq!(
+        cache.content_row("VOL-1", from, 32_768, 1_000).unwrap(),
+        None
+    );
+    row.path = to.to_path_buf();
+    row.index_keys.sort();
+    assert_eq!(
+        cache.content_row("VOL-1", to, 32_768, 1_000).unwrap(),
+        Some(row)
+    );
+    assert_eq!(
+        cache.content_by_key("sha1:AA").unwrap(),
+        [("VOL-1".to_owned(), to.to_path_buf())]
+    );
+    assert!(cache.content_by_key("sha1:OLD").unwrap().is_empty());
+    // Rekeying a path with no row changes nothing.
+    cache
+        .rekey_content("VOL-1", Path::new("/nowhere"), from)
+        .unwrap();
+    assert_eq!(
+        cache.content_row("VOL-1", from, 32_768, 1_000).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn dat_by_serial_uses_the_index() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    let cache = Cache::open(&path).unwrap();
+    let mut a = row(
+        "Driver 2 (USA) (Disc 1)",
+        "Driver 2 (USA) (Disc 1).bin",
+        9,
+        "11111111",
+    );
+    a.serial = Some("SLUS-01161".into());
+    let mut b = row(
+        "Driver 2 (USA) (Disc 2)",
+        "Driver 2 (USA) (Disc 2).bin",
+        9,
+        "22222222",
+    );
+    b.serial = Some("SLUS-01318".into());
+    let c = row("No Serial", "n.bin", 9, "33333333");
+    cache
+        .replace_dat_games(
+            "psx.dat",
+            &[
+                DatGame {
+                    name: a.game.clone(),
+                    roms: vec![a.clone()],
+                    cloneof: None,
+                    region: Some("USA".into()),
+                    is_bios: false,
+                },
+                DatGame {
+                    name: b.game.clone(),
+                    roms: vec![b],
+                    cloneof: Some("Driver 2 (USA) (Disc 1)".into()),
+                    region: None,
+                    is_bios: false,
+                },
+                DatGame {
+                    name: c.game.clone(),
+                    roms: vec![c],
+                    cloneof: None,
+                    region: None,
+                    is_bios: true,
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(cache.dat_by_serial("psx.dat", "SLUS-01161").unwrap(), [a]);
+    assert!(cache
+        .dat_by_serial("other.dat", "SLUS-01161")
+        .unwrap()
+        .is_empty());
+    assert!(cache
+        .dat_by_serial("psx.dat", "SLUS-99999")
+        .unwrap()
+        .is_empty());
+    // Serials come back on every lookup.
+    assert_eq!(
+        cache.dat_by_crc("psx.dat", "22222222").unwrap()[0]
+            .serial
+            .as_deref(),
+        Some("SLUS-01318")
+    );
+    drop(cache);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT game, cloneof, region, isbios FROM dat_roms ORDER BY game")
+        .unwrap();
+    let fields: Vec<(String, Option<String>, Option<String>, bool)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        fields,
+        [
+            (
+                "Driver 2 (USA) (Disc 1)".to_owned(),
+                None,
+                Some("USA".to_owned()),
+                false
+            ),
+            (
+                "Driver 2 (USA) (Disc 2)".to_owned(),
+                Some("Driver 2 (USA) (Disc 1)".to_owned()),
+                None,
+                false
+            ),
+            ("No Serial".to_owned(), None, None, true),
+        ]
+    );
+    let plan: String = conn
+        .query_row(
+            "EXPLAIN QUERY PLAN SELECT * FROM dat_roms WHERE dat = 'psx.dat' AND serial = 'X'",
+            [],
+            |r| r.get(3),
+        )
+        .unwrap();
+    assert!(plan.contains("dat_roms_serial"), "{plan}");
+}
+
+fn choice(system: &str, keeper: &str) -> StoredChoice {
+    StoredChoice {
+        system: system.into(),
+        keeper_key: keeper.into(),
+        signature: "sha1:AA,sha1:BB".into(),
+        saves_fp: "none".into(),
+        chosen_at: 1_700_000_000,
+    }
+}
+
+#[test]
+fn choices_round_trip_and_clear_by_system() {
+    let cache = Cache::in_memory().unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:AA")).unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:CC")).unwrap();
+    cache.put_dedupe_choice(&choice("psx", "sha1:AA")).unwrap();
+    cache.put_dedupe_choice(&choice("snes", "sha1:DD")).unwrap();
+    assert_eq!(
+        cache.dedupe_choice("gb", "sha1:AA").unwrap(),
+        Some(choice("gb", "sha1:AA"))
+    );
+    assert_eq!(cache.dedupe_choice("gba", "sha1:AA").unwrap(), None);
+    // A new pick for the same content replaces the old one.
+    let mut again = choice("gb", "sha1:AA");
+    again.saves_fp = "srm:1234".into();
+    cache.put_dedupe_choice(&again).unwrap();
+    assert_eq!(cache.dedupe_choice("gb", "sha1:AA").unwrap(), Some(again));
+    assert_eq!(cache.clear_dedupe_choices(&[]).unwrap(), 0);
+    assert_eq!(
+        cache
+            .clear_dedupe_choices(&["gb".to_owned(), "psx".to_owned()])
+            .unwrap(),
+        3
+    );
+    assert_eq!(cache.dedupe_choice("gb", "sha1:AA").unwrap(), None);
+    assert_eq!(cache.dedupe_choice("psx", "sha1:AA").unwrap(), None);
+    assert!(cache.dedupe_choice("snes", "sha1:DD").unwrap().is_some());
+}
+
+#[test]
+fn choices_are_forgotten_by_content_in_one_system() {
+    let cache = Cache::in_memory().unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:AA")).unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:BB")).unwrap();
+    cache.put_dedupe_choice(&choice("gb", "sha1:CC")).unwrap();
+    cache.put_dedupe_choice(&choice("psx", "sha1:AA")).unwrap();
+    let keys = [
+        "sha1:AA".to_owned(),
+        "sha1:BB".to_owned(),
+        "sha1:ZZ".to_owned(),
+    ];
+    assert_eq!(cache.forget_dedupe_choices("gb", &keys).unwrap(), 2);
+    assert_eq!(cache.dedupe_choice("gb", "sha1:AA").unwrap(), None);
+    assert_eq!(cache.dedupe_choice("gb", "sha1:BB").unwrap(), None);
+    assert!(cache.dedupe_choice("gb", "sha1:CC").unwrap().is_some());
+    assert!(cache.dedupe_choice("psx", "sha1:AA").unwrap().is_some());
+    assert_eq!(cache.forget_dedupe_choices("gb", &[]).unwrap(), 0);
+}
+
+#[test]
+fn a_v3_database_opened_by_v2_code_is_refused_cleanly() {
+    // Older code sees a newer `user_version` and sets the file aside; this
+    // code does the same for the version after it, never touching its rows.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    Cache::open(&path)
+        .unwrap()
+        .put_json("ns", "k", &1u8, None)
+        .unwrap();
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .unwrap();
+    let cache = Cache::open(&path).unwrap();
+    assert!(cache.get_json::<u8>("ns", "k").unwrap().is_none());
+    let names = dir_names(tmp.path());
+    let aside: Vec<_> = names.iter().filter(|n| n.contains(".corrupt-")).collect();
+    assert_eq!(aside.len(), 1, "{names:?}");
+    assert_eq!(user_version(&tmp.path().join(aside[0])), SCHEMA_VERSION + 1);
+}
+
+#[test]
+fn volume_uuid_is_stable_for_one_volume() {
+    let tmp = TempDir::new().unwrap();
+    let a = tmp.path().join("a");
+    fs::create_dir(&a).unwrap();
+    let one = coverly_core::volumes::volume_uuid(&a).unwrap();
+    let two = coverly_core::volumes::volume_uuid(tmp.path()).unwrap();
+    assert_eq!(one, two);
+    assert!(!one.is_empty());
+    assert!(coverly_core::volumes::volume_uuid(Path::new("/definitely/not/here")).is_none());
+}
+
+#[test]
+fn migrating_to_v3_makes_cached_dats_download_again_for_their_serials() {
+    // v2 rows have no serials. A conditional request would get a 304 and
+    // keep them serial-less, so the serial checks (spec §5.4) would see
+    // no DAT game at all. The migration drops the ETag and the fetch time
+    // so the next use downloads the whole DAT; the old rows stay for an
+    // offline fallback.
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join(CACHE_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(V1_SCHEMA_FOR_TEST).unwrap();
+        conn.execute_batch(V2_SCHEMA_FOR_TEST).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO kv VALUES ('dat-meta','psx.dat','{\"found\":true}','\"e1\"',1700000000)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO kv VALUES ('other','k','1','\"e2\"',1700000000)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO dat_roms VALUES ('psx.dat','G','g.bin','g',9,'11111111',NULL,NULL)",
+            [],
+        )
+        .unwrap();
+    }
+    let cache = Cache::open(&path).unwrap();
+    let meta = cache
+        .get_json::<serde_json::Value>("dat-meta", "psx.dat")
+        .unwrap()
+        .unwrap();
+    assert_eq!(meta.etag, None);
+    assert_eq!(meta.fetched_at, 0);
+    assert_eq!(meta.value["found"], true);
+    let other = cache.get_json::<u8>("other", "k").unwrap().unwrap();
+    assert_eq!(other.etag.as_deref(), Some("\"e2\""));
+    assert_eq!(other.fetched_at, 1_700_000_000);
+    assert_eq!(cache.dat_by_crc("psx.dat", "11111111").unwrap().len(), 1);
 }

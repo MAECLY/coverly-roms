@@ -834,6 +834,9 @@ mod tests {
             ("snes", HeaderRule::SnesCopier),
             ("lynx", HeaderRule::Lynx),
             ("a7800", HeaderRule::A7800),
+            ("mastersystem", HeaderRule::SmsCopier),
+            ("gamegear", HeaderRule::SmsCopier),
+            ("n64", HeaderRule::N64),
             ("gba", HeaderRule::Plain),
         ] {
             assert_eq!(db.get(id).unwrap().header, rule, "{id}");

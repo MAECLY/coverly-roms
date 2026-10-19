@@ -1,9 +1,11 @@
 //! Range and consistency rules; problems are data (`FieldError`), shown
 //! next to the field in the UI.
 
+use std::path::Component;
+
 use serde::Serialize;
 
-use super::model::{ProxyChoice, Settings, KNOWN_SOURCES};
+use super::model::{ProxyChoice, Settings, CONTAINER_CLASS_KEYS, KNOWN_SOURCES};
 use crate::matching::parse_region_order;
 use crate::profiles::builtin_profiles;
 use crate::profiles::naming::validate_folder_override;
@@ -61,7 +63,7 @@ const fn range(field: &'static str, min: f64, max: f64) -> Range {
     Range { field, min, max }
 }
 
-pub const RANGES: [Range; 16] = [
+pub const RANGES: [Range; 17] = [
     range("art.jpeg_quality", 1.0, 100.0),
     range("art.max_size.width", 16.0, 4096.0),
     range("art.max_size.height", 16.0, 4096.0),
@@ -78,6 +80,7 @@ pub const RANGES: [Range; 16] = [
     range("organize.review_threshold", 0.0, 1.0),
     range("organize.recent_seconds", 0.0, 3600.0),
     range("organize.keep_organize_journals_days", 1.0, 3650.0),
+    range("dedupe.max_dat_downloads", 0.0, 100.0),
 ];
 
 fn check(out: &mut Vec<FieldError>, rule: &str, field: String, value: f64) {
@@ -217,6 +220,7 @@ impl Settings {
             out.push(FieldError::new("advanced.custom_dir", NotAbsolute));
         }
         self.validate_organize(known_profiles, &mut out);
+        self.validate_dedupe(known_profiles, &mut out);
         out
     }
 
@@ -297,4 +301,109 @@ impl Settings {
             }
         }
     }
+
+    /// The `dedupe` group: no repeated level or rule, a plain quarantine
+    /// name, a quarantine folder whose shape is not inside a ROMs or system
+    /// folder (the planner checks it against the open library), container
+    /// orders for known layouts and keys.
+    fn validate_dedupe(&self, known_profiles: &[String], out: &mut Vec<FieldError>) {
+        use FieldErrorCode::*;
+        let d = &self.dedupe;
+        if d.levels.is_empty() {
+            out.push(FieldError::new("dedupe.levels", Required));
+        } else if has_repeat(&d.levels) {
+            out.push(FieldError::new("dedupe.levels", Duplicate));
+        }
+        let rules: Vec<_> = d.keep_rules.iter().map(|t| t.rule).collect();
+        if has_repeat(&rules) {
+            out.push(FieldError::new("dedupe.keep_rules", Duplicate));
+        }
+        let builtins = builtin_profiles();
+        if let Some(dir) = &d.quarantine_dir {
+            if !dir.is_absolute() {
+                out.push(FieldError::new("dedupe.quarantine_dir", NotAbsolute));
+            } else {
+                let db = SystemDb::builtin();
+                let names: Vec<_> = dir
+                    .components()
+                    .filter_map(|c| match c {
+                        Component::Normal(name) => Some(name.to_string_lossy()),
+                        _ => None,
+                    })
+                    .collect();
+                let inside = names[mount_label_len(&names)..].iter().any(|name| {
+                    builtins
+                        .iter()
+                        .any(|p| !p.roms_root.is_empty() && p.roms_root.eq_ignore_ascii_case(name))
+                        || db.resolve_folder(name).is_some()
+                });
+                if inside {
+                    out.push(FieldError::new("dedupe.quarantine_dir", Invalid));
+                }
+            }
+        }
+        if let Some(name) = &d.quarantine_name {
+            let name = name.trim();
+            if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+                out.push(FieldError::new("dedupe.quarantine_name", Invalid));
+            }
+        }
+        if d.exclude_systems.iter().any(|e| e.contains(['/', '\\'])) {
+            out.push(FieldError::new("dedupe.exclude_systems", Invalid));
+        }
+        simple(
+            out,
+            "dedupe.max_dat_downloads",
+            f64::from(d.max_dat_downloads),
+        );
+        if d.container_order.is_empty() {
+            return;
+        }
+        let db = SystemDb::builtin();
+        let key_ok =
+            |k: &str| CONTAINER_CLASS_KEYS.contains(&k) || db.get(k).is_some_and(|s| s.id == k);
+        let container_ok = |c: &String| {
+            !c.is_empty()
+                && c.len() <= 16
+                && c.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        };
+        for (profile, orders) in &d.container_order {
+            let known = profile == "*"
+                || known_profiles.iter().any(|k| k == profile)
+                || builtins.iter().any(|p| &p.id == profile);
+            if !known {
+                out.push(FieldError::new(
+                    format!("dedupe.container_order.{profile}"),
+                    Unknown,
+                ));
+            } else if !orders
+                .iter()
+                .all(|(k, order)| key_ok(k) && order.iter().all(container_ok) && !has_repeat(order))
+            {
+                out.push(FieldError::new(
+                    format!("dedupe.container_order.{profile}"),
+                    Invalid,
+                ));
+            }
+        }
+    }
+}
+
+/// Leading components that name a mount point and its label
+/// (`/Volumes/<label>`, `/mnt/<label>`, `/media/<user>/<label>`,
+/// `/run/media/<user>/<label>`): a card called `ROMS` is not a ROMs folder.
+fn mount_label_len<S: AsRef<str>>(names: &[S]) -> usize {
+    let at = |i: usize| names.get(i).map(AsRef::as_ref);
+    let len = match (at(0), at(1)) {
+        (Some("Volumes" | "mnt"), _) => 2,
+        (Some("media"), _) => 3,
+        (Some("run"), Some("media")) => 4,
+        _ => 0,
+    };
+    len.min(names.len())
+}
+
+fn has_repeat<T: PartialEq>(items: &[T]) -> bool {
+    (1..items.len()).any(|i| items[..i].contains(&items[i]))
 }
