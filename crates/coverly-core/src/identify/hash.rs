@@ -62,8 +62,16 @@ impl N64Order {
     pub(crate) fn normalise(self, bytes: &mut [u8]) {
         match self {
             N64Order::Z64 => {}
-            N64Order::V64 => bytes.chunks_exact_mut(2).for_each(|c| c.swap(0, 1)),
-            N64Order::N64 => bytes.chunks_exact_mut(4).for_each(|c| c.reverse()),
+            N64Order::V64 => bytes
+                .as_chunks_mut::<2>()
+                .0
+                .iter_mut()
+                .for_each(|c| c.swap(0, 1)),
+            N64Order::N64 => bytes
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|c| c.reverse()),
         }
     }
 }
