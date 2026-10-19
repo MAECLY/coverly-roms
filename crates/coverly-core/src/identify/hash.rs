@@ -59,7 +59,7 @@ pub fn n64_to_z64(head: &[u8]) -> Option<N64Order> {
 impl N64Order {
     /// Rewrites the whole 4-byte words of `bytes` in big-endian order; a
     /// trailing partial word is left as is.
-    fn normalise(self, bytes: &mut [u8]) {
+    pub(crate) fn normalise(self, bytes: &mut [u8]) {
         match self {
             N64Order::Z64 => {}
             N64Order::V64 => bytes.chunks_exact_mut(2).for_each(|c| c.swap(0, 1)),

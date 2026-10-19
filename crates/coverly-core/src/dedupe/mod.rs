@@ -15,7 +15,7 @@ use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 pub mod companions;
 mod group;
 pub mod keeper;
-mod keys;
+pub mod keys;
 mod plan;
 pub mod saves;
 pub mod source;
@@ -30,6 +30,23 @@ pub use units::UnitKind;
 
 /// Version of the [`DedupePlan`] format.
 pub const PLAN_VERSION: u32 = 1;
+
+/// The phases of a duplicates plan, in the order they run (spec §10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum DedupePhase {
+    /// Walking the library (metadata only).
+    Listing,
+    /// Size buckets and the cache.
+    Sizes,
+    /// Headers, prefix CRCs and full hashes of the files that collide.
+    Fingerprints,
+    /// Disc serials and volume fingerprints.
+    Serials,
+    /// Catalogue lookups and downloads.
+    Catalogues,
+}
 
 /// How two members of a group are the same game. The derived order is the
 /// strength order, strongest first: a group's relation is its weakest link,

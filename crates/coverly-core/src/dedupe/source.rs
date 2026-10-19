@@ -43,6 +43,14 @@ pub trait EntryListing: Send + Sync {
         rule: HeaderRule,
         budget: u64,
     ) -> io::Result<Option<String>>;
+
+    /// The first `len` decoded bytes of entry `entry` (fewer when the entry
+    /// is shorter), to find a header that only its magic shows. `None`
+    /// when this lister cannot decode: the entry then counts as headerless.
+    fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
+        let _ = (path, entry, len);
+        Ok(None)
+    }
 }
 
 /// [`EntryListing`] for zip files, through the `zip` crate. Other archive
@@ -131,6 +139,23 @@ impl EntryListing for ZipListing {
             ));
         }
         Ok(h.payload_sha1)
+    }
+
+    fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
+        let Some(mut archive) = Self::open(path)? else {
+            return Ok(None);
+        };
+        let entries = Self::entries(&mut archive)?;
+        let Some((index, _)) = entries.into_iter().nth(entry) else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no entry {entry}"),
+            ));
+        };
+        let file = archive.by_index(index).map_err(invalid)?;
+        let mut head = Vec::with_capacity(len);
+        file.take(len as u64).read_to_end(&mut head)?;
+        Ok(Some(head))
     }
 }
 
