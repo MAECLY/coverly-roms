@@ -1221,3 +1221,57 @@ fn no_disc_probe_gives_no_format_keys() {
         vec![None]
     );
 }
+
+#[test]
+fn one_serial_on_two_known_discs_never_links() {
+    // Some PS discs boot the first disc's serial; with 1G1R a report-only
+    // link would let disc 2 go for disc 1.
+    let units = vec![
+        paper_unit(0, "psx", "PS/Game (Disc 1).chd", UnitKind::Chd),
+        paper_unit(1, "psx", "PS/Game (Disc 2).chd", UnitKind::Chd),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["SLPS-01234"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SLPS-01234"], Some(2), Some(fingerprint(2))),
+        );
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let (a, b) = (fkey(&keys[0]), fkey(&keys[1]));
+    assert_ne!(a.key_string(), b.key_string());
+    assert_eq!(a.link(b), None);
+    assert_eq!(b.link(a), None);
+}
+
+#[test]
+fn serials_are_normalised_and_a_bad_one_gives_no_key() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/Game.cue", UnitKind::DiscSet),
+        paper_unit(1, "psx", "PS/Game.PBP", UnitKind::Image),
+        paper_unit(2, "psx", "PS/Set.m3u", UnitKind::MultiDisc),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["slus_005.43"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SLUS-00543"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[2].primary,
+            disc_id(
+                &["SLUS-00543", "??", "SLUS-00545"],
+                None,
+                Some(fingerprint(1)),
+            ),
+        );
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    assert_eq!(fkey(&keys[0]).serials, vec!["SLUS-00543".to_string()]);
+    assert_eq!(fkey(&keys[0]).key_string(), fkey(&keys[1]).key_string());
+    assert_eq!(keys[2], None, "a list with an unreadable serial is no list");
+}

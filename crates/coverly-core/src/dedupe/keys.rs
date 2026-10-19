@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
+use crate::identify::dat::normalise_serial;
 use crate::identify::hash::{
     hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
     DEFAULT_HASH_MAX_BYTES,
@@ -1297,11 +1298,16 @@ pub enum FormatLink {
 impl FormatKey {
     /// The key as one string, `system` first. Equal strings are the same
     /// disc identity; [`FormatKey::link`] says whether the match acts.
+    ///
+    /// A lone serial carries its disc number: always on systems that print
+    /// one product number on every disc, and elsewhere from disc 2 on (an
+    /// unknown number reads as disc 1, the common case of one serial per
+    /// disc), so two known discs under one serial never share a key.
     pub fn key_string(&self) -> String {
-        let disc = if self.serials.len() == 1 && shares_serials(&self.system) {
-            format!(":d{}", self.disc_no.unwrap_or(0))
-        } else {
-            String::new()
+        let disc = match (self.serials.len(), self.disc_no) {
+            (1, n) if shares_serials(&self.system) => format!(":d{}", n.unwrap_or(0)),
+            (1, Some(n)) if n > 1 => format!(":d{n}"),
+            _ => String::new(),
         };
         format!("l3:{}:{}{disc}", self.system, self.serials.join(","))
     }
@@ -1383,12 +1389,14 @@ fn format_key(u: &Unit, probe: &dyn DiscProbe, dats: &dyn DatLookup) -> Option<F
     }
     // An unreadable disc is reported by level 1; here it has no identity.
     let id = probe.probe(&u.primary, &u.system).ok()??;
+    // Serials are normalised again (the probe should have): a list with
+    // one unreadable serial is no list, as dropping it would shift the
+    // discs after it.
     let serials: Vec<String> = id
         .serials
         .iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+        .map(|s| normalise_serial(s))
+        .collect::<Option<_>>()?;
     if serials.is_empty() {
         return None;
     }
