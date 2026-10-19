@@ -132,14 +132,20 @@ describe('Library screen', () => {
     expect(await screen.findByText('240 of 240 ROMs')).toBeInTheDocument();
   });
 
-  it('toggles between grid and table', async () => {
+  it('toggles between covers and details', async () => {
     await openLibrary();
-    const layout = screen.getByRole('radiogroup', { name: 'Layout' });
-    expect(within(layout).getByRole('radio', { name: 'Grid' })).toBeChecked();
-    await userEvent.click(within(layout).getByRole('radio', { name: 'List' }));
+    const layout = screen.getByRole('radiogroup', { name: 'View' });
+    expect(within(layout).getByRole('radio', { name: 'Covers' })).toBeChecked();
+    await userEvent.click(
+      within(layout).getByRole('radio', { name: 'Details' }),
+    );
     expect(screen.getByRole('grid', { name: 'ROM list' })).toBeInTheDocument();
-    expect(within(layout).getByRole('radio', { name: 'List' })).toBeChecked();
-    await userEvent.click(within(layout).getByRole('radio', { name: 'Grid' }));
+    expect(
+      within(layout).getByRole('radio', { name: 'Details' }),
+    ).toBeChecked();
+    await userEvent.click(
+      within(layout).getByRole('radio', { name: 'Covers' }),
+    );
     expect(
       screen.getByRole('grid', { name: 'ROM covers' }),
     ).toBeInTheDocument();

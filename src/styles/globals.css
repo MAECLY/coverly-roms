@@ -1275,6 +1275,33 @@ time {
   }
 }
 
+/* View switcher (spec §B.6): six segments with a hairline between Finder's
+   four views and Coverly's two; below 1180px one `View ▾` menu instead.
+   Both are mounted on the same value, CSS shows one. */
+.view-switcher {
+  display: inline-flex;
+}
+
+.view-switcher__rule {
+  align-self: center;
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.125rem;
+  background: var(--cr-border);
+}
+
+@media (min-width: 1181px) {
+  .view-switcher__menu {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .view-switcher__segments {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .toolbar-search {
     width: 11rem;
