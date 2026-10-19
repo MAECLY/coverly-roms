@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type WheelEvent,
 } from 'react';
 
 import { SystemLabel } from '@/components/system/SystemLabel';
@@ -20,6 +21,7 @@ import { useElementSize } from '@/hooks/useElementSize';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { MEDIA, type ArtMark, type EntryView, type Media } from '@/ipc/types';
+import { artKey, peekArtUrl } from '@/lib/artCache';
 import { formatSize } from '@/lib/format';
 import { sectionLabel } from '@/lib/grouping';
 import { cn } from '@/lib/utils';
@@ -59,12 +61,19 @@ function GalleryArt({
 }) {
   const t = useT();
   const mark = entry.art[media];
-  const url = useArtUrl(
+  const fetched = useArtUrl(
     generation,
     entry.id,
     media,
     load && mark === 'present',
   );
+  // Art already in the cache shows at once, settled or not: going back to a
+  // game seen a moment ago never blanks its slot, and asks for nothing.
+  const url =
+    fetched ??
+    (mark === 'present'
+      ? peekArtUrl(artKey(generation, entry.id, media))
+      : null);
   const mediaName = t(`art.media.${media}`);
   return (
     <div
@@ -217,6 +226,19 @@ export function GalleryView({
     },
   });
 
+  // A plain mouse wheel scrolls the strip sideways (it has no vertical
+  // scroll), so Windows and Linux mice can browse it without Shift.
+  function onStripWheel(ev: WheelEvent<HTMLDivElement>) {
+    if (ev.shiftKey || Math.abs(ev.deltaX) >= Math.abs(ev.deltaY)) return;
+    const scale =
+      ev.deltaMode === 1
+        ? FILMSTRIP_CELL_W
+        : ev.deltaMode === 2
+          ? size.width
+          : 1;
+    ev.currentTarget.scrollLeft += ev.deltaY * scale;
+  }
+
   function onStripClick(ev: MouseEvent<HTMLDivElement>) {
     const id = entryIdOf(ev.target);
     if (id !== null) onSelect(id);
@@ -283,6 +305,7 @@ export function GalleryView({
         className="gallery__strip"
         onKeyDown={keys}
         onClick={onStripClick}
+        onWheel={onStripWheel}
         onDoubleClick={(ev) => {
           const id = entryIdOf(ev.target);
           if (id !== null) onOpen(id);

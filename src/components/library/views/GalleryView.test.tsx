@@ -147,6 +147,36 @@ describe('GalleryView', () => {
     ).toHaveAttribute('src');
   });
 
+  it('shows art already cached at once, without waiting or asking again', async () => {
+    const user = userEvent.setup();
+    const entries = big.entries
+      .filter((e) => e.art.cover === 'present')
+      .slice(0, 5);
+    render(<Harness entries={entries} initial={entries[0]!.id} />);
+    await screen.findByRole('img', { name: `${entries[0]!.name}, Cover` });
+    act(() => strip().focus());
+    await user.keyboard('{ArrowRight}');
+    await screen.findByRole('img', { name: `${entries[1]!.name}, Cover` });
+    const asked = readArt.mock.calls.filter((c) => c[2] === 'cover').length;
+    await user.keyboard('{ArrowLeft}');
+    // Back on the first game before the settle delay: its image is there.
+    expect(
+      screen.getByRole('img', { name: `${entries[0]!.name}, Cover` }),
+    ).toHaveAttribute('src');
+    expect(readArt.mock.calls.filter((c) => c[2] === 'cover').length).toBe(
+      asked,
+    );
+  });
+
+  it('scrolls the strip sideways with a vertical wheel', () => {
+    render(<Harness entries={big.entries.slice(0, 200)} />);
+    const listbox = strip();
+    fireEvent.wheel(listbox, { deltaY: 120, deltaX: 0 });
+    expect(listbox.scrollLeft).toBe(120);
+    fireEvent.wheel(listbox, { deltaY: 0, deltaX: 40 });
+    expect(listbox.scrollLeft).toBe(120);
+  });
+
   it('labels the large image "{name}, {media}"', async () => {
     const entry = big.entries.find((e) => e.art.cover === 'present')!;
     render(<Harness entries={[entry]} initial={entry.id} />);
