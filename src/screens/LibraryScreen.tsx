@@ -59,7 +59,8 @@ export function LibraryScreen() {
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
 
-  // ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves).
+  // ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves);
+  // ⌘I: the docked inspector.
   useViewShortcuts({
     prefs,
     setPrefs,
@@ -209,14 +210,15 @@ export function LibraryScreen() {
             view={view}
             entry={selected}
             docked={docked}
-            onClose={
-              docked
-                ? () => {
-                    setPrefs({ inspector: false });
-                    closeDrawer();
-                  }
-                : closeDrawer
-            }
+            onClose={() => {
+              // Docked, the close button undocks the pane. Either way the
+              // button that held the focus is gone: the view takes it back.
+              if (docked) setPrefs({ inspector: false });
+              closeDrawer();
+              document
+                .querySelector<HTMLElement>('.library-content [role="grid"]')
+                ?.focus();
+            }}
           />
         )}
       </div>

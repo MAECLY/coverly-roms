@@ -412,6 +412,7 @@ describe('Detail drawer', () => {
       );
       expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
       expect(useViewStore.getState().prefs.inspector).toBe(false);
+      expect(document.activeElement).toHaveAttribute('role', 'grid');
     });
 
     it.each(['columns', 'gallery'] as const)(
