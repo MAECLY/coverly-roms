@@ -1,10 +1,16 @@
 import { useEffect, useRef } from 'react';
 
 import { stepSize } from '@/lib/coverSizes';
-import type { CoverSize, ViewId, ViewPrefs } from '@/lib/viewPrefs';
+import {
+  INSPECTOR_VIEWS,
+  type CoverSize,
+  type ViewId,
+  type ViewPrefs,
+} from '@/lib/viewPrefs';
 
 /** Views with a cover size slider (spec §B.4.1). */
 const SIZED_VIEWS: ReadonlySet<ViewId> = new Set(['covers', 'shelves']);
+const INSPECTOR_SET: ReadonlySet<ViewId> = new Set(INSPECTOR_VIEWS);
 /** Accumulated wheel delta, in px, per size stop. */
 export const WHEEL_STEP_PX = 100;
 /** `WheelEvent.deltaMode` lines and pages, roughly in px. */
@@ -20,7 +26,7 @@ export interface ViewShortcutOptions {
   enabled?: boolean;
 }
 
-/** Text entry, where ⌘+ / ⌘− / ⌘0 may mean something to the field. */
+/** Text entry, where ⌘+ / ⌘− / ⌘0 / ⌘I may mean something to the field. */
 function inField(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
@@ -50,8 +56,9 @@ function sizeForKey(key: string, size: CoverSize): CoverSize | null {
  * Library view shortcuts on `window`: ⌘+ (or ⌘=), ⌘− and ⌘0 move the cover
  * size one stop or back to M, and ⌘/Ctrl + wheel (a trackpad pinch arrives
  * as Ctrl + wheel) moves one stop per 100px of accumulated delta. Only in
- * Covers and Shelves; elsewhere the events are left alone. Handled ones are
- * `preventDefault`ed so the webview never zooms.
+ * Covers and Shelves; elsewhere the events are left alone. ⌘I docks or
+ * undocks the inspector, except in Columns and Gallery. Handled ones are
+ * `preventDefault`ed so the webview never zooms (nor shows page info).
  */
 export function useViewShortcuts({
   prefs,
@@ -69,9 +76,9 @@ export function useViewShortcuts({
     let wheelAcc = 0;
     let wheelAt = 0;
 
-    function active(): boolean {
+    function active(views: ReadonlySet<ViewId>): boolean {
       const { prefs: p, enabled: on } = latest.current;
-      return on && SIZED_VIEWS.has(p.view) && !behindDialog();
+      return on && views.has(p.view) && !behindDialog();
     }
 
     function resize(next: CoverSize): void {
@@ -85,7 +92,17 @@ export function useViewShortcuts({
       if (ev.defaultPrevented || ev.altKey || !(ev.metaKey || ev.ctrlKey)) {
         return;
       }
-      if (inField(ev.target) || !active()) return;
+      if (inField(ev.target)) return;
+      if (ev.key === 'i' || ev.key === 'I') {
+        if (!active(INSPECTOR_SET)) return;
+        ev.preventDefault();
+        const cur = latest.current;
+        const inspector = !cur.prefs.inspector;
+        cur.prefs = { ...cur.prefs, inspector };
+        cur.setPrefs({ inspector });
+        return;
+      }
+      if (!active(SIZED_VIEWS)) return;
       const next = sizeForKey(ev.key, latest.current.prefs.coverSize);
       if (next === null) return;
       ev.preventDefault();
@@ -93,7 +110,7 @@ export function useViewShortcuts({
     }
 
     function onWheel(ev: WheelEvent): void {
-      if (!(ev.ctrlKey || ev.metaKey) || !active()) return;
+      if (!(ev.ctrlKey || ev.metaKey) || !active(SIZED_VIEWS)) return;
       ev.preventDefault();
       const scale =
         ev.deltaMode === 1 ? LINE_PX : ev.deltaMode === 2 ? PAGE_PX : 1;

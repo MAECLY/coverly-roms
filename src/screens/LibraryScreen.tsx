@@ -24,6 +24,7 @@ import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import { isTyping } from '@/lib/keyboard';
+import { inspectorDocked } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -99,6 +100,7 @@ export function LibraryScreen() {
         ev.preventDefault();
         searchRef.current?.focus();
       } else if (ev.key === 'Escape') {
+        // A docked inspector is a pane, not a popover: Escape leaves it.
         closeDrawer();
       }
     }
@@ -111,6 +113,8 @@ export function LibraryScreen() {
   // Entry ids are indexes into `view.entries`.
   const selected =
     selectedId === null ? null : (view.entries[selectedId] ?? null);
+  // Docked, the inspector follows the selection; otherwise Enter opens it.
+  const docked = inspectorDocked(prefs);
 
   const onOpen = (id: number) => {
     select(id);
@@ -200,8 +204,20 @@ export function LibraryScreen() {
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
           <div className="library-content">{content}</div>
         </main>
-        {drawerOpen && selected && (
-          <DetailDrawer view={view} entry={selected} onClose={closeDrawer} />
+        {(docked || drawerOpen) && selected && (
+          <DetailDrawer
+            view={view}
+            entry={selected}
+            docked={docked}
+            onClose={
+              docked
+                ? () => {
+                    setPrefs({ inspector: false });
+                    closeDrawer();
+                  }
+                : closeDrawer
+            }
+          />
         )}
       </div>
       <StatusBar

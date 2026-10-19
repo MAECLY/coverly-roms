@@ -20,6 +20,22 @@ export const VIEW_IDS: readonly ViewId[] = [
   'shelves',
 ];
 
+/**
+ * Views that can dock the inspector (spec §B.5). Columns and Gallery have
+ * their own preview pane, so they have no Inspector switch and ⌘I.
+ */
+export const INSPECTOR_VIEWS: readonly ViewId[] = [
+  'covers',
+  'details',
+  'mounts',
+  'shelves',
+];
+
+/** Whether `prefs` dock the inspector in the view they show. */
+export function inspectorDocked(prefs: ViewPrefs): boolean {
+  return prefs.inspector && INSPECTOR_VIEWS.includes(prefs.view);
+}
+
 export type CoverSize = 'xs' | 's' | 'm' | 'l' | 'xl';
 export const COVER_SIZE_IDS: readonly CoverSize[] = ['xs', 's', 'm', 'l', 'xl'];
 

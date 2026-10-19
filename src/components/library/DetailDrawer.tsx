@@ -111,13 +111,21 @@ function IdentityBlock({
   );
 }
 
+/**
+ * The details of one entry, in a pane on the right. Opened with Enter or a
+ * click; `docked` (the Inspector switch, ⌘I) keeps it open and following the
+ * selection, so it never takes the focus from the view and Escape leaves it
+ * in place. Its close button then undocks it (`onClose`).
+ */
 export function DetailDrawer({
   view,
   entry,
+  docked = false,
   onClose,
 }: {
   view: LibraryView;
   entry: EntryView;
+  docked?: boolean;
   onClose(): void;
 }) {
   const t = useT();
@@ -140,7 +148,11 @@ export function DetailDrawer({
   }
 
   return (
-    <aside className="drawer" aria-labelledby="drawer-title">
+    <aside
+      className="drawer"
+      aria-labelledby="drawer-title"
+      data-docked={docked ? 'true' : undefined}
+    >
       <header className="drawer-header">
         <h2 id="drawer-title" className="drawer-title" title={entry.name}>
           {entry.name}

@@ -360,4 +360,68 @@ describe('Detail drawer', () => {
       within(drawer).getByRole('button', { name: 'Desde archivo…' }),
     ).toBeEnabled();
   });
+
+  describe('docked', () => {
+    afterEach(() => {
+      act(() =>
+        useViewStore.getState().setPrefs({ inspector: false, view: 'covers' }),
+      );
+    });
+
+    function dock(view: 'covers' | 'details' | 'columns' | 'gallery') {
+      act(() => {
+        useViewStore.getState().closeDrawer();
+        useViewStore.getState().setPrefs({ inspector: true, view });
+      });
+    }
+
+    it('opens on selection and leaves the focus in the view', async () => {
+      const view = await setup();
+      dock('covers');
+      const grid = screen.getByRole('grid', { name: 'ROM covers' });
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      grid.focus();
+      act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+      expect(
+        screen.getByRole('complementary', { name: view.entries[0]!.name }),
+      ).toBeInTheDocument();
+      expect(document.activeElement).toBe(grid);
+      fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      const drawer = screen.getByRole('complementary', {
+        name: view.entries[1]!.name,
+      });
+      expect(drawer).toHaveAttribute('data-docked', 'true');
+      expect(document.activeElement).toBe(grid);
+      fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      expect(
+        screen.getByRole('complementary', { name: view.entries[2]!.name }),
+      ).toBeInTheDocument();
+      expect(document.activeElement).toBe(grid);
+    });
+
+    it('stays through Escape and closes as a pane with its button', async () => {
+      const view = await setup();
+      dock('details');
+      act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      const drawer = screen.getByRole('complementary', {
+        name: view.entries[0]!.name,
+      });
+      await userEvent.click(
+        within(drawer).getByRole('button', { name: 'Close details' }),
+      );
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      expect(useViewStore.getState().prefs.inspector).toBe(false);
+    });
+
+    it.each(['columns', 'gallery'] as const)(
+      'is not docked in %s',
+      async (id) => {
+        const view = await setup();
+        dock(id);
+        act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+        expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      },
+    );
+  });
 });

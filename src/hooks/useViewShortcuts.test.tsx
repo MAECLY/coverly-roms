@@ -9,11 +9,13 @@ import { useViewShortcuts } from './useViewShortcuts';
 function Harness({
   view = 'covers',
   coverSize = 'm',
+  inspector = false,
   enabled,
   spy,
 }: {
   view?: ViewId;
   coverSize?: ViewPrefs['coverSize'];
+  inspector?: boolean;
   enabled?: boolean;
   spy: (patch: Partial<ViewPrefs>) => void;
 }) {
@@ -21,6 +23,7 @@ function Harness({
     ...DEFAULT_PREFS,
     view,
     coverSize,
+    inspector,
   });
   useViewShortcuts({
     prefs,
@@ -33,6 +36,7 @@ function Harness({
   return (
     <>
       <div data-testid="size">{prefs.coverSize}</div>
+      <div data-testid="inspector">{String(prefs.inspector)}</div>
       <input type="search" aria-label="Search" />
       <button type="button" data-testid="view">
         view
@@ -181,5 +185,46 @@ describe('useViewShortcuts', () => {
     render(<Harness spy={spy} />);
     expect(wheel(window, 300, false)).toBe(false);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  describe('⌘I', () => {
+    it.each(['covers', 'details', 'mounts', 'shelves'] as const)(
+      'toggles the docked inspector in %s',
+      (view) => {
+        const spy = vi.fn();
+        const { getByTestId } = render(<Harness spy={spy} view={view} />);
+        expect(press(getByTestId('view'), 'i')).toBe(true);
+        expect(spy).toHaveBeenLastCalledWith({ inspector: true });
+        expect(getByTestId('inspector')).toHaveTextContent('true');
+        expect(press(window, 'I', { ctrlKey: true })).toBe(true);
+        expect(spy).toHaveBeenLastCalledWith({ inspector: false });
+      },
+    );
+
+    it.each(['columns', 'gallery'] as const)(
+      'does nothing in %s, which have their own preview pane',
+      (view) => {
+        const spy = vi.fn();
+        render(<Harness spy={spy} view={view} />);
+        expect(press(window, 'i')).toBe(false);
+        expect(spy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('is ignored while typing, without a modifier and behind a dialog', () => {
+      const spy = vi.fn();
+      const { getByRole } = render(<Harness spy={spy} />);
+      const search = getByRole('searchbox');
+      search.focus();
+      expect(press(search, 'i')).toBe(false);
+      expect(press(window, 'i', {})).toBe(false);
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('data-state', 'open');
+      document.body.append(dialog);
+      expect(press(window, 'i')).toBe(false);
+      dialog.remove();
+      expect(spy).not.toHaveBeenCalled();
+    });
   });
 });
