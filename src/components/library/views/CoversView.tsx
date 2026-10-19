@@ -1,11 +1,21 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useCallback, useMemo, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useContext,
+  useMemo,
+  type CSSProperties,
+  type MouseEvent,
+} from 'react';
 
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { SystemLabel } from '@/components/system/SystemLabel';
 import { Badge } from '@/components/ui/badge';
 import { useActiveRange, stickyHeaderAt } from '@/hooks/useActiveRange';
 import { useElementSize } from '@/hooks/useElementSize';
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
+import { COVER_GAP, COVER_SIZES, columnsFor } from '@/lib/coverSizes';
+import { formatSize } from '@/lib/format';
 import { ALL_SECTION_KEY, type Section } from '@/lib/grouping';
 import { nextIndex } from '@/lib/keyboardNav';
 import { buildRowModel, moveVertical } from '@/lib/rowModel';
@@ -17,12 +27,8 @@ import { SECTION_ROW_H, SectionHeaderRow } from './SectionHeaderRow';
 import { entryIdOf, type ViewProps } from './types';
 import { useViewKeys } from './useViewKeys';
 
-export const TILE_W = 168;
-// Fixed parts, so a tile never grows into the row below (see .cover-tile):
-// 2px border + 6px padding each side, the 25:36 cover (152 x 219), a 6px gap,
-// two 16px lines of title and the 18px system/region line.
-export const TILE_H = 296;
-export const GAP = 12;
+// Tile metrics per size stop are in `COVER_SIZES` (src/lib/coverSizes.ts).
+const GAP = COVER_GAP;
 
 const VERTICAL: Readonly<Record<string, 1 | -1>> = {
   ArrowDown: 1,
@@ -59,9 +65,19 @@ export function CoversView({
   onPreview,
 }: ViewProps) {
   const t = useT();
+  const locale = useContext(LocaleContext);
   const [ref, size, element] = useElementSize<HTMLDivElement>();
-  const columns = Math.max(1, Math.floor((size.width - GAP) / (TILE_W + GAP)));
-  const pageRows = Math.max(1, Math.floor(size.height / (TILE_H + GAP)));
+  const stop = prefs.coverSize;
+  const metrics = COVER_SIZES[stop];
+  const badge = metrics.meta === 'badge';
+  const rowH = metrics.tileH + GAP;
+  const columns = columnsFor(size.width, stop);
+  const pageRows = Math.max(1, Math.floor(size.height / rowH));
+  const tileStyle = {
+    width: metrics.tileW,
+    height: metrics.tileH,
+    '--cover-art-h': `${metrics.artH}px`,
+  } as CSSProperties;
   const withHeaders = prefs.groupBy !== 'none';
   const model = useMemo(
     () =>
@@ -87,24 +103,23 @@ export function CoversView({
   );
   // Row identity, not position: TanStack Virtual memoises offsets on
   // `count` and `getItemKey` only, so a new row model with the same row
-  // count (another filter, another grouping) must hand it a new key function
-  // or the old header/tile offsets stay.
+  // count (another filter, another grouping, another size stop) must hand
+  // it a new key function or the old header/tile offsets stay.
   const getItemKey = useCallback(
     (i: number) => {
       const row = rows[i];
       if (!row) return i;
       return row.kind === 'header'
         ? `h:${row.section.key}`
-        : `r:${row.sectionIndex}:${row.start}`;
+        : `r:${stop}:${row.sectionIndex}:${row.start}`;
     },
-    [rows],
+    [rows, stop],
   );
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is not memoisable by the React Compiler
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => element.current,
-    estimateSize: (i) =>
-      rows[i]?.kind === 'header' ? SECTION_ROW_H : TILE_H + GAP,
+    estimateSize: (i) => (rows[i]?.kind === 'header' ? SECTION_ROW_H : rowH),
     overscan: 2,
     getItemKey,
     rangeExtractor,
@@ -189,73 +204,99 @@ export function CoversView({
               className="cover-row"
               style={{
                 transform: `translateY(${item.start}px)`,
-                height: TILE_H + GAP,
+                height: rowH,
                 gap: GAP,
                 paddingLeft: GAP,
               }}
             >
-              {entries.slice(row.start, row.end).map((entry) => (
-                <div
-                  key={entry.id}
-                  id={`entry-${entry.id}`}
-                  role="gridcell"
-                  aria-selected={entry.id === selectedId}
-                  data-entry-id={entry.id}
-                  className="cover-tile"
-                  style={{ width: TILE_W, height: TILE_H }}
-                  title={entry.name}
-                >
-                  <div className="cover-tile__art">
-                    <ArtThumb
-                      generation={generation}
-                      entry={entry}
-                      media="cover"
-                    />
-                    <span className="cover-tile__marks">
-                      <ArtStatusIcon media="cover" mark={entry.art.cover} />
-                      <ArtStatusIcon
-                        media="screenshot"
-                        mark={entry.art.screenshot}
+              {entries.slice(row.start, row.end).map((entry) => {
+                const system = systems[entry.system];
+                const systemName = system?.name ?? '';
+                return (
+                  <div
+                    key={entry.id}
+                    id={`entry-${entry.id}`}
+                    role="gridcell"
+                    aria-selected={entry.id === selectedId}
+                    // Without a visible name, the tile is named by it.
+                    aria-label={badge ? entry.name : undefined}
+                    data-entry-id={entry.id}
+                    className={`cover-tile cover-tile--${stop}`}
+                    style={tileStyle}
+                    title={entry.name}
+                  >
+                    <div className="cover-tile__art">
+                      <ArtThumb
+                        generation={generation}
+                        entry={entry}
+                        media={prefs.art}
                       />
-                      <ArtStatusIcon media="title" mark={entry.art.title} />
-                    </span>
-                  </div>
-                  <span className="cover-tile__name">
-                    {titleWithoutRegions(entry.name)}
-                  </span>
-                  <span className="cover-tile__info">
-                    <span className="cover-tile__system">
-                      <SystemLabel
-                        systemId={systems[entry.system]?.system_id ?? null}
-                        name={systems[entry.system]?.name ?? ''}
-                        size={16}
-                      />
-                    </span>
-                    {entry.regions.slice(0, 2).map((r) => (
-                      <Badge
-                        key={r}
-                        variant="outline"
-                        className="cover-tile__region"
-                        title={t(`regions.${r}`)}
-                      >
-                        {r === 'world' ? t('regions.world') : REGION_CODE[r]}
-                      </Badge>
-                    ))}
-                    {entry.regions.length > 2 && (
-                      <Badge
-                        variant="outline"
-                        className="cover-tile__region"
-                        title={entry.regions
-                          .slice(2)
-                          .map((r) => t(`regions.${r}`))
-                          .join(', ')}
-                      >
-                        +{entry.regions.length - 2}
-                      </Badge>
+                      {badge && (
+                        <span className="cover-tile__badge">
+                          <SystemIcon
+                            systemId={system?.system_id ?? null}
+                            size={20}
+                            title={systemName}
+                          />
+                        </span>
+                      )}
+                      <span className="cover-tile__marks">
+                        <ArtStatusIcon media="cover" mark={entry.art.cover} />
+                        <ArtStatusIcon
+                          media="screenshot"
+                          mark={entry.art.screenshot}
+                        />
+                        <ArtStatusIcon media="title" mark={entry.art.title} />
+                      </span>
+                    </div>
+                    {metrics.nameLines > 0 && (
+                      <span className="cover-tile__name">
+                        {titleWithoutRegions(entry.name)}
+                      </span>
                     )}
-                  </span>
-                </div>
-              ))}
+                    {!badge && (
+                      <span className="cover-tile__info">
+                        <span className="cover-tile__system">
+                          <SystemLabel
+                            systemId={system?.system_id ?? null}
+                            name={systemName}
+                            size={16}
+                          />
+                        </span>
+                        {entry.regions.slice(0, 2).map((r) => (
+                          <Badge
+                            key={r}
+                            variant="outline"
+                            className="cover-tile__region"
+                            title={t(`regions.${r}`)}
+                          >
+                            {r === 'world'
+                              ? t('regions.world')
+                              : REGION_CODE[r]}
+                          </Badge>
+                        ))}
+                        {entry.regions.length > 2 && (
+                          <Badge
+                            variant="outline"
+                            className="cover-tile__region"
+                            title={entry.regions
+                              .slice(2)
+                              .map((r) => t(`regions.${r}`))
+                              .join(', ')}
+                          >
+                            +{entry.regions.length - 2}
+                          </Badge>
+                        )}
+                      </span>
+                    )}
+                    {metrics.meta === 'line+size' && (
+                      <span className="cover-tile__size">
+                        {formatSize(entry.size, locale)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           );
         })}

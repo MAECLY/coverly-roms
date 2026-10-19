@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,11 +17,17 @@ import {
   HOSTILE_NAMES,
 } from '@/ipc/mock/fixture';
 import { createMockBackend, MOCK_LIBRARIES } from '@/ipc/mock/mockBackend';
-import { MEDIA, REGIONS, type EntryView } from '@/ipc/types';
+import { MEDIA, REGIONS, type EntryView, type Media } from '@/ipc/types';
 import { clearArtCache } from '@/lib/artCache';
 import { groupEntries } from '@/lib/grouping';
 import { titleWithoutRegions } from '@/lib/tileLabel';
-import { DEFAULT_PREFS, type GroupBy } from '@/lib/viewPrefs';
+import { COVER_SIZES, columnsFor } from '@/lib/coverSizes';
+import {
+  COVER_SIZE_IDS,
+  DEFAULT_PREFS,
+  type CoverSize,
+  type GroupBy,
+} from '@/lib/viewPrefs';
 import { stubLayout } from '@/test/layout';
 
 import { CoverGrid } from '../CoverGrid';
@@ -44,9 +56,13 @@ function grouped(entries: readonly EntryView[], groupBy: GroupBy) {
 function Harness({
   entries: input,
   groupBy = 'none',
+  coverSize = 'm',
+  art = 'cover',
 }: {
   entries: readonly EntryView[];
   groupBy?: GroupBy;
+  coverSize?: CoverSize;
+  art?: Media;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [opened, setOpened] = useState<number | null>(null);
@@ -58,7 +74,7 @@ function Harness({
       <CoversView
         entries={entries}
         sections={sections}
-        prefs={{ ...DEFAULT_PREFS, groupBy }}
+        prefs={{ ...DEFAULT_PREFS, groupBy, coverSize, art }}
         onPreview={setPreviewId}
         systems={big.systems}
         generation={1}
@@ -499,5 +515,105 @@ describe('CoversView row offsets', () => {
     // Header 32 + a 3-tile row 308 + header 32.
     expect(rowOf(3).style.transform).toBe('translateY(372px)');
     expect(rowOf(10).style.transform).toBe('translateY(680px)');
+  });
+});
+
+describe('CoversView sizes and art', () => {
+  let restore: () => void;
+  beforeEach(() => {
+    restore = stubLayout(1200, 800);
+    setBackend(createMockBackend({ delayMs: 0, now: FIXTURE_NOW }));
+  });
+  afterEach(() => {
+    restore();
+    clearArtCache();
+    setBackend(null);
+  });
+
+  describe('cover sizes', () => {
+    it.each(COVER_SIZE_IDS)('lays %s tiles out by its metrics', (stop) => {
+      const { container } = render(
+        <Harness entries={big.entries} coverSize={stop} />,
+      );
+      const grid = screen.getByRole('grid');
+      expect(grid).toHaveAttribute(
+        'aria-colcount',
+        String(columnsFor(1200, stop)),
+      );
+      const m = COVER_SIZES[stop];
+      const tile = container.querySelector<HTMLElement>('.cover-tile')!;
+      expect(tile).toHaveClass(`cover-tile--${stop}`);
+      expect(tile.style.width).toBe(`${m.tileW}px`);
+      expect(tile.style.height).toBe(`${m.tileH}px`);
+      const row = container.querySelector<HTMLElement>('.cover-row')!;
+      expect(row.style.height).toBe(`${m.tileH + 12}px`);
+      expect(screen.getAllByRole('gridcell').length).toBeLessThanOrEqual(
+        MAX_TILES,
+      );
+    });
+
+    it('XS shows the system as a named corner badge and the name only as a label', () => {
+      const entry = big.entries[0]!;
+      const { container } = render(
+        <Harness entries={[entry]} coverSize="xs" />,
+      );
+      const cell = screen.getByRole('gridcell');
+      expect(cell).toHaveAccessibleName(entry.name);
+      expect(cell).toHaveAttribute('title', entry.name);
+      expect(container.querySelector('.cover-tile__name')).toBeNull();
+      expect(container.querySelector('.cover-tile__info')).toBeNull();
+      const system = big.systems[entry.system]!;
+      const badge = within(cell).getByRole('img', { name: system.name });
+      expect(badge.closest('.cover-tile__badge')).not.toBeNull();
+    });
+
+    it('S shows one line of name and the corner badge', () => {
+      const entry = big.entries[0]!;
+      const { container } = render(<Harness entries={[entry]} coverSize="s" />);
+      expect(container.querySelector('.cover-tile__name')).toHaveTextContent(
+        titleWithoutRegions(entry.name),
+      );
+      expect(container.querySelector('.cover-tile__info')).toBeNull();
+      expect(container.querySelector('.cover-tile__badge')).not.toBeNull();
+    });
+
+    it('M and L keep the meta line and no badge', () => {
+      for (const stop of ['m', 'l'] as const) {
+        const { container, unmount } = render(
+          <Harness entries={[big.entries[0]!]} coverSize={stop} />,
+        );
+        expect(container.querySelector('.cover-tile__info')).not.toBeNull();
+        expect(container.querySelector('.cover-tile__badge')).toBeNull();
+        expect(container.querySelector('.cover-tile__size')).toBeNull();
+        unmount();
+      }
+    });
+
+    it('XL adds the file size line', () => {
+      const entry = big.entries[0]!;
+      const { container } = render(
+        <Harness entries={[entry]} coverSize="xl" />,
+      );
+      const line = container.querySelector('.cover-tile__size');
+      expect(line).not.toBeNull();
+      expect(line!.textContent).toMatch(/\d/);
+    });
+  });
+
+  describe('art choice', () => {
+    it('shows title screens when the view is set to title', async () => {
+      const backend = createMockBackend({ delayMs: 0, now: FIXTURE_NOW });
+      setBackend(backend);
+      await backend.openLibrary(MOCK_LIBRARIES[0].path);
+      const entries = big.entries.slice(0, 14);
+      const { container } = render(<Harness entries={entries} art="title" />);
+      const present = entries.filter((e) => e.art.title === 'present').length;
+      const missing = entries.filter((e) => e.art.title === 'missing').length;
+      await waitFor(() =>
+        expect(container.querySelectorAll('img')).toHaveLength(present),
+      );
+      expect(screen.queryAllByText('No title screen')).toHaveLength(missing);
+      expect(screen.queryAllByText('No cover')).toHaveLength(0);
+    });
   });
 });

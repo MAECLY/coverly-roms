@@ -282,6 +282,10 @@ time {
 
 .cover-tile__art .art-thumb {
   display: block;
+  /* The art box of the size stop (3:4 of the tile width, from COVER_SIZES);
+     the cover is drawn inside it with object-fit: contain. */
+  height: var(--cover-art-h, auto);
+  aspect-ratio: auto;
 }
 
 /* The missing slot (brand §2): a 1.5px outline, dash 4 / gap 3, in
@@ -388,6 +392,53 @@ time {
   line-height: 1.125rem;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Size stops (spec §B.4.1). XS and S have no meta line: the system is a
+   lone 20px icon on the art, named by its title (spec §A.6 rule 3). */
+.cover-tile__badge {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  display: flex;
+  padding: 0.125rem;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-surface) 88%, transparent);
+  box-shadow: 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  line-height: 1;
+}
+
+.cover-tile[aria-selected='true'] .cover-tile__badge {
+  color: inherit;
+}
+
+.cover-tile--xs .cover-tile__marks,
+.cover-tile--s .cover-tile__marks {
+  right: 0.25rem;
+  bottom: 0.25rem;
+  padding: 0.125rem 0.25rem;
+}
+
+.cover-tile--xs .art-placeholder {
+  padding: 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.cover-tile--s .cover-tile__name {
+  max-height: 1rem;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.cover-tile__size {
+  overflow: hidden;
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .cover-tile__region {
