@@ -96,10 +96,20 @@ multi-game archives and duplicates stay where they are. Nothing is clobbered,
 copies across drives are verified, and an interrupted job can be resumed or
 undone.
 
-**Browse the library.** Folder, system, date and flat views; a grid and a table
-that stay fast past 10,000 games; filters for missing art, system, extension
-and region; search; and a detail panel where you can swap any slot's art by
-hand or search by title.
+**Browse the library.** Folder, system, date and flat views; filters for
+missing art, system, extension and region; search; and a detail panel where you
+can swap any slot's art by hand or search by title. Six ways to look at it, all
+fast past 10,000 games: **Covers** (five sizes), **Details** (pick and resize
+columns, thumbnails, compact rows), **Columns** (system → folder → game →
+preview), **Gallery** (one game's art large, with a filmstrip), **Art slots**
+(cover, title and screenshot side by side, so the gaps show) and **Shelves**
+(one row per system). Switch with ⌘/Ctrl+1–6, resize covers with ⌘/Ctrl +/−,
+group by system, folder, region, art status or first letter, type a name to
+jump to it and press Space for a quick look. Each library remembers its view.
+
+**System icons.** Every system name in the app has its icon beside it: a plain
+silhouette of the hardware (from RetroArch's Monochrome theme, CC BY 4.0), or
+a short label where no neutral drawing exists.
 
 **Jobs you control.** The fill wizard shows the whole plan before it runs.
 Jobs can be paused, resumed, cancelled and undone.
@@ -553,6 +563,8 @@ in [docs/adr/](docs/adr/README.md), the release process in
   and [libretro-database](https://github.com/libretro/libretro-database), for
   the art and the identification data, downloaded at runtime.
 - [SteamGridDB](https://www.steamgriddb.com/) and its community.
+- [RetroArch Assets](https://github.com/libretro/retroarch-assets), for the
+  monochrome system silhouettes (CC BY 4.0, © libretro contributors).
 - [Tauri](https://tauri.app/), [Rust](https://www.rust-lang.org/) and
   [React](https://react.dev/).
 - The Archivo, Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono fonts
