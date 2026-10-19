@@ -211,26 +211,61 @@ function isAbsolute(path: string): boolean {
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
 }
 
+function slash(path: string): string {
+  return path.replace(/\\/g, '/');
+}
+
+/**
+ * The folder of system folders, learnt from a peer the plan already sends
+ * to the quarantine: its `dest` is `<quarantine>/<rel>` and its primary is
+ * `<library>/<rel>` (the core's `dest_for`).
+ */
+function libraryRoot(q: string, peers: MemberView[]): string | null {
+  const qs = slash(q);
+  for (const p of peers) {
+    if (!p.dest) continue;
+    const dest = slash(p.dest);
+    if (!dest.startsWith(`${qs}/`)) continue;
+    const rel = dest.slice(qs.length + 1);
+    const primary = slash(p.unit.primary);
+    if (rel && primary.endsWith(`/${rel}`))
+      return primary.slice(0, primary.length - rel.length - 1);
+  }
+  return null;
+}
+
 /**
  * Where a copy goes when it leaves. The plan carries `dest` for the copies
  * the rules set aside; a former keeper (after a pick) has none, so it goes
- * to the same place under the quarantine as its library path.
+ * to the same place under the quarantine as its library path, the way the
+ * core places the others: relative to the library folder learnt from a
+ * peer, else `<quarantine>/<system>/<file name>`.
  */
-export function destOf(m: MemberView, quarantine: string): string {
+export function destOf(
+  m: MemberView,
+  quarantine: string,
+  peers: MemberView[] = [],
+  system?: string,
+): string {
   if (m.dest) return m.dest;
-  const sep =
-    quarantine.includes('\\') && !quarantine.includes('/') ? '\\' : '/';
-  const rel = isAbsolute(m.unit.primary)
-    ? fileName(m.unit.primary)
-    : m.unit.primary;
-  return `${quarantine.replace(/[\\/]+$/, '')}${sep}${rel}`;
+  const q = quarantine.replace(/[\\/]+$/, '');
+  const sep = q.includes('\\') && !q.includes('/') ? '\\' : '/';
+  const join = (rel: string) => `${q}${sep}${rel.split('/').join(sep)}`;
+  const primary = slash(m.unit.primary);
+  if (!isAbsolute(m.unit.primary)) return join(primary);
+  const root = libraryRoot(q, peers);
+  if (root !== null && primary.startsWith(`${root}/`))
+    return join(primary.slice(root.length + 1));
+  const name = fileName(m.unit.primary);
+  return join(system ? `${system}/${name}` : name);
 }
 
 /** A destination as the UI writes it: from the quarantine folder down. */
 export function destLabel(dest: string, quarantine: string): string {
   const q = quarantine.replace(/[\\/]+$/, '');
   const name = fileName(q);
-  return dest.startsWith(q) ? `${name}${dest.slice(q.length)}` : dest;
+  const rest = dest.slice(q.length);
+  return dest.startsWith(q) && /^[\\/]/.test(rest) ? `${name}${rest}` : dest;
 }
 
 /**

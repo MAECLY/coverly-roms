@@ -264,6 +264,25 @@ describe('DupGroup', () => {
     expect(within(pbp as HTMLElement).getByText('Otro formato')).toBeVisible();
   });
 
+  it('a picked-away keeper with an absolute path keeps its system folder', () => {
+    // As the core sends them: absolute primaries, dest under the quarantine.
+    renderGroup(
+      groupOf([
+        member(0, '/Volumes/SD/ROMS/GB/Zelda.gb', { dest: null }),
+        member(1, '/Volumes/SD/ROMS/GB/Zelda (1).gb', {
+          dest: `${QUARANTINE}/GB/Zelda (1).gb`,
+        }),
+      ]),
+    );
+    expect(
+      screen.getByText('→ _Duplicados/GB/Zelda (1).gb'),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Quedarme con esta Zelda (1).gb' }),
+    );
+    expect(screen.getByText('→ _Duplicados/GB/Zelda.gb')).toBeInTheDocument();
+  });
+
   it('save that leaves with a picked keeper warns inline', () => {
     renderGroup(
       groupOf(

@@ -65,6 +65,8 @@ export interface TrayRowProps {
   /** Show this row's own relation badge (when the tray mixes relations). */
   showRelation: boolean;
   quarantine: string;
+  /** The group's system, for a former keeper's destination fallback. */
+  system: string;
   idPrefix: string;
 }
 
@@ -84,6 +86,7 @@ export function TrayRow({
   interactive,
   showRelation,
   quarantine,
+  system,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
@@ -145,7 +148,10 @@ export function TrayRow({
         <p className="dup-row__detail">
           <span id={destId} className="dup-row__dest">
             {t('dedupe.dest', {
-              path: destLabel(destOf(member, quarantine), quarantine),
+              path: destLabel(
+                destOf(member, quarantine, members, system),
+                quarantine,
+              ),
             })}
           </span>
           {travels.length > 0 && <span>{travels.join(', ')}</span>}

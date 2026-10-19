@@ -226,6 +226,7 @@ export function DupGroup({
               interactive={acts}
               showRelation={mixed}
               quarantine={quarantine}
+              system={group.system}
               idPrefix={`${uid}-m${m.id}`}
             />
           ))}

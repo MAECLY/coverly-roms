@@ -286,8 +286,41 @@ describe('destinations and badges', () => {
       ...keeper!,
       unit: { ...keeper!.unit, primary: '/Volumes/SD/ROMS/PS/x.bin' },
     };
-    expect(destOf(abs, `${q}/`)).toBe(`${q}/x.bin`);
-    expect(destOf(abs, 'D:\\_Duplicados')).toBe('D:\\_Duplicados\\x.bin');
+    expect(destOf(abs, `${q}/`, [], 'PS')).toBe(`${q}/PS/x.bin`);
+    expect(destOf(abs, 'D:\\_Duplicados', [], 'PS')).toBe(
+      'D:\\_Duplicados\\PS\\x.bin',
+    );
+  });
+
+  it('a former keeper with an absolute path keeps its system folder', () => {
+    // The core sends absolute primaries and destinations relative to the
+    // folder of system folders (`dest_for`): the former keeper must land in
+    // the same shape, not loose at the top of the quarantine.
+    const g = crash();
+    const q = '/Volumes/SD/_Duplicados';
+    const lib = '/Volumes/SD/ROMS';
+    const absolute = g.members.map((m) => ({
+      ...m,
+      unit: { ...m.unit, primary: `${lib}/${m.unit.primary}` },
+      dest: m.dest === null ? null : `${q}/${m.unit.primary}`,
+    }));
+    const keeper = {
+      ...absolute[0]!,
+      unit: { ...absolute[0]!.unit, primary: `${lib}/PS/sub/Crash Bash.PBP` },
+    };
+    expect(destOf(keeper, q, absolute, g.system)).toBe(
+      `${q}/PS/sub/Crash Bash.PBP`,
+    );
+    // Without a peer to learn the library folder from, the core's own
+    // fallback: <quarantine>/<system>/<file name>.
+    expect(destOf(keeper, q, [], 'PS')).toBe(`${q}/PS/Crash Bash.PBP`);
+  });
+
+  it('a destination outside the quarantine is not cut at a shared prefix', () => {
+    const q = '/Volumes/SD/_Duplicados';
+    expect(destLabel('/Volumes/SD/_Duplicados2/a.sms', q)).toBe(
+      '/Volumes/SD/_Duplicados2/a.sms',
+    );
   });
 
   it('writes destinations from the quarantine folder down', () => {
