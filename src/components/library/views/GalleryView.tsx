@@ -201,6 +201,7 @@ export function GalleryView({
     onOpen,
     onPreview,
     scrollToIndex: (i) => virtualizer.scrollToIndex(i, { align: 'auto' }),
+    layout: String(size.width),
     move: (key) => {
       const last = entries.length - 1;
       if (last < 0) return null;

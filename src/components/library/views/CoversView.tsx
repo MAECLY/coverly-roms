@@ -102,6 +102,7 @@ export function CoversView({
     onPreview,
     scrollToIndex: (i) =>
       virtualizer.scrollToIndex(rowOfIndex[i] ?? 0, { align: 'auto' }),
+    layout: `${size.width}x${size.height}`,
     move: (key) => {
       const dir = VERTICAL[key];
       return dir !== undefined && selectedIndex >= 0

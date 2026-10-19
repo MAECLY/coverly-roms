@@ -26,6 +26,10 @@ export interface ViewKeysOptions {
   /** Whether entry `i` can hold the selection in this view (Shelves shows
    *  60 games a shelf): type-ahead skips the others. All by default. */
   canLand?(i: number): boolean;
+  /** The view's size, as a key: when it changes (the details pane opens
+   *  beside the view, the window is resized) the selection is brought
+   *  back into view once the new layout is in place. */
+  layout?: string;
 }
 
 /** A single printable character (not Space, which previews). */
@@ -49,10 +53,19 @@ export function useViewKeys(
   useEffect(() => {
     scrollTo.current = o.scrollToIndex;
   });
-  const { selectedIndex } = o;
+  const { selectedIndex, layout } = o;
+  const lastLayout = useRef(layout);
   useEffect(() => {
-    if (selectedIndex >= 0) scrollTo.current(selectedIndex);
-  }, [selectedIndex]);
+    if (selectedIndex < 0) return;
+    if (lastLayout.current === layout) {
+      scrollTo.current(selectedIndex);
+      return;
+    }
+    lastLayout.current = layout;
+    // Wait a frame so the virtualiser has measured the new size.
+    const frame = requestAnimationFrame(() => scrollTo.current(selectedIndex));
+    return () => cancelAnimationFrame(frame);
+  }, [selectedIndex, layout]);
 
   return (ev) => {
     // Keys pressed on a focusable child belong to that child.
