@@ -110,7 +110,7 @@ de miniaturas), **Huecos de arte** (portada, título y captura lado a lado, para
 ver lo que falta) y **Estantes** (una fila por sistema). Cambia con
 ⌘/Ctrl+1–6, ajusta el tamaño de las portadas con ⌘/Ctrl +/−, agrupa por
 sistema, carpeta, región, estado del arte o inicial, escribe un nombre para
-saltar a él y pulsa Espacio para una vista rápida. Cada biblioteca recuerda su
+saltar a él y pulsa Espacio para una Vista rápida. Cada biblioteca recuerda su
 vista.
 
 **Iconos de sistema.** Cada nombre de sistema en la app lleva su icono al lado:

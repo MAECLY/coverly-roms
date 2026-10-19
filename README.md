@@ -105,7 +105,7 @@ preview), **Gallery** (one game's art large, with a filmstrip), **Art slots**
 (cover, title and screenshot side by side, so the gaps show) and **Shelves**
 (one row per system). Switch with ⌘/Ctrl+1–6, resize covers with ⌘/Ctrl +/−,
 group by system, folder, region, art status or first letter, type a name to
-jump to it and press Space for a quick look. Each library remembers its view.
+jump to it and press Space for a Quick look. Each library remembers its view.
 
 **System icons.** Every system name in the app has its icon beside it: a plain
 silhouette of the hardware (from RetroArch's Monochrome theme, CC BY 4.0), or
