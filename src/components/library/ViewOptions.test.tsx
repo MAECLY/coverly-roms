@@ -109,6 +109,13 @@ describe('ViewOptions', () => {
       within(dialog).getByRole('button', { name: 'Missing art first' }),
     );
     expect(useViewStore.getState().prefs.groupBy).toBe('art');
+    const button = within(dialog).getByRole('button', {
+      name: 'Missing art first',
+    });
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    await user.click(button);
+    expect(useViewStore.getState().prefs.groupBy).toBe('system');
+    expect(button).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('sorts by a key and flips the direction', async () => {
@@ -140,7 +147,48 @@ describe('ViewOptions', () => {
     expect(ids().slice(0, 3)).toEqual(['thumb', 'system', 'name']);
     expect(
       within(list).getByRole('button', { name: 'Move Thumbnail up' }),
-    ).toBeDisabled();
+    ).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('keeps the columns in a labelled list', async () => {
+    const { dialog } = await open('details');
+    const group = within(dialog).getByRole('group', {
+      name: 'Visible columns',
+    });
+    const items = within(within(group).getByRole('list')).getAllByRole(
+      'listitem',
+    );
+    expect(items.length).toBeGreaterThan(1);
+  });
+
+  it('keeps focus on a column checkbox as it is shown or hidden', async () => {
+    const { user, dialog } = await open('details');
+    const list = within(dialog).getByRole('group', { name: 'Visible columns' });
+    await user.click(within(list).getByRole('checkbox', { name: 'Size' }));
+    expect(document.activeElement).toBe(
+      within(list).getByRole('checkbox', { name: 'Size' }),
+    );
+    await user.keyboard(' ');
+    expect(useViewStore.getState().prefs.columns.map((c) => c.id)).toContain(
+      'size',
+    );
+    expect(document.activeElement).toBe(
+      within(list).getByRole('checkbox', { name: 'Size' }),
+    );
+  });
+
+  it('keeps focus on a move button that reaches the end', async () => {
+    const { user, dialog } = await open('details');
+    const list = within(dialog).getByRole('group', { name: 'Visible columns' });
+    const first = useViewStore.getState().prefs.columns[1]!.id;
+    const up = within(list).getAllByRole('button', { name: /up$/ })[1]!;
+    up.focus();
+    await user.keyboard('{Enter}');
+    expect(useViewStore.getState().prefs.columns[0]?.id).toBe(first);
+    expect(document.activeElement).toBe(up);
+    expect(up).toHaveAttribute('aria-disabled', 'true');
+    await user.keyboard('{Enter}');
+    expect(useViewStore.getState().prefs.columns[0]?.id).toBe(first);
   });
 
   it('docks the inspector', async () => {

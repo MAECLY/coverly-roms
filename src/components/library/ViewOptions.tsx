@@ -21,6 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { Toggle } from '@/components/ui/toggle';
 import { useT } from '@/i18n/useT';
 import type { Media } from '@/ipc/types';
+import { cn } from '@/lib/utils';
 import { COLUMN_DEFS, moveColumn, toggleColumn } from '@/lib/detailsColumns';
 import type { SortKey } from '@/lib/sort';
 import {
@@ -133,7 +134,15 @@ export function ViewOptions() {
     : GROUP_BY_IDS;
   const sizeIndex = COVER_SIZE_IDS.indexOf(prefs.coverSize);
   const shown = new Set(prefs.columns.map((c) => c.id));
-  const hidden = DETAILS_COLUMN_IDS.filter((c) => !shown.has(c));
+  const rows = [
+    ...prefs.columns.map((c, at) => ({ col: c.id, at })),
+    ...DETAILS_COLUMN_IDS.filter((c) => !shown.has(c)).map((col) => ({
+      col,
+      at: -1,
+    })),
+  ];
+  const lastAt = prefs.columns.length - 1;
+  const missingFirst = prefs.groupBy === 'art';
 
   return (
     <Popover>
@@ -244,8 +253,10 @@ export function ViewOptions() {
                 variant="ghost"
                 size="sm"
                 className="justify-self-start"
-                aria-pressed={prefs.groupBy === 'art'}
-                onClick={() => setPrefs({ groupBy: 'art' })}
+                aria-pressed={missingFirst}
+                onClick={() =>
+                  setPrefs({ groupBy: missingFirst ? 'system' : 'art' })
+                }
               >
                 <ArrowDownWideNarrow aria-hidden />
                 {t('layouts.missingArtFirst')}
@@ -292,82 +303,77 @@ export function ViewOptions() {
 
         {show.columns && (
           <Section label={t('layouts.columnsPicker')} labelId={ids.columns}>
-            <ul
-              role="group"
-              aria-labelledby={ids.columns}
-              className="view-options__columns"
-            >
-              {prefs.columns.map((c, i) => {
-                const name = t(COLUMN_DEFS[c.id].labelKey);
-                const cid = `${ids.columns}-${c.id}`;
-                return (
-                  <li key={c.id} className="view-options__column">
-                    <Checkbox
-                      id={cid}
-                      checked
-                      disabled={c.id === 'name'}
-                      onCheckedChange={() =>
-                        setPrefs({
-                          columns: toggleColumn(prefs.columns, c.id),
-                        })
-                      }
-                    />
-                    <Label
-                      htmlFor={cid}
-                      className="flex-1 truncate font-normal"
-                    >
-                      {name}
-                    </Label>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t('layouts.columnMoveUp', { column: name })}
-                      disabled={i === 0}
-                      onClick={() =>
-                        setPrefs({
-                          columns: moveColumn(prefs.columns, c.id, -1),
-                        })
-                      }
-                    >
-                      <ArrowUp aria-hidden />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t('layouts.columnMoveDown', { column: name })}
-                      disabled={i === prefs.columns.length - 1}
-                      onClick={() =>
-                        setPrefs({
-                          columns: moveColumn(prefs.columns, c.id, 1),
-                        })
-                      }
-                    >
-                      <ArrowDown aria-hidden />
-                    </Button>
-                  </li>
-                );
-              })}
-              {hidden.map((c) => {
-                const cid = `${ids.columns}-${c}`;
-                return (
-                  <li key={c} className="view-options__column">
-                    <Checkbox
-                      id={cid}
-                      checked={false}
-                      onCheckedChange={() =>
-                        setPrefs({ columns: toggleColumn(prefs.columns, c) })
-                      }
-                    />
-                    <Label
-                      htmlFor={cid}
-                      className="flex-1 truncate font-normal text-cr-text-secondary"
-                    >
-                      {t(COLUMN_DEFS[c].labelKey)}
-                    </Label>
-                  </li>
-                );
-              })}
-            </ul>
+            <div role="group" aria-labelledby={ids.columns}>
+              {/* One keyed list for shown and hidden columns, so a row moves
+                  rather than remounts when toggled and keeps the focus. */}
+              <ul className="view-options__columns">
+                {rows.map(({ col, at }) => {
+                  const name = t(COLUMN_DEFS[col].labelKey);
+                  const cid = `${ids.columns}-${col}`;
+                  const shownRow = at >= 0;
+                  const move = (delta: -1 | 1) => {
+                    const edge = delta < 0 ? at === 0 : at === lastAt;
+                    if (edge) return;
+                    setPrefs({
+                      columns: moveColumn(prefs.columns, col, delta),
+                    });
+                  };
+                  return (
+                    <li key={col} className="view-options__column">
+                      <Checkbox
+                        id={cid}
+                        checked={shownRow}
+                        disabled={col === 'name'}
+                        onCheckedChange={() =>
+                          setPrefs({
+                            columns: toggleColumn(prefs.columns, col),
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor={cid}
+                        className={cn(
+                          'flex-1 truncate font-normal',
+                          !shownRow && 'text-cr-text-secondary',
+                        )}
+                      >
+                        {name}
+                      </Label>
+                      {shownRow && (
+                        <>
+                          {/* aria-disabled, not disabled: the button keeps
+                              the focus when its column reaches the end. */}
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="aria-disabled:text-cr-text-disabled"
+                            aria-label={t('layouts.columnMoveUp', {
+                              column: name,
+                            })}
+                            aria-disabled={at === 0 || undefined}
+                            onClick={() => move(-1)}
+                          >
+                            <ArrowUp aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="aria-disabled:text-cr-text-disabled"
+                            aria-label={t('layouts.columnMoveDown', {
+                              column: name,
+                            })}
+                            aria-disabled={at === lastAt || undefined}
+                            onClick={() => move(1)}
+                          >
+                            <ArrowDown aria-hidden />
+                          </Button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </Section>
         )}
 
