@@ -675,9 +675,30 @@ fn format_link_reasons_make_the_group_report_only() {
     assert_eq!(units_of(&groups[0]), vec![a, b]);
     assert_eq!(report_why(&groups[0]), Some(&ReportWhy::BuildDiffers));
 
-    // With 1G1R another build is another version, and acts.
+    // With 1G1R another build is another version, but a level 2 group
+    // needs both builds known to the catalogue by hash (spec §5.3): a
+    // serial alone (an untagged translation keeps it) never acts.
     let mut o = opts(&db, &NoDats);
     o.one_game_one_rom = true;
+    let groups = c.groups(&o);
+    assert_eq!(report_why(&groups[0]), Some(&ReportWhy::BuildDiffers));
+    c.l3[a].as_mut().unwrap().catalogued = true;
+    c.l3[b].as_mut().unwrap().catalogued = true;
+    let groups = c.groups(&o);
+    assert_eq!(
+        report_why(&groups[0]),
+        Some(&ReportWhy::BuildDiffers),
+        "a catalogued serial is not a hash identity"
+    );
+    c.l2[a] = vkey("psx", "Game (USA)");
+    c.l2[b] = vkey("psx", "Other Game (USA)");
+    let groups = c.groups(&o);
+    assert_eq!(
+        report_why(&groups[0]),
+        Some(&ReportWhy::BuildDiffers),
+        "two catalogue games under one serial"
+    );
+    c.l2[b] = vkey("psx", "Game (USA) (Rev 1)");
     let groups = c.groups(&o);
     assert_eq!(groups[0].action, GroupAction::Act);
     assert_eq!(

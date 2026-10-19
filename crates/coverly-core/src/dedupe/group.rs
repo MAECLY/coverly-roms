@@ -189,7 +189,7 @@ pub fn build_groups(
                 .filter_map(|&i| Some((i, l3.get(i)?.as_ref()?)))
                 .filter(|(_, k)| k.system == system)
                 .collect();
-            sys.format_links(&format);
+            sys.format_links(&format, &version);
         }
         if opts.versions {
             let versions: Vec<(usize, &VersionKey)> = members
@@ -402,8 +402,17 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
 
     /// Level 3: units sharing a serial, linked as [`FormatKey::link`] says.
     /// With "one game, one ROM" another build of one disc is another
-    /// version and acts.
-    fn format_links(&mut self, format: &[(usize, &FormatKey)]) {
+    /// version and acts, but only when both builds have the same level 2
+    /// key: a level 2 group needs a catalogue identity by hash (spec
+    /// §5.3), and a serial alone is not one (translations keep it).
+    fn format_links(&mut self, format: &[(usize, &FormatKey)], version: &[Option<&VersionKey>]) {
+        let system = self.system;
+        let same_version = |a: usize, b: usize| match (version[a], version[b]) {
+            (Some(x), Some(y)) => {
+                x.system == system && y.system == system && x.key_string() == y.key_string()
+            }
+            _ => false,
+        };
         let mut by_serial: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
         for (n, (_, k)) in format.iter().enumerate() {
             for s in &k.serials {
@@ -428,7 +437,9 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
                 Some(FormatLink::Acts { confidence }) => (Relation::Format, None, confidence),
                 Some(FormatLink::ReportOnly {
                     why: ReportWhy::BuildDiffers,
-                }) if self.opts.one_game_one_rom => (Relation::Version, None, VERSION_CONFIDENCE),
+                }) if self.opts.one_game_one_rom && same_version(ua, ub) => {
+                    (Relation::Version, None, VERSION_CONFIDENCE)
+                }
                 Some(FormatLink::ReportOnly { why }) => (Relation::Format, Some(why), 0.0),
             };
             self.link(ua, ub, relation, why, confidence);
