@@ -106,6 +106,28 @@ fn blank_ps_card_is_no_save() {
     assert_eq!(conflict(&saves), None);
 }
 
+#[test]
+fn a_card_sized_save_that_only_starts_with_mc_is_real() {
+    // A 128 KiB save of another system (N64 flash, GBA) that happens to
+    // begin with `MC`: its frame bytes are game data, not free-block
+    // markers, so it is not a blank memory card.
+    let mut bytes: Vec<u8> = (0..128 * 1024u32)
+        .map(|i| (i as u8).wrapping_mul(13) ^ 0x21)
+        .collect();
+    bytes[..2].copy_from_slice(b"MC");
+    for i in 1..=15 {
+        bytes[i * 128] = 0x12;
+    }
+    let len = bytes.len() as u64;
+    assert!(!is_blank(Cursor::new(bytes.clone()), len, "fla").unwrap());
+    assert!(!is_blank(Cursor::new(bytes), len, "srm").unwrap());
+
+    // A card whose saves were deleted holds nothing the game shows.
+    let mut deleted = ps_card_blank();
+    deleted[128] = 0xA1;
+    assert!(is_blank(Cursor::new(deleted), len, "mcr").unwrap());
+}
+
 // --- Conflicts ---
 
 #[test]

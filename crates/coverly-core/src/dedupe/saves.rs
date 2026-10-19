@@ -143,8 +143,10 @@ fn ps_card_is_empty(card: &[u8]) -> bool {
         return false;
     }
     // Allocation state 0x51/0x52/0x53: first, middle, last block in use.
-    // 0xA0 is free and 0xA1–0xA3 deleted.
-    (1..=15).all(|i| card[i * PS_FRAME] & 0xF0 != 0x50)
+    // 0xA0 is free and 0xA1–0xA3 deleted. Every frame must say free or
+    // deleted: a 128 KiB save of another system that merely begins with
+    // `MC` has game data there and stays a real save.
+    (1..=15).all(|i| matches!(card[i * PS_FRAME], 0xA0..=0xA3))
 }
 
 /// Two or more members with real saves that differ (spec §8.3): every
