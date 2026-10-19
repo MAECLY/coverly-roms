@@ -695,3 +695,529 @@ fn a_cached_disc_key_is_dropped_when_a_track_changes_behind_its_sheet() {
     let second = run(&after, &ctx);
     assert_ne!(second[0].exact, second[1].exact);
 }
+
+// --- Level 2: same game, other version (spec §5.3) ---
+
+use coverly_core::cache::DatRow;
+use coverly_core::dedupe::keys::{
+    level_three, level_two, FormatKey, FormatLink, VersionKey, VERSION_CONFIDENCE,
+};
+use coverly_core::dedupe::source::{CacheDats, DatLookup, NoDiscProbe};
+use coverly_core::dedupe::testing::{disc_id, fingerprint, FakeDats, FakeDiscProbe};
+use coverly_core::dedupe::ReportWhy;
+use coverly_core::identify::dat::dat_sources;
+
+/// A unit that exists only on paper: level 2 and 3 never read files.
+fn paper_unit(id: usize, system: &str, path: &str, kind: UnitKind) -> Unit {
+    let primary = PathBuf::from(path);
+    Unit {
+        id,
+        system: system.to_string(),
+        primary: primary.clone(),
+        files: vec![primary.clone()],
+        kind,
+        size: 1024,
+        payload_size: None,
+        mtime_ns: 0,
+        file_id: None,
+        patches: Vec::new(),
+        rel_dir: PathBuf::new(),
+        stem: primary.file_stem().unwrap().to_string_lossy().into_owned(),
+        ext: ext_of(&primary),
+        in_library: true,
+    }
+}
+
+/// Level 1 facts of unit `unit` with the catalogue CRCs `crcs`.
+fn keyed_with_crc(unit: usize, crcs: &[(u32, u64)]) -> KeyedUnit {
+    KeyedUnit {
+        unit,
+        exact: None,
+        confirmed: false,
+        patch_set: Vec::new(),
+        header: None,
+        dat_game: None,
+        chd_raw: None,
+        dat_crcs: crcs.to_vec(),
+    }
+}
+
+fn version_keys(
+    units: &[Unit],
+    keyed: &[KeyedUnit],
+    dats: &dyn DatLookup,
+) -> Vec<Option<VersionKey>> {
+    level_two(units, keyed, dats)
+}
+
+fn vkey(k: &Option<VersionKey>) -> &VersionKey {
+    k.as_ref().expect("a version key")
+}
+
+#[test]
+fn tetris_v10_and_v11_share_a_version_key() {
+    let units = vec![
+        paper_unit(0, "gb", "GB/Tetris (JUE) (V1.0) [!].zip", UnitKind::Zip),
+        paper_unit(1, "gb", "GB/Tetris (JUE) (V1.1) [!].zip", UnitKind::Zip),
+    ];
+    let keyed = vec![
+        keyed_with_crc(0, &[(0x63F9_407D, 32_768)]),
+        keyed_with_crc(1, &[(0x46DF_91AD, 32_768)]),
+    ];
+    let dats = FakeDats::new()
+        .with_crc("gb", 0x63F9_407D, "Tetris (Japan) (En)")
+        .with_crc("gb", 0x46DF_91AD, "Tetris (World) (Rev 1)");
+
+    let keys = version_keys(&units, &keyed, &dats);
+    let (a, b) = (vkey(&keys[0]), vkey(&keys[1]));
+    assert_eq!(a.title_key, "tetris");
+    assert_eq!(a.key_string(), b.key_string());
+    assert_eq!(a.system, "gb");
+    assert_eq!(a.game, "Tetris (Japan) (En)");
+    assert_eq!(b.game, "Tetris (World) (Rev 1)");
+    assert_eq!(b.tags.revision_text.as_deref(), Some("Rev 1"));
+    assert_eq!(a.disc, None);
+    assert!((VERSION_CONFIDENCE - 0.90).abs() < f32::EPSILON);
+}
+
+#[test]
+fn unknown_dump_never_gets_a_version_key() {
+    // Same name, no catalogue hit by hash: names never group.
+    let units = vec![
+        paper_unit(0, "gb", "GB/Tetris (JUE) (V1.0) [!].zip", UnitKind::Zip),
+        paper_unit(1, "gb", "GB/Tetris (World) (Rev 1).gb", UnitKind::Single),
+    ];
+    let keyed = vec![
+        keyed_with_crc(0, &[(0xDEAD_BEEF, 32_768)]),
+        keyed_with_crc(1, &[]),
+    ];
+    let dats = FakeDats::new().with_crc("gb", 0x46DF_91AD, "Tetris (World) (Rev 1)");
+    assert_eq!(version_keys(&units, &keyed, &dats), vec![None, None]);
+}
+
+#[test]
+fn a_hit_in_another_systems_catalogue_is_not_a_version_key() {
+    let units = vec![paper_unit(0, "gbc", "GBC/Tetris.gb", UnitKind::Single)];
+    let keyed = vec![keyed_with_crc(0, &[(0x46DF_91AD, 32_768)])];
+    let dats = FakeDats::new().with_crc("gb", 0x46DF_91AD, "Tetris (World) (Rev 1)");
+    assert_eq!(version_keys(&units, &keyed, &dats), vec![None]);
+}
+
+#[test]
+fn a_bios_entry_or_an_ambiguous_crc_is_not_a_version_key() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/a.bin", UnitKind::Single),
+        paper_unit(1, "gb", "GB/b.gb", UnitKind::Single),
+    ];
+    let keyed = vec![
+        keyed_with_crc(0, &[(0x1111_1111, 512)]),
+        keyed_with_crc(1, &[(0x2222_2222, 512)]),
+    ];
+    let dats = FakeDats::new()
+        .with_bios("psx", 0x1111_1111, "PlayStation BIOS (v3.0)")
+        .with_crc("gb", 0x2222_2222, "Alpha (USA)")
+        .with_crc("gb", 0x2222_2222, "Beta Game (Japan)");
+    assert_eq!(version_keys(&units, &keyed, &dats), vec![None, None]);
+}
+
+#[test]
+fn the_headerless_crc_finds_the_catalogue_entry_too() {
+    let units = vec![paper_unit(0, "snes", "SNES/Game.smc", UnitKind::Single)];
+    let keyed = vec![keyed_with_crc(
+        0,
+        &[(0xAAAA_AAAA, 512 + 1024), (0xBBBB_BBBB, 1024)],
+    )];
+    let dats = FakeDats::new().with_crc("snes", 0xBBBB_BBBB, "Game (USA)");
+    assert_eq!(
+        vkey(&version_keys(&units, &keyed, &dats)[0]).game,
+        "Game (USA)"
+    );
+}
+
+#[test]
+fn disc_1_and_2_never_share() {
+    // Level 2: the disc number stays in the title key.
+    let units = vec![
+        paper_unit(0, "psx", "PS/Driver 2 (Disc 1).bin", UnitKind::Single),
+        paper_unit(1, "psx", "PS/Driver 2 (Disc 2).bin", UnitKind::Single),
+    ];
+    let keyed = vec![keyed_with_crc(0, &[(1, 10)]), keyed_with_crc(1, &[(2, 10)])];
+    let dats = FakeDats::new()
+        .with_crc("psx", 1, "Driver 2 (USA) (Disc 1)")
+        .with_crc("psx", 2, "Driver 2 (USA) (Disc 2) (Rev 1)");
+    let keys = version_keys(&units, &keyed, &dats);
+    let (a, b) = (vkey(&keys[0]), vkey(&keys[1]));
+    assert_eq!((a.disc, b.disc), (Some(1), Some(2)));
+    assert_ne!(a.key_string(), b.key_string());
+
+    // Level 3: Saturn reuses one product number on both discs.
+    let units = vec![
+        paper_unit(
+            0,
+            "saturn",
+            "Saturn/Grandia (Disc 1).cue",
+            UnitKind::DiscSet,
+        ),
+        paper_unit(
+            1,
+            "saturn",
+            "Saturn/Grandia (Disc 2).cue",
+            UnitKind::DiscSet,
+        ),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["T-4507G"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["T-4507G"], Some(2), Some(fingerprint(1))),
+        );
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let (a, b) = (fkey(&keys[0]), fkey(&keys[1]));
+    assert_ne!(a.key_string(), b.key_string());
+    assert_eq!(a.link(b), None);
+}
+
+#[test]
+fn translated_and_original_never_share() {
+    let units = vec![
+        paper_unit(0, "nes", "NES/Heracles.nes", UnitKind::Single),
+        paper_unit(1, "nes", "NES/Heracles (T).nes", UnitKind::Single),
+    ];
+    let keyed = vec![keyed_with_crc(0, &[(1, 10)]), keyed_with_crc(1, &[(2, 10)])];
+    let dats = FakeDats::new()
+        .with_crc("nes", 1, "Heracles no Eikou (Japan)")
+        .with_crc("nes", 2, "Heracles no Eikou (Japan) (Translated En)");
+    let keys = version_keys(&units, &keyed, &dats);
+    assert_ne!(vkey(&keys[0]).key_string(), vkey(&keys[1]).key_string());
+}
+
+#[test]
+fn level_one_records_the_catalogue_crcs() {
+    let dir = TempDir::new().unwrap();
+    let rom = rom_bytes(40, 32 * 1024);
+    let a = put(dir.path(), "GB/A.gb", &rom);
+    let b = put_zip(dir.path(), "GB/B.zip", &[("B.gb", &rom)]);
+    let units = numbered(vec![raw("gb", &a), zipped("gb", &b, rom.len())]);
+    let keys = keys_of(&units);
+    let crc = crc32fast::hash(&rom);
+    assert_eq!(keys[0].dat_crcs, vec![(crc, rom.len() as u64)]);
+    assert_eq!(keys[1].dat_crcs, vec![(crc, rom.len() as u64)]);
+}
+
+#[test]
+fn cache_dats_answer_by_crc_and_serial() {
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let gb_dat = dat_sources(db.get("gb").unwrap()).remove(0);
+    let ps_dat = dat_sources(db.get("psx").unwrap()).remove(0);
+    let row = |game: &str, crc: &str, size: u64, serial: Option<&str>| DatRow {
+        game: game.to_string(),
+        rom_name: format!("{game}.bin"),
+        size: Some(size),
+        crc32: Some(crc.to_string()),
+        md5: None,
+        sha1: None,
+        serial: serial.map(str::to_string),
+    };
+    cache
+        .replace_dat(
+            &gb_dat,
+            &[row("Tetris (World) (Rev 1)", "46DF91AD", 32_768, None)],
+        )
+        .unwrap();
+    cache
+        .replace_dat(
+            &ps_dat,
+            &[row("Crash Bash (USA)", "12345678", 100, Some("SCUS-94570"))],
+        )
+        .unwrap();
+    let dats = CacheDats::new(&cache, &db);
+
+    let hits = dats.by_crc("gb", 0x46DF_91AD, 32_768);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].game, "Tetris (World) (Rev 1)");
+    assert!(
+        dats.by_crc("gb", 0x46DF_91AD, 99).is_empty(),
+        "size must agree"
+    );
+    assert!(
+        dats.by_crc("gbc", 0x46DF_91AD, 32_768).is_empty(),
+        "other system"
+    );
+    assert_eq!(
+        dats.by_serial("psx", "SCUS-94570")[0].game,
+        "Crash Bash (USA)"
+    );
+}
+
+// --- Level 3: same disc, other format (spec §5.4) ---
+
+fn fkey(k: &Option<FormatKey>) -> &FormatKey {
+    k.as_ref().expect("a format key")
+}
+
+#[test]
+fn pbp_and_bin_same_serial_and_fingerprint_share_a_format_key() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/Crash Bash.PBP", UnitKind::Image),
+        paper_unit(1, "psx", "PS/Crash Bash.cue", UnitKind::DiscSet),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["SCUS-94570"], Some(1), Some(fingerprint(5))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SCUS-94570"], None, Some(fingerprint(5))),
+        );
+
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let (a, b) = (fkey(&keys[0]), fkey(&keys[1]));
+    assert_eq!(a.key_string(), b.key_string());
+    assert_eq!(a.serials, vec!["SCUS-94570".to_string()]);
+    assert_eq!(a.link(b), Some(FormatLink::Acts { confidence: 0.90 }));
+
+    // With the Redump DAT agreeing on one game the match is stronger.
+    let dats = FakeDats::new().with_serial("psx", "SCUS-94570", "Crash Bash (USA)");
+    let keys = level_three(&units, &probe, &dats);
+    assert_eq!(
+        fkey(&keys[0]).link(fkey(&keys[1])),
+        Some(FormatLink::Acts { confidence: 0.97 })
+    );
+}
+
+#[test]
+fn different_serials_never_group() {
+    // Same title, same name: discs 1 and 2, not copies.
+    let units = vec![
+        paper_unit(0, "psx", "PS/Driver 2.img", UnitKind::Single),
+        paper_unit(1, "psx", "PS/Driver 2.bin", UnitKind::Single),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["SLUS-01161"], None, Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SLUS-01318"], None, Some(fingerprint(1))),
+        );
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let (a, b) = (fkey(&keys[0]), fkey(&keys[1]));
+    assert_ne!(a.key_string(), b.key_string());
+    assert_eq!(a.link(b), None);
+}
+
+#[test]
+fn same_serial_other_build_is_report_only() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/Tekken 3.PBP", UnitKind::Image),
+        paper_unit(1, "psx", "PS/Iron fist 3.PBP", UnitKind::Image),
+        paper_unit(2, "psx", "PS/Tekken 3.chd", UnitKind::Chd),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["SLPS-01300"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SLPS-01300"], Some(1), Some(fingerprint(2))),
+        )
+        .with(&units[2].primary, disc_id(&["SLPS-01300"], Some(1), None));
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let build = Some(FormatLink::ReportOnly {
+        why: ReportWhy::BuildDiffers,
+    });
+    assert_eq!(fkey(&keys[0]).link(fkey(&keys[1])), build);
+    assert_eq!(
+        fkey(&keys[0]).link(fkey(&keys[2])),
+        build,
+        "unreadable fingerprint"
+    );
+}
+
+#[test]
+fn modification_tag_vetoes_level_three() {
+    let mut patched = paper_unit(2, "psx", "PS/Game.bin", UnitKind::Single);
+    patched.patches = vec![PathBuf::from("PS/Game.ppf")];
+    let units = vec![
+        paper_unit(0, "psx", "PS/Game (USA).cue", UnitKind::DiscSet),
+        paper_unit(1, "psx", "PS/Game (Traducido).cue", UnitKind::DiscSet),
+        patched,
+        paper_unit(3, "psx", "PS/Game [T+Spa].PBP", UnitKind::Image),
+    ];
+    let mut probe = FakeDiscProbe::new();
+    for u in &units {
+        probe = probe.with(
+            &u.primary,
+            disc_id(&["SLUS-00001"], Some(1), Some(fingerprint(3))),
+        );
+    }
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    assert!(!fkey(&keys[0]).modified);
+    let modified = Some(FormatLink::ReportOnly {
+        why: ReportWhy::Modified,
+    });
+    for k in &keys[1..] {
+        assert!(fkey(k).modified);
+        assert_eq!(fkey(&keys[0]).link(fkey(k)), modified);
+    }
+}
+
+#[test]
+fn multi_disc_lists_must_match_and_a_lone_disc_is_partial() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/FF7.m3u", UnitKind::MultiDisc),
+        paper_unit(1, "psx", "PS/FF7.PBP", UnitKind::Image),
+        paper_unit(2, "psx", "PS/FF7 (Disc 1).chd", UnitKind::Chd),
+        paper_unit(3, "psx", "PS/FF7 other.m3u", UnitKind::MultiDisc),
+    ];
+    let set = ["SCUS-94163", "SCUS-94164", "SCUS-94165"];
+    let probe = FakeDiscProbe::new()
+        .with(&units[0].primary, disc_id(&set, None, Some(fingerprint(7))))
+        .with(&units[1].primary, disc_id(&set, None, Some(fingerprint(7))))
+        .with(
+            &units[2].primary,
+            disc_id(&set[..1], Some(1), Some(fingerprint(7))),
+        )
+        .with(
+            &units[3].primary,
+            disc_id(&["SCUS-94163", "SCUS-94999"], None, Some(fingerprint(7))),
+        );
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let k: Vec<&FormatKey> = keys.iter().map(fkey).collect();
+    assert_eq!(k[0].key_string(), k[1].key_string());
+    assert!(matches!(k[0].link(k[1]), Some(FormatLink::Acts { .. })));
+    assert_eq!(
+        k[0].link(k[2]),
+        Some(FormatLink::ReportOnly {
+            why: ReportWhy::PartialSet
+        })
+    );
+    assert_eq!(k[2].link(k[0]), k[0].link(k[2]), "symmetric");
+    assert_eq!(k[0].link(k[3]), None, "another list is another game");
+}
+
+#[test]
+fn saturn_without_disc_no_takes_no_part_unless_dat_says_single_disc() {
+    let units = vec![
+        paper_unit(0, "saturn", "Saturn/Nights.cue", UnitKind::DiscSet),
+        paper_unit(1, "saturn", "Saturn/Panzer.cue", UnitKind::DiscSet),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["MK-81020"], None, Some(fingerprint(1))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["T-15005G"], None, Some(fingerprint(2))),
+        );
+
+    assert_eq!(
+        level_three(&units, &probe, &FakeDats::new()),
+        vec![None, None]
+    );
+
+    let dats = FakeDats::new()
+        .with_serial("saturn", "MK-81020", "NiGHTS into Dreams... (USA)")
+        .with_serial("saturn", "T-15005G", "Panzer Dragoon Saga (Japan) (Disc 1)")
+        .with_serial("saturn", "T-15005G", "Panzer Dragoon Saga (Japan) (Disc 2)");
+    let keys = level_three(&units, &probe, &dats);
+    assert_eq!(fkey(&keys[0]).disc_no, Some(1));
+    assert_eq!(keys[1], None);
+
+    // With its disc number read, a disc of that set takes part, and the
+    // set's other discs under the same serial are no conflict.
+    let units = vec![paper_unit(
+        0,
+        "saturn",
+        "Saturn/Panzer 1.cue",
+        UnitKind::DiscSet,
+    )];
+    let probe = FakeDiscProbe::new().with(
+        &units[0].primary,
+        disc_id(&["T-15005G"], Some(1), Some(fingerprint(2))),
+    );
+    let keys = level_three(&units, &probe, &dats);
+    assert_eq!(fkey(&keys[0]).disc_no, Some(1));
+    assert!(!fkey(&keys[0]).serial_conflict);
+    assert!(fkey(&keys[0]).catalogued);
+}
+
+#[test]
+fn serial_mapped_to_two_titles_is_serial_conflict() {
+    let units = vec![
+        paper_unit(0, "psx", "PS/Demo.bin", UnitKind::Single),
+        paper_unit(1, "psx", "PS/Demo.PBP", UnitKind::Image),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[0].primary,
+            disc_id(&["SCUS-94200"], Some(1), Some(fingerprint(4))),
+        )
+        .with(
+            &units[1].primary,
+            disc_id(&["SCUS-94200"], Some(1), Some(fingerprint(4))),
+        );
+    let dats = FakeDats::new()
+        .with_serial("psx", "SCUS-94200", "Demo One (USA)")
+        .with_serial("psx", "SCUS-94200", "Jampack Vol. 1 (USA)");
+    let keys = level_three(&units, &probe, &dats);
+    assert!(fkey(&keys[0]).serial_conflict);
+    assert_eq!(
+        fkey(&keys[0]).link(fkey(&keys[1])),
+        Some(FormatLink::ReportOnly {
+            why: ReportWhy::SerialConflict
+        })
+    );
+}
+
+#[test]
+fn level_three_probes_only_disc_units_and_never_across_systems() {
+    let units = vec![
+        paper_unit(0, "gb", "GB/Tetris.gb", UnitKind::Single),
+        paper_unit(1, "gb", "GB/Tetris.zip", UnitKind::Zip),
+        paper_unit(2, "psx", "PS/Game.cue", UnitKind::DiscSet),
+        paper_unit(3, "psp", "PSP/Game.iso", UnitKind::Image),
+        paper_unit(4, "psx", "PS/Broken.chd", UnitKind::Chd),
+    ];
+    let probe = FakeDiscProbe::new()
+        .with(
+            &units[2].primary,
+            disc_id(&["SLUS-00001"], Some(1), Some(fingerprint(1))),
+        )
+        .with(
+            &units[3].primary,
+            disc_id(&["SLUS-00001"], Some(1), Some(fingerprint(1))),
+        )
+        .failing(&units[4].primary);
+    let keys = level_three(&units, &probe, &FakeDats::new());
+    let probed: Vec<PathBuf> = probe.calls().into_iter().map(|(p, _)| p).collect();
+    assert_eq!(
+        probed,
+        vec![
+            units[2].primary.clone(),
+            units[3].primary.clone(),
+            units[4].primary.clone()
+        ]
+    );
+    assert_eq!((&keys[0], &keys[1], &keys[4]), (&None, &None, &None));
+    let (a, b) = (fkey(&keys[2]), fkey(&keys[3]));
+    assert_ne!(a.key_string(), b.key_string());
+    assert_eq!(a.link(b), None, "no key spans two systems");
+}
+
+#[test]
+fn no_disc_probe_gives_no_format_keys() {
+    let units = vec![paper_unit(0, "psx", "PS/Game.cue", UnitKind::DiscSet)];
+    assert_eq!(
+        level_three(&units, &NoDiscProbe, &FakeDats::new()),
+        vec![None]
+    );
+}

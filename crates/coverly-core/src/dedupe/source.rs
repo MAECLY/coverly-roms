@@ -1,7 +1,8 @@
 //! The two seams through which duplicates reads inside containers (plan
 //! DD-1): [`EntryListing`] for archive entries and [`DiscProbe`] for disc
 //! identity. Both are narrow so the archive and disc readers can be swapped
-//! in later without touching the planner. Read-only.
+//! in later without touching the planner. A third, [`DatLookup`], answers
+//! catalogue questions for levels 2 and 3. Read-only.
 
 use std::fs::File;
 use std::io::{self, Read};
@@ -9,7 +10,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::Cache;
+use crate::identify::dat::dat_sources;
 use crate::identify::hash::{hash_stream, HeaderRule};
+use crate::systems::SystemDb;
 
 /// An archive with more entries than this is not listed (a ROM set never
 /// comes close); listing it is an error so the unit is reported unreadable.
@@ -234,4 +238,83 @@ impl DiscProbe for NoDiscProbe {
     fn reads_discs(&self) -> bool {
         false
     }
+}
+
+/// One catalogue entry a lookup found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DatHit {
+    /// The DAT game name (`Tetris (World) (Rev 1)`).
+    pub game: String,
+    /// The DAT marks the game as a BIOS (`isbios`, a `[BIOS]` name).
+    pub is_bios: bool,
+}
+
+/// The catalogue questions levels 2 and 3 ask, scoped to one system: no
+/// answer ever comes from another system's catalogue.
+pub trait DatLookup: Send + Sync {
+    /// Entries of `system`'s catalogues whose ROM has this CRC32 and size
+    /// (or no size). A hit by hash, never by name.
+    fn by_crc(&self, system: &str, crc32: u32, size: u64) -> Vec<DatHit>;
+
+    /// Entries of `system`'s catalogues with this normalised serial.
+    fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit>;
+}
+
+/// A [`DatLookup`] with no catalogue: offline, or nothing cached.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoDats;
+
+impl DatLookup for NoDats {
+    fn by_crc(&self, _system: &str, _crc32: u32, _size: u64) -> Vec<DatHit> {
+        Vec::new()
+    }
+
+    fn by_serial(&self, _system: &str, _serial: &str) -> Vec<DatHit> {
+        Vec::new()
+    }
+}
+
+/// [`DatLookup`] over the DATs already in the cache (nothing is
+/// downloaded here). A cache error reads as no hit.
+pub struct CacheDats<'a> {
+    cache: &'a Cache,
+    db: &'a SystemDb,
+}
+
+impl<'a> CacheDats<'a> {
+    pub fn new(cache: &'a Cache, db: &'a SystemDb) -> CacheDats<'a> {
+        CacheDats { cache, db }
+    }
+
+    fn dats(&self, system: &str) -> Vec<String> {
+        self.db.get(system).map(dat_sources).unwrap_or_default()
+    }
+}
+
+impl DatLookup for CacheDats<'_> {
+    fn by_crc(&self, system: &str, crc32: u32, size: u64) -> Vec<DatHit> {
+        let crc = format!("{crc32:08X}");
+        self.dats(system)
+            .iter()
+            .flat_map(|dat| self.cache.dat_by_crc(dat, &crc).unwrap_or_default())
+            .filter(|r| r.size.is_none_or(|s| s == size))
+            .map(|r| hit(r.game))
+            .collect()
+    }
+
+    fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit> {
+        self.dats(system)
+            .iter()
+            .flat_map(|dat| self.cache.dat_by_serial(dat, serial).unwrap_or_default())
+            .map(|r| hit(r.game))
+            .collect()
+    }
+}
+
+/// A cached DAT row keeps no `isbios` column for its game, so the BIOS
+/// mark comes from the name; units already left out every BIOS file the
+/// game list names (spec §5.1).
+fn hit(game: String) -> DatHit {
+    let is_bios = game.to_lowercase().contains("[bios]");
+    DatHit { game, is_bios }
 }

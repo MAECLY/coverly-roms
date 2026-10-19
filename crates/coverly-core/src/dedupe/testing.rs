@@ -12,7 +12,8 @@ use crate::identify::hash::HeaderRule;
 use super::keys::{DiskBytes, FileBytes};
 
 use super::source::{
-    DiscId, DiscIdSource, DiscProbe, EntryListing, ListedEntry, VolumeFingerprint,
+    DatHit, DatLookup, DiscId, DiscIdSource, DiscProbe, EntryListing, ListedEntry,
+    VolumeFingerprint,
 };
 
 /// A [`DiscProbe`] that answers from a script and records every call.
@@ -263,5 +264,68 @@ impl<L: EntryListing> EntryListing for CountingListing<L> {
     fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
         self.count();
         self.inner.head(path, entry, len)
+    }
+}
+
+/// A [`DatLookup`] that answers from a script, per system.
+#[derive(Debug, Default)]
+pub struct FakeDats {
+    crcs: HashMap<(String, u32), Vec<DatHit>>,
+    serials: HashMap<(String, String), Vec<DatHit>>,
+}
+
+impl FakeDats {
+    pub fn new() -> FakeDats {
+        FakeDats::default()
+    }
+
+    /// `system`'s catalogue lists `game` with a ROM of CRC `crc32` (any
+    /// size).
+    pub fn with_crc(self, system: &str, crc32: u32, game: &str) -> FakeDats {
+        self.crc_hit(system, crc32, game, false)
+    }
+
+    /// As [`FakeDats::with_crc`], for a game the DAT marks as a BIOS.
+    pub fn with_bios(self, system: &str, crc32: u32, game: &str) -> FakeDats {
+        self.crc_hit(system, crc32, game, true)
+    }
+
+    fn crc_hit(mut self, system: &str, crc32: u32, game: &str, is_bios: bool) -> FakeDats {
+        self.crcs
+            .entry((system.to_string(), crc32))
+            .or_default()
+            .push(DatHit {
+                game: game.to_string(),
+                is_bios,
+            });
+        self
+    }
+
+    /// `system`'s catalogue lists `game` under `serial`.
+    pub fn with_serial(mut self, system: &str, serial: &str, game: &str) -> FakeDats {
+        self.serials
+            .entry((system.to_string(), serial.to_string()))
+            .or_default()
+            .push(DatHit {
+                game: game.to_string(),
+                is_bios: false,
+            });
+        self
+    }
+}
+
+impl DatLookup for FakeDats {
+    fn by_crc(&self, system: &str, crc32: u32, _size: u64) -> Vec<DatHit> {
+        self.crcs
+            .get(&(system.to_string(), crc32))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit> {
+        self.serials
+            .get(&(system.to_string(), serial.to_string()))
+            .cloned()
+            .unwrap_or_default()
     }
 }

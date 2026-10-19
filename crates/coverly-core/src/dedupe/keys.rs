@@ -1,5 +1,9 @@
-//! Content keys (duplicates spec §5.2–§5.4). This step: level 1, the exact
-//! copy, whatever the name, container, copier header or byte order.
+//! Content keys (duplicates spec §5.2–§5.4): level 1, the exact copy,
+//! whatever the name, container, copier header or byte order
+//! ([`level_one`]); level 2, the same game in another version, from the
+//! catalogue entry a unit's hash hits ([`level_two`]); level 3, the same
+//! disc in another format, from its serials and volume fingerprint
+//! ([`level_three`]).
 //!
 //! The work is ordered so that most files are never read (spec §10): units
 //! are bucketed per system by payload size (after the header rule, not the
@@ -10,7 +14,8 @@
 //! computed fact is written back to `content_keys`, so a warm run reads
 //! nothing.
 //!
-//! No key reads a file name: names never group (spec §1).
+//! No key reads a file name: names never group (spec §1). A name may only
+//! veto a level 3 match ([`FormatKey::modified`]).
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -24,15 +29,17 @@ use sha1::{Digest, Sha1};
 
 use crate::cache::{Cache, ContentRow};
 use crate::identify::hash::{
-    hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, DEFAULT_HASH_MAX_BYTES,
+    hash_stream, hex_upper, n64_to_z64, HashOutcome, HeaderRule, N64Order, RomHashes,
+    DEFAULT_HASH_MAX_BYTES,
 };
+use crate::identify::names::{has_modification_tag, parse_tags, NameTags};
 use crate::identify::sniff::PREFIX;
 use crate::scan::classify::extension;
 use crate::systems::SystemDb;
 
-use super::source::{EntryListing, ListedEntry};
+use super::source::{DatLookup, DiscProbe, EntryListing, ListedEntry, VolumeFingerprint};
 use super::units::{Unit, UnitKind};
-use super::DedupePhase;
+use super::{DedupePhase, ReportWhy};
 
 /// Worker threads on internal disks, and on removable or network volumes
 /// (the organise rule).
@@ -41,7 +48,7 @@ pub const SLOW_VOLUME_WORKERS: usize = 2;
 
 /// Version of the facts stored in `content_keys.keys_json`; other versions
 /// are a miss.
-const FACTS_VERSION: u32 = 1;
+const FACTS_VERSION: u32 = 2;
 /// The largest header any rule takes off (SNES/SMS copier).
 const MAX_HEADER: usize = 512;
 /// Bytes read from a CHD for its header (v5 is 124).
@@ -125,6 +132,11 @@ pub struct KeyedUnit {
     /// A CHD's raw data SHA1, when its header has one: same raw data with
     /// another combined SHA1 is a report-only match.
     pub chd_raw: Option<String>,
+    /// `(crc32, size)` of the content as catalogues list it, for a hit by
+    /// hash: the whole loose file then, when a header rule took one off,
+    /// the rest; a zip's ROM entry. Empty when not known without a read
+    /// the planner did not need.
+    pub dat_crcs: Vec<(u32, u64)>,
 }
 
 impl KeyedUnit {
@@ -235,6 +247,9 @@ struct Facts {
     /// behind an untouched sheet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     members: Option<String>,
+    /// `(crc32, size)` for catalogue lookups ([`KeyedUnit::dat_crcs`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    crcs: Vec<(u32, u64)>,
 }
 
 /// How a unit of the payload class is read.
@@ -325,6 +340,7 @@ pub fn level_one(
             header: f.header.clone(),
             dat_game: None,
             chd_raw: f.chd_raw.clone(),
+            dat_crcs: f.crcs.clone(),
         });
     }
     out
@@ -443,6 +459,7 @@ fn quick_facts(u: &Unit, class: Class, ctx: &KeyCtx) -> Option<Facts> {
             if h.headerless.is_some() && functional(rule) {
                 return None;
             }
+            f.crcs = catalogue_crcs(&h);
             let sha1 = h.payload_sha1?;
             let size = h.headerless.as_ref().unwrap_or(&h.full).size;
             f.payload_size = Some(size);
@@ -458,6 +475,7 @@ fn quick_facts(u: &Unit, class: Class, ctx: &KeyCtx) -> Option<Facts> {
             },
         ) => {
             f.entry_crc = u32::from_str_radix(&crc32, 16).ok();
+            f.crcs = f.entry_crc.map(|c| (c, size)).into_iter().collect();
             // Without the entry's first bytes only a size rule is known.
             if magic_header(rule) {
                 return Some(f);
@@ -667,6 +685,7 @@ fn read_raw_head(u: &Unit, rule: HeaderRule, f: &Facts, ctx: &KeyCtx) -> io::Res
     if (head.len() as u64) == len {
         // The whole file is in hand: hash it now.
         let h = hash_stream(Cursor::new(&head), len, rule)?;
+        out.crcs = catalogue_crcs(&h);
         out.exact = h.payload_sha1.map(|sha1| ExactKey::Payload {
             sha1,
             size: payload_size,
@@ -692,8 +711,23 @@ fn hash_raw(u: &Unit, rule: HeaderRule, f: &Facts, ctx: &KeyCtx) -> io::Result<F
     let h = hash_stream(ctx.bytes.open(&u.primary)?, len, rule)?;
     let mut out = f.clone();
     let size = f.payload_size.unwrap_or(len);
+    out.crcs = catalogue_crcs(&h);
     out.exact = h.payload_sha1.map(|sha1| ExactKey::Payload { sha1, size });
     Ok(out)
+}
+
+/// The whole file's CRC, then the CRC after the header rule when it
+/// differs: catalogues list one or the other.
+fn catalogue_crcs(h: &RomHashes) -> Vec<(u32, u64)> {
+    let mut out = Vec::new();
+    for d in std::iter::once(&h.full).chain(h.headerless.as_ref()) {
+        if let Ok(crc) = u32::from_str_radix(&d.crc32, 16) {
+            if !out.contains(&(crc, d.size)) {
+                out.push((crc, d.size));
+            }
+        }
+    }
+    out
 }
 
 /// The ROM entry of a one-ROM zip unit: its index in the listing and its
@@ -721,6 +755,7 @@ fn read_zip_head(u: &Unit, rule: HeaderRule, f: &Facts, ctx: &KeyCtx) -> io::Res
     let mut out = f.clone();
     out.v = FACTS_VERSION;
     out.entry_crc = entry.crc32;
+    out.crcs = entry.crc32.map(|c| (c, entry.size)).into_iter().collect();
     let hl = if magic_header(rule) {
         let head = ctx
             .listing
@@ -742,6 +777,7 @@ fn hash_zip(u: &Unit, rule: HeaderRule, f: &Facts, ctx: &KeyCtx) -> io::Result<O
     };
     let mut out = f.clone();
     out.entry_crc = entry.crc32;
+    out.crcs = entry.crc32.map(|c| (c, entry.size)).into_iter().collect();
     match ctx
         .listing
         .payload_sha1(&u.primary, index, rule, ctx.max_hash_bytes)?
@@ -1131,6 +1167,291 @@ pub fn parse_chd_header(head: &[u8]) -> Option<(u32, Option<String>, Option<Stri
         (!b.iter().all(|x| *x == 0)).then(|| hex_upper(b))
     };
     Some((version, hash(sha1_at), raw_at.and_then(hash)))
+}
+
+// --- Level 2: same game, other version (spec §5.3) ---
+
+/// Confidence of a level 2 match: both units hit the catalogue by hash and
+/// their entries share a title key.
+pub const VERSION_CONFIDENCE: f32 = 0.90;
+
+/// A level 2 key: units of one system whose catalogue entries share
+/// `title_key` are versions of one game (revisions, regions, betas).
+/// Report-only unless "one game, one ROM" is on (the grouping decides).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionKey {
+    pub system: String,
+    /// [`parse_tags`] of the catalogue game name, never of the file name:
+    /// the disc number, unknown groups and modification tags stay in it.
+    pub title_key: String,
+    pub disc: Option<u8>,
+    /// The catalogue game name the key comes from.
+    pub game: String,
+    pub tags: NameTags,
+}
+
+impl VersionKey {
+    /// The key as one string, `system` first.
+    pub fn key_string(&self) -> String {
+        let disc = self.disc.map_or(String::new(), |d| format!(":d{d}"));
+        format!("l2:{}:{}{disc}", self.system, self.title_key)
+    }
+}
+
+/// Level 2 keys of the units `keyed` speaks for (index-aligned with
+/// `keyed`). Only a catalogue identity by hash counts: the unit's
+/// [`KeyedUnit::dat_game`] when the caller set it for the unit's own
+/// system, and the entries its [`KeyedUnit::dat_crcs`] hit in that
+/// system's catalogues. No key when nothing hits, when a hit is a BIOS, or
+/// when the hits disagree on the title key.
+pub fn level_two(
+    units: &[Unit],
+    keyed: &[KeyedUnit],
+    dats: &dyn DatLookup,
+) -> Vec<Option<VersionKey>> {
+    keyed
+        .iter()
+        .map(|k| version_key(units.get(k.unit)?, k, dats))
+        .collect()
+}
+
+fn version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<VersionKey> {
+    let mut games: Vec<String> = Vec::new();
+    if let Some((system, game)) = &k.dat_game {
+        if *system == unit.system {
+            games.push(game.clone());
+        }
+    }
+    for &(crc, size) in &k.dat_crcs {
+        for hit in dats.by_crc(&unit.system, crc, size) {
+            if hit.is_bios {
+                return None;
+            }
+            if !games.contains(&hit.game) {
+                games.push(hit.game);
+            }
+        }
+    }
+    let game = games.first()?.clone();
+    let tags = parse_tags(&game);
+    if tags.title_key.is_empty()
+        || games[1..]
+            .iter()
+            .any(|g| parse_tags(g).title_key != tags.title_key)
+    {
+        return None;
+    }
+    Some(VersionKey {
+        system: unit.system.clone(),
+        title_key: tags.title_key.clone(),
+        disc: tags.disc,
+        game,
+        tags,
+    })
+}
+
+// --- Level 3: same disc, other format (spec §5.4) ---
+
+/// Systems that print one product number on every disc of a game: their
+/// disc number must be known (spec §5.4).
+const SHARED_SERIAL_SYSTEMS: [&str; 3] = ["saturn", "segacd", "dreamcast"];
+
+/// Loose files that may be a disc image.
+const DISC_IMAGE_EXTS: [&str; 6] = ["bin", "img", "iso", "mdf", "nrg", "cdi"];
+
+/// Confidence of a level 3 match when the catalogue agrees on one game,
+/// and when it has no row for the serial.
+const FORMAT_CONFIDENCE_CATALOGUED: f32 = 0.97;
+const FORMAT_CONFIDENCE: f32 = 0.90;
+
+/// A level 3 key: the disc identity of a unit, whatever its container.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormatKey {
+    pub system: String,
+    /// Normalised serials in disc order (one for a single disc).
+    pub serials: Vec<String>,
+    /// 1-based disc number when known, or when the catalogue says the
+    /// serial has a single disc.
+    pub disc_no: Option<u8>,
+    /// `None` when unreadable: a match is then report-only.
+    pub volume: Option<VolumeFingerprint>,
+    /// A file name carries a modification tag or the unit has a soft
+    /// patch: a name may veto a match, never make one.
+    pub modified: bool,
+    /// The catalogue maps a serial to games with different titles (demo
+    /// and compilation discs reuse serials).
+    pub serial_conflict: bool,
+    /// The catalogue has the serials and agrees on one game.
+    pub catalogued: bool,
+}
+
+/// How two units with level 3 keys relate.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FormatLink {
+    /// The same disc: the group may act.
+    Acts { confidence: f32 },
+    /// Related, but only shown.
+    ReportOnly { why: ReportWhy },
+}
+
+impl FormatKey {
+    /// The key as one string, `system` first. Equal strings are the same
+    /// disc identity; [`FormatKey::link`] says whether the match acts.
+    pub fn key_string(&self) -> String {
+        let disc = if self.serials.len() == 1 && shares_serials(&self.system) {
+            format!(":d{}", self.disc_no.unwrap_or(0))
+        } else {
+            String::new()
+        };
+        format!("l3:{}:{}{disc}", self.system, self.serials.join(","))
+    }
+
+    /// The relation of two units by their disc identity; `None` when they
+    /// are not the same disc game (another system, other serials, another
+    /// disc). Symmetric.
+    pub fn link(&self, other: &FormatKey) -> Option<FormatLink> {
+        if self.system != other.system {
+            return None;
+        }
+        if self.serials != other.serials {
+            let (short, long) = if self.serials.len() <= other.serials.len() {
+                (self, other)
+            } else {
+                (other, self)
+            };
+            let partial = !short.serials.is_empty()
+                && short.serials.len() < long.serials.len()
+                && short.serials.iter().all(|s| long.serials.contains(s));
+            return partial.then_some(FormatLink::ReportOnly {
+                why: ReportWhy::PartialSet,
+            });
+        }
+        if self.key_string() != other.key_string() {
+            return None;
+        }
+        let why = if self.serial_conflict || other.serial_conflict {
+            Some(ReportWhy::SerialConflict)
+        } else if self.modified || other.modified {
+            Some(ReportWhy::Modified)
+        } else if self.volume.is_none() || self.volume != other.volume {
+            Some(ReportWhy::BuildDiffers)
+        } else {
+            None
+        };
+        Some(match why {
+            Some(why) => FormatLink::ReportOnly { why },
+            None if self.catalogued && other.catalogued => FormatLink::Acts {
+                confidence: FORMAT_CONFIDENCE_CATALOGUED,
+            },
+            None => FormatLink::Acts {
+                confidence: FORMAT_CONFIDENCE,
+            },
+        })
+    }
+}
+
+fn shares_serials(system: &str) -> bool {
+    SHARED_SERIAL_SYSTEMS.contains(&system)
+}
+
+/// Level 3 keys of `units` (index-aligned). Only disc units are probed; a
+/// unit the probe cannot read, or with no serial, has no key and takes
+/// part in level 1 only. With a probe that reads no discs, nothing is
+/// probed.
+pub fn level_three(
+    units: &[Unit],
+    probe: &dyn DiscProbe,
+    dats: &dyn DatLookup,
+) -> Vec<Option<FormatKey>> {
+    if !probe.reads_discs() {
+        return vec![None; units.len()];
+    }
+    units.iter().map(|u| format_key(u, probe, dats)).collect()
+}
+
+fn is_disc_unit(u: &Unit) -> bool {
+    match u.kind {
+        UnitKind::DiscSet | UnitKind::Chd | UnitKind::Image | UnitKind::MultiDisc => true,
+        UnitKind::Single => DISC_IMAGE_EXTS.contains(&u.ext.as_str()),
+        UnitKind::Zip | UnitKind::Arcade => false,
+    }
+}
+
+fn format_key(u: &Unit, probe: &dyn DiscProbe, dats: &dyn DatLookup) -> Option<FormatKey> {
+    if !is_disc_unit(u) {
+        return None;
+    }
+    // An unreadable disc is reported by level 1; here it has no identity.
+    let id = probe.probe(&u.primary, &u.system).ok()??;
+    let serials: Vec<String> = id
+        .serials
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if serials.is_empty() {
+        return None;
+    }
+
+    let mut catalogued = true;
+    let mut serial_conflict = false;
+    let mut single_disc = false;
+    for serial in &serials {
+        let hits = dats.by_serial(&u.system, serial);
+        let titles: Vec<NameTags> = hits.iter().map(|h| parse_tags(&h.game)).collect();
+        let mut keys: Vec<String> = titles.iter().map(title_without_disc).collect();
+        keys.sort();
+        keys.dedup();
+        catalogued &= keys.len() == 1;
+        serial_conflict |= keys.len() > 1;
+        single_disc = keys.len() == 1 && titles.iter().all(|t| t.disc.is_none());
+    }
+
+    let mut disc_no = id.disc_no;
+    if serials.len() == 1 && disc_no.is_none() {
+        if single_disc {
+            disc_no = Some(1);
+        } else if shares_serials(&u.system) {
+            return None;
+        }
+    }
+
+    let modified = !u.patches.is_empty()
+        || std::iter::once(&u.primary)
+            .chain(&u.files)
+            .filter_map(|f| f.file_name())
+            .any(|n| has_modification_tag(&n.to_string_lossy()));
+
+    Some(FormatKey {
+        system: u.system.clone(),
+        serials,
+        disc_no,
+        volume: id.volume,
+        modified,
+        serial_conflict,
+        catalogued,
+    })
+}
+
+/// A title key with its disc number left out: the discs of one game share
+/// it, two games under one serial do not.
+fn title_without_disc(tags: &NameTags) -> String {
+    let Some(n) = tags.disc else {
+        return tags.title_key.clone();
+    };
+    let n = n.to_string();
+    let words: Vec<&str> = tags.title_key.split(' ').collect();
+    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        if words[i] == "disc" && words.get(i + 1) == Some(&n.as_str()) {
+            i += 2;
+            continue;
+        }
+        out.push(words[i]);
+        i += 1;
+    }
+    out.join(" ")
 }
 
 // --- Shared helpers ---
