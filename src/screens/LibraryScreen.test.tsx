@@ -53,7 +53,7 @@ describe('Library screen', () => {
     ).length;
     expect(screen.getByText(`${missing} without cover`)).toBeInTheDocument();
     expect(
-      screen.getByRole('grid', { name: 'ROM covers' }),
+      screen.getByRole('grid', { name: 'Covers view' }),
     ).toBeInTheDocument();
   });
 
@@ -139,7 +139,9 @@ describe('Library screen', () => {
     await userEvent.click(
       within(layout).getByRole('radio', { name: 'Details' }),
     );
-    expect(screen.getByRole('grid', { name: 'ROM list' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('grid', { name: 'Details view' }),
+    ).toBeInTheDocument();
     expect(
       within(layout).getByRole('radio', { name: 'Details' }),
     ).toBeChecked();
@@ -147,8 +149,28 @@ describe('Library screen', () => {
       within(layout).getByRole('radio', { name: 'Covers' }),
     );
     expect(
-      screen.getByRole('grid', { name: 'ROM covers' }),
+      screen.getByRole('grid', { name: 'Covers view' }),
     ).toBeInTheDocument();
+  });
+
+  it('moves focus to the new view, named after it, only after a switch', async () => {
+    await openLibrary();
+    expect(document.activeElement).toBe(document.body);
+    const layout = screen.getByRole('radiogroup', { name: 'View' });
+    await userEvent.click(
+      within(layout).getByRole('radio', { name: 'Details' }),
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole('grid', { name: 'Details view' }),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: '4', ctrlKey: true });
+    const gallery = await screen.findByRole('group', { name: 'Gallery view' });
+    expect(gallery).toContainElement(document.activeElement as HTMLElement);
+    fireEvent.keyDown(document.activeElement!, { key: '6', metaKey: true });
+    expect(document.activeElement).toBe(
+      await screen.findByRole('grid', { name: 'Shelves view' }),
+    );
+    act(() => useViewStore.getState().setView('covers'));
   });
 
   it('opens each library with the view it was left in', async () => {
@@ -159,15 +181,17 @@ describe('Library screen', () => {
     views.setView('covers');
     await openLibrary();
     expect(useViewStore.getState().root).toBe(SMALL);
-    expect(screen.getByRole('grid', { name: 'ROM list' })).toBeInTheDocument();
-    expect(screen.queryByRole('grid', { name: 'ROM covers' })).toBeNull();
+    expect(
+      screen.getByRole('grid', { name: 'Details view' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'Covers view' })).toBeNull();
     act(() => useViewStore.getState().setView('covers'));
   });
 
   it('previews the active game with Space and keeps the drawer on Escape', async () => {
     const user = userEvent.setup();
     const view = await openLibrary();
-    const grid = screen.getByRole('grid', { name: 'ROM covers' });
+    const grid = screen.getByRole('grid', { name: 'Covers view' });
     grid.focus();
     await user.keyboard('{ArrowRight}{Enter}');
     const first = useViewStore.getState().drawerOpen;

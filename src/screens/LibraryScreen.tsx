@@ -9,16 +9,22 @@ import {
 import { FillWizard } from '@/components/fill/FillWizard';
 import { JobsPanel } from '@/components/fill/JobsPanel';
 import { ReviewQueue } from '@/components/fill/ReviewQueue';
-import { CoverGrid } from '@/components/library/CoverGrid';
 import { DetailDrawer } from '@/components/library/DetailDrawer';
-import { EntryTable } from '@/components/library/EntryTable';
 import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
 import { ColumnsView } from '@/components/library/views/ColumnsView';
+import { CoversView } from '@/components/library/views/CoversView';
+import {
+  DetailsView,
+  type DetailsViewProps,
+} from '@/components/library/views/DetailsView';
+import { GalleryView } from '@/components/library/views/GalleryView';
 import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
+import { ShelvesView } from '@/components/library/views/ShelvesView';
+import type { ViewProps } from '@/components/library/views/types';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -27,7 +33,7 @@ import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import type { Media } from '@/ipc/types';
 import { isTyping } from '@/lib/keyboard';
-import { inspectorDocked } from '@/lib/viewPrefs';
+import { inspectorDocked, type ViewId } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -40,7 +46,6 @@ export function LibraryScreen() {
   const t = useT();
   const view = useLibraryStore((s) => s.view);
   const { visible, sections, facets, now } = useVisibleEntries();
-  const layout = useViewStore((s) => s.layout);
   const prefs = useViewStore((s) => s.prefs);
   const filtersOpen = useViewStore((s) => s.filtersOpen);
   const drawerOpen = useViewStore((s) => s.drawerOpen);
@@ -63,8 +68,10 @@ export function LibraryScreen() {
   const root = view?.root;
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const shownView = useRef(prefs.view);
 
-  // ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves);
+  // ⌘1–⌘6: views; ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves);
   // ⌘I: the docked inspector.
   useViewShortcuts({
     prefs,
@@ -77,6 +84,26 @@ export function LibraryScreen() {
   useLayoutEffect(() => {
     if (root !== undefined) loadPrefsFor(root);
   }, [root, loadPrefsFor]);
+
+  // After a view switch (not on first mount, nor on opening a library) the
+  // new view takes the focus: its name ("Columns view") is the
+  // announcement, so there is no live region. The selected item stays the
+  // active one and is scrolled into sight.
+  useEffect(() => {
+    if (shownView.current === prefs.view) return;
+    shownView.current = prefs.view;
+    const content = contentRef.current;
+    const viewRoot = content?.querySelector<HTMLElement>('[data-view-root]');
+    if (!viewRoot) return;
+    viewRoot.focus({ preventScroll: true });
+    const { selectedId: id } = useSelectionStore.getState();
+    if (id === null) return;
+    const item = viewRoot.querySelector<HTMLElement>(
+      `[id="entry-${String(id)}"]`,
+    );
+    // jsdom has no scrollIntoView.
+    item?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [prefs.view]);
 
   // Job events while this screen lives (shared with App's subscription).
   useEffect(() => {
@@ -173,45 +200,17 @@ export function LibraryScreen() {
         }
       />
     );
-  } else if (prefs.view === 'columns') {
-    content = (
-      <ColumnsView
-        {...list}
-        sections={sections}
-        prefs={prefs}
-        onPreview={setPreviewId}
-      />
-    );
-  } else if (prefs.view === 'mounts') {
-    content = (
-      <MountsView
-        {...list}
-        sections={sections}
-        prefs={prefs}
-        onPreview={setPreviewId}
-        onOpenArt={onOpenArt}
-      />
-    );
-  } else if (layout === 'grid') {
-    content = (
-      <CoverGrid
-        {...list}
-        sections={sections}
-        prefs={prefs}
-        onPreview={setPreviewId}
-      />
-    );
   } else {
-    content = (
-      <EntryTable
-        {...list}
-        sections={sections}
-        prefs={prefs}
-        setPrefs={setPrefs}
-        onPreview={setPreviewId}
-        sort={sort}
-        onSort={toggleSort}
-      />
+    content = renderView(
+      prefs.view,
+      {
+        ...list,
+        sections,
+        prefs,
+        onPreview: setPreviewId,
+        onOpenArt,
+      },
+      { sort, onSort: toggleSort, setPrefs },
     );
   }
 
@@ -238,7 +237,9 @@ export function LibraryScreen() {
         <main className="library-main">
           <UpdateBanner />
           {filtersOpen && <FilterPanel view={view} facets={facets} />}
-          <div className="library-content">{content}</div>
+          <div ref={contentRef} className="library-content">
+            {content}
+          </div>
         </main>
         {(docked || drawerOpen) && selected && (
           <DetailDrawer
@@ -252,7 +253,7 @@ export function LibraryScreen() {
               if (docked) setPrefs({ inspector: false });
               closeDrawer();
               document
-                .querySelector<HTMLElement>('.library-content [role="grid"]')
+                .querySelector<HTMLElement>('.library-content [data-view-root]')
                 ?.focus();
             }}
           />
@@ -292,4 +293,26 @@ export function LibraryScreen() {
       )}
     </div>
   );
+}
+
+/** The library view for `prefs.view`; Details also sorts and sizes columns. */
+function renderView(
+  id: ViewId,
+  props: ViewProps,
+  details: Pick<DetailsViewProps, 'sort' | 'onSort' | 'setPrefs'>,
+): ReactNode {
+  switch (id) {
+    case 'covers':
+      return <CoversView {...props} />;
+    case 'details':
+      return <DetailsView {...props} {...details} />;
+    case 'columns':
+      return <ColumnsView {...props} />;
+    case 'gallery':
+      return <GalleryView {...props} />;
+    case 'mounts':
+      return <MountsView {...props} />;
+    case 'shelves':
+      return <ShelvesView {...props} />;
+  }
 }
