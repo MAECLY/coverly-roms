@@ -10,6 +10,8 @@ export const WHEEL_STEP_PX = 100;
 /** `WheelEvent.deltaMode` lines and pages, roughly in px. */
 const LINE_PX = 16;
 const PAGE_PX = 800;
+/** A pause this long (ms) ends a wheel gesture: leftover delta is dropped. */
+const WHEEL_IDLE_MS = 400;
 
 export interface ViewShortcutOptions {
   prefs: ViewPrefs;
@@ -65,6 +67,7 @@ export function useViewShortcuts({
 
   useEffect(() => {
     let wheelAcc = 0;
+    let wheelAt = 0;
 
     function active(): boolean {
       const { prefs: p, enabled: on } = latest.current;
@@ -95,9 +98,13 @@ export function useViewShortcuts({
       const scale =
         ev.deltaMode === 1 ? LINE_PX : ev.deltaMode === 2 ? PAGE_PX : 1;
       const delta = ev.deltaY * scale;
-      // A turn the other way starts counting again.
+      // A turn the other way, or a new gesture, starts counting again.
+      const fresh = ev.timeStamp - wheelAt > WHEEL_IDLE_MS;
+      wheelAt = ev.timeStamp;
       wheelAcc =
-        Math.sign(delta) === Math.sign(wheelAcc) ? wheelAcc + delta : delta;
+        !fresh && Math.sign(delta) === Math.sign(wheelAcc)
+          ? wheelAcc + delta
+          : delta;
       while (Math.abs(wheelAcc) >= WHEEL_STEP_PX) {
         const dir = wheelAcc > 0 ? 1 : -1;
         wheelAcc -= dir * WHEEL_STEP_PX;

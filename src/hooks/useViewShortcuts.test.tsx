@@ -160,6 +160,22 @@ describe('useViewShortcuts', () => {
     expect(getByTestId('size')).toHaveTextContent('l');
   });
 
+  it('a pause ends the gesture and drops the leftover delta', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] });
+    try {
+      const spy = vi.fn();
+      render(<Harness spy={spy} />);
+      wheel(window, 90);
+      vi.advanceTimersByTime(1000);
+      wheel(window, 90);
+      expect(spy).not.toHaveBeenCalled();
+      wheel(window, 10);
+      expect(spy).toHaveBeenLastCalledWith({ coverSize: 's' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a plain wheel scrolls as usual', () => {
     const spy = vi.fn();
     render(<Harness spy={spy} />);
