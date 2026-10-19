@@ -16,6 +16,7 @@ import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
+import { ColumnsView } from '@/components/library/views/ColumnsView';
 import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
@@ -170,6 +171,15 @@ export function LibraryScreen() {
             {t('filters.clear')}
           </Button>
         }
+      />
+    );
+  } else if (prefs.view === 'columns') {
+    content = (
+      <ColumnsView
+        {...list}
+        sections={sections}
+        prefs={prefs}
+        onPreview={setPreviewId}
       />
     );
   } else if (prefs.view === 'mounts') {

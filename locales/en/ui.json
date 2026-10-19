@@ -477,6 +477,8 @@
       "games": "Games",
       "preview": "Preview"
     },
+    "folderRoot": "(root)",
+    "previewEmpty": "Choose a game to see its art and file.",
     "slotHas": "has art",
     "slotMissing": "No {media}"
   },
