@@ -464,9 +464,20 @@ impl<'s, 'a> SystemGroups<'s, 'a> {
             if list.len() < 2 {
                 continue;
             }
-            for &u in &list[1..] {
+            // One representative per copy cluster: exact copies of one
+            // catalogue game share its key, but they are not other
+            // versions of each other, and a version link between them
+            // would make their exact group report-only.
+            let mut seen: BTreeMap<usize, usize> = BTreeMap::new();
+            for &u in &list {
+                let cluster = self.cluster_of.get(&u).copied().unwrap_or(usize::MAX - u);
+                seen.entry(cluster).or_insert(u);
+            }
+            let mut reps: Vec<usize> = seen.into_values().collect();
+            reps.sort_unstable();
+            for &u in &reps[1..] {
                 self.link(
-                    list[0],
+                    reps[0],
                     u,
                     Relation::Version,
                     why.clone(),

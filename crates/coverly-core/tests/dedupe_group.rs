@@ -380,6 +380,41 @@ fn level_two_joins_only_when_enabled() {
     assert_eq!(groups[0].action, GroupAction::Act);
 }
 
+#[test]
+fn exact_copies_of_one_catalogue_game_still_act_with_level_two_on() {
+    // Real sample: `Tetris Worlds (USA).zip` = `Tetris Worlds (USA) (1).zip`.
+    // Both hit the same DAT game, so they share a level 2 key, but that is
+    // not another version: the exact link alone decides.
+    let db = SystemDb::builtin();
+    let mut c = Case::new();
+    let a = c.add(
+        "gba",
+        "GBA/Tetris Worlds (USA).zip",
+        UnitKind::Zip,
+        payload("tw"),
+        vkey("gba", "Tetris Worlds (USA)"),
+        None,
+    );
+    let b = c.add(
+        "gba",
+        "GBA/Tetris Worlds (USA) (1).zip",
+        UnitKind::Zip,
+        payload("tw"),
+        vkey("gba", "Tetris Worlds (USA)"),
+        None,
+    );
+    let mut o = opts(&db, &NoDats);
+    o.versions = true;
+    let groups = c.groups(&o);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(units_of(&groups[0]), vec![a, b]);
+    assert_eq!(groups[0].action, GroupAction::Act);
+    assert!(groups[0]
+        .links
+        .iter()
+        .all(|l| l.relation == Relation::Exact));
+}
+
 // --- Report-only guards ---
 
 #[test]
