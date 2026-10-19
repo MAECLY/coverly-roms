@@ -158,14 +158,16 @@ time {
 }
 
 .cover-grid,
-.entry-table {
+.entry-table,
+.mounts {
   height: 100%;
   overflow: auto;
   outline: none;
 }
 
 .cover-grid:focus-visible,
-.entry-table:focus-visible {
+.entry-table:focus-visible,
+.mounts:focus-visible {
   box-shadow: inset 0 0 0 2px var(--cr-accent);
 }
 
@@ -176,6 +178,62 @@ time {
   display: flex;
   width: 100%;
   padding-top: 12px;
+}
+
+/* Section header rows: the shelf rule (brand §2). A 1px --cr-border line
+   with a 3px Buckram cap at the leading edge, under the group label (Archivo)
+   and its count. 32px in every view (spec §B.7). */
+.section-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  padding: 0 12px;
+  background: var(--cr-bg);
+}
+
+.section-row--sticky {
+  position: sticky;
+  z-index: 2;
+}
+
+.section-row__label {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  height: 100%;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+  font: var(--cr-type-app-label);
+}
+
+.section-row__label::after {
+  content: '';
+  position: absolute;
+  bottom: calc(-1 * var(--cr-border-width-hairline));
+  left: 0;
+  width: 2rem;
+  height: var(--cr-border-width-spine);
+  background: var(--cr-primary);
+}
+
+.section-row__name {
+  overflow: hidden;
+  font-family: var(--cr-font-display);
+  font-stretch: 87.5%;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-row__count {
+  flex-shrink: 0;
+  color: var(--cr-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .cover-tile {
@@ -226,6 +284,10 @@ time {
 
 .cover-tile__art .art-thumb {
   display: block;
+  /* The art box of the size stop (3:4 of the tile width, from COVER_SIZES);
+     the cover is drawn inside it with object-fit: contain. */
+  height: var(--cover-art-h, auto);
+  aspect-ratio: auto;
 }
 
 /* The missing slot (brand §2): a 1.5px outline, dash 4 / gap 3, in
@@ -234,7 +296,10 @@ time {
    renders differently in WebKit and Chromium. */
 .cover-tile__art .art-placeholder,
 .art-ws__thumb .art-placeholder,
-.review-current .art-placeholder {
+.review-current .art-placeholder,
+.quick-look__art .art-placeholder,
+.cell--thumb .art-placeholder,
+.mount-slot .art-placeholder {
   --slot-w: var(--cr-border-width-slot);
   --slot-solid: linear-gradient(var(--cr-slot-missing), var(--cr-slot-missing));
   --slot-dash-x: repeating-linear-gradient(
@@ -321,13 +386,67 @@ time {
 }
 
 .cover-tile__system {
+  display: flex;
   flex: 1;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
   color: var(--cr-text-muted);
   font-size: 0.75rem;
+  line-height: 1.125rem;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Size stops (spec §B.4.1). XS and S have no meta line: the system is a
+   lone 20px icon on the art, named by its title (spec §A.6 rule 3). */
+.cover-tile__badge {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  display: flex;
+  padding: 0.125rem;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-surface) 88%, transparent);
+  box-shadow: 0 0 0 1px var(--cr-border);
+  color: var(--cr-text-secondary);
+  line-height: 1;
+}
+
+.cover-tile[aria-selected='true'] .cover-tile__badge {
+  color: inherit;
+}
+
+.cover-tile--xs .cover-tile__marks,
+.cover-tile--s .cover-tile__marks {
+  right: 0.25rem;
+  bottom: 0.25rem;
+  padding: 0.125rem 0.25rem;
+}
+
+.cover-tile--xs .art-placeholder {
+  padding: 0.25rem;
+  overflow: hidden;
+  font-size: 0.6875rem;
+  line-height: 0.875rem;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.cover-tile--s .cover-tile__name {
+  max-height: 1rem;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.cover-tile__size {
+  overflow: hidden;
+  color: var(--cr-text-muted);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .cover-tile__region {
@@ -345,9 +464,16 @@ time {
   top: 0;
   left: 0;
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) 10rem 6rem 8rem repeat(3, 5.5rem);
+  /* From the picked columns and their widths (DetailsView sets it). */
+  grid-template-columns: var(
+    --details-cols,
+    minmax(200px, 1fr) 160px 90px 128px repeat(3, 88px)
+  );
   align-items: center;
   width: 100%;
+  /* The sum of the column widths (DetailsView sets it). Not max-content:
+     that let a long name widen its own row and push its cells out of line. */
+  min-width: var(--details-min-width, max-content);
   border-bottom: 1px solid var(--cr-border);
   cursor: pointer;
 }
@@ -358,11 +484,17 @@ time {
 
 .entry-row--head {
   position: sticky;
-  z-index: 1;
+  z-index: 3;
   height: 34px;
   background: var(--cr-surface);
   font-weight: 600;
   cursor: default;
+}
+
+/* Compact density (Explorer's compact view): 24px rows, still the
+   WCAG 2.5.8 target size. */
+.entry-row--compact {
+  height: 24px;
 }
 
 .cell {
@@ -374,18 +506,726 @@ time {
 }
 
 .cell--size,
-.cell--mark {
+.cell--cover,
+.cell--title,
+.cell--screenshot {
   text-align: right;
 }
 
-/* Narrow windows: tighter columns so the three art columns, the point of
-   the list, stay on screen instead of behind a horizontal scroll. */
-@media (max-width: 1180px) {
-  .entry-row {
-    grid-template-columns: minmax(8rem, 1fr) 7rem 5rem 7rem repeat(3, 4rem);
-  }
+.cell--ext {
+  color: var(--cr-text-secondary);
+}
 
-  .cell--mark {
+.cell--head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.cell--size.cell--head,
+.cell--cover.cell--head,
+.cell--title.cell--head,
+.cell--screenshot.cell--head {
+  justify-content: flex-end;
+}
+
+.cell__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The column edge: an 8px grab area on the header's trailing edge, drawn
+   as a hairline that darkens on hover and takes the Buckram focus ring. */
+.column-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.column-edge::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  right: 0;
+  bottom: 25%;
+  width: var(--cr-border-width-hairline);
+  background: var(--cr-border);
+}
+
+.column-edge:hover::after {
+  background: var(--cr-text-secondary);
+}
+
+.column-edge:focus-visible::after,
+.column-edge:active::after {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--cr-primary);
+}
+
+/* Thumb column: a 24px cover (20px compact), loaded lazily. */
+.cell--thumb {
+  display: flex;
+  align-items: center;
+}
+
+.cell--thumb .art-thumb {
+  width: 24px;
+  height: 24px;
+  aspect-ratio: auto;
+  padding: 0;
+  border-radius: var(--cr-radius-sm);
+  object-fit: cover;
+}
+
+.entry-row--compact .cell--thumb .art-thumb {
+  width: 20px;
+  height: 20px;
+}
+
+/* Art slots (spec §B.4.5): an album page per game. Three slots in their
+   brand §2 states (cover 72×96, title and screenshot 128×96), then the
+   name. The name cell is first in the DOM, so a screen reader hears the
+   game before its slots, and drawn last with `order`. Fixed 112px rows. */
+.mount-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--cr-border);
+  cursor: pointer;
+}
+
+.mount-row:hover {
+  background: color-mix(in srgb, var(--cr-text) 4%, transparent);
+}
+
+.mount-row[data-selected='true'] {
+  background: color-mix(in srgb, var(--cr-accent) 8%, transparent);
+}
+
+.mount-slot {
+  position: relative;
+  flex: none;
+  height: 96px;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-slot--cover {
+  order: 1;
+  width: 72px;
+}
+
+.mount-slot--wide {
+  width: 128px;
+}
+
+.mount-slot[data-media='title'] {
+  order: 2;
+}
+
+.mount-slot[data-media='screenshot'] {
+  order: 3;
+}
+
+.mount-slot .art-thumb {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-slot--wide .art-thumb:not(.art-placeholder) {
+  object-fit: cover;
+}
+
+.mount-slot .art-placeholder {
+  padding: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+/* A slot with art whose image is still loading (or failed to load) is
+   still a filled slot: solid, never the dashed missing outline. */
+.mount-slot[data-slot-state='filled'] .art-placeholder {
+  background-image: none;
+  background-color: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+  box-shadow: inset 0 0 0 var(--cr-border-width-slot) var(--cr-slot-filled);
+}
+
+.mount-slot__unsupported {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--cr-radius-sm);
+  background: color-mix(in srgb, var(--cr-text) 4%, var(--cr-surface));
+}
+
+/* The active cell of the selected row: the view's focus ring on that slot
+   (or on the name), so ←/→ show where Enter will land. */
+.mount-row [role='gridcell'][aria-selected='true'] {
+  box-shadow: 0 0 0 2px var(--cr-accent);
+}
+
+.mount-row__name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.25rem;
+  order: 4;
+  min-width: 0;
+  align-self: stretch;
+  justify-content: center;
+  padding: 0 0.5rem;
+  border-radius: var(--cr-radius-sm);
+}
+
+.mount-row__title {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mount-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cr-text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.mount-row__fact::before {
+  content: '·';
+  margin-right: 0.375rem;
+  color: var(--cr-text-muted);
+}
+
+.mount-row__size {
+  font-variant-numeric: tabular-nums;
+}
+
+.mount-row__file {
+  overflow: hidden;
+  color: var(--cr-text-muted);
+  font-family: var(--cr-font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Columns view (Finder's Miller columns). Panes sit side by side on hairline
+   rules; when the window is too narrow the row scrolls sideways and the left
+   panes go out of view first. The chosen path carries the Buckram spine at
+   the leading edge of its row in every pane, so the trail from system to
+   game reads at a glance; only the pane with focus draws it in Buckram. */
+.miller {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  outline: none;
+}
+
+.miller__pane {
+  display: flex;
+  flex: 0 0 220px;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.miller__pane--games {
+  flex: 1 0 260px;
+  min-width: 260px;
+}
+
+.miller__pane--preview {
+  flex: 0 0 280px;
+  overflow-y: auto;
+  border-right: 0;
+}
+
+.miller__head {
+  flex: none;
+  height: 28px;
+  padding: 0 0.75rem;
+  border-bottom: var(--cr-border-width-hairline) solid var(--cr-border);
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  line-height: 28px;
+}
+
+.miller__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  outline: none;
+}
+
+.miller__list:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
+.miller__row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0 0.5rem 0 0.75rem;
+  font: var(--cr-type-app-base);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.miller__row:hover {
+  background: color-mix(in srgb, var(--cr-text) 4%, transparent);
+}
+
+.miller__row[aria-selected='true'] {
+  background: color-mix(in srgb, var(--cr-text) 8%, transparent);
+}
+
+.miller__row[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: var(--cr-border-width-spine);
+  background: var(--cr-border-strong);
+}
+
+.miller__pane[data-current='true'] .miller__row[aria-selected='true'] {
+  background: color-mix(in srgb, var(--cr-accent) 14%, transparent);
+}
+
+.miller__pane[data-current='true'] .miller__row[aria-selected='true']::before {
+  background: var(--cr-primary);
+}
+
+.miller__label {
+  flex: 1;
+}
+
+.miller__name {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.miller__count {
+  flex: none;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.miller__chevron {
+  flex: none;
+  color: var(--cr-text-muted);
+}
+
+.miller__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 1rem 0.75rem;
+}
+
+.miller__art {
+  align-self: center;
+  overflow: hidden;
+  border-radius: var(--cr-radius-sm);
+}
+
+.miller__art--cover {
+  width: 180px;
+  aspect-ratio: 3 / 4;
+}
+
+.miller__art--wide {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+
+.miller__art .art-thumb {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
+.miller__title {
+  font: var(--cr-type-app-label);
+  overflow-wrap: anywhere;
+}
+
+.miller__empty {
+  padding: 1rem 0.75rem;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+}
+
+/* Shelves (spec §B.4.6): one shelf per group, a 32px shelf-rule header with
+   "See all" at the far end of the rule, over a strip one tile tall that
+   scrolls sideways on its own. Heights are fixed per size stop (§B.7). */
+.shelves {
+  height: 100%;
+  overflow: auto;
+  outline: none;
+}
+
+.shelves:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
+.shelf {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.shelf__see-all {
+  flex-shrink: 0;
+  margin-left: auto;
+  font: var(--cr-type-app-label);
+}
+
+.shelf__strip {
+  position: relative;
+  flex: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.shelf__track {
+  position: relative;
+  height: 100%;
+}
+
+/* The end of a long shelf: a box file stood on the shelf, its Buckram
+   spine on the leading edge, the count in Archivo. Not a Slot: nothing is
+   missing here. */
+.shelf__more {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  padding: 0.75rem 0.75rem 0.875rem 1rem;
+  overflow: hidden;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-left: var(--cr-border-width-spine) solid var(--cr-primary);
+  border-radius: var(--cr-radius-lg);
+  background: var(--cr-surface);
+  cursor: pointer;
+}
+
+.shelf__more:hover {
+  border-color: var(--cr-border-strong);
+  border-left-color: var(--cr-primary);
+  background: var(--cr-hover);
+}
+
+.shelf__more[aria-selected='true'] {
+  border-color: var(--cr-accent);
+  border-left-color: var(--cr-primary);
+  box-shadow: 0 0 0 1px var(--cr-accent);
+}
+
+.shelf__more-count {
+  overflow: hidden;
+  font-family: var(--cr-font-display);
+  font-size: 1.75rem;
+  font-stretch: 87.5%;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shelf__more-label {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-label);
+}
+
+.shelf__more--small {
+  padding: 0.5rem 0.5rem 0.625rem 0.75rem;
+}
+
+.shelf__more--small .shelf__more-count {
+  font-size: 1.25rem;
+}
+
+/* Gallery (spec §B.4.4): one game's art large on a sunken mat, its facts in
+   a 280px pane beside it, and an 88px filmstrip of 64px thumbnails below.
+   Group boundaries are a shelf rule stood on end: a hairline with the 3px
+   Buckram cap, in the gutter before the group's first game. */
+.gallery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(0, 1fr) 88px;
+  height: 100%;
+  outline: none;
+}
+
+.gallery__stage {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  gap: 0;
+  background: var(--cr-surface-sunken);
+}
+
+.gallery__tabs {
+  padding: 0 1rem;
+  background: var(--cr-surface);
+}
+
+.gallery__frame {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 1.5rem;
+  outline: none;
+}
+
+.gallery__art {
+  height: 100%;
+  max-width: 100%;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+  box-shadow: var(--cr-shadow-raised);
+}
+
+.gallery__art--cover {
+  aspect-ratio: 25 / 36;
+}
+
+.gallery__art--wide {
+  aspect-ratio: 4 / 3;
+}
+
+/* No art yet: the Slot itself, dashed, with no lift off the mat. */
+.gallery__art[data-slot-state='missing'],
+.gallery__art[data-slot-state='unsupported'] {
+  box-shadow: none;
+}
+
+.gallery__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.gallery__placeholder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  font: var(--cr-type-app-base);
+}
+
+.gallery__strip {
+  grid-column: 1;
+  grid-row: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  background: var(--cr-surface);
+  outline: none;
+}
+
+.gallery__strip:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--cr-accent);
+}
+
+.gallery__track {
+  height: 100%;
+}
+
+.gallery__cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  height: 100%;
+}
+
+.gallery__thumb {
+  position: relative;
+  width: 56px;
+  height: 64px;
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+}
+
+.gallery__thumb .art-thumb {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: var(--cr-radius-sm);
+}
+
+.gallery__thumb:hover {
+  box-shadow: 0 0 0 1px var(--cr-border-strong);
+}
+
+/* The chosen game: a ring, and the Buckram spine under it, as a tab. */
+.gallery__thumb[aria-selected='true'] {
+  box-shadow: 0 0 0 2px var(--cr-border-strong);
+}
+
+.gallery__strip:focus .gallery__thumb[aria-selected='true'] {
+  box-shadow: 0 0 0 2px var(--cr-accent);
+}
+
+.gallery__thumb[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: -8px;
+  left: 8px;
+  height: var(--cr-border-width-spine);
+  border-radius: var(--cr-radius-full);
+  background: var(--cr-primary);
+}
+
+.gallery__marker {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: var(--cr-border-width-hairline);
+  background: var(--cr-border-strong);
+}
+
+.gallery__marker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(-1 * var(--cr-border-width-hairline));
+  width: var(--cr-border-width-spine);
+  height: 1.25rem;
+  background: var(--cr-primary);
+}
+
+.gallery__meta {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  padding: 1.25rem 1rem;
+  overflow-y: auto;
+  border-left: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.gallery__title {
+  font-family: var(--cr-font-display);
+  font-size: 1.125rem;
+  font-stretch: 87.5%;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.gallery__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery__slots {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem 0.625rem;
+  align-items: center;
+  margin: 0.25rem 0 0;
+  padding: 0.75rem 0 0;
+  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  list-style: none;
+  font: var(--cr-type-app-base);
+}
+
+/* Subgrid, not display: contents, which drops the list-item role in
+   WebKit (the macOS webview). */
+.gallery__slot {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+.gallery__slot-state {
+  color: var(--cr-text-secondary);
+}
+
+.gallery__fill {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.gallery__empty {
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-base);
+}
+
+/* The only motion here: each new large image fades in over 120 ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .gallery__art img {
+    transition: opacity 120ms var(--cr-ease-standard);
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+/* Narrow windows: tighter mark cells so the art columns, the point of the
+   list, keep their marks in view. */
+@media (max-width: 1180px) {
+  .cell--cover,
+  .cell--title,
+  .cell--screenshot {
     padding: 0 0.25rem;
   }
 }
@@ -424,20 +1264,105 @@ time {
   flex: 1;
 }
 
+/* The window is never narrower than 900px (tauri.conf.json minWidth). From
+   there up the toolbar stays on one row: the library name truncates
+   instead of pushing the last control onto a second row. The view options
+   button and six-view switcher made the 900px row ~30px too wide in
+   English and more in Spanish. Narrower browser windows (web mock) still
+   wrap. */
+@media (min-width: 900px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    /* Without this the row's own width becomes the screen's minimum and
+       the name never has to truncate. */
+    min-width: 0;
+  }
+
+  .toolbar-title {
+    flex: 0 1 auto;
+  }
+
+  .toolbar-lang {
+    flex-shrink: 0;
+  }
+}
+
 /* Narrow windows: secondary toolbar actions go icon-only (the label stays
    for screen readers and shows in the tooltip), so the toolbar keeps one
-   row down to 900px instead of wrapping. */
+   row down to 900px instead of wrapping. With the six view segments and
+   every label the row needs ~1460px, so the labels go below 1480px. */
 .toolbar-search {
   width: 14rem;
 }
 
-@media (min-width: 1181px) {
+@media (min-width: 1481px) {
   .toolbar-icon {
     display: none;
   }
 }
 
+/* View switcher (spec §B.6): six segments with a hairline between Finder's
+   four views and Coverly's two; below 1180px one `View ▾` menu instead.
+   Both are mounted on the same value, CSS shows one. */
+.view-switcher {
+  display: inline-flex;
+}
+
+.view-switcher__rule {
+  align-self: center;
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.125rem;
+  background: var(--cr-border);
+}
+
+/* One breakpoint, not a min/max pair: a fractional width between 1180 and
+   1181px (zoom, fractional DPR) would otherwise match neither and show both. */
+.view-switcher__menu {
+  display: none;
+}
+
+/* View options: a stack of quiet sections split by hairlines, so each
+   control reads as its own drawer of the cabinet (brand §1). */
+.view-options {
+  display: grid;
+  max-height: min(34rem, calc(100vh - 6rem));
+  overflow-y: auto;
+}
+
+.view-options__section {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.view-options__section + .view-options__section {
+  border-top: 1px solid var(--cr-border);
+}
+
+.view-options__columns {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.view-options__column {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+}
+
 @media (max-width: 1180px) {
+  .view-switcher__segments {
+    display: none;
+  }
+
+  .view-switcher__menu {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1480px) {
   .toolbar-search {
     width: 11rem;
   }
@@ -453,6 +1378,14 @@ time {
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+}
+
+/* Near the minimum width the search box gives up some room so the library
+   name keeps a readable stretch (after the 1480px block, which it narrows). */
+@media (max-width: 1040px) {
+  .toolbar-search {
+    width: 9rem;
   }
 }
 
@@ -508,6 +1441,63 @@ time {
 
 .art-thumb--wide {
   aspect-ratio: 4 / 3;
+}
+
+/* Quick look (Space): the art large, on its own mount. The size is fixed by
+   the media's shape, so stepping with ←/→ never moves the buttons. */
+.quick-look__title {
+  font-family: var(--cr-font-display);
+  font-stretch: 87.5%;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+
+.quick-look__system {
+  display: flex;
+  min-width: 0;
+}
+
+.quick-look__art {
+  align-self: center;
+  height: min(62vh, 600px);
+  max-width: 100%;
+  aspect-ratio: 25 / 36;
+  border-radius: var(--cr-radius-md);
+  background: color-mix(in srgb, var(--cr-text) 6%, var(--cr-surface));
+}
+
+.quick-look__art--wide {
+  height: auto;
+  width: min(100%, calc(min(62vh, 600px) * 4 / 3));
+  aspect-ratio: 4 / 3;
+}
+
+.quick-look__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.quick-look__art .art-placeholder {
+  width: 100%;
+  height: 100%;
+}
+
+.quick-look__steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.quick-look__position {
+  min-width: 6rem;
+  color: var(--cr-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .drawer-section {
@@ -1003,4 +1993,101 @@ time {
   to {
     background-color: transparent;
   }
+}
+
+/* System icons (spec §A.3–A.5): a box 1.5 × its height wide, so names in a
+   column start on one edge. Quieter than the name at rest; on a selected row,
+   the current sidebar scope or a pressed toggle the icon takes the row's ink,
+   never a colour of its own. */
+.system-icon,
+.system-mount {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--cr-text-secondary);
+  vertical-align: middle;
+}
+
+[aria-selected='true'] .system-icon,
+[aria-selected='true'] .system-mount,
+[aria-current='true'] .system-icon,
+[aria-current='true'] .system-mount,
+[data-state='on'] .system-icon,
+[data-state='on'] .system-mount {
+  color: inherit;
+}
+
+/* Icon + name (SystemLabel): the name truncates, the icon keeps its box. */
+.system-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375em;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.system-label__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The abbreviation mount: the brand's Slot made small. Its font-size is the
+   box height (set inline), so the text sizes below are fractions of it. */
+.system-mount {
+  position: relative;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.system-mount__text {
+  font-family: var(--cr-font-mono);
+  font-size: 0.625em;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* From 20px: a 1px outline; text drops to half the box. */
+.system-mount--outline {
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.system-mount--outline .system-mount__text {
+  font-size: 0.5em;
+}
+
+/* From 24px: the four photo-corners of slot-mark.tsx (brand §2). */
+.system-mount__corner {
+  position: absolute;
+  width: 0.2em;
+  height: 0.2em;
+  background: currentColor;
+}
+
+.system-mount__corner--tl {
+  top: -1px;
+  left: -1px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+.system-mount__corner--tr {
+  top: -1px;
+  right: -1px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.system-mount__corner--bl {
+  bottom: -1px;
+  left: -1px;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.system-mount__corner--br {
+  right: -1px;
+  bottom: -1px;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }

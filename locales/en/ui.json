@@ -283,12 +283,6 @@
   "library": {
     "count": "{n} ROMs",
     "close": "Close library",
-    "grid": {
-      "label": "ROM covers"
-    },
-    "table": {
-      "label": "ROM list"
-    },
     "empty": "No ROMs found in this folder.",
     "emptyHint": "Check that you picked the SD card or its ROMs folder. Warnings: {n}.",
     "noMatch": "No ROMs match the search and filters.",
@@ -601,14 +595,94 @@
     "searchShort": "Search…",
     "filters": "Filters",
     "filtersActive": "Filters ({n})",
-    "layout": "Layout",
-    "grid": "Grid",
-    "list": "List",
     "fill": "Fill missing art",
     "jobs": "Jobs",
     "jobsRunning": "Jobs (running)",
     "jobsPaused": "Jobs (paused)",
     "reports": "Reports"
+  },
+  "layouts": {
+    "label": "View",
+    "covers": "Covers",
+    "details": "Details",
+    "mounts": "Art slots",
+    "columns": "Columns",
+    "gallery": "Gallery",
+    "shelves": "Shelves",
+    "options": "View options",
+    "density": "Row density",
+    "densityComfortable": "Comfortable",
+    "densityCompact": "Compact",
+    "seeAllCount": "See all {n}",
+    "seeAllIn": "See all {n} in {group}",
+    "preview": "Quick look",
+    "previewPosition": "{n} of {total}",
+    "previewPrev": "Previous game",
+    "previewNext": "Next game",
+    "size": "Size",
+    "sizeStops": {
+      "xs": "Smallest",
+      "s": "Small",
+      "m": "Medium",
+      "l": "Large",
+      "xl": "Largest"
+    },
+    "art": "Art shown",
+    "artCover": "Cover",
+    "artTitle": "Title screen",
+    "artScreenshot": "Screenshot",
+    "groupBy": "Group by",
+    "group": {
+      "none": "None",
+      "system": "System",
+      "folder": "Folder",
+      "region": "Region",
+      "art": "Art status",
+      "letter": "First letter",
+      "missingCover": "No cover",
+      "missingOther": "Other art missing",
+      "complete": "Complete",
+      "root": "{system} (root)",
+      "noRegion": "No region"
+    },
+    "groupCount": "{group}, {n} games",
+    "sortBy": "Sort by",
+    "sortLibrary": "Library order",
+    "sortDescending": "Descending",
+    "missingArtFirst": "Missing art first",
+    "columnsPicker": "Visible columns",
+    "column": {
+      "thumb": "Thumbnail",
+      "name": "Name",
+      "system": "System",
+      "folder": "Folder",
+      "regions": "Regions",
+      "ext": "Extension",
+      "size": "Size",
+      "mtime": "Modified",
+      "cover": "Cover",
+      "title": "Title screen",
+      "screenshot": "Screenshot"
+    },
+    "columnMoveLeft": "Move left",
+    "columnMoveRight": "Move right",
+    "columnMoveUp": "Move {column} up",
+    "columnMoveDown": "Move {column} down",
+    "columnResize": "Resize {column}",
+    "inspector": "Details pane",
+    "seeAll": "See all",
+    "announce": "{view} view",
+    "pane": {
+      "systems": "Systems",
+      "folders": "Folders",
+      "games": "Games",
+      "preview": "Preview"
+    },
+    "folderRoot": "(root)",
+    "previewEmpty": "Choose a game to see its art and file.",
+    "slotHas": "has art",
+    "filmstrip": "Filmstrip",
+    "fillThisGame": "Fill this game"
   },
   "filters": {
     "art": "Art",
@@ -1108,5 +1182,8 @@
     "loading": "Loading",
     "notifications": "Notifications",
     "dismiss": "Dismiss"
+  },
+  "systems": {
+    "unknown": "Folder with no known system"
   }
 }

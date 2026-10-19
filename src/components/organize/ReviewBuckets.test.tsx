@@ -64,6 +64,13 @@ describe('ReviewBuckets', () => {
     expect(
       screen.getByRole('group', { name: 'Mega Drive / Master System: 1' }),
     ).toBeInTheDocument();
+    // One icon per candidate system, in the bucket's order, kept out of
+    // the group's name.
+    expect(
+      [...bucket.querySelectorAll('[data-system-icon]')].map((el) =>
+        el.getAttribute('data-system-icon'),
+      ),
+    ).toEqual(['gb', 'gbc']);
     // The backend's candidates are hints, not a decision.
     expect(bucket).toHaveAccessibleDescription(
       'Most likely: Game Boy, then Game Boy Color',

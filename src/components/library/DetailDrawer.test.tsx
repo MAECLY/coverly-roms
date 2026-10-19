@@ -83,6 +83,20 @@ describe('Detail drawer', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows the system icon beside the name', async () => {
+    const view = await setup();
+    const entry = view.entries[0]!;
+    const system = view.systems[entry.system]!;
+    const drawer = show(entry);
+    const name = within(drawer).getByText(system.name);
+    const dd = name.closest('dd')!;
+    expect(dd).not.toBeNull();
+    const icon = dd.querySelector(`[data-system-icon="${system.system_id}"]`);
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(icon).toHaveAttribute('height', '20');
+  });
+
   it('shows a placeholder for missing art and loads present art', async () => {
     const view = await setup();
     const entry = view.entries.find(
@@ -213,6 +227,39 @@ describe('Detail drawer', () => {
     expect(calls).toEqual(['cover']);
   });
 
+  it('opens on the slot chosen in Art slots', async () => {
+    const view = await setup();
+    act(() => useViewStore.getState().setPrefs({ view: 'mounts' }));
+    try {
+      const grid = screen.getByRole('grid', { name: 'Art slots view' });
+      grid.focus();
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      const id = Number(
+        grid.getAttribute('aria-activedescendant')!.replace('entry-', ''),
+      );
+      const entry = view.entries[id]!;
+      // The workspace would open on the first missing slot; pick another.
+      const media = (['title', 'screenshot'] as const).find(
+        (m) =>
+          view.profile.media.includes(m) &&
+          view.profile.media.find((w) => entry.art[w] === 'missing') !== m,
+      )!;
+      const steps = media === 'title' ? 2 : 3;
+      for (let i = 0; i < steps; i++) {
+        fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      }
+      fireEvent.keyDown(grid, { key: 'Enter' });
+      const drawer = screen.getByRole('complementary', { name: entry.name });
+      expect(
+        within(drawer).getByRole('tab', {
+          name: media === 'title' ? 'Title screen' : 'Screenshot',
+        }),
+      ).toHaveAttribute('aria-selected', 'true');
+    } finally {
+      act(() => useViewStore.getState().setPrefs({ view: 'covers' }));
+    }
+  });
+
   it('browsing the slots with the arrow keys loads only where it stops', async () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'missing')!;
@@ -326,7 +373,7 @@ describe('Detail drawer', () => {
   it('follows the keyboard selection', async () => {
     const view = await setup();
     show(view.entries[0]!);
-    const grid = screen.getByRole('grid', { name: 'ROM covers' });
+    const grid = screen.getByRole('grid', { name: 'Covers view' });
     fireEvent.keyDown(grid, { key: 'ArrowRight' });
     expect(
       screen.getByRole('complementary', { name: view.entries[1]!.name }),
@@ -345,5 +392,70 @@ describe('Detail drawer', () => {
     expect(
       within(drawer).getByRole('button', { name: 'Desde archivo…' }),
     ).toBeEnabled();
+  });
+
+  describe('docked', () => {
+    afterEach(() => {
+      act(() =>
+        useViewStore.getState().setPrefs({ inspector: false, view: 'covers' }),
+      );
+    });
+
+    function dock(view: 'covers' | 'details' | 'columns' | 'gallery') {
+      act(() => {
+        useViewStore.getState().closeDrawer();
+        useViewStore.getState().setPrefs({ inspector: true, view });
+      });
+    }
+
+    it('opens on selection and leaves the focus in the view', async () => {
+      const view = await setup();
+      dock('covers');
+      const grid = screen.getByRole('grid', { name: 'Covers view' });
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      grid.focus();
+      act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+      expect(
+        screen.getByRole('complementary', { name: view.entries[0]!.name }),
+      ).toBeInTheDocument();
+      expect(document.activeElement).toBe(grid);
+      fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      const drawer = screen.getByRole('complementary', {
+        name: view.entries[1]!.name,
+      });
+      expect(drawer).toHaveAttribute('data-docked', 'true');
+      expect(document.activeElement).toBe(grid);
+      fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      expect(
+        screen.getByRole('complementary', { name: view.entries[2]!.name }),
+      ).toBeInTheDocument();
+      expect(document.activeElement).toBe(grid);
+    });
+
+    it('stays through Escape and closes as a pane with its button', async () => {
+      const view = await setup();
+      dock('details');
+      act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      const drawer = screen.getByRole('complementary', {
+        name: view.entries[0]!.name,
+      });
+      await userEvent.click(
+        within(drawer).getByRole('button', { name: 'Close details' }),
+      );
+      expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      expect(useViewStore.getState().prefs.inspector).toBe(false);
+      expect(document.activeElement).toHaveAttribute('role', 'grid');
+    });
+
+    it.each(['columns', 'gallery'] as const)(
+      'is not docked in %s',
+      async (id) => {
+        const view = await setup();
+        dock(id);
+        act(() => useSelectionStore.getState().select(view.entries[0]!.id));
+        expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+      },
+    );
   });
 });

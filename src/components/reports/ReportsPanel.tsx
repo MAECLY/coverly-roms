@@ -2,6 +2,7 @@ import { useContext, useMemo, useState } from 'react';
 
 import { Download } from 'lucide-react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -118,7 +119,11 @@ export function ReportsPanel({
                 {summary.systems.map((r) => (
                   <tr key={r.folder}>
                     <th scope="row" title={r.folder}>
-                      {r.name}
+                      <SystemLabel
+                        systemId={r.system_id}
+                        name={r.name}
+                        size={16}
+                      />
                     </th>
                     {cells(r)}
                   </tr>

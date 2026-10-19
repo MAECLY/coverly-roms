@@ -11,3 +11,4 @@ Verified dossiers that inform the design. See also the tool landscape in [tool-l
 | [screenscraper-api](screenscraper-api.md) | ScreenScraper.fr API v2 as a secondary cover source, compared with TheGamesDB and SteamGridDB (verified) | 35 |
 | [layouts](layouts.md) | Verification of handheld/frontend cover-art layouts (Anbernic stock, GarlicOS, Onion, SpruceOS, TrimUI stock, MinUI, Nex | 30 |
 | [desktop-stack-updater](desktop-stack-updater.md) | Verification of the cross-platform desktop stack and GitHub Releases auto-update dossier (Tauri 2, Electron/electron-bui | 31 |
+| [system-icons-and-views](system-icons-and-views.md) | System icons (RetroArch Monochrome, CC BY 4.0, plus Slot fallback) and library view modes from Finder, Explorer and ROM managers, with a repo audit | n/a |

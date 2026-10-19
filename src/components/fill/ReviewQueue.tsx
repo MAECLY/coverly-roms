@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ArtThumb } from '@/components/library/ArtThumb';
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,6 +25,7 @@ import type {
   JobItemView,
   LibraryView,
 } from '@/ipc/types';
+import { systemByFolder } from '@/lib/systemLookup';
 import { cn } from '@/lib/utils';
 import { useJobStore } from '@/stores/jobStore';
 
@@ -225,7 +227,14 @@ export function ReviewQueue({
                 >
                   {item.name}
                 </h3>
-                <p className="hint">
+                <p className="hint inline-flex items-center gap-1.5">
+                  <SystemIcon
+                    systemId={
+                      systemByFolder(view.systems, item.folder)?.system_id ??
+                      null
+                    }
+                    size={16}
+                  />
                   {item.folder} · {t(`art.media.${item.media}`)} ·{' '}
                   {status(decisions[item.index])}
                 </p>

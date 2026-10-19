@@ -59,6 +59,31 @@ If you fork Coverly ROMs (which the AGPL-3.0 permits) and **distribute** the for
 
 A personal patchset you do not distribute needs no rename.
 
+## Third-party systems
+
+The app names the systems a library holds ("Game Boy", "Neo Geo Pocket") and
+shows a small icon beside each name. Those names and any maker marks belong to
+their owners (see "Other names" in [`TRADEMARKS.md`](../../TRADEMARKS.md)). The
+rule for the icons:
+
+- **A hardware silhouette plus the name, never a maker's logo or wordmark.**
+  The name is always shown as text; the icon only helps the eye find it. Icons
+  that are a logo or wordmark in the source set (CP System, MAME, DOS, ScummVM,
+  RPG Maker) are not used.
+- **No marks inside a silhouette.** No badges or wordmarks on the shell, no
+  emblems, no registered button symbols. Each icon's audit is recorded in
+  `src/assets/system-icons/README.md`.
+- **A fallback for everything else.** Systems without a clean silhouette show
+  their abbreviation in a small Slot-shaped mount. Any icon can be switched to
+  that fallback by removing its entry from `SYSTEM_ICON_SOURCES` in
+  `scripts/icons/systemIconsLib.mjs` and running `pnpm system-icons`.
+- **Library data only.** System icons never appear in Coverly's identity: not
+  next to the Coverly mark, not on the landing page, not in marketing images
+  (`docs/08-brand/brand.md` §3 "Don'ts", §7 "Voice and copy" and §9
+  "Icon").
+
+This is design reasoning about nominative use, not legal advice.
+
 ## Reporting trademark issues
 
 - **A fork or product using our name:** open an issue tagged `trademark`.

@@ -100,9 +100,22 @@ las copias entre discos se verifican y un trabajo interrumpido se puede
 reanudar o deshacer.
 
 **Explorar la biblioteca.** Vistas por carpeta, sistema, fecha y lista plana;
-una cuadrícula y una tabla que siguen fluidas con más de 10.000 juegos; filtros
-por imágenes que faltan, sistema, extensión y región; búsqueda; y una ficha de
-detalle donde cambias a mano la imagen de cada hueco o buscas por título.
+filtros por imágenes que faltan, sistema, extensión y región; búsqueda; y una
+ficha de detalle donde cambias a mano la imagen de cada hueco o buscas por
+título. Seis formas de verla, todas fluidas con más de 10.000 juegos:
+**Portadas** (cinco tamaños), **Detalles** (columnas a elegir y de ancho
+ajustable, miniaturas, filas compactas), **Columnas** (sistema → carpeta →
+juego → vista previa), **Galería** (la imagen de un juego en grande, con tira
+de miniaturas), **Huecos de arte** (portada, título y captura lado a lado, para
+ver lo que falta) y **Estantes** (una fila por sistema). Cambia con
+⌘/Ctrl+1–6, ajusta el tamaño de las portadas con ⌘/Ctrl +/−, agrupa por
+sistema, carpeta, región, estado del arte o inicial, escribe un nombre para
+saltar a él y pulsa Espacio para una Vista rápida. Cada biblioteca recuerda su
+vista.
+
+**Iconos de sistema.** Cada nombre de sistema en la app lleva su icono al lado:
+una silueta sencilla del hardware (del tema Monochrome de RetroArch,
+CC BY 4.0) o una etiqueta corta cuando no hay un dibujo neutro.
 
 **Trabajos bajo control.** El asistente de relleno te enseña el plan entero
 antes de ejecutarlo. Los trabajos se pueden pausar, reanudar, cancelar y
@@ -576,6 +589,8 @@ las decisiones en [docs/adr/](docs/adr/README.md), el proceso de publicación en
   y [libretro-database](https://github.com/libretro/libretro-database), por las
   imágenes y los datos de identificación, que se descargan al usar la app.
 - [SteamGridDB](https://www.steamgriddb.com/) y su comunidad.
+- [RetroArch Assets](https://github.com/libretro/retroarch-assets), por las
+  siluetas monocromas de los sistemas (CC BY 4.0, © libretro contributors).
 - [Tauri](https://tauri.app/), [Rust](https://www.rust-lang.org/) y
   [React](https://react.dev/).
 - Las fuentes Archivo, Atkinson Hyperlegible Next y Atkinson Hyperlegible Mono

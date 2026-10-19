@@ -1,6 +1,7 @@
 import { FolderOpen, X } from 'lucide-react';
 import { useContext, useState } from 'react';
 
+import { SystemLabel } from '@/components/system/SystemLabel';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -8,7 +9,7 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
-import type { EntryView, LibraryView } from '@/ipc/types';
+import type { EntryView, LibraryView, Media } from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
 import {
   identityKey,
@@ -110,13 +111,24 @@ function IdentityBlock({
   );
 }
 
+/**
+ * The details of one entry, in a pane on the right. Opened with Enter or a
+ * click; `docked` (the Inspector switch, ⌘I) keeps it open and following the
+ * selection, so it never takes the focus from the view and Escape leaves it
+ * in place. Its close button then undocks it (`onClose`).
+ */
 export function DetailDrawer({
   view,
   entry,
+  docked = false,
+  workspaceMedia = null,
   onClose,
 }: {
   view: LibraryView;
   entry: EntryView;
+  docked?: boolean;
+  /** Open the art workspace on this slot (Art slots view). */
+  workspaceMedia?: Media | null;
   onClose(): void;
 }) {
   const t = useT();
@@ -139,7 +151,11 @@ export function DetailDrawer({
   }
 
   return (
-    <aside className="drawer" aria-labelledby="drawer-title">
+    <aside
+      className="drawer"
+      aria-labelledby="drawer-title"
+      data-docked={docked ? 'true' : undefined}
+    >
       <header className="drawer-header">
         <h2 id="drawer-title" className="drawer-title" title={entry.name}>
           {entry.name}
@@ -175,9 +191,10 @@ export function DetailDrawer({
         </Alert>
       )}
       <ArtWorkspace
-        key={`${view.generation}:${entry.id}`}
+        key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}
         view={view}
         entry={entry}
+        initialMedia={workspaceMedia}
       />
       <section className="drawer-section drawer-section--quiet">
         <h3 className="drawer-subtitle">{t('drawer.identity')}</h3>
@@ -200,7 +217,13 @@ export function DetailDrawer({
           <dt>{t('drawer.path')}</dt>
           <dd className="break-all">{entry.rel_path}</dd>
           <dt>{t('columns.system')}</dt>
-          <dd>{system?.name ?? ''}</dd>
+          <dd>
+            <SystemLabel
+              systemId={system?.system_id ?? null}
+              name={system?.name ?? ''}
+              size={20}
+            />
+          </dd>
           <dt>{t('drawer.ext')}</dt>
           <dd>.{entry.ext}</dd>
           <dt>{t('columns.size')}</dt>

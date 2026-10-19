@@ -7,6 +7,7 @@ import { Field, FieldControl, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { SystemIcon } from '@/components/system/SystemIcon';
 import { LocaleContext } from '@/i18n/core';
 
 import { useT } from '@/i18n/useT';
@@ -96,15 +97,18 @@ function Group({
   );
 }
 
-/** A choice row: control, its label, then the count it would show. */
+/** A choice row: control, an optional icon, its label, then the count it
+ *  would show. */
 function Option({
   id,
   control,
+  icon,
   label,
   count,
 }: {
   id: string;
   control: ReactNode;
+  icon?: ReactNode;
   label: ReactNode;
   count: string;
 }) {
@@ -115,6 +119,7 @@ function Option({
         htmlFor={id}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 font-normal"
       >
+        {icon}
         <span className="truncate">{label}</span>
         <Badge mono className="ml-auto">
           {count}
@@ -216,6 +221,7 @@ export function FilterPanel({
                     onCheckedChange={() => toggleSystem(s.index)}
                   />
                 }
+                icon={<SystemIcon systemId={s.system_id} size={16} />}
                 label={s.name}
                 count={n.format(facets.systems.get(s.index) ?? 0)}
               />

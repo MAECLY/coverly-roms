@@ -427,6 +427,40 @@ Spec: [`2026-10-17-organize-loose-roms-design.md`](superpowers/specs/2026-10-17-
   5. Consola: 0 errores, 0 avisos (solo el aviso genérico de Chrome «A form field element should have an id or name attribute»). Gates front: `pnpm lint`, `typecheck`, `format:check`, `build` limpios; `pnpm test` → **536 pasan** (65 ficheros).
   6. Pendiente (sin cambios): los detalles de cabecera («LoROM header, checksum ok») salen en inglés en la UI en español; en el mock la hora de un trabajo es la de carga de la página, no la del apply.
 
+## Iconos de sistema y vistas de la biblioteca (V1–V6)
+
+Investigación: `docs/02-research/` (commit `29432d0`) · Spec: [`2026-10-18-system-icons-and-views.md`](superpowers/specs/2026-10-18-system-icons-and-views.md) · Plan: [`2026-10-18-system-icons-and-views.md`](superpowers/plans/2026-10-18-system-icons-and-views.md) · Rama `feat/system-icons-views` (worktree `coverly-roms-views`) · Doc: [desktop-app.md § System icons / Library views](04-architecture/desktop-app.md#system-icons).
+
+| ID | Tarea | Estado | Evidencia |
+|---|---|---|---|
+| V1 | Investigación, spec (revisada tras revisión adversarial) y plan | ✅ | `29432d0`, `e99aab6`, `198312a`, `e3eb025` |
+| V2 | Iconos: 41 siluetas RetroArch Monochrome (CC BY 4.0) vendorizadas con `pnpm system-icons`, auditoría de marcas, hoja de contacto; avisos legales y TRADEMARKS | ✅ | `145427a`, `e123147`, `0c60421`, `23ed630`, `b7fc986`, `3ef1550`, `7d3d896`, `9521711` |
+| V3 | `SystemIcon` (silueta, montura Slot con abreviatura, carpeta) + `SystemLabel` en barra lateral, filtros, cuadrícula, tabla, panel, informes, asistente, organizar | ✅ | `d116d63`, `dea7dcb`, `bec91a5`, `24add90`, `bc03136`, `b5827e1`, `5ec7c38`, `de3a615`, `c7cf23c`, `0823c6b`, `7930c4f` |
+| V4 | Modelo: `ViewPrefs` por biblioteca con migración de `coverly.layout`, agrupación + modelo de filas, cabeceras de sección, teclado común (type-ahead, Vista rápida) | ✅ | `9e6c1ea`, `5e01c44`, `fab0f27`, `04fcbef`, `d62c785`, `f7f2de2`, `7dc05d3`, `8e2efce`, `03d4393`, `1126a6c`, `145b779` |
+| V5 | Seis vistas: Portadas (XS–XL), Detalles (columnas, miniatura, densidad, inspector), Huecos de arte, Columnas, Galería, Estantes; selector, Opciones de vista, ⌘1–6 | ✅ | Portadas: `1b5d99b`, `b12a7aa`, `dbf49ce`, `4271e73`, `fc2755c`. Detalles: `ef7e3ea`, `c924128`, `7f7a12e`, `a0669b7`, `1d5f5fa`. Huecos: `040a919`, `1b023a6`, `bea6353`. Columnas: `9468b83`, `32e00e7`. Galería: `5d59d58`, `4d47117`, `262835f`, `1ab4c1c`. Estantes: `795b37e`, `0c8a547`, `9c3f935`. Selector y atajos: `cb904f0`, `79344da`, `2b7b521`, `806ce9b`, `9a6b281`, `df12724`, `0b78ada`, `9be4d24`, `572fb11`, `c425317`, `e53d077` |
+| V6 | Integración, E2E, docs (README en/es, desktop-app, CHANGELOG, este tracker) | ✅ | `fa026a8`, `1d7ae8c`, `7eb6f85`, `08cc93c`; docs: `55caa6b` |
+| V7 | Comprobación manual en Tauri (spec §C.4): `make dev`, ⌘1–6 y ⌘+/− sin zoom de la webview, iconos en WebKit | ⬜ | Pendiente de Miguel |
+
+### Evidencia V — iconos y vistas (2026-10-18)
+
+- **Gates front:** `pnpm test` → **987 pasan** (100 ficheros); `pnpm lint` y `pnpm typecheck` limpios.
+- **E2E en el mock** (`vite --port 1457`, `/mock/Fixture SD (12k)`, prefs borradas; Playwright MCP porque el perfil de Chrome DevTools MCP estaba en uso por otra sesión). Cambiando con ⌘1–6:
+
+| Vista | Elementos montados (filas/opciones/celdas/items) | Iconos `[data-system-icon]` | Cambio (2 frames tras ⌘n) |
+|---|---|---|---|
+| Portadas | 78 | 72 | 11 ms |
+| Detalles | 321 (celdas) | 40 | 124 ms |
+| Columnas | 68 | 22 | 20 ms |
+| Galería | 43 | 0 (la tira no nombra sistemas) | 50 ms |
+| Huecos de arte | 95 | 19 | 57 ms |
+| Estantes | 85 | 5 | 140 ms |
+
+  - Todos los iconos con `aria-hidden="true"` o `role="img"` + `aria-label` (0 incorrectos). Tareas largas durante los seis cambios: 115 y 129 ms (presupuesto 200 ms). Los cambios a Detalles y Estantes superan los 100 ms en el build de desarrollo (React dev mode); medir en `pnpm build` si se quiere ajustar.
+  - **Huecos de arte de arriba abajo** (`scrollHeight` 1.344.000 px, 120 pasos): **0 tareas largas > 50 ms**, frame medio 13,7 ms / p95 23 ms.
+  - Persistencia: `coverly.views.v1` guarda `last` y `byLibrary["/mock/Fixture SD (12k)"]` tras los cambios. Consola: 0 errores, 0 avisos.
+- **Tarea 24 (miniaturas con tamaño, V-D6):** **maxPx no hace falta**: el desplazamiento completo de Huecos de arte no tiene ninguna tarea larga > 50 ms (máx. 0), frame medio 13,7 ms / p95 23 ms. Sin cambios en IPC ni en Rust.
+- Pendiente: V7 (Tauri en macOS/WebKit).
+
 ## Bitácora
 
 - **2026-10-15** — Investigación de herramientas Mac; repo creado; decisiones D1–D8; spec maestra y tracker escritos; investigación Top1 en curso.
@@ -457,3 +491,5 @@ Spec: [`2026-10-17-organize-loose-roms-design.md`](superpowers/specs/2026-10-17-
 - **2026-10-17** — «Volver a analizar» en Organizar por sistema (PR #18, merge `bac05b1`): botón junto a la ruta + ⌘R/Ctrl+R, mantiene las decisiones de los archivos que siguen, resumen con números exactos (nuevos / ya no están / decisiones mantenidas o «Sin cambios»), etiqueta «+ Nuevo» y «+N» por grupo, error con reintento si la carpeta desaparece. 619 tests de Vitest, 1056 de Rust; CI verde en 3 SO.
 - **2026-10-18** — **v0.1.0 publicada** (https://github.com/MAECLY/coverly-roms/releases/tag/v0.1.0). Clave minisign generada (privada en `~/.coverly-release/`, contraseña en el Llavero de macOS «coverly-roms updater key password»; ambas como secretos de GitHub) y pública en `crates/coverly-core/updater.pub`. PR #19 (merge `3489b5d`): landing que lee la última release de la API de GitHub en tiempo de ejecución (`site/assets/release.js`), aviso de builds sin firmar en landing/README/notas como Versorium y Pluryprint, README en/es reescrito, topics y descripción del repo, tests de versión sin número fijo. `release.yml` verde (4 apps, 5 CLI, firma real, `latest.json` con 18 entradas, `SHA256SUMS`); verificado a mano: checksums OK, firmas minisign OK contra `updater.pub`, CLI `coverly 0.1.0`, app universal x86_64+arm64. Publicada; `release-channels` y Pages verdes; la landing en vivo muestra «Ya se puede descargar. Versión 0.1.0» con el sistema del visitante marcado.
 - **2026-10-18** — Landing fuera del repo de la app y en Vercel (PR #21, merge `774f4cd`): nuevo repo público [MAECLY/coverly-roms-landing](https://github.com/MAECLY/coverly-roms-landing) con el historial (`git filter-repo`, 93 commits), CI propio y sincronización semanal de tokens; proyecto Vercel `coverly-roms-landing` conectado a ese repo; deploy hook en el secreto `VERCEL_DEPLOY_HOOK_URL` disparado por `landing-redeploy.yml` al publicar una release. Corte: dominio añadido en Vercel → Cloudflare (CLI) CNAME `coverly-roms` → `7b497c07bc735f47.vercel-dns-016.com` (DNS only) → HTTPS Let's Encrypt + HSTS verificado → Pages sin dominio, desactivado y entorno `github-pages` borrado. También: badges del README (caché camo purgada) y CI de `main` sin cancelaciones (PR #20). CI verde en 3 SO.
+- **2026-10-18** — Iconos de sistema y vistas implementados en `feat/system-icons-views` (plan tareas 1–26): siluetas neutras de RetroArch Monochrome (CC BY 4.0) junto a cada nombre de sistema en toda la app, con abreviatura en montura Slot cuando no hay dibujo neutro; seis vistas (Portadas, Detalles, Columnas, Galería, Huecos de arte, Estantes) con ⌘1–6, Opciones de vista, agrupación, teclado común y preferencias por biblioteca (Grid/List migrados). 987 Vitest; E2E a 12k sin tareas largas > 200 ms; maxPx descartado. Falta la comprobación en Tauri (V7).
+- **2026-10-18** — Iconos de sistema y seis vistas (PR #22): `SystemIcon` con 41 siluetas de hardware de RetroArch Assets XMB Monochrome (CC BY 4.0, atribuido; siluetas, no logos) en barra lateral, filtros, casillas, Detalles, panel, Columnas, estanterías, Informes, asistente y Organizar; vistas Portadas (tamaños), Detalles (columnas), Columnas (Miller), Galería, Huecos de arte y Estanterías con ⌘/Ctrl+1–6, Quick look, type-ahead, agrupar/ordenar comunes y persistencia por biblioteca. 991 tests; E2E en el mock de 12k (Playwright); sin tareas largas en build de producción; CI verde en 3 SO. Pendiente de Miguel: revisar en la ventana Tauri (WebKit).

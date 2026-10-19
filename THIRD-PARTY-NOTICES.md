@@ -37,6 +37,42 @@ their original family names, which the OFL allows because none of these
 fonts declares a Reserved Font Name. Each licence file sits next to the font
 files.
 
+## System icons
+
+The small hardware silhouettes shown beside system names are bundled into
+every build (`src/components/system/systemIcons.generated.ts`, with reviewable
+copies in `src/assets/system-icons/`). They are adapted from:
+
+- **RetroArch Assets**, XMB "Monochrome" theme (`src/xmb/monochrome/`),
+  © libretro contributors (https://github.com/libretro/retroarch-assets), at
+  commit `d9f969054dc7fbb6fa89519036d2b971e0855b51`. Licence: Creative Commons
+  Attribution 4.0 International (CC BY 4.0), full text in
+  `LICENSES/CC-BY-4.0.txt` (https://creativecommons.org/licenses/by/4.0/).
+
+Changes made: every fill and stroke other than `none` is recoloured to
+`currentColor`; the files are optimised with SVGO (metadata, editor data, ids,
+classes and styles removed, coordinates rounded to three decimals); full-canvas
+clip paths are removed; viewBoxes are synthesised from `width`/`height` where
+the source had none, then cropped to the drawing. The drawn shapes are
+otherwise unchanged. Icons in the theme that are a maker's logo or wordmark
+are not included. The licence grants no trademark rights; see `TRADEMARKS.md`.
+`src/assets/system-icons/README.md` maps each file to its source file and
+records its trademark audit.
+
+The 41 files, named by system id: `a2600`, `a5200`, `a7800`, `a800`, `amiga`,
+`atarist`, `c64`, `dreamcast`, `fbneo`, `fds`, `gamegear`, `gb`, `gba`, `gbc`,
+`gw`, `lynx`, `mastersystem`, `megadrive`, `msx`, `n64`, `nds`, `neocd`,
+`neogeo`, `nes`, `ngp`, `ngpc`, `pcengine`, `pcenginecd`, `pgm2`, `pokemini`,
+`psp`, `psx`, `saturn`, `sega32x`, `segacd`, `snes`, `varcade`, `vic20`,
+`virtualboy`, `wonderswan`, `wonderswancolor`.
+
+## Interface icons
+
+- **lucide-react** 1.59.0, Copyright (c) 2026 Lucide Icons and Contributors
+  (https://github.com/lucide-icons/lucide). Licence: ISC; some icons derive
+  from Feather, Copyright (c) 2013-present Cole Bemis, under the MIT License.
+  Both texts are in `LICENSES/ISC-lucide-react.txt`.
+
 ## Art and metadata sources
 
 Art sources are fetched at the user's request and are not distributed with
