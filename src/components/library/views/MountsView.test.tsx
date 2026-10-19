@@ -200,6 +200,22 @@ describe('MountsView', () => {
     );
   });
 
+  it('a modified ← or → never moves to another row', () => {
+    const entries = big.entries.slice(0, 20);
+    render(<Harness entries={entries} />);
+    const grid = screen.getByRole('grid');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    for (const mod of ['metaKey', 'ctrlKey', 'altKey'] as const) {
+      fireEvent.keyDown(grid, { key: 'ArrowRight', [mod]: true });
+      fireEvent.keyDown(grid, { key: 'ArrowLeft', [mod]: true });
+    }
+    expect(grid).toHaveAttribute(
+      'aria-activedescendant',
+      `entry-${entries[0]!.id}`,
+    );
+  });
+
   it('clicking a slot opens the art workspace on it', async () => {
     const user = userEvent.setup();
     const onOpenArt = vi.fn();

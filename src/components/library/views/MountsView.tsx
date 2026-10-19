@@ -141,8 +141,12 @@ export function MountsView({
           key === 'PageDown' ? pageRows : -pageRows,
         );
       }
-      // One item a row: ↑/↓/Home/End are list moves; ←/→ never reach here
-      // once a row is active.
+      // ←/→ move between the cells of the active row (onKeyDown); with a
+      // modifier they reach here and must not move to another row.
+      if (selectedIndex >= 0 && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+        return null;
+      }
+      // One item a row: ↑/↓/Home/End are list moves.
       return nextIndex(key, selectedIndex, entries.length, 1, pageRows);
     },
   });
@@ -160,7 +164,8 @@ export function MountsView({
       const media = MOUNT_MEDIA[col - 1];
       if (ev.key === 'Enter' && media) {
         ev.preventDefault();
-        onOpenArt?.(entry.id, media);
+        if (onOpenArt) onOpenArt(entry.id, media);
+        else onOpen(entry.id);
         return;
       }
     }
