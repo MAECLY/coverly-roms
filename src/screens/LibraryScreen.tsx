@@ -16,6 +16,7 @@ import { FilterPanel } from '@/components/library/FilterPanel';
 import { Sidebar } from '@/components/library/Sidebar';
 import { StatusBar } from '@/components/library/StatusBar';
 import { Toolbar } from '@/components/library/Toolbar';
+import { MountsView } from '@/components/library/views/MountsView';
 import { QuickLook } from '@/components/library/views/QuickLook';
 import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
 import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
+import type { Media } from '@/ipc/types';
 import { isTyping } from '@/lib/keyboard';
 import { inspectorDocked } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
@@ -55,6 +57,8 @@ export function LibraryScreen() {
   const searchRef = useRef<HTMLInputElement>(null);
   // Space in a view: the entry shown large in Quick look, if any.
   const [previewId, setPreviewId] = useState<number | null>(null);
+  // Art slots: the slot the art workspace opens on (Enter on a slot).
+  const [workspaceMedia, setWorkspaceMedia] = useState<Media | null>(null);
   const root = view?.root;
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
@@ -118,6 +122,13 @@ export function LibraryScreen() {
   const docked = inspectorDocked(prefs);
 
   const onOpen = (id: number) => {
+    setWorkspaceMedia(null);
+    select(id);
+    openDrawer();
+  };
+  // Enter on (or a click in) an Art slots slot: straight to the fix.
+  const onOpenArt = (id: number, media: Media) => {
+    setWorkspaceMedia(media);
     select(id);
     openDrawer();
   };
@@ -126,7 +137,11 @@ export function LibraryScreen() {
     systems: view.systems,
     generation: view.generation,
     selectedId,
-    onSelect: select,
+    onSelect: (id: number) => {
+      // The keyboard moved on: the next game opens on its own first slot.
+      setWorkspaceMedia(null);
+      select(id);
+    },
     onOpen,
   };
 
@@ -155,6 +170,16 @@ export function LibraryScreen() {
             {t('filters.clear')}
           </Button>
         }
+      />
+    );
+  } else if (prefs.view === 'mounts') {
+    content = (
+      <MountsView
+        {...list}
+        sections={sections}
+        prefs={prefs}
+        onPreview={setPreviewId}
+        onOpenArt={onOpenArt}
       />
     );
   } else if (layout === 'grid') {
@@ -210,6 +235,7 @@ export function LibraryScreen() {
             view={view}
             entry={selected}
             docked={docked}
+            workspaceMedia={workspaceMedia}
             onClose={() => {
               // Docked, the close button undocks the pane. Either way the
               // button that held the focus is gone: the view takes it back.

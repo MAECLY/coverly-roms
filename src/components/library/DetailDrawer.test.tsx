@@ -227,6 +227,39 @@ describe('Detail drawer', () => {
     expect(calls).toEqual(['cover']);
   });
 
+  it('opens on the slot chosen in Art slots', async () => {
+    const view = await setup();
+    act(() => useViewStore.getState().setPrefs({ view: 'mounts' }));
+    try {
+      const grid = screen.getByRole('grid', { name: 'Art slots' });
+      grid.focus();
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+      const id = Number(
+        grid.getAttribute('aria-activedescendant')!.replace('entry-', ''),
+      );
+      const entry = view.entries[id]!;
+      // The workspace would open on the first missing slot; pick another.
+      const media = (['title', 'screenshot'] as const).find(
+        (m) =>
+          view.profile.media.includes(m) &&
+          view.profile.media.find((w) => entry.art[w] === 'missing') !== m,
+      )!;
+      const steps = media === 'title' ? 2 : 3;
+      for (let i = 0; i < steps; i++) {
+        fireEvent.keyDown(grid, { key: 'ArrowRight' });
+      }
+      fireEvent.keyDown(grid, { key: 'Enter' });
+      const drawer = screen.getByRole('complementary', { name: entry.name });
+      expect(
+        within(drawer).getByRole('tab', {
+          name: media === 'title' ? 'Title screen' : 'Screenshot',
+        }),
+      ).toHaveAttribute('aria-selected', 'true');
+    } finally {
+      act(() => useViewStore.getState().setPrefs({ view: 'covers' }));
+    }
+  });
+
   it('browsing the slots with the arrow keys loads only where it stops', async () => {
     const view = await setup();
     const entry = view.entries.find((e) => e.art.cover === 'missing')!;

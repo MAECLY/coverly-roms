@@ -9,7 +9,7 @@ import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
-import type { EntryView, LibraryView } from '@/ipc/types';
+import type { EntryView, LibraryView, Media } from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
 import {
   identityKey,
@@ -121,11 +121,14 @@ export function DetailDrawer({
   view,
   entry,
   docked = false,
+  workspaceMedia = null,
   onClose,
 }: {
   view: LibraryView;
   entry: EntryView;
   docked?: boolean;
+  /** Open the art workspace on this slot (Art slots view). */
+  workspaceMedia?: Media | null;
   onClose(): void;
 }) {
   const t = useT();
@@ -188,9 +191,10 @@ export function DetailDrawer({
         </Alert>
       )}
       <ArtWorkspace
-        key={`${view.generation}:${entry.id}`}
+        key={`${view.generation}:${entry.id}:${workspaceMedia ?? ''}`}
         view={view}
         entry={entry}
+        initialMedia={workspaceMedia}
       />
       <section className="drawer-section drawer-section--quiet">
         <h3 className="drawer-subtitle">{t('drawer.identity')}</h3>

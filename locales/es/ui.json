@@ -477,6 +477,7 @@
       "games": "Juegos",
       "preview": "Vista previa"
     },
+    "slotHas": "con arte",
     "slotMissing": "Falta {media}"
   },
   "filters": {
