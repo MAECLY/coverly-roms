@@ -94,10 +94,16 @@ export function SystemSection({
   const t = useT();
   const locale = useContext(LocaleContext);
   const uid = useId();
-  const summary = systemSummary(groups)[0] ?? EMPTY;
-  const [open, setOpen] = useState(
-    () => defaultOpen ?? systemStartsOpen(summary),
-  );
+  const all = systemSummary(groups)[0] ?? EMPTY;
+  // A game under "No tocar este juego" sets nothing aside: the sentence
+  // and the bytes count only what would leave.
+  const summary = row.skipped?.size
+    ? (systemSummary(groups.filter((g) => !row.skipped!.has(g.id)))[0] ?? {
+        ...EMPTY,
+        conflicts: all.conflicts,
+      })
+    : all;
+  const [open, setOpen] = useState(() => defaultOpen ?? systemStartsOpen(all));
   const sizeId = `${uid}-size`;
   const triggerId = `${uid}-trigger`;
 

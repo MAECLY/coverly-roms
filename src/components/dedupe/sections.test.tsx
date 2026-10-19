@@ -65,6 +65,25 @@ describe('SystemSection', () => {
     expect(trigger).toHaveAccessibleDescription('7,4 MB');
   });
 
+  it('a game you asked to leave alone drops out of the system sentence and bytes', () => {
+    const plan = dedupeFixture();
+    const groups = bySystem(plan, 'SMS');
+    const one = groups.find(
+      (g) =>
+        g.action.kind === 'act' &&
+        g.members.filter((m) => m.id !== g.keeper).length === 1,
+    )!;
+    wrap(section(plan, 'SMS', 'Master System', { skipped: new Set([one.id]) }));
+    expect(
+      screen.getByRole('button', {
+        name: 'Master System: 22 juegos, 22 copias',
+      }),
+    ).toBeInTheDocument();
+    expect(document.querySelector('.dup-system__size')).not.toHaveTextContent(
+      '7,4 MB',
+    );
+  });
+
   it('systems_with_conflicts_open_by_default', () => {
     const plan = dedupeFixture();
     wrap(
