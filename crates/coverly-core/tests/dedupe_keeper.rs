@@ -152,6 +152,7 @@ fn verified_rule_prefers_a_catalogue_hit_and_a_good_dump() {
     ca.tags = Some(&bad_tags);
     let mut cb = cand(1, &b);
     cb.tags = Some(&good_tags);
+    cb.relation = Relation::Version;
     let (k, reason, _) = pick(&[ca, cb], &all_rules(), &no_order());
     assert_eq!(k, 1);
     assert_eq!(
@@ -725,4 +726,42 @@ fn region_order_skips_the_rom_entry_and_unknown_words() {
         region_order(&["rom", "World", "usa", "mars", "japan"].map(String::from)),
         vec![Region::World, Region::Usa, Region::Japan]
     );
+}
+
+#[test]
+fn file_name_tags_never_choose_between_proven_copies() {
+    // Same bytes under two names: region and dump tags read from the file
+    // names are names, so only the tie decides (spec §1, §6.1 `region` is
+    // level 2 only).
+    let a = unit(0, "GB", "Tetris (J) [b1].gb", UnitKind::Single, 1);
+    let b = unit(1, "GB", "Tetris (U) [!].gb", UnitKind::Single, 9);
+    let jp = parse_tags("Tetris (J) [b1]");
+    let us = parse_tags("Tetris (U) [!]");
+    for rel in [Relation::Exact, Relation::Format] {
+        let mut ca = cand(0, &a);
+        ca.tags = Some(&jp);
+        let mut cb = cand(1, &b);
+        cb.tags = Some(&us);
+        cb.relation = rel;
+        let (k, reason, tie) = pick(&[ca, cb], &all_rules(), &no_order());
+        assert_eq!((k, reason, tie), (0, KeepReason::Tie, true), "{rel:?}");
+    }
+}
+
+#[test]
+fn saves_fingerprint_survives_a_new_copy_joining() {
+    // The pick is remembered by content (spec §9.3): member ids may be
+    // renumbered when another copy joins the group.
+    let a = unit(0, "GB", "Tetris.gb", UnitKind::Single, 1);
+    let b = unit(1, "GB", "Tetris (1).gb", UnitKind::Single, 9);
+    let n = unit(2, "GB", "Tetris (2).gb", UnitKind::Single, 5);
+    let saves = [save("GB/Tetris (1).srm", 4)];
+    let mut cb = cand(1, &b);
+    cb.saves = &saves;
+    let fp = saves_fingerprint(&[cand(0, &a), cb]);
+    let mut cb = cand(2, &b);
+    cb.saves = &saves;
+    let now = [cand(0, &n), cand(1, &a), cb];
+    assert_eq!(saves_fingerprint(&now), fp);
+    assert!(remembered_pick_holds(&now, 2, &fp));
 }

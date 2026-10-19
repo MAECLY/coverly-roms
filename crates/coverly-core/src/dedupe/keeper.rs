@@ -263,7 +263,7 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
         KeepRule::InLibrary => prefer(a.unit.in_library, b.unit.in_library, |_| {
             KeepReason::InLibrary
         }),
-        KeepRule::Verified => verified(a, b),
+        KeepRule::Verified => verified(a, b, versions),
         KeepRule::Retail if versions => {
             let (ta, tb) = (a.tags?, b.tags?);
             // Lower class is better.
@@ -271,7 +271,9 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
                 other: if a_wins { tb.class } else { ta.class },
             })
         }
-        KeepRule::Region => {
+        // Level 1/3 copies share their regions; tags that differ there are
+        // file names, and a name never chooses (spec §1).
+        KeepRule::Region if versions => {
             let (ta, tb) = (a.tags?, b.tags?);
             if ta.regions.is_empty() || tb.regions.is_empty() {
                 return None;
@@ -337,7 +339,9 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
 }
 
 /// Catalogue hit, then dump flags, then the header (spec §6.1 `verified`).
-fn verified(a: &Candidate, b: &Candidate) -> Option<Verdict> {
+/// Dump flags are weighed only between versions: between proven copies
+/// they can only differ by file name.
+fn verified(a: &Candidate, b: &Candidate, versions: bool) -> Option<Verdict> {
     let dat = |c: &Candidate| {
         if c.dat_name.is_some() {
             DumpQuality::DatMatch
@@ -363,8 +367,10 @@ fn verified(a: &Candidate, b: &Candidate) -> Option<Verdict> {
         return Some(v);
     }
     let (qa, qb) = (a.dump(), b.dump());
-    if let Some(v) = prefer(rank_dump(qa), rank_dump(qb), |w| pair(w, qa, qb)) {
-        return Some(v);
+    if versions {
+        if let Some(v) = prefer(rank_dump(qa), rank_dump(qb), |w| pair(w, qa, qb)) {
+            return Some(v);
+        }
     }
     // A copier header loses to none; a functional header beats none: a
     // headerless NES, Lynx or A7800 copy is never preferred.
@@ -476,16 +482,16 @@ pub fn choose(
 }
 
 /// A fingerprint of every member's real saves (their contents, whatever
-/// their names), stored with a pick (spec §9.3).
+/// their names or member ids, which a new copy joining may renumber),
+/// stored with a pick (spec §9.3).
 pub fn saves_fingerprint(cands: &[Candidate]) -> String {
-    let mut all: Vec<(usize, &str)> = cands
+    let mut all: Vec<&str> = cands
         .iter()
-        .flat_map(|c| c.saves.iter().map(move |s| (c.member, s.sha1.as_str())))
+        .flat_map(|c| c.saves.iter().map(|s| s.sha1.as_str()))
         .collect();
     all.sort_unstable();
     let mut h = Sha1::new();
-    for (m, sha1) in all {
-        h.update(m.to_le_bytes());
+    for sha1 in all {
         h.update(sha1.as_bytes());
         h.update([0u8]);
     }
