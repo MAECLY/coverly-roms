@@ -34,6 +34,13 @@ describe('library toolbar breakpoints', () => {
     expect(icons).toBe(labels! + 1);
   });
 
+  it('keeps one row from the 900px minimum window width up', () => {
+    // tauri.conf.json minWidth is 900: from there the name truncates
+    // instead of the row wrapping (E2E: Spanish, Fixture SD, 900px).
+    const [oneRow] = breakpoints('min', 'flex-wrap: nowrap');
+    expect(oneRow).toBeLessThanOrEqual(900);
+  });
+
   it('keeps the six view segments wider than the label collapse point', () => {
     const [segments] = breakpoints('max', '.view-switcher__segments');
     const [labels] = breakpoints('max', '.toolbar-label');

@@ -1264,6 +1264,29 @@ time {
   flex: 1;
 }
 
+/* The window is never narrower than 900px (tauri.conf.json minWidth). From
+   there up the toolbar stays on one row: the library name truncates
+   instead of pushing the last control onto a second row. The view options
+   button and six-view switcher made the 900px row ~30px too wide in
+   English and more in Spanish. Narrower browser windows (web mock) still
+   wrap. */
+@media (min-width: 900px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    /* Without this the row's own width becomes the screen's minimum and
+       the name never has to truncate. */
+    min-width: 0;
+  }
+
+  .toolbar-title {
+    flex: 0 1 auto;
+  }
+
+  .toolbar-lang {
+    flex-shrink: 0;
+  }
+}
+
 /* Narrow windows: secondary toolbar actions go icon-only (the label stays
    for screen readers and shows in the tooltip), so the toolbar keeps one
    row down to 900px instead of wrapping. With the six view segments and
@@ -1355,6 +1378,14 @@ time {
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+}
+
+/* Near the minimum width the search box gives up some room so the library
+   name keeps a readable stretch (after the 1480px block, which it narrows). */
+@media (max-width: 1040px) {
+  .toolbar-search {
+    width: 9rem;
   }
 }
 
