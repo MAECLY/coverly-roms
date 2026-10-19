@@ -69,7 +69,10 @@ export function LibraryScreen() {
   const loadPrefsFor = useViewStore((s) => s.loadFor);
   const setPrefs = useViewStore((s) => s.setPrefs);
   const contentRef = useRef<HTMLDivElement>(null);
-  const shownView = useRef(prefs.view);
+  // The view on screen and the library it belongs to: a view that comes
+  // with another library is an opening, not a switch.
+  const prefsRoot = useViewStore((s) => s.root);
+  const shown = useRef({ root: prefsRoot, view: prefs.view });
 
   // ⌘1–⌘6: views; ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves);
   // ⌘I: the docked inspector.
@@ -90,8 +93,9 @@ export function LibraryScreen() {
   // announcement, so there is no live region. The selected item stays the
   // active one and is scrolled into sight.
   useEffect(() => {
-    if (shownView.current === prefs.view) return;
-    shownView.current = prefs.view;
+    const was = shown.current;
+    shown.current = { root: prefsRoot, view: prefs.view };
+    if (was.view === prefs.view || was.root !== prefsRoot) return;
     const content = contentRef.current;
     const viewRoot = content?.querySelector<HTMLElement>('[data-view-root]');
     if (!viewRoot) return;
@@ -103,7 +107,7 @@ export function LibraryScreen() {
     );
     // jsdom has no scrollIntoView.
     item?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [prefs.view]);
+  }, [prefsRoot, prefs.view]);
 
   // Job events while this screen lives (shared with App's subscription).
   useEffect(() => {

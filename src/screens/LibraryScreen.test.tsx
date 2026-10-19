@@ -185,6 +185,8 @@ describe('Library screen', () => {
       screen.getByRole('grid', { name: 'Details view' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('grid', { name: 'Covers view' })).toBeNull();
+    // Opening a library is not a switch: the focus is left where it was.
+    expect(document.activeElement).toBe(document.body);
     act(() => useViewStore.getState().setView('covers'));
   });
 
