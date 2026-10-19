@@ -544,7 +544,7 @@ pub fn rel_slash(p: &Path) -> String {
 /// case/NFC variant (`GameList.xml`) as the same file, so reading only the
 /// canonical name on a case-sensitive disk would make the merge start from
 /// an empty list and then *replace* the user's file: read the variant.
-fn gamelist_path(system_dir: &Path) -> PathBuf {
+pub(crate) fn gamelist_path(system_dir: &Path) -> PathBuf {
     let mut variant = None;
     if let Ok(read) = fs::read_dir(system_dir) {
         for e in read.flatten() {

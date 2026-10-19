@@ -23,7 +23,7 @@ pub mod source;
 pub mod testing;
 pub mod units;
 
-pub use companions::{SharedStay, Travel, TravelKind};
+pub use companions::{ArtLeaves, GamelistEntry, SharedStay, Travel, TravelKind};
 pub use keeper::{DumpQuality, KeepReason};
 pub use saves::{SaveInfo, SaveKey};
 pub use units::UnitKind;

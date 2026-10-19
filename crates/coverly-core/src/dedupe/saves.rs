@@ -93,7 +93,7 @@ const PS_FRAME: usize = 128;
 const PS_DIRECTORY_LEN: usize = 16 * PS_FRAME;
 
 /// Whether `suffix` (everything after the stem's dot) names a save.
-fn is_save_suffix(suffix: &str) -> bool {
+pub(crate) fn is_save_suffix(suffix: &str) -> bool {
     let suffix = suffix.to_ascii_lowercase();
     suffix.starts_with("state") || SAVE_EXTS.contains(&suffix.as_str())
 }
