@@ -7,6 +7,7 @@ use std::time::SystemTime;
 
 use assert_cmd::Command;
 use coverly_core::dedupe::{DedupePlan, GroupAction, PLAN_VERSION};
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -278,6 +279,27 @@ fn apply_waits_for_the_archive_work() {
         .stderr(contains("available after the archive work lands"));
     assert!(!q.exists());
     assert_eq!(digest(lib.root()), before);
+}
+
+/// A root with no `ROMS` folder (the ROMs folder itself passed as the
+/// card) must say so, not report a clean library.
+#[test]
+fn scan_warnings_reach_stderr() {
+    let lib = Library::new();
+    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    cmd.env("COVERLY_SETTINGS", "")
+        .arg("dedupe")
+        .arg(lib.root().join("ROMS"))
+        .arg("--profile")
+        .arg("anbernic-stock")
+        .arg("--offline")
+        .arg("--cache-dir")
+        .arg(lib.cache.path())
+        .arg("--data-dir")
+        .arg(lib.data.path())
+        .assert()
+        .success()
+        .stderr(contains("warning:").and(contains("ROMs folder `ROMS` not found")));
 }
 
 #[test]

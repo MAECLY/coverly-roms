@@ -310,6 +310,12 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     };
     let cancel = AtomicBool::new(false);
     let scan = scan_library(&root, profile, &db, &s.scan_options());
+    for w in &scan.warnings {
+        eprintln!(
+            "{}",
+            table::terminal_safe(&format!("warning: {}: {}", w.path.display(), w.message))
+        );
+    }
     let env = DedupeEnv {
         cache: &cache,
         db: &db,
