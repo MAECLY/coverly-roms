@@ -1,4 +1,9 @@
-import { useContext, type CSSProperties, type JSX } from 'react';
+import {
+  useContext,
+  type CSSProperties,
+  type JSX,
+  type ReactNode,
+} from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
 import { LocaleContext } from '@/i18n/core';
@@ -18,6 +23,8 @@ export interface SectionHeaderRowProps {
   style: CSSProperties;
   /** The header stuck to the top of the view. */
   sticky?: boolean;
+  /** Drawn at the trailing end of the rule (Shelves' "See all"). */
+  children?: ReactNode;
 }
 
 /** The shelf rule (brand §2): a group label with its count, on a 1px line
@@ -29,6 +36,7 @@ export function SectionHeaderRow({
   rowIndex,
   style,
   sticky = false,
+  children,
 }: SectionHeaderRowProps): JSX.Element {
   const t = useT();
   const locale = useContext(LocaleContext);
@@ -53,6 +61,7 @@ export function SectionHeaderRow({
         )}
         <span className="section-row__name">{group}</span>
         <span className="section-row__count">{count}</span>
+        {children}
       </div>
     </div>
   );

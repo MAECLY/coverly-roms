@@ -419,6 +419,7 @@
     "densityComfortable": "Cómoda",
     "densityCompact": "Compacta",
     "seeAllCount": "Ver los {n}",
+    "seeAllIn": "Ver los {n} de {group}",
     "preview": "Vista rápida",
     "previewPosition": "{n} de {total}",
     "previewPrev": "Juego anterior",
