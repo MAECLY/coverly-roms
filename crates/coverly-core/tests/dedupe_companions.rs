@@ -450,3 +450,28 @@ fn a_file_two_extras_share_travels_once() {
     assert_eq!(all.iter().filter(|t| t.from == sav).count(), 1, "{all:?}");
     assert!(out[1].0.contains(&travel(&sav, TravelKind::Save)));
 }
+
+#[test]
+fn a_companion_a_unit_outside_the_group_uses_stays() {
+    // `Tetris.zip` is another game (not in the group) beside the extra
+    // `Tetris.gb`: its save and its cover share the stem and must stay.
+    let lib = Lib::new();
+    let gb = lib.root.join("ROMS/GB");
+    let mut keeper = unit(0, "gb", &gb.join("Best"), &["Tetris.gb"], UnitKind::Single);
+    keeper.rel_dir = PathBuf::from("Best");
+    let units = vec![
+        keeper,
+        unit(1, "gb", &gb, &["Tetris.gb"], UnitKind::Single),
+        unit(2, "gb", &gb, &["Tetris.zip"], UnitKind::Zip),
+    ];
+    let sav = write(&gb.join("Tetris.sav"), &progress(8));
+    let art = touch(&gb.join("Imgs/Tetris.png"));
+    let sav_twin = touch(&gb.join("._Tetris.sav"));
+    let p = profile("anbernic-stock");
+    let out = companions_for(&group("gb", &[0, 1]), 0, &units, &lib.ctx(&p));
+    let travels = &out[1].0;
+    for kept in [&sav, &art, &sav_twin] {
+        assert!(travels.iter().all(|t| &t.from != kept), "{travels:?}");
+    }
+    assert!(out[1].3.is_empty(), "no art leaves: {:?}", out[1].3);
+}

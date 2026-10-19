@@ -111,7 +111,9 @@ const ART_EXTS: [&str; 3] = ["png", "jpg", "jpeg"];
 /// `group.members`. `keeper` is a unit index (as in
 /// [`RawGroup::relations_to`]); its entry is empty. A file is listed for
 /// one member at most: a companion two extras share travels with the
-/// first.
+/// first. A companion or image that a unit outside the group also uses
+/// (another game with the same stem beside the extra) neither travels nor
+/// is listed as a shared stay: it is simply left where it is.
 pub fn companions_for(
     group: &RawGroup,
     keeper: usize,
@@ -119,15 +121,50 @@ pub fn companions_for(
     ctx: &CompanionCtx,
 ) -> Vec<MemberCompanions> {
     let mut dirs = Dirs::default();
+    let in_group: HashSet<usize> = group.members.iter().map(|(u, _)| *u).collect();
+    let extra_stems: HashSet<String> = group
+        .members
+        .iter()
+        .filter(|(u, _)| *u != keeper)
+        .filter_map(|(u, _)| units.get(*u))
+        .flat_map(|u| file_stems(u).into_iter().map(|(_, s)| s))
+        .collect();
+    // Units outside the group whose stem could share a companion or an
+    // image with an extra: the same stem, or one a dot-prefix of the other.
+    let neighbours: Vec<&Unit> = units
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !in_group.contains(i))
+        .map(|(_, u)| u)
+        .filter(|u| {
+            file_stems(u).iter().any(|(_, s)| {
+                extra_stems.iter().any(|e| {
+                    e == s || e.starts_with(&format!("{s}.")) || s.starts_with(&format!("{e}."))
+                })
+            })
+        })
+        .collect();
     let unit_files: HashSet<String> = group
         .members
         .iter()
         .filter_map(|(u, _)| units.get(*u))
+        .chain(neighbours.iter().copied())
         .flat_map(|u| u.files.iter())
         .map(|f| path_key(f))
         .collect();
     let keeper_pos = group.members.iter().position(|(u, _)| *u == keeper);
     let keeper_unit = units.get(keeper).filter(|_| keeper_pos.is_some());
+
+    // What units outside the group use: never moved.
+    let mut outside: HashSet<String> = HashSet::new();
+    for n in &neighbours {
+        for (path, _) in same_stem(n, ctx, &unit_files, &mut dirs) {
+            outside.insert(path_key(&path));
+        }
+        for (_, path) in art_of(n, ctx, &mut dirs) {
+            outside.insert(path_key(&path));
+        }
+    }
 
     // What the keeper uses, by path key: its companions and its art.
     let mut kept: HashSet<String> = HashSet::new();
@@ -159,6 +196,8 @@ pub fn companions_for(
                 let key = path_key(&path);
                 if kept.contains(&key) {
                     stays.push(SharedStay { path, with });
+                    false
+                } else if outside.contains(&key) {
                     false
                 } else if claimed.insert(key) {
                     travels.push(Travel { from: path, kind });
@@ -219,21 +258,7 @@ fn same_stem(
     unit_files: &HashSet<String>,
     dirs: &mut Dirs,
 ) -> Vec<(PathBuf, TravelKind)> {
-    let mut stems: Vec<(PathBuf, String)> = unit
-        .files
-        .iter()
-        .filter_map(|f| {
-            let name = f.file_name()?.to_string_lossy().into_owned();
-            let stem = match name.rfind('.') {
-                Some(i) if i > 0 => &name[..i],
-                _ => name.as_str(),
-            };
-            Some((f.parent()?.to_path_buf(), name_key(stem)))
-        })
-        .collect();
-    stems.sort();
-    stems.dedup();
-
+    let stems = file_stems(unit);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for (folder, stem) in &stems {
@@ -257,6 +282,25 @@ fn same_stem(
         }
     }
     out
+}
+
+/// The folder and the FAT-compared stem of each of `unit`'s files.
+fn file_stems(unit: &Unit) -> Vec<(PathBuf, String)> {
+    let mut stems: Vec<(PathBuf, String)> = unit
+        .files
+        .iter()
+        .filter_map(|f| {
+            let name = f.file_name()?.to_string_lossy().into_owned();
+            let stem = match name.rfind('.') {
+                Some(i) if i > 0 => &name[..i],
+                _ => name.as_str(),
+            };
+            Some((f.parent()?.to_path_buf(), name_key(stem)))
+        })
+        .collect();
+    stems.sort();
+    stems.dedup();
+    stems
 }
 
 /// What a companion with the suffix `suffix` (everything after the stem's
