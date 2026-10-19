@@ -21,6 +21,7 @@ import { ReportsPanel } from '@/components/reports/ReportsPanel';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { UpdateBanner } from '@/components/update/UpdateBanner';
+import { useViewShortcuts } from '@/hooks/useViewShortcuts';
 import { useT } from '@/i18n/useT';
 import { isTyping } from '@/lib/keyboard';
 import { useFilterStore } from '@/stores/filterStore';
@@ -55,6 +56,14 @@ export function LibraryScreen() {
   const [previewId, setPreviewId] = useState<number | null>(null);
   const root = view?.root;
   const loadPrefsFor = useViewStore((s) => s.loadFor);
+  const setPrefs = useViewStore((s) => s.setPrefs);
+
+  // ⌘+ / ⌘− / ⌘0 and ⌘/Ctrl + wheel: cover size (Covers, Shelves).
+  useViewShortcuts({
+    prefs,
+    setPrefs,
+    enabled: overlay === 'none' && previewId === null,
+  });
 
   // Each library opens with its own view prefs (or the last ones used).
   // Before paint, so the last library's view never flashes or mounts.
