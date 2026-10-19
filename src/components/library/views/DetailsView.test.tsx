@@ -365,6 +365,27 @@ describe('DetailsView', () => {
     expect(patch.columns).toContainEqual({ id: 'size', width: 108 });
   });
 
+  it('grows the name from its drawn width with the arrow keys', () => {
+    const setPrefs = vi.fn();
+    render(
+      <Harness
+        onSort={() => undefined}
+        setPrefs={setPrefs}
+        initial={{ columns: [{ id: 'name' }, { id: 'size', width: 100 }] }}
+      />,
+    );
+    const edge = screen.getByRole('separator', { name: 'Resize Name' });
+    // The name fills the row: it is drawn far wider than its 200px minimum.
+    const head = edge.closest<HTMLElement>('[role="columnheader"]')!;
+    const rect = vi
+      .spyOn(head, 'getBoundingClientRect')
+      .mockReturnValue({ width: 420 } as DOMRect);
+    fireEvent.keyDown(edge, { key: 'ArrowRight' });
+    rect.mockRestore();
+    const patch = setPrefs.mock.lastCall?.[0] as Partial<ViewPrefs>;
+    expect(patch.columns).toContainEqual({ id: 'name', width: 428 });
+  });
+
   it('resizes a column by dragging its edge and saves once', () => {
     const setPrefs = vi.fn();
     render(

@@ -153,6 +153,16 @@ function widestCell(grid: HTMLElement, id: DetailsColumnId): number {
   return widest;
 }
 
+/** A column's width as drawn. The name fills what the other columns leave,
+ *  so its saved width is only a minimum: drags and arrow keys start from
+ *  the header's measured width, or the first steps would do nothing. */
+function renderedWidth(col: DetailsColumn, edge: Element): number {
+  if (col.id !== 'name') return widthOf(col);
+  const head = edge.closest('[role="columnheader"]');
+  const measured = head ? Math.round(head.getBoundingClientRect().width) : 0;
+  return Math.max(widthOf(col), measured);
+}
+
 /** Details (⌘2): one row per game, the columns the user picked. */
 export function DetailsView({
   entries,
@@ -295,7 +305,13 @@ export function DetailsView({
     const dir = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
     if (dir === 0) return;
     ev.preventDefault();
-    saveColumns(resizeColumn(columns, col.id, widthOf(col) + dir * KEY_STEP));
+    saveColumns(
+      resizeColumn(
+        columns,
+        col.id,
+        renderedWidth(col, ev.currentTarget) + dir * KEY_STEP,
+      ),
+    );
   }
 
   function onEdgePointerDown(
@@ -305,13 +321,11 @@ export function DetailsView({
     if (ev.button !== 0) return;
     ev.preventDefault();
     ev.currentTarget.setPointerCapture(ev.pointerId);
-    // The name column fills what is left, so its real width is measured.
-    const head = ev.currentTarget.closest('[role="columnheader"]');
-    const width =
-      col.id === 'name' && head
-        ? head.getBoundingClientRect().width
-        : widthOf(col);
-    drag.current = { id: col.id, x: ev.clientX, width };
+    drag.current = {
+      id: col.id,
+      x: ev.clientX,
+      width: renderedWidth(col, ev.currentTarget),
+    };
     setDraft([...columns]);
   }
 
