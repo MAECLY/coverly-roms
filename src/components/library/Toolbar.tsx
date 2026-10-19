@@ -24,6 +24,7 @@ import { useLibraryStore } from '@/stores/libraryStore';
 import { useViewStore } from '@/stores/viewStore';
 
 import { Tip } from './Tip';
+import { ViewOptions } from './ViewOptions';
 import { ViewSwitcher } from './ViewSwitcher';
 
 export function Toolbar({
@@ -127,6 +128,7 @@ export function Toolbar({
         )}
       </Button>
       <ViewSwitcher />
+      <ViewOptions />
       <span className="toolbar-spacer" />
       {view.loose_files > 0 && (
         <Tip content={t('library.organizeLoose')}>

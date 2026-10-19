@@ -452,6 +452,9 @@
     },
     "groupCount": "{group}, {n} games",
     "sortBy": "Sort by",
+    "sortLibrary": "Library order",
+    "sortDescending": "Descending",
+    "missingArtFirst": "Missing art first",
     "columnsPicker": "Visible columns",
     "column": {
       "thumb": "Thumbnail",
@@ -468,6 +471,8 @@
     },
     "columnMoveLeft": "Move left",
     "columnMoveRight": "Move right",
+    "columnMoveUp": "Move {column} up",
+    "columnMoveDown": "Move {column} down",
     "columnResize": "Resize {column}",
     "inspector": "Details pane",
     "seeAll": "See all",

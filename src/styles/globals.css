@@ -1296,6 +1296,36 @@ time {
   display: none;
 }
 
+/* View options: a stack of quiet sections split by hairlines, so each
+   control reads as its own drawer of the cabinet (brand §1). */
+.view-options {
+  display: grid;
+  max-height: min(34rem, calc(100vh - 6rem));
+  overflow-y: auto;
+}
+
+.view-options__section {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.view-options__section + .view-options__section {
+  border-top: 1px solid var(--cr-border);
+}
+
+.view-options__columns {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.view-options__column {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.75rem;
+}
+
 @media (max-width: 1180px) {
   .view-switcher__segments {
     display: none;

@@ -452,6 +452,9 @@
     },
     "groupCount": "{group}, {n} juegos",
     "sortBy": "Ordenar por",
+    "sortLibrary": "Orden de la biblioteca",
+    "sortDescending": "Descendente",
+    "missingArtFirst": "Arte que falta primero",
     "columnsPicker": "Columnas visibles",
     "column": {
       "thumb": "Miniatura",
@@ -468,6 +471,8 @@
     },
     "columnMoveLeft": "Mover a la izquierda",
     "columnMoveRight": "Mover a la derecha",
+    "columnMoveUp": "Subir {column}",
+    "columnMoveDown": "Bajar {column}",
     "columnResize": "Ajustar el ancho de {column}",
     "inspector": "Panel de detalles",
     "seeAll": "Ver todo",
