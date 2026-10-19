@@ -211,13 +211,15 @@ describe('useViewShortcuts', () => {
       },
     );
 
-    it('is ignored while typing, without a modifier and behind a dialog', () => {
+    it('is ignored while typing, without a modifier, with Shift and behind a dialog', () => {
       const spy = vi.fn();
       const { getByRole } = render(<Harness spy={spy} />);
       const search = getByRole('searchbox');
       search.focus();
       expect(press(search, 'i')).toBe(false);
       expect(press(window, 'i', {})).toBe(false);
+      expect(press(window, 'I', { metaKey: true, shiftKey: true })).toBe(false);
+      expect(press(window, 'I', { ctrlKey: true, shiftKey: true })).toBe(false);
       const dialog = document.createElement('div');
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('data-state', 'open');

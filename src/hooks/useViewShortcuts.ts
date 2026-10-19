@@ -94,7 +94,9 @@ export function useViewShortcuts({
       }
       if (inField(ev.target)) return;
       if (ev.key === 'i' || ev.key === 'I') {
-        if (!active(INSPECTOR_SET)) return;
+        // ⌘⇧I / Ctrl+Shift+I is the webview's Web Inspector: leave it alone.
+        // 'I' alone still counts, for Caps Lock.
+        if (ev.shiftKey || !active(INSPECTOR_SET)) return;
         ev.preventDefault();
         const cur = latest.current;
         const inspector = !cur.prefs.inspector;
