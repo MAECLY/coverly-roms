@@ -163,6 +163,9 @@ function Shelf({
           variant="link"
           size="sm"
           className="shelf__see-all"
+          // Not a Tab stop: Tab leaves the view (spec §B.8). The "See all"
+          // cell at the end of a long shelf is the keyboard's way in.
+          tabIndex={-1}
           aria-label={t('layouts.seeAllIn', { n: count, group })}
           onClick={() => openSeeAll(section, systems)}
         >
@@ -174,6 +177,9 @@ function Shelf({
         role="row"
         aria-rowindex={shelfIndex * 2 + 2}
         className="shelf__strip"
+        // Chromium (WebView2) makes a scroller with no focusable child a
+        // Tab stop; the grid owns focus, so the strip never takes it.
+        tabIndex={-1}
         style={{ height: metrics.tileH + 2 * GAP }}
         onScroll={(ev) => onScrolled(section.key, ev.currentTarget.scrollLeft)}
       >
@@ -333,6 +339,12 @@ export function ShelvesView({
     onSelect,
     onOpen,
     onPreview,
+    // Type-ahead never lands past a shelf's 60th game, where it would
+    // select a game no shelf shows.
+    canLand: (i) => {
+      const shelf = sections[shelfOfIndex(sections, i)];
+      return shelf !== undefined && i - shelf.start < SHELF_LIMIT;
+    },
     scrollToIndex: (i) => {
       const shelf = shelfOfIndex(sections, i);
       if (shelf >= 0) virtualizer.scrollToIndex(shelf, { align: 'auto' });
@@ -518,6 +530,15 @@ export function ShelvesView({
       className="shelves"
       onKeyDown={onKeyDown}
       onClick={onClick}
+      onFocus={(ev) => {
+        // A click on a tile focuses its strip: hand focus back to the grid
+        // so the keys keep working.
+        if (
+          ev.target !== ev.currentTarget &&
+          ev.target.classList.contains('shelf__strip')
+        )
+          ev.currentTarget.focus({ preventScroll: true });
+      }}
     >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((item) => {

@@ -323,12 +323,51 @@ describe('ShelvesView', () => {
     expect(onOpen).toHaveBeenCalledWith(games[2]!.id);
   });
 
-  it('Tab leaves the grid', async () => {
+  it('Tab leaves the grid, past the header links and the strips', async () => {
     const user = userEvent.setup();
     const games = ofSystem(0, 5);
     render(<Harness entries={games} initial={games[0]!.id} />);
     act(() => grid().focus());
     await user.tab();
-    expect(grid()).not.toHaveFocus();
+    expect(screen.getByRole('button', { name: 'after' })).toHaveFocus();
+    expect(stripOf(0)).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('gives focus back to the grid when a strip takes it', () => {
+    render(<Harness entries={ofSystem(0, 5)} />);
+    act(() => stripOf(0).focus());
+    expect(grid()).toHaveFocus();
+  });
+
+  it('type-ahead skips games past the 60th on a shelf', () => {
+    const games = ofSystem(0, 100).map((g, i) => ({
+      ...g,
+      name: i === 80 ? 'Zzyzx (USA)' : `Alpha ${i}`,
+    }));
+    render(<Harness entries={games} initial={games[0]!.id} />);
+    // "Zzyzx" is the 81st game: no shelf shows it, so nothing matches.
+    fireEvent.keyDown(grid(), { key: 'z' });
+    expect(active()).toHaveAttribute('data-entry-id', String(games[0]!.id));
+  });
+
+  it('type-ahead still finds a game on the shelf', () => {
+    const games = ofSystem(0, 100).map((g, i) => ({
+      ...g,
+      name: i === 80 ? 'Zzyzx (USA)' : i === 30 ? 'Zebra (USA)' : `Alpha ${i}`,
+    }));
+    render(<Harness entries={games} initial={games[0]!.id} />);
+    fireEvent.keyDown(grid(), { key: 'z' });
+    expect(active()).toHaveAttribute('data-entry-id', String(games[30]!.id));
+  });
+
+  it('"See all" on a region shelf filters to that region', async () => {
+    const user = userEvent.setup();
+    const games = big.entries
+      .filter((e) => e.regions.length === 1 && e.regions[0] === 'japan')
+      .slice(0, 4);
+    render(<Harness entries={games} groupBy="region" />);
+    await user.click(screen.getByRole('button', { name: /^See all 4 in/ }));
+    expect(useFilterStore.getState().filters.regions).toEqual(['japan']);
+    expect(useViewStore.getState().prefs.view).toBe('covers');
   });
 });

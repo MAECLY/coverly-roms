@@ -23,6 +23,9 @@ export interface ViewKeysOptions {
   scrollToIndex(i: number): void;
   /** The view's own geometry: the index `key` moves to, or null. */
   move(key: string): number | null;
+  /** Whether entry `i` can hold the selection in this view (Shelves shows
+   *  60 games a shelf): type-ahead skips the others. All by default. */
+  canLand?(i: number): boolean;
 }
 
 /** A single printable character (not Space, which previews). */
@@ -104,7 +107,10 @@ export function useViewKeys(
       ev.preventDefault();
       go(
         findByPrefix(
-          (i) => titleWithoutRegions(o.entries[i]?.name ?? ''),
+          (i) =>
+            o.canLand && !o.canLand(i)
+              ? ''
+              : titleWithoutRegions(o.entries[i]?.name ?? ''),
           o.entries.length,
           from,
           prefix,
