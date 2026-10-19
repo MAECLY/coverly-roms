@@ -693,10 +693,12 @@ fn merge_group(mut group: Vec<Draft>) -> Draft {
     head
 }
 
-/// Directory listings, read once per folder.
+/// Directory listings, read once per folder, and indexed by lowercase
+/// stem so a folder of thousands of ROMs is not walked once per ROM.
 #[derive(Default)]
 struct DirCache {
     listings: HashMap<PathBuf, Vec<PathBuf>>,
+    stems: HashMap<PathBuf, HashMap<String, Vec<PathBuf>>>,
 }
 
 impl DirCache {
@@ -720,17 +722,30 @@ impl DirCache {
             .file_stem()
             .map(|s| s.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        self.listing(dir)
-            .iter()
-            .filter(|p| p.as_path() != path)
-            .filter(|p| !is_skipped_entry(&file_name(p), &ScanOptions::default()))
-            .filter(|p| {
-                p.file_stem()
-                    .is_some_and(|s| s.to_string_lossy().to_lowercase() == stem)
-                    && want(&extension(p))
+        if !self.stems.contains_key(dir) {
+            let mut index: HashMap<String, Vec<PathBuf>> = HashMap::new();
+            for p in self.listing(dir) {
+                if is_skipped_entry(&file_name(p), &ScanOptions::default()) {
+                    continue;
+                }
+                if let Some(s) = p.file_stem() {
+                    index
+                        .entry(s.to_string_lossy().to_lowercase())
+                        .or_default()
+                        .push(p.clone());
+                }
+            }
+            self.stems.insert(dir.to_path_buf(), index);
+        }
+        self.stems[dir]
+            .get(&stem)
+            .map(|list| {
+                list.iter()
+                    .filter(|p| p.as_path() != path && want(&extension(p)))
+                    .cloned()
+                    .collect()
             })
-            .cloned()
-            .collect()
+            .unwrap_or_default()
     }
 
     /// The same-stem sibling of `path` with extension `ext`, if any.
