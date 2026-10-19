@@ -55,7 +55,7 @@ const FOUND: [(&str, usize, usize, u64); 9] = [
 ];
 
 /// Spec §15.2: pairs that are never offered as one game, in one folder.
-const NEVER_OFFERED: [(&str, &str, &str); 9] = [
+const NEVER_OFFERED: [(&str, &str, &str); 8] = [
     ("PS", "Driver 2.img", "Driver 2.bin"),
     (
         "PS",
@@ -68,8 +68,12 @@ const NEVER_OFFERED: [(&str, &str, &str); 9] = [
     ("SFC", "Blues Brothers", "Blues Brothers"),
     ("SFC", "King of Dragons", "King of Dragons"),
     ("SFC", "Great Circus Mystery", "Great Circus Mystery"),
-    ("PCE", "Taito Chase H.Q. (Japan)", "Taito Chase H.Q. (USA)"),
 ];
+
+/// Spec §15.2: different content under one name that may meet only as
+/// other versions (level 2, when both hit the catalogue), never as copies.
+const VERSIONS_AT_MOST: [(&str, &str, &str); 1] =
+    [("PCE", "Taito Chase H.Q. (Japan)", "Taito Chase H.Q. (USA)")];
 
 /// Sorted `(relative path, len, mtime)` of every entry under `root`,
 /// hidden ones included, so a stray `._*` or a moved file shows up.
@@ -228,9 +232,14 @@ fn header_hex(path: &Path) -> String {
 }
 
 /// No group holds both files of a "never offered" pair (matched by name
-/// prefix, so `Jungle Book.smc` and `Jungle Book (1).sfc` both match).
+/// prefix, so `Jungle Book.smc` and `Jungle Book (1).sfc` both match), and
+/// a "versions at most" pair shares a group only as other versions.
 fn assert_never_offered(plan: &DedupePlan) {
-    for (dir, a, b) in NEVER_OFFERED {
+    let pairs = NEVER_OFFERED
+        .iter()
+        .map(|p| (p, false))
+        .chain(VERSIONS_AT_MOST.iter().map(|p| (p, true)));
+    for (&(dir, a, b), version_ok) in pairs {
         for g in plan
             .groups
             .iter()
@@ -247,7 +256,19 @@ fn assert_never_offered(plan: &DedupePlan) {
             } else {
                 has(a) >= 1 && has(b) >= 1
             };
-            assert!(!together, "{dir}: {a} and {b} grouped: {names:?}");
+            let as_versions = version_ok
+                && g.members
+                    .iter()
+                    .filter(|m| m.id != g.keeper)
+                    .filter(|m| {
+                        let n = file_name(&m.unit.primary);
+                        n.starts_with(a) || n.starts_with(b)
+                    })
+                    .all(|m| m.relation == Relation::Version);
+            assert!(
+                !together || as_versions,
+                "{dir}: {a} and {b} grouped: {names:?}"
+            );
         }
     }
 }
