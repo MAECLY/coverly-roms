@@ -653,7 +653,8 @@ slots of one game, side by side, each drawn in its Slot state.
 - **Enter is the same as everywhere else on the name cell** (opens the
   inspector). On a slot cell it opens the ArtWorkspace on that media, so
   this view leads straight to the fix. Each slot cell is labelled
-  "{media}: has art" / "No {media}" (`layouts.slotMissing`).
+  "{media}: has art", or the slot's own placeholder text ("No title
+  screen", `art.none.*`) when it is empty.
 - It uses three thumbnails per row, so at 1440×900 it loads about
   3 × 8 images per screen, plus one screen of overscan (§B.7).
 
@@ -894,7 +895,6 @@ sidebar tabs. The existing `toolbar.layout`, `toolbar.grid` and
 | `layouts.seeAll` | Ver todo | See all |
 | `layouts.announce` | Vista: {view} | {view} view |
 | `layouts.pane.systems` / `folders` / `games` / `preview` | Sistemas / Carpetas / Juegos / Vista previa | Systems / Folders / Games / Preview |
-| `layouts.slotMissing` | Falta {media} | No {media} |
 | `systems.unknown` | Carpeta sin sistema reconocido | Folder with no known system |
 
 Notes on the names:
