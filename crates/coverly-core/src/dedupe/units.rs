@@ -770,7 +770,7 @@ fn starts_with_ignoring_case(path: &Path, prefix: &Path) -> bool {
     })
 }
 
-fn mtime_ns(meta: &Metadata) -> i64 {
+pub(crate) fn mtime_ns(meta: &Metadata) -> i64 {
     let modified = meta.modified().unwrap_or(UNIX_EPOCH);
     match modified.duration_since(UNIX_EPOCH) {
         Ok(after) => i64::try_from(after.as_nanos()).unwrap_or(i64::MAX),

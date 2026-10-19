@@ -349,3 +349,47 @@ impl DatLookup for FakeDats {
             .map(|names| names.contains(&name.to_lowercase()))
     }
 }
+
+/// A freshly formatted PS1 memory card (128 KiB): the `MC` header, fifteen
+/// free directory frames and an empty broken-sector list. Not all 0x00,
+/// yet it holds no save.
+pub fn ps_card_blank() -> Vec<u8> {
+    const FRAME: usize = 128;
+    let mut card = vec![0u8; 128 * 1024];
+    let checksum = |frame: &mut [u8]| {
+        frame[FRAME - 1] = frame[..FRAME - 1].iter().fold(0u8, |x, b| x ^ b);
+    };
+    card[..2].copy_from_slice(b"MC");
+    checksum(&mut card[..FRAME]);
+    for i in 1..=15 {
+        let frame = &mut card[i * FRAME..(i + 1) * FRAME];
+        frame[0] = 0xA0;
+        frame[8..10].copy_from_slice(&[0xFF, 0xFF]);
+        checksum(frame);
+    }
+    for i in 16..=35 {
+        let frame = &mut card[i * FRAME..(i + 1) * FRAME];
+        frame[..4].copy_from_slice(&[0xFF; 4]);
+        frame[8..10].copy_from_slice(&[0xFF, 0xFF]);
+        checksum(frame);
+    }
+    // The write-test frame repeats the header.
+    let header: Vec<u8> = card[..FRAME].to_vec();
+    card[63 * FRAME..64 * FRAME].copy_from_slice(&header);
+    card
+}
+
+/// [`ps_card_blank`] with one save in block 1.
+pub fn ps_card_used() -> Vec<u8> {
+    const FRAME: usize = 128;
+    let mut card = ps_card_blank();
+    let frame = &mut card[FRAME..2 * FRAME];
+    frame[0] = 0x51;
+    frame[4..8].copy_from_slice(&0x2000u32.to_le_bytes());
+    frame[10..22].copy_from_slice(b"BASCUS-94570");
+    frame[FRAME - 1] = frame[..FRAME - 1].iter().fold(0u8, |x, b| x ^ b);
+    for (i, b) in card[8192..16384].iter_mut().enumerate() {
+        *b = (i as u8).wrapping_mul(31) ^ 0x33;
+    }
+    card
+}
