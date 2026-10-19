@@ -60,6 +60,9 @@ export function ViewSwitcher() {
   const setView = useViewStore((s) => s.setView);
   const mod = modKeyLabel();
   const shortcut = (n: number) => (mod === '⌘' ? `⌘${n}` : `Ctrl+${n}`);
+  // The visible shortcut is a tooltip or an aria-hidden hint; this is what
+  // assistive tech reads. Both modifiers work (spec §B.6).
+  const keys = (n: number) => `Meta+${n} Control+${n}`;
   const choose = (v: string) => {
     if (isViewId(v)) setView(v);
   };
@@ -95,7 +98,11 @@ export function ViewSwitcher() {
                 }
               >
                 <span className="inline-flex">
-                  <SegmentedControlItem value={id} aria-label={name}>
+                  <SegmentedControlItem
+                    value={id}
+                    aria-label={name}
+                    aria-keyshortcuts={keys(i + 1)}
+                  >
                     <Icon aria-hidden />
                   </SegmentedControlItem>
                 </span>
@@ -120,7 +127,10 @@ export function ViewSwitcher() {
               return (
                 <Fragment key={id}>
                   {i === FINDER_VIEWS && <DropdownMenuSeparator />}
-                  <DropdownMenuRadioItem value={id}>
+                  <DropdownMenuRadioItem
+                    value={id}
+                    aria-keyshortcuts={keys(i + 1)}
+                  >
                     <Icon aria-hidden className="size-4" />
                     {t(`layouts.${id}`)}
                     <DropdownMenuShortcut>

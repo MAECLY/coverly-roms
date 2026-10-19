@@ -36,6 +36,19 @@ describe('ViewSwitcher', () => {
     expect(within(group).getByRole('radio', { name: 'Covers' })).toBeChecked();
   });
 
+  it('tells assistive tech each view’s shortcut', () => {
+    renderSwitcher();
+    const group = screen.getByRole('radiogroup', { name: 'View' });
+    within(group)
+      .getAllByRole('radio')
+      .forEach((radio, i) =>
+        expect(radio).toHaveAttribute(
+          'aria-keyshortcuts',
+          `Meta+${i + 1} Control+${i + 1}`,
+        ),
+      );
+  });
+
   it('switches the view when a segment is chosen', async () => {
     renderSwitcher();
     const group = screen.getByRole('radiogroup', { name: 'View' });
@@ -70,13 +83,20 @@ describe('ViewSwitcher', () => {
   it('lists the same six views with shortcuts in the narrow menu', async () => {
     useViewStore.getState().setView('columns');
     renderSwitcher();
-    await userEvent.click(screen.getByRole('button', { name: /View/ }));
+    // The collapsed trigger names the current view, not just "View".
+    await userEvent.click(
+      screen.getByRole('button', { name: 'View, Columns' }),
+    );
     const menu = await screen.findByRole('menu');
     const items = within(menu).getAllByRole('menuitemradio');
     expect(items).toHaveLength(6);
     items.forEach((item, i) => {
       expect(item).toHaveTextContent(NAMES[i]!);
       expect(item).toHaveTextContent(new RegExp(`${i + 1}$`));
+      expect(item).toHaveAttribute(
+        'aria-keyshortcuts',
+        `Meta+${i + 1} Control+${i + 1}`,
+      );
     });
     expect(
       within(menu).getByRole('menuitemradio', { name: /Columns/ }),

@@ -1290,15 +1290,19 @@ time {
   background: var(--cr-border);
 }
 
-@media (min-width: 1181px) {
-  .view-switcher__menu {
-    display: none;
-  }
+/* One breakpoint, not a min/max pair: a fractional width between 1180 and
+   1181px (zoom, fractional DPR) would otherwise match neither and show both. */
+.view-switcher__menu {
+  display: none;
 }
 
 @media (max-width: 1180px) {
   .view-switcher__segments {
     display: none;
+  }
+
+  .view-switcher__menu {
+    display: inline-flex;
   }
 }
 
