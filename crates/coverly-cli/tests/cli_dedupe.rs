@@ -169,14 +169,17 @@ fn table_lists_systems_groups_and_destinations() {
     assert!(stays.contains("Tetris.gb"), "{text}");
     assert!(stays.contains("has a save"), "{text}");
     assert!(text.contains("exact copy"), "{text}");
+    // Spelled with the platform's separator (`_Duplicados\GB\…` on Windows).
+    let dest = Path::new("_Duplicados").join("GB").join("Tetris (1).gb");
     assert!(
-        text.contains("→ _Duplicados/GB/Tetris (1).gb"),
+        text.contains(&format!("→ {}", dest.display())),
         "destination relative to the quarantine's parent:\n{text}"
     );
     // The conflict is shown, never moved.
     assert!(text.contains("MD "), "{text}");
     assert!(text.contains("conflict"), "{text}");
-    assert!(!text.contains("_Duplicados/MD"), "{text}");
+    let md = Path::new("_Duplicados").join("MD");
+    assert!(!text.contains(&md.display().to_string()), "{text}");
     // The one SFC game has no copy.
     assert!(!text.lines().any(|l| l.starts_with("SFC ")), "{text}");
     assert!(
@@ -291,6 +294,8 @@ fn missing_root_is_exit_3() {
         .stderr(contains("not found"));
 }
 
+/// Unix only: Windows refuses control characters in file names.
+#[cfg(unix)]
 #[test]
 fn hostile_file_names_are_terminal_safe() {
     let lib = Library::new();
