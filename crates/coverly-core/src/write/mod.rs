@@ -29,6 +29,7 @@ use crate::time::{compact_utc, parse_compact_utc, rfc3339_utc};
 
 mod noclobber;
 mod transfer;
+pub mod trash;
 mod undo_organize;
 use noclobber::is_cross_device;
 #[doc(hidden)]
