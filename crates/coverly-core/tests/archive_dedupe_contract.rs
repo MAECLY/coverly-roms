@@ -14,9 +14,12 @@ use coverly_core::archive::{file_entries, is_budget_spent, open_archive, Budget,
 use coverly_core::dedupe::source::{
     DiscId, DiscIdSource, DiscProbe, EntryListing, ListedEntry, ZipListing,
 };
+use coverly_core::disc::sheets::MAX_SHEET_BYTES;
 use coverly_core::disc::source::MAX_WINDOW;
 use coverly_core::disc::testing as dt;
-use coverly_core::disc::{DiscReader, DiscSystem, FileSource, WindowSource};
+use coverly_core::disc::{
+    parse_sheet, primary_track, DiscReader, DiscSystem, FileSource, SheetKind, WindowSource,
+};
 use coverly_core::identify::hash::{hash_stream, HeaderRule};
 
 // ---- The adapters: what phase B writes (spec §10) ----------------------
@@ -27,15 +30,27 @@ struct TestArchiveListing {
 }
 
 impl TestArchiveListing {
-    /// The `n`-th file entry's reader, budget spent mapped to `Ok(None)`.
-    fn read(&self, path: &Path, n: usize, cap: u64) -> io::Result<Option<(ListedEntry, Vec<u8>)>> {
+    /// The first `cap` bytes of the `n`-th file entry, decoding at most
+    /// `budget` bytes (skips inside a solid block count); a spent budget
+    /// is `Ok(None)`.
+    fn read(
+        &self,
+        path: &Path,
+        n: usize,
+        cap: u64,
+        budget: u64,
+    ) -> io::Result<Option<(ListedEntry, Vec<u8>)>> {
         let mut r = open_archive(path, &self.limits)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not an archive"))?;
         let entry = file_entries(r.as_ref())
             .nth(n)
             .cloned()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {n}")))?;
-        let mut budget = Budget::plan_head(&self.limits);
+        // The caller's byte budget with the plan's wall time.
+        let mut budget = Budget::plan_head(&Limits {
+            plan_head_budget: budget,
+            ..self.limits.clone()
+        });
         let mut out = Vec::new();
         let read = r
             .open_entry(entry.index, &mut budget)
@@ -46,6 +61,12 @@ impl TestArchiveListing {
             Err(e) => Err(e),
             Ok(_) => Ok(Some((listed(&entry), out))),
         }
+    }
+
+    fn head_bytes(&self, path: &Path, n: usize, cap: u64) -> io::Result<Option<Vec<u8>>> {
+        Ok(self
+            .read(path, n, cap, self.limits.plan_head_budget)?
+            .map(|(_, b)| b))
     }
 }
 
@@ -79,30 +100,80 @@ impl EntryListing for TestArchiveListing {
             return Ok(None);
         }
         // The archive reader verifies size and CRC at EOF.
-        let Some((e, bytes)) = self.read(path, entry, e.size.saturating_add(1))? else {
+        let Some((e, bytes)) = self.read(path, entry, e.size.saturating_add(1), budget)? else {
             return Ok(None);
         };
         Ok(hash_stream(&bytes[..], e.size, rule)?.payload_sha1)
     }
 
     fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
-        Ok(self.read(path, entry, len as u64)?.map(|(_, b)| b))
+        self.head_bytes(path, entry, len as u64)
     }
 }
 
-/// `DiscProbe` over raw images and disc archives.
+/// `DiscProbe` over raw images, cue/gdi sets and disc archives. A sheet
+/// names the primary track (a GD-ROM's track 03, never the low-density
+/// track 01); without one every entry is tried in order.
 struct TestDiscProbe {
     listing: TestArchiveListing,
+}
+
+fn sheet_kind(name: &str) -> Option<SheetKind> {
+    let ext = Path::new(name).extension()?.to_str()?;
+    SheetKind::from_extension(ext).filter(|k| *k != SheetKind::M3u)
+}
+
+/// The file name of `sheet`'s primary track.
+fn primary_file(kind: SheetKind, text: &[u8]) -> Option<String> {
+    let sheet = parse_sheet(kind, text).ok()?;
+    let track = &sheet.tracks[primary_track(&sheet)?];
+    sheet.files.get(track.file).cloned()
 }
 
 impl DiscProbe for TestDiscProbe {
     fn probe(&self, path: &Path, system: &str) -> io::Result<Option<DiscId>> {
         let found = match self.listing.list(path)? {
-            None => DiscReader::identify(&mut FileSource::open(path)?),
-            Some(entries) => entries.iter().enumerate().find_map(|(n, _)| {
-                let (_, head) = self.listing.read(path, n, MAX_WINDOW as u64).ok()??;
-                DiscReader::identify(&mut WindowSource::new(head))
-            }),
+            None => {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let image = match sheet_kind(name) {
+                    Some(kind) => {
+                        let mut text = Vec::new();
+                        std::fs::File::open(path)?
+                            .take(MAX_SHEET_BYTES as u64)
+                            .read_to_end(&mut text)?;
+                        match primary_file(kind, &text) {
+                            Some(file) => path.with_file_name(file),
+                            None => return Ok(None),
+                        }
+                    }
+                    None => path.to_path_buf(),
+                };
+                DiscReader::identify(&mut FileSource::open(&image)?)
+            }
+            Some(entries) => {
+                // The primary track a sheet in the archive names, else all.
+                let primary = entries.iter().enumerate().find_map(|(n, e)| {
+                    let kind = sheet_kind(&e.name)?;
+                    let text = self
+                        .listing
+                        .head_bytes(path, n, MAX_SHEET_BYTES as u64)
+                        .ok()??;
+                    let file = primary_file(kind, &text)?;
+                    let dir = e.name.rfind('/').map_or("", |i| &e.name[..=i]);
+                    let want = format!("{dir}{file}");
+                    entries
+                        .iter()
+                        .position(|t| t.name.eq_ignore_ascii_case(&want))
+                });
+                let candidates: Vec<usize> = match primary {
+                    Some(n) => vec![n],
+                    None => (0..entries.len()).collect(),
+                };
+                candidates.into_iter().find_map(|n| {
+                    let head = self.listing.head_bytes(path, n, MAX_WINDOW as u64).ok()??;
+                    DiscReader::identify(&mut WindowSource::new(head))
+                })
+            }
         };
         let ours = |d: &coverly_core::disc::DiscIdentity| matches!(d.system, DiscSystem::Known(id) if id == system);
         Ok(found.filter(ours).map(|d| d.to_dedupe_id()))
@@ -297,4 +368,75 @@ fn memory_cap_maps_to_out_of_memory() {
     assert_eq!(err.kind(), io::ErrorKind::OutOfMemory, "{err}");
     // Dedupe's "unreadable unit" path sees a plain io::Error.
     assert!(!is_budget_spent(&err));
+}
+
+#[test]
+fn payload_sha1_honours_the_callers_budget() {
+    // The caller's `budget` bounds the decode, not the plan head budget:
+    // an entry over `plan_head_budget` but within `budget` is hashed.
+    let dir = tempfile::tempdir().unwrap();
+    let data = sample(8192);
+    let path = write(
+        dir.path(),
+        "game.zip",
+        &zip_crafted(&[ZipSpec::new("game.gba", &data, ZipMethod::Deflate)]),
+    );
+    let tight = TestArchiveListing {
+        limits: Limits {
+            plan_head_budget: 1024,
+            ..Limits::default()
+        },
+    };
+    let want = hash_stream(&data[..], data.len() as u64, HeaderRule::Plain).unwrap();
+    let got = tight
+        .payload_sha1(&path, 0, HeaderRule::Plain, 1 << 20)
+        .unwrap();
+    assert!(got.is_some());
+    assert_eq!(got, want.payload_sha1);
+}
+
+#[test]
+fn probe_follows_the_sheet_to_the_primary_track() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = TestDiscProbe { listing: listing() };
+
+    // A cue set on disk: dedupe's `DiscSet` unit probes its sheet.
+    let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+    write(dir.path(), "Next Tetris, The (USA).bin", &track);
+    let cue = write(
+        dir.path(),
+        "Next Tetris, The (USA).cue",
+        b"FILE \"Next Tetris, The (USA).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+    );
+    let id = probe.probe(&cue, "psx").unwrap().expect("a PS1 cue set");
+    assert_eq!(id.serials, ["SLUS-00862"]);
+
+    // A GD-ROM whose low-density track 01 repeats an IP.BIN: the identity
+    // is track 03's, as the gdi names it, never the first match.
+    let gdi_text: &[u8] =
+        b"3\n1 0 4 2352 track01.bin 0\n2 756 0 2352 track02.raw 0\n3 45000 4 2352 track03.bin 0\n";
+    let decoy = dt::dreamcast_track03("T-99999N  ", "1/1");
+    let real = dt::dreamcast_track03("T-40214N  ", "1/1");
+    let gd = dir.path().join("gd");
+    std::fs::create_dir(&gd).unwrap();
+    write(&gd, "track01.bin", &decoy);
+    write(&gd, "track02.raw", &[0u8; 2352]);
+    write(&gd, "track03.bin", &real);
+    let gdi = write(&gd, "Tetris Online.gdi", gdi_text);
+    let id = probe.probe(&gdi, "dreamcast").unwrap().expect("a GD-ROM");
+    assert_eq!(id.serials, ["T-40214N"]);
+
+    // The same set inside a 7z misnamed .zip.
+    let sz = write(
+        dir.path(),
+        "Next Tetris, The_ On-Line Edition.zip",
+        &sevenz_copy(&[
+            ("Tetris Online.gdi", gdi_text),
+            ("track01.bin", &decoy),
+            ("track02.raw", &[0u8; 2352]),
+            ("track03.bin", &real),
+        ]),
+    );
+    let id = probe.probe(&sz, "dreamcast").unwrap().expect("a GD-ROM");
+    assert_eq!(id.serials, ["T-40214N"]);
 }
