@@ -20,6 +20,7 @@ pub mod lzma;
 pub mod names;
 pub mod sevenz;
 pub mod single;
+pub mod tar;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
@@ -32,6 +33,7 @@ pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};
 pub use sevenz::SevenZReader;
 pub use single::{open_compressor, SingleReader, SizeSource};
+pub use tar::TarReader;
 pub use verify::VerifyingReader;
 pub use zip::ZipReader;
 

@@ -354,6 +354,50 @@ pub fn open_compressor<'a, R: Read + 'a>(
     })
 }
 
+/// The method of the `c` stream in `src` with the decoder memory its
+/// header implies checked against the cap (S2): what a tar inside a
+/// compressor reports for its entries (plan Task 12). The header is
+/// validated (gzip header, xz first block, zstd first window, every lz4
+/// block header, `.lzma` properties); `src` is left at its start.
+pub(super) fn stream_method<R: Read + Seek>(
+    src: &mut R,
+    c: Compressor,
+    limits: &Limits,
+) -> Result<Method, ArchiveError> {
+    rewind(src)?;
+    let cap = limits.decoder_mem_cap;
+    let method = match c {
+        Compressor::Gzip => {
+            gzip_header(src)?;
+            Method::Deflate
+        }
+        Compressor::Bzip2 => Method::Bzip2,
+        Compressor::Xz => Method::Xz {
+            dict: read_xz_first_dict(src, cap)?,
+        },
+        Compressor::Zstd => {
+            let mut allowance = limits.max_header;
+            Method::Zstd {
+                window: read_zstd_first_window(src, cap, &mut allowance)?,
+            }
+        }
+        Compressor::Lz4 => {
+            let len = src.seek(SeekFrom::End(0)).map_err(ArchiveError::Io)?;
+            lz4_walk(src, len)?;
+            Method::Lz4
+        }
+        Compressor::LzmaAlone => {
+            let (params, _) = read_lzma_alone_header(src)?;
+            lzma::check(LzmaKind::Lzma(params).mem_needed(), cap)?;
+            Method::Lzma {
+                dict: params.dict_raw,
+            }
+        }
+    };
+    rewind(src)?;
+    Ok(method)
+}
+
 /// What the bounded listing decode reached.
 enum Measure {
     Done {

@@ -1133,3 +1133,312 @@ pub fn sevenz(files: &[(&str, &[u8])], shape: SevenZShape) -> Vec<u8> {
     }
     w.finish().expect("7z finish").into_inner()
 }
+
+// ---------------------------------------------------------------------------
+// tar (plan Task 12): crafted headers, pax and GNU records, compressed tar.
+// ---------------------------------------------------------------------------
+
+/// One record of [`tar_crafted`]: a header (typeflag, name, link) and the
+/// bytes written after it. `declared_size` writes another size into the
+/// header than the data written, so tests can declare sizes the reader must
+/// refuse without writing them.
+#[derive(Clone, Debug)]
+pub struct TarSpec {
+    pub typeflag: u8,
+    pub name: Vec<u8>,
+    pub link: Vec<u8>,
+    pub data: Vec<u8>,
+    pub declared_size: Option<u64>,
+    /// GNU magic (`ustar  \0`) instead of POSIX ustar (`ustar\0` `00`).
+    pub gnu: bool,
+    pub bad_checksum: bool,
+    pub mtime: u64,
+    /// Raw bytes written into the header at an offset (GNU sparse flags).
+    pub patch: Vec<(usize, u8)>,
+}
+
+impl TarSpec {
+    /// A record of `typeflag` with `name` and `data`.
+    pub fn raw(typeflag: u8, name: &[u8], data: &[u8]) -> Self {
+        Self {
+            typeflag,
+            name: name.to_vec(),
+            link: Vec::new(),
+            data: data.to_vec(),
+            declared_size: None,
+            gnu: false,
+            bad_checksum: false,
+            mtime: 1_700_000_000,
+            patch: Vec::new(),
+        }
+    }
+
+    pub fn file(name: &str, data: &[u8]) -> Self {
+        Self::raw(b'0', name.as_bytes(), data)
+    }
+
+    /// A directory; the name gets its trailing `/`.
+    pub fn dir(name: &str) -> Self {
+        Self::raw(
+            b'5',
+            format!("{}/", name.trim_end_matches('/')).as_bytes(),
+            b"",
+        )
+    }
+
+    pub fn symlink(name: &str, target: &str) -> Self {
+        Self::raw(b'2', name.as_bytes(), b"").link(target.as_bytes())
+    }
+
+    pub fn hardlink(name: &str, target: &str) -> Self {
+        Self::raw(b'1', name.as_bytes(), b"").link(target.as_bytes())
+    }
+
+    /// A pax extended header (`x`) for the next entry.
+    pub fn pax(records: &[(&str, &[u8])]) -> Self {
+        Self::raw(b'x', b"PaxHeaders/entry", &pax_records(records))
+    }
+
+    /// A pax global header (`g`).
+    pub fn pax_global(records: &[(&str, &[u8])]) -> Self {
+        Self::raw(b'g', b"pax_global_header", &pax_records(records))
+    }
+
+    /// A GNU long name record (`L`): `name` plus the NUL GNU tar writes.
+    pub fn gnu_longname(name: &[u8]) -> Self {
+        let mut data = name.to_vec();
+        data.push(0);
+        Self::raw(b'L', b"././@LongLink", &data).gnu()
+    }
+
+    /// A GNU long link record (`K`).
+    pub fn gnu_longlink(target: &[u8]) -> Self {
+        let mut data = target.to_vec();
+        data.push(0);
+        Self::raw(b'K', b"././@LongLink", &data).gnu()
+    }
+
+    pub fn link(mut self, target: &[u8]) -> Self {
+        self.link = target.to_vec();
+        self
+    }
+
+    pub fn declared_size(mut self, size: u64) -> Self {
+        self.declared_size = Some(size);
+        self
+    }
+
+    pub fn gnu(mut self) -> Self {
+        self.gnu = true;
+        self
+    }
+
+    pub fn bad_checksum(mut self) -> Self {
+        self.bad_checksum = true;
+        self
+    }
+
+    pub fn patch(mut self, offset: usize, byte: u8) -> Self {
+        self.patch.push((offset, byte));
+        self
+    }
+}
+
+/// `length key=value\n` records; each length counts itself.
+pub fn pax_records(records: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (key, value) in records {
+        let body = 1 + key.len() + 1 + value.len() + 1; // " key=value\n"
+        let mut digits = body.to_string().len();
+        let len = loop {
+            let len = body + digits;
+            if len.to_string().len() == digits {
+                break len;
+            }
+            digits += 1;
+        };
+        out.extend_from_slice(format!("{len} {key}=").as_bytes());
+        out.extend_from_slice(value);
+        out.push(b'\n');
+    }
+    out
+}
+
+fn tar_octal(field: &mut [u8], value: u64) {
+    let digits = field.len() - 1;
+    let text = format!("{value:0digits$o}");
+    assert!(text.len() <= digits, "{value} does not fit the field");
+    field[..digits].copy_from_slice(text.as_bytes());
+    field[digits] = 0;
+}
+
+/// The 512-byte header of `spec`, with a valid checksum unless
+/// `bad_checksum`.
+pub fn tar_header(spec: &TarSpec) -> [u8; 512] {
+    let mut h = [0u8; 512];
+    assert!(
+        spec.name.len() <= 100,
+        "use a pax or GNU record for long names"
+    );
+    assert!(
+        spec.link.len() <= 100,
+        "use a pax or GNU record for long links"
+    );
+    h[..spec.name.len()].copy_from_slice(&spec.name);
+    tar_octal(&mut h[100..108], 0o644);
+    tar_octal(&mut h[108..116], 1000);
+    tar_octal(&mut h[116..124], 1000);
+    let size = spec.declared_size.unwrap_or(spec.data.len() as u64);
+    if size < 1 << 33 {
+        tar_octal(&mut h[124..136], size);
+    } else {
+        // GNU base-256.
+        h[124] = 0x80;
+        h[128..136].copy_from_slice(&size.to_be_bytes());
+    }
+    tar_octal(&mut h[136..148], spec.mtime);
+    h[156] = spec.typeflag;
+    h[157..157 + spec.link.len()].copy_from_slice(&spec.link);
+    if spec.gnu {
+        h[257..265].copy_from_slice(b"ustar  \0");
+    } else {
+        h[257..263].copy_from_slice(b"ustar\0");
+        h[263..265].copy_from_slice(b"00");
+    }
+    h[265..269].copy_from_slice(b"user");
+    h[297..302].copy_from_slice(b"group");
+    for &(offset, byte) in &spec.patch {
+        h[offset] = byte;
+    }
+    h[148..156].fill(b' ');
+    let sum: u32 = h.iter().map(|&b| u32::from(b)).sum();
+    let sum = if spec.bad_checksum { sum + 1 } else { sum };
+    h[148..155].copy_from_slice(format!("{sum:06o}\0").as_bytes());
+    h[155] = b' ';
+    h
+}
+
+/// Every record of `specs` (header, data, zero padding to 512), then the
+/// end-of-archive marker (two zero blocks).
+pub fn tar_crafted(specs: &[TarSpec]) -> Vec<u8> {
+    let mut out = tar_records(specs);
+    out.resize(out.len() + 1024, 0);
+    out
+}
+
+/// The records of `specs` without the end marker.
+pub fn tar_records(specs: &[TarSpec]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for spec in specs {
+        out.extend_from_slice(&tar_header(spec));
+        out.extend_from_slice(&spec.data);
+        out.resize(out.len().next_multiple_of(512), 0);
+    }
+    out
+}
+
+/// A ustar of regular files (a name ending in `/` is a directory).
+pub fn tar(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let specs: Vec<TarSpec> = entries
+        .iter()
+        .map(|(name, data)| {
+            if name.ends_with('/') {
+                TarSpec::dir(name)
+            } else {
+                TarSpec::file(name, data)
+            }
+        })
+        .collect();
+    tar_crafted(&specs)
+}
+
+/// [`tar`] of `entries` in one gzip member, followed inside that member by
+/// `trailer_zeros` zero bytes after the end marker. Cheap for gigabytes
+/// (see [`gzip_with_zeros`]).
+pub fn tar_gz(entries: &[(&str, &[u8])], trailer_zeros: u64) -> Vec<u8> {
+    gzip_with_zeros(&tar(entries), trailer_zeros)
+}
+
+/// Deflates `input` with `flush` and returns the bytes it produced.
+fn deflate_chunk(
+    c: &mut flate2::Compress,
+    mut input: &[u8],
+    flush: flate2::FlushCompress,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len() / 4 + 4096);
+    loop {
+        if out.capacity() - out.len() < 4096 {
+            out.reserve(64 * 1024);
+        }
+        let before = c.total_in();
+        let status = c.compress_vec(input, &mut out, flush).expect("deflate");
+        let used = usize::try_from(c.total_in() - before).expect("chunk");
+        input = &input[used..];
+        let room_left = out.len() < out.capacity();
+        if input.is_empty() && room_left {
+            let finished = !matches!(flush, flate2::FlushCompress::Finish)
+                || status == flate2::Status::StreamEnd;
+            if finished {
+                return out;
+            }
+        }
+    }
+}
+
+/// One gzip member of `prefix` followed by `zeros` zero bytes, valid (CRC32
+/// and ISIZE) and built in time independent of `zeros`: after a full flush
+/// the deflate state is reset, so every 1 MiB chunk of zeros encodes to
+/// the same bytes, which are repeated.
+pub fn gzip_with_zeros(prefix: &[u8], zeros: u64) -> Vec<u8> {
+    use flate2::{Compress, Compression, FlushCompress};
+    const CHUNK: u64 = 1 << 20;
+    let zero_chunk = vec![0u8; CHUNK as usize];
+    let mut c = Compress::new(Compression::fast(), false);
+    let mut out = vec![0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xFF];
+    out.extend(deflate_chunk(&mut c, prefix, FlushCompress::Full));
+    let chunks = zeros / CHUNK;
+    if chunks <= 3 {
+        for _ in 0..chunks {
+            out.extend(deflate_chunk(&mut c, &zero_chunk, FlushCompress::Full));
+        }
+    } else {
+        out.extend(deflate_chunk(&mut c, &zero_chunk, FlushCompress::Full));
+        let steady = deflate_chunk(&mut c, &zero_chunk, FlushCompress::Full);
+        let again = deflate_chunk(&mut c, &zero_chunk, FlushCompress::Full);
+        assert_eq!(
+            steady, again,
+            "deflate of zeros after a full flush is not steady"
+        );
+        out.extend_from_slice(&steady);
+        out.extend_from_slice(&again);
+        for _ in 3..chunks {
+            out.extend_from_slice(&steady);
+        }
+    }
+    let rest = usize::try_from(zeros % CHUNK).expect("rest");
+    out.extend(deflate_chunk(
+        &mut c,
+        &zero_chunk[..rest],
+        FlushCompress::Full,
+    ));
+    out.extend(deflate_chunk(&mut c, &[], FlushCompress::Finish));
+
+    let mut crc = crc32fast::Hasher::new();
+    crc.update(prefix);
+    let mut chunk_crc = crc32fast::Hasher::new();
+    chunk_crc.update(&zero_chunk);
+    let mut n = chunks;
+    while n > 0 {
+        if n & 1 == 1 {
+            crc.combine(&chunk_crc);
+        }
+        let twice = chunk_crc.clone();
+        chunk_crc.combine(&twice);
+        n >>= 1;
+    }
+    crc.update(&zero_chunk[..rest]);
+    out.extend_from_slice(&crc.finalize().to_le_bytes());
+    let total = (prefix.len() as u64).wrapping_add(zeros);
+    out.extend_from_slice(&(total as u32).to_le_bytes());
+    out
+}
