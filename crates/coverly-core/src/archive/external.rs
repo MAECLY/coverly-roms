@@ -899,8 +899,11 @@ const SEVEN_ZIP_RAR5: Schema = Schema {
     required: &["Path", "Folder", "Size"],
 };
 
-/// unrar `lt` (RAR4 and RAR5): optional fields are left out, so records
-/// differ, but never in order or repetition. A file also needs `Size`.
+/// unrar `lt` (RAR4 and RAR5), in unrar's `ListFileHeader` order:
+/// optional fields are left out, so records differ, but never in order or
+/// repetition. A file also needs `Size`. Windows builds print `Modified`,
+/// `Created` and `Accessed` where Unix builds print `mtime`, `ctime` and
+/// `atime`.
 const UNRAR_LT: Schema = Schema {
     keys: &[
         "Name",
@@ -909,9 +912,13 @@ const UNRAR_LT: Schema = Schema {
         "Size",
         "Packed size",
         "Ratio",
+        "RR%",
         "mtime",
+        "Modified",
         "ctime",
+        "Created",
         "atime",
+        "Accessed",
         "Attributes",
         "CRC32",
         "CRC32 MAC",
@@ -924,6 +931,8 @@ const UNRAR_LT: Schema = Schema {
         "Host OS",
         "Compression",
         "Flags",
+        "File version",
+        "Unix owner",
     ],
     required: &["Name", "Type"],
 };
@@ -931,8 +940,18 @@ const UNRAR_LT: Schema = Schema {
 /// The last line of 7-Zip's table, right before its summary line.
 const SEVEN_ZIP_TABLE_END: &str =
     "------------------- ----- ------------ ------------  ------------------------";
-/// The last line of unrar's `l` table, right before its totals line.
-const UNRAR_TABLE_END: &str = "----------- ---------  ---------- -----  ----";
+/// unrar's `l` table separator, right before its totals line: five dash
+/// columns (`----------- ----------  ---------- -----  ----` in unrar 7;
+/// the column widths differ between versions).
+fn is_unrar_table_end(line: &str) -> bool {
+    let cols: Vec<&str> = line.split(' ').filter(|c| !c.is_empty()).collect();
+    cols.len() == 5
+        && cols.iter().all(|c| c.bytes().all(|b| b == b'-'))
+        && cols[0].len() == 11
+        && cols[4] == "----"
+        && line.starts_with('-')
+        && line.ends_with('-')
+}
 
 fn forged(detail: impl std::fmt::Display) -> ArchiveError {
     ArchiveError::Damaged {
@@ -1186,30 +1205,46 @@ fn seven_zip_method(text: &str) -> Method {
     }
 }
 
-/// What a 7-Zip `Attributes` value says: `D`, `A -rw-r--r--`,
-/// `D drwxr-xr-x`, `A lrwxr-xr-x`. The Unix type wins over the letters.
+/// The letters 7-Zip prints for Windows attribute bits 0–15
+/// (`ConvertWinAttribToString`): `_` is the Unix-mode flag (0x8000).
+const SEVEN_ZIP_ATTR_LETTERS: &str = "RHS8DAdNTsLCOnE_";
+
+/// What a 7-Zip `Attributes` value says: `D`, `AC`, `A_ -rw-r--r--`,
+/// `D drwxr-xr-x`, `A lrwxr-xr-x`. A reparse point (`L`, 0x400) or a Unix
+/// link is a symlink (never followed, spec §13.1); then a Unix type wins
+/// over the letters.
 fn seven_zip_attr_kind(attrs: &str) -> Option<EntryKind> {
-    let mut letters = None;
+    let mut letters: Option<&str> = None;
+    let mut unix = None;
     for tok in attrs.split_whitespace() {
         let mut chars = tok.chars();
         let first = chars.next()?;
         if tok.len() == 10 && chars.all(|c| "rwxsStT-".contains(c)) {
-            return Some(match first {
+            unix = Some(match first {
                 '-' => EntryKind::File,
                 'd' => EntryKind::Dir,
                 'l' => EntryKind::Symlink,
                 _ => EntryKind::Other,
             });
-        }
-        if tok.bytes().all(|b| b.is_ascii_uppercase()) {
-            letters = Some(if tok.contains('D') {
-                EntryKind::Dir
-            } else {
-                EntryKind::File
-            });
+        } else if tok.chars().all(|c| SEVEN_ZIP_ATTR_LETTERS.contains(c)) {
+            letters = Some(tok);
         }
     }
-    letters
+    if letters.is_some_and(|l| l.contains('L')) {
+        return Some(EntryKind::Symlink);
+    }
+    if unix.is_some() {
+        return unix;
+    }
+    letters.map(|l| {
+        if l.contains('D') {
+            EntryKind::Dir
+        } else if l.contains('d') {
+            EntryKind::Other
+        } else {
+            EntryKind::File
+        }
+    })
 }
 
 fn split_part() -> ArchiveError {
@@ -1271,11 +1306,11 @@ fn unrar_entry(index: usize, f: &Fields<'_>) -> Result<Entry, ArchiveError> {
     let kind = match f.get("Type").unwrap_or_default() {
         "File" => EntryKind::File,
         "Directory" => EntryKind::Dir,
-        "Symbolic link" | "Unix symbolic link" | "Windows symbolic link" | "Junction" => {
+        "Unix symbolic link" | "Windows symbolic link" | "NTFS junction point" => {
             EntryKind::Symlink
         }
         "Hard link" => EntryKind::Hardlink,
-        "File reference" | "File copy" => EntryKind::Other,
+        "File reference" | "NTFS alternate data stream" | "Service" => EntryKind::Other,
         other => return Err(forged(format!("unknown entry type {other:?}"))),
     };
     if f.get("Pack-CRC32").is_some() || f.get("Pack-BLAKE2").is_some() {
@@ -1413,12 +1448,12 @@ struct Summary {
 /// `allowed` lines) after it.
 fn summary_line<'a>(
     lines: &[&'a str],
-    end: &str,
+    end: impl Fn(&str) -> bool,
     allowed: impl Fn(&str) -> Result<bool, ArchiveError>,
 ) -> Result<&'a str, ArchiveError> {
     let sep = lines
         .iter()
-        .rposition(|l| *l == end)
+        .rposition(|l| end(l))
         .ok_or_else(|| forged("no summary"))?;
     let line = lines
         .get(sep + 1)
@@ -1436,15 +1471,19 @@ fn summary_line<'a>(
 /// 7-Zip's last table line: `[date time] size [packed]  N files[, M folders]`.
 fn parse_seven_zip_summary(text: &str) -> Result<Summary, ArchiveError> {
     let lines = tool_lines(text);
-    let line = summary_line(&lines, SEVEN_ZIP_TABLE_END, |l| {
-        if let Some(n) = l.strip_prefix("Warnings: ") {
-            return Ok(number(n).is_some());
-        }
-        if l.starts_with("Errors: ") {
-            return Err(forged("7-Zip reported errors"));
-        }
-        Ok(false)
-    })?;
+    let line = summary_line(
+        &lines,
+        |l| l == SEVEN_ZIP_TABLE_END,
+        |l| {
+            if let Some(n) = l.strip_prefix("Warnings: ") {
+                return Ok(number(n).is_some());
+            }
+            if l.starts_with("Errors: ") {
+                return Err(forged("7-Zip reported errors"));
+            }
+            Ok(false)
+        },
+    )?;
     let toks: Vec<&str> = line.split_whitespace().collect();
     let bad = || forged("an unreadable 7-Zip summary");
     let (files, folders, head) = match toks.as_slice() {
@@ -1482,7 +1521,7 @@ fn parse_seven_zip_summary(text: &str) -> Result<Summary, ArchiveError> {
 /// unrar's `l` totals line: `size  count`.
 fn parse_unrar_summary(text: &str) -> Result<Summary, ArchiveError> {
     let lines = tool_lines(text);
-    let line = summary_line(&lines, UNRAR_TABLE_END, |_| Ok(false))?;
+    let line = summary_line(&lines, is_unrar_table_end, |_| Ok(false))?;
     let bad = || forged("an unreadable unrar totals line");
     match line.split_whitespace().collect::<Vec<_>>().as_slice() {
         [size, count] => Ok(Summary {
@@ -1829,6 +1868,17 @@ mod tests {
             ("D drwxr-xr-x", Some(EntryKind::Dir)),
             ("A lrwxr-xr-x", Some(EntryKind::Symlink)),
             ("A crw-rw-rw-", Some(EntryKind::Other)),
+            // 7-Zip's `RHS8DAdNTsLCOnE_` letters: `_` the Unix flag,
+            // `n` not content-indexed, `L` a reparse point (spec §13.1).
+            ("D_ drwxr-xr-x", Some(EntryKind::Dir)),
+            ("A_ -rw-r--r--", Some(EntryKind::File)),
+            ("Dn", Some(EntryKind::Dir)),
+            ("An", Some(EntryKind::File)),
+            ("AL", Some(EntryKind::Symlink)),
+            ("DL", Some(EntryKind::Symlink)),
+            ("AL -rw-r--r--", Some(EntryKind::Symlink)),
+            ("d", Some(EntryKind::Other)),
+            ("N", Some(EntryKind::File)),
             ("", None),
         ];
         for (attrs, want) in cases {

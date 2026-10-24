@@ -1027,6 +1027,63 @@ mod listing {
     }
 
     #[test]
+    fn unrar_optional_and_windows_keys_accepted() {
+        // unrar.exe prints `Modified`/`Created`/`Accessed` where Unix builds
+        // print `mtime`/`ctime`/`atime`; `RR%`, `File version` and `Unix
+        // owner` appear only for some headers (unrar list.cpp).
+        let listing = vec![
+            ToolEntry::file("a.bin", 3, 0x3524_41C2),
+            ToolEntry::file("b.bin", 5, 0x0102_0304),
+            ToolEntry::file("link", 0, 0),
+        ];
+        let lt = unrar_lt(&listing)
+            .replacen(
+                "       Ratio: 100%\n       mtime: 2024-01-01 10:00:00,000000000\n",
+                "       Ratio: 100%\n         RR%: 3%\n    Modified: 2024-01-01 10:00:00,000000000\n     Created: 2024-01-01 10:00:00,000000000\n    Accessed: 2024-01-01 10:00:00,000000000\n",
+                1,
+            )
+            .replacen(
+                " Compression: RAR 5.0(v50) -m3 -md=128K\n\n        Name: b.bin",
+                " Compression: RAR 5.0(v50) -m3 -md=128K\n       Flags: solid \nFile version: 2\n  Unix owner: me:staff\n\n        Name: b.bin",
+                1,
+            )
+            .replacen(
+                "        Name: link\n        Type: File\n",
+                "        Name: link\n        Type: NTFS junction point\n      Target: C:\\x\n",
+                1,
+            );
+        let r = open_unrar(&lt, &unrar_l(&listing)).expect("listing");
+        let kinds: Vec<_> = r.entries().iter().map(|e| e.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![EntryKind::File, EntryKind::File, EntryKind::Symlink]
+        );
+        assert_eq!(r.entries()[0].solid_block, Some(0), "Flags: solid");
+        assert_eq!(r.entries()[1].solid_block, None);
+    }
+
+    #[test]
+    fn unrar_totals_separator_of_every_version_accepted() {
+        // unrar 5/6 print a 9-dash size column, unrar 7 a 10-dash one.
+        let listing = two_files();
+        let lt = unrar_lt(&listing);
+        let l = unrar_l(&listing);
+        let sep = l
+            .lines()
+            .find(|line| line.starts_with("-----------"))
+            .expect("separator")
+            .to_string();
+        for width in [9usize, 10] {
+            let other = format!("----------- {}  ---------- -----  ----", "-".repeat(width));
+            let l = l.replace(&sep, &other);
+            open_unrar(&lt, &l).unwrap_or_else(|e| panic!("{width} dashes: {e:?}"));
+        }
+        // A separator-like line that is no separator is still no summary.
+        let l = l.replace(&sep, "----------- ---------- x ---------- -----  ----");
+        assert_damaged(open_unrar(&lt, &l), "not a separator");
+    }
+
+    #[test]
     fn links_and_encrypted_entries_are_marked() {
         let listing = two_files();
         let slt =

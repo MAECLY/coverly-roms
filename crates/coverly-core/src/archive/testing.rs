@@ -1619,7 +1619,7 @@ pub const UNRAR_BANNER: &str = "UNRAR 7.01 freeware      Copyright (c) 1993-2024
 
 const SEVEN_ZIP_SEP: &str =
     "------------------- ----- ------------ ------------  ------------------------";
-const UNRAR_SEP: &str = "----------- ---------  ---------- -----  ----";
+const UNRAR_SEP: &str = "----------- ----------  ---------- -----  ----";
 
 /// One `7zz l -slt -ba` record of a 7z archive, as 7-Zip 24 prints it.
 pub fn seven_zip_record(e: &ToolEntry) -> String {
