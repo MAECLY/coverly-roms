@@ -230,7 +230,9 @@ fn resolve(tools: Option<&[FoundTool]>) -> &[FoundTool] {
 fn sevenz(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
     let reader = guarded(|| SevenZReader::open(path, limits))?;
     if reader.unsupported_coder().is_some() && limits.external_tools {
-        if let Ok(listed) = ToolReader::open(resolve(tools), path, Format::SevenZip, limits) {
+        if let Ok(listed) =
+            guarded(|| ToolReader::open(resolve(tools), path, Format::SevenZip, limits))
+        {
             return wrap(listed);
         }
     }
@@ -249,12 +251,12 @@ fn rar(path: &Path, v5: bool, limits: &Limits, tools: Option<&[FoundTool]>) -> O
     }
     let tools = resolve(tools);
     let format = Format::Rar { v5 };
-    match ToolReader::open(tools, path, format, limits) {
+    match guarded(|| ToolReader::open(tools, path, format, limits)) {
         Ok(listed) => return wrap(listed),
         Err(ArchiveError::Unsupported { need: Some(_), .. }) => {}
         Err(e) => return Err(e),
     }
-    match PaxReader::open(tools, path, format, limits) {
+    match guarded(|| PaxReader::open(tools, path, format, limits)) {
         Ok(listed) => wrap(listed),
         Err(ArchiveError::Unsupported { need: Some(_), .. }) => Err(missing()),
         Err(e) => Err(e),
