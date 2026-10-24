@@ -3,9 +3,11 @@
 //! built here from crafted bytes; none comes from a real disc.
 
 use coverly_core::disc::iso9660::{
-    find_root_file, identify_playstation, read_pvd, PlayStationDisc, MAX_ROOT_RECORDS,
+    find_root_file, identify_playstation, identify_playstation_with, read_extent, read_pvd,
+    FileExtent, PlayStationDisc, MAX_ROOT_RECORDS, SYSTEM_CNF_CAP,
 };
 use coverly_core::disc::serial::{boot_file_serial, normalise_serial};
+use coverly_core::disc::source::MAX_WINDOW;
 use coverly_core::disc::testing::{self as dt, IsoBuilder};
 use coverly_core::disc::{DiscSystem, FileSource, SectorLayout, SectorSource, WindowSource};
 use coverly_core::identify::sniff::fixtures as fx;
@@ -344,4 +346,132 @@ fn fingerprint_equal_across_bin_and_iso() {
     let d = ps(patched, None).unwrap().volume.unwrap();
     assert_ne!(d.boot_sha1, a.boot_sha1);
     assert_eq!(d.space_size, a.space_size);
+}
+
+/// The real shape of the PS1 disc of spec §1 (`Next Tetris, The (USA)`):
+/// a 4 MiB `PSX.BSE` before `SYSTEM.CNF` puts the boot file at LBA ~2089,
+/// past the 4 MiB head window the plan reads from an archive.
+fn psx_with_boot_past_window(cnf: &[u8]) -> Vec<u8> {
+    IsoBuilder::new("PLAYSTATION")
+        .raw(true)
+        .licence(dt::PSX_LICENCE)
+        .file("PSX.BSE;1", &vec![0x55; 4_227_072])
+        .file("SLUS_008.62;1", b"PS-X EXE")
+        .file("SYSTEM.CNF;1", cnf)
+        .build()
+}
+
+#[test]
+fn psx_system_cnf_past_the_window_is_pending() {
+    let cnf = b"BOOT = cdrom:\\SLUS_008.62;1\r\nTCB = 4\r\n";
+    let full = psx_with_boot_past_window(cnf);
+    assert!(full.len() > MAX_WINDOW);
+    let len = full.len() as u64;
+
+    // The head alone: the root directory is there, SYSTEM.CNF is not.
+    let mut head = WindowSource::new(full.clone());
+    let disc = identify_playstation(&mut head, Some(len)).unwrap().unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("psx"));
+    assert_eq!(disc.confidence, 0.80, "no boot line read yet");
+    assert_eq!(disc.serial.as_deref(), Some("SLUS-00862"), "root file name");
+    assert_eq!(disc.detail, "PLAYSTATION + boot file name + licence text");
+    assert_eq!(disc.volume, None);
+    let ext = disc
+        .pending_boot
+        .expect("SYSTEM.CNF listed past the window");
+    assert_eq!(ext.size as usize, cnf.len());
+
+    // The caller fetches exactly those stored sectors and finishes.
+    let range = ext.stored_range(head.layout(), SYSTEM_CNF_CAP).unwrap();
+    assert!(range.start > MAX_WINDOW as u64);
+    assert!(range.end - range.start <= 2 * 2352);
+    let stored = full[range.start as usize..range.end as usize].to_vec();
+    let mut tail = WindowSource::at(ext.lba, stored, head.layout());
+    let bytes = read_extent(&mut tail, ext, SYSTEM_CNF_CAP)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bytes, cnf);
+    let done = identify_playstation_with(&mut head, Some(len), Some(&bytes))
+        .unwrap()
+        .unwrap();
+
+    // The same verdict as reading the whole image from disk.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("track01.bin");
+    std::fs::write(&path, &full).unwrap();
+    let whole = identify_playstation(&mut FileSource::open(&path).unwrap(), Some(len))
+        .unwrap()
+        .unwrap();
+    assert_eq!(done, whole);
+    assert_eq!(whole.serial.as_deref(), Some("SLUS-00862"));
+    assert_eq!(whole.confidence, 0.95);
+    assert_eq!(whole.detail, "SYSTEM.CNF BOOT + licence text");
+    assert_eq!(whole.pending_boot, None);
+    assert!(whole.volume.is_some());
+}
+
+#[test]
+fn psx_root_name_serial_needs_one_candidate() {
+    // Two serial-named root files: no guess.
+    let two = IsoBuilder::new("PLAYSTATION")
+        .file("SLUS_008.62;1", b"x")
+        .file("SLUS_008.63;1", b"y")
+        .build();
+    let disc = ps(two, None).unwrap();
+    assert_eq!(disc.serial, None);
+    assert_eq!(disc.detail, "PLAYSTATION");
+    assert_eq!(disc.pending_boot, None, "no SYSTEM.CNF listed at all");
+
+    // A directory named like a serial is not a boot file.
+    let dir = IsoBuilder::new("PLAYSTATION").dir("SLUS_008.62").build();
+    assert_eq!(ps(dir, None).unwrap().serial, None);
+
+    // A read boot line wins over the root names.
+    let both = IsoBuilder::new("PLAYSTATION")
+        .file("SCES_123.45;1", b"x")
+        .file("SYSTEM.CNF;1", b"BOOT = cdrom:\\SLUS_008.62;1\r\n")
+        .build();
+    let disc = ps(both, None).unwrap();
+    assert_eq!(disc.serial.as_deref(), Some("SLUS-00862"));
+    assert_eq!(disc.confidence, 0.95);
+}
+
+#[test]
+fn pending_boot_extents_stay_bounded() {
+    // An extent at the end of the address space has no stored range.
+    let far = FileExtent {
+        lba: u32::MAX,
+        size: u32::MAX,
+    };
+    for layout in [SectorLayout::Iso2048, SectorLayout::Raw2352Mode2] {
+        let r = far.stored_range(layout, SYSTEM_CNF_CAP);
+        assert!(
+            r.as_ref().is_none_or(|r| r.end - r.start <= 2 * 2352),
+            "{r:?}"
+        );
+    }
+    // The cap bounds the range whatever the declared size.
+    let big = FileExtent {
+        lba: 3000,
+        size: u32::MAX,
+    };
+    let r = big
+        .stored_range(SectorLayout::Raw2352Mode2, SYSTEM_CNF_CAP)
+        .unwrap();
+    assert_eq!(r, 3000 * 2352..3002 * 2352);
+    // A window that starts later reads nothing before its first sector.
+    let mut w = WindowSource::at(10, vec![0; 2048 * 2], SectorLayout::Iso2048);
+    let mut out = [0u8; 2048];
+    assert!(!w.read_user(9, &mut out).unwrap());
+    assert!(w.read_user(10, &mut out).unwrap());
+    assert!(w.read_user(11, &mut out).unwrap());
+    assert!(!w.read_user(12, &mut out).unwrap());
+    assert_eq!(w.raw_sector(9).unwrap(), None);
+    assert!(w.raw_sector(11).unwrap().is_some());
+    // An extent the window does not hold reads as missing, never panics.
+    let ext = FileExtent {
+        lba: 11,
+        size: 3 * 2048,
+    };
+    assert_eq!(read_extent(&mut w, ext, usize::MAX).unwrap(), None);
 }

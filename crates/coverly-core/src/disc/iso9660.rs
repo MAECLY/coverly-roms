@@ -7,11 +7,12 @@
 //! offset is checked and nothing recurses.
 
 use std::io;
+use std::ops::Range;
 
 use sha1::{Digest, Sha1};
 
 use super::serial::boot_file_serial;
-use super::source::{SectorSource, USER_BYTES};
+use super::source::{SectorLayout, SectorSource, USER_BYTES};
 use super::DiscSystem;
 use crate::dedupe::source::VolumeFingerprint;
 
@@ -137,6 +138,40 @@ pub fn read_pvd(src: &mut dyn SectorSource) -> io::Result<Option<Pvd>> {
     }))
 }
 
+/// Where a file's data lies on the track.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileExtent {
+    /// First logical block of the data (extended attributes skipped).
+    pub lba: u32,
+    /// Data length in bytes.
+    pub size: u32,
+}
+
+impl FileExtent {
+    /// The extent of a file record; `None` when it starts past the address
+    /// space.
+    fn of(record: &DirRecord) -> Option<FileExtent> {
+        Some(FileExtent {
+            lba: record.lba.checked_add(u32::from(record.ext_attr))?,
+            size: record.size,
+        })
+    }
+
+    /// Stored bytes of the track that hold the first `cap` bytes of the
+    /// file in `layout`: whole sectors from the first one. A caller that
+    /// only has the head of an entry reads this range (a skip within its
+    /// budget) and wraps it in [`WindowSource::at`](super::WindowSource::at).
+    /// `None` when the range does not fit in `u64`.
+    pub fn stored_range(&self, layout: SectorLayout, cap: usize) -> Option<Range<u64>> {
+        let want = u64::from(self.size).min(cap as u64);
+        let sectors = want.div_ceil(USER_BYTES as u64);
+        let size = layout.sector_size() as u64;
+        let start = u64::from(self.lba).checked_mul(size)?;
+        let end = start.checked_add(sectors.checked_mul(size)?)?;
+        Some(start..end)
+    }
+}
+
 /// The first `cap` bytes (all of them when shorter) of the file `name` in
 /// the root directory. Only the first [`MAX_ROOT_RECORDS`] records are
 /// examined and no subdirectory is entered; a directory of that name is
@@ -147,14 +182,24 @@ pub fn find_root_file(
     name: &str,
     cap: usize,
 ) -> io::Result<Option<Vec<u8>>> {
-    let Some(record) = find_root_record(src, &pvd.root, name)? else {
+    let records = root_records(src, &pvd.root)?;
+    let Some(extent) = file_named(&records, name).and_then(FileExtent::of) else {
         return Ok(None);
     };
-    let want = (record.size as usize).min(cap);
-    let start = record.lba.checked_add(u32::from(record.ext_attr));
+    read_extent(src, extent, cap)
+}
+
+/// The first `cap` bytes (all of them when shorter) of the file at
+/// `extent`; `None` when a sector of them is out of range for `src`.
+pub fn read_extent(
+    src: &mut dyn SectorSource,
+    extent: FileExtent,
+    cap: usize,
+) -> io::Result<Option<Vec<u8>>> {
+    let want = (extent.size as usize).min(cap);
     let mut out = Vec::with_capacity(want.min(SYSTEM_CNF_CAP));
     let mut sector = [0u8; USER_BYTES];
-    let mut lba = start;
+    let mut lba = Some(extent.lba);
     while out.len() < want {
         let Some(n) = lba else {
             return Ok(None);
@@ -169,44 +214,60 @@ pub fn find_root_file(
     Ok(Some(out))
 }
 
-/// The file record `name` among the first [`MAX_ROOT_RECORDS`] records of
-/// the directory `root`.
-fn find_root_record(
-    src: &mut dyn SectorSource,
-    root: &DirRecord,
-    name: &str,
-) -> io::Result<Option<DirRecord>> {
+/// The file (not directory) record `name` among `records`.
+fn file_named<'a>(records: &'a [DirRecord], name: &str) -> Option<&'a DirRecord> {
+    records.iter().find(|r| !r.is_dir() && r.names(name))
+}
+
+/// The first [`MAX_ROOT_RECORDS`] records of the directory `root`, `.` and
+/// `..` included. The walk stops at the first record that does not parse
+/// or the first sector out of range, keeping what came before.
+fn root_records(src: &mut dyn SectorSource, root: &DirRecord) -> io::Result<Vec<DirRecord>> {
+    let mut records = Vec::new();
     let sectors = root.size.div_ceil(USER_BYTES as u32).min(MAX_ROOT_SECTORS);
     let Some(first) = root.lba.checked_add(u32::from(root.ext_attr)) else {
-        return Ok(None);
+        return Ok(records);
     };
-    let mut seen = 0;
     let mut sector = [0u8; USER_BYTES];
     for i in 0..sectors {
         let Some(lba) = first.checked_add(i) else {
-            return Ok(None);
+            return Ok(records);
         };
         if !src.read_user(lba, &mut sector)? {
-            return Ok(None);
+            return Ok(records);
         }
         let mut pos = 0;
         // A zero length byte pads the rest of the sector: records never
         // cross one.
         while pos < USER_BYTES && sector[pos] != 0 {
             let Some(record) = DirRecord::parse(&sector[pos..]) else {
-                return Ok(None); // garbage: stop, never guess
+                return Ok(records); // garbage: stop, never guess
             };
-            seen += 1;
-            if !record.is_dir() && record.names(name) {
-                return Ok(Some(record));
-            }
-            if seen >= MAX_ROOT_RECORDS {
-                return Ok(None);
+            records.push(record);
+            if records.len() >= MAX_ROOT_RECORDS {
+                return Ok(records);
             }
             pos += usize::from(sector[pos]);
         }
     }
-    Ok(None)
+    Ok(records)
+}
+
+/// The serial of the one root file named like a PlayStation boot
+/// executable (`SLUS_008.62;1`); `None` when there is none or more than
+/// one distinct serial.
+fn root_name_serial(records: &[DirRecord]) -> Option<String> {
+    let mut found: Option<String> = None;
+    for record in records.iter().filter(|r| !r.is_dir()) {
+        let Some(serial) = boot_file_serial(&record.name) else {
+            continue;
+        };
+        match &found {
+            Some(seen) if *seen != serial => return None,
+            _ => found = Some(serial),
+        }
+    }
+    found
 }
 
 /// The boot lines of a `SYSTEM.CNF`.
@@ -270,6 +331,13 @@ pub struct PlayStationDisc {
     pub licence: bool,
     /// `None` without a readable `SYSTEM.CNF`.
     pub volume: Option<VolumeFingerprint>,
+    /// `SYSTEM.CNF` is listed in the root directory but its sectors lie
+    /// past the source (a window over an entry's head: on real discs it
+    /// often sits after a 4 MiB `PSX.BSE`). The caller may read
+    /// [`FileExtent::stored_range`] and call [`identify_playstation_with`]
+    /// for the full verdict; until then the serial, if any, comes from the
+    /// boot executable's name in the root.
+    pub pending_boot: Option<FileExtent>,
 }
 
 /// The PlayStation verdict for a data track: `None` unless its primary
@@ -280,13 +348,38 @@ pub fn identify_playstation(
     src: &mut dyn SectorSource,
     image_len: Option<u64>,
 ) -> io::Result<Option<PlayStationDisc>> {
+    identify_playstation_with(src, image_len, None)
+}
+
+/// [`identify_playstation`] with the `SYSTEM.CNF` bytes already in hand
+/// (read from [`PlayStationDisc::pending_boot`]); `None` reads it from
+/// `src`. Bytes past [`SYSTEM_CNF_CAP`] are ignored.
+pub fn identify_playstation_with(
+    src: &mut dyn SectorSource,
+    image_len: Option<u64>,
+    system_cnf: Option<&[u8]>,
+) -> io::Result<Option<PlayStationDisc>> {
     let Some(pvd) = read_pvd(src)? else {
         return Ok(None);
     };
     if pvd.system_id != "PLAYSTATION" {
         return Ok(None);
     }
-    let cnf_bytes = find_root_file(src, &pvd, "SYSTEM.CNF", SYSTEM_CNF_CAP)?;
+    let records = root_records(src, &pvd.root)?;
+    let mut pending_boot = None;
+    let cnf_bytes = match system_cnf {
+        Some(bytes) => Some(bytes[..bytes.len().min(SYSTEM_CNF_CAP)].to_vec()),
+        None => match file_named(&records, "SYSTEM.CNF").and_then(FileExtent::of) {
+            Some(extent) => {
+                let read = read_extent(src, extent, SYSTEM_CNF_CAP)?;
+                if read.is_none() {
+                    pending_boot = Some(extent);
+                }
+                read
+            }
+            None => None,
+        },
+    };
     let cnf = cnf_bytes
         .as_deref()
         .map(parse_system_cnf)
@@ -295,7 +388,7 @@ pub fn identify_playstation(
     const PS2: DiscSystem = DiscSystem::Unsupported("PlayStation 2");
     const PSX: DiscSystem = DiscSystem::Known("psx");
     let dvd = image_len.is_some_and(|n| n > CD_MAX_BYTES) || pvd.space_size > CD_MAX_SECTORS;
-    let (system, serial, confidence, detail) = if let Some(boot2) = &cnf.boot2 {
+    let (system, mut serial, confidence, detail) = if let Some(boot2) = &cnf.boot2 {
         (PS2, boot_file_serial(boot2), 0.95, "SYSTEM.CNF BOOT2")
     } else if let Some(boot) = &cnf.boot {
         (PSX, boot_file_serial(boot), 0.95, "SYSTEM.CNF BOOT")
@@ -305,6 +398,14 @@ pub fn identify_playstation(
         (PSX, None, 0.80, "PLAYSTATION")
     };
     let mut detail = detail.to_owned();
+    // Without a boot line, the boot executable's name in the root still
+    // names the serial: shown, never a stronger verdict.
+    if cnf.boot.is_none() && cnf.boot2.is_none() {
+        serial = root_name_serial(&records);
+        if serial.is_some() {
+            detail.push_str(" + boot file name");
+        }
+    }
     if licence {
         detail.push_str(" + licence text");
     }
@@ -315,6 +416,7 @@ pub fn identify_playstation(
         detail,
         licence,
         volume: cnf_bytes.map(|b| volume_fingerprint(&pvd, &b)),
+        pending_boot,
     }))
 }
 

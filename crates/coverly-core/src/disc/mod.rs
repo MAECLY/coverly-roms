@@ -16,7 +16,8 @@ pub mod source;
 pub mod testing;
 
 pub use iso9660::{
-    find_root_file, identify_playstation, read_pvd, DirRecord, PlayStationDisc, Pvd,
+    find_root_file, identify_playstation, identify_playstation_with, read_extent, read_pvd,
+    DirRecord, FileExtent, PlayStationDisc, Pvd,
 };
 pub use serial::normalise_serial;
 pub use sheets::{

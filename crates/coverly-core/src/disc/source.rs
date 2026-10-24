@@ -132,6 +132,8 @@ fn copy_at(bytes: &[u8], offset: u64, out: &mut [u8]) -> bool {
 pub struct WindowSource {
     bytes: Vec<u8>,
     layout: SectorLayout,
+    /// The stored sector `bytes` starts at (0 for a head).
+    first: u32,
 }
 
 impl WindowSource {
@@ -145,7 +147,30 @@ impl WindowSource {
     /// for a sheet that states the track mode.
     pub fn with_layout(mut bytes: Vec<u8>, layout: SectorLayout) -> WindowSource {
         bytes.truncate(MAX_WINDOW);
-        WindowSource { bytes, layout }
+        WindowSource {
+            bytes,
+            layout,
+            first: 0,
+        }
+    }
+
+    /// A window over stored sectors that start at sector `first` of the
+    /// track (cut to [`MAX_WINDOW`]): a later stretch of an entry, such as
+    /// a boot file listed in the head's root directory but stored past it.
+    /// Sectors before `first` read as out of range.
+    pub fn at(first: u32, mut bytes: Vec<u8>, layout: SectorLayout) -> WindowSource {
+        bytes.truncate(MAX_WINDOW);
+        WindowSource {
+            bytes,
+            layout,
+            first,
+        }
+    }
+
+    /// Offset within `bytes` of stored byte `offset` of the track.
+    fn local(&self, offset: u64) -> Option<u64> {
+        let base = u64::from(self.first) * self.layout.sector_size() as u64;
+        offset.checked_sub(base)
     }
 
     /// Reads at most `cap` bytes (never more than [`MAX_WINDOW`]) from
@@ -174,13 +199,18 @@ impl SectorSource for WindowSource {
     }
 
     fn read_user(&mut self, lba: u32, out: &mut [u8; USER_BYTES]) -> io::Result<bool> {
-        Ok(copy_at(&self.bytes, self.layout.user_at(lba), out))
+        let Some(at) = self.local(self.layout.user_at(lba)) else {
+            return Ok(false);
+        };
+        Ok(copy_at(&self.bytes, at, out))
     }
 
     fn raw_sector(&mut self, n: u32) -> io::Result<Option<Vec<u8>>> {
         let mut out = vec![0u8; self.layout.sector_size()];
-        let offset = u64::from(n) * out.len() as u64;
-        Ok(copy_at(&self.bytes, offset, &mut out).then_some(out))
+        let Some(at) = self.local(u64::from(n) * out.len() as u64) else {
+            return Ok(None);
+        };
+        Ok(copy_at(&self.bytes, at, &mut out).then_some(out))
     }
 }
 
