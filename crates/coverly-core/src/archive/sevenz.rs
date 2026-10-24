@@ -34,9 +34,10 @@
 //!   is summed and checked against `decoder_mem_cap` (S2).
 //!
 //! The whole walk runs inside the panic guard (S1). Decoding of the main
-//! folders is the second part of this module: [`SevenZReader`] hands the
-//! file to `sevenz-rust2` only after walking it again, and decodes only
-//! once the crate's own view equals the walk (S5, plan Task 10).
+//! folders is the second part of this module: [`SevenZReader`] copies the
+//! header bytes into memory, walks that copy again and hands the same copy
+//! to `sevenz-rust2`, and decodes only once the crate's own view equals
+//! the walk (S5, plan Task 10).
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -210,6 +211,9 @@ pub struct Walked {
     pub files: Vec<WalkedFile>,
     /// File offset just past the (outer) next header.
     pub header_end: u64,
+    /// `(file offset, size)` of a `kEncodedHeader`'s packed stream, at
+    /// most twice `max_header` bytes.
+    pub header_pack: Option<(u64, u64)>,
 }
 
 /// Walks the 7z in `src` (`len` bytes) with every bound of the module
@@ -275,17 +279,20 @@ fn walk_inner<R: Read + Seek>(
             folders: Vec::new(),
             files: Vec::new(),
             header_end,
+            header_pack: None,
         });
     }
 
     let mut cur = Cur::new(&header);
+    let mut header_pack = None;
     let header = match cur.number()? {
         K_HEADER => header,
         K_ENCODED_HEADER => {
-            let decoded = decode_encoded_header(src, &mut cur, header_start, limits)?;
+            let (decoded, pack) = decode_encoded_header(src, &mut cur, header_start, limits)?;
             if decoded.first().map(|&b| u64::from(b)) != Some(K_HEADER) {
                 return Err(damaged("7z encoded header does not decode to a header"));
             }
+            header_pack = Some(pack);
             decoded
         }
         other => return Err(damaged(format!("7z header starts with property {other}"))),
@@ -297,16 +304,18 @@ fn walk_inner<R: Read + Seek>(
         folders,
         files,
         header_end,
+        header_pack,
     })
 }
 
-/// Validates the `kEncodedHeader` streams (S4) and decodes the header.
+/// Validates the `kEncodedHeader` streams (S4) and decodes the header;
+/// also returns the `(offset, size)` of its packed stream.
 fn decode_encoded_header<R: Read + Seek>(
     src: &mut R,
     cur: &mut Cur<'_>,
     header_start: u64,
     limits: &Limits,
-) -> Result<Vec<u8>, ArchiveError> {
+) -> Result<(Vec<u8>, (u64, u64)), ArchiveError> {
     let mut folders = parse_streams_info(cur, header_start, limits)?;
     if !cur.at_end() {
         return Err(damaged("7z bytes after the encoded header"));
@@ -340,6 +349,13 @@ fn decode_encoded_header<R: Read + Seek>(
             declared: folder.unpack_size,
         });
     }
+    // The packed stream is held in memory for the crate (S5). LZMA/LZMA2
+    // never expand a header anywhere near twice its size.
+    if folder.pack_size > limits.max_header.saturating_mul(2) {
+        return Err(ArchiveError::TooLarge {
+            declared: folder.pack_size,
+        });
+    }
     let crc = match (folder.crc, sub.crcs.as_slice()) {
         (Some(crc), _) => crc,
         (None, [Some(crc)]) if sub.sizes.len() == 1 => *crc,
@@ -369,7 +385,7 @@ fn decode_encoded_header<R: Read + Seek>(
     if !verified.verified() {
         return Err(damaged("7z encoded header size"));
     }
-    Ok(out)
+    Ok((out, (folder.pack_pos, folder.pack_size)))
 }
 
 fn bcj_reader<'a>(
@@ -1490,8 +1506,8 @@ pub mod testing_hooks {
     }
 
     /// Runs `f` once, on this thread, right before the next archive is
-    /// given to `sevenz-rust2` (after the re-walk): a test swaps the file
-    /// there to exercise the crate-view cross-check.
+    /// given to `sevenz-rust2` (after the re-walk of the header copy): a
+    /// test swaps the file there to show the crate never sees the change.
     pub fn before_crate_open(f: impl FnOnce() + 'static) {
         BEFORE_CRATE_OPEN.with(|h| *h.borrow_mut() = Some(Box::new(f)));
     }
@@ -1524,9 +1540,9 @@ type FolderVisit<'f> =
 ///
 /// * The listing is the walk; the crate is not called to list.
 /// * Before the first decoded byte, the size (and the mtime, for a file)
-///   are re-checked and the header is walked again on the **same**
-///   handle; only then does the crate parse it, inside the guard, and its
-///   view (entry count, names, sizes, CRCs, attributes, coders, pack
+///   are re-checked, the header bytes are read from the **same** handle
+///   into a [`Snapshot`] and walked again there; only then does the crate
+///   parse that very copy, inside the guard, and its view (entry count, names, sizes, CRCs, attributes, coders, pack
 ///   streams, folder ↔ file map) must equal the walk, else `Damaged`.
 ///   Every later decode re-checks the size and mtime.
 /// * Each folder takes the sum of its coders' memory from the
@@ -1612,23 +1628,33 @@ impl<R: Read + Seek + Send + SourceStamp> SevenZReader<R> {
 
     /// Re-checks the file and, the first time, has the crate parse it and
     /// compares its view with the walk (S5).
+    ///
+    /// The header bytes are copied into a [`Snapshot`] and walked again
+    /// there; the crate parses that same copy, so it only ever sees bytes
+    /// the walk just validated, even if the file changes under the handle
+    /// in between (a later change of the data is caught by the CRCs).
     fn ensure_view(&mut self) -> Result<(), ArchiveError> {
         self.recheck()?;
         if self.view.is_some() {
             return Ok(());
         }
-        // The crate only ever parses a header that was just validated.
-        let again = walk(&mut self.src, self.len, &self.limits)?;
+        let changed = || damaged("7z changed since it was listed");
+        let mut snap = Snapshot::capture(&mut self.src, self.len, &self.walked, &self.limits)?;
+        let again = match walk(&mut snap, self.len, &self.limits) {
+            Ok(again) => again,
+            Err(_) if snap.strayed => return Err(changed()),
+            Err(e) => return Err(e),
+        };
         if again != self.walked {
-            return Err(damaged("7z changed since it was listed"));
+            return Err(changed());
         }
         testing_hooks::crate_opening();
-        let failed = Arc::clone(&self.src.failed);
-        let src = &mut self.src;
         let archive = guarded(|| {
-            src.seek(SeekFrom::Start(0)).map_err(ArchiveError::Io)?;
-            sevenz_rust2::Archive::read(src, &sevenz_rust2::Password::empty())
-                .map_err(|e| crate_error(e, &failed))
+            snap.seek(SeekFrom::Start(0)).map_err(ArchiveError::Io)?;
+            // No read of the file happens here: an I/O error is the
+            // snapshot refusing a read outside the validated bytes.
+            sevenz_rust2::Archive::read(&mut snap, &sevenz_rust2::Password::empty())
+                .map_err(|e| crate_error(e, &AtomicBool::new(false)))
         })?;
         cross_check(&self.walked, &archive)?;
         self.view = Some(archive);
@@ -1865,6 +1891,110 @@ impl<R: Read + Seek + Send + SourceStamp> SevenZReader<R> {
         }
         Ok(())
     }
+}
+
+/// The bytes of a 7z that its header walk reads, copied into memory: the
+/// start header, the next header and an encoded header's packed stream
+/// (S5). A read anywhere else fails and sets `strayed`; seeks past the end
+/// read as EOF, like a file of `len` bytes.
+struct Snapshot {
+    len: u64,
+    pos: u64,
+    ranges: Vec<(u64, Vec<u8>)>,
+    strayed: bool,
+}
+
+impl Snapshot {
+    /// Copies the header ranges of `src` (`len` bytes, as walked): where
+    /// the start header now points, and the encoded header's packed
+    /// stream of `walked`. Bounded by `max_header` (header) and twice that
+    /// (packed stream); a start header pointing elsewhere is `Damaged`.
+    fn capture<R: Read + Seek>(
+        src: &mut R,
+        len: u64,
+        walked: &Walked,
+        limits: &Limits,
+    ) -> Result<Self, ArchiveError> {
+        let changed = || damaged("7z changed since it was listed");
+        let mut start = vec![0u8; START_HEADER_LEN as usize];
+        read_at(src, 0, &mut start)?;
+        let next_offset = le_u64(&start[12..20]);
+        let next_size = le_u64(&start[20..28]);
+        let mut ranges = vec![(0, start)];
+        let header_start = START_HEADER_LEN
+            .checked_add(next_offset)
+            .filter(|&at| at.checked_add(next_size).is_some_and(|end| end <= len))
+            .filter(|_| next_size <= limits.max_header)
+            .ok_or_else(changed)?;
+        let mut pack = None;
+        if let Some((at, size)) = walked.header_pack {
+            if size > limits.max_header.saturating_mul(2)
+                || at.checked_add(size).is_none_or(|end| end > len)
+            {
+                return Err(changed());
+            }
+            pack = Some((at, size));
+        }
+        for (at, size) in std::iter::once((header_start, next_size)).chain(pack) {
+            if size == 0 {
+                continue;
+            }
+            // Both sizes are bounded just above.
+            let mut buf = vec![0u8; usize::try_from(size).map_err(|_| changed())?];
+            read_at(src, at, &mut buf)?;
+            ranges.push((at, buf));
+        }
+        Ok(Self {
+            len,
+            pos: 0,
+            ranges,
+            strayed: false,
+        })
+    }
+}
+
+impl Read for Snapshot {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() || self.pos >= self.len {
+            return Ok(0);
+        }
+        let pos = self.pos;
+        let hit = self.ranges.iter().find_map(|(at, bytes)| {
+            let off = usize::try_from(pos.checked_sub(*at)?).ok()?;
+            bytes.get(off..).filter(|rest| !rest.is_empty())
+        });
+        let Some(rest) = hit else {
+            self.strayed = true;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "7z read outside the validated header",
+            ));
+        };
+        let n = rest.len().min(buf.len());
+        buf[..n].copy_from_slice(&rest[..n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for Snapshot {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let pos = match to {
+            SeekFrom::Start(p) => Some(p),
+            SeekFrom::End(d) => self.len.checked_add_signed(d),
+            SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        };
+        let pos =
+            pos.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "7z seek out of range"))?;
+        self.pos = pos;
+        Ok(pos)
+    }
+}
+
+/// Reads exactly `buf.len()` bytes of `src` at `at`.
+fn read_at<R: Read + Seek>(src: &mut R, at: u64, buf: &mut [u8]) -> Result<(), ArchiveError> {
+    src.seek(SeekFrom::Start(at)).map_err(ArchiveError::Io)?;
+    src.read_exact(buf).map_err(ArchiveError::Io)
 }
 
 /// A stream that ends a buffered head: the entry was not fully read.
@@ -2123,6 +2253,73 @@ mod tests {
         assert!(matches!(
             Cur::new(&buf).count(10, 2, "file"),
             Err(ArchiveError::TooManyEntries { count: 20 })
+        ));
+    }
+
+    #[test]
+    fn cross_check_refuses_a_crate_view_of_other_bytes() {
+        use crate::archive::testing::sevenz_copy;
+        // Same shape, another name: only the names differ.
+        let ours = sevenz_copy(&[("Game (Track 01).bin", b"data")]);
+        let theirs = sevenz_copy(&[("Game (Track 02).bin", b"data")]);
+        let walked = walk(
+            &mut io::Cursor::new(&ours),
+            ours.len() as u64,
+            &Limits::default(),
+        )
+        .expect("walk");
+        let same = sevenz_rust2::Archive::read(
+            &mut io::Cursor::new(&ours),
+            &sevenz_rust2::Password::empty(),
+        )
+        .expect("crate");
+        cross_check(&walked, &same).expect("same bytes agree");
+        let other = sevenz_rust2::Archive::read(
+            &mut io::Cursor::new(&theirs),
+            &sevenz_rust2::Password::empty(),
+        )
+        .expect("crate");
+        let err = cross_check(&walked, &other).expect_err("names differ");
+        assert!(
+            matches!(&err, ArchiveError::Damaged { detail } if detail.contains("crate view differs: name")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_serves_only_the_walked_header() {
+        use crate::archive::testing::sevenz_copy;
+        let bytes = sevenz_copy(&[("a.bin", b"payload")]);
+        let len = bytes.len() as u64;
+        let limits = Limits::default();
+        let walked = walk(&mut io::Cursor::new(&bytes), len, &limits).expect("walk");
+        let mut snap =
+            Snapshot::capture(&mut io::Cursor::new(&bytes), len, &walked, &limits).expect("snap");
+        assert_eq!(walk(&mut snap, len, &limits).expect("walk again"), walked);
+        assert!(!snap.strayed);
+        // The payload sits right after the start header: not in the copy.
+        snap.seek(SeekFrom::Start(START_HEADER_LEN)).expect("seek");
+        let mut buf = [0u8; 4];
+        assert!(snap.read(&mut buf).is_err());
+        assert!(snap.strayed);
+        // Past the end is EOF; before the start is refused.
+        snap.seek(SeekFrom::End(0)).expect("seek end");
+        assert_eq!(snap.read(&mut buf).expect("eof"), 0);
+        assert!(snap.seek(SeekFrom::Current(-(len as i64) - 1)).is_err());
+    }
+
+    #[test]
+    fn snapshot_refuses_a_start_header_pointing_elsewhere() {
+        use crate::archive::testing::sevenz_copy;
+        let bytes = sevenz_copy(&[("a.bin", b"payload")]);
+        let len = bytes.len() as u64;
+        let limits = Limits::default();
+        let walked = walk(&mut io::Cursor::new(&bytes), len, &limits).expect("walk");
+        let mut bad = bytes.clone();
+        bad[12..20].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert!(matches!(
+            Snapshot::capture(&mut io::Cursor::new(&bad), len, &walked, &limits),
+            Err(ArchiveError::Damaged { .. })
         ));
     }
 

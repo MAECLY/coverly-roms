@@ -367,6 +367,40 @@ fn encoded_header_pack_outside_file_damaged() {
     assert_damaged(walk_bytes(&bytes));
 }
 
+/// The packed range of an encoded header is kept in memory for the crate
+/// (S5), so it is bounded like the header: at most twice `max_header`.
+#[test]
+fn encoded_header_pack_size_over_cap() {
+    let (packed, h) = two_files();
+    let raw = sevenz_header_bytes(&h);
+    let (enc_packed, mut streams) = sevenz_encoded_streams(packed.len() as u64, &raw);
+    let padding = 3 * 4096;
+    streams.pack_sizes[0] += padding as u64;
+    let mut all = packed.clone();
+    all.extend_from_slice(&enc_packed);
+    all.extend(std::iter::repeat_n(0u8, padding));
+    let bytes = sevenz_file(&all, &sevenz_encoded_header_bytes(&streams));
+    let w = walk_bytes(&bytes).expect("unused pack bytes after the stream end");
+    assert_eq!(
+        w.header_pack,
+        Some((
+            32 + packed.len() as u64,
+            (enc_packed.len() + padding) as u64
+        ))
+    );
+    let limits = Limits {
+        max_header: 4096,
+        ..Limits::default()
+    };
+    assert!(
+        matches!(
+            walk_with(&bytes, &limits),
+            Err(ArchiveError::TooLarge { .. })
+        ),
+        "encoded header pack over 2 × max_header"
+    );
+}
+
 #[test]
 fn encoded_header_with_bcj_filter_decodes() {
     // BCJ x86 over a header with no E8/E9 bytes leaves it unchanged.
@@ -1165,10 +1199,20 @@ mod decoding {
         std::fs::write(path, bytes).expect("write");
     }
 
+    /// Writes `bytes` over `path` keeping its mtime: only the content can
+    /// tell the files apart.
+    fn swap_keeping_mtime(path: &Path, bytes: &[u8]) {
+        let mtime = filetime::FileTime::from_last_modification_time(
+            &std::fs::metadata(path).expect("metadata"),
+        );
+        write_file(path, bytes);
+        filetime::set_file_mtime(path, mtime).expect("keep mtime");
+    }
+
     #[test]
-    fn sevenz_crate_view_differs_damaged() {
-        // Same length, same mtime, another name: only the crate's own view
-        // of the file can tell (spec S5, R17).
+    fn sevenz_header_swapped_after_listing_damaged() {
+        // Same length, same mtime, another name: the second walk (of the
+        // bytes the crate will parse) differs from the listing (S5, R17).
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("game.zip");
         let first = sevenz_copy(&[("Game (Track 01).bin", &sample(4000))]);
@@ -1176,21 +1220,54 @@ mod decoding {
         assert_eq!(first.len(), second.len());
         write_file(&path, &first);
         let mut r = SevenZReader::open(&path, &Limits::default()).expect("valid 7z");
-        let mtime = filetime::FileTime::from_last_modification_time(
-            &std::fs::metadata(&path).expect("metadata"),
-        );
-        let swap = path.clone();
-        testing_hooks::before_crate_open(move || {
-            write_file(&swap, &second);
-            filetime::set_file_mtime(&swap, mtime).expect("keep mtime");
-        });
+        swap_keeping_mtime(&path, &second);
         let before = testing_hooks::crate_opened();
-        let err = read_entry(&mut r, 0).expect_err("crate view differs");
+        let err = read_entry(&mut r, 0).expect_err("header changed");
         assert!(
-            matches!(&err, ArchiveError::Damaged { detail } if detail.contains("crate view differs")),
+            matches!(&err, ArchiveError::Damaged { detail } if detail.contains("changed since")),
             "{err:?}"
         );
+        assert_eq!(testing_hooks::crate_opened(), before, "crate never called");
+    }
+
+    #[test]
+    fn sevenz_crate_parses_only_the_validated_header() {
+        // S5: the crate parses the very bytes the walk validated, held in
+        // memory, not the file again. A header swapped in right before the
+        // crate runs is never seen by it; the data is still CRC-checked.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("game.zip");
+        let data = sample(4000);
+        let first = sevenz_copy(&[("Game (Track 01).bin", &data)]);
+        let second = sevenz_copy(&[("Game (Track 02).bin", &data)]);
+        write_file(&path, &first);
+        let mut r = SevenZReader::open(&path, &Limits::default()).expect("valid 7z");
+        let swap = path.clone();
+        testing_hooks::before_crate_open(move || swap_keeping_mtime(&swap, &second));
+        let before = testing_hooks::crate_opened();
+        assert_eq!(read_entry(&mut r, 0).expect("validated header"), data);
         assert_eq!(testing_hooks::crate_opened(), before + 1);
+    }
+
+    #[test]
+    fn sevenz_crate_parses_the_validated_encoded_header() {
+        // The same for a `kEncodedHeader`: its packed stream is part of
+        // what the crate is given from memory.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("game.7z");
+        let (packed, h) = two_files();
+        let bytes = super::sevenz_with_encoded_header(&packed, &sevenz_header_bytes(&h));
+        write_file(&path, &bytes);
+        let mut r = SevenZReader::open(&path, &Limits::default()).expect("valid 7z");
+        let (pack_pos, _) = r.walked().header_pack.expect("encoded header");
+        // Zero everything from the encoded header's packed stream on.
+        let mut wiped = bytes.clone();
+        wiped[usize::try_from(pack_pos).expect("small")..].fill(0);
+        let swap = path.clone();
+        testing_hooks::before_crate_open(move || swap_keeping_mtime(&swap, &wiped));
+        let cue = index_of(&r, "Game.cue");
+        assert_eq!(read_entry(&mut r, cue).expect("validated header"), b"FILE");
+        assert_eq!(read_entry(&mut r, 0).expect("track"), sample(3000));
     }
 
     #[test]
