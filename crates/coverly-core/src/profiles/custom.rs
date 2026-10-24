@@ -379,8 +379,13 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
             ));
         }
     }
-    for system_id in p.container_overrides.keys() {
-        if !db.get(system_id).is_some_and(|s| s.id == *system_id) {
+    for (system_id, kinds) in &p.container_overrides {
+        // A disc system never takes an archive as-is (spec D4), so a
+        // non-empty override for one would be ignored without a word.
+        let known = db
+            .get(system_id)
+            .is_some_and(|s| s.id == *system_id && (!s.multi_file || kinds.is_empty()));
+        if !known {
             out.push(FieldError::new(
                 format!("container_overrides.{system_id}"),
                 Invalid,

@@ -503,3 +503,47 @@ template = "{system_dir}/Imgs/{stem}.png"
         .iter()
         .any(|(f, _)| f == "container_overrides.gba"));
 }
+
+#[test]
+fn custom_profile_cleared_overrides_survive_toml() {
+    // A user who removes the default `psp = []` override keeps that choice.
+    let mut p = sample();
+    p.container_overrides.clear();
+    let text = p.to_toml();
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), p, "{text}");
+    let mut p = sample();
+    p.accepts_containers.clear();
+    let text = p.to_toml();
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), p, "{text}");
+}
+
+#[test]
+fn custom_profile_disc_layout_unknown_key_is_error() {
+    let text = r#"
+id = "typo-sd"
+name = "Typo SD"
+
+[disc_layout]
+kind = "flat"
+m3u = true
+
+[slots.cover]
+template = "{system_dir}/Imgs/{stem}.png"
+"#;
+    assert!(ProfileFile::parse_toml(text).is_err());
+}
+
+#[test]
+fn container_override_on_disc_system_is_invalid() {
+    // Disc systems always extract (spec D4): an override naming one would
+    // be ignored silently, so the editor flags it instead.
+    let mut p = sample();
+    p.container_overrides
+        .insert("psx".to_string(), vec![ContainerKind::Zip]);
+    assert!(has(&p, "container_overrides.psx", FieldErrorCode::Invalid));
+    // `[]` (always extract) says what already happens: no error.
+    p.container_overrides.insert("psx".to_string(), Vec::new());
+    assert!(!errors(&p)
+        .iter()
+        .any(|(f, _)| f == "container_overrides.psx"));
+}
