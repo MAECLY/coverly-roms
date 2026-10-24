@@ -1560,6 +1560,17 @@ impl<'a> Run<'a> {
                 }
             }
         }
+        // The adopted finals take their room already: the free-space
+        // check counts only what is left to extract (archives spec §8.4).
+        if !adopted.is_empty() {
+            let cluster = cluster_size(&self.plan.target_root).unwrap_or(4096).max(1);
+            let in_place = entries
+                .iter()
+                .filter(|e| adopted.iter().any(|a| a.index == e.index))
+                .map(|e| e.size.div_ceil(cluster).saturating_mul(cluster))
+                .fold(0u64, u64::saturating_add);
+            self.extract_need = self.extract_need.saturating_sub(in_place);
+        }
         self.apply_extract(item, &adopted)
     }
 
@@ -1644,7 +1655,8 @@ impl<'a> Run<'a> {
     /// changed since the plan: each final that is still the job's file (a
     /// complete one by its fingerprint, one with only an intent by the
     /// listing's size and a full CRC re-read) is deleted, and every open
-    /// intent gets its `rolled-back` line. Best effort.
+    /// intent gets its `rolled-back` line (one whose final could not be
+    /// deleted stays open for undo). Best effort.
     fn roll_back_started(&mut self, id: usize, entries: &[ExtractEntry], journal: &ExtractJournal) {
         for (e, log) in entries.iter().zip(&journal.entries) {
             let target = self.plan.target_root.join(&e.target);
@@ -1659,7 +1671,12 @@ impl<'a> Run<'a> {
                     (temp, ours)
                 }
             };
-            if ours && fs::remove_file(&target).is_ok() {
+            if ours {
+                if fs::remove_file(&target).is_err() {
+                    // Still in place: its lines stay open, so undo still
+                    // knows it as the job's file.
+                    continue;
+                }
                 remove_apple_doubles(std::slice::from_ref(&target));
             }
             let _ = self.writer.rolled_back(&target, temp, Some(id));

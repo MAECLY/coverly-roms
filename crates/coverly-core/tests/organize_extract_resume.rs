@@ -600,3 +600,80 @@ fn item_done_only_when_archive_line_final() {
         assert!(temps_in(&env.root.join("PS")).is_empty());
     }
 }
+
+/// Free bytes the fake volume reports (see `resume_counts_only_what_is_left_to_extract`).
+static FREE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[test]
+fn resume_counts_only_what_is_left_to_extract() {
+    use coverly_core::organize::apply::{set_cluster_size_override, set_free_space_override};
+    use coverly_core::organize::plan::SPACE_RESERVE;
+    use std::sync::atomic::Ordering;
+
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    let (archive, entries) = disc_archive(&env, "Tetris Plus", 11, "PS");
+    let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep, None);
+    let plan = plan_of(&env, vec![item], TransferMode::Copy);
+    // Six finals in place (five complete, one renamed without its line).
+    let job = apply_killed(&env, &plan, &trash, 12 + 5).job.unwrap();
+    let ps = env.root.join("PS");
+    let in_place: u64 = names_in(&ps)
+        .iter()
+        .filter(|n| !n.starts_with(".coverly-"))
+        .map(|n| fs::metadata(ps.join(n)).unwrap().len())
+        .sum();
+    assert!(in_place > 0);
+    // Room for what is left, not for the whole disc again: the volume
+    // already holds the six finals.
+    let total: u64 = entries.iter().map(|e| e.size).sum();
+    let full_need = total + total.div_ceil(100) + SPACE_RESERVE;
+    FREE.store(full_need - in_place / 2, Ordering::Relaxed);
+    set_cluster_size_override(Some(1));
+    set_free_space_override(Some(|_| Some(FREE.load(Ordering::Relaxed))));
+    let report = resume(&env, &job, &trash);
+    set_free_space_override(None);
+    set_cluster_size_override(None);
+    assert!(report.paused.is_none(), "{report:?}");
+    assert_eq!(report.items[0].status, ItemStatus::Extracted, "{report:?}");
+    assert_eq!(names_in(&ps), final_names(&entries));
+    assert_extracted(&env, "Tetris Plus", 11, &entries);
+}
+
+/// A final the rollback could not delete keeps its intent open, so undo
+/// still knows it as the job's file.
+#[cfg(unix)]
+#[test]
+fn undeletable_final_keeps_its_intent_for_undo() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    let (archive, entries) = disc_archive(&env, "Next Tetris, The", 2, "PS");
+    let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash, None);
+    let plan = plan_of(&env, vec![item], TransferMode::Move);
+    // One final committed, one renamed without its line, one temp.
+    let job = apply_killed(&env, &plan, &trash, 3 + 1).job.unwrap();
+    fs::write(&archive, b"another download under the same name").unwrap();
+    let ps = env.root.join("PS");
+    fs::set_permissions(&ps, fs::Permissions::from_mode(0o555)).unwrap();
+    let report = resume(&env, &job, &trash);
+    fs::set_permissions(&ps, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        report.items[0].status,
+        ItemStatus::Skipped {
+            reason: SkipReason::ChangedSincePlan
+        },
+        "{report:?}"
+    );
+    let renamed = env.root.join(&entries[1].target);
+    assert!(renamed.is_file(), "the read-only folder kept it");
+
+    let undo = undo_job_with(&env.data, &job, &trash).unwrap();
+    assert!(undo.removed.contains(&renamed), "{undo:?}");
+    let left: Vec<String> = names_in(&ps)
+        .into_iter()
+        .filter(|n| !n.starts_with(".coverly-"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}

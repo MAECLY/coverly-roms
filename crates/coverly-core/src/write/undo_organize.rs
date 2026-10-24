@@ -349,8 +349,6 @@ fn source_path(source_root: &Path, from: &Path) -> Result<PathBuf, WriteError> {
     ensure_within(source_root, &from)
 }
 
-/// The file now at `target` is still the one the job left there: same
-/// size and modification time, or (mtime changed) the same CRC-32.
 /// `path` is a regular file the job left there as `fp` says (size, and
 /// the modification time within the volume's precision or else the
 /// CRC-32): what undo and resume treat as the job's file.
@@ -360,6 +358,8 @@ pub(crate) fn file_matches_fp(path: &Path, fp: &Fingerprint) -> bool {
     })
 }
 
+/// The file now at `target` is still the one the job left there: same
+/// size and modification time, or (mtime changed) the same CRC-32.
 fn matches_fp(target: &Path, meta: &fs::Metadata, fp: &Fingerprint) -> Result<bool, WriteError> {
     if meta.len() != fp.size {
         return Ok(false);
