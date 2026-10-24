@@ -2227,6 +2227,21 @@ mod extract {
                 assert_eq!(item.transfer, Transfer::AsIs, "never extracted");
                 assert!(item.target.as_ref().unwrap().ends_with("Game.tar.gz"));
             }
+
+            // An arcade set must be a zip whatever its listing: a cut tar
+            // is never moved into the arcade folder as it is.
+            let decisions = [Decision {
+                item: item.id,
+                choice: Choice::Assign {
+                    system: "mame".into(),
+                },
+            }];
+            let p = plan_from_survey(&sv, &o, &decisions, &env).unwrap();
+            assert_eq!(
+                left_reason(&p, "Game.tar.gz"),
+                Some(LeftReason::RepackArcade)
+            );
+            assert!(by_name(&p, "Game.tar.gz").target.is_none());
         }
 
         #[test]

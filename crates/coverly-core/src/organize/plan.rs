@@ -1800,17 +1800,19 @@ fn plan_transfer(
     let Some(format) = insp.format else {
         return Ok(None);
     };
-    // Entries past an incomplete listing (a tar cut by the listing budget)
-    // are unknown: such an archive moves as it is, never extracted (spec
-    // §4.2).
-    if !insp.listing_complete {
-        return Ok(None);
-    }
+    // Before the listing rule: an arcade set that is not a zip never
+    // loads, however much of it was listed.
     if system.arcade {
         return match insp.container {
             Container::Zip => Ok(None),
             _ => Err(LeftReason::RepackArcade),
         };
+    }
+    // Entries past an incomplete listing (a tar cut by the listing budget)
+    // are unknown: such an archive moves as it is, never extracted (spec
+    // §4.2).
+    if !insp.listing_complete {
+        return Ok(None);
     }
     let by_name = |name: &str| insp.entries.iter().find(|e| e.name == name);
     let (chosen, shape, sheet_check): (Vec<&ZipEntryInfo>, ExtractShape, SheetCheck) =
