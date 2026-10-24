@@ -482,6 +482,7 @@ mod plans {
     #[cfg(unix)]
     use coverly_core::progress::PauseKind;
     use coverly_core::systems::SystemDb;
+    use coverly_core::write::trash::FakeTrash;
     use coverly_core::write::{
         list_jobs, set_copy_fault, twin_listings, undo_job, CopyStage, JobKind,
     };
@@ -562,6 +563,8 @@ mod plans {
             data_dir: data,
             progress: &|_| {},
             cancel,
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         apply_organize(plan, &env)
     }
@@ -575,6 +578,8 @@ mod plans {
             data_dir: data,
             progress: &|_| {},
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         resume_organize(job, &env).unwrap()
     }
@@ -1177,6 +1182,8 @@ mod plans {
             data_dir: &data,
             progress: &|p| seen.lock().unwrap().push(p),
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         let report = apply_organize(&plan, &env).unwrap();
         assert_eq!(report.moved, 300, "{:?}", report.items.first());
@@ -1219,6 +1226,8 @@ mod plans {
             data_dir: &data,
             progress: &|_| {},
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         assert!(matches!(
             resume_organize("20261017T000000Z-0000-0000", &env),

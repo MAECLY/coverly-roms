@@ -86,7 +86,7 @@ const CHUNK: usize = 1 << 20;
 /// Names tried after a collision before giving up.
 const MAX_NAMES: u32 = 100;
 
-pub(super) fn mtime_ns(t: SystemTime) -> i64 {
+pub(crate) fn mtime_ns(t: SystemTime) -> i64 {
     match t.duration_since(UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_nanos()).unwrap_or(i64::MAX),
         Err(e) => -i64::try_from(e.duration().as_nanos()).unwrap_or(i64::MAX),

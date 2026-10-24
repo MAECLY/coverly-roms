@@ -32,9 +32,11 @@ mod transfer;
 pub mod trash;
 mod undo_organize;
 use noclobber::is_cross_device;
+pub(crate) use noclobber::rename_noclobber_indexed;
 #[doc(hidden)]
 pub use noclobber::rename_noclobber_using;
 pub use noclobber::{rename_noclobber, same_volume};
+pub(crate) use transfer::mtime_ns;
 #[cfg(feature = "test-util")]
 #[doc(hidden)]
 pub use transfer::set_copy_fault;
@@ -845,6 +847,66 @@ impl Writer {
         let from = ensure_within(&self.source_root, from)?;
         let op = Op::ArchiveKept { from: from.clone() };
         self.append_entry(from, op, None, None, item)
+    }
+
+    /// Writes the new file `target` (inside the root, in an existing
+    /// folder) with `bytes` for plan item `item`: a job temp created with
+    /// `create_new`, synced, then renamed without ever replacing a file
+    /// (the caller checked for case/NFC twins), journaled `created`.
+    /// [`WriteError::Io`] `AlreadyExists` when `target` appeared meanwhile.
+    pub fn create_new_file(
+        &mut self,
+        target: &Path,
+        bytes: &[u8],
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let name = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| WriteError::NameInvalid(target.display().to_string()))?;
+        if safe_file_name(name)? != name {
+            return Err(WriteError::NameInvalid(name.to_string()));
+        }
+        let dir = target
+            .parent()
+            .ok_or_else(|| WriteError::OutsideRoot(target.clone()))?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut tries = 0;
+        let (tmp, mut file) = loop {
+            let tmp = dir.join(self.extract_temp());
+            match opts.open(&tmp) {
+                Ok(file) => break (tmp, file),
+                // A foreign file at that name: never written through.
+                Err(e) if e.kind() == ErrorKind::AlreadyExists && tries < 1000 => tries += 1,
+                Err(e) => return Err(map_io(e, &target)),
+            }
+        };
+        let result = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| {
+                drop(file);
+                noclobber::rename_noclobber_indexed(&tmp, &target)
+            });
+        if let Err(e) = result {
+            let _ = fs::remove_file(&tmp);
+            remove_apple_doubles(&[tmp]);
+            return Err(if e.kind() == ErrorKind::AlreadyExists {
+                WriteError::Io(e)
+            } else {
+                map_io(e, &target)
+            });
+        }
+        remove_apple_doubles(&[tmp]);
+        self.changes += 1;
+        self.append_entry(target, Op::Created, Some(sha1_hex(bytes)), None, item)
     }
 
     /// The `extracted` op of `file`, once its archive is inside the source

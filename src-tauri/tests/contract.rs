@@ -508,6 +508,7 @@ fn organise_views_match_the_shared_sample() {
                 job: Some(job.into()),
                 moved: 1,
                 copied: 0,
+                extracted: 0,
                 skipped: 1,
                 failed: 0,
                 items: vec![

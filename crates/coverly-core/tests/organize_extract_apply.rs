@@ -701,3 +701,943 @@ mod windows_tests {
         assert!(names_in(&outside).is_empty());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Apply phases B–D, item status and progress (plan Task 32)
+// ---------------------------------------------------------------------------
+
+mod apply_phases {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use coverly_core::archive::external::FoundTool;
+    use coverly_core::archive::testing::{
+        answer, fake_tool, read_args, tar_gz, unrar_l, unrar_listing_script, unrar_lt, ToolEntry,
+        UNRAR_READ_ARGS,
+    };
+    use coverly_core::archive::{open_archive_with, Tool};
+    use coverly_core::organize::extract::{set_phase_hook, HookPoint};
+    use coverly_core::organize::{
+        apply_organize, ApplyEnv, ArchiveAfter, Counts, ExtractSource, ItemKind, ItemStatus,
+        NameMode, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress,
+        OrganizeReport, SheetCheck, SkipReason, SourceFp, Transfer, TransferMode,
+    };
+    use coverly_core::write::trash::{FakeTrash, TrashBackend};
+    use coverly_core::write::{job_archive_steps, ArchiveStep};
+
+    fn fp_of(path: &Path) -> SourceFp {
+        let meta = fs::metadata(path).unwrap();
+        let ns = meta
+            .modified()
+            .unwrap()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        SourceFp {
+            size: meta.len(),
+            mtime_ns: i64::try_from(ns).unwrap(),
+        }
+    }
+
+    /// One automatic `Extract` item for `archive` (inside `env.src`).
+    fn extract_item(
+        env: &Env,
+        archive: &Path,
+        entries: Vec<ExtractEntry>,
+        after: ArchiveAfter,
+    ) -> OrganizeItem {
+        let bytes = entries.iter().map(|e| e.size).sum();
+        OrganizeItem {
+            id: 0,
+            sources: vec![archive.strip_prefix(&env.src).unwrap().to_path_buf()],
+            kind: ItemKind::Archive,
+            size: fs::metadata(archive).unwrap().len(),
+            fps: vec![fp_of(archive)],
+            target: Some(entries[0].target.clone()),
+            set_targets: Vec::new(),
+            system_id: Some("psx".into()),
+            folder: Some("PS".into()),
+            confidence: 1.0,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::Extract {
+                entries,
+                bytes,
+                archive_after: after,
+                source: ExtractSource::Builtin,
+                sheet_check: SheetCheck::Read,
+                m3u: None,
+            },
+            disc: None,
+            action: OrganizeAction::Auto,
+        }
+    }
+
+    fn plan_of(env: &Env, mut items: Vec<OrganizeItem>, mode: TransferMode) -> OrganizePlan {
+        for (i, item) in items.iter_mut().enumerate() {
+            item.id = i;
+        }
+        OrganizePlan {
+            source_root: env.src.clone(),
+            target_root: env.root.clone(),
+            roms_dir: env.root.clone(),
+            layout: "anbernic-stock".into(),
+            mode,
+            names: NameMode::Keep,
+            items,
+            counts: Counts::default(),
+            sorted_folders: Vec::new(),
+            deep_folders: Vec::new(),
+            other_files: Vec::new(),
+            warnings: Vec::new(),
+            broad_root: false,
+            fat32: false,
+            move_allowed: true,
+            target_detected: None,
+            created_at: "2026-10-24T00:00:00Z".into(),
+        }
+    }
+
+    fn set_transfer(
+        item: &mut OrganizeItem,
+        f: impl FnOnce(&mut SheetCheck, &mut ExtractSource, &mut Option<PathBuf>),
+    ) {
+        let Transfer::Extract {
+            sheet_check,
+            source,
+            m3u,
+            ..
+        } = &mut item.transfer
+        else {
+            unreachable!()
+        };
+        f(sheet_check, source, m3u);
+    }
+
+    fn trash_dir(env: &Env) -> PathBuf {
+        env.data.parent().unwrap().join("Trash")
+    }
+
+    fn apply_full(
+        env: &Env,
+        plan: &OrganizePlan,
+        trash: &dyn TrashBackend,
+        tools: Option<&[FoundTool]>,
+        progress: &(dyn Fn(OrganizeProgress) + Sync),
+    ) -> OrganizeReport {
+        let env = ApplyEnv {
+            data_dir: &env.data,
+            progress,
+            cancel: &AtomicBool::new(false),
+            trash,
+            tools,
+        };
+        apply_organize(plan, &env).unwrap()
+    }
+
+    fn apply(env: &Env, plan: &OrganizePlan) -> OrganizeReport {
+        let trash = FakeTrash::new(trash_dir(env));
+        apply_full(env, plan, &trash, Some(&[]), &|_| {})
+    }
+
+    fn status(report: &OrganizeReport) -> &ItemStatus {
+        &report.items[0].status
+    }
+
+    fn job_kinds(env: &Env, report: &OrganizeReport) -> Vec<String> {
+        let job = report.job.as_deref().expect("a job");
+        fs::read_to_string(env.data.join("jobs").join(format!("{job}.jsonl")))
+            .unwrap()
+            .lines()
+            .filter_map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                v["op"]["kind"].as_str().map(str::to_string)
+            })
+            .collect()
+    }
+
+    /// No job temp anywhere under `dir`, recursively.
+    fn assert_no_temps(dir: &Path) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            assert!(!name.starts_with(".coverly-"), "temp left: {name}");
+            if e.file_type().unwrap().is_dir() {
+                assert_no_temps(&e.path());
+            }
+        }
+    }
+
+    /// Nothing of the item reached the library and the archive is as it
+    /// was.
+    fn assert_untouched(env: &Env, archive: &Path, before: &[u8], entries: &[ExtractEntry]) {
+        for e in entries {
+            assert!(!env.root.join(&e.target).exists(), "{:?}", e.target);
+        }
+        assert_no_temps(&env.root);
+        assert_eq!(fs::read(archive).unwrap(), before);
+    }
+
+    fn ps1(env: &Env, folder: &str) -> (PathBuf, Vec<ExtractEntry>) {
+        let (archive, reader) = ps1_archive(env);
+        let entries = plan_entries(reader.as_ref(), folder);
+        (archive, entries)
+    }
+
+    // --- the real planner, end to end ---
+
+    struct NoCloud;
+
+    impl coverly_core::organize::MetaProbe for NoCloud {
+        fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn extract_verify_rename_end_to_end() {
+        use coverly_core::archive::testing::{sevenz, SevenZShape};
+        use coverly_core::disc::testing as dt;
+        use coverly_core::organize::{plan_organize, OrganizeEnv, OrganizeOptions};
+
+        let env = env();
+        let t1 = "Next Tetris, The (USA) (Track 01).bin";
+        let t2 = "Next Tetris, The (USA) (Track 02).bin";
+        let cue = format!(
+            "FILE \"{t1}\" BINARY\r\n  TRACK 01 MODE2/2352\r\n    INDEX 01 00:00:00\r\n\
+             FILE \"{t2}\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 01 00:00:00\r\n"
+        );
+        let track1 = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let track2 = vec![7u8; 2352 * 4];
+        let dir = "Next Tetris, The (USA)";
+        let files: Vec<(String, Vec<u8>)> = vec![
+            (format!("{dir}/{t1}"), track1.clone()),
+            (format!("{dir}/{t2}"), track2.clone()),
+            (
+                format!("{dir}/Next Tetris, The (USA).cue"),
+                cue.clone().into_bytes(),
+            ),
+        ];
+        let refs: Vec<(&str, &[u8])> = files
+            .iter()
+            .map(|(n, d)| (n.as_str(), d.as_slice()))
+            .collect();
+        let archive = env.src.join("Next Tetris, The.zip");
+        fs::write(
+            &archive,
+            sevenz(&refs, SevenZShape::solid_lzma2_sheets_last()),
+        )
+        .unwrap();
+        let hour_ago = SystemTime::now() - std::time::Duration::from_secs(3600);
+        filetime::set_file_mtime(&archive, filetime::FileTime::from_system_time(hour_ago)).unwrap();
+
+        let db = coverly_core::systems::SystemDb::builtin();
+        let profiles = coverly_core::profiles::builtin_profiles();
+        let cache = coverly_core::cache::Cache::in_memory().unwrap();
+        let penv = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: None,
+            probe: &NoCloud,
+            online: None,
+            now: SystemTime::now(),
+        };
+        let opts = OrganizeOptions {
+            layout: "anbernic-stock".into(),
+            target: Some(env.root.clone()),
+            mode: Some(TransferMode::Move),
+            offline: true,
+            ..OrganizeOptions::default()
+        };
+        let plan = plan_organize(&env.src, &opts, &penv, &|_| {}, &AtomicBool::new(false)).unwrap();
+        let item = plan
+            .items
+            .iter()
+            .find(|i| i.sources[0] == Path::new("Next Tetris, The.zip"))
+            .unwrap();
+        assert!(matches!(
+            item.transfer,
+            Transfer::Extract {
+                archive_after: ArchiveAfter::Trash,
+                ..
+            }
+        ));
+
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(&env, &plan, &trash, Some(&[]), &|_| {});
+        let out = report.items.iter().find(|o| o.item == item.id).unwrap();
+        assert_eq!(out.status, ItemStatus::Extracted, "{report:?}");
+        assert_eq!(report.extracted, 1);
+        assert_eq!(out.targets.len(), 3);
+        let by_name = |name: &str| {
+            out.targets
+                .iter()
+                .find(|t| t.file_name().unwrap() == name)
+                .unwrap_or_else(|| panic!("no {name} in {:?}", out.targets))
+        };
+        assert_eq!(fs::read(by_name(t1)).unwrap(), track1);
+        assert_eq!(fs::read(by_name(t2)).unwrap(), track2);
+        assert_eq!(
+            fs::read(by_name("Next Tetris, The (USA).cue")).unwrap(),
+            cue.as_bytes()
+        );
+        // Flat on the Anbernic card: the archive's top folder is dropped.
+        assert!(out
+            .targets
+            .iter()
+            .all(|t| t.parent().unwrap().ends_with("PS")));
+        assert_no_temps(&env.root);
+        assert!(!archive.exists());
+        assert_eq!(trash.trashed(), 1);
+        let kinds = job_kinds(&env, &report);
+        let extracted = kinds.iter().filter(|k| *k == "extracted").count();
+        assert_eq!(extracted, 6, "intent + completion per entry: {kinds:?}");
+        assert_eq!(
+            &kinds[kinds.len() - 2..],
+            ["archive-trash", "archive-trashed"]
+        );
+    }
+
+    #[test]
+    fn no_final_file_before_phase_c() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let finals: Vec<PathBuf> = entries.iter().map(|e| env.root.join(&e.target)).collect();
+        let seen: Rc<RefCell<Vec<(HookPoint, usize, usize)>>> = Rc::default();
+        let (log, dir) = (Rc::clone(&seen), env.root.join("PS"));
+        let watched = finals.clone();
+        set_phase_hook(Some(Box::new(move |at| {
+            let present = watched.iter().filter(|f| f.exists()).count();
+            let temps = names_in(&dir)
+                .iter()
+                .filter(|n| n.starts_with(".coverly-"))
+                .count();
+            log.borrow_mut().push((at, present, temps));
+        })));
+        let plan = plan_of(
+            &env,
+            vec![extract_item(&env, &archive, entries, ArchiveAfter::Keep)],
+            TransferMode::Move,
+        );
+        let report = apply(&env, &plan);
+        set_phase_hook(None);
+        assert_eq!(*status(&report), ItemStatus::Extracted);
+        assert_eq!(
+            *seen.borrow(),
+            [
+                (HookPoint::AfterPhaseA, 0, 3),
+                (HookPoint::AfterPhaseB, 0, 3)
+            ]
+        );
+        assert!(finals.iter().all(|f| f.is_file()));
+        assert_no_temps(&env.root);
+        // Keep: the archive stays and no archive line is written.
+        assert!(archive.is_file());
+        assert!(!job_kinds(&env, &report)
+            .iter()
+            .any(|k| k.starts_with("archive")));
+    }
+
+    /// A cue naming `named`; the archive holds `present` tracks.
+    fn deferred_archive(
+        env: &Env,
+        named: &[&str],
+        present: &[&str],
+    ) -> (PathBuf, Vec<ExtractEntry>) {
+        let mut cue = String::new();
+        for (i, n) in named.iter().enumerate() {
+            cue.push_str(&format!(
+                "FILE \"{n}\" BINARY\r\n  TRACK {:02} MODE1/2352\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        let data: Vec<Vec<u8>> = present.iter().map(|n| n.as_bytes().repeat(500)).collect();
+        let mut refs: Vec<(&str, &[u8])> = present
+            .iter()
+            .zip(&data)
+            .map(|(n, d)| (*n, d.as_slice()))
+            .collect();
+        refs.push(("Game (USA).cue", cue.as_bytes()));
+        let (path, reader) = write_archive(
+            env,
+            "Game.7z",
+            &sevenz(&refs, SevenZShape::solid_lzma2_sheets_last()),
+        );
+        let entries = plan_entries(reader.as_ref(), "SATURN");
+        (path, entries)
+    }
+
+    #[test]
+    fn deferred_sheet_confirmed_at_phase_b() {
+        let env = env();
+        let tracks = ["Game (USA) (Track 1).bin", "Game (USA) (Track 2).bin"];
+        let (archive, entries) = deferred_archive(&env, &tracks, &tracks);
+        let mut item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
+        set_transfer(&mut item, |sc, _, _| *sc = SheetCheck::Deferred);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
+        assert!(entries.iter().all(|e| env.root.join(&e.target).is_file()));
+    }
+
+    #[test]
+    fn deferred_sheet_missing_track_rolls_back() {
+        let env = env();
+        let named = ["Game (USA) (Track 1).bin", "Game (USA) (Track 2).bin"];
+        let (archive, entries) = deferred_archive(&env, &named, &named[..1]);
+        let before = fs::read(&archive).unwrap();
+        let mut item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        set_transfer(&mut item, |sc, _, _| *sc = SheetCheck::Deferred);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        match status(&report) {
+            ItemStatus::Failed { detail, .. } => assert!(detail.contains("Track 2"), "{detail}"),
+            other => panic!("{other:?}"),
+        }
+        assert_untouched(&env, &archive, &before, &entries);
+        assert!(job_kinds(&env, &report).contains(&"rolled-back".to_string()));
+        assert!(!job_kinds(&env, &report)
+            .iter()
+            .any(|k| k.starts_with("archive")));
+    }
+
+    #[test]
+    fn a_sheet_naming_a_track_in_another_case_rolls_back() {
+        let env = env();
+        // The archive's track is `track 1.bin`; the cue names `Track 1.bin`.
+        let (archive, entries) = deferred_archive(&env, &["Track 1.bin"], &["track 1.bin"]);
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert!(
+            matches!(status(&report), ItemStatus::Failed { .. }),
+            "{report:?}"
+        );
+        assert_untouched(&env, &archive, &before, &entries);
+    }
+
+    #[test]
+    fn tar_gz_bad_crc_at_eof_rolls_back() {
+        use coverly_core::organize::extract::{extract_and_commit, CommitRequest};
+
+        let env = env();
+        let rom = b"GBA ROM bytes ".repeat(4000);
+        let good = tar_gz(&[("Tetris (USA).gba", &rom)], 0);
+        // The gzip trailer: CRC-32 then ISIZE. Tar has no per-entry
+        // checksum: only the end of the stream can tell.
+        let mut bad = good.clone();
+        let at = bad.len() - 8;
+        bad[at] ^= 0xFF;
+
+        // Opened while good, damaged before the decode pass: phase A
+        // writes the whole entry, then the stream check fails.
+        let (archive, mut reader) = write_archive(&env, "Tetris.tar.gz", &good);
+        let entries = plan_entries(reader.as_ref(), "GBA");
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&archive)
+            .and_then(|mut f| io::Write::write_all(&mut f, &bad))
+            .unwrap();
+        let mut writer = env.writer();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let err = extract_and_commit(
+            &mut writer,
+            reader.as_mut(),
+            &CommitRequest {
+                extract: ExtractRequest {
+                    item: 0,
+                    archive: &archive,
+                    entries: &entries,
+                    cancel: &cancel,
+                    progress: &|_| {},
+                },
+                archive_fp: None,
+                sheet_check: SheetCheck::Read,
+                m3u: None,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ExtractError::Archive(_)), "{err:?}");
+        assert_rolled_back(&env, &writer, &env.root.join("GBA"), &entries);
+        drop(reader);
+
+        // Through apply, the damage is found when the archive is opened.
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert!(
+            matches!(status(&report), ItemStatus::Failed { .. }),
+            "{report:?}"
+        );
+        assert_untouched(&env, &archive, &before, &entries);
+    }
+
+    /// A RAR (by magic) listed and streamed by a fake unrar that prints
+    /// the right bytes and exits `exit`.
+    fn rar_case(env: &Env, exit: i32) -> (PathBuf, FoundTool, Vec<ExtractEntry>) {
+        let files: [(&str, &[u8]); 2] = [("Game (Track 1).bin", b"track one"), ("Game.cue", b"FILE \"Game (Track 1).bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n")];
+        let archive = env.src.join("Game.rar");
+        fs::write(&archive, b"Rar!\x1a\x07\x01\x00 stand-in").unwrap();
+        let listing: Vec<ToolEntry> = files
+            .iter()
+            .map(|(n, d)| ToolEntry::file(n, d.len() as u64, crc32fast::hash(d)))
+            .collect();
+        let stream: Vec<u8> = files.iter().flat_map(|(_, d)| d.iter().copied()).collect();
+        let script = unrar_listing_script(&unrar_lt(&listing), &unrar_l(&listing)).with_first(
+            answer(read_args(UNRAR_READ_ARGS, &archive, None), &stream, exit),
+        );
+        let bin = env.data.parent().unwrap().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let tool = FoundTool {
+            tool: Tool::Unrar,
+            path: fake_tool(&bin, "unrar", &script),
+            version: "7.01".into(),
+            rar5: true,
+        };
+        let reader = open_archive_with(
+            &archive,
+            &Limits::default(),
+            Some(std::slice::from_ref(&tool)),
+        )
+        .unwrap()
+        .unwrap();
+        let entries = plan_entries(reader.as_ref(), "PS");
+        (archive, tool, entries)
+    }
+
+    fn tool_item(env: &Env, archive: &Path, entries: Vec<ExtractEntry>) -> OrganizeItem {
+        let mut item = extract_item(env, archive, entries, ArchiveAfter::Trash);
+        set_transfer(&mut item, |_, src, _| {
+            *src = ExtractSource::Tool {
+                tool: Tool::Unrar,
+                version: "7.01".into(),
+            }
+        });
+        item
+    }
+
+    #[test]
+    fn tool_exit_3_at_end_rolls_back() {
+        let env = env();
+        let (archive, tool, entries) = rar_case(&env, 3);
+        let before = fs::read(&archive).unwrap();
+        let plan = plan_of(
+            &env,
+            vec![tool_item(&env, &archive, entries.clone())],
+            TransferMode::Move,
+        );
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan,
+            &trash,
+            Some(std::slice::from_ref(&tool)),
+            &|_| {},
+        );
+        match status(&report) {
+            ItemStatus::Failed { detail, .. } => assert!(detail.contains("Unrar"), "{detail}"),
+            other => panic!("{other:?}"),
+        }
+        assert_untouched(&env, &archive, &before, &entries);
+        assert_eq!(trash.trashed(), 0);
+    }
+
+    #[test]
+    fn tool_nonzero_exit_rolls_back_item_and_exit_0_extracts() {
+        let env = env();
+        let (archive, tool, entries) = rar_case(&env, 0);
+        let plan = plan_of(
+            &env,
+            vec![tool_item(&env, &archive, entries.clone())],
+            TransferMode::Move,
+        );
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan,
+            &trash,
+            Some(std::slice::from_ref(&tool)),
+            &|_| {},
+        );
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
+        assert_eq!(
+            fs::read(env.root.join("PS/Game (Track 1).bin")).unwrap(),
+            b"track one"
+        );
+        assert_eq!(trash.trashed(), 1);
+    }
+
+    #[test]
+    fn tool_gone_skips_item() {
+        let env = env();
+        let (archive, tool, entries) = rar_case(&env, 0);
+        let before = fs::read(&archive).unwrap();
+        let plan = plan_of(
+            &env,
+            vec![tool_item(&env, &archive, entries.clone())],
+            TransferMode::Move,
+        );
+        let trash = FakeTrash::new(trash_dir(&env));
+        let gone = apply_full(&env, &plan, &trash, Some(&[]), &|_| {});
+        assert_eq!(
+            *status(&gone),
+            ItemStatus::Skipped {
+                reason: SkipReason::ToolGone
+            }
+        );
+        let other = FoundTool {
+            version: "6.24".into(),
+            ..tool
+        };
+        let upgraded = apply_full(&env, &plan, &trash, Some(&[other]), &|_| {});
+        assert_eq!(
+            *status(&upgraded),
+            ItemStatus::Skipped {
+                reason: SkipReason::ToolGone
+            }
+        );
+        assert_untouched(&env, &archive, &before, &entries);
+    }
+
+    #[test]
+    fn collision_appears_between_b_and_c_rolls_back() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = fs::read(&archive).unwrap();
+        // Sheets are stored last: the cue is renamed last.
+        let cue = env.root.join("PS/Next Tetris, The.cue");
+        let planted = cue.clone();
+        set_phase_hook(Some(Box::new(move |at| {
+            if at == HookPoint::AfterPhaseB {
+                fs::write(&planted, b"someone else's").unwrap();
+            }
+        })));
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        set_phase_hook(None);
+        assert_eq!(
+            *status(&report),
+            ItemStatus::Skipped {
+                reason: SkipReason::CollisionSet
+            }
+        );
+        assert_eq!(fs::read(&cue).unwrap(), b"someone else's");
+        for e in entries.iter().filter(|e| !e.name.ends_with(".cue")) {
+            assert!(!env.root.join(&e.target).exists(), "{:?}", e.target);
+        }
+        assert_no_temps(&env.root);
+        assert_eq!(fs::read(&archive).unwrap(), before);
+        let kinds = job_kinds(&env, &report);
+        assert_eq!(
+            kinds.iter().filter(|k| *k == "rolled-back").count(),
+            3,
+            "{kinds:?}"
+        );
+    }
+
+    #[test]
+    fn a_final_name_taken_before_phase_b_rolls_back_nothing_renamed() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = fs::read(&archive).unwrap();
+        // A twin under another case, planted after the plan.
+        let twin = env.root.join("PS/next tetris, the (track 2).bin");
+        fs::create_dir_all(twin.parent().unwrap()).unwrap();
+        fs::write(&twin, b"mine").unwrap();
+        let item = extract_item(&env, &archive, entries, ArchiveAfter::Trash);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert_eq!(
+            *status(&report),
+            ItemStatus::Skipped {
+                reason: SkipReason::CollisionSet
+            }
+        );
+        assert_eq!(
+            names_in(&env.root.join("PS")),
+            ["next tetris, the (track 2).bin"]
+        );
+        assert_eq!(fs::read(&archive).unwrap(), before);
+        // Nothing changed in the library: no job is left to undo.
+        assert_eq!(report.job, None);
+    }
+
+    #[test]
+    fn archive_replaced_after_plan_is_changed_since_plan() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let plan = plan_of(&env, vec![item], TransferMode::Move);
+        let other = zip_with(&[("Other.bin", b"another game", ZipMethod::Stored)]);
+        fs::write(&archive, &other).unwrap();
+        let report = apply(&env, &plan);
+        assert_eq!(
+            *status(&report),
+            ItemStatus::Skipped {
+                reason: SkipReason::ChangedSincePlan
+            }
+        );
+        assert_untouched(&env, &archive, &other, &entries);
+        assert!(!env.root.join("PS").exists());
+    }
+
+    #[test]
+    fn archive_replaced_during_extraction_rolls_back() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let plan = plan_of(&env, vec![item], TransferMode::Move);
+        let target = archive.clone();
+        set_phase_hook(Some(Box::new(move |at| {
+            if at == HookPoint::AfterPhaseA {
+                let mut f = fs::OpenOptions::new().append(true).open(&target).unwrap();
+                io::Write::write_all(&mut f, b"!").unwrap();
+            }
+        })));
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(&env, &plan, &trash, Some(&[]), &|_| {});
+        set_phase_hook(None);
+        assert_eq!(
+            *status(&report),
+            ItemStatus::Skipped {
+                reason: SkipReason::ChangedSincePlan
+            }
+        );
+        for e in &entries {
+            assert!(!env.root.join(&e.target).exists());
+        }
+        assert_no_temps(&env.root);
+        assert!(archive.is_file());
+        assert_eq!(trash.trashed(), 0);
+    }
+
+    #[test]
+    fn move_mode_trashes_archive_after_commit() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan_of(&env, vec![item], TransferMode::Move),
+            &trash,
+            Some(&[]),
+            &|_| {},
+        );
+        assert_eq!(*status(&report), ItemStatus::Extracted);
+        assert!(!archive.exists());
+        let kinds = job_kinds(&env, &report);
+        let last_extracted = kinds.iter().rposition(|k| k == "extracted").unwrap();
+        let intent = kinds.iter().position(|k| k == "archive-trash").unwrap();
+        assert!(intent > last_extracted, "{kinds:?}");
+        let steps = job_archive_steps(&env.data, report.job.as_deref().unwrap()).unwrap();
+        let ArchiveStep::Trashed { trash: Some(at) } = &steps.last().unwrap().step else {
+            panic!("{steps:?}");
+        };
+        assert!(at.starts_with(trash_dir(&env)) && at.is_file());
+        assert!(entries.iter().all(|e| env.root.join(&e.target).is_file()));
+    }
+
+    #[test]
+    fn trash_unavailable_extracted_kept() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let trash = FakeTrash::unavailable(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan_of(&env, vec![item], TransferMode::Move),
+            &trash,
+            Some(&[]),
+            &|_| {},
+        );
+        assert_eq!(*status(&report), ItemStatus::ExtractedKept);
+        assert_eq!(report.extracted, 1);
+        assert_eq!(fs::read(&archive).unwrap(), before);
+        assert!(entries.iter().all(|e| env.root.join(&e.target).is_file()));
+        let kinds = job_kinds(&env, &report);
+        assert_eq!(&kinds[kinds.len() - 2..], ["archive-trash", "archive-kept"]);
+    }
+
+    #[test]
+    fn copy_mode_never_touches_archive() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = (fs::read(&archive).unwrap(), fp_of(&archive));
+        // Even a plan asking for the Trash: copy mode keeps the archive.
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan_of(&env, vec![item], TransferMode::Copy),
+            &trash,
+            Some(&[]),
+            &|_| {},
+        );
+        assert_eq!(*status(&report), ItemStatus::Extracted);
+        assert_eq!((fs::read(&archive).unwrap(), fp_of(&archive)), before);
+        assert_eq!(trash.trashed(), 0);
+        assert!(!job_kinds(&env, &report)
+            .iter()
+            .any(|k| k.starts_with("archive")));
+    }
+
+    #[test]
+    fn leftover_sav_archive_kept() {
+        let env = env();
+        let (archive, reader) = write_archive(
+            &env,
+            "Tetris.7z",
+            &sevenz(
+                &[
+                    ("Tetris (USA).gba", b"cartridge rom bytes".as_slice()),
+                    ("Tetris (USA).sav", b"the only copy of a save".as_slice()),
+                ],
+                SevenZShape::solid_lzma2_sheets_last(),
+            ),
+        );
+        let entries: Vec<ExtractEntry> = plan_entries(reader.as_ref(), "GBA")
+            .into_iter()
+            .filter(|e| e.name.ends_with(".gba"))
+            .collect();
+        drop(reader);
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan_of(&env, vec![item], TransferMode::Move),
+            &trash,
+            Some(&[]),
+            &|_| {},
+        );
+        assert_eq!(*status(&report), ItemStatus::Extracted);
+        assert_eq!(names_in(&env.root.join("GBA")), ["Tetris (USA).gba"]);
+        assert_eq!(fs::read(&archive).unwrap(), before);
+        assert_eq!(trash.trashed(), 0);
+    }
+
+    #[test]
+    fn m3u_created_journaled() {
+        let env = env();
+        let cue = |bin: &str| {
+            format!("FILE \"{bin}\" BINARY\r\n  TRACK 01 MODE2/2352\r\n    INDEX 01 00:00:00\r\n")
+        };
+        let (b1, b2) = ("Final Game (Disc 1).bin", "Final Game (Disc 2).bin");
+        let (c1, c2) = (cue(b1), cue(b2));
+        let (archive, reader) = write_archive(
+            &env,
+            "Final Game.7z",
+            &sevenz(
+                &[
+                    (b1, b"disc one".as_slice()),
+                    (b2, b"disc two".as_slice()),
+                    ("Final Game (Disc 1).cue", c1.as_bytes()),
+                    ("Final Game (Disc 2).cue", c2.as_bytes()),
+                ],
+                SevenZShape::solid_lzma2_sheets_last(),
+            ),
+        );
+        let entries = plan_entries(reader.as_ref(), "PS/Final Game");
+        drop(reader);
+        let mut item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
+        let m3u = PathBuf::from("PS/Final Game/Final Game.m3u");
+        set_transfer(&mut item, |_, _, m| *m = Some(m3u.clone()));
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
+        let at = env.root.join(&m3u);
+        assert_eq!(
+            fs::read_to_string(&at).unwrap(),
+            "Final Game (Disc 1).cue\nFinal Game (Disc 2).cue\n"
+        );
+        assert_eq!(report.items[0].targets.last(), Some(&at));
+        let job = report.job.as_deref().unwrap();
+        let text = fs::read_to_string(env.data.join("jobs").join(format!("{job}.jsonl"))).unwrap();
+        let created: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+            .filter(|v| v["op"]["kind"] == "created")
+            .collect();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0]["target"], at.to_str().unwrap());
+        assert_eq!(created[0]["item"], 0);
+        assert!(created[0]["sha1"].is_string());
+        assert_no_temps(&env.root);
+    }
+
+    #[test]
+    fn progress_is_byte_based_over_folder_unpack_size() {
+        let env = env();
+        // One solid block: the save is decoded before the ROM to reach it.
+        let save = vec![0x11u8; 3 << 20];
+        let rom: Vec<u8> = (0..(2u32 << 20)).map(|i| (i % 251) as u8).collect();
+        let (archive, reader) = write_archive(
+            &env,
+            "Tetris.7z",
+            &sevenz(
+                &[("Tetris (USA).sav", &save), ("Tetris (USA).gba", &rom)],
+                SevenZShape::solid_lzma2_sheets_last(),
+            ),
+        );
+        let entries: Vec<ExtractEntry> = plan_entries(reader.as_ref(), "GBA")
+            .into_iter()
+            .filter(|e| e.name.ends_with(".gba"))
+            .collect();
+        drop(reader);
+        let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
+        let seen: Mutex<Vec<(u64, u64)>> = Mutex::default();
+        let trash = FakeTrash::new(trash_dir(&env));
+        let report = apply_full(
+            &env,
+            &plan_of(&env, vec![item], TransferMode::Move),
+            &trash,
+            Some(&[]),
+            &|p| {
+                if let OrganizePhase::Extract {
+                    bytes_done,
+                    bytes_total,
+                } = p.phase
+                {
+                    seen.lock().unwrap().push((bytes_done, bytes_total));
+                }
+            },
+        );
+        assert_eq!(*status(&report), ItemStatus::Extracted);
+        let seen = seen.into_inner().unwrap();
+        let total = (save.len() + rom.len()) as u64;
+        assert!(seen.len() >= 2, "{seen:?}");
+        assert!(seen.iter().all(|&(_, t)| t == total), "{seen:?}");
+        assert_eq!(seen.first().unwrap().0, 0);
+        assert_eq!(seen.last().unwrap().0, total);
+        assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "{seen:?}");
+    }
+
+    #[test]
+    fn too_little_room_for_what_is_left_pauses_before_writing() {
+        let env = env();
+        let (archive, entries) = ps1(&env, "PS");
+        let before = fs::read(&archive).unwrap();
+        let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash);
+        set_free_space_override(Some(|_| Some(1000)));
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        set_free_space_override(None);
+        match report.paused {
+            Some(PauseKind::DiskFull { needed, free }) => {
+                assert_eq!(free, 1000);
+                assert!(needed > entries.iter().map(|e| e.size).sum::<u64>());
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(report.resumable_items, [0]);
+        assert_untouched(&env, &archive, &before, &entries);
+    }
+}

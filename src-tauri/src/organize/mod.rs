@@ -236,6 +236,8 @@ impl OrganizeManager {
                     data_dir: &job.data_dir,
                     progress: &progress,
                     cancel: &job.cancel,
+                    trash: &coverly_core::write::trash::OsTrash,
+                    tools: None,
                 };
                 apply(&env).map_err(IpcError::from)
             }))

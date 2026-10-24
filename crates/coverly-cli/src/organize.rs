@@ -31,6 +31,7 @@ use coverly_core::profiles::Profile;
 use coverly_core::settings::Settings;
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREENSCRAPER_BASE};
 use coverly_core::systems::SystemDb;
+use coverly_core::write::trash::OsTrash;
 
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
@@ -223,6 +224,7 @@ fn progress_line(p: OrganizeProgress) {
         OrganizePhase::Dats => "catalogues",
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
+        OrganizePhase::Extract { .. } => "extract",
     };
     if p.total == 0 {
         eprintln!("{phase}");
@@ -296,6 +298,8 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
             data_dir: &dirs.data,
             progress: &progress,
             cancel: &cancel,
+            trash: &OsTrash,
+            tools: None,
         };
         return resume(args, job, &source, &env, &db, s);
     }
@@ -385,6 +389,8 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         data_dir: &dirs.data,
         progress: &progress,
         cancel: &cancel,
+        trash: &OsTrash,
+        tools: None,
     };
     let report =
         apply_organize(&plan, &env).map_err(|e| apply_failure(e, Some(&plan.target_root)))?;
@@ -803,7 +809,8 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
             ItemStatus::CopiedNotRemoved => {
                 "copied, but the source could not be removed".to_string()
             }
-            ItemStatus::Moved | ItemStatus::Copied => continue,
+            ItemStatus::ExtractedKept => "extracted; the archive stays where it was".to_string(),
+            ItemStatus::Moved | ItemStatus::Copied | ItemStatus::Extracted => continue,
         };
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
@@ -817,7 +824,7 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         }
         let _ = writeln!(out, "Undo with: coverly undo --job {j}");
     }
-    if report.paused.is_none() && report.moved + report.copied > 0 {
+    if report.paused.is_none() && report.moved + report.copied + report.extracted > 0 {
         let _ = writeln!(
             out,
             "Open it with: coverly fill {} --profile {}",
@@ -849,6 +856,7 @@ fn skip_text(r: SkipReason) -> &'static str {
         SkipReason::CollisionSet => "a file of the game is taken at the target",
         SkipReason::NotDecided => "to review: no system chosen",
         SkipReason::Cancelled => "cancelled",
+        SkipReason::ToolGone => "the archive tool the plan used is gone",
     }
 }
 
