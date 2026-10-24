@@ -21,6 +21,7 @@ pub mod names;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
+pub mod zstd;
 
 pub use budget::{Budget, ChargedRead, GateWait, MemoryGate, Permit};
 pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};

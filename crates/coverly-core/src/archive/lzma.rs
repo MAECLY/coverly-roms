@@ -298,14 +298,14 @@ pub fn last_decoder_dict() -> Option<u32> {
 
 /// A source that counts its bytes and remembers whether it failed, so a
 /// decoder error can be told apart from an I/O error of the file.
-struct Tracked<R> {
+pub(super) struct Tracked<R> {
     inner: R,
     count: u64,
     failed: Arc<AtomicBool>,
 }
 
 impl<R: Read> Tracked<R> {
-    fn new(inner: R) -> Self {
+    pub(super) fn new(inner: R) -> Self {
         Self {
             inner,
             count: 0,
@@ -313,12 +313,12 @@ impl<R: Read> Tracked<R> {
         }
     }
 
-    fn flag(&self) -> Arc<AtomicBool> {
+    pub(super) fn flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.failed)
     }
 
     /// Fills `buf` or reports how much there was before EOF.
-    fn read_full(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    pub(super) fn read_full(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut filled = 0;
         while filled < buf.len() {
             match self.read(&mut buf[filled..]) {
