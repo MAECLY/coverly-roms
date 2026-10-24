@@ -77,7 +77,7 @@ pub(crate) fn parse_gdi(text: &str) -> Vec<String> {
 }
 
 /// Splits on whitespace, keeping `"quoted words"` together.
-fn tokenize(line: &str) -> Vec<String> {
+pub(crate) fn tokenize(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;

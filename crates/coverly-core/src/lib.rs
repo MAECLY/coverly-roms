@@ -10,6 +10,7 @@ pub mod cache;
 pub mod credentials;
 mod csv_util;
 pub mod dedupe;
+pub mod disc;
 pub mod fill;
 pub mod gamelist;
 pub mod gather;
