@@ -1342,6 +1342,57 @@ mod discs {
     }
 
     #[test]
+    fn thousands_of_sheets_are_a_collection_judged_quickly() {
+        // 4,000 unreadable sheets beside 4,000 tracks in one directory:
+        // each guessed set would hold every track, and pairing them for
+        // twins or shared tracks grows with the square of the sheets.
+        // A disc archive with that many sheets is a collection, judged
+        // from its listing alone.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("Pile.zip");
+        let count = 4_000;
+        let names: Vec<(String, String)> = (0..count)
+            .map(|n| (format!("Game {n}.cue"), format!("Game {n}.bin")))
+            .collect();
+        let mut entries: Vec<(&str, &[u8], bool)> = Vec::new();
+        for (sheet, track) in &names {
+            entries.push((sheet.as_str(), &b"\0not a sheet"[..], false));
+            entries.push((track.as_str(), &b""[..], false));
+        }
+        zip_file(&p, &entries);
+        let started = std::time::Instant::now();
+        let i = inspect(&p);
+        assert_eq!(i.issue, Some(ArchiveIssue::SeveralGames { count }));
+
+        // Playlists count too: each is read and matched against every disc.
+        let p = tmp.path().join("Playlists.zip");
+        let lists: Vec<String> = (0..count).map(|n| format!("Game {n}.m3u")).collect();
+        let mut entries: Vec<(&str, &[u8], bool)> = vec![("Game 0.cue", &b"\0"[..], false)];
+        for list in &lists {
+            entries.push((list.as_str(), &b"Game 0.cue\n"[..], false));
+        }
+        zip_file(&p, &entries);
+        let i = inspect(&p);
+        assert_eq!(
+            i.issue,
+            Some(ArchiveIssue::SeveralGames { count: count + 1 })
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        let p = tmp.path().join("Pile.zip");
+        let i = inspect(&p);
+        assert_eq!(i.disc_set, None);
+        assert_eq!(i.decoded, 0, "no sheet is read");
+        assert_eq!(
+            identify_offline(&p, i).left,
+            Some(LeftReason::MultiGameArchive { count })
+        );
+    }
+
+    #[test]
     fn a_track_of_two_discs_is_shared() {
         let tmp = tempfile::tempdir().unwrap();
         let p = write(

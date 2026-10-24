@@ -754,6 +754,13 @@ const IMAGE_EXTS: [&str; 6] = ["iso", "img", "chd", "cdi", "pbp", "cso"];
 const SECTOR_IMAGE_EXTS: [&str; 2] = ["iso", "img"];
 /// Files that ride with an image of the same stem (CloneCD).
 const IMAGE_COMPANION_EXTS: [&str; 2] = ["ccd", "sub"];
+/// Most discs (sheets, playlists and sheetless images) one disc archive
+/// may hold.
+/// Pairing discs for twins and shared tracks grows with the square of
+/// their count, and no single game ships more than a handful of discs:
+/// beyond this the archive is a collection, judged from its listing
+/// without reading any sheet.
+pub const MAX_DISC_SHEETS: usize = 64;
 
 /// One file entry of a disc archive.
 struct Listed {
@@ -1104,6 +1111,15 @@ fn inspect_discs(
     if !files.iter().any(|f| DISC_EXTS.contains(&f.ext.as_str())) {
         return Ok(false);
     }
+    let discs = files
+        .iter()
+        .filter(|f| f.ext == "m3u" || (f.ext != "ccd" && DISC_EXTS.contains(&f.ext.as_str())))
+        .count();
+    if discs > MAX_DISC_SHEETS {
+        out.payloads.clear();
+        out.issue = Some(ArchiveIssue::SeveralGames { count: discs });
+        return Ok(true);
+    }
     let mut by_key: HashMap<String, usize> = HashMap::new();
     for (i, f) in files.iter().enumerate() {
         by_key.entry(f.key.clone()).or_insert(i);
@@ -1180,11 +1196,14 @@ fn disc_set(
                     .map(|&s| files[s].ext.clone())
                     .collect::<Vec<_>>()
             };
-            let mut ta = a.tracks.clone();
-            let mut tb = b.tracks.clone();
-            ta.sort_unstable();
-            tb.sort_unstable();
-            let twin = a.known && b.known && !ta.is_empty() && ta == tb && {
+            let same_tracks = || {
+                let mut ta = a.tracks.clone();
+                let mut tb = b.tracks.clone();
+                ta.sort_unstable();
+                tb.sort_unstable();
+                !ta.is_empty() && ta == tb
+            };
+            let twin = a.known && b.known && a.tracks.len() == b.tracks.len() && same_tracks() && {
                 let (ka, kb) = (kinds(a), kinds(b));
                 ka.iter().all(|k| !kb.contains(k))
             };
