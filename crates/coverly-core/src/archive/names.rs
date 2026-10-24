@@ -18,7 +18,7 @@ use unicode_normalization::UnicodeNormalization;
 pub enum UnsafeWhy {
     /// `/etc/x`, `C:\x`, `\\server\share`.
     Absolute,
-    /// A `..` or `.` component (zip-slip).
+    /// A `..` component (zip-slip).
     DotDot,
     /// A Windows device name (`CON`, `LPT1.cue`, `CONIN$`…).
     Device,
@@ -44,7 +44,8 @@ pub struct RelPath(String);
 impl RelPath {
     /// Validates `raw` (already decoded text). Both `/` and `\` separate
     /// components; empty components (`a//b`, a trailing `/` of a directory
-    /// entry) are dropped; the result is NFC-normalised once.
+    /// entry) and `.` components (`./Game.gba`, as `tar -C dir .` writes)
+    /// are dropped; the result is NFC-normalised once.
     pub fn parse(raw: &str) -> Result<RelPath, UnsafeWhy> {
         let nfc: String = raw.nfc().collect();
         if nfc.contains('\0') {
@@ -65,7 +66,10 @@ impl RelPath {
             }
         }
         let mut out = String::with_capacity(nfc.len());
-        for component in nfc.split(['/', '\\']).filter(|c| !c.is_empty()) {
+        for component in nfc
+            .split(['/', '\\'])
+            .filter(|c| !c.is_empty() && *c != ".")
+        {
             check_component(component)?;
             if !out.is_empty() {
                 out.push('/');
@@ -101,11 +105,11 @@ impl RelPath {
     }
 }
 
-/// One component of a path: `.`/`..`, illegal characters, a trailing dot
+/// One component of a path: `..`, illegal characters, a trailing dot
 /// or space (Windows drops them, so `game.` would land as `game`), Windows
 /// device names, and the 255 unit/byte limit.
 fn check_component(c: &str) -> Result<(), UnsafeWhy> {
-    if c == "." || c == ".." {
+    if c == ".." {
         return Err(UnsafeWhy::DotDot);
     }
     if c.chars()
@@ -232,8 +236,28 @@ mod tests {
     fn zip_slip_dotdot() {
         assert_eq!(why("../evil.bin"), UnsafeWhy::DotDot);
         assert_eq!(why("games/../../evil.bin"), UnsafeWhy::DotDot);
-        assert_eq!(why("a/./b.bin"), UnsafeWhy::DotDot);
         assert_eq!(why(".."), UnsafeWhy::DotDot);
+        assert_eq!(why("./../evil.bin"), UnsafeWhy::DotDot);
+        assert_eq!(why(".\\..\\evil.bin"), UnsafeWhy::DotDot);
+    }
+
+    /// `tar czf roms.tgz .` stores every entry as `./Game.gba`: a `.`
+    /// component names the same directory, so it is dropped like an empty
+    /// one instead of making every entry of such an archive unsafe.
+    #[test]
+    fn dot_components_dropped() {
+        assert_eq!(RelPath::parse("./Game.gba").unwrap().as_str(), "Game.gba");
+        assert_eq!(RelPath::parse("a/./b.bin").unwrap().as_str(), "a/b.bin");
+        assert_eq!(
+            RelPath::parse(".\\PS\\.\\Game.cue").unwrap().as_str(),
+            "PS/Game.cue"
+        );
+        // The archive root itself (`./`, `.`) names nothing.
+        assert_eq!(why("./"), UnsafeWhy::Illegal);
+        assert_eq!(why("."), UnsafeWhy::Illegal);
+        // A `.` never hides an absolute prefix: `./` is relative already,
+        // and `/./x` is absolute before any component is looked at.
+        assert_eq!(why("/./etc/passwd"), UnsafeWhy::Absolute);
     }
 
     #[test]
