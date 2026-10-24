@@ -1156,3 +1156,566 @@ fn real_sample_lists_through_seven_zip() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Reads by unambiguous name, by verified stream and through bsdtar's pax
+// transcode (plan Task 15, S8)
+// ---------------------------------------------------------------------------
+
+mod reads {
+    use super::*;
+    use coverly_core::archive::external::{is_ambiguous, PaxReader, ToolReader};
+    use coverly_core::archive::testing::{
+        answer, read_args, seven_zip_l, seven_zip_listing_script, seven_zip_slt, tar_crafted,
+        transcode_args, unrar_l, unrar_listing_script, unrar_lt, TarSpec, ToolEntry,
+        SEVEN_ZIP_NAME_ARGS, SEVEN_ZIP_STREAM_ARGS, UNRAR_READ_ARGS,
+    };
+    use coverly_core::archive::{ArchiveReader, Budget, Entry, EntryKind, Format, Limits};
+    use std::io::Read;
+
+    const RAR5: Format = Format::Rar { v5: true };
+
+    fn crc(data: &[u8]) -> u32 {
+        crc32fast::hash(data)
+    }
+
+    fn listing(files: &[(&str, &[u8])]) -> Vec<ToolEntry> {
+        files
+            .iter()
+            .map(|(name, data)| ToolEntry::file(name, data.len() as u64, crc(data)))
+            .collect()
+    }
+
+    /// Every file's bytes in archive order: what `unrar p` / `7zz e -so`
+    /// print with no name.
+    fn concat(files: &[(&str, &[u8])]) -> Vec<u8> {
+        files.iter().flat_map(|(_, d)| d.iter().copied()).collect()
+    }
+
+    /// An archive in its own folder, and that folder for the tool.
+    struct Case {
+        _tmp: tempfile::TempDir,
+        archive: PathBuf,
+        dir: PathBuf,
+    }
+
+    fn case() -> Case {
+        setup();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let archive = archive(tmp.path());
+        let dir = tmp.path().to_path_buf();
+        Case {
+            _tmp: tmp,
+            archive,
+            dir,
+        }
+    }
+
+    /// An unrar that lists `entries`, prints `stream` for the no-name read
+    /// and `names[i].1` for a read of `names[i].0`.
+    fn unrar_reader(
+        c: &Case,
+        entries: &[ToolEntry],
+        stream: (&[u8], i32),
+        names: &[(&str, &[u8], i32)],
+    ) -> ToolReader {
+        let mut script =
+            unrar_listing_script(&unrar_lt(entries), &unrar_l(entries)).with_first(answer(
+                read_args(UNRAR_READ_ARGS, &c.archive, None),
+                stream.0,
+                stream.1,
+            ));
+        // Name reads share the stream read's prefix: they go first.
+        for (name, out, exit) in names {
+            script = script.with_first(answer(
+                read_args(UNRAR_READ_ARGS, &c.archive, Some(name)),
+                out,
+                *exit,
+            ));
+        }
+        let tool = FoundTool {
+            tool: Tool::Unrar,
+            path: fake_tool(&c.dir, "unrar", &script),
+            version: "7.01".into(),
+            rar5: true,
+        };
+        ToolReader::open(&[tool], &c.archive, RAR5, &Limits::default()).expect("listing")
+    }
+
+    fn seven_zip_reader(
+        c: &Case,
+        slt: &str,
+        l: &str,
+        stream: &[u8],
+        names: &[(&str, &[u8])],
+    ) -> ToolReader {
+        let mut script = seven_zip_listing_script(slt, l).with_first(answer(
+            read_args(SEVEN_ZIP_STREAM_ARGS, &c.archive, None),
+            stream,
+            0,
+        ));
+        for (name, out) in names {
+            script = script.with_first(answer(
+                read_args(SEVEN_ZIP_NAME_ARGS, &c.archive, Some(name)),
+                out,
+                0,
+            ));
+        }
+        let tool = found(Tool::SevenZip, fake_tool(&c.dir, "7zz", &script));
+        ToolReader::open(&[tool], &c.archive, Format::SevenZip, &Limits::default())
+            .expect("listing")
+    }
+
+    fn index_of(r: &dyn ArchiveReader, name: &str) -> usize {
+        r.entries()
+            .iter()
+            .position(|e| e.name.as_str() == name)
+            .unwrap_or_else(|| panic!("no {name}"))
+    }
+
+    fn read_entry(r: &mut dyn ArchiveReader, index: usize) -> Result<Vec<u8>, ArchiveError> {
+        let mut budget = Budget::apply();
+        let mut out = Vec::new();
+        r.open_entry(index, &mut budget)?
+            .read_to_end(&mut out)
+            .map_err(ArchiveError::from)?;
+        Ok(out)
+    }
+
+    fn stream_all(
+        r: &mut dyn ArchiveReader,
+        wanted: &[usize],
+    ) -> Result<Vec<(String, Vec<u8>)>, ArchiveError> {
+        let mut budget = Budget::apply();
+        let mut got = Vec::new();
+        r.stream_entries(
+            wanted,
+            &mut budget,
+            &mut |e: &Entry, data: &mut dyn Read| {
+                let mut bytes = Vec::new();
+                data.read_to_end(&mut bytes).map_err(ArchiveError::from)?;
+                got.push((e.name.as_str().to_string(), bytes));
+                Ok(())
+            },
+        )?;
+        Ok(got)
+    }
+
+    #[track_caller]
+    fn assert_damaged<T: std::fmt::Debug>(r: Result<T, ArchiveError>, what: &str) {
+        match r {
+            Err(ArchiveError::Damaged { .. }) => {}
+            other => panic!("{what}: expected Damaged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unambiguous_name_read_by_name() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("a.bin", b"alpha"), ("Game/b.bin", b"bravo!")];
+        // The stream read would give other bytes: only the name read fits.
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (b"xxxxxyyyyyy", 0),
+            &[("Game/b.bin", b"bravo!", 0)],
+        );
+        let i = index_of(&r, "Game/b.bin");
+        assert_eq!(read_entry(&mut r, i).expect("by name"), b"bravo!");
+    }
+
+    #[test]
+    fn wildcard_name_read_by_stream() {
+        let c = case();
+        // `*` and `?` never get this far (`RelPath` refuses them, and with
+        // them the whole tool listing); `[`, `]`, `{`, `}` do, as in the
+        // GoodTools `[!]`.
+        let files: [(&str, &[u8]); 3] = [
+            ("Game [1].bin", b"wild"),
+            ("Game {a,b}.bin", b"brace"),
+            ("Game 1.bin", b"one!"),
+        ];
+        // A name read of `Game [1].bin` would match `Game 1.bin`.
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (&concat(&files), 0),
+            &[
+                ("Game [1].bin", b"one!", 0),
+                ("Game {a,b}.bin", b"one!!", 0),
+                ("Game 1.bin", b"one!", 0),
+            ],
+        );
+        assert_eq!(read_entry(&mut r, 0).expect("by stream"), b"wild");
+        assert_eq!(read_entry(&mut r, 1).expect("by stream"), b"brace");
+        assert_eq!(read_entry(&mut r, 2).expect("plain name"), b"one!");
+    }
+
+    #[test]
+    fn case_twin_read_by_stream() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("Game.bin", b"upper"), ("game.BIN", b"lower")];
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (&concat(&files), 0),
+            &[("Game.bin", b"lower", 0), ("game.BIN", b"upper", 0)],
+        );
+        assert_eq!(read_entry(&mut r, 0).expect("first twin"), b"upper");
+        assert_eq!(read_entry(&mut r, 1).expect("second twin"), b"lower");
+    }
+
+    #[test]
+    fn dir_prefix_twin_read_by_stream() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("disc", b"sheet"), ("disc/track.bin", b"track")];
+        // unrar would also print `disc/track.bin` for a read of `disc`.
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (&concat(&files), 0),
+            &[("disc", b"track", 0)],
+        );
+        assert_eq!(read_entry(&mut r, 0).expect("by stream"), b"sheet");
+    }
+
+    #[test]
+    fn dash_name_not_an_option() {
+        let c = case();
+        let files: [(&str, &[u8]); 3] = [
+            ("-inul.bin", b"dash"),
+            ("@list.bin", b"atsign"),
+            ("ok.bin", b"fine"),
+        ];
+        // Only the stream read answers: a name passed as an argument gets
+        // nothing back (and fails its size check).
+        let mut r = unrar_reader(&c, &listing(&files), (&concat(&files), 0), &[]);
+        assert_eq!(read_entry(&mut r, 0).expect("dash"), b"dash");
+        assert_eq!(read_entry(&mut r, 1).expect("at sign"), b"atsign");
+        let ambiguous: Vec<bool> = r
+            .entries()
+            .iter()
+            .map(|e| is_ambiguous(e.name.as_str(), r.entries()))
+            .collect();
+        assert_eq!(ambiguous, vec![true, true, false]);
+    }
+
+    #[test]
+    fn bang_name_ambiguous_for_7zip() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("Hit!.bin", b"bang"), ("Hit.bin", b"plain")];
+        let entries = listing(&files);
+        let mut r = seven_zip_reader(
+            &c,
+            &seven_zip_slt(&entries),
+            &seven_zip_l(&entries),
+            &concat(&files),
+            &[("Hit!.bin", b"oops"), ("Hit.bin", b"plain")],
+        );
+        assert!(is_ambiguous("Hit!.bin", r.entries()));
+        assert_eq!(read_entry(&mut r, 0).expect("by stream"), b"bang");
+        assert_eq!(read_entry(&mut r, 1).expect("by name"), b"plain");
+    }
+
+    #[test]
+    fn stream_mode_refused_with_link_entries() {
+        let c = case();
+        let files: [(&str, &[u8]); 3] = [("link", b""), ("a[1].bin", b"star"), ("b.bin", b"bee")];
+        let entries = listing(&files);
+        // The first entry is a symlink: its `-so` output is not its size.
+        let slt =
+            seven_zip_slt(&entries).replacen("Attributes = A\n", "Attributes = A lrwxr-xr-x\n", 1);
+        let mut r = seven_zip_reader(
+            &c,
+            &slt,
+            &seven_zip_l(&entries),
+            &concat(&files),
+            &[("b.bin", b"bee")],
+        );
+        assert_eq!(r.entries()[0].kind, EntryKind::Symlink);
+        match read_entry(&mut r, 1) {
+            Err(ArchiveError::Unsupported { format, need: None })
+                if format == "ambiguous names" => {}
+            other => panic!("expected Unsupported(ambiguous names), got {other:?}"),
+        }
+        // An unambiguous name still reads.
+        assert_eq!(read_entry(&mut r, 2).expect("by name"), b"bee");
+        // Several wanted with a link listed: one name read each.
+        assert_eq!(
+            stream_all(&mut r, &[2]).expect("names"),
+            vec![("b.bin".to_string(), b"bee".to_vec())]
+        );
+        assert!(matches!(
+            stream_all(&mut r, &[1, 2]),
+            Err(ArchiveError::Unsupported { .. })
+        ));
+    }
+
+    #[test]
+    fn encrypted_entries_refuse_stream_mode() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("a[1].bin", b"star"), ("b.bin", b"bee")];
+        let entries = listing(&files);
+        let slt = seven_zip_slt(&entries);
+        let at = slt.rfind("Encrypted = -").expect("second");
+        let slt = format!("{}Encrypted = +{}", &slt[..at], &slt[at + 13..]);
+        let mut r = seven_zip_reader(&c, &slt, &seven_zip_l(&entries), &concat(&files), &[]);
+        assert!(matches!(
+            read_entry(&mut r, 0),
+            Err(ArchiveError::Unsupported { .. })
+        ));
+        assert!(matches!(
+            read_entry(&mut r, 1),
+            Err(ArchiveError::Encrypted)
+        ));
+    }
+
+    #[test]
+    fn stream_slice_crc_mismatch_damaged() {
+        let c = case();
+        let files: [(&str, &[u8]); 3] = [
+            ("a.bin", b"first"),
+            ("b[2].bin", b"second"),
+            ("c.bin", b"third"),
+        ];
+        let entries = listing(&files);
+        // A slice we do not want, before the wanted one, is altered.
+        let mut bad = concat(&files);
+        bad[0] = b'F';
+        let mut r = unrar_reader(&c, &entries, (&bad, 0), &[]);
+        assert_damaged(read_entry(&mut r, 1), "slice before the wanted one");
+        // One after it, too: every slice is verified before the read ends.
+        let c = case();
+        let mut bad = concat(&files);
+        let last = bad.len() - 1;
+        bad[last] = b'D';
+        let mut r = unrar_reader(&c, &entries, (&bad, 0), &[]);
+        assert_damaged(read_entry(&mut r, 1), "slice after the wanted one");
+        // A stream longer than the listed sizes.
+        let c = case();
+        let mut long = concat(&files);
+        long.extend_from_slice(b"more");
+        let mut r = unrar_reader(&c, &entries, (&long, 0), &[]);
+        assert_damaged(read_entry(&mut r, 1), "trailing bytes");
+        // Or shorter.
+        let c = case();
+        let short = &concat(&files)[..10];
+        let mut r = unrar_reader(&c, &entries, (short, 0), &[]);
+        assert_damaged(read_entry(&mut r, 1), "short stream");
+        assert_damaged(stream_all(&mut r, &[0, 1, 2]), "short stream pass");
+    }
+
+    #[test]
+    fn name_read_crc_verified() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("a.bin", b"aaaa"), ("b.bin", b"bbbb")];
+        // unrar answers `b.bin` with the bytes of `a.bin` (same size).
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (b"zzzzzzzz", 0),
+            &[("b.bin", b"aaaa", 0)],
+        );
+        assert_damaged(read_entry(&mut r, 1), "another entry's bytes");
+        let c = case();
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (b"zzzzzzzz", 0),
+            &[("b.bin", b"bbbbb", 0)],
+        );
+        assert_damaged(read_entry(&mut r, 1), "one byte too many");
+    }
+
+    #[test]
+    fn tool_nonzero_exit_is_tool_failed() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("a.bin", b"aaaa"), ("b[2].bin", b"bbbb")];
+        // Right bytes, then a failing exit: the read is not verified.
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (&concat(&files), 3),
+            &[("a.bin", b"aaaa", 2)],
+        );
+        let failed = |r: Result<Vec<u8>, ArchiveError>, want: i32, what: &str| match r {
+            Err(ArchiveError::ToolFailed {
+                tool: Tool::Unrar,
+                status: Some(s),
+            }) if s == want => {}
+            other => panic!("{what}: expected ToolFailed({want}), got {other:?}"),
+        };
+        failed(read_entry(&mut r, 0), 2, "by name");
+        failed(read_entry(&mut r, 1), 3, "by stream");
+        match stream_all(&mut r, &[0, 1]) {
+            Err(ArchiveError::ToolFailed {
+                status: Some(3), ..
+            }) => {}
+            other => panic!("stream pass: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_entries_one_pass_for_several() {
+        let c = case();
+        let files: [(&str, &[u8]); 3] = [
+            ("a.bin", b"first"),
+            ("b.bin", b"second"),
+            ("c.bin", b"third"),
+        ];
+        // Name reads would give wrong bytes: several wanted, one stream.
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (&concat(&files), 0),
+            &[("a.bin", b"FIRST", 0), ("c.bin", b"THIRD", 0)],
+        );
+        let got = stream_all(&mut r, &[2, 0]).expect("one pass");
+        assert_eq!(
+            got,
+            vec![
+                ("a.bin".to_string(), b"first".to_vec()),
+                ("c.bin".to_string(), b"third".to_vec())
+            ]
+        );
+        // A sink that reads nothing still gets its slices verified.
+        let mut budget = Budget::apply();
+        r.stream_entries(&[0, 1], &mut budget, &mut |_, _| Ok(()))
+            .expect("unread slices drained");
+        let c = case();
+        let mut bad = concat(&files);
+        bad[6] = b'E';
+        let mut r = unrar_reader(&c, &listing(&files), (&bad, 0), &[]);
+        let mut budget = Budget::apply();
+        assert_damaged(
+            r.stream_entries(&[1, 2], &mut budget, &mut |_, _| Ok(())),
+            "unread slice checked",
+        );
+    }
+
+    #[test]
+    fn reads_are_charged_to_the_budget() {
+        let c = case();
+        let files: [(&str, &[u8]); 2] = [("a.bin", b"first"), ("b[2].bin", b"second")];
+        let mut r = unrar_reader(&c, &listing(&files), (&concat(&files), 0), &[]);
+        let limits = Limits {
+            plan_head_budget: 8,
+            ..Limits::default()
+        };
+        let mut budget = Budget::plan_head(&limits);
+        let mut out = Vec::new();
+        // Reaching `b[2].bin` decodes `a.bin` first: 5 + 6 bytes > 8.
+        let err = r
+            .open_entry(1, &mut budget)
+            .and_then(|mut s| s.read_to_end(&mut out).map_err(ArchiveError::from))
+            .expect_err("budget");
+        assert!(matches!(err, ArchiveError::BudgetSpent { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn cancelled_read_never_starts() {
+        let c = case();
+        let files: [(&str, &[u8]); 1] = [("a.bin", b"first")];
+        let mut r = unrar_reader(
+            &c,
+            &listing(&files),
+            (b"first", 0),
+            &[("a.bin", b"first", 0)],
+        );
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut budget = Budget::apply().with_cancel(flag);
+        assert!(matches!(
+            r.open_entry(0, &mut budget).map(|_| ()),
+            Err(ArchiveError::Cancelled)
+        ));
+    }
+
+    fn bsdtar(c: &Case, out: &[u8], exit: i32, rar5: bool) -> FoundTool {
+        let tar = c.dir.join("transcode.tar");
+        std::fs::write(&tar, out).expect("tar");
+        let script = FakeScript {
+            cases: vec![FakeCase {
+                args_prefix: transcode_args(&c.archive),
+                stdout_file: Some(tar),
+                exit,
+                ..FakeCase::default()
+            }],
+        };
+        FoundTool {
+            tool: Tool::Bsdtar,
+            path: fake_tool(&c.dir, "bsdtar", &script),
+            version: "3.7.4".into(),
+            rar5,
+        }
+    }
+
+    #[test]
+    fn bsdtar_pax_transcode_names_exact() {
+        let c = case();
+        let long = format!("{}/{} (Track 01).bin", "D".repeat(80), "Pokémon".repeat(8));
+        let tar = tar_crafted(&[
+            TarSpec::dir("Pokémon"),
+            TarSpec::pax(&[("path", "Pokémon/Pokémon [!] {Track 1}.bin".as_bytes())]),
+            TarSpec::file("Pokemon/ascii-fallback.bin", b"track one"),
+            TarSpec::pax(&[("path", long.as_bytes())]),
+            TarSpec::file("short.bin", b"long name"),
+            TarSpec::file("game.cue", b"FILE"),
+        ]);
+        let tool = bsdtar(&c, &tar, 0, true);
+        let mut r =
+            PaxReader::open(&[tool], &c.archive, RAR5, &Limits::default()).expect("transcode");
+        assert_eq!(r.format(), RAR5);
+        assert!(r.listing_complete());
+        let names: Vec<(&str, EntryKind, u64)> = r
+            .entries()
+            .iter()
+            .map(|e| (e.name.as_str(), e.kind, e.size))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("Pokémon", EntryKind::Dir, 0),
+                ("Pokémon/Pokémon [!] {Track 1}.bin", EntryKind::File, 9),
+                (long.as_str(), EntryKind::File, 9),
+                ("game.cue", EntryKind::File, 4),
+            ]
+        );
+        // Pattern characters need no slicing: the tar frames each entry.
+        assert_eq!(read_entry(&mut r, 1).expect("wildcard name"), b"track one");
+        assert_eq!(read_entry(&mut r, 2).expect("long name"), b"long name");
+        let got = stream_all(&mut r, &[3, 1]).expect("one pass");
+        assert_eq!(
+            got.iter()
+                .map(|(n, d)| (n.as_str(), d.as_slice()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Pokémon/Pokémon [!] {Track 1}.bin", b"track one".as_slice()),
+                ("game.cue", b"FILE".as_slice()),
+            ]
+        );
+    }
+
+    #[test]
+    fn bsdtar_transcode_exit_status_checked() {
+        let c = case();
+        let tar = tar_crafted(&[TarSpec::file("a.bin", b"aaaa")]);
+        let tool = bsdtar(&c, &tar, 1, true);
+        match PaxReader::open(&[tool], &c.archive, RAR5, &Limits::default()) {
+            Err(ArchiveError::ToolFailed {
+                tool: Tool::Bsdtar,
+                status: Some(1),
+            }) => {}
+            other => panic!("listing of a failed transcode: {:?}", other.map(|_| ())),
+        }
+        // libarchive before 3.6 does not open RAR5.
+        let c = case();
+        let tool = bsdtar(&c, &tar, 0, false);
+        assert!(matches!(
+            PaxReader::open(&[tool], &c.archive, RAR5, &Limits::default()),
+            Err(ArchiveError::Unsupported {
+                need: Some(Tool::Bsdtar),
+                ..
+            })
+        ));
+    }
+}

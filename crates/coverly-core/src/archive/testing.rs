@@ -1456,6 +1456,8 @@ pub struct FakeCase {
     pub args_prefix: Vec<String>,
     /// Printed to stdout first, as is.
     pub stdout: String,
+    /// Then the bytes of this file (binary output: tar, entry data).
+    pub stdout_file: Option<std::path::PathBuf>,
     /// Then this many `o` bytes on stdout.
     pub stdout_fill: u64,
     pub stderr: String,
@@ -1807,6 +1809,51 @@ pub fn unrar_listing_script(lt: &str, l: &str) -> FakeScript {
                 ..FakeCase::default()
             },
         ],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// External reads by name, by stream and through bsdtar (plan Task 15, S8)
+// ---------------------------------------------------------------------------
+
+/// The switches of a 7-Zip read of one named entry, before `--`.
+pub const SEVEN_ZIP_NAME_ARGS: &[&str] = &["e", "-so", "-spd", "-r-"];
+/// The switches of a 7-Zip read of every file in archive order.
+pub const SEVEN_ZIP_STREAM_ARGS: &[&str] = &["e", "-so", "-spd"];
+/// The switches of an unrar read, by name or (with no name) every file.
+pub const UNRAR_READ_ARGS: &[&str] = &["p", "-inul", "-cfg-"];
+/// The switches of bsdtar's pax transcode, before `--`.
+pub const BSDTAR_TRANSCODE_ARGS: &[&str] = &["-c", "--format=pax", "-f", "-"];
+
+/// The full arguments of one read: `switches`, `--`, the archive, then
+/// `name` when the read is by name. A fake case with them as its prefix
+/// answers exactly that read.
+pub fn read_args(switches: &[&str], archive: &std::path::Path, name: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = switches.iter().map(|a| (*a).to_string()).collect();
+    out.push("--".into());
+    out.push(archive.to_string_lossy().into_owned());
+    out.extend(name.map(str::to_string));
+    out
+}
+
+/// The full arguments of bsdtar's pax transcode of `archive`.
+pub fn transcode_args(archive: &std::path::Path) -> Vec<String> {
+    let mut out: Vec<String> = BSDTAR_TRANSCODE_ARGS
+        .iter()
+        .map(|a| (*a).to_string())
+        .collect();
+    out.push("--".into());
+    out.push(format!("@{}", archive.to_string_lossy()));
+    out
+}
+
+/// A case that answers `args` with `stdout` and `exit`.
+pub fn answer(args: Vec<String>, stdout: &[u8], exit: i32) -> FakeCase {
+    FakeCase {
+        args_prefix: args,
+        stdout: String::from_utf8(stdout.to_vec()).expect("text output; use stdout_file"),
+        exit,
+        ..FakeCase::default()
     }
 }
 

@@ -55,6 +55,11 @@ fn main() -> ExitCode {
 
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(case.stdout.as_bytes());
+    if let Some(file) = &case.stdout_file {
+        if let Ok(bytes) = std::fs::read(file) {
+            let _ = out.write_all(&bytes);
+        }
+    }
     if case.report {
         report(&mut out, &args);
     }

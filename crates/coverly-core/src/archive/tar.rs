@@ -331,6 +331,170 @@ impl<R: Read + Seek + Send> ArchiveReader for TarReader<R> {
     }
 }
 
+/// A tar listed from a stream that cannot seek: bsdtar's pax transcode of
+/// an archive it opens (spec §5.2, S8). It is read front to back like a
+/// tar inside a compressor: the end marker is required, the trailer drain
+/// is capped (S6), and every read walks the headers again and refuses a
+/// stream that differs from the listing.
+#[derive(Clone, Debug)]
+pub(crate) struct StreamListing {
+    pub(crate) entries: Vec<Entry>,
+    spans: Vec<Span>,
+    pub(crate) complete: bool,
+}
+
+/// Lists the tar `src` yields, every byte charged to `budget`. A spent
+/// byte budget ends the listing early (incomplete) once one entry is known;
+/// a complete one is read through the trailer to the stream's end.
+pub(crate) fn list_stream(
+    src: impl Read,
+    limits: &Limits,
+    budget: &mut Budget,
+) -> Result<StreamListing, ArchiveError> {
+    let trailer = Trailer {
+        allowance: limits.tar_trailer_allowance,
+        limited: budget.remaining().is_some(),
+    };
+    let mut w = Walker::new(Decoded::new(ChargedRead::new(src, budget)), limits, 0);
+    let (raws, complete) = collect(&mut w, limits, Some(trailer))?;
+    let (mut entries, spans): (Vec<Entry>, Vec<Span>) = raws
+        .into_iter()
+        .enumerate()
+        .map(|(index, raw)| raw.into_entry(index, &Method::Stored, true))
+        .unzip();
+    mark_link_prefixes(&mut entries);
+    Ok(StreamListing {
+        entries,
+        spans,
+        complete,
+    })
+}
+
+/// Entry `index` of `listing` from a fresh stream `src`, verified by size.
+/// After the entry's last byte the reader walks on to the end of the
+/// stream (the other entries, the end marker, the capped trailer) before
+/// it reports EOF, so a source that checks itself at its end (a tool's
+/// exit status) has done so when the entry reads as whole.
+pub(crate) fn open_stream_entry<'a, R: Read + 'a>(
+    src: R,
+    listing: &'a StreamListing,
+    index: usize,
+    limits: &Limits,
+    budget: &'a mut Budget,
+) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+    let entry = listing.entries.get(index).ok_or_else(|| no_entry(index))?;
+    readable(entry)?;
+    let trailer = Trailer {
+        allowance: limits.tar_trailer_allowance,
+        limited: budget.remaining().is_some(),
+    };
+    let mut w = Walker::new(Decoded::new(ChargedRead::new(src, budget)), limits, 0);
+    for (listed, &span) in listing.entries.iter().zip(&listing.spans).take(index + 1) {
+        w.next()?.ok_or_else(changed)?.matches(listed, span)?;
+    }
+    let to_end = ToEnd {
+        w,
+        left: entry.size,
+        listing,
+        next: index + 1,
+        trailer,
+        done: false,
+    };
+    Ok(Box::new(VerifyingReader::new(to_end, entry.size, None)))
+}
+
+/// One pass over a fresh stream `src` handing the `wanted` entries of
+/// `listing` to `sink`, then through the end marker and the trailer.
+pub(crate) fn stream_stream_entries(
+    src: impl Read,
+    listing: &StreamListing,
+    wanted: &[usize],
+    limits: &Limits,
+    budget: &mut Budget,
+    sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+) -> Result<(), ArchiveError> {
+    let mut order = wanted.to_vec();
+    order.sort_unstable();
+    order.dedup();
+    for &index in &order {
+        readable(listing.entries.get(index).ok_or_else(|| no_entry(index))?)?;
+    }
+    if order.is_empty() {
+        return Ok(());
+    }
+    let trailer = Trailer {
+        allowance: limits.tar_trailer_allowance,
+        limited: budget.remaining().is_some(),
+    };
+    let mut w = Walker::new(Decoded::new(ChargedRead::new(src, budget)), limits, 0);
+    let mut want = order.into_iter().peekable();
+    let mut index = 0usize;
+    while let Some(raw) = w.next()? {
+        if let (Some(listed), Some(&span)) = (listing.entries.get(index), listing.spans.get(index))
+        {
+            raw.matches(listed, span)?;
+            if want.peek() == Some(&index) {
+                want.next();
+                let mut data = VerifyingReader::new((&mut w).take(listed.size), listed.size, None);
+                sink(listed, &mut data)?;
+                drain(&mut data)?;
+            }
+        }
+        index += 1;
+    }
+    if index < listing.entries.len() || (listing.complete && index > listing.entries.len()) {
+        return Err(changed());
+    }
+    drain_trailer(&mut w, trailer)
+}
+
+/// The rest of one entry, then the rest of the stream (see
+/// [`open_stream_entry`]).
+struct ToEnd<'a, S> {
+    w: Walker<S>,
+    left: u64,
+    listing: &'a StreamListing,
+    /// The listing index of the next header.
+    next: usize,
+    trailer: Trailer,
+    done: bool,
+}
+
+impl<S: TarSource> ToEnd<'_, S> {
+    fn finish(&mut self) -> Result<(), ArchiveError> {
+        while let Some(raw) = self.w.next()? {
+            let at = self.next;
+            if let (Some(listed), Some(&span)) =
+                (self.listing.entries.get(at), self.listing.spans.get(at))
+            {
+                raw.matches(listed, span)?;
+            }
+            self.next += 1;
+        }
+        let n = self.listing.entries.len();
+        if self.next < n || (self.listing.complete && self.next > n) {
+            return Err(changed());
+        }
+        drain_trailer(&mut self.w, self.trailer)
+    }
+}
+
+impl<S: TarSource> Read for ToEnd<'_, S> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.left > 0 {
+            let want = usize::try_from(self.left).map_or(buf.len(), |l| l.min(buf.len()));
+            let n = self.w.read(&mut buf[..want])?;
+            self.left -= n as u64;
+            return Ok(n);
+        }
+        if !self.done {
+            self.finish()?;
+            self.done = true;
+        }
+        Ok(0)
+    }
+}
+
 /// How the bytes after the end marker are drained (S6).
 #[derive(Clone, Copy, Debug)]
 struct Trailer {

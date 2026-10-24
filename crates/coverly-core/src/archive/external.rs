@@ -15,12 +15,15 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::guard::guarded;
+use super::budget::{ChargedRead, GateWait};
+use super::guard::{guarded, GuardedRead, Poison};
+use super::names::name_key;
+use super::verify::VerifyingReader;
 use super::{
     ArchiveError, ArchiveReader, Budget, Entry, EntryKind, Format, Limits, Method, RelPath, Tool,
 };
@@ -556,19 +559,24 @@ const STDERR_GRACE: Duration = Duration::from_millis(200);
 /// Chunks in flight between the stdout reader thread and the run.
 const STDOUT_QUEUE: usize = 4;
 
-/// Spawns `t` with exactly `args` and waits for it under the hygiene of
-/// [`run_tool`] (which adds the `--` and the archive).
-///
-/// The pipes are read on their own detached threads and the run waits for
-/// them only until `timeout`: a process that left the tree (a daemon that
-/// called `setsid`) and keeps a pipe open cannot hold the run past it.
-fn spawn_bounded(
-    t: &FoundTool,
-    args: &[&OsStr],
-    out_cap: u64,
-    timeout: Duration,
-    sink: Option<&mut dyn Write>,
-) -> Result<ToolRun, ArchiveError> {
+/// One started tool: the child in its own tree, stdout arriving in chunks
+/// on a channel, stderr kept as it arrives, and the run directory that is
+/// removed when this is dropped.
+struct Running {
+    child: Child,
+    tree: Tree,
+    out_rx: Receiver<io::Result<Vec<u8>>>,
+    err_kept: Arc<Mutex<Vec<u8>>>,
+    err_rx: Receiver<()>,
+    _dir: RunDir,
+}
+
+/// Spawns `t` with exactly `args` under the hygiene of [`run_tool`]: an
+/// absolute regular executable, a fresh empty working directory, a cleared
+/// environment, stdin closed, its own process tree, and both pipes read on
+/// their own detached threads (a process that left the tree and keeps a
+/// pipe open cannot block us).
+fn start(t: &FoundTool, args: &[&OsStr]) -> Result<Running, ArchiveError> {
     if let Some(why) = executable_problem(&t.path) {
         return Err(refused(t, why));
     }
@@ -582,7 +590,6 @@ fn spawn_bounded(
     tool_env(&mut cmd, &dir.0);
     isolate(&mut cmd);
 
-    let deadline = Instant::now() + timeout;
     let mut child = cmd.spawn()?;
     let tree = match Tree::attach(&child) {
         Ok(tree) => tree,
@@ -609,6 +616,38 @@ fn spawn_bounded(
             let _ = err_tx.send(());
         });
     }
+    Ok(Running {
+        child,
+        tree,
+        out_rx,
+        err_kept,
+        err_rx,
+        _dir: dir,
+    })
+}
+
+/// Spawns `t` with exactly `args` and waits for it under the hygiene of
+/// [`run_tool`] (which adds the `--` and the archive).
+///
+/// The run waits for the pipes only until `timeout`: a process that left
+/// the tree (a daemon that called `setsid`) and keeps a pipe open cannot
+/// hold the run past it.
+fn spawn_bounded(
+    t: &FoundTool,
+    args: &[&OsStr],
+    out_cap: u64,
+    timeout: Duration,
+    sink: Option<&mut dyn Write>,
+) -> Result<ToolRun, ArchiveError> {
+    let deadline = Instant::now() + timeout;
+    let Running {
+        mut child,
+        tree,
+        out_rx,
+        err_kept,
+        err_rx,
+        _dir,
+    } = start(t, args)?;
 
     let mut out = Capped::new(sink, out_cap);
     let mut timed_out = false;
@@ -1612,6 +1651,8 @@ pub struct ToolReader {
     path: PathBuf,
     format: Format,
     entries: Vec<Entry>,
+    ambiguity: Ambiguity,
+    poison: Poison,
 }
 
 impl ToolReader {
@@ -1676,11 +1717,14 @@ impl ToolReader {
             _ => parse_seven_zip_summary(&summary_text),
         })?;
         check_summary(&entries, &summary)?;
+        let ambiguity = Ambiguity::new(&entries);
         Ok(Self {
             tool: tool.clone(),
             path: path.to_path_buf(),
             format,
             entries,
+            ambiguity,
+            poison: Poison::new(),
         })
     }
 
@@ -1693,11 +1737,110 @@ impl ToolReader {
         &self.path
     }
 
-    fn reads_pending(&self) -> ArchiveError {
-        ArchiveError::Unsupported {
-            format: format!("{:?} entry reads through {:?}", self.format, self.tool.tool),
-            need: Some(self.tool.tool),
+    /// Entry `index`, read by its name when that name selects exactly it,
+    /// else sliced out of the stream of every file (S8).
+    fn open_inner<'a>(
+        &self,
+        index: usize,
+        budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        let entry = self.entries.get(index).ok_or_else(|| no_entry(index))?;
+        readable(entry)?;
+        let switches = read_switches(self.tool.tool)?;
+        let archive = std::path::absolute(&self.path)?;
+        let wait = budget.gate_wait();
+        if !self.ambiguity.at(index) {
+            let name = OsStr::new(entry.name.as_str());
+            let stream = spawn_stream(
+                &self.tool,
+                switches.by_name,
+                &[archive.as_os_str(), name],
+                wait,
+            )?;
+            let charged = ChargedRead::new(stream, budget);
+            return Ok(Box::new(VerifyingReader::new(
+                charged,
+                entry.size,
+                entry.crc32,
+            )));
         }
+        stream_refusal(&self.entries)?;
+        let (slices, positions) = file_slices(&self.entries);
+        let target = positions[index].ok_or_else(|| no_entry(index))?;
+        let stream = spawn_stream(&self.tool, switches.stream, &[archive.as_os_str()], wait)?;
+        let mut slicer = Slicer::new(ChargedRead::new(stream, budget), slices);
+        for _ in 0..target {
+            slicer.skip()?;
+        }
+        let slice = SliceToEnd {
+            slicer,
+            pos: target,
+            done: false,
+        };
+        Ok(Box::new(VerifyingReader::new(
+            slice,
+            entry.size,
+            entry.crc32,
+        )))
+    }
+
+    fn stream_inner(
+        &self,
+        wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        let mut order = wanted.to_vec();
+        order.sort_unstable();
+        order.dedup();
+        for &index in &order {
+            readable(self.entries.get(index).ok_or_else(|| no_entry(index))?)?;
+        }
+        if order.is_empty() {
+            return Ok(());
+        }
+        let ambiguous = order.iter().any(|&i| self.ambiguity.at(i));
+        let refusal = stream_refusal(&self.entries);
+        // One pass when a name cannot be used, or when several entries are
+        // wanted and the stream is exact (a solid archive decodes once).
+        if !(ambiguous || (order.len() > 1 && refusal.is_ok())) {
+            for index in order {
+                let mut data = self.open_inner(index, budget)?;
+                sink(&self.entries[index], &mut data)?;
+                drain(&mut data)?;
+            }
+            return Ok(());
+        }
+        refusal?;
+        let switches = read_switches(self.tool.tool)?;
+        let archive = std::path::absolute(&self.path)?;
+        let stream = spawn_stream(
+            &self.tool,
+            switches.stream,
+            &[archive.as_os_str()],
+            budget.gate_wait(),
+        )?;
+        let (slices, positions) = file_slices(&self.entries);
+        let mut slicer = Slicer::new(ChargedRead::new(stream, budget), slices);
+        let mut want = order.into_iter().peekable();
+        for (index, pos) in positions.iter().enumerate() {
+            let Some(pos) = *pos else { continue };
+            if want.peek() == Some(&index) {
+                want.next();
+                let entry = &self.entries[index];
+                let mut part = SliceOf {
+                    slicer: &mut slicer,
+                    pos,
+                };
+                sink(entry, &mut part)?;
+                if slicer.pos == pos {
+                    slicer.skip()?;
+                }
+            } else {
+                slicer.skip()?;
+            }
+        }
+        slicer.finish()
     }
 }
 
@@ -1710,23 +1853,690 @@ impl ArchiveReader for ToolReader {
         &self.entries
     }
 
-    /// Reads by unambiguous name or verified stream (S8) land with plan
-    /// Task 15; until then no entry is read through a tool.
+    /// Reads by unambiguous name, or by a verified slice of the stream of
+    /// every file (S8). The tool's exit status is checked before the read
+    /// reports EOF.
     fn open_entry<'a>(
         &'a mut self,
-        _index: usize,
-        _budget: &'a mut Budget,
+        index: usize,
+        budget: &'a mut Budget,
     ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
-        Err(self.reads_pending())
+        let poison = self.poison.clone();
+        let this = &*self;
+        let stream = poison.guard(|| this.open_inner(index, budget))?;
+        Ok(Box::new(GuardedRead::new(stream, poison)))
     }
 
     fn stream_entries(
         &mut self,
-        _wanted: &[usize],
-        _budget: &mut Budget,
-        _sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+        wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
     ) -> Result<(), ArchiveError> {
-        Err(self.reads_pending())
+        let poison = self.poison.clone();
+        poison.guard(|| self.stream_inner(wanted, budget, sink))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reads by name, by stream and through bsdtar's pax transcode (S8)
+// ---------------------------------------------------------------------------
+
+/// How long a read waits for more output from a tool that is still
+/// running before it gives up on it (a plan budget's deadline and a cancel
+/// flag stop it sooner).
+pub const READ_STALL_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often a waiting read checks the budget's cancel flag and deadline.
+const READ_POLL: Duration = Duration::from_millis(50);
+
+/// The switches of one tool's reads, before `--` (spec §13 S8). `-spd`
+/// turns off 7-Zip's wildcard matching and `-r-` its recursion; unrar has
+/// no such switch, so a name it might match as a pattern is never given.
+struct ReadSwitches {
+    by_name: &'static [&'static str],
+    stream: &'static [&'static str],
+}
+
+fn read_switches(tool: Tool) -> Result<ReadSwitches, ArchiveError> {
+    match tool {
+        Tool::SevenZip => Ok(ReadSwitches {
+            by_name: &["e", "-so", "-spd", "-r-"],
+            stream: &["e", "-so", "-spd"],
+        }),
+        Tool::Unrar => Ok(ReadSwitches {
+            by_name: &["p", "-inul", "-cfg-"],
+            stream: &["p", "-inul", "-cfg-"],
+        }),
+        Tool::Bsdtar => Err(ArchiveError::Unsupported {
+            format: "bsdtar reads go through the pax transcode".into(),
+            need: None,
+        }),
+    }
+}
+
+/// The switches of bsdtar's pax transcode (`bsdtar -c --format=pax -f -
+/// @<archive>`): libarchive reads the archive and writes it again as a
+/// pax tar on stdout, where each entry is framed by its own header.
+const BSDTAR_TRANSCODE: &[&str] = &["-c", "--format=pax", "-f", "-"];
+
+/// Characters unrar or 7-Zip read as a pattern, a list file or a switch.
+const PATTERN_CHARS: &[char] = &['*', '?', '[', ']', '{', '}', '\\', '!'];
+
+/// Whether `name`, given to the tool, could select anything but the one
+/// entry of `listing` it names (spec §13 S8): a pattern character, a
+/// leading `-` or `@`, an (NFC, case-insensitive) twin, another entry
+/// under `name + '/'`, or (unrar matches a bare name in every folder)
+/// another entry ending in `'/' + name`.
+pub fn is_ambiguous(name: &str, listing: &[Entry]) -> bool {
+    Ambiguity::new(listing).name(name)
+}
+
+/// The listing's name keys, for [`is_ambiguous`] checks in linear time.
+#[derive(Debug, Default)]
+struct Ambiguity {
+    /// How many entries have each key.
+    keys: std::collections::HashMap<String, usize>,
+    /// Every folder prefix of every key (`a`, `a/b` of `a/b/c`).
+    prefixes: std::collections::HashSet<String>,
+    /// Every proper suffix after a `/` (`b/c`, `c` of `a/b/c`).
+    suffixes: std::collections::HashSet<String>,
+    /// Per entry: its stored name differs from the validated one, so the
+    /// tool would not know the name we give it.
+    renamed: Vec<bool>,
+    /// Per entry: the answer, computed once.
+    ambiguous: Vec<bool>,
+}
+
+impl Ambiguity {
+    fn new(listing: &[Entry]) -> Self {
+        let mut a = Self::default();
+        for e in listing {
+            let key = name_key(e.name.as_str());
+            for (at, _) in key.match_indices('/') {
+                a.prefixes.insert(key[..at].to_string());
+                a.suffixes.insert(key[at + 1..].to_string());
+            }
+            *a.keys.entry(key).or_default() += 1;
+            a.renamed.push(e.raw_name != e.name.as_str().as_bytes());
+        }
+        a.ambiguous = listing
+            .iter()
+            .zip(&a.renamed)
+            .map(|(e, &renamed)| renamed || a.name(e.name.as_str()))
+            .collect();
+        a
+    }
+
+    fn name(&self, name: &str) -> bool {
+        if name.contains(PATTERN_CHARS) || name.starts_with(['-', '@']) {
+            return true;
+        }
+        let key = name_key(name);
+        self.keys.get(&key).is_some_and(|&n| n > 1)
+            || self.prefixes.contains(&key)
+            || self.suffixes.contains(&key)
+    }
+
+    fn at(&self, index: usize) -> bool {
+        self.ambiguous.get(index).copied().unwrap_or(true)
+    }
+}
+
+/// Stream mode needs every file's output to be exactly its listed size:
+/// a link, an alternate stream or an encrypted entry in the listing
+/// refuses it (spec §13 S8).
+fn stream_refusal(entries: &[Entry]) -> Result<(), ArchiveError> {
+    let inexact = entries.iter().any(|e| {
+        e.encrypted
+            || matches!(
+                e.kind,
+                EntryKind::Symlink | EntryKind::Hardlink | EntryKind::Other
+            )
+    });
+    if inexact {
+        return Err(ArchiveError::Unsupported {
+            format: "ambiguous names".into(),
+            need: None,
+        });
+    }
+    Ok(())
+}
+
+/// The file entries' sizes and CRCs in listing order, and each entry's
+/// position among them (`None` for a folder).
+fn file_slices(entries: &[Entry]) -> (Vec<Slice>, Vec<Option<usize>>) {
+    let mut slices = Vec::new();
+    let positions = entries
+        .iter()
+        .map(|e| {
+            (e.kind == EntryKind::File).then(|| {
+                slices.push(Slice {
+                    size: e.size,
+                    crc32: e.crc32,
+                });
+                slices.len() - 1
+            })
+        })
+        .collect();
+    (slices, positions)
+}
+
+/// Only safe, readable files are read.
+fn readable(entry: &Entry) -> Result<(), ArchiveError> {
+    match entry.kind {
+        EntryKind::File => {}
+        EntryKind::Symlink | EntryKind::Hardlink => {
+            return Err(ArchiveError::UnsafeEntry {
+                name: entry.name.to_string(),
+                why: super::UnsafeWhy::Link,
+            })
+        }
+        EntryKind::Dir | EntryKind::Other => {
+            return Err(ArchiveError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("entry {} is not a file", entry.index),
+            )))
+        }
+    }
+    if let Some(why) = entry.unsafe_name {
+        return Err(ArchiveError::UnsafeEntry {
+            name: entry.name.to_string(),
+            why,
+        });
+    }
+    if entry.encrypted {
+        return Err(ArchiveError::Encrypted);
+    }
+    Ok(())
+}
+
+fn no_entry(index: usize) -> ArchiveError {
+    ArchiveError::Io(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("no entry {index}"),
+    ))
+}
+
+/// Reads the rest of an entry (checked by its verifier).
+fn drain(r: &mut dyn Read) -> Result<(), ArchiveError> {
+    io::copy(r, &mut io::sink()).map_err(ArchiveError::from)?;
+    Ok(())
+}
+
+/// Why a [`ToolStream`] stopped; every later read reports it again.
+#[derive(Clone, Copy, Debug)]
+enum Fail {
+    Tool(Option<i32>),
+    Cancelled,
+    Time,
+    Io(io::ErrorKind),
+}
+
+impl Fail {
+    fn of(e: &ArchiveError) -> Self {
+        match e {
+            ArchiveError::ToolFailed { status, .. } => Self::Tool(*status),
+            ArchiveError::Cancelled => Self::Cancelled,
+            ArchiveError::BudgetSpent { .. } => Self::Time,
+            ArchiveError::Io(e) => Self::Io(e.kind()),
+            _ => Self::Tool(None),
+        }
+    }
+
+    fn error(self, tool: Tool) -> ArchiveError {
+        match self {
+            Self::Tool(status) => ArchiveError::ToolFailed { tool, status },
+            Self::Cancelled => ArchiveError::Cancelled,
+            Self::Time => ArchiveError::BudgetSpent {
+                what: super::BudgetKind::Time,
+            },
+            Self::Io(kind) => ArchiveError::Io(kind.into()),
+        }
+    }
+}
+
+/// A tool's stdout, read as it arrives. EOF is reported only once the
+/// tool has exited with status 0; any other exit is
+/// [`ArchiveError::ToolFailed`] (spec §9.1: the exit status must be 0
+/// before anything is committed). A cancel flag or a plan deadline stops
+/// a waiting read, and so does [`READ_STALL_TIMEOUT`] without output.
+/// Dropping the stream before its end kills the tool's whole tree.
+pub(crate) struct ToolStream {
+    tool: Tool,
+    run: Option<Running>,
+    chunk: Vec<u8>,
+    at: usize,
+    wait: GateWait,
+    stall: Duration,
+    last: Instant,
+    failed: Option<Fail>,
+}
+
+/// Starts `t` with `switches`, `--`, then `operands` (the archive first),
+/// streaming its stdout.
+fn spawn_stream(
+    t: &FoundTool,
+    switches: &[&str],
+    operands: &[&OsStr],
+    wait: GateWait,
+) -> Result<ToolStream, ArchiveError> {
+    wait.check()?;
+    let mut args: Vec<&OsStr> = switches.iter().map(OsStr::new).collect();
+    args.push(OsStr::new("--"));
+    args.extend_from_slice(operands);
+    let run = start(t, &args)?;
+    Ok(ToolStream {
+        tool: t.tool,
+        run: Some(run),
+        chunk: Vec::new(),
+        at: 0,
+        wait,
+        stall: READ_STALL_TIMEOUT,
+        last: Instant::now(),
+        failed: None,
+    })
+}
+
+impl ToolStream {
+    /// Kills the tool's tree and reaps it; every later read fails with
+    /// `fail`.
+    fn abort(&mut self, fail: Fail) -> ArchiveError {
+        if let Some(mut run) = self.run.take() {
+            run.tree.kill(&mut run.child);
+            let _ = run.child.wait();
+        }
+        self.failed = Some(fail);
+        fail.error(self.tool)
+    }
+
+    /// stdout has closed: waits for the exit (killing a tool that keeps
+    /// running past the stall time) and judges its status.
+    fn reap(&mut self) -> Result<(), ArchiveError> {
+        let Some(run) = self.run.as_mut() else {
+            return Ok(());
+        };
+        let deadline = Instant::now() + self.stall;
+        let status = loop {
+            match run.child.try_wait() {
+                Ok(Some(status)) => break status.code(),
+                Ok(None) => {
+                    if let Err(e) = self.wait.check() {
+                        return Err(self.abort(Fail::of(&e)));
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(self.abort(Fail::Tool(None)));
+                    }
+                    thread::sleep(REAP_POLL);
+                }
+                Err(_) => return Err(self.abort(Fail::Tool(None))),
+            }
+        };
+        // Reaped: the tree must not be signalled any more.
+        self.run = None;
+        if status == Some(0) {
+            Ok(())
+        } else {
+            self.failed = Some(Fail::Tool(status));
+            Err(Fail::Tool(status).error(self.tool))
+        }
+    }
+}
+
+impl Read for ToolStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if self.at < self.chunk.len() {
+                let n = buf.len().min(self.chunk.len() - self.at);
+                buf[..n].copy_from_slice(&self.chunk[self.at..self.at + n]);
+                self.at += n;
+                return Ok(n);
+            }
+            if let Some(fail) = self.failed {
+                return Err(fail.error(self.tool).into());
+            }
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            let Some(run) = self.run.as_mut() else {
+                return Ok(0);
+            };
+            match run.out_rx.recv_timeout(READ_POLL) {
+                Ok(Ok(chunk)) => {
+                    self.chunk = chunk;
+                    self.at = 0;
+                    self.last = Instant::now();
+                }
+                Ok(Err(e)) => {
+                    self.abort(Fail::Io(e.kind()));
+                    return Err(e);
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Err(e) = self.wait.check() {
+                        return Err(self.abort(Fail::of(&e)).into());
+                    }
+                    if self.last.elapsed() >= self.stall {
+                        return Err(self.abort(Fail::Tool(None)).into());
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    self.reap()?;
+                    return Ok(0);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for ToolStream {
+    fn drop(&mut self) {
+        if let Some(mut run) = self.run.take() {
+            run.tree.kill(&mut run.child);
+            let _ = run.child.wait();
+        }
+    }
+}
+
+/// One file's place in the stream of every file.
+#[derive(Clone, Copy, Debug)]
+struct Slice {
+    size: u64,
+    crc32: Option<u32>,
+}
+
+/// The stream of every file (`unrar p`, `7zz e -so` with no name), cut
+/// into the listed file sizes in listing order. Every slice is checked
+/// (size, and CRC32 when listed) whether it is wanted or skipped, and the
+/// stream must end right after the last one; any mismatch is `Damaged`.
+struct Slicer<R> {
+    src: R,
+    slices: Vec<Slice>,
+    /// The current slice.
+    pos: usize,
+    /// Its bytes not read yet.
+    left: u64,
+    hasher: crc32fast::Hasher,
+    failed: Option<&'static str>,
+}
+
+impl<R: Read> Slicer<R> {
+    fn new(src: R, slices: Vec<Slice>) -> Self {
+        let left = slices.first().map_or(0, |s| s.size);
+        Self {
+            src,
+            slices,
+            pos: 0,
+            left,
+            hasher: crc32fast::Hasher::new(),
+            failed: None,
+        }
+    }
+
+    fn fail(&mut self, detail: &'static str) -> io::Error {
+        self.failed = Some(detail);
+        damaged_io(detail)
+    }
+
+    /// Reads from the current slice; `Ok(0)` once it is whole and checked,
+    /// and the next slice is then current.
+    fn read_slice(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(detail) = self.failed {
+            return Err(damaged_io(detail));
+        }
+        let Some(slice) = self.slices.get(self.pos).copied() else {
+            return Ok(0);
+        };
+        if self.left == 0 {
+            let crc = std::mem::take(&mut self.hasher).finalize();
+            if slice.crc32.is_some_and(|want| want != crc) {
+                return Err(self.fail(super::verify::CRC_MISMATCH));
+            }
+            self.pos += 1;
+            self.left = self.slices.get(self.pos).map_or(0, |s| s.size);
+            return Ok(0);
+        }
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let want = usize::try_from(self.left).map_or(buf.len(), |l| l.min(buf.len()));
+        let n = match self.src.read(&mut buf[..want]) {
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => return Err(e),
+            Err(e) => {
+                // A tool or budget error stays what it is.
+                return Err(e);
+            }
+        };
+        if n == 0 {
+            return Err(self.fail(super::verify::SIZE_MISMATCH));
+        }
+        self.left -= n as u64;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+
+    /// Reads and checks the rest of the current slice.
+    fn skip(&mut self) -> Result<(), ArchiveError> {
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match self.read_slice(&mut buf) {
+                Ok(0) => return Ok(()),
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    /// Checks every slice left, then that the stream ends there (reading
+    /// on to EOF makes a [`ToolStream`] judge the exit status).
+    fn finish(&mut self) -> Result<(), ArchiveError> {
+        while self.pos < self.slices.len() {
+            self.skip()?;
+        }
+        let mut one = [0u8; 1];
+        loop {
+            match self.src.read(&mut one) {
+                Ok(0) => return Ok(()),
+                Ok(_) => {
+                    return Err(ArchiveError::Damaged {
+                        detail: "the tool printed more than the listed sizes".into(),
+                    })
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+}
+
+fn damaged_io(detail: &str) -> io::Error {
+    ArchiveError::Damaged {
+        detail: detail.to_owned(),
+    }
+    .into()
+}
+
+/// Slice `pos` of a [`Slicer`], for a sink; it never reads into the next.
+struct SliceOf<'s, R> {
+    slicer: &'s mut Slicer<R>,
+    pos: usize,
+}
+
+impl<R: Read> Read for SliceOf<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.slicer.pos != self.pos {
+            return Ok(0);
+        }
+        self.slicer.read_slice(buf)
+    }
+}
+
+/// Slice `pos`, then every later slice checked and the stream's end
+/// reached, before EOF is reported (one wanted entry of an ambiguous
+/// name: the tool's exit status is part of the read).
+struct SliceToEnd<R> {
+    slicer: Slicer<R>,
+    pos: usize,
+    done: bool,
+}
+
+impl<R: Read> Read for SliceToEnd<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.done {
+            return Ok(0);
+        }
+        if self.slicer.pos == self.pos {
+            let n = self.slicer.read_slice(buf)?;
+            if n > 0 || buf.is_empty() {
+                return Ok(n);
+            }
+        }
+        self.slicer.finish()?;
+        self.done = true;
+        Ok(0)
+    }
+}
+
+/// bsdtar's pax transcode of `archive` as a stream.
+fn transcode(t: &FoundTool, archive: &Path, wait: GateWait) -> Result<ToolStream, ArchiveError> {
+    let archive = std::path::absolute(archive)?;
+    // `@` makes bsdtar read the archive's entries, also after `--`; the
+    // path is absolute, so it never starts with `-`.
+    let mut operand = OsString::from("@");
+    operand.push(archive.as_os_str());
+    spawn_stream(t, BSDTAR_TRANSCODE, &[operand.as_os_str()], wait)
+}
+
+/// An archive read through bsdtar (spec §5.2): libarchive opens it and
+/// writes it again as a pax tar on stdout, which the tar walker reads
+/// (S6 trailer cap, S8: names and sizes framed by tar headers, nothing is
+/// text-parsed or sliced). The listing is one transcode under the plan
+/// listing budget; a larger archive gets an incomplete listing (moved or
+/// copied as it is, never extracted). Every read is a fresh transcode,
+/// walked against the listing, and reports EOF only after bsdtar exited
+/// with status 0. tar stores no CRC: reads are verified by size.
+#[derive(Debug)]
+pub struct PaxReader {
+    tool: FoundTool,
+    path: PathBuf,
+    format: Format,
+    listing: super::tar::StreamListing,
+    limits: Limits,
+    poison: Poison,
+}
+
+impl PaxReader {
+    /// Lists `path` (a `format` archive by magic: RAR or 7z) with the
+    /// first bsdtar of `tools` that opens it (libarchive ≥ 3.6 for RAR5).
+    /// None, or `limits.external_tools` off → `Unsupported { need: Bsdtar }`.
+    pub fn open(
+        tools: &[FoundTool],
+        path: &Path,
+        format: Format,
+        limits: &Limits,
+    ) -> Result<Self, ArchiveError> {
+        let label = match format {
+            Format::Rar { .. } => "RAR",
+            Format::SevenZip => "7z",
+            other => {
+                return Err(ArchiveError::Unsupported {
+                    format: format!("{other:?} through bsdtar"),
+                    need: None,
+                })
+            }
+        };
+        let missing = || ArchiveError::Unsupported {
+            format: label.into(),
+            need: Some(Tool::Bsdtar),
+        };
+        if !limits.external_tools {
+            return Err(missing());
+        }
+        let v5 = matches!(format, Format::Rar { v5: true });
+        let tool = tools
+            .iter()
+            .find(|t| t.tool == Tool::Bsdtar && (!v5 || t.rar5))
+            .ok_or_else(missing)?;
+        let poison = Poison::new();
+        let mut budget = Budget::plan_listing(limits);
+        let listing = poison.guard(|| {
+            let stream = transcode(tool, path, budget.gate_wait())?;
+            super::tar::list_stream(stream, limits, &mut budget)
+        })?;
+        Ok(Self {
+            tool: tool.clone(),
+            path: path.to_path_buf(),
+            format,
+            listing,
+            limits: limits.clone(),
+            poison,
+        })
+    }
+
+    /// The bsdtar and version that listed the archive.
+    pub fn tool(&self) -> &FoundTool {
+        &self.tool
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl ArchiveReader for PaxReader {
+    fn format(&self) -> Format {
+        self.format
+    }
+
+    fn entries(&self) -> &[Entry] {
+        &self.listing.entries
+    }
+
+    fn listing_complete(&self) -> bool {
+        self.listing.complete
+    }
+
+    fn open_entry<'a>(
+        &'a mut self,
+        index: usize,
+        budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        let poison = self.poison.clone();
+        let Self {
+            tool,
+            path,
+            listing,
+            limits,
+            ..
+        } = &*self;
+        let stream = poison.guard(|| {
+            let src = transcode(tool, path, budget.gate_wait())?;
+            super::tar::open_stream_entry(src, listing, index, limits, budget)
+        })?;
+        Ok(Box::new(GuardedRead::new(stream, poison)))
+    }
+
+    fn stream_entries(
+        &mut self,
+        wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        let poison = self.poison.clone();
+        poison.guard(|| {
+            if wanted.is_empty() {
+                return Ok(());
+            }
+            let src = transcode(&self.tool, &self.path, budget.gate_wait())?;
+            super::tar::stream_stream_entries(
+                src,
+                &self.listing,
+                wanted,
+                &self.limits,
+                budget,
+                sink,
+            )
+        })
     }
 }
 
@@ -1954,6 +2764,73 @@ mod tests {
         assert!(list_switches(&t(Tool::Unrar, "5.00")).is_some());
         assert!(list_switches(&t(Tool::Unrar, "4.20")).is_none());
         assert!(list_switches(&t(Tool::Bsdtar, "3.7.4")).is_none());
+    }
+
+    fn listed(names: &[&str]) -> Vec<Entry> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(index, raw)| Entry {
+                index,
+                name: RelPath::parse(raw).expect("name"),
+                raw_name: raw.as_bytes().to_vec(),
+                kind: EntryKind::File,
+                size: 1,
+                packed: None,
+                crc32: None,
+                encrypted: false,
+                method: Method::Stored,
+                solid_block: None,
+                mtime: None,
+                unsafe_name: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ambiguity_rules() {
+        let entries = listed(&[
+            "Game [!].gba",
+            "Game {EU}.gba",
+            "Hit!.bin",
+            "-x.bin",
+            "@list.bin",
+            "Disc",
+            "Disc/Track 01.bin",
+            "Pokémon.gba",
+            "POKÉMON.GBA",
+            "sub/plain.bin",
+            "plain.bin",
+            "solo.bin",
+            "dir\\back.bin",
+            "Dup.bin",
+            "Dup.bin",
+        ]);
+        let a = Ambiguity::new(&entries);
+        let got: Vec<bool> = (0..entries.len()).map(|i| a.at(i)).collect();
+        assert_eq!(
+            got,
+            vec![
+                true,  // `[` `]`
+                true,  // `{` `}`
+                true,  // `!`
+                true,  // leading `-`
+                true,  // leading `@`
+                true,  // `Disc/` holds another entry
+                false, // the track itself
+                true,  // NFC case-insensitive twin
+                true,  // its twin
+                false, // `sub/plain.bin` is only itself
+                true,  // a bare `plain.bin` also matches `sub/plain.bin`
+                false, true, // stored `\` differs from the validated `/` name
+                true, // exact duplicate
+                true,
+            ]
+        );
+        assert!(a.at(99), "an unknown index is never trusted");
+        assert!(is_ambiguous("a\\b", &[]));
+        assert!(is_ambiguous("a*b", &[]));
+        assert!(!is_ambiguous("solo.bin", &entries));
     }
 
     #[test]
