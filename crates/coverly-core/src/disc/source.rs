@@ -201,6 +201,7 @@ impl FileSource {
 
     /// A source over `file`, layout detected from its first sectors.
     pub fn new(mut file: File) -> io::Result<FileSource> {
+        file.seek(SeekFrom::Start(0))?;
         let mut head = Vec::with_capacity(DETECT_BYTES);
         (&mut file)
             .take(DETECT_BYTES as u64)
@@ -354,6 +355,14 @@ mod tests {
             Some(&bytes[2352..2 * 2352])
         );
         assert_eq!(src.raw_sector(18).unwrap(), None);
+
+        // A file handed over mid-read is still detected from its start.
+        let mut file = File::open(&path).unwrap();
+        file.seek(SeekFrom::Start(5000)).unwrap();
+        assert_eq!(
+            FileSource::new(file).unwrap().layout(),
+            SectorLayout::Raw2352Mode1
+        );
 
         let iso = dir.path().join("game.iso");
         std::fs::write(&iso, track(SectorLayout::Iso2048, 17, false)).unwrap();

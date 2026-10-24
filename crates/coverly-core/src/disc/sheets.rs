@@ -73,6 +73,11 @@ pub struct TrackInfo {
     pub file: usize,
     /// Start LBA (gdi only).
     pub lba: Option<u32>,
+    /// Whether the track lies in a GD-ROM high-density area: after a
+    /// `REM HIGH-DENSITY AREA` line of a cue, or at LBA 45000 or later in a
+    /// gdi. The Dreamcast IP.BIN is in the first HD data track.
+    #[serde(default)]
+    pub high_density: bool,
 }
 
 /// A parsed sheet.
@@ -137,7 +142,12 @@ fn numbered_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
 fn cue_sheet(text: &str) -> Result<Sheet, SheetError> {
     let mut files: Vec<String> = Vec::new();
     let mut tracks = Vec::new();
+    let mut high_density = false;
     for (line, l) in numbered_lines(text) {
+        if let Some(area) = density_marker(l) {
+            high_density = area;
+            continue;
+        }
         // A FILE line, exactly as the loose-set parser reads it.
         if let Some(name) = parse_cue(l).into_iter().next() {
             files.push(name);
@@ -168,6 +178,7 @@ fn cue_sheet(text: &str) -> Result<Sheet, SheetError> {
             sector_size,
             file,
             lba: None,
+            high_density,
         });
     }
     Ok(Sheet {
@@ -175,6 +186,39 @@ fn cue_sheet(text: &str) -> Result<Sheet, SheetError> {
         files,
         tracks,
     })
+}
+
+/// First LBA of the GD-ROM high-density area.
+pub const HD_AREA_LBA: u32 = 45_000;
+
+/// Stored sector sizes a sheet may state (`MODE1/2048`, `MODE2/2324`,
+/// `MODE2/2336`, raw 2352, `CDG` 2448). Anything else (0, 4096…) is not a
+/// CD sector and the sheet is malformed.
+const SECTOR_SIZES: [u16; 5] = [2048, 2324, 2336, 2352, 2448];
+
+fn known_sector_size(size: u16) -> bool {
+    SECTOR_SIZES.contains(&size)
+}
+
+/// `Some(true)` for `REM HIGH-DENSITY AREA`, `Some(false)` for
+/// `REM SINGLE-DENSITY AREA` (any case and spacing), else `None`.
+fn density_marker(line: &str) -> Option<bool> {
+    let mut words = line.split_whitespace();
+    if !words.next()?.eq_ignore_ascii_case("REM") {
+        return None;
+    }
+    let area = words.next()?;
+    let rest = words.next()?;
+    if !rest.eq_ignore_ascii_case("AREA") || words.next().is_some() {
+        return None;
+    }
+    if area.eq_ignore_ascii_case("HIGH-DENSITY") {
+        Some(true)
+    } else if area.eq_ignore_ascii_case("SINGLE-DENSITY") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// A track number 1–99.
@@ -188,7 +232,10 @@ fn track_number(s: &str) -> Option<u8> {
 /// `None` when a stated sector size is not a number.
 fn cue_mode(word: &str) -> Option<(TrackMode, Option<u16>)> {
     let (name, size) = match word.split_once('/') {
-        Some((name, size)) => (name, Some(size.parse::<u16>().ok()?)),
+        Some((name, size)) => (
+            name,
+            Some(size.parse::<u16>().ok().filter(|&s| known_sector_size(s))?),
+        ),
         None => (word, None),
     };
     let mode = match name.to_ascii_uppercase().as_str() {
@@ -231,13 +278,18 @@ fn gdi_sheet(text: &str) -> Result<Sheet, SheetError> {
             4 => TrackMode::Data,
             _ => TrackMode::Other,
         };
-        let sector_size = cols[3].parse::<u16>().map_err(|_| bad.clone())?;
+        let sector_size = cols[3]
+            .parse::<u16>()
+            .ok()
+            .filter(|&s| known_sector_size(s))
+            .ok_or(bad.clone())?;
         tracks.push(TrackInfo {
             number,
             mode,
             sector_size: Some(sector_size),
             file: tracks.len(),
             lba: Some(lba),
+            high_density: lba >= HD_AREA_LBA,
         });
     }
     let files = parse_gdi(text);
@@ -252,14 +304,17 @@ fn gdi_sheet(text: &str) -> Result<Sheet, SheetError> {
 }
 
 /// Index into [`Sheet::tracks`] of the primary data track: the first
-/// `MODE1`/`MODE2` track of a cue, track 03 of a gdi. `None` for an m3u or
-/// a sheet without one.
+/// `MODE1`/`MODE2` track of a cue (of its high-density area when the cue
+/// marks one, as Redump Dreamcast cues do: the low-density track 01 has no
+/// IP.BIN), track 03 of a gdi. `None` for an m3u or a sheet without one.
 pub fn primary_track(sheet: &Sheet) -> Option<usize> {
     match sheet.kind {
-        SheetKind::Cue => sheet
-            .tracks
-            .iter()
-            .position(|t| matches!(t.mode, TrackMode::Mode1 | TrackMode::Mode2)),
+        SheetKind::Cue => {
+            let gd_rom = sheet.tracks.iter().any(|t| t.high_density);
+            sheet.tracks.iter().position(|t| {
+                matches!(t.mode, TrackMode::Mode1 | TrackMode::Mode2) && (!gd_rom || t.high_density)
+            })
+        }
         SheetKind::Gdi => sheet
             .tracks
             .iter()
@@ -273,7 +328,8 @@ pub fn primary_track(sheet: &Sheet) -> Option<usize> {
 /// its sheet `sheet_name` cannot be read yet (spec §6.2).
 ///
 /// The tracks are the files in the sheet's directory named
-/// `<stem> (Track NN).bin` (or the one file `<stem>.bin` of a single-track
+/// `<stem> (Track NN).bin` or, below ten tracks, `<stem> (Track N).bin`
+/// (one width per set) (or the one file `<stem>.bin` of a single-track
 /// cue; or `trackNN.bin`/`trackNN.raw` beside a `.gdi`), numbered
 /// contiguously from 01. Every other file in that directory must be the
 /// sheet itself or its `.cue`/`.gdi` twin of the same stem; otherwise
@@ -292,6 +348,7 @@ pub fn infer_redump_set(listing: &[&str], sheet_name: &str) -> Option<Vec<String
     let sheet_key = name_key(sheet_name);
 
     let mut redump: Vec<(u8, &str)> = Vec::new();
+    let mut redump_width: Option<usize> = None;
     let mut gdi_style: Vec<(u8, &str)> = Vec::new();
     let mut single: Vec<&str> = Vec::new();
     for &name in listing {
@@ -309,7 +366,12 @@ pub fn infer_redump_set(listing: &[&str], sheet_name: &str) -> Option<Vec<String
             continue; // the sheet's twin
         }
         if fext == "bin" {
-            if let Some(n) = redump_track(fstem, &stem_key) {
+            if let Some((n, width)) = redump_track(fstem, &stem_key) {
+                // One digit width per set (Redump: `(Track N)` below ten
+                // tracks, `(Track NN)` from ten).
+                if *redump_width.get_or_insert(width) != width {
+                    return None;
+                }
                 redump.push((n, name));
                 continue;
             }
@@ -344,15 +406,24 @@ fn split_dir(name: &str) -> (&str, &str) {
     name.rsplit_once('/').unwrap_or(("", name))
 }
 
-/// `NN` of `<stem> (Track NN)`, exactly two digits.
-fn redump_track(fstem: &str, stem_key: &str) -> Option<u8> {
+/// `(N, digits)` of `<stem> (Track N)` / `<stem> (Track NN)`: one or two
+/// digits, 1–99.
+fn redump_track(fstem: &str, stem_key: &str) -> Option<(u8, usize)> {
     let (head, tail) = fstem.rsplit_once(" (")?;
     let tail = tail.strip_suffix(')')?;
     let (word, digits) = tail.split_at_checked(6)?;
     if !word.eq_ignore_ascii_case("Track ") || name_key(head) != stem_key {
         return None;
     }
-    two_digits(digits)
+    let n = match digits.len() {
+        1 => digits.parse::<u8>().ok().filter(|&n| n >= 1),
+        2 => two_digits(digits),
+        _ => None,
+    }?;
+    digits
+        .bytes()
+        .all(|b| b.is_ascii_digit())
+        .then_some((n, digits.len()))
 }
 
 /// `NN` of `trackNN.bin` / `trackNN.raw` (any case).
@@ -625,12 +696,13 @@ mod tests {
         let listing: Vec<&str> = names.iter().map(String::as_str).collect();
         assert_eq!(infer_redump_set(&listing, "Game.cue"), None);
 
-        // Not starting at 01, duplicated, or with one or three digits.
+        // Not starting at 01, duplicated, or with three digits.
         for listing in [
             &["Game (Track 02).bin", "Game.cue"][..],
             &["Game (Track 01).bin", "game (track 01).bin", "Game.cue"][..],
-            &["Game (Track 1).bin", "Game.cue"][..],
+            &["Game (Track 1).bin", "Game (Track 01).bin", "Game.cue"][..],
             &["Game (Track 001).bin", "Game.cue"][..],
+            &["Game (Track 0).bin", "Game.cue"][..],
         ] {
             assert_eq!(infer_redump_set(listing, "Game.cue"), None, "{listing:?}");
         }
@@ -653,6 +725,133 @@ mod tests {
             infer_redump_set(&["Game (Track 01).bin"], "Game (Track 01).bin"),
             None
         );
+    }
+
+    /// The Dreamcast real case (`Next Tetris, The - On-Line Edition (USA)`):
+    /// its Redump cue, as stored in the archive.
+    const DC_CUE: &str = "REM SINGLE-DENSITY AREA\r\n\
+        FILE \"T (Track 01).bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
+        FILE \"T (Track 02).bin\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 01 00:02:00\r\n\
+        REM HIGH-DENSITY AREA\r\n\
+        FILE \"T (Track 03).bin\" BINARY\r\n  TRACK 03 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
+        FILE \"T (Track 04).bin\" BINARY\r\n  TRACK 04 AUDIO\r\n    INDEX 01 00:02:00\r\n\
+        FILE \"T (Track 05).bin\" BINARY\r\n  TRACK 05 MODE1/2352\r\n    INDEX 01 00:03:00\r\n";
+
+    #[test]
+    fn cue_dreamcast_primary_is_the_high_density_data_track() {
+        let sheet = cue(DC_CUE);
+        let hd: Vec<_> = sheet.tracks.iter().map(|t| t.high_density).collect();
+        assert_eq!(hd, [false, false, true, true, true]);
+        // Track 03 (the first data track of the HD area holds IP.BIN), not
+        // the low-density track 01.
+        assert_eq!(primary_track(&sheet), Some(2));
+        // An HD area with only audio has no primary.
+        let audio = cue("FILE a.bin BINARY\n TRACK 01 MODE1/2352\n\
+                         REM HIGH-DENSITY AREA\nFILE b.bin BINARY\n TRACK 02 AUDIO\n");
+        assert_eq!(primary_track(&audio), None);
+        // A later SINGLE-DENSITY marker ends the HD area.
+        let back = cue(
+            "REM HIGH-DENSITY AREA\nFILE a.bin BINARY\n TRACK 01 AUDIO\n\
+                        REM SINGLE-DENSITY AREA\nFILE b.bin BINARY\n TRACK 02 MODE1/2352\n",
+        );
+        assert_eq!(
+            back.tracks
+                .iter()
+                .map(|t| t.high_density)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+    }
+
+    #[test]
+    fn gdi_real_dreamcast_sheet() {
+        // The real gdi: padded columns, quoted names with spaces and commas.
+        let mut gdi = String::from("14\r\n");
+        let lbas = [
+            0, 1363, 45000, 369940, 389040, 402472, 411991, 420591, 431884, 449934, 467885, 492914,
+            510955, 527775,
+        ];
+        for (i, lba) in lbas.iter().enumerate() {
+            let n = i + 1;
+            let ty = if matches!(n, 1 | 3 | 14) { 4 } else { 0 };
+            gdi.push_str(&format!(
+                "{n:2} {lba:6} {ty} 2352 \"Next Tetris, The - On-Line Edition (USA) (Track {n:02}).bin\" 0\r\n"
+            ));
+        }
+        let sheet = parse_sheet(SheetKind::Gdi, gdi.as_bytes()).unwrap();
+        assert_eq!(sheet.tracks.len(), 14);
+        assert_eq!(
+            sheet.files[2],
+            "Next Tetris, The - On-Line Edition (USA) (Track 03).bin"
+        );
+        assert_eq!(primary_track(&sheet), Some(2));
+        let hd: Vec<_> = sheet.tracks.iter().map(|t| t.high_density).collect();
+        assert_eq!(hd[..3], [false, false, true]);
+        assert!(hd[2..].iter().all(|&h| h));
+    }
+
+    #[test]
+    fn sheets_reject_unknown_sector_sizes() {
+        for bad in [
+            "FILE a.bin BINARY\n TRACK 01 MODE1/0\n",
+            "FILE a.bin BINARY\n TRACK 01 MODE1/2353\n",
+            "FILE a.bin BINARY\n TRACK 01 MODE2/1\n",
+        ] {
+            assert!(
+                matches!(
+                    parse_sheet(SheetKind::Cue, bad.as_bytes()),
+                    Err(SheetError::Malformed { .. })
+                ),
+                "{bad:?}"
+            );
+        }
+        for good in [
+            "MODE1/2048",
+            "MODE2/2324",
+            "MODE2/2336",
+            "CDI/2352",
+            "AUDIO",
+        ] {
+            let text = format!("FILE a.bin BINARY\n TRACK 01 {good}\n");
+            assert!(
+                parse_sheet(SheetKind::Cue, text.as_bytes()).is_ok(),
+                "{good}"
+            );
+        }
+        for bad in ["1\n1 0 4 0 a.bin 0\n", "1\n1 0 4 4096 a.bin 0\n"] {
+            assert!(
+                matches!(
+                    parse_sheet(SheetKind::Gdi, bad.as_bytes()),
+                    Err(SheetError::Malformed { .. })
+                ),
+                "{bad:?}"
+            );
+        }
+        assert!(parse_sheet(SheetKind::Gdi, b"1\n1 0 4 2048 a.iso 0\n").is_ok());
+    }
+
+    #[test]
+    fn infer_redump_single_digit_tracks() {
+        // Redump names discs with fewer than ten tracks `(Track N)`.
+        let listing = ["Game (Track 1).bin", "Game (Track 2).bin", "Game.cue"];
+        assert_eq!(
+            infer_redump_set(&listing, "Game.cue").unwrap(),
+            ["Game (Track 1).bin", "Game (Track 2).bin"]
+        );
+        // One width per set: mixed widths are not one Redump set.
+        assert_eq!(
+            infer_redump_set(
+                &["Game (Track 1).bin", "Game (Track 02).bin", "Game.cue"],
+                "Game.cue"
+            ),
+            None
+        );
+        // Ten tracks or more take two digits, so `(Track 1)`..`(Track 10)`
+        // mixes widths and is rejected.
+        let mut names: Vec<String> = (1..=10).map(|i| format!("Game (Track {i}).bin")).collect();
+        names.push("Game.cue".into());
+        let listing: Vec<&str> = names.iter().map(String::as_str).collect();
+        assert_eq!(infer_redump_set(&listing, "Game.cue"), None);
     }
 
     #[test]
