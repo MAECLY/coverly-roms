@@ -939,7 +939,7 @@ pub mod fixtures {
     }
 
     /// One ISO 9660 directory record pointing at `lba` (`size` bytes).
-    fn dir_record(rec: &mut [u8], lba: u32, size: u32, name: &[u8]) -> usize {
+    pub(crate) fn dir_record(rec: &mut [u8], lba: u32, size: u32, name: &[u8]) -> usize {
         let len = (33 + name.len()).next_multiple_of(2);
         rec[0] = len as u8;
         rec[2..6].copy_from_slice(&lba.to_le_bytes());
