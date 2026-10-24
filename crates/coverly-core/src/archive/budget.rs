@@ -85,19 +85,17 @@ impl Budget {
     /// Fails when the budget is cancelled or past its deadline, without
     /// charging anything.
     pub fn check(&self) -> Result<(), ArchiveError> {
-        if self
-            .cancel
-            .as_ref()
-            .is_some_and(|c| c.load(Ordering::Relaxed))
-        {
-            return Err(ArchiveError::Cancelled);
+        check_wait(self.deadline, self.cancel.as_ref())
+    }
+
+    /// This budget's deadline and cancel flag, without its bytes: what a
+    /// decoder that outlives one `&mut Budget` borrow (the xz walker
+    /// taking a gate permit per block) needs to wait on the [`MemoryGate`].
+    pub fn gate_wait(&self) -> GateWait {
+        GateWait {
+            deadline: self.deadline,
+            cancel: self.cancel.clone(),
         }
-        if self.deadline.is_some_and(|d| Instant::now() >= d) {
-            return Err(ArchiveError::BudgetSpent {
-                what: BudgetKind::Time,
-            });
-        }
-        Ok(())
     }
 
     /// Charges `n` decoded bytes. Fails with `BudgetSpent` when they do not
@@ -128,6 +126,42 @@ impl Budget {
     }
 
     /// The wall-time deadline; `None` at apply.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+}
+
+fn check_wait(
+    deadline: Option<Instant>,
+    cancel: Option<&Arc<AtomicBool>>,
+) -> Result<(), ArchiveError> {
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err(ArchiveError::Cancelled);
+    }
+    if deadline.is_some_and(|d| Instant::now() >= d) {
+        return Err(ArchiveError::BudgetSpent {
+            what: BudgetKind::Time,
+        });
+    }
+    Ok(())
+}
+
+/// The deadline and cancel flag of a [`Budget`] (see [`Budget::gate_wait`]).
+/// It cannot charge bytes, so copying it never widens a byte budget. The
+/// default has neither: a wait that only ends when the memory fits.
+#[derive(Clone, Debug, Default)]
+pub struct GateWait {
+    deadline: Option<Instant>,
+    cancel: Option<Arc<AtomicBool>>,
+}
+
+impl GateWait {
+    /// `Cancelled` once the flag is set, `BudgetSpent { Time }` past the
+    /// deadline.
+    pub fn check(&self) -> Result<(), ArchiveError> {
+        check_wait(self.deadline, self.cancel.as_ref())
+    }
+
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
@@ -254,6 +288,15 @@ impl MemoryGate {
     /// `BudgetSpent { Time }`. Decoders use this one; a plain `acquire`
     /// would sleep through a cancel until another worker releases.
     pub fn acquire_for(&'static self, bytes: u64, budget: &Budget) -> Result<Permit, ArchiveError> {
+        self.acquire_until(bytes, &budget.gate_wait())
+    }
+
+    /// [`MemoryGate::acquire_for`] with the limits of a [`GateWait`].
+    pub fn acquire_until(
+        &'static self,
+        bytes: u64,
+        wait: &GateWait,
+    ) -> Result<Permit, ArchiveError> {
         /// How often a waiter looks at its cancel flag (a store to an
         /// `AtomicBool` cannot notify the condvar).
         const POLL: Duration = Duration::from_millis(25);
@@ -265,17 +308,17 @@ impl MemoryGate {
         }
         let mut used = self.used.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            budget.check()?;
+            wait.check()?;
             if self.cap - *used >= bytes {
                 *used += bytes;
                 return Ok(Permit { gate: self, bytes });
             }
-            let wait = budget.deadline().map_or(POLL, |d| {
+            let timeout = wait.deadline().map_or(POLL, |d| {
                 d.saturating_duration_since(Instant::now()).min(POLL)
             });
             used = self
                 .freed
-                .wait_timeout(used, wait)
+                .wait_timeout(used, timeout)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }

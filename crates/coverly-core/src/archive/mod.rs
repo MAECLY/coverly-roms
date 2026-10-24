@@ -22,7 +22,7 @@ pub mod names;
 pub mod testing;
 pub mod verify;
 
-pub use budget::{Budget, ChargedRead, MemoryGate, Permit};
+pub use budget::{Budget, ChargedRead, GateWait, MemoryGate, Permit};
 pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};

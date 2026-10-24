@@ -25,7 +25,7 @@ use lzma_rust2::filter::bcj::BcjReader;
 use lzma_rust2::filter::delta::DeltaReader;
 use lzma_rust2::{Lzma2Reader, LzmaReader};
 
-use super::budget::{MemoryGate, Permit};
+use super::budget::{GateWait, MemoryGate, Permit};
 use super::guard::guarded;
 use super::{ArchiveError, BcjKind, KIB};
 
@@ -858,7 +858,7 @@ pub struct XzWalker<R: Read> {
     block: Option<ActiveBlock<R>>,
     stream: Option<StreamState>,
     cap: u64,
-    gate: Option<&'static MemoryGate>,
+    gate: Option<(&'static MemoryGate, GateWait)>,
     streams: u64,
     finished: bool,
     failed: bool,
@@ -884,9 +884,13 @@ impl<R: Read> XzWalker<R> {
         }
     }
 
-    /// Takes each block's memory from `gate` while that block decodes.
-    pub fn with_gate(mut self, gate: &'static MemoryGate) -> Self {
-        self.gate = Some(gate);
+    /// Takes each block's memory from `gate` while that block decodes. A
+    /// wait for it ends early on `wait`'s cancel flag or deadline (from
+    /// the caller's [`super::Budget::gate_wait`]). The caller must not
+    /// hold another permit for this same stream: two such holders on two
+    /// threads could each wait for the other's memory.
+    pub fn with_gate(mut self, gate: &'static MemoryGate, wait: GateWait) -> Self {
+        self.gate = Some((gate, wait));
         self
     }
 
@@ -1014,8 +1018,8 @@ impl<R: Read> XzWalker<R> {
         // decoder exists.
         let needed = header.lzma2.mem_needed();
         check(needed, self.cap)?;
-        let permit = match self.gate {
-            Some(gate) => Some(gate.acquire(needed)?),
+        let permit = match &self.gate {
+            Some((gate, wait)) => Some(gate.acquire_until(needed, wait)?),
             None => None,
         };
         let src = self
@@ -1176,7 +1180,9 @@ impl<R: Read> Read for XzWalker<R> {
         if buf.is_empty() {
             return Ok(0);
         }
-        self.step(buf).map_err(|e| {
+        // S1: the walker runs our parser, the filters and the LZMA2
+        // decoder; a panic in any of them is `Damaged`, not an unwind.
+        guarded(|| self.step(buf)).map_err(|e| {
             self.failed = true;
             // A dropped block gives its gate permit back at once.
             self.block = None;
@@ -1193,6 +1199,7 @@ mod tests {
     use lzma_rust2::{CheckType, FilterType, LzmaOptions, LzmaWriter, XzOptions, XzWriter};
 
     use super::*;
+    use crate::archive::budget::{Budget, GateWait};
     use crate::archive::testing::{lzma2_stored, lzma_props, xz_stream, XzBlock};
     use crate::archive::{DECODER_MEM_CAP, MIB};
 
@@ -1579,7 +1586,8 @@ mod tests {
         let file = w.finish().unwrap();
 
         let gate = MemoryGate::leaked(DECODER_MEM_CAP);
-        let mut r = XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate);
+        let mut r =
+            XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate, GateWait::default());
         let (out, err) = read_all(&mut r);
         assert!(err.is_none(), "{err:?}");
         assert_eq!(out, data);
@@ -1617,7 +1625,8 @@ mod tests {
             },
         ]);
         let gate = MemoryGate::leaked(512 * MIB);
-        let mut r = XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate);
+        let mut r =
+            XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate, GateWait::default());
         let _ = last_decoder_dict();
         let (out, err) = read_all(&mut r);
         assert_eq!(out, first, "the first block decodes");
@@ -1657,12 +1666,84 @@ mod tests {
     fn xz_gate_smaller_than_block_refused() {
         let file = xz_stream(&[small_block(b"abc")]);
         let gate = MemoryGate::leaked(64 * 1024);
-        let mut r = XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate);
+        let mut r =
+            XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate, GateWait::default());
         let (_, err) = read_all(&mut r);
         assert!(
             matches!(err, Some(ArchiveError::NeedsTooMuchMemory { .. })),
             "{err:?}"
         );
+    }
+
+    /// A block waiting on a full gate must still see the cancel flag of
+    /// its budget (a plain `acquire` would sleep until another worker
+    /// releases, through the user's cancel).
+    #[test]
+    fn xz_block_gate_wait_honours_cancel() {
+        let file = xz_stream(&[small_block(b"abc")]);
+        let gate = MemoryGate::leaked(DECODER_MEM_CAP);
+        let held = gate.acquire(DECODER_MEM_CAP).expect("fits");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let wait = Budget::apply().with_cancel(Arc::clone(&cancel)).gate_wait();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut r = XzWalker::new(file.as_slice(), DECODER_MEM_CAP).with_gate(gate, wait);
+            tx.send(read_all(&mut r)).expect("main is listening");
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(100))
+                .is_err(),
+            "waits for the gate"
+        );
+        cancel.store(true, Ordering::SeqCst);
+        let (out, err) = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("cancel wakes the walker");
+        assert!(out.is_empty());
+        assert!(matches!(err, Some(ArchiveError::Cancelled)), "{err:?}");
+        worker.join().expect("worker finished");
+        drop(held);
+        assert_eq!(gate.in_use(), 0);
+    }
+
+    /// S1: a panic anywhere under the walker (its source, a filter, the
+    /// LZMA2 decoder) is `Damaged`, and the walker stays failed, even when
+    /// a caller forgot the outer `GuardedRead`.
+    #[test]
+    fn xz_walker_panic_is_damaged_and_sticks() {
+        let mut r = XzWalker::new(Untouched, DECODER_MEM_CAP);
+        let mut buf = [0u8; 16];
+        let err = archive_err(r.read(&mut buf).expect_err("the source panicked"));
+        assert!(
+            matches!(&err, ArchiveError::Damaged { detail } if detail == crate::archive::guard::PANIC_DETAIL),
+            "{err:?}"
+        );
+        assert!(r.read(&mut buf).is_err(), "stays failed");
+
+        // A panic in the middle of a block drops the block's permit.
+        let good = xz_stream(&[small_block(&sample(70_000))]);
+        struct PanicAfter<'a>(&'a [u8], usize);
+        impl Read for PanicAfter<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                if self.1 == 0 {
+                    panic!("source gave out");
+                }
+                let n = buf.len().min(self.1).min(self.0.len());
+                buf[..n].copy_from_slice(&self.0[..n]);
+                self.0 = &self.0[n..];
+                self.1 -= n;
+                Ok(n)
+            }
+        }
+        let gate = MemoryGate::leaked(DECODER_MEM_CAP);
+        let mut r = XzWalker::new(PanicAfter(&good, 40), DECODER_MEM_CAP)
+            .with_gate(gate, GateWait::default());
+        let (_, err) = read_all(&mut r);
+        assert!(
+            matches!(&err, Some(ArchiveError::Damaged { detail }) if detail == crate::archive::guard::PANIC_DETAIL),
+            "{err:?}"
+        );
+        assert_eq!(gate.in_use(), 0, "the block permit is released");
     }
 
     #[test]
