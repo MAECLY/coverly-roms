@@ -82,6 +82,13 @@ impl RelPath {
         Ok(RelPath(out))
     }
 
+    /// The stand-in name of entry `index` whose stored name failed
+    /// validation (the entry carries the reason in `unsafe_name` and is
+    /// never extracted). Its raw bytes stay on the entry for diagnostics.
+    pub fn placeholder(index: usize) -> RelPath {
+        RelPath(format!("unsafe-entry-{index}"))
+    }
+
     /// The path as `/`-separated text.
     pub fn as_str(&self) -> &str {
         &self.0

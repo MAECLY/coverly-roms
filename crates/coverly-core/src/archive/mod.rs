@@ -21,6 +21,7 @@ pub mod names;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
+pub mod zip;
 pub mod zstd;
 
 pub use budget::{Budget, ChargedRead, GateWait, MemoryGate, Permit};
@@ -28,6 +29,7 @@ pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};
 pub use verify::VerifyingReader;
+pub use zip::ZipReader;
 
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * KIB;
@@ -122,7 +124,11 @@ pub enum Method {
     Lzma2 {
         dict: u32,
     },
-    Xz,
+    /// An xz stream; `dict` is the LZMA2 dictionary of its first block
+    /// (0 when it has none). Every later block is checked as it is reached.
+    Xz {
+        dict: u32,
+    },
     Ppmd {
         order: u8,
         mem: u32,
