@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+use coverly_core::archive::ContainerKind;
 use coverly_core::profiles::custom::*;
-use coverly_core::profiles::{builtin_profiles, FolderNaming, ImageFormat, Media};
+use coverly_core::profiles::{builtin_profiles, DiscLayout, FolderNaming, ImageFormat, Media};
 use coverly_core::settings::FieldErrorCode;
 use coverly_core::systems::SystemDb;
 
@@ -31,6 +32,9 @@ fn sample() -> ProfileFile {
         system_folder: FolderNaming::default(),
         folder_names: BTreeMap::new(),
         host_folders: BTreeMap::new(),
+        disc_layout: DiscLayout::default(),
+        accepts_containers: default_accepts_containers(),
+        container_overrides: default_container_overrides(),
     }
 }
 
@@ -387,4 +391,115 @@ fn host_folders_must_name_two_different_known_systems() {
         FieldErrorCode::Invalid
     ));
     assert!(!has(&p, "host_folders.ngpc", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn custom_profile_toml_disc_layout_round_trip() {
+    let mut p = sample();
+    p.disc_layout = DiscLayout::GameFolder {
+        m3u_for_multi: true,
+    };
+    p.accepts_containers = vec![ContainerKind::Zip];
+    p.container_overrides.insert(
+        "nds".to_string(),
+        vec![ContainerKind::Zip, ContainerKind::SevenZip],
+    );
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let text = p.to_toml();
+    assert!(text.contains("accepts_containers = [\"zip\"]"), "{text}");
+    assert!(text.contains("kind = \"game-folder\""), "{text}");
+    assert!(text.contains("[container_overrides]"), "{text}");
+    assert_eq!(ProfileFile::parse_toml(&text).unwrap(), p);
+
+    let profile = p.to_profile();
+    assert_eq!(profile.disc_layout, p.disc_layout);
+    let db = SystemDb::builtin();
+    assert!(!profile.accepts_as_is(db.get("gba").unwrap(), ContainerKind::SevenZip));
+    assert!(profile.accepts_as_is(db.get("nds").unwrap(), ContainerKind::SevenZip));
+
+    // A built-in copied into a file keeps its values.
+    let minui = builtin_profiles()
+        .into_iter()
+        .find(|b| b.id == "minui")
+        .unwrap();
+    let copy = ProfileFile::from_profile(&minui);
+    assert_eq!(copy.disc_layout, minui.disc_layout);
+    assert_eq!(copy.accepts_containers, vec![ContainerKind::Zip]);
+    let back = ProfileFile::parse_toml(&copy.to_toml())
+        .unwrap()
+        .to_profile();
+    assert_eq!(back.disc_layout, minui.disc_layout);
+    assert_eq!(back.accepts_containers, minui.accepts_containers);
+    assert_eq!(back.container_overrides, minui.container_overrides);
+}
+
+#[test]
+fn custom_profile_without_fields_defaults_flat() {
+    let text = r#"
+id = "old-sd"
+name = "Old SD"
+roms_root = "Roms"
+
+[slots.cover]
+template = "{system_dir}/Imgs/{stem}.png"
+"#;
+    let p = ProfileFile::parse_toml(text).unwrap();
+    assert_eq!(
+        p.disc_layout,
+        DiscLayout::Flat {
+            m3u_for_multi: false
+        }
+    );
+    assert_eq!(
+        p.accepts_containers,
+        vec![ContainerKind::Zip, ContainerKind::SevenZip]
+    );
+    assert_eq!(p.container_overrides, default_container_overrides());
+    // Defaults are not written back, so old files stay byte-stable.
+    let out = p.to_toml();
+    assert!(!out.contains("disc_layout"), "{out}");
+    assert!(!out.contains("accepts_containers"), "{out}");
+    assert!(!out.contains("container_overrides"), "{out}");
+    let profile = p.to_profile();
+    assert_eq!(profile.disc_layout, DiscLayout::default());
+    let db = SystemDb::builtin();
+    assert!(profile.accepts_as_is(db.get("gba").unwrap(), ContainerKind::SevenZip));
+    assert!(!profile.accepts_as_is(db.get("psp").unwrap(), ContainerKind::Zip));
+}
+
+#[test]
+fn custom_profile_bad_container_fields_are_errors() {
+    let text = r#"
+id = "bad-sd"
+name = "Bad SD"
+accepts_containers = ["cab"]
+
+[slots.cover]
+template = "{system_dir}/Imgs/{stem}.png"
+"#;
+    assert!(ProfileFile::parse_toml(text).is_err());
+    let text = r#"
+id = "bad-sd"
+name = "Bad SD"
+
+[disc_layout]
+kind = "nested"
+
+[slots.cover]
+template = "{system_dir}/Imgs/{stem}.png"
+"#;
+    assert!(ProfileFile::parse_toml(text).is_err());
+    let mut p = sample();
+    p.container_overrides = BTreeMap::from([
+        ("not-a-system".to_string(), vec![ContainerKind::Zip]),
+        ("gba".to_string(), vec![ContainerKind::Zip]),
+    ]);
+    assert!(has(
+        &p,
+        "container_overrides.not-a-system",
+        FieldErrorCode::Invalid
+    ));
+    assert!(!errors(&p)
+        .iter()
+        .any(|(f, _)| f == "container_overrides.gba"));
 }

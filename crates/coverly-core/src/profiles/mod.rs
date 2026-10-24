@@ -17,6 +17,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::archive::ContainerKind;
+use crate::systems::System;
+
 pub use builtin::builtin_profiles;
 pub use detect::{detect, detect_with_fallback, Detection};
 pub use fit::fit_to_root;
@@ -32,6 +35,67 @@ pub enum FolderNaming {
     FirstAlias,
     /// The system id (`gba`, `snes`…), as frontends name their folders.
     Id,
+}
+
+/// Where organise extracts a disc game's sheet and tracks (spec §8.2,
+/// research R1 in `docs/02-research/layouts.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum DiscLayout {
+    /// Sheet and tracks straight into the system folder (`PS/<cue>`).
+    Flat {
+        /// Generate `<stem>.m3u` beside a multi-disc game's sheets.
+        #[serde(default)]
+        m3u_for_multi: bool,
+    },
+    /// One folder per game, named like its primary sheet
+    /// (`PS/<stem>/<stem>.cue`).
+    GameFolder {
+        /// Generate `<stem>/<stem>.m3u` for a multi-disc game.
+        #[serde(default)]
+        m3u_for_multi: bool,
+    },
+}
+
+impl Default for DiscLayout {
+    fn default() -> Self {
+        Self::Flat {
+            m3u_for_multi: false,
+        }
+    }
+}
+
+impl DiscLayout {
+    /// Whether each game gets its own folder.
+    pub fn is_game_folder(self) -> bool {
+        matches!(self, Self::GameFolder { .. })
+    }
+
+    /// Whether a multi-disc game gets a generated `.m3u`.
+    pub fn m3u_for_multi(self) -> bool {
+        match self {
+            Self::Flat { m3u_for_multi } | Self::GameFolder { m3u_for_multi } => m3u_for_multi,
+        }
+    }
+}
+
+/// The containers a profile loads as they are when nothing else is known
+/// (spec §8.3): zip and 7z.
+pub fn default_accepts_containers() -> Vec<ContainerKind> {
+    vec![ContainerKind::Zip, ContainerKind::SevenZip]
+}
+
+/// Systems whose emulators read no archive (R1-9, R1-20: spruceOS lists
+/// none for PSP and the PPSSPP core reads none).
+const NO_ARCHIVE_SYSTEMS: [&str; 1] = ["psp"];
+
+/// The per-system container overrides every profile starts from: the
+/// systems in [`NO_ARCHIVE_SYSTEMS`] always extract.
+pub fn default_container_overrides() -> BTreeMap<String, Vec<ContainerKind>> {
+    NO_ARCHIVE_SYSTEMS
+        .iter()
+        .map(|s| (s.to_string(), Vec::new()))
+        .collect()
 }
 
 /// A kind of game art.
@@ -108,11 +172,32 @@ pub struct Profile {
     pub arcade_order: Vec<String>,
     /// Folders the device shows, when known (empty = unknown).
     pub known_folders: Vec<String>,
+    /// Where disc games are extracted (spec §8.2).
+    pub disc_layout: DiscLayout,
+    /// Containers whose cartridge ROMs are moved as they are; any other
+    /// container is extracted (spec §8.3).
+    pub accepts_containers: Vec<ContainerKind>,
+    /// Per-system replacements of `accepts_containers` (system id →
+    /// containers; empty = always extract).
+    pub container_overrides: BTreeMap<String, Vec<ContainerKind>>,
 }
 
 impl Profile {
     /// The slot for `media`, if this layout can store it.
     pub fn slot(&self, media: Media) -> Option<&MediaSlot> {
         self.slots.get(&media)
+    }
+
+    /// Whether a `system` ROM inside a `kind` container is moved as it is
+    /// (`false` = extracted). Disc systems never take an archive as-is,
+    /// whatever the profile says: their sets are extracted (spec D4).
+    pub fn accepts_as_is(&self, system: &System, kind: ContainerKind) -> bool {
+        if system.multi_file {
+            return false;
+        }
+        self.container_overrides
+            .get(&system.id)
+            .unwrap_or(&self.accepts_containers)
+            .contains(&kind)
     }
 }

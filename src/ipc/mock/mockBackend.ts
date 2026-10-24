@@ -145,6 +145,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'minui',
+      accepts_containers: ['zip'],
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       name: 'MinUI / NextUI',
       roms_root: 'Roms',
       art_dirs: ['.media', '.res'],
@@ -157,6 +159,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       name: 'ES-DE',
       roms_root: 'ROMs',
       art_dirs: [],
@@ -180,6 +183,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
+      disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'Batocera / Knulli / EmulationStation',
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],
@@ -197,6 +201,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'retroarch',
+      disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'RetroArch',
       roms_root: '',
       art_dirs: ['thumbnails'],

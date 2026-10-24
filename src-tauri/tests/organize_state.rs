@@ -320,6 +320,9 @@ fn custom_layout(roms_root: &str) -> coverly_core::profiles::custom::ProfileFile
         system_folder: FolderNaming::default(),
         folder_names: std::collections::BTreeMap::new(),
         host_folders: std::collections::BTreeMap::new(),
+        disc_layout: Default::default(),
+        accepts_containers: coverly_core::profiles::default_accepts_containers(),
+        container_overrides: coverly_core::profiles::default_container_overrides(),
     }
 }
 

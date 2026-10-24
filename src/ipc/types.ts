@@ -581,7 +581,38 @@ export interface ProfileFile {
   /** Systems kept in another system's folder (system id → host id, e.g.
    * `ngpc → ngp` on Anbernic cards); absent = none. */
   host_folders?: Record<string, string>;
+  /** Where disc games are extracted; absent = flat without `.m3u`. */
+  disc_layout?: DiscLayout;
+  /** Containers whose cartridge ROMs move as they are; absent = zip, 7z. */
+  accepts_containers?: ContainerKind[];
+  /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
+  container_overrides?: Record<string, ContainerKind[]>;
 }
+
+/** `profiles::DiscLayout`. */
+export interface DiscLayout {
+  kind: 'flat' | 'game-folder';
+  m3u_for_multi: boolean;
+}
+
+/** `archive::ContainerKind`, as profile files name it. */
+export type ContainerKind =
+  | 'zip'
+  | '7z'
+  | 'rar'
+  | 'tar'
+  | 'tar.gz'
+  | 'tar.bz2'
+  | 'tar.xz'
+  | 'tar.zst'
+  | 'tar.lz4'
+  | 'tar.lzma'
+  | 'gz'
+  | 'bz2'
+  | 'xz'
+  | 'zst'
+  | 'lz4'
+  | 'lzma';
 
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
 export type FolderNaming = 'first-alias' | 'id';

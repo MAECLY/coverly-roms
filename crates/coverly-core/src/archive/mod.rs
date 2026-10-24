@@ -154,6 +154,119 @@ impl Format {
     }
 }
 
+/// A container as a profile names it (spec §8.3): [`Format`] without the
+/// details that never change what an emulator loads (RAR v4/v5). Written
+/// in profile TOML by [`ContainerKind::name`] (`zip`, `7z`, `tar.gz`, `gz`…).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ContainerKind {
+    Zip,
+    SevenZip,
+    Rar,
+    Tar,
+    TarGz,
+    TarBz2,
+    TarXz,
+    TarZst,
+    TarLz4,
+    TarLzma,
+    Gz,
+    Bz2,
+    Xz,
+    Zst,
+    Lz4,
+    Lzma,
+}
+
+impl ContainerKind {
+    /// Every kind, in display order.
+    pub const ALL: [ContainerKind; 16] = [
+        Self::Zip,
+        Self::SevenZip,
+        Self::Rar,
+        Self::Tar,
+        Self::TarGz,
+        Self::TarBz2,
+        Self::TarXz,
+        Self::TarZst,
+        Self::TarLz4,
+        Self::TarLzma,
+        Self::Gz,
+        Self::Bz2,
+        Self::Xz,
+        Self::Zst,
+        Self::Lz4,
+        Self::Lzma,
+    ];
+
+    /// The kind of a detected format.
+    pub fn of(format: Format) -> ContainerKind {
+        use Compressor as C;
+        match format {
+            Format::Zip => Self::Zip,
+            Format::SevenZip => Self::SevenZip,
+            Format::Rar { .. } => Self::Rar,
+            Format::Tar { outer: None } => Self::Tar,
+            Format::Tar { outer: Some(c) } => match c {
+                C::Gzip => Self::TarGz,
+                C::Bzip2 => Self::TarBz2,
+                C::Xz => Self::TarXz,
+                C::Zstd => Self::TarZst,
+                C::Lz4 => Self::TarLz4,
+                C::LzmaAlone => Self::TarLzma,
+            },
+            Format::Single(c) => match c {
+                C::Gzip => Self::Gz,
+                C::Bzip2 => Self::Bz2,
+                C::Xz => Self::Xz,
+                C::Zstd => Self::Zst,
+                C::Lz4 => Self::Lz4,
+                C::LzmaAlone => Self::Lzma,
+            },
+        }
+    }
+
+    /// The name used in profile files, equal to [`Format::short_name`].
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Zip => "zip",
+            Self::SevenZip => "7z",
+            Self::Rar => "rar",
+            Self::Tar => "tar",
+            Self::TarGz => "tar.gz",
+            Self::TarBz2 => "tar.bz2",
+            Self::TarXz => "tar.xz",
+            Self::TarZst => "tar.zst",
+            Self::TarLz4 => "tar.lz4",
+            Self::TarLzma => "tar.lzma",
+            Self::Gz => "gz",
+            Self::Bz2 => "bz2",
+            Self::Xz => "xz",
+            Self::Zst => "zst",
+            Self::Lz4 => "lz4",
+            Self::Lzma => "lzma",
+        }
+    }
+
+    /// The kind named `name` (exact, lower case), if any.
+    pub fn from_name(name: &str) -> Option<ContainerKind> {
+        Self::ALL.into_iter().find(|k| k.name() == name)
+    }
+}
+
+impl serde::Serialize for ContainerKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ContainerKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let name = <String as serde::Deserialize>::deserialize(d)?;
+        Self::from_name(&name)
+            .ok_or_else(|| serde::de::Error::custom(format_args!("unknown container `{name}`")))
+    }
+}
+
 /// What an archive entry is. Only [`EntryKind::File`] entries are ever
 /// read or extracted (spec §13 extras: links are never followed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
