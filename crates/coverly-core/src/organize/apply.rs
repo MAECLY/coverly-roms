@@ -18,7 +18,7 @@ use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::plan::{
     ItemKind, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress,
-    TransferMode,
+    Transfer, TransferMode,
 };
 use crate::organize::target::DirIndex;
 use crate::progress::PauseKind;
@@ -272,7 +272,9 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
 /// Items apply moves: automatic ones with a target (review items become
 /// automatic only through the user's decisions).
 fn applicable(item: &OrganizeItem) -> bool {
-    item.action == OrganizeAction::Auto && item.target.is_some()
+    // An `Extract` item is never carried out as a move of the archive:
+    // until the extraction engine handles it, it is not applied at all.
+    item.action == OrganizeAction::Auto && item.target.is_some() && item.transfer == Transfer::AsIs
 }
 
 /// Review items are reported as waiting for the user.
