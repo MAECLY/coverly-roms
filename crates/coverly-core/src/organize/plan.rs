@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::archive::names::UnsafeWhy;
-use crate::archive::{Limits, Tool, ToolsOnDemand};
+use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
 use crate::dedupe::source::DiscId;
 use crate::identify::dat::DatStore;
@@ -26,11 +26,12 @@ use crate::organize::evidence::{
     Verdict, MAX_DAT_DOWNLOADS,
 };
 use crate::organize::inspect::{
-    inspect_file_with, inspect_set_primary, ArchiveIssue, Container, Inspection, Payload,
+    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveIssue, Container, Inspection,
+    Payload, ZipEntryInfo,
 };
 use crate::organize::target::{
-    assign_targets, default_companion_exts, file_system_is_fat32, mark_duplicates, DirIndex,
-    TargetLayout,
+    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, mark_duplicates,
+    DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -42,7 +43,7 @@ use crate::scan::classify::{
 use crate::scan::multifile::{group_sets, is_list_extension};
 use crate::scan::{find_dir_ignoring_case, ScanOptions, ScanWarning};
 use crate::settings::{ExternalTools, OrganizeModeSetting, Settings};
-use crate::systems::SystemDb;
+use crate::systems::{System, SystemDb};
 
 /// How files reach their system folder.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -666,6 +667,9 @@ pub struct SurveyEntry {
     /// Left before identification (walk, broken disc set, unreadable).
     pub left: Option<LeftReason>,
     pub identification: Option<Identification>,
+    /// What opening an archive found (archives only): the listing, the
+    /// disc set and the tool an extraction plan needs.
+    pub inspection: Option<Inspection>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -850,6 +854,7 @@ pub fn survey(
                 kind: ItemKind::File,
                 left: Some(reason),
                 identification: None,
+                inspection: None,
             },
             candidate: None,
             set_sniff: None,
@@ -909,7 +914,16 @@ pub fn survey(
     for (i, outcome) in results {
         match outcome {
             Ok((facts, id)) => {
-                entries[i].entry.identification = Some(id);
+                let entry = &mut entries[i].entry;
+                entry.identification = Some(id);
+                // Any container the reader opened is an archive item (a
+                // `.tar.gz` or a `game.gba.gz` too), extracted or moved.
+                if facts.inspection.container.is_archive() && entry.kind == ItemKind::File {
+                    entry.kind = ItemKind::Archive;
+                }
+                if entry.kind == ItemKind::Archive {
+                    entry.inspection = Some(facts.inspection.clone());
+                }
                 facts_of.insert(i, facts);
             }
             Err(left) => entries[i].entry.left = Some(left),
@@ -1037,6 +1051,7 @@ fn build_entries(
             }],
             left: None,
             identification: None,
+            inspection: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -1244,9 +1259,11 @@ fn identify_one(
 }
 
 /// Version of the memoised facts: facts from before the archive reader
-/// (no version) judged a 7z named `.zip` damaged, and facts of version 1
-/// judged a disc archive by its cartridge rules, so they are read again.
-const FACTS_VERSION: u32 = 2;
+/// (no version) judged a 7z named `.zip` damaged, facts of version 1
+/// judged a disc archive by its cartridge rules, and facts of version 2
+/// lack the entry indices, the discs and the tool an extraction needs, so
+/// they are read again.
+const FACTS_VERSION: u32 = 3;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1311,6 +1328,7 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             budget_spent: false,
             disc_set: None,
             decoded: 0,
+            tool: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1350,6 +1368,7 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             budget_spent: false,
             disc_set: None,
             decoded: 0,
+            tool: None,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1487,8 +1506,35 @@ pub fn plan_from_survey(
         }
     }
 
-    // Duplicates, then targets.
+    // Mode: archives are kept in copy mode.
+    let mut warnings: Vec<PlanWarning> = Vec::new();
+    let move_allowed = dir_writable(src);
+    let mut mode = opts.mode.unwrap_or(if same_volume(src, &target_root) {
+        TransferMode::Move
+    } else {
+        TransferMode::Copy
+    });
+    if !move_allowed && mode == TransferMode::Move {
+        mode = TransferMode::Copy;
+        warnings.push(PlanWarning::MoveUnavailable);
+    }
+
+    // Duplicates, extractions, then targets.
     mark_duplicates(&mut items, &keys);
+    let mut shapes: Vec<Option<ExtractShape>> = vec![None; items.len()];
+    for item in items.iter_mut().filter(|i| !i.is_left()) {
+        let entry = &survey.entries[item.id];
+        let (Some(system), Some(insp)) = (item.system_id.clone(), entry.inspection.as_ref()) else {
+            continue;
+        };
+        let Some(system) = env.db.get(&system) else {
+            continue;
+        };
+        match plan_transfer(item, insp, system, &profile, mode) {
+            Ok(shape) => shapes[item.id] = shape,
+            Err(reason) => item.leave(reason),
+        }
+    }
     let fat32 = file_system_is_fat32(&target_root);
     let layout = TargetLayout {
         target_root: target_root.clone(),
@@ -1507,8 +1553,9 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let left_companions = assign_targets(
+    let left_companions = assign_targets_with_extracts(
         &mut items,
+        &shapes,
         &layout,
         env.db,
         src,
@@ -1547,18 +1594,7 @@ pub fn plan_from_survey(
         });
     }
 
-    // Mode, warnings, counts.
-    let mut warnings: Vec<PlanWarning> = Vec::new();
-    let move_allowed = dir_writable(src);
-    let mut mode = opts.mode.unwrap_or(if same_volume(src, &target_root) {
-        TransferMode::Move
-    } else {
-        TransferMode::Copy
-    });
-    if !move_allowed && mode == TransferMode::Move {
-        mode = TransferMode::Copy;
-        warnings.push(PlanWarning::MoveUnavailable);
-    }
+    // Warnings, counts.
     let missing: BTreeSet<String> = items
         .iter()
         .filter(|i| !i.is_left())
@@ -1627,6 +1663,148 @@ pub fn plan_from_survey(
         target_detected,
         created_at: crate::time::rfc3339_utc(env.now),
     })
+}
+
+/// Leftover names a note shows.
+const LEFTOVER_EXAMPLES: usize = 3;
+
+/// How an archive item reaches `system`'s folder under `profile`
+/// (archives spec §8.1–§8.3): `Ok(None)` moves it as it is; `Ok(Some)`
+/// sets `item.transfer` to an extraction (targets assigned later) and
+/// returns its layout; `Err` leaves the item.
+///
+/// - Arcade sets are never extracted: a zip moves as it is, any other
+///   container is `RepackArcade`.
+/// - A disc archive always extracts its set (sheets, tracks, images).
+/// - A cartridge archive moves as it is when the profile's emulators load
+///   its container for the system, else its ROM entries are extracted.
+/// - Move mode sends the archive to the Trash only when every file entry
+///   is extracted or OS junk; anything else (a save, a readme) keeps it,
+///   with a note. Copy mode always keeps it.
+fn plan_transfer(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    system: &System,
+    profile: &Profile,
+    mode: TransferMode,
+) -> Result<Option<ExtractShape>, LeftReason> {
+    let Some(format) = insp.format else {
+        return Ok(None);
+    };
+    if system.arcade {
+        return match insp.container {
+            Container::Zip => Ok(None),
+            _ => Err(LeftReason::RepackArcade),
+        };
+    }
+    let by_name = |name: &str| insp.entries.iter().find(|e| e.name == name);
+    let (chosen, shape, sheet_check): (Vec<&ZipEntryInfo>, ExtractShape, SheetCheck) =
+        match &insp.disc_set {
+            Some(set) => {
+                let chosen = set.members.iter().filter_map(|m| by_name(m)).collect();
+                let check = if set.extractable {
+                    set.sheet_check
+                } else {
+                    SheetCheck::Deferred
+                };
+                let shape = ExtractShape::Disc {
+                    discs: set.discs.clone(),
+                    title: set.title.clone(),
+                    multi_disc: set.multi_disc,
+                };
+                if profile.disc_layout.is_game_folder() {
+                    // One folder per game: menus list it once.
+                    item.notes
+                        .retain(|n| !matches!(n, ItemNote::TwinSheets { .. }));
+                }
+                (chosen, shape, check)
+            }
+            None => {
+                if profile.accepts_as_is(system, ContainerKind::of(format)) {
+                    return Ok(None);
+                }
+                let chosen: Vec<&ZipEntryInfo> = insp
+                    .payloads
+                    .iter()
+                    .filter_map(|p| by_name(&p.name))
+                    .collect();
+                if chosen.is_empty() {
+                    return Ok(None);
+                }
+                if chosen.len() > 1 {
+                    item.notes
+                        .retain(|n| !matches!(n, ItemNote::MultiRomZip { .. }));
+                    item.notes.push(ItemNote::MultiRomExtract {
+                        count: chosen.len(),
+                    });
+                }
+                (chosen, ExtractShape::Roms, SheetCheck::Read)
+            }
+        };
+    let mut entries = Vec::with_capacity(chosen.len());
+    for e in &chosen {
+        if let Some(why) = e.unsafe_why {
+            return Err(LeftReason::UnsafeArchiveEntry {
+                name: e.name.clone(),
+                why,
+            });
+        }
+        // Facts from before extraction carry no index: never guessed.
+        let Some(index) = e.index else {
+            return Err(LeftReason::Unknown);
+        };
+        entries.push(ExtractEntry {
+            index,
+            name: e.name.clone(),
+            size: e.size,
+            crc32: e
+                .crc32
+                .as_deref()
+                .and_then(|c| u32::from_str_radix(c, 16).ok()),
+            target: PathBuf::new(),
+        });
+    }
+    let leftovers: Vec<&ZipEntryInfo> = insp
+        .entries
+        .iter()
+        .filter(|e| !is_metadata_entry(&e.name))
+        .filter(|e| !entries.iter().any(|x| Some(x.index) == e.index))
+        .collect();
+    let archive_after = match mode {
+        TransferMode::Copy => ArchiveAfter::Keep,
+        TransferMode::Move if leftovers.is_empty() => ArchiveAfter::Trash,
+        TransferMode::Move => {
+            item.notes.push(ItemNote::ArchiveKeptLeftovers {
+                count: leftovers.len(),
+                examples: leftovers
+                    .iter()
+                    .take(LEFTOVER_EXAMPLES)
+                    .map(|e| e.name.clone())
+                    .collect(),
+            });
+            ArchiveAfter::Keep
+        }
+    };
+    if entries.iter().any(|e| e.crc32.is_none())
+        && !item.notes.contains(&ItemNote::NoStoredChecksum)
+    {
+        item.notes.push(ItemNote::NoStoredChecksum);
+    }
+    item.transfer = Transfer::Extract {
+        bytes: entries.iter().map(|e| e.size).sum(),
+        entries,
+        archive_after,
+        source: match &insp.tool {
+            Some((tool, version)) => ExtractSource::Tool {
+                tool: *tool,
+                version: version.clone(),
+            },
+            None => ExtractSource::Builtin,
+        },
+        sheet_check,
+        m3u: None,
+    };
+    Ok(Some(shape))
 }
 
 /// Whether the user may settle this item: it moves, or nothing placed it.

@@ -720,6 +720,7 @@ fn pile_units_come_from_organise_facts() {
             budget_spent: false,
             disc_set: None,
             decoded: 0,
+            tool: None,
         },
         raw_crcs: Vec::new(),
         hashed: false,

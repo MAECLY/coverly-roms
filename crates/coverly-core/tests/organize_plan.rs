@@ -1233,3 +1233,590 @@ mod extract_types {
         assert_eq!(back, disc);
     }
 }
+
+/// The planner's extraction decisions (archives spec §8): disc archives
+/// extract their set per the profile's disc layout, cartridges extract
+/// only when the profile's emulators cannot load the container, and the
+/// archive goes to the Trash only when nothing else is in it.
+mod extract {
+    use super::*;
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::archive::Format;
+    use coverly_core::disc::testing as dt;
+    use coverly_core::organize::plan::{
+        ArchiveAfter, ExtractEntry, ExtractSource, ItemNote, SheetCheck, Transfer, TransferMode,
+    };
+
+    /// A cue sheet over `files`, one track per file.
+    fn cue(files: &[&str]) -> Vec<u8> {
+        let mut s = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let mode = if i == 0 { "MODE2/2352" } else { "AUDIO" };
+            s.push_str(&format!(
+                "FILE \"{f}\" BINARY\r\n  TRACK {:02} {mode}\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        s.into_bytes()
+    }
+
+    fn write7z(path: &Path, files: &[(&str, &[u8])]) {
+        put(path, &sevenz(files, SevenZShape::non_solid_lzma()));
+    }
+
+    const PS1_DIR: &str = "Next Tetris, The (USA)";
+    const PS1_T1: &str = "Next Tetris, The (USA) (Track 01).bin";
+    const PS1_T2: &str = "Next Tetris, The (USA) (Track 02).bin";
+    const PS1_CUE: &str = "Next Tetris, The (USA).cue";
+
+    /// The PS1 archive of the real case: a 7z named `.zip`, one top
+    /// folder, a cue and two tracks.
+    fn ps1_archive(path: &Path, serial: &str) {
+        let sheet = format!("{PS1_DIR}/{PS1_CUE}");
+        let t1 = format!("{PS1_DIR}/{PS1_T1}");
+        let t2 = format!("{PS1_DIR}/{PS1_T2}");
+        let boot = format!("cdrom:\\{serial};1");
+        write7z(
+            path,
+            &[
+                (&sheet, &cue(&[PS1_T1, PS1_T2])),
+                (&t1, &dt::psx_track(true, &boot)),
+                (&t2, &[0u8; 2352 * 4]),
+            ],
+        );
+    }
+
+    fn opts(layout: &str, target: &Path, mode: TransferMode) -> OrganizeOptions {
+        OrganizeOptions {
+            target: Some(target.to_path_buf()),
+            mode: Some(mode),
+            offline: true,
+            ..defaults(layout)
+        }
+    }
+
+    /// Entries, playlist and archive fate of an extract item, with `/`
+    /// paths on every OS.
+    fn extract_json(item: &OrganizeItem) -> serde_json::Value {
+        let mut v = serde_json::to_value(&item.transfer).unwrap();
+        if let Some(entries) = v["entries"].as_array_mut() {
+            for e in entries {
+                if let Some(t) = e["target"].as_str().map(|s| s.replace('\\', "/")) {
+                    e["target"] = t.into();
+                }
+            }
+        }
+        if let Some(m) = v["m3u"].as_str().map(|s| s.replace('\\', "/")) {
+            v["m3u"] = m.into();
+        }
+        let target = item
+            .target
+            .as_ref()
+            .map(|t| t.to_string_lossy().replace('\\', "/"));
+        serde_json::json!({
+            "action": serde_json::to_value(&item.action).unwrap()["action"],
+            "system": item.system_id,
+            "target": target,
+            "notes": item.notes,
+            "transfer": v,
+        })
+    }
+
+    fn entries(item: &OrganizeItem) -> &[ExtractEntry] {
+        match &item.transfer {
+            Transfer::Extract { entries, .. } => entries,
+            other => panic!("not an extraction: {other:?}"),
+        }
+    }
+
+    fn archive_after(item: &OrganizeItem) -> ArchiveAfter {
+        match &item.transfer {
+            Transfer::Extract { archive_after, .. } => *archive_after,
+            other => panic!("not an extraction: {other:?}"),
+        }
+    }
+
+    fn targets(item: &OrganizeItem) -> Vec<String> {
+        entries(item)
+            .iter()
+            .map(|e| e.target.to_string_lossy().replace('\\', "/"))
+            .collect()
+    }
+
+    fn m3u(item: &OrganizeItem) -> Option<String> {
+        match &item.transfer {
+            Transfer::Extract { m3u, .. } => {
+                m3u.as_ref().map(|p| p.to_string_lossy().replace('\\', "/"))
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn ps1_archive_extracts_flat_on_anbernic() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Next Tetris, The.zip");
+        assert_eq!(item.action, OrganizeAction::Auto);
+        assert_eq!(item.kind, coverly_core::organize::ItemKind::Archive);
+        insta::assert_json_snapshot!("ps1_archive_extracts_flat_on_anbernic", extract_json(item));
+    }
+
+    #[test]
+    fn ps1_archive_game_folder_on_minui() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Next Tetris, The.zip");
+        insta::assert_json_snapshot!("ps1_archive_game_folder_on_minui", extract_json(item));
+    }
+
+    /// Two discs of one game, cue + one track each.
+    fn two_disc_archive(path: &Path) {
+        let d1 = "Final Game (USA) (Disc 1).bin";
+        let d2 = "Final Game (USA) (Disc 2).bin";
+        write7z(
+            path,
+            &[
+                ("Final Game (USA) (Disc 1).cue", &cue(&[d1])),
+                ("Final Game (USA) (Disc 2).cue", &cue(&[d2])),
+                (d1, &dt::psx_track(true, "cdrom:\\SLUS_008.62;1")),
+                (d2, &dt::psx_track(true, "cdrom:\\SLUS_008.63;1")),
+            ],
+        );
+    }
+
+    #[test]
+    fn multi_disc_game_folder_with_m3u_on_esde() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        two_disc_archive(&s.path().join("Final Game.7z"));
+        let p = plan(&world, s.path(), opts("esde", t.path(), TransferMode::Move));
+        let item = by_name(&p, "Final Game.7z");
+        assert!(m3u(item)
+            .unwrap()
+            .ends_with("/Final Game (USA)/Final Game (USA).m3u"));
+        insta::assert_json_snapshot!(
+            "multi_disc_game_folder_with_m3u_on_esde",
+            extract_json(item)
+        );
+    }
+
+    #[test]
+    fn flat_with_m3u_on_batocera() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        two_disc_archive(&s.path().join("Final Game.7z"));
+        let p = plan(
+            &world,
+            s.path(),
+            opts("batocera", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Final Game.7z");
+        assert!(m3u(item).unwrap().ends_with("/psx/Final Game (USA).m3u"));
+        insta::assert_json_snapshot!("flat_with_m3u_on_batocera", extract_json(item));
+
+        // Anbernic stock keeps the discs flat and generates nothing.
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        assert_eq!(m3u(by_name(&p, "Final Game.7z")), None);
+    }
+
+    const GDI: &[u8] =
+        b"3\r\n1 0 4 2352 track01.bin 0\r\n2 756 0 2352 track02.raw 0\r\n3 45000 4 2352 track03.bin 0\r\n";
+
+    const GD_CUE: &[u8] = b"REM SINGLE-DENSITY AREA\r\n\
+        FILE \"track01.bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
+        FILE \"track02.raw\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 01 00:00:00\r\n\
+        REM HIGH-DENSITY AREA\r\n\
+        FILE \"track03.bin\" BINARY\r\n  TRACK 03 MODE1/2352\r\n    INDEX 01 00:00:00\r\n";
+
+    #[test]
+    fn dreamcast_twins_both_extracted_note_in_flat() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        write7z(
+            &s.path().join("Tetris Online.zip"),
+            &[
+                ("Tetris Online.cue", GD_CUE),
+                ("Tetris Online.gdi", GDI),
+                ("track01.bin", &dt::dreamcast_track03("T-99999N  ", "1/1")),
+                ("track02.raw", &[0u8; 2352 * 4]),
+                ("track03.bin", &dt::dreamcast_track03("T40214N   ", "1/1")),
+            ],
+        );
+        let twins = |item: &OrganizeItem| {
+            item.notes
+                .iter()
+                .any(|n| matches!(n, ItemNote::TwinSheets { .. }))
+        };
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Tetris Online.zip");
+        assert_eq!(item.system_id.as_deref(), Some("dreamcast"));
+        let names: Vec<&str> = entries(item).iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"Tetris Online.cue") && names.contains(&"Tetris Online.gdi"));
+        assert_eq!(entries(item).len(), 5, "no source byte is dropped");
+        assert!(twins(item), "a flat menu lists both sheets");
+        // The item's target is the gdi: what the playlist would name.
+        assert!(item.target.as_ref().unwrap().ends_with("Tetris Online.gdi"));
+
+        // One folder per game: the menu shows the folder once, no note.
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Tetris Online.zip");
+        assert_eq!(entries(item).len(), 5);
+        assert!(!twins(item));
+    }
+
+    #[test]
+    fn cartridge_7z_as_is_on_anbernic_extract_on_minui() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        put(
+            &s.path().join("Tetris DX.7z"),
+            &sevenz(
+                &[("Tetris DX.gbc", &fx::gb(0xC0))],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Tetris DX.7z");
+        assert_eq!(item.action, OrganizeAction::Auto);
+        assert_eq!(item.transfer, Transfer::AsIs);
+        assert!(item.target.as_ref().unwrap().ends_with("Tetris DX.7z"));
+
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Tetris DX.7z");
+        assert_eq!(item.action, OrganizeAction::Auto);
+        let got = targets(item);
+        assert_eq!(got.len(), 1);
+        assert!(got[0].ends_with("/Tetris DX.gbc"), "{got:?}");
+        assert_eq!(item.target.as_ref().unwrap(), &entries(item)[0].target);
+        assert_eq!(archive_after(item), ArchiveAfter::Trash);
+    }
+
+    fn gz(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(data).unwrap();
+        e.finish().unwrap()
+    }
+
+    #[test]
+    fn game_gba_gz_extracts_everywhere() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        put(&s.path().join("game.gba.gz"), &gz(&fx::gba()));
+        for layout in ["anbernic-stock", "minui", "esde", "batocera", "onion"] {
+            let p = plan(&world, s.path(), opts(layout, t.path(), TransferMode::Move));
+            let item = by_name(&p, "game.gba.gz");
+            assert_eq!(item.system_id.as_deref(), Some("gba"), "{layout}");
+            let got = targets(item);
+            assert_eq!(got.len(), 1, "{layout}");
+            assert!(got[0].ends_with("/game.gba"), "{layout}: {got:?}");
+            assert_eq!(archive_after(item), ArchiveAfter::Trash, "{layout}");
+        }
+    }
+
+    #[test]
+    fn arcade_set_in_rar_repack_arcade() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        put(
+            &s.path().join("sf2.zip"),
+            &sevenz(
+                &[("sf2.01", b"one"), ("sf2.02", b"two")],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        common::roms::zip_file(
+            &s.path().join("sf2b.zip"),
+            &[("sf2.01", b"one", true), ("sf2.02", b"two", true)],
+        );
+        filetime::set_file_mtime(s.path().join("sf2b.zip"), hour_ago()).unwrap();
+        let env = world.env();
+        let o = opts("anbernic-stock", t.path(), TransferMode::Move);
+        let mut sv = survey(s.path(), &o, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+        // Stand the 7z in for a RAR an external tool listed: arcade
+        // detection does not depend on the format.
+        let rar = sv
+            .entries
+            .iter_mut()
+            .find(|e| e.sources[0].ends_with("sf2.zip"))
+            .unwrap();
+        let insp = rar.inspection.as_mut().expect("an archive");
+        insp.container = coverly_core::organize::inspect::Container::Rar;
+        insp.format = Some(Format::Rar { v5: true });
+        let ids: Vec<usize> = ["sf2.zip", "sf2b.zip"]
+            .iter()
+            .map(|n| {
+                sv.entries
+                    .iter()
+                    .position(|e| e.sources[0].ends_with(n))
+                    .unwrap()
+            })
+            .collect();
+        let decisions: Vec<Decision> = ids
+            .iter()
+            .map(|&item| Decision {
+                item,
+                choice: Choice::Assign {
+                    system: "mame".into(),
+                },
+            })
+            .collect();
+        let p = plan_from_survey(&sv, &o, &decisions, &env).unwrap();
+        assert_eq!(left_reason(&p, "sf2.zip"), Some(LeftReason::RepackArcade));
+        // A zip set moves as it is, never extracted.
+        let zipped = by_name(&p, "sf2b.zip");
+        assert_eq!(zipped.action, OrganizeAction::Auto);
+        assert_eq!(zipped.transfer, Transfer::AsIs);
+    }
+
+    #[test]
+    fn sav_beside_rom_keeps_archive_with_leftovers() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        put(
+            &s.path().join("Game.7z"),
+            &sevenz(
+                &[("Game.gba", &fx::gba()), ("Game.sav", b"my progress")],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Game.7z");
+        assert_eq!(targets(item).len(), 1);
+        assert_eq!(archive_after(item), ArchiveAfter::Keep);
+        assert!(item.notes.contains(&ItemNote::ArchiveKeptLeftovers {
+            count: 1,
+            examples: vec!["Game.sav".into()]
+        }));
+    }
+
+    fn junk_only(path: &Path) {
+        put(
+            path,
+            &sevenz(
+                &[
+                    ("Game.gba", &fx::gba()),
+                    (".DS_Store", b"\0\0\0\x01Bud1"),
+                    ("__MACOSX/._Game.gba", b"\x00\x05\x16\x07"),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+    }
+
+    #[test]
+    fn junk_only_leftovers_trash_archive() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        junk_only(&s.path().join("Game.7z"));
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Game.7z");
+        assert_eq!(targets(item).len(), 1);
+        assert_eq!(archive_after(item), ArchiveAfter::Trash);
+        assert!(!item
+            .notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::ArchiveKeptLeftovers { .. })));
+    }
+
+    #[test]
+    fn copy_mode_keeps_archive() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        junk_only(&s.path().join("Game.7z"));
+        ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Copy),
+        );
+        assert_eq!(p.mode, TransferMode::Copy);
+        for name in ["Game.7z", "Next Tetris, The.zip"] {
+            let item = by_name(&p, name);
+            assert_eq!(archive_after(item), ArchiveAfter::Keep, "{name}");
+            assert!(!item
+                .notes
+                .iter()
+                .any(|n| matches!(n, ItemNote::ArchiveKeptLeftovers { .. })));
+        }
+    }
+
+    #[test]
+    fn two_archives_same_track_name_flat_second_collision_set() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        for (archive, sheet, serial) in [
+            ("Alpha.7z", "Alpha.cue", "SLUS_008.62"),
+            ("Beta.7z", "Beta.cue", "SLUS_009.99"),
+        ] {
+            let boot = format!("cdrom:\\{serial};1");
+            write7z(
+                &s.path().join(archive),
+                &[
+                    (sheet, &cue(&["Track 01.bin"])),
+                    ("Track 01.bin", &dt::psx_track(true, &boot)),
+                ],
+            );
+        }
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        assert_eq!(by_name(&p, "Alpha.7z").action, OrganizeAction::Auto);
+        assert!(targets(by_name(&p, "Alpha.7z"))
+            .iter()
+            .any(|t| t.ends_with("/PS/Track 01.bin")));
+        assert_eq!(left_reason(&p, "Beta.7z"), Some(LeftReason::CollisionSet));
+        assert_eq!(by_name(&p, "Beta.7z").transfer, Transfer::AsIs);
+
+        // In a game folder each set has its own folder: no collision.
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        assert_eq!(left_reason(&p, "Beta.7z"), None);
+    }
+
+    #[test]
+    fn existing_target_file_collision_set() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+        // Another casing of a track name already sits in `PS/`.
+        put(
+            &t.path()
+                .join("ROMS/PS/next tetris, the (usa) (track 02).bin"),
+            b"other",
+        );
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        assert_eq!(
+            left_reason(&p, "Next Tetris, The.zip"),
+            Some(LeftReason::CollisionSet)
+        );
+    }
+
+    #[test]
+    fn top_folder_dropped_in_flat_replaced_in_game_folder() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        let got = targets(by_name(&p, "Next Tetris, The.zip"));
+        assert_eq!(
+            got,
+            [
+                format!("ROMS/PS/{PS1_CUE}"),
+                format!("ROMS/PS/{PS1_T1}"),
+                format!("ROMS/PS/{PS1_T2}"),
+            ]
+        );
+        let p = plan(
+            &world,
+            s.path(),
+            opts("minui", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Next Tetris, The.zip");
+        let folder = item.folder.clone().unwrap();
+        let stem = "Next Tetris, The (USA)";
+        let got = targets(item);
+        assert_eq!(got.len(), 3);
+        for (target, name) in got.iter().zip([PS1_CUE, PS1_T1, PS1_T2]) {
+            assert!(
+                target.ends_with(&format!("/{folder}/{stem}/{name}")),
+                "{target}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_entries_carry_listing_crc_and_size() {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let sheet = cue(&["Game (USA).bin"]);
+        write7z(
+            &s.path().join("Game.7z"),
+            &[("Game (USA).cue", &sheet), ("Game (USA).bin", &track)],
+        );
+        let p = plan(
+            &world,
+            s.path(),
+            opts("anbernic-stock", t.path(), TransferMode::Move),
+        );
+        let item = by_name(&p, "Game.7z");
+        let got = entries(item);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "Game (USA).cue");
+        assert_eq!(got[0].size, sheet.len() as u64);
+        assert_eq!(got[0].crc32, Some(crc32fast::hash(&sheet)));
+        assert_eq!(got[1].name, "Game (USA).bin");
+        assert_eq!(got[1].size, track.len() as u64);
+        assert_eq!(got[1].crc32, Some(crc32fast::hash(&track)));
+        assert_ne!(got[0].index, got[1].index);
+        match &item.transfer {
+            Transfer::Extract {
+                bytes,
+                source,
+                sheet_check,
+                ..
+            } => {
+                assert_eq!(*bytes, (sheet.len() + track.len()) as u64);
+                assert_eq!(*source, ExtractSource::Builtin);
+                assert_eq!(*sheet_check, SheetCheck::Read);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!item.notes.contains(&ItemNote::NoStoredChecksum));
+    }
+}

@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 use super::plan::LeftReason;
+use crate::organize::inspect::names_an_archive;
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
     is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
@@ -214,7 +215,9 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             continue;
         }
         let ext = extension(path);
-        if db.is_rom_like_extension(&ext) {
+        // Every archive the reader opens is a candidate (a `.rar`, a
+        // `.tar.gz`, a `game.gba.gz`), not only zip and 7z.
+        if db.is_rom_like_extension(&ext) || names_an_archive(&ext) {
             out.candidates.push(WalkCandidate {
                 path: path.to_path_buf(),
                 cloud_only: opts.probe.cloud_only(path, &meta),

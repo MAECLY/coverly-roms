@@ -152,6 +152,14 @@ pub struct ZipEntryInfo {
     /// for a ROM-like entry of a format that stores none; `None` otherwise.
     pub crc32: Option<String>,
     pub size: u64,
+    /// Position in the archive's own order (what an extraction names);
+    /// absent in facts from before extraction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    /// Why the stored name failed validation: such an entry is never
+    /// extracted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsafe_why: Option<UnsafeWhy>,
 }
 
 /// Why a candidate cannot be used as it is (mapped to a `LeftReason` by
@@ -261,6 +269,14 @@ pub struct DiscSetInfo {
     /// budget fits the Redump track pattern. Otherwise the set is a guess
     /// and goes to Review, never to extraction.
     pub extractable: bool,
+    /// One entry per disc, in disc order: its sheet (the `.gdi` of a
+    /// `.cue`/`.gdi` pair) or its image. A generated `.m3u` lists these.
+    #[serde(default)]
+    pub discs: Vec<String>,
+    /// The first disc's stem without its disc tag (`Final Game (USA)`):
+    /// the name of a multi-disc game's folder and playlist.
+    #[serde(default)]
+    pub title: String,
 }
 
 fn yes() -> bool {
@@ -305,6 +321,10 @@ pub struct Inspection {
     /// Bytes decoded from the plan head budget.
     #[serde(default)]
     pub decoded: u64,
+    /// The external tool (and the version it reported) that listed the
+    /// archive; extraction uses the same one.
+    #[serde(default)]
+    pub tool: Option<(Tool, String)>,
 }
 
 impl Inspection {
@@ -322,6 +342,7 @@ impl Inspection {
             budget_spent: false,
             disc_set: None,
             decoded: 0,
+            tool: None,
         }
     }
 
@@ -493,7 +514,7 @@ fn unopened_name(m: ContainerMagic) -> &'static str {
 }
 
 /// Whether `ext` (lower-case) names a format the archive reader opens.
-fn names_an_archive(ext: &str) -> bool {
+pub(crate) fn names_an_archive(ext: &str) -> bool {
     by_extension(ext).is_some_and(|m| Container::of_magic(m).is_archive())
 }
 
@@ -502,7 +523,7 @@ pub use crate::archive::zip::{central_directory_claim, CentralDirectoryClaim};
 
 /// macOS/Windows metadata stored in an archive (`__MACOSX/…`, `._x`,
 /// `.DS_Store`, `Thumbs.db`): listed, never a payload.
-fn is_metadata_entry(name: &str) -> bool {
+pub fn is_metadata_entry(name: &str) -> bool {
     let mut parts = name.split(['/', '\\']).filter(|p| !p.is_empty());
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     parts.any(|p| p.eq_ignore_ascii_case("__MACOSX")) || is_appledouble(base) || is_junk_file(base)
@@ -607,6 +628,7 @@ fn inspect_archive(
     };
     let format = reader.format();
     out.format = Some(format);
+    out.tool = reader.tool().map(|t| (t.tool, t.version.clone()));
     out.container = Container::of_format(format);
     if names_an_archive(ext) && !format.named_by(ext) {
         out.mismatch = Some((ext.to_string(), format));
@@ -625,6 +647,8 @@ fn inspect_archive(
             name: entry_name(entry),
             crc32: entry.crc32.map(|c| format!("{c:08X}")),
             size: entry.size,
+            index: Some(entry.index),
+            unsafe_why: entry.unsafe_name,
         };
         let entry_ext = extension(Path::new(&info.name));
         if is_metadata_entry(&info.name) {
@@ -955,6 +979,13 @@ fn disc_tag(group: &str) -> Option<u32> {
 /// The title key of a disc's file stem (disc tags removed, `name_key`
 /// folded) and its disc number.
 fn disc_title(stem: &str) -> (String, Option<u32>) {
+    let (title, number) = disc_title_text(stem);
+    (name_key(&title), number)
+}
+
+/// `stem` without its disc tag, spaces collapsed (`Final Game (USA)` of
+/// `Final Game (USA) (Disc 2)`), and the tag's number.
+pub fn disc_title_text(stem: &str) -> (String, Option<u32>) {
     let mut title = String::with_capacity(stem.len());
     let mut number = None;
     let mut rest = stem;
@@ -972,7 +1003,7 @@ fn disc_title(stem: &str) -> (String, Option<u32>) {
     }
     title.push_str(rest);
     let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    (name_key(&title), number)
+    (title, number)
 }
 
 /// The files of `sheet`'s directory a guessed set holds: every file there
@@ -1351,6 +1382,23 @@ fn disc_set(
         }
     }
     let names = |v: &[usize]| v.iter().map(|&i| files[i].name.clone()).collect::<Vec<_>>();
+    // What a playlist lists per disc: the gdi of a pair, else its sheet,
+    // else its image.
+    let per_disc: Vec<usize> = discs
+        .iter()
+        .filter_map(|d| {
+            d.sheets
+                .iter()
+                .copied()
+                .find(|&s| files[s].ext == "gdi")
+                .or_else(|| d.sheets.first().copied())
+                .or_else(|| d.primary.or_else(|| d.tracks.first().copied()))
+        })
+        .collect();
+    let title = per_disc
+        .first()
+        .map(|&d| disc_title_text(entry_stem(&files[d].name)).0)
+        .unwrap_or_default();
     twins.sort_unstable();
     twins.dedup();
     let sheets: Vec<usize> = members
@@ -1371,6 +1419,8 @@ fn disc_set(
         multi_disc: discs.len() > 1,
         twins: names(&twins),
         extractable: discs.iter().all(|d| d.known),
+        discs: names(&per_disc),
+        title,
     })))
 }
 

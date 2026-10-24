@@ -1889,6 +1889,10 @@ impl ArchiveReader for ToolReader {
         self.format
     }
 
+    fn tool(&self) -> Option<&FoundTool> {
+        Some(&self.tool)
+    }
+
     fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -2528,6 +2532,10 @@ impl PaxReader {
 impl ArchiveReader for PaxReader {
     fn format(&self) -> Format {
         self.format
+    }
+
+    fn tool(&self) -> Option<&FoundTool> {
+        Some(&self.tool)
     }
 
     fn entries(&self) -> &[Entry] {

@@ -244,6 +244,10 @@ impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
         self.poison.is_poisoned() || self.inner.as_ref().is_none_or(A::is_poisoned)
     }
 
+    fn tool(&self) -> Option<&super::external::FoundTool> {
+        self.inner.as_ref().and_then(A::tool)
+    }
+
     fn open_entry<'a>(
         &'a mut self,
         index: usize,

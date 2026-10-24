@@ -508,3 +508,189 @@ fn auto_save_states_with_two_extensions_follow_and_are_renamed() {
         }]
     );
 }
+
+/// Extract targets of disc archives (archives spec §8.2): names kept,
+/// lengths and collisions checked for the whole set.
+mod extract {
+    use super::*;
+    use coverly_core::organize::plan::{ArchiveAfter, ExtractEntry, SheetCheck, Transfer};
+    use coverly_core::organize::target::{assign_targets_with_extracts, ExtractShape};
+
+    /// A psx disc archive item extracting `names` (the first a sheet).
+    fn disc_item(id: usize, archive: &str, names: &[&str]) -> OrganizeItem {
+        let mut it = item(id, &[archive], "psx", ItemKind::Archive, 10);
+        it.transfer = Transfer::Extract {
+            entries: names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| ExtractEntry {
+                    index,
+                    name: (*name).to_string(),
+                    size: 1,
+                    crc32: Some(0),
+                    target: PathBuf::new(),
+                })
+                .collect(),
+            bytes: names.len() as u64,
+            archive_after: ArchiveAfter::Trash,
+            source: Default::default(),
+            sheet_check: SheetCheck::Read,
+            m3u: None,
+        };
+        it
+    }
+
+    fn shape(first: &str) -> Option<ExtractShape> {
+        Some(ExtractShape::Disc {
+            discs: vec![first.to_string()],
+            title: String::new(),
+            multi_disc: false,
+        })
+    }
+
+    fn run(items: &mut [OrganizeItem], lay: &TargetLayout, s: &Path) {
+        let shapes: Vec<Option<ExtractShape>> = items
+            .iter()
+            .map(|i| match &i.transfer {
+                Transfer::Extract { entries, .. } => shape(&entries[0].name),
+                Transfer::AsIs => None,
+            })
+            .collect();
+        let db = SystemDb::builtin();
+        let never = |_: &Path, _: &OrganizeItem| false;
+        assign_targets_with_extracts(
+            items,
+            &shapes,
+            lay,
+            &db,
+            s,
+            &[],
+            &mut DirIndex::new(),
+            &never,
+        );
+    }
+
+    fn left(it: &OrganizeItem) -> Option<&LeftReason> {
+        match &it.action {
+            OrganizeAction::Left { reason } => Some(reason),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn case_twins_inside_one_archive_collision_set() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut items = vec![disc_item(
+            0,
+            "Game.7z",
+            &["Game.cue", "Track 01.bin", "track 01.bin"],
+        )];
+        run(&mut items, &layout(t.path(), true), s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::CollisionSet));
+        assert_eq!(items[0].transfer, Transfer::AsIs);
+    }
+
+    #[test]
+    fn a_loose_file_planned_first_keeps_a_contested_name() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        put(s.path(), "Track 01.bin", b"x");
+        let mut items = vec![
+            auto(0, "Track 01.bin", "psx"),
+            disc_item(1, "Game.7z", &["Game.cue", "Track 01.bin"]),
+        ];
+        run(&mut items, &layout(t.path(), true), s.path());
+        assert_eq!(target(&items[0]), PathBuf::from("ROMS/PS/Track 01.bin"));
+        assert_eq!(left(&items[1]), Some(&LeftReason::CollisionSet));
+    }
+
+    #[test]
+    fn member_unsafe_name_set_unsafe_name() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut items = vec![
+            disc_item(0, "A.7z", &["A.cue", "A?.bin"]),
+            disc_item(1, "B.7z", &["B.cue", "B (Track 01).bin."]),
+        ];
+        run(&mut items, &layout(t.path(), true), s.path());
+        assert_eq!(
+            left(&items[0]),
+            Some(&LeftReason::SetUnsafeName {
+                name: "A?.bin".into()
+            })
+        );
+        assert_eq!(
+            left(&items[1]),
+            Some(&LeftReason::SetUnsafeName {
+                name: "B (Track 01).bin.".into()
+            })
+        );
+    }
+
+    #[test]
+    fn long_target_left_path_too_long() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let long = format!("{}.bin", "t".repeat(240));
+        let names = ["Game.cue", long.as_str()];
+        let mut lay = layout(t.path(), true);
+        let mut items = vec![disc_item(0, "Game.7z", &names)];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), None, "fits without the Windows limit");
+
+        lay.windows_paths = true;
+        let mut items = vec![disc_item(0, "Game.7z", &names)];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::PathTooLong));
+
+        // A component over 255 bytes never fits, whatever the OS.
+        let huge = format!("{}.bin", "é".repeat(130));
+        let mut items = vec![disc_item(0, "Game.7z", &["Game.cue", huge.as_str()])];
+        run(&mut items, &layout(t.path(), true), s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::PathTooLong));
+    }
+
+    #[test]
+    fn long_temp_name_counts() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let ps = t.path().join("ROMS").join("PS");
+        let units = |p: &Path| p.to_string_lossy().encode_utf16().count();
+        // A folder inside the archive sized so the final path is exactly
+        // 259 units: only the temp file beside it is too long.
+        let file = "t.bin";
+        let dir_len = 259 - units(&ps) - 1 - 1 - file.len();
+        assert!(dir_len > 0 && dir_len <= 255);
+        let deep = format!("{}/{file}", "d".repeat(dir_len));
+        let names = ["Game.cue", deep.as_str()];
+        assert_eq!(units(&ps.join(&deep)), 259);
+        let mut lay = layout(t.path(), true);
+        lay.windows_paths = true;
+        let mut items = vec![disc_item(0, "Game.7z", &names)];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::PathTooLong));
+    }
+
+    #[test]
+    fn too_deep_a_member_is_path_too_long() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let deep = format!("{}t.bin", "d/".repeat(16));
+        let mut items = vec![disc_item(0, "Game.7z", &["Game.cue", deep.as_str()])];
+        run(&mut items, &layout(t.path(), true), s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::PathTooLong));
+    }
+
+    #[test]
+    fn extracted_sizes_decide_fat32_not_the_archive() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut lay = layout(t.path(), true);
+        lay.fat32 = true;
+        let mut small = disc_item(0, "Big.7z", &["Big.cue", "Big.bin"]);
+        small.size = 5 << 30;
+        small.fps[0].size = 5 << 30;
+        let mut big = disc_item(1, "Huge.7z", &["Huge.cue", "Huge.bin"]);
+        if let Transfer::Extract { entries, .. } = &mut big.transfer {
+            entries[1].size = 4 << 30;
+        }
+        let mut items = vec![small, big];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), None);
+        assert_eq!(left(&items[1]), Some(&LeftReason::TooBigForFat));
+    }
+}

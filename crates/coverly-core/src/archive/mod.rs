@@ -572,6 +572,13 @@ pub trait ArchiveReader: Send {
         false
     }
 
+    /// The external tool that lists and reads this archive; `None` for
+    /// the pure-Rust backends. The plan records it so apply uses the same
+    /// one (spec §5.2).
+    fn tool(&self) -> Option<&external::FoundTool> {
+        None
+    }
+
     /// A reader of one entry's decoded bytes, verified against the
     /// listing's size and CRC at EOF. Bytes decoded to reach it (solid
     /// prefix, tar skip) are charged to `budget`.

@@ -1,0 +1,53 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: extract_json(item)
+---
+{
+  "action": "auto",
+  "notes": [
+    {
+      "actual": "7z",
+      "ext": "zip",
+      "kind": "container-mismatch"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "psx"
+    }
+  ],
+  "system": "psx",
+  "target": "ROMS/PS/Next Tetris, The (USA).cue",
+  "transfer": {
+    "archive_after": "trash",
+    "bytes": 66049,
+    "entries": [
+      {
+        "crc32": 2794680937,
+        "index": 0,
+        "name": "Next Tetris, The (USA)/Next Tetris, The (USA).cue",
+        "size": 193,
+        "target": "ROMS/PS/Next Tetris, The (USA).cue"
+      },
+      {
+        "crc32": 3885044386,
+        "index": 1,
+        "name": "Next Tetris, The (USA)/Next Tetris, The (USA) (Track 01).bin",
+        "size": 56448,
+        "target": "ROMS/PS/Next Tetris, The (USA) (Track 01).bin"
+      },
+      {
+        "crc32": 440503279,
+        "index": 2,
+        "name": "Next Tetris, The (USA)/Next Tetris, The (USA) (Track 02).bin",
+        "size": 9408,
+        "target": "ROMS/PS/Next Tetris, The (USA) (Track 02).bin"
+      }
+    ],
+    "kind": "extract",
+    "m3u": null,
+    "sheet_check": "read",
+    "source": {
+      "kind": "builtin"
+    }
+  }
+}
