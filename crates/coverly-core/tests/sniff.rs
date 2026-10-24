@@ -95,6 +95,11 @@ fn containers_are_recognised_not_read() {
         run(b"Rar!\x1a\x07\x01\x00", "rar").container,
         Some(ContainerMagic::Rar5)
     );
+    // Raw code that starts like a weak magic (`60 EA` = 6502 RTS NOP) is
+    // not taken for a container, so header identification still runs.
+    let mut code = vec![0x60, 0xEA, 0x28, 0x00, 0x1E, 0x0B];
+    code.resize(4096, 0xEA);
+    assert_eq!(run(&code, "a26").container, None);
 }
 
 #[test]

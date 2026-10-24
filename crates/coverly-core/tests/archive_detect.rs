@@ -442,7 +442,7 @@ fn cab_arj_lzh_compress_ecm_recognised() {
         None,
         "cab reserved1"
     );
-    assert_eq!(detect(&padded(&[0x60, 0xEA, 0x28, 0x00], 64)), Some(M::Arj));
+    assert_eq!(detect(&padded(&arj_main_header(30), 64)), Some(M::Arj));
     assert_eq!(
         detect(&padded(&[0x60, 0xEA, 0xFF, 0xFF], 64)),
         None,
@@ -558,4 +558,110 @@ fn magic_ignores_tiny_and_empty_inputs() {
     assert_eq!(detect(b""), None);
     assert_eq!(detect(b"P"), None);
     assert_eq!(detect_container(b"", 0, Some(b"")), None);
+}
+
+// ------------------------------------------------- review fixes (Task 3)
+
+/// An ARJ main header: id, basic header size, `size` header bytes (first
+/// header size 30, file type 2 = main header) and the CRC32 of those bytes.
+fn arj_main_header(size: u16) -> Vec<u8> {
+    let mut basic = vec![0u8; usize::from(size)];
+    basic[0] = 30;
+    basic[6] = 2;
+    let mut v = vec![0x60, 0xEA];
+    v.extend_from_slice(&size.to_le_bytes());
+    v.extend_from_slice(&basic);
+    v.extend_from_slice(&crc32fast::hash(&basic).to_le_bytes());
+    v
+}
+
+#[test]
+fn arj_needs_its_basic_header_crc() {
+    assert_eq!(detect(&padded(&arj_main_header(40), 128)), Some(M::Arj));
+    // Two bytes of magic and a small number are what raw 6502/68000 code
+    // can start with (`60 EA` = RTS NOP, BRA.S): without the header CRC it
+    // is not ARJ, and a ROM must keep its header identification.
+    let mut bad = arj_main_header(40);
+    let last = bad.len() - 1;
+    bad[last] ^= 0xFF;
+    assert_eq!(detect(&padded(&bad, 128)), None, "header CRC mismatch");
+    assert_eq!(
+        detect(&padded(&[0x60, 0xEA, 0x28, 0x00, 0x1E], 4096)),
+        None,
+        "code that starts like ARJ"
+    );
+    // The CRC must lie inside the bytes the caller has.
+    let whole = arj_main_header(40);
+    assert_eq!(detect(&whole[..whole.len() - 2]), None, "header cut short");
+}
+
+/// A zip64 end-of-central-directory locator: disk of the zip64 record,
+/// its offset and the total number of disks.
+fn zip64_locator(record_disk: u32, record_offset: u64, total_disks: u32) -> Vec<u8> {
+    let mut v = b"PK\x06\x07".to_vec();
+    v.extend_from_slice(&record_disk.to_le_bytes());
+    v.extend_from_slice(&record_offset.to_le_bytes());
+    v.extend_from_slice(&total_disks.to_le_bytes());
+    v
+}
+
+#[test]
+fn zip64_eocd_with_ffff_disk_numbers_is_one_archive() {
+    // APPNOTE 4.4.1.4 lets a writer set any EOCD field it moves to the
+    // zip64 record to -1, disk numbers included: the locator decides.
+    let mut file = vec![0x22u8; 300];
+    file.extend(zip64_locator(0, 200, 1));
+    file.extend(eocd(0xFFFF, 0xFFFF, 0xFFFF, u32::MAX, u32::MAX, b""));
+    assert_eq!(
+        detect_container(&file[..16], file.len() as u64, Some(&file)),
+        Some(M::ZipEocdOnly)
+    );
+    // The same record on a set of three disks is one part of a set.
+    let mut file = vec![0x22u8; 300];
+    file.extend(zip64_locator(2, 200, 3));
+    file.extend(eocd(0xFFFF, 0xFFFF, 0xFFFF, u32::MAX, u32::MAX, b""));
+    assert_eq!(
+        detect_container(&file[..16], file.len() as u64, Some(&file)),
+        Some(M::ZipSpanned)
+    );
+}
+
+#[test]
+fn zip64_locator_offset_outside_file_rejected() {
+    // The zip64 record must start before its locator.
+    let mut file = vec![0x22u8; 300];
+    file.extend(zip64_locator(0, 1 << 40, 1));
+    file.extend(eocd(0, 0, 0xFFFF, u32::MAX, u32::MAX, b""));
+    assert_eq!(
+        detect_container(&file[..16], file.len() as u64, Some(&file)),
+        None
+    );
+}
+
+#[test]
+fn lz4_after_skippable_frame() {
+    // Skippable frames precede lz4 frames as well as zstd ones: the frame
+    // after them decides.
+    let frame = {
+        use std::io::Write;
+        let mut enc = lz4_flex::frame::FrameEncoder::new(Vec::new());
+        enc.write_all(b"lz4 frame content").unwrap();
+        enc.finish().unwrap()
+    };
+    let mut file = vec![0x50, 0x2A, 0x4D, 0x18, 4, 0, 0, 0, 1, 2, 3, 4];
+    file.extend(&frame);
+    assert_eq!(detect(&file), Some(M::Lz4));
+    let mut zstd = vec![0x5F, 0x2A, 0x4D, 0x18, 0, 0, 0, 0];
+    zstd.extend(zstd_frame_header());
+    assert_eq!(detect(&zstd), Some(M::Zstd));
+    // A skippable frame whose end the head does not reach stays zstd.
+    assert_eq!(
+        detect(&padded(&[0x50, 0x2A, 0x4D, 0x18, 0, 0, 1, 0], 64)),
+        Some(M::Zstd)
+    );
+}
+
+/// A minimal zstd frame header (magic + descriptor, single segment).
+fn zstd_frame_header() -> Vec<u8> {
+    vec![0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x05, 0x01, 0x00, 0x00]
 }

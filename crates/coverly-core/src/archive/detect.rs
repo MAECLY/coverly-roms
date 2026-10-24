@@ -110,21 +110,11 @@ fn by_magic(h: &[u8]) -> Option<ContainerMagic> {
         let block_ok = starts(h, 4, &BZ_BLOCK) || starts(h, 4, &BZ_END);
         return (level_ok && block_ok).then_some(M::Bzip2);
     }
-    if starts(h, 0, &[0x28, 0xB5, 0x2F, 0xFD]) {
-        // Frame header descriptor bit 3 is reserved (RFC 8878 §3.1.1.1.1).
-        return (at(h, 4, 1).is_some_and(|d| d[0] & 0x08 == 0)).then_some(M::Zstd);
+    if is_skippable(h, 0) {
+        return after_skippable(h);
     }
-    if at(h, 0, 4).is_some_and(|m| m[0] & 0xF0 == 0x50 && m[1..] == [0x2A, 0x4D, 0x18]) {
-        // Skippable frame (0x184D2A50..=0x184D2A5F), seen before zstd and
-        // lz4 frames alike; zstd is the common case.
-        return Some(M::Zstd);
-    }
-    if starts(h, 0, &[0x04, 0x22, 0x4D, 0x18]) {
-        // FLG version bits (7–6) must be `01` (LZ4 frame format §3).
-        return (at(h, 4, 1).is_some_and(|f| f[0] >> 6 == 0b01)).then_some(M::Lz4);
-    }
-    if starts(h, 0, &[0x02, 0x21, 0x4C, 0x18]) {
-        return Some(M::Lz4);
+    if let Some(frame) = zstd_or_lz4(h, 0) {
+        return frame;
     }
     if starts(h, 257, b"ustar\x0000") || starts(h, 257, b"ustar  \0") {
         return tar_header_ok(h).then_some(M::Tar);
@@ -140,9 +130,7 @@ fn by_magic(h: &[u8]) -> Option<ContainerMagic> {
         return Some(M::Lzh);
     }
     if starts(h, 0, &[0x60, 0xEA]) {
-        return u16_le(h, 2)
-            .is_some_and(|size| (1..=ARJ_MAX_HEADER).contains(&size))
-            .then_some(M::Arj);
+        return arj_header_ok(h).then_some(M::Arj);
     }
     if starts(h, 0, &[0x1F, 0x9D]) {
         // Flags: bits 5–6 reserved, low 5 bits = max code width 9..=16.
@@ -151,6 +139,80 @@ fn by_magic(h: &[u8]) -> Option<ContainerMagic> {
             .then_some(M::Compress);
     }
     None
+}
+
+/// A zstd/lz4 skippable frame (magic 0x184D2A50..=0x184D2A5F) at `pos`.
+fn is_skippable(h: &[u8], pos: usize) -> bool {
+    at(h, pos, 4).is_some_and(|m| m[0] & 0xF0 == 0x50 && m[1..] == [0x2A, 0x4D, 0x18])
+}
+
+/// The frame at `pos`, if it opens with zstd or lz4 magic: `Some(None)`
+/// when the magic is there but its header check fails.
+fn zstd_or_lz4(h: &[u8], pos: usize) -> Option<Option<ContainerMagic>> {
+    use ContainerMagic as M;
+    if starts(h, pos, &[0x28, 0xB5, 0x2F, 0xFD]) {
+        // Frame header descriptor bit 3 is reserved (RFC 8878 §3.1.1.1.1).
+        return Some(
+            at(h, pos + 4, 1)
+                .is_some_and(|d| d[0] & 0x08 == 0)
+                .then_some(M::Zstd),
+        );
+    }
+    if starts(h, pos, &[0x04, 0x22, 0x4D, 0x18]) {
+        // FLG version bits (7–6) must be `01` (LZ4 frame format §3).
+        return Some(
+            at(h, pos + 4, 1)
+                .is_some_and(|f| f[0] >> 6 == 0b01)
+                .then_some(M::Lz4),
+        );
+    }
+    if starts(h, pos, &[0x02, 0x21, 0x4C, 0x18]) {
+        return Some(Some(M::Lz4));
+    }
+    None
+}
+
+/// Most skippable frames walked past before deciding.
+const MAX_SKIPPABLE: usize = 16;
+
+/// Skippable frames come before zstd and lz4 frames alike: the first frame
+/// after them (within `h`) decides. When the head ends first, zstd (the
+/// common case) is assumed and the reader decides (spec §3.2 rule 3).
+fn after_skippable(h: &[u8]) -> Option<ContainerMagic> {
+    let mut pos = 0usize;
+    for _ in 0..MAX_SKIPPABLE {
+        if !is_skippable(h, pos) {
+            return zstd_or_lz4(h, pos).unwrap_or(None);
+        }
+        let Some(size) = u32_le(h, pos + 4) else {
+            break;
+        };
+        match usize::try_from(size)
+            .ok()
+            .and_then(|n| pos.checked_add(8)?.checked_add(n))
+        {
+            Some(next) if next < h.len() => pos = next,
+            _ => break,
+        }
+    }
+    Some(ContainerMagic::Zstd)
+}
+
+/// An ARJ main header (ARJ technical notes): basic header size within
+/// [`ARJ_MAX_HEADER`], followed by the CRC32 of the basic header. Two
+/// bytes of magic alone are what raw 6502/68000 code can start with.
+fn arj_header_ok(h: &[u8]) -> bool {
+    let Some(size) = u16_le(h, 2) else {
+        return false;
+    };
+    if !(1..=ARJ_MAX_HEADER).contains(&size) {
+        return false;
+    }
+    let size = usize::from(size);
+    match (at(h, 4, size), u32_le(h, 4 + size)) {
+        (Some(basic), Some(crc)) => crc32fast::hash(basic) == crc,
+        _ => false,
+    }
 }
 
 /// The xz stream header: flags byte 0 zero, byte 1 high nibble zero, and
@@ -211,15 +273,16 @@ fn eocd_at(tail: &[u8], pos: usize, base: u64) -> Option<ContainerMagic> {
     if pos + EOCD_LEN + comment != tail.len() {
         return None;
     }
+    let eocd_abs = base + u64::try_from(pos).ok()?;
+    // APPNOTE 4.4.1.4: a field moved to the zip64 record may read -1,
+    // disk numbers included; the locator then holds the disk count.
+    let zip64 =
+        cd_size == u32::MAX || cd_offset == u32::MAX || disk == u16::MAX || cd_disk == u16::MAX;
+    if zip64 {
+        return zip64_locator(tail, pos, base);
+    }
     if disk != 0 || cd_disk != 0 {
         return Some(ContainerMagic::ZipSpanned);
-    }
-    let eocd_abs = base + u64::try_from(pos).ok()?;
-    if cd_size == u32::MAX || cd_offset == u32::MAX {
-        // Zip64: the real values live in the zip64 record the locator
-        // points at; the reader validates them.
-        let locator = pos.checked_sub(ZIP64_LOCATOR_LEN)?;
-        return starts(tail, locator, ZIP64_LOCATOR_SIG).then_some(ContainerMagic::ZipEocdOnly);
     }
     let cd_size = u64::from(cd_size);
     let cd_offset = u64::from(cd_offset);
@@ -230,6 +293,27 @@ fn eocd_at(tail: &[u8], pos: usize, base: u64) -> Option<ContainerMagic> {
     // sits later in the file than it says, never earlier.
     let cd_start = eocd_abs - cd_size;
     (cd_offset <= cd_start).then_some(ContainerMagic::ZipEocdOnly)
+}
+
+/// The zip64 locator right before the EOCD at `pos` of `tail`: the zip64
+/// record it points at must start before it, and more than one disk (or a
+/// record on a later disk) marks a part of a set. The reader validates the
+/// record itself.
+fn zip64_locator(tail: &[u8], pos: usize, base: u64) -> Option<ContainerMagic> {
+    let locator = pos.checked_sub(ZIP64_LOCATOR_LEN)?;
+    if !starts(tail, locator, ZIP64_LOCATOR_SIG) {
+        return None;
+    }
+    let record_disk = u32_le(tail, locator + 4)?;
+    let record_offset = u64_le(tail, locator + 8)?;
+    let total_disks = u32_le(tail, locator + 16)?;
+    if record_offset >= base + u64::try_from(locator).ok()? {
+        return None;
+    }
+    if record_disk != 0 || total_disks > 1 {
+        return Some(ContainerMagic::ZipSpanned);
+    }
+    Some(ContainerMagic::ZipEocdOnly)
 }
 
 /// Whether the first 512 bytes of `h` are a tar header with a valid
