@@ -569,6 +569,17 @@ impl Writer {
         &self.job
     }
 
+    /// The library root this job writes into.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// The journal file of this job (in the app data dir): where a full
+    /// journal volume is reported (archives spec §9.1).
+    pub fn journal_path(&self) -> &Path {
+        &self.journal_path
+    }
+
     pub fn kind(&self) -> JobKind {
         self.kind
     }
@@ -947,6 +958,10 @@ impl Writer {
         let mut text =
             serde_json::to_string(line).map_err(|e| WriteError::Journal(e.to_string()))?;
         text.push('\n');
+        #[cfg(feature = "test-util")]
+        if let Some(e) = JOURNAL_FAULT.with(|c| c.get()).and_then(|f| f()) {
+            return Err(WriteError::Io(e));
+        }
         self.journal.write_all(text.as_bytes())?;
         self.journal.sync_all()?;
         Ok(())
@@ -1003,6 +1018,23 @@ pub(crate) fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, Write
     Ok(found)
 }
 
+/// A journal fault hook: an error to return instead of appending a line.
+#[cfg(feature = "test-util")]
+pub type JournalFault = fn() -> Option<io::Error>;
+
+#[cfg(feature = "test-util")]
+thread_local! {
+    static JOURNAL_FAULT: std::cell::Cell<Option<JournalFault>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook: makes every journal append of the calling thread fail with
+/// the error `f` returns (a full journal volume). `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_journal_fault(f: Option<JournalFault>) {
+    JOURNAL_FAULT.with(|c| c.set(f));
+}
+
 #[cfg(feature = "test-util")]
 thread_local! {
     static TWIN_LISTINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -1025,7 +1057,7 @@ fn apple_double(path: &Path) -> Option<PathBuf> {
 
 /// Deletes the AppleDouble sidecars of `paths`, best effort. Only for
 /// paths this writer created, or whose sidecar did not exist before.
-fn remove_apple_doubles(paths: &[PathBuf]) {
+pub(crate) fn remove_apple_doubles(paths: &[PathBuf]) {
     for sidecar in paths.iter().filter_map(|p| apple_double(p)) {
         let _ = fs::remove_file(sidecar);
     }

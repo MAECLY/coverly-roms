@@ -3,6 +3,7 @@
 
 pub mod apply;
 pub mod evidence;
+pub mod extract;
 pub mod inspect;
 pub mod online;
 pub mod plan;
