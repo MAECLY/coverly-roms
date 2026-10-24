@@ -991,3 +991,145 @@ pub fn sevenz_with_encoded(
     packed.extend_from_slice(&enc_packed);
     sevenz_file(&packed, &sevenz_encoded_header_bytes(&streams))
 }
+
+// ---------------------------------------------------------------------------
+// 7z: real archives through the `sevenz-rust2` writer (the shapes of spec
+// §1, synthetic content).
+// ---------------------------------------------------------------------------
+
+/// The coders of a [`SevenZShape`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SevenZCoder {
+    Copy,
+    Lzma {
+        dict: u32,
+    },
+    Lzma2 {
+        dict: u32,
+    },
+    /// BCJ x86 in front of LZMA2.
+    BcjLzma2 {
+        dict: u32,
+    },
+    Ppmd {
+        order: u32,
+        mem: u32,
+    },
+}
+
+/// How [`sevenz`] lays out its files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SevenZShape {
+    /// One folder for every file with data (`false`, like the PS1 archive
+    /// of §1: LZMA:26, 12 blocks) or one folder for all of them (`true`,
+    /// like the Dreamcast and Saturn archives: LZMA2:24, solid).
+    pub solid: bool,
+    pub coder: SevenZCoder,
+    /// Store `.cue`/`.gdi`/`.m3u` after every other file, as the solid
+    /// archives of §1 do.
+    pub sheets_last: bool,
+}
+
+impl SevenZShape {
+    /// The PS1 shape of spec §1 with a small dictionary.
+    pub fn non_solid_lzma() -> Self {
+        Self {
+            solid: false,
+            coder: SevenZCoder::Lzma { dict: 1 << 20 },
+            sheets_last: false,
+        }
+    }
+
+    /// The Dreamcast/Saturn shape of spec §1 with a small dictionary.
+    pub fn solid_lzma2_sheets_last() -> Self {
+        Self {
+            solid: true,
+            coder: SevenZCoder::Lzma2 { dict: 1 << 20 },
+            sheets_last: true,
+        }
+    }
+}
+
+fn is_sheet(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".cue", ".gdi", ".m3u"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
+fn sevenz_methods(coder: SevenZCoder) -> Vec<sevenz_rust2::EncoderConfiguration> {
+    use sevenz_rust2::encoder_options::{Lzma2Options, LzmaOptions, PpmdOptions};
+    use sevenz_rust2::EncoderMethod;
+    match coder {
+        SevenZCoder::Copy => vec![EncoderMethod::COPY.into()],
+        SevenZCoder::Lzma { dict } => {
+            let mut o = LzmaOptions::from_level(5);
+            o.set_dictionary_size(dict);
+            vec![o.into()]
+        }
+        SevenZCoder::Lzma2 { dict } => {
+            let mut o = Lzma2Options::from_level(5);
+            o.set_dictionary_size(dict);
+            vec![o.into()]
+        }
+        SevenZCoder::BcjLzma2 { dict } => {
+            let mut o = Lzma2Options::from_level(5);
+            o.set_dictionary_size(dict);
+            vec![EncoderMethod::BCJ_X86_FILTER.into(), o.into()]
+        }
+        SevenZCoder::Ppmd { order, mem } => {
+            vec![PpmdOptions::from_order_memory_size(order, mem).into()]
+        }
+    }
+}
+
+/// A real 7z written by `sevenz-rust2`. A name ending in `/` is a
+/// directory (written first, as 7-Zip does); an empty file has no stream.
+/// Files keep their order, except that sheets go last with `sheets_last`.
+pub fn sevenz(files: &[(&str, &[u8])], shape: SevenZShape) -> Vec<u8> {
+    use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
+    use std::io::Cursor;
+
+    let mut w = ArchiveWriter::new(Cursor::new(Vec::new())).expect("7z writer");
+    w.set_content_methods(sevenz_methods(shape.coder));
+    let mut data: Vec<(&str, &[u8])> = files
+        .iter()
+        .copied()
+        .filter(|(n, d)| !n.ends_with('/') && !d.is_empty())
+        .collect();
+    if shape.sheets_last {
+        data.sort_by_key(|(n, _)| is_sheet(n));
+    }
+    for (name, _) in files.iter().filter(|(n, _)| n.ends_with('/')) {
+        w.push_archive_entry::<&[u8]>(
+            ArchiveEntry::new_directory(name.trim_end_matches('/')),
+            None,
+        )
+        .expect("push dir");
+    }
+    if shape.solid && !data.is_empty() {
+        let entries = data
+            .iter()
+            .map(|(n, _)| ArchiveEntry::new_file(n))
+            .collect();
+        let readers = data
+            .iter()
+            .map(|(_, d)| SourceReader::new(Cursor::new(d.to_vec())))
+            .collect();
+        w.push_archive_entries(entries, readers)
+            .expect("push solid");
+    } else {
+        for (name, bytes) in &data {
+            w.push_archive_entry(ArchiveEntry::new_file(name), Some(*bytes))
+                .expect("push file");
+        }
+    }
+    for (name, _) in files
+        .iter()
+        .filter(|(n, d)| !n.ends_with('/') && d.is_empty())
+    {
+        w.push_archive_entry::<&[u8]>(ArchiveEntry::new_file(name), None)
+            .expect("push empty");
+    }
+    w.finish().expect("7z finish").into_inner()
+}

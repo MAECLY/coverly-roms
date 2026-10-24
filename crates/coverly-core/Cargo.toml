@@ -57,7 +57,7 @@ windows-sys = { workspace = true, features = [
 [features]
 # Mock HTTP server, fixtures and throwaway update keys for tests of this
 # crate and of the CLI.
-test-util = ["dep:minisign"]
+test-util = ["dep:minisign", "sevenz-rust2/compress"]
 
 [dev-dependencies]
 coverly-core = { path = ".", features = ["test-util"] }

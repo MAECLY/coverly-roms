@@ -773,3 +773,587 @@ fn sevenz_walks_real_sample_headers() {
         assert_eq!(w.header_end, len, "{name}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Decoding over `sevenz-rust2` after the crate-view cross-check (plan Task 10)
+// ---------------------------------------------------------------------------
+
+mod decoding {
+    use std::io::{self, Cursor, Read};
+    use std::path::Path;
+
+    use coverly_core::archive::sevenz::{testing_hooks, SevenZReader};
+    use coverly_core::archive::testing::{
+        sevenz, sevenz_copy, sevenz_file, sevenz_header_bytes, SevenZCoder, SevenZShape,
+    };
+    use coverly_core::archive::{
+        ArchiveError, ArchiveReader, Budget, BudgetKind, Entry, EntryKind, Format, Limits, Method,
+    };
+
+    use super::{sample, two_files, MIB};
+
+    type Files = Vec<(String, Vec<u8>)>;
+
+    fn as_refs(files: &Files) -> Vec<(&str, &[u8])> {
+        files
+            .iter()
+            .map(|(n, d)| (n.as_str(), d.as_slice()))
+            .collect()
+    }
+
+    fn reader(bytes: &[u8]) -> SevenZReader<Cursor<Vec<u8>>> {
+        SevenZReader::new(Cursor::new(bytes.to_vec()), &Limits::default()).expect("valid 7z")
+    }
+
+    fn index_of(r: &dyn ArchiveReader, name: &str) -> usize {
+        r.entries()
+            .iter()
+            .position(|e| e.name.as_str() == name)
+            .unwrap_or_else(|| panic!("no entry {name}"))
+    }
+
+    fn read_entry(r: &mut dyn ArchiveReader, index: usize) -> Result<Vec<u8>, ArchiveError> {
+        let mut budget = Budget::apply();
+        let mut stream = r.open_entry(index, &mut budget)?;
+        let mut out = Vec::new();
+        stream.read_to_end(&mut out)?;
+        Ok(out)
+    }
+
+    fn stream_all(
+        r: &mut dyn ArchiveReader,
+        wanted: &[usize],
+    ) -> Result<Vec<(usize, Vec<u8>)>, ArchiveError> {
+        let mut got = Vec::new();
+        let mut budget = Budget::apply();
+        r.stream_entries(wanted, &mut budget, &mut |e: &Entry, s: &mut dyn Read| {
+            let mut out = Vec::new();
+            s.read_to_end(&mut out)?;
+            got.push((e.index, out));
+            Ok(())
+        })?;
+        Ok(got)
+    }
+
+    /// PS1 shape of spec §1: a directory, 11 tracks and a cue sheet.
+    fn ps1_files() -> Files {
+        let dir = "Next Tetris, The (USA)";
+        let mut files: Files = vec![(format!("{dir}/"), Vec::new())];
+        for n in 1..=11u8 {
+            files.push((
+                format!("{dir}/Next Tetris, The (USA) (Track {n:02}).bin"),
+                sample(2352 * 4 + usize::from(n) * 17),
+            ));
+        }
+        files.push((
+            format!("{dir}/Next Tetris, The (USA).cue"),
+            b"FILE \"Next Tetris, The (USA) (Track 01).bin\" BINARY\r\n".to_vec(),
+        ));
+        files
+    }
+
+    /// Dreamcast shape of spec §1: cue + gdi + 14 tracks, sheets stored last.
+    fn dreamcast_files() -> Files {
+        let mut files: Files = vec![
+            (
+                "Game.cue".into(),
+                b"FILE \"Game (Track 01).bin\" BINARY".to_vec(),
+            ),
+            (
+                "Game.gdi".into(),
+                b"14\n1 0 4 2352 \"Game (Track 01).bin\" 0".to_vec(),
+            ),
+        ];
+        for n in 1..=14u8 {
+            files.push((
+                format!("Game (Track {n:02}).bin"),
+                sample(3000 + usize::from(n) * 101),
+            ));
+        }
+        files
+    }
+
+    #[test]
+    fn sevenz_valid_real_shaped_archives_list() {
+        // PS1: LZMA, one folder per track, 12 folders.
+        let ps1 = ps1_files();
+        let bytes = sevenz(&as_refs(&ps1), SevenZShape::non_solid_lzma());
+        let mut r = reader(&bytes);
+        assert_eq!(r.format(), Format::SevenZip);
+        assert_eq!(r.entries().len(), 13);
+        assert_eq!(r.entries()[0].kind, EntryKind::Dir);
+        let blocks: std::collections::BTreeSet<_> =
+            r.entries().iter().filter_map(|e| e.solid_block).collect();
+        assert_eq!(blocks.len(), 12, "one folder per file with data");
+        for (name, data) in ps1.iter().skip(1) {
+            let e = r
+                .entries()
+                .iter()
+                .find(|e| e.name.as_str() == name)
+                .expect(name);
+            assert_eq!(e.size, data.len() as u64, "{name}");
+            assert_eq!(e.crc32, Some(crc32fast::hash(data)), "{name}");
+            assert_eq!(e.method, Method::Lzma { dict: 1 << 20 });
+        }
+        let cue = index_of(&r, "Next Tetris, The (USA)/Next Tetris, The (USA).cue");
+        assert_eq!(read_entry(&mut r, cue).expect("cue"), ps1[12].1);
+        let wanted: Vec<usize> = (1..13).collect();
+        let got = stream_all(&mut r, &wanted).expect("stream all");
+        assert_eq!(got.len(), 12);
+        for (index, data) in got {
+            let name = r.entries()[index].name.as_str().to_owned();
+            let want = &ps1.iter().find(|(n, _)| *n == name).expect("known").1;
+            assert_eq!(&data, want, "{name}");
+        }
+
+        // Dreamcast: LZMA2, one solid folder, sheets last.
+        let dc = dreamcast_files();
+        let bytes = sevenz(&as_refs(&dc), SevenZShape::solid_lzma2_sheets_last());
+        let mut r = reader(&bytes);
+        assert_eq!(r.entries().len(), 16);
+        assert!(r.entries().iter().all(|e| e.solid_block == Some(0)));
+        let names: Vec<&str> = r.entries().iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            &names[14..],
+            &["Game.cue", "Game.gdi"],
+            "sheets stored last"
+        );
+        assert_eq!(r.entries()[0].method, Method::Lzma2 { dict: 1 << 20 });
+        let t3 = index_of(&r, "Game (Track 03).bin");
+        assert_eq!(read_entry(&mut r, t3).expect("track 03"), dc[4].1);
+        let gdi = index_of(&r, "Game.gdi");
+        assert_eq!(read_entry(&mut r, gdi).expect("gdi"), dc[1].1);
+        let got = stream_all(&mut r, &[gdi, t3]).expect("stream two");
+        assert_eq!(got.iter().map(|g| g.0).collect::<Vec<_>>(), vec![t3, gdi]);
+        assert_eq!(got[0].1, dc[4].1);
+        assert_eq!(got[1].1, dc[1].1);
+    }
+
+    #[test]
+    fn sevenz_open_entry_head_read_needs_no_full_decode() {
+        // A head read of a big entry stops early: only what is read (plus
+        // the decoder's own read-ahead) is charged.
+        let big = sample(8 * MIB as usize);
+        let bytes = sevenz(
+            &[("Game (Track 01).bin", &big)],
+            SevenZShape::non_solid_lzma(),
+        );
+        let mut r = reader(&bytes);
+        let mut budget = Budget::plan_head(&Limits {
+            plan_head_budget: MIB,
+            ..Limits::default()
+        });
+        let mut head = vec![0u8; 64 * 1024];
+        r.open_entry(0, &mut budget)
+            .expect("open")
+            .read_exact(&mut head)
+            .expect("head");
+        assert_eq!(head, big[..64 * 1024]);
+        assert!(budget.spent() < MIB, "spent {}", budget.spent());
+    }
+
+    #[test]
+    fn sevenz_solid_open_entry_charges_prefix() {
+        let mut files: Files = (1..=4u8)
+            .map(|n| (format!("Game (Track {n:02}).bin"), sample(2 * MIB as usize)))
+            .collect();
+        files.push((
+            "Game.cue".into(),
+            b"FILE \"Game (Track 01).bin\" BINARY".to_vec(),
+        ));
+        let bytes = sevenz(&as_refs(&files), SevenZShape::solid_lzma2_sheets_last());
+        let mut r = reader(&bytes);
+        let cue = index_of(&r, "Game.cue");
+        assert_eq!(r.entries()[cue].solid_block, Some(0));
+        let limits = Limits {
+            plan_head_budget: 4 * MIB,
+            ..Limits::default()
+        };
+        let mut budget = Budget::plan_head(&limits);
+        // The prefix is decoded while the entry is opened.
+        let Err(err) = r.open_entry(cue, &mut budget).map(|_| ()) else {
+            panic!("8 MiB prefix read with a 4 MiB budget");
+        };
+        assert!(
+            matches!(
+                err,
+                ArchiveError::BudgetSpent {
+                    what: BudgetKind::DecodedBytes
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(budget.spent() >= 4 * MIB);
+        // With the whole prefix allowed, the same entry reads.
+        assert_eq!(read_entry(&mut r, cue).expect("cue"), files[4].1);
+    }
+
+    #[test]
+    fn sevenz_stream_entries_one_pass_per_folder() {
+        use sevenz_rust2::encoder_options::Lzma2Options;
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter, SourceReader};
+        // Two solid folders of three files each.
+        let groups: Vec<Files> = (0..2)
+            .map(|g| {
+                (0..3)
+                    .map(|i| (format!("g{g}/f{i}.bin"), sample(4000 + g * 10 + i)))
+                    .collect()
+            })
+            .collect();
+        let mut w = ArchiveWriter::new(Cursor::new(Vec::new())).expect("writer");
+        let mut opts = Lzma2Options::from_level(5);
+        opts.set_dictionary_size(1 << 20);
+        w.set_content_methods(vec![opts.into()]);
+        for g in &groups {
+            let entries = g.iter().map(|(n, _)| ArchiveEntry::new_file(n)).collect();
+            let readers = g
+                .iter()
+                .map(|(_, d)| SourceReader::new(Cursor::new(d.clone())))
+                .collect();
+            w.push_archive_entries(entries, readers).expect("push");
+        }
+        let bytes = w.finish().expect("finish").into_inner();
+        let mut r = reader(&bytes);
+        assert_eq!(r.entries().len(), 6);
+        let before = testing_hooks::folder_passes();
+        // Every file, asked for in reverse: one pass per folder, in storage order.
+        let got = stream_all(&mut r, &[5, 4, 3, 2, 1, 0]).expect("stream");
+        assert_eq!(testing_hooks::folder_passes() - before, 2);
+        assert_eq!(
+            got.iter().map(|g| g.0).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
+        for (index, data) in &got {
+            assert_eq!(data, &groups[index / 3][index % 3].1);
+        }
+        // One file of the second folder: one pass, the unwanted files
+        // before it decoded to nowhere.
+        let before = testing_hooks::folder_passes();
+        let got = stream_all(&mut r, &[4]).expect("stream one");
+        assert_eq!(testing_hooks::folder_passes() - before, 1);
+        assert_eq!(got, vec![(4, groups[1][1].1.clone())]);
+    }
+
+    #[test]
+    fn sevenz_stream_entries_sink_may_stop_early() {
+        // A sink that reads only part of an entry: the rest is drained and
+        // checked, the next entry still lines up.
+        let files: Files = (0..3)
+            .map(|i| (format!("f{i}.bin"), sample(10_000 + i)))
+            .collect();
+        let bytes = sevenz(&as_refs(&files), SevenZShape::solid_lzma2_sheets_last());
+        let mut r = reader(&bytes);
+        let mut got = Vec::new();
+        let mut budget = Budget::apply();
+        r.stream_entries(&[0, 1, 2], &mut budget, &mut |e, s| {
+            let mut head = [0u8; 16];
+            s.read_exact(&mut head)?;
+            got.push((e.index, head.to_vec()));
+            Ok(())
+        })
+        .expect("stream");
+        for (index, head) in got {
+            assert_eq!(head, files[index].1[..16]);
+        }
+    }
+
+    #[test]
+    fn sevenz_stream_entries_sink_error_is_returned() {
+        let files: Files = (0..2)
+            .map(|i| (format!("f{i}.bin"), sample(1000)))
+            .collect();
+        let bytes = sevenz(&as_refs(&files), SevenZShape::solid_lzma2_sheets_last());
+        let mut r = reader(&bytes);
+        let mut budget = Budget::apply();
+        let err = r
+            .stream_entries(&[0, 1], &mut budget, &mut |_, _| {
+                Err(ArchiveError::Cancelled)
+            })
+            .expect_err("sink failed");
+        assert!(matches!(err, ArchiveError::Cancelled), "{err:?}");
+    }
+
+    #[test]
+    fn sevenz_bcj_and_ppmd_decode() {
+        let files: Files = vec![
+            ("a.bin".into(), sample(50_000)),
+            (
+                "b.bin".into(),
+                b"call \xE8\x00\x00\x00\x00 jump".repeat(500),
+            ),
+            ("c.txt".into(), b"FILE \"a.bin\" BINARY".to_vec()),
+        ];
+        for coder in [
+            SevenZCoder::BcjLzma2 { dict: 1 << 20 },
+            SevenZCoder::Ppmd {
+                order: 6,
+                mem: 16 << 20,
+            },
+            SevenZCoder::Copy,
+            SevenZCoder::Lzma { dict: 1 << 16 },
+        ] {
+            for solid in [false, true] {
+                let shape = SevenZShape {
+                    solid,
+                    coder,
+                    sheets_last: false,
+                };
+                let bytes = sevenz(&as_refs(&files), shape);
+                let mut r = reader(&bytes);
+                for (i, (_, data)) in files.iter().enumerate() {
+                    assert_eq!(&read_entry(&mut r, i).expect("open"), data, "{shape:?} {i}");
+                }
+                let got = stream_all(&mut r, &[0, 1, 2]).expect("stream");
+                for (i, data) in got {
+                    assert_eq!(data, files[i].1, "{shape:?} stream {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sevenz_crc_mismatch_damaged() {
+        let a = sample(5000);
+        let mut bytes = sevenz_copy(&[("a.bin", &a), ("b.bin", b"hello")]);
+        // Copy coder: the data sits right after the start header.
+        bytes[32 + 100] ^= 0x55;
+        let mut r = reader(&bytes);
+        let err = read_entry(&mut r, 0).expect_err("crc");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+        let err = stream_all(&mut r, &[0, 1]).expect_err("crc");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+        // The other file is fine.
+        assert_eq!(read_entry(&mut r, 1).expect("b"), b"hello");
+
+        // A compressed folder with a flipped payload byte.
+        let files: Files = vec![("t.bin".into(), sample(40_000))];
+        let mut bytes = sevenz(&as_refs(&files), SevenZShape::solid_lzma2_sheets_last());
+        bytes[32 + 200] ^= 0x01;
+        let mut r = reader(&bytes);
+        let err = read_entry(&mut r, 0).expect_err("open_entry");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+        let err = stream_all(&mut r, &[0]).expect_err("stream");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn sevenz_declared_files_mismatch_names_crate_never_called() {
+        let (packed, mut h) = two_files();
+        h.num_files = Some(1_000_000);
+        let bytes = sevenz_file(&packed, &sevenz_header_bytes(&h));
+        let before = testing_hooks::crate_opened();
+        let err = SevenZReader::new(Cursor::new(bytes), &Limits::default())
+            .err()
+            .expect("refused");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+        assert_eq!(testing_hooks::crate_opened(), before, "crate never called");
+    }
+
+    #[test]
+    fn sevenz_listing_never_opens_the_crate() {
+        let bytes = sevenz_copy(&[("a.bin", b"abc")]);
+        let before = testing_hooks::crate_opened();
+        let mut r = reader(&bytes);
+        assert_eq!(r.entries().len(), 1);
+        assert_eq!(testing_hooks::crate_opened(), before, "listing is the walk");
+        assert_eq!(read_entry(&mut r, 0).expect("a"), b"abc");
+        assert_eq!(read_entry(&mut r, 0).expect("again"), b"abc");
+        assert_eq!(testing_hooks::crate_opened(), before + 1, "opened once");
+    }
+
+    fn write_file(path: &Path, bytes: &[u8]) {
+        std::fs::write(path, bytes).expect("write");
+    }
+
+    #[test]
+    fn sevenz_crate_view_differs_damaged() {
+        // Same length, same mtime, another name: only the crate's own view
+        // of the file can tell (spec S5, R17).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("game.zip");
+        let first = sevenz_copy(&[("Game (Track 01).bin", &sample(4000))]);
+        let second = sevenz_copy(&[("Game (Track 02).bin", &sample(4000))]);
+        assert_eq!(first.len(), second.len());
+        write_file(&path, &first);
+        let mut r = SevenZReader::open(&path, &Limits::default()).expect("valid 7z");
+        let mtime = filetime::FileTime::from_last_modification_time(
+            &std::fs::metadata(&path).expect("metadata"),
+        );
+        let swap = path.clone();
+        testing_hooks::before_crate_open(move || {
+            write_file(&swap, &second);
+            filetime::set_file_mtime(&swap, mtime).expect("keep mtime");
+        });
+        let before = testing_hooks::crate_opened();
+        let err = read_entry(&mut r, 0).expect_err("crate view differs");
+        assert!(
+            matches!(&err, ArchiveError::Damaged { detail } if detail.contains("crate view differs")),
+            "{err:?}"
+        );
+        assert_eq!(testing_hooks::crate_opened(), before + 1);
+    }
+
+    #[test]
+    fn sevenz_file_changed_after_listing_damaged() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("game.7z");
+        write_file(&path, &sevenz_copy(&[("a.bin", &sample(4000))]));
+        let mut r = SevenZReader::open(&path, &Limits::default()).expect("valid 7z");
+        // A different size after the walk: refused before the crate runs.
+        write_file(&path, &sevenz_copy(&[("a.bin", &sample(5000))]));
+        let before = testing_hooks::crate_opened();
+        let err = read_entry(&mut r, 0).expect_err("changed");
+        assert!(
+            matches!(&err, ArchiveError::Damaged { detail } if detail.contains("changed since")),
+            "{err:?}"
+        );
+        assert_eq!(testing_hooks::crate_opened(), before);
+    }
+
+    #[test]
+    fn sevenz_dirs_and_empty_files() {
+        let bytes = sevenz(
+            &[("d/", b""), ("d/a.bin", b"data"), ("d/empty.bin", b"")],
+            SevenZShape::solid_lzma2_sheets_last(),
+        );
+        let mut r = reader(&bytes);
+        let dir = index_of(&r, "d");
+        let empty = index_of(&r, "d/empty.bin");
+        let a = index_of(&r, "d/a.bin");
+        assert_eq!(r.entries()[dir].kind, EntryKind::Dir);
+        assert_eq!(read_entry(&mut r, empty).expect("empty"), b"");
+        let mut budget = Budget::apply();
+        assert!(
+            r.open_entry(dir, &mut budget).is_err(),
+            "a directory is no stream"
+        );
+        let got = stream_all(&mut r, &[empty, a]).expect("stream");
+        let mut got = got;
+        got.sort();
+        let mut want = vec![(a, b"data".to_vec()), (empty, Vec::new())];
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn sevenz_unknown_coder_unsupported_needs_7zip() {
+        use coverly_core::archive::testing::{
+            SzCoder, SzFile, SzFolder, SzHeader, SzStreams, SzSubstreams,
+        };
+        use coverly_core::archive::Tool;
+        // A zstd coder (sevenz-rust2 built without it): listed, not decoded.
+        let data = b"zstd-ish payload".to_vec();
+        let header = SzHeader {
+            streams: Some(SzStreams {
+                pack_sizes: vec![data.len() as u64],
+                folders: vec![SzFolder::single(
+                    SzCoder::new(&[0x04, 0xF7, 0x11, 0x01], &[]),
+                    data.len() as u64,
+                )],
+                substreams: Some(SzSubstreams {
+                    crcs: Some(vec![crc32fast::hash(&data)]),
+                    ..SzSubstreams::default()
+                }),
+                ..SzStreams::default()
+            }),
+            files: vec![SzFile::file("game.gba")],
+            ..SzHeader::default()
+        };
+        let bytes = sevenz_file(&data, &sevenz_header_bytes(&header));
+        let mut r = reader(&bytes);
+        assert_eq!(r.entries()[0].name.as_str(), "game.gba");
+        assert!(r.unsupported_coder().is_some());
+        for err in [
+            read_entry(&mut r, 0).expect_err("open"),
+            stream_all(&mut r, &[0]).expect_err("stream"),
+        ] {
+            assert!(
+                matches!(
+                    &err,
+                    ArchiveError::Unsupported {
+                        need: Some(Tool::SevenZip),
+                        format,
+                    } if format.starts_with("7z (")
+                ),
+                "{err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sevenz_garbled_payload_never_panics() {
+        // S1: flipped bytes all over a compressed archive end in an error
+        // or in data, never in a panic out of the reader.
+        let files: Files = vec![
+            ("t.bin".into(), sample(30_000)),
+            ("u.cue".into(), b"x".to_vec()),
+        ];
+        let bytes = sevenz(&as_refs(&files), SevenZShape::solid_lzma2_sheets_last());
+        for step in [7usize, 13, 101] {
+            let mut bad = bytes.clone();
+            let mut i = 33;
+            while i < bad.len() {
+                bad[i] ^= 0xA5;
+                i += step * 97;
+            }
+            if let Ok(mut r) = SevenZReader::new(Cursor::new(bad), &Limits::default()) {
+                let _ = read_entry(&mut r, 0);
+                let _ = stream_all(&mut r, &[0, 1]);
+            }
+        }
+    }
+
+    #[test]
+    fn sevenz_wrong_index_is_an_error() {
+        let bytes = sevenz_copy(&[("a.bin", b"abc")]);
+        let mut r = reader(&bytes);
+        let mut budget = Budget::apply();
+        assert!(r.open_entry(9, &mut budget).is_err());
+        let err = r
+            .stream_entries(&[9], &mut budget, &mut |_, s| {
+                io::copy(s, &mut io::sink())?;
+                Ok(())
+            })
+            .expect_err("no entry 9");
+        assert!(matches!(err, ArchiveError::Io(_)), "{err:?}");
+    }
+
+    /// The three real 7z files named `.zip` (spec §1): the head of the
+    /// first track decodes within the plan head budget. Read-only.
+    #[test]
+    #[ignore = "needs the real download pile (COVERLY_SAMPLE_DIR)"]
+    fn sevenz_reads_real_sample_heads() {
+        let dir = std::env::var("COVERLY_SAMPLE_DIR")
+            .unwrap_or_else(|_| "/Volumes/TinyExt/ROMs-Downloaded".into());
+        let dir = Path::new(&dir);
+        if !dir.is_dir() {
+            eprintln!("skipped: {} is not mounted", dir.display());
+            return;
+        }
+        let limits = Limits::default();
+        for (name, magic) in [
+            ("Next Tetris, The.zip", &b"PLAYSTATION"[..]),
+            ("Next Tetris, The_ On-Line Edition.zip", &b""[..]),
+            ("Tetris Plus.zip", &b"SEGA SEGASATURN"[..]),
+        ] {
+            let mut r = SevenZReader::open(&dir.join(name), &limits).expect(name);
+            let first = r
+                .entries()
+                .iter()
+                .position(|e| e.kind == EntryKind::File && e.solid_block.is_some())
+                .expect("a track");
+            let mut budget = Budget::plan_head(&limits);
+            let mut head = vec![0u8; 64 * 1024];
+            r.open_entry(first, &mut budget)
+                .expect(name)
+                .read_exact(&mut head)
+                .expect(name);
+            assert!(head.iter().any(|&b| b != 0), "{name}");
+            assert!(
+                head.windows(magic.len().max(1))
+                    .any(|w| magic.is_empty() || w == magic),
+                "{name}: no {magic:?} in the first track's head"
+            );
+        }
+    }
+}

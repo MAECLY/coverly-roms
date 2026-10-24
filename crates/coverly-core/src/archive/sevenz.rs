@@ -1,5 +1,5 @@
-//! 7z backend of the archive reader, part 1: the bounded header walker
-//! (spec `2026-10-23-organize-archives-and-discs.md` §4.3, §13 S4, S5).
+//! 7z backend of the archive reader: the bounded header walker and the
+//! decoder over `sevenz-rust2` (spec `2026-10-23-organize-archives-and-discs.md` §4.3, §13 S4, S5).
 //!
 //! [`walk`] is the 7z integrity listing. It parses the whole header itself,
 //! iteratively and with every count, size and offset bounded, **before**
@@ -34,21 +34,34 @@
 //!   is summed and checked against `decoder_mem_cap` (S2).
 //!
 //! The whole walk runs inside the panic guard (S1). Decoding of the main
-//! folders (over `sevenz-rust2`, after a cross-check with this walk) is the
-//! second part of this module (plan Task 10).
+//! folders is the second part of this module: [`SevenZReader`] hands the
+//! file to `sevenz-rust2` only after walking it again, and decodes only
+//! once the crate's own view equals the walk (S5, plan Task 10).
 
-use std::io::{Read, Seek, SeekFrom};
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bzip2::read::MultiBzDecoder;
+use flate2::read::DeflateDecoder;
 use lzma_rust2::filter::bcj::BcjReader;
 use lzma_rust2::filter::delta::DeltaReader;
+use ppmd_rust::Ppmd7Decoder;
+use sevenz_rust2::BlockDecoder;
 
-use super::budget::MemoryGate;
-use super::guard::guarded;
+use super::budget::{Budget, ChargedRead, MemoryGate, Permit};
+use super::guard::{guarded, GuardedRead, Poison};
 use super::lzma::{self, open_decoder, Lzma2Params, LzmaKind, LzmaParams};
 use super::names::{decode_utf16_name, RelPath, UnsafeWhy};
 use super::verify::VerifyingReader;
-use super::{ArchiveError, BcjKind, Entry, EntryKind, Limits, Method, Tool, KIB, MIB};
+use super::{
+    ArchiveError, ArchiveReader, BcjKind, BudgetKind, Entry, EntryKind, Format, Limits, Method,
+    Tool, KIB, MIB,
+};
 
 /// The 7z signature.
 pub const SIGNATURE: [u8; 6] = [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C];
@@ -1303,6 +1316,764 @@ fn hex(bytes: &[u8]) -> String {
 fn damaged(detail: impl Into<String>) -> ArchiveError {
     ArchiveError::Damaged {
         detail: detail.into(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Part 2: decoding over `sevenz-rust2` (plan Task 10, spec §4.5, S5)
+// ---------------------------------------------------------------------------
+
+/// Size and modification time of a source, to tell that it changed after
+/// the walk (spec §13.1 TOCTOU). `None`: the source cannot say (an
+/// in-memory cursor); its length is still compared.
+pub trait SourceStamp {
+    fn stamp(&self) -> io::Result<Option<Stamp>>;
+}
+
+/// What [`SourceStamp`] reports.
+pub type Stamp = (u64, Option<SystemTime>);
+
+impl SourceStamp for File {
+    fn stamp(&self) -> io::Result<Option<Stamp>> {
+        let meta = self.metadata()?;
+        Ok(Some((meta.len(), meta.modified().ok())))
+    }
+}
+
+impl<T> SourceStamp for io::Cursor<T> {
+    fn stamp(&self) -> io::Result<Option<Stamp>> {
+        Ok(None)
+    }
+}
+
+/// The archive file, remembering whether a read or seek of it failed, so
+/// a decoder error can be told apart from an I/O error of the file.
+struct Src<R> {
+    inner: R,
+    failed: Arc<AtomicBool>,
+}
+
+impl<R> Src<R> {
+    fn note<T>(&self, r: io::Result<T>) -> io::Result<T> {
+        if let Err(e) = &r {
+            if e.kind() != io::ErrorKind::Interrupted {
+                self.failed.store(true, Ordering::Relaxed);
+            }
+        }
+        r
+    }
+}
+
+impl<R: Read> Read for Src<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let r = self.inner.read(buf);
+        self.note(r)
+    }
+}
+
+impl<R: Seek> Seek for Src<R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let r = self.inner.seek(pos);
+        self.note(r)
+    }
+}
+
+/// An `io::Error` out of a decoder over the file: one carrying an
+/// `ArchiveError` stays itself, one after a failed file read stays I/O,
+/// anything else is the data being rejected.
+fn decode_error(e: io::Error, src_failed: &AtomicBool) -> ArchiveError {
+    if e.get_ref().is_some_and(|inner| inner.is::<ArchiveError>()) {
+        return ArchiveError::from(e);
+    }
+    if src_failed.load(Ordering::Relaxed) {
+        return ArchiveError::Io(e);
+    }
+    damaged(format!("7z: {e}"))
+}
+
+/// Maps the errors of a decoder (see [`decode_error`]).
+struct MapErrors<D> {
+    inner: D,
+    src_failed: Arc<AtomicBool>,
+}
+
+impl<D: Read> Read for MapErrors<D> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner
+            .read(buf)
+            .map_err(|e| decode_error(e, &self.src_failed).into())
+    }
+}
+
+/// A decoded stream and the gate permit for its decoders' memory. Fields
+/// drop in order: the decoders first, then the permit.
+struct Holding<D> {
+    inner: D,
+    _permit: Permit,
+}
+
+impl<D: Read> Read for Holding<D> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+/// An error of `sevenz-rust2` (opening or decoding a folder).
+fn crate_error(e: sevenz_rust2::Error, src_failed: &AtomicBool) -> ArchiveError {
+    use sevenz_rust2::Error as E;
+    match e {
+        E::Io(io_err, _) | E::FileOpen(io_err, _) | E::MaybeBadPassword(io_err) => {
+            decode_error(io_err, src_failed)
+        }
+        E::PasswordRequired => ArchiveError::Encrypted,
+        E::UnsupportedCompressionMethod(m) => ArchiveError::Unsupported {
+            format: format!("7z ({m})"),
+            need: Some(Tool::SevenZip),
+        },
+        E::Unsupported(m) => ArchiveError::Unsupported {
+            format: format!("7z ({m})"),
+            need: Some(Tool::SevenZip),
+        },
+        E::ExternalUnsupported => ArchiveError::Unsupported {
+            format: "7z (external)".into(),
+            need: Some(Tool::SevenZip),
+        },
+        other => damaged(format!("7z: {other}")),
+    }
+}
+
+/// A coder of `folder` that the decoders here cannot run correctly: one
+/// `sevenz-rust2` is built without (zstd, Rar5 coders…), Deflate64, or a
+/// branch filter with a start offset (the crate ignores it). Such a folder
+/// is `Unsupported { need: 7-Zip }` (spec §5.2); the dispatch (plan Task 16)
+/// streams it through `7zz` when one is found.
+fn unsupported_coder(folder: &FolderInfo) -> Option<String> {
+    folder
+        .coders
+        .iter()
+        .find_map(|c| match (&c.kind, &c.method) {
+            (CoderKind::Other, Method::Other(name)) => {
+                Some(format!("7z ({})", name.trim_start_matches("7z ")))
+            }
+            (CoderKind::Other, _) => Some("7z (unknown coder)".into()),
+            (CoderKind::Deflate64, _) => Some("7z (Deflate64)".into()),
+            (CoderKind::Bcj { kind, start }, _) if *start != 0 => {
+                Some(format!("7z ({kind:?} filter with a start offset)"))
+            }
+            _ => None,
+        })
+}
+
+/// Test counters and hooks of the 7z decoder (plan Task 10). Thread-local,
+/// so parallel tests do not see each other.
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing_hooks {
+    use std::cell::{Cell, RefCell};
+
+    type Hook = Box<dyn FnOnce()>;
+
+    thread_local! {
+        static CRATE_OPENED: Cell<u64> = const { Cell::new(0) };
+        static FOLDER_PASSES: Cell<u64> = const { Cell::new(0) };
+        static BEFORE_CRATE_OPEN: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
+
+    /// How many times `sevenz-rust2` was given an archive on this thread.
+    pub fn crate_opened() -> u64 {
+        CRATE_OPENED.with(Cell::get)
+    }
+
+    /// How many folder decode passes ran through `sevenz-rust2` on this
+    /// thread.
+    pub fn folder_passes() -> u64 {
+        FOLDER_PASSES.with(Cell::get)
+    }
+
+    /// Runs `f` once, on this thread, right before the next archive is
+    /// given to `sevenz-rust2` (after the re-walk): a test swaps the file
+    /// there to exercise the crate-view cross-check.
+    pub fn before_crate_open(f: impl FnOnce() + 'static) {
+        BEFORE_CRATE_OPEN.with(|h| *h.borrow_mut() = Some(Box::new(f)));
+    }
+
+    pub(super) fn crate_opening() {
+        if let Some(f) = BEFORE_CRATE_OPEN.with(|h| h.borrow_mut().take()) {
+            f();
+        }
+        CRATE_OPENED.with(|c| c.set(c.get() + 1));
+    }
+
+    pub(super) fn folder_pass() {
+        FOLDER_PASSES.with(|c| c.set(c.get() + 1));
+    }
+}
+
+#[cfg(not(any(test, feature = "test-util")))]
+mod testing_hooks {
+    pub(super) fn crate_opening() {}
+    pub(super) fn folder_pass() {}
+}
+
+/// What [`SevenZReader::decode_folder`] calls for each file of a folder:
+/// the file, the crate's stream of it and the budget; `Ok(false)` stops.
+type FolderVisit<'f> =
+    dyn FnMut(&WalkedFile, &mut dyn Read, &mut Budget) -> Result<bool, ArchiveError> + 'f;
+
+/// A 7z archive: listed by [`walk`], decoded after `sevenz-rust2` agrees
+/// with that walk (spec S5).
+///
+/// * The listing is the walk; the crate is not called to list.
+/// * Before the first decoded byte, the size (and the mtime, for a file)
+///   are re-checked and the header is walked again on the **same**
+///   handle; only then does the crate parse it, inside the guard, and its
+///   view (entry count, names, sizes, CRCs, attributes, coders, pack
+///   streams, folder ↔ file map) must equal the walk, else `Damaged`.
+///   Every later decode re-checks the size and mtime.
+/// * Each folder takes the sum of its coders' memory from the
+///   [`MemoryGate`] in one request (spec §4.5).
+/// * [`ArchiveReader::open_entry`] decodes the folder up to the entry with
+///   our own decoder chain (the checked LZMA/LZMA2 constructor, PPMd,
+///   BZip2, Deflate, BCJ, Delta), charging the skipped bytes. A folder
+///   with a multi-stream coder (BCJ2) is decoded by the crate instead, and
+///   at most `plan_head_budget` bytes of the entry are buffered; past them
+///   the stream ends in `BudgetSpent` (not read, never damaged).
+/// * [`ArchiveReader::stream_entries`] makes one crate pass per folder in
+///   storage order, single-threaded; unwanted entries before the last
+///   wanted one are decoded to nowhere (charged, CRC-checked).
+pub struct SevenZReader<R: Read + Seek + Send + SourceStamp = File> {
+    src: Src<R>,
+    len: u64,
+    stamp: Option<Stamp>,
+    walked: Walked,
+    entries: Vec<Entry>,
+    limits: Limits,
+    poison: Poison,
+    /// The crate's parsed view, once it matched the walk.
+    view: Option<sevenz_rust2::Archive>,
+}
+
+impl SevenZReader<File> {
+    /// Opens and walks the 7z at `path`.
+    pub fn open(path: &Path, limits: &Limits) -> Result<Self, ArchiveError> {
+        let file = File::open(path).map_err(ArchiveError::Io)?;
+        Self::new(file, limits)
+    }
+}
+
+impl<R: Read + Seek + Send + SourceStamp> SevenZReader<R> {
+    /// Walks the 7z in `src` (the integrity listing of spec §4.3). The
+    /// crate is not called.
+    pub fn new(src: R, limits: &Limits) -> Result<Self, ArchiveError> {
+        let stamp = src.stamp().map_err(ArchiveError::Io)?;
+        let mut src = Src {
+            inner: src,
+            failed: Arc::new(AtomicBool::new(false)),
+        };
+        let len = src.seek(SeekFrom::End(0)).map_err(ArchiveError::Io)?;
+        let walked = walk(&mut src, len, limits)?;
+        let entries = walked.files.iter().map(|f| f.entry.clone()).collect();
+        Ok(Self {
+            src,
+            len,
+            stamp,
+            walked,
+            entries,
+            limits: limits.clone(),
+            poison: Poison::new(),
+            view: None,
+        })
+    }
+
+    /// The first coder no decoder here runs, as `"7z (<coder>)"`: such
+    /// folders are `Unsupported { need: Some(Tool::SevenZip) }`, the rest
+    /// of the archive still decodes.
+    pub fn unsupported_coder(&self) -> Option<String> {
+        self.walked.folders.iter().find_map(unsupported_coder)
+    }
+
+    /// The validated header walk.
+    pub fn walked(&self) -> &Walked {
+        &self.walked
+    }
+
+    /// The file is still the one that was walked: same length and, when
+    /// the source can tell, same size and mtime.
+    fn recheck(&mut self) -> Result<(), ArchiveError> {
+        let len = self.src.seek(SeekFrom::End(0)).map_err(ArchiveError::Io)?;
+        let stamp = match self.stamp {
+            Some(_) => self.src.inner.stamp().map_err(ArchiveError::Io)?,
+            None => None,
+        };
+        if len != self.len || stamp != self.stamp {
+            return Err(damaged("7z changed since it was listed"));
+        }
+        Ok(())
+    }
+
+    /// Re-checks the file and, the first time, has the crate parse it and
+    /// compares its view with the walk (S5).
+    fn ensure_view(&mut self) -> Result<(), ArchiveError> {
+        self.recheck()?;
+        if self.view.is_some() {
+            return Ok(());
+        }
+        // The crate only ever parses a header that was just validated.
+        let again = walk(&mut self.src, self.len, &self.limits)?;
+        if again != self.walked {
+            return Err(damaged("7z changed since it was listed"));
+        }
+        testing_hooks::crate_opening();
+        let failed = Arc::clone(&self.src.failed);
+        let src = &mut self.src;
+        let archive = guarded(|| {
+            src.seek(SeekFrom::Start(0)).map_err(ArchiveError::Io)?;
+            sevenz_rust2::Archive::read(src, &sevenz_rust2::Password::empty())
+                .map_err(|e| crate_error(e, &failed))
+        })?;
+        cross_check(&self.walked, &archive)?;
+        self.view = Some(archive);
+        Ok(())
+    }
+
+    /// The walked file of entry `index`, when it can be read.
+    fn readable(&self, index: usize) -> Result<&WalkedFile, ArchiveError> {
+        let file = self.walked.files.get(index).ok_or_else(|| {
+            ArchiveError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("no 7z entry {index}"),
+            ))
+        })?;
+        let entry = &file.entry;
+        match entry.kind {
+            EntryKind::File => {}
+            EntryKind::Symlink | EntryKind::Hardlink => {
+                return Err(ArchiveError::UnsafeEntry {
+                    name: entry.name.to_string(),
+                    why: UnsafeWhy::Link,
+                })
+            }
+            EntryKind::Dir | EntryKind::Other => {
+                return Err(ArchiveError::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("7z entry {index} is not a file"),
+                )))
+            }
+        }
+        if let Some(why) = entry.unsafe_name {
+            return Err(ArchiveError::UnsafeEntry {
+                name: String::from_utf8_lossy(&entry.raw_name).into_owned(),
+                why,
+            });
+        }
+        if entry.encrypted {
+            return Err(ArchiveError::Encrypted);
+        }
+        Ok(file)
+    }
+
+    /// One crate pass over folder `fi`: `each` gets every file of the
+    /// folder in storage order with the crate's stream of it, and returns
+    /// whether to go on.
+    fn decode_folder(
+        &mut self,
+        fi: u32,
+        budget: &mut Budget,
+        each: &mut FolderVisit<'_>,
+    ) -> Result<(), ArchiveError> {
+        let folder = &self.walked.folders[fi as usize];
+        if let Some(format) = unsupported_coder(folder) {
+            return Err(ArchiveError::Unsupported {
+                format,
+                need: Some(Tool::SevenZip),
+            });
+        }
+        let mem = folder.mem_needed;
+        self.ensure_view()?;
+        let _permit = MemoryGate::global().acquire_for(mem, budget)?;
+        testing_hooks::folder_pass();
+        let Self {
+            src, view, walked, ..
+        } = self;
+        let view = view.as_ref().ok_or_else(|| damaged("7z crate view"))?;
+        let files: Vec<&WalkedFile> = walked
+            .files
+            .iter()
+            .filter(|f| f.folder == Some(fi))
+            .collect();
+        let failed = Arc::clone(&src.failed);
+        let password = sevenz_rust2::Password::empty();
+        let mut stored: Option<ArchiveError> = None;
+        let mut next = 0usize;
+        let mut stopped = false;
+        let result = BlockDecoder::new(1, fi as usize, view, &password, src).for_each_entries(
+            &mut |_, stream: &mut dyn Read| {
+                let Some(file) = files.get(next) else {
+                    stored = Some(damaged("7z folder has more files than listed"));
+                    return Ok(false);
+                };
+                next += 1;
+                let mut stream = MapErrors {
+                    inner: stream,
+                    src_failed: Arc::clone(&failed),
+                };
+                match each(file, &mut stream, budget) {
+                    Ok(true) => Ok(true),
+                    Ok(false) => {
+                        stopped = true;
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        stored = Some(e);
+                        Ok(false)
+                    }
+                }
+            },
+        );
+        if let Some(e) = stored {
+            return Err(e);
+        }
+        result.map_err(|e| crate_error(e, &failed))?;
+        if !stopped && next != files.len() {
+            return Err(damaged("7z folder has fewer files than listed"));
+        }
+        Ok(())
+    }
+
+    /// The decoded bytes of entry `index`, verified at EOF, before the
+    /// guard wrapper.
+    fn open_decoded<'a>(
+        &'a mut self,
+        index: usize,
+        budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        let file = self.readable(index)?.clone();
+        let (size, crc) = (file.entry.size, file.entry.crc32);
+        let Some(fi) = file.folder else {
+            return Ok(Box::new(VerifyingReader::new(io::empty(), size, crc)));
+        };
+        let folder = self.walked.folders[fi as usize].clone();
+        if let Some(format) = unsupported_coder(&folder) {
+            return Err(ArchiveError::Unsupported {
+                format,
+                need: Some(Tool::SevenZip),
+            });
+        }
+        let Some(chain) = simple_chain(&folder).ok() else {
+            return self.open_buffered(fi, &file, budget);
+        };
+        self.ensure_view()?;
+        let permit = MemoryGate::global().acquire_for(folder.mem_needed, budget)?;
+        self.src
+            .seek(SeekFrom::Start(folder.pack_pos))
+            .map_err(ArchiveError::Io)?;
+        let failed = Arc::clone(&self.src.failed);
+        let packed: Box<dyn Read + 'a> = Box::new((&mut self.src).take(folder.pack_size));
+        let decoded = build_chain(packed, &folder, &chain, self.limits.decoder_mem_cap)?;
+        let mut charged = ChargedRead::new(
+            MapErrors {
+                inner: decoded,
+                src_failed: failed,
+            },
+            budget,
+        );
+        skip(&mut charged, file.offset)?;
+        Ok(Box::new(Holding {
+            inner: VerifyingReader::new(charged.take(size), size, crc),
+            _permit: permit,
+        }))
+    }
+
+    /// `open_entry` of a folder only the crate decodes (BCJ2): the entry is
+    /// buffered, at most `plan_head_budget` bytes of it.
+    fn open_buffered<'a>(
+        &'a mut self,
+        fi: u32,
+        file: &WalkedFile,
+        budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        let target = file.entry.index;
+        let (size, crc) = (file.entry.size, file.entry.crc32);
+        let cap = self.limits.plan_head_budget.min(size);
+        let mut buf = Vec::new();
+        let mut complete = false;
+        self.decode_folder(fi, budget, &mut |f, stream, budget| {
+            let mut verified = VerifyingReader::new(
+                ChargedRead::new(stream, budget),
+                f.entry.size,
+                f.entry.crc32,
+            );
+            if f.entry.index != target {
+                drain(&mut verified)?;
+                return Ok(true);
+            }
+            (&mut verified)
+                .take(cap)
+                .read_to_end(&mut buf)
+                .map_err(ArchiveError::from)?;
+            if buf.len() as u64 == size {
+                drain(&mut verified)?;
+                complete = true;
+            }
+            Ok(false)
+        })?;
+        let head = io::Cursor::new(buf);
+        if complete {
+            return Ok(Box::new(VerifyingReader::new(head, size, crc)));
+        }
+        Ok(Box::new(head.chain(Spent)))
+    }
+
+    fn stream_inner(
+        &mut self,
+        wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        let mut order = wanted.to_vec();
+        order.sort_unstable();
+        order.dedup();
+        let mut empty = Vec::new();
+        let mut by_folder: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+        for &index in &order {
+            match self.readable(index)?.folder {
+                Some(fi) => by_folder.entry(fi).or_default().push(index),
+                None => empty.push(index),
+            }
+        }
+        for index in empty {
+            let entry = self.walked.files[index].entry.clone();
+            let mut stream = VerifyingReader::new(io::empty(), entry.size, entry.crc32);
+            sink(&entry, &mut stream)?;
+            drain(&mut stream)?;
+        }
+        for (fi, list) in by_folder {
+            let last = list.last().copied().unwrap_or(0);
+            self.decode_folder(fi, budget, &mut |f, stream, budget| {
+                let index = f.entry.index;
+                let mut verified = VerifyingReader::new(
+                    ChargedRead::new(stream, budget),
+                    f.entry.size,
+                    f.entry.crc32,
+                );
+                if list.binary_search(&index).is_ok() {
+                    sink(&f.entry, &mut verified)?;
+                }
+                // The rest of the entry: checked, and the next one lines up.
+                drain(&mut verified)?;
+                Ok(index < last)
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// A stream that ends a buffered head: the entry was not fully read.
+struct Spent;
+
+impl Read for Spent {
+    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+        Err(ArchiveError::BudgetSpent {
+            what: BudgetKind::DecodedBytes,
+        }
+        .into())
+    }
+}
+
+/// Reads `r` to its end (verifying it, for a [`VerifyingReader`]).
+fn drain(r: &mut dyn Read) -> Result<(), ArchiveError> {
+    io::copy(r, &mut io::sink()).map_err(ArchiveError::from)?;
+    Ok(())
+}
+
+/// Decodes and drops the `n` bytes before an entry in its folder.
+fn skip(r: &mut impl Read, n: u64) -> Result<(), ArchiveError> {
+    let copied = io::copy(&mut r.take(n), &mut io::sink()).map_err(ArchiveError::from)?;
+    if copied != n {
+        return Err(damaged("7z folder ends before its file"));
+    }
+    Ok(())
+}
+
+/// The decoders of a folder of one-in/one-out coders, from the packed
+/// stream to the folder output; each stage is bounded by its declared
+/// output size. LZMA/LZMA2 go through the one checked constructor (S3).
+fn build_chain<'a>(
+    packed: Box<dyn Read + 'a>,
+    folder: &FolderInfo,
+    chain: &[usize],
+    cap: u64,
+) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+    let mut reader = packed;
+    for &c in chain {
+        let coder = &folder.coders[c];
+        let out = folder.unpack_sizes[c];
+        reader = match coder.kind {
+            CoderKind::Copy => reader,
+            CoderKind::Lzma(p) => open_decoder(LzmaKind::Lzma(p), Some(out), cap, reader)?,
+            CoderKind::Lzma2(p) => open_decoder(LzmaKind::Lzma2(p), Some(out), cap, reader)?,
+            CoderKind::Ppmd { order, mem } => {
+                lzma::check(coder.mem_needed, cap)?;
+                let decoder = Ppmd7Decoder::new(reader, u32::from(order), mem)
+                    .map_err(|e| damaged(format!("7z ppmd: {e}")))?;
+                Box::new(decoder)
+            }
+            CoderKind::Bzip2 => Box::new(MultiBzDecoder::new(reader)),
+            CoderKind::Deflate => Box::new(DeflateDecoder::new(reader)),
+            CoderKind::Bcj { kind, start } => bcj_reader(reader, kind, start)?,
+            CoderKind::Delta { distance } => {
+                Box::new(DeltaReader::new(reader, usize::from(distance)))
+            }
+            CoderKind::Aes => return Err(ArchiveError::Encrypted),
+            CoderKind::Deflate64 | CoderKind::Other => {
+                return Err(ArchiveError::Unsupported {
+                    format: unsupported_coder(folder).unwrap_or_else(|| "7z".into()),
+                    need: Some(Tool::SevenZip),
+                })
+            }
+        };
+        reader = Box::new(reader.take(out));
+    }
+    Ok(reader)
+}
+
+/// The crate's view of the archive must be the walk (S5, spec R17): a file
+/// that changed under the open handle, or a crate that read the header
+/// another way, is `Damaged` before a byte is decoded.
+fn cross_check(walked: &Walked, view: &sevenz_rust2::Archive) -> Result<(), ArchiveError> {
+    let differs = |what: &str| damaged(format!("7z crate view differs: {what}"));
+    if view.files.len() != walked.files.len() {
+        return Err(differs("file count"));
+    }
+    if view.blocks.len() != walked.folders.len() {
+        return Err(differs("folder count"));
+    }
+    if let Some(first) = walked.folders.first() {
+        if view.pack_pos().checked_add(START_HEADER_LEN) != Some(first.pack_pos) {
+            return Err(differs("pack position"));
+        }
+    }
+    let pack_sizes: Vec<u64> = walked
+        .folders
+        .iter()
+        .flat_map(|f| f.pack_sizes.iter().copied())
+        .collect();
+    if view.pack_sizes() != pack_sizes.as_slice() {
+        return Err(differs("pack sizes"));
+    }
+    for (block, folder) in view.blocks.iter().zip(&walked.folders) {
+        let same_coders = block.coders.len() == folder.coders.len()
+            && block.coders.iter().zip(&folder.coders).all(|(a, b)| {
+                a.encoder_method_id() == b.id.as_slice() && a.properties() == b.props
+            });
+        if !same_coders {
+            return Err(differs("coders"));
+        }
+        if block.get_unpack_size() != folder.unpack_size {
+            return Err(differs("folder size"));
+        }
+        let crc = block.has_crc.then_some(block.crc as u32);
+        if crc != folder.crc || block.crc > u64::from(u32::MAX) {
+            return Err(differs("folder crc"));
+        }
+    }
+    let map = &view.stream_map;
+    for (i, (file, ours)) in view.files.iter().zip(&walked.files).enumerate() {
+        let units: Vec<u16> = ours
+            .entry
+            .raw_name
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| u16::from_le_bytes(*p))
+            .collect();
+        if String::from_utf16(&units).ok().as_deref() != Some(file.name.as_str()) {
+            return Err(differs("name"));
+        }
+        if file.has_stream != ours.folder.is_some() || file.is_anti_item {
+            return Err(differs("streams"));
+        }
+        if (ours.entry.kind == EntryKind::Dir) != (file.is_directory && !file.has_stream) {
+            return Err(differs("directories"));
+        }
+        let attributes = file
+            .has_windows_attributes
+            .then_some(file.windows_attributes);
+        if attributes != ours.attributes {
+            return Err(differs("attributes"));
+        }
+        if file.has_stream {
+            let crc = file.has_crc.then_some(file.crc as u32);
+            if file.size != ours.entry.size || crc != ours.entry.crc32 {
+                return Err(differs("size or crc"));
+            }
+            let block = map.file_block_index.get(i).copied().flatten();
+            if block.map(|b| b as u64) != ours.folder.map(u64::from) {
+                return Err(differs("folder of a file"));
+            }
+        }
+    }
+    // The crate decodes a folder's files as one run from its first file;
+    // an empty file inside that run would shift every later one.
+    for (fi, folder) in walked.folders.iter().enumerate() {
+        let mut ours = walked
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.folder == Some(fi as u32))
+            .map(|(i, _)| i);
+        let Some(first) = ours.next() else {
+            continue;
+        };
+        if map.block_first_file_index.get(fi) != Some(&first) {
+            return Err(differs("first file of a folder"));
+        }
+        let mut count = 1u64;
+        for (k, i) in ours.enumerate() {
+            if i != first + k + 1 {
+                return Err(ArchiveError::Unsupported {
+                    format: "7z (empty file inside a solid block)".into(),
+                    need: Some(Tool::SevenZip),
+                });
+            }
+            count += 1;
+        }
+        if count != folder.num_substreams {
+            return Err(differs("files of a folder"));
+        }
+    }
+    Ok(())
+}
+
+impl<R: Read + Seek + Send + SourceStamp> ArchiveReader for SevenZReader<R> {
+    fn format(&self) -> Format {
+        Format::SevenZip
+    }
+
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    fn open_entry<'a>(
+        &'a mut self,
+        index: usize,
+        budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        let poison = self.poison.clone();
+        let stream = poison.guard(|| self.open_decoded(index, budget))?;
+        Ok(Box::new(GuardedRead::new(stream, poison)))
+    }
+
+    /// One pass per folder in storage order. The decoding runs inside the
+    /// guard, and so does `sink` (it is called from inside the crate's
+    /// pass): a panic in either poisons the reader.
+    fn stream_entries(
+        &mut self,
+        wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        let poison = self.poison.clone();
+        poison.guard(|| self.stream_inner(wanted, budget, sink))
     }
 }
 
