@@ -13,12 +13,16 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+pub mod budget;
 pub mod detect;
 pub mod names;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
+pub mod verify;
 
+pub use budget::{Budget, ChargedRead, MemoryGate, Permit};
 pub use names::{RelPath, UnsafeWhy};
+pub use verify::VerifyingReader;
 
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * KIB;
@@ -128,14 +132,6 @@ pub enum Method {
     Other(String),
 }
 
-/// Decode budget passed by `&mut` to every read (spec §4.4).
-///
-/// Placeholder until `archive/budget.rs` (plan Task 5).
-#[derive(Debug, Default)]
-pub struct Budget {
-    _private: (),
-}
-
 /// One entry of an archive's validated listing (spec §4.2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -199,6 +195,8 @@ pub enum ArchiveError {
     BudgetSpent {
         what: BudgetKind,
     },
+    /// The budget's cancel flag was set (apply, spec §9.1 "Cancellation").
+    Cancelled,
     TooManyEntries {
         count: u64,
     },
@@ -235,6 +233,7 @@ impl fmt::Display for ArchiveError {
                 write!(f, "decoder needs {needed} bytes, cap is {cap}")
             }
             Self::BudgetSpent { what } => write!(f, "budget spent: {what:?}"),
+            Self::Cancelled => f.write_str("cancelled"),
             Self::TooManyEntries { count } => write!(f, "too many entries: {count}"),
             Self::TooLarge { declared } => write!(f, "too large: {declared} bytes declared"),
             Self::UnsafeEntry { name, why } => write!(f, "unsafe entry {name:?}: {why:?}"),
@@ -293,6 +292,8 @@ impl From<ArchiveError> for io::Error {
             ArchiveError::BudgetSpent {
                 what: BudgetKind::Time,
             } => io::ErrorKind::TimedOut,
+            // Never `Interrupted`: read loops retry it (AP-8).
+            ArchiveError::Cancelled => io::ErrorKind::Other,
         };
         io::Error::new(kind, e)
     }
@@ -444,6 +445,7 @@ mod tests {
                 },
                 K::TimedOut,
             ),
+            (ArchiveError::Cancelled, K::Other),
             (
                 ArchiveError::TooManyEntries { count: 10_001 },
                 K::FileTooLarge,
