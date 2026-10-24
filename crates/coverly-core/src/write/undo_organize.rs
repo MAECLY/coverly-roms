@@ -79,6 +79,13 @@ pub(super) fn undo_entry(
         Op::Created | Op::Replaced { .. } | Op::Removed { .. } | Op::Unknown => {
             unreachable!("only organise ops reach here")
         }
+        Op::Extracted { .. }
+        | Op::RolledBack { .. }
+        | Op::ArchiveTrash { .. }
+        | Op::ArchiveTrashed { .. }
+        | Op::ArchiveKept { .. } => {
+            unreachable!("a journal with extraction ops is refused before undoing")
+        }
     }
 }
 

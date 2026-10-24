@@ -1,0 +1,7 @@
+{"type":"header","job":"20261018T120000Z-1234-0000","root":"@ROOT@","source_root":"@SRC@","kind":"organize","created_at":"2026-10-18T12:00:00Z"}
+{"type":"entry","target":"@ROOT@/GBA","op":{"kind":"dir-created"}}
+{"type":"entry","target":"@ROOT@/GBA/Tetris.gba","op":{"kind":"moved","from":"@SRC@/Tetris.gba","via":"rename"},"fp":{"size":4,"mtime_ns":1700000000000000000},"item":0}
+{"type":"entry","target":"@ROOT@/GB","op":{"kind":"dir-created"}}
+{"type":"entry","target":"@ROOT@/GB/Tetris.gb","op":{"kind":"copied","from":"@SRC@/Tetris.gb"},"item":1}
+{"type":"entry","target":"@ROOT@/GB/Tetris.gb","op":{"kind":"copied","from":"@SRC@/Tetris.gb"},"fp":{"size":2,"mtime_ns":1700000000000000000,"crc32":1234},"item":1}
+{"type":"done"}

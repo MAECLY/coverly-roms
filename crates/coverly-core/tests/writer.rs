@@ -473,3 +473,353 @@ fn a_fill_entry_without_a_checksum_is_left_alone() {
     assert_eq!(report.skipped_modified, std::slice::from_ref(&created));
     assert!(created.exists());
 }
+
+/// An organise job taking files from `<tmp>/S` into `<tmp>/T`, with an
+/// archive `S/Next Tetris, The.zip` and the target folder `T/PS`.
+fn extract_setup() -> (TempDir, PathBuf, PathBuf, PathBuf, Writer) {
+    let tmp = TempDir::new().unwrap();
+    let (root, src, data) = (
+        tmp.path().join("T"),
+        tmp.path().join("S"),
+        tmp.path().join("d"),
+    );
+    fs::create_dir_all(root.join("PS")).unwrap();
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("Next Tetris, The.zip"), b"7z-bytes").unwrap();
+    let w = Writer::begin_with(
+        &root,
+        &data,
+        JobMeta {
+            kind: JobKind::Organize,
+            source_root: Some(src.clone()),
+        },
+    )
+    .unwrap();
+    (tmp, root, src, data, w)
+}
+
+fn extracted_file(src: &Path, w: &Writer, n: u32) -> ExtractedFile {
+    ExtractedFile {
+        from: src.join("Next Tetris, The.zip"),
+        entry: "Next Tetris, The (Track 01).bin".to_string(),
+        size: 5,
+        crc32: Some(0x1234_5678),
+        temp: format!(".coverly-{}-{n}.tmp", w.job_id()),
+    }
+}
+
+fn journal_lines(data: &Path, job: &str) -> Vec<serde_json::Value> {
+    fs::read_to_string(data.join("jobs").join(format!("{job}.jsonl")))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn extracted_intent_then_completion_round_trip() {
+    let (_tmp, root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let target = root.join("PS/Next Tetris, The (Track 01).bin");
+    let file = extracted_file(&src, &w, 0);
+    w.extract_intent(&target, &file, Some(3)).unwrap();
+    assert!(!w.has_entries(), "an intent alone changes nothing");
+    fs::write(&target, b"track").unwrap();
+    let fp = w
+        .extract_done(&target, &file, 0xCAFE_F00D, Some(3))
+        .unwrap();
+    assert_eq!((fp.size, fp.crc32), (5, Some(0xCAFE_F00D)));
+    assert!(w.has_entries());
+    w.finish().unwrap();
+
+    let lines = journal_lines(&data, &job);
+    let intent = &lines[1];
+    assert_eq!(intent["op"]["kind"], "extracted");
+    assert_eq!(intent["op"]["entry"], "Next Tetris, The (Track 01).bin");
+    assert_eq!(intent["op"]["size"], 5);
+    assert_eq!(intent["op"]["crc32"], 0x1234_5678);
+    assert_eq!(intent["op"]["temp"], file.temp.as_str());
+    assert_eq!(intent["item"], 3);
+    assert!(intent.get("fp").is_none(), "{intent}");
+    let done = &lines[2];
+    assert_eq!(done["op"], intent["op"]);
+    assert_eq!(done["fp"]["crc32"], 0xCAFE_F00D_u32);
+    assert_eq!(done["fp"]["size"], 5);
+
+    let records = job_transfers(&data, &job).unwrap();
+    assert_eq!(records.len(), 2);
+    for (record, finished) in records.iter().zip([false, true]) {
+        assert_eq!(record.item, Some(3));
+        assert_eq!(record.from, file.from);
+        assert_eq!(record.target, target);
+        assert_eq!(record.finished, finished);
+        let ex = record.extracted.as_ref().unwrap();
+        assert_eq!(
+            (ex.entry.as_str(), ex.size, ex.crc32, ex.temp.as_str()),
+            (
+                file.entry.as_str(),
+                5,
+                Some(0x1234_5678),
+                file.temp.as_str()
+            )
+        );
+        assert!(!ex.rolled_back);
+    }
+    assert_eq!(records[1].fp, Some(fp));
+}
+
+#[test]
+fn journal_is_append_only_later_line_supersedes() {
+    let (_tmp, root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let journal = data.join("jobs").join(format!("{job}.jsonl"));
+    let archive = src.join("Next Tetris, The.zip");
+    let target = root.join("PS/Next Tetris, The (Track 01).bin");
+    let (first, second) = (extracted_file(&src, &w, 0), extracted_file(&src, &w, 1));
+    let mut before = fs::read(&journal).unwrap();
+    let mut grew = || {
+        let now = fs::read(&journal).unwrap();
+        assert!(now.len() > before.len() && now.starts_with(&before));
+        assert!(now.ends_with(b"\n"));
+        before = now;
+    };
+    // A first attempt rolled back, a second one committed.
+    w.extract_intent(&target, &first, Some(0)).unwrap();
+    grew();
+    w.rolled_back(&target, &first.temp, Some(0)).unwrap();
+    grew();
+    w.extract_intent(&target, &second, Some(0)).unwrap();
+    grew();
+    fs::write(&target, b"track").unwrap();
+    w.extract_done(&target, &second, 7, Some(0)).unwrap();
+    grew();
+    // The archive: intent, then the Trash refused it.
+    let fp = w.archive_trash_intent(&archive, Some(0)).unwrap();
+    assert_eq!((fp.size, fp.crc32), (8, None));
+    grew();
+    w.archive_kept(&archive, Some(0)).unwrap();
+    grew();
+    w.finish().unwrap();
+
+    let records = job_transfers(&data, &job).unwrap();
+    let flags: Vec<(String, bool, bool)> = records
+        .iter()
+        .map(|r| {
+            let ex = r.extracted.as_ref().unwrap();
+            (ex.temp.clone(), ex.rolled_back, r.finished)
+        })
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (first.temp.clone(), true, false),
+            (second.temp.clone(), false, false),
+            (second.temp.clone(), false, true),
+        ]
+    );
+    let steps = job_archive_steps(&data, &job).unwrap();
+    assert_eq!(steps.len(), 2);
+    assert!(steps.iter().all(|s| s.from == archive && s.item == Some(0)));
+    assert_eq!(steps[0].step, ArchiveStep::TrashIntent { fp: Some(fp) });
+    assert_eq!(steps[1].step, ArchiveStep::Kept);
+    let kinds: Vec<String> = journal_lines(&data, &job)
+        .iter()
+        .filter_map(|l| l["op"]["kind"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "extracted",
+            "rolled-back",
+            "extracted",
+            "extracted",
+            "archive-trash",
+            "archive-kept"
+        ]
+    );
+}
+
+#[test]
+fn archive_trashed_records_where_the_archive_went() {
+    let (_tmp, _root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let archive = src.join("Next Tetris, The.zip");
+    w.archive_trash_intent(&archive, Some(1)).unwrap();
+    let trash = src.join(".Trashes/501/Next Tetris, The.zip");
+    fs::remove_file(&archive).unwrap();
+    w.archive_trashed(&archive, Some(&trash), Some(1)).unwrap();
+    assert!(w.has_entries(), "the archive left its folder");
+    w.archive_trashed(&archive, None, Some(1)).unwrap();
+    w.finish().unwrap();
+    let steps = job_archive_steps(&data, &job).unwrap();
+    assert_eq!(
+        steps[1].step,
+        ArchiveStep::Trashed {
+            trash: Some(trash.clone())
+        }
+    );
+    assert_eq!(steps[2].step, ArchiveStep::Trashed { trash: None });
+    let lines = journal_lines(&data, &job);
+    assert_eq!(lines[2]["op"]["kind"], "archive-trashed");
+    assert_eq!(lines[3]["op"]["trash"], serde_json::Value::Null);
+    // Extraction steps are not moves or copies.
+    assert!(job_transfers(&data, &job).unwrap().is_empty());
+}
+
+#[test]
+fn extract_ops_refuse_paths_outside_and_foreign_temps() {
+    let (tmp, root, src, _data, mut w) = extract_setup();
+    let target = root.join("PS/a.bin");
+    let outside = tmp.path().join("elsewhere.bin");
+    let good = extracted_file(&src, &w, 0);
+    assert!(matches!(
+        w.extract_intent(&outside, &good, None),
+        Err(WriteError::OutsideRoot(_))
+    ));
+    let from_outside = ExtractedFile {
+        from: tmp.path().join("other.zip"),
+        ..good.clone()
+    };
+    assert!(matches!(
+        w.extract_intent(&target, &from_outside, None),
+        Err(WriteError::OutsideRoot(_))
+    ));
+    for temp in [
+        "../x.tmp".to_string(),
+        format!("sub/.coverly-{}-0.tmp", w.job_id()),
+        format!("sub\\.coverly-{}-0.tmp", w.job_id()),
+        ".coverly-20200101T000000Z-0000-0000-0.tmp".to_string(),
+        format!(".coverly-{}-0.bin", w.job_id()),
+        "Track 01.bin".to_string(),
+    ] {
+        let bad = ExtractedFile {
+            temp: temp.clone(),
+            ..good.clone()
+        };
+        assert!(
+            matches!(
+                w.extract_intent(&target, &bad, None),
+                Err(WriteError::NameInvalid(_))
+            ),
+            "{temp}"
+        );
+        assert!(w.rolled_back(&target, &temp, None).is_err(), "{temp}");
+    }
+    assert!(matches!(
+        w.archive_trash_intent(&outside, None),
+        Err(WriteError::OutsideRoot(_))
+    ));
+    assert!(matches!(
+        w.archive_trash_intent(&src.join("missing.zip"), None),
+        Err(WriteError::Io(_))
+    ));
+    // Only the archive's own folder is accepted, never the target root.
+    fs::write(root.join("PS/b.zip"), b"x").unwrap();
+    assert!(w.archive_kept(&root.join("PS/b.zip"), None).is_err());
+    // Nothing reached the journal.
+    assert!(!w.has_entries());
+}
+
+#[test]
+fn older_build_sees_unknown_and_refuses_undo() {
+    // What a build from before this change does with an extraction
+    // journal: every new op kind is unknown to it, so the job is listed
+    // but never half undone. Simulated with an op kind no build knows.
+    let (_tmp, root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let moved_from = src.join("Tetris.gba");
+    fs::write(&moved_from, b"ROM").unwrap();
+    fs::create_dir_all(root.join("GBA")).unwrap();
+    let moved_to = root.join("GBA/Tetris.gba");
+    w.move_file(&moved_from, &moved_to, Collision::Skip, Some(0))
+        .unwrap();
+    drop(w);
+    let journal = data.join("jobs").join(format!("{job}.jsonl"));
+    let mut text = fs::read_to_string(&journal).unwrap();
+    text.push_str(&format!(
+        "{{\"type\":\"entry\",\"target\":\"{}\",\"op\":{{\"kind\":\"extracted-v9\",\"from\":\"{}\",\"entry\":\"x\"}},\"item\":1}}\n",
+        json_path(&root.join("PS/x.bin")),
+        json_path(&src.join("Next Tetris, The.zip"))
+    ));
+    fs::write(&journal, text).unwrap();
+    let s = &list_jobs(&data).unwrap()[0];
+    assert_eq!((s.entries, s.undoable), (2, false));
+    let err = undo_job(&data, &job).unwrap_err();
+    assert!(
+        matches!(&err, WriteError::Journal(m) if m.contains("newer")),
+        "{err}"
+    );
+    assert!(moved_to.exists() && !moved_from.exists(), "nothing undone");
+    assert!(!list_jobs(&data).unwrap()[0].undone);
+}
+
+#[test]
+fn an_extraction_journal_is_not_undone_by_this_build_yet() {
+    // Until the undo of extractions lands, a job with extraction lines is
+    // refused whole: undoing only its moves would lose track of the
+    // extracted files and of an archive sent to the Trash.
+    let (_tmp, root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let target = root.join("PS/Next Tetris, The (Track 01).bin");
+    let file = extracted_file(&src, &w, 0);
+    w.extract_intent(&target, &file, Some(0)).unwrap();
+    fs::write(&target, b"track").unwrap();
+    w.extract_done(&target, &file, 1, Some(0)).unwrap();
+    w.finish().unwrap();
+    let s = &list_jobs(&data).unwrap()[0];
+    assert!(!s.undoable);
+    assert!(matches!(undo_job(&data, &job), Err(WriteError::Journal(_))));
+    assert!(target.exists());
+    assert!(!list_jobs(&data).unwrap()[0].undone);
+}
+
+#[test]
+fn journal_from_before_change_still_undoes() {
+    let tmp = TempDir::new().unwrap();
+    let (root, src, data) = (
+        tmp.path().join("T"),
+        tmp.path().join("S"),
+        tmp.path().join("d"),
+    );
+    let job = "20261018T120000Z-1234-0000";
+    fs::create_dir_all(root.join("GBA")).unwrap();
+    fs::create_dir_all(root.join("GB")).unwrap();
+    fs::create_dir_all(&src).unwrap();
+    let at = filetime::FileTime::from_unix_time(1_700_000_000, 0);
+    let (moved, copy, copy_src) = (
+        root.join("GBA/Tetris.gba"),
+        root.join("GB/Tetris.gb"),
+        src.join("Tetris.gb"),
+    );
+    fs::write(&moved, b"GBA!").unwrap();
+    fs::write(&copy, b"GB").unwrap();
+    fs::write(&copy_src, b"GB").unwrap();
+    for f in [&moved, &copy] {
+        filetime::set_file_mtime(f, at).unwrap();
+    }
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/journals/organize-v1.jsonl");
+    let text = fs::read_to_string(fixture)
+        .unwrap()
+        .replace("@ROOT@", &json_path(&root))
+        .replace("@SRC@", &json_path(&src));
+    fs::create_dir_all(data.join("jobs")).unwrap();
+    fs::write(data.join("jobs").join(format!("{job}.jsonl")), text).unwrap();
+
+    let s = &list_jobs(&data).unwrap()[0];
+    assert_eq!(
+        (s.kind, s.entries, s.complete, s.undoable),
+        (JobKind::Organize, 5, true, true)
+    );
+    let records = job_transfers(&data, job).unwrap();
+    assert_eq!(records.len(), 3);
+    assert!(records.iter().all(|r| r.extracted.is_none()));
+    assert!(job_archive_steps(&data, job).unwrap().is_empty());
+
+    let report = undo_job(&data, job).unwrap();
+    assert_eq!(report.restored, [src.join("Tetris.gba")]);
+    assert_eq!(report.removed, std::slice::from_ref(&copy));
+    assert_eq!(fs::read(src.join("Tetris.gba")).unwrap(), b"GBA!");
+    assert!(!moved.exists() && !copy.exists() && copy_src.exists());
+    assert!(!root.join("GBA").exists() && !root.join("GB").exists());
+}

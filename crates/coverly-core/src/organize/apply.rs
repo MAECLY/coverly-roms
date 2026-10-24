@@ -467,7 +467,8 @@ fn finished_record<'r>(
 
 /// The finished journal record of `from` (a file of `item`): a finished
 /// copy that is still at its target (a set rolled back deletes the copies
-/// it made), or a finished move whose source is gone.
+/// it made), or a finished move whose source is gone. Files extracted
+/// from an archive never count as the archive moved or copied.
 fn record_of<'r>(
     records: &'r [TransferRecord],
     id: usize,
@@ -475,6 +476,7 @@ fn record_of<'r>(
 ) -> Option<&'r TransferRecord> {
     records.iter().rev().find(|r| {
         r.item == Some(id)
+            && r.extracted.is_none()
             && r.from == from
             && r.finished
             && if r.copied {

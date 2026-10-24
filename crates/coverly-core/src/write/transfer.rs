@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use super::noclobber::{is_cross_device, rename_noclobber_indexed, with_sharing_retries};
 use super::{
-    apple_double, ensure_within, find_twin, map_io, name_key, remove_apple_doubles,
+    apple_double, ensure_within, find_twin, is_job_temp, map_io, name_key, remove_apple_doubles,
     rename_noclobber, safe_file_name, same_volume, Fingerprint, Op, Via, WriteError, Writer,
 };
 
@@ -460,7 +460,6 @@ impl Writer {
 /// Deletes the temp files of job `job` (`.coverly-<job>-<n>.tmp`) and
 /// their AppleDouble sidecars directly in `dirs`, best effort.
 pub(super) fn clean_job_temps(job: &str, dirs: &[PathBuf]) {
-    let prefix = format!(".coverly-{job}-");
     for dir in dirs {
         let Ok(read) = fs::read_dir(dir) else {
             continue;
@@ -470,10 +469,7 @@ pub(super) fn clean_job_temps(job: &str, dirs: &[PathBuf]) {
             let Some(name) = name.to_str() else {
                 continue;
             };
-            let ours = name
-                .strip_prefix(&prefix)
-                .and_then(|rest| rest.strip_suffix(".tmp"))
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            let ours = is_job_temp(job, name);
             let path = entry.path();
             if ours && fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
                 let _ = fs::remove_file(&path);
