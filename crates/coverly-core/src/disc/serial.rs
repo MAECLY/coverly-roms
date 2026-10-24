@@ -5,6 +5,9 @@
 //!   `SLUS_008.62`, `slus-00862`, `SLUS00862` → `SLUS-00862`.
 //! - Sega product numbers lose the padding of their field and are
 //!   upper-cased: `"T-5704H   "` → `T-5704H`.
+//! - A Sega product written with no dash, as Dreamcast `IP.BIN` does,
+//!   gets the dash DATs write after its letter prefix: `T40214N` →
+//!   `T-40214N`, `MK51000` → `MK-51000`.
 //! - A Sega CD field `GM <serial, 8 chars>-<version>` keeps the serial:
 //!   `GM MK-4407 -00` → `MK-4407`.
 //!
@@ -30,7 +33,8 @@ pub fn normalise_serial(raw: &str) -> Option<String> {
         return Some(ps);
     }
     let core = sega_cd_field(&upper).unwrap_or(&upper);
-    let core = core.trim_matches(' ');
+    let core = sega_dash(core.trim_matches(' '));
+    let core = core.as_str();
     let ok = (3..=MAX_SERIAL).contains(&core.len())
         && core
             .bytes()
@@ -78,6 +82,18 @@ fn sega_cd_field(upper: &str) -> Option<&str> {
         return Some(&upper[3..11]);
     }
     Some(rest)
+}
+
+/// `core` with a dash after a leading 1–3 letter prefix when it has no
+/// dash and a digit follows the prefix (`T40214N` → `T-40214N`); unchanged
+/// otherwise.
+fn sega_dash(core: &str) -> String {
+    let letters = core.bytes().take_while(u8::is_ascii_uppercase).count();
+    let digit_next = core.as_bytes().get(letters).is_some_and(u8::is_ascii_digit);
+    if core.contains('-') || !(1..=3).contains(&letters) || !digit_next {
+        return core.to_owned();
+    }
+    format!("{}-{}", &core[..letters], &core[letters..])
 }
 
 fn is_digits(s: &str) -> bool {

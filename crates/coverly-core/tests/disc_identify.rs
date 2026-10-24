@@ -180,6 +180,12 @@ fn serial_normalisation_table() {
         ("MK-81086  ", Some("MK-81086")),
         ("t-5704h\0\0\0", Some("T-5704H")),
         ("GS-9076   ", Some("GS-9076")),
+        // Dreamcast IP.BIN writes the product with no dash (the real
+        // `Next Tetris, The - On-Line Edition` reads `T40214N`); DATs and
+        // users write `T-40214N`.
+        ("T40214N   ", Some("T-40214N")),
+        ("MK51000", Some("MK-51000")),
+        ("hdr0001", Some("HDR-0001")),
         // Sega CD: `GM <8-char serial>-<version>`.
         ("GM MK-4407 -00", Some("MK-4407")),
         ("GM T-93185 -00  ", Some("T-93185")),
@@ -528,6 +534,9 @@ fn dreamcast_track03_t40214n_disc_1_of_1() {
     let two = id(dt::dreamcast_track03("T-40214N  ", "2/2")).unwrap();
     assert_eq!(two.disc_no, Some(2));
     assert_ne!(two.volume, disc.volume, "IP.BIN differs");
+    // The field as the real disc writes it: no dash.
+    let real = id(dt::dreamcast_track03("T40214N   ", "1/1")).unwrap();
+    assert_eq!(real.serials, ["T-40214N"]);
     let odd = id(dt::dreamcast_track03("T-40214N  ", "3/2")).unwrap();
     assert_eq!(odd.disc_no, None);
     assert_eq!(odd.serials, ["T-40214N"]);

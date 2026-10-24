@@ -305,8 +305,9 @@ fn gdi_sheet(text: &str) -> Result<Sheet, SheetError> {
 
 /// Index into [`Sheet::tracks`] of the primary data track: the first
 /// `MODE1`/`MODE2` track of a cue (of its high-density area when the cue
-/// marks one, as Redump Dreamcast cues do: the low-density track 01 has no
-/// IP.BIN), track 03 of a gdi. `None` for an m3u or a sheet without one.
+/// marks one, as Redump Dreamcast cues do: the low-density track 01 may
+/// repeat IP.BIN but holds a different, small volume, so the fingerprint
+/// comes from track 03), track 03 of a gdi. `None` for an m3u or a sheet without one.
 pub fn primary_track(sheet: &Sheet) -> Option<usize> {
     match sheet.kind {
         SheetKind::Cue => {
