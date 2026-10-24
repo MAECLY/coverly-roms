@@ -1,0 +1,28 @@
+# Clippy configuration for the workspace.
+
+# LZMA decoders are only ever built through `archive::lzma::open_decoder`,
+# which checks the dictionary/model size from the stream's own property
+# header against the decoder memory cap and builds the decoder from that same
+# value (spec 2026-10-23-organize-archives-and-discs.md, S2 and S3). Every
+# decoder runs on the calling thread (S1: panics are caught there), so the
+# multi-threaded readers are banned outright.
+disallowed-methods = [
+  { path = "lzma_rust2::LzmaReader::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::LzmaReader::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::LzmaReader::new_with_props", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::Lzma2Reader::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::Lzma2Reader::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::XzReader::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::XzReader::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::LzmaStream::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::LzmaStream::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::LzmaStream::new_with_props", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::Lzma2Stream::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::Lzma2Stream::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::XzStream::new", reason = "use archive::lzma::open_decoder (S3)" },
+  { path = "lzma_rust2::XzStream::new_mem_limit", reason = "use archive::lzma::open_decoder (S3)" },
+]
+disallowed-types = [
+  { path = "lzma_rust2::Lzma2ReaderMt", reason = "decoders run on the calling thread (S1)" },
+  { path = "lzma_rust2::XzReaderMt", reason = "decoders run on the calling thread (S1)" },
+]

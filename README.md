@@ -525,7 +525,7 @@ through [SECURITY.md](SECURITY.md) (a private GitHub advisory, or
 | `src-tauri`           | The desktop shell and its commands                                 |
 | `src`                 | The React interface                                                |
 
-**Prerequisites:** [Rust](https://rustup.rs/) 1.90 or newer,
+**Prerequisites:** [Rust](https://rustup.rs/) 1.93 or newer,
 [Node.js](https://nodejs.org/) 22.22.2 or newer with [pnpm](https://pnpm.io/), and
 the [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/)
 for your OS. `make doctor` shows which ones are installed.

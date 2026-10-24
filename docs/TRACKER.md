@@ -461,6 +461,14 @@ Investigación: `docs/02-research/` (commit `29432d0`) · Spec: [`2026-10-18-sys
 - **Tarea 24 (miniaturas con tamaño, V-D6):** **maxPx no hace falta**: el desplazamiento completo de Huecos de arte no tiene ninguna tarea larga > 50 ms (máx. 0), frame medio 13,7 ms / p95 23 ms. Sin cambios en IPC ni en Rust.
 - Pendiente: V7 (Tauri en macOS/WebKit).
 
+## Organizar: comprimidos de todo tipo y juegos de disco (A1–A46)
+
+Spec: [`2026-10-23-organize-archives-and-discs.md`](superpowers/specs/2026-10-23-organize-archives-and-discs.md) · Plan: [`2026-10-23-organize-archives-and-discs.md`](superpowers/plans/2026-10-23-organize-archives-and-discs.md) · Rama `feat/organize-disc-archives` (worktree `coverly-roms-discs`). Muestra real (solo lectura): `/Volumes/TinyExt/ROMs-Downloaded` (AP-1).
+
+| ID | Tarea | Estado | Evidencia |
+|---|---|---|---|
+| A1 | Build: MSRV 1.93, crates de descompresión, gates de features de `zip` y de licencias, clippy para Windows | ✅ | Commit `build: add archive decoders, raise MSRV to 1.93 and gate zip features and licences`. Versiones (la más nueva publicada ≤ 2026-10-10, fijadas con `=`): `sevenz-rust2` 0.23.0 (Apache-2.0, MSRV 1.93), `lzma-rust2` 0.21.0 (Apache-2.0), `ppmd-rust` 1.5.0 (CC0-1.0 OR MIT-0), `ruzstd` 0.9.0 (MIT), `lz4_flex` 0.14.0 (MIT), `tar` 0.4.46 (MIT OR Apache-2.0), `bzip2` 0.6.1 (MIT OR Apache-2.0) con `libbz2-rs-sys` 0.2.5 (bzip2-1.0.6); `zip` 9.0.3 ya estaba (MIT) y gana `deflate64` 0.1.12 (MIT) y `bzip2`; `flate2` pasa a `zlib-rs`; `objc2-foundation` 0.3.2 (MIT, ya en `Cargo.lock`) solo en macOS. `zip_crate_cannot_decode_lzma` pasa; con `lzma` activado a propósito fallan el test y `scripts/check-zip-features.sh`. `scripts/check-licenses.sh`: ok (619 paquetes); con metadatos falsos rechaza `unrar`, GPL, AGPL ajeno, `(MIT OR Apache-2.0) AND GPL-2.0` y sin licencia. `clippy.toml` prohíbe los constructores de `lzma_rust2` y los lectores `*Mt` (comprobado con una sonda). `scripts/dev/clippy-windows.sh`: `windows: clippy ok (x86_64-pc-windows-msvc, -D warnings; C objects stubbed, no MSVC toolchain)`. `cargo test --workspace`: 1261 pasan; el snapshot `organize_plan__sample_offline` solo cambia tamaños de los zips sintéticos (deflate con zlib-rs). `cargo build --offline` ok |
+
 ## Bitácora
 
 - **2026-10-15** — Investigación de herramientas Mac; repo creado; decisiones D1–D8; spec maestra y tracker escritos; investigación Top1 en curso.

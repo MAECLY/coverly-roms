@@ -17,8 +17,17 @@ unicode-normalization.workspace = true
 crc32fast.workspace = true
 md-5.workspace = true
 sha1.workspace = true
-zip = { workspace = true, features = ["deflate-flate2"] }
-flate2.workspace = true
+# Never add lzma/xz/ppmd/zstd here: those zip methods are decoded by
+# `archive` from the raw entry with capped decoders (spec S2, S3).
+zip = { workspace = true, features = ["deflate-flate2", "deflate64", "bzip2"] }
+flate2 = { workspace = true, features = ["zlib-rs"] }
+sevenz-rust2 = { workspace = true, features = ["bzip2", "deflate", "ppmd"] }
+lzma-rust2.workspace = true
+ppmd-rust.workspace = true
+ruzstd.workspace = true
+lz4_flex.workspace = true
+tar.workspace = true
+bzip2.workspace = true
 rusqlite.workspace = true
 directories.workspace = true
 serde_json.workspace = true
@@ -34,8 +43,16 @@ minisign = { workspace = true, optional = true }
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation.workspace = true
+
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+] }
 
 [features]
 # Mock HTTP server, fixtures and throwaway update keys for tests of this
@@ -47,3 +64,9 @@ coverly-core = { path = ".", features = ["test-util"] }
 filetime.workspace = true
 insta.workspace = true
 tempfile.workspace = true
+# Encoders for synthetic archive fixtures (tests only).
+sevenz-rust2 = { workspace = true, features = ["bzip2", "deflate", "ppmd", "compress"] }
+lzma-rust2 = { workspace = true, features = ["encoder"] }
+ruzstd = { workspace = true, features = ["std"] }
+lz4_flex = { workspace = true, features = ["safe-encode"] }
+bzip2.workspace = true

@@ -551,7 +551,7 @@ siguen [SECURITY.md](SECURITY.md) (un aviso privado en GitHub, o
 | `src-tauri`           | La app de escritorio y sus órdenes                                         |
 | `src`                 | La interfaz en React                                                       |
 
-**Requisitos:** [Rust](https://rustup.rs/) 1.90 o superior,
+**Requisitos:** [Rust](https://rustup.rs/) 1.93 o superior,
 [Node.js](https://nodejs.org/) 22.22.2 o superior con [pnpm](https://pnpm.io/), y
 las [dependencias de sistema de Tauri 2](https://v2.tauri.app/start/prerequisites/)
 para tu sistema operativo. `make doctor` muestra cuáles tienes instaladas.
