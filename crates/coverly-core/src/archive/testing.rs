@@ -1469,6 +1469,9 @@ pub struct FakeCase {
     /// `grandchild_marker` (the timeout test checks it never appears).
     pub grandchild_sleep_ms: u64,
     pub grandchild_marker: Option<std::path::PathBuf>,
+    /// The grandchild leaves the tool's process group (Unix `setsid`) and
+    /// keeps the output pipes open: a timeout must still return on time.
+    pub grandchild_detach: bool,
     /// Sleeps this long after writing, before exiting.
     pub sleep_ms: u64,
     pub exit: i32,

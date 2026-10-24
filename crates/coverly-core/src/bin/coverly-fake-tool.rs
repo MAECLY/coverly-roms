@@ -38,6 +38,11 @@ fn main() -> ExitCode {
             .arg(FAKE_GRANDCHILD_ARG)
             .arg(case.grandchild_sleep_ms.to_string())
             .arg(marker)
+            .arg(if case.grandchild_detach {
+                "detach"
+            } else {
+                "stay"
+            })
             .stdin(Stdio::null())
             .spawn();
     }
@@ -97,9 +102,26 @@ fn report(out: &mut dyn Write, args: &[String]) {
 }
 
 fn grandchild(args: &[String]) {
+    if args.get(2).map(String::as_str) == Some("detach") {
+        detach();
+    }
     let ms = args.first().and_then(|s| s.parse().ok()).unwrap_or(0);
     thread::sleep(Duration::from_millis(ms));
     if let Some(marker) = args.get(1).filter(|m| !m.is_empty()) {
         let _ = std::fs::write(Path::new(marker), b"survived");
     }
 }
+
+/// Leaves the tool's process group, as a daemonising helper would.
+#[cfg(unix)]
+fn detach() {
+    // SAFETY: plain syscall with no arguments.
+    unsafe {
+        libc::setsid();
+    }
+}
+
+/// A Job object cannot be left without `BREAKAWAY_OK`, which `run_tool`
+/// never grants.
+#[cfg(windows)]
+fn detach() {}

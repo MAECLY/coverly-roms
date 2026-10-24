@@ -14,7 +14,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,7 +27,7 @@ pub const STDERR_CAP: usize = 64 * 1024;
 const BANNER_CAP: u64 = 64 * 1024;
 /// Wall time of a version banner call.
 const BANNER_TIMEOUT: Duration = Duration::from_secs(5);
-/// How often a finished run polls for the tool's exit.
+/// How often a run whose stdout has closed polls for the tool's exit.
 const REAP_POLL: Duration = Duration::from_millis(5);
 
 /// One external tool found on this machine, with its parsed version.
@@ -408,11 +409,14 @@ fn isolate(cmd: &mut Command) {
     }
 }
 
+/// Starts the child suspended: [`Tree::attach`] puts it in a Job object
+/// before it runs a single instruction, so nothing it starts can be
+/// created outside the job, then resumes it.
 #[cfg(windows)]
 fn isolate(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED};
+    cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
 }
 
 /// The process tree of one run: the Unix process group led by the child,
@@ -422,8 +426,9 @@ struct Tree;
 
 #[cfg(unix)]
 impl Tree {
-    fn attach(_child: &Child) -> Self {
-        Self
+    #[allow(clippy::unnecessary_wraps)] // the Windows twin can fail
+    fn attach(_child: &Child) -> io::Result<Self> {
+        Ok(Self)
     }
 
     /// Kills the group. Only called while the child is not yet reaped, so
@@ -440,18 +445,13 @@ impl Tree {
 }
 
 #[cfg(windows)]
-struct Tree(Option<windows_sys::Win32::Foundation::HANDLE>);
-
-// SAFETY: a Job object handle may be used from any thread.
-#[cfg(windows)]
-unsafe impl Send for Tree {}
-// SAFETY: as above; the handle is only read.
-#[cfg(windows)]
-unsafe impl Sync for Tree {}
+struct Tree(windows_sys::Win32::Foundation::HANDLE);
 
 #[cfg(windows)]
 impl Tree {
-    fn attach(child: &Child) -> Self {
+    /// Puts the suspended child in a new Job object, then resumes it. Any
+    /// failure fails the run: a tool we could not contain does not run.
+    fn attach(child: &Child) -> io::Result<Self> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::JobObjects::{
@@ -464,7 +464,7 @@ impl Tree {
         unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() {
-                return Self(None);
+                return Err(io::Error::last_os_error());
             }
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -476,19 +476,20 @@ impl Tree {
                 size,
             );
             if set == 0 || AssignProcessToJobObject(job, child.as_raw_handle().cast()) == 0 {
+                let e = io::Error::last_os_error();
                 CloseHandle(job);
-                return Self(None);
+                return Err(e);
             }
-            Self(Some(job))
+            let tree = Self(job);
+            resume_threads(child.id())?;
+            Ok(tree)
         }
     }
 
     fn kill(&self, child: &mut Child) {
-        if let Some(job) = self.0 {
-            // SAFETY: `job` is a live Job object handle owned by `self`.
-            unsafe {
-                windows_sys::Win32::System::JobObjects::TerminateJobObject(job, 1);
-            }
+        // SAFETY: `self.0` is a live Job object handle owned by `self`.
+        unsafe {
+            windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1);
         }
         let _ = child.kill();
     }
@@ -497,26 +498,66 @@ impl Tree {
 #[cfg(windows)]
 impl Drop for Tree {
     fn drop(&mut self) {
-        if let Some(job) = self.0.take() {
-            // SAFETY: closing our own handle; `KILL_ON_JOB_CLOSE` ends any
-            // process still in the job.
-            unsafe {
-                windows_sys::Win32::Foundation::CloseHandle(job);
-            }
+        // SAFETY: closing our own handle; `KILL_ON_JOB_CLOSE` ends any
+        // process still in the job.
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
         }
     }
 }
 
-/// Shared between the run and its watchdog: the child, whether it has been
-/// reaped, and why it was killed.
-struct State {
-    child: Child,
-    exited: Option<ExitStatus>,
-    timed_out: bool,
+/// Resumes the threads of the suspended process `pid` (`std` closes the
+/// primary thread handle, so they are found through a thread snapshot).
+#[cfg(windows)]
+fn resume_threads(pid: u32) -> io::Result<()> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+    // SAFETY: Win32 calls with valid arguments; every handle opened here is
+    // closed here.
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if snap == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let mut entry: THREADENTRY32 = std::mem::zeroed();
+        entry.dwSize = u32::try_from(std::mem::size_of::<THREADENTRY32>()).unwrap_or(u32::MAX);
+        let mut resumed = 0u32;
+        let mut more = Thread32First(snap, &mut entry) != 0;
+        while more {
+            if entry.th32OwnerProcessID == pid {
+                let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                if !thread.is_null() {
+                    if ResumeThread(thread) != u32::MAX {
+                        resumed += 1;
+                    }
+                    CloseHandle(thread);
+                }
+            }
+            more = Thread32Next(snap, &mut entry) != 0;
+        }
+        CloseHandle(snap);
+        if resumed == 0 {
+            return Err(io::Error::other("could not resume the tool"));
+        }
+        Ok(())
+    }
 }
+
+/// How long a run that ended (exited or killed) still waits for the last
+/// stderr bytes, when a process that escaped the tree holds the pipe.
+const STDERR_GRACE: Duration = Duration::from_millis(200);
+/// Chunks in flight between the stdout reader thread and the run.
+const STDOUT_QUEUE: usize = 4;
 
 /// Spawns `t` with exactly `args` and waits for it under the hygiene of
 /// [`run_tool`] (which adds the `--` and the archive).
+///
+/// The pipes are read on their own detached threads and the run waits for
+/// them only until `timeout`: a process that left the tree (a daemon that
+/// called `setsid`) and keeps a pipe open cannot hold the run past it.
 fn spawn_bounded(
     t: &FoundTool,
     args: &[&OsStr],
@@ -537,78 +578,91 @@ fn spawn_bounded(
     tool_env(&mut cmd, &dir.0);
     isolate(&mut cmd);
 
+    let deadline = Instant::now() + timeout;
     let mut child = cmd.spawn()?;
-    let tree = Tree::attach(&child);
-    let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
+    let tree = match Tree::attach(&child) {
+        Ok(tree) => tree,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e.into());
+        }
+    };
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         tree.kill(&mut child);
         let _ = child.wait();
         return Err(ArchiveError::Io(io::Error::other("tool pipes missing")));
     };
-    let deadline = Instant::now() + timeout;
-    let state = Mutex::new(State {
-        child,
-        exited: None,
-        timed_out: false,
-    });
-    let wake = Condvar::new();
 
-    let (out, err, out_result) = thread::scope(|s| {
-        let err_thread = s.spawn(move || drain_capped(&mut stderr, STDERR_CAP));
-        let watchdog = s.spawn(|| {
-            let mut st = lock(&state);
-            loop {
-                if st.exited.is_some() {
-                    return;
-                }
-                let now = Instant::now();
-                if now >= deadline {
-                    st.timed_out = true;
-                    tree.kill(&mut st.child);
-                    return;
-                }
-                st = wake
-                    .wait_timeout(st, deadline - now)
-                    .map_or_else(|e| e.into_inner().0, |(g, _)| g);
-            }
+    let (out_tx, out_rx) = mpsc::sync_channel(STDOUT_QUEUE);
+    thread::spawn(move || pump(stdout, &out_tx));
+    let err_kept = Arc::new(Mutex::new(Vec::new()));
+    let (err_tx, err_rx) = mpsc::sync_channel::<()>(1);
+    {
+        let kept = Arc::clone(&err_kept);
+        thread::spawn(move || {
+            drain_capped(stderr, STDERR_CAP, &kept);
+            let _ = err_tx.send(());
         });
+    }
 
-        let mut buf = Vec::new();
-        let out_result = copy_capped(&mut stdout, sink, &mut buf, out_cap);
-        if out_result.is_err() {
-            let mut st = lock(&state);
-            if st.exited.is_none() {
-                tree.kill(&mut st.child);
-            }
-        }
-        drop(stdout);
-
-        // Reap under the lock, so the watchdog never signals a reaped pid.
-        loop {
-            let mut st = lock(&state);
-            match st.child.try_wait() {
-                Ok(Some(status)) => {
-                    st.exited = Some(status);
-                    break;
-                }
-                Ok(None) => {}
-                Err(_) => {
-                    tree.kill(&mut st.child);
-                    let status = st.child.wait().ok();
-                    st.exited = Some(status.unwrap_or_else(killed_status));
-                    break;
+    let mut out = Capped::new(sink, out_cap);
+    let mut timed_out = false;
+    let out_result = loop {
+        let Some(left) = remaining(deadline) else {
+            timed_out = true;
+            break Ok(());
+        };
+        match out_rx.recv_timeout(left) {
+            Ok(Ok(chunk)) => {
+                if let Err(e) = out.take(&chunk) {
+                    break Err(e);
                 }
             }
-            drop(st);
-            thread::sleep(REAP_POLL);
+            Ok(Err(e)) => break Err(ArchiveError::Io(e)),
+            Err(RecvTimeoutError::Timeout) => {
+                timed_out = true;
+                break Ok(());
+            }
+            // The reader saw EOF.
+            Err(RecvTimeoutError::Disconnected) => break Ok(()),
         }
-        wake.notify_all();
-        let _ = watchdog.join();
-        let err = err_thread.join().unwrap_or_default();
-        (buf, err, out_result)
-    });
+    };
+    // The reader thread ends at its next chunk (or when the pipe closes).
+    drop(out_rx);
 
-    let st = state.into_inner().unwrap_or_else(|e| e.into_inner());
-    if st.timed_out {
+    // Kill before reaping, so the group id is still ours.
+    let mut killed = timed_out || out_result.is_err();
+    if killed {
+        tree.kill(&mut child);
+    }
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if killed => break child.wait().unwrap_or_else(|_| killed_status()),
+            Ok(None) => {
+                if remaining(deadline).is_none() {
+                    timed_out = true;
+                    killed = true;
+                    tree.kill(&mut child);
+                } else {
+                    thread::sleep(REAP_POLL);
+                }
+            }
+            Err(_) => {
+                killed = true;
+                tree.kill(&mut child);
+            }
+        }
+    };
+
+    let wait = remaining(deadline).map_or(STDERR_GRACE, |d| d.max(STDERR_GRACE));
+    let _ = err_rx.recv_timeout(wait);
+    let err = err_kept
+        .lock()
+        .map_or_else(|e| e.into_inner().clone(), |g| g.clone());
+
+    if timed_out {
         return Err(ArchiveError::ToolFailed {
             tool: t.tool,
             status: None,
@@ -616,14 +670,35 @@ fn spawn_bounded(
     }
     out_result?;
     Ok(ToolRun {
-        stdout: out,
+        stdout: out.buf,
         stderr: err,
-        status: st.exited.and_then(|s| s.code()),
+        status: status.code(),
     })
 }
 
-fn lock(m: &Mutex<State>) -> std::sync::MutexGuard<'_, State> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+/// Time left before `deadline`, `None` once it has passed.
+fn remaining(deadline: Instant) -> Option<Duration> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|d| !d.is_zero())
+}
+
+/// Reads `from` in chunks into `to` until EOF (the channel then closes),
+/// an error (sent), or the run stops listening.
+fn pump(mut from: impl Read, to: &SyncSender<io::Result<Vec<u8>>>) {
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        let msg = match from.read(&mut chunk) {
+            Ok(0) => return,
+            Ok(n) => Ok(chunk[..n].to_vec()),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => Err(e),
+        };
+        let stop = msg.is_err();
+        if to.send(msg).is_err() || stop {
+            return;
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -638,47 +713,54 @@ fn killed_status() -> ExitStatus {
     ExitStatus::from_raw(1)
 }
 
-/// Copies `from` into `sink` (or `buf`) until EOF; more than `cap` bytes
-/// → [`ArchiveError::TooLarge`].
-fn copy_capped(
-    from: &mut dyn Read,
-    mut sink: Option<&mut dyn Write>,
-    buf: &mut Vec<u8>,
+/// stdout of one run: into `sink` (or `buf`); more than `cap` bytes in
+/// all → [`ArchiveError::TooLarge`].
+struct Capped<'a> {
+    sink: Option<&'a mut dyn Write>,
+    buf: Vec<u8>,
+    total: u64,
     cap: u64,
-) -> Result<(), ArchiveError> {
-    let mut chunk = vec![0u8; 64 * 1024];
-    let mut total: u64 = 0;
-    loop {
-        let n = match from.read(&mut chunk) {
-            Ok(0) => return Ok(()),
-            Ok(n) => n,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e.into()),
-        };
-        total = total.saturating_add(n as u64);
-        if total > cap {
-            return Err(ArchiveError::TooLarge { declared: total });
+}
+
+impl<'a> Capped<'a> {
+    fn new(sink: Option<&'a mut dyn Write>, cap: u64) -> Self {
+        Self {
+            sink,
+            buf: Vec::new(),
+            total: 0,
+            cap,
         }
-        match sink.as_deref_mut() {
-            Some(w) => w.write_all(&chunk[..n])?,
-            None => buf.extend_from_slice(&chunk[..n]),
+    }
+
+    fn take(&mut self, chunk: &[u8]) -> Result<(), ArchiveError> {
+        self.total = self.total.saturating_add(chunk.len() as u64);
+        if self.total > self.cap {
+            return Err(ArchiveError::TooLarge {
+                declared: self.total,
+            });
         }
+        match self.sink.as_deref_mut() {
+            Some(w) => w.write_all(chunk)?,
+            None => self.buf.extend_from_slice(chunk),
+        }
+        Ok(())
     }
 }
 
-/// Reads `from` to EOF, keeping the first `cap` bytes.
-fn drain_capped(from: &mut dyn Read, cap: usize) -> Vec<u8> {
-    let mut kept = Vec::new();
+/// Reads `from` to EOF, keeping the first `cap` bytes in `kept` as they
+/// arrive (a run that stops waiting still has what came so far).
+fn drain_capped(mut from: impl Read, cap: usize, kept: &Mutex<Vec<u8>>) {
     let mut chunk = vec![0u8; 64 * 1024];
     loop {
         match from.read(&mut chunk) {
-            Ok(0) => return kept,
+            Ok(0) => return,
             Ok(n) => {
+                let mut kept = kept.lock().unwrap_or_else(|e| e.into_inner());
                 let room = cap.saturating_sub(kept.len());
                 kept.extend_from_slice(&chunk[..n.min(room)]);
             }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(_) => return kept,
+            Err(_) => return,
         }
     }
 }
@@ -750,33 +832,33 @@ mod tests {
     }
 
     #[test]
-    fn copy_capped_stops_past_the_cap() {
+    fn capped_stops_past_the_cap() {
         let data = vec![7u8; 1000];
-        let mut buf = Vec::new();
-        let err = copy_capped(&mut data.as_slice(), None, &mut buf, 999).expect_err("cap");
-        assert!(matches!(err, ArchiveError::TooLarge { .. }));
-        let mut buf = Vec::new();
-        copy_capped(&mut data.as_slice(), None, &mut buf, 1000).expect("exact cap");
-        assert_eq!(buf.len(), 1000);
+        let mut over = Capped::new(None, 999);
+        over.take(&data[..500]).expect("under");
+        let err = over.take(&data[500..]).expect_err("cap");
+        assert!(matches!(err, ArchiveError::TooLarge { declared: 1000 }));
+        let mut exact = Capped::new(None, 1000);
+        exact.take(&data).expect("exact cap");
+        assert_eq!(exact.buf.len(), 1000);
     }
 
     #[test]
-    fn copy_capped_streams_into_a_sink() {
-        let data = vec![9u8; 300];
+    fn capped_streams_into_a_sink() {
         let mut sink = Vec::new();
-        let mut buf = Vec::new();
-        copy_capped(&mut data.as_slice(), Some(&mut sink), &mut buf, 300).expect("ok");
+        let mut c = Capped::new(Some(&mut sink), 300);
+        c.take(&[9u8; 300]).expect("ok");
+        assert!(c.buf.is_empty());
+        drop(c);
         assert_eq!(sink.len(), 300);
-        assert!(buf.is_empty());
     }
 
     #[test]
     fn drain_keeps_only_the_cap() {
         let data = vec![1u8; 200_000];
-        assert_eq!(
-            drain_capped(&mut data.as_slice(), STDERR_CAP).len(),
-            STDERR_CAP
-        );
+        let kept = Mutex::new(Vec::new());
+        drain_capped(data.as_slice(), STDERR_CAP, &kept);
+        assert_eq!(kept.into_inner().expect("lock").len(), STDERR_CAP);
     }
 
     #[test]

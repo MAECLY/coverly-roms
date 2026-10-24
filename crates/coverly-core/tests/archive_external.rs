@@ -401,6 +401,42 @@ mod unix_tests {
         .expect_err("refused");
         assert!(matches!(err, ArchiveError::Unsupported { .. }), "{err:?}");
     }
+
+    #[test]
+    fn timeout_returns_when_a_descendant_escapes_and_holds_the_pipes() {
+        setup();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let script = FakeScript {
+            cases: vec![FakeCase {
+                stdout: "listing...\n".into(),
+                // Leaves the group, so `killpg` misses it, and keeps
+                // stdout and stderr open for 8 s.
+                grandchild_sleep_ms: 8_000,
+                grandchild_detach: true,
+                sleep_ms: 30_000,
+                ..FakeCase::default()
+            }],
+        };
+        let exe = fake_tool(tmp.path(), "7zz", &script);
+        let start = Instant::now();
+        let err = run_tool(
+            &found(Tool::SevenZip, exe),
+            &[OsStr::new("l")],
+            &archive(tmp.path()),
+            MAX_HEADER,
+            Duration::from_millis(400),
+        )
+        .expect_err("timed out");
+        assert!(
+            matches!(err, ArchiveError::ToolFailed { status: None, .. }),
+            "{err:?}"
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(4),
+            "the timeout bounds the run even with the pipes held: {:?}",
+            start.elapsed()
+        );
+    }
 }
 
 #[cfg(windows)]
