@@ -51,8 +51,19 @@ windows-sys = { workspace = true, features = [
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
   "Win32_System_Com",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
   "Win32_UI_Shell",
 ] }
+
+# Scripted stand-in for 7zz/unrar/bsdtar in the external-tool tests
+# (plan AP-5); never shipped.
+[[bin]]
+name = "coverly-fake-tool"
+path = "src/bin/coverly-fake-tool.rs"
+required-features = ["test-util"]
+test = false
+doctest = false
 
 [features]
 # Mock HTTP server, fixtures and throwaway update keys for tests of this

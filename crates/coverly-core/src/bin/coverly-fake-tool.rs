@@ -1,0 +1,105 @@
+//! Scripted stand-in for `7zz`, `unrar` and `bsdtar` in tests (feature
+//! `test-util`, plan AP-5). It reads its [`FakeScript`] from the JSON file
+//! beside its own executable (the environment is cleared by `run_tool`) or
+//! from `COVERLY_FAKE_TOOL_SCRIPT`, and prints what the matching case says.
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, Stdio};
+use std::thread;
+use std::time::Duration;
+
+use coverly_core::archive::testing::{
+    fake_script_path, FakeScript, FAKE_GRANDCHILD_ARG, FAKE_REPORTED_ENV,
+};
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some(FAKE_GRANDCHILD_ARG) {
+        grandchild(&args[1..]);
+        return ExitCode::SUCCESS;
+    }
+    let exe = std::env::current_exe().expect("current exe");
+    let script_path = std::env::var_os("COVERLY_FAKE_TOOL_SCRIPT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| fake_script_path(&exe));
+    let script: FakeScript = match std::fs::read(&script_path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).expect("fake script json"),
+        Err(_) => FakeScript::default(),
+    };
+    let Some(case) = script.case_for(&args) else {
+        return ExitCode::SUCCESS;
+    };
+
+    if case.grandchild_sleep_ms > 0 {
+        let marker = case.grandchild_marker.clone().unwrap_or_default();
+        // Inherits stdout/stderr, so it holds the pipes like a real helper.
+        let _ = Command::new(&exe)
+            .arg(FAKE_GRANDCHILD_ARG)
+            .arg(case.grandchild_sleep_ms.to_string())
+            .arg(marker)
+            .stdin(Stdio::null())
+            .spawn();
+    }
+
+    let mut err = std::io::stderr().lock();
+    let _ = err.write_all(case.stderr.as_bytes());
+    fill(&mut err, b'e', case.stderr_fill);
+    let _ = err.flush();
+    drop(err);
+
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(case.stdout.as_bytes());
+    if case.report {
+        report(&mut out, &args);
+    }
+    fill(&mut out, b'o', case.stdout_fill);
+    let _ = out.flush();
+    drop(out);
+
+    if case.sleep_ms > 0 {
+        thread::sleep(Duration::from_millis(case.sleep_ms));
+    }
+    ExitCode::from(u8::try_from(case.exit).unwrap_or(1))
+}
+
+fn fill(w: &mut dyn Write, byte: u8, mut n: u64) {
+    let chunk = [byte; 64 * 1024];
+    while n > 0 {
+        let take = usize::try_from(n.min(chunk.len() as u64)).unwrap_or(chunk.len());
+        if w.write_all(&chunk[..take]).is_err() {
+            return;
+        }
+        n -= take as u64;
+    }
+}
+
+fn report(out: &mut dyn Write, args: &[String]) {
+    let _ = writeln!(
+        out,
+        "args={}",
+        serde_json::to_string(args).unwrap_or_default()
+    );
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let entries = std::fs::read_dir(&cwd).map_or(usize::MAX, Iterator::count);
+    let _ = writeln!(out, "cwd={}", cwd.display());
+    let _ = writeln!(out, "cwd_entries={entries}");
+    for key in FAKE_REPORTED_ENV {
+        match std::env::var_os(key) {
+            Some(v) => {
+                let _ = writeln!(out, "env.{key}={}", v.to_string_lossy());
+            }
+            None => {
+                let _ = writeln!(out, "env.{key}=<unset>");
+            }
+        }
+    }
+}
+
+fn grandchild(args: &[String]) {
+    let ms = args.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    thread::sleep(Duration::from_millis(ms));
+    if let Some(marker) = args.get(1).filter(|m| !m.is_empty()) {
+        let _ = std::fs::write(Path::new(marker), b"survived");
+    }
+}

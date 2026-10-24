@@ -1442,3 +1442,123 @@ pub fn gzip_with_zeros(prefix: &[u8], zeros: u64) -> Vec<u8> {
     out.extend_from_slice(&(total as u32).to_le_bytes());
     out
 }
+
+// ---------------------------------------------------------------------------
+// Fake external tools (plan Task 13, AP-5)
+// ---------------------------------------------------------------------------
+
+/// What one run of `coverly-fake-tool` does when its arguments start with
+/// [`FakeCase::args_prefix`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct FakeCase {
+    /// Matches when the tool's arguments start with these (empty: always).
+    pub args_prefix: Vec<String>,
+    /// Printed to stdout first, as is.
+    pub stdout: String,
+    /// Then this many `o` bytes on stdout.
+    pub stdout_fill: u64,
+    pub stderr: String,
+    /// This many `e` bytes on stderr, written before stdout.
+    pub stderr_fill: u64,
+    /// Prints one `key=value` line per fact the hygiene tests check: the
+    /// arguments (JSON), the working directory and its entry count, and
+    /// each of [`FAKE_REPORTED_ENV`] (`<unset>` when absent).
+    pub report: bool,
+    /// Spawns a copy of itself that sleeps this long and then creates
+    /// `grandchild_marker` (the timeout test checks it never appears).
+    pub grandchild_sleep_ms: u64,
+    pub grandchild_marker: Option<std::path::PathBuf>,
+    /// Sleeps this long after writing, before exiting.
+    pub sleep_ms: u64,
+    pub exit: i32,
+}
+
+/// The script of one fake tool: the first case whose prefix matches runs;
+/// with none, the tool exits 0 silently.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct FakeScript {
+    pub cases: Vec<FakeCase>,
+}
+
+impl FakeScript {
+    /// A tool that prints `banner` to every call.
+    pub fn banner(banner: &str) -> Self {
+        Self {
+            cases: vec![FakeCase {
+                stdout: format!("{banner}\n"),
+                ..FakeCase::default()
+            }],
+        }
+    }
+
+    /// Adds `case` before the existing ones (it wins over them).
+    pub fn with_first(mut self, case: FakeCase) -> Self {
+        self.cases.insert(0, case);
+        self
+    }
+
+    /// The case for `args`, if any.
+    pub fn case_for(&self, args: &[String]) -> Option<&FakeCase> {
+        self.cases.iter().find(|c| args.starts_with(&c.args_prefix))
+    }
+}
+
+/// Environment variables the fake tool reports when [`FakeCase::report`].
+pub const FAKE_REPORTED_ENV: &[&str] = &[
+    "RAR",
+    "TAR_READER_OPTIONS",
+    "HOME",
+    "USERPROFILE",
+    "PATH",
+    "LC_ALL",
+    "LANG",
+];
+
+/// First argument with which the fake tool runs as its own grandchild.
+pub const FAKE_GRANDCHILD_ARG: &str = "__coverly_fake_grandchild";
+
+/// Where the fake tool at `exe` reads its script: next to it, so a cleared
+/// environment (spec §5.2) still reaches it.
+pub fn fake_script_path(exe: &std::path::Path) -> std::path::PathBuf {
+    exe.with_extension("fake.json")
+}
+
+/// The built `coverly-fake-tool` binary: `COVERLY_FAKE_TOOL_BIN` when set,
+/// else next to the running test's `deps` directory (where Cargo puts the
+/// package's binaries).
+pub fn fake_tool_binary() -> std::path::PathBuf {
+    if let Some(bin) = std::env::var_os("COVERLY_FAKE_TOOL_BIN") {
+        return bin.into();
+    }
+    let exe = std::env::current_exe().expect("current exe");
+    let mut dir = exe.parent().expect("exe dir").to_path_buf();
+    if dir.ends_with("deps") {
+        dir.pop();
+    }
+    dir.join(format!("coverly-fake-tool{}", std::env::consts::EXE_SUFFIX))
+}
+
+/// Copies the fake tool into `dir` as `name` (`7zz`, `unrar`, `bsdtar`…;
+/// `.exe` is appended on Windows) with `script` beside it.
+pub fn fake_tool(dir: &std::path::Path, name: &str, script: &FakeScript) -> std::path::PathBuf {
+    let exe = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(fake_tool_binary(), &exe)
+        .expect("copy coverly-fake-tool (build it with --features test-util)");
+    let json = serde_json::to_vec_pretty(script).expect("script json");
+    std::fs::write(fake_script_path(&exe), json).expect("write fake script");
+    exe
+}
+
+/// Runs a tool through the crate's `run_tool` (stdout returned, no sink),
+/// for the hygiene tests of `tests/archive_external.rs`.
+pub fn run_tool(
+    t: &super::external::FoundTool,
+    args: &[&std::ffi::OsStr],
+    archive: &std::path::Path,
+    out_cap: u64,
+    timeout: std::time::Duration,
+) -> Result<super::external::ToolRun, super::ArchiveError> {
+    super::external::run_tool_for_tests(t, args, archive, out_cap, timeout)
+}

@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime};
 
 pub mod budget;
 pub mod detect;
+pub mod external;
 pub mod guard;
 pub mod lzma;
 pub mod names;
@@ -28,6 +29,7 @@ pub mod zip;
 pub mod zstd;
 
 pub use budget::{Budget, ChargedRead, GateWait, MemoryGate, Permit};
+pub use external::{discover, FoundTool};
 pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};
