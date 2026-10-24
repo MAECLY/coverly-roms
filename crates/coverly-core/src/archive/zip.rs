@@ -33,7 +33,7 @@
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -60,6 +60,8 @@ pub struct CentralDirectoryClaim {
     /// the end record when there is none. The directory starts `size`
     /// bytes before it, also in a zip with a prefix (a self-extractor).
     pub cd_end: u64,
+    /// Offset of the end record that was read (the last one in the file).
+    pub eocd_at: u64,
 }
 
 const EOCD_SIG: [u8; 4] = *b"PK\x05\x06";
@@ -109,6 +111,7 @@ pub fn central_directory_claim<R: Read + Seek>(
         entries: u16_at(eocd, 10),
         size: u32_at(eocd, 12),
         cd_end: eocd_at,
+        eocd_at,
     };
     if claim.entries == u64::from(u16::MAX) || claim.size == u64::from(u32::MAX) {
         // Zip64: the locator sits right before the end record.
@@ -142,6 +145,7 @@ pub fn central_directory_claim<R: Read + Seek>(
             entries: u64_at(&record, 32),
             size: u64_at(&record, 40),
             cd_end: record_at,
+            eocd_at,
         };
     }
     Some(claim)
@@ -163,9 +167,20 @@ fn u64_at(b: &[u8], o: usize) -> u64 {
 
 /// The archive file, remembering whether a read or seek of it failed, so
 /// a decoder error can be told apart from an I/O error of the file.
+///
+/// While `hide_below` is non-zero, the bytes before that offset read as
+/// zeros without touching the file. `ZipArchive::new` runs that way: when
+/// the end record the precheck vouched for fails the crate's own checks,
+/// the crate searches the whole file backwards for another one, which no
+/// cap was checked against (its entry count sizes an allocation). Hidden,
+/// there is none to find, and the scan never reads the file.
 struct Source<R> {
     inner: R,
     failed: Arc<AtomicBool>,
+    hide_below: Arc<AtomicU64>,
+    /// The position the reader shows; `inner` is there unless `stale`.
+    pos: u64,
+    stale: bool,
 }
 
 impl<R> Source<R> {
@@ -179,16 +194,44 @@ impl<R> Source<R> {
     }
 }
 
-impl<R: Read> Read for Source<R> {
+impl<R: Read + Seek> Read for Source<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let hide = self.hide_below.load(Ordering::Relaxed);
+        if self.pos < hide {
+            let n = usize::try_from(hide - self.pos).map_or(buf.len(), |h| h.min(buf.len()));
+            buf[..n].fill(0);
+            self.pos += n as u64;
+            self.stale = true;
+            return Ok(n);
+        }
+        if self.stale {
+            let r = self.inner.seek(SeekFrom::Start(self.pos));
+            self.note(r)?;
+            self.stale = false;
+        }
         let r = self.inner.read(buf);
+        if let Ok(n) = r {
+            self.pos += n as u64;
+        }
         self.note(r)
     }
 }
 
 impl<R: Seek> Seek for Source<R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let pos = match pos {
+            SeekFrom::Current(d) if self.stale => {
+                SeekFrom::Start(self.pos.checked_add_signed(d).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "seek before the start")
+                })?)
+            }
+            other => other,
+        };
         let r = self.inner.seek(pos);
+        if let Ok(at) = r {
+            self.pos = at;
+            self.stale = false;
+        }
         self.note(r)
     }
 }
@@ -451,23 +494,23 @@ fn read_xz_first_dict(raw: &mut impl Read, cap: u64) -> Result<u32, ArchiveError
     Ok(block.lzma2.dict_raw)
 }
 
-/// The window of the first zstd frame, after skipping skippable frames
-/// (at most `max_header` bytes of them).
+/// The window of the first zstd frame, after skipping skippable frames.
+/// What they skip comes out of `allowance`, one for the whole listing
+/// (`max_header`): entries may share one frame, so a per-entry limit would
+/// let 10,000 of them read 16 MiB each.
 fn read_zstd_first_window(
     raw: &mut impl Read,
     cap: u64,
-    skip_cap: u64,
+    allowance: &mut u64,
 ) -> Result<u64, ArchiveError> {
     let mut src = lzma::Tracked::new(raw);
-    let mut skipped = 0u64;
     loop {
         match zstd_frames::read_frame_start(&mut src)? {
             FrameStart::End => return Err(damaged("zip zstd entry without a frame")),
             FrameStart::Skippable(len) => {
-                skipped = skipped.saturating_add(u64::from(len));
-                if skipped > skip_cap {
-                    return Err(damaged("zip zstd skippable frames over the limit"));
-                }
+                *allowance = allowance
+                    .checked_sub(u64::from(len))
+                    .ok_or_else(|| damaged("zip zstd skippable frames over the limit"))?;
                 let drained = io::copy(&mut (&mut src).take(u64::from(len)), &mut io::sink())?;
                 if drained != u64::from(len) {
                     return Err(damaged("zstd skippable frame truncated"));
@@ -508,6 +551,9 @@ impl<R: Read + Seek + Send> ZipReader<R> {
         let src = Source {
             inner: src,
             failed: Arc::clone(&failed),
+            hide_below: Arc::new(AtomicU64::new(0)),
+            pos: 0,
+            stale: false,
         };
         let limits = limits.clone();
         guarded(move || Self::list(src, failed, limits))
@@ -542,8 +588,15 @@ impl<R: Read + Seek + Send> ZipReader<R> {
         if read_full(&mut src, &mut cd).map_err(ArchiveError::Io)? != cd.len() {
             return Err(cd_damaged());
         }
+        no_other_end_records(&mut src, &cd, &claim)?;
 
-        let mut archive = ZipArchive::new(src).map_err(|e| zip_error(e, &failed))?;
+        // The crate sees nothing before the checked directory while it
+        // parses (see [`Source`]); everything after it, as usual.
+        let hide = Arc::clone(&src.hide_below);
+        hide.store(cd_start, Ordering::Relaxed);
+        let archive = ZipArchive::new(src);
+        hide.store(0, Ordering::Relaxed);
+        let mut archive = archive.map_err(|e| zip_error(e, &failed))?;
         let count = archive.len();
         if count as u64 > limits.max_entries {
             return Err(ArchiveError::TooManyEntries {
@@ -565,6 +618,7 @@ impl<R: Read + Seek + Send> ZipReader<R> {
         let mut entries = Vec::with_capacity(count);
         let mut methods = Vec::with_capacity(count);
         let mut total = 0u64;
+        let mut skip_allowance = limits.max_header;
         for (index, record) in records.into_iter().enumerate() {
             let mut file = archive
                 .by_index_raw(index)
@@ -592,7 +646,7 @@ impl<R: Read + Seek + Send> ZipReader<R> {
             let method = if encrypted || kind != EntryKind::File || (size == 0 && packed == 0) {
                 list_method(record.method, None)
             } else {
-                let parsed = list_params(&mut file, record.method, &limits)?;
+                let parsed = list_params(&mut file, record.method, &limits, &mut skip_allowance)?;
                 list_method(record.method, parsed)
             };
             drop(file);
@@ -780,6 +834,7 @@ fn list_params(
     raw: &mut impl Read,
     method: u16,
     limits: &Limits,
+    skip_allowance: &mut u64,
 ) -> Result<Option<Method>, ArchiveError> {
     let cap = limits.decoder_mem_cap;
     Ok(Some(match method {
@@ -802,7 +857,7 @@ fn list_params(
             dict: read_xz_first_dict(raw, cap)?,
         },
         M_ZSTD => Method::Zstd {
-            window: read_zstd_first_window(raw, cap, limits.max_header)?,
+            window: read_zstd_first_window(raw, cap, skip_allowance)?,
         },
         _ => return Ok(None),
     }))
@@ -891,6 +946,56 @@ fn days_from_civil(year: i64, month: u8, day: u8) -> i64 {
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// The longest gap between the central directory and the end record (the
+/// zip64 end record with its extensible data, and the locator).
+const MAX_END_GAP: u64 = 64 * 1024;
+
+/// Refuses an end record or zip64 end record anywhere between the start of
+/// the checked central directory and the end record, other than the zip64
+/// one the claim was read from. The crate looks for the zip64 record from
+/// the locator's offset onwards and falls back to an earlier end record
+/// when one fails; a second one there (in a name, an extra field, the
+/// zip64 record's data) would be parsed with counts no cap saw.
+fn no_other_end_records<R: Read + Seek>(
+    src: &mut Source<R>,
+    cd: &[u8],
+    claim: &CentralDirectoryClaim,
+) -> Result<(), ArchiveError> {
+    let gap_len = claim
+        .eocd_at
+        .checked_sub(claim.cd_end)
+        .filter(|&g| g <= MAX_END_GAP)
+        .ok_or_else(|| damaged("zip end records"))?;
+    // Bounded by `MAX_END_GAP` just above.
+    let mut gap = vec![0u8; gap_len as usize];
+    src.seek(SeekFrom::Start(claim.cd_end))
+        .map_err(ArchiveError::Io)?;
+    if read_full(src, &mut gap).map_err(ArchiveError::Io)? != gap.len() {
+        return Err(damaged("zip end records"));
+    }
+    let zip64 = claim.cd_end != claim.eocd_at;
+    let has = |hay: &[u8], sig: &[u8; 4], skip: Option<usize>| {
+        hay.windows(4)
+            .enumerate()
+            .any(|(i, w)| w == sig && Some(i) != skip)
+    };
+    // A signature may straddle the directory and the gap.
+    let seam_from = cd.len().saturating_sub(3);
+    let mut seam = cd[seam_from..].to_vec();
+    seam.extend_from_slice(&gap[..gap.len().min(3)]);
+    let record_in_seam = zip64.then_some(cd.len() - seam_from);
+    if has(cd, &EOCD_SIG, None)
+        || has(&gap, &EOCD_SIG, None)
+        || has(&seam, &EOCD_SIG, None)
+        || has(cd, &ZIP64_EOCD_SIG, None)
+        || has(&gap, &ZIP64_EOCD_SIG, zip64.then_some(0))
+        || has(&seam, &ZIP64_EOCD_SIG, record_in_seam)
+    {
+        return Err(damaged("zip end record inside the central directory"));
+    }
+    Ok(())
 }
 
 /// `Io` when the file itself failed, else `Damaged { detail }`.

@@ -624,3 +624,153 @@ fn garbled_zips_never_panic() {
         }
     }
 }
+
+/// A reader that counts the bytes it hands out.
+struct Counting {
+    inner: Cursor<Vec<u8>>,
+    read: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Read for Counting {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.read
+            .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+        Ok(n)
+    }
+}
+
+impl Seek for Counting {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+/// An end record the precheck reads but the `zip` crate rejects (its
+/// central directory offset lies past itself).
+fn decoy_end_record(at: u64) -> Vec<u8> {
+    let mut eocd = b"PK\x05\x06".to_vec();
+    eocd.extend_from_slice(&[0, 0, 0, 0]); // disk numbers
+    eocd.extend_from_slice(&1u16.to_le_bytes());
+    eocd.extend_from_slice(&1u16.to_le_bytes());
+    eocd.extend_from_slice(&0u32.to_le_bytes()); // directory size
+    eocd.extend_from_slice(&(at as u32 + 5).to_le_bytes());
+    eocd.extend_from_slice(&0u16.to_le_bytes());
+    eocd
+}
+
+/// The crate falls back to an earlier end record when the last one fails
+/// its own checks, searching the whole file. The precheck only vouched for
+/// the last one, so the crate must never see another: the bytes before the
+/// checked central directory are hidden from it while it parses, and the
+/// listing reads only the tail.
+#[test]
+fn zip_crate_never_falls_back_to_an_unchecked_end_record() {
+    let entries: Vec<(String, Vec<u8>)> = (0..5)
+        .map(|i| (format!("g{i}.gba"), vec![i as u8; 10]))
+        .collect();
+    let refs: Vec<(&str, &[u8], ZipMethod)> = entries
+        .iter()
+        .map(|(n, d)| (n.as_str(), d.as_slice(), ZipMethod::Stored))
+        .collect();
+    let mut bytes = zip_with(&refs);
+    bytes.resize(bytes.len() + 8 * MIB as usize, 0);
+    let decoy_at = bytes.len() as u64;
+    bytes.extend_from_slice(&decoy_end_record(decoy_at));
+
+    let read = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let src = Counting {
+        inner: Cursor::new(bytes),
+        read: std::sync::Arc::clone(&read),
+    };
+    let limits = Limits {
+        max_entries: 3,
+        ..Limits::default()
+    };
+    let err = ZipReader::new(src, &limits).err().expect("refused");
+    assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+    let read = read.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(read < MIB, "the listing read {read} bytes of an 8 MiB file");
+}
+
+/// An end record inside the central directory (in a name) is one the crate
+/// could fall back to: refused before the crate parses anything.
+#[test]
+fn zip_end_record_inside_central_directory_damaged() {
+    for sig in [b"PK\x05\x06", b"PK\x06\x06"] {
+        let mut name = b"game".to_vec();
+        name.extend_from_slice(sig);
+        name.extend_from_slice(b".gba");
+        let bytes = zip_crafted(&[
+            ZipSpec::new("", b"rom", ZipMethod::Stored).raw_name(&name),
+            ZipSpec::new("ok.gba", b"ok", ZipMethod::Stored),
+        ]);
+        let err = list(bytes).err().expect("refused");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+    }
+}
+
+fn zstd_with_skippable(skip: usize, data: &[u8]) -> Vec<u8> {
+    let mut out = 0x184D_2A50u32.to_le_bytes().to_vec();
+    out.extend_from_slice(&(skip as u32).to_le_bytes());
+    out.resize(out.len() + skip, 0);
+    out.extend_from_slice(&zstd_encode(data));
+    out
+}
+
+/// The list-time probe of skippable zstd frames is one allowance for the
+/// whole listing, not one per entry: 10,000 entries pointing at one 16 MiB
+/// skippable frame must not make the listing read 160 GiB.
+#[test]
+fn zip_zstd_skippable_probe_shared_across_entries() {
+    let data = sample(100);
+    let limits = Limits {
+        max_header: MIB,
+        ..Limits::default()
+    };
+    let one = zip_crafted(&[ZipSpec::new(
+        "a.bin",
+        &data,
+        raw(93, zstd_with_skippable(600 * 1024, &data)),
+    )]);
+    let mut r = list_with(one, &limits).expect("one probe fits");
+    assert_eq!(read_entry(&mut r, 0).unwrap(), data);
+
+    let two = zip_crafted(&[
+        ZipSpec::new(
+            "a.bin",
+            &data,
+            raw(93, zstd_with_skippable(600 * 1024, &data)),
+        ),
+        ZipSpec::new(
+            "b.bin",
+            &data,
+            raw(93, zstd_with_skippable(600 * 1024, &data)),
+        ),
+    ]);
+    let err = list_with(two, &limits).err().expect("allowance spent");
+    assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+}
+
+/// A self-extractor: a prefix before the zip shifts every offset. Hiding
+/// the bytes before the directory while the crate parses still lets it
+/// find the directory and, afterwards, read the entries in the prefix area.
+#[test]
+fn zip_with_a_prefix_still_lists_and_reads() {
+    for zip64 in [false, true] {
+        let mut bytes = vec![0x4Du8; 3000];
+        bytes.extend_from_slice(&zip_crafted_with(
+            &[
+                ZipSpec::new("a.gba", b"first", ZipMethod::Stored),
+                ZipSpec::new("b.gba", &sample(5000), ZipMethod::Deflate),
+            ],
+            ZipEnd {
+                zip64,
+                ..ZipEnd::default()
+            },
+        ));
+        let mut r = list(bytes).expect("prefixed zip listed");
+        assert_eq!(read_entry(&mut r, 0).unwrap(), b"first", "zip64 {zip64}");
+        assert_eq!(read_entry(&mut r, 1).unwrap(), sample(5000));
+    }
+}
