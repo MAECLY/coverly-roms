@@ -26,6 +26,8 @@ pub struct VerifyingReader<R> {
     crc32: Option<u32>,
     read: u64,
     hasher: crc32fast::Hasher,
+    /// CRC32 of the decoded bytes, set once EOF verified them.
+    computed: Option<u32>,
     state: State,
 }
 
@@ -46,6 +48,7 @@ impl<R: Read> VerifyingReader<R> {
             crc32,
             read: 0,
             hasher: crc32fast::Hasher::new(),
+            computed: None,
             state: State::Reading,
         }
     }
@@ -58,6 +61,13 @@ impl<R: Read> VerifyingReader<R> {
     /// Whether EOF was reached with the size (and CRC) matching.
     pub fn verified(&self) -> bool {
         self.state == State::Verified
+    }
+
+    /// CRC32 of the decoded bytes, once EOF verified them (`None` before
+    /// EOF and after a mismatch). Apply compares it with the re-read temp
+    /// and journals it, also for formats that store no CRC (spec §9.1).
+    pub fn computed_crc32(&self) -> Option<u32> {
+        self.computed
     }
 
     /// Bytes returned so far.
@@ -85,6 +95,7 @@ impl<R: Read> Read for VerifyingReader<R> {
             if self.crc32.is_some_and(|want| want != crc) {
                 return Err(self.fail(CRC_MISMATCH));
             }
+            self.computed = Some(crc);
             self.state = State::Verified;
             return Ok(0);
         }
@@ -189,6 +200,28 @@ mod tests {
         let mut r = VerifyingReader::new(io::Cursor::new(&data), data.len() as u64 + 1, None);
         let err = io::copy(&mut r, &mut io::sink()).expect_err("size still checked");
         assert_eq!(damaged_detail(&err), SIZE_MISMATCH);
+    }
+
+    /// Apply re-reads every temp and compares it with the CRC computed
+    /// while decoding (spec §9.1), also for formats with no stored CRC.
+    #[test]
+    fn verifying_reader_reports_computed_crc_once_verified() {
+        let data = payload();
+        let want = crc32fast::hash(&data);
+        let mut r = VerifyingReader::new(io::Cursor::new(&data), data.len() as u64, None);
+        let mut half = vec![0u8; data.len() / 2];
+        r.read_exact(&mut half).expect("first half");
+        assert_eq!(r.computed_crc32(), None, "not known before EOF");
+        io::copy(&mut r, &mut io::sink()).expect("rest");
+        assert_eq!(r.computed_crc32(), Some(want));
+
+        let mut r = VerifyingReader::new(io::Cursor::new(&data), data.len() as u64, Some(want));
+        io::copy(&mut r, &mut io::sink()).expect("stored crc matches");
+        assert_eq!(r.computed_crc32(), Some(want));
+
+        let mut r = VerifyingReader::new(io::Cursor::new(&data), data.len() as u64, Some(!want));
+        io::copy(&mut r, &mut io::sink()).expect_err("mismatch");
+        assert_eq!(r.computed_crc32(), None, "never a CRC for damaged bytes");
     }
 
     #[test]

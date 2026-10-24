@@ -20,7 +20,7 @@
 use std::io::{self, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{ArchiveError, BudgetKind, Limits, MIB};
 
@@ -249,15 +249,61 @@ impl MemoryGate {
         Ok(Permit { gate: self, bytes })
     }
 
+    /// Like [`MemoryGate::acquire`], but the wait honours `budget`: a set
+    /// cancel flag ends it with `Cancelled`, a passed plan deadline with
+    /// `BudgetSpent { Time }`. Decoders use this one; a plain `acquire`
+    /// would sleep through a cancel until another worker releases.
+    pub fn acquire_for(&'static self, bytes: u64, budget: &Budget) -> Result<Permit, ArchiveError> {
+        /// How often a waiter looks at its cancel flag (a store to an
+        /// `AtomicBool` cannot notify the condvar).
+        const POLL: Duration = Duration::from_millis(25);
+        if bytes > self.cap {
+            return Err(ArchiveError::NeedsTooMuchMemory {
+                needed: bytes,
+                cap: self.cap,
+            });
+        }
+        let mut used = self.used.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            budget.check()?;
+            if self.cap - *used >= bytes {
+                *used += bytes;
+                return Ok(Permit { gate: self, bytes });
+            }
+            let wait = budget.deadline().map_or(POLL, |d| {
+                d.saturating_duration_since(Instant::now()).min(POLL)
+            });
+            used = self
+                .freed
+                .wait_timeout(used, wait)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
     /// Takes the sum of several coders' memory in one request (a 7z folder
     /// with BCJ2 + LZMA ×3), never part by part.
     pub fn acquire_all(&'static self, parts: &[u64]) -> Result<Permit, ArchiveError> {
-        let total = parts
-            .iter()
-            .try_fold(0u64, |sum, &p| sum.checked_add(p))
-            .unwrap_or(u64::MAX);
-        self.acquire(total)
+        self.acquire(sum_parts(parts))
     }
+
+    /// [`MemoryGate::acquire_all`] with a wait that honours `budget`
+    /// (see [`MemoryGate::acquire_for`]).
+    pub fn acquire_all_for(
+        &'static self,
+        parts: &[u64],
+        budget: &Budget,
+    ) -> Result<Permit, ArchiveError> {
+        self.acquire_for(sum_parts(parts), budget)
+    }
+}
+
+/// The sum of a folder's coder memory; an overflowing sum can never fit.
+fn sum_parts(parts: &[u64]) -> u64 {
+    parts
+        .iter()
+        .try_fold(0u64, |sum, &p| sum.checked_add(p))
+        .unwrap_or(u64::MAX)
 }
 
 impl Permit {
@@ -509,6 +555,73 @@ mod tests {
             ),
             "{err:?}"
         );
+    }
+
+    /// A worker waiting on the gate must still see its cancel flag and
+    /// its plan deadline; a plain `acquire` would sleep until a release.
+    #[test]
+    fn gate_wait_honours_cancel_and_deadline() {
+        let gate = MemoryGate::leaked(512 * MIB);
+        let held = gate.acquire(300 * MIB).expect("fits");
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let budget = Budget::apply().with_cancel(cancel.clone());
+        let (tx, rx) = mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let r = gate.acquire_for(300 * MIB, &budget).map(|p| p.bytes());
+            tx.send(r).expect("main is listening");
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "waits"
+        );
+        cancel.store(true, Ordering::SeqCst);
+        let got = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("cancel wakes the waiter");
+        assert!(matches!(got, Err(ArchiveError::Cancelled)), "{got:?}");
+        waiter.join().expect("waiter finished");
+
+        let late = Budget::plan_head(&limits(MIB, MIB, Duration::from_millis(50)));
+        let start = Instant::now();
+        let err = gate
+            .acquire_for(300 * MIB, &late)
+            .expect_err("deadline passes while waiting");
+        assert!(
+            matches!(
+                err,
+                ArchiveError::BudgetSpent {
+                    what: BudgetKind::Time
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(start.elapsed() < Duration::from_secs(5));
+
+        let err = gate
+            .acquire_all_for(&[300 * MIB, 300 * MIB], &Budget::apply())
+            .expect_err("folder sum over the cap");
+        assert!(
+            matches!(err, ArchiveError::NeedsTooMuchMemory { needed, .. } if needed == 600 * MIB),
+            "{err:?}"
+        );
+        assert_eq!(gate.in_use(), 300 * MIB, "nothing held half-way");
+
+        let err = gate
+            .acquire_for(512 * MIB + 1, &Budget::apply())
+            .expect_err("over the cap");
+        assert!(
+            matches!(err, ArchiveError::NeedsTooMuchMemory { .. }),
+            "{err:?}"
+        );
+
+        drop(held);
+        let ok = gate
+            .acquire_for(300 * MIB, &Budget::apply())
+            .expect("fits once released");
+        assert_eq!(gate.in_use(), 300 * MIB);
+        drop(ok);
+        assert_eq!(gate.in_use(), 0);
     }
 
     #[test]
