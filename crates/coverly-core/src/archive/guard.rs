@@ -133,17 +133,34 @@ impl Poison {
     }
 }
 
-/// A decoded stream whose every `read` runs inside the guard. After a
-/// panic (here or in another call of the same reader) every read fails
-/// with `Damaged`, mapped to `io::ErrorKind::InvalidData`.
+/// Drops a backend value inside the guard: a decoder whose destructor
+/// panics poisons its reader instead of unwinding into the caller. While
+/// the thread is already unwinding the value is dropped as usual (a second
+/// panic aborts either way).
+fn drop_guarded<T>(value: T, poison: &Poison) {
+    if std::thread::panicking() {
+        drop(value);
+    } else if catch(move || drop(value)).is_none() {
+        poison.set();
+    }
+}
+
+/// A decoded stream whose every `read`, and its drop, runs inside the
+/// guard. After a panic (here or in another call of the same reader) every
+/// read fails with `Damaged`, mapped to `io::ErrorKind::InvalidData`; `?`
+/// turns that back into `Damaged`.
 pub struct GuardedRead<R> {
-    inner: R,
+    /// `None` only once dropped.
+    inner: Option<R>,
     poison: Poison,
 }
 
 impl<R> GuardedRead<R> {
     pub fn new(inner: R, poison: Poison) -> Self {
-        Self { inner, poison }
+        Self {
+            inner: Some(inner),
+            poison,
+        }
     }
 
     pub fn poison(&self) -> &Poison {
@@ -154,7 +171,9 @@ impl<R> GuardedRead<R> {
 impl<R: Read> Read for GuardedRead<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.poison.check()?;
-        let inner = &mut self.inner;
+        let Some(inner) = self.inner.as_mut() else {
+            return Err(panicked().into());
+        };
         match catch(|| inner.read(buf)) {
             Some(result) => result,
             None => {
@@ -165,20 +184,36 @@ impl<R: Read> Read for GuardedRead<R> {
     }
 }
 
-/// An [`ArchiveReader`] whose every backend call, and every read of the
-/// streams it returns, runs inside the guard. `open_archive` wraps each
-/// backend in one; a poisoned one is never put in the reader cache.
+impl<R> Drop for GuardedRead<R> {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            drop_guarded(inner, &self.poison);
+        }
+    }
+}
+
+/// An [`ArchiveReader`] whose every backend call, every read of the
+/// streams it returns, and its drop, run inside the guard. `open_archive`
+/// wraps each backend in one; a poisoned one is never put in the reader
+/// cache.
 pub struct GuardedArchive<A> {
-    inner: A,
+    /// `None` only once dropped.
+    inner: Option<A>,
+    format: Format,
     poison: Poison,
 }
 
 impl<A: ArchiveReader> GuardedArchive<A> {
     pub fn new(inner: A) -> Self {
         Self {
-            inner,
+            format: inner.format(),
+            inner: Some(inner),
             poison: Poison::new(),
         }
+    }
+
+    fn backend(&mut self) -> Result<&mut A, ArchiveError> {
+        self.inner.as_mut().ok_or_else(panicked)
     }
 
     /// Whether a backend call panicked; such a reader is dropped, not
@@ -194,11 +229,11 @@ impl<A: ArchiveReader> GuardedArchive<A> {
 
 impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
     fn format(&self) -> Format {
-        self.inner.format()
+        self.format
     }
 
     fn entries(&self) -> &[Entry] {
-        self.inner.entries()
+        self.inner.as_ref().map_or(&[], A::entries)
     }
 
     fn open_entry<'a>(
@@ -206,9 +241,10 @@ impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
         index: usize,
         budget: &'a mut Budget,
     ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
-        let inner = &mut self.inner;
-        let stream = self.poison.guard(move || inner.open_entry(index, budget))?;
-        Ok(Box::new(GuardedRead::new(stream, self.poison.clone())))
+        let poison = self.poison.clone();
+        let inner = self.backend()?;
+        let stream = poison.guard(move || inner.open_entry(index, budget))?;
+        Ok(Box::new(GuardedRead::new(stream, poison)))
     }
 
     fn stream_entries(
@@ -217,13 +253,26 @@ impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
         budget: &mut Budget,
         sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
     ) -> Result<(), ArchiveError> {
-        let inner = &mut self.inner;
         let poison = self.poison.clone();
-        self.poison.guard(move || {
+        let inner = self.backend()?;
+        let streams = poison.clone();
+        let result = poison.guard(move || {
             inner.stream_entries(wanted, budget, &mut |entry, stream| {
-                sink(entry, &mut GuardedRead::new(stream, poison.clone()))
+                sink(entry, &mut GuardedRead::new(stream, streams.clone()))
             })
-        })
+        });
+        // A panic in a stream read is `Damaged` whatever the sink or the
+        // backend made of the io::Error it got (wrapped, or swallowed).
+        poison.check()?;
+        result
+    }
+}
+
+impl<A> Drop for GuardedArchive<A> {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            drop_guarded(inner, &self.poison);
+        }
     }
 }
 
@@ -370,10 +419,18 @@ mod tests {
             })
             .expect_err("the stream panicked");
         assert!(reader.is_poisoned());
-        assert!(
-            matches!(&err, ArchiveError::Io(e) if e.kind() == io::ErrorKind::InvalidData),
-            "{err:?}"
-        );
+        assert!(is_panic_damage(&err), "{err:?}");
+
+        // A sink that swallows the read error cannot turn a panic into Ok.
+        let mut reader = GuardedArchive::new(PanickingBackend::new());
+        let err = reader
+            .stream_entries(&[0], &mut budget, &mut |_, s| {
+                let _ = drain(s);
+                Ok(())
+            })
+            .expect_err("a panic is never Ok");
+        assert!(is_panic_damage(&err), "{err:?}");
+        assert!(reader.is_poisoned());
 
         // And a panic in the backend's own walker.
         let mut backend = PanickingBackend::new();
@@ -383,6 +440,65 @@ mod tests {
             .stream_entries(&[0], &mut budget, &mut |_, _| Ok(()))
             .expect_err("the walker panicked");
         assert!(is_panic_damage(&err), "{err:?}");
+    }
+
+    /// A decoder whose destructor panics (a `Drop` with an `unwrap`).
+    struct PanickingDrop;
+
+    impl Read for PanickingDrop {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Drop for PanickingDrop {
+        fn drop(&mut self) {
+            panic!("unwrap in a fake decoder's drop");
+        }
+    }
+
+    #[test]
+    fn panicking_drop_is_contained() {
+        let poison = Poison::new();
+        let mut stream = GuardedRead::new(PanickingDrop, poison.clone());
+        assert_eq!(drain(&mut stream).unwrap(), Vec::<u8>::new());
+        drop(stream);
+        assert!(poison.is_poisoned(), "a panicking drop poisons the reader");
+
+        struct DropPanicBackend(PanickingBackend);
+        impl Drop for DropPanicBackend {
+            fn drop(&mut self) {
+                panic!("unwrap in a fake backend's drop");
+            }
+        }
+        impl ArchiveReader for DropPanicBackend {
+            fn format(&self) -> Format {
+                self.0.format()
+            }
+            fn entries(&self) -> &[Entry] {
+                self.0.entries()
+            }
+            fn open_entry<'a>(
+                &'a mut self,
+                index: usize,
+                budget: &'a mut Budget,
+            ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+                self.0.open_entry(index, budget)
+            }
+            fn stream_entries(
+                &mut self,
+                wanted: &[usize],
+                budget: &mut Budget,
+                sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+            ) -> Result<(), ArchiveError> {
+                self.0.stream_entries(wanted, budget, sink)
+            }
+        }
+        let reader = GuardedArchive::new(DropPanicBackend(PanickingBackend::new()));
+        assert_eq!(reader.format(), Format::Zip);
+        assert_eq!(reader.entries().len(), 1);
+        drop(reader); // would unwind out of the planner without the guard
+        assert_eq!(depth(), 0);
     }
 
     #[test]
