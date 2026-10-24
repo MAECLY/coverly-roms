@@ -718,6 +718,8 @@ fn pile_units_come_from_organise_facts() {
             mismatch: None,
             listing_complete: true,
             budget_spent: false,
+            disc_set: None,
+            decoded: 0,
         },
         raw_crcs: Vec::new(),
         hashed: false,

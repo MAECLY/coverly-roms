@@ -199,7 +199,18 @@ pub fn left_reason_for(issue: &ArchiveIssue) -> LeftReason {
         ArchiveIssue::MultiVolume { parts } => LeftReason::MultiVolumeArchive { parts: *parts },
         ArchiveIssue::Nested => LeftReason::NestedArchive,
         ArchiveIssue::NotARom { what } => LeftReason::NotARom { what: *what },
-        ArchiveIssue::TooManyRoms { count } => LeftReason::MultiGameArchive { count: *count },
+        ArchiveIssue::TooManyRoms { count } | ArchiveIssue::SeveralGames { count } => {
+            LeftReason::MultiGameArchive { count: *count }
+        }
+        ArchiveIssue::UnsafeEntry { name, why } => LeftReason::UnsafeArchiveEntry {
+            name: name.clone(),
+            why: *why,
+        },
+        ArchiveIssue::SetIncomplete { missing } => LeftReason::SetIncomplete {
+            missing: missing.clone(),
+        },
+        ArchiveIssue::SetOutsideFolder => LeftReason::SetOutsideFolder,
+        ArchiveIssue::SharedTrack => LeftReason::SharedTrack,
     }
 }
 
@@ -1233,8 +1244,9 @@ fn identify_one(
 }
 
 /// Version of the memoised facts: facts from before the archive reader
-/// (no version) judged a 7z named `.zip` damaged, so they are read again.
-const FACTS_VERSION: u32 = 1;
+/// (no version) judged a 7z named `.zip` damaged, and facts of version 1
+/// judged a disc archive by its cartridge rules, so they are read again.
+const FACTS_VERSION: u32 = 2;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1297,6 +1309,8 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             mismatch: None,
             listing_complete: true,
             budget_spent: false,
+            disc_set: None,
+            decoded: 0,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1334,6 +1348,8 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             mismatch: None,
             listing_complete: true,
             budget_spent: false,
+            disc_set: None,
+            decoded: 0,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1406,6 +1422,7 @@ pub fn plan_from_survey(
                 item.alternatives = c.alternatives.clone();
                 item.notes = found.notes.clone();
                 item.catalogue_name = found.catalogue_name.clone();
+                item.disc = found.disc.clone();
                 key = found.content_key.clone();
                 item.action = match (&found.left, c.verdict) {
                     (Some(reason), _) => OrganizeAction::Left {

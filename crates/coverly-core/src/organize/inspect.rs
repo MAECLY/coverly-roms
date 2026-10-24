@@ -7,22 +7,37 @@
 //! and a missing CRC comes from a bounded decode of entries up to
 //! [`CRC_DECODE_CAP`]. Every decode is charged to one plan-head
 //! [`Budget`] per archive; running out is "not fully read", never damage.
-//! Never extracts.
+//! A disc archive (archives spec §6.2) is judged as one disc set instead:
+//! its sheets are parsed when they are reachable within the budget (else
+//! the set is inferred from the listing), its references resolve inside
+//! the archive, and the primary data track's head goes to
+//! [`DiscReader`]. Never extracts.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
+use std::ops::Range;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::archive::detect::{by_extension, detect_container, multi_volume_part, EOCD_TAIL};
+use crate::archive::names::{name_key, UnsafeWhy};
 use crate::archive::{
     self, file_entries, ArchiveError, ArchiveReader, Budget, Compressor, Entry, Format, Limits,
     Tool, ToolsOnDemand,
 };
+use crate::dedupe::source::DiscId;
+use crate::disc::sheets::MAX_SHEET_BYTES;
+use crate::disc::source::MAX_WINDOW;
+use crate::disc::{
+    infer_redump_set, parse_sheet, primary_track, DiscIdentity, DiscReader, DiscSystem, Sheet,
+    SheetKind, WindowSource,
+};
 use crate::identify::sniff::{
     sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
 };
+use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
 use crate::systems::{ExtClass, SystemDb};
 
@@ -172,6 +187,80 @@ pub enum ArchiveIssue {
     NotARom { what: NotARom },
     /// An archive with more than [`MAX_ROM_ENTRIES`] ROM-like entries.
     TooManyRoms { count: usize },
+    /// A needed entry (a disc set member) has an unsafe stored name.
+    UnsafeEntry { name: String, why: UnsafeWhy },
+    /// A disc sheet references files the archive does not hold.
+    SetIncomplete { missing: Vec<String> },
+    /// A disc sheet references an absolute path or one with `..`.
+    SetOutsideFolder,
+    /// A track referenced by two discs that are not twins.
+    SharedTrack,
+    /// The discs of several different games.
+    SeveralGames { count: usize },
+}
+
+/// The system a disc archive's primary track names.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum FoundSystem {
+    /// A system of `systems.toml`, by id.
+    Known { id: String },
+    /// Recognised but not organised (`PlayStation 2`, `3DO`).
+    Unsupported { name: String },
+}
+
+/// Who the disc of a disc archive is (archives spec §7), as data that is
+/// memoised with the facts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DiscFound {
+    pub system: FoundSystem,
+    /// Serials, disc number and volume fingerprint (dedupe level 3).
+    pub id: DiscId,
+    /// Header confidence (spec §7 table).
+    pub confidence: f32,
+    /// What decided, from a fixed vocabulary (`SEGA SEGASATURN`).
+    pub detail: String,
+}
+
+impl DiscFound {
+    fn of(identity: DiscIdentity) -> DiscFound {
+        let system = match identity.system {
+            DiscSystem::Known(id) => FoundSystem::Known { id: id.to_owned() },
+            DiscSystem::Unsupported(name) => FoundSystem::Unsupported {
+                name: name.to_owned(),
+            },
+        };
+        DiscFound {
+            system,
+            id: identity.to_dedupe_id(),
+            confidence: identity.confidence,
+            detail: identity.detail,
+        }
+    }
+}
+
+/// The disc set of a disc archive (archives spec §6.2): one game, one or
+/// more discs. Names are entry names as listed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DiscSetInfo {
+    /// The set's `.cue`, `.gdi` and `.m3u` entries, in archive order.
+    pub sheets: Vec<String>,
+    /// Every file of the set (sheets, tracks, images), in archive order.
+    pub members: Vec<String>,
+    /// The primary data track of the first disc.
+    pub primary: Option<String>,
+    /// `Deferred` when a sheet lay beyond the plan budget.
+    pub sheet_check: SheetCheck,
+    /// `None` when the primary track was not reached or matched no rule.
+    pub identity: Option<DiscFound>,
+    /// Several discs of one game.
+    pub multi_disc: bool,
+    /// The `.cue` and `.gdi` of one disc, both kept (Dreamcast dumps).
+    pub twins: Vec<String>,
+    /// The members are known: every sheet was read, or a sheet beyond the
+    /// budget fits the Redump track pattern. Otherwise the set is a guess
+    /// and goes to Review, never to extraction.
+    pub extractable: bool,
 }
 
 fn yes() -> bool {
@@ -210,6 +299,12 @@ pub struct Inspection {
     /// damage).
     #[serde(default)]
     pub budget_spent: bool,
+    /// The disc set, when the archive holds disc games.
+    #[serde(default)]
+    pub disc_set: Option<DiscSetInfo>,
+    /// Bytes decoded from the plan head budget.
+    #[serde(default)]
+    pub decoded: u64,
 }
 
 impl Inspection {
@@ -225,6 +320,8 @@ impl Inspection {
             mismatch: None,
             listing_complete: true,
             budget_spent: false,
+            disc_set: None,
+            decoded: 0,
         }
     }
 
@@ -238,6 +335,7 @@ impl Inspection {
     fn fail(&mut self, issue: ArchiveIssue) {
         self.payloads.clear();
         self.entries.clear();
+        self.disc_set = None;
         self.issue = Some(issue);
     }
 
@@ -555,6 +653,15 @@ fn inspect_archive(
         }
         out.entries.push(info);
     }
+    let mut budget = Budget::plan_head(limits);
+    let is_disc = inspect_discs(reader.as_mut(), &entries, &mut budget, out);
+    out.decoded = budget.spent();
+    if is_disc? {
+        if reader.is_poisoned() {
+            out.damaged();
+        }
+        return Ok(());
+    }
     // A generic extension (`bin`, `iso`…) is a payload only when it is the
     // archive's only file besides readmes and OS metadata: next to other
     // data files it is arcade data or a track.
@@ -572,7 +679,6 @@ fn inspect_archive(
         out.fail(ArchiveIssue::Nested);
         return Ok(());
     }
-    let mut budget = Budget::plan_head(limits);
     for rom in roms {
         let ext = extension(Path::new(&rom.info.name));
         let mut crc32 = rom.info.crc32.clone();
@@ -627,11 +733,700 @@ fn inspect_archive(
             crc32,
             sniff: sniffed,
         });
+        out.decoded = budget.spent();
     }
     if reader.is_poisoned() {
         out.damaged();
     }
     Ok(())
+}
+
+// --- Disc archives (archives spec §6.2) ---
+
+/// Extensions that make an archive a disc archive. An `.m3u` alone does
+/// not: floppy systems (Amiga, C64, Atari ST) ship playlists too.
+const DISC_EXTS: [&str; 9] = [
+    "cue", "gdi", "ccd", "iso", "img", "chd", "cdi", "pbp", "cso",
+];
+/// Disc images that are a disc on their own, without a sheet.
+const IMAGE_EXTS: [&str; 6] = ["iso", "img", "chd", "cdi", "pbp", "cso"];
+/// Images whose bytes are sectors, read as their own primary track.
+const SECTOR_IMAGE_EXTS: [&str; 2] = ["iso", "img"];
+/// Files that ride with an image of the same stem (CloneCD).
+const IMAGE_COMPANION_EXTS: [&str; 2] = ["ccd", "sub"];
+
+/// One file entry of a disc archive.
+struct Listed {
+    /// Position in the inspected entries.
+    at: usize,
+    name: String,
+    key: String,
+    ext: String,
+}
+
+/// One disc of a disc archive, by positions into the listed files.
+struct Disc {
+    /// The disc's sheets (a `.cue` and its `.gdi` twin).
+    sheets: Vec<usize>,
+    /// Tracks (or the image and its companions), in sheet order.
+    tracks: Vec<usize>,
+    primary: Option<usize>,
+    check: SheetCheck,
+    /// The members are known (sheet read, or the Redump pattern).
+    known: bool,
+    /// A `.cue` whose set was inferred: its track 01 of a GD-ROM is only
+    /// the low-density area.
+    deferred_cue: bool,
+    /// Title key without disc tags (`final game (usa)`).
+    title: String,
+    /// `N` of a `(Disc N)` tag.
+    number: Option<u32>,
+}
+
+/// What reading one small entry gave.
+enum Small {
+    Bytes(Vec<u8>),
+    /// Beyond the budget, encrypted or with an unsupported method: not
+    /// read, never damage.
+    NotRead,
+}
+
+/// Decoded bytes it costs to reach the start of entry `at`: the earlier
+/// entries of its solid block (a 7z folder, a RAR solid group, a tar
+/// stream inside a compressor); nothing for an independent entry.
+fn decode_cost(entries: &[Entry], at: usize) -> u64 {
+    let Some(block) = entries[at].solid_block else {
+        return 0;
+    };
+    entries[..at]
+        .iter()
+        .filter(|e| e.solid_block == Some(block))
+        .map(|e| e.size)
+        .fold(0u64, u64::saturating_add)
+}
+
+/// Whether `want` decoded bytes of entry `at` fit what `budget` has left.
+fn reachable(entries: &[Entry], at: usize, want: u64, budget: &Budget) -> bool {
+    let need = decode_cost(entries, at).saturating_add(want);
+    budget.remaining().is_none_or(|left| need <= left)
+}
+
+/// Reads at most `cap` bytes of entry `index` (to its end when shorter,
+/// so the stream checks size and CRC).
+fn read_entry(
+    reader: &mut dyn ArchiveReader,
+    index: usize,
+    cap: u64,
+    budget: &mut Budget,
+) -> Result<Vec<u8>, ArchiveError> {
+    let stream = reader.open_entry(index, budget)?;
+    let mut bytes = Vec::new();
+    stream
+        .take(cap)
+        .read_to_end(&mut bytes)
+        .map_err(ArchiveError::from)?;
+    Ok(bytes)
+}
+
+/// [`read_entry`] with the outcomes that are not damage folded into
+/// [`Small::NotRead`] (noted on `out`); `Err` for the rest.
+fn read_small(
+    reader: &mut dyn ArchiveReader,
+    index: usize,
+    cap: u64,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Small, ArchiveError> {
+    match read_entry(reader, index, cap, budget) {
+        Ok(bytes) => Ok(Small::Bytes(bytes)),
+        Err(e) => not_read(e, out).map(|()| Small::NotRead),
+    }
+}
+
+/// `Ok` (noted) for an error that only means "not read".
+fn not_read(e: ArchiveError, out: &mut Inspection) -> Result<(), ArchiveError> {
+    match e {
+        ArchiveError::BudgetSpent { .. } => {
+            out.spent();
+            Ok(())
+        }
+        ArchiveError::Encrypted => {
+            out.note(NOTE_ENCRYPTED);
+            Ok(())
+        }
+        ArchiveError::Unsupported { .. } => {
+            out.note(NOTE_UNSUPPORTED_COMPRESSION);
+            Ok(())
+        }
+        other => Err(other),
+    }
+}
+
+/// `(directory, file name)` of a `/`-separated entry name.
+fn split_dir(name: &str) -> (&str, &str) {
+    name.rsplit_once('/').unwrap_or(("", name))
+}
+
+/// The file stem of an entry name.
+fn entry_stem(name: &str) -> &str {
+    let file = split_dir(name).1;
+    file.rsplit_once('.').map_or(file, |(stem, _)| stem)
+}
+
+/// A sheet reference made an entry name: relative to the sheet's
+/// directory, `\` read as `/`, `.` components dropped. `None` when it is
+/// absolute (`/x`, `C:\x`, `\\server\x`) or climbs with `..`.
+fn reference_name(sheet: &str, reference: &str) -> Option<String> {
+    let r = reference.replace('\\', "/");
+    let drive = r.as_bytes().get(1) == Some(&b':');
+    if r.is_empty() || r.starts_with('/') || drive {
+        return None;
+    }
+    let mut parts: Vec<&str> = match split_dir(sheet).0 {
+        "" => Vec::new(),
+        dir => dir.split('/').collect(),
+    };
+    for part in r.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => return None,
+            p => parts.push(p),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Why a sheet's references do not resolve.
+enum Unresolved {
+    Outside,
+    Missing(Vec<String>),
+}
+
+/// The listed files `refs` of `sheet` name (case-insensitive and NFC, as
+/// on disk), in order.
+fn resolve(
+    sheet: &str,
+    refs: &[String],
+    by_key: &HashMap<String, usize>,
+) -> Result<Vec<usize>, Unresolved> {
+    let mut found = Vec::with_capacity(refs.len());
+    let mut missing = Vec::new();
+    for r in refs {
+        let name = reference_name(sheet, r).ok_or(Unresolved::Outside)?;
+        match by_key.get(&name_key(&name)) {
+            Some(&i) => found.push(i),
+            None => missing.push(r.clone()),
+        }
+    }
+    if missing.is_empty() {
+        Ok(found)
+    } else {
+        Err(Unresolved::Missing(missing))
+    }
+}
+
+/// `N` of a `(Disc N)`, `(Disc N of M)`, `(Disk N)` or `(CD N)` group.
+fn disc_tag(group: &str) -> Option<u32> {
+    let mut words = group.split_whitespace();
+    let word = words.next()?;
+    if !["disc", "disk", "cd"]
+        .iter()
+        .any(|w| word.eq_ignore_ascii_case(w))
+    {
+        return None;
+    }
+    let n = words.next()?.parse::<u32>().ok()?;
+    match (words.next(), words.next(), words.next()) {
+        (None, None, None) => Some(n),
+        (Some(of), Some(m), None) if of.eq_ignore_ascii_case("of") && m.parse::<u32>().is_ok() => {
+            Some(n)
+        }
+        _ => None,
+    }
+}
+
+/// The title key of a disc's file stem (disc tags removed, `name_key`
+/// folded) and its disc number.
+fn disc_title(stem: &str) -> (String, Option<u32>) {
+    let mut title = String::with_capacity(stem.len());
+    let mut number = None;
+    let mut rest = stem;
+    while let Some(open) = rest.find('(') {
+        let Some(close) = rest[open..].find(')') else {
+            break;
+        };
+        let group = &rest[open + 1..open + close];
+        title.push_str(&rest[..open]);
+        match disc_tag(group) {
+            Some(n) => number = number.or(Some(n)),
+            None => title.push_str(&rest[open..=open + close]),
+        }
+        rest = &rest[open + close + 1..];
+    }
+    title.push_str(rest);
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    (name_key(&title), number)
+}
+
+/// The files of `sheet`'s directory a guessed set holds: every file there
+/// but other discs' sheets, the first track-like one as primary.
+fn guessed_set(files: &[Listed], sheet: usize) -> (Vec<usize>, Option<usize>) {
+    let dir = name_key(split_dir(&files[sheet].name).0);
+    let tracks: Vec<usize> = (0..files.len())
+        .filter(|&i| i != sheet && name_key(split_dir(&files[i].name).0) == dir)
+        .filter(|&i| SheetKind::from_extension(&files[i].ext).is_none())
+        .collect();
+    let primary = tracks
+        .iter()
+        .copied()
+        .find(|&i| matches!(files[i].ext.as_str(), "bin" | "iso" | "img"));
+    (tracks, primary)
+}
+
+/// The disc of a cue/gdi sheet at `si`: parsed when reachable, inferred
+/// from the listing when not. `Err` stops the archive with an issue.
+fn sheet_disc(
+    (reader, entries, files, by_key): (
+        &mut dyn ArchiveReader,
+        &[Entry],
+        &[Listed],
+        &HashMap<String, usize>,
+    ),
+    si: usize,
+    kind: SheetKind,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Result<Disc, ArchiveIssue>, ArchiveError> {
+    let f = &files[si];
+    let entry = &entries[f.at];
+    let (title, number) = disc_title(entry_stem(&f.name));
+    let mut disc = Disc {
+        sheets: vec![si],
+        tracks: Vec::new(),
+        primary: None,
+        check: SheetCheck::Read,
+        known: true,
+        deferred_cue: false,
+        title,
+        number,
+    };
+    let fits = entry.size <= MAX_SHEET_BYTES as u64;
+    let text = if fits && reachable(entries, f.at, entry.size, budget) {
+        match read_small(reader, entry.index, MAX_SHEET_BYTES as u64 + 1, budget, out)? {
+            Small::Bytes(b) => Some(b),
+            Small::NotRead => None,
+        }
+    } else {
+        None
+    };
+    let parsed: Option<Result<Sheet, _>> = text.map(|t| parse_sheet(kind, &t));
+    match parsed {
+        Some(Ok(sheet)) => {
+            let found = match resolve(&f.name, &sheet.files, by_key) {
+                Ok(found) => found,
+                Err(Unresolved::Outside) => return Ok(Err(ArchiveIssue::SetOutsideFolder)),
+                Err(Unresolved::Missing(missing)) => {
+                    return Ok(Err(ArchiveIssue::SetIncomplete { missing }))
+                }
+            };
+            disc.primary =
+                primary_track(&sheet).and_then(|t| found.get(sheet.tracks[t].file).copied());
+            let mut tracks = found;
+            let mut seen = std::collections::HashSet::new();
+            tracks.retain(|i| seen.insert(*i));
+            disc.tracks = tracks;
+        }
+        // A sheet that is no sheet (too large, not text, malformed): its
+        // directory is a guess.
+        Some(Err(_)) => {
+            disc.known = false;
+            (disc.tracks, disc.primary) = guessed_set(files, si);
+        }
+        None => {
+            disc.check = SheetCheck::Deferred;
+            let listing: Vec<&str> = files.iter().map(|l| l.name.as_str()).collect();
+            match infer_redump_set(&listing, &f.name) {
+                Some(names) => {
+                    let tracks: Vec<usize> = names
+                        .iter()
+                        .filter_map(|n| by_key.get(&name_key(n)).copied())
+                        .collect();
+                    // Track 03 is a GD-ROM's data track: when a `.gdi`
+                    // names the set, or for a `.gdi` itself.
+                    let gdi_twin = kind == SheetKind::Gdi || {
+                        let stem = name_key(entry_stem(&f.name));
+                        let dir = name_key(split_dir(&f.name).0);
+                        files.iter().any(|l| {
+                            l.ext == "gdi"
+                                && name_key(entry_stem(&l.name)) == stem
+                                && name_key(split_dir(&l.name).0) == dir
+                        })
+                    };
+                    disc.primary = if gdi_twin && tracks.len() >= 3 {
+                        Some(tracks[2])
+                    } else {
+                        tracks.first().copied()
+                    };
+                    disc.deferred_cue = kind == SheetKind::Cue && !gdi_twin;
+                    disc.tracks = tracks;
+                }
+                None => {
+                    disc.known = false;
+                    out.spent();
+                    (disc.tracks, disc.primary) = guessed_set(files, si);
+                }
+            }
+        }
+    }
+    Ok(Ok(disc))
+}
+
+/// Judges an archive as a disc set when it holds disc games (archives
+/// spec §6.2). `Ok(false)`: no disc here, the cartridge rules apply.
+fn inspect_discs(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> io::Result<bool> {
+    let files: Vec<Listed> = entries
+        .iter()
+        .enumerate()
+        .map(|(at, e)| (at, entry_name(e)))
+        .filter(|(_, name)| !is_metadata_entry(name))
+        .map(|(at, name)| Listed {
+            at,
+            key: name_key(&name),
+            ext: extension(Path::new(&name)),
+            name,
+        })
+        .collect();
+    if !files.iter().any(|f| DISC_EXTS.contains(&f.ext.as_str())) {
+        return Ok(false);
+    }
+    let mut by_key: HashMap<String, usize> = HashMap::new();
+    for (i, f) in files.iter().enumerate() {
+        by_key.entry(f.key.clone()).or_insert(i);
+    }
+    match disc_set(reader, entries, &files, &by_key, budget, out) {
+        Ok(Ok(Some(set))) => out.disc_set = Some(set),
+        Ok(Ok(None)) => return Ok(false),
+        Ok(Err(issue)) => {
+            out.payloads.clear();
+            out.issue = Some(issue);
+        }
+        Err(e) => record_error(e, out)?,
+    }
+    Ok(true)
+}
+
+/// The disc set of a disc archive; `Ok(Err(issue))` when the set is
+/// unusable, `Ok(Ok(None))` when no disc was found after all.
+#[allow(clippy::type_complexity)]
+fn disc_set(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    files: &[Listed],
+    by_key: &HashMap<String, usize>,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Result<Option<DiscSetInfo>, ArchiveIssue>, ArchiveError> {
+    let mut discs: Vec<Disc> = Vec::new();
+    // Each m3u and the files it lists.
+    let mut playlists: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (si, f) in files.iter().enumerate() {
+        let Some(kind) = SheetKind::from_extension(&f.ext) else {
+            continue;
+        };
+        if kind == SheetKind::M3u {
+            let entry = &entries[f.at];
+            let mut listed = Vec::new();
+            if entry.size <= MAX_SHEET_BYTES as u64 && reachable(entries, f.at, entry.size, budget)
+            {
+                if let Small::Bytes(text) =
+                    read_small(reader, entry.index, MAX_SHEET_BYTES as u64 + 1, budget, out)?
+                {
+                    if let Ok(sheet) = parse_sheet(kind, &text) {
+                        listed = match resolve(&f.name, &sheet.files, by_key) {
+                            Ok(found) => found,
+                            Err(Unresolved::Outside) => {
+                                return Ok(Err(ArchiveIssue::SetOutsideFolder))
+                            }
+                            Err(Unresolved::Missing(missing)) => {
+                                return Ok(Err(ArchiveIssue::SetIncomplete { missing }))
+                            }
+                        };
+                    }
+                }
+            }
+            playlists.push((si, listed));
+            continue;
+        }
+        match sheet_disc((reader, entries, files, by_key), si, kind, budget, out)? {
+            Ok(disc) => discs.push(disc),
+            Err(issue) => return Ok(Err(issue)),
+        }
+    }
+    // A `.cue` and a `.gdi` over the same tracks are one disc.
+    let mut twins: Vec<usize> = Vec::new();
+    let mut i = 0;
+    while i < discs.len() {
+        let mut j = i + 1;
+        while j < discs.len() {
+            let (a, b) = (&discs[i], &discs[j]);
+            let kinds = |d: &Disc| {
+                d.sheets
+                    .iter()
+                    .map(|&s| files[s].ext.clone())
+                    .collect::<Vec<_>>()
+            };
+            let mut ta = a.tracks.clone();
+            let mut tb = b.tracks.clone();
+            ta.sort_unstable();
+            tb.sort_unstable();
+            let twin = a.known && b.known && !ta.is_empty() && ta == tb && {
+                let (ka, kb) = (kinds(a), kinds(b));
+                ka.iter().all(|k| !kb.contains(k))
+            };
+            if twin {
+                let b = discs.remove(j);
+                let a = &mut discs[i];
+                // A gdi names a GD-ROM's data track: its primary wins.
+                if files[b.sheets[0]].ext == "gdi" {
+                    a.primary = b.primary.or(a.primary);
+                    a.deferred_cue = false;
+                }
+                if b.check == SheetCheck::Deferred {
+                    a.check = SheetCheck::Deferred;
+                }
+                a.sheets.extend(b.sheets);
+                twins.extend(a.sheets.iter().copied());
+            } else {
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+    // A track of two discs that are not twins.
+    let mut uses: HashMap<usize, usize> = HashMap::new();
+    for d in &discs {
+        for &t in &d.tracks {
+            *uses.entry(t).or_default() += 1;
+        }
+    }
+    if uses.values().any(|&n| n > 1) {
+        return Ok(Err(ArchiveIssue::SharedTrack));
+    }
+    // Images no sheet lists are discs of their own.
+    let in_sets: std::collections::HashSet<usize> = discs
+        .iter()
+        .flat_map(|d| d.tracks.iter().chain(&d.sheets).copied())
+        .collect();
+    for (ii, f) in files.iter().enumerate() {
+        if !IMAGE_EXTS.contains(&f.ext.as_str()) || in_sets.contains(&ii) {
+            continue;
+        }
+        let stem = name_key(entry_stem(&f.name));
+        let dir = name_key(split_dir(&f.name).0);
+        let mut tracks = vec![ii];
+        tracks.extend((0..files.len()).filter(|&c| {
+            IMAGE_COMPANION_EXTS.contains(&files[c].ext.as_str())
+                && name_key(entry_stem(&files[c].name)) == stem
+                && name_key(split_dir(&files[c].name).0) == dir
+        }));
+        let (title, number) = disc_title(entry_stem(&f.name));
+        discs.push(Disc {
+            sheets: Vec::new(),
+            primary: SECTOR_IMAGE_EXTS.contains(&f.ext.as_str()).then_some(ii),
+            tracks,
+            check: SheetCheck::Read,
+            known: true,
+            deferred_cue: false,
+            title,
+            number,
+        });
+    }
+    if discs.is_empty() {
+        return Ok(Ok(None));
+    }
+    // One game: the discs one playlist lists, or discs of one title.
+    let mut group: Vec<usize> = (0..discs.len()).collect();
+    fn root(group: &mut [usize], mut i: usize) -> usize {
+        while group[i] != i {
+            group[i] = group[group[i]];
+            i = group[i];
+        }
+        i
+    }
+    let join = |group: &mut Vec<usize>, a: usize, b: usize| {
+        let (ra, rb) = (root(group, a), root(group, b));
+        group[ra.max(rb)] = ra.min(rb);
+    };
+    for a in 0..discs.len() {
+        for b in a + 1..discs.len() {
+            if discs[a].title == discs[b].title {
+                join(&mut group, a, b);
+            }
+        }
+    }
+    for (_, listed) in &playlists {
+        let hit: Vec<usize> = (0..discs.len())
+            .filter(|&d| {
+                discs[d]
+                    .sheets
+                    .iter()
+                    .chain(&discs[d].tracks)
+                    .any(|m| listed.contains(m))
+            })
+            .collect();
+        for w in hit.windows(2) {
+            join(&mut group, w[0], w[1]);
+        }
+    }
+    let mut roots: Vec<usize> = (0..discs.len()).map(|d| root(&mut group, d)).collect();
+    roots.sort_unstable();
+    roots.dedup();
+    if roots.len() > 1 {
+        return Ok(Err(ArchiveIssue::SeveralGames { count: roots.len() }));
+    }
+    discs.sort_by_key(|d| {
+        (
+            d.number.unwrap_or(u32::MAX),
+            d.sheets.first().or(d.tracks.first()).copied(),
+        )
+    });
+    // Members, and a needed entry under an unsafe name.
+    let mut members: Vec<usize> = playlists.iter().map(|(s, _)| *s).collect();
+    for d in &discs {
+        members.extend(d.sheets.iter().chain(&d.tracks).copied());
+    }
+    members.sort_unstable();
+    members.dedup();
+    if let Some(&m) = members
+        .iter()
+        .find(|&&m| entries[files[m].at].unsafe_name.is_some())
+    {
+        let e = &entries[files[m].at];
+        return Ok(Err(ArchiveIssue::UnsafeEntry {
+            name: files[m].name.clone(),
+            why: e.unsafe_name.expect("checked"),
+        }));
+    }
+    let first = &discs[0];
+    let mut primary = first.primary;
+    let mut identity = None;
+    if let Some(p) = primary {
+        identity = identify_track(reader, entries, &files[p], budget, out)?;
+        // An inferred cue's track 01 of a GD-ROM is the low-density area:
+        // the fingerprint lives in track 03.
+        let dreamcast = identity.as_ref().is_some_and(|f: &DiscFound| {
+            f.system
+                == FoundSystem::Known {
+                    id: "dreamcast".into(),
+                }
+        });
+        if first.deferred_cue && dreamcast && first.tracks.len() >= 3 {
+            primary = Some(first.tracks[2]);
+            out.payloads.clear();
+            identity = identify_track(reader, entries, &files[first.tracks[2]], budget, out)?;
+        }
+    }
+    let names = |v: &[usize]| v.iter().map(|&i| files[i].name.clone()).collect::<Vec<_>>();
+    twins.sort_unstable();
+    twins.dedup();
+    let sheets: Vec<usize> = members
+        .iter()
+        .copied()
+        .filter(|&m| SheetKind::from_extension(&files[m].ext).is_some())
+        .collect();
+    Ok(Ok(Some(DiscSetInfo {
+        sheets: names(&sheets),
+        members: names(&members),
+        primary: primary.map(|p| files[p].name.clone()),
+        sheet_check: if discs.iter().any(|d| d.check == SheetCheck::Deferred) {
+            SheetCheck::Deferred
+        } else {
+            SheetCheck::Read
+        },
+        identity,
+        multi_disc: discs.len() > 1,
+        twins: names(&twins),
+        extractable: discs.iter().all(|d| d.known),
+    })))
+}
+
+/// Reads the head of the primary track `track` (at most
+/// [`MAX_WINDOW`] bytes, when the budget reaches it), sniffs it into the
+/// inspection's payload and asks [`DiscReader`] who the disc is; a
+/// `SYSTEM.CNF` stored past the head is fetched with a skip charged to
+/// the same budget.
+fn identify_track(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    track: &Listed,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Option<DiscFound>, ArchiveError> {
+    let entry = &entries[track.at];
+    let window = (MAX_WINDOW as u64).min(entry.size);
+    let mut payload = Payload {
+        name: track.name.clone(),
+        ext: track.ext.clone(),
+        size: entry.size,
+        crc32: entry.crc32.map(|c| format!("{c:08X}")),
+        sniff: Sniff::default(),
+    };
+    if entry.encrypted {
+        out.note(NOTE_ENCRYPTED);
+        out.payloads.push(payload);
+        return Ok(None);
+    }
+    if !reachable(entries, track.at, window, budget) {
+        out.spent();
+        out.payloads.push(payload);
+        return Ok(None);
+    }
+    let bytes = match read_small(reader, entry.index, MAX_WINDOW as u64, budget, out)? {
+        Small::Bytes(b) => b,
+        Small::NotRead => {
+            out.payloads.push(payload);
+            return Ok(None);
+        }
+    };
+    payload.sniff = sniff(&mut SliceAt(&bytes), entry.size, &track.ext);
+    out.payloads.push(payload);
+    let index = entry.index;
+    let mut failed: Option<ArchiveError> = None;
+    let mut fetch = |range: Range<u64>| -> io::Result<Option<Vec<u8>>> {
+        let len = range.end.saturating_sub(range.start);
+        let got = (|| {
+            let mut stream = reader.open_entry(index, budget)?;
+            io::copy(&mut (&mut stream).take(range.start), &mut io::sink())
+                .map_err(ArchiveError::from)?;
+            let mut bytes = Vec::new();
+            stream
+                .take(len)
+                .read_to_end(&mut bytes)
+                .map_err(ArchiveError::from)?;
+            Ok::<_, ArchiveError>(bytes)
+        })();
+        match got {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(ArchiveError::BudgetSpent { .. }) => Ok(None),
+            Err(e) => {
+                let kind = io::ErrorKind::Other;
+                failed = Some(e);
+                Err(kind.into())
+            }
+        }
+    };
+    let mut src = WindowSource::new(bytes);
+    let found = DiscReader::identify_with(&mut src, Some(entry.size), Some(&mut fetch));
+    if let Some(e) = failed {
+        not_read(e, out)?;
+        return Ok(None);
+    }
+    Ok(found.ok().flatten().map(DiscFound::of))
 }
 
 /// A reader that hashes what passes through it and keeps the first error

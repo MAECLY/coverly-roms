@@ -922,3 +922,582 @@ fn tools_are_looked_for_only_when_an_archive_needs_one() {
     );
     assert!(tools.discovered());
 }
+
+// --- Archives spec §6.2: disc games inside archives (Task 25) ---
+
+mod discs {
+    use super::*;
+    use coverly_core::archive::testing::SevenZCoder;
+    use coverly_core::disc::testing as dt;
+    use coverly_core::organize::evidence::Verdict;
+    use coverly_core::organize::inspect::{DiscSetInfo, FoundSystem};
+    use coverly_core::organize::plan::{ItemNote, LeftReason, SheetCheck};
+
+    const MIB: usize = 1024 * 1024;
+
+    /// A cue sheet over `files`, one track per file (`MODE2/2352` for the
+    /// first, `AUDIO` for the rest).
+    fn cue(files: &[&str]) -> Vec<u8> {
+        let mut s = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let mode = if i == 0 { "MODE2/2352" } else { "AUDIO" };
+            s.push_str(&format!(
+                "FILE \"{f}\" BINARY\r\n  TRACK {:02} {mode}\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        s.into_bytes()
+    }
+
+    /// `bytes` padded with zeros to `len`.
+    fn padded(mut bytes: Vec<u8>, len: usize) -> Vec<u8> {
+        bytes.resize(len.max(bytes.len()), 0);
+        bytes
+    }
+
+    /// Bytes LZMA cannot shrink much: a solid prefix that really has to
+    /// be decoded to reach what follows.
+    fn noise(len: usize) -> Vec<u8> {
+        (0..len as u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect()
+    }
+
+    fn write(dir: &std::path::Path, name: &str, bytes: Vec<u8>) -> std::path::PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    fn set_of(i: &Inspection) -> &DiscSetInfo {
+        i.disc_set.as_ref().expect("a disc archive")
+    }
+
+    fn known(i: &Inspection) -> (String, Vec<String>) {
+        let found = set_of(i).identity.as_ref().expect("an identity");
+        match &found.system {
+            FoundSystem::Known { id } => (id.clone(), found.id.serials.clone()),
+            other => panic!("unsupported {other:?}"),
+        }
+    }
+
+    /// Limits with a plan head budget of `head` bytes (the 64 MiB budget
+    /// scaled down with the archive, so tests stay small).
+    fn head_budget(head: usize) -> Limits {
+        Limits {
+            plan_head_budget: head as u64,
+            ..no_tools()
+        }
+    }
+
+    #[test]
+    fn ps1_7z_named_zip_cue_two_tracks_identified() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = "Next Tetris, The (USA)";
+        let t1 = format!("{dir}/Next Tetris, The (USA) (Track 01).bin");
+        let t2 = format!("{dir}/Next Tetris, The (USA) (Track 02).bin");
+        let sheet = format!("{dir}/Next Tetris, The (USA).cue");
+        let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let p = write(
+            tmp.path(),
+            "Next Tetris, The.zip",
+            sevenz(
+                &[
+                    (
+                        &sheet,
+                        &cue(&[
+                            "Next Tetris, The (USA) (Track 01).bin",
+                            "Next Tetris, The (USA) (Track 02).bin",
+                        ]),
+                    ),
+                    (&t1, &track),
+                    (&t2, &[0u8; 2352 * 4]),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert_eq!(i.container, Container::SevenZip);
+        assert_eq!(i.issue, None);
+        assert_eq!(i.mismatch, Some(("zip".to_string(), Format::SevenZip)));
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Read);
+        assert!(set.extractable);
+        assert!(!set.multi_disc);
+        assert_eq!(set.sheets, [sheet.as_str()]);
+        assert_eq!(set.members, [sheet, t1.clone(), t2]);
+        assert_eq!(set.primary.as_deref(), Some(t1.as_str()));
+        assert_eq!(known(&i), ("psx".into(), vec!["SLUS-00862".into()]));
+        assert!(set.identity.as_ref().unwrap().id.volume.is_some());
+
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.verdict, Verdict::Auto);
+        assert_eq!(id.combined.system.as_deref(), Some("psx"));
+        assert!(id.notes.contains(&ItemNote::ContainerMismatch {
+            ext: "zip".into(),
+            actual: "7z".into()
+        }));
+        assert_eq!(id.disc.as_ref().unwrap().serials, ["SLUS-00862"]);
+    }
+
+    #[test]
+    fn saturn_solid_sheet_last_deferred_identified() {
+        // The real archive stores its `.cue` after 592 MB of tracks in one
+        // solid LZMA2 folder; here 8 MiB of tracks against a 6 MiB head
+        // budget stand in for 600 MB against 64 MiB.
+        let tmp = tempfile::tempdir().unwrap();
+        let names = [
+            "Tetris Plus (Japan) (Track 01).bin",
+            "Tetris Plus (Japan) (Track 02).bin",
+            "Tetris Plus (Japan) (Track 03).bin",
+        ];
+        let t1 = padded(dt::saturn_track("T-5704H   "), MIB);
+        let t2 = noise(4 * MIB);
+        let t3 = noise(3 * MIB);
+        let p = write(
+            tmp.path(),
+            "Tetris Plus.zip",
+            sevenz(
+                &[
+                    ("Tetris Plus (Japan).cue", &cue(&names)),
+                    (names[0], &t1),
+                    (names[1], &t2),
+                    (names[2], &t3),
+                ],
+                SevenZShape {
+                    solid: true,
+                    coder: SevenZCoder::Lzma2 { dict: 1 << 20 },
+                    sheets_last: true,
+                },
+            ),
+        );
+        let budget = 6 * MIB;
+        let i = inspect_limited(&p, &head_budget(budget));
+        assert_eq!(i.issue, None);
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Deferred);
+        assert!(set.extractable, "the Redump pattern names every track");
+        assert_eq!(set.members.len(), 4);
+        assert_eq!(set.primary.as_deref(), Some(names[0]));
+        assert_eq!(known(&i), ("saturn".into(), vec!["T-5704H".into()]));
+        assert!(i.decoded <= budget as u64, "spent {}", i.decoded);
+        assert!(
+            i.decoded < (t1.len() + t2.len() + t3.len()) as u64,
+            "never decoded to reach the sheet"
+        );
+
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.system.as_deref(), Some("saturn"));
+        assert_eq!(id.combined.verdict, Verdict::Auto);
+        assert!(id.notes.contains(&ItemNote::SheetNotReadYet));
+    }
+
+    /// The GD-ROM of the real case: track 01 repeats an IP.BIN (a decoy
+    /// serial here), track 03 is the high-density data track.
+    fn gd_rom() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        (
+            dt::dreamcast_track03("T-99999N  ", "1/1"),
+            vec![0u8; 2352 * 4],
+            dt::dreamcast_track03("T40214N   ", "1/1"),
+        )
+    }
+
+    const GDI: &[u8] =
+        b"3\r\n1 0 4 2352 track01.bin 0\r\n2 756 0 2352 track02.raw 0\r\n3 45000 4 2352 track03.bin 0\r\n";
+
+    const GD_CUE: &[u8] = b"REM SINGLE-DENSITY AREA\r\n\
+        FILE \"track01.bin\" BINARY\r\n  TRACK 01 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
+        FILE \"track02.raw\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 01 00:00:00\r\n\
+        REM HIGH-DENSITY AREA\r\n\
+        FILE \"track03.bin\" BINARY\r\n  TRACK 03 MODE1/2352\r\n    INDEX 01 00:00:00\r\n";
+
+    #[test]
+    fn dreamcast_cue_and_gdi_twins_one_disc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (t1, t2, t3) = gd_rom();
+        let p = write(
+            tmp.path(),
+            "Next Tetris, The_ On-Line Edition.zip",
+            sevenz(
+                &[
+                    ("Tetris Online.cue", GD_CUE),
+                    ("Tetris Online.gdi", GDI),
+                    ("track01.bin", &t1),
+                    ("track02.raw", &t2),
+                    ("track03.bin", &t3),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert_eq!(i.issue, None, "two sheets of one disc share no track");
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Read);
+        assert!(!set.multi_disc);
+        assert_eq!(set.twins, ["Tetris Online.cue", "Tetris Online.gdi"]);
+        assert_eq!(set.members.len(), 5);
+        assert_eq!(set.primary.as_deref(), Some("track03.bin"));
+        assert_eq!(known(&i), ("dreamcast".into(), vec!["T-40214N".into()]));
+
+        let id = identify_offline(&p, i);
+        assert_eq!(id.combined.system.as_deref(), Some("dreamcast"));
+        assert_eq!(id.combined.verdict, Verdict::Auto);
+        assert!(id.notes.contains(&ItemNote::TwinSheets {
+            kept: vec!["Tetris Online.cue".into(), "Tetris Online.gdi".into()]
+        }));
+    }
+
+    /// Four Redump-named tracks of a GD-ROM (track 04 is 3 MiB of data a
+    /// solid decoder must go through to reach the sheets stored last).
+    fn gd_tracks(stem: &str) -> (Vec<String>, Vec<Vec<u8>>) {
+        let (t1, t2, t3) = gd_rom();
+        let names = (1..=4).map(|n| format!("{stem} (Track {n}).bin")).collect();
+        (names, vec![t1, t2, t3, noise(3 * MIB)])
+    }
+
+    #[test]
+    fn dreamcast_solid_sheets_last_deferred_reads_track_03() {
+        // The real Dreamcast archive: one solid folder, `.cue` and `.gdi`
+        // stored after every track. Both sheets are inferred from the
+        // Redump names, they are twins, and the identity is track 03's.
+        let tmp = tempfile::tempdir().unwrap();
+        let stem = "Next Tetris, The - On-Line Edition (USA)";
+        let (names, data) = gd_tracks(stem);
+        let (cue_name, gdi_name) = (format!("{stem}.cue"), format!("{stem}.gdi"));
+        let mut files: Vec<(&str, &[u8])> =
+            vec![(&cue_name, b"REM unread\r\n"), (&gdi_name, b"4\r\n")];
+        files.extend(
+            names
+                .iter()
+                .map(String::as_str)
+                .zip(data.iter().map(Vec::as_slice)),
+        );
+        let p = write(
+            tmp.path(),
+            "Next Tetris, The_ On-Line Edition.zip",
+            sevenz(&files, SevenZShape::solid_lzma2_sheets_last()),
+        );
+        let i = inspect_limited(&p, &head_budget(2 * MIB));
+        assert_eq!(i.issue, None);
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Deferred);
+        assert!(set.extractable);
+        assert_eq!(set.twins, [cue_name, gdi_name]);
+        assert_eq!(set.members.len(), 6);
+        assert_eq!(set.primary.as_deref(), Some(names[2].as_str()));
+        assert_eq!(known(&i), ("dreamcast".into(), vec!["T-40214N".into()]));
+        assert!(i.decoded <= 2 * MIB as u64);
+    }
+
+    #[test]
+    fn a_deferred_cue_of_a_gd_rom_reads_track_03_not_track_01() {
+        // No `.gdi`: the inferred cue's track 01 names a Dreamcast, so its
+        // track 03 is read for the real serial.
+        let tmp = tempfile::tempdir().unwrap();
+        let (names, data) = gd_tracks("Game");
+        let mut files: Vec<(&str, &[u8])> = vec![("Game.cue", b"REM unread\r\n")];
+        files.extend(
+            names
+                .iter()
+                .map(String::as_str)
+                .zip(data.iter().map(Vec::as_slice)),
+        );
+        let p = write(
+            tmp.path(),
+            "Game.7z",
+            sevenz(&files, SevenZShape::solid_lzma2_sheets_last()),
+        );
+        let i = inspect_limited(&p, &head_budget(2 * MIB));
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Deferred);
+        assert_eq!(set.primary.as_deref(), Some(names[2].as_str()));
+        assert_eq!(known(&i), ("dreamcast".into(), vec!["T-40214N".into()]));
+    }
+
+    #[test]
+    fn non_solid_sheet_read_at_plan_time() {
+        // Every file its own block: the sheet stored last costs only its
+        // own bytes, so it is read even after more tracks than the budget.
+        let tmp = tempfile::tempdir().unwrap();
+        let names = ["Game (USA) (Track 01).bin", "Game (USA) (Track 02).bin"];
+        let p = write(
+            tmp.path(),
+            "Game.7z",
+            sevenz(
+                &[
+                    ("Game (USA).cue", &cue(&names)),
+                    (
+                        names[0],
+                        &padded(dt::psx_track(true, "cdrom:\\SLUS_008.62;1"), MIB),
+                    ),
+                    (names[1], &noise(4 * MIB)),
+                ],
+                SevenZShape {
+                    solid: false,
+                    coder: SevenZCoder::Lzma { dict: 1 << 20 },
+                    sheets_last: true,
+                },
+            ),
+        );
+        let i = inspect_limited(&p, &head_budget(3 * MIB));
+        assert_eq!(i.issue, None);
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Read);
+        assert!(set.extractable);
+        assert_eq!(known(&i).0, "psx");
+    }
+
+    #[test]
+    fn deferred_without_redump_pattern_is_review() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(
+            tmp.path(),
+            "Game.7z",
+            sevenz(
+                &[
+                    ("Game.cue", &cue(&["a.bin", "b.bin"])),
+                    (
+                        "a.bin",
+                        &padded(dt::psx_track(true, "cdrom:\\SLUS_008.62;1"), MIB),
+                    ),
+                    ("b.bin", &noise(4 * MIB)),
+                ],
+                SevenZShape::solid_lzma2_sheets_last(),
+            ),
+        );
+        let i = inspect_limited(&p, &head_budget(3 * MIB));
+        assert_eq!(i.issue, None);
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Deferred);
+        assert!(!set.extractable, "no pattern: the members are a guess");
+
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.verdict, Verdict::Review);
+        assert!(!id.notes.contains(&ItemNote::SheetNotReadYet));
+        assert!(id.notes.contains(&ItemNote::ArchiveNotFullyRead));
+    }
+
+    #[test]
+    fn sheet_dotdot_reference_outside_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        for reference in ["../Game.bin", "/abs/Game.bin", "C:\\Games\\Game.bin"] {
+            let p = write(
+                tmp.path(),
+                "Game.7z",
+                sevenz(
+                    &[
+                        ("Game/Game.cue", &cue(&[reference])),
+                        ("Game/Game.bin", &track),
+                    ],
+                    SevenZShape::non_solid_lzma(),
+                ),
+            );
+            let i = inspect(&p);
+            assert_eq!(i.issue, Some(ArchiveIssue::SetOutsideFolder), "{reference}");
+            assert_eq!(
+                identify_offline(&p, i).left,
+                Some(LeftReason::SetOutsideFolder),
+                "{reference}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_track_set_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(
+            tmp.path(),
+            "Game.zip",
+            sevenz(
+                &[
+                    (
+                        "Game.cue",
+                        &cue(&["Game (Track 1).bin", "Game (Track 2).bin"]),
+                    ),
+                    (
+                        "game (track 1).BIN",
+                        &dt::psx_track(true, "cdrom:\\SLUS_008.62;1"),
+                    ),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        let missing = vec!["Game (Track 2).bin".to_string()];
+        assert_eq!(
+            i.issue,
+            Some(ArchiveIssue::SetIncomplete {
+                missing: missing.clone()
+            }),
+            "track 1 resolves case-insensitively, track 2 is missing"
+        );
+        assert_eq!(
+            identify_offline(&p, i).left,
+            Some(LeftReason::SetIncomplete { missing })
+        );
+    }
+
+    #[test]
+    fn a_track_of_two_discs_is_shared() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(
+            tmp.path(),
+            "Game.7z",
+            sevenz(
+                &[
+                    ("Game (Disc 1).cue", &cue(&["Game.bin"])),
+                    (
+                        "Game (Disc 2).cue",
+                        &cue(&["Game.bin", "Game (Disc 2).bin"]),
+                    ),
+                    ("Game.bin", &dt::psx_track(true, "cdrom:\\SLUS_008.62;1")),
+                    ("Game (Disc 2).bin", &[0u8; 2352]),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert_eq!(i.issue, Some(ArchiveIssue::SharedTrack));
+        assert_eq!(identify_offline(&p, i).left, Some(LeftReason::SharedTrack));
+    }
+
+    #[test]
+    fn two_disc_one_game_one_item() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d1 = "Final Game (USA) (Disc 1).bin";
+        let d2 = "Final Game (USA) (Disc 2).bin";
+        let p = write(
+            tmp.path(),
+            "Final Game.7z",
+            sevenz(
+                &[
+                    ("Final Game (USA) (Disc 1).cue", &cue(&[d1])),
+                    ("Final Game (USA) (Disc 2).cue", &cue(&[d2])),
+                    (d1, &dt::psx_track(true, "cdrom:\\SLUS_008.62;1")),
+                    (d2, &dt::psx_track(true, "cdrom:\\SLUS_008.63;1")),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert_eq!(i.issue, None);
+        let set = set_of(&i);
+        assert!(set.multi_disc);
+        assert_eq!(set.members.len(), 4);
+        assert_eq!(set.primary.as_deref(), Some(d1));
+        assert_eq!(known(&i), ("psx".into(), vec!["SLUS-00862".into()]));
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.system.as_deref(), Some("psx"));
+    }
+
+    #[test]
+    fn two_games_multi_game_archive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(
+            tmp.path(),
+            "Two.7z",
+            sevenz(
+                &[
+                    ("Alpha (USA).cue", &cue(&["Alpha (USA).bin"])),
+                    ("Beta (USA).cue", &cue(&["Beta (USA).bin"])),
+                    (
+                        "Alpha (USA).bin",
+                        &dt::psx_track(true, "cdrom:\\SLUS_008.62;1"),
+                    ),
+                    ("Beta (USA).bin", &dt::saturn_track("T-5704H   ")),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert_eq!(i.issue, Some(ArchiveIssue::SeveralGames { count: 2 }));
+        assert_eq!(
+            identify_offline(&p, i).left,
+            Some(LeftReason::MultiGameArchive { count: 2 })
+        );
+    }
+
+    #[test]
+    fn primary_track_beyond_budget_name_only_review() {
+        // The gdi is read (first in the solid block), but track 03 lies
+        // after more bytes than the budget: judged by name and extension.
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, t2, t3) = gd_rom();
+        let p = write(
+            tmp.path(),
+            "Tetris Online.7z",
+            sevenz(
+                &[
+                    ("Tetris Online.gdi", GDI),
+                    ("track01.bin", &noise(4 * MIB)),
+                    ("track02.raw", &t2),
+                    ("track03.bin", &t3),
+                ],
+                SevenZShape {
+                    solid: true,
+                    coder: SevenZCoder::Lzma2 { dict: 1 << 20 },
+                    sheets_last: false,
+                },
+            ),
+        );
+        let i = inspect_limited(&p, &head_budget(2 * MIB));
+        assert_eq!(i.issue, None);
+        assert!(i.budget_spent);
+        let set = set_of(&i);
+        assert_eq!(set.sheet_check, SheetCheck::Read);
+        assert_eq!(set.primary.as_deref(), Some("track03.bin"));
+        assert_eq!(set.identity, None);
+
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.verdict, Verdict::Review);
+        assert_eq!(id.combined.system.as_deref(), Some("dreamcast"));
+        assert!(id.notes.contains(&ItemNote::ArchiveNotFullyRead));
+    }
+
+    #[test]
+    fn a_ps2_disc_in_an_archive_is_unsupported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = write(
+            tmp.path(),
+            "Game.7z",
+            sevenz(
+                &[("Game.iso", &dt::ps2_iso())],
+                SevenZShape::non_solid_lzma(),
+            ),
+        );
+        let i = inspect(&p);
+        assert!(matches!(
+            set_of(&i).identity.as_ref().unwrap().system,
+            FoundSystem::Unsupported { .. }
+        ));
+        assert_eq!(
+            identify_offline(&p, i).left,
+            Some(LeftReason::UnsupportedSystem {
+                name: "PlayStation 2".into()
+            })
+        );
+    }
+
+    #[test]
+    fn cartridge_disks_with_an_m3u_stay_cartridges() {
+        // An m3u alone (floppy playlists) does not make a disc archive.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("Game.zip");
+        zip_file(
+            &p,
+            &[
+                ("Game.m3u", b"Game (Disk 1).adf\n", false),
+                ("Game (Disk 1).adf", &[0u8; 901_120], false),
+            ],
+        );
+        let i = inspect(&p);
+        assert_eq!(i.disc_set, None);
+        assert!(i.payloads.iter().any(|p| p.ext == "adf"));
+    }
+}
