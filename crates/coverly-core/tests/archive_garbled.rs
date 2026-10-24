@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 
 use coverly_core::archive::guard::PANIC_DETAIL;
 use coverly_core::archive::testing::{
-    length_fields, lzma_props, mutate, sevenz, tar, zip_crafted, zip_lzma_payload, zip_ppmd_header,
-    zip_with, FieldWidth, SevenZCoder, SevenZShape, ZipMethod, ZipSpec,
+    length_fields, lzma_props, mutate, sevenz, sevenz_copy, sevenz_copy_parts, sevenz_header_bytes,
+    sevenz_with_encoded_header, tar, zip_crafted, zip_lzma_payload, zip_ppmd_header, zip_with,
+    FieldWidth, SevenZCoder, SevenZShape, ZipMethod, ZipSpec,
 };
 use coverly_core::archive::{file_entries, open_archive_with, ArchiveError, Budget, Limits};
 
@@ -109,21 +110,59 @@ fn raw(method: u16, payload: Vec<u8>) -> ZipMethod {
 
 /// One fixture: a label for the timing log, the file name it is written
 /// under (the extension is the fallback when a mutation breaks the magic)
-/// and its bytes.
+/// and its bytes. With `wrap`, the mutations garble `bytes` and each one is
+/// wrapped (compressed) before it is written, so an intact outer stream
+/// hands garbled content to the inner parser (tar headers, S6 trailer).
 struct Fixture {
     label: &'static str,
     name: &'static str,
     bytes: Vec<u8>,
+    wrap: Option<Wrap>,
+}
+
+/// Compresses mutated content before it is written.
+type Wrap = fn(&[u8]) -> Vec<u8>;
+
+impl Fixture {
+    /// The bytes written to disk for `content` (the fixture or a mutation).
+    fn on_disk(&self, content: &[u8]) -> Vec<u8> {
+        match self.wrap {
+            Some(wrap) => wrap(content),
+            None => content.to_vec(),
+        }
+    }
 }
 
 fn fixture(label: &'static str, name: &'static str, bytes: Vec<u8>) -> Fixture {
-    Fixture { label, name, bytes }
+    Fixture {
+        label,
+        name,
+        bytes,
+        wrap: None,
+    }
+}
+
+/// A fixture whose mutations garble `inner` under an intact `wrap`.
+fn wrapped(label: &'static str, name: &'static str, inner: Vec<u8>, wrap: Wrap) -> Fixture {
+    Fixture {
+        label,
+        name,
+        bytes: inner,
+        wrap: Some(wrap),
+    }
 }
 
 /// Every format of plan Task 17: zip deflate/lzma/ppmd/zstd, 7z
 /// LZMA/LZMA2/BCJ/PPMd, tar.gz/bz2/xz/zst, gz and lz4. Small payloads with
 /// two files where the format has entries, so mutations reach every
 /// decoder quickly.
+///
+/// The `sevenz-rust2` writer always LZMA-encodes the header, so its
+/// fixtures garble the header walker only through a decoder; the plain
+/// and stored-encoded 7z fixtures hand garbled header bytes straight to
+/// the bounded walker (S4, S5). Mutating a compressed tar mostly breaks
+/// the outer stream, so plain tar and the `(inner)` fixtures garble the
+/// tar headers themselves under an intact compressor (S6).
 fn fixtures() -> Vec<Fixture> {
     let a = sample(3_000, 0x1234_5678);
     let b = sample(2_000, 0x0BAD_F00D);
@@ -202,6 +241,16 @@ fn fixtures() -> Vec<Fixture> {
                 ),
             ),
         ),
+        fixture("7z plain header", "game.7z", sevenz_copy(&files)),
+        fixture("7z enc header", "game.7z", {
+            let (packed, header) = sevenz_copy_parts(&files);
+            sevenz_with_encoded_header(&packed, &sevenz_header_bytes(&header))
+        }),
+        fixture("tar", "game.tar", tarball.clone()),
+        wrapped("tar.gz in", "game.tar.gz", tarball.clone(), gz),
+        wrapped("tar.bz2 in", "game.tar.bz2", tarball.clone(), bz2),
+        wrapped("tar.xz in", "game.tar.xz", tarball.clone(), xz),
+        wrapped("tar.zst in", "game.tar.zst", tarball.clone(), zst),
         fixture("tar.gz", "game.tar.gz", gz(&tarball)),
         fixture("tar.bz2", "game.tar.bz2", bz2(&tarball)),
         fixture("tar.xz", "game.tar.xz", xz(&tarball)),
@@ -245,15 +294,19 @@ fn run_suite(rounds: usize) -> Duration {
     for (i, f) in fixtures().iter().enumerate() {
         // Every fixture is valid before it is garbled.
         let path = dir.path().join(format!("{i:02}-{}", f.name));
-        std::fs::write(&path, &f.bytes).expect("write fixture");
+        std::fs::write(&path, f.on_disk(&f.bytes)).expect("write fixture");
         open_and_stream(&path, &limits)
             .unwrap_or_else(|e| panic!("{}: intact fixture fails: {e:?}", f.label));
 
         let started = Instant::now();
         let (mut ok, mut err, mut caught) = (0usize, 0usize, 0usize);
-        for bytes in mutate(0xC0FE_0000 + i as u64, &f.bytes, rounds) {
-            std::fs::write(&path, &bytes).expect("write mutation");
-            match open_and_stream(&path, &limits) {
+        let mut slowest = (Duration::ZERO, 0usize);
+        for (round, bytes) in mutate(0xC0FE_0000 + i as u64, &f.bytes, rounds).enumerate() {
+            std::fs::write(&path, f.on_disk(&bytes)).expect("write mutation");
+            let one = Instant::now();
+            let outcome = open_and_stream(&path, &limits);
+            slowest = slowest.max((one.elapsed(), round));
+            match outcome {
                 Ok(()) => ok += 1,
                 // A panic the reader's guard caught and mapped (S1).
                 Err(ArchiveError::Damaged { detail }) if detail == PANIC_DETAIL => {
@@ -266,8 +319,9 @@ fn run_suite(rounds: usize) -> Duration {
         let took = started.elapsed();
         total += took;
         eprintln!(
-            "{:<12} {rounds} mutations in {:>7.2?} ({ok} ok, {err} err, {caught} caught panics)",
-            f.label, took
+            "{:<15} {rounds} mutations in {:>7.2?} ({ok} ok, {err} err, {caught} caught panics; \
+             slowest round {} took {:.2?})",
+            f.label, took, slowest.1, slowest.0
         );
         assert_eq!(ok + err, rounds, "{}: every mutation was run", f.label);
     }
