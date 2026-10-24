@@ -14,8 +14,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 pub mod detect;
+pub mod names;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
+
+pub use names::{RelPath, UnsafeWhy};
 
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * KIB;
@@ -123,45 +126,6 @@ pub enum Method {
     Delta,
     /// A method we name but do not decode.
     Other(String),
-}
-
-/// Why an entry name cannot be extracted (spec §13 extras).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum UnsafeWhy {
-    /// `/etc/x`, `C:\x`, `\\server\share`.
-    Absolute,
-    /// A `..` component (zip-slip).
-    DotDot,
-    /// A Windows device name (`CON`, `LPT1.cue`, `CONIN$`…).
-    Device,
-    /// A character no target file system accepts.
-    Illegal,
-    /// Undecodable bytes (unpaired surrogate, bad UTF-8 with the UTF-8 flag).
-    Encoding,
-    /// A symlink or hardlink entry.
-    Link,
-    /// A component longer than 255 UTF-16 units or UTF-8 bytes.
-    TooLong,
-}
-
-/// A validated, `/`-separated relative entry path.
-///
-/// Placeholder until `archive/names.rs` (plan Task 4) adds parsing and
-/// validation; only backends construct it.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RelPath(String);
-
-impl RelPath {
-    /// The path as `/`-separated text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for RelPath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
 }
 
 /// Decode budget passed by `&mut` to every read (spec §4.4).
@@ -608,7 +572,7 @@ mod tests {
     fn entry(index: usize, kind: EntryKind) -> Entry {
         Entry {
             index,
-            name: RelPath(format!("e{index}")),
+            name: RelPath::parse(&format!("e{index}")).unwrap(),
             raw_name: format!("e{index}").into_bytes(),
             kind,
             size: 0,
