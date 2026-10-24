@@ -1660,6 +1660,61 @@ mod extract {
             .any(|n| matches!(n, ItemNote::ArchiveKeptLeftovers { .. })));
     }
 
+    /// A move plan of `Game.7z` (junk-only) on MinUI after `edit` changes
+    /// what the survey's inspection says.
+    fn junk_only_plan_after(
+        world: &World,
+        edit: impl FnOnce(&mut coverly_core::organize::inspect::Inspection),
+    ) -> OrganizePlan {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        junk_only(&s.path().join("Game.7z"));
+        let env = world.env();
+        let o = opts("minui", t.path(), TransferMode::Move);
+        let mut sv = survey(s.path(), &o, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+        let entry = sv
+            .entries
+            .iter_mut()
+            .find(|e| e.sources[0].ends_with("Game.7z"))
+            .unwrap();
+        edit(entry.inspection.as_mut().expect("an archive"));
+        plan_from_survey(&sv, &o, &[], &env).unwrap()
+    }
+
+    #[test]
+    fn an_incomplete_listing_never_trashes_the_archive() {
+        let world = World::new();
+        // Entries past the listing's end may be saves: the archive stays.
+        let p = junk_only_plan_after(&world, |insp| insp.listing_complete = false);
+        let item = by_name(&p, "Game.7z");
+        assert_eq!(archive_after(item), ArchiveAfter::Keep);
+        // Control: the same archive, fully listed, goes to the Trash.
+        let p = junk_only_plan_after(&world, |_| {});
+        assert_eq!(archive_after(by_name(&p, "Game.7z")), ArchiveAfter::Trash);
+    }
+
+    #[test]
+    fn an_unsafe_entry_that_looks_like_junk_keeps_the_archive() {
+        let world = World::new();
+        // `__MACOSX/../Game.srm` names a save outside the junk folder: it
+        // is never extracted, so the archive is its only copy.
+        let p = junk_only_plan_after(&world, |insp| {
+            insp.entries
+                .push(coverly_core::organize::inspect::ZipEntryInfo {
+                    name: "__MACOSX/../Game.srm".into(),
+                    crc32: Some("00000000".into()),
+                    size: 8,
+                    index: Some(99),
+                    unsafe_why: Some(coverly_core::archive::names::UnsafeWhy::DotDot),
+                });
+        });
+        let item = by_name(&p, "Game.7z");
+        assert_eq!(archive_after(item), ArchiveAfter::Keep);
+        assert!(item.notes.contains(&ItemNote::ArchiveKeptLeftovers {
+            count: 1,
+            examples: vec!["__MACOSX/../Game.srm".into()]
+        }));
+    }
+
     #[test]
     fn copy_mode_keeps_archive() {
         let world = World::new();

@@ -1678,8 +1678,9 @@ const LEFTOVER_EXAMPLES: usize = 3;
 /// - A disc archive always extracts its set (sheets, tracks, images).
 /// - A cartridge archive moves as it is when the profile's emulators load
 ///   its container for the system, else its ROM entries are extracted.
-/// - Move mode sends the archive to the Trash only when every file entry
-///   is extracted or OS junk; anything else (a save, a readme) keeps it,
+/// - Move mode sends the archive to the Trash only when the listing is
+///   complete and every file entry is extracted or OS junk (an unsafe name
+///   never counts as junk); anything else (a save, a readme) keeps it,
 ///   with a note. Copy mode always keeps it.
 fn plan_transfer(
     item: &mut OrganizeItem,
@@ -1767,11 +1768,15 @@ fn plan_transfer(
     let leftovers: Vec<&ZipEntryInfo> = insp
         .entries
         .iter()
-        .filter(|e| !is_metadata_entry(&e.name))
+        // An unsafe name is never junk: `__MACOSX/../Game.srm` is a save
+        // that is not extracted.
+        .filter(|e| e.unsafe_why.is_some() || !is_metadata_entry(&e.name))
         .filter(|e| !entries.iter().any(|x| Some(x.index) == e.index))
         .collect();
     let archive_after = match mode {
         TransferMode::Copy => ArchiveAfter::Keep,
+        // Entries past an incomplete listing are unknown, maybe saves.
+        TransferMode::Move if leftovers.is_empty() && !insp.listing_complete => ArchiveAfter::Keep,
         TransferMode::Move if leftovers.is_empty() => ArchiveAfter::Trash,
         TransferMode::Move => {
             item.notes.push(ItemNote::ArchiveKeptLeftovers {
