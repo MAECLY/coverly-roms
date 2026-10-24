@@ -41,6 +41,7 @@ pub(crate) use transfer::mtime_ns;
 #[doc(hidden)]
 pub use transfer::set_copy_fault;
 pub use transfer::{Collision, CopyFault, CopyStage, MoveOutcome};
+pub(crate) use undo_organize::file_matches_fp;
 
 /// What to do when the target (or a case-insensitive twin) already exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

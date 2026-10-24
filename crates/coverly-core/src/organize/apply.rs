@@ -16,21 +16,23 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::archive::{open_archive_with, FoundTool, Limits, ToolsOnDemand};
+use crate::disc::sheets::SheetKind;
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::extract::{
-    decode_total, dispose_archive, extract_and_commit, ArchiveFate, CommitRequest, ExtractError,
-    ExtractRequest,
+    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text, Adopted,
+    ArchiveFate, CommitRequest, ExtractError, ExtractRequest,
 };
 use crate::organize::plan::{
-    ArchiveAfter, ExtractSource, ItemKind, OrganizeAction, OrganizeItem, OrganizePhase,
-    OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
+    ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
+    OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
 use crate::progress::PauseKind;
 use crate::write::trash::TrashBackend;
 use crate::write::{
-    job_transfers, rename_noclobber, same_volume, Collision, JobKind, JobMeta, MoveOutcome,
+    file_matches_fp, job_archive_steps, job_transfers, remove_apple_doubles, rename_noclobber,
+    same_volume, ArchiveRecord, ArchiveStep, Collision, Fingerprint, JobKind, JobMeta, MoveOutcome,
     TransferRecord, WriteError, Writer,
 };
 
@@ -340,10 +342,18 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let mut report = OrganizeReport::default();
     not_decided(&plan, &mut report);
     let records = job_transfers(env.data_dir, job)?;
+    let steps = job_archive_steps(env.data_dir, job)?;
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
     let mut started = HashMap::new();
     for item in &applicable {
+        if matches!(item.transfer, Transfer::Extract { .. }) {
+            match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
+                Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
+                None => pending.push(*item),
+            }
+            continue;
+        }
         match finished_record(&plan, item, &records) {
             Some(record) => {
                 let status = match (record.copied, plan.mode) {
@@ -376,6 +386,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     writer.clean_temps(&target_dirs(&plan, &applicable));
     let mut run = Run::new(&plan, env, writer, true, records);
     run.started = started;
+    run.archive_steps = steps;
     Ok(run.run(&pending, done, report))
 }
 
@@ -553,6 +564,142 @@ fn item_targets(
         .collect()
 }
 
+/// What earlier runs of the job journaled for one entry of an `Extract`
+/// item: its latest intent, unless a `rolled-back` line undid it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EntryLog {
+    /// Nothing, or only rolled-back intents.
+    None,
+    /// An intent without its completion: a crash in phase A/B (the temp
+    /// is a leftover), or between the rename and the completion line.
+    Intent { temp: String },
+    /// Renamed into place and journaled complete.
+    Completed { temp: String, fp: Fingerprint },
+}
+
+/// What earlier runs of the job journaled for one `Extract` item (resume,
+/// archives spec §9.3).
+struct ExtractJournal {
+    /// One per plan entry, in plan order.
+    entries: Vec<EntryLog>,
+    /// The item's last archive line.
+    archive: Option<ArchiveStep>,
+}
+
+impl ExtractJournal {
+    fn of(
+        plan: &OrganizePlan,
+        item: &OrganizeItem,
+        records: &[TransferRecord],
+        steps: &[ArchiveRecord],
+    ) -> ExtractJournal {
+        let Transfer::Extract { entries, .. } = &item.transfer else {
+            return ExtractJournal {
+                entries: Vec::new(),
+                archive: None,
+            };
+        };
+        let entries = entries
+            .iter()
+            .map(|e| {
+                let target = plan.target_root.join(&e.target);
+                let mine: Vec<&TransferRecord> = records
+                    .iter()
+                    .filter(|r| {
+                        r.item == Some(item.id)
+                            && r.target == target
+                            && r.extracted.as_ref().is_some_and(|x| x.entry == e.name)
+                    })
+                    .collect();
+                // A rollback line marks the intent; a completion it undid
+                // came before it, so the whole temp's story is undone.
+                let undone = |temp: &str| {
+                    mine.iter().any(|r| {
+                        r.extracted
+                            .as_ref()
+                            .is_some_and(|x| x.temp == temp && x.rolled_back)
+                    })
+                };
+                let mut log = EntryLog::None;
+                for r in &mine {
+                    let Some(x) = r.extracted.as_ref() else {
+                        continue;
+                    };
+                    log = match (undone(&x.temp), r.finished, r.fp) {
+                        (true, ..) => EntryLog::None,
+                        (false, true, Some(fp)) => EntryLog::Completed {
+                            temp: x.temp.clone(),
+                            fp,
+                        },
+                        _ => EntryLog::Intent {
+                            temp: x.temp.clone(),
+                        },
+                    };
+                }
+                log
+            })
+            .collect();
+        let archive = steps
+            .iter()
+            .rev()
+            .find(|s| s.item == Some(item.id))
+            .map(|s| s.step.clone());
+        ExtractJournal { entries, archive }
+    }
+
+    /// An earlier run left something of the item behind.
+    fn started(&self) -> bool {
+        self.archive.is_some() || self.entries.iter().any(|e| *e != EntryLog::None)
+    }
+
+    /// The item's outcome when an earlier run finished it: every entry
+    /// journaled complete, the playlist in place, and (move mode, archive
+    /// to the Trash) its archive line final, not just the intent.
+    fn done(&self, plan: &OrganizePlan, item: &OrganizeItem) -> Option<(ItemStatus, Vec<PathBuf>)> {
+        let Transfer::Extract {
+            entries,
+            archive_after,
+            m3u,
+            ..
+        } = &item.transfer
+        else {
+            return None;
+        };
+        if entries.is_empty() || self.entries.len() != entries.len() {
+            return None;
+        }
+        let mut targets: Vec<PathBuf> = Vec::with_capacity(entries.len() + 1);
+        for (e, log) in entries.iter().zip(&self.entries) {
+            if !matches!(log, EntryLog::Completed { .. }) {
+                return None;
+            }
+            targets.push(plan.target_root.join(&e.target));
+        }
+        if let Some(m3u) = m3u {
+            let m3u = plan.target_root.join(m3u);
+            if !fs::symlink_metadata(&m3u).is_ok_and(|m| m.file_type().is_file()) {
+                return None;
+            }
+            targets.push(m3u);
+        }
+        let status = if trashes(plan, *archive_after) {
+            match self.archive {
+                Some(ArchiveStep::Trashed { .. }) => ItemStatus::Extracted,
+                Some(ArchiveStep::Kept) => ItemStatus::ExtractedKept,
+                _ => return None,
+            }
+        } else {
+            ItemStatus::Extracted
+        };
+        Some((status, targets))
+    }
+}
+
+/// Whether an extracted item's archive goes to the Trash afterwards.
+fn trashes(plan: &OrganizePlan, after: ArchiveAfter) -> bool {
+    after == ArchiveAfter::Trash && plan.mode == TransferMode::Move
+}
+
 /// Every folder the items' files go to (absolute, without repeats).
 fn target_dirs(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -695,6 +842,9 @@ enum Step {
     /// A pause of another kind than [`PauseKind::Volume`] (a full disk
     /// during an extraction, with the numbers).
     PauseAs(ItemErrorKind, PauseKind),
+    /// Stopped at an injected crash point: the run ends as if killed (no
+    /// more lines, the job not finished).
+    Abort,
 }
 
 /// One apply (or resume) run.
@@ -720,6 +870,8 @@ struct Run<'a> {
     extract_need: u64,
     /// The external tools, found on first need.
     tools: ToolsOnDemand,
+    /// The journal's archive lines before this run (resume only).
+    archive_steps: Vec<ArchiveRecord>,
 }
 
 impl<'a> Run<'a> {
@@ -745,6 +897,7 @@ impl<'a> Run<'a> {
             at: (0, 0),
             extract_need: 0,
             tools: ToolsOnDemand::new(&[&plan.source_root, &plan.target_root]),
+            archive_steps: Vec::new(),
         }
     }
 
@@ -786,6 +939,11 @@ impl<'a> Run<'a> {
                 Step::PauseAs(reason, kind) => {
                     pause_as(&mut report, reason, kind, &pending[n..]);
                     break;
+                }
+                Step::Abort => {
+                    report.resumable_items = pending[n..].iter().map(|i| i.id).collect();
+                    report.job = Some(self.writer.job_id().to_string());
+                    return report;
                 }
             }
         }
@@ -904,11 +1062,17 @@ impl<'a> Run<'a> {
         if let Some((status, primary)) = self.started.remove(&item.id) {
             return self.finish_started(item, status, primary);
         }
+        if self.resumed && matches!(item.transfer, Transfer::Extract { .. }) {
+            let journal = ExtractJournal::of(self.plan, item, &self.records, &self.archive_steps);
+            if journal.started() {
+                return self.resume_extract(item, &journal);
+            }
+        }
         if let Some(step) = self.revalidate(item) {
             return step;
         }
         if matches!(item.transfer, Transfer::Extract { .. }) {
-            return self.apply_extract(item);
+            return self.apply_extract(item, &[]);
         }
         let Some(target) = &item.target else {
             return skipped(SkipReason::NotDecided);
@@ -1151,8 +1315,10 @@ impl<'a> Run<'a> {
     /// Extracts an `Extract` item (archives spec §9.1): the external tool
     /// is the one the plan used, the volume has room for what is left to
     /// extract, then phases A–C, then (move mode, nothing left behind) the
-    /// archive goes to the Trash once the reader has closed it.
-    fn apply_extract(&mut self, item: &OrganizeItem) -> Step {
+    /// archive goes to the Trash once the reader has closed it. `adopted`
+    /// entries (resume) are in place already: only checked, never
+    /// rewritten.
+    fn apply_extract(&mut self, item: &OrganizeItem, adopted: &[Adopted]) -> Step {
         let Transfer::Extract {
             entries,
             archive_after,
@@ -1251,6 +1417,7 @@ impl<'a> Run<'a> {
                     archive_fp: fp,
                     sheet_check: *sheet_check,
                     m3u: m3u.as_deref(),
+                    adopted,
                 },
             )
         });
@@ -1266,13 +1433,236 @@ impl<'a> Run<'a> {
                 self.index.claim(dir, name);
             }
         }
-        let trash = *archive_after == ArchiveAfter::Trash && self.plan.mode == TransferMode::Move;
-        if !trash {
+        if !trashes(self.plan, *archive_after) {
             return Step::Done(ItemStatus::Extracted, targets);
         }
-        match dispose_archive(&mut self.writer, item.id, &archive, fp, self.env.trash) {
+        self.dispose(item.id, &archive, fp, targets)
+    }
+
+    /// Phase D: the archive to the Trash (it must still be the planned
+    /// file), and the item's status by what became of it.
+    fn dispose(
+        &mut self,
+        id: usize,
+        archive: &Path,
+        fp: Option<crate::organize::plan::SourceFp>,
+        targets: Vec<PathBuf>,
+    ) -> Step {
+        match dispose_archive(&mut self.writer, id, archive, fp, self.env.trash) {
             ArchiveFate::Trashed { .. } => Step::Done(ItemStatus::Extracted, targets),
             ArchiveFate::Kept { .. } => Step::Done(ItemStatus::ExtractedKept, targets),
+            ArchiveFate::Aborted => Step::Abort,
+        }
+    }
+
+    /// Resumes an `Extract` item an earlier run started (archives spec
+    /// §9.3; leftover job temps were deleted when the run began):
+    /// - every entry complete and its final intact: only the playlist and
+    ///   the archive's fate are left (a Trash intent without a follow-up
+    ///   is trashed again, or looked up in the Trash when the archive is
+    ///   gone from its place);
+    /// - else, the archive changed or vanished since the plan: everything
+    ///   the item put in place is rolled back (each final only while it is
+    ///   still the job's file);
+    /// - else phases A–C again: complete finals that still match their
+    ///   line, and finals of an intent that match the listing's size and a
+    ///   full CRC re-read, are adopted (decoded to a sink and checked,
+    ///   never rewritten); the rest is extracted again.
+    fn resume_extract(&mut self, item: &OrganizeItem, journal: &ExtractJournal) -> Step {
+        let Transfer::Extract {
+            entries,
+            archive_after,
+            m3u,
+            ..
+        } = &item.transfer
+        else {
+            return skipped(SkipReason::NotDecided);
+        };
+        let Some(rel) = item.sources.first() else {
+            return skipped(SkipReason::SourceMissing);
+        };
+        if let Some(reason) = roots_gone(self.plan) {
+            return Step::Pause(reason);
+        }
+        let root = self.plan.target_root.clone();
+        let archive = self.plan.source_root.join(rel);
+        let fp = item.fps.first().copied();
+        let logs = entries.iter().zip(&journal.entries);
+        let intact = logs.clone().all(|(e, log)| match log {
+            EntryLog::Completed { fp, .. } => file_matches_fp(&root.join(&e.target), fp),
+            _ => false,
+        });
+        if intact && journal.entries.len() == entries.len() {
+            let mut targets: Vec<PathBuf> = entries.iter().map(|e| root.join(&e.target)).collect();
+            if let Some(m3u) = m3u {
+                let m3u = root.join(m3u);
+                if let Err(step) = self.ensure_m3u(item.id, entries, &m3u) {
+                    return step;
+                }
+                targets.push(m3u);
+            }
+            return self.resume_archive(item, &archive, *archive_after, journal, targets);
+        }
+        if !archive_unchanged(&archive, fp) {
+            let missing = !fs::symlink_metadata(&archive).is_ok_and(|m| m.file_type().is_file());
+            self.roll_back_started(item.id, entries, journal);
+            return skipped(if missing {
+                SkipReason::SourceMissing
+            } else {
+                SkipReason::ChangedSincePlan
+            });
+        }
+        let mut adopted = Vec::new();
+        for (e, log) in logs {
+            let target = root.join(&e.target);
+            match log {
+                EntryLog::None => {}
+                EntryLog::Completed { temp, fp } => {
+                    if file_matches_fp(&target, fp) {
+                        let Some(crc32) = fp.crc32.or_else(|| crc_of(&target)) else {
+                            return failed(
+                                ItemErrorKind::Io,
+                                format!("{} unreadable", target.display()),
+                            );
+                        };
+                        adopted.push(Adopted {
+                            index: e.index,
+                            temp: temp.clone(),
+                            crc32,
+                            journaled: true,
+                        });
+                    } else if fs::symlink_metadata(&target).is_ok() {
+                        let detail = format!("{} changed since it was extracted", target.display());
+                        return failed(ItemErrorKind::Io, detail);
+                    }
+                    // Gone since: extracted again under a new intent.
+                }
+                EntryLog::Intent { temp } => {
+                    let same_size = fs::symlink_metadata(&target)
+                        .is_ok_and(|m| m.file_type().is_file() && m.len() == e.size);
+                    let crc = same_size.then(|| crc_of(&target)).flatten();
+                    match crc.filter(|c| e.crc32.is_none_or(|want| want == *c)) {
+                        Some(crc32) => adopted.push(Adopted {
+                            index: e.index,
+                            temp: temp.clone(),
+                            crc32,
+                            journaled: false,
+                        }),
+                        None => {
+                            // Never renamed (its temp was a leftover), or
+                            // the file there is not the entry: the intent
+                            // is closed, the entry extracted again.
+                            if let Err(e) = self.writer.rolled_back(&target, temp, Some(item.id)) {
+                                return self.on_error(&e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.apply_extract(item, &adopted)
+    }
+
+    /// The generated playlist of a resumed item whose entries are all in
+    /// place: written when it is missing; one with the very text is kept.
+    fn ensure_m3u(&mut self, id: usize, entries: &[ExtractEntry], m3u: &Path) -> Result<(), Step> {
+        let sheets: Vec<PathBuf> = entries
+            .iter()
+            .filter(|e| {
+                let ext = e.name.rsplit_once('.').map_or("", |(_, x)| x);
+                matches!(
+                    SheetKind::from_extension(ext),
+                    Some(SheetKind::Cue | SheetKind::Gdi)
+                )
+            })
+            .map(|e| self.plan.target_root.join(&e.target))
+            .collect();
+        let refs: Vec<&Path> = sheets.iter().map(PathBuf::as_path).collect();
+        let Some(text) = m3u_text(&refs, m3u) else {
+            return Err(failed(
+                ItemErrorKind::Io,
+                format!("{} cannot list the discs", m3u.display()),
+            ));
+        };
+        if fs::symlink_metadata(m3u).is_ok() {
+            return match fs::read(m3u) {
+                Ok(bytes) if bytes == text.as_bytes() => Ok(()),
+                _ => Err(skipped(SkipReason::CollisionSet)),
+            };
+        }
+        match self.writer.create_new_file(m3u, text.as_bytes(), Some(id)) {
+            Ok(()) => Ok(()),
+            Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {
+                Err(skipped(SkipReason::CollisionSet))
+            }
+            Err(e) => Err(self.on_error(&e)),
+        }
+    }
+
+    /// What is left of phase D for a resumed item whose files are all in
+    /// place.
+    fn resume_archive(
+        &mut self,
+        item: &OrganizeItem,
+        archive: &Path,
+        after: ArchiveAfter,
+        journal: &ExtractJournal,
+        targets: Vec<PathBuf>,
+    ) -> Step {
+        if !trashes(self.plan, after) {
+            return Step::Done(ItemStatus::Extracted, targets);
+        }
+        let at_from = fs::symlink_metadata(archive).is_ok_and(|m| m.file_type().is_file());
+        match &journal.archive {
+            Some(ArchiveStep::Trashed { .. }) => Step::Done(ItemStatus::Extracted, targets),
+            Some(ArchiveStep::Kept) => Step::Done(ItemStatus::ExtractedKept, targets),
+            // Killed during the Trash call: the archive left; only the
+            // Trash knows where it went.
+            Some(ArchiveStep::TrashIntent { fp }) if !at_from => {
+                let name = archive.file_name().and_then(|n| n.to_str());
+                let found = match (name, fp) {
+                    (Some(name), Some(fp)) => self.env.trash.find(archive, name, fp),
+                    _ => None,
+                };
+                if let Err(e) =
+                    self.writer
+                        .archive_trashed(archive, found.as_deref(), Some(item.id))
+                {
+                    return self.on_error(&e);
+                }
+                Step::Done(ItemStatus::Extracted, targets)
+            }
+            // Killed before the Trash call, or before phase D began.
+            _ if at_from => self.dispose(item.id, archive, item.fps.first().copied(), targets),
+            // Gone from its place without a line saying so: nothing left
+            // to send to the Trash.
+            _ => Step::Done(ItemStatus::Extracted, targets),
+        }
+    }
+
+    /// Rolls back what earlier runs put in place for an item whose archive
+    /// changed since the plan: each final that is still the job's file (a
+    /// complete one by its fingerprint, one with only an intent by the
+    /// listing's size and a full CRC re-read) is deleted, and every open
+    /// intent gets its `rolled-back` line. Best effort.
+    fn roll_back_started(&mut self, id: usize, entries: &[ExtractEntry], journal: &ExtractJournal) {
+        for (e, log) in entries.iter().zip(&journal.entries) {
+            let target = self.plan.target_root.join(&e.target);
+            let (temp, ours) = match log {
+                EntryLog::None => continue,
+                EntryLog::Completed { temp, fp } => (temp, file_matches_fp(&target, fp)),
+                EntryLog::Intent { temp } => {
+                    let ours = e.crc32.is_some()
+                        && fs::symlink_metadata(&target)
+                            .is_ok_and(|m| m.file_type().is_file() && m.len() == e.size)
+                        && crc_of(&target) == e.crc32;
+                    (temp, ours)
+                }
+            };
+            if ours && fs::remove_file(&target).is_ok() {
+                remove_apple_doubles(std::slice::from_ref(&target));
+            }
+            let _ = self.writer.rolled_back(&target, temp, Some(id));
         }
     }
 
@@ -1287,6 +1677,7 @@ impl<'a> Run<'a> {
             );
         }
         match e {
+            ExtractError::Aborted => Step::Abort,
             ExtractError::Cancelled => skipped(SkipReason::Cancelled),
             ExtractError::ChangedSincePlan | ExtractError::ListingChanged { .. } => {
                 skipped(SkipReason::ChangedSincePlan)

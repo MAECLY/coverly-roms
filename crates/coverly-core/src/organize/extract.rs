@@ -49,6 +49,12 @@
 //! only: the `archive-trash` intent (with the archive's fingerprint), a
 //! last check against the plan, the Trash call, then `archive-trashed`
 //! with the location, or `archive-kept` when the Trash refused it.
+//!
+//! **Resume** (archives spec §9.3): finals an interrupted run already left
+//! in place are [`Adopted`]. The decode pass goes through them again (a
+//! solid folder is decoded from its start) to `io::sink`, their CRC is
+//! checked against the file on disk, and they are never rewritten; an
+//! adopted final without a completion line gets it in phase C.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
@@ -114,6 +120,24 @@ pub struct StagedEntry {
     pub crc32: u32,
     /// The bytes of a sheet (≤ 64 KiB), kept for phase B.
     pub bytes: Option<Vec<u8>>,
+    /// Its final was already in place ([`Adopted`]): no temp, no rename.
+    pub adopted: bool,
+}
+
+/// An entry whose final an interrupted run of the job already left in
+/// place (resume): decoded to `io::sink` and CRC-checked against it, never
+/// rewritten.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Adopted {
+    /// The archive entry index.
+    pub index: usize,
+    /// The job temp the entry's intent named (its completion line names
+    /// the same).
+    pub temp: String,
+    /// CRC-32 of the final on disk: what the decoded bytes must match.
+    pub crc32: u32,
+    /// Its completion line is journaled already; else phase C appends it.
+    pub journaled: bool,
 }
 
 /// What phase A left: every entry of the item in a verified temp, in the
@@ -121,6 +145,8 @@ pub struct StagedEntry {
 #[derive(Debug, Default)]
 pub struct PhaseA {
     pub staged: Vec<StagedEntry>,
+    /// Indexes of the adopted entries whose completion line is journaled.
+    pub journaled: Vec<usize>,
 }
 
 /// Why phase A stopped. The item was rolled back in every case.
@@ -160,6 +186,12 @@ pub enum ExtractError {
     /// A final name (or a case/NFC twin of it) is taken.
     #[error("taken at the target: {}", path.display())]
     Collision { path: PathBuf },
+    /// Stopped at an injected crash point ([`Fault::AbortAfterLine`]), as
+    /// if the process was killed there: nothing rolled back, nothing more
+    /// journaled.
+    #[doc(hidden)]
+    #[error("stopped at an injected crash point")]
+    Aborted,
 }
 
 impl ExtractError {
@@ -183,19 +215,47 @@ pub enum Fault {
     RereadMismatch,
     /// Setting a temp's modification time fails.
     SetModified,
+    /// Once this many journal lines of the calling thread's extractions
+    /// (intents, completions, playlists, archive lines; counted from
+    /// [`set_write_fault`]) are written, the extractor stops at its next
+    /// step (the next such line, or the Trash call) as if killed there:
+    /// [`ExtractError::Aborted`], nothing rolled back.
+    AbortAfterLine(u64),
 }
 
 #[cfg(feature = "test-util")]
 thread_local! {
     static WRITE_FAULT: std::cell::Cell<Option<Fault>> = const { std::cell::Cell::new(None) };
+    static LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Test hook: injects `f` into the extractions of the calling thread.
-/// `None` clears it.
+/// `None` clears it. Restarts the line count of
+/// [`Fault::AbortAfterLine`].
 #[doc(hidden)]
 #[cfg(feature = "test-util")]
 pub fn set_write_fault(f: Option<Fault>) {
     WRITE_FAULT.with(|c| c.set(f));
+    LINES.with(|c| c.set(0));
+}
+
+/// Counts one journal line of an extraction (for
+/// [`Fault::AbortAfterLine`]).
+fn line_written() {
+    #[cfg(feature = "test-util")]
+    LINES.with(|c| c.set(c.get().saturating_add(1)));
+}
+
+/// A step that may not run past an injected crash: `Aborted` once the
+/// [`Fault::AbortAfterLine`] count is reached.
+fn crash_point() -> Result<(), ExtractError> {
+    #[cfg(feature = "test-util")]
+    if let Some(Fault::AbortAfterLine(n)) = fault() {
+        if LINES.with(std::cell::Cell::get) >= n {
+            return Err(ExtractError::Aborted);
+        }
+    }
+    Ok(())
 }
 
 fn fault() -> Option<Fault> {
@@ -226,6 +286,17 @@ pub fn extract_to_temps(
     writer: &mut Writer,
     reader: &mut dyn ArchiveReader,
     req: &ExtractRequest,
+) -> Result<PhaseA, ExtractError> {
+    extract_adopting(writer, reader, req, &[])
+}
+
+/// [`extract_to_temps`] where the `adopted` entries are only decoded to
+/// `io::sink` and checked against their finals.
+fn extract_adopting(
+    writer: &mut Writer,
+    reader: &mut dyn ArchiveReader,
+    req: &ExtractRequest,
+    adopted: &[Adopted],
 ) -> Result<PhaseA, ExtractError> {
     let root = writer.root().to_path_buf();
     let total: u64 = req.entries.iter().map(|e| e.size).sum();
@@ -260,6 +331,7 @@ pub fn extract_to_temps(
         targets: &targets,
         total,
         decode: &decode,
+        adopted,
         written: 0,
         pending: Vec::new(),
         staged: Vec::new(),
@@ -294,7 +366,14 @@ pub fn extract_to_temps(
     match result {
         Ok(()) => Ok(PhaseA {
             staged: state.staged,
+            journaled: adopted
+                .iter()
+                .filter(|a| a.journaled)
+                .map(|a| a.index)
+                .collect(),
         }),
+        // Killed, as far as the journal can tell: nothing more happens.
+        Err(ExtractError::Aborted) => Err(ExtractError::Aborted),
         Err(e) => {
             roll_back_pending(state.writer, req.item, &state.pending);
             Err(e)
@@ -308,6 +387,9 @@ pub fn extract_to_temps(
 pub fn roll_back(writer: &mut Writer, item: usize, staged: &[StagedEntry]) {
     let pending: Vec<Pending> = staged
         .iter()
+        // An adopted final is an earlier run's: neither it nor its line
+        // is this run's to undo.
+        .filter(|s| !s.adopted)
         .map(|s| Pending {
             index: s.entry.index,
             target: s.target.clone(),
@@ -402,6 +484,8 @@ pub struct CommitRequest<'a> {
     pub sheet_check: SheetCheck,
     /// The playlist to generate, relative to the writer's root.
     pub m3u: Option<&'a Path>,
+    /// Entries whose finals an interrupted run left in place (resume).
+    pub adopted: &'a [Adopted],
 }
 
 /// Phases A, B and C of one `Extract` item: every entry decoded to a
@@ -421,7 +505,7 @@ pub fn extract_and_commit(
         Some(rel) => Some(target_path(writer.root(), rel)?),
         None => None,
     };
-    let a = extract_to_temps(writer, reader, &req.extract)?;
+    let a = extract_adopting(writer, reader, &req.extract, req.adopted)?;
     phase_hook(HookPoint::AfterPhaseA);
     let checked = validate(&a, req, m3u.as_deref()).and_then(|()| {
         if req.extract.cancel.load(Ordering::Relaxed) {
@@ -449,7 +533,7 @@ pub fn validate(a: &PhaseA, req: &CommitRequest, m3u: Option<&Path>) -> Result<(
 }
 
 /// The archive still has the size and modification time of `fp`.
-fn archive_unchanged(archive: &Path, fp: Option<SourceFp>) -> bool {
+pub(crate) fn archive_unchanged(archive: &Path, fp: Option<SourceFp>) -> bool {
     let Some(fp) = fp else {
         return true;
     };
@@ -535,7 +619,12 @@ fn resolve_ref(dir: &Path, file: &str) -> Option<PathBuf> {
 fn check_names_free(staged: &[StagedEntry], m3u: Option<&Path>) -> Result<(), ExtractError> {
     let mut listed: Vec<(PathBuf, Vec<String>)> = Vec::new();
     let mut ours: Vec<(PathBuf, String)> = Vec::new();
-    let finals = staged.iter().map(|s| s.target.as_path()).chain(m3u);
+    // Adopted finals are in place by design.
+    let finals = staged
+        .iter()
+        .filter(|s| !s.adopted)
+        .map(|s| s.target.as_path())
+        .chain(m3u);
     for target in finals {
         let (Some(dir), Some(name)) = (target.parent(), target.file_name()) else {
             return Err(ExtractError::Collision {
@@ -620,6 +709,19 @@ pub fn commit(
     let total: u64 = a.staged.iter().map(|s| s.entry.size).sum();
     let mut renamed: Vec<(&StagedEntry, Option<Fingerprint>)> = Vec::new();
     for (n, s) in a.staged.iter().enumerate() {
+        if s.adopted {
+            if a.journaled.contains(&s.entry.index) {
+                continue;
+            }
+            // In place since a crash between its rename and its line.
+            crash_point()?;
+            if let Err(e) = writer.extract_done(&s.target, &s.file, s.crc32, Some(item)) {
+                undo_commit(writer, item, &renamed, &a.staged[n + 1..]);
+                return Err(classify_journal(e, writer.journal_path()));
+            }
+            line_written();
+            continue;
+        }
         let dir = s.target.parent().unwrap_or(&s.target);
         if let Err(e) = rename_noclobber_indexed(&s.temp, &s.target) {
             undo_commit(writer, item, &renamed, &a.staged[n..]);
@@ -632,8 +734,14 @@ pub fn commit(
             });
         }
         remove_apple_doubles(std::slice::from_ref(&s.temp));
+        // Killed between the rename and its line: the final stays, with
+        // only its intent journaled.
+        crash_point()?;
         match writer.extract_done(&s.target, &s.file, s.crc32, Some(item)) {
-            Ok(fp) => renamed.push((s, Some(fp))),
+            Ok(fp) => {
+                line_written();
+                renamed.push((s, Some(fp)));
+            }
             Err(e) => {
                 // Renamed but not journaled complete: ours (just renamed),
                 // so it goes too.
@@ -660,10 +768,14 @@ pub fn commit(
             })
             .map(|s| s.target.as_path())
             .collect();
+        crash_point()?;
         let written = match m3u_text(&sheets, m3u) {
             Some(text) => writer.create_new_file(m3u, text.as_bytes(), Some(item)),
             None => Err(WriteError::NameInvalid(m3u.display().to_string())),
         };
+        if written.is_ok() {
+            line_written();
+        }
         if let Err(e) = written {
             undo_commit(writer, item, &renamed, &[]);
             let dir = m3u.parent().unwrap_or(m3u);
@@ -718,6 +830,9 @@ pub enum ArchiveFate {
     /// Still where it was: the Trash refused it, or it changed since the
     /// plan (`detail` says which).
     Kept { detail: String },
+    /// Stopped at an injected crash point ([`Fault::AbortAfterLine`]).
+    #[doc(hidden)]
+    Aborted,
 }
 
 /// Phase D for a move-mode item with nothing left in its archive: called
@@ -732,11 +847,22 @@ pub fn dispose_archive(
     trash: &dyn TrashBackend,
 ) -> ArchiveFate {
     let kept = |writer: &mut Writer, detail: String| {
-        let _ = writer.archive_kept(archive, Some(item));
+        if crash_point().is_err() {
+            return ArchiveFate::Aborted;
+        }
+        if writer.archive_kept(archive, Some(item)).is_ok() {
+            line_written();
+        }
         ArchiveFate::Kept { detail }
     };
+    if crash_point().is_err() {
+        return ArchiveFate::Aborted;
+    }
     let fp = match writer.archive_trash_intent(archive, Some(item)) {
-        Ok(fp) => fp,
+        Ok(fp) => {
+            line_written();
+            fp
+        }
         // Not journaled: never trashed (undo could not find it again).
         Err(e) => {
             return ArchiveFate::Kept {
@@ -748,9 +874,22 @@ pub fn dispose_archive(
     if !same {
         return kept(writer, "the archive changed since the plan".into());
     }
+    // Killed before the Trash call: the intent is the last line.
+    if crash_point().is_err() {
+        return ArchiveFate::Aborted;
+    }
     match trash.trash(archive) {
         Ok(location) => {
-            let _ = writer.archive_trashed(archive, location.as_deref(), Some(item));
+            // Killed during the call: in the Trash, the location unsaid.
+            if crash_point().is_err() {
+                return ArchiveFate::Aborted;
+            }
+            if writer
+                .archive_trashed(archive, location.as_deref(), Some(item))
+                .is_ok()
+            {
+                line_written();
+            }
             ArchiveFate::Trashed { trash: location }
         }
         Err(e) => kept(writer, e.to_string()),
@@ -861,6 +1000,8 @@ struct Run<'r, 'a> {
     total: u64,
     /// `(index, size)` of every entry the decode pass goes through.
     decode: &'r [(usize, u64)],
+    /// Entries whose finals are in place already: decoded to a sink.
+    adopted: &'r [Adopted],
     /// Bytes of this item written to temps so far.
     written: u64,
     pending: Vec<Pending>,
@@ -877,7 +1018,9 @@ impl Run<'_, '_> {
             // Not ours (a backend handing out more than asked): skipped.
             return Ok(());
         };
-        if self.pending.iter().any(|p| p.index == entry.index) {
+        if self.pending.iter().any(|p| p.index == entry.index)
+            || self.staged.iter().any(|s| s.entry.index == entry.index)
+        {
             // A backend handing one entry out twice: never staged twice.
             return Err(ExtractError::Archive(ArchiveError::Damaged {
                 detail: format!("entry {} streamed twice", entry.index),
@@ -885,6 +1028,9 @@ impl Run<'_, '_> {
         }
         let want = self.req.entries[pos].clone();
         let target = self.targets[pos].clone();
+        if let Some(adopted) = self.adopted.iter().find(|a| a.index == entry.index) {
+            return self.sink_entry(entry, stream, want, target, adopted);
+        }
         let dir = target.parent().unwrap_or(&target).to_path_buf();
         let name = self.writer.extract_temp();
         let temp = dir.join(&name);
@@ -895,9 +1041,11 @@ impl Run<'_, '_> {
             crc32: want.crc32,
             temp: name.clone(),
         };
+        crash_point()?;
         self.writer
             .extract_intent(&target, &file, Some(self.req.item))
             .map_err(|e| classify_journal(e, self.writer.journal_path()))?;
+        line_written();
         self.pending.push(Pending {
             index: want.index,
             target: target.clone(),
@@ -922,12 +1070,7 @@ impl Run<'_, '_> {
         let mut verify = VerifyingReader::new(stream, want.size, want.crc32);
         let mut buf = vec![0u8; CHUNK];
         let mut since_check = 0u64;
-        let before: u64 = self
-            .decode
-            .iter()
-            .filter(|(i, _)| *i < entry.index)
-            .map(|(_, size)| size)
-            .sum();
+        let before = self.decoded_before(entry.index);
         let mut in_entry = 0u64;
         loop {
             let n = match verify.read(&mut buf) {
@@ -980,6 +1123,92 @@ impl Run<'_, '_> {
             file,
             crc32,
             bytes: kept,
+            adopted: false,
+        });
+        Ok(())
+    }
+
+    /// Bytes the decode pass goes through before the entry `index`.
+    fn decoded_before(&self, index: usize) -> u64 {
+        self.decode
+            .iter()
+            .filter(|(i, _)| *i < index)
+            .map(|(_, size)| size)
+            .sum()
+    }
+
+    /// An adopted entry: decoded to a sink through the same size and CRC
+    /// check, then compared with the final already in place. Nothing is
+    /// written or journaled.
+    fn sink_entry(
+        &mut self,
+        entry: &Entry,
+        stream: &mut dyn Read,
+        want: ExtractEntry,
+        target: PathBuf,
+        adopted: &Adopted,
+    ) -> Result<(), ExtractError> {
+        let keep = is_sheet(&want.name) && want.size <= MAX_SHEET_BYTES as u64;
+        let mut kept = keep.then(|| Vec::with_capacity(want.size as usize));
+        let mut verify = VerifyingReader::new(stream, want.size, want.crc32);
+        let mut buf = vec![0u8; CHUNK];
+        let before = self.decoded_before(entry.index);
+        let (mut in_entry, mut since_check) = (0u64, 0u64);
+        loop {
+            let n = match verify.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    return Err(match ArchiveError::from(e) {
+                        ArchiveError::Cancelled => ExtractError::Cancelled,
+                        other => ExtractError::Archive(other),
+                    })
+                }
+            };
+            if let Some(k) = kept.as_mut() {
+                k.extend_from_slice(&buf[..n]);
+            }
+            in_entry += n as u64;
+            (self.req.progress)(before.saturating_add(in_entry));
+            since_check += n as u64;
+            if since_check >= CANCEL_EVERY {
+                since_check = 0;
+                if self.req.cancel.load(Ordering::Relaxed) {
+                    return Err(ExtractError::Cancelled);
+                }
+            }
+        }
+        let Some(crc32) = verify.computed_crc32() else {
+            return Err(ExtractError::Archive(ArchiveError::Damaged {
+                detail: "size".into(),
+            }));
+        };
+        if crc32 != adopted.crc32 {
+            return Err(if adopted.journaled {
+                // Committed from other bytes than the archive holds now.
+                ExtractError::ChangedSincePlan
+            } else {
+                // Never journaled as the job's: someone else's file.
+                ExtractError::Collision { path: target }
+            });
+        }
+        let dir = target.parent().unwrap_or(&target).to_path_buf();
+        let file = ExtractedFile {
+            from: self.req.archive.to_path_buf(),
+            entry: want.name.clone(),
+            size: want.size,
+            crc32: want.crc32,
+            temp: adopted.temp.clone(),
+        };
+        self.staged.push(StagedEntry {
+            temp: dir.join(&adopted.temp),
+            entry: want,
+            target,
+            file,
+            crc32,
+            bytes: kept,
+            adopted: true,
         });
         Ok(())
     }

@@ -1163,6 +1163,7 @@ mod apply_phases {
                 archive_fp: None,
                 sheet_check: SheetCheck::Read,
                 m3u: None,
+                adopted: &[],
             },
         )
         .unwrap_err();
