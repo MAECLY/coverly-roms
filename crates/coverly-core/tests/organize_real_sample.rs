@@ -1,6 +1,9 @@
-//! Plan-only run against the owner's real pile (read-only, organise spec
-//! §6.7). Run by hand:
-//! COVERLY_SAMPLE_DIR=~/Documents/ROMs-Downloaded cargo test -p coverly-core --test organize_real_sample -- --ignored --nocapture
+//! Plan-only runs against the owner's real pile (read-only, organise spec
+//! §6.7, archives spec §1). The pile lives on an external volume, so the
+//! tests are ignored and skip with a message when it is not mounted. Run
+//! by hand:
+//! cargo test -p coverly-core --features test-util --release --test organize_real_sample -- --ignored --nocapture
+//! `COVERLY_SAMPLE_DIR` overrides [`DEFAULT_SAMPLE_DIR`].
 //!
 //! The app cache (cached DATs) is used when present, through a copy in a
 //! temp dir so the plan's memo writes never touch the real one; without it
@@ -12,15 +15,35 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
+use std::time::{Duration, Instant};
+
+use coverly_core::archive::PLAN_HEAD_BUDGET;
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::organize::walk::OsMetaProbe;
 use coverly_core::organize::{
-    plan_organize, LeftReason, OrganizeAction, OrganizeEnv, OrganizeOptions, OrganizePlan,
+    plan_organize, ArchiveAfter, ItemNote, LeftReason, OrganizeAction, OrganizeEnv, OrganizeItem,
+    OrganizeOptions, OrganizePlan, SheetCheck, Transfer,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::builtin_profiles;
 use coverly_core::systems::SystemDb;
 use tempfile::TempDir;
+
+/// Where the owner keeps the pile (moved there on 2026-10-24).
+const DEFAULT_SAMPLE_DIR: &str = "/Volumes/TinyExt/ROMs-Downloaded";
+
+/// The pile, or `None` (with a message) when the volume is not mounted.
+fn sample_dir() -> Option<PathBuf> {
+    let dir = std::env::var_os("COVERLY_SAMPLE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_SAMPLE_DIR));
+    if dir.is_dir() {
+        Some(dir)
+    } else {
+        eprintln!("{} is not mounted; skipping", dir.display());
+        None
+    }
+}
 
 /// Sorted `(relative path, len, mtime)` of every entry under `root`,
 /// hidden ones included, so a stray `._*` or a moved file shows up.
@@ -123,24 +146,45 @@ fn print_table(plan: &OrganizePlan) {
     eprintln!("counts: {:?}", plan.counts);
 }
 
+/// Cartridge items as `origin/main` (96896da, before archives) planned
+/// them on the same pile on 2026-10-24: `(source, folder or None = left)`.
+/// The pile's `ROMS/` holds games already in place, so they are not items.
+const CARTRIDGES_ON_MAIN: &[(&str, Option<&str>)] = &[
+    ("Avatar - the Last Airbender GBA.zip", Some("GBA")),
+    ("Dragonball Z - Supersonic Warriors GBA.zip", Some("GBA")),
+    ("FIFA Soccer 07.zip", Some("GBA")),
+    (
+        "Pokemon - Leaf Green Version (U) (V1.1) (1).zip",
+        Some("GBA"),
+    ),
+    ("Pokemon Jupiter - 6.04 (Ruby Hack) (1).zip", None),
+    (
+        "Pokemon Ultra Violet (1.22) LSA (Fire Red Hack).zip",
+        Some("GBA"),
+    ),
+];
+
+fn item<'a>(plan: &'a OrganizePlan, name: &str) -> &'a OrganizeItem {
+    plan.items
+        .iter()
+        .find(|i| i.sources.first().is_some_and(|s| s == Path::new(name)))
+        .unwrap_or_else(|| panic!("no item for {name}"))
+}
+
 #[test]
-#[ignore = "needs COVERLY_SAMPLE_DIR; plan only, never writes"]
+#[ignore = "needs the real pile; plan only, never writes"]
 fn the_real_sample_plans_as_the_spec_says() {
-    let Ok(dir) = std::env::var("COVERLY_SAMPLE_DIR") else {
-        eprintln!("COVERLY_SAMPLE_DIR not set; skipping");
-        return;
-    };
-    let dir = PathBuf::from(dir);
+    let Some(dir) = sample_dir() else { return };
     let before = digest(&dir);
     let tmp = TempDir::new().unwrap();
     let cache = cache_copy(&tmp);
     let plan = plan_offline_with_cached_dats(&dir, &cache);
     print_table(&plan);
     let per = count_by_folder(&plan);
-    assert_eq!(per.get("GBA"), Some(&6), "{per:?}");
-    assert_eq!(per.get("GB"), Some(&6), "{per:?}");
-    assert_eq!(per.get("GBC"), Some(&2), "{per:?}");
-    assert_eq!(per.get("SFC"), Some(&2), "{per:?}");
+    assert_eq!(per.get("GBA"), Some(&5), "{per:?}");
+    assert_eq!(per.get("PS"), Some(&1), "{per:?}");
+    assert_eq!(per.get("DREAMCAST"), Some(&1), "{per:?}");
+    assert_eq!(per.get("SATURN"), Some(&1), "{per:?}");
     assert_eq!(per.len(), 4, "{per:?}");
     assert_eq!(plan.counts.review, 0);
     assert!(matches!(
@@ -148,5 +192,151 @@ fn the_real_sample_plans_as_the_spec_says() {
         Some(LeftReason::NotARom { .. })
     ));
     assert!(plan.counts.junk >= 1, ".DS_Store counted as junk");
+    assert_eq!(digest(&dir), before, "read-only");
+}
+
+/// One disc archive of archives spec §1: what the plan must say.
+struct DiscCase {
+    name: &'static str,
+    system: &'static str,
+    folder: &'static str,
+    serial: &'static str,
+    files: usize,
+    bytes: u64,
+    sheet_deferred: bool,
+    twin_sheets: bool,
+}
+
+const DISC_CASES: &[DiscCase] = &[
+    DiscCase {
+        name: "Next Tetris, The.zip",
+        system: "psx",
+        folder: "PS",
+        serial: "SLUS-00862",
+        files: 12,
+        bytes: 405_749_493,
+        sheet_deferred: false,
+        twin_sheets: false,
+    },
+    DiscCase {
+        name: "Next Tetris, The_ On-Line Edition.zip",
+        system: "dreamcast",
+        folder: "DREAMCAST",
+        serial: "T-40214N",
+        files: 16,
+        bytes: 1_191_067_563,
+        sheet_deferred: true,
+        twin_sheets: true,
+    },
+    DiscCase {
+        name: "Tetris Plus.zip",
+        system: "saturn",
+        folder: "SATURN",
+        serial: "T-5704H",
+        files: 52,
+        bytes: 591_881_790,
+        sheet_deferred: true,
+        twin_sheets: false,
+    },
+];
+
+fn check_disc(plan: &OrganizePlan, case: &DiscCase) {
+    let it = item(plan, case.name);
+    let ctx = format!("{}: {it:#?}", case.name);
+    assert!(matches!(it.action, OrganizeAction::Auto), "{ctx}");
+    assert_eq!(it.system_id.as_deref(), Some(case.system), "{ctx}");
+    assert_eq!(it.folder.as_deref(), Some(case.folder), "{ctx}");
+    let disc = it.disc.as_ref().expect("disc id");
+    assert_eq!(disc.serials, vec![case.serial.to_string()], "{ctx}");
+    let Transfer::Extract {
+        entries,
+        bytes,
+        archive_after,
+        sheet_check,
+        ..
+    } = &it.transfer
+    else {
+        panic!("not an extract: {ctx}");
+    };
+    assert_eq!(entries.len(), case.files, "{ctx}");
+    assert_eq!(*bytes, case.bytes, "{ctx}");
+    assert_eq!(
+        entries.iter().map(|e| e.size).sum::<u64>(),
+        case.bytes,
+        "{ctx}"
+    );
+    // The plan's default mode on one volume is move: nothing is left
+    // behind, so the archive goes to the Trash once verified.
+    assert_eq!(*archive_after, ArchiveAfter::Trash, "{ctx}");
+    let prefix = Path::new("ROMS").join(case.folder);
+    for e in entries {
+        assert!(
+            e.target.starts_with(&prefix),
+            "{}: {ctx}",
+            e.target.display()
+        );
+        assert!(e.crc32.is_some(), "7z stores a CRC per entry: {ctx}");
+    }
+    let mismatch = ItemNote::ContainerMismatch {
+        ext: "zip".into(),
+        actual: "7z".into(),
+    };
+    assert!(it.notes.contains(&mismatch), "{ctx}");
+    let deferred = *sheet_check == SheetCheck::Deferred;
+    assert_eq!(deferred, case.sheet_deferred, "{ctx}");
+    assert_eq!(
+        it.notes.contains(&ItemNote::SheetNotReadYet),
+        case.sheet_deferred,
+        "{ctx}"
+    );
+    assert_eq!(
+        it.notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::TwinSheets { .. })),
+        case.twin_sheets,
+        "{ctx}"
+    );
+    assert!(!it.notes.contains(&ItemNote::ArchiveNotFullyRead), "{ctx}");
+}
+
+#[test]
+#[ignore = "needs the real pile; plan only, never writes"]
+fn downloads_disc_archives_plan() {
+    let Some(dir) = sample_dir() else { return };
+    let before = digest(&dir);
+    let tmp = TempDir::new().unwrap();
+    let cache = cache_copy(&tmp);
+    let opts = OrganizeOptions::default();
+    // Every archive the plan opens is bounded by this budget (charged per
+    // archive by `Budget::plan_head`); the run time below is a sanity
+    // check that the three ~0.4 GB solid 7z files were not decoded whole.
+    assert_eq!(opts.limits.plan_head_budget, PLAN_HEAD_BUDGET);
+    assert_eq!(PLAN_HEAD_BUDGET, 64 * 1024 * 1024);
+    let started = Instant::now();
+    let plan = plan_offline_with_cached_dats(&dir, &cache);
+    let took = started.elapsed();
+    print_table(&plan);
+    eprintln!("plan took {took:?}");
+    assert!(took < Duration::from_secs(60), "{took:?}");
+
+    for case in DISC_CASES {
+        check_disc(&plan, case);
+    }
+    assert!(matches!(
+        left_reason(&plan, "3-D Tetris (USA).zip"),
+        Some(LeftReason::NotARom { .. })
+    ));
+    for (name, folder) in CARTRIDGES_ON_MAIN {
+        let it = item(&plan, name);
+        assert_eq!(it.folder.as_deref(), *folder, "{name}: {it:#?}");
+        assert_eq!(it.is_left(), folder.is_none(), "{name}");
+        assert_eq!(
+            it.transfer,
+            Transfer::AsIs,
+            "{name}: cartridges move as they are"
+        );
+    }
+    let known = DISC_CASES.len() + CARTRIDGES_ON_MAIN.len() + 1;
+    assert_eq!(plan.items.len(), known, "no other items");
     assert_eq!(digest(&dir), before, "read-only");
 }
