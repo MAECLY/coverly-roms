@@ -377,6 +377,8 @@ export type ProxyChoice = 'system' | 'env' | 'manual';
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 /** Organise transfer mode (`auto` = move on the same volume, copy otherwise). */
 export type OrganizeModeSetting = 'auto' | 'move' | 'copy';
+/** Whether Organise may run an external archive tool (unrar, 7-Zip, bsdtar). */
+export type ExternalToolsSetting = 'auto' | 'off';
 /** Organised files keep their name or take the catalogue name. */
 export type OrganizeNameMode = 'keep' | 'catalogue';
 
@@ -395,6 +397,7 @@ export interface OrganizeSettings {
   arcade_order: Record<string, string[]>;
   recent_seconds: number;
   keep_organize_journals_days: number;
+  external_tools: ExternalToolsSetting;
 }
 export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
 export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';

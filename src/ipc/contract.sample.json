@@ -182,7 +182,8 @@
       "folder_names": {},
       "arcade_order": {},
       "recent_seconds": 60,
-      "keep_organize_journals_days": 90
+      "keep_organize_journals_days": 90,
+      "external_tools": "auto"
     },
     "dedupe": {
       "levels": ["exact", "format", "version"],

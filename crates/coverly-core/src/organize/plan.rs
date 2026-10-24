@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::archive::Limits;
 use crate::cache::Cache;
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
@@ -36,7 +37,7 @@ use crate::scan::classify::{
 };
 use crate::scan::multifile::{group_sets, is_list_extension};
 use crate::scan::{find_dir_ignoring_case, ScanOptions, ScanWarning};
-use crate::settings::{OrganizeModeSetting, Settings};
+use crate::settings::{ExternalTools, OrganizeModeSetting, Settings};
 use crate::systems::SystemDb;
 
 /// How files reach their system folder.
@@ -284,6 +285,9 @@ pub struct OrganizeOptions {
     pub arcade_order: Option<Vec<String>>,
     /// Download missing DATs (up to [`MAX_DAT_DOWNLOADS`] per plan).
     pub download_dats: bool,
+    /// Bounds for every archive the plan opens (`external_tools` follows
+    /// the setting `organize.external_tools`).
+    pub limits: Limits,
 }
 
 impl Default for OrganizeOptions {
@@ -301,6 +305,7 @@ impl Default for OrganizeOptions {
             recent_secs: 60,
             arcade_order: None,
             download_dats: true,
+            limits: Limits::default(),
         }
     }
 }
@@ -339,6 +344,10 @@ impl OrganizeOptions {
                 .filter(|order| !order.is_empty())
                 .cloned(),
             download_dats: o.download_dats,
+            limits: Limits {
+                external_tools: o.external_tools == ExternalTools::Auto,
+                ..Limits::default()
+            },
             layout,
             ..OrganizeOptions::default()
         }
