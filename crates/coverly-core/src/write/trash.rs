@@ -222,6 +222,7 @@ mod platform {
 
     use percent_encoding::{percent_decode, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
+    use super::super::noclobber::rename_noclobber;
     use super::{fp_matches, missing_or_io, Fingerprint, TrashError};
 
     /// RFC 2396 escaping of the `Path=` key; `/` stays.
@@ -327,9 +328,21 @@ mod platform {
                 return Err(e.into());
             }
             drop(file);
-            if let Err(e) = fs::rename(&abs, &dest) {
-                let _ = fs::remove_file(&info_path);
-                return Err(missing_or_io(e, &abs));
+            // Never `fs::rename`: it would replace a file that appeared in
+            // `files/` since the check above.
+            match rename_noclobber(&abs, &dest) {
+                Ok(()) => {}
+                Err(e)
+                    if e.kind() == ErrorKind::AlreadyExists
+                        && fs::symlink_metadata(&abs).is_ok() =>
+                {
+                    let _ = fs::remove_file(&info_path);
+                    continue;
+                }
+                Err(e) => {
+                    let _ = fs::remove_file(&info_path);
+                    return Err(missing_or_io(e, &abs));
+                }
             }
             if let Ok(dir) = fs::File::open(&files) {
                 let _ = dir.sync_all();
