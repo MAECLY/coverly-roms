@@ -559,6 +559,7 @@ fn organise_views_match_the_shared_sample() {
                 skipped_modified: vec![],
                 skipped_occupied: vec![],
                 dirs_removed: vec!["/Users/me/ROMs-Downloaded/ROMS/GBA".into()],
+                archive_lost: vec![],
             }],
             later_jobs: vec![JobHistoryView {
                 job: "20261017T104500Z-1bfb-0001".into(),

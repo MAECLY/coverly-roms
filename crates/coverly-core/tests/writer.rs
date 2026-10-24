@@ -754,23 +754,24 @@ fn older_build_sees_unknown_and_refuses_undo() {
 }
 
 #[test]
-fn an_extraction_journal_is_not_undone_by_this_build_yet() {
-    // Until the undo of extractions lands, a job with extraction lines is
-    // refused whole: undoing only its moves would lose track of the
-    // extracted files and of an archive sent to the Trash.
+fn an_extraction_journal_is_undoable() {
+    // Extraction lines are undone like the rest of the job: a completed
+    // extracted file that still matches its fingerprint goes.
     let (_tmp, root, src, data, mut w) = extract_setup();
     let job = w.job_id().to_string();
     let target = root.join("PS/Next Tetris, The (Track 01).bin");
     let file = extracted_file(&src, &w, 0);
     w.extract_intent(&target, &file, Some(0)).unwrap();
     fs::write(&target, b"track").unwrap();
-    w.extract_done(&target, &file, 1, Some(0)).unwrap();
+    w.extract_done(&target, &file, crc32fast::hash(b"track"), Some(0))
+        .unwrap();
     w.finish().unwrap();
     let s = &list_jobs(&data).unwrap()[0];
-    assert!(!s.undoable);
-    assert!(matches!(undo_job(&data, &job), Err(WriteError::Journal(_))));
-    assert!(target.exists());
-    assert!(!list_jobs(&data).unwrap()[0].undone);
+    assert!(s.undoable);
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(report.removed, std::slice::from_ref(&target));
+    assert!(!target.exists());
+    assert!(list_jobs(&data).unwrap()[0].undone);
 }
 
 #[test]

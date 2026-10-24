@@ -352,39 +352,20 @@ enum Op {
     Unknown,
 }
 
-impl Op {
-    /// One of the extraction ops (an archive entry or the archive itself).
-    fn is_extract_op(&self) -> bool {
-        matches!(
-            self,
-            Op::Extracted { .. }
-                | Op::RolledBack { .. }
-                | Op::ArchiveTrash { .. }
-                | Op::ArchiveTrashed { .. }
-                | Op::ArchiveKept { .. }
-        )
-    }
-}
-
 /// Why this build refuses to undo a journal, if it does: an op it does
-/// not know (a newer Coverly), or an extraction, whose undo (deleting the
-/// extracted files only once the archive is back from the Trash) is not
-/// part of this build yet. Either way the whole job is refused, never
-/// half undone.
+/// not know (a newer Coverly). The whole job is refused then, never half
+/// undone.
 fn undo_refusal(entries: &[Line]) -> Option<&'static str> {
-    let ops = || {
-        entries.iter().filter_map(|e| match e {
-            Line::Entry { op, .. } => Some(op),
-            _ => None,
-        })
-    };
-    if ops().any(|op| matches!(op, Op::Unknown)) {
-        return Some("written by a newer Coverly; update to undo it");
-    }
-    if ops().any(Op::is_extract_op) {
-        return Some("extracted archives cannot be undone by this version");
-    }
-    None
+    let unknown = entries.iter().any(|e| {
+        matches!(
+            e,
+            Line::Entry {
+                op: Op::Unknown,
+                ..
+            }
+        )
+    });
+    unknown.then_some("written by a newer Coverly; update to undo it")
 }
 
 /// Whether every entry of a journal can be undone by this build.
@@ -1221,6 +1202,11 @@ pub struct UndoReport {
     /// Folders the job created and the undo removed (they held nothing
     /// of the user's).
     pub dirs_removed: Vec<PathBuf>,
+    /// Archives the job sent to the Trash that could not be brought back
+    /// (Trash emptied, location unknown, their place taken): the files
+    /// extracted from them are the only copy of the game, so they stay.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub archive_lost: Vec<PathBuf>,
 }
 
 /// One journaled job, for `coverly undo --list`.
@@ -1584,17 +1570,36 @@ pub fn list_jobs(data_dir: &Path) -> Result<Vec<JobSummary>, WriteError> {
     Ok(out)
 }
 
-/// Undoes the newest job that is not undone yet.
+/// Undoes the newest job that is not undone yet (archives come back from
+/// the OS Trash).
 pub fn undo_last(data_dir: &Path) -> Result<UndoReport, WriteError> {
+    undo_last_with(data_dir, &trash::OsTrash)
+}
+
+/// [`undo_last`], bringing archives back from `trash`.
+pub fn undo_last_with(
+    data_dir: &Path,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     let journal = journals(data_dir)?
         .into_iter()
         .find(|j| !j.undone)
         .ok_or(WriteError::NothingToUndo)?;
-    undo_journal(data_dir, &journal)
+    undo_journal(data_dir, &journal, trash)
 }
 
-/// Undoes the job `job` (an id from [`list_jobs`]).
+/// Undoes the job `job` (an id from [`list_jobs`]); archives come back
+/// from the OS Trash.
 pub fn undo_job(data_dir: &Path, job: &str) -> Result<UndoReport, WriteError> {
+    undo_job_with(data_dir, job, &trash::OsTrash)
+}
+
+/// [`undo_job`], bringing archives back from `trash`.
+pub fn undo_job_with(
+    data_dir: &Path,
+    job: &str,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     if !valid_job_id(job) {
         return Err(WriteError::NothingToUndo);
     }
@@ -1602,10 +1607,17 @@ pub fn undo_job(data_dir: &Path, job: &str) -> Result<UndoReport, WriteError> {
         .into_iter()
         .find(|j| j.job == job && !j.undone)
         .ok_or(WriteError::NothingToUndo)?;
-    undo_journal(data_dir, &journal)
+    undo_journal(data_dir, &journal, trash)
 }
 
-fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteError> {
+/// Undoes a journal, newest line first. Undo is idempotent: an undo
+/// stopped half way (an error, a crash) is simply run again, and finds
+/// what it already did done (files gone, archives back).
+fn undo_journal(
+    data_dir: &Path,
+    journal: &Journal,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     let (header, entries, _) = parse(&journal.path)?;
     let Line::Header {
         root, source_root, ..
@@ -1630,7 +1642,16 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     if organise(undo_organize::is_organize_op) && !root.is_dir() {
         return Err(WriteError::Denied(root));
     }
-    if organise(|op| matches!(op, Op::Moved { .. } | Op::Copied { .. })) && !source_root.is_dir() {
+    let takes_from_source = |op: &Op| {
+        matches!(
+            op,
+            Op::Moved { .. }
+                | Op::Copied { .. }
+                | Op::ArchiveTrash { .. }
+                | Op::ArchiveTrashed { .. }
+        )
+    };
+    if organise(takes_from_source) && !source_root.is_dir() {
         return Err(WriteError::Denied(source_root));
     }
     let backups = data_dir.join("backups").join(&journal.job);
@@ -1641,6 +1662,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         skipped_modified: Vec::new(),
         skipped_occupied: Vec::new(),
         dirs_removed: Vec::new(),
+        archive_lost: Vec::new(),
     };
     let mut ctx = undo_organize::Ctx {
         root: &root,
@@ -1649,7 +1671,13 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         job: &journal.job,
         counter: 0,
         overrides: Vec::new(),
+        lost_archives: Default::default(),
+        lost_items: Default::default(),
+        settled_temps: Default::default(),
     };
+    // Archives first: an extracted file is only deleted once its archive
+    // is back (or never left).
+    undo_organize::restore_archives(&mut ctx, &entries, trash, &mut report)?;
     // A target replaced twice in one job (a gamelist written by a run and
     // its resume) shares one backup holding the original bytes: once the
     // last write is restored, the earlier replace entries are done too.
@@ -1660,14 +1688,19 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             op,
             sha1,
             fp,
-            ..
+            item,
         } = entry
         else {
             continue;
         };
         // Organise ops never read whole files unless a CRC must decide.
         if undo_organize::is_organize_op(&op) {
-            undo_organize::undo_entry(&mut ctx, target, op, fp, &mut report)?;
+            undo_organize::undo_entry(&mut ctx, target, op, fp, item, &mut report)?;
+            continue;
+        }
+        // The playlist of an item whose archive is lost stays with its
+        // extracted files.
+        if item.is_some_and(|i| ctx.lost_items.contains(&i)) {
             continue;
         }
         let target = ensure_within(&root, &target)?;
