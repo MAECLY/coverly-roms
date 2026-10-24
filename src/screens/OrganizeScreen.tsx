@@ -5,7 +5,14 @@ import {
   FolderTree,
   RotateCw,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
@@ -24,6 +31,7 @@ import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -33,6 +41,7 @@ import type {
   ProfileInfo,
   SystemInfo,
 } from '@/ipc/types';
+import { formatSize } from '@/lib/format';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
   groupBySystem,
@@ -72,6 +81,7 @@ function useCatalogues() {
 /** Plan-wide warnings as text (data from the core, never prose). */
 function warningLines(
   t: TFunction,
+  locale: string,
   plan: OrganizePlan,
   systemName: (id: string) => string,
   profileName: (id: string) => string,
@@ -102,6 +112,14 @@ function warningLines(
       case 'target-layout-mismatch':
         lines.push(
           t('organize.target.mismatch', { profile: profileName(w.profile) }),
+        );
+        break;
+      case 'no-space':
+        lines.push(
+          t('organize.noSpace', {
+            needed: formatSize(w.needed, locale),
+            free: formatSize(w.free, locale),
+          }),
         );
         break;
       case 'move-unavailable':
@@ -475,11 +493,12 @@ function Proposal({
   onCancel,
 }: ProposalProps) {
   const t = useT();
+  const locale = useContext(LocaleContext);
   const groups = useMemo(() => groupBySystem(plan), [plan]);
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
   const { counts } = plan;
-  const warnings = warningLines(t, plan, systemName, profileName);
+  const warnings = warningLines(t, locale, plan, systemName, profileName);
   const nothingToFile = groups.length === 0 && buckets.length === 0;
   const isNew = useMemo<IsNew | undefined>(() => {
     if (!lastRefresh || lastRefresh.added.length === 0) return undefined;

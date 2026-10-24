@@ -2009,6 +2009,15 @@ mod extract {
             sizes.push(rom.len() as u64);
             assert_eq!(by_name(&p, "Advance.gba").action, OrganizeAction::Auto);
             assert_eq!(no_space(&p), Some((needed(&sizes, 4096), 1000)));
+            // The wire shape the UI reads (`src/ipc/types.ts`).
+            assert_eq!(
+                serde_json::to_value(PlanWarning::NoSpace {
+                    needed: 2000,
+                    free: 1000
+                })
+                .unwrap(),
+                serde_json::json!({ "kind": "no-space", "needed": 2000, "free": 1000 })
+            );
         }
 
         #[test]

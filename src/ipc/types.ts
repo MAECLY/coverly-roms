@@ -742,7 +742,9 @@ export type PlanWarning =
   | { kind: 'catalogue-missing'; system: string }
   | { kind: 'target-layout-mismatch'; profile: string }
   | { kind: 'move-unavailable' }
-  | { kind: 'sorted-only' };
+  | { kind: 'sorted-only' }
+  /** The target lacks room: cluster-rounded bytes needed vs free for this user. */
+  | { kind: 'no-space'; needed: number; free: number };
 
 /** A save, patch or note that follows its ROM. */
 export interface Companion {

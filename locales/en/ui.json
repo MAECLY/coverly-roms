@@ -1114,6 +1114,7 @@
     "multiRomZip": "Holds {count} ROMs; the console will load only the first.",
     "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
     "noCatalogue": "No {system} catalogue: decided by {level}",
+    "noSpace": "Not enough space on the target: {needed} needed, {free} free.",
     "encrypted": "Encrypted; some emulators can't load it",
     "level": {
       "hash": "catalogue",

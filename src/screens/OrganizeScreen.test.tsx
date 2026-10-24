@@ -285,6 +285,22 @@ describe('OrganizeScreen', () => {
     });
   });
 
+  it('warns when the target lacks room, with both sizes', async () => {
+    tweakPlans(b, ({ plan }) => {
+      plan.warnings.push({
+        kind: 'no-space',
+        needed: 3 * 1024 * 1024 * 1024,
+        free: 512 * 1024 * 1024,
+      });
+    });
+    renderScreen(MOCK_DOWNLOADS);
+    expect(
+      await screen.findByText(
+        'Not enough space on the target: 3 GB needed, 512 MB free.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('hides the primary action when nothing would move and offers open library', async () => {
     tweakPlans(b, ({ plan }) => {
       plan.items = plan.items.map((i) => ({
