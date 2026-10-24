@@ -232,6 +232,8 @@ const ORGANIZE_ITEM_KEYS = [
   'notes',
   'companions',
   'catalogue_name',
+  'transfer',
+  'disc',
   'action',
 ] as const;
 const COUNTS_KEYS = [

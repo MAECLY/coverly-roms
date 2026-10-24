@@ -734,6 +734,69 @@ export type OrganizeAction =
   | { action: 'review' }
   | { action: 'left'; reason: LeftReason };
 
+/** An external program that opens RAR archives (names are not translated). */
+export type ArchiveTool = 'unrar' | 'seven-zip' | 'bsdtar';
+
+/** One archive entry an extract item writes. */
+export interface ExtractEntry {
+  /** Position in the archive's own order. */
+  index: number;
+  /** The validated entry path, `/`-separated. */
+  name: string;
+  size: number;
+  crc32: number | null;
+  /** Relative to the target root. */
+  target: string;
+}
+
+/** What happens to the archive once every entry is verified. */
+export type ArchiveAfter = 'keep' | 'trash';
+
+/** Who decodes the archive on apply. */
+export type ExtractSource =
+  { kind: 'builtin' } | { kind: 'tool'; tool: ArchiveTool; version: string };
+
+/** Whether a disc set's sheet was parsed at plan time. */
+export type SheetCheck = 'read' | 'deferred';
+
+/** How an item reaches its target. */
+export type Transfer =
+  | { kind: 'as-is' }
+  | {
+      kind: 'extract';
+      entries: ExtractEntry[];
+      bytes: number;
+      archive_after: ArchiveAfter;
+      source: ExtractSource;
+      sheet_check: SheetCheck;
+      /** A generated playlist, relative to the target root. */
+      m3u: string | null;
+    };
+
+/** The ISO 9660 descriptor and boot-file hash of a disc. */
+export interface VolumeFingerprint {
+  space_size: number;
+  created: number[];
+  modified: number[];
+  boot_sha1: string;
+}
+
+/** A disc's serials and fingerprint. */
+export interface DiscId {
+  /** Normalised serials (`SLUS-00862`), in disc order. */
+  serials: string[];
+  disc_no: number | null;
+  volume: VolumeFingerprint | null;
+  source:
+    | 'system-cnf'
+    | 'param-sfo'
+    | 'ip-bin'
+    | 'umd-data'
+    | 'chd'
+    | 'm3u-position'
+    | 'signature';
+}
+
 /** One game of the plan: a file, an archive or a disc set. */
 export type OrganizeItem = OrganizeAction & {
   id: number;
@@ -758,6 +821,9 @@ export type OrganizeItem = OrganizeAction & {
   notes: ItemNote[];
   companions: Companion[];
   catalogue_name: string | null;
+  /** As-is (move or copy the file) or extract. */
+  transfer: Transfer;
+  disc: DiscId | null;
 };
 
 export interface OrganizeCounts {

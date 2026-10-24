@@ -40,6 +40,8 @@ fn item(id: usize, sources: &[&str], system: &str, kind: ItemKind, size: u64) ->
         notes: Vec::new(),
         companions: Vec::new(),
         catalogue_name: None,
+        transfer: Default::default(),
+        disc: None,
         action: OrganizeAction::Auto,
     }
 }

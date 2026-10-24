@@ -27,6 +27,8 @@ export function autoItem(
     notes: [],
     companions: [],
     catalogue_name: null,
+    transfer: { kind: 'as-is' },
+    disc: null,
     ...extra,
   } as OrganizeItem;
 }

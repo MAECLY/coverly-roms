@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use clap::{Args, ValueEnum};
+use coverly_core::archive::Tool;
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
@@ -608,7 +609,35 @@ pub(crate) fn left_text(reason: &LeftReason) -> String {
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
-        LeftReason::UnsupportedArchive => "unsupported archive format".into(),
+        LeftReason::UnsupportedArchive { format, need } => match (format, need) {
+            (Some(format), Some(tool)) => {
+                format!("to open {format} archives, install {}", tool_name(*tool))
+            }
+            (_, Some(tool)) => format!("to open this archive, install {}", tool_name(*tool)),
+            (Some(format), None) => format!("unsupported archive format ({format})"),
+            (None, None) => "unsupported archive format".into(),
+        },
+        LeftReason::EncryptedArchive => "password protected".into(),
+        LeftReason::ArchiveNeedsMemory { mib } => {
+            format!("needs {mib} MB of memory to decompress")
+        }
+        LeftReason::ArchiveTooBig { .. } => "too large to open safely".into(),
+        LeftReason::MultiVolumeArchive { parts } => {
+            format!("multi-part archive ({parts} parts); join them first")
+        }
+        LeftReason::UnsafeArchiveEntry { name, .. } => {
+            format!("contains an unsafe path ({name}); not extracted")
+        }
+        LeftReason::SetUnsafeName { name } => {
+            format!("a game file has a name the card can't store: {name}")
+        }
+        LeftReason::PathTooLong => "the path would be too long for Windows".into(),
+        LeftReason::NestedArchive => "archive inside another archive; extract it first".into(),
+        LeftReason::RepackArcade => "arcade sets must be .zip; repack it".into(),
+        LeftReason::FolderFull { folder } => {
+            format!("the folder {folder} can't hold more files on FAT32")
+        }
+        LeftReason::UnsafeTarget => "the target folder is a link; nothing is written there".into(),
         LeftReason::MultiGameArchive { count } => format!("archive with {count} games"),
         LeftReason::UnsupportedSystem { name } => format!("{name} is not organised"),
         LeftReason::Unknown => "unknown system".into(),
@@ -627,6 +656,15 @@ pub(crate) fn left_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
+    }
+}
+
+/// The program's own name: never translated.
+fn tool_name(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Unrar => "unrar",
+        Tool::SevenZip => "7-Zip",
+        Tool::Bsdtar => "bsdtar",
     }
 }
 
@@ -656,6 +694,22 @@ fn note_text(n: &ItemNote) -> Option<String> {
             )
         }
         ItemNote::Encrypted => "encrypted archive: the header was not read".into(),
+        ItemNote::ContainerMismatch { ext, actual } => format!(
+            "it is a {actual} archive named .{}",
+            ext.trim_start_matches('.')
+        ),
+        ItemNote::TwinSheets { .. } => {
+            "has a .gdi and a .cue for the same tracks; some menus will list the game twice".into()
+        }
+        ItemNote::NoStoredChecksum => "this format stores no checksum; the size is checked".into(),
+        ItemNote::ArchiveNotFullyRead => {
+            "couldn't be read in full during the dry run; please review it".into()
+        }
+        ItemNote::ArchiveKeptLeftovers { count, .. } => {
+            format!("the archive stays: it has {count} files that are not extracted")
+        }
+        ItemNote::SheetNotReadYet => "the .cue sheet is checked while extracting".into(),
+        ItemNote::MultiRomExtract { count } => format!("contains {count} ROMs"),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })

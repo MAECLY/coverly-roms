@@ -46,6 +46,8 @@ function item(
     notes: [],
     companions: [],
     catalogue_name: null,
+    transfer: { kind: 'as-is' },
+    disc: null,
     ...patch,
   } as OrganizeItem;
 }

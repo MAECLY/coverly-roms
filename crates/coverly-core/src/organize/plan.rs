@@ -14,8 +14,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
-use crate::archive::Limits;
+use crate::archive::names::UnsafeWhy;
+use crate::archive::{Limits, Tool};
 use crate::cache::Cache;
+use crate::dedupe::source::DiscId;
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{NotARom, Sniff};
@@ -89,7 +91,52 @@ pub enum LeftReason {
     /// BIOS or firmware: moving it into a game folder makes it a fake game.
     Bios,
     DamagedArchive,
-    UnsupportedArchive,
+    /// A container this build cannot open; `need` names the external
+    /// tool that would (fields absent in plans from before archives).
+    UnsupportedArchive {
+        #[serde(default)]
+        format: Option<String>,
+        #[serde(default)]
+        need: Option<Tool>,
+    },
+    /// The archive's header or every payload is password protected.
+    EncryptedArchive,
+    /// Decoding needs more memory than the cap (S2, S3).
+    ArchiveNeedsMemory {
+        mib: u64,
+    },
+    /// Too many entries or too many declared bytes to open safely; never
+    /// damage (D1).
+    ArchiveTooBig {
+        entries: Option<u64>,
+        bytes: Option<u64>,
+    },
+    /// One part of a multi-volume archive.
+    MultiVolumeArchive {
+        parts: usize,
+    },
+    /// A needed entry has an unsafe path (zip-slip, device name, link…).
+    UnsafeArchiveEntry {
+        name: String,
+        why: UnsafeWhy,
+    },
+    /// A set member's name the target cannot store unchanged (sheets
+    /// reference it, so it is never renamed).
+    SetUnsafeName {
+        name: String,
+    },
+    /// A target or temp path over the Windows limit.
+    PathTooLong,
+    /// The only payload is another archive.
+    NestedArchive,
+    /// An arcade set in a container other than zip.
+    RepackArcade,
+    /// The FAT32 folder has no directory slots left.
+    FolderFull {
+        folder: String,
+    },
+    /// The target folder is a symlink or junction.
+    UnsafeTarget,
     /// An archive holding several games.
     MultiGameArchive {
         count: usize,
@@ -146,6 +193,87 @@ pub enum ItemNote {
     CatalogueMissing { system: String },
     /// An archive entry is encrypted: its header was not read.
     Encrypted,
+    /// The magic says another container than the extension (`actual` is
+    /// the format's short name, `7z`).
+    ContainerMismatch { ext: String, actual: String },
+    /// A `.gdi` and a `.cue` for the same tracks: both are extracted.
+    TwinSheets { kept: Vec<String> },
+    /// The format stores no CRC: only the size is checked.
+    NoStoredChecksum,
+    /// The decode budget ran out during the dry run.
+    ArchiveNotFullyRead,
+    /// Move mode keeps the archive: it holds files that are not extracted.
+    ArchiveKeptLeftovers { count: usize, examples: Vec<String> },
+    /// The sheet sits beyond the plan-time budget: checked on apply.
+    SheetNotReadYet,
+    /// Several ROMs of one system are extracted from one archive.
+    MultiRomExtract { count: usize },
+}
+
+/// How an item reaches its target (archives spec §8.1).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Transfer {
+    /// The file moves or is copied as it is.
+    #[default]
+    AsIs,
+    /// The listed entries are extracted; `m3u` is a generated playlist
+    /// (relative to the target root).
+    Extract {
+        entries: Vec<ExtractEntry>,
+        bytes: u64,
+        archive_after: ArchiveAfter,
+        #[serde(default)]
+        source: ExtractSource,
+        #[serde(default)]
+        sheet_check: SheetCheck,
+        #[serde(default)]
+        m3u: Option<PathBuf>,
+    },
+}
+
+/// One archive entry an `Extract` item writes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractEntry {
+    /// Position in the archive's own order.
+    pub index: usize,
+    /// The validated entry path (`RelPath`), `/`-separated.
+    pub name: String,
+    pub size: u64,
+    /// Stored CRC32 when the format has one.
+    pub crc32: Option<u32>,
+    /// Relative to the target root.
+    pub target: PathBuf,
+}
+
+/// What happens to the archive once every entry is verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArchiveAfter {
+    /// Copy mode, or move mode with leftovers.
+    Keep,
+    /// Move mode with nothing left behind: sent to the Trash.
+    Trash,
+}
+
+/// Who decodes the archive on apply: the same as at plan time.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExtractSource {
+    #[default]
+    Builtin,
+    /// An external tool, by kind and the version it reported.
+    Tool { tool: Tool, version: String },
+}
+
+/// Whether a disc set's sheet was parsed at plan time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SheetCheck {
+    #[default]
+    Read,
+    /// Inferred from the listing; parsed and checked on apply.
+    Deferred,
 }
 
 /// Why an item's target name differs from its source name.
@@ -219,6 +347,12 @@ pub struct OrganizeItem {
     pub notes: Vec<ItemNote>,
     pub companions: Vec<Companion>,
     pub catalogue_name: Option<String>,
+    /// As-is (default, plans from before archives) or extract.
+    #[serde(default)]
+    pub transfer: Transfer,
+    /// The disc's serials and fingerprint, for the UI and dedupe level 3.
+    #[serde(default)]
+    pub disc: Option<DiscId>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -236,6 +370,7 @@ impl OrganizeItem {
         self.set_targets.clear();
         self.companions.clear();
         self.rename = None;
+        self.transfer = Transfer::AsIs;
     }
 }
 
@@ -1173,6 +1308,8 @@ pub fn plan_from_survey(
             notes: Vec::new(),
             companions: Vec::new(),
             catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
             action: OrganizeAction::Left {
                 reason: LeftReason::Unknown,
             },
@@ -1310,6 +1447,8 @@ pub fn plan_from_survey(
             notes: Vec::new(),
             companions: Vec::new(),
             catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
             action: OrganizeAction::Left { reason },
         });
     }

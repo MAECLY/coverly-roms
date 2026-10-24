@@ -179,7 +179,8 @@ pub struct Entry {
 }
 
 /// An external program that opens what no pure-Rust crate does (spec §5.2).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Tool {
     Unrar,
     SevenZip,

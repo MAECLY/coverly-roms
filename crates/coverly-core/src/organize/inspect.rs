@@ -39,6 +39,18 @@ pub enum Container {
     SevenZip,
     Chd,
     Rar,
+    /// A tar, plain or inside a compressor.
+    Tar,
+    /// A single-file compressor around one ROM (`game.gba.gz`).
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+    Lz4,
+    /// The legacy `.lzma` ("LZMA alone") format.
+    Lzma,
+    /// One part of a multi-volume archive.
+    MultiVolume,
 }
 
 /// A ROM-like content of the candidate (the file itself when raw).
@@ -144,7 +156,15 @@ pub fn inspect_file(path: &Path, len: u64, db: &SystemDb) -> io::Result<Inspecti
                 out.issue = Some(ArchiveIssue::Damaged);
             }
         }
-        Container::Rar => out.issue = Some(ArchiveIssue::Unsupported),
+        Container::Rar
+        | Container::Tar
+        | Container::Gzip
+        | Container::Bzip2
+        | Container::Xz
+        | Container::Zstd
+        | Container::Lz4
+        | Container::Lzma
+        | Container::MultiVolume => out.issue = Some(ArchiveIssue::Unsupported),
         Container::Raw => {
             let sniffed = if len <= head.len() as u64 {
                 first

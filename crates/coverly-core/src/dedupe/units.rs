@@ -432,7 +432,17 @@ fn draft_from_facts(
             _ => return Err(Some(Exclusion::MultiGameArchive)),
         },
         Container::Chd => (UnitKind::Chd, None),
-        Container::SevenZip | Container::Rar => (UnitKind::Single, None),
+        // Opaque archives until dedupe phase B lists them.
+        Container::SevenZip
+        | Container::Rar
+        | Container::Tar
+        | Container::Gzip
+        | Container::Bzip2
+        | Container::Xz
+        | Container::Zstd
+        | Container::Lz4
+        | Container::Lzma
+        | Container::MultiVolume => (UnitKind::Single, None),
         Container::Raw => raw_kind(&ext, meta.len()),
     };
     let stem = path

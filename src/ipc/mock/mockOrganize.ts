@@ -597,6 +597,8 @@ export function createMockOrganize(
       notes: [],
       companions: [],
       catalogue_name: file.catalogue ?? null,
+      transfer: { kind: 'as-is' } as const,
+      disc: null,
     };
     if (file.left)
       return {

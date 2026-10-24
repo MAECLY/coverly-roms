@@ -14,7 +14,8 @@ use std::fmt;
 use unicode_normalization::UnicodeNormalization;
 
 /// Why an entry name cannot be extracted (spec §13 extras).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum UnsafeWhy {
     /// `/etc/x`, `C:\x`, `\\server\share`.
     Absolute,

@@ -1017,3 +1017,219 @@ fn dat_downloads_report_the_dats_phase() {
         "{seen:?}"
     );
 }
+
+// --- Plan types for extraction (archives spec §4.2, §8.1, §11.2) ---
+
+mod extract_types {
+    use std::path::PathBuf;
+
+    use coverly_core::archive::names::UnsafeWhy;
+    use coverly_core::archive::Tool;
+    use coverly_core::dedupe::source::{DiscId, DiscIdSource};
+    use coverly_core::organize::{
+        ArchiveAfter, ExtractEntry, ExtractSource, ItemNote, LeftReason, OrganizeAction,
+        OrganizePlan, SheetCheck, Transfer,
+    };
+
+    const PLAN_V1: &str = include_str!("fixtures/organize/plan-v1.json");
+
+    #[test]
+    fn old_plan_json_without_transfer_parses_as_as_is() {
+        let plan: OrganizePlan = serde_json::from_str(PLAN_V1).unwrap();
+        assert!(!plan.items.is_empty());
+        for item in &plan.items {
+            assert_eq!(item.transfer, Transfer::AsIs);
+            assert_eq!(item.disc, None);
+        }
+        // Round trip keeps the new defaulted fields.
+        let json = serde_json::to_value(&plan).unwrap();
+        assert_eq!(json["items"][0]["transfer"]["kind"], "as-is");
+        let again: OrganizePlan = serde_json::from_value(json).unwrap();
+        assert_eq!(again, plan);
+    }
+
+    #[test]
+    fn unsupported_archive_old_shape_parses() {
+        let plan: OrganizePlan = serde_json::from_str(PLAN_V1).unwrap();
+        let reasons: Vec<&LeftReason> = plan
+            .items
+            .iter()
+            .filter_map(|i| match &i.action {
+                OrganizeAction::Left { reason } => Some(reason),
+                _ => None,
+            })
+            .collect();
+        assert!(reasons.contains(&&LeftReason::UnsupportedArchive {
+            format: None,
+            need: None
+        }));
+        let old: LeftReason = serde_json::from_str(r#"{"kind":"unsupported-archive"}"#).unwrap();
+        assert_eq!(
+            old,
+            LeftReason::UnsupportedArchive {
+                format: None,
+                need: None
+            }
+        );
+        let new = LeftReason::UnsupportedArchive {
+            format: Some("rar".into()),
+            need: Some(Tool::Unrar),
+        };
+        let json = serde_json::to_value(&new).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "unsupported-archive", "format": "rar", "need": "unrar"})
+        );
+    }
+
+    fn round_trip<T>(value: &T, kind: &str)
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let json = serde_json::to_value(value).unwrap();
+        assert_eq!(json["kind"], kind, "{json}");
+        let back: T = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, value);
+    }
+
+    #[test]
+    fn new_left_reasons_round_trip() {
+        let table = [
+            (LeftReason::EncryptedArchive, "encrypted-archive"),
+            (
+                LeftReason::ArchiveNeedsMemory { mib: 1536 },
+                "archive-needs-memory",
+            ),
+            (
+                LeftReason::ArchiveTooBig {
+                    entries: Some(20_000),
+                    bytes: None,
+                },
+                "archive-too-big",
+            ),
+            (
+                LeftReason::MultiVolumeArchive { parts: 3 },
+                "multi-volume-archive",
+            ),
+            (
+                LeftReason::UnsafeArchiveEntry {
+                    name: "../evil.bin".into(),
+                    why: UnsafeWhy::DotDot,
+                },
+                "unsafe-archive-entry",
+            ),
+            (
+                LeftReason::SetUnsafeName {
+                    name: "Track?01.bin".into(),
+                },
+                "set-unsafe-name",
+            ),
+            (LeftReason::PathTooLong, "path-too-long"),
+            (LeftReason::NestedArchive, "nested-archive"),
+            (LeftReason::RepackArcade, "repack-arcade"),
+            (
+                LeftReason::FolderFull {
+                    folder: "PS".into(),
+                },
+                "folder-full",
+            ),
+            (LeftReason::UnsafeTarget, "unsafe-target"),
+            (
+                LeftReason::UnsupportedArchive {
+                    format: Some("rar".into()),
+                    need: Some(Tool::SevenZip),
+                },
+                "unsupported-archive",
+            ),
+        ];
+        for (reason, kind) in &table {
+            round_trip(reason, kind);
+        }
+        let json = serde_json::to_value(&table[4].0).unwrap();
+        assert_eq!(json["why"], "dot-dot");
+    }
+
+    #[test]
+    fn new_notes_round_trip() {
+        let table = [
+            (
+                ItemNote::ContainerMismatch {
+                    ext: "zip".into(),
+                    actual: "7z".into(),
+                },
+                "container-mismatch",
+            ),
+            (
+                ItemNote::TwinSheets {
+                    kept: vec!["gdi".into(), "cue".into()],
+                },
+                "twin-sheets",
+            ),
+            (ItemNote::NoStoredChecksum, "no-stored-checksum"),
+            (ItemNote::ArchiveNotFullyRead, "archive-not-fully-read"),
+            (
+                ItemNote::ArchiveKeptLeftovers {
+                    count: 2,
+                    examples: vec!["Game.sav".into(), "readme.txt".into()],
+                },
+                "archive-kept-leftovers",
+            ),
+            (ItemNote::SheetNotReadYet, "sheet-not-read-yet"),
+            (ItemNote::MultiRomExtract { count: 3 }, "multi-rom-extract"),
+        ];
+        for (note, kind) in &table {
+            round_trip(note, kind);
+        }
+    }
+
+    #[test]
+    fn extract_transfer_and_disc_id_round_trip() {
+        let transfer = Transfer::Extract {
+            entries: vec![ExtractEntry {
+                index: 0,
+                name: "Next Tetris, The (USA)/Next Tetris, The (USA).cue".into(),
+                size: 1_234,
+                crc32: Some(0xDEAD_BEEF),
+                target: PathBuf::from("ROMS/PS/Next Tetris, The (USA).cue"),
+            }],
+            bytes: 1_234,
+            archive_after: ArchiveAfter::Trash,
+            source: ExtractSource::Tool {
+                tool: Tool::Unrar,
+                version: "7.01".into(),
+            },
+            sheet_check: SheetCheck::Deferred,
+            m3u: Some(PathBuf::from("ROMS/PS/Game.m3u")),
+        };
+        round_trip(&transfer, "extract");
+        let json = serde_json::to_value(&transfer).unwrap();
+        assert_eq!(json["archive_after"], "trash");
+        assert_eq!(json["sheet_check"], "deferred");
+        assert_eq!(json["source"]["kind"], "tool");
+        assert_eq!(json["source"]["tool"], "unrar");
+        // An extract without the optional fields parses with defaults.
+        let minimal: Transfer = serde_json::from_value(serde_json::json!({
+            "kind": "extract", "entries": [], "bytes": 0, "archive_after": "keep"
+        }))
+        .unwrap();
+        assert_eq!(
+            minimal,
+            Transfer::Extract {
+                entries: vec![],
+                bytes: 0,
+                archive_after: ArchiveAfter::Keep,
+                source: ExtractSource::Builtin,
+                sheet_check: SheetCheck::Read,
+                m3u: None,
+            }
+        );
+        let disc = DiscId {
+            serials: vec!["SLUS-00862".into()],
+            disc_no: Some(1),
+            volume: None,
+            source: DiscIdSource::SystemCnf,
+        };
+        let back: DiscId = serde_json::from_value(serde_json::to_value(&disc).unwrap()).unwrap();
+        assert_eq!(back, disc);
+    }
+}

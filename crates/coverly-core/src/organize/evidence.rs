@@ -601,7 +601,12 @@ fn left_before_combining(insp: &Inspection) -> Option<LeftReason> {
     match &insp.issue {
         Some(ArchiveIssue::NotARom { what }) => return Some(LeftReason::NotARom { what: *what }),
         Some(ArchiveIssue::Damaged) => return Some(LeftReason::DamagedArchive),
-        Some(ArchiveIssue::Unsupported) => return Some(LeftReason::UnsupportedArchive),
+        Some(ArchiveIssue::Unsupported) => {
+            return Some(LeftReason::UnsupportedArchive {
+                format: None,
+                need: None,
+            })
+        }
         Some(ArchiveIssue::TooManyRoms { count }) => {
             return Some(LeftReason::MultiGameArchive { count: *count })
         }

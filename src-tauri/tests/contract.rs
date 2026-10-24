@@ -395,6 +395,8 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         notes: vec![],
         companions: vec![],
         catalogue_name: None,
+        transfer: Default::default(),
+        disc: None,
         action,
     };
     let auto = OrganizeItem {
