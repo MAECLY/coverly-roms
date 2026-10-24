@@ -1064,6 +1064,56 @@ mod tests {
     }
 
     #[test]
+    fn archive_reasons_and_notes_follow_the_spec_copy() {
+        let unsupported = |format: Option<&str>, need| LeftReason::UnsupportedArchive {
+            format: format.map(str::to_string),
+            need,
+        };
+        assert_eq!(
+            left_text(&unsupported(Some("RAR"), Some(Tool::SevenZip))),
+            "to open RAR archives, install 7-Zip"
+        );
+        assert_eq!(
+            left_text(&unsupported(None, Some(Tool::Unrar))),
+            "to open this archive, install unrar"
+        );
+        assert_eq!(
+            left_text(&unsupported(Some("lzh"), None)),
+            "unsupported archive format (lzh)"
+        );
+        assert_eq!(
+            left_text(&unsupported(None, None)),
+            "unsupported archive format"
+        );
+        assert_eq!(
+            left_text(&LeftReason::ArchiveNeedsMemory { mib: 1536 }),
+            "needs 1536 MB of memory to decompress"
+        );
+        assert_eq!(
+            left_text(&LeftReason::MultiVolumeArchive { parts: 3 }),
+            "multi-part archive (3 parts); join them first"
+        );
+        for ext in ["zip", ".zip"] {
+            let note = ItemNote::ContainerMismatch {
+                ext: ext.into(),
+                actual: "7z".into(),
+            };
+            assert_eq!(
+                note_text(&note).as_deref(),
+                Some("it is a 7z archive named .zip")
+            );
+        }
+        let kept = ItemNote::ArchiveKeptLeftovers {
+            count: 2,
+            examples: vec!["Game.sav".into()],
+        };
+        assert_eq!(
+            note_text(&kept).as_deref(),
+            Some("the archive stays: it has 2 files that are not extracted")
+        );
+    }
+
+    #[test]
     fn slash_joins_with_forward_slashes() {
         assert_eq!(slash(Path::new("ROMS").join("GBA").as_path()), "ROMS/GBA");
     }
