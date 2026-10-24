@@ -629,3 +629,80 @@ mod unix_tests {
         assert!(is_undone(&env, &job));
     }
 }
+
+#[test]
+fn a_lost_archive_keeps_only_its_own_item_and_playlist() {
+    // Two games extracted into the same system folder; only Alpha's
+    // archive is gone from the Trash. Alpha's tracks, playlist and folder
+    // stay (the only copy of that game); Beta is undone as usual.
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    let (a, a_entries) = disc_archive(&env, "Alpha", "PS/Alpha");
+    let (b, b_entries) = disc_archive(&env, "Beta", "PS");
+    let m3u = PathBuf::from("PS/Alpha/Alpha.m3u");
+    let items = vec![
+        extract_item(
+            &env,
+            &a,
+            a_entries.clone(),
+            ArchiveAfter::Trash,
+            Some(m3u.clone()),
+        ),
+        extract_item(&env, &b, b_entries.clone(), ArchiveAfter::Trash, None),
+    ];
+    let report = apply(&env, &plan_of(&env, items, TransferMode::Move), &trash);
+    assert!(env.root.join(&m3u).is_file(), "{report:?}");
+    assert!(!a.exists() && !b.exists());
+    let job = report.job.unwrap();
+    // Empty Alpha's slot of the Trash only.
+    let alpha_in_trash: Vec<PathBuf> = fs::read_dir(&env.trash)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|slot| slot.join("Alpha.zip").exists())
+        .collect();
+    assert_eq!(alpha_in_trash.len(), 1);
+    fs::remove_dir_all(&alpha_in_trash[0]).unwrap();
+
+    let report = undo_job_with(&env.data, &job, &trash).unwrap();
+    assert_eq!(report.archive_lost, std::slice::from_ref(&a));
+    assert_eq!(report.restored, std::slice::from_ref(&b));
+    assert!(fs::read(&b).is_ok() && !a.exists());
+    assert!(targets(&env, &a_entries).iter().all(|t| t.is_file()));
+    assert!(
+        env.root.join(&m3u).is_file(),
+        "the playlist stays with Alpha"
+    );
+    assert!(targets(&env, &b_entries).iter().all(|t| !t.exists()));
+    assert_eq!(
+        sorted(report.removed.clone()),
+        sorted(targets(&env, &b_entries))
+    );
+    assert!(report.dirs_removed.is_empty(), "{:?}", report.dirs_removed);
+    assert!(env.root.join("PS/Alpha").is_dir());
+    assert!(is_undone(&env, &job));
+}
+
+#[test]
+fn undo_puts_the_archive_back_into_a_source_folder_removed_since() {
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    let (made, entries) = disc_archive(&env, "Gamma", "PS");
+    let sub = env.src.join("discs");
+    fs::create_dir_all(&sub).unwrap();
+    let archive = sub.join("Gamma.zip");
+    fs::rename(&made, &archive).unwrap();
+    let before = fs::read(&archive).unwrap();
+    let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Trash, None);
+    let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move), &trash);
+    let job = report.job.unwrap();
+    assert!(!archive.exists());
+    // The user tidies the emptied download folder away.
+    let _ = fs::remove_dir_all(&sub);
+
+    let report = undo_job_with(&env.data, &job, &trash).unwrap();
+    assert_eq!(fs::read(&archive).unwrap(), before);
+    assert_eq!(report.restored, std::slice::from_ref(&archive));
+    assert!(report.archive_lost.is_empty());
+    assert!(targets(&env, &entries).iter().all(|t| !t.exists()));
+}
