@@ -1640,4 +1640,84 @@ mod apply_phases {
         assert_eq!(report.resumable_items, [0]);
         assert_untouched(&env, &archive, &before, &entries);
     }
+
+    /// A two-disc game extracted into `PS/Final Game/`.
+    fn two_discs(env: &Env) -> (PathBuf, Vec<ExtractEntry>) {
+        let cue = |bin: &str| {
+            format!("FILE \"{bin}\" BINARY\r\n  TRACK 01 MODE2/2352\r\n    INDEX 01 00:00:00\r\n")
+        };
+        let (b1, b2) = ("Final Game (Disc 1).bin", "Final Game (Disc 2).bin");
+        let (c1, c2) = (cue(b1), cue(b2));
+        let (archive, reader) = write_archive(
+            env,
+            "Final Game.7z",
+            &sevenz(
+                &[
+                    (b1, b"disc one".as_slice()),
+                    (b2, b"disc two".as_slice()),
+                    ("Final Game (Disc 1).cue", c1.as_bytes()),
+                    ("Final Game (Disc 2).cue", c2.as_bytes()),
+                ],
+                SevenZShape::solid_lzma2_sheets_last(),
+            ),
+        );
+        let entries = plan_entries(reader.as_ref(), "PS/Final Game");
+        (archive, entries)
+    }
+
+    #[test]
+    fn an_unsafe_playlist_path_is_refused_before_any_temp() {
+        let env = env();
+        let (archive, entries) = two_discs(&env);
+        let before = fs::read(&archive).unwrap();
+        let mut item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
+        set_transfer(&mut item, |_, _, m| {
+            *m = Some(PathBuf::from("../Final Game.m3u"))
+        });
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert!(
+            matches!(status(&report), ItemStatus::Failed { .. }),
+            "{report:?}"
+        );
+        assert_untouched(&env, &archive, &before, &entries);
+        assert!(!env.root.parent().unwrap().join("Final Game.m3u").exists());
+    }
+
+    static APPENDS_LEFT: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(-1);
+
+    fn full_on_the_nth_append() -> Option<io::Error> {
+        (APPENDS_LEFT.fetch_sub(1, Ordering::SeqCst) == 1)
+            .then(|| io::Error::from(ErrorKind::StorageFull))
+    }
+
+    #[test]
+    fn a_playlist_the_journal_cannot_record_is_not_left_behind() {
+        let env = env();
+        let (archive, entries) = two_discs(&env);
+        let before = fs::read(&archive).unwrap();
+        let mut item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
+        let m3u = PathBuf::from("PS/Final Game/Final Game.m3u");
+        set_transfer(&mut item, |_, _, m| *m = Some(m3u.clone()));
+        // After phase B: four completion lines go in, the playlist's
+        // `created` line finds the journal volume full.
+        let renames = isize::try_from(entries.len()).unwrap();
+        set_phase_hook(Some(Box::new(move |at| {
+            if at == HookPoint::AfterPhaseB {
+                APPENDS_LEFT.store(renames + 1, Ordering::SeqCst);
+                set_journal_fault(Some(full_on_the_nth_append));
+            }
+        })));
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        set_phase_hook(None);
+        set_journal_fault(None);
+        assert!(
+            report
+                .items
+                .iter()
+                .all(|o| o.status != ItemStatus::Extracted),
+            "{report:?}"
+        );
+        assert!(!env.root.join(&m3u).exists(), "orphan playlist");
+        assert_untouched(&env, &archive, &before, &entries);
+    }
 }

@@ -610,6 +610,14 @@ fn extract_need(items: &[&OrganizeItem], cluster: u64) -> u64 {
 /// a helper thread until `f` returns): the decode budget of an extraction
 /// needs a shared flag, the apply environment lends a plain one.
 fn with_linked_cancel<T>(outer: &AtomicBool, f: impl FnOnce(&Arc<AtomicBool>) -> T) -> T {
+    /// Stops the helper when `f` returns or unwinds: the scope waits for
+    /// it, so a panic in `f` must not leave it polling forever.
+    struct Over<'f>(&'f AtomicBool);
+    impl Drop for Over<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
     let inner = Arc::new(AtomicBool::new(outer.load(Ordering::SeqCst)));
     let over = AtomicBool::new(false);
     std::thread::scope(|scope| {
@@ -622,9 +630,8 @@ fn with_linked_cancel<T>(outer: &AtomicBool, f: impl FnOnce(&Arc<AtomicBool>) ->
                 std::thread::sleep(Duration::from_millis(10));
             }
         });
-        let out = f(&inner);
-        over.store(true, Ordering::SeqCst);
-        out
+        let _over = Over(&over);
+        f(&inner)
     })
 }
 
@@ -1398,5 +1405,21 @@ mod tests {
         assert_eq!(json["pause_reason"], "disk-full");
         let back: OrganizeReport = serde_json::from_value(json).unwrap();
         assert_eq!(back, report);
+    }
+
+    #[test]
+    fn a_panic_inside_a_linked_cancel_unwinds_instead_of_hanging() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outer = AtomicBool::new(false);
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_linked_cancel(&outer, |_| -> () { panic!("a bug inside an extraction") })
+            }));
+            let _ = tx.send(caught.is_err());
+        });
+        let unwound = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("with_linked_cancel hung after a panic");
+        assert!(unwound);
     }
 }

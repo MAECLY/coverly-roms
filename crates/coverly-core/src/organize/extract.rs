@@ -416,12 +416,13 @@ pub fn extract_and_commit(
     req: &CommitRequest,
 ) -> Result<Vec<PathBuf>, ExtractError> {
     let item = req.extract.item;
-    let a = extract_to_temps(writer, reader, &req.extract)?;
-    phase_hook(HookPoint::AfterPhaseA);
+    // Resolved before phase A: a refusal must not leave temps behind.
     let m3u = match req.m3u {
         Some(rel) => Some(target_path(writer.root(), rel)?),
         None => None,
     };
+    let a = extract_to_temps(writer, reader, &req.extract)?;
+    phase_hook(HookPoint::AfterPhaseA);
     let checked = validate(&a, req, m3u.as_deref()).and_then(|()| {
         if req.extract.cancel.load(Ordering::Relaxed) {
             Err(ExtractError::Cancelled)

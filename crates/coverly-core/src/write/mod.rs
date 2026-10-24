@@ -905,8 +905,22 @@ impl Writer {
             });
         }
         remove_apple_doubles(&[tmp]);
+        let journaled = self.append_entry(
+            target.clone(),
+            Op::Created,
+            Some(sha1_hex(bytes)),
+            None,
+            item,
+        );
+        if let Err(e) = journaled {
+            // Not in the journal, so no undo would ever find it: the file
+            // was renamed into place this very moment, it is ours to drop.
+            let _ = fs::remove_file(&target);
+            remove_apple_doubles(&[target]);
+            return Err(e);
+        }
         self.changes += 1;
-        self.append_entry(target, Op::Created, Some(sha1_hex(bytes)), None, item)
+        Ok(())
     }
 
     /// The `extracted` op of `file`, once its archive is inside the source
