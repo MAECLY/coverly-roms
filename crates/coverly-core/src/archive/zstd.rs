@@ -193,6 +193,37 @@ fn le(bytes: &[u8]) -> u64 {
         .fold(0u64, |acc, &b| (acc << 8) | u64::from(b))
 }
 
+/// The window of the first zstd frame, after skipping skippable frames,
+/// checked against `cap` (S2). What they skip comes out of `allowance`,
+/// one for the whole listing (`max_header`): zip entries may share one
+/// frame, so a per-entry limit would let 10,000 of them read 16 MiB each.
+/// Used by the zip backend (method 93) and the single-file `.zst` reader.
+pub(super) fn read_zstd_first_window(
+    raw: &mut impl Read,
+    cap: u64,
+    allowance: &mut u64,
+) -> Result<u64, ArchiveError> {
+    let mut src = Tracked::new(raw);
+    loop {
+        match read_frame_start(&mut src)? {
+            FrameStart::End => return Err(damaged("zstd stream without a frame")),
+            FrameStart::Skippable(len) => {
+                *allowance = allowance
+                    .checked_sub(u64::from(len))
+                    .ok_or_else(|| damaged("zstd skippable frames over the limit"))?;
+                let drained = io::copy(&mut (&mut src).take(u64::from(len)), &mut io::sink())?;
+                if drained != u64::from(len) {
+                    return Err(damaged("zstd skippable frame truncated"));
+                }
+            }
+            FrameStart::Frame(header, _) => {
+                check(header.mem_needed(), cap)?;
+                return Ok(header.window);
+            }
+        }
+    }
+}
+
 /// The decoder of one frame and what is verified at its end. Fields drop
 /// in order: the decoder before its gate permit.
 struct ActiveFrame<R: Read> {

@@ -236,6 +236,10 @@ impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
         self.inner.as_ref().map_or(&[], A::entries)
     }
 
+    fn listing_complete(&self) -> bool {
+        self.inner.as_ref().is_some_and(A::listing_complete)
+    }
+
     fn open_entry<'a>(
         &'a mut self,
         index: usize,

@@ -43,10 +43,10 @@ use ppmd_rust::{Ppmd8Decoder, RestoreMethod};
 
 use super::budget::{Budget, ChargedRead, MemoryGate, Permit};
 use super::guard::{guarded, GuardedRead, Poison};
-use super::lzma::{self, open_decoder, parse_xz_block_header, LzmaKind, LzmaParams, XzWalker};
+use super::lzma::{self, open_decoder, read_xz_first_dict, LzmaKind, LzmaParams, XzWalker};
 use super::names::{decode_zip_name, RelPath, UnsafeWhy};
 use super::verify::VerifyingReader;
-use super::zstd::{self as zstd_frames, FrameStart, ZstdFrames};
+use super::zstd::{read_zstd_first_window, ZstdFrames};
 use super::{ArchiveError, ArchiveReader, Entry, EntryKind, Format, Limits, Method};
 
 /// What a zip's end-of-central-directory record claims.
@@ -73,8 +73,6 @@ const ZIP64_EOCD_SIG: [u8; 4] = *b"PK\x06\x06";
 const EOCD_SEARCH: u64 = EOCD_LEN as u64 + u16::MAX as u64;
 const CDH_SIG: [u8; 4] = *b"PK\x01\x02";
 const CDH_LEN: usize = 46;
-
-const XZ_MAGIC: [u8; 6] = [0xFD, b'7', b'z', b'X', b'Z', 0x00];
 
 /// Zip method numbers this backend knows.
 const M_STORED: u16 = 0;
@@ -462,66 +460,6 @@ fn read_ppmd_header(raw: &mut impl Read) -> Result<PpmdParams, ArchiveError> {
         return Err(damaged("zip ppmd header truncated"));
     }
     PpmdParams::from_header(head)
-}
-
-/// The LZMA2 dictionary of the first block of an xz stream (0 when the
-/// stream has no block), after checking the stream header.
-fn read_xz_first_dict(raw: &mut impl Read, cap: u64) -> Result<u32, ArchiveError> {
-    let mut head = [0u8; 12];
-    if read_full(raw, &mut head)? != head.len() {
-        return Err(damaged("zip xz stream header truncated"));
-    }
-    if head[..6] != XZ_MAGIC
-        || crc32fast::hash(&head[6..8])
-            != u32::from_le_bytes([head[8], head[9], head[10], head[11]])
-    {
-        return Err(damaged("zip xz stream header"));
-    }
-    let mut size = [0u8; 1];
-    if read_full(raw, &mut size)? != 1 {
-        return Err(damaged("zip xz block header truncated"));
-    }
-    if size[0] == 0 {
-        return Ok(0);
-    }
-    let mut header = vec![0u8; (usize::from(size[0]) + 1) * 4];
-    header[0] = size[0];
-    if read_full(raw, &mut header[1..])? != header.len() - 1 {
-        return Err(damaged("zip xz block header truncated"));
-    }
-    let block = parse_xz_block_header(&header)?;
-    lzma::check(block.lzma2.mem_needed(), cap)?;
-    Ok(block.lzma2.dict_raw)
-}
-
-/// The window of the first zstd frame, after skipping skippable frames.
-/// What they skip comes out of `allowance`, one for the whole listing
-/// (`max_header`): entries may share one frame, so a per-entry limit would
-/// let 10,000 of them read 16 MiB each.
-fn read_zstd_first_window(
-    raw: &mut impl Read,
-    cap: u64,
-    allowance: &mut u64,
-) -> Result<u64, ArchiveError> {
-    let mut src = lzma::Tracked::new(raw);
-    loop {
-        match zstd_frames::read_frame_start(&mut src)? {
-            FrameStart::End => return Err(damaged("zip zstd entry without a frame")),
-            FrameStart::Skippable(len) => {
-                *allowance = allowance
-                    .checked_sub(u64::from(len))
-                    .ok_or_else(|| damaged("zip zstd skippable frames over the limit"))?;
-                let drained = io::copy(&mut (&mut src).take(u64::from(len)), &mut io::sink())?;
-                if drained != u64::from(len) {
-                    return Err(damaged("zstd skippable frame truncated"));
-                }
-            }
-            FrameStart::Frame(header, _) => {
-                lzma::check(header.mem_needed(), cap)?;
-                return Ok(header.window);
-            }
-        }
-    }
 }
 
 /// A zip or zip64 archive (see the module docs).

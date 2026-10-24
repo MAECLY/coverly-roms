@@ -845,6 +845,39 @@ struct StreamState {
     records: crc32fast::Hasher,
 }
 
+/// The LZMA2 dictionary of the first block of an xz stream (0 when the
+/// stream has no block), after checking the stream header, and checked
+/// against `cap` (S2: the listing refuses it before any decoder exists).
+/// Used by the zip backend (method 95) and the single-file `.xz` reader.
+pub(super) fn read_xz_first_dict(raw: &mut impl Read, cap: u64) -> Result<u32, ArchiveError> {
+    let mut raw = Tracked::new(raw);
+    let mut head = [0u8; 12];
+    if raw.read_full(&mut head)? != head.len() {
+        return Err(damaged("xz stream header truncated"));
+    }
+    if head[..6] != XZ_MAGIC
+        || crc32fast::hash(&head[6..8])
+            != u32::from_le_bytes([head[8], head[9], head[10], head[11]])
+    {
+        return Err(damaged("xz stream header"));
+    }
+    let mut size = [0u8; 1];
+    if raw.read_full(&mut size)? != 1 {
+        return Err(damaged("xz block header truncated"));
+    }
+    if size[0] == 0 {
+        return Ok(0);
+    }
+    let mut header = vec![0u8; (usize::from(size[0]) + 1) * 4];
+    header[0] = size[0];
+    if raw.read_full(&mut header[1..])? != header.len() - 1 {
+        return Err(damaged("xz block header truncated"));
+    }
+    let block = parse_xz_block_header(&header)?;
+    check(block.lzma2.mem_needed(), cap)?;
+    Ok(block.lzma2.dict_raw)
+}
+
 /// An `.xz` decoder that walks the container itself (S2): every block
 /// header of every stream is parsed, and its LZMA2 dictionary checked
 /// against the cap (and taken from the memory gate, when one is set),

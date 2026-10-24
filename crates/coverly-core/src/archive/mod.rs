@@ -19,6 +19,7 @@ pub mod guard;
 pub mod lzma;
 pub mod names;
 pub mod sevenz;
+pub mod single;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
@@ -30,6 +31,7 @@ pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};
 pub use sevenz::SevenZReader;
+pub use single::{open_compressor, SingleReader, SizeSource};
 pub use verify::VerifyingReader;
 pub use zip::ZipReader;
 
@@ -374,6 +376,14 @@ pub trait ArchiveReader: Send {
 
     /// The validated listing (spec §4.3). Never empty for an `Ok` reader.
     fn entries(&self) -> &[Entry];
+
+    /// Whether the listing is the whole archive with exact sizes. False
+    /// for a tar inside a compressor whose walk stopped before the end
+    /// marker, and for a single-file stream whose size is unknown: such an
+    /// archive may be moved or copied as it is, never extracted (spec §4.2).
+    fn listing_complete(&self) -> bool {
+        true
+    }
 
     /// A reader of one entry's decoded bytes, verified against the
     /// listing's size and CRC at EOF. Bytes decoded to reach it (solid
