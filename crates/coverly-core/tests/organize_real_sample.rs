@@ -330,6 +330,21 @@ fn downloads_disc_archives_plan() {
         let it = item(&plan, name);
         assert_eq!(it.folder.as_deref(), *folder, "{name}: {it:#?}");
         assert_eq!(it.is_left(), folder.is_none(), "{name}");
+        if folder.is_some() {
+            // Same system and action as on main, not just the folder.
+            assert_eq!(it.system_id.as_deref(), Some("gba"), "{name}: {it:#?}");
+            assert!(matches!(it.action, OrganizeAction::Auto), "{name}: {it:#?}");
+        } else {
+            assert!(
+                matches!(
+                    it.action,
+                    OrganizeAction::Left {
+                        reason: LeftReason::Unknown
+                    }
+                ),
+                "{name}: an IPS patch, not a ROM: {it:#?}"
+            );
+        }
         assert_eq!(
             it.transfer,
             Transfer::AsIs,
