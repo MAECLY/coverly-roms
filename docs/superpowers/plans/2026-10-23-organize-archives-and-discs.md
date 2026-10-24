@@ -607,6 +607,8 @@ impl DiscReader { pub fn identify(src: &mut dyn SectorSource) -> Option<DiscIden
 ```
 The rows come from spec §7. Saturn: `SEGA SEGASATURN ` at 0x00 (0x10 raw), product at 0x20. Dreamcast: `SEGA SEGAKATANA `, product at 0x40, disc `n/m` at 0x2B, track 03 only. Sega CD: `SEGADISCSYSTEM  ` with system type at 0x100 and serial at 0x180, never `megadrive`. PCE CD: `PC Engine CD-ROM SYSTEM` at 0x20 of sector 1 (0.90). Neo Geo CD: root `IPL.TXT` with no SYSTEM.CNF and no Sega/NEC signature (0.85). 3DO: Opera header `01 5A5A5A5A5A 01` → `Unsupported("3DO")`. The fingerprint's boot SHA1 is SYSTEM.CNF, or IP.BIN = the first 32 KiB of the primary track.
 
+PlayStation boot file past the window (Task 20 review, real case): on `Next Tetris, The (USA)` `SYSTEM.CNF` is at LBA 2089 (≈ 4.9 MB, after a 4 MiB `PSX.BSE`), outside the 4 MiB head window. `identify_playstation` then returns `pending_boot: Some(FileExtent)` and a serial from the root boot executable's name (0.80). `DiscReader` (and the plan code of §6.2 step 3) must read `FileExtent::stored_range(layout, SYSTEM_CNF_CAP)` with a skip on a fresh `open_entry` charged to the same 64 MiB head budget, wrap it in `WindowSource::at`, `read_extent`, and call `identify_playstation_with` for the 0.95 verdict and the volume fingerprint. Budget spent → keep the 0.80 verdict.
+
 - [ ] **Step 1: Write the failing tests:** `saturn_product_t5704h`, `dreamcast_track03_t40214n_disc_1_of_1`, `dreamcast_track01_alone_is_not_enough`, `segacd_never_megadrive`, `pce_cd_sector1`, `neocd_ipl_txt`, `three_do_unsupported`, `psp_iso_unchanged`, `identity_detail_strings_are_data`.
 - [ ] **Step 2: Run** `cargo test -p coverly-core --features test-util --test disc_identify --test sniff` (fails).
 - [ ] **Step 3: Implement.**

@@ -274,6 +274,8 @@ An archive is a **disc archive** when its file entries contain at least one `.cu
 
 `DiscIdentity { system, serials, disc_no, volume: VolumeFingerprint, source: DiscIdSource }` maps 1:1 onto `dedupe::DiscId` (§10).
 
+`SYSTEM.CNF` may lie past the 4 MiB head window (real case: LBA 2089 of `Next Tetris, The (USA) (Track 01).bin`, after a 4 MiB `PSX.BSE`). The PlayStation reader then reports the file's extent as pending and takes the serial from the root boot executable's name (`SLUS_008.62;1`, only when exactly one root file has a serial name) at 0.80. The caller reads that extent (a skip charged to the same 64 MiB head budget) and finishes at 0.95 with the volume fingerprint.
+
 ## 8. Plan: actions and target layout
 
 ### 8.1 New per-item transfer
