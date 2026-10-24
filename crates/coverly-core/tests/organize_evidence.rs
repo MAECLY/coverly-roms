@@ -711,11 +711,18 @@ fn two_versions_of_one_game_in_one_zip_are_allowed_with_a_note() {
     assert_eq!(id.rom_count, 2);
 }
 
+/// A real 7z holding one entry that carries no header evidence.
+fn opaque_7z(path: &Path) {
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    let bytes = sevenz(&[("data.xyz", &[0u8; 64])], SevenZShape::non_solid_lzma());
+    std::fs::write(path, bytes).unwrap();
+}
+
 #[test]
-fn a_seven_zip_is_named_only_and_never_auto() {
+fn a_seven_zip_without_header_evidence_is_named_only_and_never_auto() {
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path().join("Tetris (World).7z");
-    std::fs::write(&p, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4]).unwrap();
+    opaque_7z(&p);
     let cat = FakeCatalogue {
         rows: vec![],
         stems: vec![("gb", "Tetris (World)")],
@@ -833,7 +840,7 @@ fn scene_groups_hint_gba() {
 fn tags_hint_the_game_boy_family() {
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path().join("Pokemon Pinball (USA) (GB Compatible).7z");
-    std::fs::write(&p, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0, 4]).unwrap();
+    opaque_7z(&p);
     let id = identify(&p, &FakeCatalogue::empty());
     assert_eq!(id.combined.verdict, Verdict::Review);
     assert_eq!(id.combined.system.as_deref(), Some("gbc"));

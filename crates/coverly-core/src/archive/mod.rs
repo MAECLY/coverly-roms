@@ -67,7 +67,8 @@ pub const TAR_TRAILER_ALLOWANCE: u64 = MIB;
 pub const PLAN_WALL_TIME: Duration = Duration::from_secs(20);
 
 /// A single-file compressor, alone or around a tar (spec §3.1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Compressor {
     Gzip,
     Bzip2,
@@ -79,7 +80,8 @@ pub enum Compressor {
 }
 
 /// The container a reader opened, as detected by magic (spec §3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Format {
     Zip,
     SevenZip,
@@ -91,6 +93,65 @@ pub enum Format {
     },
     /// One compressed file (`game.gba.gz`): one virtual entry.
     Single(Compressor),
+}
+
+impl Compressor {
+    /// The usual file extension (`gz`, `bz2`, …).
+    pub fn ext(self) -> &'static str {
+        match self {
+            Self::Gzip => "gz",
+            Self::Bzip2 => "bz2",
+            Self::Xz => "xz",
+            Self::Zstd => "zst",
+            Self::Lz4 => "lz4",
+            Self::LzmaAlone => "lzma",
+        }
+    }
+
+    /// The container magic this compressor is detected by.
+    fn magic(self) -> crate::identify::sniff::ContainerMagic {
+        use crate::identify::sniff::ContainerMagic as M;
+        match self {
+            Self::Gzip => M::Gzip,
+            Self::Bzip2 => M::Bzip2,
+            Self::Xz => M::Xz,
+            Self::Zstd => M::Zstd,
+            Self::Lz4 => M::Lz4,
+            Self::LzmaAlone => M::LzmaAlone,
+        }
+    }
+}
+
+impl Format {
+    /// The format's short name as users know it (`7z`, `tar.gz`, `gz`):
+    /// data for the UI's mismatch note, never prose.
+    pub fn short_name(self) -> String {
+        match self {
+            Self::Zip => "zip".into(),
+            Self::SevenZip => "7z".into(),
+            Self::Rar { .. } => "rar".into(),
+            Self::Tar { outer: None } => "tar".into(),
+            Self::Tar { outer: Some(c) } => format!("tar.{}", c.ext()),
+            Self::Single(c) => c.ext().into(),
+        }
+    }
+
+    /// Whether a file extension (lower-case, no dot) names this format:
+    /// `.tgz` names a gzip whether it holds a tar or one file, `.cbr` and
+    /// `.r00` name RAR. `false` for extensions that name no archive.
+    pub fn named_by(self, ext: &str) -> bool {
+        use crate::identify::sniff::ContainerMagic as M;
+        let Some(named) = detect::by_extension(ext) else {
+            return false;
+        };
+        match self {
+            Self::Zip => named == M::Zip,
+            Self::SevenZip => named == M::SevenZip,
+            Self::Rar { .. } => matches!(named, M::Rar4 | M::Rar5),
+            Self::Tar { outer: None } => named == M::Tar,
+            Self::Tar { outer: Some(c) } | Self::Single(c) => named == c.magic(),
+        }
+    }
 }
 
 /// What an archive entry is. Only [`EntryKind::File`] entries are ever
@@ -456,6 +517,20 @@ pub fn file_entries(r: &dyn ArchiveReader) -> impl Iterator<Item = &Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_short_names_and_extensions() {
+        let gz = Compressor::Gzip;
+        assert_eq!(Format::SevenZip.short_name(), "7z");
+        assert_eq!(Format::Tar { outer: Some(gz) }.short_name(), "tar.gz");
+        assert_eq!(Format::Single(Compressor::Zstd).short_name(), "zst");
+        assert!(Format::Zip.named_by("zip"));
+        assert!(!Format::SevenZip.named_by("zip"));
+        assert!(Format::Tar { outer: Some(gz) }.named_by("tgz"));
+        assert!(Format::Single(gz).named_by("gz"));
+        assert!(Format::Rar { v5: true }.named_by("rar"));
+        assert!(!Format::Zip.named_by("bin"));
+    }
 
     #[test]
     fn limits_default_matches_spec() {

@@ -17,7 +17,7 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
 use crate::identify::names::{parse_name, score, strip_numbering_prefix};
 use crate::identify::sniff::{Sniff, DECISIVE};
-use crate::organize::inspect::{ArchiveIssue, Container, Inspection, NOTE_ENCRYPTED};
+use crate::organize::inspect::{Container, Inspection, NOTE_ENCRYPTED};
 use crate::organize::plan::{ItemNote, LeftReason};
 use crate::systems::{ExtClass, SystemDb};
 
@@ -598,19 +598,8 @@ fn stem_of(name: &str) -> &str {
 
 /// Why a candidate stays put whatever its evidence.
 fn left_before_combining(insp: &Inspection) -> Option<LeftReason> {
-    match &insp.issue {
-        Some(ArchiveIssue::NotARom { what }) => return Some(LeftReason::NotARom { what: *what }),
-        Some(ArchiveIssue::Damaged) => return Some(LeftReason::DamagedArchive),
-        Some(ArchiveIssue::Unsupported) => {
-            return Some(LeftReason::UnsupportedArchive {
-                format: None,
-                need: None,
-            })
-        }
-        Some(ArchiveIssue::TooManyRoms { count }) => {
-            return Some(LeftReason::MultiGameArchive { count: *count })
-        }
-        None => {}
+    if let Some(issue) = &insp.issue {
+        return Some(crate::organize::plan::left_reason_for(issue));
     }
     if let Some(name) = insp
         .payloads
@@ -782,6 +771,12 @@ pub fn identify_candidate(
     if insp.notes.iter().any(|n| n == NOTE_ENCRYPTED) {
         id.notes.push(ItemNote::Encrypted);
     }
+    if let Some((ext, format)) = &insp.mismatch {
+        id.notes.push(ItemNote::ContainerMismatch {
+            ext: ext.clone(),
+            actual: format.short_name(),
+        });
+    }
     // 1. Pre-checks.
     if let Some(left) = left_before_combining(&insp) {
         id.left = Some(left);
@@ -789,7 +784,7 @@ pub fn identify_candidate(
     }
     let content_read = !cloud_only
         && insp.payloads.iter().any(|p| p.sniff.read > 0)
-        && matches!(insp.container, Container::Raw | Container::Zip);
+        && (insp.container == Container::Raw || insp.container.is_archive());
     let decide = |evidence: &[Evidence], excluded: &[String]| {
         combine(&CombineInput {
             evidence,
@@ -802,7 +797,7 @@ pub fn identify_candidate(
     let mut evidence: Vec<Evidence> = Vec::new();
     let mut excluded: Vec<String> = Vec::new();
     match insp.container {
-        Container::Zip if insp.payloads.len() == 1 => {
+        c if c.is_archive() && insp.payloads.len() == 1 => {
             let p = &insp.payloads[0];
             id.content_key = p.crc32.clone().map(|crc| (crc, p.size));
         }
@@ -844,7 +839,7 @@ pub fn identify_candidate(
     }
     // 4. Name signals on the outer and inner stems.
     let mut stems: Vec<&str> = vec![strip_numbering_prefix(stem_of(outer_name))];
-    if insp.container == Container::Zip {
+    if insp.container.is_archive() {
         stems.extend(
             insp.payloads
                 .iter()
@@ -857,7 +852,7 @@ pub fn identify_candidate(
     }
     // 5. DAT by CRC.
     let mut crcs: Vec<(String, u64)> = match insp.container {
-        Container::Zip => insp
+        c if c.is_archive() => insp
             .payloads
             .iter()
             .filter_map(|p| p.crc32.clone().map(|c| (c, p.size)))
@@ -927,7 +922,8 @@ pub fn identify_candidate(
         let inside: HashSet<String> = insp
             .entries
             .iter()
-            .map(|e| e.crc32.to_ascii_uppercase())
+            .filter_map(|e| e.crc32.as_deref())
+            .map(str::to_ascii_uppercase)
             .collect();
         let mut winner = false;
         for system in env.arcade_order {
@@ -960,7 +956,7 @@ pub fn identify_candidate(
         if let Some((crc, crc_size)) = known {
             if decide(&evidence, &excluded).verdict != Verdict::Auto {
                 let file_name = match insp.container {
-                    Container::Zip => insp
+                    c if c.is_archive() => insp
                         .payloads
                         .first()
                         .map_or(outer_name, |p| p.name.as_str()),
@@ -984,6 +980,14 @@ pub fn identify_candidate(
     // even when facts memoised while it was local name its system.
     if cloud_only && combined.verdict == Verdict::Auto && combined.method != Some(IdLevel::User) {
         combined.verdict = Verdict::Review;
+    }
+    // An archive not fully read within the plan budget is asked about,
+    // never moved on its own (archives spec §4.2).
+    if insp.budget_spent {
+        if combined.verdict == Verdict::Auto && combined.method != Some(IdLevel::User) {
+            combined.verdict = Verdict::Review;
+        }
+        id.notes.push(ItemNote::ArchiveNotFullyRead);
     }
     if let Some(system) = combined.system.clone() {
         id.catalogue_name = hits

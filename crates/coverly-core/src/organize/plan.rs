@@ -25,7 +25,9 @@ use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
 };
-use crate::organize::inspect::{inspect_file, inspect_set_primary, Container, Inspection, Payload};
+use crate::organize::inspect::{
+    inspect_file_with, inspect_set_primary, ArchiveIssue, Container, Inspection, Payload,
+};
 use crate::organize::target::{
     assign_targets, default_companion_exts, file_system_is_fat32, mark_duplicates, DirIndex,
     TargetLayout,
@@ -176,6 +178,29 @@ pub enum LeftReason {
     Unreadable,
     /// One file of a set collides at the target: the whole set stays.
     CollisionSet,
+}
+
+/// The reason an inspection issue leaves an item in place (archives spec
+/// §4.2): size caps are never damage, and a spent budget is no issue at all
+/// (the item goes to Review with `ItemNote::ArchiveNotFullyRead`).
+pub fn left_reason_for(issue: &ArchiveIssue) -> LeftReason {
+    match issue {
+        ArchiveIssue::Damaged => LeftReason::DamagedArchive,
+        ArchiveIssue::Unsupported { format, need } => LeftReason::UnsupportedArchive {
+            format: format.clone(),
+            need: *need,
+        },
+        ArchiveIssue::Encrypted => LeftReason::EncryptedArchive,
+        ArchiveIssue::NeedsMemory { mib } => LeftReason::ArchiveNeedsMemory { mib: *mib },
+        ArchiveIssue::TooBig { entries, bytes } => LeftReason::ArchiveTooBig {
+            entries: *entries,
+            bytes: *bytes,
+        },
+        ArchiveIssue::MultiVolume { parts } => LeftReason::MultiVolumeArchive { parts: *parts },
+        ArchiveIssue::Nested => LeftReason::NestedArchive,
+        ArchiveIssue::NotARom { what } => LeftReason::NotARom { what: *what },
+        ArchiveIssue::TooManyRoms { count } => LeftReason::MultiGameArchive { count: *count },
+    }
 }
 
 /// Something worth telling about an item that still moves (data for the
@@ -858,7 +883,14 @@ pub fn survey(
     } else {
         WORKERS
     };
-    let results = identify_all(&entries, &todo, workers, env, &ladder, progress, cancel)?;
+    let results = identify_all(
+        &entries,
+        &todo,
+        workers,
+        (env, &ladder, &opts.limits),
+        progress,
+        cancel,
+    )?;
     let mut facts_of: HashMap<usize, Facts> = HashMap::new();
     for (i, outcome) in results {
         match outcome {
@@ -1089,8 +1121,7 @@ fn identify_all(
     entries: &[Pending],
     todo: &[usize],
     workers: usize,
-    env: &OrganizeEnv,
-    ladder: &LadderEnv,
+    (env, ladder, limits): (&OrganizeEnv, &LadderEnv, &Limits),
     progress: &(dyn Fn(OrganizeProgress) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Vec<(usize, Outcome)>, OrganizeError> {
@@ -1114,7 +1145,7 @@ fn identify_all(
                 let Some(&i) = todo.get(k) else {
                     break;
                 };
-                let outcome = identify_entry(&entries[i], env, ladder);
+                let outcome = identify_entry(&entries[i], env, ladder, limits);
                 results
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1142,7 +1173,12 @@ fn identify_all(
 
 /// Facts (memoised or freshly inspected) and the ladder's verdict for one
 /// entry.
-fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> Outcome {
+fn identify_entry(
+    pending: &Pending,
+    env: &OrganizeEnv,
+    ladder: &LadderEnv,
+    limits: &Limits,
+) -> Outcome {
     let candidate = pending
         .candidate
         .as_ref()
@@ -1155,7 +1191,7 @@ fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> O
         match memoised_facts(env.cache, candidate) {
             Some(facts) => facts,
             None => {
-                let inspection = inspect_file(&candidate.path, candidate.size, env.db)
+                let inspection = inspect_file_with(&candidate.path, candidate.size, env.db, limits)
                     .map_err(|_| LeftReason::Unreadable)?;
                 Facts {
                     inspection,
@@ -1166,7 +1202,7 @@ fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> O
         }
     };
     let id = identify_one(candidate, &mut facts, ladder);
-    if pending.entry.kind != ItemKind::Set && !candidate.cloud_only {
+    if pending.entry.kind != ItemKind::Set && !candidate.cloud_only && memoisable(&facts) {
         remember_facts(env.cache, candidate, &facts);
     }
     Ok((facts, id))
@@ -1192,13 +1228,42 @@ fn identify_one(
     )
 }
 
+/// Version of the memoised facts: facts from before the archive reader
+/// (no version) judged a 7z named `.zip` damaged, so they are read again.
+const FACTS_VERSION: u32 = 1;
+
+/// Facts as memoised, with their version.
+#[derive(Serialize, Deserialize)]
+struct StoredFacts {
+    #[serde(default)]
+    v: u32,
+    #[serde(flatten)]
+    facts: Facts,
+}
+
 fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
     let json = cache.organize_facts(&c.path, c.size, c.mtime_ns).ok()??;
-    serde_json::from_str(&json).ok()
+    let stored: StoredFacts = serde_json::from_str(&json).ok()?;
+    (stored.v == FACTS_VERSION).then_some(stored.facts)
+}
+
+/// Facts that depend only on the file: not those cut short by a budget,
+/// nor an archive that an external tool found later could open.
+fn memoisable(facts: &Facts) -> bool {
+    let insp = &facts.inspection;
+    !insp.budget_spent
+        && !matches!(
+            insp.issue,
+            Some(ArchiveIssue::Unsupported { need: Some(_), .. })
+        )
 }
 
 fn remember_facts(cache: &Cache, c: &WalkCandidate, facts: &Facts) {
-    if let Ok(json) = serde_json::to_string(facts) {
+    let stored = StoredFacts {
+        v: FACTS_VERSION,
+        facts: facts.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&stored) {
         let _ = cache.put_organize_facts(&c.path, c.size, c.mtime_ns, &json);
     }
 }
@@ -1224,6 +1289,10 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             issue: None,
             notes: Vec::new(),
             head_crc: None,
+            format: None,
+            mismatch: None,
+            listing_complete: true,
+            budget_spent: false,
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1257,6 +1326,10 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             issue: None,
             notes: Vec::new(),
             head_crc: None,
+            format: None,
+            mismatch: None,
+            listing_complete: true,
+            budget_spent: false,
         },
         raw_crcs: Vec::new(),
         hashed: true,
