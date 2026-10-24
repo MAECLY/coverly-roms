@@ -156,6 +156,31 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     );
   });
 
+  it('reads organize.external_tools like Rust', () => {
+    // An old file without the field loads `auto` with nothing fixed.
+    const old = tolerantSettings(
+      { organize: { mode: 'copy', recent_seconds: 30 } },
+      known,
+    );
+    expect(old.settings.organize.external_tools).toBe('auto');
+    expect(old.settings.organize.mode).toBe('copy');
+    expect(old.fixed).toEqual([]);
+    // `off` round-trips; an unknown value resets only that field.
+    const off = tolerantSettings(
+      { organize: { external_tools: 'off' } },
+      known,
+    );
+    expect(off.settings.organize.external_tools).toBe('off');
+    expect(off.fixed).toEqual([]);
+    const bad = tolerantSettings(
+      { organize: { external_tools: 'sometimes', mode: 'copy' } },
+      known,
+    );
+    expect(bad.settings.organize.external_tools).toBe('auto');
+    expect(bad.settings.organize.mode).toBe('copy');
+    expect(bad.fixed).toEqual(['organize.external_tools']);
+  });
+
   it('reads and normalises the dedupe group like Rust', () => {
     const { settings, fixed } = tolerantSettings(
       {
