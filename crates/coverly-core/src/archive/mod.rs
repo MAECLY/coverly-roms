@@ -31,7 +31,7 @@ pub mod zip;
 pub mod zstd;
 
 pub use budget::{Budget, ChargedRead, GateWait, MemoryGate, Permit};
-pub use external::{discover, FoundTool, ToolReader};
+pub use external::{discover, FoundTool, ToolReader, ToolsOnDemand};
 pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use lzma::{open_decoder, Lzma2Params, LzmaKind, LzmaParams, XzWalker};
 pub use names::{RelPath, UnsafeWhy};

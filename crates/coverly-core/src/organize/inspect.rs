@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::archive::detect::{by_extension, detect_container, multi_volume_part, EOCD_TAIL};
 use crate::archive::{
     self, file_entries, ArchiveError, ArchiveReader, Budget, Compressor, Entry, Format, Limits,
-    Tool,
+    Tool, ToolsOnDemand,
 };
 use crate::identify::sniff::{
     sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
@@ -254,18 +254,21 @@ impl Inspection {
 /// [`Limits`] and reports its container, its sniffed ROM-like contents and
 /// any issue. See [`inspect_file_with`].
 pub fn inspect_file(path: &Path, len: u64, db: &SystemDb) -> io::Result<Inspection> {
-    inspect_file_with(path, len, db, &Limits::default())
+    inspect_file_with(path, len, db, &Limits::default(), None)
 }
 
 /// [`inspect_file`] under `limits` (the plan's bounds; `external_tools`
-/// follows the setting). Errors only when the file cannot be opened or
-/// read, or the plan is cancelled; every archive problem is an
+/// follows the setting) with the plan's external `tools` (discovered only
+/// when a RAR or a 7z needs one, never inside the plan's roots); `None`
+/// uses the process-wide discovery. Errors only when the file cannot be
+/// opened or read, or the plan is cancelled; every archive problem is an
 /// [`ArchiveIssue`].
 pub fn inspect_file_with(
     path: &Path,
     len: u64,
     db: &SystemDb,
     limits: &Limits,
+    tools: Option<&ToolsOnDemand>,
 ) -> io::Result<Inspection> {
     let ext = extension(path);
     let mut file = File::open(path)?;
@@ -294,7 +297,7 @@ pub fn inspect_file_with(
             if multi_volume_part(&file_name(path)).is_some() {
                 // A later part of a set has no magic of its own.
                 if let Err(ArchiveError::MultiVolume { parts }) =
-                    archive::open_archive_with(path, limits, None)
+                    archive::open_archive_with(path, limits, Some(&[]))
                 {
                     out.container = Container::MultiVolume;
                     out.issue = Some(ArchiveIssue::MultiVolume { parts: parts.len() });
@@ -320,7 +323,7 @@ pub fn inspect_file_with(
         }
         _ => {
             drop(file);
-            inspect_archive(path, &ext, &first, db, limits, &mut out)?;
+            inspect_archive(path, &ext, &first, (db, limits, tools), &mut out)?;
         }
     }
     Ok(out)
@@ -480,11 +483,18 @@ fn inspect_archive(
     path: &Path,
     ext: &str,
     first: &Sniff,
-    db: &SystemDb,
-    limits: &Limits,
+    (db, limits, tools): (&SystemDb, &Limits, Option<&ToolsOnDemand>),
     out: &mut Inspection,
 ) -> io::Result<()> {
-    let mut reader = match archive::open_archive_with(path, limits, None) {
+    // Only a RAR, or a 7z with a coder the pure-Rust reader lacks, runs a
+    // tool: nothing is discovered for the other formats.
+    let may_need_tool = matches!(out.container, Container::Rar | Container::SevenZip);
+    let found = match tools {
+        Some(t) if may_need_tool && limits.external_tools => Some(t.get()),
+        Some(_) => Some(&[][..]),
+        None => None,
+    };
+    let mut reader = match archive::open_archive_with(path, limits, found) {
         Ok(Some(reader)) => reader,
         // No container after all: text under an archive name is not a
         // ROM (`3-D Tetris (USA).zip`), anything else is damaged.
@@ -579,8 +589,11 @@ fn inspect_archive(
                 &ext,
                 &mut budget,
             ) {
-                Ok((sniffed, decoded)) => {
-                    if let Some(crc) = decoded {
+                Ok(read) => {
+                    if read.crc_cut_short {
+                        out.spent();
+                    }
+                    if let Some(crc) = read.crc {
                         crc32 = Some(format!("{crc:08X}"));
                         if let Some(listed) = out.entries.iter_mut().find(|e| {
                             e.name == rom.info.name && e.size == rom.info.size && e.crc32.is_none()
@@ -588,7 +601,7 @@ fn inspect_archive(
                             listed.crc32.clone_from(&crc32);
                         }
                     }
-                    sniffed
+                    read.sniff
                 }
                 Err(ArchiveError::Encrypted) => {
                     out.note(NOTE_ENCRYPTED);
@@ -649,9 +662,20 @@ impl<R: Read> Read for Tee<R> {
     }
 }
 
+/// What [`read_payload`] got from one entry.
+struct PayloadRead {
+    sniff: Sniff,
+    /// The CRC32 of the whole decoded entry, when one was wanted and the
+    /// budget lasted.
+    crc: Option<u32>,
+    /// The budget ran out while decoding for the CRC (the sniff is whole).
+    crc_cut_short: bool,
+}
+
 /// Sniffs entry `index` from at most [`STREAM_CAP`] decoded bytes and,
 /// with `want_crc`, decodes the rest for its CRC32. Every byte is charged
-/// to `budget`; the stream verifies size (and stored CRC) at its end.
+/// to `budget`; the stream verifies size (and stored CRC) at its end. A
+/// budget spent after the sniff keeps the sniff (the header evidence).
 fn read_payload(
     reader: &mut dyn ArchiveReader,
     index: usize,
@@ -659,7 +683,7 @@ fn read_payload(
     want_crc: bool,
     ext: &str,
     budget: &mut Budget,
-) -> Result<(Sniff, Option<u32>), ArchiveError> {
+) -> Result<PayloadRead, ArchiveError> {
     let stream = reader.open_entry(index, budget)?;
     let mut tee = Tee {
         inner: stream,
@@ -674,13 +698,22 @@ fn read_payload(
     if let Some(e) = tee.error.take() {
         return Err(e);
     }
+    let mut read = PayloadRead {
+        sniff: sniffed,
+        crc: None,
+        crc_cut_short: false,
+    };
     if !want_crc {
-        return Ok((sniffed, None));
+        return Ok(read);
     }
-    if let Err(e) = io::copy(&mut tee, &mut io::sink()) {
-        return Err(tee.error.take().unwrap_or_else(|| ArchiveError::from(e)));
+    match io::copy(&mut tee, &mut io::sink()) {
+        Ok(_) => read.crc = Some(tee.hasher.finalize()),
+        Err(e) => match tee.error.take().unwrap_or_else(|| ArchiveError::from(e)) {
+            ArchiveError::BudgetSpent { .. } => read.crc_cut_short = true,
+            other => return Err(other),
+        },
     }
-    Ok((sniffed, Some(tee.hasher.finalize())))
+    Ok(read)
 }
 
 #[cfg(test)]

@@ -5,6 +5,8 @@
 mod common;
 
 use common::roms::{zip_encrypted, zip_file};
+use coverly_core::archive::external::{Search, ToolsOnDemand};
+use coverly_core::archive::testing::{fake_tool, FakeScript};
 use coverly_core::archive::testing::{
     sevenz, sevenz_copy_parts, sevenz_header_bytes, sevenz_with_encoded, tar_gz, SevenZShape,
     SzCoder, SzFolder,
@@ -28,7 +30,7 @@ fn inspect(path: &std::path::Path) -> Inspection {
 
 fn inspect_limited(path: &std::path::Path, limits: &Limits) -> Inspection {
     let len = std::fs::metadata(path).unwrap().len();
-    inspect_file_with(path, len, &SystemDb::builtin(), limits).unwrap()
+    inspect_file_with(path, len, &SystemDb::builtin(), limits, None).unwrap()
 }
 
 /// Limits that never run an external tool (deterministic on any machine).
@@ -808,4 +810,115 @@ fn a_mismatched_container_becomes_an_item_note() {
         ext: "zip".into(),
         actual: "7z".into()
     }));
+}
+
+#[test]
+fn a_crc_decode_cut_by_the_budget_keeps_the_header_sniff() {
+    // A tar stores no CRC, so a ROM-like entry within `CRC_DECODE_CAP` is
+    // decoded whole for one. When the plan head budget runs out after the
+    // header was sniffed, the header evidence stays; only the CRC is lost.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.tar.gz");
+    let mut rom = fx::gba();
+    rom.resize(12 * 1024 * 1024, 0);
+    std::fs::write(&p, tar_gz(&[("Game.gba", &rom)], 0)).unwrap();
+    let limits = Limits {
+        plan_head_budget: 9 * 1024 * 1024,
+        ..no_tools()
+    };
+    let i = inspect_limited(&p, &limits);
+    assert_eq!(i.issue, None, "a spent budget is never damage");
+    assert!(i.budget_spent);
+    assert!(i.listing_complete, "the listing itself was whole");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(i.payloads[0].crc32, None);
+    assert_eq!(i.payloads[0].sniff.hits[0].system, "gba");
+}
+
+/// A RAR v4 signature and nothing a tool could list.
+fn rar_stub(dir: &std::path::Path) -> std::path::PathBuf {
+    let p = dir.join("Game.rar");
+    let mut bytes = b"Rar!\x1a\x07\x00".to_vec();
+    bytes.extend_from_slice(&[0u8; 64]);
+    std::fs::write(&p, bytes).unwrap();
+    p
+}
+
+fn tools_in(bin: &std::path::Path, avoid: &[&std::path::Path]) -> ToolsOnDemand {
+    let search = Search {
+        path_var: Some(std::env::join_paths([bin.as_os_str()]).unwrap()),
+        cwd: None,
+        fixed: Vec::new(),
+    };
+    ToolsOnDemand::with_search(search, avoid)
+}
+
+#[test]
+fn a_tool_inside_the_plan_roots_is_never_run() {
+    // Spec §5.2: a `PATH` entry inside the source or target root is never
+    // searched, so an `unrar` planted beside the ROMs is not run.
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("ROMs");
+    let bin = source.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    fake_tool(
+        &bin,
+        "unrar",
+        &FakeScript::banner("UNRAR 7.01 freeware      Copyright (c) 1993-2024 Alexander Roshal"),
+    );
+    let p = rar_stub(&source);
+    let len = std::fs::metadata(&p).unwrap().len();
+    let limits = Limits::default();
+    assert!(limits.external_tools);
+
+    let avoided = tools_in(&bin, &[source.as_path()]);
+    let i = inspect_file_with(&p, len, &SystemDb::builtin(), &limits, Some(&avoided)).unwrap();
+    assert_eq!(
+        i.issue,
+        Some(ArchiveIssue::Unsupported {
+            format: Some("RAR".into()),
+            need: Some(Tool::Unrar)
+        })
+    );
+
+    // The same folder outside the roots is searched: the tool is used.
+    let allowed = tools_in(&bin, &[]);
+    let i = inspect_file_with(&p, len, &SystemDb::builtin(), &limits, Some(&allowed)).unwrap();
+    assert_ne!(
+        i.issue,
+        Some(ArchiveIssue::Unsupported {
+            format: Some("RAR".into()),
+            need: Some(Tool::Unrar)
+        })
+    );
+}
+
+#[test]
+fn tools_are_looked_for_only_when_an_archive_needs_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.zip");
+    zip_file(&p, &[("Game.gba", &fx::gba(), false)]);
+    let len = std::fs::metadata(&p).unwrap().len();
+    let tools = tools_in(tmp.path(), &[]);
+    let i = inspect_file_with(
+        &p,
+        len,
+        &SystemDb::builtin(),
+        &Limits::default(),
+        Some(&tools),
+    )
+    .unwrap();
+    assert_eq!(i.issue, None);
+    assert!(!tools.discovered(), "a zip needs no external tool");
+
+    let rar = rar_stub(tmp.path());
+    let len = std::fs::metadata(&rar).unwrap().len();
+    let _ = inspect_file_with(
+        &rar,
+        len,
+        &SystemDb::builtin(),
+        &Limits::default(),
+        Some(&tools),
+    );
+    assert!(tools.discovered());
 }

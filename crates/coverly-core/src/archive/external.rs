@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -167,6 +167,46 @@ pub fn discover_with(search: &Search, extra_roots_to_avoid: &[&Path]) -> Vec<Fou
         }
     }
     out
+}
+
+/// The external tools of one job (a plan, an apply), discovered on first
+/// need only (an archive that no pure-Rust reader opens), once, and never
+/// from a `PATH` entry inside the job's source or target roots (spec §5.2).
+#[derive(Debug)]
+pub struct ToolsOnDemand {
+    search: Search,
+    avoid: Vec<PathBuf>,
+    found: OnceLock<Vec<FoundTool>>,
+}
+
+impl ToolsOnDemand {
+    /// This process's [`Search`], avoiding `roots_to_avoid`.
+    pub fn new(roots_to_avoid: &[&Path]) -> Self {
+        Self::with_search(Search::from_env(), roots_to_avoid)
+    }
+
+    /// An explicit [`Search`], avoiding `roots_to_avoid`.
+    pub fn with_search(search: Search, roots_to_avoid: &[&Path]) -> Self {
+        Self {
+            search,
+            avoid: roots_to_avoid.iter().map(|p| p.to_path_buf()).collect(),
+            found: OnceLock::new(),
+        }
+    }
+
+    /// The tools, discovered on the first call.
+    pub fn get(&self) -> &[FoundTool] {
+        self.found.get_or_init(|| {
+            let avoid: Vec<&Path> = self.avoid.iter().map(PathBuf::as_path).collect();
+            discover_with(&self.search, &avoid)
+        })
+    }
+
+    /// Whether [`ToolsOnDemand::get`] has run (no process was started
+    /// before it).
+    pub fn discovered(&self) -> bool {
+        self.found.get().is_some()
+    }
 }
 
 /// The tool that opens a RAR archive: the first found that can (unrar 4

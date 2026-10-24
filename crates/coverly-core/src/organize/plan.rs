@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::archive::names::UnsafeWhy;
-use crate::archive::{Limits, Tool};
+use crate::archive::{Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
 use crate::dedupe::source::DiscId;
 use crate::identify::dat::DatStore;
@@ -883,11 +883,14 @@ pub fn survey(
     } else {
         WORKERS
     };
+    // External tools are looked for only when an archive needs one, and
+    // never in a `PATH` entry inside the source or target root (spec §5.2).
+    let tools = ToolsOnDemand::new(&[&source_abs, &target_root]);
     let results = identify_all(
         &entries,
         &todo,
         workers,
-        (env, &ladder, &opts.limits),
+        (env, &ladder, &opts.limits, &tools),
         progress,
         cancel,
     )?;
@@ -1121,7 +1124,7 @@ fn identify_all(
     entries: &[Pending],
     todo: &[usize],
     workers: usize,
-    (env, ladder, limits): (&OrganizeEnv, &LadderEnv, &Limits),
+    (env, ladder, limits, tools): (&OrganizeEnv, &LadderEnv, &Limits, &ToolsOnDemand),
     progress: &(dyn Fn(OrganizeProgress) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Vec<(usize, Outcome)>, OrganizeError> {
@@ -1145,7 +1148,7 @@ fn identify_all(
                 let Some(&i) = todo.get(k) else {
                     break;
                 };
-                let outcome = identify_entry(&entries[i], env, ladder, limits);
+                let outcome = identify_entry(&entries[i], env, ladder, (limits, tools));
                 results
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1177,7 +1180,7 @@ fn identify_entry(
     pending: &Pending,
     env: &OrganizeEnv,
     ladder: &LadderEnv,
-    limits: &Limits,
+    (limits, tools): (&Limits, &ToolsOnDemand),
 ) -> Outcome {
     let candidate = pending
         .candidate
@@ -1191,8 +1194,9 @@ fn identify_entry(
         match memoised_facts(env.cache, candidate) {
             Some(facts) => facts,
             None => {
-                let inspection = inspect_file_with(&candidate.path, candidate.size, env.db, limits)
-                    .map_err(|_| LeftReason::Unreadable)?;
+                let inspection =
+                    inspect_file_with(&candidate.path, candidate.size, env.db, limits, Some(tools))
+                        .map_err(|_| LeftReason::Unreadable)?;
                 Facts {
                     inspection,
                     raw_crcs: Vec::new(),
