@@ -34,6 +34,8 @@ enum Entry {
 pub struct IsoBuilder {
     system_id: String,
     raw: bool,
+    mode1: bool,
+    system_area: Vec<u8>,
     space_size: Option<u32>,
     created: [u8; 17],
     modified: [u8; 17],
@@ -49,6 +51,8 @@ impl IsoBuilder {
         IsoBuilder {
             system_id: system_id.to_owned(),
             raw: false,
+            mode1: false,
+            system_area: Vec::new(),
             space_size: None,
             created: *b"1998010100000000\0",
             modified: *b"1998010100000000\0",
@@ -61,6 +65,20 @@ impl IsoBuilder {
     /// Raw 2352-byte Mode 2 Form 1 sectors instead of 2048-byte ones.
     pub fn raw(mut self, raw: bool) -> IsoBuilder {
         self.raw = raw;
+        self
+    }
+
+    /// Raw 2352-byte Mode 1 sectors (Sega, NEC and 3DO data tracks).
+    pub fn raw_mode1(mut self) -> IsoBuilder {
+        self.raw = true;
+        self.mode1 = true;
+        self
+    }
+
+    /// Bytes written over the user data of the system area from sector 0
+    /// (a Sega `IP.BIN`, an Opera header), at most 16 sectors.
+    pub fn system_area(mut self, bytes: &[u8]) -> IsoBuilder {
+        self.system_area = bytes[..bytes.len().min(16 * USER_BYTES)].to_vec();
         self
     }
 
@@ -144,6 +162,9 @@ impl IsoBuilder {
         let total = next.max(MIN_SECTORS);
         let mut user = vec![[0u8; USER_BYTES]; total as usize];
 
+        for (k, chunk) in self.system_area.chunks(USER_BYTES).enumerate() {
+            user[k][..chunk.len()].copy_from_slice(chunk);
+        }
         if let Some(text) = &self.licence {
             user[4][..text.len()].copy_from_slice(text.as_bytes());
         }
@@ -193,13 +214,14 @@ impl IsoBuilder {
                 }
             }
         }
-        store(&user, self.raw)
+        store(&user, self.raw, self.mode1)
     }
 }
 
-/// User sectors as stored: as they are, or as raw Mode 2 Form 1 sectors
-/// (sync, mode byte 2, subheader, user data at +24).
-fn store(user: &[[u8; USER_BYTES]], raw: bool) -> Vec<u8> {
+/// User sectors as stored: as they are, as raw Mode 2 Form 1 sectors
+/// (sync, mode byte 2, subheader, user data at +24), or as raw Mode 1
+/// sectors (sync, mode byte 1, user data at +16).
+fn store(user: &[[u8; USER_BYTES]], raw: bool, mode1: bool) -> Vec<u8> {
     if !raw {
         return user.concat();
     }
@@ -207,9 +229,14 @@ fn store(user: &[[u8; USER_BYTES]], raw: bool) -> Vec<u8> {
     for data in user {
         let mut s = [0u8; 2352];
         s[..12].copy_from_slice(&SYNC);
-        s[15] = 2;
-        s[16..24].copy_from_slice(&[0, 0, 0x08, 0, 0, 0, 0x08, 0]);
-        s[24..24 + USER_BYTES].copy_from_slice(data);
+        if mode1 {
+            s[15] = 1;
+            s[16..16 + USER_BYTES].copy_from_slice(data);
+        } else {
+            s[15] = 2;
+            s[16..24].copy_from_slice(&[0, 0, 0x08, 0, 0, 0, 0x08, 0]);
+            s[24..24 + USER_BYTES].copy_from_slice(data);
+        }
         out.extend_from_slice(&s);
     }
     out
@@ -246,4 +273,126 @@ pub fn ps2_iso() -> Vec<u8> {
             b"BOOT2 = cdrom0:\\SLUS_200.62;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n",
         )
         .build()
+}
+
+/// A Sega boot header of [`sega::IP_BIN_HEAD`](super::sega::IP_BIN_HEAD)
+/// bytes: `magic` at 0, the rest spaces, then `fields` (offset, bytes)
+/// written over it.
+pub fn ip_bin(magic: &[u8], fields: &[(usize, &[u8])]) -> Vec<u8> {
+    let mut h = vec![b' '; super::sega::IP_BIN_HEAD];
+    h[..magic.len()].copy_from_slice(magic);
+    for (at, bytes) in fields {
+        h[*at..*at + bytes.len()].copy_from_slice(bytes);
+    }
+    h
+}
+
+/// A Saturn track 01 (raw Mode 1): `IP.BIN` with `product` at 0x20 and
+/// `CD-1/1` at 0x38, over an ISO 9660 volume.
+pub fn saturn_track(product: &str) -> Vec<u8> {
+    let ip = ip_bin(
+        b"SEGA SEGASATURN ",
+        &[
+            (0x10, b"SEGA TP T-57    "),
+            (0x20, product.as_bytes()),
+            (0x2A, b"V1.000"),
+            (0x30, b"19961122"),
+            (0x38, b"CD-1/1  "),
+        ],
+    );
+    IsoBuilder::new("SEGA SEGASATURN")
+        .raw_mode1()
+        .system_area(&ip)
+        .build()
+}
+
+/// A Dreamcast track 03 (the high-density data track, raw Mode 1):
+/// `IP.BIN` with `GD-ROM<disc>` in the device field and `product` at 0x40.
+pub fn dreamcast_track03(product: &str, disc: &str) -> Vec<u8> {
+    let device = format!("8B4E GD-ROM{disc}");
+    let ip = ip_bin(
+        b"SEGA SEGAKATANA ",
+        &[
+            (0x10, b"SEGA ENTERPRISES"),
+            (0x20, device.as_bytes()),
+            (0x30, b"JUE     "),
+            (0x40, product.as_bytes()),
+            (0x4A, b"V1.000"),
+        ],
+    );
+    IsoBuilder::new("SEGA SEGAKATANA")
+        .raw_mode1()
+        .system_area(&ip)
+        .build()
+}
+
+/// A Dreamcast track 01 (the low-density area): a plain ISO 9660 track
+/// with a readme and no `IP.BIN`.
+pub fn dreamcast_track01() -> Vec<u8> {
+    IsoBuilder::new("SEGA SEGAKATANA")
+        .raw_mode1()
+        .file("README.TXT;1", b"This is a Dreamcast GD-ROM.\r\n")
+        .build()
+}
+
+/// A Sega CD track 01 (raw Mode 1): `SEGADISCSYSTEM`, system type
+/// `SEGA MEGA DRIVE` at 0x100 and serial field `GM MK-4407 -00` at 0x180.
+pub fn segacd_track() -> Vec<u8> {
+    let ip = ip_bin(
+        b"SEGADISCSYSTEM  ",
+        &[
+            (0x10, b"SEGAOS     "),
+            (0x100, b"SEGA MEGA DRIVE "),
+            (0x110, b"(C)SEGA 1993.JUL"),
+            (0x180, b"GM MK-4407 -00"),
+        ],
+    );
+    IsoBuilder::new("SEGA SEGASYSTEM")
+        .raw_mode1()
+        .system_area(&ip)
+        .build()
+}
+
+/// A PC Engine CD data track (track 02, raw Mode 1): the boot text at 0x20
+/// of sector 1, no ISO 9660 volume.
+pub fn pce_cd_track() -> Vec<u8> {
+    let mut sector1 = vec![0u8; USER_BYTES];
+    sector1[0x20..0x20 + 23].copy_from_slice(b"PC Engine CD-ROM SYSTEM");
+    sector1[0x38..0x38 + 16].copy_from_slice(b"Copyright HUDSON");
+    let mut area = vec![0u8; USER_BYTES];
+    area.extend(sector1);
+    let user: Vec<[u8; USER_BYTES]> = (0..MIN_SECTORS as usize)
+        .map(|n| {
+            let mut s = [0u8; USER_BYTES];
+            if let Some(chunk) = area.chunks(USER_BYTES).nth(n) {
+                s.copy_from_slice(chunk);
+            }
+            s
+        })
+        .collect();
+    store(&user, true, true)
+}
+
+/// A Neo Geo CD track 01 (2048-byte sectors): ISO 9660 with `IPL.TXT` in
+/// the root and no `SYSTEM.CNF`.
+pub fn neocd_iso() -> Vec<u8> {
+    IsoBuilder::new("")
+        .file("ABS.TXT;1", b"")
+        .file("IPL.TXT;1", b"PROG.PRG,0,00000000\r\n")
+        .file("PROG.PRG;1", &[0x4E, 0x75])
+        .build()
+}
+
+/// A 3DO track 01: the Opera volume header (`01 5A×5 01`) at sector 0,
+/// as 2048-byte sectors or raw Mode 1.
+pub fn opera_3do(raw: bool) -> Vec<u8> {
+    let mut header = vec![0x01, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x01, 0x00];
+    header.resize(0x28, 0);
+    header.extend_from_slice(b"CD-ROM");
+    let b = IsoBuilder::new("").system_area(&header);
+    if raw {
+        b.raw_mode1().build()
+    } else {
+        b.build()
+    }
 }

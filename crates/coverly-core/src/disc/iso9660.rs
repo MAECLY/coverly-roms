@@ -150,7 +150,7 @@ pub struct FileExtent {
 impl FileExtent {
     /// The extent of a file record; `None` when it starts past the address
     /// space.
-    fn of(record: &DirRecord) -> Option<FileExtent> {
+    pub(crate) fn of(record: &DirRecord) -> Option<FileExtent> {
         Some(FileExtent {
             lba: record.lba.checked_add(u32::from(record.ext_attr))?,
             size: record.size,
@@ -215,14 +215,17 @@ pub fn read_extent(
 }
 
 /// The file (not directory) record `name` among `records`.
-fn file_named<'a>(records: &'a [DirRecord], name: &str) -> Option<&'a DirRecord> {
+pub(crate) fn file_named<'a>(records: &'a [DirRecord], name: &str) -> Option<&'a DirRecord> {
     records.iter().find(|r| !r.is_dir() && r.names(name))
 }
 
 /// The first [`MAX_ROOT_RECORDS`] records of the directory `root`, `.` and
 /// `..` included. The walk stops at the first record that does not parse
 /// or the first sector out of range, keeping what came before.
-fn root_records(src: &mut dyn SectorSource, root: &DirRecord) -> io::Result<Vec<DirRecord>> {
+pub(crate) fn root_records(
+    src: &mut dyn SectorSource,
+    root: &DirRecord,
+) -> io::Result<Vec<DirRecord>> {
     let mut records = Vec::new();
     let sectors = root.size.div_ceil(USER_BYTES as u32).min(MAX_ROOT_SECTORS);
     let Some(first) = root.lba.checked_add(u32::from(root.ext_attr)) else {

@@ -475,3 +475,294 @@ fn pending_boot_extents_stay_bounded() {
     };
     assert_eq!(read_extent(&mut w, ext, usize::MAX).unwrap(), None);
 }
+
+// ---- Task 21: Sega IP.BIN, PC Engine CD, Neo Geo CD, 3DO, DiscReader ----
+
+use coverly_core::disc::{DiscIdSource, DiscIdentity, DiscReader};
+
+fn id(bytes: Vec<u8>) -> Option<DiscIdentity> {
+    DiscReader::identify(&mut WindowSource::new(bytes))
+}
+
+#[test]
+fn saturn_product_t5704h() {
+    let bytes = dt::saturn_track("T-5704H   ");
+    let mut src = WindowSource::new(bytes.clone());
+    assert_eq!(src.layout(), SectorLayout::Raw2352Mode1);
+    let disc = DiscReader::identify(&mut src).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("saturn"));
+    assert_eq!(disc.serials, ["T-5704H"]);
+    assert_eq!(disc.disc_no, Some(1));
+    assert_eq!(disc.source, DiscIdSource::IpBin);
+    assert_eq!(disc.confidence, 0.95);
+    assert_eq!(disc.detail, "SEGA SEGASATURN");
+    // The fingerprint hashes IP.BIN, the first 32 KiB of the track.
+    let volume = disc.volume.clone().expect("PVD and IP.BIN in the window");
+    assert_eq!(volume.boot_sha1.len(), 40);
+
+    // The same track from a file on disk gives the same identity.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Tetris Plus (USA) (Track 01).bin");
+    std::fs::write(&path, &bytes).unwrap();
+    let from_file = DiscReader::identify(&mut FileSource::open(&path).unwrap()).unwrap();
+    assert_eq!(from_file, disc);
+
+    // A head too short for the fingerprint still identifies the disc.
+    let short = id(bytes[..4 * 2352].to_vec()).unwrap();
+    assert_eq!(short.serials, ["T-5704H"]);
+    assert_eq!(short.volume, None);
+}
+
+#[test]
+fn dreamcast_track03_t40214n_disc_1_of_1() {
+    let disc = id(dt::dreamcast_track03("T-40214N  ", "1/1")).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("dreamcast"));
+    assert_eq!(disc.serials, ["T-40214N"]);
+    assert_eq!(disc.disc_no, Some(1));
+    assert_eq!(disc.source, DiscIdSource::IpBin);
+    assert_eq!(disc.confidence, 0.95);
+    assert_eq!(disc.detail, "SEGA SEGAKATANA");
+    assert!(disc.volume.is_some());
+
+    // Disc 2 of 2; a device field that makes no sense gives no number.
+    let two = id(dt::dreamcast_track03("T-40214N  ", "2/2")).unwrap();
+    assert_eq!(two.disc_no, Some(2));
+    assert_ne!(two.volume, disc.volume, "IP.BIN differs");
+    let odd = id(dt::dreamcast_track03("T-40214N  ", "3/2")).unwrap();
+    assert_eq!(odd.disc_no, None);
+    assert_eq!(odd.serials, ["T-40214N"]);
+}
+
+#[test]
+fn dreamcast_track01_alone_is_not_enough() {
+    // The low-density track has a volume but no IP.BIN: even with the
+    // Katana name in its system id, it is no verdict.
+    let track01 = dt::dreamcast_track01();
+    assert!(read_pvd(&mut WindowSource::new(track01.clone()))
+        .unwrap()
+        .is_some());
+    assert_eq!(id(track01), None);
+    // The magic away from offset 0 of sector 0 is not IP.BIN either.
+    let mut moved = dt::dreamcast_track03("T-40214N  ", "1/1");
+    moved.copy_within(16..16 + 0x200, 2352 + 16);
+    moved[16..16 + 0x200].fill(0);
+    assert_eq!(id(moved).map(|d| d.system), None);
+}
+
+#[test]
+fn segacd_never_megadrive() {
+    let bytes = dt::segacd_track();
+    let disc = id(bytes.clone()).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("segacd"));
+    assert_eq!(disc.serials, ["MK-4407"]);
+    assert_eq!(disc.source, DiscIdSource::IpBin);
+    assert_eq!(disc.confidence, 0.95);
+    assert_eq!(disc.detail, "SEGADISCSYSTEM + SEGA MEGA DRIVE");
+    // The header sniff reads agrees: Sega CD, never a Mega Drive cart,
+    // and the serial comes from the same reader.
+    let s = coverly_core::identify::sniff::sniff(
+        &mut coverly_core::identify::sniff::SliceAt(&bytes),
+        bytes.len() as u64,
+        "bin",
+    );
+    assert!(s.hits.iter().all(|e| e.system == "segacd"), "{:?}", s.hits);
+    assert!(!s.hits.is_empty());
+    assert_eq!(s.serial.as_deref(), Some("MK-4407"));
+}
+
+#[test]
+fn pce_cd_sector1() {
+    let bytes = dt::pce_cd_track();
+    let disc = id(bytes.clone()).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("pcenginecd"));
+    assert!(disc.serials.is_empty(), "no serial on the disc");
+    assert_eq!(disc.source, DiscIdSource::Signature);
+    assert_eq!(disc.confidence, 0.90);
+    assert_eq!(disc.detail, "PC Engine CD-ROM SYSTEM");
+    assert_eq!(disc.volume, None);
+    // The text in sector 0 instead of sector 1 is not the signature.
+    let mut wrong = bytes[2352..2 * 2352].to_vec();
+    wrong.extend(vec![0u8; 22 * 2352]);
+    assert_eq!(id(wrong), None);
+}
+
+#[test]
+fn neocd_ipl_txt() {
+    let disc = id(dt::neocd_iso()).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("neocd"));
+    assert!(disc.serials.is_empty());
+    assert_eq!(disc.source, DiscIdSource::Signature);
+    assert_eq!(disc.confidence, 0.85);
+    assert_eq!(disc.detail, "IPL.TXT");
+    // With a SYSTEM.CNF beside it, it is not a Neo Geo CD.
+    let both = IsoBuilder::new("")
+        .file("IPL.TXT;1", b"PROG.PRG,0,0\r\n")
+        .file("SYSTEM.CNF;1", b"BOOT = cdrom:\\X.EXE;1\r\n")
+        .build();
+    assert_eq!(id(both), None);
+    // A directory named IPL.TXT is not the boot list.
+    assert_eq!(id(IsoBuilder::new("").dir("IPL.TXT").build()), None);
+    // A Sega disc with an IPL.TXT stays a Sega disc.
+    let ip = dt::ip_bin(b"SEGA SEGASATURN ", &[(0x20, b"T-1234    ")]);
+    let saturn = IsoBuilder::new("")
+        .system_area(&ip)
+        .file("IPL.TXT;1", b"x")
+        .build();
+    assert_eq!(id(saturn).unwrap().system, DiscSystem::Known("saturn"));
+}
+
+#[test]
+fn three_do_unsupported() {
+    for raw in [false, true] {
+        let disc = id(dt::opera_3do(raw)).unwrap();
+        assert_eq!(disc.system, DiscSystem::Unsupported("3DO"), "raw={raw}");
+        assert!(disc.serials.is_empty());
+        assert_eq!(disc.source, DiscIdSource::Signature);
+        assert_eq!(disc.detail, "Opera volume header");
+    }
+    // Five sync bytes are needed, not four.
+    let mut near = dt::opera_3do(false);
+    near[5] = 0;
+    assert_eq!(id(near), None);
+}
+
+#[test]
+fn psp_iso_unchanged() {
+    // Today's sniff rule keeps its verdict.
+    let iso = fx::psp_iso();
+    let s = coverly_core::identify::sniff::sniff(
+        &mut coverly_core::identify::sniff::SliceAt(&iso),
+        iso.len() as u64,
+        "iso",
+    );
+    assert_eq!(s.hits.len(), 1);
+    assert_eq!((s.hits[0].system.as_str(), s.hits[0].weight), ("psp", 0.85));
+    // DiscReader says the same, with no serial when UMD_DATA.BIN is absent.
+    let disc = id(iso).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("psp"));
+    assert_eq!(disc.confidence, 0.85);
+    assert_eq!(disc.detail, "PSP GAME");
+    assert!(disc.serials.is_empty());
+    assert_eq!(disc.source, DiscIdSource::Signature);
+    // UMD_DATA.BIN names the serial.
+    let umd = IsoBuilder::new("PSP GAME")
+        .file("UMD_DATA.BIN;1", b"ULUS-10041|C1D2A45B4F28B1E2|0001|G")
+        .build();
+    let disc = id(umd).unwrap();
+    assert_eq!(disc.serials, ["ULUS-10041"]);
+    assert_eq!(disc.source, DiscIdSource::UmdData);
+}
+
+#[test]
+fn identity_detail_strings_are_data() {
+    // Hostile header fields never reach the detail, and only pass as a
+    // serial when they are one.
+    let hostile = dt::ip_bin(
+        b"SEGA SEGASATURN ",
+        &[(0x20, b"\x1b[31mT-1\n"), (0x38, b"CD-9/1  ")],
+    );
+    let disc = id(IsoBuilder::new("SEGA SEGASATURN")
+        .system_area(&hostile)
+        .build())
+    .unwrap();
+    assert_eq!(disc.detail, "SEGA SEGASATURN");
+    assert!(disc.serials.is_empty(), "{:?}", disc.serials);
+    assert_eq!(disc.disc_no, None);
+
+    let katana = dt::ip_bin(b"SEGA SEGAKATANA ", &[(0x40, "T-4021\u{e9}".as_bytes())]);
+    let disc = id(IsoBuilder::new("").system_area(&katana).build()).unwrap();
+    assert!(disc.serials.is_empty());
+
+    // Every detail of every rule is plain ASCII from a fixed vocabulary.
+    let known = [
+        "SEGA SEGASATURN",
+        "SEGA SEGAKATANA",
+        "SEGADISCSYSTEM + SEGA MEGA DRIVE",
+        "PC Engine CD-ROM SYSTEM",
+        "IPL.TXT",
+        "Opera volume header",
+        "PSP GAME",
+        "SYSTEM.CNF BOOT + licence text",
+        "PLAYSTATION",
+    ];
+    let all = [
+        dt::saturn_track("T-5704H   "),
+        dt::dreamcast_track03("T-40214N  ", "1/1"),
+        dt::segacd_track(),
+        dt::pce_cd_track(),
+        dt::neocd_iso(),
+        dt::opera_3do(false),
+        fx::psp_iso(),
+        dt::psx_track(true, "cdrom:\\SLUS_008.62;1"),
+        IsoBuilder::new("PLAYSTATION").build(),
+    ];
+    for (bytes, want) in all.into_iter().zip(known) {
+        let disc = id(bytes).unwrap();
+        assert_eq!(disc.detail, want);
+        assert!(disc
+            .detail
+            .bytes()
+            .all(|b| b.is_ascii_graphic() || b == b' '));
+        assert!(disc
+            .serials
+            .iter()
+            .all(|s| normalise_serial(s).as_ref() == Some(s)));
+    }
+}
+
+#[test]
+fn disc_reader_fetches_a_pending_boot_file() {
+    let cnf = b"BOOT = cdrom:\\SLUS_008.62;1\r\nTCB = 4\r\n";
+    let full = psx_with_boot_past_window(cnf);
+    let len = full.len() as u64;
+    let mut head = WindowSource::new(full[..MAX_WINDOW].to_vec());
+
+    // Without a fetch: the boot file name at 0.80, no fingerprint.
+    let first = DiscReader::identify(&mut head).unwrap();
+    assert_eq!(first.serials, ["SLUS-00862"]);
+    assert_eq!(first.confidence, 0.80);
+    assert_eq!(first.source, DiscIdSource::Signature);
+    assert_eq!(first.volume, None);
+
+    // The fetch is asked for exactly the stored sectors of SYSTEM.CNF.
+    let mut asked = Vec::new();
+    let mut fetch = |r: std::ops::Range<u64>| {
+        asked.push(r.clone());
+        Ok(Some(full[r.start as usize..r.end as usize].to_vec()))
+    };
+    let done = DiscReader::identify_with(&mut head, Some(len), Some(&mut fetch))
+        .unwrap()
+        .unwrap();
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].start >= MAX_WINDOW as u64);
+    assert!(asked[0].end - asked[0].start <= 2 * 2352);
+    assert_eq!(done.confidence, 0.95);
+    assert_eq!(done.source, DiscIdSource::SystemCnf);
+    assert_eq!(done.detail, "SYSTEM.CNF BOOT + licence text");
+    assert!(done.volume.is_some());
+    // The same as reading the whole track.
+    let whole = DiscReader::identify_with(&mut WindowSource::new(full.clone()), Some(len), None);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.bin");
+    std::fs::write(&path, &full).unwrap();
+    let from_file =
+        DiscReader::identify_with(&mut FileSource::open(&path).unwrap(), Some(len), None)
+            .unwrap()
+            .unwrap();
+    assert_eq!(from_file, done);
+    assert!(whole.unwrap().is_some());
+
+    // A spent budget keeps the first verdict; a fetch error is returned.
+    let mut spent = |_r: std::ops::Range<u64>| Ok(None);
+    let kept = DiscReader::identify_with(&mut head, Some(len), Some(&mut spent))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept, first);
+    let mut short = |_r: std::ops::Range<u64>| Ok(Some(vec![0u8; 10]));
+    let kept = DiscReader::identify_with(&mut head, Some(len), Some(&mut short))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept, first);
+    let mut broken = |_r: std::ops::Range<u64>| Err(std::io::Error::other("disk gone"));
+    assert!(DiscReader::identify_with(&mut head, Some(len), Some(&mut broken)).is_err());
+}

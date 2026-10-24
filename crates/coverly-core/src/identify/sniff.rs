@@ -183,6 +183,10 @@ pub struct Sniff {
     pub unsupported: Option<String>,
     pub not_a_rom: Option<NotARom>,
     pub container: Option<ContainerMagic>,
+    /// The disc serial the header names (`SLUS-00862`, `T-5704H`), read
+    /// by `disc::`; `None` for carts and discs without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<String>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }
@@ -319,6 +323,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
     ] {
         if starts(head, 0, magic) || starts(head, 0x10, magic) {
             s.hit(system, 0.90, detail);
+            s.serial = ip_bin_serial(head);
             return;
         }
     }
@@ -346,7 +351,16 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         if &pvd[8..19] != b"PLAYSTATION" {
             return; // another ISO 9660 disc: nothing to say
         }
-        match system_cnf(src, head, layout, &pvd, len) {
+        let cnf = system_cnf(src, head, layout, &pvd, len);
+        if let Some(text) = &cnf {
+            let lines = crate::disc::iso9660::parse_system_cnf(text.as_bytes());
+            s.serial = lines
+                .boot2
+                .or(lines.boot)
+                .as_deref()
+                .and_then(crate::disc::serial::boot_file_serial);
+        }
+        match cnf {
             Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
             Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
             // No CD holds this much: a PS2 DVD whose SYSTEM.CNF was not found.
@@ -355,6 +369,11 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         }
         return;
     }
+}
+
+/// The product number of a Sega boot header at 0 or 0x10 of `head`.
+fn ip_bin_serial(head: &[u8]) -> Option<String> {
+    crate::disc::sega::ip_bin_in_head(head).and_then(|ip| ip.serial)
 }
 
 /// `n` bytes at `offset`, from the prefix when it covers them.
@@ -535,6 +554,7 @@ fn gba_signature(head: &[u8]) -> Option<bool> {
 fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
     if starts(head, 0, b"SEGADISCSYSTEM") || starts(head, 0x10, b"SEGADISCSYSTEM") {
         s.hit("segacd", 0.95, "SEGADISCSYSTEM");
+        s.serial = ip_bin_serial(head);
         return true;
     }
     let sega_at_100 = starts(head, 0x100, b"SEGA") || starts(head, 0x101, b"SEGA");
