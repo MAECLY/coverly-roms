@@ -70,6 +70,21 @@ pub struct DiscIdentity {
     pub detail: String,
 }
 
+impl DiscIdentity {
+    /// The identity dedupe level 3 groups by (spec §10): the same serials,
+    /// disc number, volume fingerprint and source, with nothing re-derived.
+    /// The system, confidence and detail stay with organise: dedupe asks a
+    /// probe per system already.
+    pub fn to_dedupe_id(&self) -> crate::dedupe::source::DiscId {
+        crate::dedupe::source::DiscId {
+            serials: self.serials.clone(),
+            disc_no: self.disc_no,
+            volume: self.volume.clone(),
+            source: self.source,
+        }
+    }
+}
+
 /// Reads later stored bytes of the track a [`SectorSource`] window was cut
 /// from: given a byte range of the stored track, the bytes, or `None` when
 /// the caller's budget does not reach them (the verdict then stays as the
