@@ -516,6 +516,33 @@ fn sevenz_bind_pairs_inconsistent_damaged() {
 }
 
 #[test]
+fn sevenz_size_preserving_coders_must_agree() {
+    // Copy, BCJ and Delta write exactly what they read: a filter whose
+    // input and output sizes differ is a lie (fail closed, S5).
+    let (packed, mut h) = two_files();
+    let s = h.streams.as_mut().expect("streams");
+    let size = s.folders[0].unpack_sizes[0];
+    s.folders[0] = SzFolder::chain(vec![SzCoder::copy(), SzCoder::copy()], size);
+    s.folders[0].unpack_sizes[0] = size + 1000;
+    assert_damaged(walk_bytes(&sevenz_file(&packed, &sevenz_header_bytes(&h))));
+    // A Copy coder reading a packed stream of another size, likewise.
+    let (packed, mut h) = two_files();
+    let s = h.streams.as_mut().expect("streams");
+    s.folders[0].unpack_sizes[0] -= 1;
+    s.substreams = None;
+    assert_damaged(walk_bytes(&sevenz_file(&packed, &sevenz_header_bytes(&h))));
+    // In the encoded header: LZMA2 declares more than BCJ produces.
+    let (packed, h) = sevenz_copy_parts(&[("a.bin", b"abc")]);
+    let raw = sevenz_header_bytes(&h);
+    let bytes = sevenz_with_encoded(&packed, &raw, |s| {
+        let size = s.folders[0].unpack_sizes[0];
+        s.folders[0] = SzFolder::chain(vec![SzCoder::lzma2(16), SzCoder::bcj_x86()], size);
+        s.folders[0].unpack_sizes[0] = 1 << 40;
+    });
+    assert_damaged(walk_bytes(&bytes));
+}
+
+#[test]
 fn sevenz_substreams_must_sum_to_unpack_size() {
     let (packed, mut h) = two_files();
     let s = h.streams.as_mut().expect("streams");
@@ -605,9 +632,10 @@ fn sevenz_total_size_over_cap() {
         walk_with(&bytes, &limits),
         Err(ArchiveError::TooLarge { .. })
     ));
-    // One declared entry over max_entry_size.
+    // One declared entry over max_entry_size (a compressor, since a Copy
+    // coder declaring more than its packed stream is already a lie).
     let s = h.streams.as_mut().expect("streams");
-    s.folders[0].unpack_sizes = vec![32 << 30];
+    s.folders[0] = SzFolder::single(SzCoder::lzma2(16), 32 << 30);
     let bytes = sevenz_file(&packed, &sevenz_header_bytes(&h));
     assert!(matches!(
         walk_bytes(&bytes),

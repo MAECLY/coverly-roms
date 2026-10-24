@@ -507,6 +507,13 @@ fn parse_streams_info(
                 .checked_add(size)
                 .ok_or_else(|| damaged("7z pack size"))?;
         }
+        for (k, &input) in f.packed_streams.iter().enumerate() {
+            if let Some(out) = preserved_out(&f.coders, input) {
+                if f.pack_sizes[k] != f.unpack_sizes[out] {
+                    return Err(damaged("7z copy coder size"));
+                }
+            }
+        }
         at = at
             .checked_add(f.pack_size)
             .filter(|&end| end <= header_start)
@@ -571,6 +578,7 @@ fn parse_unpack_info(cur: &mut Cur<'_>, limits: &Limits) -> Result<Vec<FolderInf
             f.unpack_sizes.push(cur.number()?);
         }
         f.unpack_size = f.unpack_sizes[usize::try_from(f.main_out).map_err(|_| damaged("7z"))?];
+        check_preserved_sizes(f)?;
     }
     let mut crcs = false;
     loop {
@@ -693,6 +701,45 @@ fn parse_folder(cur: &mut Cur<'_>) -> Result<FolderInfo, ArchiveError> {
         mem_needed,
         encrypted,
     })
+}
+
+/// Whether a coder writes exactly as many bytes as it reads.
+fn preserves_size(kind: CoderKind) -> bool {
+    match kind {
+        CoderKind::Copy | CoderKind::Delta { .. } => true,
+        CoderKind::Bcj { kind, .. } => kind != BcjKind::Bcj2,
+        _ => false,
+    }
+}
+
+/// For in stream `input`: the out stream index of its coder when that
+/// coder is a one-in/one-out size-preserving one.
+fn preserved_out(coders: &[CoderInfo], input: u64) -> Option<usize> {
+    let (mut first_in, mut first_out) = (0u64, 0u64);
+    for c in coders {
+        if input < first_in + c.num_in {
+            let simple = c.num_in == 1 && c.num_out == 1 && preserves_size(c.kind);
+            return simple.then(|| usize::try_from(first_out).ok()).flatten();
+        }
+        first_in += c.num_in;
+        first_out += c.num_out;
+    }
+    None
+}
+
+/// Size-preserving coders (Copy, BCJ, Delta) fed by another coder must
+/// declare the same size as their input (S5: an inconsistent size is a
+/// lie, never passed on).
+fn check_preserved_sizes(f: &FolderInfo) -> Result<(), ArchiveError> {
+    for &(input, bound_out) in &f.bind_pairs {
+        if let Some(out) = preserved_out(&f.coders, input) {
+            let read = usize::try_from(bound_out).map_err(|_| damaged("7z bind pair"))?;
+            if f.unpack_sizes[read] != f.unpack_sizes[out] {
+                return Err(damaged("7z filter sizes disagree"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Every coder is reached exactly once from the folder output, following
