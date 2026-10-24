@@ -17,11 +17,14 @@ cd "$(dirname "$0")/.."
 
 forbidden='zip feature "(lzma|xz|ppmd|zstd|lzma-rs|deflate-zopfli|_deflate-any.*zopfli)"'
 
-versions=$(cargo metadata --format-version 1 --locked 2>/dev/null |
-  python3 -I -c 'import json, sys
+if ! meta=$(cargo metadata --format-version 1 --locked); then
+  echo "check-zip-features: cargo metadata failed (is Cargo.lock up to date?)" >&2
+  exit 1
+fi
+versions=$(python3 -I -c 'import json, sys
 for p in json.load(sys.stdin)["packages"]:
     if p["name"] == "zip" and p.get("source"):
-        print(p["version"])' | sort -u)
+        print(p["version"])' <<<"$meta" | sort -u)
 
 if [ -z "$versions" ]; then
   echo "check-zip-features: no zip crate in Cargo.lock (nothing to check)"
@@ -30,8 +33,19 @@ fi
 
 status=0
 for v in $versions; do
-  if hits=$(cargo tree --locked -e features -i "zip@$v" --target all 2>/dev/null |
-    grep -E "$forbidden"); then
+  # Fail closed: if cargo tree itself fails, an empty output must not read
+  # as "no forbidden feature".
+  if ! tree=$(cargo tree --locked -e features -i "zip@$v" --target all); then
+    echo "check-zip-features: cargo tree failed for zip $v; cannot check its features" >&2
+    status=1
+    continue
+  fi
+  if [ "$(head -n 1 <<<"$tree")" != "zip v$v" ]; then
+    echo "check-zip-features: unexpected cargo tree output for zip $v; cannot check its features" >&2
+    status=1
+    continue
+  fi
+  if hits=$(grep -E "$forbidden" <<<"$tree"); then
     echo "check-zip-features: zip $v has a forbidden feature enabled:" >&2
     echo "$hits" | sed 's/^/  /' | sort -u >&2
     echo "  Find who enables it: cargo tree -e features -i zip@$v --target all" >&2
