@@ -13,6 +13,7 @@
 //! `<job>.undone.jsonl` after undo) and backups
 //! `backups/<job>/<path relative to the library root>`.
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
@@ -425,6 +426,10 @@ pub struct Writer {
     journal: File,
     journal_path: PathBuf,
     counter: u32,
+    /// The job temps an `extracted` intent names in this journal (this
+    /// run's and earlier runs'): each is used by one intent only, so a
+    /// completion or rollback line always points at one extraction.
+    extract_temps: HashSet<String>,
     /// Changes this run made to the library (done, journaled or not).
     changes: usize,
     resumed: bool,
@@ -470,6 +475,7 @@ impl Writer {
             journal,
             journal_path,
             counter: 0,
+            extract_temps: HashSet::new(),
             changes: 0,
             resumed: false,
         };
@@ -524,6 +530,25 @@ impl Writer {
             .append(true)
             .open(&path)
             .map_err(|e| map_io(e, &path))?;
+        let extract_temps: HashSet<String> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Line::Entry {
+                    op: Op::Extracted { temp, .. },
+                    ..
+                } => Some(temp.clone()),
+                _ => None,
+            })
+            .collect();
+        // Past every line and every journaled temp number: the temp
+        // counter of an earlier run can run ahead of its line count.
+        let counter = extract_temps
+            .iter()
+            .filter_map(|t| temp_number(job, t))
+            .map(|n| n.saturating_add(1))
+            .chain([u32::try_from(entries.len()).unwrap_or(u32::MAX)])
+            .max()
+            .unwrap_or(0);
         Ok(Writer {
             root: root.to_path_buf(),
             source_root: source_root.unwrap_or_else(|| root.to_path_buf()),
@@ -532,7 +557,8 @@ impl Writer {
             backups: data_dir.join("backups").join(job),
             journal,
             journal_path: path,
-            counter: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            counter,
+            extract_temps,
             changes: 0,
             resumed: true,
         })
@@ -683,6 +709,8 @@ impl Writer {
     /// its temp file for `target` (inside the root). Nothing is written
     /// to the library yet; [`Writer::extract_done`] or
     /// [`Writer::rolled_back`] follows.
+    /// `file.temp` must be a job temp no earlier intent of this job used
+    /// (see [`Writer::extract_temp`]).
     pub fn extract_intent(
         &mut self,
         target: &Path,
@@ -691,7 +719,25 @@ impl Writer {
     ) -> Result<(), WriteError> {
         let target = ensure_within(&self.root, target)?;
         let op = self.extracted_op(file)?;
-        self.append_entry(target, op, None, None, item)
+        if self.extract_temps.contains(&file.temp) {
+            return Err(WriteError::NameInvalid(file.temp.clone()));
+        }
+        self.append_entry(target, op, None, None, item)?;
+        self.extract_temps.insert(file.temp.clone());
+        Ok(())
+    }
+
+    /// A fresh job temp name (`.coverly-<job>-<n>.tmp`) for an
+    /// extraction: never one an intent of this job (in this run or an
+    /// earlier one) already named.
+    pub fn extract_temp(&mut self) -> String {
+        loop {
+            let temp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
+            self.counter = self.counter.wrapping_add(1);
+            if !self.extract_temps.contains(&temp) {
+                return temp;
+            }
+        }
     }
 
     /// Journals that the temp of `file` was renamed to `target` (a
@@ -707,6 +753,7 @@ impl Writer {
     ) -> Result<Fingerprint, WriteError> {
         let target = ensure_within(&self.root, target)?;
         let op = self.extracted_op(file)?;
+        self.check_intent(&file.temp)?;
         let meta = fs::symlink_metadata(&target).map_err(|e| map_io(e, &target))?;
         if !meta.file_type().is_file() {
             return Err(WriteError::NotAFile(target));
@@ -732,6 +779,7 @@ impl Writer {
     ) -> Result<(), WriteError> {
         let target = ensure_within(&self.root, target)?;
         self.check_job_temp(temp)?;
+        self.check_intent(temp)?;
         let op = Op::RolledBack {
             temp: temp.to_string(),
         };
@@ -799,6 +847,15 @@ impl Writer {
             crc32: file.crc32,
             temp: file.temp.clone(),
         })
+    }
+
+    /// An `extracted` intent of this job named `temp`.
+    fn check_intent(&self, temp: &str) -> Result<(), WriteError> {
+        if self.extract_temps.contains(temp) {
+            Ok(())
+        } else {
+            Err(WriteError::NameInvalid(temp.to_string()))
+        }
     }
 
     /// `temp` is a bare file name `.coverly-<this job>-<n>.tmp`: undo and
@@ -898,11 +955,21 @@ impl Writer {
 /// Whether `name` is a temp file name of job `job`:
 /// `.coverly-<job>-<digits>.tmp`, with no path separator.
 pub(crate) fn is_job_temp(job: &str, name: &str) -> bool {
+    temp_digits(job, name).is_some()
+}
+
+/// The `<digits>` of the job temp name `name` of job `job`.
+fn temp_digits<'n>(job: &str, name: &'n str) -> Option<&'n str> {
     name.strip_prefix(".coverly-")
         .and_then(|rest| rest.strip_prefix(job))
         .and_then(|rest| rest.strip_prefix('-'))
         .and_then(|rest| rest.strip_suffix(".tmp"))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The number of the job temp name `name` (`None` past `u32`).
+fn temp_number(job: &str, name: &str) -> Option<u32> {
+    temp_digits(job, name)?.parse().ok()
 }
 
 /// The key file names are compared by: NFC, lower case. FAT and exFAT
@@ -1292,10 +1359,12 @@ pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, 
                 }),
             ),
             Op::RolledBack { temp } => {
-                for record in out.iter_mut().filter(|r| r.item == item) {
-                    if let Some(ex) = record.extracted.as_mut().filter(|ex| ex.temp == temp) {
-                        ex.rolled_back = true;
-                    }
+                // Its intent: the latest one naming the temp, not renamed.
+                let intent = out.iter_mut().rev().find(|r| {
+                    !r.finished && r.extracted.as_ref().is_some_and(|ex| ex.temp == temp)
+                });
+                if let Some(ex) = intent.and_then(|r| r.extracted.as_mut()) {
+                    ex.rolled_back = true;
                 }
                 continue;
             }

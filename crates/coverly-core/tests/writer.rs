@@ -823,3 +823,67 @@ fn journal_from_before_change_still_undoes() {
     assert!(!moved.exists() && !copy.exists() && copy_src.exists());
     assert!(!root.join("GBA").exists() && !root.join("GB").exists());
 }
+
+#[test]
+fn extract_temps_are_unique_within_a_job_across_resumed_runs() {
+    let (_tmp, root, src, data, mut w) = extract_setup();
+    let job = w.job_id().to_string();
+    let target = root.join("PS/Next Tetris, The (Track 01).bin");
+    // An earlier run used a temp numbered past its line count (the copy
+    // counter skips names a crash left behind), then stopped.
+    let late = extracted_file(&src, &w, 40);
+    w.extract_intent(&target, &late, Some(0)).unwrap();
+    drop(w);
+
+    let mut w = Writer::resume(&root, &data, &job).unwrap();
+    // The journaled temp is never handed to a second intent...
+    assert!(matches!(
+        w.extract_intent(&target, &late, Some(0)),
+        Err(WriteError::NameInvalid(_))
+    ));
+    // ...and the temps this run mints never collide with it.
+    let minted: Vec<String> = (0..64).map(|_| w.extract_temp()).collect();
+    assert!(!minted.contains(&late.temp), "{minted:?}");
+    let mut unique = minted.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), minted.len());
+    let fresh = ExtractedFile {
+        temp: minted[0].clone(),
+        ..late.clone()
+    };
+    w.extract_intent(&target, &fresh, Some(0)).unwrap();
+    // The earlier intent can still be rolled back by the resumed run.
+    w.rolled_back(&target, &late.temp, Some(0)).unwrap();
+    w.finish().unwrap();
+
+    let records = job_transfers(&data, &job).unwrap();
+    let flags: Vec<(String, bool)> = records
+        .iter()
+        .map(|r| {
+            let ex = r.extracted.as_ref().unwrap();
+            (ex.temp.clone(), ex.rolled_back)
+        })
+        .collect();
+    assert_eq!(
+        flags,
+        [(late.temp.clone(), true), (fresh.temp.clone(), false)]
+    );
+}
+
+#[test]
+fn completion_and_rollback_need_a_journaled_intent() {
+    let (_tmp, root, src, _data, mut w) = extract_setup();
+    let target = root.join("PS/Next Tetris, The (Track 01).bin");
+    let file = extracted_file(&src, &w, 0);
+    fs::write(&target, b"track").unwrap();
+    assert!(matches!(
+        w.extract_done(&target, &file, 1, Some(0)),
+        Err(WriteError::NameInvalid(_))
+    ));
+    assert!(matches!(
+        w.rolled_back(&target, &file.temp, Some(0)),
+        Err(WriteError::NameInvalid(_))
+    ));
+    assert!(!w.has_entries());
+}
