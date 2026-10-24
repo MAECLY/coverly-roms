@@ -1888,3 +1888,254 @@ pub fn next_tetris_ps1_listing() -> Vec<ToolEntry> {
     out.push(cue);
     out
 }
+
+// ---------------------------------------------------------------------------
+// Mutation engine (plan Task 17, S1 across every format).
+// ---------------------------------------------------------------------------
+
+/// How a length field found by [`length_fields`] is encoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldWidth {
+    Le16,
+    Le32,
+    Le64,
+    /// A tar size field: 11 octal digits and a NUL.
+    Octal12,
+}
+
+impl FieldWidth {
+    /// The field's size in bytes.
+    pub fn size(self) -> usize {
+        match self {
+            FieldWidth::Le16 => 2,
+            FieldWidth::Le32 => 4,
+            FieldWidth::Le64 => 8,
+            FieldWidth::Octal12 => 12,
+        }
+    }
+}
+
+const SEVENZ_MAGIC: [u8; 6] = [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C];
+
+/// Offsets of the length, count and offset fields a hostile archive would
+/// rewrite: zip local and central headers and the end record, the 7z
+/// start header, every ustar header's size, the gzip ISIZE trailer and
+/// the xz stream footer's backward size. Every field lies inside `bytes`.
+pub fn length_fields(bytes: &[u8]) -> Vec<(usize, FieldWidth)> {
+    use FieldWidth::{Le16, Le32, Le64, Octal12};
+    let mut out = Vec::new();
+    let push = |at: usize, w: FieldWidth, out: &mut Vec<(usize, FieldWidth)>| {
+        if at
+            .checked_add(w.size())
+            .is_some_and(|end| end <= bytes.len())
+        {
+            out.push((at, w));
+        }
+    };
+    if bytes.starts_with(&SEVENZ_MAGIC) {
+        push(12, Le64, &mut out);
+        push(20, Le64, &mut out);
+        return out;
+    }
+    if bytes.starts_with(&[0x1F, 0x8B]) && bytes.len() >= 18 {
+        push(bytes.len() - 4, Le32, &mut out);
+        return out;
+    }
+    if bytes.starts_with(&[0xFD, b'7', b'z', b'X', b'Z', 0]) && bytes.len() >= 24 {
+        push(bytes.len() - 8, Le32, &mut out);
+        return out;
+    }
+    if bytes.get(257..262) == Some(b"ustar") {
+        let mut at = 0;
+        while at + 512 <= bytes.len() && bytes.get(at + 257..at + 262) == Some(b"ustar") {
+            push(at + 124, Octal12, &mut out);
+            let size = std::str::from_utf8(&bytes[at + 124..at + 135])
+                .ok()
+                .and_then(|s| u64::from_str_radix(s.trim_matches(['\0', ' ']), 8).ok())
+                .unwrap_or(0);
+            let data = usize::try_from(size.div_ceil(512) * 512).unwrap_or(usize::MAX);
+            at = at.saturating_add(512).saturating_add(data);
+        }
+        return out;
+    }
+    let mut i = 0;
+    while i + 4 <= bytes.len() {
+        match &bytes[i..i + 4] {
+            b"PK\x03\x04" => {
+                for (off, w) in [(18, Le32), (22, Le32), (26, Le16), (28, Le16)] {
+                    push(i + off, w, &mut out);
+                }
+            }
+            b"PK\x01\x02" => {
+                for (off, w) in [
+                    (20, Le32),
+                    (24, Le32),
+                    (28, Le16),
+                    (30, Le16),
+                    (32, Le16),
+                    (42, Le32),
+                ] {
+                    push(i + off, w, &mut out);
+                }
+            }
+            b"PK\x05\x06" => {
+                for (off, w) in [(8, Le16), (10, Le16), (12, Le32), (16, Le32), (20, Le16)] {
+                    push(i + off, w, &mut out);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// A xorshift64* generator; deterministic per seed, never stuck at zero.
+struct Rng(u64);
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        // splitmix64 of the seed, so nearby seeds diverge at once.
+        let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        Rng((z ^ (z >> 31)) | 1)
+    }
+
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        if n == 0 {
+            0
+        } else {
+            (self.next() % n as u64) as usize
+        }
+    }
+}
+
+/// A value a hostile archive writes into a length field: zero, one, the
+/// maximum, off by one from the original, the input length, or random.
+fn hostile_value(rng: &mut Rng, original: u64, max: u64, input_len: usize) -> u64 {
+    let v = match rng.below(8) {
+        0 => 0,
+        1 => 1,
+        2 => max,
+        3 => max - 1,
+        4 => original.wrapping_add(1),
+        5 => original.wrapping_sub(1),
+        6 => input_len as u64,
+        _ => rng.next(),
+    };
+    v & max
+}
+
+fn rewrite_field(rng: &mut Rng, bytes: &mut [u8], at: usize, w: FieldWidth) {
+    let input_len = bytes.len();
+    let field = &mut bytes[at..at + w.size()];
+    match w {
+        FieldWidth::Octal12 => {
+            let original = std::str::from_utf8(&field[..11])
+                .ok()
+                .and_then(|s| u64::from_str_radix(s.trim_matches(['\0', ' ']), 8).ok())
+                .unwrap_or(0);
+            let v = hostile_value(rng, original, 0o777_7777_7777, input_len);
+            let text = format!("{v:011o}\0");
+            field.copy_from_slice(&text.as_bytes()[..12]);
+        }
+        _ => {
+            let n = w.size();
+            let mut le = [0u8; 8];
+            le[..n].copy_from_slice(field);
+            let original = u64::from_le_bytes(le);
+            let max = if n == 8 {
+                u64::MAX
+            } else {
+                (1u64 << (8 * n)) - 1
+            };
+            let v = hostile_value(rng, original, max, input_len);
+            field.copy_from_slice(&v.to_le_bytes()[..n]);
+        }
+    }
+}
+
+/// Re-seals a 7z start header (its CRC, and the next header's CRC when the
+/// next header lies inside the file), so a mutation reaches the header
+/// walker instead of stopping at the start header's CRC.
+fn reseal_sevenz(bytes: &mut [u8]) {
+    if bytes.len() < 32 || !bytes.starts_with(&SEVENZ_MAGIC) {
+        return;
+    }
+    let field = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"));
+    let (off, size) = (field(12), field(20));
+    let span = 32u64
+        .checked_add(off)
+        .and_then(|start| start.checked_add(size).map(|end| (start, end)));
+    if let Some((start, end)) = span {
+        if let (Ok(start), Ok(end)) = (usize::try_from(start), usize::try_from(end)) {
+            if end <= bytes.len() {
+                let crc = crc32fast::hash(&bytes[start..end]);
+                bytes[28..32].copy_from_slice(&crc.to_le_bytes());
+            }
+        }
+    }
+    let crc = crc32fast::hash(&bytes[12..32]);
+    bytes[8..12].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// `n` seeded mutations of `bytes` (plan Task 17), each different from
+/// `bytes`: bit flips, truncations, rewrites of the length fields
+/// [`length_fields`] finds (a random 4-byte window when it finds none),
+/// and runs of random bytes. 7z mutations that keep the start header
+/// re-seal its CRCs half of the time. The same seed gives the same
+/// mutations; empty input gives none.
+pub fn mutate(seed: u64, bytes: &[u8], n: usize) -> impl Iterator<Item = Vec<u8>> {
+    let base = bytes.to_vec();
+    let fields = length_fields(&base);
+    let mut rng = Rng::new(seed);
+    let count = if base.is_empty() { 0 } else { n };
+    (0..count).map(move |round| loop {
+        let mut m = base.clone();
+        match round % 4 {
+            0 => {
+                for _ in 0..1 + rng.below(4) {
+                    let at = rng.below(m.len());
+                    m[at] ^= 1 << rng.below(8);
+                }
+            }
+            1 => {
+                m.truncate(rng.below(m.len()));
+            }
+            2 => {
+                if fields.is_empty() {
+                    let at = rng.below(m.len().saturating_sub(4).max(1));
+                    let end = (at + 4).min(m.len());
+                    let v = rng.next().to_le_bytes();
+                    m[at..end].copy_from_slice(&v[..end - at]);
+                } else {
+                    for _ in 0..1 + rng.below(2) {
+                        let (at, w) = fields[rng.below(fields.len())];
+                        rewrite_field(&mut rng, &mut m, at, w);
+                    }
+                }
+            }
+            _ => {
+                let at = rng.below(m.len());
+                let run = (1 + rng.below(16)).min(m.len() - at);
+                for b in &mut m[at..at + run] {
+                    *b = rng.next() as u8;
+                }
+            }
+        }
+        if rng.next() & 1 == 0 {
+            reseal_sevenz(&mut m);
+        }
+        if m != base {
+            return m;
+        }
+    })
+}
