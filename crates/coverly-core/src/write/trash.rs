@@ -816,10 +816,23 @@ impl TrashBackend for FakeTrash {
         let name = path
             .file_name()
             .ok_or_else(|| TrashError::Missing(path.to_path_buf()))?;
-        let slot = self.dir.join(format!("{n:04}"));
-        fs::create_dir_all(&slot)?;
+        // A fresh slot, taken exclusively: another FakeTrash over the same
+        // directory (a resumed run) or another thread never shares it.
+        fs::create_dir_all(&self.dir)?;
+        let mut k = n;
+        let slot = loop {
+            let slot = self.dir.join(format!("{k:04}"));
+            match fs::create_dir(&slot) {
+                Ok(()) => break slot,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => k += 1,
+                Err(e) => return Err(e.into()),
+            }
+        };
         let dest = slot.join(name);
-        fs::rename(path, &dest).map_err(|e| missing_or_io(e, path))?;
+        if let Err(e) = super::noclobber::rename_noclobber(path, &dest) {
+            let _ = fs::remove_dir(&slot);
+            return Err(missing_or_io(e, path));
+        }
         self.done.fetch_add(1, Ordering::SeqCst);
         Ok(Some(dest))
     }
@@ -876,6 +889,22 @@ mod tests {
         let again = trash.trash(&src).unwrap().unwrap();
         assert_ne!(again, at);
         assert_eq!(fs::read(&at).unwrap(), b"7z archive");
+    }
+
+    #[test]
+    fn fake_trash_never_clobbers_an_earlier_trash_in_the_same_dir() {
+        // A resumed run builds a new FakeTrash over the same directory: its
+        // counter starts again at 0, but the first archive must survive.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("trash");
+        let src = tmp.path().join("Tetris Plus.zip");
+        fs::write(&src, b"first run").unwrap();
+        let first = FakeTrash::new(&dir).trash(&src).unwrap().unwrap();
+        fs::write(&src, b"second run").unwrap();
+        let second = FakeTrash::new(&dir).trash(&src).unwrap().unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(&first).unwrap(), b"first run");
+        assert_eq!(fs::read(&second).unwrap(), b"second run");
     }
 
     #[test]
