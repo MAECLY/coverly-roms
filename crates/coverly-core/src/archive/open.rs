@@ -43,21 +43,10 @@ const TAR_BLOCK: u64 = 512;
 type Opened = Result<Option<Box<dyn ArchiveReader>>, ArchiveError>;
 
 pub(super) fn open(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
-    let mut file = File::open(path).map_err(ArchiveError::Io)?;
-    let len = file.metadata().map_err(ArchiveError::Io)?.len();
+    let (head, tail, len) = probe(path)?;
     if len == 0 {
         return Ok(None);
     }
-    let head = read_up_to(&mut file, HEAD_LEN)?;
-    let tail = if len > head.len() as u64 {
-        let n = len.min(EOCD_TAIL as u64);
-        file.seek(SeekFrom::End(-(n as i64)))
-            .map_err(ArchiveError::Io)?;
-        read_up_to(&mut file, n)?
-    } else {
-        head.clone()
-    };
-    drop(file);
 
     let name = path
         .file_name()
@@ -71,6 +60,32 @@ pub(super) fn open(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) ->
         Some(m) => by_magic(path, &name, m, limits, tools),
         None => by_fallback(path, &name, &head, limits, tools),
     }
+}
+
+/// The detection head, the tail (a zip end record's search window) and
+/// the length of `path`.
+fn probe(path: &Path) -> Result<(Vec<u8>, Vec<u8>, u64), ArchiveError> {
+    let mut file = File::open(path).map_err(ArchiveError::Io)?;
+    let len = file.metadata().map_err(ArchiveError::Io)?.len();
+    if len == 0 {
+        return Ok((Vec::new(), Vec::new(), 0));
+    }
+    let head = read_up_to(&mut file, HEAD_LEN)?;
+    let tail = if len > head.len() as u64 {
+        let n = len.min(EOCD_TAIL as u64);
+        file.seek(SeekFrom::End(-(n as i64)))
+            .map_err(ArchiveError::Io)?;
+        read_up_to(&mut file, n)?
+    } else {
+        head.clone()
+    };
+    Ok((head, tail, len))
+}
+
+/// The container magic of another file of a set; unreadable is none.
+fn magic_of(path: &Path) -> Option<(M, Vec<u8>)> {
+    let (head, tail, len) = probe(path).ok()?;
+    detect_container(&head, len, Some(&tail)).map(|m| (m, head))
 }
 
 fn read_up_to(file: &mut File, n: u64) -> Result<Vec<u8>, ArchiveError> {
@@ -304,6 +319,9 @@ fn volume_set(
     if let Some(part) = multi_volume_part(name) {
         let (family, stem) = family_of(name)?;
         let parts = collect_parts(path, family, &stem);
+        if !set_is_real(path, family, magic, &parts) {
+            return None;
+        }
         if part.first && parts.len() <= 1 {
             let whole = match family {
                 Family::SevenZ => magic == Some(M::SevenZip) && !sevenz_header_past_eof(head, len),
@@ -326,6 +344,35 @@ fn volume_set(
         .map(|s| s.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     Some(collect_parts(path, family, &stem))
+}
+
+/// `.rNN` and `.zNN` are also ROM extensions (`.z64` is N64): such a name
+/// is a volume only with archive evidence. `.rNN`: its own RAR signature,
+/// or a `<stem>.rar` beside it with the RAR volume flag. `.zNN`: its own
+/// spanned marker, a spanned `<stem>.z01`, or a `<stem>.zip` whose end
+/// record names another disk. `.7z.NNN` and `.partN.rar` are unambiguous.
+fn set_is_real(path: &Path, family: Family, magic: Option<M>, parts: &[PathBuf]) -> bool {
+    let others = || parts.iter().filter(move |p| p.as_path() != path);
+    let ext_is = |p: &Path, want: &str| {
+        p.extension()
+            .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(want))
+    };
+    match family {
+        Family::SevenZ | Family::RarParts => true,
+        Family::RarOld => {
+            matches!(magic, Some(M::Rar4 | M::Rar5))
+                || others().filter(|p| ext_is(p, "rar")).any(|p| {
+                    magic_of(p)
+                        .is_some_and(|(m, h)| matches!(m, M::Rar4 | M::Rar5) && rar_volume(&h))
+                })
+        }
+        Family::Zip => {
+            magic == Some(M::ZipSpanned)
+                || others()
+                    .filter(|p| ext_is(p, "z01") || ext_is(p, "zip"))
+                    .any(|p| magic_of(p).is_some_and(|(m, _)| m == M::ZipSpanned))
+        }
+    }
 }
 
 /// `path` and every file next to it of the same family and set stem, in

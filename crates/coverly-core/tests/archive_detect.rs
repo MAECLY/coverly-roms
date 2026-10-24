@@ -941,4 +941,71 @@ mod dispatch {
         let err = open_archive(&path, &limits).err().expect("too large");
         assert!(matches!(err, ArchiveError::TooLarge { .. }), "{err:?}");
     }
+
+    /// `.z64` (N64) and other `.zNN`/`.rNN` names are volume patterns only
+    /// when the set is real: an N64 ROM is no archive, even next to a
+    /// zipped copy of itself.
+    #[test]
+    fn n64_z64_rom_is_not_a_volume() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut n64 = vec![0x80, 0x37, 0x12, 0x40];
+        n64.resize(4096, 0x11);
+        let rom = write(dir.path(), "Super Mario 64 (USA).z64", &n64);
+        assert!(open_archive(&rom, &Limits::default()).unwrap().is_none());
+        // A normal zip of the same game beside it changes nothing.
+        write(
+            dir.path(),
+            "Super Mario 64 (USA).zip",
+            &zip_with(&[("Super Mario 64 (USA).z64", &n64, ZipMethod::Deflate)]),
+        );
+        assert!(open_archive(&rom, &Limits::default()).unwrap().is_none());
+        // A stray `.r16` without a RAR signature or a `.rar` beside it.
+        let stray = write(dir.path(), "Game.r16", &[0xA5u8; 512]);
+        assert!(open_archive_with(&stray, &Limits::default(), Some(&[]))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn later_split_zip_part_without_magic_is_a_volume() {
+        // `.z02` has no magic of its own: the spanned `.z01` (or a spanned
+        // `.zip`) beside it makes it a part.
+        let dir = tempfile::tempdir().unwrap();
+        let z01 = write(dir.path(), "Game.z01", b"PK\x07\x08PK\x03\x04 first");
+        let z02 = write(dir.path(), "Game.z02", &[0x33u8; 256]);
+        match open_archive(&z02, &Limits::default()) {
+            Err(ArchiveError::MultiVolume { parts }) => assert_eq!(parts, vec![z01, z02]),
+            other => panic!("{:?}", other.map(|r| r.map(|r| r.format()))),
+        }
+    }
+
+    /// The real pile (spec §1): three 7z named `.zip`, an HTML page, real
+    /// zips. Read-only; needs the owner's volume (plan AP-1).
+    #[test]
+    #[ignore = "needs the real download pile (COVERLY_SAMPLE_DIR)"]
+    fn real_sample_dispatch() {
+        let dir = std::env::var("COVERLY_SAMPLE_DIR")
+            .unwrap_or_else(|_| "/Volumes/TinyExt/ROMs-Downloaded".into());
+        let dir = Path::new(&dir);
+        if !dir.is_dir() {
+            eprintln!("skipped: {} is not mounted", dir.display());
+            return;
+        }
+        let l = Limits::default();
+        for name in [
+            "Next Tetris, The.zip",
+            "Next Tetris, The_ On-Line Edition.zip",
+            "Tetris Plus.zip",
+        ] {
+            let r = open_archive(&dir.join(name), &l).expect(name).expect(name);
+            assert_eq!(r.format(), Format::SevenZip, "{name}");
+        }
+        assert!(open_archive(&dir.join("3-D Tetris (USA).zip"), &l)
+            .unwrap()
+            .is_none());
+        let r = open_archive(&dir.join("FIFA Soccer 07.zip"), &l)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.format(), Format::Zip);
+    }
 }
