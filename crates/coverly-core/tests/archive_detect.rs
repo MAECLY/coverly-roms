@@ -665,3 +665,280 @@ fn lz4_after_skippable_frame() {
 fn zstd_frame_header() -> Vec<u8> {
     vec![0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x05, 0x01, 0x00, 0x00]
 }
+
+// ------------------------------------------- open_archive dispatch (Task 16)
+
+mod dispatch {
+    use std::path::{Path, PathBuf};
+
+    use coverly_core::archive::testing::{
+        gzip_with_zeros, sevenz, tar, zip_crafted, zip_with, SevenZShape, ZipMethod, ZipSpec,
+    };
+    use coverly_core::archive::{
+        open_archive, open_archive_with, ArchiveError, Compressor, Format, Limits, Tool,
+    };
+
+    fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn names(r: &dyn coverly_core::archive::ArchiveReader) -> Vec<String> {
+        r.entries()
+            .iter()
+            .map(|e| e.name.as_str().to_string())
+            .collect()
+    }
+
+    /// The root cause of the real case: a 7z named `.zip` was reported as
+    /// a damaged zip. Magic decides.
+    #[test]
+    fn sevenz_named_zip_opens_as_sevenz() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = sevenz(
+            &[
+                ("Next Tetris, The (Track 01).bin", b"PLAYSTATION data"),
+                ("Next Tetris, The.cue", b"FILE \"x\" BINARY\n"),
+            ],
+            SevenZShape::non_solid_lzma(),
+        );
+        let path = write(dir.path(), "Next Tetris, The.zip", &bytes);
+        let reader = open_archive(&path, &Limits::default())
+            .expect("opens")
+            .expect("a container");
+        assert_eq!(reader.format(), Format::SevenZip);
+        assert_eq!(
+            names(reader.as_ref()),
+            ["Next Tetris, The (Track 01).bin", "Next Tetris, The.cue"]
+        );
+    }
+
+    #[test]
+    fn zip_named_rar_opens_as_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = zip_with(&[("Tetris (World).gb", b"GB ROM", ZipMethod::Deflate)]);
+        let path = write(dir.path(), "Tetris.rar", &bytes);
+        let reader = open_archive(&path, &Limits::default()).unwrap().unwrap();
+        assert_eq!(reader.format(), Format::Zip);
+        assert_eq!(names(reader.as_ref()), ["Tetris (World).gb"]);
+    }
+
+    #[test]
+    fn html_named_zip_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let html = b"<!DOCTYPE html>\n<html><head><title>Download</title></head>\
+                     <body>Not found</body></html>\n";
+        let path = write(dir.path(), "3-D Tetris (USA).zip", html);
+        assert!(open_archive(&path, &Limits::default()).unwrap().is_none());
+    }
+
+    #[test]
+    fn garbage_named_zip_is_damaged() {
+        // No magic, an archive extension, not text: the zip reader decides.
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "Broken.zip", &[0xA5u8; 4096]);
+        let err = open_archive(&path, &Limits::default())
+            .err()
+            .expect("an error");
+        assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn no_magic_no_archive_extension_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "Tetris.gba", &[0xA5u8; 4096]);
+        assert!(open_archive(&path, &Limits::default()).unwrap().is_none());
+    }
+
+    #[test]
+    fn single_compressed_rom_opens_as_single() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "Tetris.gba.gz", &gzip_with_zeros(b"GBA ROM", 0));
+        let reader = open_archive(&path, &Limits::default()).unwrap().unwrap();
+        assert_eq!(reader.format(), Format::Single(Compressor::Gzip));
+        assert_eq!(names(reader.as_ref()), ["Tetris.gba"]);
+    }
+
+    #[test]
+    fn gz_holding_tar_opens_as_tar_by_content() {
+        // A `.gz` (not `.tgz`) whose stream is a tar: the content decides.
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = gzip_with_zeros(&tar(&[("Tetris.gb", b"GB ROM")]), 0);
+        let path = write(dir.path(), "roms.gz", &bytes);
+        let reader = open_archive(&path, &Limits::default()).unwrap().unwrap();
+        assert_eq!(
+            reader.format(),
+            Format::Tar {
+                outer: Some(Compressor::Gzip)
+            }
+        );
+        assert_eq!(names(reader.as_ref()), ["Tetris.gb"]);
+    }
+
+    #[test]
+    fn plain_tar_by_magic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "roms.bin", &tar(&[("Tetris.gb", b"GB ROM")]));
+        let reader = open_archive(&path, &Limits::default()).unwrap().unwrap();
+        assert_eq!(reader.format(), Format::Tar { outer: None });
+    }
+
+    #[test]
+    fn multi_volume_7z_001_002_one_error_with_parts() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = sevenz(
+            &[("Game (Track 1).bin", &[7u8; 3000][..])],
+            SevenZShape::non_solid_lzma(),
+        );
+        let (a, b) = bytes.split_at(bytes.len() / 2);
+        let first = write(dir.path(), "Game.7z.001", a);
+        let second = write(dir.path(), "Game.7z.002", b);
+        write(dir.path(), "Other.7z.001", a);
+        let want = vec![first.clone(), second.clone()];
+        for path in [&first, &second] {
+            match open_archive(path, &Limits::default()) {
+                Err(ArchiveError::MultiVolume { parts }) => assert_eq!(parts, want, "{path:?}"),
+                other => panic!("{path:?}: {:?}", other.map(|r| r.map(|r| r.format()))),
+            }
+        }
+    }
+
+    #[test]
+    fn lone_complete_7z_001_opens() {
+        // A `.7z.001` that holds the whole archive (no further parts, the
+        // header inside the file) is just a 7z.
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = sevenz(&[("Game.bin", b"data")], SevenZShape::non_solid_lzma());
+        let path = write(dir.path(), "Game.7z.001", &bytes);
+        let reader = open_archive(&path, &Limits::default()).unwrap().unwrap();
+        assert_eq!(reader.format(), Format::SevenZip);
+    }
+
+    #[test]
+    fn lone_truncated_7z_001_is_multi_volume() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = sevenz(
+            &[("Game.bin", &[1u8; 2000][..])],
+            SevenZShape::non_solid_lzma(),
+        );
+        let path = write(dir.path(), "Game.7z.001", &bytes[..bytes.len() / 2]);
+        match open_archive(&path, &Limits::default()) {
+            Err(ArchiveError::MultiVolume { parts }) => assert_eq!(parts, vec![path]),
+            other => panic!("{:?}", other.map(|r| r.map(|r| r.format()))),
+        }
+    }
+
+    #[test]
+    fn spanned_zip_and_old_rar_volumes_collect_parts() {
+        let dir = tempfile::tempdir().unwrap();
+        // Split zip: `.z01` parts then the `.zip` with the end record.
+        let z01 = write(dir.path(), "Game.z01", b"PK\x07\x08 first part");
+        let zip = write(dir.path(), "Game.zip", b"PK\x07\x08 last part");
+        match open_archive(&z01, &Limits::default()) {
+            Err(ArchiveError::MultiVolume { parts }) => {
+                assert_eq!(parts, vec![z01.clone(), zip.clone()]);
+            }
+            other => panic!("{:?}", other.map(|r| r.map(|r| r.format()))),
+        }
+        match open_archive(&zip, &Limits::default()) {
+            Err(ArchiveError::MultiVolume { parts }) => assert_eq!(parts, vec![z01, zip]),
+            other => panic!("{:?}", other.map(|r| r.map(|r| r.format()))),
+        }
+        // Old-style RAR 4 volume: main header flag MHD_VOLUME, `.r00` next.
+        let mut rar4 = b"Rar!\x1a\x07\x00".to_vec();
+        rar4.extend_from_slice(&[0x00, 0x00, 0x73, 0x01, 0x00, 0x0D, 0x00]);
+        rar4.extend_from_slice(&[0u8; 6]);
+        let rar = write(dir.path(), "Disc.rar", &rar4);
+        let r00 = write(dir.path(), "Disc.r00", b"continuation");
+        for path in [&rar, &r00] {
+            match open_archive_with(path, &Limits::default(), Some(&[])) {
+                Err(ArchiveError::MultiVolume { parts }) => {
+                    assert_eq!(parts, vec![rar.clone(), r00.clone()], "{path:?}");
+                }
+                other => panic!("{path:?}: {:?}", other.map(|r| r.map(|r| r.format()))),
+            }
+        }
+    }
+
+    #[test]
+    fn rar5_volume_flag_is_multi_volume() {
+        let dir = tempfile::tempdir().unwrap();
+        // Signature, header CRC32, size 3, type 1 (main), flags 0,
+        // archive flags 0x0001 (volume).
+        let mut rar5 = b"Rar!\x1a\x07\x01\x00".to_vec();
+        rar5.extend_from_slice(&[0, 0, 0, 0, 0x03, 0x01, 0x00, 0x01]);
+        let path = write(dir.path(), "Disc.rar", &rar5);
+        match open_archive_with(&path, &Limits::default(), Some(&[])) {
+            Err(ArchiveError::MultiVolume { parts }) => assert_eq!(parts, vec![path]),
+            other => panic!("{:?}", other.map(|r| r.map(|r| r.format()))),
+        }
+    }
+
+    #[test]
+    fn rar_without_tool_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut rar5 = b"Rar!\x1a\x07\x01\x00".to_vec();
+        rar5.extend_from_slice(&[0, 0, 0, 0, 0x03, 0x01, 0x00, 0x00]);
+        rar5.extend_from_slice(&[0u8; 64]);
+        let path = write(dir.path(), "Tetris.rar", &rar5);
+        let want = |e: &ArchiveError| {
+            matches!(e, ArchiveError::Unsupported { format, need: Some(Tool::Unrar) }
+                if format == "RAR")
+        };
+        // The setting off: no tool runs even when one is installed.
+        let off = Limits {
+            external_tools: false,
+            ..Limits::default()
+        };
+        let err = open_archive(&path, &off).err().expect("unsupported");
+        assert!(want(&err), "{err:?}");
+        // The setting on, nothing installed.
+        let err = open_archive_with(&path, &Limits::default(), Some(&[]))
+            .err()
+            .expect("unsupported");
+        assert!(want(&err), "{err:?}");
+    }
+
+    #[test]
+    fn recognised_formats_never_opened_are_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cab = b"MSCF".to_vec();
+        cab.extend_from_slice(&[0u8; 60]);
+        let path = write(dir.path(), "Game.cab", &cab);
+        let err = open_archive(&path, &Limits::default()).err().expect("err");
+        assert!(
+            matches!(&err, ArchiveError::Unsupported { format, need: None } if format == "CAB"),
+            "{err:?}"
+        );
+        // A CHD is a disc image, not an archive.
+        let mut chd = b"MComprHD".to_vec();
+        chd.extend_from_slice(&[0u8; 120]);
+        let path = write(dir.path(), "Game.chd", &chd);
+        assert!(open_archive(&path, &Limits::default()).unwrap().is_none());
+    }
+
+    #[test]
+    fn declared_sizes_sum_overflow() {
+        // Two zip64 entries whose declared sizes overflow u64 when summed:
+        // too large, never a wrapped total and never damaged.
+        let dir = tempfile::tempdir().unwrap();
+        let half = u64::MAX / 2 + 1;
+        let bytes = zip_crafted(&[
+            ZipSpec::new("a.bin", b"a", ZipMethod::Stored)
+                .declared_size(half)
+                .zip64(),
+            ZipSpec::new("b.bin", b"b", ZipMethod::Stored)
+                .declared_size(half)
+                .zip64(),
+        ]);
+        let path = write(dir.path(), "huge.zip", &bytes);
+        let limits = Limits {
+            max_entry_size: u64::MAX,
+            max_total_size: u64::MAX,
+            ..Limits::default()
+        };
+        let err = open_archive(&path, &limits).err().expect("too large");
+        assert!(matches!(err, ArchiveError::TooLarge { .. }), "{err:?}");
+    }
+}

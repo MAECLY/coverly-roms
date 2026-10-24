@@ -14,11 +14,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 pub mod budget;
+pub mod cache;
 pub mod detect;
 pub mod external;
 pub mod guard;
 pub mod lzma;
 pub mod names;
+mod open;
 pub mod sevenz;
 pub mod single;
 pub mod tar;
@@ -389,6 +391,12 @@ pub trait ArchiveReader: Send {
         true
     }
 
+    /// Whether a backend call panicked (S1). Such a reader is dropped,
+    /// never reused or cached ([`GuardedArchive`] overrides this).
+    fn is_poisoned(&self) -> bool {
+        false
+    }
+
     /// A reader of one entry's decoded bytes, verified against the
     /// listing's size and CRC at EOF. Bytes decoded to reach it (solid
     /// prefix, tar skip) are charged to `budget`.
@@ -409,16 +417,32 @@ pub trait ArchiveReader: Send {
     ) -> Result<(), ArchiveError>;
 }
 
-/// Opens `path` as an archive. `Ok(None)` when it is no container by magic
-/// (and has no archive extension); `Err` when it is one that cannot be used.
+/// Opens `path` as an archive (spec §3.2): magic first, the extension
+/// only as a fallback. `Ok(None)` when it is no container (no magic and no
+/// archive extension, or text such as an HTML page saved as `.zip`); `Err`
+/// when it is one that cannot be used. Every backend is wrapped in
+/// [`GuardedArchive`] (S1).
 ///
-/// Stub until the dispatch lands (plan Task 16): nothing is a container yet.
+/// External tools (RAR, 7z coders `sevenz-rust2` lacks) are discovered
+/// once per process with no extra roots to avoid; a caller that knows its
+/// source and target roots passes its own discovery to
+/// [`open_archive_with`].
 pub fn open_archive(
     path: &Path,
     limits: &Limits,
 ) -> Result<Option<Box<dyn ArchiveReader>>, ArchiveError> {
-    let _ = (path, limits);
-    Ok(None)
+    open_archive_with(path, limits, None)
+}
+
+/// [`open_archive`] with the external tools to use: `None` discovers them
+/// (once per process, only when an archive needs one), `Some(&[])` runs
+/// none.
+pub fn open_archive_with(
+    path: &Path,
+    limits: &Limits,
+    tools: Option<&[FoundTool]>,
+) -> Result<Option<Box<dyn ArchiveReader>>, ArchiveError> {
+    open::open(path, limits, tools)
 }
 
 /// File entries only, in archive order (directories and links removed).
@@ -673,8 +697,13 @@ mod tests {
     }
 
     #[test]
-    fn open_archive_stub_reports_no_container() {
-        let got = open_archive(Path::new("nothing.bin"), &Limits::default()).expect("stub");
-        assert!(got.is_none());
+    fn open_archive_missing_file_is_io() {
+        let err = open_archive(
+            Path::new("/nonexistent/coverly/nothing.zip"),
+            &Limits::default(),
+        )
+        .err()
+        .expect("missing file");
+        assert!(matches!(err, ArchiveError::Io(_)), "{err:?}");
     }
 }

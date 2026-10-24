@@ -243,7 +243,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 
 /// Printable text (no NUL/control bytes but tab/CR/LF in the first 512
 /// bytes, valid UTF-8): a web page when it starts like one.
-fn text_kind(head: &[u8]) -> Option<NotARom> {
+pub(crate) fn text_kind(head: &[u8]) -> Option<NotARom> {
     let probe = &head[..head.len().min(512)];
     let text = match std::str::from_utf8(probe) {
         Ok(t) => t,

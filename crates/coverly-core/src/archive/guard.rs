@@ -219,7 +219,7 @@ impl<A: ArchiveReader> GuardedArchive<A> {
     /// Whether a backend call panicked; such a reader is dropped, not
     /// reused.
     pub fn is_poisoned(&self) -> bool {
-        self.poison.is_poisoned()
+        ArchiveReader::is_poisoned(self)
     }
 
     pub fn poison(&self) -> &Poison {
@@ -238,6 +238,10 @@ impl<A: ArchiveReader> ArchiveReader for GuardedArchive<A> {
 
     fn listing_complete(&self) -> bool {
         self.inner.as_ref().is_some_and(A::listing_complete)
+    }
+
+    fn is_poisoned(&self) -> bool {
+        self.poison.is_poisoned() || self.inner.as_ref().is_none_or(A::is_poisoned)
     }
 
     fn open_entry<'a>(
