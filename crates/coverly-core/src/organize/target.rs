@@ -129,6 +129,13 @@ impl DirIndex {
         Some(dir.join(found))
     }
 
+    /// `name` (ignoring case and Unicode normalisation) was claimed in
+    /// `dir` by an earlier item.
+    pub fn claimed(&mut self, dir: &Path, name: &str) -> bool {
+        let key = name_key(name);
+        self.names(dir).claimed.contains(&key)
+    }
+
     /// Reserves `name` in `dir` for a planned item.
     pub fn claim(&mut self, dir: &Path, name: &str) {
         let key = name_key(name);
@@ -911,7 +918,10 @@ fn extract_disc(
         if safe_file_name(&stem).ok().as_deref() != Some(stem.as_str()) {
             return Planned::Left(LeftReason::SetUnsafeName { name: stem });
         }
-        dir.join(&stem)
+        match game_folder(dir, &stem, index) {
+            Some(folder) => folder,
+            None => return Planned::Left(LeftReason::CollisionSet),
+        }
     } else {
         dir.to_path_buf()
     };
@@ -952,7 +962,28 @@ fn extract_disc(
     let primary = entries.iter().position(|e| e.name == first).unwrap_or(0);
     place_extracted(targets, m3u, dir, &folder, layout, comps, index).map_placed(|p| {
         p.target = p.entry_targets[primary].clone();
+        // The game folder's own name, so no later item (another archive
+        // whose stem differs only in case) shares it.
+        if folder != dir {
+            p.claims.push((dir.to_path_buf(), file_name(&folder)));
+        }
     })
+}
+
+/// The folder `stem` in `dir` a game-folder extraction writes into: an
+/// existing real folder of that name in any case is reused under its own
+/// spelling; one an earlier item claimed, or a file or link in its place,
+/// is a collision (`None`).
+fn game_folder(dir: &Path, stem: &str, index: &mut DirIndex) -> Option<PathBuf> {
+    if index.claimed(dir, stem) {
+        return None;
+    }
+    match index.existing(dir, stem) {
+        Some(existing) => fs::symlink_metadata(&existing)
+            .is_ok_and(|m| m.is_dir())
+            .then_some(existing),
+        None => Some(dir.join(stem)),
+    }
 }
 
 impl Planned {

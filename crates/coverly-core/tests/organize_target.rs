@@ -693,4 +693,101 @@ mod extract {
         assert_eq!(left(&items[0]), None);
         assert_eq!(left(&items[1]), Some(&LeftReason::TooBigForFat));
     }
+
+    /// A game-folder layout (MinUI).
+    fn minui(target: &Path) -> TargetLayout {
+        TargetLayout {
+            profile: common::profile("minui"),
+            ..layout(target, true)
+        }
+    }
+
+    fn target_of(it: &OrganizeItem, i: usize) -> String {
+        match &it.transfer {
+            Transfer::Extract { entries, .. } => {
+                entries[i].target.to_string_lossy().replace('\\', "/")
+            }
+            other => panic!("not an extraction: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn game_folders_differing_only_in_case_collide() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        // On FAT, exFAT and default APFS/NTFS both land in one folder.
+        let mut items = vec![
+            disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"]),
+            disc_item(1, "B.7z", &["game (usa).cue", "game (usa) (Track 1).bin"]),
+        ];
+        run(&mut items, &minui(t.path()), s.path());
+        assert_eq!(left(&items[0]), None);
+        assert_eq!(left(&items[1]), Some(&LeftReason::CollisionSet));
+    }
+
+    #[test]
+    fn a_file_where_the_game_folder_goes_is_a_collision() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        let lay = minui(t.path());
+        // Find the system folder the layout picks, then block the game
+        // folder there with a plain file.
+        run(&mut items, &lay, s.path());
+        let cue = target_of(&items[0], 0);
+        let folder = cue.rsplit_once('/').unwrap().0.to_string();
+        put(t.path(), &folder, b"not a folder");
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::CollisionSet));
+    }
+
+    #[test]
+    fn an_existing_game_folder_in_another_case_is_reused() {
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let lay = minui(t.path());
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        run(&mut items, &lay, s.path());
+        let cue = target_of(&items[0], 0);
+        let system = cue
+            .rsplit_once('/')
+            .unwrap()
+            .0
+            .rsplit_once('/')
+            .unwrap()
+            .0
+            .to_string();
+        fs::create_dir_all(t.path().join(&system).join("game (usa)")).unwrap();
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), None);
+        assert_eq!(
+            target_of(&items[0], 0),
+            format!("{system}/game (usa)/Game (USA).cue")
+        );
+        assert_eq!(
+            target_of(&items[0], 1),
+            format!("{system}/game (usa)/Game (USA).bin")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_game_folder_is_never_written_through() {
+        let (s, t, elsewhere) = (
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        let lay = minui(t.path());
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        run(&mut items, &lay, s.path());
+        let cue = target_of(&items[0], 0);
+        let folder = t.path().join(cue.rsplit_once('/').unwrap().0);
+        fs::create_dir_all(folder.parent().unwrap()).unwrap();
+        // A link where the game folder goes would send the tracks outside
+        // the target.
+        std::os::unix::fs::symlink(elsewhere.path(), &folder).unwrap();
+        let mut items = vec![disc_item(0, "A.7z", &["Game (USA).cue", "Game (USA).bin"])];
+        run(&mut items, &lay, s.path());
+        assert_eq!(left(&items[0]), Some(&LeftReason::CollisionSet));
+    }
 }
