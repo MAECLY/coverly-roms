@@ -116,13 +116,60 @@ pub enum NotARom {
 }
 
 /// Container formats recognised by their magic (contents not read here).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The magic table is spec `2026-10-23-organize-archives-and-discs.md`
+/// §3.1; [`crate::archive::detect::detect_container`] decides it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ContainerMagic {
+    /// `PK\x03\x04` or an empty archive's `PK\x05\x06` at offset 0.
     Zip,
+    /// No zip magic at 0, but a valid end-of-central-directory record at
+    /// the end of the file: a self-extracting or prefixed zip.
+    ZipEocdOnly,
+    /// Spanned/split zip marker `PK\x07\x08`, or an EOCD on disk ≠ 0:
+    /// one part of a multi-volume set (spec §3.2 rule 6).
+    ZipSpanned,
     SevenZip,
+    Rar4,
+    Rar5,
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+    /// LZ4 frame or legacy format.
+    Lz4,
+    Tar,
+    /// The legacy `.lzma` format: no magic, extension and plausible
+    /// properties only.
+    LzmaAlone,
+    /// A disc image, not an archive.
     Chd,
-    Rar,
+    /// Recognised, never opened: `Unsupported { format }`.
+    Cab,
+    Arj,
+    Lzh,
+    /// Unix `compress` (`.Z`).
+    Compress,
+    /// ECM-encoded disc image.
+    Ecm,
+}
+
+impl ContainerMagic {
+    /// One part of a multi-volume set, never opened alone.
+    pub fn is_multi_volume(self) -> bool {
+        self == Self::ZipSpanned
+    }
+
+    /// Any zip shape (local header, prefixed, spanned).
+    pub fn is_zip(self) -> bool {
+        matches!(self, Self::Zip | Self::ZipEocdOnly | Self::ZipSpanned)
+    }
+
+    /// RAR 4 or RAR 5.
+    pub fn is_rar(self) -> bool {
+        matches!(self, Self::Rar4 | Self::Rar5)
+    }
 }
 
 /// Result of [`sniff`].
@@ -182,7 +229,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         }
         return s;
     }
-    if let Some(c) = container(&head) {
+    if let Some(c) = container(&head, len) {
         s.container = Some(c);
         return s;
     }
@@ -229,18 +276,10 @@ fn starts_with_markup(head: &[u8]) -> bool {
     head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<')
 }
 
-fn container(head: &[u8]) -> Option<ContainerMagic> {
-    if starts(head, 0, b"PK\x03\x04") || starts(head, 0, b"PK\x05\x06") {
-        Some(ContainerMagic::Zip)
-    } else if starts(head, 0, &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
-        Some(ContainerMagic::SevenZip)
-    } else if starts(head, 0, b"MComprHD") {
-        Some(ContainerMagic::Chd)
-    } else if starts(head, 0, b"Rar!\x1a\x07") {
-        Some(ContainerMagic::Rar)
-    } else {
-        None
-    }
+/// Container magic of the prefix alone (no tail: a prefixed zip is found
+/// by `inspect`, which reads the end of the file).
+fn container(head: &[u8], len: u64) -> Option<ContainerMagic> {
+    crate::archive::detect::detect_container(head, len, None)
 }
 
 /// ISO 9660 primary volume descriptor at sector 16, as a 2048-byte ISO or

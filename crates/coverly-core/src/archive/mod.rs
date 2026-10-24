@@ -13,6 +13,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+pub mod detect;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 

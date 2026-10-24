@@ -93,7 +93,7 @@ fn containers_are_recognised_not_read() {
     );
     assert_eq!(
         run(b"Rar!\x1a\x07\x01\x00", "rar").container,
-        Some(ContainerMagic::Rar)
+        Some(ContainerMagic::Rar5)
     );
 }
 

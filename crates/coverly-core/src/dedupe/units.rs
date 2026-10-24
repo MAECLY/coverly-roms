@@ -498,18 +498,18 @@ fn classify(
         _ => {}
     }
     let probe = probe_magic(path, ext)?;
-    let want = match ext {
-        "zip" => Some(ContainerMagic::Zip),
-        "7z" => Some(ContainerMagic::SevenZip),
-        "chd" => Some(ContainerMagic::Chd),
-        "rar" => Some(ContainerMagic::Rar),
+    let want: Option<fn(ContainerMagic) -> bool> = match ext {
+        "zip" => Some(|m| m == ContainerMagic::Zip),
+        "7z" => Some(|m| m == ContainerMagic::SevenZip),
+        "chd" => Some(|m| m == ContainerMagic::Chd),
+        "rar" => Some(ContainerMagic::is_rar),
         _ => None,
     };
     match want {
-        Some(magic) => {
+        Some(is_own) => {
             // A container must open with its own magic: text or anything
             // else saved under its name is not a ROM.
-            if probe.not_a_rom.is_some() || probe.container != Some(magic) {
+            if probe.not_a_rom.is_some() || !probe.container.is_some_and(is_own) {
                 return Err(Some(Exclusion::NotARom));
             }
         }

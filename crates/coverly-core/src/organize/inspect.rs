@@ -201,7 +201,7 @@ fn container_for(ext: &str, magic: Option<ContainerMagic>) -> Container {
         ("zip", _) | (_, Some(ContainerMagic::Zip)) => Container::Zip,
         ("7z", _) | (_, Some(ContainerMagic::SevenZip)) => Container::SevenZip,
         ("chd", _) | (_, Some(ContainerMagic::Chd)) => Container::Chd,
-        ("rar", _) | (_, Some(ContainerMagic::Rar)) => Container::Rar,
+        ("rar", _) | (_, Some(ContainerMagic::Rar4 | ContainerMagic::Rar5)) => Container::Rar,
         _ => Container::Raw,
     }
 }
