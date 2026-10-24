@@ -34,7 +34,8 @@ zip = { version = "9", default-features = false }
 sevenz-rust2 = { version = "=0.23.0", default-features = false }
 lzma-rust2 = { version = "=0.21.0", default-features = false, features = ["std", "optimization", "xz"] }
 ppmd-rust = "=1.5.0"
-ruzstd = { version = "=0.9.0", default-features = false, features = ["std"] }
+# `hash`: XXH64 content checksum, verified per frame (spec §9.1).
+ruzstd = { version = "=0.9.0", default-features = false, features = ["std", "hash"] }
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["std", "safe-decode", "checked-decode", "frame"] }
 tar = { version = "=0.4.46", default-features = false }
 # Default features select the pure-Rust libbz2-rs-sys backend.
