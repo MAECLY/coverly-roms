@@ -1817,11 +1817,11 @@ pub fn unrar_listing_script(lt: &str, l: &str) -> FakeScript {
 // ---------------------------------------------------------------------------
 
 /// The switches of a 7-Zip read of one named entry, before `--`.
-pub const SEVEN_ZIP_NAME_ARGS: &[&str] = &["e", "-so", "-spd", "-r-"];
+pub const SEVEN_ZIP_NAME_ARGS: &[&str] = &["e", "-so", "-spd", "-r-", "-p-"];
 /// The switches of a 7-Zip read of every file in archive order.
-pub const SEVEN_ZIP_STREAM_ARGS: &[&str] = &["e", "-so", "-spd"];
+pub const SEVEN_ZIP_STREAM_ARGS: &[&str] = &["e", "-so", "-spd", "-p-"];
 /// The switches of an unrar read, by name or (with no name) every file.
-pub const UNRAR_READ_ARGS: &[&str] = &["p", "-inul", "-cfg-"];
+pub const UNRAR_READ_ARGS: &[&str] = &["p", "-inul", "-cfg-", "-p-"];
 /// The switches of bsdtar's pax transcode, before `--`.
 pub const BSDTAR_TRANSCODE_ARGS: &[&str] = &["-c", "--format=pax", "-f", "-"];
 

@@ -485,8 +485,8 @@ Hygiene (spec §5.2): only an absolute regular executable (`.bat`/`.cmd`/`.ps1` 
 
 **Behaviour (spec §13 S8):**
 - `is_ambiguous(name, listing)`: true when the name contains `* ? [ ] { } \ !`, starts with `-`/`@`, has an NFC case-insensitive twin, or another entry starts with `name + '/'`.
-- Unambiguous names: `unrar p -inul -cfg- -- <a> <name>` / `7zz e -so -spd -r- -- <a> <name>`.
-- Ambiguous names: a full stream (`unrar p -inul -cfg- -- <a>` / `7zz e -so -spd -- <a>`) is sliced by the listed file sizes in listing order. Each slice is verified (size + CRC), and only the wanted slices are kept. Any mismatch → `Damaged`. Stream mode is refused (`Unsupported { "ambiguous names" }`) when the listing has links, encrypted entries or entries without a size.
+- Unambiguous names: `unrar p -inul -cfg- -p- -- <a> <name>` / `7zz e -so -spd -r- -p- -- <a> <name>`.
+- Ambiguous names: a full stream (`unrar p -inul -cfg- -p- -- <a>` / `7zz e -so -spd -p- -- <a>`) is sliced by the listed file sizes in listing order. Each slice is verified (size + CRC), and only the wanted slices are kept. Any mismatch → `Damaged`. Stream mode is refused (`Unsupported { "ambiguous names" }`) when the listing has links, encrypted entries or entries without a size.
 - Exit status ≠ 0 → `ToolFailed`.
 - bsdtar: `bsdtar -c --format=pax -f - @<archive>` is read by the Task 12 tar reader (no slicing). Exit status is checked at EOF.
 

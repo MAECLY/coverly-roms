@@ -1892,6 +1892,8 @@ const READ_POLL: Duration = Duration::from_millis(50);
 /// The switches of one tool's reads, before `--` (spec §13 S8). `-spd`
 /// turns off 7-Zip's wildcard matching and `-r-` its recursion; unrar has
 /// no such switch, so a name it might match as a pattern is never given.
+/// `-p-` on both: never a password prompt (unrar asks on the console, not
+/// on the closed stdin).
 struct ReadSwitches {
     by_name: &'static [&'static str],
     stream: &'static [&'static str],
@@ -1900,12 +1902,12 @@ struct ReadSwitches {
 fn read_switches(tool: Tool) -> Result<ReadSwitches, ArchiveError> {
     match tool {
         Tool::SevenZip => Ok(ReadSwitches {
-            by_name: &["e", "-so", "-spd", "-r-"],
-            stream: &["e", "-so", "-spd"],
+            by_name: &["e", "-so", "-spd", "-r-", "-p-"],
+            stream: &["e", "-so", "-spd", "-p-"],
         }),
         Tool::Unrar => Ok(ReadSwitches {
-            by_name: &["p", "-inul", "-cfg-"],
-            stream: &["p", "-inul", "-cfg-"],
+            by_name: &["p", "-inul", "-cfg-", "-p-"],
+            stream: &["p", "-inul", "-cfg-", "-p-"],
         }),
         Tool::Bsdtar => Err(ArchiveError::Unsupported {
             format: "bsdtar reads go through the pax transcode".into(),
@@ -2785,6 +2787,19 @@ mod tests {
                 unsafe_name: None,
             })
             .collect()
+    }
+
+    /// Spec §13 "Encrypted entries": never prompt. unrar asks on the
+    /// console, not on stdin, so a closed stdin does not stop it (Windows
+    /// has no `setsid` to take the terminal away).
+    #[test]
+    fn reads_never_prompt_for_a_password() {
+        for tool in [Tool::SevenZip, Tool::Unrar] {
+            let s = read_switches(tool).expect("switches");
+            for args in [s.by_name, s.stream] {
+                assert!(args.contains(&"-p-"), "{tool:?} {args:?}");
+            }
+        }
     }
 
     #[test]

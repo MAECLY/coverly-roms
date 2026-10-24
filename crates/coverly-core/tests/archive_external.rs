@@ -1154,6 +1154,29 @@ fn real_sample_lists_through_seven_zip() {
                 "{name}"
             );
         }
+        // Reads only (`7zz e -so`): every cue sheet, by name or by stream,
+        // verified by size and CRC.
+        let mut r = r;
+        let sheets: Vec<usize> = r
+            .entries()
+            .iter()
+            .filter(|e| e.kind == EntryKind::File && e.name.as_str().ends_with(".cue"))
+            .map(|e| e.index)
+            .collect();
+        assert!(!sheets.is_empty(), "{name}: a cue sheet");
+        for i in sheets {
+            let mut budget = coverly_core::archive::Budget::apply();
+            let mut text = Vec::new();
+            std::io::Read::read_to_end(
+                &mut r.open_entry(i, &mut budget).expect("sheet"),
+                &mut text,
+            )
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            assert!(
+                String::from_utf8_lossy(&text).contains("FILE"),
+                "{name}: a cue sheet"
+            );
+        }
     }
 }
 
@@ -1717,5 +1740,59 @@ mod reads {
                 ..
             })
         ));
+    }
+
+    /// The read switches against the 7-Zip on this machine (skips without
+    /// one): a pattern-character name by stream, a plain one by name, and a
+    /// folder's file, all verified by size and CRC with the real exit
+    /// status. Proves the real tool accepts every pinned switch (`-p-`).
+    #[test]
+    fn real_seven_zip_reads_by_name_and_stream() {
+        use coverly_core::archive::external::discover;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let tools = discover(&[tmp.path()]);
+        let Some(seven) = tools.iter().find(|t| t.tool == Tool::SevenZip) else {
+            eprintln!("skipped: no 7-Zip found");
+            return;
+        };
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(src.join("d")).expect("src");
+        let files: [(&str, &[u8]); 3] = [
+            ("Game [1].bin", b"wild one"),
+            ("plain.bin", b"plain bytes"),
+            ("d/x.bin", b"in a folder"),
+        ];
+        for (name, data) in files {
+            std::fs::write(src.join(name), data).expect("file");
+        }
+        let archive = tmp.path().join("t.7z");
+        let made = std::process::Command::new(&seven.path)
+            .args(["a", "-bd", "-bso0", "-ms=off", "--"])
+            .arg(&archive)
+            .args(files.iter().map(|(n, _)| *n))
+            .current_dir(&src)
+            .status()
+            .expect("7-Zip runs");
+        assert!(made.success(), "7-Zip made the archive");
+        let mut r = ToolReader::open(&tools, &archive, Format::SevenZip, &Limits::default())
+            .expect("listing");
+        for (name, data) in files {
+            let i = index_of(&r, name);
+            assert_eq!(
+                is_ambiguous(name, r.entries()),
+                name.contains('['),
+                "{name}"
+            );
+            assert_eq!(read_entry(&mut r, i).expect(name), data, "{name}");
+        }
+        let all: Vec<usize> = files.iter().map(|(n, _)| index_of(&r, n)).collect();
+        let mut got = stream_all(&mut r, &all).expect("one pass");
+        got.sort();
+        let mut want: Vec<(String, Vec<u8>)> = files
+            .iter()
+            .map(|(n, d)| ((*n).to_string(), d.to_vec()))
+            .collect();
+        want.sort();
+        assert_eq!(got, want);
     }
 }
