@@ -400,7 +400,6 @@ fn single_size_declared_past_the_budget() {
         ..Limits::default()
     };
     let cases: Vec<(Vec<u8>, Compressor)> = vec![
-        (gz(&data, None), Compressor::Gzip),
         (xz(&data), Compressor::Xz),
         (zstd_raw_frames(&data), Compressor::Zstd),
         (lz4(&data, true), Compressor::Lz4),
@@ -418,6 +417,38 @@ fn single_size_declared_past_the_budget() {
     assert_eq!(r.size_source(), SizeSource::Unknown);
     let r = open(zst(&data), Compressor::Zstd, "big.iso.zst", &limits).unwrap();
     assert_eq!(r.size_source(), SizeSource::Unknown);
+}
+
+/// The gzip trailer is not a size: `ISIZE` is the size mod 4 GiB (a PS2
+/// DVD image of 4.5 GiB would declare 0.5 GiB, passing a FAT32 check it
+/// must fail) and, with several members, only the last member's size and
+/// CRC32. Past the bounded decode a gzip size is unknown, and the stream
+/// still reads back whole (`MultiGzDecoder` checks every member).
+#[test]
+fn gz_trailer_never_declares_the_size() {
+    let limits = Limits {
+        plan_head_budget: 16 * 1024,
+        ..Limits::default()
+    };
+    let data = sample(200_000);
+    let mut r = open(gz(&data, None), Compressor::Gzip, "big.iso.gz", &limits).unwrap();
+    assert_eq!(r.size_source(), SizeSource::Unknown);
+    assert!(!r.listing_complete());
+    assert_eq!(r.entries()[0].crc32, None);
+    assert_eq!(read_entry(&mut r).unwrap(), data);
+
+    // Two members, the last one larger than the bounded decode: its
+    // trailer must not become the entry's size and CRC32.
+    let a = sample(30_000);
+    let b = b"second member payload ".repeat(5_000);
+    let mut bytes = gz(&a, None);
+    bytes.extend_from_slice(&gz(&b, None));
+    let mut whole = a.clone();
+    whole.extend_from_slice(&b);
+    let mut r = open(bytes, Compressor::Gzip, "two.iso.gz", &limits).unwrap();
+    assert_eq!(r.size_source(), SizeSource::Unknown);
+    assert_ne!(r.entries()[0].size, b.len() as u64);
+    assert_eq!(read_entry(&mut r).unwrap(), whole);
 }
 
 /// Two zstd frames of raw blocks, each declaring its content size (4-byte

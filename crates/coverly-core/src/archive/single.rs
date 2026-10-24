@@ -15,11 +15,14 @@
 //! measures the size and the CRC32 exactly; the compressor's own checks run
 //! as it goes. When the stream is longer than that, the size comes from
 //! what the format declares: the xz index, the zstd frame content sizes,
-//! the lz4 frame content size, the `.lzma` header, the gzip trailer
-//! (`ISIZE` and its CRC32, which become the entry's). bzip2 declares
-//! nothing: such an entry has [`SizeSource::Unknown`], its listing is not
-//! complete ([`ArchiveReader::listing_complete`] is false, so it is never
-//! extracted), and its stream is bounded by `max_entry_size` only.
+//! the lz4 frame content size, the `.lzma` header. bzip2 declares
+//! nothing, and the gzip trailer is not a size: `ISIZE` is the size mod
+//! 4 GiB (a 4.5 GiB DVD image would claim 0.5 GiB and pass a FAT32 check)
+//! and, with several members, only the last member's size and CRC32. Such
+//! an entry has [`SizeSource::Unknown`], its listing is not complete
+//! ([`ArchiveReader::listing_complete`] is false, so it is never
+//! extracted), and its stream is bounded by `max_entry_size` only (gzip
+//! and bzip2 still check every member's own CRC as they decode).
 //!
 //! **Decoding** goes through [`open_compressor`], shared with tar (plan
 //! Task 12): `flate2`'s `MultiGzDecoder` (concatenated members), `bzip2`'s
@@ -59,7 +62,7 @@ pub enum SizeSource {
     /// The bounded listing decode reached the end: size and CRC32 exact.
     Measured,
     /// From the format's own fields (xz index, zstd/lz4 frame content
-    /// size, `.lzma` header, gzip `ISIZE` + CRC32); verified at EOF.
+    /// size, `.lzma` header); verified at EOF. Never gzip (module docs).
     Declared,
     /// Neither: the entry's `size` is only the bytes the bounded decode
     /// reached (a lower bound) and its `crc32` is `None`.
@@ -157,12 +160,11 @@ impl<R: Read + Seek + Send> SingleReader<R> {
         let (size, crc32, size_source) = match measure(&mut src, compressor, &limits)? {
             Measure::Done { size, crc } => (size, Some(crc), SizeSource::Measured),
             Measure::Partial { reached } => {
-                // A declaration below what was already decoded is wrong
-                // (a gzip `ISIZE` wrapped at 4 GiB, several members).
+                // A declaration below what was already decoded is wrong.
                 match declared_size(&mut src, compressor, len, &limits)?
-                    .filter(|&(size, _)| size >= reached)
+                    .filter(|&size| size >= reached)
                 {
-                    Some((size, crc)) => (size, crc, SizeSource::Declared),
+                    Some(size) => (size, None, SizeSource::Declared),
                     None => (reached, None, SizeSource::Unknown),
                 }
             }
@@ -400,33 +402,25 @@ fn measure<R: Read + Seek>(
     })
 }
 
-/// The size (and, for gzip, the CRC32) the format declares, when it does.
-/// `None` also when the declaration cannot be trusted (an xz file of
-/// several streams, a zstd frame without a content size, a malformed
-/// structure the decoder will report).
+/// The size the format declares, when it does. `None` also when the
+/// declaration cannot be trusted (an xz file of several streams, a zstd
+/// frame without a content size, a malformed structure the decoder will
+/// report) and always for gzip, whose `ISIZE` wraps at 4 GiB and covers
+/// the last member only (module docs).
 fn declared_size<R: Read + Seek>(
     src: &mut R,
     c: Compressor,
     len: u64,
     limits: &Limits,
-) -> Result<Option<(u64, Option<u32>)>, ArchiveError> {
+) -> Result<Option<u64>, ArchiveError> {
     Ok(match c {
-        Compressor::Gzip => {
-            // RFC 1952 trailer of the last member: CRC32, ISIZE (mod 2^32).
-            let Some(tail) = read_at(src, len.saturating_sub(8), 8, len)? else {
-                return Ok(None);
-            };
-            let crc = u32::from_le_bytes([tail[0], tail[1], tail[2], tail[3]]);
-            let isize = u32::from_le_bytes([tail[4], tail[5], tail[6], tail[7]]);
-            Some((u64::from(isize), Some(crc)))
-        }
-        Compressor::Bzip2 => None,
-        Compressor::Xz => xz_index_size(src, len, limits.max_header)?.map(|s| (s, None)),
-        Compressor::Zstd => zstd_content_size(src, len)?.map(|s| (s, None)),
-        Compressor::Lz4 => lz4_walk(src, len)?.map(|s| (s, None)),
+        Compressor::Gzip | Compressor::Bzip2 => None,
+        Compressor::Xz => xz_index_size(src, len, limits.max_header)?,
+        Compressor::Zstd => zstd_content_size(src, len)?,
+        Compressor::Lz4 => lz4_walk(src, len)?,
         Compressor::LzmaAlone => {
             rewind(src)?;
-            read_lzma_alone_header(src)?.1.map(|s| (s, None))
+            read_lzma_alone_header(src)?.1
         }
     })
 }
