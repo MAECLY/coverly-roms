@@ -478,3 +478,516 @@ pub fn zip_ppmd_header(order: u8, mem_mib: u16, restore: u8) -> [u8; 2] {
     let v = u16::from(order - 1) | ((mem_mib - 1) << 4) | (u16::from(restore) << 12);
     v.to_le_bytes()
 }
+
+// ---------------------------------------------------------------------------
+// 7z: a crafted header writer for the bounded walker (S4, S5). Every field
+// is written as given, so tests can declare what a hostile archive would.
+// ---------------------------------------------------------------------------
+
+/// 7z coder ids.
+pub mod sevenz_ids {
+    pub const COPY: &[u8] = &[0x00];
+    pub const DELTA: &[u8] = &[0x03];
+    pub const BCJ_X86: &[u8] = &[0x03, 0x03, 0x01, 0x03];
+    pub const LZMA: &[u8] = &[0x03, 0x01, 0x01];
+    pub const LZMA2: &[u8] = &[0x21];
+    pub const PPMD: &[u8] = &[0x03, 0x04, 0x01];
+    pub const BZIP2: &[u8] = &[0x04, 0x02, 0x02];
+    pub const AES: &[u8] = &[0x06, 0xF1, 0x07, 0x01];
+}
+
+/// A 7z number: the count of leading one bits of the first byte is the
+/// number of extra little-endian bytes.
+pub fn sz_number(out: &mut Vec<u8>, value: u64) {
+    let mut first = 0u64;
+    let mut mask = 0x80u64;
+    let mut extra = 0usize;
+    while extra < 8 {
+        if value < (1u64 << (7 * (extra + 1))) {
+            first |= value >> (8 * extra);
+            break;
+        }
+        first |= mask;
+        mask >>= 1;
+        extra += 1;
+    }
+    out.push(first as u8);
+    let mut v = value;
+    for _ in 0..extra {
+        out.push(v as u8);
+        v >>= 8;
+    }
+}
+
+/// A 7z bit vector, most significant bit first.
+pub fn sz_bits(out: &mut Vec<u8>, bits: &[bool]) {
+    for chunk in bits.chunks(8) {
+        let mut b = 0u8;
+        for (i, &set) in chunk.iter().enumerate() {
+            if set {
+                b |= 0x80 >> i;
+            }
+        }
+        out.push(b);
+    }
+}
+
+/// One coder of a [`SzFolder`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SzCoder {
+    pub id: Vec<u8>,
+    pub props: Vec<u8>,
+    /// `Some((in, out))` writes a complex coder with these stream counts.
+    pub streams: Option<(u64, u64)>,
+}
+
+impl SzCoder {
+    pub fn new(id: &[u8], props: &[u8]) -> Self {
+        Self {
+            id: id.to_vec(),
+            props: props.to_vec(),
+            streams: None,
+        }
+    }
+    pub fn copy() -> Self {
+        Self::new(sevenz_ids::COPY, &[])
+    }
+    /// LZMA with `lc=3, lp=0, pb=2` and the given dictionary.
+    pub fn lzma(dict: u32) -> Self {
+        Self::new(sevenz_ids::LZMA, &lzma_props(3, 0, 2, dict))
+    }
+    /// LZMA2 with the given dictionary property.
+    pub fn lzma2(dict_prop: u8) -> Self {
+        Self::new(sevenz_ids::LZMA2, &[dict_prop])
+    }
+    /// PPMd7 with its 5-byte properties: order, then memory (u32 LE).
+    pub fn ppmd(order: u8, mem: u32) -> Self {
+        let m = mem.to_le_bytes();
+        Self::new(sevenz_ids::PPMD, &[order, m[0], m[1], m[2], m[3]])
+    }
+    pub fn bcj_x86() -> Self {
+        Self::new(sevenz_ids::BCJ_X86, &[])
+    }
+    /// Delta with `distance` (stored as `distance - 1`).
+    pub fn delta(distance: u8) -> Self {
+        Self::new(sevenz_ids::DELTA, &[distance - 1])
+    }
+    pub fn aes() -> Self {
+        // First byte: cycles power 19, no salt, no IV.
+        Self::new(sevenz_ids::AES, &[0x13])
+    }
+}
+
+/// One folder (solid block) of a 7z.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SzFolder {
+    /// In [`SzFolder::chain`] order: the first coder reads the packed
+    /// stream, each later one reads the output of the one before it, and
+    /// the last one's output is the folder's (the layout `sevenz-rust2`
+    /// writes: bind pair `(i + 1, i)`).
+    pub coders: Vec<SzCoder>,
+    /// `(in_index, out_index)` pairs as written.
+    pub bind_pairs: Vec<(u64, u64)>,
+    /// Packed-stream in-indices, written only when there are two or more.
+    pub packed: Vec<u64>,
+    /// One size per coder out stream.
+    pub unpack_sizes: Vec<u64>,
+    /// Written in the unpack info's `kCRC` when any folder has one.
+    pub crc: Option<u32>,
+}
+
+impl SzFolder {
+    /// A simple chain of one-in/one-out coders whose out streams all have
+    /// `unpack_size` bytes.
+    pub fn chain(coders: Vec<SzCoder>, unpack_size: u64) -> Self {
+        let n = coders.len() as u64;
+        Self {
+            bind_pairs: (0..n.saturating_sub(1)).map(|i| (i + 1, i)).collect(),
+            packed: Vec::new(),
+            unpack_sizes: vec![unpack_size; coders.len()],
+            coders,
+            crc: None,
+        }
+    }
+    pub fn single(coder: SzCoder, unpack_size: u64) -> Self {
+        Self::chain(vec![coder], unpack_size)
+    }
+}
+
+/// The `kSubStreamsInfo` of a [`SzStreams`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SzSubstreams {
+    /// `kNumUnPackStream`, one count per folder.
+    pub num_unpack: Option<Vec<u64>>,
+    /// `kSize`: the sizes as written (N − 1 per folder).
+    pub sizes: Option<Vec<u64>>,
+    /// `kCRC` with every digest defined.
+    pub crcs: Option<Vec<u32>>,
+}
+
+/// A `StreamsInfo`: pack info, folders, substreams.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SzStreams {
+    /// Offset of the first packed stream after the 32-byte start header.
+    pub pack_pos: u64,
+    pub pack_sizes: Vec<u64>,
+    pub folders: Vec<SzFolder>,
+    pub substreams: Option<SzSubstreams>,
+}
+
+/// One `FilesInfo` entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SzFile {
+    /// UTF-16 units of the name, without the terminating NUL.
+    pub name: Vec<u16>,
+    pub has_stream: bool,
+    /// For an entry without a stream: directory (`true`) or empty file.
+    pub dir: bool,
+    pub attrib: Option<u32>,
+    /// Windows FILETIME (100 ns since 1601).
+    pub mtime: Option<u64>,
+}
+
+impl SzFile {
+    pub fn file(name: &str) -> Self {
+        Self {
+            name: name.encode_utf16().collect(),
+            has_stream: true,
+            dir: false,
+            attrib: None,
+            mtime: None,
+        }
+    }
+    pub fn empty(name: &str) -> Self {
+        Self {
+            has_stream: false,
+            ..Self::file(name)
+        }
+    }
+    pub fn dir(name: &str) -> Self {
+        Self {
+            has_stream: false,
+            dir: true,
+            attrib: Some(0x10),
+            ..Self::file(name)
+        }
+    }
+    pub fn attrib(mut self, attrib: u32) -> Self {
+        self.attrib = Some(attrib);
+        self
+    }
+    pub fn mtime(mut self, filetime: u64) -> Self {
+        self.mtime = Some(filetime);
+        self
+    }
+    pub fn raw_name(mut self, units: &[u16]) -> Self {
+        self.name = units.to_vec();
+        self
+    }
+}
+
+/// A plain `kHeader`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SzHeader {
+    pub streams: Option<SzStreams>,
+    pub files: Vec<SzFile>,
+    /// Declared file count; `None` writes `files.len()`.
+    pub num_files: Option<u64>,
+    /// Extra `FilesInfo` properties `(id, data)`, written before its `kEnd`.
+    pub extra_props: Vec<(u64, Vec<u8>)>,
+    /// Bytes written after the header's final `kEnd`.
+    pub trailing: Vec<u8>,
+}
+
+fn sz_digests(out: &mut Vec<u8>, crcs: &[u32]) {
+    out.push(1); // all defined
+    for crc in crcs {
+        out.extend_from_slice(&crc.to_le_bytes());
+    }
+}
+
+/// Writes a `StreamsInfo` (without a leading property id), ending in `kEnd`.
+pub fn sz_streams_info(out: &mut Vec<u8>, s: &SzStreams) {
+    if !s.pack_sizes.is_empty() || !s.folders.is_empty() {
+        out.push(0x06); // kPackInfo
+        sz_number(out, s.pack_pos);
+        sz_number(out, s.pack_sizes.len() as u64);
+        out.push(0x09); // kSize
+        for &size in &s.pack_sizes {
+            sz_number(out, size);
+        }
+        out.push(0x00);
+        out.push(0x07); // kUnPackInfo
+        out.push(0x0B); // kFolder
+        sz_number(out, s.folders.len() as u64);
+        out.push(0); // not external
+        for f in &s.folders {
+            sz_number(out, f.coders.len() as u64);
+            for c in &f.coders {
+                let mut flags = u8::try_from(c.id.len()).expect("short id");
+                if c.streams.is_some() {
+                    flags |= 0x10;
+                }
+                if !c.props.is_empty() {
+                    flags |= 0x20;
+                }
+                out.push(flags);
+                out.extend_from_slice(&c.id);
+                if let Some((ins, outs)) = c.streams {
+                    sz_number(out, ins);
+                    sz_number(out, outs);
+                }
+                if !c.props.is_empty() {
+                    sz_number(out, c.props.len() as u64);
+                    out.extend_from_slice(&c.props);
+                }
+            }
+            for &(i, o) in &f.bind_pairs {
+                sz_number(out, i);
+                sz_number(out, o);
+            }
+            if f.packed.len() > 1 {
+                for &p in &f.packed {
+                    sz_number(out, p);
+                }
+            }
+        }
+        out.push(0x0C); // kCodersUnPackSize
+        for f in &s.folders {
+            for &size in &f.unpack_sizes {
+                sz_number(out, size);
+            }
+        }
+        if s.folders.iter().any(|f| f.crc.is_some()) {
+            out.push(0x0A); // kCRC
+            let defined: Vec<bool> = s.folders.iter().map(|f| f.crc.is_some()).collect();
+            if defined.iter().all(|&d| d) {
+                out.push(1);
+            } else {
+                out.push(0);
+                sz_bits(out, &defined);
+            }
+            for crc in s.folders.iter().filter_map(|f| f.crc) {
+                out.extend_from_slice(&crc.to_le_bytes());
+            }
+        }
+        out.push(0x00);
+    }
+    if let Some(sub) = &s.substreams {
+        out.push(0x08); // kSubStreamsInfo
+        if let Some(nums) = &sub.num_unpack {
+            out.push(0x0D);
+            for &n in nums {
+                sz_number(out, n);
+            }
+        }
+        if let Some(sizes) = &sub.sizes {
+            out.push(0x09);
+            for &size in sizes {
+                sz_number(out, size);
+            }
+        }
+        if let Some(crcs) = &sub.crcs {
+            out.push(0x0A);
+            sz_digests(out, crcs);
+        }
+        out.push(0x00);
+    }
+    out.push(0x00);
+}
+
+fn sz_files_info(out: &mut Vec<u8>, h: &SzHeader) {
+    out.push(0x05); // kFilesInfo
+    let files = &h.files;
+    sz_number(out, h.num_files.unwrap_or(files.len() as u64));
+    let empty: Vec<bool> = files.iter().map(|f| !f.has_stream).collect();
+    if empty.iter().any(|&e| e) {
+        let mut data = Vec::new();
+        sz_bits(&mut data, &empty);
+        out.push(0x0E);
+        sz_number(out, data.len() as u64);
+        out.extend_from_slice(&data);
+        let empty_file: Vec<bool> = files
+            .iter()
+            .filter(|f| !f.has_stream)
+            .map(|f| !f.dir)
+            .collect();
+        if empty_file.iter().any(|&e| e) {
+            let mut data = Vec::new();
+            sz_bits(&mut data, &empty_file);
+            out.push(0x0F);
+            sz_number(out, data.len() as u64);
+            out.extend_from_slice(&data);
+        }
+    }
+    let mut names = vec![0u8]; // not external
+    for f in files {
+        for u in &f.name {
+            names.extend_from_slice(&u.to_le_bytes());
+        }
+        names.extend_from_slice(&[0, 0]);
+    }
+    out.push(0x11);
+    sz_number(out, names.len() as u64);
+    out.extend_from_slice(&names);
+    let vector = |out: &mut Vec<u8>, id: u8, values: Vec<Option<Vec<u8>>>| {
+        if values.iter().all(Option::is_none) {
+            return;
+        }
+        let mut data = Vec::new();
+        let defined: Vec<bool> = values.iter().map(Option::is_some).collect();
+        if defined.iter().all(|&d| d) {
+            data.push(1);
+        } else {
+            data.push(0);
+            sz_bits(&mut data, &defined);
+        }
+        data.push(0); // not external
+        for v in values.into_iter().flatten() {
+            data.extend_from_slice(&v);
+        }
+        out.push(id);
+        sz_number(out, data.len() as u64);
+        out.extend_from_slice(&data);
+    };
+    vector(
+        out,
+        0x14,
+        files
+            .iter()
+            .map(|f| f.mtime.map(|t| t.to_le_bytes().to_vec()))
+            .collect(),
+    );
+    vector(
+        out,
+        0x15,
+        files
+            .iter()
+            .map(|f| f.attrib.map(|a| a.to_le_bytes().to_vec()))
+            .collect(),
+    );
+    for (id, data) in &h.extra_props {
+        sz_number(out, *id);
+        sz_number(out, data.len() as u64);
+        out.extend_from_slice(data);
+    }
+    out.push(0x00);
+}
+
+/// The bytes of a plain `kHeader` (first byte `0x01`).
+pub fn sevenz_header_bytes(h: &SzHeader) -> Vec<u8> {
+    let mut out = vec![0x01];
+    if let Some(s) = &h.streams {
+        out.push(0x04); // kMainStreamsInfo
+        sz_streams_info(&mut out, s);
+    }
+    if !h.files.is_empty() || h.num_files.is_some() || !h.extra_props.is_empty() {
+        sz_files_info(&mut out, h);
+    }
+    out.push(0x00);
+    out.extend_from_slice(&h.trailing);
+    out
+}
+
+/// The bytes of a `kEncodedHeader` (first byte `0x17`) over `streams`.
+pub fn sevenz_encoded_header_bytes(streams: &SzStreams) -> Vec<u8> {
+    let mut out = vec![0x17];
+    sz_streams_info(&mut out, streams);
+    out
+}
+
+/// A whole 7z file: the 32-byte start header, `packed`, then `header` as
+/// the next header (offsets and CRCs computed).
+pub fn sevenz_file(packed: &[u8], header: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(32 + packed.len() + header.len());
+    out.extend_from_slice(&[b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C, 0, 4]);
+    let mut start = Vec::with_capacity(20);
+    start.extend_from_slice(&(packed.len() as u64).to_le_bytes());
+    start.extend_from_slice(&(header.len() as u64).to_le_bytes());
+    start.extend_from_slice(&crc32fast::hash(header).to_le_bytes());
+    out.extend_from_slice(&crc32fast::hash(&start).to_le_bytes());
+    out.extend_from_slice(&start);
+    out.extend_from_slice(packed);
+    out.extend_from_slice(header);
+    out
+}
+
+/// A non-solid 7z with the Copy coder: one folder per file with data,
+/// substream CRCs, empty files for empty data. Decodable by 7-Zip.
+pub fn sevenz_copy(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let (packed, header) = sevenz_copy_parts(files);
+    sevenz_file(&packed, &sevenz_header_bytes(&header))
+}
+
+/// The packed bytes and the header of [`sevenz_copy`], for tests that
+/// change the header before writing the file.
+pub fn sevenz_copy_parts(files: &[(&str, &[u8])]) -> (Vec<u8>, SzHeader) {
+    let mut packed = Vec::new();
+    let mut streams = SzStreams::default();
+    let mut crcs = Vec::new();
+    let mut entries = Vec::new();
+    for (name, data) in files {
+        if data.is_empty() {
+            entries.push(SzFile::empty(name));
+            continue;
+        }
+        packed.extend_from_slice(data);
+        streams.pack_sizes.push(data.len() as u64);
+        streams
+            .folders
+            .push(SzFolder::single(SzCoder::copy(), data.len() as u64));
+        crcs.push(crc32fast::hash(data));
+        entries.push(SzFile::file(name));
+    }
+    streams.substreams = Some(SzSubstreams {
+        crcs: (!crcs.is_empty()).then_some(crcs),
+        ..SzSubstreams::default()
+    });
+    let header = SzHeader {
+        streams: (!streams.folders.is_empty()).then_some(streams),
+        files: entries,
+        ..SzHeader::default()
+    };
+    (packed, header)
+}
+
+/// The encoded-header `StreamsInfo` for `raw_header` stored as LZMA2
+/// (uncompressed chunks) at `pack_pos`: one folder, its CRC in the
+/// substreams (as 7-Zip writes it). Tests change it before writing.
+pub fn sevenz_encoded_streams(pack_pos: u64, raw_header: &[u8]) -> (Vec<u8>, SzStreams) {
+    let packed = lzma2_stored(raw_header);
+    let streams = SzStreams {
+        pack_pos,
+        pack_sizes: vec![packed.len() as u64],
+        folders: vec![SzFolder::single(
+            SzCoder::lzma2(16),
+            raw_header.len() as u64,
+        )],
+        substreams: Some(SzSubstreams {
+            crcs: Some(vec![crc32fast::hash(raw_header)]),
+            ..SzSubstreams::default()
+        }),
+    };
+    (packed, streams)
+}
+
+/// A 7z whose header `raw_header` (plain `kHeader` bytes, or anything a
+/// test wants decoded) is stored behind a `kEncodedHeader`; `main_packed`
+/// comes first, as the streams of `raw_header` expect.
+pub fn sevenz_with_encoded_header(main_packed: &[u8], raw_header: &[u8]) -> Vec<u8> {
+    sevenz_with_encoded(main_packed, raw_header, |_| {})
+}
+
+/// [`sevenz_with_encoded_header`] with a hook that changes the encoded
+/// header's `StreamsInfo` before it is written.
+pub fn sevenz_with_encoded(
+    main_packed: &[u8],
+    raw_header: &[u8],
+    edit: impl FnOnce(&mut SzStreams),
+) -> Vec<u8> {
+    let (enc_packed, mut streams) = sevenz_encoded_streams(main_packed.len() as u64, raw_header);
+    edit(&mut streams);
+    let mut packed = main_packed.to_vec();
+    packed.extend_from_slice(&enc_packed);
+    sevenz_file(&packed, &sevenz_encoded_header_bytes(&streams))
+}

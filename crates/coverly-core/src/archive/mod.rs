@@ -18,6 +18,7 @@ pub mod detect;
 pub mod guard;
 pub mod lzma;
 pub mod names;
+pub mod sevenz;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
