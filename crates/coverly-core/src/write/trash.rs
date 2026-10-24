@@ -19,11 +19,11 @@
 //!
 //! [`FakeTrash`] is a tempdir stand-in for tests.
 
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use super::transfer::mtime_ns;
+use super::transfer::{crc_of, mtime_ns};
 use super::Fingerprint;
 
 /// Where trashed files go. `trash` returns the location in the Trash when
@@ -83,19 +83,6 @@ fn fp_matches(path: &Path, fp: &Fingerprint) -> bool {
     fp.crc32.is_some_and(|crc| crc_of(path).ok() == Some(crc))
 }
 
-fn crc_of(path: &Path) -> io::Result<u32> {
-    let mut file = File::open(path)?;
-    let mut hasher = crc32fast::Hasher::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            return Ok(hasher.finalize());
-        }
-        hasher.update(&buf[..n]);
-    }
-}
-
 fn missing_or_io(e: io::Error, path: &Path) -> TrashError {
     if e.kind() == io::ErrorKind::NotFound {
         TrashError::Missing(path.to_path_buf())
@@ -145,10 +132,15 @@ mod platform {
     }
 
     pub(super) fn find(volume_of: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf> {
-        let dir = trash_dir(volume_of)?;
+        find_in_dir(&trash_dir(volume_of)?, name, fp)
+    }
+
+    /// The file in the Trash folder `dir` that was `name` and matches `fp`:
+    /// `name` itself first, else a clash rename of it.
+    pub(super) fn find_in_dir(dir: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf> {
         let wanted = Path::new(name);
         let (stem, ext) = (wanted.file_stem()?, wanted.extension());
-        let mut hits: Vec<PathBuf> = fs::read_dir(&dir)
+        let mut hits: Vec<PathBuf> = fs::read_dir(dir)
             .ok()?
             .flatten()
             .map(|e| e.path())
@@ -156,14 +148,21 @@ mod platform {
                 let Some(file) = p.file_name() else {
                     return false;
                 };
-                // The Trash renames a clash ("name 2.ext", "name 10.23.45.ext").
+                // The Trash renames a clash: macOS 26 appends a time to the
+                // whole name and repeats the extension ("name.ext
+                // 15-11-48-881.ext"), older releases a number to the stem
+                // ("name 2.ext").
+                let spaced = |prefix: &[u8]| {
+                    p.file_stem().is_some_and(|s| {
+                        let s = s.as_bytes();
+                        s.len() > prefix.len() + 1
+                            && s.starts_with(prefix)
+                            && s[prefix.len()] == b' '
+                    })
+                };
                 file == name
                     || (p.extension() == ext
-                        && p.file_stem().is_some_and(|s| {
-                            s.as_bytes().len() > stem.as_bytes().len() + 1
-                                && s.as_bytes().starts_with(stem.as_bytes())
-                                && s.as_bytes()[stem.as_bytes().len()] == b' '
-                        }))
+                        && (spaced(name.as_bytes()) || spaced(stem.as_bytes())))
             })
             .filter(|p| fp_matches(p, fp))
             .collect();
@@ -988,24 +987,96 @@ mod tests {
     #[test]
     #[ignore = "touches the real OS Trash"]
     fn os_trash_smoke() {
+        // Twice under one name: the second clashes with the first in the
+        // Trash, and `find` tells them apart by fingerprint.
         let tmp = tempfile::tempdir().unwrap();
-        let src = tmp.path().join("coverly-trash-smoke.bin");
-        fs::write(&src, b"coverly trash smoke").unwrap();
-        let fp = fp_of(&src, None);
-        assert!(OsTrash.available(&src));
-        let at = OsTrash.trash(&src).unwrap();
-        assert!(!src.exists());
-        let at = at
-            .or_else(|| OsTrash.find(tmp.path(), "coverly-trash-smoke.bin", &fp))
-            .expect("the Trash location");
-        assert!(at.exists(), "{} exists", at.display());
-        let found = OsTrash.find(tmp.path(), "coverly-trash-smoke.bin", &fp);
-        fs::remove_file(&at).unwrap();
-        #[cfg(target_os = "linux")]
-        if let Some(trash_dir) = at.parent().and_then(Path::parent) {
-            let _ = fs::remove_file(trash_dir.join("info/coverly-trash-smoke.bin.trashinfo"));
+        let name = "coverly-trash-smoke.bin";
+        let src = tmp.path().join(name);
+        let mut trashed = Vec::new();
+        for body in [
+            &b"coverly trash smoke"[..],
+            &b"coverly trash smoke, again"[..],
+        ] {
+            fs::write(&src, body).unwrap();
+            let fp = fp_of(&src, None);
+            assert!(OsTrash.available(&src));
+            let at = OsTrash.trash(&src).unwrap();
+            assert!(!src.exists());
+            let at = at
+                .or_else(|| OsTrash.find(tmp.path(), name, &fp))
+                .expect("the Trash location");
+            assert!(at.exists(), "{} exists", at.display());
+            trashed.push((at, fp));
         }
-        assert_eq!(found, Some(at), "found again by name and fingerprint");
+        let found: Vec<_> = trashed
+            .iter()
+            .map(|(_, fp)| OsTrash.find(tmp.path(), name, fp))
+            .collect();
+        for (at, _) in &trashed {
+            let _ = fs::remove_file(at);
+            #[cfg(target_os = "linux")]
+            if let (Some(dir), Some(file)) = (at.parent().and_then(Path::parent), at.file_name()) {
+                let mut info = file.to_os_string();
+                info.push(".trashinfo");
+                let _ = fs::remove_file(dir.join("info").join(info));
+            }
+        }
+        assert_ne!(trashed[0].0, trashed[1].0);
+        for ((at, _), found) in trashed.iter().zip(found) {
+            assert_eq!(
+                found.as_ref(),
+                Some(at),
+                "found again by name and fingerprint"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    mod macos_tests {
+        use std::fs;
+
+        use super::super::platform::find_in_dir;
+        use super::fp_of;
+
+        #[test]
+        fn macos_find_prefers_the_name_then_a_clash_rename() {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            let name = "Tetris Plus.zip";
+            fs::write(dir.join(name), b"saturn").unwrap();
+            let fp = fp_of(&dir.join(name), None);
+            assert_eq!(find_in_dir(dir, name, &fp), Some(dir.join(name)));
+
+            // The Trash renamed ours on a clash; the exact name is another file.
+            fs::write(dir.join(name), b"another game").unwrap();
+            fs::rename(dir.join(name), dir.join("other")).unwrap();
+            fs::rename(dir.join("other"), dir.join(name)).unwrap();
+            // macOS 26 appends a time to the whole name and repeats the
+            // extension ("a.zip 15-11-48-881.zip", "noext 15-11-48-884");
+            // older releases put a number after the stem ("a 2.zip").
+            for (wanted, renamed) in [
+                (name, "Tetris Plus.zip 15-11-48-881.zip"),
+                (name, "Tetris Plus 2.zip"),
+                ("noext", "noext 15-11-48-884"),
+                ("a.tar.gz", "a.tar.gz 15-11-48-887.gz"),
+            ] {
+                let renamed = dir.join(renamed);
+                fs::write(&renamed, b"saturn").unwrap();
+                let fp = fp_of(&renamed, None);
+                assert_eq!(find_in_dir(dir, wanted, &fp), Some(renamed.clone()));
+                fs::remove_file(&renamed).unwrap();
+            }
+
+            // Neither a longer stem without the space nor another extension.
+            for other in ["Tetris Plusx.zip", "Tetris Plus 2.7z"] {
+                let f = dir.join(other);
+                fs::write(&f, b"saturn").unwrap();
+                let fp = fp_of(&f, None);
+                assert_ne!(find_in_dir(dir, name, &fp), Some(f.clone()));
+                fs::remove_file(&f).unwrap();
+            }
+            assert_eq!(find_in_dir(&dir.join("missing"), name, &fp), None);
+        }
     }
 
     #[cfg(target_os = "linux")]
