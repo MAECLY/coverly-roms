@@ -260,9 +260,21 @@ impl std::error::Error for ArchiveError {
     }
 }
 
+/// An `io::Error` that carries an `ArchiveError` (one raised inside a
+/// `Read`: a CRC mismatch, a spent budget, a caught decoder panic) turns
+/// back into that error, so `?` keeps it `Damaged` instead of `Io`.
 impl From<io::Error> for ArchiveError {
     fn from(e: io::Error) -> Self {
-        Self::Io(e)
+        if !e.get_ref().is_some_and(|inner| inner.is::<ArchiveError>()) {
+            return Self::Io(e);
+        }
+        let kind = e.kind();
+        match e.into_inner().map(|inner| inner.downcast::<ArchiveError>()) {
+            Some(Ok(archive)) => *archive,
+            // Not reached: the payload was checked above.
+            Some(Err(other)) => Self::Io(io::Error::new(kind, other)),
+            None => Self::Io(kind.into()),
+        }
     }
 }
 
@@ -530,6 +542,36 @@ mod tests {
         )
         .expect_err("hash of a spent stream fails");
         assert!(is_budget_spent(&err), "{err:?}");
+    }
+
+    #[test]
+    fn archive_errors_survive_an_io_round_trip() {
+        // A `Damaged` raised inside a `Read` (CRC mismatch, caught panic)
+        // must stay `Damaged` after `?` turns the io::Error back.
+        let back = ArchiveError::from(io::Error::from(ArchiveError::Damaged {
+            detail: "crc".into(),
+        }));
+        assert!(
+            matches!(&back, ArchiveError::Damaged { detail } if detail == "crc"),
+            "{back:?}"
+        );
+        let back = ArchiveError::from(io::Error::from(ArchiveError::BudgetSpent {
+            what: BudgetKind::Time,
+        }));
+        assert!(
+            matches!(
+                back,
+                ArchiveError::BudgetSpent {
+                    what: BudgetKind::Time
+                }
+            ),
+            "{back:?}"
+        );
+        // A plain io::Error stays `Io`.
+        let back = ArchiveError::from(io::Error::new(io::ErrorKind::PermissionDenied, "denied"));
+        assert!(
+            matches!(&back, ArchiveError::Io(e) if e.kind() == io::ErrorKind::PermissionDenied)
+        );
     }
 
     #[test]
