@@ -301,17 +301,17 @@ impl From<io::Error> for ArchiveError {
 }
 
 /// The seam for dedupe phase B (spec §10): its "unreadable unit" path
-/// needs no new types. `BudgetSpent` maps to `Interrupted`, which dedupe
-/// turns into `Ok(None)` (not read), never into an error.
+/// needs no new types. The `ArchiveError` stays inside as the source.
+///
+/// `BudgetSpent` maps to `QuotaExceeded` (decoded bytes) or `TimedOut`
+/// (wall time), never to `Interrupted`: `std` read loops and Coverly's own
+/// (`identify::hash`, `organize::inspect`) retry `Interrupted`, so a spent
+/// budget would spin forever. Dedupe recognises it with
+/// [`is_budget_spent`] and turns it into `Ok(None)` (not read).
 impl From<ArchiveError> for io::Error {
     fn from(e: ArchiveError) -> Self {
-        let kind = match &e {
-            ArchiveError::Io(_) => {
-                return match e {
-                    ArchiveError::Io(inner) => inner,
-                    other => io::Error::other(other),
-                };
-            }
+        let kind = match e {
+            ArchiveError::Io(inner) => return inner,
             ArchiveError::Damaged { .. }
             | ArchiveError::UnsafeEntry { .. }
             | ArchiveError::ToolFailed { .. } => io::ErrorKind::InvalidData,
@@ -322,10 +322,24 @@ impl From<ArchiveError> for io::Error {
             ArchiveError::TooManyEntries { .. } | ArchiveError::TooLarge { .. } => {
                 io::ErrorKind::FileTooLarge
             }
-            ArchiveError::BudgetSpent { .. } => io::ErrorKind::Interrupted,
+            ArchiveError::BudgetSpent {
+                what: BudgetKind::DecodedBytes,
+            } => io::ErrorKind::QuotaExceeded,
+            ArchiveError::BudgetSpent {
+                what: BudgetKind::Time,
+            } => io::ErrorKind::TimedOut,
         };
         io::Error::new(kind, e)
     }
+}
+
+/// Whether `e` came from a spent decode budget ([`ArchiveError::BudgetSpent`]),
+/// which callers treat as *not read*, never as damaged (spec §4.4, §10).
+/// A plain `QuotaExceeded` or `TimedOut` from the file system is not one.
+pub fn is_budget_spent(e: &io::Error) -> bool {
+    e.get_ref()
+        .and_then(|inner| inner.downcast_ref::<ArchiveError>())
+        .is_some_and(|inner| matches!(inner, ArchiveError::BudgetSpent { .. }))
 }
 
 /// Bounds for opening one archive (spec §4.4). `Default` is the spec's
@@ -457,13 +471,13 @@ mod tests {
                 ArchiveError::BudgetSpent {
                     what: BudgetKind::DecodedBytes,
                 },
-                K::Interrupted,
+                K::QuotaExceeded,
             ),
             (
                 ArchiveError::BudgetSpent {
                     what: BudgetKind::Time,
                 },
-                K::Interrupted,
+                K::TimedOut,
             ),
             (
                 ArchiveError::TooManyEntries { count: 10_001 },
@@ -516,6 +530,52 @@ mod tests {
             inner,
             ArchiveError::NeedsTooMuchMemory { needed: 2, cap: 1 }
         ));
+    }
+
+    /// A stream whose budget is spent: every read fails the same way.
+    struct SpentStream;
+
+    impl Read for SpentStream {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(ArchiveError::BudgetSpent {
+                what: BudgetKind::DecodedBytes,
+            }
+            .into())
+        }
+    }
+
+    /// `std` read loops (and Coverly's own, e.g. `identify::hash`) retry
+    /// `ErrorKind::Interrupted`; a spent budget mapped to it would spin
+    /// forever instead of reaching dedupe's `Ok(None)` path.
+    #[test]
+    fn budget_spent_stream_ends_read_loops() {
+        let mut out = Vec::new();
+        let err = SpentStream
+            .read_to_end(&mut out)
+            .expect_err("spent budget is an error");
+        assert!(is_budget_spent(&err), "{err:?}");
+        let err = crate::identify::hash::hash_stream(
+            SpentStream,
+            1024,
+            crate::identify::hash::HeaderRule::Plain,
+        )
+        .expect_err("hash of a spent stream fails");
+        assert!(is_budget_spent(&err), "{err:?}");
+    }
+
+    #[test]
+    fn is_budget_spent_only_for_budget_errors() {
+        for what in [BudgetKind::DecodedBytes, BudgetKind::Time] {
+            assert!(is_budget_spent(&ArchiveError::BudgetSpent { what }.into()));
+        }
+        assert!(!is_budget_spent(
+            &ArchiveError::Damaged { detail: "x".into() }.into()
+        ));
+        assert!(!is_budget_spent(&io::Error::new(
+            io::ErrorKind::QuotaExceeded,
+            "disk quota"
+        )));
+        assert!(!is_budget_spent(&io::Error::from(io::ErrorKind::TimedOut)));
     }
 
     struct FakeReader(Vec<Entry>);

@@ -38,6 +38,7 @@
 - **AP-5: fake external tools.** `coverly-fake-tool` is a `[[bin]]` of `coverly-core` with `required-features = ["test-util"]`. The S7/S8 tests are integration tests (`tests/archive_external.rs`) that find it through `env!("CARGO_BIN_EXE_coverly-fake-tool")`. It is told by `COVERLY_FAKE_TOOL_SCRIPT=<json path>` which crafted stdout, stderr and exit code to produce, and it names itself `7zz`, `unrar` or `bsdtar` by the copied file name. Tests copy it into a tempdir under those names.
 - **AP-6: dedupe adapters stay in phase B.** This branch ships the seams of spec §10: `impl From<ArchiveError> for io::Error`, `archive::file_entries()` with a stable order, `disc::DiscIdentity::to_dedupe_id()` and `disc::serial`. A contract test proves an `EntryListing` and a `DiscProbe` can be written in a few lines (Task 22). `dedupe::source::ZipListing` is untouched here (phase B deletes it).
 - **AP-7: open questions get the spec defaults.** Q1 extracts both `.cue` and `.gdi` with the `TwinSheets` note. Q2 uses plain per-game folders on ES-DE. Q3 never renames a mismatched archive. Q4 uses the OS Trash (the card's `.Trashes`), noted in the result.
+- **AP-8: `BudgetSpent` is never `ErrorKind::Interrupted`.** `std` read loops and Coverly's own (`identify::hash::read_full`, `organize::inspect`) retry `Interrupted`, so a reader whose budget is spent would spin forever. `BudgetSpent { DecodedBytes }` maps to `QuotaExceeded` and `BudgetSpent { Time }` to `TimedOut`; dedupe phase B recognises both with `archive::is_budget_spent(&io::Error)` (a downcast, so a real disk-quota error is not mistaken for it) and returns `Ok(None)`. Test: `budget_spent_stream_ends_read_loops`.
 
 ## Review focus
 
@@ -173,7 +174,9 @@ pub fn open_archive(path: &Path, limits: &Limits) -> Result<Option<Box<dyn Archi
 pub fn file_entries(r: &dyn ArchiveReader) -> impl Iterator<Item = &Entry>;
 impl From<ArchiveError> for io::Error { /* InvalidData: Damaged, UnsafeEntry, ToolFailed; Unsupported: Unsupported,
   Encrypted, MultiVolume; OutOfMemory: NeedsTooMuchMemory; FileTooLarge: TooManyEntries, TooLarge;
-  Interrupted: BudgetSpent (dedupe maps it to Ok(None)); Io: itself */ }
+  QuotaExceeded/TimedOut: BudgetSpent bytes/time, never Interrupted (AP-8; dedupe maps it to Ok(None)
+  through is_budget_spent); Io: itself */ }
+pub fn is_budget_spent(e: &io::Error) -> bool;
 ```
 
 - [ ] **Step 1: Write the failing tests:** `limits_default_matches_spec` (every value in spec §4.4), `archive_error_to_io_kind` (table over every variant), `file_entries_skips_dirs_and_links_keeps_order` (a fake reader with File, Dir, File, Symlink, File → indices 0, 2, 4).

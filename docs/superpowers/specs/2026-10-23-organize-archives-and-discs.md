@@ -430,7 +430,7 @@ impl DiscProbe for ArchiveDiscProbe {
 
 Design points that make this easy:
 - The filtered file-entry order is **stable** (archive order, directories and links removed) and is the same list `list` returns, so the `entry: usize` index is unambiguous.
-- `ArchiveError` converts to `io::Error` with `ErrorKind::InvalidData` (damaged, unsafe), `Unsupported` (format/tool, multi-volume), `OutOfMemory` (memory cap), `FileTooLarge` (`TooManyEntries`/`TooLarge`; dedupe's own 4,096-entry policy still applies first) so dedupe's "unreadable unit" path needs no new types; `BudgetSpent` becomes `Ok(None)`.
+- `ArchiveError` converts to `io::Error` with `ErrorKind::InvalidData` (damaged, unsafe), `Unsupported` (format/tool, multi-volume), `OutOfMemory` (memory cap), `FileTooLarge` (`TooManyEntries`/`TooLarge`; dedupe's own 4,096-entry policy still applies first) so dedupe's "unreadable unit" path needs no new types; `BudgetSpent` maps to `QuotaExceeded` (bytes) or `TimedOut` (time), never `Interrupted` (read loops retry it and would spin), and dedupe turns it into `Ok(None)` through `archive::is_budget_spent`.
 - `VolumeFingerprint` is computed by `disc::` exactly as dedupe spec §5.4 defines it: PVD volume space size + creation/modification datetimes + SHA1 of the boot file (`SYSTEM.CNF` for PS1/PS2, IP.BIN = first 32 KiB of the primary track for Sega systems, `PSP_GAME/PARAM.SFO` for UMD). Never the outer PBP `PARAM.SFO`.
 - Serial normalisation (`SLUS_008.62` → `SLUS-00862`, Sega product numbers trimmed) lives in `disc::serial` and is used by both.
 - `dedupe::testing` fakes keep working; `ZipListing` is deleted in phase B (its tests move to `archive/zip.rs`).
