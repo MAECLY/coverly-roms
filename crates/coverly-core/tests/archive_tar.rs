@@ -279,6 +279,39 @@ fn archive_changed_after_listing_damaged() {
     assert!(is_damaged(&err), "{err:?}");
 }
 
+#[test]
+fn compressed_stream_with_more_entries_than_a_complete_listing_damaged() {
+    let a = tar(&[("a.gba", b"aaaa")]);
+    let mut r = open(gz(&a), Some(Compressor::Gzip), &Limits::default()).unwrap();
+    assert!(r.listing_complete());
+    // The same first entry, then one the listing never saw.
+    let grown = tar(&[("a.gba", b"aaaa"), ("b.gba", b"bbbb")]);
+    *r.source_mut() = Cursor::new(gz(&grown));
+    let err = stream(&mut r, &[0], &mut Budget::apply()).expect_err("refused");
+    assert!(is_damaged(&err), "{err:?}");
+}
+
+#[test]
+fn stream_of_partial_listing_bounds_the_trailer() {
+    // The plan listing stops early; the apply pass walks to the end marker
+    // and must still cap the drain after it (S6).
+    let big = noise(2 * MIB as usize, 17);
+    let mut plain = tar(&[("a.gba", b"first"), ("big.bin", &big)]);
+    let tar_len = plain.len() as u64;
+    plain.extend(std::iter::repeat_n(0u8, 8 * MIB as usize));
+    let limits = Limits {
+        plan_listing_budget: MIB,
+        ..Limits::default()
+    };
+    let mut r = open(gz(&plain), Some(Compressor::Gzip), &limits).expect("partial listing");
+    assert!(!r.listing_complete());
+    let mut budget = Budget::apply();
+    let err = stream(&mut r, &[0], &mut budget).expect_err("refused");
+    assert!(is_damaged(&err), "{err:?}");
+    assert_eq!(detail(&err), "trailing data");
+    assert!(budget.spent() <= tar_len + limits.tar_trailer_allowance + 1);
+}
+
 // ---------------------------------------------------------------------------
 // S6: the drain after the end marker is capped.
 // ---------------------------------------------------------------------------

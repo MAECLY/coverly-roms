@@ -246,6 +246,7 @@ impl<R: Read + Seek + Send> TarReader<R> {
             entries,
             spans,
             limits,
+            complete,
             ..
         } = self;
         let Some(c) = *outer else {
@@ -288,7 +289,8 @@ impl<R: Read + Seek + Send> TarReader<R> {
             }
             index += 1;
         }
-        if index < entries.len() {
+        // Fewer entries than listed, or more than a complete listing saw.
+        if index < entries.len() || (*complete && index > entries.len()) {
             return Err(changed());
         }
         drain_trailer(&mut w, trailer)
