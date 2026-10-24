@@ -62,6 +62,14 @@ fn main() -> ExitCode {
     let _ = out.flush();
     drop(out);
 
+    if !case.append_to_archive.is_empty() {
+        if let Some(archive) = args.last() {
+            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(archive) {
+                let _ = f.write_all(case.append_to_archive.as_bytes());
+            }
+        }
+    }
+
     if case.sleep_ms > 0 {
         thread::sleep(Duration::from_millis(case.sleep_ms));
     }

@@ -6,8 +6,9 @@
 //! process hygiene ([`run_tool`]): only an absolute regular executable, no
 //! shell, `--` before the archive, a fresh empty working directory, a
 //! cleared environment, stdin closed, both pipes drained, output capped,
-//! and a timeout that kills the whole process tree. The listing parsers
-//! (S7) and reads (S8) build on it.
+//! and a timeout that kills the whole process tree. [`ToolReader`] lists
+//! an archive through 7-Zip or unrar with strict parsers that a hostile
+//! entry name cannot forge (S7); reads by name or stream (S8) build on it.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
@@ -19,7 +20,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{ArchiveError, Tool};
+use super::guard::guarded;
+use super::{
+    ArchiveError, ArchiveReader, Budget, Entry, EntryKind, Format, Limits, Method, RelPath, Tool,
+};
 
 /// stderr kept per run, for the report; the rest is drained and dropped.
 pub const STDERR_CAP: usize = 64 * 1024;
@@ -765,6 +769,928 @@ fn drain_capped(mut from: impl Read, cap: usize, kept: &Mutex<Vec<u8>>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Strict listing parsers (S7)
+// ---------------------------------------------------------------------------
+
+/// Wall time of one listing run (spec §13 S7).
+pub const LIST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The listing switches pinned for one tool, from the oldest version that
+/// has all of them (asserted from its banner: an older tool is not used).
+struct ListSwitches {
+    tool: Tool,
+    min: (u32, u32),
+    /// The run that prints one record per entry.
+    records: &'static [&'static str],
+    /// The run that prints the tool's own count and size total.
+    summary: &'static [&'static str],
+}
+
+const LIST_SWITCHES: &[ListSwitches] = &[
+    // `-slt` one `Key = value` record per entry, `-ba` no banner or table,
+    // `-sccUTF-8` UTF-8 output, `-p-` a password given, so never a prompt.
+    // The summary run is the plain table, whose last line counts.
+    ListSwitches {
+        tool: Tool::SevenZip,
+        min: (16, 2),
+        records: &["l", "-slt", "-ba", "-sccUTF-8", "-p-"],
+        summary: &["l", "-sccUTF-8", "-p-"],
+    },
+    // `lt` technical listing, `-cfg-` no `RAR` variable or `.rarrc`, `-p-`
+    // never ask a password, `-scur` Unicode redirected output, `-c-` no
+    // archive comment (attacker text printed before the records). The
+    // summary run is `l`, whose last line has the totals.
+    ListSwitches {
+        tool: Tool::Unrar,
+        min: (5, 0),
+        records: &["lt", "-cfg-", "-p-", "-scur", "-c-"],
+        summary: &["l", "-cfg-", "-p-", "-scur", "-c-"],
+    },
+];
+
+fn list_switches(t: &FoundTool) -> Option<&'static ListSwitches> {
+    LIST_SWITCHES
+        .iter()
+        .find(|s| s.tool == t.tool && version_at_least(&t.version, s.min))
+}
+
+fn version_at_least(v: &str, min: (u32, u32)) -> bool {
+    major(v).is_some_and(|m| (m, minor(v)) >= min)
+}
+
+/// The keys one tool prints per record for one archive format, in the
+/// tool's order. A record may only hold these, each once, in this order,
+/// and must hold `required`.
+struct Schema {
+    keys: &'static [&'static str],
+    required: &'static [&'static str],
+}
+
+/// 7-Zip's 7z handler prints only the properties the archive defines, the
+/// same set for every record.
+const SEVEN_ZIP_7Z: Schema = Schema {
+    keys: &[
+        "Path",
+        "Size",
+        "Packed Size",
+        "Modified",
+        "Created",
+        "Accessed",
+        "Attributes",
+        "CRC",
+        "Encrypted",
+        "Method",
+        "Block",
+    ],
+    required: &["Path", "Size"],
+};
+
+/// 7-Zip's RAR4 handler.
+const SEVEN_ZIP_RAR4: Schema = Schema {
+    keys: &[
+        "Path",
+        "Folder",
+        "Size",
+        "Packed Size",
+        "Modified",
+        "Created",
+        "Accessed",
+        "Attributes",
+        "Encrypted",
+        "Solid",
+        "Commented",
+        "Split Before",
+        "Split After",
+        "CRC",
+        "Host OS",
+        "Method",
+        "Version",
+        "Volume Index",
+    ],
+    required: &["Path", "Folder", "Size"],
+};
+
+/// 7-Zip's RAR5 handler.
+const SEVEN_ZIP_RAR5: Schema = Schema {
+    keys: &[
+        "Path",
+        "Folder",
+        "Size",
+        "Packed Size",
+        "Modified",
+        "Created",
+        "Accessed",
+        "Attributes",
+        "Alternate Stream",
+        "Encrypted",
+        "Solid",
+        "Split Before",
+        "Split After",
+        "CRC",
+        "Host OS",
+        "Method",
+        "Characteristics",
+        "Symbolic Link",
+        "Hard Link",
+        "Copy Link",
+        "Volume Index",
+    ],
+    required: &["Path", "Folder", "Size"],
+};
+
+/// unrar `lt` (RAR4 and RAR5): optional fields are left out, so records
+/// differ, but never in order or repetition. A file also needs `Size`.
+const UNRAR_LT: Schema = Schema {
+    keys: &[
+        "Name",
+        "Type",
+        "Target",
+        "Size",
+        "Packed size",
+        "Ratio",
+        "mtime",
+        "ctime",
+        "atime",
+        "Attributes",
+        "CRC32",
+        "CRC32 MAC",
+        "Pack-CRC32",
+        "Pack-CRC32 MAC",
+        "BLAKE2",
+        "BLAKE2 MAC",
+        "Pack-BLAKE2",
+        "Pack-BLAKE2 MAC",
+        "Host OS",
+        "Compression",
+        "Flags",
+    ],
+    required: &["Name", "Type"],
+};
+
+/// The last line of 7-Zip's table, right before its summary line.
+const SEVEN_ZIP_TABLE_END: &str =
+    "------------------- ----- ------------ ------------  ------------------------";
+/// The last line of unrar's `l` table, right before its totals line.
+const UNRAR_TABLE_END: &str = "----------- ---------  ---------- -----  ----";
+
+fn forged(detail: impl std::fmt::Display) -> ArchiveError {
+    ArchiveError::Damaged {
+        detail: format!("tool listing: {detail}"),
+    }
+}
+
+fn unsafe_names() -> ArchiveError {
+    ArchiveError::Unsupported {
+        format: "unsafe names".into(),
+        need: None,
+    }
+}
+
+/// A tool's stdout as text: UTF-16LE when it starts with a byte-order mark
+/// (or holds NUL bytes, which UTF-8 text never does), else strict UTF-8.
+/// Anything else rejects the listing.
+pub fn decode_tool_text(bytes: &[u8]) -> Result<String, ArchiveError> {
+    fn utf16(b: &[u8]) -> Result<String, ArchiveError> {
+        let (pairs, odd) = b.as_chunks::<2>();
+        if !odd.is_empty() {
+            return Err(forged("odd-length UTF-16 output"));
+        }
+        let units: Vec<u16> = pairs.iter().map(|c| u16::from_le_bytes(*c)).collect();
+        String::from_utf16(&units).map_err(|_| forged("output is not valid UTF-16"))
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(rest);
+    }
+    if bytes.contains(&0) {
+        return utf16(bytes);
+    }
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    String::from_utf8(bytes.to_vec()).map_err(|_| forged("output is not valid UTF-8"))
+}
+
+/// The output's lines. `\r\n` endings are taken off only when every line
+/// has one (Windows tools), so a `\r` inside a name stays and is refused
+/// as a control character.
+fn tool_lines(text: &str) -> Vec<&str> {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    let crlf = text.contains('\n')
+        && text.matches('\n').count() == text.matches("\r\n").count()
+        && text.ends_with('\r');
+    text.split('\n')
+        .map(|l| {
+            if crlf {
+                l.strip_suffix('\r').unwrap_or(l)
+            } else {
+                l
+            }
+        })
+        .collect()
+}
+
+/// Groups of consecutive non-empty lines.
+fn blocks<'a>(lines: &[&'a str]) -> Vec<Vec<&'a str>> {
+    lines
+        .split(|l| l.is_empty())
+        .filter(|b| !b.is_empty())
+        .map(<[&str]>::to_vec)
+        .collect()
+}
+
+/// One record's fields, as positions in its [`Schema`].
+struct Fields<'a> {
+    schema: &'static Schema,
+    items: Vec<(usize, &'a str)>,
+}
+
+impl<'a> Fields<'a> {
+    fn new(schema: &'static Schema) -> Self {
+        Self {
+            schema,
+            items: Vec::new(),
+        }
+    }
+
+    /// Adds one field: a known key, after every key already there.
+    fn push(&mut self, key: &str, value: &'a str) -> Result<(), ArchiveError> {
+        let Some(pos) = self.schema.keys.iter().position(|k| *k == key) else {
+            return Err(forged(format!("unknown key {key:?}")));
+        };
+        if self.items.last().is_some_and(|(last, _)| *last >= pos) {
+            return Err(forged(format!("key {key:?} repeated or out of order")));
+        }
+        self.items.push((pos, value));
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Self, ArchiveError> {
+        for key in self.schema.required {
+            if self.get(key).is_none() {
+                return Err(forged(format!("record without {key:?}")));
+            }
+        }
+        Ok(self)
+    }
+
+    fn get(&self, key: &str) -> Option<&'a str> {
+        let pos = self.schema.keys.iter().position(|k| *k == key)?;
+        self.items.iter().find(|(p, _)| *p == pos).map(|(_, v)| *v)
+    }
+
+    /// The value when the key is there and not empty.
+    fn value(&self, key: &str) -> Option<&'a str> {
+        self.get(key).filter(|v| !v.is_empty())
+    }
+
+    fn sequence(&self) -> impl Iterator<Item = usize> + '_ {
+        self.items.iter().map(|(p, _)| *p)
+    }
+}
+
+/// A 7-Zip `-slt` line: `Key = value` (value may be empty).
+fn seven_zip_fields<'a>(
+    block: &[&'a str],
+    schema: &'static Schema,
+) -> Result<Fields<'a>, ArchiveError> {
+    let mut f = Fields::new(schema);
+    for line in block {
+        let Some((key, value)) = line.split_once(" = ") else {
+            return Err(forged("a line that is no `Key = value`"));
+        };
+        f.push(key, value)?;
+    }
+    f.finish()
+}
+
+/// An unrar `lt` line: the key right-aligned in 12 columns, `: `, the value.
+fn unrar_field(line: &str) -> Option<(&str, &str)> {
+    let colon = line.find(": ")?;
+    let key = line[..colon].trim_start_matches(' ');
+    let pad = colon - key.len();
+    (!key.is_empty() && pad == 12usize.saturating_sub(key.len())).then(|| (key, &line[colon + 2..]))
+}
+
+fn unrar_fields<'a>(block: &[&'a str]) -> Result<Fields<'a>, ArchiveError> {
+    let mut f = Fields::new(&UNRAR_LT);
+    for line in block {
+        let Some((key, value)) = unrar_field(line) else {
+            return Err(forged("a line that is no unrar field"));
+        };
+        f.push(key, value)?;
+    }
+    f.finish()
+}
+
+/// A decimal number, digits only.
+fn number(s: &str) -> Option<u64> {
+    (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
+}
+
+fn optional_number(v: Option<&str>, key: &str) -> Result<Option<u64>, ArchiveError> {
+    match v {
+        None => Ok(None),
+        Some(v) => number(v)
+            .map(Some)
+            .ok_or_else(|| forged(format!("{key} is not a number"))),
+    }
+}
+
+fn crc(v: Option<&str>) -> Result<Option<u32>, ArchiveError> {
+    match v {
+        None => Ok(None),
+        Some(v) if v.len() == 8 && v.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            Ok(u32::from_str_radix(v, 16).ok())
+        }
+        Some(_) => Err(forged("CRC is not 8 hex digits")),
+    }
+}
+
+/// The validated name, or the whole listing is refused (S7 rule 4): a
+/// control character (U+0000–U+001F, U+007F–U+009F) or a name `RelPath`
+/// refuses is never partly trusted.
+fn tool_name(raw: &str) -> Result<RelPath, ArchiveError> {
+    if raw
+        .chars()
+        .any(|c| matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}'))
+    {
+        return Err(unsafe_names());
+    }
+    RelPath::parse(raw).map_err(|_| unsafe_names())
+}
+
+/// A dictionary or model size as 7-Zip prints it: a power of two (`26`)
+/// or a number with a unit (`1536k`, `3m`, `1g`, `65536b`).
+fn seven_zip_size(s: &str) -> Option<u32> {
+    let (digits, unit) = match s.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((i, _)) => s.split_at(i),
+        None => (s, ""),
+    };
+    let n = number(digits)?;
+    let bytes = match unit {
+        "" if n < 32 => 1u64 << n,
+        "" | "b" | "B" => n,
+        "k" | "K" => n.checked_mul(1 << 10)?,
+        "m" | "M" => n.checked_mul(1 << 20)?,
+        "g" | "G" => n.checked_mul(1 << 30)?,
+        _ => return None,
+    };
+    Some(u32::try_from(bytes).unwrap_or(u32::MAX))
+}
+
+/// The compressor of a 7-Zip `Method` (`LZMA:26`, `BCJ LZMA2:24`,
+/// `PPMD:o6:mem24`, `Copy`). Informational: the tool decodes, not us.
+fn seven_zip_method(text: &str) -> Method {
+    let other = || Method::Other(text.to_string());
+    for coder in text.split_whitespace() {
+        let mut parts = coder.split(':');
+        let name = parts.next().unwrap_or_default().to_ascii_uppercase();
+        let param = parts.next();
+        let method = match name.as_str() {
+            "COPY" => Method::Stored,
+            "DEFLATE" => Method::Deflate,
+            "DEFLATE64" => Method::Deflate64,
+            "BZIP2" => Method::Bzip2,
+            "LZMA" => match param.and_then(seven_zip_size) {
+                Some(dict) => Method::Lzma { dict },
+                None => return other(),
+            },
+            "LZMA2" => match param.and_then(seven_zip_size) {
+                Some(dict) => Method::Lzma2 { dict },
+                None => return other(),
+            },
+            "PPMD" => {
+                let mut order = None;
+                let mut mem = None;
+                for p in param.into_iter().chain(parts) {
+                    if let Some(o) = p.strip_prefix('o') {
+                        order = number(o).and_then(|o| u8::try_from(o).ok());
+                    } else if let Some(m) = p.strip_prefix("mem") {
+                        mem = seven_zip_size(m);
+                    }
+                }
+                match (order, mem) {
+                    (Some(order), Some(mem)) => Method::Ppmd { order, mem },
+                    _ => return other(),
+                }
+            }
+            _ => continue,
+        };
+        return method;
+    }
+    if text.is_empty() {
+        Method::Stored
+    } else {
+        other()
+    }
+}
+
+/// What a 7-Zip `Attributes` value says: `D`, `A -rw-r--r--`,
+/// `D drwxr-xr-x`, `A lrwxr-xr-x`. The Unix type wins over the letters.
+fn seven_zip_attr_kind(attrs: &str) -> Option<EntryKind> {
+    let mut letters = None;
+    for tok in attrs.split_whitespace() {
+        let mut chars = tok.chars();
+        let first = chars.next()?;
+        if tok.len() == 10 && chars.all(|c| "rwxsStT-".contains(c)) {
+            return Some(match first {
+                '-' => EntryKind::File,
+                'd' => EntryKind::Dir,
+                'l' => EntryKind::Symlink,
+                _ => EntryKind::Other,
+            });
+        }
+        if tok.bytes().all(|b| b.is_ascii_uppercase()) {
+            letters = Some(if tok.contains('D') {
+                EntryKind::Dir
+            } else {
+                EntryKind::File
+            });
+        }
+    }
+    letters
+}
+
+fn split_part() -> ArchiveError {
+    ArchiveError::Unsupported {
+        format: "RAR volume part".into(),
+        need: None,
+    }
+}
+
+fn seven_zip_entry(index: usize, f: &Fields<'_>) -> Result<Entry, ArchiveError> {
+    let raw = f.get("Path").unwrap_or_default();
+    let name = tool_name(raw)?;
+    if f.get("Split Before") == Some("+") || f.get("Split After") == Some("+") {
+        return Err(split_part());
+    }
+    let mut kind = f
+        .get("Attributes")
+        .and_then(seven_zip_attr_kind)
+        .unwrap_or(EntryKind::File);
+    if f.get("Folder") == Some("+") {
+        kind = EntryKind::Dir;
+    } else if f.value("Symbolic Link").is_some() {
+        kind = EntryKind::Symlink;
+    } else if f.value("Hard Link").is_some() {
+        kind = EntryKind::Hardlink;
+    } else if f.value("Copy Link").is_some() || f.get("Alternate Stream") == Some("+") {
+        kind = EntryKind::Other;
+    }
+    let size = match (f.value("Size"), kind) {
+        (None, EntryKind::Dir) => 0,
+        (None, _) => return Err(forged("an entry without a size")),
+        (Some(v), _) => number(v).ok_or_else(|| forged("Size is not a number"))?,
+    };
+    let block = optional_number(f.value("Block"), "Block")?;
+    let solid_block = match block {
+        Some(b) => Some(u32::try_from(b).map_err(|_| forged("Block out of range"))?),
+        None => (f.get("Solid") == Some("+")).then_some(0),
+    };
+    Ok(Entry {
+        index,
+        name,
+        raw_name: raw.as_bytes().to_vec(),
+        kind,
+        size,
+        packed: optional_number(f.value("Packed Size"), "Packed Size")?,
+        crc32: crc(f.value("CRC"))?,
+        encrypted: f.get("Encrypted") == Some("+"),
+        method: seven_zip_method(f.get("Method").unwrap_or_default()),
+        solid_block,
+        // 7-Zip prints local wall time without a zone: not an instant.
+        mtime: None,
+        unsafe_name: None,
+    })
+}
+
+fn unrar_entry(index: usize, f: &Fields<'_>) -> Result<Entry, ArchiveError> {
+    let raw = f.get("Name").unwrap_or_default();
+    let name = tool_name(raw)?;
+    let kind = match f.get("Type").unwrap_or_default() {
+        "File" => EntryKind::File,
+        "Directory" => EntryKind::Dir,
+        "Symbolic link" | "Unix symbolic link" | "Windows symbolic link" | "Junction" => {
+            EntryKind::Symlink
+        }
+        "Hard link" => EntryKind::Hardlink,
+        "File reference" | "File copy" => EntryKind::Other,
+        other => return Err(forged(format!("unknown entry type {other:?}"))),
+    };
+    if f.get("Pack-CRC32").is_some() || f.get("Pack-BLAKE2").is_some() {
+        return Err(split_part());
+    }
+    let size = match (f.value("Size"), kind) {
+        (None, EntryKind::File) => return Err(forged("a file without a size")),
+        (None, _) => 0,
+        (Some(v), _) => number(v).ok_or_else(|| forged("Size is not a number"))?,
+    };
+    let flags: Vec<&str> = f
+        .get("Flags")
+        .map(|v| v.split_whitespace().collect())
+        .unwrap_or_default();
+    let compression = f.value("Compression");
+    Ok(Entry {
+        index,
+        name,
+        raw_name: raw.as_bytes().to_vec(),
+        kind,
+        size,
+        packed: optional_number(f.value("Packed size"), "Packed size")?,
+        // `CRC32 MAC` is keyed with the password: not the data's CRC.
+        crc32: crc(f.value("CRC32"))?,
+        encrypted: flags.contains(&"encrypted"),
+        method: match compression {
+            Some(c) if c.split_whitespace().any(|w| w == "-m0") => Method::Stored,
+            Some(c) => Method::Other(c.to_string()),
+            None => Method::Stored,
+        },
+        solid_block: flags.contains(&"solid").then_some(0),
+        mtime: None,
+        unsafe_name: None,
+    })
+}
+
+/// Entry count and declared sizes against `limits` (spec §4.4).
+fn check_limits(entries: &[Entry], limits: &Limits) -> Result<(), ArchiveError> {
+    let mut total: u64 = 0;
+    for e in entries {
+        if e.size > limits.max_entry_size {
+            return Err(ArchiveError::TooLarge { declared: e.size });
+        }
+        total = total.saturating_add(e.size);
+    }
+    if total > limits.max_total_size {
+        return Err(ArchiveError::TooLarge { declared: total });
+    }
+    Ok(())
+}
+
+fn check_count(n: usize, limits: &Limits) -> Result<(), ArchiveError> {
+    let count = n as u64;
+    if count > limits.max_entries {
+        return Err(ArchiveError::TooManyEntries { count });
+    }
+    Ok(())
+}
+
+/// Parses `7zz l -slt -ba` output: every record has the same key sequence
+/// (7-Zip prints one property list per archive), drawn from the format's
+/// [`Schema`].
+fn parse_seven_zip(
+    text: &str,
+    schema: &'static Schema,
+    limits: &Limits,
+) -> Result<Vec<Entry>, ArchiveError> {
+    let lines = tool_lines(text);
+    let blocks = blocks(&lines);
+    check_count(blocks.len(), limits)?;
+    let mut entries = Vec::with_capacity(blocks.len());
+    let mut first: Option<Vec<usize>> = None;
+    for (index, block) in blocks.iter().enumerate() {
+        let f = seven_zip_fields(block, schema)?;
+        let seq: Vec<usize> = f.sequence().collect();
+        match &first {
+            None => first = Some(seq),
+            Some(want) if *want != seq => {
+                return Err(forged("records with different key sets"));
+            }
+            Some(_) => {}
+        }
+        entries.push(seven_zip_entry(index, &f)?);
+    }
+    check_limits(&entries, limits)?;
+    Ok(entries)
+}
+
+/// Parses `unrar lt` output: the banner, `Archive:` and `Details:` lines,
+/// then records that each start with `Name`.
+fn parse_unrar(text: &str, limits: &Limits) -> Result<Vec<Entry>, ArchiveError> {
+    let lines = tool_lines(text);
+    let blocks = blocks(&lines);
+    let is_record = |b: &[&str]| {
+        b.first()
+            .and_then(|l| unrar_field(l))
+            .is_some_and(|(k, _)| k == "Name")
+    };
+    let start = blocks
+        .iter()
+        .position(|b| is_record(b))
+        .unwrap_or(blocks.len());
+    for line in blocks[..start].iter().flatten() {
+        let known = ["UNRAR ", "RAR ", "Archive: ", "Details: "]
+            .iter()
+            .any(|p| line.starts_with(p));
+        if !known {
+            return Err(forged("an unexpected line before the records"));
+        }
+    }
+    let records = &blocks[start..];
+    check_count(records.len(), limits)?;
+    let mut entries = Vec::with_capacity(records.len());
+    for (index, block) in records.iter().enumerate() {
+        if !is_record(block) {
+            return Err(forged("a record that does not start with Name"));
+        }
+        entries.push(unrar_entry(index, &unrar_fields(block)?)?);
+    }
+    check_limits(&entries, limits)?;
+    Ok(entries)
+}
+
+/// The tool's own count and size total.
+#[derive(Debug, PartialEq, Eq)]
+struct Summary {
+    /// 7-Zip: files (links included) and folders apart; unrar: every
+    /// record in one count.
+    files: u64,
+    folders: Option<u64>,
+    size: u64,
+}
+
+/// The line after the last `end` separator, with only blank lines (and
+/// `allowed` lines) after it.
+fn summary_line<'a>(
+    lines: &[&'a str],
+    end: &str,
+    allowed: impl Fn(&str) -> Result<bool, ArchiveError>,
+) -> Result<&'a str, ArchiveError> {
+    let sep = lines
+        .iter()
+        .rposition(|l| *l == end)
+        .ok_or_else(|| forged("no summary"))?;
+    let line = lines
+        .get(sep + 1)
+        .copied()
+        .filter(|l| !l.trim().is_empty())
+        .ok_or_else(|| forged("no summary"))?;
+    for rest in &lines[sep + 2..] {
+        if !rest.is_empty() && !allowed(rest)? {
+            return Err(forged("an unexpected line after the summary"));
+        }
+    }
+    Ok(line)
+}
+
+/// 7-Zip's last table line: `[date time] size [packed]  N files[, M folders]`.
+fn parse_seven_zip_summary(text: &str) -> Result<Summary, ArchiveError> {
+    let lines = tool_lines(text);
+    let line = summary_line(&lines, SEVEN_ZIP_TABLE_END, |l| {
+        if let Some(n) = l.strip_prefix("Warnings: ") {
+            return Ok(number(n).is_some());
+        }
+        if l.starts_with("Errors: ") {
+            return Err(forged("7-Zip reported errors"));
+        }
+        Ok(false)
+    })?;
+    let toks: Vec<&str> = line.split_whitespace().collect();
+    let bad = || forged("an unreadable 7-Zip summary");
+    let (files, folders, head) = match toks.as_slice() {
+        [head @ .., n, "files,", m, "folders"] => (*n, *m, head),
+        [head @ .., n, "files"] => (*n, "0", head),
+        [head @ .., m, "folders"] => ("0", *m, head),
+        _ => return Err(bad()),
+    };
+    let files = number(files).ok_or_else(bad)?;
+    let folders = number(folders).ok_or_else(bad)?;
+    let mut head = head;
+    if let [date, time, rest @ ..] = head {
+        let is_date = date.len() == 10 && date.bytes().all(|b| b.is_ascii_digit() || b == b'-');
+        if is_date {
+            if !time.contains(':') {
+                return Err(bad());
+            }
+            head = rest;
+        }
+    }
+    let size = match head {
+        [size] | [size, _] => number(size).ok_or_else(bad)?,
+        _ => return Err(bad()),
+    };
+    if let [_, packed] = head {
+        number(packed).ok_or_else(bad)?;
+    }
+    Ok(Summary {
+        files,
+        folders: Some(folders),
+        size,
+    })
+}
+
+/// unrar's `l` totals line: `size  count`.
+fn parse_unrar_summary(text: &str) -> Result<Summary, ArchiveError> {
+    let lines = tool_lines(text);
+    let line = summary_line(&lines, UNRAR_TABLE_END, |_| Ok(false))?;
+    let bad = || forged("an unreadable unrar totals line");
+    match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+        [size, count] => Ok(Summary {
+            files: number(count).ok_or_else(bad)?,
+            folders: None,
+            size: number(size).ok_or_else(bad)?,
+        }),
+        _ => Err(bad()),
+    }
+}
+
+/// The parsed records against the tool's own count and size total
+/// (S7 rule 3): a record forged by a name is one too many.
+fn check_summary(entries: &[Entry], s: &Summary) -> Result<(), ArchiveError> {
+    let dirs = entries.iter().filter(|e| e.kind == EntryKind::Dir).count() as u64;
+    let all = entries.len() as u64;
+    let counts_ok = match s.folders {
+        Some(folders) => s.files == all - dirs && folders == dirs,
+        None => s.files == all,
+    };
+    if !counts_ok {
+        return Err(forged(format!(
+            "{all} records but the tool counts {} files and {:?} folders",
+            s.files, s.folders
+        )));
+    }
+    let size = entries
+        .iter()
+        .try_fold(0u64, |acc, e| acc.checked_add(e.size))
+        .ok_or_else(|| forged("sizes overflow"))?;
+    if size != s.size {
+        return Err(forged(format!(
+            "sizes add up to {size} but the tool says {}",
+            s.size
+        )));
+    }
+    Ok(())
+}
+
+/// Size and modification time: equal before the first listing run and
+/// after the second, or the two runs may have seen different archives.
+fn stamp(path: &Path) -> Result<(u64, Option<SystemTime>), ArchiveError> {
+    let meta = std::fs::metadata(path)?;
+    Ok((meta.len(), meta.modified().ok()))
+}
+
+/// One listing run as text; a non-zero exit is the tool refusing the
+/// archive (encrypted when it says so).
+fn run_listing(
+    t: &FoundTool,
+    args: &[&str],
+    archive: &Path,
+    limits: &Limits,
+) -> Result<String, ArchiveError> {
+    let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+    let run = run_tool(t, &args, archive, limits.max_header, LIST_TIMEOUT, None)?;
+    if run.status != Some(0) {
+        let err = String::from_utf8_lossy(&run.stderr).to_ascii_lowercase();
+        // unrar exit 11: wrong password (RARX_BADPWD).
+        let locked = err.contains("wrong password")
+            || err.contains("encrypted")
+            || (t.tool == Tool::Unrar && run.status == Some(11));
+        return Err(if locked {
+            ArchiveError::Encrypted
+        } else {
+            ArchiveError::Damaged {
+                detail: format!(
+                    "{:?} could not list the archive (status {:?})",
+                    t.tool, run.status
+                ),
+            }
+        });
+    }
+    decode_tool_text(&run.stdout)
+}
+
+/// An archive listed by an external tool (RAR, or a 7z with a coder
+/// `sevenz-rust2` lacks; spec §5.2). The listing is strict (S7): forced
+/// machine output, an exact key set per record, the record count and size
+/// total checked against the tool's own summary from a second run on the
+/// same unchanged file, and any unsafe name refusing the whole listing.
+///
+/// The tool and version are kept ([`ToolReader::tool`]): the plan records
+/// them (`ExtractSource::Tool`) and apply uses the same ones.
+#[derive(Debug)]
+pub struct ToolReader {
+    tool: FoundTool,
+    path: PathBuf,
+    format: Format,
+    entries: Vec<Entry>,
+}
+
+impl ToolReader {
+    /// Lists `path` (a `format` archive, by magic) with the first fitting
+    /// tool of `tools`: for RAR unrar or 7-Zip (one that opens RAR5 when
+    /// `v5`), for 7z only 7-Zip, and only at a version with the pinned
+    /// switches. bsdtar is never text-parsed (its reads go through the pax
+    /// transcode). No fitting tool, or `limits.external_tools` off →
+    /// `Unsupported { need }`.
+    pub fn open(
+        tools: &[FoundTool],
+        path: &Path,
+        format: Format,
+        limits: &Limits,
+    ) -> Result<Self, ArchiveError> {
+        let (label, need, schema_7zip) = match format {
+            Format::Rar { v5: true } => ("RAR", Tool::Unrar, &SEVEN_ZIP_RAR5),
+            Format::Rar { v5: false } => ("RAR", Tool::Unrar, &SEVEN_ZIP_RAR4),
+            Format::SevenZip => ("7z", Tool::SevenZip, &SEVEN_ZIP_7Z),
+            other => {
+                return Err(ArchiveError::Unsupported {
+                    format: format!("{other:?} through an external tool"),
+                    need: None,
+                })
+            }
+        };
+        let missing = || ArchiveError::Unsupported {
+            format: label.into(),
+            need: Some(need),
+        };
+        if !limits.external_tools {
+            return Err(missing());
+        }
+        let fits = |t: &FoundTool| match format {
+            Format::Rar { v5 } => matches!(t.tool, Tool::Unrar | Tool::SevenZip) && (!v5 || t.rar5),
+            _ => t.tool == Tool::SevenZip,
+        };
+        let (tool, switches) = tools
+            .iter()
+            .filter(|t| fits(t))
+            .find_map(|t| list_switches(t).map(|s| (t, s)))
+            .ok_or_else(missing)?;
+
+        let before = stamp(path)?;
+        let records = run_listing(tool, switches.records, path, limits)?;
+        let entries = guarded(|| match tool.tool {
+            Tool::Unrar => parse_unrar(&records, limits),
+            _ => parse_seven_zip(&records, schema_7zip, limits),
+        })?;
+        if entries.is_empty() {
+            return Err(forged("no entries"));
+        }
+        let summary_text = run_listing(tool, switches.summary, path, limits)?;
+        let after = stamp(path)?;
+        if before != after {
+            return Err(ArchiveError::Damaged {
+                detail: "the archive changed while it was listed".into(),
+            });
+        }
+        let summary = guarded(|| match tool.tool {
+            Tool::Unrar => parse_unrar_summary(&summary_text),
+            _ => parse_seven_zip_summary(&summary_text),
+        })?;
+        check_summary(&entries, &summary)?;
+        Ok(Self {
+            tool: tool.clone(),
+            path: path.to_path_buf(),
+            format,
+            entries,
+        })
+    }
+
+    /// The tool and version that listed the archive.
+    pub fn tool(&self) -> &FoundTool {
+        &self.tool
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn reads_pending(&self) -> ArchiveError {
+        ArchiveError::Unsupported {
+            format: format!("{:?} entry reads through {:?}", self.format, self.tool.tool),
+            need: Some(self.tool.tool),
+        }
+    }
+}
+
+impl ArchiveReader for ToolReader {
+    fn format(&self) -> Format {
+        self.format
+    }
+
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// Reads by unambiguous name or verified stream (S8) land with plan
+    /// Task 15; until then no entry is read through a tool.
+    fn open_entry<'a>(
+        &'a mut self,
+        _index: usize,
+        _budget: &'a mut Budget,
+    ) -> Result<Box<dyn Read + 'a>, ArchiveError> {
+        Err(self.reads_pending())
+    }
+
+    fn stream_entries(
+        &mut self,
+        _wanted: &[usize],
+        _budget: &mut Budget,
+        _sink: &mut dyn FnMut(&Entry, &mut dyn Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        Err(self.reads_pending())
+    }
+}
+
 /// For the integration tests through `archive::testing`.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) fn run_tool_for_tests(
@@ -859,6 +1785,125 @@ mod tests {
         let kept = Mutex::new(Vec::new());
         drain_capped(data.as_slice(), STDERR_CAP, &kept);
         assert_eq!(kept.into_inner().expect("lock").len(), STDERR_CAP);
+    }
+
+    #[test]
+    fn seven_zip_methods_parse() {
+        let cases = [
+            ("LZMA:26", Method::Lzma { dict: 1 << 26 }),
+            ("LZMA2:12", Method::Lzma2 { dict: 1 << 12 }),
+            ("BCJ LZMA2:1536k", Method::Lzma2 { dict: 1536 << 10 }),
+            ("LZMA2:24 BCJ", Method::Lzma2 { dict: 1 << 24 }),
+            (
+                "PPMD:o6:mem24",
+                Method::Ppmd {
+                    order: 6,
+                    mem: 1 << 24,
+                },
+            ),
+            (
+                "PPMD:o32:mem192m",
+                Method::Ppmd {
+                    order: 32,
+                    mem: 192 << 20,
+                },
+            ),
+            ("Copy", Method::Stored),
+            ("", Method::Stored),
+            ("Deflate", Method::Deflate),
+            ("BZip2", Method::Bzip2),
+            ("LZMA:9z", Method::Other("LZMA:9z".into())),
+            ("v5:m3:22", Method::Other("v5:m3:22".into())),
+        ];
+        for (text, want) in cases {
+            assert_eq!(seven_zip_method(text), want, "{text}");
+        }
+    }
+
+    #[test]
+    fn seven_zip_attributes_kind() {
+        let cases = [
+            ("D", Some(EntryKind::Dir)),
+            ("AC", Some(EntryKind::File)),
+            ("A -rw-r--r--", Some(EntryKind::File)),
+            ("D drwxr-xr-x", Some(EntryKind::Dir)),
+            ("A lrwxr-xr-x", Some(EntryKind::Symlink)),
+            ("A crw-rw-rw-", Some(EntryKind::Other)),
+            ("", None),
+        ];
+        for (attrs, want) in cases {
+            assert_eq!(seven_zip_attr_kind(attrs), want, "{attrs:?}");
+        }
+    }
+
+    #[test]
+    fn seven_zip_summary_shapes() {
+        let table = |line: &str| format!("x\n{SEVEN_ZIP_TABLE_END}\n{line}\n\nWarnings: 1\n");
+        let got = parse_seven_zip_summary(&table(
+            "2018-11-10 15:45:22          405749493    355281155  12 files, 1 folders",
+        ))
+        .expect("full");
+        assert_eq!(
+            got,
+            Summary {
+                files: 12,
+                folders: Some(1),
+                size: 405_749_493
+            }
+        );
+        // No date (no times stored), no packed size (solid RAR).
+        let got = parse_seven_zip_summary(&table("                           13  1 files"))
+            .expect("bare");
+        assert_eq!((got.files, got.folders, got.size), (1, Some(0), 13));
+        for bad in [
+            "2018-11-10 15:45:22  12 files",
+            "2018-11-10 15:45:22  x  1 files",
+            "1 2 3 1 files",
+            "13  1 files, 2 alt streams",
+        ] {
+            assert!(parse_seven_zip_summary(&table(bad)).is_err(), "{bad:?}");
+        }
+        let trailing = format!("{SEVEN_ZIP_TABLE_END}\n 13  1 files\nPath = evil\n");
+        assert!(parse_seven_zip_summary(&trailing).is_err());
+    }
+
+    #[test]
+    fn crlf_is_taken_off_only_when_every_line_has_it() {
+        assert_eq!(tool_lines("a\r\nb\r\n"), vec!["a", "b"]);
+        // A name ending in `\r` in LF output keeps it (and is refused).
+        assert_eq!(
+            tool_lines("Path = a\r\nSize = 1\n"),
+            vec!["Path = a\r", "Size = 1"]
+        );
+    }
+
+    #[test]
+    fn unrar_fields_need_exact_alignment() {
+        assert_eq!(unrar_field("        Name: a: b"), Some(("Name", "a: b")));
+        assert_eq!(unrar_field(" Packed size: 3"), Some(("Packed size", "3")));
+        assert_eq!(
+            unrar_field("Pack-CRC32 MAC: 1"),
+            Some(("Pack-CRC32 MAC", "1"))
+        );
+        assert_eq!(unrar_field("       Name: a"), None);
+        assert_eq!(unrar_field("Name: a"), None);
+        assert_eq!(unrar_field("        Name a"), None);
+    }
+
+    #[test]
+    fn pinned_versions() {
+        let t = |tool, version: &str| FoundTool {
+            tool,
+            path: PathBuf::from("/x"),
+            version: version.into(),
+            rar5: true,
+        };
+        assert!(list_switches(&t(Tool::SevenZip, "16.02")).is_some());
+        assert!(list_switches(&t(Tool::SevenZip, "26.05")).is_some());
+        assert!(list_switches(&t(Tool::SevenZip, "15.14")).is_none());
+        assert!(list_switches(&t(Tool::Unrar, "5.00")).is_some());
+        assert!(list_switches(&t(Tool::Unrar, "4.20")).is_none());
+        assert!(list_switches(&t(Tool::Bsdtar, "3.7.4")).is_none());
     }
 
     #[test]

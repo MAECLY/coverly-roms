@@ -1475,6 +1475,9 @@ pub struct FakeCase {
     /// Sleeps this long after writing, before exiting.
     pub sleep_ms: u64,
     pub exit: i32,
+    /// Appended to the file named by the last argument (the archive) after
+    /// writing: the archive changes between two listing runs.
+    pub append_to_archive: String,
 }
 
 /// The script of one fake tool: the first case whose prefix matches runs;
@@ -1564,4 +1567,277 @@ pub fn run_tool(
     timeout: std::time::Duration,
 ) -> Result<super::external::ToolRun, super::ArchiveError> {
     super::external::run_tool_for_tests(t, args, archive, out_cap, timeout)
+}
+
+// ---------------------------------------------------------------------------
+// Crafted external-tool listings (plan Task 14, S7)
+// ---------------------------------------------------------------------------
+
+/// One entry of a crafted 7-Zip or unrar listing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolEntry {
+    /// The name exactly as the tool would print it (a test may put a
+    /// newline in it to forge records).
+    pub name: String,
+    pub size: u64,
+    pub packed: Option<u64>,
+    pub crc32: Option<u32>,
+    pub dir: bool,
+    /// 7z folder (`Block = n`).
+    pub block: Option<u32>,
+}
+
+impl ToolEntry {
+    pub fn file(name: &str, size: u64, crc32: u32) -> Self {
+        Self {
+            name: name.into(),
+            size,
+            packed: Some(size),
+            crc32: Some(crc32),
+            dir: false,
+            block: Some(0),
+        }
+    }
+
+    pub fn dir(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            size: 0,
+            packed: Some(0),
+            crc32: None,
+            dir: true,
+            block: None,
+        }
+    }
+}
+
+/// The 7-Zip banner the listing builders print.
+pub const SEVEN_ZIP_BANNER: &str =
+    "7-Zip (z) 24.08 (arm64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-08-11";
+/// The unrar banner the listing builders print.
+pub const UNRAR_BANNER: &str = "UNRAR 7.01 freeware      Copyright (c) 1993-2024 Alexander Roshal";
+
+const SEVEN_ZIP_SEP: &str =
+    "------------------- ----- ------------ ------------  ------------------------";
+const UNRAR_SEP: &str = "----------- ---------  ---------- -----  ----";
+
+/// One `7zz l -slt -ba` record of a 7z archive, as 7-Zip 24 prints it.
+pub fn seven_zip_record(e: &ToolEntry) -> String {
+    let opt = |v: Option<u64>| v.map(|n| n.to_string()).unwrap_or_default();
+    format!(
+        "Path = {}\nSize = {}\nPacked Size = {}\nModified = 2018-11-10 11:36:34.1850625\n\
+         Attributes = {}\nCRC = {}\nEncrypted = -\nMethod = {}\nBlock = {}\n",
+        e.name,
+        e.size,
+        opt(e.packed),
+        if e.dir { "D" } else { "A" },
+        e.crc32.map(|c| format!("{c:08X}")).unwrap_or_default(),
+        if e.dir { "" } else { "LZMA:26" },
+        e.block.map(|b| b.to_string()).unwrap_or_default(),
+    )
+}
+
+/// The whole `7zz l -slt -ba -sccUTF-8 -p- -- <a>` output: records
+/// separated by blank lines.
+pub fn seven_zip_slt(entries: &[ToolEntry]) -> String {
+    let mut out = String::new();
+    for e in entries {
+        out.push_str(&seven_zip_record(e));
+        out.push('\n');
+    }
+    out
+}
+
+/// The `N files, M folders` summary line 7-Zip prints for `entries`.
+pub fn seven_zip_summary_line(files: u64, folders: u64, size: u64, packed: u64) -> String {
+    let counts = if folders > 0 {
+        format!("{files} files, {folders} folders")
+    } else {
+        format!("{files} files")
+    };
+    format!("2018-11-10 15:45:22       {size:>12} {packed:>12}  {counts}")
+}
+
+/// The whole non-`-ba` `7zz l -sccUTF-8 -p- -- <a>` output: banner,
+/// archive block, table and the summary computed from `entries`.
+pub fn seven_zip_l(entries: &[ToolEntry]) -> String {
+    let files = entries.iter().filter(|e| !e.dir).count() as u64;
+    let folders = entries.iter().filter(|e| e.dir).count() as u64;
+    let size: u64 = entries.iter().map(|e| e.size).sum();
+    let packed: u64 = entries.iter().filter_map(|e| e.packed).sum();
+    seven_zip_l_with(
+        entries,
+        &seven_zip_summary_line(files, folders, size, packed),
+    )
+}
+
+/// [`seven_zip_l`] with an explicit summary line (tests forge it).
+pub fn seven_zip_l_with(entries: &[ToolEntry], summary: &str) -> String {
+    let mut out = format!(
+        "\n{SEVEN_ZIP_BANNER}\n\nScanning the drive for archives:\n1 file, 1000 bytes (1 KiB)\n\n\
+         Listing archive: game.7z\n\n--\nPath = game.7z\nType = 7z\nPhysical Size = 1000\n\
+         Headers Size = 396\nMethod = LZMA:26\nSolid = -\nBlocks = 1\n\n\
+         \x20  Date      Time    Attr         Size   Compressed  Name\n{SEVEN_ZIP_SEP}\n"
+    );
+    for e in entries {
+        let attr = if e.dir { "D...." } else { "....A" };
+        let packed = e.packed.map(|p| p.to_string()).unwrap_or_default();
+        out.push_str(&format!(
+            "2018-11-10 11:36:34 {attr} {:>12} {packed:>12}  {}\n",
+            e.size, e.name
+        ));
+    }
+    out.push_str(&format!("{SEVEN_ZIP_SEP}\n{summary}\n"));
+    out
+}
+
+/// One `unrar lt` record, as unrar 7 prints it.
+pub fn unrar_record(e: &ToolEntry) -> String {
+    let mut out = format!("        Name: {}\n", e.name);
+    if e.dir {
+        out.push_str("        Type: Directory\n");
+    } else {
+        out.push_str("        Type: File\n");
+        out.push_str(&format!("        Size: {}\n", e.size));
+        out.push_str(&format!(" Packed size: {}\n", e.packed.unwrap_or(e.size)));
+        out.push_str("       Ratio: 100%\n");
+    }
+    out.push_str("       mtime: 2024-01-01 10:00:00,000000000\n");
+    out.push_str(if e.dir {
+        "  Attributes: drwxr-xr-x\n"
+    } else {
+        "  Attributes: -rw-r--r--\n"
+    });
+    if let Some(crc) = e.crc32 {
+        out.push_str(&format!("       CRC32: {crc:08X}\n"));
+    }
+    out.push_str("     Host OS: Unix\n");
+    out.push_str(" Compression: RAR 5.0(v50) -m3 -md=128K\n");
+    out
+}
+
+fn unrar_preamble() -> String {
+    format!("\n{UNRAR_BANNER}\n\nArchive: game.rar\nDetails: RAR 5\n\n")
+}
+
+/// The whole `unrar lt -cfg- -p- -scur -c- -- <a>` output.
+pub fn unrar_lt(entries: &[ToolEntry]) -> String {
+    let mut out = unrar_preamble();
+    for e in entries {
+        out.push_str(&unrar_record(e));
+        out.push('\n');
+    }
+    out
+}
+
+/// The whole `unrar l -cfg- -p- -scur -c- -- <a>` output, totals computed
+/// from `entries` (unrar counts every file header, folders too).
+pub fn unrar_l(entries: &[ToolEntry]) -> String {
+    let size: u64 = entries.iter().map(|e| e.size).sum();
+    unrar_l_with(entries, size, entries.len() as u64)
+}
+
+/// [`unrar_l`] with explicit totals (tests forge them).
+pub fn unrar_l_with(entries: &[ToolEntry], size: u64, count: u64) -> String {
+    let mut out = unrar_preamble();
+    out.push_str(&format!(
+        " Attributes      Size     Date    Time   Name\n{UNRAR_SEP}\n"
+    ));
+    for e in entries {
+        let attr = if e.dir { "drwxr-xr-x" } else { "-rw-r--r--" };
+        out.push_str(&format!(
+            " {attr} {:>9}  2024-01-01 10:00  {}\n",
+            e.size, e.name
+        ));
+    }
+    out.push_str(&format!("{UNRAR_SEP}\n{size:>21} {:18} {count}\n\n", ""));
+    out
+}
+
+/// The exact arguments of the 7-Zip record run up to the archive: the
+/// fake only answers the pinned switches.
+pub const SEVEN_ZIP_RECORD_ARGS: &[&str] = &["l", "-slt", "-ba", "-sccUTF-8", "-p-", "--"];
+/// The exact arguments of the 7-Zip summary run up to the archive.
+pub const SEVEN_ZIP_SUMMARY_ARGS: &[&str] = &["l", "-sccUTF-8", "-p-", "--"];
+/// The exact arguments of the unrar record run up to the archive.
+pub const UNRAR_RECORD_ARGS: &[&str] = &["lt", "-cfg-", "-p-", "-scur", "-c-", "--"];
+/// The exact arguments of the unrar totals run up to the archive.
+pub const UNRAR_SUMMARY_ARGS: &[&str] = &["l", "-cfg-", "-p-", "-scur", "-c-", "--"];
+
+/// A fake `7zz` that prints `slt` to the record run, `l` to the summary
+/// run and the banner otherwise.
+pub fn seven_zip_listing_script(slt: &str, l: &str) -> FakeScript {
+    FakeScript {
+        cases: vec![
+            FakeCase {
+                args_prefix: SEVEN_ZIP_RECORD_ARGS.iter().map(|a| (*a).into()).collect(),
+                stdout: slt.into(),
+                ..FakeCase::default()
+            },
+            FakeCase {
+                args_prefix: SEVEN_ZIP_SUMMARY_ARGS.iter().map(|a| (*a).into()).collect(),
+                stdout: l.into(),
+                ..FakeCase::default()
+            },
+            FakeCase {
+                stdout: format!("\n{SEVEN_ZIP_BANNER}\n"),
+                ..FakeCase::default()
+            },
+        ],
+    }
+}
+
+/// A fake `unrar` that prints `lt` to the record run, `l` to the totals
+/// run and the banner otherwise.
+pub fn unrar_listing_script(lt: &str, l: &str) -> FakeScript {
+    FakeScript {
+        cases: vec![
+            FakeCase {
+                args_prefix: UNRAR_RECORD_ARGS.iter().map(|a| (*a).into()).collect(),
+                stdout: lt.into(),
+                ..FakeCase::default()
+            },
+            FakeCase {
+                args_prefix: UNRAR_SUMMARY_ARGS.iter().map(|a| (*a).into()).collect(),
+                stdout: l.into(),
+                ..FakeCase::default()
+            },
+            FakeCase {
+                stdout: format!("\n{UNRAR_BANNER}\n"),
+                ..FakeCase::default()
+            },
+        ],
+    }
+}
+
+/// The listing shape of the real PS1 case of spec §1 (`Next Tetris,
+/// The.zip`, a 7z archive): one folder, eleven tracks in their own 7z
+/// blocks, and the sheet last. Names, sizes and CRCs as 7-Zip lists them.
+pub fn next_tetris_ps1_listing() -> Vec<ToolEntry> {
+    const DIR: &str = "Next Tetris, The (USA)";
+    const TRACKS: [(u64, u64, u32); 11] = [
+        (34_508_544, 17_811_251, 0x8B6F_8183),
+        (31_592_064, 28_953_335, 0x7A0A_30B7),
+        (22_391_040, 17_850_413, 0x3D51_CA5D),
+        (20_227_200, 17_448_776, 0x216A_95DD),
+        (26_561_136, 20_147_572, 0xA5F7_EB7E),
+        (42_455_952, 38_707_993, 0x19A5_3BD7),
+        (42_220_752, 37_996_260, 0xCDA9_E912),
+        (58_868_208, 56_582_490, 0x8E37_50D6),
+        (42_437_136, 40_475_740, 0x3D25_596B),
+        (39_560_640, 36_366_328, 0x06D6_3F64),
+        (44_925_552, 42_940_838, 0x495C_5A02),
+    ];
+    let mut out = vec![ToolEntry::dir(&format!("{DIR}/"))];
+    for (i, (size, packed, crc)) in TRACKS.into_iter().enumerate() {
+        let mut e = ToolEntry::file(&format!("{DIR}/{DIR} (Track {:02}).bin", i + 1), size, crc);
+        e.packed = Some(packed);
+        e.block = u32::try_from(i).ok();
+        out.push(e);
+    }
+    let mut cue = ToolEntry::file(&format!("{DIR}/{DIR}.cue"), 1269, 0xC164_24E9);
+    cue.packed = Some(159);
+    cue.block = Some(11);
+    out.push(cue);
+    out
 }
