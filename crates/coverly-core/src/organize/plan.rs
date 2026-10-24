@@ -21,6 +21,7 @@ use crate::dedupe::source::DiscId;
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{NotARom, Sniff};
+use crate::organize::apply::{cluster_size, user_available};
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
@@ -30,8 +31,8 @@ use crate::organize::inspect::{
     Payload, ZipEntryInfo,
 };
 use crate::organize::target::{
-    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, mark_duplicates,
-    DirIndex, ExtractShape, TargetLayout,
+    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, limit_fat_folders,
+    mark_duplicates, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -624,6 +625,10 @@ pub enum PlanWarning {
     MoveUnavailable,
     /// Nothing loose: every ROM already sits in a system folder.
     SortedOnly,
+    /// The target volume lacks room for what the plan writes: `needed`
+    /// (cluster-rounded bytes, 1 % and the reserve) against the bytes
+    /// `free` for this user (archives spec §8.4).
+    NoSpace { needed: u64, free: u64 },
 }
 
 /// A dry run: what would move where, and why.
@@ -911,9 +916,13 @@ pub fn survey(
         cancel,
     )?;
     let mut facts_of: HashMap<usize, Facts> = HashMap::new();
+    let mut volume_sets: Vec<Vec<PathBuf>> = Vec::new();
     for (i, outcome) in results {
         match outcome {
             Ok((facts, id)) => {
+                if !facts.inspection.volume_parts.is_empty() {
+                    volume_sets.push(facts.inspection.volume_parts.clone());
+                }
                 let entry = &mut entries[i].entry;
                 entry.identification = Some(id);
                 // Any container the reader opened is an archive item (a
@@ -997,13 +1006,52 @@ pub fn survey(
         }
     }
 
+    let mut entries: Vec<SurveyEntry> = entries.into_iter().map(|p| p.entry).collect();
+    gather_volume_sets(&mut entries, &volume_sets, &mut walked);
+
     Ok(Survey {
         source_root: source_abs,
         target_root,
         broad_root,
-        entries: entries.into_iter().map(|p| p.entry).collect(),
+        entries,
         walked,
     })
+}
+
+/// Turns every multi-volume set into one Left entry holding all its parts
+/// (archives spec §3.2 rule 6): the entry of the set's first part found
+/// (in volume order) takes the others' files, which never become items,
+/// companions or other files of their own, so no part moves apart.
+fn gather_volume_sets(entries: &mut Vec<SurveyEntry>, sets: &[Vec<PathBuf>], walked: &mut Walked) {
+    let mut gone: BTreeSet<PathBuf> = BTreeSet::new();
+    for parts in sets {
+        if parts.iter().any(|p| gone.contains(p)) {
+            continue;
+        }
+        let Some(owner) = parts
+            .iter()
+            .find_map(|p| entries.iter().position(|e| e.sources[0] == *p))
+        else {
+            continue;
+        };
+        let present: Vec<PathBuf> = parts.iter().filter(|p| p.is_file()).cloned().collect();
+        let entry = &mut entries[owner];
+        entry.fps = present.iter().map(|p| fp_of(p)).collect();
+        entry.size = entry.fps.iter().map(|fp| fp.size).sum();
+        entry.sources = present;
+        entry.kind = ItemKind::Archive;
+        entry.left = Some(LeftReason::MultiVolumeArchive { parts: parts.len() });
+        entry.identification = None;
+        entry.inspection = None;
+        gone.extend(entry.sources.iter().skip(1).cloned());
+    }
+    if gone.is_empty() {
+        return;
+    }
+    entries.retain(|e| e.sources.len() > 1 || !gone.contains(&e.sources[0]));
+    walked.other_files.retain(|p| !gone.contains(p));
+    walked.companions.retain(|p| !gone.contains(p));
+    walked.left.retain(|(p, _)| !gone.contains(p));
 }
 
 /// An entry being surveyed: the candidate behind it (single files) or the
@@ -1263,7 +1311,7 @@ fn identify_one(
 /// judged a disc archive by its cartridge rules, and facts of version 2
 /// lack the entry indices, the discs and the tool an extraction needs, so
 /// they are read again.
-const FACTS_VERSION: u32 = 3;
+const FACTS_VERSION: u32 = 4;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1284,10 +1332,13 @@ fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
 /// nor an archive that an external tool found later could open.
 fn memoisable(facts: &Facts) -> bool {
     let insp = &facts.inspection;
+    // A multi-volume set's parts are the files beside it, not this file.
     !insp.budget_spent
         && !matches!(
             insp.issue,
-            Some(ArchiveIssue::Unsupported { need: Some(_), .. })
+            Some(
+                ArchiveIssue::Unsupported { need: Some(_), .. } | ArchiveIssue::MultiVolume { .. }
+            )
         )
 }
 
@@ -1329,6 +1380,7 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             disc_set: None,
             decoded: 0,
             tool: None,
+            volume_parts: Vec::new(),
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1369,6 +1421,7 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             disc_set: None,
             decoded: 0,
             tool: None,
+            volume_parts: Vec::new(),
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1563,6 +1616,9 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    if fat32 {
+        limit_fat_folders(&mut items, &target_root);
+    }
     for (path, reason) in left_companions {
         let abs = if path.is_absolute() {
             path.clone()
@@ -1627,6 +1683,12 @@ pub fn plan_from_survey(
     if candidates == 0 && !survey.walked.sorted_folders.is_empty() {
         warnings.push(PlanWarning::SortedOnly);
     }
+    let copies = mode == TransferMode::Copy || !same_volume(src, &target_root);
+    let cluster = cluster_size(&target_root).unwrap_or(DEFAULT_CLUSTER);
+    let needed = space_needed(&items, src, copies, cluster);
+    if let Some(free) = user_available(&target_root).filter(|&free| free < needed) {
+        warnings.push(PlanWarning::NoSpace { needed, free });
+    }
     let counts = count(&items, &survey.walked);
 
     Ok(OrganizePlan {
@@ -1668,6 +1730,51 @@ pub fn plan_from_survey(
 /// Leftover names a note shows.
 const LEFTOVER_EXAMPLES: usize = 3;
 
+/// Kept free on the target beyond what a plan writes (archives spec §8.4).
+pub const SPACE_RESERVE: u64 = 64 * 1024 * 1024;
+/// The allocation unit assumed when the volume does not tell its own.
+const DEFAULT_CLUSTER: u64 = 4096;
+
+/// Bytes the target volume needs free for the items that move: every
+/// extracted entry, generated playlist and, when `copies` (copy mode or
+/// another volume), every source file and companion, each rounded up to
+/// whole `cluster`s; plus 1 % and [`SPACE_RESERVE`]. Nothing to write
+/// needs nothing. A move on one volume renames, and the Trash frees no
+/// space on it, so an archive's own size is never taken off (spec §8.4).
+pub fn space_needed(items: &[OrganizeItem], source_root: &Path, copies: bool, cluster: u64) -> u64 {
+    let cluster = cluster.max(1);
+    let round = |n: u64| n.div_ceil(cluster).saturating_mul(cluster);
+    let mut sum: u64 = 0;
+    for item in items.iter().filter(|i| !i.is_left() && i.target.is_some()) {
+        let mut add = match &item.transfer {
+            // A playlist is a few lines: one cluster.
+            Transfer::Extract { entries, m3u, .. } => entries
+                .iter()
+                .map(|e| round(e.size))
+                .chain(m3u.as_ref().map(|_| round(1)))
+                .fold(0u64, u64::saturating_add),
+            Transfer::AsIs if copies => item
+                .fps
+                .iter()
+                .map(|fp| round(fp.size))
+                .fold(0u64, u64::saturating_add),
+            Transfer::AsIs => 0,
+        };
+        if copies {
+            for c in &item.companions {
+                let size = fs::metadata(source_root.join(&c.source)).map_or(0, |m| m.len());
+                add = add.saturating_add(round(size));
+            }
+        }
+        sum = sum.saturating_add(add);
+    }
+    if sum == 0 {
+        return 0;
+    }
+    sum.saturating_add(sum.div_ceil(100))
+        .saturating_add(SPACE_RESERVE)
+}
+
 /// How an archive item reaches `system`'s folder under `profile`
 /// (archives spec §8.1–§8.3): `Ok(None)` moves it as it is; `Ok(Some)`
 /// sets `item.transfer` to an extraction (targets assigned later) and
@@ -1678,8 +1785,9 @@ const LEFTOVER_EXAMPLES: usize = 3;
 /// - A disc archive always extracts its set (sheets, tracks, images).
 /// - A cartridge archive moves as it is when the profile's emulators load
 ///   its container for the system, else its ROM entries are extracted.
-/// - Move mode sends the archive to the Trash only when the listing is
-///   complete and every file entry is extracted or OS junk (an unsafe name
+/// - An incomplete listing is never extracted: the archive moves as it is.
+/// - Move mode sends the archive to the Trash only when every file entry
+///   is extracted or OS junk (an unsafe name
 ///   never counts as junk); anything else (a save, a readme) keeps it,
 ///   with a note. Copy mode always keeps it.
 fn plan_transfer(
@@ -1692,6 +1800,12 @@ fn plan_transfer(
     let Some(format) = insp.format else {
         return Ok(None);
     };
+    // Entries past an incomplete listing (a tar cut by the listing budget)
+    // are unknown: such an archive moves as it is, never extracted (spec
+    // §4.2).
+    if !insp.listing_complete {
+        return Ok(None);
+    }
     if system.arcade {
         return match insp.container {
             Container::Zip => Ok(None),
@@ -1775,8 +1889,6 @@ fn plan_transfer(
         .collect();
     let archive_after = match mode {
         TransferMode::Copy => ArchiveAfter::Keep,
-        // Entries past an incomplete listing are unknown, maybe saves.
-        TransferMode::Move if leftovers.is_empty() && !insp.listing_complete => ArchiveAfter::Keep,
         TransferMode::Move if leftovers.is_empty() => ArchiveAfter::Trash,
         TransferMode::Move => {
             item.notes.push(ItemNote::ArchiveKeptLeftovers {

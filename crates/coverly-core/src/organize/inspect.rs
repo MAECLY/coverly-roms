@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Range;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -325,6 +325,10 @@ pub struct Inspection {
     /// archive; extraction uses the same one.
     #[serde(default)]
     pub tool: Option<(Tool, String)>,
+    /// Every file of the multi-volume set this file belongs to (absolute,
+    /// in volume order): the planner turns them into one item.
+    #[serde(default)]
+    pub volume_parts: Vec<PathBuf>,
 }
 
 impl Inspection {
@@ -343,6 +347,7 @@ impl Inspection {
             disc_set: None,
             decoded: 0,
             tool: None,
+            volume_parts: Vec::new(),
         }
     }
 
@@ -420,6 +425,7 @@ pub fn inspect_file_with(
                 {
                     out.container = Container::MultiVolume;
                     out.issue = Some(ArchiveIssue::MultiVolume { parts: parts.len() });
+                    out.volume_parts = parts;
                     return Ok(out);
                 }
             }
@@ -570,6 +576,7 @@ fn record_error(e: ArchiveError, out: &mut Inspection) -> io::Result<()> {
         ArchiveError::MultiVolume { parts } => {
             out.container = Container::MultiVolume;
             out.fail(ArchiveIssue::MultiVolume { parts: parts.len() });
+            out.volume_parts = parts;
         }
         ArchiveError::BudgetSpent { .. } => {
             out.listing_complete = false;

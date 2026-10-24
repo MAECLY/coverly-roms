@@ -729,6 +729,9 @@ fn warning_text(w: &PlanWarning) -> String {
         PlanWarning::SortedOnly => {
             "nothing loose: every ROM already sits in a system folder".into()
         }
+        PlanWarning::NoSpace { needed, free } => format!(
+            "not enough space on the target: {needed} bytes needed, {free} bytes free"
+        ),
     }
 }
 

@@ -119,15 +119,24 @@ type FreeSpaceFn = fn(&Path) -> Option<u64>;
 #[cfg(feature = "test-util")]
 thread_local! {
     static FREE_SPACE: std::cell::Cell<Option<FreeSpaceFn>> = const { std::cell::Cell::new(None) };
+    static CLUSTER_SIZE: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
     static LAST_DIR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Test hook: makes [`free_space`] on the calling thread answer with `f`.
-/// `None` clears it.
+/// Test hook: makes [`free_space`] (and [`user_available`]) on the calling
+/// thread answer with `f`. `None` clears it.
 #[doc(hidden)]
 #[cfg(feature = "test-util")]
 pub fn set_free_space_override(f: Option<FreeSpaceFn>) {
     FREE_SPACE.with(|c| c.set(f));
+}
+
+/// Test hook: makes [`cluster_size`] on the calling thread answer
+/// `bytes`. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_cluster_size_override(bytes: Option<u64>) {
+    CLUSTER_SIZE.with(|c| c.set(bytes));
 }
 
 /// Test hook: how many folders the last apply on the calling thread
@@ -139,20 +148,43 @@ pub fn last_apply_dir_reads() -> usize {
 }
 
 /// Bytes free for this user on the volume holding `path` (or its nearest
-/// existing parent); `None` when it cannot be told.
+/// existing parent); `None` when it cannot be told. The same as
+/// [`user_available`].
 pub fn free_space(path: &Path) -> Option<u64> {
+    user_available(path)
+}
+
+/// Bytes the calling user may still write on the volume holding `path`
+/// (or its nearest existing parent): `statvfs` `f_bavail × f_frsize`
+/// (blocks reserved for root are not counted), Windows
+/// `GetDiskFreeSpaceExW`'s caller quota. `None` when it cannot be told.
+pub fn user_available(path: &Path) -> Option<u64> {
     #[cfg(feature = "test-util")]
     if let Some(f) = FREE_SPACE.with(std::cell::Cell::get) {
         return f(path);
     }
-    let existing = path
-        .ancestors()
-        .find(|p| !p.as_os_str().is_empty() && p.exists())?;
-    os_free_space(existing)
+    os_free_space(existing_ancestor(path)?)
+}
+
+/// The allocation unit of the volume holding `path` (or its nearest
+/// existing parent): every file takes a whole number of these. `statvfs`
+/// `f_frsize`, Windows `GetDiskFreeSpaceW` sectors per cluster × bytes
+/// per sector. `None` when it cannot be told.
+pub fn cluster_size(path: &Path) -> Option<u64> {
+    #[cfg(feature = "test-util")]
+    if let Some(bytes) = CLUSTER_SIZE.with(std::cell::Cell::get) {
+        return Some(bytes);
+    }
+    os_cluster_size(existing_ancestor(path)?).filter(|&c| c > 0)
+}
+
+fn existing_ancestor(path: &Path) -> Option<&Path> {
+    path.ancestors()
+        .find(|p| !p.as_os_str().is_empty() && p.exists())
 }
 
 #[cfg(unix)]
-fn os_free_space(path: &Path) -> Option<u64> {
+fn statvfs_of(path: &Path) -> Option<libc::statvfs> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let c = CString::new(path.as_os_str().as_bytes()).ok()?;
@@ -162,20 +194,38 @@ fn os_free_space(path: &Path) -> Option<u64> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
         return None;
     }
+    Some(st)
+}
+
+#[cfg(unix)]
+fn os_free_space(path: &Path) -> Option<u64> {
+    let st = statvfs_of(path)?;
     // The field types differ between platforms.
     #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
     let (avail, frsize) = (u64::from(st.f_bavail), st.f_frsize as u64);
     Some(avail.saturating_mul(frsize))
 }
 
+#[cfg(unix)]
+fn os_cluster_size(path: &Path) -> Option<u64> {
+    let st = statvfs_of(path)?;
+    #[allow(clippy::unnecessary_cast)]
+    Some(st.f_frsize as u64)
+}
+
+#[cfg(windows)]
+fn wide_path(path: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
 #[cfg(windows)]
 fn os_free_space(path: &Path) -> Option<u64> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let wide = wide_path(path);
     let mut free: u64 = 0;
     // SAFETY: `wide` is NUL-terminated; the null pointers are optional
-    // outputs the call skips.
+    // outputs the call skips. The first output is the caller's quota.
     let ok = unsafe {
         GetDiskFreeSpaceExW(
             wide.as_ptr(),
@@ -187,8 +237,38 @@ fn os_free_space(path: &Path) -> Option<u64> {
     (ok != 0).then_some(free)
 }
 
+#[cfg(windows)]
+fn os_cluster_size(path: &Path) -> Option<u64> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceW, GetVolumePathNameW};
+    let wide = wide_path(path);
+    let mut root = [0u16; 1024];
+    // SAFETY: `wide` is NUL-terminated and `root` holds `len` u16s.
+    let ok = unsafe { GetVolumePathNameW(wide.as_ptr(), root.as_mut_ptr(), root.len() as u32) };
+    if ok == 0 {
+        return None;
+    }
+    let (mut sectors, mut bytes, mut free, mut total) = (0u32, 0u32, 0u32, 0u32);
+    // SAFETY: `root` was NUL-terminated by the call above (a volume root
+    // with its trailing backslash); the outputs are valid pointers.
+    let ok = unsafe {
+        GetDiskFreeSpaceW(
+            root.as_ptr(),
+            &mut sectors,
+            &mut bytes,
+            &mut free,
+            &mut total,
+        )
+    };
+    (ok != 0).then(|| u64::from(sectors) * u64::from(bytes))
+}
+
 #[cfg(not(any(unix, windows)))]
 fn os_free_space(_: &Path) -> Option<u64> {
+    None
+}
+
+#[cfg(not(any(unix, windows)))]
+fn os_cluster_size(_: &Path) -> Option<u64> {
     None
 }
 

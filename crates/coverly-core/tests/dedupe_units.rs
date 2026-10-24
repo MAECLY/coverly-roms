@@ -721,6 +721,7 @@ fn pile_units_come_from_organise_facts() {
             disc_set: None,
             decoded: 0,
             tool: None,
+            volume_parts: Vec::new(),
         },
         raw_crcs: Vec::new(),
         hashed: false,

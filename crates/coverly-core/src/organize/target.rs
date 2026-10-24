@@ -1156,10 +1156,116 @@ pub fn mark_duplicates(items: &mut [OrganizeItem], keys: &[Option<(String, u64)>
     }
 }
 
+#[cfg(feature = "test-util")]
+thread_local! {
+    static FAT32: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook: makes [`file_system_is_fat32`] on the calling thread answer
+/// `fat32`. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_fat32_override(fat32: Option<bool>) {
+    FAT32.with(|c| c.set(fat32));
+}
+
+/// Directory slots a FAT32 folder may use once a plan is applied: a
+/// folder holds at most 65,536 32-byte slots; the rest is headroom
+/// (archives spec §8.2).
+pub const FAT_DIR_SLOTS_MAX: u64 = 65_000;
+
+/// The 32-byte directory slots `name` takes on FAT32: its long-name
+/// slots (13 UTF-16 units each) plus the short-name slot.
+pub fn fat_name_slots(name: &str) -> u64 {
+    (name.encode_utf16().count() as u64).div_ceil(13) + 1
+}
+
+/// The directory slots `dir` uses now: `.` and `..` plus every entry's
+/// name. A folder that does not exist (or cannot be listed) is counted
+/// as a new, empty one.
+pub fn fat_dir_slots(dir: &Path) -> u64 {
+    let names: u64 = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| fat_name_slots(&e.file_name().to_string_lossy()))
+            .sum(),
+        Err(_) => 0,
+    };
+    2 + names
+}
+
+/// Every path a placed item writes, absolute: its files (or extracted
+/// entries and playlist) and its companions.
+fn written_paths(item: &OrganizeItem, target_root: &Path) -> Vec<PathBuf> {
+    let mut rel: Vec<&PathBuf> = match &item.transfer {
+        Transfer::Extract { entries, m3u, .. } => {
+            entries.iter().map(|e| &e.target).chain(m3u).collect()
+        }
+        Transfer::AsIs => item.target.iter().chain(&item.set_targets).collect(),
+    };
+    rel.extend(item.companions.iter().map(|c| &c.target));
+    rel.into_iter().map(|p| target_root.join(p)).collect()
+}
+
+/// On a FAT32 target, leaves with [`LeftReason::FolderFull`] every placed
+/// item, in plan order, that would take a folder past
+/// [`FAT_DIR_SLOTS_MAX`] slots: the folder's existing entries plus every
+/// file and new sub-folder planned before it (archives spec §8.2).
+pub fn limit_fat_folders(items: &mut [OrganizeItem], target_root: &Path) {
+    let mut used: HashMap<PathBuf, u64> = HashMap::new();
+    let mut created: HashSet<PathBuf> = HashSet::new();
+    for item in items.iter_mut().filter(|i| !i.is_left()) {
+        let paths = written_paths(item, target_root);
+        if paths.is_empty() {
+            continue;
+        }
+        let mut charge: BTreeMap<PathBuf, u64> = BTreeMap::new();
+        let mut new_dirs: Vec<PathBuf> = Vec::new();
+        for path in &paths {
+            let Some(parent) = path.parent() else {
+                continue;
+            };
+            *charge.entry(parent.to_path_buf()).or_default() += fat_name_slots(&file_name(path));
+            // Folders the item creates take a slot set in their parent.
+            let mut dir = parent;
+            while dir != target_root
+                && dir.starts_with(target_root)
+                && !created.contains(dir)
+                && !new_dirs.iter().any(|d| d == dir)
+                && !dir.is_dir()
+            {
+                let Some(up) = dir.parent() else { break };
+                new_dirs.push(dir.to_path_buf());
+                *charge.entry(up.to_path_buf()).or_default() += fat_name_slots(&file_name(dir));
+                dir = up;
+            }
+        }
+        let full = charge.iter().find(|(dir, add)| {
+            let now = *used
+                .entry((*dir).clone())
+                .or_insert_with(|| fat_dir_slots(dir));
+            now + **add > FAT_DIR_SLOTS_MAX
+        });
+        if let Some((dir, _)) = full {
+            let folder = file_name(dir);
+            item.leave(LeftReason::FolderFull { folder });
+            continue;
+        }
+        for (dir, add) in charge {
+            *used.entry(dir).or_insert(2) += add;
+        }
+        created.extend(new_dirs);
+    }
+}
+
 /// Whether `path` (or its nearest existing ancestor) is on FAT32: macOS
 /// `statfs` type `msdos`, Linux the longest matching mount of type `vfat`,
 /// Windows `GetVolumeInformationW` name `FAT32`. Any error → `false`.
 pub fn file_system_is_fat32(path: &Path) -> bool {
+    #[cfg(feature = "test-util")]
+    if let Some(fat32) = FAT32.with(std::cell::Cell::get) {
+        return fat32;
+    }
     match path.ancestors().find(|p| p.exists()) {
         Some(existing) => fs_is_fat32(existing),
         None => false,

@@ -1681,12 +1681,13 @@ mod extract {
     }
 
     #[test]
-    fn an_incomplete_listing_never_trashes_the_archive() {
+    fn an_incomplete_listing_is_never_extracted_nor_trashed() {
         let world = World::new();
-        // Entries past the listing's end may be saves: the archive stays.
+        // Entries past the listing's end are unknown (maybe saves): the
+        // archive moves as it is and is never sent to the Trash.
         let p = junk_only_plan_after(&world, |insp| insp.listing_complete = false);
         let item = by_name(&p, "Game.7z");
-        assert_eq!(archive_after(item), ArchiveAfter::Keep);
+        assert_eq!(item.transfer, Transfer::AsIs);
         // Control: the same archive, fully listed, goes to the Trash.
         let p = junk_only_plan_after(&world, |_| {});
         assert_eq!(archive_after(by_name(&p, "Game.7z")), ArchiveAfter::Trash);
@@ -1873,5 +1874,406 @@ mod extract {
             other => panic!("{other:?}"),
         }
         assert!(!item.notes.contains(&ItemNote::NoStoredChecksum));
+    }
+
+    /// Plan-time checks of archives spec §8.4: free space (cluster
+    /// rounding, reserve, the user's quota), FAT32 file and folder limits,
+    /// decoder memory, multi-volume sets and incomplete listings.
+    mod checks {
+        use super::*;
+        use coverly_core::archive::testing::{tar_gz, SevenZCoder};
+        use coverly_core::archive::Limits;
+        use coverly_core::organize::apply::{set_cluster_size_override, set_free_space_override};
+        use coverly_core::organize::target::set_fat32_override;
+
+        const MIB: u64 = 1024 * 1024;
+        const RESERVE: u64 = 64 * MIB;
+
+        /// Restores the thread's volume overrides when dropped, even when
+        /// an assertion fails.
+        struct Overrides;
+
+        impl Overrides {
+            fn set(free: Option<fn(&Path) -> Option<u64>>, cluster: Option<u64>) -> Overrides {
+                set_free_space_override(free);
+                set_cluster_size_override(cluster);
+                Overrides
+            }
+        }
+
+        impl Drop for Overrides {
+            fn drop(&mut self) {
+                set_free_space_override(None);
+                set_cluster_size_override(None);
+                set_fat32_override(None);
+            }
+        }
+
+        fn round_up(size: u64, cluster: u64) -> u64 {
+            size.div_ceil(cluster) * cluster
+        }
+
+        /// What the plan says it needs: the extracted bytes rounded up to
+        /// whole clusters, 1 % and the reserve.
+        fn needed(sizes: &[u64], cluster: u64) -> u64 {
+            let sum: u64 = sizes.iter().map(|&s| round_up(s, cluster)).sum();
+            sum + sum.div_ceil(100) + RESERVE
+        }
+
+        fn no_space(p: &OrganizePlan) -> Option<(u64, u64)> {
+            p.warnings.iter().find_map(|w| match w {
+                PlanWarning::NoSpace { needed, free } => Some((*needed, *free)),
+                _ => None,
+            })
+        }
+
+        fn entry_sizes(item: &OrganizeItem) -> Vec<u64> {
+            entries(item).iter().map(|e| e.size).collect()
+        }
+
+        #[test]
+        fn free_space_counts_cluster_rounding_and_reserve() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+            let o = opts("anbernic-stock", t.path(), TransferMode::Move);
+
+            let _guard = Overrides::set(Some(|_| Some(1)), Some(32 * 1024));
+            let p = plan(&world, s.path(), o.clone());
+            let item = by_name(&p, "Next Tetris, The.zip");
+            let sizes = entry_sizes(item);
+            assert_eq!(sizes.len(), 3);
+            let want = needed(&sizes, 32 * 1024);
+            // 3 files of a few KiB take three whole 32 KiB clusters.
+            assert!(want >= 3 * 32 * 1024 + RESERVE);
+            assert_eq!(no_space(&p), Some((want, 1)));
+            // The item is still planned: the warning is about the volume.
+            assert_eq!(item.action, OrganizeAction::Auto);
+
+            // Smaller clusters waste less.
+            let _guard = Overrides::set(Some(|_| Some(1)), Some(512));
+            let p = plan(&world, s.path(), o.clone());
+            assert_eq!(no_space(&p), Some((needed(&sizes, 512), 1)));
+
+            // Enough room: no warning.
+            let _guard = Overrides::set(Some(|_| Some(1 << 40)), Some(32 * 1024));
+            let p = plan(&world, s.path(), o);
+            assert_eq!(no_space(&p), None);
+        }
+
+        #[test]
+        fn move_same_volume_does_not_credit_archive() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+            // A cartridge zip that moves as it is on the same volume needs
+            // no new space.
+            zip(&s.path().join("Advance.zip"), "Advance.gba", &fx::gba());
+            let o = opts("anbernic-stock", t.path(), TransferMode::Move);
+
+            let _guard = Overrides::set(Some(|_| Some(0)), Some(4096));
+            let p = plan(&world, s.path(), o.clone());
+            assert_eq!(p.mode, TransferMode::Move);
+            let archive = s.path().join("Next Tetris, The.zip");
+            let archive_size = fs::metadata(&archive).unwrap().len();
+            let item = by_name(&p, "Next Tetris, The.zip");
+            assert_eq!(archive_after(item), ArchiveAfter::Trash);
+            let want = needed(&entry_sizes(item), 4096);
+            // The Trash frees nothing on the same volume: the archive's
+            // size is not taken off.
+            assert_eq!(no_space(&p), Some((want, 0)));
+            assert!(want > archive_size);
+            assert_eq!(by_name(&p, "Advance.zip").transfer, Transfer::AsIs);
+
+            // Only as-is moves on one volume: nothing to check.
+            fs::remove_file(&archive).unwrap();
+            let p = plan(&world, s.path(), o);
+            assert_eq!(by_name(&p, "Advance.zip").action, OrganizeAction::Auto);
+            assert_eq!(no_space(&p), None);
+        }
+
+        #[test]
+        fn no_space_warning_has_exact_numbers() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+            let rom = fx::gba_tagged(7);
+            put(&s.path().join("Advance.gba"), &rom);
+            let o = opts("anbernic-stock", t.path(), TransferMode::Copy);
+
+            let _guard = Overrides::set(Some(|_| Some(1000)), Some(4096));
+            let p = plan(&world, s.path(), o);
+            assert_eq!(p.mode, TransferMode::Copy);
+            // A copy writes the loose file too, rounded like the rest.
+            let mut sizes = entry_sizes(by_name(&p, "Next Tetris, The.zip"));
+            sizes.push(rom.len() as u64);
+            assert_eq!(by_name(&p, "Advance.gba").action, OrganizeAction::Auto);
+            assert_eq!(no_space(&p), Some((needed(&sizes, 4096), 1000)));
+        }
+
+        #[test]
+        fn fat32_track_4gib_declared_too_big_for_fat() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+            let env = world.env();
+            let o = opts("anbernic-stock", t.path(), TransferMode::Move);
+            let sv = survey(s.path(), &o, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+            let _guard = Overrides::set(Some(|_| Some(1 << 50)), None);
+            set_fat32_override(Some(true));
+
+            let with_track = |size: u64| {
+                let mut sv = sv.clone();
+                let entry = sv
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.sources[0].ends_with("Next Tetris, The.zip"))
+                    .unwrap();
+                let insp = entry.inspection.as_mut().expect("an archive");
+                let track = insp
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.name.ends_with(PS1_T2))
+                    .unwrap();
+                // The declared size, which the extraction's `take` makes
+                // binding.
+                track.size = size;
+                plan_from_survey(&sv, &o, &[], &env).unwrap()
+            };
+            let p = with_track(4 * 1024 * MIB);
+            assert!(p.fat32);
+            assert_eq!(
+                left_reason(&p, "Next Tetris, The.zip"),
+                Some(LeftReason::TooBigForFat)
+            );
+            assert_eq!(by_name(&p, "Next Tetris, The.zip").transfer, Transfer::AsIs);
+
+            let p = with_track(4 * 1024 * MIB - 1);
+            assert_eq!(left_reason(&p, "Next Tetris, The.zip"), None);
+        }
+
+        /// `count` files in `dir` whose 247-unit names take 20 FAT32
+        /// directory slots each.
+        fn fill_folder(dir: &Path, count: usize) {
+            fs::create_dir_all(dir).unwrap();
+            for i in 0..count {
+                let name = format!("{i:05}{}.bin", "x".repeat(238));
+                assert_eq!(name.encode_utf16().count(), 247);
+                fs::write(dir.join(name), b"").unwrap();
+            }
+        }
+
+        #[test]
+        fn fat32_folder_slots_folder_full() {
+            let world = World::new();
+            let s = TempDir::new().unwrap();
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_008.62");
+            let _guard = Overrides::set(Some(|_| Some(1 << 50)), None);
+            set_fat32_override(Some(true));
+
+            // 3,250 × 20 + `.` and `..` = 65,002 slots: over 65,000.
+            let full = TempDir::new().unwrap();
+            fill_folder(&full.path().join("ROMS/PS"), 3_250);
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", full.path(), TransferMode::Move),
+            );
+            assert_eq!(
+                left_reason(&p, "Next Tetris, The.zip"),
+                Some(LeftReason::FolderFull {
+                    folder: "PS".into()
+                })
+            );
+
+            // 3,249 × 20 + 2 = 64,982, plus the cue (3) and two tracks
+            // (4 each) = 64,993: still fits.
+            let room = TempDir::new().unwrap();
+            fill_folder(&room.path().join("ROMS/PS"), 3_249);
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", room.path(), TransferMode::Move),
+            );
+            assert_eq!(left_reason(&p, "Next Tetris, The.zip"), None);
+            assert_eq!(targets(by_name(&p, "Next Tetris, The.zip")).len(), 3);
+
+            // Not FAT32: no slot limit.
+            set_fat32_override(Some(false));
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", full.path(), TransferMode::Move),
+            );
+            assert_eq!(left_reason(&p, "Next Tetris, The.zip"), None);
+        }
+
+        #[test]
+        fn archive_needs_memory_left_with_mib() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            put(
+                &s.path().join("Big Dictionary.7z"),
+                &sevenz(
+                    &[("Big Dictionary.gba", &fx::gba())],
+                    SevenZShape {
+                        solid: false,
+                        coder: SevenZCoder::Lzma { dict: 16 << 20 },
+                        sheets_last: false,
+                    },
+                ),
+            );
+            let o = OrganizeOptions {
+                limits: Limits {
+                    decoder_mem_cap: 4 * MIB,
+                    external_tools: false,
+                    ..Limits::default()
+                },
+                ..opts("anbernic-stock", t.path(), TransferMode::Move)
+            };
+            let p = plan(&world, s.path(), o);
+            match left_reason(&p, "Big Dictionary.7z") {
+                Some(LeftReason::ArchiveNeedsMemory { mib }) => {
+                    assert!((16..=32).contains(&mib), "{mib} MiB")
+                }
+                other => panic!("expected ArchiveNeedsMemory, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn multi_volume_7z_001_002_one_item_002_never_moved() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            let whole = sevenz(
+                &[("Split Game.gba", &fx::gba())],
+                SevenZShape::non_solid_lzma(),
+            );
+            let (a, b) = whole.split_at(whole.len() / 2);
+            put(&s.path().join("Split Game.7z.001"), a);
+            put(&s.path().join("Split Game.7z.002"), b);
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", t.path(), TransferMode::Move),
+            );
+            let parts: Vec<&OrganizeItem> = p
+                .items
+                .iter()
+                .filter(|i| i.sources.iter().any(|s| file_name(s).starts_with("Split")))
+                .collect();
+            assert_eq!(parts.len(), 1, "{:#?}", p.items);
+            let item = parts[0];
+            assert_eq!(
+                item.action,
+                OrganizeAction::Left {
+                    reason: LeftReason::MultiVolumeArchive { parts: 2 }
+                }
+            );
+            let names: Vec<String> = item.sources.iter().map(|s| file_name(s)).collect();
+            assert_eq!(names, ["Split Game.7z.001", "Split Game.7z.002"]);
+            assert_eq!(item.size, whole.len() as u64);
+            assert_eq!(item.fps.len(), 2);
+            assert!(item.target.is_none());
+            assert!(!p
+                .other_files
+                .iter()
+                .any(|f| file_name(f).starts_with("Split")));
+        }
+
+        #[test]
+        fn truncated_tar_listing_never_extract() {
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            let pad: Vec<u8> = (0..2 * 1024 * 1024u32)
+                .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+                .collect();
+            put(
+                &s.path().join("Game.tar.gz"),
+                &tar_gz(
+                    &[("Game.gba", &fx::gba()), ("pad.dat", &pad), ("z.txt", b"z")],
+                    0,
+                ),
+            );
+            let o = OrganizeOptions {
+                limits: Limits {
+                    plan_listing_budget: 256 * 1024,
+                    external_tools: false,
+                    ..Limits::default()
+                },
+                // MinUI loads no tar: a whole listing would be extracted.
+                ..opts("minui", t.path(), TransferMode::Move)
+            };
+            let env = world.env();
+            let sv = survey(s.path(), &o, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+            let p = plan_from_survey(&sv, &o, &[], &env).unwrap();
+            let item = by_name(&p, "Game.tar.gz");
+            assert_eq!(item.action, OrganizeAction::Review);
+            assert!(item.notes.contains(&ItemNote::ArchiveNotFullyRead));
+            assert_eq!(item.transfer, Transfer::AsIs);
+
+            for choice in [
+                Choice::Accept,
+                Choice::Assign {
+                    system: "gba".into(),
+                },
+            ] {
+                let decisions = [Decision {
+                    item: item.id,
+                    choice,
+                }];
+                let p = plan_from_survey(&sv, &o, &decisions, &env).unwrap();
+                let item = by_name(&p, "Game.tar.gz");
+                assert_eq!(item.action, OrganizeAction::Auto);
+                assert_eq!(item.transfer, Transfer::AsIs, "never extracted");
+                assert!(item.target.as_ref().unwrap().ends_with("Game.tar.gz"));
+            }
+        }
+
+        #[test]
+        fn plan_head_budget_asserted_64mib() {
+            assert_eq!(
+                OrganizeOptions::default().limits.plan_head_budget,
+                RESERVE,
+                "the plan head budget is 64 MiB"
+            );
+            // A solid archive storing its sheet after 72 MiB of tracks, as
+            // the real Saturn and Dreamcast archives do (stored, so the
+            // test needs no slow encoder).
+            let world = World::new();
+            let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+            let names = [
+                "Tetris Plus (Japan) (Track 01).bin",
+                "Tetris Plus (Japan) (Track 02).bin",
+            ];
+            let mut t1 = dt::saturn_track("T-5704H   ");
+            t1.resize(MIB as usize, 0);
+            let t2 = vec![0x55u8; 71 * MIB as usize];
+            put(
+                &s.path().join("Tetris Plus.zip"),
+                &sevenz(
+                    &[
+                        ("Tetris Plus (Japan).cue", &cue(&names)),
+                        (names[0], &t1),
+                        (names[1], &t2),
+                    ],
+                    SevenZShape {
+                        solid: true,
+                        coder: SevenZCoder::Copy,
+                        sheets_last: true,
+                    },
+                ),
+            );
+            let env = world.env();
+            let o = opts("anbernic-stock", t.path(), TransferMode::Move);
+            let sv = survey(s.path(), &o, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+            let insp = sv.entries[0].inspection.as_ref().expect("an archive");
+            assert!(insp.decoded > 0);
+            assert!(insp.decoded <= RESERVE, "decoded {}", insp.decoded);
+            let p = plan_from_survey(&sv, &o, &[], &env).unwrap();
+            let item = by_name(&p, "Tetris Plus.zip");
+            assert_eq!(item.system_id.as_deref(), Some("saturn"));
+            assert!(item.notes.contains(&ItemNote::SheetNotReadYet));
+            assert_eq!(entries(item).len(), 3);
+        }
     }
 }

@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 use super::plan::LeftReason;
+use crate::archive::detect::multi_volume_part;
 use crate::organize::inspect::names_an_archive;
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
@@ -216,8 +217,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
         }
         let ext = extension(path);
         // Every archive the reader opens is a candidate (a `.rar`, a
-        // `.tar.gz`, a `game.gba.gz`), not only zip and 7z.
-        if db.is_rom_like_extension(&ext) || names_an_archive(&ext) {
+        // `.tar.gz`, a `game.gba.gz`), not only zip and 7z, and so is every
+        // part of a split 7z: the planner gathers a set's parts into one
+        // item that stays (archives spec §3.2 rule 6).
+        if db.is_rom_like_extension(&ext) || names_an_archive(&ext) || is_7z_volume(&name) {
             out.candidates.push(WalkCandidate {
                 path: path.to_path_buf(),
                 cloud_only: opts.probe.cloud_only(path, &meta),
@@ -247,6 +250,16 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.companions.sort();
     out.other_files.sort();
     Ok(out)
+}
+
+/// `name` is a part of a split 7z (`.7z.001`, `.7z.002`, …). Other
+/// volume names (`.partN.rar`, `.rNN`, `.zNN`) are either archives already
+/// or gathered by their set's first part.
+fn is_7z_volume(name: &str) -> bool {
+    multi_volume_part(name).is_some()
+        && name
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Whether picking `path` means picking a whole personal area or volume:
