@@ -15,12 +15,14 @@ use std::time::{Duration, SystemTime};
 
 pub mod budget;
 pub mod detect;
+pub mod guard;
 pub mod names;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod verify;
 
 pub use budget::{Budget, ChargedRead, MemoryGate, Permit};
+pub use guard::{guarded, GuardedArchive, GuardedRead, Poison};
 pub use names::{RelPath, UnsafeWhy};
 pub use verify::VerifyingReader;
 
