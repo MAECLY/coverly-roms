@@ -33,6 +33,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use crate::archive::{ArchiveError, ArchiveReader, Budget, Entry, EntryKind, VerifyingReader};
@@ -61,8 +62,11 @@ pub struct ExtractRequest<'a> {
     pub archive: &'a Path,
     /// The plan's entries; each `target` is relative to the writer's root.
     pub entries: &'a [ExtractEntry],
-    /// Checked between entries and every [`CANCEL_EVERY`] bytes.
-    pub cancel: &'a AtomicBool,
+    /// Checked between entries and every [`CANCEL_EVERY`] bytes, and
+    /// handed to the decode budget so the backend stops too while it
+    /// decodes bytes this item does not want (a solid block's other
+    /// entries) or waits for decoder memory.
+    pub cancel: &'a Arc<AtomicBool>,
     /// Called with the bytes of this item written to temps so far.
     pub progress: &'a dyn Fn(u64),
 }
@@ -169,6 +173,8 @@ fn fault() -> Option<Fault> {
 
 /// An intent journaled by this item, and whether its temp was created.
 struct Pending {
+    /// The archive entry index.
+    index: usize,
     target: PathBuf,
     temp: PathBuf,
     name: String,
@@ -219,7 +225,7 @@ pub fn extract_to_temps(
         staged: Vec::new(),
         failure: None,
     };
-    let mut budget = Budget::apply();
+    let mut budget = Budget::apply().with_cancel(Arc::clone(req.cancel));
     let streamed = reader.stream_entries(&wanted, &mut budget, &mut |entry, stream| {
         match state.entry(entry, stream) {
             Ok(()) => Ok(()),
@@ -263,6 +269,7 @@ pub fn roll_back(writer: &mut Writer, item: usize, staged: &[StagedEntry]) {
     let pending: Vec<Pending> = staged
         .iter()
         .map(|s| Pending {
+            index: s.entry.index,
             target: s.target.clone(),
             temp: s.temp.clone(),
             name: s.file.temp.clone(),
@@ -303,9 +310,17 @@ fn prepare_dir(
     needed: u64,
 ) -> Result<(), ExtractError> {
     check_components(root, dir)?;
-    writer
-        .ensure_dir(dir)
-        .map_err(|e| classify_write(e, dir, needed))?;
+    writer.ensure_dir(dir).map_err(|e| {
+        let journal = writer.journal_path().to_path_buf();
+        match classify_write(e, dir, needed) {
+            // `ensure_dir` journals each folder before making it: a full
+            // volume is the journal's when the library still has room.
+            ExtractError::DiskFull { free, .. } if free >= needed => {
+                classify_journal(WriteError::DiskFull, &journal)
+            }
+            other => other,
+        }
+    })?;
     check_components(root, dir)
 }
 
@@ -392,6 +407,12 @@ impl Run<'_, '_> {
             // Not ours (a backend handing out more than asked): skipped.
             return Ok(());
         };
+        if self.pending.iter().any(|p| p.index == entry.index) {
+            // A backend handing one entry out twice: never staged twice.
+            return Err(ExtractError::Archive(ArchiveError::Damaged {
+                detail: format!("entry {} streamed twice", entry.index),
+            }));
+        }
         let want = self.req.entries[pos].clone();
         let target = self.targets[pos].clone();
         let dir = target.parent().unwrap_or(&target).to_path_buf();
@@ -408,6 +429,7 @@ impl Run<'_, '_> {
             .extract_intent(&target, &file, Some(self.req.item))
             .map_err(|e| classify_journal(e, self.writer.journal_path()))?;
         self.pending.push(Pending {
+            index: want.index,
             target: target.clone(),
             temp: temp.clone(),
             name,

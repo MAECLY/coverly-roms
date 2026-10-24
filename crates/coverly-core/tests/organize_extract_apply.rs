@@ -5,11 +5,15 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 use coverly_core::archive::testing::{
     sevenz, zip_crafted, zip_with, SevenZShape, ZipMethod, ZipSpec,
 };
-use coverly_core::archive::{open_archive, ArchiveReader, Limits};
+use coverly_core::archive::{
+    open_archive, ArchiveError, ArchiveReader, Budget, Entry, EntryKind, Format, Limits, Method,
+    RelPath,
+};
 use coverly_core::organize::apply::set_free_space_override;
 use coverly_core::organize::extract::{
     extract_to_temps, set_write_fault, ExtractError, ExtractRequest, Fault, PhaseA, CANCEL_EVERY,
@@ -106,7 +110,7 @@ fn run(
     archive: &Path,
     entries: &[ExtractEntry],
 ) -> Result<PhaseA, ExtractError> {
-    let cancel = AtomicBool::new(false);
+    let cancel = Arc::new(AtomicBool::new(false));
     extract_to_temps(
         writer,
         reader,
@@ -387,7 +391,7 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     drop(big);
     let entries = plan_entries(reader.as_ref(), "PS/Big");
     let mut writer = env.writer();
-    let cancel = AtomicBool::new(false);
+    let cancel = Arc::new(AtomicBool::new(false));
     let cancelled_at = AtomicU64::new(0);
     let last = AtomicU64::new(0);
     let progress = |bytes: u64| {
@@ -418,6 +422,152 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     );
     assert!(stopped < 64 << 20);
     assert_rolled_back(&env, &writer, &env.root.join("PS/Big"), &entries);
+}
+
+/// A backend that streams entry 0, then decodes `skip` MiB it was not
+/// asked for (a solid block's unwanted entries: charged to the budget, no
+/// sink call), then streams entry 1.
+struct SkippingReader {
+    entries: Vec<Entry>,
+    skip: u64,
+    skipped: Arc<AtomicU64>,
+    /// Hands entry 0 out twice (a buggy backend).
+    repeat_first: bool,
+}
+
+fn fake_entry(index: usize, name: &str, size: u64) -> Entry {
+    Entry {
+        index,
+        name: RelPath::parse(name).unwrap(),
+        raw_name: name.as_bytes().to_vec(),
+        kind: EntryKind::File,
+        size,
+        packed: None,
+        crc32: None,
+        encrypted: false,
+        method: Method::Stored,
+        solid_block: Some(0),
+        mtime: None,
+        unsafe_name: None,
+    }
+}
+
+impl SkippingReader {
+    fn new(skip: u64, repeat_first: bool) -> SkippingReader {
+        SkippingReader {
+            entries: vec![
+                fake_entry(0, "Game (Track 1).bin", 4),
+                fake_entry(1, "Game (Track 2).bin", 4),
+            ],
+            skip,
+            skipped: Arc::new(AtomicU64::new(0)),
+            repeat_first,
+        }
+    }
+}
+
+impl ArchiveReader for SkippingReader {
+    fn format(&self) -> Format {
+        Format::SevenZip
+    }
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+    fn open_entry<'a>(
+        &'a mut self,
+        _: usize,
+        _: &'a mut Budget,
+    ) -> Result<Box<dyn std::io::Read + 'a>, ArchiveError> {
+        unreachable!("phase A streams")
+    }
+    fn stream_entries(
+        &mut self,
+        _wanted: &[usize],
+        budget: &mut Budget,
+        sink: &mut dyn FnMut(&Entry, &mut dyn std::io::Read) -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        sink(&self.entries[0], &mut &b"aaaa"[..])?;
+        if self.repeat_first {
+            sink(&self.entries[0], &mut &b"aaaa"[..])?;
+        }
+        for _ in 0..self.skip {
+            budget.charge(1 << 20)?;
+            self.skipped.fetch_add(1, Ordering::SeqCst);
+        }
+        sink(&self.entries[1], &mut &b"bbbb"[..])
+    }
+}
+
+#[test]
+fn cancel_reaches_the_decoder_between_wanted_entries() {
+    let env = env();
+    let archive = env.src.join("Game.7z");
+    fs::write(&archive, b"stand-in").unwrap();
+    let mut reader = SkippingReader::new(1024, false);
+    let skipped = Arc::clone(&reader.skipped);
+    let entries = plan_entries(&reader, "PS/Game");
+    let mut writer = env.writer();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let progress = |_: u64| cancel.store(true, Ordering::SeqCst);
+    let err = extract_to_temps(
+        &mut writer,
+        &mut reader,
+        &ExtractRequest {
+            item: 0,
+            archive: &archive,
+            entries: &entries,
+            cancel: &cancel,
+            progress: &progress,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ExtractError::Cancelled), "{err:?}");
+    // The 1 GiB the item does not want was not decoded after the cancel.
+    assert_eq!(skipped.load(Ordering::SeqCst), 0);
+    assert_rolled_back(&env, &writer, &env.root.join("PS/Game"), &entries);
+}
+
+#[test]
+fn an_entry_streamed_twice_fails_the_item() {
+    let env = env();
+    let archive = env.src.join("Game.7z");
+    fs::write(&archive, b"stand-in").unwrap();
+    let mut reader = SkippingReader::new(0, true);
+    let entries = plan_entries(&reader, "PS/Game");
+    let mut writer = env.writer();
+    let err = run(&mut writer, &mut reader, &archive, &entries).unwrap_err();
+    assert!(matches!(err, ExtractError::Archive(_)), "{err:?}");
+    assert_rolled_back(&env, &writer, &env.root.join("PS/Game"), &entries);
+}
+
+#[test]
+fn full_journal_volume_while_making_folders_reports_that_volume() {
+    let env = env();
+    let (archive, mut reader) = ps1_archive(&env);
+    let entries = plan_entries(reader.as_ref(), "PS/Next Tetris, The");
+    let mut writer = env.writer();
+    // The library has room; the app data volume (journal) has 10 bytes.
+    set_free_space_override(Some(|p| {
+        Some(
+            if p.ends_with("data") || p.parent().is_some_and(|d| d.ends_with("data")) {
+                10
+            } else {
+                1 << 40
+            },
+        )
+    }));
+    set_journal_fault(Some(|| Some(io::Error::from(ErrorKind::StorageFull))));
+    let err = run(&mut writer, reader.as_mut(), &archive, &entries).unwrap_err();
+    set_journal_fault(None);
+    set_free_space_override(None);
+    match err {
+        ExtractError::DiskFull { needed, free } => {
+            assert_eq!(free, 10);
+            assert_eq!(needed, coverly_core::organize::extract::JOURNAL_HEADROOM);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!env.root.join("PS").exists());
 }
 
 #[test]
