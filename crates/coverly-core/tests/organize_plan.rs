@@ -2118,6 +2118,45 @@ mod extract {
         }
 
         #[test]
+        fn fat32_folder_slots_count_items_planned_before() {
+            let world = World::new();
+            let s = TempDir::new().unwrap();
+            // 11 slots (cue 3 + two tracks 4 each) and 16 (two sheets and
+            // two tracks of 30 units, 4 each); other serials, so neither is
+            // the other's duplicate.
+            ps1_archive(&s.path().join("Next Tetris, The.zip"), "SLUS_009.99");
+            two_disc_archive(&s.path().join("Final Game.7z"));
+            let _guard = Overrides::set(Some(|_| Some(1 << 50)), None);
+            set_fat32_override(Some(true));
+
+            // 64,982 slots used: either archive fits alone, not both.
+            let t = TempDir::new().unwrap();
+            fill_folder(&t.path().join("ROMS/PS"), 3_249);
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", t.path(), TransferMode::Move),
+            );
+            let full: Vec<&str> = ["Next Tetris, The.zip", "Final Game.7z"]
+                .into_iter()
+                .filter(|n| {
+                    left_reason(&p, n)
+                        == Some(LeftReason::FolderFull {
+                            folder: "PS".into(),
+                        })
+                })
+                .collect();
+            assert_eq!(full.len(), 1, "{:#?}", p.items);
+            let placed = if full[0] == "Final Game.7z" {
+                "Next Tetris, The.zip"
+            } else {
+                "Final Game.7z"
+            };
+            assert_eq!(left_reason(&p, placed), None);
+            assert!(!targets(by_name(&p, placed)).is_empty());
+        }
+
+        #[test]
         fn archive_needs_memory_left_with_mib() {
             let world = World::new();
             let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
@@ -2187,6 +2226,78 @@ mod extract {
                 .other_files
                 .iter()
                 .any(|f| file_name(f).starts_with("Split")));
+        }
+
+        #[test]
+        fn multi_volume_later_parts_alone_or_three_never_move() {
+            let world = World::new();
+            let t = TempDir::new().unwrap();
+            let whole = sevenz(
+                &[("Split Game.gba", &fx::gba())],
+                SevenZShape::non_solid_lzma(),
+            );
+            let third = whole.len() / 3;
+            // Three parts: one item holding all three, in volume order.
+            let s = TempDir::new().unwrap();
+            put(&s.path().join("Split Game.7z.003"), &whole[2 * third..]);
+            put(&s.path().join("Split Game.7z.001"), &whole[..third]);
+            put(
+                &s.path().join("Split Game.7z.002"),
+                &whole[third..2 * third],
+            );
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", t.path(), TransferMode::Move),
+            );
+            let split: Vec<&OrganizeItem> = p
+                .items
+                .iter()
+                .filter(|i| i.sources.iter().any(|s| file_name(s).starts_with("Split")))
+                .collect();
+            assert_eq!(split.len(), 1, "{:#?}", p.items);
+            let names: Vec<String> = split[0].sources.iter().map(|s| file_name(s)).collect();
+            assert_eq!(
+                names,
+                [
+                    "Split Game.7z.001",
+                    "Split Game.7z.002",
+                    "Split Game.7z.003"
+                ]
+            );
+            assert!(split[0].is_left());
+
+            // Later parts without their first: never moved, never a ROM.
+            let s = TempDir::new().unwrap();
+            put(
+                &s.path().join("Split Game.7z.002"),
+                &whole[third..2 * third],
+            );
+            put(&s.path().join("Split Game.7z.003"), &whole[2 * third..]);
+            let p = plan(
+                &world,
+                s.path(),
+                opts("anbernic-stock", t.path(), TransferMode::Move),
+            );
+            let split: Vec<&OrganizeItem> = p
+                .items
+                .iter()
+                .filter(|i| i.sources.iter().any(|s| file_name(s).starts_with("Split")))
+                .collect();
+            assert_eq!(split.len(), 1, "{:#?}", p.items);
+            assert_eq!(split[0].sources.len(), 2);
+            for item in split {
+                assert!(item.target.is_none(), "{item:#?}");
+                assert!(
+                    matches!(
+                        item.action,
+                        OrganizeAction::Left {
+                            reason: LeftReason::MultiVolumeArchive { .. }
+                        }
+                    ),
+                    "{item:#?}"
+                );
+            }
         }
 
         #[test]
