@@ -753,6 +753,31 @@ mod extract {
     }
 
     #[test]
+    fn a_rom_name_with_no_safe_spelling_leaves_the_item() {
+        // Listings reject such names already; the planner never falls back
+        // to the raw name (the OS would strip the dots and spaces).
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut items = vec![disc_item(0, "Pack.7z", &["a.gba", ". ."])];
+        let shapes = vec![Some(ExtractShape::Roms)];
+        let db = SystemDb::builtin();
+        let never = |_: &Path, _: &OrganizeItem| false;
+        assign_targets_with_extracts(
+            &mut items,
+            &shapes,
+            &layout(t.path(), true),
+            &db,
+            s.path(),
+            &[],
+            &mut DirIndex::new(),
+            &never,
+        );
+        assert_eq!(
+            left(&items[0]),
+            Some(&LeftReason::SetUnsafeName { name: ". .".into() })
+        );
+    }
+
+    #[test]
     fn game_folders_differing_only_in_case_collide() {
         let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
         // On FAT, exFAT and default APFS/NTFS both land in one folder.

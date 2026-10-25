@@ -839,13 +839,17 @@ fn assign_extract_targets(
             extract_one_rom(item, &entries[0], dir, layout, comps, index)
         }
         ExtractShape::Roms => {
-            let targets = entries
-                .iter()
-                .map(|e| {
-                    let base = base_name(&e.name);
-                    dir.join(safe_file_name(base).unwrap_or_else(|_| base.to_string()))
-                })
-                .collect();
+            let mut targets = Vec::with_capacity(entries.len());
+            for e in entries {
+                // No safe spelling at all (only dots and spaces): the OS
+                // would store another name than the one planned.
+                let Ok(safe) = safe_file_name(base_name(&e.name)) else {
+                    return Planned::Left(LeftReason::SetUnsafeName {
+                        name: e.name.clone(),
+                    });
+                };
+                targets.push(dir.join(safe));
+            }
             place_extracted(targets, None, dir, dir, layout, comps, index)
         }
         ExtractShape::Disc {
