@@ -391,8 +391,10 @@ pub enum OrganizeAction {
         /// Why the keeper stays.
         reason: KeepReason,
         /// Where the primary file goes, relative to the source root
-        /// (`_Duplicados/<its path>`); the other files of a set keep their
-        /// own paths below the same folder.
+        /// (`_Duplicados/<its path>`), or absolute in the library's
+        /// quarantine for a pile inside a system folder
+        /// (`<target>/_Duplicados/GB/<pile>/<its path>`); the other files
+        /// of a set keep their own paths below the same folder.
         dest: PathBuf,
     },
 }
@@ -2029,6 +2031,7 @@ fn duplicates_step(
     let groups = group_units(units, &opts.dedupe, &genv).unwrap_or_default();
 
     // Settle the pile extras.
+    let quarantine = pile_quarantine(src, target_root, roms_dir, &opts.quarantine_name, env.db);
     let mut out = DupStep::default();
     for g in groups {
         if g.members.iter().all(|m| m.unit.in_library) {
@@ -2067,7 +2070,7 @@ fn duplicates_step(
                 continue;
             };
             if acts && mode == OrganizeDedupeMode::SetAside {
-                let dest = PathBuf::from(&opts.quarantine_name).join(&item.sources[0]);
+                let dest = quarantine.join(&item.sources[0]);
                 set_aside(
                     item,
                     OrganizeAction::SetAside {
@@ -2095,6 +2098,32 @@ fn duplicates_step(
         out.groups.push(g);
     }
     out
+}
+
+/// Where a pile's extras go: `<name>` inside the pile (relative to it),
+/// or, for a pile inside one of the library's system folders, the
+/// library's quarantine keeping the system folder's shape
+/// (`<target>/<name>/GB/incoming`, absolute): a quarantine is never inside
+/// a system folder, where the device would list its games.
+fn pile_quarantine(
+    src: &Path,
+    target_root: &Path,
+    roms_dir: &Path,
+    name: &str,
+    db: &SystemDb,
+) -> PathBuf {
+    let in_system_folder = src.strip_prefix(roms_dir).ok().is_some_and(|rel| {
+        rel.components().next().is_some_and(|c| match c {
+            std::path::Component::Normal(folder) => {
+                db.resolve_folder(&folder.to_string_lossy()).is_some()
+            }
+            _ => false,
+        })
+    });
+    match src.strip_prefix(roms_dir) {
+        Ok(rel) if in_system_folder => target_root.join(name).join(rel),
+        _ => PathBuf::from(name),
+    }
 }
 
 /// What makes two paths the same file: the device and inode (Unix), or

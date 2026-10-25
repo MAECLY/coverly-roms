@@ -212,10 +212,11 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
-    /// Moves `from` to `to`, both inside the source root: a pile copy the
-    /// duplicates step sets aside on the pile's own side (duplicates spec
-    /// §7.1), an instant rename there. Journaled as any move (folders it
-    /// creates too), so undo puts it back.
+    /// Moves `from` to `to`: a pile copy the duplicates step sets aside
+    /// (duplicates spec §7.1), on the pile's own side when `to` is inside
+    /// the source root, else in the library's quarantine (a pile inside a
+    /// system folder); an instant rename either way. Journaled as any move
+    /// (folders it creates too), so undo puts it back.
     pub fn set_aside_file(
         &mut self,
         from: &Path,
@@ -223,6 +224,9 @@ impl Writer {
         collision: Collision,
         item: Option<usize>,
     ) -> Result<MoveOutcome, WriteError> {
+        if !to.starts_with(&self.source_root) {
+            return self.transfer(from, to, collision, item, Mode::Move, true);
+        }
         let library = std::mem::replace(&mut self.root, self.source_root.clone());
         let out = self.transfer(from, to, collision, item, Mode::Move, true);
         self.root = library;

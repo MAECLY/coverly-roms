@@ -1476,6 +1476,33 @@ mod set_aside {
         assert!(!pile.join("_Duplicados").exists(), "{undone:?}");
     }
 
+    #[test]
+    fn a_pile_inside_a_system_folder_sets_aside_into_the_library_quarantine() {
+        let (_tmp, _pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 41);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&card.join("ROMS/GB/incoming/Copy.gb"), &rom, 2);
+        let plan = plan(
+            &card.join("ROMS/GB/incoming"),
+            opts("anbernic-stock", &card),
+        );
+        let id = item_id(&plan, "Copy.gb");
+        assert!(plan.items[id].is_set_aside(), "{:?}", plan.items[id]);
+
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        assert_eq!(status(&report, id), &ItemStatus::Quarantined);
+        // Never a quarantine inside a system folder: the device would list it.
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GB/Kept.gb", "_Duplicados/GB/incoming/Copy.gb"])
+        );
+        undo_job(&data, &report.job.unwrap()).unwrap();
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GB/Kept.gb", "ROMS/GB/incoming/Copy.gb"])
+        );
+    }
+
     fn cue(track: &str) -> Vec<u8> {
         format!("FILE \"{track}\" BINARY\r\n  TRACK 01 MODE2/2352\r\n    INDEX 01 00:00:00\r\n")
             .into_bytes()
