@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use coverly_core::archive::PLAN_HEAD_BUDGET;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::identify::sniff::NotARom;
 use coverly_core::organize::walk::OsMetaProbe;
 use coverly_core::organize::{
     plan_organize, ArchiveAfter, ItemNote, LeftReason, OrganizeAction, OrganizeEnv, OrganizeItem,
@@ -148,6 +149,8 @@ fn print_table(plan: &OrganizePlan) {
 
 /// Cartridge items as `origin/main` (96896da, before archives) planned
 /// them on the same pile on 2026-10-24: `(source, folder or None = left)`.
+/// The one left (only an `.ips` inside) was `Unknown` there and is
+/// `NotARom::Patch` here.
 /// The pile's `ROMS/` holds games already in place, so they are not items.
 const CARTRIDGES_ON_MAIN: &[(&str, Option<&str>)] = &[
     ("Avatar - the Last Airbender GBA.zip", Some("GBA")),
@@ -339,7 +342,9 @@ fn downloads_disc_archives_plan() {
                 matches!(
                     it.action,
                     OrganizeAction::Left {
-                        reason: LeftReason::Unknown
+                        reason: LeftReason::NotARom {
+                            what: NotARom::Patch
+                        }
                     }
                 ),
                 "{name}: an IPS patch, not a ROM: {it:#?}"
