@@ -2828,3 +2828,11 @@ mod duplicates_same_file {
         assert_never_set_aside(&plan);
     }
 }
+
+#[test]
+fn the_duplicates_step_follows_the_region_order_of_the_settings() {
+    let mut settings = coverly_core::settings::Settings::default();
+    settings.matching.regions = vec!["Europe".into(), "USA".into()];
+    let opts = OrganizeOptions::from_settings(&settings, None);
+    assert_eq!(opts.regions, settings.matching.regions);
+}

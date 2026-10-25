@@ -520,6 +520,8 @@ pub struct OrganizeOptions {
     /// The quarantine folder's name (`dedupe.quarantine_name`): set-aside
     /// pile copies go to `<source>/<name>`, and walks skip it.
     pub quarantine_name: String,
+    /// `settings.matching.regions`: the keeper rules' region order.
+    pub regions: Vec<String>,
 }
 
 impl Default for OrganizeOptions {
@@ -541,6 +543,7 @@ impl Default for OrganizeOptions {
             duplicates: OrganizeDedupeMode::SetAside,
             dedupe: DedupeOptions::default(),
             quarantine_name: DEFAULT_QUARANTINE_NAME.to_string(),
+            regions: Vec::new(),
         }
     }
 }
@@ -584,6 +587,7 @@ impl OrganizeOptions {
                 ..Limits::default()
             },
             duplicates: settings.dedupe.organize_step,
+            regions: settings.matching.regions.clone(),
             dedupe: DedupeOptions::from_settings(&settings.dedupe),
             quarantine_name: settings
                 .dedupe
@@ -2032,7 +2036,7 @@ fn duplicates_step(
         dats: &dats,
         volume_uuid: volume.as_deref(),
         companion_exts: &opts.companion_exts,
-        regions: &[],
+        regions: &opts.regions,
         cancel: &cancel,
     };
     let groups = group_units(units, &opts.dedupe, &genv).unwrap_or_default();
