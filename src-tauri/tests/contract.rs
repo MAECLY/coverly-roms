@@ -1017,3 +1017,90 @@ fn rust_reads_the_shared_dedupe_requests() {
     let trash: DedupeRequest = serde_json::from_value(req["dedupe_request_trash"].clone()).unwrap();
     assert_eq!(trash.quarantine, Some(QuarantineChoice::Trash));
 }
+
+#[test]
+fn organise_set_aside_views_match_the_shared_sample() {
+    use coverly_core::dedupe::{KeepReason, Relation};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        Companion, Counts, ItemKind, ItemOutcome, ItemStatus, LeftReason, OrganizeAction,
+        OrganizeItem, OrganizeReport, SourceFp, Transfer,
+    };
+
+    let item = OrganizeItem {
+        id: 4,
+        sources: vec!["Tetris (1).gb".into()],
+        kind: ItemKind::File,
+        size: 32_768,
+        fps: vec![SourceFp {
+            size: 32_768,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: None,
+        set_targets: vec![],
+        system_id: Some("gb".into()),
+        folder: Some("GB".into()),
+        confidence: 1.0,
+        method: Some(IdLevel::Hash),
+        why: vec![Evidence::new(IdLevel::Hash, "gb", 1.0, "CRC in the GB DAT")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![],
+        companions: vec![Companion {
+            source: "Tetris (1).sav".into(),
+            target: "_Duplicados/Tetris (1).sav".into(),
+        }],
+        catalogue_name: Some("Tetris (World) (Rev 1)".into()),
+        transfer: Transfer::AsIs,
+        disc: None,
+        action: OrganizeAction::SetAside {
+            keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
+            relation: Relation::Exact,
+            reason: KeepReason::InLibrary,
+            dest: "_Duplicados/Tetris (1).gb".into(),
+        },
+    };
+    let actual = json!({
+        "organize_set_aside_item": item,
+        "organize_in_library_reason": LeftReason::InLibrary {
+            path: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
+            relation: Relation::Version,
+        },
+        "organize_counts_set_aside": Counts {
+            roms: 1,
+            systems: 1,
+            auto: 1,
+            set_aside: 1,
+            in_library: 2,
+            bytes: 32_768,
+            ..Counts::default()
+        },
+        "organize_report_set_aside": OrganizeReport {
+            job: Some("20261025T111500Z-1bfb-0004".into()),
+            set_aside: 2,
+            items: vec![
+                ItemOutcome {
+                    item: 4,
+                    status: ItemStatus::Quarantined,
+                    targets: vec!["/Users/me/ROMs-Downloaded/_Duplicados/Tetris (1).gb".into()],
+                },
+                ItemOutcome {
+                    item: 5,
+                    status: ItemStatus::Trashed,
+                    targets: vec![],
+                },
+            ],
+            ..OrganizeReport::default()
+        },
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}

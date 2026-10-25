@@ -1304,5 +1304,93 @@
       "code": "quarantine-in-system-folder",
       "detail": "/Volumes/SD/ROMS/GBA/dups"
     }
-  ]
+  ],
+  "organize_counts_set_aside": {
+    "auto": 1,
+    "bytes": 32768,
+    "deep_folders": 0,
+    "in_library": 2,
+    "junk": 0,
+    "left": 0,
+    "other_files": 0,
+    "review": 0,
+    "roms": 1,
+    "set_aside": 1,
+    "systems": 1
+  },
+  "organize_in_library_reason": {
+    "kind": "in-library",
+    "path": "ROMS/GB/Tetris (World) (Rev 1).gb",
+    "relation": "version"
+  },
+  "organize_report_set_aside": {
+    "copied": 0,
+    "failed": 0,
+    "items": [
+      {
+        "item": 4,
+        "status": "quarantined",
+        "targets": ["/Users/me/ROMs-Downloaded/_Duplicados/Tetris (1).gb"]
+      },
+      {
+        "item": 5,
+        "status": "trashed",
+        "targets": []
+      }
+    ],
+    "job": "20261025T111500Z-1bfb-0004",
+    "moved": 0,
+    "pause_reason": null,
+    "paused": null,
+    "resumable_items": [],
+    "set_aside": 2,
+    "skipped": 0
+  },
+  "organize_set_aside_item": {
+    "action": "set-aside",
+    "alternatives": [],
+    "catalogue_name": "Tetris (World) (Rev 1)",
+    "companions": [
+      {
+        "source": "Tetris (1).sav",
+        "target": "_Duplicados/Tetris (1).sav"
+      }
+    ],
+    "confidence": 1.0,
+    "dest": "_Duplicados/Tetris (1).gb",
+    "disc": null,
+    "folder": "GB",
+    "fps": [
+      {
+        "mtime_ns": 1700000000000000000,
+        "size": 32768
+      }
+    ],
+    "id": 4,
+    "keeper": "ROMS/GB/Tetris (World) (Rev 1).gb",
+    "kind": "file",
+    "method": "hash",
+    "notes": [],
+    "reason": {
+      "kind": "in-library"
+    },
+    "relation": "exact",
+    "rename": null,
+    "set_targets": [],
+    "size": 32768,
+    "sources": ["Tetris (1).gb"],
+    "system_id": "gb",
+    "target": null,
+    "transfer": {
+      "kind": "as-is"
+    },
+    "why": [
+      {
+        "detail": "CRC in the GB DAT",
+        "kind": "hash",
+        "system": "gb",
+        "weight": 1.0
+      }
+    ]
+  }
 }
