@@ -334,7 +334,7 @@ pub fn open_compressor<'a, R: Read + 'a>(
             let src = Tracked::new(src);
             let src_failed = src.flag();
             Box::new(DecodeErrors {
-                inner: lz4_flex::frame::FrameDecoder::new(src),
+                inner: Lz4Frames::new(src),
                 src_failed,
                 what: "lz4",
             })
@@ -892,6 +892,62 @@ impl<D: Read> Read for DecodeErrors<D> {
         self.inner
             .read(buf)
             .map_err(|e| map_decode_error(e, &self.src_failed, self.what).into())
+    }
+}
+
+/// Reports, through a shared flag, that a read of the source hit its end.
+struct AtEof<R> {
+    inner: R,
+    eof: Arc<AtomicBool>,
+}
+
+impl<R: Read> Read for AtEof<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n == 0 && !buf.is_empty() {
+            self.eof.store(true, Ordering::Relaxed);
+        }
+        Ok(n)
+    }
+}
+
+/// Every lz4 frame of the source as one stream, as the `lz4` tool reads
+/// concatenated frames. `lz4_flex` returns `Ok(0)` at each frame's end
+/// mark and starts the next frame on the following read, so a bare
+/// decoder would end the stream after the first frame: later frames would
+/// be lost, and a tar's trailer drain (S6) would never see them. The
+/// stream ends only when the source itself is exhausted; each frame
+/// consumes at least its header, so the loop always ends.
+struct Lz4Frames<R: Read> {
+    inner: lz4_flex::frame::FrameDecoder<AtEof<R>>,
+    eof: Arc<AtomicBool>,
+}
+
+impl<R: Read> Lz4Frames<R> {
+    fn new(src: R) -> Self {
+        let eof = Arc::new(AtomicBool::new(false));
+        let src = AtEof {
+            inner: src,
+            eof: Arc::clone(&eof),
+        };
+        Self {
+            inner: lz4_flex::frame::FrameDecoder::new(src),
+            eof,
+        }
+    }
+}
+
+impl<R: Read> Read for Lz4Frames<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            let n = self.inner.read(buf)?;
+            if n > 0 || self.eof.load(Ordering::Relaxed) {
+                return Ok(n);
+            }
+        }
     }
 }
 

@@ -238,6 +238,24 @@ fn gz_concatenated_members() {
     assert_eq!(r.size_source(), SizeSource::Measured);
 }
 
+/// Concatenated lz4 frames are one stream, as the `lz4` tool reads them:
+/// `lz4_flex` ends each frame with a clean `Ok(0)`, so a reader that
+/// stopped there would lose every later frame (and disagree with the
+/// content sizes the frame walk adds up).
+#[test]
+fn lz4_concatenated_frames() {
+    let a = sample(30_000);
+    let b = b"second frame ".repeat(500);
+    for content_size in [false, true] {
+        let mut bytes = lz4(&a, content_size);
+        bytes.extend_from_slice(&lz4(b"", content_size));
+        bytes.extend_from_slice(&lz4(&b, content_size));
+        let mut whole = a.clone();
+        whole.extend_from_slice(&b);
+        round_trip(bytes, Compressor::Lz4, &whole);
+    }
+}
+
 #[test]
 fn gz_bad_crc_damaged() {
     let mut bytes = gz(&sample(5_000), None);
