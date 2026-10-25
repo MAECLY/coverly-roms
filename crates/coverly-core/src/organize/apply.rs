@@ -594,6 +594,20 @@ fn set_aside_done(
             targets.push(record_of(records, item.id, from)?.target.clone());
         }
     }
+    // A companion still at its source with no line yet: the run stopped
+    // before it followed.
+    for companion in &item.companions {
+        let from = plan.source_root.join(&companion.source);
+        if let Some(record) = record_of(records, item.id, &from) {
+            targets.push(record.target.clone());
+        } else if let Some(step) = last_step(steps, item.id, &from) {
+            if let ArchiveStep::Trashed { trash } = step {
+                targets.extend(trash.clone());
+            }
+        } else if fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+            return None;
+        }
+    }
     let status = if plan.set_aside_trash {
         ItemStatus::Trashed
     } else {
@@ -1303,7 +1317,64 @@ impl<'a> Run<'a> {
                 Err(e) => return self.on_error(&e),
             }
         }
+        if let Some(pause) = self.set_aside_companions(item, &mut targets) {
+            return pause;
+        }
         Step::Done(ItemStatus::Quarantined, targets)
+    }
+
+    /// The companions of a set-aside item follow it below the quarantine
+    /// (or to the Trash); one that cannot stays where it is and never fails
+    /// the item, unless the volume itself is the problem (`Some`: a pause).
+    fn set_aside_companions(
+        &mut self,
+        item: &OrganizeItem,
+        targets: &mut Vec<PathBuf>,
+    ) -> Option<Step> {
+        let src = self.plan.source_root.clone();
+        for companion in &item.companions {
+            let from = src.join(&companion.source);
+            if let Some(record) = record_of(&self.records, item.id, &from) {
+                targets.push(record.target.clone());
+                continue;
+            }
+            if let Some(ArchiveStep::Trashed { trash }) =
+                last_step(&self.archive_steps, item.id, &from)
+            {
+                targets.extend(trash.clone());
+                continue;
+            }
+            if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+                continue;
+            }
+            let result = if self.plan.set_aside_trash {
+                trash_file(&mut self.writer, self.env.trash, &from, Some(item.id)).map(|step| {
+                    if let TrashStep::Trashed { location } = step {
+                        targets.extend(location);
+                    }
+                })
+            } else {
+                self.writer
+                    .set_aside_file(
+                        &from,
+                        &src.join(&companion.target),
+                        Collision::Rename,
+                        Some(item.id),
+                    )
+                    .map(|outcome| match outcome {
+                        MoveOutcome::Moved { to, .. }
+                        | MoveOutcome::Copied { to, .. }
+                        | MoveOutcome::CopiedNotRemoved { to, .. } => targets.push(to),
+                        MoveOutcome::SkippedExists { .. } => {}
+                    })
+            };
+            if let Err(e) = result {
+                if let Step::Pause(reason) = self.on_error(&e) {
+                    return Some(Step::Pause(reason));
+                }
+            }
+        }
+        None
     }
 
     /// Sends a duplicate's files to the Trash through the journaled
@@ -1335,6 +1406,9 @@ impl<'a> Run<'a> {
                 }
                 Err(e) => return self.on_error(&e),
             }
+        }
+        if let Some(pause) = self.set_aside_companions(item, &mut targets) {
+            return pause;
         }
         Step::Done(ItemStatus::Trashed, targets)
     }

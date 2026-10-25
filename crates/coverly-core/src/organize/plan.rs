@@ -41,8 +41,8 @@ use crate::organize::inspect::{
     Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
-    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, limit_fat_folders,
-    DirIndex, ExtractShape, TargetLayout,
+    assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
+    file_system_is_fat32, limit_fat_folders, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -356,7 +356,8 @@ pub enum RenameReason {
 pub struct Companion {
     /// Relative to the source root.
     pub source: PathBuf,
-    /// Relative to the target root.
+    /// Relative to the target root; for a set-aside item, where it goes
+    /// below the quarantine, as the item's `dest`.
     pub target: PathBuf,
 }
 
@@ -1770,6 +1771,12 @@ pub fn plan_from_survey(
         limit_fat_folders(&mut items, &target_root);
     }
     point_at_keepers(&mut items, &dups.keepers);
+    attach_set_aside_companions(
+        &mut items,
+        &survey.walked.companions,
+        src,
+        &opts.companion_exts,
+    );
     for (path, reason) in left_companions {
         let abs = if path.is_absolute() {
             path.clone()
