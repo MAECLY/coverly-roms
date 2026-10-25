@@ -242,3 +242,72 @@ fn unresolved_trash_intent_keeps_the_dedupe_journal() {
     assert_eq!(report.restored, std::slice::from_ref(&rom));
     assert_eq!(fs::read(&rom).unwrap(), b"rom");
 }
+
+#[test]
+fn a_resumed_run_finds_the_trashed_copy_gone_and_undo_restores_it_once() {
+    let lib = Lib::new();
+    let rom = lib.file("GB/Tetris (1).gb", b"tetris rom bytes", 1);
+    let sav = lib.file("GB/Tetris (1).sav", b"battery save", 2);
+    let trash = FakeTrash::new(lib.trash_dir());
+
+    // First run: the ROM goes, then the run pauses (no `finish`).
+    let mut w = lib.writer();
+    let step = trash_file(&mut w, &trash, &rom, Some(0)).unwrap();
+    assert!(matches!(step, TrashStep::Trashed { .. }), "{step:?}");
+    let job = w.job_id().to_string();
+    drop(w);
+
+    // The resume replays the item: the ROM is already in the Trash.
+    let mut w = Writer::resume(&lib.root, &lib.data, &job).unwrap();
+    let before = job_archive_steps(&lib.data, &job).unwrap().len();
+    let again = trash_file(&mut w, &trash, &rom, Some(0)).unwrap();
+    assert_eq!(again, TrashStep::Gone);
+    assert_eq!(
+        job_archive_steps(&lib.data, &job).unwrap().len(),
+        before,
+        "a gone file adds no journal line"
+    );
+    let step = trash_file(&mut w, &trash, &sav, Some(0)).unwrap();
+    assert!(matches!(step, TrashStep::Trashed { .. }), "{step:?}");
+    w.finish().unwrap();
+    assert_eq!(trash.trashed(), 2);
+
+    let report = undo_job_with(&lib.data, &job, &trash).unwrap();
+    let mut restored = report.restored.clone();
+    restored.sort();
+    assert_eq!(restored, [rom.clone(), sav.clone()]);
+    assert!(report.archive_lost.is_empty(), "{report:?}");
+    assert_eq!(fs::read(&rom).unwrap(), b"tetris rom bytes");
+    assert_eq!(fs::read(&sav).unwrap(), b"battery save");
+    assert_eq!(
+        fs::read_dir(lib.trash_dir())
+            .unwrap()
+            .flatten()
+            .filter(|e| entries_of(&e.path()) > 0)
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_trash_io_error_leaves_the_file_and_undo_reports_nothing_lost() {
+    let lib = Lib::new();
+    let rom = lib.file("GB/Tetris (1).gb", b"tetris", 1);
+    // The Trash folder cannot be created: every call fails with an I/O error.
+    fs::write(lib.trash_dir(), b"not a folder").unwrap();
+    let trash = FakeTrash::new(lib.trash_dir());
+
+    let mut w = lib.writer();
+    assert!(trash_file(&mut w, &trash, &rom, Some(0)).is_err());
+    let job = w.job_id().to_string();
+    drop(w);
+    assert_eq!(fs::read(&rom).unwrap(), b"tetris");
+    let steps = job_archive_steps(&lib.data, &job).unwrap();
+    assert_eq!(steps.len(), 1, "{steps:?}");
+    assert!(matches!(steps[0].step, ArchiveStep::TrashIntent { .. }));
+
+    let report = undo_job_with(&lib.data, &job, &trash).unwrap();
+    assert!(report.archive_lost.is_empty(), "{report:?}");
+    assert!(report.restored.is_empty(), "{report:?}");
+    assert_eq!(fs::read(&rom).unwrap(), b"tetris");
+}
