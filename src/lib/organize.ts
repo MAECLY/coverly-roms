@@ -114,6 +114,11 @@ const TOOL_NAMES: Record<ArchiveTool, string> = {
   bsdtar: 'bsdtar',
 };
 
+/** An external archive tool's name for the copy (never translated). */
+export function toolName(tool: ArchiveTool): string {
+  return TOOL_NAMES[tool];
+}
+
 /**
  * A container's name for the copy (`RAR`, `TAR.LZ4`, `7z`), or `null` when
  * `format` is absent or is a diagnostic rather than a name (a refused tool

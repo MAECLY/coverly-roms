@@ -6,6 +6,7 @@ import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
   EntryView,
+  FoundTool,
   LibraryView,
   Media,
   ProfileInfo,
@@ -59,6 +60,9 @@ export interface MockOptions {
   /** What "Open folder…" picks (default: `?mockPick=`, then localStorage
    * `coverly.mock.pick`, then the first fixture library). */
   folder?: string;
+  /** The external archive tools Settings → Organise lists as found
+   * (default none). */
+  externalTools?: readonly FoundTool[];
 }
 
 export interface MockBackend extends Backend {
@@ -243,6 +247,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const settings = createMockSettings({
     storage: opts.storage === undefined ? defaultStorage() : opts.storage,
     builtins: [...MOCK_BUILTIN_PROFILES],
+    ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
   });
   const jobs = createMockJobs(
     {

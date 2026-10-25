@@ -6,6 +6,7 @@ import { getBackend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
 import type {
   FieldError,
+  FoundTool,
   Settings,
   SettingsNotice,
   SettingsPatch,
@@ -21,6 +22,9 @@ interface SettingsState {
   notice: SettingsNotice | null;
   backup: string | null;
   fixed: string[];
+  /** The external archive tools found on this machine (preference
+   * order), whatever `organize.external_tools` says. */
+  externalToolsFound: FoundTool[];
   errors: Record<string, FieldError>;
   reopen: boolean;
   saved: number;
@@ -42,6 +46,7 @@ const INITIAL = {
   notice: null,
   backup: null,
   fixed: [],
+  externalToolsFound: [],
   errors: {},
   reopen: false,
   saved: 0,
@@ -81,6 +86,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         notice: view.notice,
         backup: view.backup,
         fixed: view.fixed,
+        externalToolsFound: view.external_tools_found,
       });
       const legacy = takeLegacyLocale();
       if (legacy && view.settings.general.language === 'auto') {
@@ -93,7 +99,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   async refresh() {
     try {
       const view = await (await getBackend()).getSettings();
-      set({ settings: view.settings });
+      set({
+        settings: view.settings,
+        externalToolsFound: view.external_tools_found,
+      });
     } catch {
       // Keep what is shown; the next update reports any problem.
     }
@@ -142,6 +151,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     appliedSeq = mine;
     set({
       settings: view.settings,
+      externalToolsFound: view.external_tools_found,
       notice: null,
       errors: {},
       saveError: null,
