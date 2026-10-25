@@ -402,6 +402,36 @@ pub fn tool_archive_name(archive: &Path) -> String {
 /// A fresh empty directory for one run, removed on drop.
 struct RunDir(PathBuf);
 
+/// `dir` resolved through symlinks (`/private/var` on macOS). Windows keeps
+/// the path as given: `canonicalize` there adds a `\\?\` prefix that the
+/// tool's working directory does not carry.
+fn resolved(dir: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        dir
+    } else {
+        dir.canonicalize().unwrap_or(dir)
+    }
+}
+
+/// Spawns `cmd`, retrying a few times while Linux reports the executable
+/// as busy (`ETXTBSY`): a fork elsewhere in the process can briefly hold a
+/// write handle to a tool that was just copied into place.
+fn spawn_retrying_busy(cmd: &mut Command) -> io::Result<Child> {
+    const ETXTBSY: i32 = 26;
+    let mut tries = 0;
+    loop {
+        match cmd.spawn() {
+            Err(e)
+                if cfg!(target_os = "linux") && e.raw_os_error() == Some(ETXTBSY) && tries < 20 =>
+            {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(10 * tries));
+            }
+            other => return other,
+        }
+    }
+}
+
 impl RunDir {
     fn new() -> io::Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -415,7 +445,7 @@ impl RunDir {
             match std::fs::create_dir(&dir) {
                 // The resolved path, so `HOME` names the same directory the
                 // tool sees as its working directory (`/private/var` on macOS).
-                Ok(()) => return Ok(Self(dir.canonicalize().unwrap_or(dir))),
+                Ok(()) => return Ok(Self(resolved(dir))),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(e),
             }
@@ -718,7 +748,7 @@ fn start(t: &FoundTool, args: &[Arg<'_>]) -> Result<Running, ArchiveError> {
     tool_env(&mut cmd, &dir.0);
     isolate(&mut cmd);
 
-    let mut child = cmd.spawn()?;
+    let mut child = spawn_retrying_busy(&mut cmd)?;
     let tree = match Tree::attach(&child) {
         Ok(tree) => tree,
         Err(e) => {
