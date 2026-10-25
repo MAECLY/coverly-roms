@@ -1239,6 +1239,50 @@ mod run {
         }
     }
 
+    /// Every rename crosses volumes; the copy of the second bin into the
+    /// quarantine fails its verify.
+    fn cross_device_and_track_two_unverified(stage: CopyStage, path: &Path) -> Option<io::Error> {
+        match stage {
+            CopyStage::Rename => Some(io::Error::from(io::ErrorKind::CrossesDevices)),
+            CopyStage::Verify => path
+                .to_string_lossy()
+                .ends_with("_Duplicados/PS/old/Crash (Track 2).bin")
+                .then(|| io::Error::other("injected")),
+            CopyStage::Delete => None,
+        }
+    }
+
+    /// A set copied across volumes is rolled back by copying its files home
+    /// again (a rename cannot cross volumes): the set stays whole in the
+    /// library, byte for byte, and nothing of it is left in the quarantine.
+    #[test]
+    fn a_set_copied_across_volumes_rolls_back_whole() {
+        let card = Card::new();
+        let (_, set) = crash(&card);
+        let plan = card.plan();
+        let bytes: Vec<Vec<u8>> = set.iter().map(|f| fs::read(f).unwrap()).collect();
+        let mtimes: Vec<_> = set
+            .iter()
+            .map(|f| fs::metadata(f).unwrap().modified().unwrap())
+            .collect();
+        set_copy_fault(Some(cross_device_and_track_two_unverified));
+        let report = card.apply(&plan, &DedupeDecisions::default());
+        set_copy_fault(None);
+        let report = report.unwrap();
+        assert!(
+            matches!(
+                status_of(&report, &plan, &set[0]),
+                DedupeItemStatus::Failed { .. }
+            ),
+            "{report:#?}"
+        );
+        for (i, f) in set.iter().enumerate() {
+            assert_eq!(fs::read(f).unwrap(), bytes[i], "{} is back", f.display());
+            assert_eq!(fs::metadata(f).unwrap().modified().unwrap(), mtimes[i]);
+        }
+        assert!(tree(&card.q()).is_empty(), "{:?}", tree(&card.q()));
+    }
+
     /// Resuming a job that already finished sets nothing aside twice and
     /// keeps every copy where the first run put it.
     #[test]

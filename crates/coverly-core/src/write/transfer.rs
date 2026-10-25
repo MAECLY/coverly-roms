@@ -212,6 +212,31 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
+    /// Puts back a file this run just moved from `from` to `to` (a set
+    /// rolled back by its caller): a no-clobber rename, or across volumes a
+    /// streamed, verified copy home and then `to` deleted. The journal keeps
+    /// the move; undo later finds the file already at `from` and leaves it.
+    /// An `AlreadyExists` I/O error means `from` was taken meanwhile and
+    /// nothing changed.
+    pub fn move_back(&mut self, to: &Path, from: &Path) -> Result<(), WriteError> {
+        let to = ensure_within(&self.root, to)?;
+        let from = ensure_within(&self.source_root, from)?;
+        let renamed = with_sharing_retries(|| match fault(CopyStage::Rename, &to) {
+            Some(e) => Err(e),
+            None => rename_noclobber(&to, &from),
+        });
+        match renamed {
+            Ok(()) => Ok(()),
+            Err(e) if is_cross_device(&e) => {
+                self.stream_copy(&to, &from, true)?;
+                with_sharing_retries(|| fs::remove_file(&to)).map_err(|e| map_io(e, &to))?;
+                remove_apple_doubles(&[to]);
+                Ok(())
+            }
+            Err(e) => Err(map_io(e, &to)),
+        }
+    }
+
     /// Copies `from` (inside the source root) to `to` (inside the root),
     /// streamed and verified; the source stays.
     pub fn copy_file(

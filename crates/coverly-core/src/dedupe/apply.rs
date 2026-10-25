@@ -30,8 +30,8 @@ use crate::organize::target::{file_system_is_fat32, DirIndex};
 use crate::volumes::volume_uuid;
 use crate::write::trash::{TrashBackend, TrashError};
 use crate::write::{
-    job_archive_steps, job_transfers, rename_noclobber, safe_file_name, same_volume, ArchiveRecord,
-    ArchiveStep, Collision, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError, Writer,
+    job_archive_steps, job_transfers, safe_file_name, same_volume, ArchiveRecord, ArchiveStep,
+    Collision, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError, Writer,
 };
 
 use super::plan::{set_keeper, skip_group};
@@ -606,14 +606,6 @@ fn record_of<'r>(
     })
 }
 
-/// Puts the files of a set already moved back, newest first. Best effort:
-/// a file that cannot go back stays in the journal for undo.
-fn roll_back(done: &[(PathBuf, PathBuf)]) {
-    for (from, to) in done.iter().rev() {
-        let _ = rename_noclobber(to, from);
-    }
-}
-
 struct Run<'a> {
     plan: &'a DedupePlan,
     env: &'a DedupeApplyEnv<'a>,
@@ -971,14 +963,22 @@ impl<'a> Run<'a> {
                         done.push((from.clone(), to));
                     }
                     Ok(_) => {
-                        roll_back(&done);
-                        self.unfollow(&done);
-                        return skipped(DedupeSkip::Taken);
+                        let left = self.roll_back(&done);
+                        if left.is_empty() {
+                            return skipped(DedupeSkip::Taken);
+                        }
+                        return split_set(left, "its name is taken in the quarantine");
                     }
                     Err(e) => {
-                        roll_back(&done);
-                        self.unfollow(&done);
-                        return self.on_error(&e);
+                        let left = self.roll_back(&done);
+                        return match self.on_error(&e) {
+                            Step::Done(DedupeItemStatus::Failed { detail, .. }, _)
+                                if !left.is_empty() =>
+                            {
+                                split_set(left, &detail)
+                            }
+                            step => step,
+                        };
                     }
                 }
             }
@@ -1001,13 +1001,20 @@ impl<'a> Run<'a> {
         Step::Done(DedupeItemStatus::Quarantined { to: primary }, landed)
     }
 
-    /// Content rows of a set rolled back go back with it.
-    fn unfollow(&self, done: &[(PathBuf, PathBuf)]) {
-        for (from, to) in done {
-            if is_file(from) {
-                self.follow_content(to, from);
+    /// Puts the files of a set already moved back home, newest first,
+    /// renamed or (across volumes) copied back and verified; their content
+    /// rows go back with them. Returns the files that stayed in the
+    /// quarantine: the journal keeps them, so undo brings them back.
+    fn roll_back(&mut self, done: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
+        let mut left = Vec::new();
+        for (from, to) in done.iter().rev() {
+            match self.writer.move_back(to, from) {
+                Ok(()) => self.follow_content(to, from),
+                Err(_) => left.push(to.clone()),
             }
         }
+        left.reverse();
+        left
     }
 
     /// Travelling companions and art follow into the same relative places,
@@ -1247,6 +1254,22 @@ impl<'a> Run<'a> {
             .unwrap_or(path);
         rel_slash(rel).trim_start_matches("./").to_string()
     }
+}
+
+/// A set that could not move whole and whose files `left` could not go
+/// back either: it is reported failed with where those files are.
+fn split_set(left: Vec<PathBuf>, why: &str) -> Step {
+    let detail = format!(
+        "the set could not be set aside ({why}) and {} of its files stayed in the quarantine; undo brings them back",
+        left.len()
+    );
+    Step::Done(
+        DedupeItemStatus::Failed {
+            kind: ItemErrorKind::Io,
+            detail,
+        },
+        left,
+    )
 }
 
 fn note_gamelist(report: &mut DedupeReport, system: &str) {
