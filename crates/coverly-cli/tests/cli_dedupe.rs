@@ -330,3 +330,81 @@ fn hostile_file_names_are_terminal_safe() {
     assert!(!text.contains('\u{7}'), "{text}");
     assert!(text.contains("Zelda\u{FFFD}]0;pwned\u{FFFD}.gb"), "{text}");
 }
+
+// --- Undo of duplicates jobs (duplicates plan Task 21) ---
+
+use coverly_core::write::{Collision, JobKind, JobMeta, Writer};
+
+/// A duplicates job written with the core: `Tetris (1).gb` moved into
+/// `_Duplicados/GB`, and `Tetris (2).gb` sent to a Trash place that no
+/// longer holds it. Returns (library, data, trash, lost path).
+fn dedupe_journal() -> (TempDir, TempDir, TempDir, PathBuf) {
+    let (lib, data, trash) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let root = lib.path();
+    let moved = put(root, "ROMS/GB/Tetris (1).gb", b"one");
+    let lost = put(root, "ROMS/GB/Tetris (2).gb", b"two");
+    let mut w = Writer::begin_with(
+        root,
+        data.path(),
+        JobMeta {
+            kind: JobKind::Dedupe,
+            source_root: None,
+        },
+    )
+    .unwrap();
+    let dest = root.join("_Duplicados/GB");
+    w.ensure_dir(&dest).unwrap();
+    w.move_file(
+        &moved,
+        &dest.join("Tetris (1).gb"),
+        Collision::Rename,
+        Some(0),
+    )
+    .unwrap();
+    w.archive_trash_intent(&lost, Some(1)).unwrap();
+    fs::remove_file(&lost).unwrap();
+    w.archive_trashed(
+        &lost,
+        Some(&trash.path().join("gone/Tetris (2).gb")),
+        Some(1),
+    )
+    .unwrap();
+    w.finish().unwrap();
+    (lib, data, trash, lost)
+}
+
+/// `coverly undo <args…>` with a private data dir and a fake Trash.
+fn undo_cmd(data: &Path, trash: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::cargo_bin("coverly").unwrap();
+    cmd.env("COVERLY_SETTINGS", "")
+        .env("COVERLY_TEST_FAKE_TRASH", trash)
+        .arg("undo")
+        .args(args)
+        .arg("--data-dir")
+        .arg(data);
+    cmd
+}
+
+#[test]
+fn undo_list_names_dedupe_jobs() {
+    let (_lib, data, trash, _) = dedupe_journal();
+    let text = stdout_of(&mut undo_cmd(data.path(), trash.path(), &["--list"]));
+    assert!(text.contains("dedupe"), "{text}");
+}
+
+#[test]
+fn undo_text_of_a_dedupe_job_names_lost_trash_items() {
+    let (lib, data, trash, lost) = dedupe_journal();
+    let text = stdout_of(&mut undo_cmd(data.path(), trash.path(), &[]));
+    assert!(text.contains("Undid dedupe job"), "{text}");
+    assert!(text.contains("moved back 1"), "{text}");
+    assert!(
+        text.contains(&format!("not found in the Trash: {}", lost.display())),
+        "{text}"
+    );
+    assert!(lib.path().join("ROMS/GB/Tetris (1).gb").exists());
+}
