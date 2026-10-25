@@ -389,7 +389,7 @@ pub fn inspect_file(path: &Path, len: u64, db: &SystemDb) -> io::Result<Inspecti
 /// [`inspect_file`] under `limits` (the plan's bounds; `external_tools`
 /// follows the setting) with the plan's external `tools` (discovered only
 /// when a RAR or a 7z needs one, never inside the plan's roots); `None`
-/// uses the process-wide discovery. Errors only when the file cannot be
+/// runs no tool. Errors only when the file cannot be
 /// opened or read, or the plan is cancelled; every archive problem is an
 /// [`ArchiveIssue`].
 pub fn inspect_file_with(

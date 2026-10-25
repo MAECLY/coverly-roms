@@ -15,8 +15,10 @@
 //! 4. A compressor holding a tar opens as a tar, decided by the extension
 //!    (`.tgz`, `.tar.xz`) or by the first decoded block.
 //! 5. RAR, and 7z coders `sevenz-rust2` lacks, go through an external
-//!    tool when the setting allows one and one is found; RAR without one
-//!    is `Unsupported { "RAR", need: Some(Unrar) }`.
+//!    tool when the setting allows one and the caller passed one; RAR
+//!    without one is `Unsupported { "RAR", need: Some(Unrar) }`. No tools
+//!    passed runs none: `PATH` is never searched here, only by a caller
+//!    that knows the roots to avoid (spec §5.2).
 //!
 //! Every backend is opened inside [`guarded`] and returned inside a
 //! [`GuardedArchive`] (S1).
@@ -24,12 +26,11 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use crate::identify::sniff::{text_kind, ContainerMagic as M};
 
 use super::detect::{by_extension, detect_container, multi_volume_part, tar_header_ok, EOCD_TAIL};
-use super::external::{discover, FoundTool, PaxReader, ToolReader};
+use super::external::{FoundTool, PaxReader, ToolReader};
 use super::{
     guarded, open_compressor, ArchiveError, ArchiveReader, Budget, Compressor, Format,
     GuardedArchive, Limits, SevenZReader, SingleReader, TarReader, Tool, ZipReader,
@@ -43,6 +44,7 @@ const TAR_BLOCK: u64 = 512;
 type Opened = Result<Option<Box<dyn ArchiveReader>>, ArchiveError>;
 
 pub(super) fn open(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
+    let tools = tools.unwrap_or(&[]);
     let (head, tail, len) = probe(path)?;
     if len == 0 {
         return Ok(None);
@@ -107,13 +109,7 @@ fn unsupported(format: &str) -> Opened {
     })
 }
 
-fn by_magic(
-    path: &Path,
-    name: &str,
-    magic: M,
-    limits: &Limits,
-    tools: Option<&[FoundTool]>,
-) -> Opened {
+fn by_magic(path: &Path, name: &str, magic: M, limits: &Limits, tools: &[FoundTool]) -> Opened {
     match magic {
         M::Zip | M::ZipEocdOnly => wrap(guarded(|| ZipReader::open(path, limits))?),
         // Caught by `volume_set`; kept for a direct call.
@@ -147,7 +143,7 @@ fn by_fallback(
     name: &str,
     head: &[u8],
     limits: &Limits,
-    tools: Option<&[FoundTool]>,
+    tools: &[FoundTool],
 ) -> Opened {
     let ext = Path::new(name)
         .extension()
@@ -217,22 +213,14 @@ fn holds_tar(path: &Path, c: Compressor, limits: &Limits) -> bool {
     .unwrap_or(false)
 }
 
-/// Tools discovered once per process for callers that pass none.
-fn resolve(tools: Option<&[FoundTool]>) -> &[FoundTool] {
-    static DISCOVERED: OnceLock<Vec<FoundTool>> = OnceLock::new();
-    tools.unwrap_or_else(|| DISCOVERED.get_or_init(|| discover(&[])))
-}
-
 /// A 7z by our bounded walker; a folder with a coder `sevenz-rust2` lacks
 /// is listed by 7-Zip instead when one may run. Without one the walked
 /// reader is kept: those folders' entries are `Unsupported`, the rest
 /// still decode.
-fn sevenz(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
+fn sevenz(path: &Path, limits: &Limits, tools: &[FoundTool]) -> Opened {
     let reader = guarded(|| SevenZReader::open(path, limits))?;
     if reader.unsupported_coder().is_some() && limits.external_tools {
-        if let Ok(listed) =
-            guarded(|| ToolReader::open(resolve(tools), path, Format::SevenZip, limits))
-        {
+        if let Ok(listed) = guarded(|| ToolReader::open(tools, path, Format::SevenZip, limits)) {
             return wrap(listed);
         }
     }
@@ -241,7 +229,7 @@ fn sevenz(path: &Path, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
 
 /// RAR through unrar or 7-Zip (strict text listing), else bsdtar (pax
 /// transcode); none → `Unsupported { "RAR", need: Some(Unrar) }`.
-fn rar(path: &Path, v5: bool, limits: &Limits, tools: Option<&[FoundTool]>) -> Opened {
+fn rar(path: &Path, v5: bool, limits: &Limits, tools: &[FoundTool]) -> Opened {
     let missing = || ArchiveError::Unsupported {
         format: "RAR".into(),
         need: Some(Tool::Unrar),
@@ -249,7 +237,6 @@ fn rar(path: &Path, v5: bool, limits: &Limits, tools: Option<&[FoundTool]>) -> O
     if !limits.external_tools {
         return Err(missing());
     }
-    let tools = resolve(tools);
     let format = Format::Rar { v5 };
     match guarded(|| ToolReader::open(tools, path, format, limits)) {
         Ok(listed) => return wrap(listed),

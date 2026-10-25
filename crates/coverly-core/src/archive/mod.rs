@@ -605,10 +605,9 @@ pub trait ArchiveReader: Send {
 /// when it is one that cannot be used. Every backend is wrapped in
 /// [`GuardedArchive`] (S1).
 ///
-/// External tools (RAR, 7z coders `sevenz-rust2` lacks) are discovered
-/// once per process with no extra roots to avoid; a caller that knows its
-/// source and target roots passes its own discovery to
-/// [`open_archive_with`].
+/// No external tool (RAR, 7z coders `sevenz-rust2` lacks) is run: a
+/// caller that knows its source and target roots passes their discovery
+/// (`discover(&[src, dst])`) to [`open_archive_with`].
 pub fn open_archive(
     path: &Path,
     limits: &Limits,
@@ -616,9 +615,8 @@ pub fn open_archive(
     open_archive_with(path, limits, None)
 }
 
-/// [`open_archive`] with the external tools to use: `None` discovers them
-/// (once per process, only when an archive needs one), `Some(&[])` runs
-/// none.
+/// [`open_archive`] with the external tools to use. `None` and `Some(&[])`
+/// both run none: `PATH` is never searched here (spec §5.2).
 pub fn open_archive_with(
     path: &Path,
     limits: &Limits,
