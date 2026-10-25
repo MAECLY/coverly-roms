@@ -16,6 +16,19 @@ use super::source::{
     VolumeFingerprint,
 };
 
+/// Pins `path`'s modified time to `1_700_000_000 + n` seconds after the
+/// epoch, so fixtures written in quick succession get distinct, ordered
+/// times on every OS (Windows clocks can stamp quick writes with one
+/// time). Uses std only: no extra crate for the `test-util` feature.
+pub fn pin_mtime(path: &Path, n: u64) {
+    let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + n);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.set_modified(at))
+        .unwrap_or_else(|e| panic!("pin mtime of {}: {e}", path.display()));
+}
+
 /// A [`DiscProbe`] that answers from a script and records every call.
 #[derive(Debug, Default)]
 pub struct FakeDiscProbe {

@@ -15,7 +15,7 @@ use coverly_core::cache::{Cache, DatRow};
 use coverly_core::dedupe::keys::FileBytes;
 use coverly_core::dedupe::source::ZipListing;
 use coverly_core::dedupe::testing::{
-    disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
+    self, disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
 };
 use coverly_core::dedupe::{
     default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
@@ -53,10 +53,9 @@ fn put(root: &Path, rel: &str, bytes: &[u8]) -> PathBuf {
 /// previous one, so the oldest-first tie-break follows the write order on
 /// every OS (Windows clocks can stamp quick writes with one time).
 fn pin_mtime(p: &Path) {
-    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let t = filetime::FileTime::from_unix_time(1_700_000_000 + n, 0);
-    filetime::set_file_mtime(p, t).unwrap();
+    testing::pin_mtime(p, n);
 }
 
 /// A zip at `root/rel` holding one stored entry.
