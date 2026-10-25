@@ -13,10 +13,15 @@ use tempfile::TempDir;
 /// `crate::settings::SETTINGS_ENV` of the CLI.
 const SETTINGS_ENV: &str = "COVERLY_SETTINGS";
 
+/// Sends trashed archives to `<data>/trash` instead of the OS Trash
+/// (honoured only by test builds of the core).
+const FAKE_TRASH_ENV: &str = "COVERLY_TEST_FAKE_TRASH";
+
 /// `coverly <args…>` with private data/cache dirs and no user settings file.
 fn coverly(data: &Path, cache: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env(SETTINGS_ENV, data.join("no-settings.json"));
+    cmd.env(SETTINGS_ENV, data.join("no-settings.json"))
+        .env(FAKE_TRASH_ENV, data.join("trash"));
     cmd.args(args)
         .arg("--data-dir")
         .arg(data)
@@ -337,7 +342,8 @@ fn catalogues_come_from_the_database_url_when_online() {
 /// `coverly undo <args…>` with the same private data dir.
 fn undo(data: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("coverly").unwrap();
-    cmd.env(SETTINGS_ENV, data.join("no-settings.json"));
+    cmd.env(SETTINGS_ENV, data.join("no-settings.json"))
+        .env(FAKE_TRASH_ENV, data.join("trash"));
     cmd.arg("undo").args(args).arg("--data-dir").arg(data);
     cmd
 }
@@ -598,4 +604,225 @@ fn undo_of_an_organise_job_with_later_jobs_refuses_unless_include_later() {
         .stdout(contains(second.as_str()));
     assert!(!other.path().join("ROMS").exists());
     assert!(!sub.join("ROMS").exists());
+}
+
+// --- Archives and disc games (archives spec §12) ---
+
+mod archives {
+    use super::*;
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::disc::testing as dt;
+
+    const PS1_DIR: &str = "Next Tetris, The (USA)";
+    const PS1_CUE: &str = "Next Tetris, The (USA).cue";
+    const PS1_T1: &str = "Next Tetris, The (USA) (Track 01).bin";
+    const PS1_T2: &str = "Next Tetris, The (USA) (Track 02).bin";
+    /// The archive of the real case: a 7z named `.zip`.
+    const ARCHIVE: &str = "Next Tetris, The.zip";
+
+    fn cue(files: &[&str]) -> Vec<u8> {
+        let mut s = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let mode = if i == 0 { "MODE2/2352" } else { "AUDIO" };
+            s.push_str(&format!(
+                "FILE \"{f}\" BINARY\r\n  TRACK {:02} {mode}\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        s.into_bytes()
+    }
+
+    /// A pile holding the synthetic PS1 disc of the real case (a cue and
+    /// two tracks in a 7z misnamed `.zip`, no copyrighted bytes).
+    fn disc_pile() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let sheet = format!("{PS1_DIR}/{PS1_CUE}");
+        let t1 = format!("{PS1_DIR}/{PS1_T1}");
+        let t2 = format!("{PS1_DIR}/{PS1_T2}");
+        let track1 = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let track2 = vec![0u8; 2352 * 4];
+        let files: [(&str, &[u8]); 3] = [
+            (&sheet, &cue(&[PS1_T1, PS1_T2])),
+            (&t1, &track1),
+            (&t2, &track2),
+        ];
+        write_old(
+            &tmp.path().join(ARCHIVE),
+            &sevenz(&files, SevenZShape::non_solid_lzma()),
+        );
+        tmp
+    }
+
+    fn dry_run_json(pile: &Path, extra: &[&str]) -> serde_json::Value {
+        let (data, cache) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut args = vec!["organize", "--offline", "--report", "json"];
+        args.extend_from_slice(extra);
+        let out = coverly(data.path(), cache.path(), &args)
+            .arg(pile)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        json_of(&out)
+    }
+
+    fn item_named<'a>(v: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+        v["plan"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["sources"][0].as_str().unwrap().ends_with(name))
+            .unwrap_or_else(|| panic!("no item {name} in {v:#}"))
+    }
+
+    #[test]
+    fn dry_run_shows_extract_with_sizes() {
+        let (p, data, cache) = (
+            disc_pile(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        let before = tree_digest(p.path());
+        let out = coverly(data.path(), cache.path(), &["organize", "--offline"])
+            .arg(p.path())
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains("extract 3 files 66.0 kB → ROMS/PS/"),
+            "{text}"
+        );
+        assert!(text.contains("it is a 7z archive named .zip"), "{text}");
+        assert!(text.contains("Extracting: 1 games (66.0 kB)"), "{text}");
+        assert!(text.contains("Dry run: nothing was written"), "{text}");
+        assert_eq!(tree_digest(p.path()), before);
+    }
+
+    #[test]
+    fn report_json_has_transfer_and_disc() {
+        let p = disc_pile();
+        let v = dry_run_json(p.path(), &[]);
+        let item = item_named(&v, ARCHIVE);
+        assert_eq!(item["system_id"], "psx");
+        assert_eq!(item["transfer"]["kind"], "extract");
+        assert_eq!(item["transfer"]["entries"].as_array().unwrap().len(), 3);
+        assert_eq!(item["transfer"]["archive_after"], "trash");
+        let serials = item["disc"]["serials"].as_array().unwrap();
+        assert!(serials.iter().any(|s| s == "SLUS-00862"), "{item:#}");
+    }
+
+    #[test]
+    fn copy_flag_keeps_archive() {
+        let (p, data, cache) = (
+            disc_pile(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        let other = TempDir::new().unwrap();
+        let before = tree_digest(p.path());
+        coverly(
+            data.path(),
+            cache.path(),
+            &[
+                "organize",
+                "--offline",
+                "--copy",
+                "--apply",
+                "--target",
+                other.path().to_str().unwrap(),
+            ],
+        )
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("Extracted: 1"));
+        assert_eq!(tree_digest(p.path()), before);
+        for name in [PS1_CUE, PS1_T1, PS1_T2] {
+            assert!(other.path().join("ROMS/PS").join(name).is_file(), "{name}");
+        }
+        assert!(!data.path().join("trash").exists());
+    }
+
+    #[test]
+    fn apply_then_undo_restores_archive() {
+        let (p, data, cache) = (
+            disc_pile(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        let before = tree_digest(p.path());
+        coverly(
+            data.path(),
+            cache.path(),
+            &["organize", "--offline", "--apply"],
+        )
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("Extracted: 1"))
+        .stdout(contains("Undo with: coverly undo --job"));
+        assert!(p.path().join("ROMS/PS").join(PS1_CUE).is_file());
+        assert!(!p.path().join(ARCHIVE).exists(), "moved to the Trash");
+        assert!(data.path().join("trash").is_dir(), "the fake Trash got it");
+        undo(data.path(), &[])
+            .assert()
+            .success()
+            .stdout(contains("archive restored: "))
+            .stdout(contains(ARCHIVE));
+        assert_eq!(tree_digest(p.path()), before);
+    }
+
+    #[test]
+    fn no_external_tools_rar_left_with_hint() {
+        let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut rar = b"Rar!\x1a\x07\x01\x00".to_vec();
+        rar.extend_from_slice(&[0u8; 64]);
+        write_old(&p.path().join("Some Game (USA).rar"), &rar);
+        coverly(
+            data.path(),
+            cache.path(),
+            &["organize", "--offline", "--no-external-tools"],
+        )
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("Some Game (USA).rar"))
+        .stdout(contains(
+            "to open RAR archives, install unrar (external programs are off)",
+        ))
+        // The rest of the plan is unaffected.
+        .stdout(contains("ROMS/GBA/"));
+    }
+
+    #[test]
+    fn hostile_entry_name_is_terminal_safe() {
+        let p = TempDir::new().unwrap();
+        let (data, cache) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let gba = fx::gba_tagged(3);
+        let files: [(&str, &[u8]); 2] = [
+            ("Game\u{1b}]0;pwned\u{7}\r.gba", &gba),
+            ("Game\u{9b}2J.gba", &gba),
+        ];
+        write_old(
+            &p.path().join("Hostile.7z"),
+            &sevenz(&files, SevenZShape::non_solid_lzma()),
+        );
+        let out = coverly(data.path(), cache.path(), &["organize", "--offline"])
+            .arg(p.path())
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("Hostile.7z"), "{text}");
+        assert!(
+            !text.chars().any(|c| c != '\n' && c.is_control()),
+            "control characters reached the terminal: {text:?}"
+        );
+    }
 }

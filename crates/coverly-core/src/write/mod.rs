@@ -1803,6 +1803,15 @@ pub fn later_jobs(data_dir: &Path, job: &str) -> Result<Vec<JobSummary>, WriteEr
 /// undone in). Every job must exist and not be undone yet, checked before
 /// anything is touched; the first failure stops the rest.
 pub fn undo_jobs_in_order(data_dir: &Path, jobs: &[String]) -> Result<Vec<UndoReport>, WriteError> {
+    undo_jobs_in_order_with(data_dir, jobs, &trash::OsTrash)
+}
+
+/// [`undo_jobs_in_order`], bringing archives back from `trash`.
+pub fn undo_jobs_in_order_with(
+    data_dir: &Path,
+    jobs: &[String],
+    trash: &dyn trash::TrashBackend,
+) -> Result<Vec<UndoReport>, WriteError> {
     let mut ids: Vec<&str> = jobs.iter().map(String::as_str).collect();
     ids.sort_unstable_by(|a, b| b.cmp(a));
     ids.dedup();
@@ -1813,7 +1822,9 @@ pub fn undo_jobs_in_order(data_dir: &Path, jobs: &[String]) -> Result<Vec<UndoRe
     {
         return Err(WriteError::NothingToUndo);
     }
-    ids.into_iter().map(|id| undo_job(data_dir, id)).collect()
+    ids.into_iter()
+        .map(|id| undo_job_with(data_dir, id, trash))
+        .collect()
 }
 
 /// Days an organise journal is kept even beyond the newest `keep`.

@@ -45,6 +45,21 @@ pub fn terminal_safe(text: &str) -> String {
         .collect()
 }
 
+/// `79.6 MB`: decimal units, one decimal.
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let mut v = bytes as f64;
+    let mut unit = 0;
+    while v >= 1000.0 && unit < UNITS.len() - 1 {
+        v /= 1000.0;
+        unit += 1;
+    }
+    format!("{v:.1} {}", UNITS[unit])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -764,6 +764,23 @@ mod platform {
     }
 }
 
+/// Names the folder a test build of the core uses as the Trash instead of
+/// the OS one (see [`process_trash`]).
+#[cfg(feature = "test-util")]
+pub const FAKE_TRASH_ENV: &str = "COVERLY_TEST_FAKE_TRASH";
+
+/// The Trash of this process: the OS Trash, or, in a build with the
+/// `test-util` feature only, a [`FakeTrash`] in the folder
+/// `COVERLY_TEST_FAKE_TRASH` names, so end-to-end tests of the CLI never
+/// fill the real Trash. Release builds ignore the variable.
+pub fn process_trash() -> Box<dyn TrashBackend> {
+    #[cfg(feature = "test-util")]
+    if let Some(dir) = std::env::var_os(FAKE_TRASH_ENV).filter(|d| !d.is_empty()) {
+        return Box::new(FakeTrash::new(PathBuf::from(dir)));
+    }
+    Box::new(OsTrash)
+}
+
 /// A Trash in a tempdir: each trashed file lands in `<dir>/<nnnn>/<name>`.
 /// `unavailable` refuses everything (a volume without a Trash);
 /// `fail_after(n)` refuses every call after `n` successful ones.

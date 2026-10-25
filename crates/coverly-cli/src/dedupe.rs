@@ -383,21 +383,6 @@ fn thousands(n: u64) -> String {
     out
 }
 
-/// `79.6 MB`, decimal units.
-fn human(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
-    if bytes < 1000 {
-        return format!("{bytes} B");
-    }
-    let mut v = bytes as f64;
-    let mut unit = 0;
-    while v >= 1000.0 && unit < UNITS.len() - 1 {
-        v /= 1000.0;
-        unit += 1;
-    }
-    format!("{v:.1} {}", UNITS[unit])
-}
-
 fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -565,7 +550,7 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
                 rows.push(vec![
                     "    ·".into(),
                     member_name(plan, folder, m),
-                    human(m.size),
+                    table::human_bytes(m.size),
                     relation_text(m.relation).into(),
                 ]);
             }
@@ -573,7 +558,7 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
                 notes.push(format!(
                     "           save {} ({})",
                     file_name(&s.path),
-                    human(s.size)
+                    table::human_bytes(s.size)
                 ));
             }
         }
@@ -593,7 +578,7 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
                     rows.push(vec![
                         "    stays".into(),
                         name,
-                        human(m.size),
+                        table::human_bytes(m.size),
                         reason_text(&g.reason),
                     ]);
                     continue;
@@ -603,7 +588,7 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
                     let _ = write!(what, "  → {}", dest_text(plan, dest));
                 }
                 let mark = if acting { "    →" } else { "    ·" };
-                rows.push(vec![mark.into(), name, human(m.size), what]);
+                rows.push(vec![mark.into(), name, table::human_bytes(m.size), what]);
                 if acting {
                     for t in &m.travels {
                         let kind = match t.kind {
@@ -682,7 +667,7 @@ fn render_table(plan: &DedupePlan, db: &SystemDb) -> String {
             name.to_string(),
             plural(groups.len(), "game", "games"),
             plural(copies, "copy", "copies"),
-            human(bytes),
+            table::human_bytes(bytes),
         ]];
         out.push_str(&table::render(&rows));
         for g in groups {
@@ -762,9 +747,9 @@ mod tests {
         assert_eq!(thousands(999), "999");
         assert_eq!(thousands(32_768), "32,768");
         assert_eq!(thousands(1_529_567_750), "1,529,567,750");
-        assert_eq!(human(512), "512 B");
-        assert_eq!(human(79_600_000), "79.6 MB");
-        assert_eq!(human(1_900_000_000), "1.9 GB");
+        assert_eq!(table::human_bytes(512), "512 B");
+        assert_eq!(table::human_bytes(79_600_000), "79.6 MB");
+        assert_eq!(table::human_bytes(1_900_000_000), "1.9 GB");
     }
 
     #[test]

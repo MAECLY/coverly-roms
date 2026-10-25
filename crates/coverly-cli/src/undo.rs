@@ -2,13 +2,16 @@
 //! replaced, or put back the files an organise job moved (and remove its
 //! copies and the folders it created).
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use clap::Args;
 use coverly_core::paths::AppDirs;
+use coverly_core::write::trash::process_trash;
 use coverly_core::write::{
-    later_jobs, list_jobs, undo_jobs_in_order, undo_last, JobKind, JobSummary, UndoReport,
+    job_archive_steps, later_jobs, list_jobs, undo_jobs_in_order_with, undo_last_with, ArchiveStep,
+    JobKind, JobSummary, UndoReport,
 };
 
 use crate::{print_stdout, table, Failure};
@@ -47,6 +50,7 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
         return print_stdout(&jobs_table(&list_jobs(&dirs.data).map_err(fail)?));
     }
     let jobs = list_jobs(&dirs.data).map_err(fail)?;
+    let trash = process_trash();
     let reports = match &args.job {
         Some(id) => {
             // Undoing a job under newer ones that wrote below its folder
@@ -67,10 +71,24 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
             }
             let mut ids: Vec<String> = later.into_iter().map(|j| j.job).collect();
             ids.push(id.clone());
-            undo_jobs_in_order(&dirs.data, &ids).map_err(fail)?
+            let trashed = trashed_archives(&dirs.data, &ids);
+            let reports = undo_jobs_in_order_with(&dirs.data, &ids, &*trash).map_err(fail)?;
+            (reports, trashed)
         }
-        None => vec![undo_last(&dirs.data).map_err(fail)?],
+        None => {
+            // The journal the last undo picks: the newest not undone.
+            let targets: Vec<String> = jobs
+                .iter()
+                .find(|j| !j.undone)
+                .map(|j| j.job.clone())
+                .into_iter()
+                .collect();
+            let trashed = trashed_archives(&dirs.data, &targets);
+            let report = undo_last_with(&dirs.data, &*trash).map_err(fail)?;
+            (vec![report], trashed)
+        }
     };
+    let (reports, trashed) = reports;
     let kind_of = |job: &str| {
         jobs.iter()
             .find(|j| j.job == job)
@@ -80,7 +98,7 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
     let text: String = reports
         .iter()
         .map(|r| match kind_of(&r.job) {
-            JobKind::Organize => organize_text(r),
+            JobKind::Organize => organize_text(r, &trashed),
             JobKind::Fill => fill_text(r),
         })
         .collect();
@@ -115,9 +133,22 @@ fn fill_text(report: &UndoReport) -> String {
     text
 }
 
+/// The archives the jobs `ids` sent (or were about to send) to the Trash,
+/// read before the undo marks their journals undone. A journal that
+/// cannot be read names none: the undo itself reports its error.
+fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf> {
+    ids.iter()
+        .filter_map(|id| job_archive_steps(data, id).ok())
+        .flatten()
+        .filter(|r| !matches!(r.step, ArchiveStep::Kept))
+        .map(|r| r.from)
+        .collect()
+}
+
 /// `Undid organise job …: moved back 2, removed 0 copies, kept 0 changed,
-/// 2 folders removed`, then the files left as they are.
-fn organize_text(report: &UndoReport) -> String {
+/// 2 folders removed`, then the files left as they are, the archives
+/// brought back from the Trash and the ones that could not be.
+fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>) -> String {
     let mut text = format!(
         "Undid organise job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
         report.job,
@@ -139,6 +170,16 @@ fn organize_text(report: &UndoReport) -> String {
         .chain(&report.skipped_occupied)
     {
         let _ = write!(text, "\n  kept {}", p.display());
+    }
+    for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
+        let _ = write!(text, "\n  archive restored: {}", p.display());
+    }
+    for p in &report.archive_lost {
+        let _ = write!(
+            text,
+            "\n  archive lost: {}; the archive couldn't be recovered from the Trash, the extracted files stay",
+            p.display()
+        );
     }
     text.push('\n');
     text

@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use clap::{Args, ValueEnum};
-use coverly_core::archive::Tool;
+use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
@@ -23,7 +23,7 @@ use coverly_core::organize::{
     Choice, Decision, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode, OrganizeAction,
     OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
     OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    TransferMode,
+    Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -31,7 +31,7 @@ use coverly_core::profiles::Profile;
 use coverly_core::settings::Settings;
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREENSCRAPER_BASE};
 use coverly_core::systems::SystemDb;
-use coverly_core::write::trash::OsTrash;
+use coverly_core::write::trash::process_trash;
 
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
@@ -84,6 +84,10 @@ pub struct OrganizeArgs {
     /// Cached catalogues only: no download, no online lookup.
     #[arg(long)]
     offline: bool,
+    /// Never run unrar, 7-Zip or bsdtar: RAR archives (and 7z coders the
+    /// built-in reader lacks) stay where they are.
+    #[arg(long)]
+    no_external_tools: bool,
     /// Show the plan only (the default unless the "dry run by default"
     /// setting is off).
     #[arg(long, conflicts_with = "apply")]
@@ -260,6 +264,9 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         opts.names = n.into();
     }
     opts.offline = args.offline;
+    if args.no_external_tools {
+        opts.limits.external_tools = false;
+    }
     let profiles: Vec<Profile> = all_profiles(&cli.custom)
         .into_iter()
         .map(|(p, _)| p)
@@ -293,13 +300,18 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         }
     };
     let cancel = AtomicBool::new(false);
+    let trash = process_trash();
+    // No tools: an extraction never looks for one (`None` finds them on
+    // first need).
+    let no_tools: &[FoundTool] = &[];
+    let tools = (!opts.limits.external_tools).then_some(no_tools);
     if let Some(job) = &args.resume {
         let env = ApplyEnv {
             data_dir: &dirs.data,
             progress: &progress,
             cancel: &cancel,
-            trash: &OsTrash,
-            tools: None,
+            trash: &*trash,
+            tools,
         };
         return resume(args, job, &source, &env, &db, s);
     }
@@ -389,8 +401,8 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         data_dir: &dirs.data,
         progress: &progress,
         cancel: &cancel,
-        trash: &OsTrash,
-        tools: None,
+        trash: &*trash,
+        tools,
     };
     let report =
         apply_organize(&plan, &env).map_err(|e| apply_failure(e, Some(&plan.target_root)))?;
@@ -782,6 +794,81 @@ fn item_extras(item: &OrganizeItem) -> String {
     }
 }
 
+/// The system folder an item lands in (`ROMS/PS`): its target's folder
+/// cut after the component named like the item's folder (a per-game
+/// subfolder stays out), else the target's folder.
+fn system_dir(item: &OrganizeItem) -> String {
+    let Some(parent) = item.target.as_deref().and_then(Path::parent) else {
+        return String::new();
+    };
+    let Some(folder) = item.folder.as_deref() else {
+        return slash(parent);
+    };
+    let mut prefix = PathBuf::new();
+    for c in parent.components() {
+        prefix.push(c);
+        if c.as_os_str() == folder {
+            return slash(&prefix);
+        }
+    }
+    slash(parent)
+}
+
+/// `Game.gba → ROMS/GBA/Game.gba`, or for an extraction `Game.zip
+/// extract 12 files 405.7 MB → ROMS/PS/` (the folder of its first file;
+/// a generated playlist is not counted).
+fn action_label(item: &OrganizeItem) -> String {
+    match &item.transfer {
+        Transfer::AsIs => format!(
+            "{} → {}",
+            source_label(item),
+            item.target.as_deref().map(slash).unwrap_or_default()
+        ),
+        Transfer::Extract { entries, bytes, .. } => {
+            let dir = item
+                .target
+                .as_deref()
+                .and_then(Path::parent)
+                .map(slash)
+                .unwrap_or_default();
+            let files = match entries.len() {
+                1 => "1 file".to_string(),
+                n => format!("{n} files"),
+            };
+            format!(
+                "{}  extract {files} {} → {dir}/",
+                source_label(item),
+                table::human_bytes(*bytes)
+            )
+        }
+    }
+}
+
+/// Games the plan extracts and their bytes, when it extracts any.
+fn extract_totals(plan: &OrganizePlan) -> Option<(usize, u64)> {
+    let (games, bytes) = plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto)
+        .filter_map(|i| match &i.transfer {
+            Transfer::Extract { bytes, .. } => Some(*bytes),
+            Transfer::AsIs => None,
+        })
+        .fold((0, 0u64), |(n, b), bytes| (n + 1, b.saturating_add(bytes)));
+    (games > 0).then_some((games, bytes))
+}
+
+/// Says why an archive that needs a program was not opened although the
+/// program may be installed: external programs are off.
+fn tools_off_hint(reason: &LeftReason, opts: &OrganizeOptions) -> &'static str {
+    match reason {
+        LeftReason::UnsupportedArchive { need: Some(_), .. } if !opts.limits.external_tools => {
+            " (external programs are off)"
+        }
+        _ => "",
+    }
+}
+
 /// What happened to an applied plan: counts, skipped and failed items,
 /// how to undo it and how to open the result.
 fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
@@ -796,6 +883,9 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         "\nOrganised: moved {}, copied {}, skipped {}, failed {}{job}",
         report.moved, report.copied, report.skipped, report.failed
     );
+    if report.extracted > 0 {
+        let _ = writeln!(out, "Extracted: {}", report.extracted);
+    }
     let label = |o: &ItemOutcome| {
         plan.items
             .get(o.item)
@@ -888,13 +978,7 @@ fn render_table(
         if item.action != OrganizeAction::Auto {
             continue;
         }
-        let folder = item
-            .target
-            .as_deref()
-            .and_then(Path::parent)
-            .map(slash)
-            .unwrap_or_default();
-        groups.entry(folder).or_default().push(item);
+        groups.entry(system_dir(item)).or_default().push(item);
     }
     for (folder, items) in &groups {
         let system = items
@@ -905,13 +989,11 @@ fn render_table(
             .unwrap_or_default();
         let _ = writeln!(out, "\n{folder}/  ({}){system}", items.len());
         for item in items {
-            let target = item.target.as_deref().map(slash).unwrap_or_default();
             let why = item.why.first().map(why_text).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "  {} → {}  {}  {why}{}",
-                source_label(item),
-                target,
+                "  {}  {}  {why}{}",
+                action_label(item),
                 confidence_label(item, opts),
                 item_extras(item)
             );
@@ -955,7 +1037,13 @@ fn render_table(
     if !left.is_empty() {
         let _ = writeln!(out, "\nStaying where they are ({})", left.len());
         for (item, reason) in left {
-            let _ = writeln!(out, "  {}  {}", source_label(item), left_text(reason));
+            let _ = writeln!(
+                out,
+                "  {}  {}{}",
+                source_label(item),
+                left_text(reason),
+                tools_off_hint(reason, opts)
+            );
         }
     }
     if !plan.sorted_folders.is_empty() {
@@ -978,6 +1066,13 @@ fn render_table(
         for w in &plan.warnings {
             let _ = writeln!(out, "warning: {}", warning_text(w));
         }
+    }
+    if let Some((games, bytes)) = extract_totals(plan) {
+        let _ = writeln!(
+            out,
+            "\nExtracting: {games} games ({})",
+            table::human_bytes(bytes)
+        );
     }
     if dry_run {
         let _ = writeln!(
