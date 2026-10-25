@@ -91,6 +91,56 @@ fn missing_or_io(e: io::Error, path: &Path) -> TrashError {
     }
 }
 
+/// Windows Recycle Bin `$I<id>` records, parsed without Windows APIs so
+/// the rules that pick the file undo brings back are tested on every OS.
+#[cfg(any(windows, test))]
+mod recycle_info {
+    /// What a `$I<id>` record says about `$R<id>`.
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) struct RecycleInfo {
+        pub(super) size: u64,
+        /// Deletion time, a FILETIME.
+        pub(super) deleted: u64,
+        pub(super) original: String,
+    }
+
+    /// Version 1 (Vista–8.1) has a fixed 260-unit path, version 2 a
+    /// counted one. A path that is not valid UTF-16 is never ours.
+    pub(super) fn parse(b: &[u8]) -> Option<RecycleInfo> {
+        let word = |at: usize| -> Option<u64> {
+            Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
+        };
+        let units = match word(0)? {
+            1 => b.get(24..24 + 520)?,
+            2 => {
+                let len = u32::from_le_bytes(b.get(24..28)?.try_into().ok()?) as usize;
+                b.get(28..28usize.checked_add(len.checked_mul(2)?)?)?
+            }
+            _ => return None,
+        };
+        let wide: Vec<u16> = units
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
+            .take_while(|&c| c != 0)
+            .collect();
+        let original = String::from_utf16(&wide).ok().filter(|o| !o.is_empty())?;
+        Some(RecycleInfo {
+            size: word(8)?,
+            deleted: word(16)?,
+            original,
+        })
+    }
+
+    /// `info` is the record of the file trashed from `original` (the
+    /// absolute path, compared case-insensitively as Windows does) with
+    /// `size` bytes: a same-named file from another folder is not.
+    pub(super) fn matches(info: &RecycleInfo, original: &str, size: u64) -> bool {
+        info.size == size && info.original.to_lowercase() == original.to_lowercase()
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::ffi::CString;
@@ -566,13 +616,18 @@ mod platform {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::{Path, PathBuf};
 
+    use windows_sys::core::PWSTR;
+    use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
     use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumePathNameW};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     use windows_sys::Win32::UI::Shell::{
         SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
         FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW,
     };
 
-    use super::{fp_matches, missing_or_io, mtime_ns, Fingerprint, TrashError};
+    use super::{fp_matches, missing_or_io, mtime_ns, recycle_info, Fingerprint, TrashError};
 
     /// `GetDriveTypeW`: a fixed drive (removable and network drives have
     /// no Recycle Bin).
@@ -644,104 +699,99 @@ mod platform {
         Ok(find(&abs, name, &fp))
     }
 
-    /// `<root>\$Recycle.Bin\<SID>\$I<id>` names the original path of
-    /// `$R<id>`; folders of other users are unreadable and skipped.
+    /// The string SID (`S-1-5-21-…`) of the user this process runs as:
+    /// the name of their folder in `$Recycle.Bin`.
+    fn current_user_sid() -> Option<String> {
+        let mut token: HANDLE = std::ptr::null_mut();
+        // SAFETY: the pseudo-handle of the current process needs no
+        // closing; `token` receives a handle closed below.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            return None;
+        }
+        let sid = token_user_sid(token);
+        // SAFETY: `token` is the handle opened above.
+        unsafe { CloseHandle(token) };
+        sid
+    }
+
+    fn token_user_sid(token: HANDLE) -> Option<String> {
+        let mut len = 0u32;
+        // SAFETY: a null buffer of length 0 only asks for the size.
+        unsafe { GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut len) };
+        if len == 0 {
+            return None;
+        }
+        // u64s keep the buffer aligned for `TOKEN_USER`.
+        let mut buf = vec![0u64; (len as usize).div_ceil(8)];
+        // SAFETY: `buf` holds at least `len` bytes.
+        let ok = unsafe {
+            GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), len, &mut len)
+        };
+        if ok == 0 {
+            return None;
+        }
+        // SAFETY: on success `buf` starts with a `TOKEN_USER` whose SID
+        // points into `buf`.
+        let user = unsafe { &*buf.as_ptr().cast::<TOKEN_USER>() };
+        let mut text: PWSTR = std::ptr::null_mut();
+        // SAFETY: the SID is valid while `buf` lives; `text` receives a
+        // LocalAlloc'd nul-terminated string freed below.
+        if unsafe { ConvertSidToStringSidW(user.User.Sid, &mut text) } == 0 || text.is_null() {
+            return None;
+        }
+        // SAFETY: `text` is nul-terminated.
+        let units = unsafe {
+            let n = (0..).take_while(|&i| *text.add(i) != 0).count();
+            std::slice::from_raw_parts(text, n).to_vec()
+        };
+        // SAFETY: `text` came from `ConvertSidToStringSidW`.
+        unsafe { LocalFree(text.cast()) };
+        String::from_utf16(&units).ok()
+    }
+
+    /// `<root>\$Recycle.Bin\<SID>\$I<id>` names the original path and
+    /// size of `$R<id>`. Only the current user's folder is read, and only a
+    /// record of exactly the absolute path `volume_of` (the file that was
+    /// trashed) with the size of `fp` counts: a same-named file from
+    /// another folder, or another user's, is never brought back.
     pub(super) fn find(volume_of: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf> {
-        let bin = volume_root(volume_of)?.join("$Recycle.Bin");
+        let original = std::path::absolute(volume_of).ok()?;
+        let original = original.to_str()?;
+        let same_name = Path::new(original)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|n| n.to_lowercase() == name.to_lowercase());
+        if !same_name {
+            return None;
+        }
+        let bin = volume_root(volume_of)?
+            .join("$Recycle.Bin")
+            .join(current_user_sid()?);
         let mut best: Option<(u64, PathBuf)> = None;
-        for user in fs::read_dir(bin).ok()?.flatten() {
-            let Ok(entries) = fs::read_dir(user.path()) else {
+        for entry in fs::read_dir(&bin).ok()?.flatten() {
+            let file = entry.file_name();
+            let Some(id) = file.to_str().and_then(|f| f.strip_prefix("$I")) else {
                 continue;
             };
-            for entry in entries.flatten() {
-                let file = entry.file_name();
-                let Some(id) = file.to_str().and_then(|f| f.strip_prefix("$I")) else {
-                    continue;
-                };
-                if entry.metadata().map_or(true, |m| m.len() > MAX_INFO) {
-                    continue;
-                }
-                let Some((when, original)) =
-                    fs::read(entry.path()).ok().as_deref().and_then(parse_info)
-                else {
-                    continue;
-                };
-                let same_name = original
-                    .file_name()
-                    .and_then(OsStr::to_str)
-                    .is_some_and(|n| n.to_lowercase() == name.to_lowercase());
-                let data = user.path().join(format!("$R{id}"));
-                if same_name
-                    && fp_matches(&data, fp)
-                    && best.as_ref().is_none_or(|(w, _)| when >= *w)
-                {
-                    best = Some((when, data));
-                }
+            if entry.metadata().map_or(true, |m| m.len() > MAX_INFO) {
+                continue;
+            }
+            let Some(info) = fs::read(entry.path())
+                .ok()
+                .as_deref()
+                .and_then(recycle_info::parse)
+            else {
+                continue;
+            };
+            let data = bin.join(format!("$R{id}"));
+            if recycle_info::matches(&info, original, fp.size)
+                && fp_matches(&data, fp)
+                && best.as_ref().is_none_or(|(w, _)| info.deleted >= *w)
+            {
+                best = Some((info.deleted, data));
             }
         }
         best.map(|(_, p)| p)
-    }
-
-    /// `(deletion FILETIME, original path)` of a `$I` file: version 1
-    /// (Vista–8.1) has a fixed 260-unit path, version 2 a counted one.
-    fn parse_info(b: &[u8]) -> Option<(u64, PathBuf)> {
-        let word = |at: usize| -> Option<u64> {
-            Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
-        };
-        let when = word(16)?;
-        let units = match word(0)? {
-            1 => b.get(24..24 + 520)?,
-            2 => {
-                let len = u32::from_le_bytes(b.get(24..28)?.try_into().ok()?) as usize;
-                b.get(28..28usize.checked_add(len.checked_mul(2)?)?)?
-            }
-            _ => return None,
-        };
-        let wide: Vec<u16> = units
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes(*c))
-            .take_while(|&c| c != 0)
-            .collect();
-        (!wide.is_empty()).then(|| (when, PathBuf::from(OsString::from_wide(&wide))))
-    }
-
-    #[cfg(test)]
-    mod windows_tests {
-        use super::parse_info;
-        use std::path::PathBuf;
-
-        fn info_v2(path: &str, when: u64) -> Vec<u8> {
-            let units: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
-            let mut b = Vec::new();
-            b.extend_from_slice(&2u64.to_le_bytes());
-            b.extend_from_slice(&123u64.to_le_bytes());
-            b.extend_from_slice(&when.to_le_bytes());
-            b.extend_from_slice(&(units.len() as u32).to_le_bytes());
-            for u in units {
-                b.extend_from_slice(&u.to_le_bytes());
-            }
-            b
-        }
-
-        #[test]
-        fn recycle_bin_info_v2_parses() {
-            let b = info_v2(r"D:\ROMs\Tetris Plus.zip", 42);
-            assert_eq!(
-                parse_info(&b),
-                Some((42, PathBuf::from(r"D:\ROMs\Tetris Plus.zip")))
-            );
-        }
-
-        #[test]
-        fn recycle_bin_info_truncated_is_ignored() {
-            let b = info_v2(r"D:\ROMs\Tetris Plus.zip", 42);
-            assert_eq!(parse_info(&b[..30]), None);
-            let mut huge = b.clone();
-            huge[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
-            assert_eq!(parse_info(&huge), None);
-        }
     }
 }
 
@@ -1058,6 +1108,82 @@ mod tests {
                 Some(at),
                 "found again by name and fingerprint"
             );
+        }
+    }
+
+    mod recycle_info_tests {
+        use super::super::recycle_info::{matches, parse, RecycleInfo};
+
+        fn info_v2(path: &str, size: u64, when: u64) -> Vec<u8> {
+            let units: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+            let mut b = Vec::new();
+            b.extend_from_slice(&2u64.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(&when.to_le_bytes());
+            b.extend_from_slice(&(units.len() as u32).to_le_bytes());
+            for u in units {
+                b.extend_from_slice(&u.to_le_bytes());
+            }
+            b
+        }
+
+        fn info_v1(path: &str, size: u64, when: u64) -> Vec<u8> {
+            let mut b = Vec::new();
+            b.extend_from_slice(&1u64.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(&when.to_le_bytes());
+            let mut units: Vec<u16> = path.encode_utf16().collect();
+            units.resize(260, 0);
+            for u in units {
+                b.extend_from_slice(&u.to_le_bytes());
+            }
+            b
+        }
+
+        fn tetris(original: &str) -> RecycleInfo {
+            RecycleInfo {
+                size: 123,
+                deleted: 42,
+                original: original.to_owned(),
+            }
+        }
+
+        #[test]
+        fn recycle_bin_info_v2_parses() {
+            let b = info_v2(r"D:\ROMs\Tetris Plus.zip", 123, 42);
+            assert_eq!(parse(&b), Some(tetris(r"D:\ROMs\Tetris Plus.zip")));
+        }
+
+        #[test]
+        fn recycle_bin_info_v1_parses() {
+            let b = info_v1(r"D:\ROMs\Tetris Plus.zip", 123, 42);
+            assert_eq!(parse(&b), Some(tetris(r"D:\ROMs\Tetris Plus.zip")));
+        }
+
+        #[test]
+        fn recycle_bin_info_truncated_is_ignored() {
+            let b = info_v2(r"D:\ROMs\Tetris Plus.zip", 123, 42);
+            assert_eq!(parse(&b[..30]), None);
+            let mut huge = b.clone();
+            huge[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
+            assert_eq!(parse(&huge), None);
+            let mut unknown = b;
+            unknown[0] = 3;
+            assert_eq!(parse(&unknown), None);
+        }
+
+        #[test]
+        fn recycle_bin_info_matches_only_the_exact_path_and_size() {
+            let info = tetris(r"D:\ROMs\Tetris Plus.zip");
+            assert!(matches(&info, r"D:\ROMs\Tetris Plus.zip", 123));
+            // Windows paths are case-insensitive.
+            assert!(matches(&info, r"d:\roms\TETRIS PLUS.ZIP", 123));
+            // Same file name, another folder (or another user's file).
+            assert!(!matches(&info, r"D:\Other\Tetris Plus.zip", 123));
+            assert!(!matches(&info, r"E:\ROMs\Tetris Plus.zip", 123));
+            assert!(!matches(&info, r"D:\ROMs\Tetris Plus.zip.bak", 123));
+            // Same path, different contents.
+            assert!(!matches(&info, r"D:\ROMs\Tetris Plus.zip", 124));
         }
     }
 
