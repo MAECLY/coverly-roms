@@ -61,6 +61,36 @@ describe('organise store', () => {
     expect(s.error).toBeNull();
   });
 
+  it('a dry run never takes apply-time extract progress as its own', async () => {
+    const listeners: ((p: unknown) => void)[] = [];
+    vi.spyOn(b, 'onOrganizeProgress').mockImplementation(async (cb) => {
+      listeners.push(cb as (p: unknown) => void);
+      return () => {};
+    });
+    const plan = b.organizePlan.bind(b);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(b, 'organizePlan').mockImplementation(async (req, dec) => {
+      await gate;
+      return plan(req, dec);
+    });
+    const started = store().start(MOCK_DOWNLOADS);
+    await waitFor(() => expect(listeners.length).toBeGreaterThan(0));
+    for (const cb of listeners)
+      cb({
+        plan_id: 999,
+        phase: 'extract',
+        done: 1,
+        total: 12,
+        item: 0,
+        bytes_done: 0,
+        bytes_total: 10,
+      });
+    expect(store().progress).toBeNull();
+    release();
+    await started;
+  });
+
   it('setOption re-plans and keeps decisions', async () => {
     await store().start(MOCK_MIXED);
     const review = store().plan!.items.filter((i) => i.action === 'review');
