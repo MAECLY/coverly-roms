@@ -320,6 +320,34 @@ fn check_plan(plan: &DedupePlan) -> Result<(), DedupeError> {
             return Err(DedupeError::EveryMemberMoves(g.id));
         }
     }
+    // No extra may carry away a file a copy that stays uses: a keeper's
+    // files and companions, a shared companion, or any file of a group that
+    // does not act, in this group or another one.
+    let mut stays: BTreeSet<&Path> = BTreeSet::new();
+    for g in &plan.groups {
+        for m in &g.members {
+            let stays_put = g.action != GroupAction::Act || m.id == g.keeper;
+            if stays_put {
+                stays.extend(m.unit.files.iter().map(PathBuf::as_path));
+                stays.extend(m.travels.iter().map(|t| t.from.as_path()));
+            }
+            stays.extend(m.stays.iter().map(|s| s.path.as_path()));
+        }
+    }
+    for g in plan.groups.iter().filter(|g| g.action == GroupAction::Act) {
+        let takes = g
+            .members
+            .iter()
+            .filter(|m| m.id != g.keeper)
+            .flat_map(|m| {
+                let travels = m.travels.iter().map(|t| &t.from);
+                m.unit.files.iter().chain(travels)
+            })
+            .any(|f| stays.contains(f.as_path()));
+        if takes {
+            return Err(DedupeError::EveryMemberMoves(g.id));
+        }
+    }
     Ok(())
 }
 

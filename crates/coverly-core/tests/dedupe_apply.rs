@@ -1162,4 +1162,98 @@ mod run {
         top.sort();
         assert_eq!(top, ["SD", "data", "sibling"]);
     }
+
+    /// A plan whose extra would carry away a file a copy that stays uses
+    /// (its own group's keeper, another group's keeper) is refused before
+    /// any write: the copy that stays never loses a file.
+    #[test]
+    fn an_extra_never_takes_a_file_the_keeper_needs() {
+        use coverly_core::dedupe::{Travel, TravelKind};
+        let card = Card::new();
+        let (keeper, _) = tetris(&card);
+        let mario = rom(3, 64 * 1024);
+        card.put("ROMS/SFC/Mario.sfc", &mario);
+        let mario = card.put("ROMS/SFC/Mario (1).sfc", &mario);
+        let plan = card.plan();
+        let before = tree(&card.root);
+        let refused = |tampered: &DedupePlan, gid: u64| {
+            let err = card
+                .apply(tampered, &DedupeDecisions::default())
+                .unwrap_err();
+            assert!(
+                matches!(err, ApplyError::Dedupe(DedupeError::EveryMemberMoves(id)) if id == gid),
+                "{err:?}"
+            );
+        };
+        let travel = |plan: &mut DedupePlan, system: &str, from: &Path| -> u64 {
+            let g = plan.groups.iter_mut().find(|g| g.system == system).unwrap();
+            let extra = 1 - g.keeper;
+            g.members[extra].travels.push(Travel {
+                from: from.to_path_buf(),
+                kind: TravelKind::Text,
+            });
+            g.id
+        };
+
+        // The GB extra's travels name its own keeper.
+        let mut tampered = plan.clone();
+        let gid = travel(&mut tampered, "gb", &keeper);
+        refused(&tampered, gid);
+
+        // The SFC extra's travels name the GB keeper.
+        let mut tampered = plan.clone();
+        let gid = travel(&mut tampered, "snes", &keeper);
+        refused(&tampered, gid);
+
+        assert_eq!(tree(&card.root), before);
+        assert!(keeper.is_file() && mario.is_file());
+        assert!(list_jobs(&card.data).unwrap_or_default().is_empty());
+    }
+
+    /// A set rolled back in the run leaves a journal whose undo finds every
+    /// file at home: nothing moves, nothing is lost, bytes unchanged.
+    #[test]
+    fn undo_after_a_rolled_back_set_changes_nothing() {
+        let card = Card::new();
+        let (_, set) = crash(&card);
+        let plan = card.plan();
+        let before = tree(&card.root);
+        set_copy_fault(Some(fail_track_two));
+        let report = card.apply(&plan, &DedupeDecisions::default());
+        set_copy_fault(None);
+        let report = report.unwrap();
+        for f in &set {
+            assert!(f.is_file());
+        }
+        let library = |t: BTreeMap<PathBuf, Vec<u8>>| -> BTreeMap<PathBuf, Vec<u8>> {
+            t.into_iter()
+                .filter(|(p, _)| !p.starts_with(card.q()))
+                .collect()
+        };
+        assert_eq!(library(tree(&card.root)), before);
+        if let Some(job) = report.job.as_deref() {
+            let undo = undo_job_with(&card.data, job, &card.trash()).unwrap();
+            assert!(undo.archive_lost.is_empty(), "{undo:?}");
+            assert!(undo.skipped_occupied.is_empty(), "{undo:?}");
+            assert_eq!(library(tree(&card.root)), before, "{undo:?}");
+        }
+    }
+
+    /// Resuming a job that already finished sets nothing aside twice and
+    /// keeps every copy where the first run put it.
+    #[test]
+    fn resuming_a_finished_job_is_harmless() {
+        let card = Card::new();
+        let (keeper, extra) = tetris(&card);
+        let plan = card.plan();
+        let report = card.apply(&plan, &DedupeDecisions::default()).unwrap();
+        let job = report.job.unwrap();
+        let after = tree(&card.root);
+        let trash = card.trash();
+        let again = resume_dedupe(&job, &card.env(&trash, &|_, _| {}));
+        assert_eq!(tree(&card.root), after, "{again:?}");
+        assert!(keeper.is_file() && !extra.exists());
+        undo_job_with(&card.data, &job, &card.trash()).unwrap();
+        assert_eq!(fs::read(&extra).unwrap(), rom(1, 32 * 1024));
+    }
 }
