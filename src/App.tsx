@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { DuplicatesScreen } from './screens/DuplicatesScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
 import { OrganizeScreen } from './screens/OrganizeScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -42,5 +43,6 @@ export default function App() {
   }, [screen]);
   if (screen === 'settings') return <SettingsScreen />;
   if (screen === 'organize') return <OrganizeScreen />;
+  if (screen === 'duplicates') return <DuplicatesScreen />;
   return ready ? <LibraryScreen /> : <StartScreen />;
 }

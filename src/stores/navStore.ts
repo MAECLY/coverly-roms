@@ -26,7 +26,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'about',
 ];
 
-export type Screen = 'main' | 'settings' | 'organize';
+export type Screen = 'main' | 'settings' | 'organize' | 'duplicates';
 
 /** How the organise screen starts: preset options (organising the loose
  * files of an open library keeps its layout, locked, and moves). */
@@ -45,11 +45,15 @@ interface NavState {
   /** The folder the organise screen was opened for. */
   organizeSource: string | null;
   organizeLaunch: OrganizeLaunch | null;
+  /** The library the duplicates screen was opened for. */
+  duplicatesRoot: string | null;
   openSettings(section?: SettingsSection): void;
   closeSettings(): void;
   setSection(section: SettingsSection): void;
   openOrganize(source: string, launch?: OrganizeLaunch): void;
   closeOrganize(): void;
+  openDuplicates(root: string): void;
+  closeDuplicates(): void;
 }
 
 export const useNavStore = create<NavState>()((set) => ({
@@ -57,6 +61,7 @@ export const useNavStore = create<NavState>()((set) => ({
   section: 'general',
   organizeSource: null,
   organizeLaunch: null,
+  duplicatesRoot: null,
   openSettings: (section) =>
     set((s) => ({ screen: 'settings', section: section ?? s.section })),
   closeSettings: () => set({ screen: 'main' }),
@@ -69,4 +74,6 @@ export const useNavStore = create<NavState>()((set) => ({
     }),
   closeOrganize: () =>
     set({ screen: 'main', organizeSource: null, organizeLaunch: null }),
+  openDuplicates: (root) => set({ screen: 'duplicates', duplicatesRoot: root }),
+  closeDuplicates: () => set({ screen: 'main', duplicatesRoot: null }),
 }));

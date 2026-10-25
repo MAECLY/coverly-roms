@@ -617,3 +617,83 @@
 .dup-conflict__label {
   font: var(--cr-type-app-base);
 }
+
+/* ---- The screen (spec §11.3) ------------------------------------------ */
+
+/* The title: Archivo condensed, the only display type besides the count. */
+.dup-screen__title {
+  margin: 0;
+  font-family: var(--cr-font-display);
+  font-size: 1.5rem;
+  font-stretch: 75%;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+/* The answer of the screen: the first clause of the summary (brief). */
+.dup-screen__count {
+  margin: 0;
+  font-family: var(--cr-font-display);
+  font-size: 2rem;
+  font-stretch: 75%;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  color: var(--cr-text);
+}
+
+.dup-screen__summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dup-screen__summary p {
+  margin: 0;
+}
+
+/* Planning: the steps in the order they run, a check once done. */
+.dup-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--cr-text-muted);
+}
+
+.dup-phases li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.dup-phases li[data-state='done'] {
+  color: var(--cr-text);
+}
+
+.dup-phases li[data-state='current'] {
+  color: var(--cr-text);
+  font-weight: 600;
+}
+
+.dup-phases svg {
+  color: var(--cr-primary);
+}
+
+.dup-notes {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--cr-text-secondary);
+}
+
+/* The sticky bar: freed bytes on the right, in the size column's face. */
+.dup-bar__freed {
+  margin-left: auto;
+  white-space: nowrap;
+}
