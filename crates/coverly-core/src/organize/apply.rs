@@ -1381,9 +1381,11 @@ impl<'a> Run<'a> {
         let bytes_total = decode_total(reader.entries(), entries);
         let (done, total) = self.at;
         let progress = self.env.progress;
+        let item_id = item.id;
         let report = |bytes_done: u64| {
             progress(OrganizeProgress {
                 phase: OrganizePhase::Extract {
+                    item: item_id,
                     bytes_done,
                     bytes_total,
                 },

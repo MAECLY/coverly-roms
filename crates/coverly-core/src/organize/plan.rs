@@ -551,9 +551,12 @@ pub enum OrganizePhase {
     Hash,
     /// Moving or copying the items (`organize::apply`).
     Apply,
-    /// Extracting one archive item: `bytes_done` of the `bytes_total` its
-    /// decode pass goes through (a solid block's other entries included).
+    /// Extracting archive item `item` (its [`OrganizeItem::id`]):
+    /// `bytes_done` of the `bytes_total` its decode pass goes through (a
+    /// solid block's other entries included). The first event of an item
+    /// has `bytes_done == 0` and its last `bytes_done == bytes_total`.
     Extract {
+        item: usize,
         bytes_done: u64,
         bytes_total: u64,
     },

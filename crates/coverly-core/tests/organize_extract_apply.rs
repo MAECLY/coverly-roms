@@ -1595,23 +1595,26 @@ mod apply_phases {
             .collect();
         drop(reader);
         let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
+        let mut plan = plan_of(&env, vec![item], TransferMode::Move);
+        plan.items[0].id = 7;
         let seen: Mutex<Vec<(u64, u64)>> = Mutex::default();
+        let items: Mutex<Vec<usize>> = Mutex::default();
         let trash = FakeTrash::new(trash_dir(&env));
-        let report = apply_full(
-            &env,
-            &plan_of(&env, vec![item], TransferMode::Move),
-            &trash,
-            Some(&[]),
-            &|p| {
-                if let OrganizePhase::Extract {
-                    bytes_done,
-                    bytes_total,
-                } = p.phase
-                {
-                    seen.lock().unwrap().push((bytes_done, bytes_total));
-                }
-            },
-        );
+        let report = apply_full(&env, &plan, &trash, Some(&[]), &|p| {
+            if let OrganizePhase::Extract {
+                item,
+                bytes_done,
+                bytes_total,
+            } = p.phase
+            {
+                seen.lock().unwrap().push((bytes_done, bytes_total));
+                items.lock().unwrap().push(item);
+            }
+        });
+        // Every event names the item being extracted (the webview shows
+        // its name).
+        let items = items.into_inner().unwrap();
+        assert!(items.iter().all(|&i| i == 7), "{items:?}");
         assert_eq!(*status(&report), ItemStatus::Extracted);
         let seen = seen.into_inner().unwrap();
         let total = (save.len() + rom.len()) as u64;

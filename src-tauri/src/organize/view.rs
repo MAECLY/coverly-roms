@@ -76,8 +76,9 @@ pub struct OrganizePlanView {
 
 /// Planning or apply progress of plan `plan_id` (at most every 100 ms;
 /// phase changes and ends always). On the wire the phase is a plain
-/// kebab-case name; an `extract` event also carries `bytes_done` of the
-/// `bytes_total` its decode pass goes through (archives spec §12).
+/// kebab-case name; an `extract` event also carries the `item` being
+/// extracted and `bytes_done` of the `bytes_total` its decode pass goes
+/// through (archives spec §12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(into = "ProgressWire")]
 pub struct OrganizeProgressEvent {
@@ -94,6 +95,9 @@ struct ProgressWire {
     phase: PhaseName,
     done: usize,
     total: usize,
+    /// The item being extracted (`extract` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    item: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bytes_done: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,24 +118,26 @@ enum PhaseName {
 
 impl From<OrganizeProgressEvent> for ProgressWire {
     fn from(e: OrganizeProgressEvent) -> Self {
-        let (phase, bytes) = match e.phase {
+        let (phase, extract) = match e.phase {
             OrganizePhase::Walk => (PhaseName::Walk, None),
             OrganizePhase::Identify => (PhaseName::Identify, None),
             OrganizePhase::Dats => (PhaseName::Dats, None),
             OrganizePhase::Hash => (PhaseName::Hash, None),
             OrganizePhase::Apply => (PhaseName::Apply, None),
             OrganizePhase::Extract {
+                item,
                 bytes_done,
                 bytes_total,
-            } => (PhaseName::Extract, Some((bytes_done, bytes_total))),
+            } => (PhaseName::Extract, Some((item, bytes_done, bytes_total))),
         };
         ProgressWire {
             plan_id: e.plan_id,
             phase,
             done: e.done,
             total: e.total,
-            bytes_done: bytes.map(|b| b.0),
-            bytes_total: bytes.map(|b| b.1),
+            item: extract.map(|x| x.0),
+            bytes_done: extract.map(|x| x.1),
+            bytes_total: extract.map(|x| x.2),
         }
     }
 }
@@ -220,6 +226,7 @@ mod tests {
         let e = OrganizeProgressEvent {
             plan_id: 3,
             phase: OrganizePhase::Extract {
+                item: 5,
                 bytes_done: 1024,
                 bytes_total: 405_749_493,
             },
@@ -233,6 +240,7 @@ mod tests {
                 "phase": "extract",
                 "done": 1,
                 "total": 3,
+                "item": 5,
                 "bytes_done": 1024,
                 "bytes_total": 405_749_493u64,
             })

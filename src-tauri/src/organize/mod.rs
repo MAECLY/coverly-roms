@@ -401,8 +401,19 @@ impl Throttle {
         let due = match *last {
             None => true,
             Some((phase, at)) => {
-                // An extraction's byte counts are progress, not a new phase.
+                // An extraction's byte counts are progress, not a new phase;
+                // its start (a new item to name) and its end (the bar full)
+                // always go out.
+                let extract_edge = match p.phase {
+                    OrganizePhase::Extract {
+                        bytes_done,
+                        bytes_total,
+                        ..
+                    } => bytes_done == 0 || bytes_done >= bytes_total,
+                    _ => false,
+                };
                 std::mem::discriminant(&phase) != std::mem::discriminant(&p.phase)
+                    || extract_edge
                     || (p.total > 0 && p.done >= p.total)
                     || now.duration_since(at) >= PROGRESS_EVERY
             }
@@ -482,6 +493,7 @@ mod tests {
         let t = Throttle::new(2, sink.clone());
         let p = |bytes_done| OrganizeProgress {
             phase: OrganizePhase::Extract {
+                item: 0,
                 bytes_done,
                 bytes_total: 1000,
             },
@@ -494,6 +506,36 @@ mod tests {
         let got = sink.0.lock().unwrap().clone();
         assert!(!got.is_empty());
         assert!(got.len() < 10, "throttled: {} events", got.len());
+    }
+
+    #[test]
+    fn an_extractions_start_and_end_are_never_dropped() {
+        let sink = Arc::new(Sink(Mutex::new(Vec::new())));
+        let t = Throttle::new(2, sink.clone());
+        let p = |item, bytes_done| OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                item,
+                bytes_done,
+                bytes_total: 1000,
+            },
+            done: item,
+            total: 3,
+        };
+        // Two quick extractions in a row, well inside one throttle window.
+        for item in 0..2 {
+            for b in [0, 10, 500, 1000] {
+                t.progress(p(item, b));
+            }
+        }
+        let got: Vec<_> = sink.0.lock().unwrap().iter().map(|e| e.phase).collect();
+        let at = |item, bytes_done| OrganizePhase::Extract {
+            item,
+            bytes_done,
+            bytes_total: 1000,
+        };
+        // Each item's start (its name shows up) and its end (the bar fills)
+        // reach the webview; the steps in between are throttled.
+        assert_eq!(got, vec![at(0, 0), at(0, 1000), at(1, 0), at(1, 1000)]);
     }
 
     /// Blocks inside `progress` for `done == 1` until released.

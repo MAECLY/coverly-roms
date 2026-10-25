@@ -1028,6 +1028,13 @@ mod archives {
         let plan = st
             .organize_plan(&req, &[], Arc::new(Recorder::default()))
             .unwrap();
+        let archive_id = plan
+            .plan
+            .items
+            .iter()
+            .find(|i| i.sources[0].ends_with(ARCHIVE))
+            .expect("the disc archive is planned")
+            .id;
         let events = Arc::new(ApplyRecorder::default());
         st.organize_apply(plan.plan_id, &[], events.clone())
             .unwrap();
@@ -1055,6 +1062,11 @@ mod archives {
         assert_eq!(wire["phase"], "extract");
         assert!(wire["bytes_done"].is_u64(), "{wire}");
         assert!(wire["bytes_total"].as_u64().unwrap() > 0, "{wire}");
+        // The item being extracted, so the webview can name it.
+        assert_eq!(wire["item"], archive_id, "{wire}");
+        // Its last event says the decode pass is through.
+        let last = serde_json::to_value(extract.last().unwrap()).unwrap();
+        assert_eq!(last["bytes_done"], last["bytes_total"], "{last}");
         // Moving and copying carry no byte counts.
         let other = OrganizeProgressEvent {
             plan_id: 1,
@@ -1066,6 +1078,7 @@ mod archives {
         assert_eq!(wire["phase"], "apply");
         assert!(wire.get("bytes_done").is_none(), "{wire}");
         assert!(wire.get("bytes_total").is_none(), "{wire}");
+        assert!(wire.get("item").is_none(), "{wire}");
         // The job view carries the same shape while applying.
         let job = serde_json::to_value(&end).unwrap();
         assert_eq!(job["report"]["extracted"], 1);

@@ -498,7 +498,7 @@ Tool names are not translated (`unrar`, `7-Zip`). `parity.test.ts` enforces both
 ## 12. CLI, IPC
 
 - `coverly organize` prints the action per item (`extract 12 files 405.7 MB → ROMS/PS/`), honours `--copy` (archive kept) and gains `--no-external-tools`. `--report json` includes `transfer`. `coverly undo` handles the new ops.
-- IPC: no new commands; `OrganizeItem.transfer`, `OrganizeItem.disc`, new `LeftReason`/`ItemNote` variants and `OrganizeReport.extracted` are mirrored in `src/ipc/types.ts`, the mock and the contract fixtures. Progress events gain `phase: "extract"` with `bytes_done`/`bytes_total`.
+- IPC: no new commands; `OrganizeItem.transfer`, `OrganizeItem.disc`, new `LeftReason`/`ItemNote` variants and `OrganizeReport.extracted` are mirrored in `src/ipc/types.ts`, the mock and the contract fixtures. Progress events gain `phase: "extract"` with the `item` id being extracted and `bytes_done`/`bytes_total` (an item's first and last extract events are never throttled away).
 
 ## 13. Security
 
