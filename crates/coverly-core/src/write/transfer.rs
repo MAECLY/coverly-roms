@@ -212,6 +212,23 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
+    /// Moves `from` to `to`, both inside the source root: a pile copy the
+    /// duplicates step sets aside on the pile's own side (duplicates spec
+    /// §7.1), an instant rename there. Journaled as any move (folders it
+    /// creates too), so undo puts it back.
+    pub fn set_aside_file(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+    ) -> Result<MoveOutcome, WriteError> {
+        let library = std::mem::replace(&mut self.root, self.source_root.clone());
+        let out = self.transfer(from, to, collision, item, Mode::Move, true);
+        self.root = library;
+        out
+    }
+
     /// Puts back a file this run just moved from `from` to `to` (a set
     /// rolled back by its caller): a no-clobber rename, or across volumes a
     /// streamed, verified copy home and then `to` deleted. The journal keeps

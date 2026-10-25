@@ -87,7 +87,7 @@ pub(super) fn undo_entry(
             Ok(())
         }
         Op::Moved { from, via } => {
-            let target = ensure_within(ctx.root, &target)?;
+            let target = within_either(ctx, &target)?;
             let from = source_path(ctx.source_root, &from)?;
             match fp {
                 Some(fp) => undo_move(ctx, &target, &from, via, &fp, report),
@@ -95,7 +95,7 @@ pub(super) fn undo_entry(
             }
         }
         Op::Copied { from } => {
-            let target = ensure_within(ctx.root, &target)?;
+            let target = within_either(ctx, &target)?;
             let from = source_path(ctx.source_root, &from)?;
             match fp {
                 Some(fp) => undo_copy(ctx, &target, &fp, report),
@@ -142,6 +142,16 @@ pub(super) fn undo_entry(
         // Brought back before any entry is undone (`restore_archives`).
         Op::ArchiveTrash { .. } | Op::ArchiveTrashed { .. } | Op::ArchiveKept { .. } => Ok(()),
     }
+}
+
+/// `target` inside the job's root, or inside its source root: a pile copy
+/// the duplicates step set aside stays on the pile's side (moves and the
+/// folders they created).
+fn within_either(ctx: &Ctx<'_>, target: &Path) -> Result<PathBuf, WriteError> {
+    ensure_within(ctx.root, target).or_else(|e| match ensure_within(ctx.source_root, target) {
+        Ok(t) => Ok(t),
+        Err(_) => Err(e),
+    })
 }
 
 /// Where the newest line for an archive leaves it.
@@ -637,7 +647,7 @@ fn remove_litter(dir: &Path) {
 /// A folder the job created: removed when it holds nothing of the user's
 /// (litter and emptied folders do not count); otherwise kept untouched.
 fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
-    let Ok(dir) = ensure_within(ctx.root, dir) else {
+    let Ok(dir) = within_either(ctx, dir) else {
         return;
     };
     if !fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {
