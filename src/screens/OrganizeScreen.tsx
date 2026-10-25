@@ -590,10 +590,15 @@ function Proposal({
         </p>
         {extracting && (
           <p className="m-0 text-dense tabular-nums text-cr-text">
-            {t('organize.extract.summary', {
-              count: extracting.count,
-              bytes: formatDecimalSize(extracting.bytes, locale),
-            })}
+            {t(
+              extracting.count === 1
+                ? 'organize.extract.summaryOne'
+                : 'organize.extract.summary',
+              {
+                count: extracting.count,
+                bytes: formatDecimalSize(extracting.bytes, locale),
+              },
+            )}
           </p>
         )}
         <p className={hintText}>{t('organize.dryRunHint')}</p>
@@ -644,7 +649,9 @@ function Proposal({
         {counts.auto > 0 ? (
           <Button variant="primary" disabled={stale} onClick={onApply}>
             <FolderTree aria-hidden />
-            {t('organize.apply', { count: counts.auto })}
+            {t(counts.auto === 1 ? 'organize.applyOne' : 'organize.apply', {
+              count: counts.auto,
+            })}
           </Button>
         ) : (
           // Sorted folders live in the source: "open" opens the target,

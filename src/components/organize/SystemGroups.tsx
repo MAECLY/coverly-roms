@@ -267,10 +267,15 @@ function ActionBadge({
       </Badge>
       {detail && (
         <span className="whitespace-nowrap font-mono text-caption tabular-nums text-cr-text-secondary">
-          {t('organize.extract.detail', {
-            count: detail.count,
-            bytes: formatDecimalSize(detail.bytes, locale),
-          })}
+          {t(
+            detail.count === 1
+              ? 'organize.extract.detailOne'
+              : 'organize.extract.detail',
+            {
+              count: detail.count,
+              bytes: formatDecimalSize(detail.bytes, locale),
+            },
+          )}
         </span>
       )}
     </span>

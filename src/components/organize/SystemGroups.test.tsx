@@ -249,6 +249,12 @@ describe('SystemGroups — actions and discs', () => {
     expect(detail).toHaveClass('font-mono');
   });
 
+  it('extract_detail_says_one_file_in_the_singular', () => {
+    renderGroups([discItem(0, {}, 0)]);
+    expect(screen.getByText('1 file · 1.2 kB')).toHaveClass('font-mono');
+    expect(screen.queryByText(/1 files/)).not.toBeInTheDocument();
+  });
+
   it('disc_row_shows_serial', () => {
     renderGroups([discItem(0), autoItem(1, 'Tetris DX.zip', 'gb', 'ROMS/GB')]);
     const ps = screen.getByRole('group', { name: /^ROMS\/PS\/ \(1\)/ });

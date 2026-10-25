@@ -1026,6 +1026,7 @@
     },
     "extract": {
       "detail": "{count} files · {bytes}",
+      "detailOne": "1 file · {bytes}",
       "files": "Files to extract",
       "filesFrom": "Files to extract from {name}",
       "into": "Extracted into {folder}",
@@ -1034,6 +1035,7 @@
       "layoutFolder": "Each game in its own folder: {folder}",
       "m3u": "{name} is created for disc swapping",
       "summary": "Extracting: {count} games ({bytes})",
+      "summaryOne": "Extracting: 1 game ({bytes})",
       "trashed": "The archive was moved to the Trash"
     },
     "extracting": "Extracting {name}: {done} of {total} files…",
@@ -1176,6 +1178,7 @@
       "user": "your choice"
     },
     "apply": "Organise {count} files",
+    "applyOne": "Organise 1 file",
     "exportPlan": "Export plan (JSON)",
     "exported": "Plan saved as {name}.",
     "openLibrary": "Open library",

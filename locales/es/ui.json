@@ -1026,6 +1026,7 @@
     },
     "extract": {
       "detail": "{count} archivos · {bytes}",
+      "detailOne": "1 archivo · {bytes}",
       "files": "Archivos que se extraen",
       "filesFrom": "Archivos que se extraen de {name}",
       "into": "Se extraen en {folder}",
@@ -1034,6 +1035,7 @@
       "layoutFolder": "Cada juego en su carpeta: {folder}",
       "m3u": "Se crea {name} para cambiar de disco",
       "summary": "Se extraen: {count} juegos ({bytes})",
+      "summaryOne": "Se extrae: 1 juego ({bytes})",
       "trashed": "El comprimido se ha enviado a la papelera"
     },
     "extracting": "Extrayendo {name}: {done} de {total} archivos…",
@@ -1176,6 +1178,7 @@
       "user": "tu elección"
     },
     "apply": "Organizar {count} archivos",
+    "applyOne": "Organizar 1 archivo",
     "exportPlan": "Exportar plan (JSON)",
     "exported": "Plan guardado como {name}.",
     "openLibrary": "Abrir biblioteca",
