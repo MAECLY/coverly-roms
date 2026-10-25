@@ -361,6 +361,19 @@ describe('DuplicatesScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('leaving while planning stops the plan', async () => {
+    b = mock({ delayMs: 30 });
+    setBackend(b);
+    const cancel = vi.spyOn(b, 'dedupeCancel');
+    renderScreen();
+    await waitFor(() =>
+      expect(useDedupeStore.getState().progress).not.toBeNull(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Biblioteca' }));
+    await waitFor(() => expect(cancel).toHaveBeenCalled());
+    expect(useNavStore.getState().screen).toBe('main');
+  });
+
   it('a paused apply offers to resume', async () => {
     b = mock({ dedupePauseAfter: 5 });
     setBackend(b);

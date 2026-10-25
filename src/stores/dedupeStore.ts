@@ -433,7 +433,13 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
     },
     reset() {
       seq += 1;
+      // A plan still being made for this screen is no longer wanted.
+      const inFlight = planning;
       planning = null;
+      if (inFlight !== null)
+        void getBackend()
+          .then((b) => b.dedupeCancel(inFlight))
+          .catch(() => undefined);
       applyPlan = null;
       unfollow();
       set({ ...initial, skipped: new Set() });
