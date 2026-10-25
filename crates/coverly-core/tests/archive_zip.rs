@@ -805,3 +805,34 @@ fn zip_trailing_bytes_after_the_comment_damaged() {
     let err = list(bytes).err().expect("refused");
     assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
 }
+
+/// A zip64 extra field of 24 bytes behind a single 0xFFFFFFFF field: by
+/// APPNOTE the value is the first slot, the `zip` crate reads it from the
+/// slot of its position. The two views of the packed size (or the local
+/// header offset) differ, so the zip is damaged.
+#[test]
+fn zip_central_fields_must_agree_with_the_crate() {
+    // (offset of the 32-bit field in the central header, slots)
+    for (field, slots) in [(20usize, [999u64, 3, 0]), (42, [999, 999, 0])] {
+        let mut extra = 0x0001u16.to_le_bytes().to_vec();
+        extra.extend_from_slice(&24u16.to_le_bytes());
+        for v in slots {
+            extra.extend_from_slice(&v.to_le_bytes());
+        }
+        let spec = ZipSpec {
+            extra,
+            ..ZipSpec::new("a.gba", b"rom", ZipMethod::Stored)
+        };
+        let mut bytes = zip_crafted(&[spec]);
+        let cd = bytes
+            .windows(4)
+            .position(|w| w == b"PK\x01\x02")
+            .expect("central header");
+        bytes[cd + field..cd + field + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = list(bytes).err().expect("refused");
+        assert!(
+            matches!(err, ArchiveError::Damaged { .. }),
+            "field {field}: {err:?}"
+        );
+    }
+}

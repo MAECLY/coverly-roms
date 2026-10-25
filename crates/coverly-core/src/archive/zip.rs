@@ -11,7 +11,8 @@
 //! 2. The central directory bytes are parsed here as well (methods, flags,
 //!    attributes, the Unicode Path and AES extra fields), then
 //!    `zip::ZipArchive::new` and `by_index_raw` run for every entry. The
-//!    two views must agree (count and every name) or the zip is `Damaged`:
+//!    two views must agree (count, the prefix, and every name, method,
+//!    packed size, local header and record offset) or the zip is `Damaged`:
 //!    nothing is trusted that only one parser saw. Two entries with the
 //!    same name are `Damaged` too (each tool would pick another one).
 //! 3. Methods 14 (LZMA), 95 (XZ), 98 (PPMd) and 93 (zstd) are never decoded
@@ -63,6 +64,10 @@ pub struct CentralDirectoryClaim {
     pub cd_end: u64,
     /// Offset of the end record that was read (the last one in the file).
     pub eocd_at: u64,
+    /// Offset of the central directory the end record declares, counted
+    /// from the start of the zip: `size` bytes before `cd_end` minus this
+    /// is the length of the prefix.
+    pub cd_offset: u64,
 }
 
 const EOCD_SIG: [u8; 4] = *b"PK\x05\x06";
@@ -86,6 +91,7 @@ const M_XZ: u16 = 95;
 const M_PPMD: u16 = 98;
 const M_AES: u16 = 99;
 
+const EXTRA_ZIP64: u16 = 0x0001;
 const EXTRA_UNICODE_PATH: u16 = 0x7075;
 const EXTRA_AES: u16 = 0x9901;
 
@@ -121,6 +127,7 @@ pub fn central_directory_claim<R: Read + Seek>(
         size: u32_at(eocd, 12),
         cd_end: eocd_at,
         eocd_at,
+        cd_offset: u32_at(eocd, 16),
     };
     if claim.entries == u64::from(u16::MAX) || claim.size == u64::from(u32::MAX) {
         // Zip64: the locator sits right before the end record.
@@ -155,6 +162,7 @@ pub fn central_directory_claim<R: Read + Seek>(
             size: u64_at(&record, 40),
             cd_end: record_at,
             eocd_at,
+            cd_offset: u64_at(&record, 48),
         };
     }
     Some(claim)
@@ -252,6 +260,14 @@ struct RawRecord {
     name: Vec<u8>,
     /// The method that decodes the data (for AES, the one inside).
     method: u16,
+    /// The method field as stored (99 for AES).
+    stored_method: u16,
+    /// Compressed size and local header offset (zip64 extra applied), the
+    /// offset counted from the start of the zip, before any prefix.
+    packed: u64,
+    local_at: u64,
+    /// Where the record starts in the central directory.
+    header_at: usize,
     flags: u16,
     made_by: u16,
     external_attr: u32,
@@ -276,10 +292,16 @@ fn parse_central_directory(cd: &[u8], count: usize) -> Result<Vec<RawRecord>, Ar
         let made_by = field(4);
         let flags = field(8);
         let mut method = field(10);
+        let stored_method = method;
+        let wide =
+            |o: usize| u32::from_le_bytes([fixed[o], fixed[o + 1], fixed[o + 2], fixed[o + 3]]);
+        let (size32, packed32, local32) = (wide(24), wide(20), wide(42));
+        let mut packed = u64::from(packed32);
+        let mut local_at = u64::from(local32);
         let name_len = usize::from(field(28));
         let extra_len = usize::from(field(30));
         let comment_len = usize::from(field(32));
-        let external_attr = u32::from_le_bytes([fixed[38], fixed[39], fixed[40], fixed[41]]);
+        let external_attr = wide(38);
         let name_at = pos + CDH_LEN;
         let extra_at = name_at + name_len;
         let end = extra_at + extra_len + comment_len;
@@ -295,6 +317,26 @@ fn parse_central_directory(cd: &[u8], count: usize) -> Result<Vec<RawRecord>, Ar
                     let crc = u32::from_le_bytes([data[1], data[2], data[3], data[4]]);
                     unicode_name = Some((crc, data[5..].to_vec()));
                 }
+                // APPNOTE 4.5.3: only the fields stored as 0xFFFFFFFF, in
+                // this order (the disk number is never read).
+                EXTRA_ZIP64 => {
+                    let mut slots = data
+                        .as_chunks::<8>()
+                        .0
+                        .iter()
+                        .map(|c| u64::from_le_bytes(*c));
+                    let mut next = |v32: u32| match v32 {
+                        u32::MAX => slots.next().ok_or_else(cd_damaged).map(Some),
+                        _ => Ok(None),
+                    };
+                    next(size32)?;
+                    if let Some(v) = next(packed32)? {
+                        packed = v;
+                    }
+                    if let Some(v) = next(local32)? {
+                        local_at = v;
+                    }
+                }
                 EXTRA_AES if data.len() >= 7 && method == M_AES => {
                     aes = true;
                     method = u16::from_le_bytes([data[5], data[6]]);
@@ -305,6 +347,10 @@ fn parse_central_directory(cd: &[u8], count: usize) -> Result<Vec<RawRecord>, Ar
         out.push(RawRecord {
             name,
             method,
+            stored_method,
+            packed,
+            local_at,
+            header_at: pos,
             flags,
             made_by,
             external_attr,
@@ -563,6 +609,14 @@ impl<R: Read + Seek + Send> ZipReader<R> {
         }
         let records = parse_central_directory(&cd, count)?;
         drop(cd);
+        // Both views must also agree on where the zip starts and where
+        // each record and its data are (see the loop below).
+        let prefix = cd_start
+            .checked_sub(claim.cd_offset)
+            .ok_or_else(cd_damaged)?;
+        if archive.offset() != prefix || archive.central_directory_start() != cd_start {
+            return Err(cd_damaged());
+        }
 
         let mut entries = Vec::with_capacity(count);
         let mut methods = Vec::with_capacity(count);
@@ -572,7 +626,17 @@ impl<R: Read + Seek + Send> ZipReader<R> {
             let mut file = archive
                 .by_index_raw(index)
                 .map_err(|e| zip_error(e, &failed))?;
-            if file.name_raw() != record.name.as_slice() {
+            #[allow(deprecated)] // the only public way to the method number
+            let crate_method = file.compression().to_u16();
+            let same_method = crate_method == record.stored_method
+                || (record.aes && crate_method == record.method);
+            if file.name_raw() != record.name.as_slice()
+                || !same_method
+                || file.compressed_size() != record.packed
+                || prefix.checked_add(record.local_at) != Some(file.header_start())
+                || cd_start.checked_add(record.header_at as u64)
+                    != Some(file.central_header_start())
+            {
                 return Err(cd_damaged());
             }
             let size = file.size();
