@@ -432,3 +432,39 @@ fn text_outside_the_root_is_refused() {
     }
     assert!(merge(Some(" \r\n\t<gameList/>\n "), &g, false, &no).is_ok());
 }
+
+#[test]
+fn remove_games_takes_the_entry_and_its_line_only() {
+    let xml = "<?xml version=\"1.0\"?>\n<!-- mine -->\n<gameList>\n\t<game>\n\t\t<path>./Tetris.gb</path>\n\t\t<name>Tetris</name>\n\t</game>\n\t<game>\n\t\t<path>./old/Tetris (1).gb</path>\n\t</game>\n\t<folder><path>./old</path></folder>\n</gameList>\n";
+    let out = coverly_core::gamelist::remove_games(xml, &["./old/Tetris (1).gb".to_string()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        out,
+        "<?xml version=\"1.0\"?>\n<!-- mine -->\n<gameList>\n\t<game>\n\t\t<path>./Tetris.gb</path>\n\t\t<name>Tetris</name>\n\t</game>\n\t<folder><path>./old</path></folder>\n</gameList>\n"
+    );
+    // Matched ignoring case, as ES does; CRLF lines go whole.
+    let crlf = xml.replace('\n', "\r\n");
+    let out = coverly_core::gamelist::remove_games(&crlf, &["./TETRIS.GB".to_string()])
+        .unwrap()
+        .unwrap();
+    assert!(!out.contains("<name>Tetris</name>"), "{out}");
+    assert!(
+        out.contains("<gameList>\r\n\t<game>\r\n\t\t<path>./old/"),
+        "{out}"
+    );
+    // Nothing matched: no change.
+    assert_eq!(
+        coverly_core::gamelist::remove_games(xml, &["./Zelda.gb".to_string()]).unwrap(),
+        None
+    );
+    // Two entries on one line: only the bytes of the one removed.
+    let inline =
+        "<gameList><game><path>./a.gb</path></game><game><path>./b.gb</path></game></gameList>";
+    assert_eq!(
+        coverly_core::gamelist::remove_games(inline, &["./a.gb".to_string()])
+            .unwrap()
+            .unwrap(),
+        "<gameList><game><path>./b.gb</path></game></gameList>"
+    );
+}

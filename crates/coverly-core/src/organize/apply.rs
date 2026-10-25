@@ -140,6 +140,10 @@ pub enum ApplyError {
     Write(#[from] WriteError),
     #[error("the plan of job {0} is missing")]
     NoPlan(String),
+    /// A duplicates plan or its decisions cannot be applied (nothing was
+    /// written).
+    #[error(transparent)]
+    Dedupe(#[from] crate::dedupe::DedupeError),
 }
 
 /// Apply progress is reported at most this often.

@@ -490,7 +490,12 @@ fn custom_quarantine_inside_a_system_folder_is_refused() {
     let fx = Fx::new();
     let scan = scan(root);
 
-    for inside in [root.join("ROMS/GB"), root.join("ROMS/GB/_Duplicados")] {
+    // Inside a system folder, or around one (the ROMs folder, the root).
+    let around = [root.join("ROMS"), root.to_path_buf()];
+    for inside in [root.join("ROMS/GB"), root.join("ROMS/GB/_Duplicados")]
+        .into_iter()
+        .chain(around)
+    {
         let mut opts = fx.opts();
         opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
             path: inside.clone(),
@@ -501,9 +506,9 @@ fn custom_quarantine_inside_a_system_folder_is_refused() {
         assert_eq!(err, DedupeError::QuarantineInSystemFolder(inside));
     }
 
-    // Anywhere else is fine: the library root, beside the ROMs folder, or
-    // outside the library.
-    for fine in [root.join("Dups"), root.join("ROMS"), dir.path().join("x")] {
+    // Anywhere else is fine: beside the ROMs folder, or outside the
+    // library.
+    for fine in [root.join("Dups"), dir.path().join("x")] {
         let mut opts = fx.opts();
         opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder { path: fine.clone() };
         let plan = fx.plan(&scan, &opts);

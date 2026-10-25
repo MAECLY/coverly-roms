@@ -24,6 +24,10 @@ pub mod source;
 pub mod testing;
 pub mod units;
 
+pub use apply::{
+    apply_dedupe, load_dedupe_plan, resume_dedupe, DedupeApplyEnv, DedupeApplyNote,
+    DedupeItemStatus, DedupeOutcome, DedupeReport, DedupeSkip, DestLimit,
+};
 pub use companions::{ArtLeaves, GamelistEntry, SharedStay, Travel, TravelKind};
 pub use keeper::{DumpQuality, KeepReason};
 pub use plan::{
@@ -222,6 +226,10 @@ pub struct DedupePlan {
     /// Systems whose saves may live off the card.
     pub off_card_saves: Vec<String>,
     pub totals: Totals,
+    /// The extras go to the OS Trash instead of the quarantine (no
+    /// member has a `dest`). Left out of the JSON when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trash: bool,
     /// What the planner knew, so options and picks can change without
     /// reading the library again. Not serialised: a plan read back from
     /// disk has none.
@@ -248,9 +256,23 @@ impl Default for DedupePlan {
             chd_unread: 0,
             off_card_saves: Vec::new(),
             totals: Totals::default(),
+            trash: false,
             internals: PlanInternals::default(),
         }
     }
+}
+
+/// What the user decided on the screen before applying a plan: the copy
+/// that stays per group, the groups and the systems left alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DedupeDecisions {
+    /// `(group id, member id)` of the copy that stays.
+    pub keepers: Vec<(u64, usize)>,
+    /// Groups nothing is done to.
+    pub skipped_groups: Vec<u64>,
+    /// Systems nothing is done to.
+    pub skipped_systems: Vec<String>,
 }
 
 /// Where extras go.

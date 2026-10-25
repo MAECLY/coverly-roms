@@ -102,9 +102,14 @@ pub enum DedupeError {
     #[error("cache: {0}")]
     Cache(String),
     /// A custom quarantine may be anywhere except inside a system folder
-    /// (spec §7.1): its copies would be found again as games.
-    #[error("the duplicates folder {} is inside a system folder", .0.display())]
+    /// (spec §7.1), nor around one: its copies would be found again as
+    /// games.
+    #[error("the duplicates folder {} is inside or around a system folder", .0.display())]
     QuarantineInSystemFolder(PathBuf),
+    /// Applying would set aside every copy of a group, or move the copy
+    /// that stays (hard rule 4): nothing is written.
+    #[error("duplicates group {0} would keep no copy")]
+    EveryMemberMoves(u64),
 }
 
 impl From<CacheError> for DedupeError {
@@ -513,7 +518,12 @@ pub fn skip_group(plan: &mut DedupePlan, group: u64, skip: bool) {
             None => {
                 g.action = GroupAction::Act;
                 let keeper = g.keeper;
-                for m in g.members.iter_mut().filter(|m| m.id != keeper) {
+                let quarantine = !plan.trash;
+                for m in g
+                    .members
+                    .iter_mut()
+                    .filter(|m| quarantine && m.id != keeper)
+                {
                     m.dest = Some(dest_for(
                         &plan.roms_dir,
                         &plan.quarantine,
@@ -532,6 +542,7 @@ pub fn skip_group(plan: &mut DedupePlan, group: u64, skip: bool) {
 fn fill(plan: &mut DedupePlan, state: Arc<PlanState>) {
     let base = &state.base;
     plan.quarantine = quarantine_dir(&base.spot, &state.opts.quarantine);
+    plan.trash = state.opts.quarantine == QuarantineChoice::Trash;
     plan.same_volume = state.opts.quarantine != QuarantineChoice::Trash
         && same_volume(&base.root, &plan.quarantine);
     plan.removable = on_removable_volume(&base.root);
@@ -886,22 +897,25 @@ fn system_dir(unit: &Unit) -> PathBuf {
     dir
 }
 
-/// Refuses a quarantine that is a system folder or lies inside one,
-/// compared lexically and, where both exist, as the file system resolves
-/// them (case, symlinks).
+/// Refuses a quarantine that is a system folder, lies inside one or holds
+/// one (the library root, the ROMs folder): its copies would be found
+/// again as games, or land where they already are. Compared lexically
+/// and, where both exist, as the file system resolves them (case,
+/// symlinks).
 pub(crate) fn check_quarantine(
     quarantine: &Path,
     system_dirs: &[&Path],
 ) -> Result<(), DedupeError> {
     let resolved = resolve_existing(quarantine);
-    let inside = system_dirs.iter().any(|dir| {
-        quarantine.starts_with(dir)
+    let overlaps = |a: &Path, b: &Path| a.starts_with(b) || b.starts_with(a);
+    let bad = system_dirs.iter().any(|dir| {
+        overlaps(quarantine, dir)
             || match (&resolved, dir.canonicalize()) {
-                (Some(q), Ok(d)) => q.starts_with(d),
+                (Some(q), Ok(d)) => overlaps(q, &d),
                 _ => false,
             }
     });
-    if inside {
+    if bad {
         Err(DedupeError::QuarantineInSystemFolder(
             quarantine.to_path_buf(),
         ))
