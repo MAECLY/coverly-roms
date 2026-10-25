@@ -12,6 +12,7 @@ use sha1::{Digest, Sha1};
 
 use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 
+pub mod apply;
 pub mod companions;
 pub mod group;
 pub mod keeper;

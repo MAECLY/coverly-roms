@@ -338,16 +338,19 @@ enum Op {
     RolledBack {
         temp: String,
     },
-    /// About to send the archive `from` to the Trash (`fp` = the archive).
+    /// About to send the file `from` to the Trash (`fp` = the file): an
+    /// archive organise extracted, or a copy dedupe sets aside.
     ArchiveTrash {
         from: PathBuf,
     },
-    /// The archive `from` is in the Trash, at `trash` when the OS said.
+    /// The file `from` (an archive organise extracted, or a copy dedupe
+    /// sets aside) is in the Trash, at `trash` when the OS said.
     ArchiveTrashed {
         from: PathBuf,
         trash: Option<PathBuf>,
     },
-    /// The archive `from` stays where it was (no Trash on its volume).
+    /// The file `from` (an archive organise extracted, or a copy dedupe
+    /// sets aside) stays where it was (no Trash on its volume).
     ArchiveKept {
         from: PathBuf,
     },
@@ -786,8 +789,9 @@ impl Writer {
         self.append_entry(target, op, None, None, item)
     }
 
-    /// Journals that the archive `from` (a regular file inside the source
-    /// root) is about to go to the Trash, with its fingerprint (size and
+    /// Journals that the file `from` (a regular file inside the source
+    /// root: an archive organise extracted, or a copy dedupe sets aside)
+    /// is about to go to the Trash, with its fingerprint (size and
     /// modification time), which it returns.
     pub fn archive_trash_intent(
         &mut self,
@@ -809,8 +813,9 @@ impl Writer {
         Ok(fp)
     }
 
-    /// Journals that the archive `from` went to the Trash, at `trash`
-    /// when the OS reported where.
+    /// Journals that the file `from` (an archive organise extracted, or a
+    /// copy dedupe sets aside) went to the Trash, at `trash` when the OS
+    /// reported where.
     pub fn archive_trashed(
         &mut self,
         from: &Path,
@@ -827,8 +832,9 @@ impl Writer {
         self.append_entry(from, op, None, None, item)
     }
 
-    /// Journals that the archive `from` stays where it is (its volume has
-    /// no Trash, or the Trash refused it).
+    /// Journals that the file `from` (an archive organise extracted, or a
+    /// copy dedupe sets aside) stays where it is (its volume has no Trash,
+    /// or the Trash refused it).
     pub fn archive_kept(&mut self, from: &Path, item: Option<usize>) -> Result<(), WriteError> {
         let from = ensure_within(&self.source_root, from)?;
         let op = Op::ArchiveKept { from: from.clone() };
