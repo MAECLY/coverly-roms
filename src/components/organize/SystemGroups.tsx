@@ -1,5 +1,5 @@
-import { ChevronRight, Folder } from 'lucide-react';
-import { useId, useState } from 'react';
+import { Archive, ChevronRight, Folder } from 'lucide-react';
+import { useContext, useId, useState } from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
 import { Badge } from '@/components/ui/badge';
@@ -11,17 +11,27 @@ import {
 } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NativeSelect } from '@/components/ui/select';
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
-import type { OrganizeItem, SystemInfo } from '@/ipc/types';
+import type {
+  OrganizeItem,
+  ProfileFile,
+  SystemInfo,
+  TransferMode,
+} from '@/ipc/types';
+import { formatSize } from '@/lib/format';
 import {
   ROWS_PER_GROUP,
+  actionOf,
   confidenceKey,
+  extractDetail,
   itemNotes,
   targetDir,
   whyKey,
   type SystemGroup,
 } from '@/lib/organize';
 
+import { ExtractDetail } from './ExtractDetail';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
@@ -48,10 +58,16 @@ interface Props {
   onDecide?(itemIds: number[], choice: OrganizeChoice): void;
   /** Files the last "scan again" found. */
   isNew?: IsNew;
+  /** The plan's transfer mode: what applying does with as-is items. */
+  mode?: TransferMode;
+  /** The target layout, for where a disc's tracks go. */
+  profile?: Pick<ProfileFile, 'disc_layout'> | null;
 }
 
 interface RowProps {
   layoutName: string;
+  mode?: TransferMode;
+  profile?: Pick<ProfileFile, 'disc_layout'> | null;
   systemName(id: string): string;
   systems?: SystemInfo[];
   disabled?: boolean;
@@ -145,6 +161,8 @@ function Row({
   disabled = false,
   onDecide,
   isNew,
+  mode = 'move',
+  profile,
 }: RowProps & { item: OrganizeItem }) {
   const t = useT();
   // A manual choice is the user's decision, not a detection level.
@@ -158,13 +176,22 @@ function Row({
   const changeable =
     item.method === 'user' && !!onDecide && !!systems && !!item.system_id;
   const fresh = isNew?.(item) ?? false;
+  const serials = item.disc?.serials.join(', ') ?? '';
+  const notes = itemNotes(t, item, layoutName, systemName);
+  const extracts = item.transfer.kind === 'extract';
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`${pathText} min-w-0 flex-1`}>
-          {`${name} → ${item.target ?? ''}`}
+        <span className="grid min-w-0 flex-[1_1_16rem] gap-0.5">
+          <span className={pathText}>{`${name} → ${item.target ?? ''}`}</span>
+          {serials && (
+            <span className="font-mono text-caption tabular-nums text-cr-text-secondary">
+              {serials}
+            </span>
+          )}
         </span>
         {fresh && <NewBadge />}
+        <ActionBadge item={item} mode={mode} />
         {confidence && (
           <Badge
             variant={
@@ -199,11 +226,52 @@ function Row({
         )}
       </div>
       {reason && <p className={hintText}>{t(reason.key, reason.vars)}</p>}
-      {itemNotes(t, item, layoutName, systemName).map((line) => (
-        <p key={line} className={hintText}>
-          {line}
-        </p>
-      ))}
+      {/* An extract row folds its notes into the detail with its files. */}
+      {extracts ? (
+        <ExtractDetail item={item} profile={profile} notes={notes} />
+      ) : (
+        notes.map((line) => (
+          <p key={line} className={hintText}>
+            {line}
+          </p>
+        ))
+      )}
     </li>
+  );
+}
+
+/**
+ * What applying does with a row, in words: *Move* / *Copy*, or *Extract* as
+ * a petrol outline with the archive icon followed by its file count and
+ * bytes in mono. The word is always there; colour only repeats it.
+ */
+function ActionBadge({
+  item,
+  mode,
+}: {
+  item: OrganizeItem;
+  mode: TransferMode;
+}) {
+  const t = useT();
+  const locale = useContext(LocaleContext);
+  const action = actionOf(item, mode);
+  const detail = extractDetail(item);
+  if (action !== 'extract')
+    return <Badge variant="neutral">{t(`organize.action.${action}`)}</Badge>;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Badge variant="outline" className="border-primary text-primary">
+        <Archive aria-hidden />
+        {t('organize.action.extract')}
+      </Badge>
+      {detail && (
+        <span className="whitespace-nowrap font-mono text-caption tabular-nums text-cr-text-secondary">
+          {t('organize.extract.detail', {
+            count: detail.count,
+            bytes: formatSize(detail.bytes, locale),
+          })}
+        </span>
+      )}
+    </span>
   );
 }

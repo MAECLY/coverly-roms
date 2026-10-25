@@ -5,21 +5,28 @@ import { describe, expect, it } from 'vitest';
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import { autoItem, planOf } from '@/test/organizeFixtures';
+import type { TransferMode } from '@/ipc/types';
+import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
   gba: 'Game Boy Advance',
   gb: 'Game Boy',
+  psx: 'PlayStation',
 };
 const systemName = (id: string) => NAMES[id] ?? id;
 
-function renderGroups(items: ReturnType<typeof autoItem>[]) {
+function renderGroups(
+  items: ReturnType<typeof autoItem>[],
+  mode: TransferMode = 'move',
+) {
   render(
     <I18nProvider locale="en">
       <SystemGroups
         groups={groupBySystem(planOf(items))}
         layoutName="Anbernic (stock)"
         systemName={systemName}
+        mode={mode}
+        profile={null}
       />
     </I18nProvider>,
   );
@@ -205,5 +212,66 @@ describe('SystemGroups — a system the user chose', () => {
       [[0], { system: 'gba' }],
       [[0], 'leave'],
     ]);
+  });
+});
+
+describe('SystemGroups — actions and discs', () => {
+  it('extract_badge_has_icon_and_word', () => {
+    renderGroups([discItem(0)]);
+    const badge = screen.getByText('Extract');
+    // A petrol outline with the archive icon, beside the word.
+    expect(badge).toHaveClass('border-primary');
+    const icon = badge.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(icon).toHaveClass('lucide-archive');
+  });
+
+  it('badge_never_colour_only', () => {
+    renderGroups([autoItem(0, 'Tetris DX.zip', 'gb', 'ROMS/GB'), discItem(1)]);
+    // Every row names its action in words; the colour only repeats it.
+    const gb = screen.getByRole('group', { name: /^ROMS\/GB\/ \(1\)/ });
+    expect(within(gb).getByText('Move')).toHaveTextContent(/^Move$/);
+    const ps = screen.getByRole('group', { name: /^ROMS\/PS\/ \(1\)/ });
+    expect(within(ps).getByText('Extract')).toHaveTextContent(/^Extract$/);
+    expect(within(ps).queryByText('Move')).not.toBeInTheDocument();
+  });
+
+  it('names copy rows in copy mode', () => {
+    renderGroups([autoItem(0, 'Tetris DX.zip', 'gb', 'ROMS/GB')], 'copy');
+    expect(screen.getByText('Copy')).toBeInTheDocument();
+    expect(screen.queryByText('Move')).not.toBeInTheDocument();
+  });
+
+  it('extract_detail_in_mono_with_exact_count', () => {
+    renderGroups([discItem(0)]);
+    const detail = screen.getByText('12 files · 400 MB');
+    expect(detail).toHaveClass('font-mono');
+  });
+
+  it('disc_row_shows_serial', () => {
+    renderGroups([discItem(0), autoItem(1, 'Tetris DX.zip', 'gb', 'ROMS/GB')]);
+    const ps = screen.getByRole('group', { name: /^ROMS\/PS\/ \(1\)/ });
+    expect(within(ps).getByText('SLUS-00862')).toHaveClass('font-mono');
+    expect(
+      within(ps).getByText(
+        'PlayStation disc: SYSTEM.CNF BOOT SLUS_008.62 (SLUS-00862)',
+      ),
+    ).toBeInTheDocument();
+    const gb = screen.getByRole('group', { name: /^ROMS\/GB\/ \(1\)/ });
+    expect(within(gb).queryByText(/SLUS/)).not.toBeInTheDocument();
+  });
+
+  it("puts an extract row's notes in its detail", async () => {
+    renderGroups([discItem(0)]);
+    // Folded away until the row is expanded.
+    expect(
+      screen.queryByText('It is a 7z archive named .zip'),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Files to extract' }),
+    );
+    expect(screen.getByText('It is a 7z archive named .zip')).toBeVisible();
+    expect(screen.getByText('Tracks go straight into ROMS/PS')).toBeVisible();
   });
 });

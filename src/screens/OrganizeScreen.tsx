@@ -497,6 +497,8 @@ function Proposal({
   const groups = useMemo(() => groupBySystem(plan), [plan]);
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
+  const layoutProfile =
+    profiles.find((p) => p.profile.id === plan.layout)?.profile ?? null;
   const { counts } = plan;
   const warnings = warningLines(t, locale, plan, systemName, profileName);
   const nothingToFile = groups.length === 0 && buckets.length === 0;
@@ -557,6 +559,8 @@ function Proposal({
         <SystemGroups
           groups={groups}
           layoutName={profileName(plan.layout)}
+          mode={plan.mode}
+          profile={layoutProfile}
           systemName={systemName}
           systems={systems}
           disabled={busy}

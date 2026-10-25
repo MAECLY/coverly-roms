@@ -84,3 +84,67 @@ export function planOf(items: OrganizeItem[]): OrganizePlan {
     created_at: '2026-10-17T10:00:00Z',
   };
 }
+
+/**
+ * A PS1 disc archive (a 7z named `.zip`) that is extracted flat: a `.cue`
+ * and `tracks` `.bin` files, `bytes` in all.
+ */
+export function discItem(
+  id: number,
+  extra: Partial<OrganizeItem> = {},
+  tracks = 11,
+): OrganizeItem {
+  const title = 'Next Tetris, The';
+  const dir = 'ROMS/PS';
+  const bins = Array.from({ length: tracks }, (_, i) => {
+    const n = String(i + 1).padStart(2, '0');
+    return {
+      index: i + 1,
+      name: `${title} (Track ${n}).bin`,
+      size: i === 0 ? 300 * 1024 * 1024 : 10 * 1024 * 1024,
+      crc32: 0x1000 + i,
+      target: `${dir}/${title} (Track ${n}).bin`,
+    };
+  });
+  const entries = [
+    {
+      index: 0,
+      name: `${title}.cue`,
+      size: 1234,
+      crc32: 0xabc,
+      target: `${dir}/${title}.cue`,
+    },
+    ...bins,
+  ];
+  const bytes = entries.reduce((n, e) => n + e.size, 0);
+  return autoItem(id, `${title}.zip`, 'psx', dir, {
+    target: `${dir}/${title}.cue`,
+    size: bytes,
+    method: 'header',
+    why: [
+      {
+        kind: 'header',
+        system: 'psx',
+        weight: 1,
+        detail: 'SYSTEM.CNF BOOT SLUS_008.62',
+      },
+    ],
+    notes: [{ kind: 'container-mismatch', actual: '7z', ext: 'zip' }],
+    transfer: {
+      kind: 'extract',
+      entries,
+      bytes,
+      archive_after: 'trash',
+      source: { kind: 'builtin' },
+      sheet_check: 'read',
+      m3u: null,
+    },
+    disc: {
+      serials: ['SLUS-00862'],
+      disc_no: null,
+      volume: null,
+      source: 'system-cnf',
+    },
+    ...extra,
+  } as Partial<OrganizeItem>);
+}

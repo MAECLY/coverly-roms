@@ -1026,6 +1026,7 @@
     },
     "extract": {
       "detail": "{count} archivos · {bytes}",
+      "files": "Archivos que se extraen",
       "into": "Se extraen en {folder}",
       "kept": "Extraído; el comprimido se queda porque este disco no tiene papelera",
       "layoutFlat": "Las pistas van directamente en {folder}",
