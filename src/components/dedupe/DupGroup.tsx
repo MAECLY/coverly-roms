@@ -117,9 +117,12 @@ export function DupGroup({
   const titleId = `${uid}-title`;
 
   const why =
-    keeper === group.keeper
-      ? reasonText(t, group.reason, profileName ? { profileName } : {})
-      : reasonText(t, { kind: 'user-choice' }, {});
+    keeper !== group.keeper
+      ? reasonText(t, { kind: 'user-choice' }, {})
+      : group.reason.kind === 'tie' && !picks
+        ? // Nothing to pick here: no "pick another if you prefer".
+          t('dedupe.why.tieSettled')
+        : reasonText(t, group.reason, profileName ? { profileName } : {});
   const weakest = weakestExtra(members, keeperMember.id);
   const mixed = new Set(tray.map((m) => badgeRelation(m))).size > 1;
 

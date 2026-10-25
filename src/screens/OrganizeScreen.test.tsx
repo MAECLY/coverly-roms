@@ -980,7 +980,11 @@ describe('OrganizeScreen', () => {
           '→ _Duplicados/Super Mario Land (World) (1).gb',
         ),
       ).toBeInTheDocument();
-      // The proposal settles the keeper with the rules: nothing to pick.
+      // The proposal settles the keeper with the rules: nothing to pick,
+      // so a tie does not invite a pick either.
+      expect(
+        within(group).getByText('They are identical; the oldest stays.'),
+      ).toBeInTheDocument();
       expect(within(group).queryByRole('radio')).not.toBeInTheDocument();
       expect(within(group).queryByRole('checkbox')).not.toBeInTheDocument();
       expect(

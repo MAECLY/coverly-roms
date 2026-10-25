@@ -461,7 +461,8 @@
       "container": "Se queda: formato preferido en {profile} ({kept}); la otra es {other}.",
       "cover": "Se queda: tiene portada; la otra no.",
       "catalogueName": "Se queda: se llama como en el catálogo.",
-      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres."
+      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres.",
+      "tieSettled": "Son idénticas; se queda la más antigua."
     },
     "quality": {
       "kept": {

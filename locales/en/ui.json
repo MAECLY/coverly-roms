@@ -461,7 +461,8 @@
       "container": "Stays: preferred format on {profile} ({kept}); the other is {other}.",
       "cover": "Stays: it has a cover; the other doesn't.",
       "catalogueName": "Stays: named as in the catalogue.",
-      "tie": "They are identical; the oldest stays. Pick another if you prefer."
+      "tie": "They are identical; the oldest stays. Pick another if you prefer.",
+      "tieSettled": "They are identical; the oldest stays."
     },
     "quality": {
       "kept": {
