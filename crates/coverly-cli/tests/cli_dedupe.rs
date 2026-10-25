@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use assert_cmd::Command;
-use coverly_core::dedupe::{DedupePlan, GroupAction, PLAN_VERSION};
+use coverly_core::dedupe::{DedupePlan, GroupAction, Relation, PLAN_VERSION};
 use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 use serde_json::Value;
@@ -498,4 +498,58 @@ fn undo_text_of_a_dedupe_job_keeps_hostile_names_on_one_line() {
         "{text}"
     );
     assert!(text.contains("not found in the Trash: "), "{text}");
+}
+
+/// The names of every member of the group holding `name`, sorted, with
+/// the weakest relation in it.
+fn group_holding(plan: &DedupePlan, name: &str) -> Option<(Vec<String>, Relation)> {
+    let file = |p: &Path| p.file_name().unwrap().to_string_lossy().into_owned();
+    plan.groups
+        .iter()
+        .find(|g| g.members.iter().any(|m| file(&m.unit.primary) == name))
+        .map(|g| {
+            let mut names: Vec<String> = g.members.iter().map(|m| file(&m.unit.primary)).collect();
+            names.sort();
+            let rel = Relation::weakest(g.members.iter().map(|m| m.relation)).unwrap();
+            (names, rel)
+        })
+}
+
+#[test]
+fn reads_inside_7z_and_pbp_without_external_tools() {
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::disc::testing as dt;
+
+    let lib = Library::new();
+    let root = lib.root();
+    // A raw ROM and a 7z of it under another inner name: one exact copy
+    // only when the CLI reads inside the 7z (whole-file bytes differ).
+    let zelda = rom_bytes(4, 32 * 1024);
+    put(root, "ROMS/GB/Zelda.gb", &zelda);
+    put(
+        root,
+        "ROMS/GB/Zelda (1).7z",
+        &sevenz(&[("Other name.gb", &zelda)], SevenZShape::non_solid_lzma()),
+    );
+    // The same PS1 disc as a bin and as a PBP: only the disc reader can
+    // tell (level 3).
+    let track = dt::psx_track(true, "cdrom:\\SCUS_945.70;1");
+    put(root, "ROMS/PS/Crash Bash.bin", &track);
+    put(root, "ROMS/PS/Crash Bash.PBP", &dt::pbp_of(&track));
+
+    let plan = json_plan(&lib, &["--no-external-tools", "--level", "exact,format"]);
+    assert_eq!(
+        group_holding(&plan, "Zelda.gb"),
+        Some((
+            vec!["Zelda (1).7z".to_owned(), "Zelda.gb".to_owned()],
+            Relation::Exact
+        ))
+    );
+    assert_eq!(
+        group_holding(&plan, "Crash Bash.bin"),
+        Some((
+            vec!["Crash Bash.PBP".to_owned(), "Crash Bash.bin".to_owned()],
+            Relation::Format
+        ))
+    );
 }
