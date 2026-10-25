@@ -129,7 +129,7 @@ fn fill_text(report: &UndoReport) -> String {
             report.skipped_modified.len()
         );
         for p in &report.skipped_modified {
-            let _ = write!(text, "\n  {}", p.display());
+            let _ = write!(text, "\n  {}", table::one_line(&p.display().to_string()));
         }
     }
     text.push('\n');
@@ -153,6 +153,8 @@ fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf>
 /// brought back from the Trash and the ones that could not be. A
 /// duplicates job (`kind` dedupe) reads the same, with its own name and
 /// its own words for the copies the Trash brought back or no longer holds.
+/// Every path prints on one line: a name holding a newline must not forge
+/// a second line of the report.
 fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind) -> String {
     let dedupe = kind == JobKind::Dedupe;
     let mut text = format!(
@@ -176,21 +178,25 @@ fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind
         .iter()
         .chain(&report.skipped_occupied)
     {
-        let _ = write!(text, "\n  kept {}", p.display());
+        let _ = write!(
+            text,
+            "\n  kept {}",
+            table::one_line(&p.display().to_string())
+        );
     }
     if dedupe {
         for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
             let _ = write!(
                 text,
                 "\n  back from the Trash: {}",
-                table::terminal_safe(&p.display().to_string())
+                table::one_line(&p.display().to_string())
             );
         }
         for p in &report.archive_lost {
             let _ = write!(
                 text,
                 "\n  not found in the Trash: {}",
-                table::terminal_safe(&p.display().to_string())
+                table::one_line(&p.display().to_string())
             );
         }
         text.push('\n');

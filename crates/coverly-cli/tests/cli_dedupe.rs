@@ -333,6 +333,7 @@ fn hostile_file_names_are_terminal_safe() {
 
 // --- Undo of duplicates jobs (duplicates plan Task 21) ---
 
+use coverly_core::write::trash::TrashBackend as _;
 use coverly_core::write::{Collision, JobKind, JobMeta, Writer};
 
 /// A duplicates job written with the core: `Tetris (1).gb` moved into
@@ -407,4 +408,94 @@ fn undo_text_of_a_dedupe_job_names_lost_trash_items() {
         "{text}"
     );
     assert!(lib.path().join("ROMS/GB/Tetris (1).gb").exists());
+}
+
+#[test]
+fn undo_of_a_dedupe_job_brings_a_trashed_copy_back_byte_identical() {
+    let (lib, data, trash) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let root = lib.path();
+    let bytes = rom_bytes(7, 4096);
+    let copy = put(root, "ROMS/GB/Tetris (1).gb", &bytes);
+    let mut w = Writer::begin_with(
+        root,
+        data.path(),
+        JobMeta {
+            kind: JobKind::Dedupe,
+            source_root: None,
+        },
+    )
+    .unwrap();
+    w.archive_trash_intent(&copy, Some(0)).unwrap();
+    let place = coverly_core::write::trash::FakeTrash::new(trash.path())
+        .trash(&copy)
+        .unwrap();
+    w.archive_trashed(&copy, place.as_deref(), Some(0)).unwrap();
+    w.finish().unwrap();
+    assert!(!copy.exists());
+
+    let text = stdout_of(&mut undo_cmd(data.path(), trash.path(), &[]));
+    assert!(text.contains("Undid dedupe job"), "{text}");
+    assert!(
+        text.contains(&format!("back from the Trash: {}", copy.display())),
+        "{text}"
+    );
+    assert!(!text.contains("not found in the Trash"), "{text}");
+    assert_eq!(fs::read(&copy).unwrap(), bytes);
+}
+
+/// Unix only: Windows refuses control characters in file names. A name
+/// holding a newline must not print a second, forged line, and the files
+/// kept as they are print escaped too.
+#[cfg(unix)]
+#[test]
+fn undo_text_of_a_dedupe_job_keeps_hostile_names_on_one_line() {
+    let (lib, data, trash) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let root = lib.path();
+    let moved = put(root, "ROMS/GB/Zelda\u{1b}]0;pwned\u{7}.gb", b"one");
+    let lost = put(
+        root,
+        "ROMS/GB/Tetris\n  back from the Trash: forged.gb",
+        b"two",
+    );
+    let mut w = Writer::begin_with(
+        root,
+        data.path(),
+        JobMeta {
+            kind: JobKind::Dedupe,
+            source_root: None,
+        },
+    )
+    .unwrap();
+    let dest = root.join("_Duplicados/GB");
+    w.ensure_dir(&dest).unwrap();
+    let to = dest.join("Zelda.gb");
+    w.move_file(&moved, &to, Collision::Rename, Some(0))
+        .unwrap();
+    w.archive_trash_intent(&lost, Some(1)).unwrap();
+    fs::remove_file(&lost).unwrap();
+    w.archive_trashed(&lost, Some(&trash.path().join("gone/x.gb")), Some(1))
+        .unwrap();
+    w.finish().unwrap();
+    // Changed after the job: undo keeps it where it is and names it.
+    fs::write(&to, b"changed since").unwrap();
+
+    let text = stdout_of(&mut undo_cmd(data.path(), trash.path(), &[]));
+    assert!(!text.contains('\u{1b}'), "{text}");
+    assert!(!text.contains('\u{7}'), "{text}");
+    assert!(text.contains("kept "), "{text}");
+    assert!(
+        !text
+            .lines()
+            .any(|l| l.trim_start().starts_with("back from the Trash")),
+        "{text}"
+    );
+    assert!(text.contains("not found in the Trash: "), "{text}");
 }
