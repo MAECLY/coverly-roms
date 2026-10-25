@@ -17,6 +17,7 @@ import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
+import { useDedupeStore } from '@/stores/dedupeStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
 import type { ItemErrorKind } from '@/ipc/types';
 import { stubLayout } from '@/test/layout';
@@ -267,6 +268,149 @@ describe('Jobs panel', () => {
     act(() => {
       useOrganizeStore.getState().reset();
       useNavStore.getState().closeOrganize();
+    });
+  });
+
+  it('jobs_panel_dedupe_undo_uses_organize_undo', async () => {
+    const { backend, view } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    const dedupe = {
+      ...real!,
+      job: 'dedupe-0001',
+      root: view.root,
+      kind: 'dedupe' as const,
+      entries: 3,
+      complete: true,
+      undone: false,
+    };
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      dedupe,
+      { ...real!, undone: true },
+    ]);
+    const undo = vi.spyOn(backend, 'organizeUndo').mockResolvedValue({
+      report: [
+        {
+          job: 'dedupe-0001',
+          removed: [],
+          restored: ['/a.gba', '/b.gba', '/c.gba'],
+          skipped_modified: [],
+          skipped_occupied: [],
+          dirs_removed: [],
+          archive_lost: [],
+        },
+      ],
+      later_jobs: [],
+    });
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', { name: 'History' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2),
+    );
+    const [row] = within(list).getAllByRole('listitem');
+    expect(within(row!).getByText('Duplicates')).toBeInTheDocument();
+    // A dedupe job is not the fill job "Undo last job" undoes.
+    expect(
+      within(dialog).getByRole('button', { name: 'Undo last job' }),
+    ).toBeDisabled();
+    await userEvent.click(
+      within(row!).getByRole('button', { name: /^Undo the duplicates of / }),
+    );
+    const confirm = screen.getByRole('alertdialog', {
+      name: 'Put 3 files back?',
+    });
+    await userEvent.click(
+      within(confirm).getByRole('button', { name: 'Put back 3 files' }),
+    );
+    await waitFor(() =>
+      expect(undo).toHaveBeenCalledWith('dedupe-0001', false),
+    );
+    expect(
+      await within(dialog).findByText(
+        'Restored: 3 · Left alone because they changed: 0',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('jobs_panel_lists_copies_the_trash_lost', async () => {
+    const { backend, view } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      {
+        ...real!,
+        job: 'dedupe-0001',
+        root: view.root,
+        kind: 'dedupe',
+        entries: 2,
+        complete: true,
+        undone: false,
+      },
+    ]);
+    vi.spyOn(backend, 'organizeUndo').mockResolvedValue({
+      report: [
+        {
+          job: 'dedupe-0001',
+          removed: [],
+          restored: ['/lib/GB/a.gb'],
+          skipped_modified: [],
+          skipped_occupied: [],
+          dirs_removed: [],
+          archive_lost: ['/lib/GB/Tetris (1).gb'],
+        },
+      ],
+      later_jobs: [],
+    });
+    const dialog = await openPanel();
+    const list = await within(dialog).findByRole('list', { name: 'History' });
+    const row = await within(list).findByRole('listitem');
+    await userEvent.click(
+      within(row).getByRole('button', { name: /^Undo the duplicates of / }),
+    );
+    await userEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', {
+        name: 'Put back 2 files',
+      }),
+    );
+    expect(
+      await within(dialog).findByText(
+        'Not in the Trash any more: /lib/GB/Tetris (1).gb',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('resumes_an_interrupted_dedupe_job_on_the_duplicates_screen', async () => {
+    const { backend, view } = await running();
+    await waitFor(() => expect(useJobStore.getState().job?.state).toBe('done'));
+    const [real] = await backend.jobHistory();
+    vi.spyOn(backend, 'jobHistory').mockResolvedValue([
+      {
+        ...real!,
+        job: 'dedupe-0002',
+        root: view.root,
+        kind: 'dedupe',
+        complete: false,
+        undone: false,
+      },
+    ]);
+    const resume = vi
+      .spyOn(backend, 'dedupeResume')
+      .mockRejectedValue(new BackendError('no-plan', 'dedupe-0002'));
+    const dialog = await openPanel();
+    const row = await within(
+      await within(dialog).findByRole('list', { name: 'History' }),
+    ).findByRole('listitem');
+    expect(within(row).getByText('Interrupted')).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(resume).toHaveBeenCalledWith('dedupe-0002'));
+    expect(useNavStore.getState()).toMatchObject({
+      screen: 'duplicates',
+      duplicatesRoot: view.root,
+    });
+    expect(useDedupeStore.getState().root).toBe(view.root);
+    act(() => {
+      useDedupeStore.getState().reset();
+      useNavStore.getState().closeDuplicates();
     });
   });
 

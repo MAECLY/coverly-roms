@@ -953,7 +953,11 @@
     "unknownError": "Problema desconocido",
     "kind": {
       "fill": "Portadas",
-      "organize": "Organización"
+      "organize": "Organización",
+      "dedupe": "Duplicados"
+    },
+    "dedupeUndo": {
+      "label": "Deshacer los duplicados del {date}"
     }
   },
   "review": {

@@ -113,6 +113,8 @@ interface DedupeState {
   resetRules(system?: string): Promise<void>;
   apply(): Promise<void>;
   resume(): Promise<void>;
+  /** Resumes interrupted job `job` of library `root` (the jobs panel). */
+  resumeJob(job: string, root: string): Promise<void>;
   /** Stops planning, or the apply between groups. */
   cancel(): Promise<void>;
   undo(includeLater?: boolean): Promise<void>;
@@ -402,6 +404,11 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
     async resume() {
       const job = get().job?.job;
       if (!job) return;
+      await run((b) => b.dedupeResume(job), null);
+    },
+    async resumeJob(job, root) {
+      get().reset();
+      set({ root });
       await run((b) => b.dedupeResume(job), null);
     },
     async cancel() {
