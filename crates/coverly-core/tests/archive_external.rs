@@ -437,6 +437,40 @@ mod unix_tests {
             start.elapsed()
         );
     }
+
+    #[test]
+    fn an_escaped_helper_holding_stderr_delays_a_finished_run_only_briefly() {
+        setup();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let script = FakeScript {
+            cases: vec![FakeCase {
+                stdout: "listing...\n".into(),
+                // Leaves the group and keeps only stderr open for 8 s;
+                // the tool itself exits at once.
+                grandchild_sleep_ms: 8_000,
+                grandchild_detach: true,
+                grandchild_stderr_only: true,
+                ..FakeCase::default()
+            }],
+        };
+        let exe = fake_tool(tmp.path(), "7zz", &script);
+        let start = Instant::now();
+        let run = run_tool(
+            &found(Tool::SevenZip, exe),
+            &[OsStr::new("l")],
+            &archive(tmp.path()),
+            MAX_HEADER,
+            Duration::from_secs(30),
+        )
+        .expect("the tool exited");
+        assert_eq!(run.status, Some(0));
+        assert_eq!(run.stdout, b"listing...\n");
+        assert!(
+            start.elapsed() < Duration::from_secs(4),
+            "stderr gets a short grace, not the rest of the deadline: {:?}",
+            start.elapsed()
+        );
+    }
 }
 
 #[cfg(windows)]

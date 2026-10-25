@@ -1474,6 +1474,9 @@ pub struct FakeCase {
     /// The grandchild leaves the tool's process group (Unix `setsid`) and
     /// keeps the output pipes open: a timeout must still return on time.
     pub grandchild_detach: bool,
+    /// The grandchild holds only stderr (its stdout is closed): the tool's
+    /// output ends while a helper still holds the error pipe.
+    pub grandchild_stderr_only: bool,
     /// Sleeps this long after writing, before exiting.
     pub sleep_ms: u64,
     pub exit: i32,

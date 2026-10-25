@@ -34,7 +34,11 @@ fn main() -> ExitCode {
     if case.grandchild_sleep_ms > 0 {
         let marker = case.grandchild_marker.clone().unwrap_or_default();
         // Inherits stdout/stderr, so it holds the pipes like a real helper.
-        let _ = Command::new(&exe)
+        let mut cmd = Command::new(&exe);
+        if case.grandchild_stderr_only {
+            cmd.stdout(Stdio::null());
+        }
+        let _ = cmd
             .arg(FAKE_GRANDCHILD_ARG)
             .arg(case.grandchild_sleep_ms.to_string())
             .arg(marker)

@@ -739,7 +739,7 @@ fn spawn_bounded(
         }
     };
 
-    let wait = remaining(deadline).map_or(STDERR_GRACE, |d| d.max(STDERR_GRACE));
+    let wait = remaining(deadline).map_or(STDERR_GRACE, |d| d.min(STDERR_GRACE));
     let _ = err_rx.recv_timeout(wait);
     let err = err_kept
         .lock()
