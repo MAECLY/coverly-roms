@@ -42,7 +42,7 @@ import type {
   ProfileInfo,
   SystemInfo,
 } from '@/ipc/types';
-import { formatDecimalSize, formatSize } from '@/lib/format';
+import { formatDecimalSize } from '@/lib/format';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
   extractSummary,
@@ -165,8 +165,8 @@ function warningLines(
       case 'no-space':
         lines.push(
           t('organize.noSpace', {
-            needed: formatSize(w.needed, locale),
-            free: formatSize(w.free, locale),
+            needed: formatDecimalSize(w.needed, locale),
+            free: formatDecimalSize(w.free, locale),
           }),
         );
         break;

@@ -17,6 +17,9 @@ describe('format', () => {
     expect(formatDecimalSize(1_191_067_563, 'es')).toBe('1,19 GB');
     expect(formatDecimalSize(1_191_067_563, 'en')).toBe('1.19 GB');
     expect(formatDecimalSize(2_000_000_000, 'en')).toBe('2 GB');
+    // Rounding never shows 1000 of a unit: it moves to the next one.
+    expect(formatDecimalSize(999_960, 'en')).toBe('1 MB');
+    expect(formatDecimalSize(999_996_000, 'en')).toBe('1 GB');
   });
   it('formats dates per locale', () => {
     expect(formatDate(1_700_000_000, 'en')).toMatch(/2023/);

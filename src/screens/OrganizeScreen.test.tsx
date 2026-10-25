@@ -289,14 +289,15 @@ describe('OrganizeScreen', () => {
     tweakPlans(b, ({ plan }) => {
       plan.warnings.push({
         kind: 'no-space',
-        needed: 3 * 1024 * 1024 * 1024,
-        free: 512 * 1024 * 1024,
+        // The three disc games: same decimal units as the extract summary.
+        needed: 2_188_698_846,
+        free: 1_500_000_000,
       });
     });
     renderScreen(MOCK_DOWNLOADS);
     expect(
       await screen.findByText(
-        'Not enough space on the target: 3 GB needed, 512 MB free.',
+        'Not enough space on the target: 2.19 GB needed, 1.5 GB free.',
       ),
     ).toBeInTheDocument();
   });
