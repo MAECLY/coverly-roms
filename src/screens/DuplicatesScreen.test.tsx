@@ -283,6 +283,17 @@ describe('DuplicatesScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('undo_counts_the_copies_not_the_art_that_came_with_them', async () => {
+    // The fixture's Ecco copy carries its cover: 89 copies set aside
+    // must read as 89 back, not 90.
+    renderScreen();
+    await ready();
+    await applyThenUndo();
+    expect(
+      await screen.findByText('89 archivos devueltos a su sitio.'),
+    ).toBeInTheDocument();
+  });
+
   /** Applies the plan on screen and confirms its undo. */
   async function applyThenUndo() {
     await userEvent.click(

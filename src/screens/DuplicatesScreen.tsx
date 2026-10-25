@@ -706,7 +706,15 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
       : null;
   const later = useLaterJobs(laterIds);
   if (undone)
-    return <Undone t={t} undone={undone} onBack={onBack} onReplan={onReplan} />;
+    return (
+      <Undone
+        t={t}
+        plan={plan}
+        undone={undone}
+        onBack={onBack}
+        onReplan={onReplan}
+      />
+    );
   const report = job.report;
   return (
     <>
@@ -771,8 +779,24 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
   );
 }
 
+/** Whether a path is a file that travels with a copy (its art, its
+ * saves, the other files of a set) rather than the copy itself. Plan
+ * paths may be relative to the ROMs folder, so a suffix match counts. */
+function companionsOf(plan: DedupePlanView): (path: string) => boolean {
+  const along = new Set<string>();
+  for (const g of plan.groups)
+    for (const m of g.members) {
+      for (const tr of m.travels) along.add(tr.from);
+      for (const f of m.unit.files) if (f !== m.unit.primary) along.add(f);
+    }
+  const relative = [...along].filter((c) => !/^([/\\]|[A-Za-z]:)/.test(c));
+  return (path) =>
+    along.has(path) || relative.some((c) => path.endsWith(`/${c}`));
+}
+
 interface UndoneProps {
   t: TFunction;
+  plan: DedupePlanView;
   undone: OrganizeUndoView;
   onBack(): void;
   onReplan(): void;
@@ -780,14 +804,20 @@ interface UndoneProps {
 
 /** After an undo: what came back, and by name what did not (a copy the
  * Trash no longer holds, one whose place is taken or that changed). */
-function Undone({ t, undone, onBack, onReplan }: UndoneProps) {
+function Undone({ t, plan, undone, onBack, onReplan }: UndoneProps) {
   // "Undo all in order" may include later fill jobs: their art is not a
   // copy coming back.
   const fills = new Set(
     undone.later_jobs.filter((j) => j.kind === 'fill').map((j) => j.job),
   );
   const reports = undone.report.filter((r) => !fills.has(r.job));
-  const count = reports.reduce((n, r) => n + r.restored.length, 0);
+  // A copy's art, saves and other files come back with it: count the
+  // copies, as the result and the confirm did.
+  const along = companionsOf(plan);
+  const count = reports.reduce(
+    (n, r) => n + r.restored.filter((p) => !along(p)).length,
+    0,
+  );
   const lost = reports.flatMap((r) => r.archive_lost);
   const left = reports.flatMap((r) => [
     ...r.skipped_modified,
