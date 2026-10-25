@@ -774,3 +774,34 @@ fn zip_with_a_prefix_still_lists_and_reads() {
         assert_eq!(read_entry(&mut r, 1).unwrap(), sample(5000));
     }
 }
+
+/// Two end records that both end at EOF (the first one's comment is a
+/// whole second zip): tools that pick another one see another directory.
+#[test]
+fn zip_two_end_records_reaching_eof_damaged() {
+    let mut bytes = zip_with(&[("a.gba", b"first", ZipMethod::Stored)]);
+    let second = zip_with(&[("b.gba", b"second", ZipMethod::Stored)]);
+    let n = bytes.len();
+    bytes[n - 2..].copy_from_slice(&(second.len() as u16).to_le_bytes());
+    bytes.extend_from_slice(&second);
+    let err = list(bytes).err().expect("refused");
+    assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+}
+
+/// The end record's comment must end exactly at EOF: bytes after it are
+/// where another parser may look for another end record.
+#[test]
+fn zip_trailing_bytes_after_the_comment_damaged() {
+    let mut bytes = zip_with(&[("a.gba", b"rom", ZipMethod::Stored)]);
+    bytes.extend_from_slice(b"trailing junk");
+    let err = list(bytes).err().expect("refused");
+    assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+
+    // A comment declared shorter than what follows the end record.
+    let mut bytes = zip_with(&[("a.gba", b"rom", ZipMethod::Stored)]);
+    let n = bytes.len();
+    bytes[n - 2..].copy_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(b"hi and more");
+    let err = list(bytes).err().expect("refused");
+    assert!(matches!(err, ArchiveError::Damaged { .. }), "{err:?}");
+}

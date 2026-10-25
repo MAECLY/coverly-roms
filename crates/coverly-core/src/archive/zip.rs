@@ -6,7 +6,8 @@
 //!    the last 64 KiB and the zip64 record only. More than `max_entries`
 //!    is [`ArchiveError::TooManyEntries`] and a central directory over
 //!    `max_header` is [`ArchiveError::TooLarge`], before anything is
-//!    allocated from those counts (never `Damaged`).
+//!    allocated from those counts (never `Damaged`). An end record whose
+//!    comment does not end at EOF, or a second one that does, is `Damaged`.
 //! 2. The central directory bytes are parsed here as well (methods, flags,
 //!    attributes, the Unicode Path and AES extra fields), then
 //!    `zip::ZipArchive::new` and `by_index_raw` run for every entry. The
@@ -91,6 +92,11 @@ const EXTRA_AES: u16 = 0x9901;
 /// Reads the counts a zip's end record (zip64 included) claims, from at
 /// most the last 64 KiB of `src` plus the zip64 record. `None` when no
 /// end record is found or it cannot be read (the zip reader decides).
+///
+/// The end record is the last one, and its comment must end exactly at
+/// EOF: bytes after it, or a second end record whose comment also ends
+/// there (one hidden in the other's comment), are where another parser
+/// finds another directory, so both are `None` too.
 pub fn central_directory_claim<R: Read + Seek>(
     src: &mut R,
     len: u64,
@@ -100,9 +106,14 @@ pub fn central_directory_claim<R: Read + Seek>(
     let mut tail = vec![0u8; usize::try_from(tail_len).ok()?];
     src.seek(SeekFrom::Start(tail_start)).ok()?;
     src.read_exact(&mut tail).ok()?;
-    let pos = (0..=tail.len().checked_sub(EOCD_LEN)?)
-        .rev()
-        .find(|&i| tail[i..i + 4] == EOCD_SIG)?;
+    let reaches_eof = |i: usize| {
+        tail[i..i + 4] == EOCD_SIG && i + EOCD_LEN + u16_at(&tail[i..], 20) as usize == tail.len()
+    };
+    let mut candidates = (0..=tail.len().checked_sub(EOCD_LEN)?).rev();
+    let pos = candidates.find(|&i| tail[i..i + 4] == EOCD_SIG)?;
+    if !reaches_eof(pos) || candidates.any(reaches_eof) {
+        return None;
+    }
     let eocd = &tail[pos..pos + EOCD_LEN];
     let eocd_at = tail_start + pos as u64;
     let mut claim = CentralDirectoryClaim {
