@@ -396,3 +396,113 @@ pub fn opera_3do(raw: bool) -> Vec<u8> {
         b.build()
     }
 }
+
+/// Raw deflate of `bytes` (what PBP and CSO blocks store).
+fn deflate_raw(bytes: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(bytes).expect("deflate in memory");
+    enc.finish().expect("deflate in memory")
+}
+
+/// One `PSISOIMG0000` image of a raw track: a converter disc id in the
+/// header (never read), the block index, then the blocks, deflated when
+/// that is smaller.
+fn psiso_image(track: &[u8], converter_id: &str) -> Vec<u8> {
+    use super::pbp::{BLOCK, DATA_AT, INDEX_AT, INDEX_ENTRY, PSISO};
+    let mut img = vec![0u8; DATA_AT as usize];
+    img[..PSISO.len()].copy_from_slice(PSISO);
+    img[0x400..0x400 + converter_id.len()].copy_from_slice(converter_id.as_bytes());
+    let mut data = Vec::new();
+    for (k, chunk) in track.chunks(BLOCK).enumerate() {
+        let mut block = chunk.to_vec();
+        block.resize(BLOCK, 0);
+        let packed = deflate_raw(&block);
+        let stored = if packed.len() < BLOCK { packed } else { block };
+        let at = (INDEX_AT + k as u64 * INDEX_ENTRY) as usize;
+        img[at..at + 4].copy_from_slice(&(data.len() as u32).to_le_bytes());
+        img[at + 4..at + 8].copy_from_slice(&(stored.len() as u32).to_le_bytes());
+        data.extend_from_slice(&stored);
+    }
+    img.extend_from_slice(&data);
+    img
+}
+
+/// A PS1 `EBOOT.PBP` over the raw tracks `discs` (one: `PSISOIMG0000`;
+/// more: a `PSTITLEIMG0000` table). Its outer `PARAM.SFO` says `DISC_ID`
+/// `SLUS99999` and each image header `_SLUS_99999`: a converter's ids, which
+/// the identity must never come from.
+pub fn pbp_with(discs: &[&[u8]]) -> Vec<u8> {
+    use super::pbp::{DISC_TABLE_AT, PBP_MAGIC, PSTITLE};
+    let sfo = b"\0PSF\x01\x01\0\0DISC_ID\0SLUS99999\0TITLE\0Converted Game\0".to_vec();
+    let sfo_at = 0x28u32;
+    let psar_at = (sfo_at as usize + sfo.len()).next_multiple_of(16) as u32;
+    let psar = match discs {
+        [one] => psiso_image(one, "_SLUS_99999"),
+        many => {
+            let mut psar = vec![0u8; 0x8000];
+            psar[..PSTITLE.len()].copy_from_slice(PSTITLE);
+            for (k, disc) in many.iter().enumerate() {
+                let off = psar.len() as u32;
+                let at = DISC_TABLE_AT as usize + 4 * k;
+                psar[at..at + 4].copy_from_slice(&off.to_le_bytes());
+                psar.extend(psiso_image(disc, "_SLUS_99999"));
+                psar.resize(psar.len().next_multiple_of(0x8000), 0);
+            }
+            psar
+        }
+    };
+    let mut out = Vec::new();
+    out.extend_from_slice(PBP_MAGIC);
+    out.extend_from_slice(&0x0001_0000u32.to_le_bytes());
+    // PARAM.SFO, ICON0, ICON1, PIC0, PIC1, SND0, DATA.PSP, DATA.PSAR.
+    out.extend_from_slice(&sfo_at.to_le_bytes());
+    for _ in 0..6 {
+        out.extend_from_slice(&psar_at.to_le_bytes());
+    }
+    out.extend_from_slice(&psar_at.to_le_bytes());
+    out.extend_from_slice(&sfo);
+    out.resize(psar_at as usize, 0);
+    out.extend_from_slice(&psar);
+    out
+}
+
+/// [`pbp_with`] over one raw track.
+pub fn pbp_of(track: &[u8]) -> Vec<u8> {
+    pbp_with(&[track])
+}
+
+/// A CISO v1 image of `iso` (2048-byte blocks, no alignment), each block
+/// deflated when that is smaller, else stored plain.
+pub fn cso_of(iso: &[u8]) -> Vec<u8> {
+    use super::cso::{CSO_MAGIC, HEADER};
+    let block = 2048usize;
+    let blocks = iso.len().div_ceil(block);
+    let mut out = Vec::new();
+    out.extend_from_slice(CSO_MAGIC);
+    out.extend_from_slice(&(HEADER as u32).to_le_bytes());
+    out.extend_from_slice(&(iso.len() as u64).to_le_bytes());
+    out.extend_from_slice(&(block as u32).to_le_bytes());
+    out.push(1);
+    out.push(0);
+    out.extend_from_slice(&[0, 0]);
+    let index_at = out.len();
+    out.resize(index_at + 4 * (blocks + 1), 0);
+    let mut entries = Vec::with_capacity(blocks + 1);
+    for chunk in iso.chunks(block) {
+        let packed = deflate_raw(chunk);
+        let pos = out.len() as u32;
+        if packed.len() < chunk.len() {
+            entries.push(pos);
+            out.extend_from_slice(&packed);
+        } else {
+            entries.push(pos | 0x8000_0000);
+            out.extend_from_slice(chunk);
+        }
+    }
+    entries.push(out.len() as u32);
+    for (k, e) in entries.iter().enumerate() {
+        out[index_at + 4 * k..index_at + 4 * k + 4].copy_from_slice(&e.to_le_bytes());
+    }
+    out
+}

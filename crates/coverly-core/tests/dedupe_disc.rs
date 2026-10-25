@@ -2,7 +2,7 @@
 //! spec §5.4, plan Task 25). Every image is synthetic (`disc::testing`).
 
 use std::fs;
-use std::io::Write;
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use coverly_core::archive::testing::sevenz_copy;
@@ -12,6 +12,7 @@ use coverly_core::dedupe::disc::ReaderDiscProbe;
 use coverly_core::dedupe::source::{DiscIdSource, DiscProbe};
 use coverly_core::disc::source::MAX_WINDOW;
 use coverly_core::disc::testing::{self as dt, IsoBuilder, PSX_LICENCE};
+use coverly_core::disc::{Cso, DiscReader, Pbp, MAX_INFLATED};
 use tempfile::TempDir;
 
 fn probe() -> ReaderDiscProbe {
@@ -313,4 +314,184 @@ fn reads_are_bounded() {
     }));
     let other = deflated_zip(dir.path(), "Other.zip", &[("Other.bin", &big)]);
     assert_eq!(starved.probe(&other, "psx").unwrap(), None);
+}
+
+// --- PBP and CSO (plan DD-3) ---
+
+#[test]
+fn pbp_reads_inner_system_cnf_not_outer_param_sfo() {
+    let dir = TempDir::new().unwrap();
+    let track = dt::psx_track(true, "cdrom:\\SCUS_945.70;1");
+    let pbp = put(dir.path(), "Crash Bash.PBP", &dt::pbp_of(&track));
+    let bin = put(dir.path(), "Crash Bash.bin", &track);
+
+    let id = probe().probe(&pbp, "psx").unwrap().expect("a PS1 PBP");
+    // The converter wrote SLUS99999 outside the disc: never the identity.
+    assert_eq!(id.serials, ["SCUS-94570"]);
+    assert_eq!(id.source, DiscIdSource::SystemCnf);
+    assert!(id.volume.is_some());
+    assert_eq!(
+        Some(id),
+        probe().probe(&bin, "psx").unwrap(),
+        "the same disc as a bin"
+    );
+
+    // A PSP game's EBOOT (no PSISO image) is no PS1 disc.
+    let mut psp = dt::pbp_of(&track);
+    let psar = u32::from_le_bytes(psp[0x24..0x28].try_into().unwrap()) as usize;
+    psp[psar..psar + 4].copy_from_slice(b"\0PSP");
+    let psp = put(dir.path(), "EBOOT.PBP", &psp);
+    assert_eq!(probe().probe(&psp, "psx").unwrap(), None);
+}
+
+#[test]
+fn multi_disc_pbp_lists_serials_in_order() {
+    let dir = TempDir::new().unwrap();
+    let one = dt::psx_track(true, "cdrom:\\SLUS_011.61;1");
+    let two = dt::psx_track(true, "cdrom:\\SLUS_013.18;1");
+    let pbp = put(dir.path(), "Driver 2.pbp", &dt::pbp_with(&[&one, &two]));
+    let id = probe().probe(&pbp, "psx").unwrap().expect("two discs");
+    assert_eq!(id.serials, ["SLUS-01161", "SLUS-01318"]);
+    assert_eq!(id.disc_no, None);
+    let first = put(dir.path(), "Driver 2 (Disc 1).bin", &one);
+    assert_eq!(
+        id.volume,
+        probe().probe(&first, "psx").unwrap().unwrap().volume
+    );
+    // A multi-disc PBP is a set: never one disc of a playlist.
+    let m3u = put(dir.path(), "Driver 2.m3u", b"Driver 2.pbp\n");
+    assert_eq!(probe().probe(&m3u, "psx").unwrap(), None);
+}
+
+#[test]
+fn cso_psp_disc_id() {
+    let dir = TempDir::new().unwrap();
+    let iso = IsoBuilder::new("PSP GAME")
+        .file("UMD_DATA.BIN;1", b"ULUS-10041|C1D2A45B4F28B1E2|0001|G")
+        .build();
+    let cso = put(dir.path(), "Lumines.cso", &dt::cso_of(&iso));
+    let raw = put(dir.path(), "Lumines.iso", &iso);
+    let id = probe().probe(&cso, "psp").unwrap().expect("a UMD");
+    assert_eq!(id.serials, ["ULUS-10041"]);
+    assert_eq!(id.source, DiscIdSource::UmdData);
+    assert_eq!(Some(id), probe().probe(&raw, "psp").unwrap());
+    assert_eq!(probe().probe(&cso, "psx").unwrap(), None);
+    // Not a CISO image (a ZISO, another version): no answer, no error.
+    let mut other = dt::cso_of(&iso);
+    other[..4].copy_from_slice(b"ZISO");
+    let other = put(dir.path(), "Other.cso", &other);
+    assert_eq!(probe().probe(&other, "psp").unwrap(), None);
+}
+
+/// A reader that counts the bytes read through it.
+struct Counting<R> {
+    inner: R,
+    read: u64,
+}
+
+impl<R: Read> Read for Counting<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        Ok(n)
+    }
+}
+
+impl<R: Seek> Seek for Counting<R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+/// Bytes deflate cannot shrink: every block is stored plain.
+fn noise(len: usize) -> Vec<u8> {
+    let mut x: u32 = 0x1234_5678;
+    (0..len)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x as u8
+        })
+        .collect()
+}
+
+#[test]
+fn pbp_and_cso_reads_are_bounded() {
+    const RAW: u64 = 64 * 1024;
+    // A PS1 disc with 8 MiB of incompressible data before SYSTEM.CNF:
+    // blocks are reached directly, so only the few the reads touch are
+    // inflated, far below the cap.
+    let late = IsoBuilder::new("PLAYSTATION")
+        .raw(true)
+        .licence(PSX_LICENCE)
+        .file("MOVIE.STR;1", &noise(8 * 1024 * 1024))
+        .file(
+            "SYSTEM.CNF;1",
+            b"BOOT = cdrom:\\SLUS_008.62;1\r\nTCB = 4\r\n",
+        )
+        .build();
+    let mut pbp = Pbp::open(Counting {
+        inner: Cursor::new(dt::pbp_of(&late)),
+        read: 0,
+    })
+    .unwrap()
+    .expect("a PBP");
+    let id = {
+        let mut disc = pbp.disc(0).unwrap();
+        DiscReader::identify_with(&mut disc, None, None).unwrap()
+    };
+    assert!(pbp.inflated() <= 8 * 16 * 2352, "{}", pbp.inflated());
+    let id = id.expect("a PlayStation disc");
+    assert_eq!(id.serials, ["SLUS-00862"]);
+    assert!(id.volume.is_some());
+    let read = pbp.into_inner().read;
+    assert!(read <= RAW + MAX_INFLATED as u64, "{read} bytes read");
+
+    // An early SYSTEM.CNF is read within the bounds.
+    let early = IsoBuilder::new("PLAYSTATION")
+        .raw(true)
+        .licence(PSX_LICENCE)
+        .file(
+            "SYSTEM.CNF;1",
+            b"BOOT = cdrom:\\SLUS_008.62;1\r\nTCB = 4\r\n",
+        )
+        .file("MOVIE.STR;1", &noise(8 * 1024 * 1024))
+        .build();
+    let mut pbp = Pbp::open(Counting {
+        inner: Cursor::new(dt::pbp_of(&early)),
+        read: 0,
+    })
+    .unwrap()
+    .expect("a PBP");
+    let id = {
+        let mut disc = pbp.disc(0).unwrap();
+        DiscReader::identify_with(&mut disc, None, None).unwrap()
+    };
+    assert_eq!(id.expect("a PS1 disc").serials, ["SLUS-00862"]);
+    assert!(pbp.inflated() <= MAX_INFLATED);
+    // The blocks are stored plain: what was read is the blocks inflated
+    // plus headers and index entries.
+    let read = pbp.into_inner().read;
+    assert!(read <= RAW + MAX_INFLATED as u64, "{read} bytes read");
+
+    // The same for a CSO over 8 MiB of incompressible data.
+    let iso = IsoBuilder::new("PSP GAME")
+        .file("UMD_DATA.BIN;1", b"ULUS-10041|C1D2A45B4F28B1E2|0001|G")
+        .file("DATA.BIN;1", &noise(8 * 1024 * 1024))
+        .build();
+    let mut cso = Cso::open(Counting {
+        inner: Cursor::new(dt::cso_of(&iso)),
+        read: 0,
+    })
+    .unwrap()
+    .expect("a CSO");
+    let len = cso.image_len();
+    let id = DiscReader::identify_with(&mut cso, Some(len), None)
+        .unwrap()
+        .expect("a UMD");
+    assert_eq!(id.serials, ["ULUS-10041"]);
+    assert!(cso.inflated() <= MAX_INFLATED);
+    let read = cso.into_inner().read;
+    assert!(read <= RAW + MAX_INFLATED as u64, "{read} bytes read");
 }

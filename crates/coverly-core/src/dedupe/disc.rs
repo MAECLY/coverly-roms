@@ -15,6 +15,10 @@
 //! - An `.m3u` is its discs in order: their serials in order, disc 1's
 //!   volume fingerprint when every disc has one. A disc that cannot be read
 //!   makes the whole playlist unknown.
+//! - A PS1 `.pbp` is read through its `PSISO` blocks and a `.cso` through
+//!   its CISO blocks, at most 1 MiB inflated each; never the outer
+//!   `PARAM.SFO` (plan DD-3). A multi-disc PBP is its discs in order, like
+//!   an m3u.
 //! - A CHD is not read (plan DD-2).
 //!
 //! The answer is given only for the system asked about. Read-only.
@@ -28,8 +32,8 @@ use crate::archive::Budget;
 use crate::disc::sheets::MAX_SHEET_BYTES;
 use crate::disc::source::MAX_WINDOW;
 use crate::disc::{
-    parse_sheet, primary_track, DiscIdentity, DiscReader, DiscSystem, FileSource, SheetKind,
-    WindowSource,
+    parse_sheet, primary_track, Cso, DiscIdentity, DiscReader, DiscSystem, FileSource, Pbp,
+    SheetKind, WindowSource,
 };
 
 use super::archive::ArchiveEntryListing;
@@ -61,6 +65,14 @@ impl ReaderDiscProbe {
                 };
             }
             "ccd" => return identify_file(&path.with_extension("img")),
+            // A multi-disc PBP is a set, never one disc of a playlist.
+            "pbp" => {
+                return Ok(pbp_discs(path)?.and_then(|mut d| {
+                    let one = d.len() == 1;
+                    one.then(|| d.pop()).flatten().flatten()
+                }))
+            }
+            "cso" => return identify_cso(path),
             _ => {}
         }
         match self.listing.list(path)? {
@@ -123,29 +135,55 @@ impl ReaderDiscProbe {
             if extension(&disc) == "m3u" {
                 return Ok(None);
             }
-            match self.identify(&disc) {
-                Ok(Some(id)) if is_of(&id, system) && !id.serials.is_empty() => discs.push(id),
-                _ => return Ok(None),
-            }
+            discs.push(self.identify(&disc).ok().flatten());
         }
-        let volume = if discs.iter().all(|d| d.volume.is_some()) {
-            discs[0].volume.clone()
-        } else {
-            None
-        };
-        Ok(Some(DiscId {
-            serials: discs.into_iter().flat_map(|d| d.serials).collect(),
-            disc_no: None,
-            volume,
-            source: DiscIdSource::M3uPosition,
-        }))
+        Ok(in_order(discs, system, DiscIdSource::M3uPosition))
     }
+}
+
+/// The identity of discs `discs` in order: their serials in order, disc
+/// 1's volume fingerprint when every disc has one. `None` when any disc is
+/// unknown, of another system or without a serial.
+fn in_order(
+    discs: Vec<Option<DiscIdentity>>,
+    system: &str,
+    source: DiscIdSource,
+) -> Option<DiscId> {
+    let discs: Vec<DiscIdentity> = discs
+        .into_iter()
+        .map(|d| d.filter(|d| is_of(d, system) && !d.serials.is_empty()))
+        .collect::<Option<_>>()?;
+    let volume = if discs.iter().all(|d| d.volume.is_some()) {
+        discs.first()?.volume.clone()
+    } else {
+        None
+    };
+    Some(DiscId {
+        serials: discs.into_iter().flat_map(|d| d.serials).collect(),
+        disc_no: None,
+        volume,
+        source,
+    })
 }
 
 impl DiscProbe for ReaderDiscProbe {
     fn probe(&self, path: &Path, system: &str) -> io::Result<Option<DiscId>> {
-        if extension(path) == "m3u" {
-            return self.playlist(path, system);
+        match extension(path).as_str() {
+            "m3u" => return self.playlist(path, system),
+            "pbp" => {
+                return Ok(match pbp_discs(path)? {
+                    Some(discs) if discs.len() > 1 => {
+                        in_order(discs, system, DiscIdSource::SystemCnf)
+                    }
+                    Some(mut one) => one
+                        .pop()
+                        .flatten()
+                        .filter(|d| is_of(d, system))
+                        .map(|d| d.to_dedupe_id()),
+                    None => None,
+                })
+            }
+            _ => {}
         }
         Ok(self
             .identify(path)?
@@ -156,6 +194,29 @@ impl DiscProbe for ReaderDiscProbe {
 
 fn is_of(d: &DiscIdentity, system: &str) -> bool {
     matches!(d.system, DiscSystem::Known(id) if id == system)
+}
+
+/// Every disc of the PS1 `EBOOT.PBP` at `path`, in order (`None` for a
+/// disc that is not identified); `None` when it holds no PS1 disc.
+fn pbp_discs(path: &Path) -> io::Result<Option<Vec<Option<DiscIdentity>>>> {
+    let Some(mut pbp) = Pbp::open(io::BufReader::new(File::open(path)?))? else {
+        return Ok(None);
+    };
+    let mut out = Vec::with_capacity(pbp.disc_count());
+    for n in 0..pbp.disc_count() {
+        let mut disc = pbp.disc(n)?;
+        out.push(DiscReader::identify_with(&mut disc, None, None)?);
+    }
+    Ok(Some(out))
+}
+
+/// The disc of the `.cso` at `path`.
+fn identify_cso(path: &Path) -> io::Result<Option<DiscIdentity>> {
+    let Some(mut cso) = Cso::open(io::BufReader::new(File::open(path)?))? else {
+        return Ok(None);
+    };
+    let len = cso.image_len();
+    DiscReader::identify_with(&mut cso, Some(len), None)
 }
 
 /// A raw image on disk, read sector by sector.

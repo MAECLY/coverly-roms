@@ -8,7 +8,10 @@
 //! [`sheets::MAX_SHEET_BYTES`] long, and a root directory is walked for at
 //! most [`iso9660::MAX_ROOT_RECORDS`] records. Nothing recurses.
 
+mod blocks;
+pub mod cso;
 pub mod iso9660;
+pub mod pbp;
 pub mod sega;
 pub mod serial;
 pub mod sheets;
@@ -19,10 +22,13 @@ pub mod testing;
 
 /// The volume fingerprint of dedupe spec §5.4, computed here.
 pub use crate::dedupe::source::{DiscIdSource, VolumeFingerprint};
+pub use blocks::MAX_INFLATED;
+pub use cso::Cso;
 pub use iso9660::{
     find_root_file, identify_playstation, identify_playstation_with, read_extent, read_pvd,
     DirRecord, FileExtent, PlayStationDisc, Pvd,
 };
+pub use pbp::{Pbp, PbpDisc};
 pub use sega::{parse_ip_bin, IpBin, SegaSystem};
 pub use serial::normalise_serial;
 pub use sheets::{
