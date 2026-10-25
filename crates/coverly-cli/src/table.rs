@@ -61,7 +61,9 @@ pub fn human_bytes(bytes: u64) -> String {
     }
     let mut v = bytes as f64;
     let mut unit = 0;
-    while v >= 1000.0 && unit < UNITS.len() - 1 {
+    // Compare the value as it is printed: 999,960 B is `1.0 MB`, never
+    // `1000.0 kB`.
+    while (v * 10.0).round() / 10.0 >= 1000.0 && unit < UNITS.len() - 1 {
         v /= 1000.0;
         unit += 1;
     }
@@ -71,6 +73,15 @@ pub fn human_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_bytes_never_prints_1000_of_a_unit() {
+        assert_eq!(human_bytes(999), "999 B");
+        assert_eq!(human_bytes(999_949), "999.9 kB");
+        assert_eq!(human_bytes(999_960), "1.0 MB");
+        assert_eq!(human_bytes(999_960_000), "1.0 GB");
+        assert_eq!(human_bytes(405_749_493), "405.7 MB");
+    }
 
     #[test]
     fn terminal_safe_strips_escape_sequences() {
