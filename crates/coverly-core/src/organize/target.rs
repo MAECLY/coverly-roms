@@ -917,16 +917,11 @@ fn extract_disc(
     // The folder and the playlist are no set members (no sheet names
     // them), so a title the card cannot store as it is gets the safe
     // spelling (`Vol.` → `Vol`, `CON` → `_CON`); members keep theirs.
-    let safe_stem = || match safe_file_name(&stem) {
-        Ok(safe) => Ok(safe),
-        Err(_) => Err(Planned::Left(LeftReason::SetUnsafeName {
-            name: stem.clone(),
-        })),
-    };
+    let safe_stem = || safe_file_name(&stem).ok();
+    let unsafe_stem = || Planned::Left(LeftReason::SetUnsafeName { name: stem.clone() });
     let folder = if disc_layout.is_game_folder() {
-        let safe = match safe_stem() {
-            Ok(safe) => safe,
-            Err(left) => return left,
+        let Some(safe) = safe_stem() else {
+            return unsafe_stem();
         };
         match game_folder(dir, &safe, index) {
             Some(folder) => folder,
@@ -960,8 +955,8 @@ fn extract_disc(
     });
     let m3u = if multi_disc && disc_layout.m3u_for_multi() && !has_playlist {
         match safe_stem() {
-            Ok(safe) => Some(folder.join(format!("{safe}.m3u"))),
-            Err(left) => return left,
+            Some(safe) => Some(folder.join(format!("{safe}.m3u"))),
+            None => return unsafe_stem(),
         }
     } else {
         None
