@@ -1,10 +1,10 @@
 //! Contract test for dedupe phase B (spec §10, plan AP-6): the
 //! `EntryListing` is `dedupe::archive::ArchiveEntryListing` over the archive
-//! reader, and a `DiscProbe` is written in a few lines over it and the disc
-//! reader, with no new types. The seams they rely on are pinned here.
-//! Fixtures are synthetic.
+//! reader and the `DiscProbe` is `dedupe::disc::ReaderDiscProbe` over it and
+//! the disc reader. The seams they rely on are pinned here. Fixtures are
+//! synthetic.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 use coverly_core::archive::testing::{
@@ -12,82 +12,10 @@ use coverly_core::archive::testing::{
 };
 use coverly_core::archive::{is_budget_spent, Limits};
 use coverly_core::dedupe::archive::ArchiveEntryListing;
-use coverly_core::dedupe::source::{DiscId, DiscIdSource, DiscProbe, EntryListing, ListedEntry};
-use coverly_core::disc::sheets::MAX_SHEET_BYTES;
-use coverly_core::disc::source::MAX_WINDOW;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
+use coverly_core::dedupe::source::{DiscIdSource, DiscProbe, EntryListing, ListedEntry};
 use coverly_core::disc::testing as dt;
-use coverly_core::disc::{
-    parse_sheet, primary_track, DiscReader, DiscSystem, FileSource, SheetKind, WindowSource,
-};
 use coverly_core::identify::hash::{hash_stream, HeaderRule};
-
-// ---- The disc adapter, until `ReaderDiscProbe` lands (spec §10) --------
-
-/// `DiscProbe` over raw images, cue/gdi sets and disc archives. A sheet
-/// names the primary track (a GD-ROM's track 03, never the low-density
-/// track 01); without one every entry is tried in order.
-struct TestDiscProbe {
-    listing: ArchiveEntryListing,
-}
-
-fn sheet_kind(name: &str) -> Option<SheetKind> {
-    let ext = Path::new(name).extension()?.to_str()?;
-    SheetKind::from_extension(ext).filter(|k| *k != SheetKind::M3u)
-}
-
-/// The file name of `sheet`'s primary track.
-fn primary_file(kind: SheetKind, text: &[u8]) -> Option<String> {
-    let sheet = parse_sheet(kind, text).ok()?;
-    let track = &sheet.tracks[primary_track(&sheet)?];
-    sheet.files.get(track.file).cloned()
-}
-
-impl DiscProbe for TestDiscProbe {
-    fn probe(&self, path: &Path, system: &str) -> io::Result<Option<DiscId>> {
-        let found = match self.listing.list(path)? {
-            None => {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let image = match sheet_kind(name) {
-                    Some(kind) => {
-                        let mut text = Vec::new();
-                        std::fs::File::open(path)?
-                            .take(MAX_SHEET_BYTES as u64)
-                            .read_to_end(&mut text)?;
-                        match primary_file(kind, &text) {
-                            Some(file) => path.with_file_name(file),
-                            None => return Ok(None),
-                        }
-                    }
-                    None => path.to_path_buf(),
-                };
-                DiscReader::identify(&mut FileSource::open(&image)?)
-            }
-            Some(entries) => {
-                // The primary track a sheet in the archive names, else all.
-                let primary = entries.iter().enumerate().find_map(|(n, e)| {
-                    let kind = sheet_kind(&e.name)?;
-                    let text = self.listing.head(path, n, MAX_SHEET_BYTES).ok()??;
-                    let file = primary_file(kind, &text)?;
-                    let dir = e.name.rfind('/').map_or("", |i| &e.name[..=i]);
-                    let want = format!("{dir}{file}");
-                    entries
-                        .iter()
-                        .position(|t| t.name.eq_ignore_ascii_case(&want))
-                });
-                let candidates: Vec<usize> = match primary {
-                    Some(n) => vec![n],
-                    None => (0..entries.len()).collect(),
-                };
-                candidates.into_iter().find_map(|n| {
-                    let head = self.listing.head(path, n, MAX_WINDOW).ok()??;
-                    DiscReader::identify(&mut WindowSource::new(head))
-                })
-            }
-        };
-        let ours = |d: &coverly_core::disc::DiscIdentity| matches!(d.system, DiscSystem::Known(id) if id == system);
-        Ok(found.filter(ours).map(|d| d.to_dedupe_id()))
-    }
-}
 
 // ---- Helpers ------------------------------------------------------------
 
@@ -229,7 +157,7 @@ fn head_budget_spent_is_none() {
 #[test]
 fn probe_returns_serial_and_fingerprint() {
     let dir = tempfile::tempdir().unwrap();
-    let probe = TestDiscProbe { listing: listing() };
+    let probe = ReaderDiscProbe::new(listing());
     let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
 
     // A raw image on disk.
@@ -315,7 +243,7 @@ fn payload_sha1_honours_the_callers_budget() {
 #[test]
 fn probe_follows_the_sheet_to_the_primary_track() {
     let dir = tempfile::tempdir().unwrap();
-    let probe = TestDiscProbe { listing: listing() };
+    let probe = ReaderDiscProbe::new(listing());
 
     // A cue set on disk: dedupe's `DiscSet` unit probes its sheet.
     let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");

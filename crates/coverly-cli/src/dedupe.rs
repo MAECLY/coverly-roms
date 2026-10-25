@@ -9,13 +9,14 @@ use std::fs::File;
 use std::io::{self, BufWriter, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
-use coverly_core::archive::Limits;
+use coverly_core::archive::{Limits, ToolsOnDemand};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
 use coverly_core::dedupe::keys::DiskBytes;
-use coverly_core::dedupe::source::NoDiscProbe;
 use coverly_core::dedupe::DedupeEnv;
 use coverly_core::dedupe::{
     plan_dedupe, DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, DupGroup, GroupAction,
@@ -332,14 +333,17 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     if let QuarantineChoice::Folder { path } = &opts.quarantine {
         avoid.push(path);
     }
-    let listing = ArchiveEntryListing::with_tools(limits, &avoid);
+    // One discovery for the entry listing and the disc probe.
+    let tools = Arc::new(ToolsOnDemand::new(&avoid));
+    let listing = ArchiveEntryListing::with_tools_on_demand(limits.clone(), Arc::clone(&tools));
+    let discs = ReaderDiscProbe::new(ArchiveEntryListing::with_tools_on_demand(limits, tools));
     let env = DedupeEnv {
         cache: &cache,
         db: &db,
         profile,
         settings: s,
         listing: &listing,
-        discs: &NoDiscProbe,
+        discs: &discs,
         dats,
         bytes: &DiskBytes,
         progress: &progress,

@@ -2,8 +2,8 @@
 //! DD-1): [`EntryListing`] for archive entries and [`DiscProbe`] for disc
 //! identity. Both are narrow, so the planner never sees the readers: the
 //! real ones are [`ArchiveEntryListing`](super::archive::ArchiveEntryListing)
-//! over the archive reader and `ReaderDiscProbe` (`dedupe::disc`) over the
-//! disc reader; the fakes live in `dedupe::testing`. A third,
+//! over the archive reader and [`ReaderDiscProbe`](super::disc::ReaderDiscProbe)
+//! over the disc reader; the fakes live in `dedupe::testing`. A third,
 //! [`DatLookup`], answers catalogue questions for levels 2 and 3. Read-only.
 
 use std::io;

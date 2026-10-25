@@ -14,6 +14,7 @@
 
 use std::fs::File;
 use std::io::{self, Read};
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -111,6 +112,52 @@ impl ArchiveEntryListing {
         let entry = files(&listing).nth(n).cloned();
         entry.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {n}")))
     }
+
+    /// [`EntryListing::head`] with the bytes decoded charged to `budget`
+    /// (one budget for every read of a disc probe). A head already cached
+    /// costs nothing.
+    pub(crate) fn head_with(
+        &self,
+        path: &Path,
+        n: usize,
+        len: usize,
+        budget: &mut Budget,
+    ) -> io::Result<Option<Vec<u8>>> {
+        let e = self.entry(path, n)?;
+        let head = self
+            .cache_for(path)
+            .head(path, e.index, len, &self.limits, budget)
+            .map_err(io::Error::from);
+        Ok(not_read_if_spent(head)?.flatten())
+    }
+
+    /// Bytes `range` of file entry `n` (a skip, then a read) on a fresh
+    /// reader, every decoded byte charged to `budget`. `Ok(None)` when the
+    /// budget runs out first; fewer bytes when the entry is shorter.
+    pub(crate) fn read_range(
+        &self,
+        path: &Path,
+        n: usize,
+        range: Range<u64>,
+        budget: &mut Budget,
+    ) -> io::Result<Option<Vec<u8>>> {
+        let entry = self.entry(path, n)?;
+        let mut reader = self
+            .open(path)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not an archive"))?;
+        let read = reader
+            .open_entry(entry.index, budget)
+            .map_err(io::Error::from)
+            .and_then(|mut stream| {
+                io::copy(&mut (&mut stream).take(range.start), &mut io::sink())?;
+                let mut out = Vec::new();
+                stream
+                    .take(range.end.saturating_sub(range.start))
+                    .read_to_end(&mut out)?;
+                Ok(out)
+            });
+        not_read_if_spent(read)
+    }
 }
 
 /// Whether `path` starts with a RAR or a 7z signature: the only formats an
@@ -186,12 +233,6 @@ impl EntryListing for ArchiveEntryListing {
     }
 
     fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
-        let e = self.entry(path, entry)?;
-        let mut budget = Budget::plan_head(&self.limits);
-        let head = self
-            .cache_for(path)
-            .head(path, e.index, len, &self.limits, &mut budget)
-            .map_err(io::Error::from);
-        Ok(not_read_if_spent(head)?.flatten())
+        self.head_with(path, entry, len, &mut Budget::plan_head(&self.limits))
     }
 }
