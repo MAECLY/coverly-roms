@@ -93,11 +93,17 @@ Coverly propone una carpeta por sistema, con el formato que elijas (de serie,
 Anbernic de fábrica: `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Cada archivo se
 identifica por el CRC del catálogo (también dentro de los zip), luego por la
 cabecera, la extensión y el nombre, y por ScreenScraper con el CRC si lo tienes
-configurado, y muestra una confianza y un motivo. Las descargas sin terminar,
-las BIOS, las páginas web guardadas como `.zip`, los archivos dañados o con
-varios juegos y los duplicados se quedan donde están. No pisa ningún archivo,
-las copias entre discos se verifican y un trabajo interrumpido se puede
-reanudar o deshacer.
+configurado, y muestra una confianza y un motivo. Los comprimidos se reconocen
+por su contenido, no por su nombre, así que un 7z guardado como `.zip` se abre
+como 7z: zip, 7z, RAR, tar, gzip, bzip2, xz, zstd, lz4 y ROMs sueltas
+comprimidas como `juego.gba.gz`. Los juegos de disco dentro de un comprimido
+(PlayStation, Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD) se
+identifican por el propio disco, con su número de serie, y al aplicar se
+extraen su `.cue`/`.gdi` y sus pistas a la carpeta del sistema, cada pista
+comprobada contra el comprimido. Las descargas sin terminar, las BIOS, las
+páginas web guardadas como `.zip`, los archivos dañados o con varios juegos y
+los duplicados se quedan donde están. No pisa ningún archivo, las copias entre
+discos se verifican y un trabajo interrumpido se puede reanudar o deshacer.
 
 **Explorar la biblioteca.** Vistas por carpeta, sistema, fecha y lista plana;
 filtros por imágenes que faltan, sistema, extensión y región; búsqueda; y una
@@ -392,7 +398,8 @@ candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 
 **`organize`:** `--layout PERFIL`, `--target CARPETA`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign ARCHIVO=SISTEMA`
-(repetible), `--resume TRABAJO`, `--include-review`, `--offline`.
+(repetible), `--resume TRABAJO`, `--include-review`, `--offline`,
+`--no-external-tools` (no usa unrar, 7-Zip ni bsdtar).
 
 **`undo`:** `--list`, `--job ID`, `--include-later` (con `--job`: deshace
 también los trabajos posteriores que tocaron la misma carpeta, del más nuevo al
@@ -476,6 +483,29 @@ tarjeta, y Deshacer la devuelve.
 
 No. libretro-thumbnails funciona sin cuenta. SteamGridDB es opcional: usa tu
 propia clave, que se guarda en el llavero del sistema.
+
+</details>
+
+<details>
+<summary><b>¿Abre comprimidos 7z y RAR?</b></summary>
+
+Sí. Zip, 7z, tar, gzip, bzip2, xz, zstd y lz4 se abren sin instalar nada más.
+RAR necesita un programa que ya está en muchos ordenadores, porque el código
+oficial de RAR no puede ir dentro de un programa libre: `unrar`, 7-Zip (`7zz` o
+`7z`) o `bsdtar`, que macOS ya trae (`/usr/bin/bsdtar`). En Windows encuentra
+7-Zip o WinRAR en sus carpetas habituales; en Linux, instala `unrar`, `7zip` o
+`libarchive-tools`. Si no hay ninguno, el RAR se queda donde está con el aviso
+«Para abrir archivos RAR instala unrar» y se organiza lo demás. Configuración →
+Organizar → _Programas externos para RAR_ muestra lo que ha encontrado y
+permite desactivarlos.
+
+Los juegos de disco se **extraen**, porque las consolas cargan el `.cue`/`.gdi`
+y las pistas, no el comprimido. Las ROMs de cartucho en zip o 7z se mueven tal
+cual cuando el formato de la tarjeta los carga; los demás comprimidos se
+extraen. Al mover, el comprimido va a la papelera solo cuando todos los
+archivos se han comprobado y no queda nada más dentro (si trae una partida
+guardada, el comprimido se queda). Deshacer borra lo extraído y devuelve el
+comprimido de la papelera.
 
 </details>
 

@@ -109,6 +109,13 @@ opened through an optional external tool the user installs, never linked).
   zlib-rs is under the Zlib licence.
 - **objc2-foundation** 0.3.2 (https://github.com/madsmtm/objc2), macOS only,
   for moving archives to the Trash. MIT.
+- **windows-sys** (https://github.com/microsoft/windows-rs), Windows only,
+  already used for file system calls; it also gives the Recycle Bin, process
+  Job object and ToolHelp calls of the archive work. MIT OR Apache-2.0.
+
+External archive programs (`unrar`, 7-Zip's `7zz`/`7z`, `bsdtar`) are not
+part of Coverly ROMs: they are found on the user's computer, run as separate
+processes and never linked or bundled.
 
 ## Art and metadata sources
 

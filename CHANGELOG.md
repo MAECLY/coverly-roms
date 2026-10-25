@@ -30,6 +30,43 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   that steps through games with ←/→.
 - Each library remembers its view and options (the 20 most recent); a new
   library opens with the last ones used.
+- Organise opens archives of every common kind, recognised by their contents:
+  zip and zip64 (deflate, deflate64, bzip2, LZMA, XZ, zstd, PPMd), 7z (LZMA,
+  LZMA2, BCJ, PPMd and more), tar, gzip, bzip2, xz, zstd, lz4, and single
+  compressed ROMs such as `game.gba.gz`. A file whose extension names another
+  format gets the note "It is a 7z archive named .zip" and is organised
+  anyway.
+- RAR archives open through a program already on the computer (`unrar`,
+  7-Zip or `bsdtar`, which macOS includes); without one, the RAR stays with
+  "To open RAR archives, install unrar" and the rest of the plan carries on.
+  Settings → Organise → External programs for RAR lists what was found and
+  can turn them off; `coverly organize --no-external-tools` does the same.
+- Disc games inside archives are identified from the disc: PlayStation (serial
+  from `SYSTEM.CNF`, e.g. `SLUS-00862`), Sega Saturn, Dreamcast, Sega CD,
+  PC Engine CD and Neo Geo CD; PlayStation 2 and 3DO are named as not
+  supported yet. On apply their `.cue`/`.gdi` and tracks are extracted into the
+  system folder (flat, or one folder per game with an `.m3u` where the layout
+  needs it), each file written to a temporary file, verified by size and CRC,
+  re-read from the disk and only then renamed without overwriting. The dry
+  run shows "Extract · 12 files · 405.7 MB" and "Extracting: N games".
+- Cartridge ROMs in a container the layout cannot load (MinUI and 7z, RAR,
+  tar, gz…) are extracted; zip and 7z stay as they are where the layout loads
+  them.
+- In move mode the archive goes to the Trash only after everything was
+  verified, and only when nothing else is in it (a save file inside keeps
+  it); copy mode never touches it. Free space (by cluster size), FAT32 4 GiB
+  files and FAT32 folder capacity are checked before writing; a full disk
+  rolls the game back and pauses the job. Resume after an interruption never
+  rewrites finished files, and undo removes what was extracted and brings the
+  archive back from the Trash, or keeps the extracted files when the Trash was
+  emptied.
+- Archives are read defensively: decoders run in a panic guard, with memory
+  caps checked from each header before decoding, bounded headers, listings
+  and trailers, safe entry paths (no zip-slip, absolute paths or device
+  names), and strict parsing of external tools' output.
+- New "left in place" reasons: encrypted, needs too much memory, too big to
+  open safely, in several parts, unsafe entry, archive inside an archive,
+  arcade set to repack, folder full on FAT32, unsafe target folder.
 
 ### Changed
 
@@ -37,6 +74,13 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   List opens Details, Grid opens Covers.
 - The narrow-window toolbar folds the views into one View menu that lists
   their shortcuts.
+- The minimum supported Rust version is 1.93 (needed by `sevenz-rust2`).
+
+### Fixed
+
+- 7z files named `.zip` were reported as damaged archives. Containers are now
+  detected by their magic bytes, the extension is only a fallback, and an
+  archive is "damaged" only when its own listing fails.
 
 ## [0.1.0] - 2026-10-17
 

@@ -91,6 +91,12 @@ proposes one folder per system, in the layout you choose (Anbernic stock by
 default: `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Each file is identified by
 catalogue CRC (zip entries included), then header magic, extension and name,
 plus ScreenScraper by CRC when configured, and shows a confidence and a reason.
+Archives are recognised by their contents, not their name, so a 7z saved as
+`.zip` opens as a 7z: zip, 7z, RAR, tar, gzip, bzip2, xz, zstd, lz4 and single
+compressed ROMs such as `game.gba.gz`. Disc games inside an archive (PlayStation,
+Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD) are identified from the
+disc itself, serial included, and on apply their `.cue`/`.gdi` and tracks are
+extracted into the system folder, each track checked against the archive.
 Unfinished downloads, BIOS files, web pages saved as `.zip`, damaged or
 multi-game archives and duplicates stay where they are. Nothing is clobbered,
 copies across drives are verified, and an interrupted job can be resumed or
@@ -377,7 +383,8 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 
 **`organize`:** `--layout PROFILE_ID`, `--target DIR`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign FILE=SYSTEM_ID`
-(repeatable), `--resume JOB_ID`, `--include-review`, `--offline`.
+(repeatable), `--resume JOB_ID`, `--include-review`, `--offline`,
+`--no-external-tools` (do not use unrar, 7-Zip or bsdtar).
 
 **`undo`:** `--list`, `--job ID`, `--include-later` (with `--job`: also undo
 the newer jobs that touched the same folder, newest first).
@@ -454,6 +461,28 @@ the card, and Undo puts it back.
 
 No. libretro-thumbnails works without one. SteamGridDB is optional and uses
 your own key, kept in your system keychain.
+
+</details>
+
+<details>
+<summary><b>Can it open 7z and RAR archives?</b></summary>
+
+Yes. Zip, 7z, tar, gzip, bzip2, xz, zstd and lz4 open with nothing else
+installed. RAR needs a program that is already on many computers, because the
+official RAR code cannot ship in a free program: `unrar`, 7-Zip (`7zz` or `7z`)
+or `bsdtar`, which macOS already includes (`/usr/bin/bsdtar`). On Windows,
+7-Zip or WinRAR in their usual folders are found; on Linux, install `unrar`,
+`7zip` or `libarchive-tools`. Without one, a RAR stays where it is with the note
+"To open RAR archives, install unrar" and the rest is organised. Settings →
+Organise → _External programs for RAR_ shows what was found and can turn them
+off.
+
+Disc games are extracted, because handhelds load `.cue`/`.gdi` and tracks, not
+archives. Cartridge ROMs in a zip or 7z are moved as they are when the layout
+loads them; other containers are extracted. In move mode the archive goes to
+the Trash only after every file has been verified, and only when nothing else
+is left in it (a save file inside keeps the archive). Undo removes what was
+extracted and brings the archive back from the Trash.
 
 </details>
 
