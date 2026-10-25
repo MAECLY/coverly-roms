@@ -619,7 +619,19 @@ fn quarantine_folder_is_never_walked() {
     // A quarantine chosen inside a system folder.
     let inside = put(root, "ROMS/GB/_Duplicados/x.gb", &rom);
     let profile = common::profile("anbernic-stock");
-    let scan = scan_with(root, &profile, &ScanOptions::default());
+    // The scan never walks a quarantine by its default names; the units
+    // keep one out whatever its name (a scan told nothing about it).
+    let default_scan = scan_with(root, &profile, &ScanOptions::default());
+    assert!(default_scan
+        .systems
+        .iter()
+        .flat_map(|s| &s.roms)
+        .all(|r| r.path != inside));
+    let unaware = ScanOptions {
+        quarantine_names: Vec::new(),
+        ..ScanOptions::default()
+    };
+    let scan = scan_with(root, &profile, &unaware);
     let mut opts = UnitOptions::for_profile(&profile);
     opts.quarantine = Some(root.join("ROMS/GB/_duplicados"));
     let set = units_from_scan(&scan, &SystemDb::builtin(), &opts, &listing());
@@ -635,7 +647,7 @@ fn quarantine_folder_is_never_walked() {
         roms_root: String::new(),
         ..profile.clone()
     };
-    let mut scan = scan_with(froot, &flat_profile, &ScanOptions::default());
+    let mut scan = scan_with(froot, &flat_profile, &unaware);
     // Even a walk that took it as a system folder never yields its files.
     let mut fake = scan
         .systems

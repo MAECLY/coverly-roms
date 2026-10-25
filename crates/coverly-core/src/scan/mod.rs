@@ -108,7 +108,15 @@ pub struct ScanOptions {
     pub ignored_dirs: Vec<String>,
     /// Extensions never taken as ROMs (lowercase, no dot).
     pub ignored_exts: Vec<String>,
+    /// Names of duplicates quarantine folders (duplicates spec §7.1):
+    /// never listed as a system folder of the ROMs root and never walked
+    /// inside a system folder, compared case-insensitively.
+    pub quarantine_names: Vec<String>,
 }
+
+/// The quarantine folder names every scan skips by default: the two names
+/// the app picks from its language.
+pub const QUARANTINE_NAMES: [&str; 2] = ["_Duplicados", "_Duplicates"];
 
 impl Default for ScanOptions {
     fn default() -> Self {
@@ -121,6 +129,7 @@ impl Default for ScanOptions {
                 "txt", "xml", "json", "cfg", "ini", "db", "png", "jpg", "jpeg", "webp", "bmp",
                 "srm", "sav", "state", "pdf", "md", "nfo", "log", "dat",
             ]),
+            quarantine_names: strings(&QUARANTINE_NAMES),
         }
     }
 }
@@ -150,6 +159,37 @@ pub fn scan_library_with_progress(
     profile: &Profile,
     systems: &SystemDb,
     opts: &ScanOptions,
+    progress: &mut dyn FnMut(ScanProgress),
+) -> LibraryScan {
+    scan_filtered(root, profile, systems, opts, None, progress)
+}
+
+/// [`scan_library`] that walks only the system folders resolving to one
+/// of `only` (system ids); the other folders are listed with no ROMs, as
+/// unknown folders are. The duplicates step of Organise reads only the
+/// folders its plan touches.
+pub fn scan_systems(
+    root: &Path,
+    profile: &Profile,
+    systems: &SystemDb,
+    opts: &ScanOptions,
+    only: &[String],
+) -> LibraryScan {
+    scan_filtered(root, profile, systems, opts, Some(only), &mut |_| {})
+}
+
+fn is_quarantine(name: &str, opts: &ScanOptions) -> bool {
+    opts.quarantine_names
+        .iter()
+        .any(|q| q.eq_ignore_ascii_case(name))
+}
+
+fn scan_filtered(
+    root: &Path,
+    profile: &Profile,
+    systems: &SystemDb,
+    opts: &ScanOptions,
+    only: Option<&[String]>,
     progress: &mut dyn FnMut(ScanProgress),
 ) -> LibraryScan {
     let mut scan = LibraryScan {
@@ -183,7 +223,7 @@ pub fn scan_library_with_progress(
             }
         };
         let folder_name = entry.file_name().to_string_lossy().into_owned();
-        if is_skipped_entry(&folder_name, opts) {
+        if is_skipped_entry(&folder_name, opts) || is_quarantine(&folder_name, opts) {
             continue;
         }
         let dir = entry.path();
@@ -206,7 +246,9 @@ pub fn scan_library_with_progress(
     });
     for (index, (folder_name, dir)) in dirs.into_iter().enumerate() {
         let system = systems.resolve_folder(&folder_name);
+        let wanted = |s: &System| only.is_none_or(|ids| ids.contains(&s.id));
         let roms = system
+            .filter(|s| wanted(s))
             .map(|s| scan_system(&dir, s, profile, opts, &mut scan.warnings))
             .unwrap_or_default();
         found += roms.len();
@@ -248,7 +290,9 @@ fn scan_system(
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
             !is_skipped_entry(&name, opts)
-                && !(e.file_type().is_dir() && is_skipped_dir(&name, &profile.art_dir_names, opts))
+                && !(e.file_type().is_dir()
+                    && (is_skipped_dir(&name, &profile.art_dir_names, opts)
+                        || is_quarantine(&name, opts)))
         });
 
     let mut candidates = Vec::new();
