@@ -1977,12 +1977,21 @@ fn duplicates_step(
         let mut unit_opts = UnitOptions::for_profile(profile);
         unit_opts.quarantine = Some(target_root.join(&opts.quarantine_name));
         let library = units_from_scan(&scan, env.db, &unit_opts, &listing).units;
-        // A pile inside the library is never compared with itself.
-        units.extend(
-            library
-                .into_iter()
-                .filter(|u| !by_primary.contains_key(&u.primary)),
-        );
+        // A pile inside the library is never compared with itself, even
+        // when it was reached by another spelling or through a link: a
+        // library file that is a pile file is no other copy of it.
+        let pile_files: std::collections::HashSet<FileKey> = units
+            .iter()
+            .flat_map(|u| u.files.iter())
+            .filter_map(|f| file_key(f))
+            .collect();
+        units.extend(library.into_iter().filter(|u| {
+            !by_primary.contains_key(&u.primary)
+                && !u
+                    .files
+                    .iter()
+                    .any(|f| file_key(f).is_some_and(|k| pile_files.contains(&k)))
+        }));
     }
 
     // Group and choose the keepers.
@@ -2086,6 +2095,26 @@ fn duplicates_step(
         out.groups.push(g);
     }
     out
+}
+
+/// What makes two paths the same file: the device and inode (Unix), or
+/// the canonical path ignoring case (elsewhere).
+#[cfg(unix)]
+type FileKey = (u64, u64);
+#[cfg(not(unix))]
+type FileKey = String;
+
+#[cfg(unix)]
+fn file_key(path: &Path) -> Option<FileKey> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_key(path: &Path) -> Option<FileKey> {
+    fs::canonicalize(path)
+        .ok()
+        .map(|p| p.to_string_lossy().to_lowercase())
 }
 
 /// Sets `item` aside with `action` (a [`OrganizeAction::SetAside`]): it

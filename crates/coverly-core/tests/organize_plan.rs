@@ -2761,3 +2761,70 @@ mod duplicates {
         assert_eq!(serde_json::from_value::<LeftReason>(v).unwrap(), reason);
     }
 }
+
+mod duplicates_same_file {
+    use super::*;
+    use coverly_core::settings::OrganizeDedupeMode;
+
+    fn card_with_tetris() -> (TempDir, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let card = tmp.path().join("card");
+        put(&card.join("ROMS/GB/Tetris.gb"), &fx::gb_tagged(0x00, 40));
+        (tmp, card)
+    }
+
+    fn assert_never_set_aside(plan: &OrganizePlan) {
+        assert!(
+            !plan.items.iter().any(|i| i.is_set_aside()),
+            "the only copy is set aside: {:#?}",
+            plan.items
+        );
+        assert!(plan.duplicates.is_empty(), "{:#?}", plan.duplicates);
+    }
+
+    #[test]
+    fn a_system_folder_organised_into_its_own_card_is_not_its_own_duplicate() {
+        let (_tmp, card) = card_with_tetris();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        let plan = plan(&world, &card.join("ROMS/GB"), opts);
+        assert_never_set_aside(&plan);
+    }
+
+    #[test]
+    fn a_pile_reached_by_another_spelling_is_not_its_own_duplicate() {
+        let (_tmp, card) = card_with_tetris();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        // `card/ROMS/GB/../GB`: the same folder, another path.
+        let plan = plan(&world, &card.join("ROMS/GB/../GB"), opts);
+        assert_never_set_aside(&plan);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pile_reached_through_a_link_is_not_its_own_duplicate() {
+        let (tmp, card) = card_with_tetris();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(card.join("ROMS/GB"), &link).unwrap();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        let plan = plan(&world, &link, opts);
+        assert_never_set_aside(&plan);
+    }
+}
