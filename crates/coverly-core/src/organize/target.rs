@@ -278,8 +278,8 @@ pub fn assign_targets_with_extracts(
     let mut folders: HashMap<String, (PathBuf, FolderChoice)> = HashMap::new();
     let mut dirs: Vec<Option<(PathBuf, FolderChoice)>> = Vec::with_capacity(items.len());
     for item in items.iter() {
-        let dir = match (&item.system_id, item.is_left()) {
-            (Some(system), false) => Some(
+        let dir = match (&item.system_id, item.moves_in()) {
+            (Some(system), true) => Some(
                 folders
                     .entry(system.clone())
                     .or_insert_with(|| folder_in(&roms, layout, db, system))
@@ -444,7 +444,7 @@ fn match_companions(
     (attached, left)
 }
 
-fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
+pub(crate) fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
     let ext = ext.to_lowercase();
     patterns.iter().any(|p| {
         let p = p.trim().trim_start_matches('.').to_lowercase();
@@ -1140,35 +1140,6 @@ fn file_crc32(path: &Path) -> Option<u32> {
     }
 }
 
-/// Leaves every item but one of each content group in place as a
-/// duplicate: the kept one has the shortest file name, then the first
-/// alphabetically. `keys[i]` is item `i`'s CRC32 + size (or SHA1 + size);
-/// `None` never matches. Items already left are not considered.
-pub fn mark_duplicates(items: &mut [OrganizeItem], keys: &[Option<(String, u64)>]) {
-    let mut groups: HashMap<&(String, u64), Vec<usize>> = HashMap::new();
-    for (pos, item) in items.iter().enumerate() {
-        if let Some(Some(key)) = keys.get(pos) {
-            if !item.is_left() {
-                groups.entry(key).or_default().push(pos);
-            }
-        }
-    }
-    for mut group in groups.into_values().filter(|g| g.len() > 1) {
-        group.sort_by_key(|&pos| {
-            let name = items[pos]
-                .sources
-                .first()
-                .map(|s| file_name(s))
-                .unwrap_or_default();
-            (name.chars().count(), name)
-        });
-        let of = items[group[0]].sources[0].clone();
-        for &pos in &group[1..] {
-            items[pos].leave(LeftReason::Duplicate { of: of.clone() });
-        }
-    }
-}
-
 #[cfg(feature = "test-util")]
 thread_local! {
     static FAT32: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
@@ -1227,7 +1198,7 @@ fn written_paths(item: &OrganizeItem, target_root: &Path) -> Vec<PathBuf> {
 pub fn limit_fat_folders(items: &mut [OrganizeItem], target_root: &Path) {
     let mut used: HashMap<PathBuf, u64> = HashMap::new();
     let mut created: HashSet<PathBuf> = HashSet::new();
-    for item in items.iter_mut().filter(|i| !i.is_left()) {
+    for item in items.iter_mut().filter(|i| i.moves_in()) {
         let paths = written_paths(item, target_root);
         if paths.is_empty() {
             continue;

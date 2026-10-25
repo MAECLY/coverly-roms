@@ -175,6 +175,8 @@ fn plan_of(env: &Env, mut items: Vec<OrganizeItem>, mode: TransferMode) -> Organ
         move_allowed: true,
         target_detected: None,
         created_at: "2026-10-24T00:00:00Z".into(),
+        duplicates: Vec::new(),
+        set_aside_trash: false,
     }
 }
 

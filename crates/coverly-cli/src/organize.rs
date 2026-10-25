@@ -33,6 +33,7 @@ use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREEN
 use coverly_core::systems::SystemDb;
 use coverly_core::write::trash::process_trash;
 
+use crate::dedupe::relation_text;
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
 use crate::{print_stdout, table, Failure};
@@ -476,6 +477,9 @@ fn warn_ignored_assigns(
             OrganizeAction::Left { reason } => {
                 format!(": it stays where it is ({})", left_text(reason))
             }
+            OrganizeAction::SetAside { keeper, .. } => {
+                format!(": it is set aside as a copy of {}", slash(keeper))
+            }
             _ => String::new(),
         };
         eprintln!(
@@ -667,6 +671,11 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::Unknown => "unknown system".into(),
         LeftReason::Duplicate { of } => format!("same as {}", slash(of)),
         LeftReason::AlreadyPresent { at } => format!("already in {}", slash(at)),
+        LeftReason::InLibrary { path, relation } => format!(
+            "already in your library as {} ({})",
+            slash(path),
+            relation_text(*relation)
+        ),
         LeftReason::AlreadySorted { folder } => {
             format!("already in the {folder} system folder")
         }
@@ -906,7 +915,11 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
                 "copied, but the source could not be removed".to_string()
             }
             ItemStatus::ExtractedKept => "extracted; the archive stays where it was".to_string(),
-            ItemStatus::Moved | ItemStatus::Copied | ItemStatus::Extracted => continue,
+            ItemStatus::Moved
+            | ItemStatus::Copied
+            | ItemStatus::Extracted
+            | ItemStatus::Quarantined
+            | ItemStatus::Trashed => continue,
         };
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
@@ -953,6 +966,7 @@ fn skip_text(r: SkipReason) -> &'static str {
         SkipReason::NotDecided => "to review: no system chosen",
         SkipReason::Cancelled => "cancelled",
         SkipReason::ToolGone => "the archive tool the plan used is gone",
+        SkipReason::TrashUnavailable => "no Trash on its volume: it stays where it was",
     }
 }
 

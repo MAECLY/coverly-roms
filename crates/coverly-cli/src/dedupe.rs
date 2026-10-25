@@ -424,7 +424,7 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-fn relation_text(r: Relation) -> &'static str {
+pub(crate) fn relation_text(r: Relation) -> &'static str {
     match r {
         Relation::Exact => "exact copy",
         Relation::Format => "other format",
@@ -433,7 +433,7 @@ fn relation_text(r: Relation) -> &'static str {
 }
 
 /// Why the keeper stays, in one line.
-fn reason_text(reason: &KeepReason) -> String {
+pub(crate) fn reason_text(reason: &KeepReason) -> String {
     match reason {
         KeepReason::UserChoice => "your pick".into(),
         KeepReason::HasSave { path } => format!("has a save ({})", file_name(path)),

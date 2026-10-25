@@ -120,6 +120,35 @@
       "system_id": null,
       "target": null,
       "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.95,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 297
+        }
+      ],
+      "id": 19,
+      "kind": "archive",
+      "method": "header",
+      "notes": [],
+      "reason": {
+        "kind": "duplicate",
+        "of": "Tetris 2.zip"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 297,
+      "sources": ["Tetris 2 (1).zip"],
+      "system_id": "gb",
+      "target": null,
+      "why": []
     }
   ],
   "layout": "anbernic-stock",

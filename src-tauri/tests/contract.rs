@@ -465,6 +465,8 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
             other_files: 0,
             deep_folders: 0,
             bytes: 8_388_608,
+            set_aside: 0,
+            in_library: 0,
         },
         sorted_folders: vec![],
         deep_folders: vec![],
@@ -477,6 +479,8 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         move_allowed: true,
         target_detected: None,
         created_at: "2026-10-17T10:32:00Z".into(),
+        duplicates: vec![],
+        set_aside_trash: false,
     }
 }
 
@@ -583,6 +587,7 @@ fn archive_and_disc_views_match_the_shared_sample() {
             extracted: 1,
             skipped: 0,
             failed: 0,
+            set_aside: 0,
             items: vec![ItemOutcome {
                 item: 3,
                 status: ItemStatus::ExtractedKept,
@@ -658,6 +663,7 @@ fn organise_views_match_the_shared_sample() {
                 extracted: 0,
                 skipped: 1,
                 failed: 0,
+                set_aside: 0,
                 items: vec![
                     ItemOutcome {
                         item: 0,

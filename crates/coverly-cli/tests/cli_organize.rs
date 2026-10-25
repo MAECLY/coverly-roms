@@ -285,18 +285,24 @@ fn assign_accepts_a_dot_slash_path() {
 #[test]
 fn an_assign_the_plan_cannot_honour_is_reported() {
     let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
-    // Same bytes as Game A.gba: a duplicate that stays where it is.
-    write_old(&p.path().join("Game A copy.gba"), &fx::gba_tagged(1));
+    // Same bytes as Game A.gba, and newer: in its system it is the copy
+    // set aside, so the assign changes nothing. (Another system is never
+    // compared: an assign to gbc would be honoured.)
+    let copy = p.path().join("Game A copy.gba");
+    write_old(&copy, &fx::gba_tagged(1));
+    filetime::set_file_mtime(&copy, filetime::FileTime::from_unix_time(1_600_000_100, 0)).unwrap();
     coverly(
         data.path(),
         cache.path(),
-        &["organize", "--offline", "--assign", "Game A copy.gba=gbc"],
+        &["organize", "--offline", "--assign", "Game A copy.gba=gba"],
     )
     .arg(p.path())
     .assert()
     .success()
     .stderr(contains("Game A copy.gba"))
-    .stderr(contains("ignored"));
+    .stderr(contains(
+        "ignored: it is set aside as a copy of ROMS/GBA/Game A.gba",
+    ));
 }
 
 #[test]

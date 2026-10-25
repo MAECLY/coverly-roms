@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::art::target_path;
 use crate::gamelist::{game_fields, gamelist_path, rel_slash};
+use crate::organize::target::companion_ext_matches;
 use crate::profiles::{Media, Profile};
 use crate::systems::SystemDb;
 use crate::write::name_key;
@@ -336,18 +337,6 @@ fn kind_of(suffix: &str, companion_exts: &[String]) -> Option<TravelKind> {
         "cht" => TravelKind::Cheat,
         "txt" | "nfo" => TravelKind::Text,
         _ => TravelKind::Other,
-    })
-}
-
-// TODO(merge): use organize::target::match_companions (Task 26).
-fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
-    let ext = ext.to_lowercase();
-    patterns.iter().any(|p| {
-        let p = p.trim().trim_start_matches('.').to_lowercase();
-        match p.strip_suffix('*') {
-            Some(prefix) => ext.starts_with(prefix),
-            None => ext == p,
-        }
     })
 }
 
