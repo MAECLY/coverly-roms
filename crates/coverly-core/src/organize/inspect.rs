@@ -332,7 +332,7 @@ pub struct Inspection {
 }
 
 impl Inspection {
-    fn new(container: Container) -> Inspection {
+    pub(crate) fn new(container: Container) -> Inspection {
         Inspection {
             container,
             payloads: Vec::new(),

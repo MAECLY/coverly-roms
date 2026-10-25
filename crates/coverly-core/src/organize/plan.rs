@@ -1338,11 +1338,14 @@ fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
 }
 
 /// Facts that depend only on the file: not those cut short by a budget,
-/// nor an archive that an external tool found later could open.
+/// nor an archive that an external tool found later could open, nor one
+/// an external tool listed (the tool, its version or the
+/// setting may change while the file's size and mtime do not).
 fn memoisable(facts: &Facts) -> bool {
     let insp = &facts.inspection;
     // A multi-volume set's parts are the files beside it, not this file.
     !insp.budget_spent
+        && insp.tool.is_none()
         && !matches!(
             insp.issue,
             Some(
@@ -2169,4 +2172,33 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
     out.partial_downloads += partial_dirs;
     out.sorted_folders = sorted.into_iter().collect();
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(insp: Inspection) -> Facts {
+        Facts {
+            inspection: insp,
+            raw_crcs: Vec::new(),
+            hashed: false,
+        }
+    }
+
+    #[test]
+    fn tool_listed_archives_are_not_memoised() {
+        // A tool upgrade or the setting turned off must be seen by the
+        // next plan: the cache key (path, size, mtime) would not change.
+        let mut insp = Inspection::new(Container::Rar);
+        insp.tool = Some((Tool::Unrar, "7.01".into()));
+        assert!(!memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn builtin_damaged_archives_stay_memoised() {
+        let mut insp = Inspection::new(Container::Zip);
+        insp.issue = Some(ArchiveIssue::Damaged);
+        assert!(memoisable(&facts(insp)));
+    }
 }
