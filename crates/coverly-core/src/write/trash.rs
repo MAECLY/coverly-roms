@@ -819,14 +819,27 @@ mod platform {
 #[cfg(feature = "test-util")]
 pub const FAKE_TRASH_ENV: &str = "COVERLY_TEST_FAKE_TRASH";
 
+/// With [`FAKE_TRASH_ENV`], any non-empty value makes the fake Trash
+/// behave like a volume without one ([`FakeTrash::unavailable`]).
+#[cfg(feature = "test-util")]
+pub const FAKE_TRASH_UNAVAILABLE_ENV: &str = "COVERLY_TEST_FAKE_TRASH_UNAVAILABLE";
+
 /// The Trash of this process: the OS Trash, or, in a build with the
 /// `test-util` feature only, a [`FakeTrash`] in the folder
 /// `COVERLY_TEST_FAKE_TRASH` names, so end-to-end tests of the CLI never
-/// fill the real Trash. Release builds ignore the variable.
+/// fill the real Trash (unavailable when `COVERLY_TEST_FAKE_TRASH_UNAVAILABLE`
+/// is set). Release builds ignore both variables.
 pub fn process_trash() -> Box<dyn TrashBackend> {
     #[cfg(feature = "test-util")]
     if let Some(dir) = std::env::var_os(FAKE_TRASH_ENV).filter(|d| !d.is_empty()) {
-        return Box::new(FakeTrash::new(PathBuf::from(dir)));
+        let dir = PathBuf::from(dir);
+        let unavailable =
+            std::env::var_os(FAKE_TRASH_UNAVAILABLE_ENV).is_some_and(|v| !v.is_empty());
+        return Box::new(if unavailable {
+            FakeTrash::unavailable(dir)
+        } else {
+            FakeTrash::new(dir)
+        });
     }
     Box::new(OsTrash)
 }
