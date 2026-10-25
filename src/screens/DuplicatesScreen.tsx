@@ -20,6 +20,7 @@ import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
+import { useLaterJobs } from '@/components/organize/laterJobs';
 import { Alert } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -46,6 +47,7 @@ import {
   type DedupePhaseView,
   type DedupePlanView,
   type DupGroupView,
+  type OrganizeUndoView,
   type ProfileInfo,
   type SystemInfo,
 } from '@/ipc/types';
@@ -695,39 +697,45 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
   const job = useDedupeStore((s) => s.job)!;
   const error = useDedupeStore((s) => s.error);
   const store = useDedupeStore.getState;
-  if (undone) {
-    const count = undone.report.reduce((n, r) => n + r.restored.length, 0);
-    return (
-      <div className="grid justify-items-start gap-3">
-        <Alert variant="success">
-          <p className="m-0 tabular-nums">
-            {count === 1
-              ? t('dedupe.undoneOne')
-              : t('dedupe.undone', { count })}
-          </p>
-        </Alert>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={onReplan}>
-            <RotateCw aria-hidden />
-            {t('dedupe.replan')}
-          </Button>
-          <Button variant="ghost" onClick={onBack}>
-            <ArrowLeft aria-hidden />
-            {t('dedupe.backToLibrary')}
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const laterIds =
+    error?.code === 'later-jobs'
+      ? (error.detail ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null;
+  const later = useLaterJobs(laterIds);
+  if (undone)
+    return <Undone t={t} undone={undone} onBack={onBack} onReplan={onReplan} />;
   const report = job.report;
   return (
     <>
-      {error && (
-        <Alert variant="danger">
-          <p className="m-0">
-            {t(errorKey(error.code), { detail: error.detail ?? '' })}
-          </p>
+      {laterIds ? (
+        // Undo refused: a later job wrote where this one did. Undo them
+        // all, newest first, or leave things as they are.
+        <Alert
+          variant="warning"
+          role="alert"
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void store().undo(true)}
+            >
+              {t('organize.undo.all')}
+            </Button>
+          }
+        >
+          <p className="m-0">{t('organize.undo.laterJobs', { jobs: later })}</p>
         </Alert>
+      ) : (
+        error && (
+          <Alert variant="danger">
+            <p className="m-0">
+              {t(errorKey(error.code), { detail: error.detail ?? '' })}
+            </p>
+          </Alert>
+        )
       )}
       {job.state === 'paused' && report && (
         <Alert
@@ -760,5 +768,79 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
         />
       )}
     </>
+  );
+}
+
+interface UndoneProps {
+  t: TFunction;
+  undone: OrganizeUndoView;
+  onBack(): void;
+  onReplan(): void;
+}
+
+/** After an undo: what came back, and by name what did not (a copy the
+ * Trash no longer holds, one whose place is taken or that changed). */
+function Undone({ t, undone, onBack, onReplan }: UndoneProps) {
+  // "Undo all in order" may include later fill jobs: their art is not a
+  // copy coming back.
+  const fills = new Set(
+    undone.later_jobs.filter((j) => j.kind === 'fill').map((j) => j.job),
+  );
+  const reports = undone.report.filter((r) => !fills.has(r.job));
+  const count = reports.reduce((n, r) => n + r.restored.length, 0);
+  const lost = reports.flatMap((r) => r.archive_lost);
+  const left = reports.flatMap((r) => [
+    ...r.skipped_modified,
+    ...r.skipped_occupied,
+  ]);
+  return (
+    <div className="grid justify-items-start gap-3">
+      {count > 0 && (
+        <Alert variant="success">
+          <p className="m-0 tabular-nums">
+            {count === 1
+              ? t('dedupe.undoneOne')
+              : t('dedupe.undone', { count })}
+          </p>
+        </Alert>
+      )}
+      {(lost.length > 0 || left.length > 0) && (
+        <Alert variant="warning">
+          {left.length > 0 && (
+            <>
+              <p className="m-0 tabular-nums">
+                {left.length === 1
+                  ? t('dedupe.undo.notBackOne')
+                  : t('dedupe.undo.notBack', { count: left.length })}
+              </p>
+              <ul className="dup-result__left">
+                {left.map((path) => (
+                  <li key={path} className="dup-mono">
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {lost.length > 0 && (
+            <ul className="dup-result__left">
+              {lost.map((path) => (
+                <li key={path}>{t('dedupe.undo.notInTrash', { path })}</li>
+              ))}
+            </ul>
+          )}
+        </Alert>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" onClick={onReplan}>
+          <RotateCw aria-hidden />
+          {t('dedupe.replan')}
+        </Button>
+        <Button variant="ghost" onClick={onBack}>
+          <ArrowLeft aria-hidden />
+          {t('dedupe.backToLibrary')}
+        </Button>
+      </div>
+    </div>
   );
 }

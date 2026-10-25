@@ -566,8 +566,10 @@
     "undo": {
       "title": "¿Devolver {count} archivos a su sitio?",
       "action": "Devolver {count} archivos",
-      "trashed": "Recupéralo desde la Papelera (Volver a poner): {path}",
-      "button": "Deshacer"
+      "notInTrash": "No estaba en la Papelera: {path}",
+      "button": "Deshacer",
+      "notBack": "{count} archivos no han vuelto a su sitio: allí ya hay otro archivo o cambiaron después.",
+      "notBackOne": "1 archivo no ha vuelto a su sitio: allí ya hay otro archivo o cambió después."
     },
     "empty": {
       "title": "No hay duplicados en {systems} sistemas.",

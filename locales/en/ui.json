@@ -566,8 +566,10 @@
     "undo": {
       "title": "Put {count} files back?",
       "action": "Put back {count} files",
-      "trashed": "Restore it from the Trash (Put Back): {path}",
-      "button": "Undo"
+      "notInTrash": "Not in the Trash any more: {path}",
+      "button": "Undo",
+      "notBack": "{count} files did not go back: another file is in their place, or they changed since.",
+      "notBackOne": "1 file did not go back: another file is in its place, or it changed since."
     },
     "empty": {
       "title": "No duplicates in {systems} systems.",

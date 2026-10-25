@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
+import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import {
   createMockBackend,
@@ -11,7 +12,7 @@ import {
   type MockBackend,
   type MockOptions,
 } from '@/ipc/mock/mockBackend';
-import type { DedupePlanView } from '@/ipc/types';
+import type { DedupePlanView, OrganizeUndoView } from '@/ipc/types';
 import { formatBytes } from '@/lib/dedupe';
 import { useDedupeStore, type DedupeLaunch } from '@/stores/dedupeStore';
 import { useNavStore } from '@/stores/navStore';
@@ -276,6 +277,84 @@ describe('DuplicatesScreen', () => {
     });
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Devolver 89 archivos' }),
+    );
+    expect(
+      await screen.findByText(/devueltos a su sitio\./),
+    ).toBeInTheDocument();
+  });
+
+  /** Applies the plan on screen and confirms its undo. */
+  async function applyThenUndo() {
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Apartar 89 archivos' }),
+    );
+    await screen.findByText(/89 archivos apartados/);
+    await userEvent.click(screen.getByRole('button', { name: 'Deshacer' }));
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '¿Devolver 89 archivos a su sitio?',
+    });
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Devolver 89 archivos' }),
+    );
+  }
+
+  it('undo_says_which_copies_did_not_come_back', async () => {
+    renderScreen();
+    await ready();
+    vi.spyOn(b, 'organizeUndo').mockImplementation(
+      async (job): Promise<OrganizeUndoView> => ({
+        report: [
+          {
+            job,
+            removed: [],
+            restored: [`${ROOT}/ROMS/GB/Tetris (1).gb`],
+            skipped_modified: [],
+            skipped_occupied: [`${ROOT}/ROMS/GB/Zelda (1).gb`],
+            dirs_removed: [],
+            archive_lost: [`${ROOT}/ROMS/GBA/Metroid (1).zip`],
+          },
+        ],
+        later_jobs: [],
+      }),
+    );
+    await applyThenUndo();
+    // Only what came back is counted as back...
+    expect(
+      await screen.findByText('1 archivo devuelto a su sitio.'),
+    ).toBeInTheDocument();
+    // ...and what did not is named, never passed over in silence.
+    expect(
+      screen.getByText(
+        `No estaba en la Papelera: ${ROOT}/ROMS/GBA/Metroid (1).zip`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 archivo no ha vuelto a su sitio/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`${ROOT}/ROMS/GB/Zelda (1).gb`),
+    ).toBeInTheDocument();
+  });
+
+  it('undo_after_a_later_job_offers_undo_all_in_order', async () => {
+    renderScreen();
+    await ready();
+    const real = b.organizeUndo.bind(b);
+    const spy = vi
+      .spyOn(b, 'organizeUndo')
+      .mockImplementation(async (job, includeLater) => {
+        if (!includeLater) throw new BackendError('later-jobs', 'job-later');
+        return real(job, false);
+      });
+    await applyThenUndo();
+    expect(
+      await screen.findByText('Primero hay que deshacer: job-later'),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Deshacer todo en orden' }),
+    );
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.any(String), true),
     );
     expect(
       await screen.findByText(/devueltos a su sitio\./),
