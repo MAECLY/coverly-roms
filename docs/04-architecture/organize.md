@@ -1,6 +1,6 @@
 # Organise (loose ROMs by system)
 
-> **TL;DR.** Picking a folder that follows no known layout — a downloads folder full of zips — used to end in "No se reconoce ningún formato". Coverly now offers to **organise** it: every file is identified (hash → header → extension → name, plus an optional online lookup), given a system, a confidence and a "why", and a **plan** proposes one folder per system in a layout profile (by default Anbernic stock: `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Planning is read-only. Applying moves or copies the files through the journaled writer, never replaces anything, can pause and resume, and is undone like a fill job. The result opens as a normal library, so scan and fill work unchanged. Containers are recognised by their **magic**, not their extension: a 7z named `.zip` is a 7z with a note, never "damaged". Every common archive and compressor opens (zip, 7z, RAR through an optional external program, tar, gz, bz2, xz, zstd, lz4, lzma). Disc games inside an archive are identified from their disc headers (PlayStation, Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD) and **extracted** on apply, verified track by track, with the archive sent to the Trash only after everything is committed. Spec: [`2026-10-17-organize-loose-roms-design.md`](../superpowers/specs/2026-10-17-organize-loose-roms-design.md), extended by [`2026-10-23-organize-archives-and-discs.md`](../superpowers/specs/2026-10-23-organize-archives-and-discs.md) (archives and discs). Plans: [`2026-10-17-organize-loose-roms.md`](../superpowers/plans/2026-10-17-organize-loose-roms.md), [`2026-10-23-organize-archives-and-discs.md`](../superpowers/plans/2026-10-23-organize-archives-and-discs.md). Code: `crates/coverly-core/src/organize/` (`extract.rs` for extraction), `archive/`, `disc/`, `identify/sniff.rs`, `write/{noclobber,transfer,trash,undo_organize}.rs`, `crates/coverly-cli/src/organize.rs`, `src-tauri/src/organize/`, `src/screens/OrganizeScreen.tsx`, `src/components/organize/`, `src/stores/organizeStore.ts`.
+> **TL;DR.** Picking a folder that follows no known layout — a downloads folder full of zips — used to end in "No se reconoce ningún formato". Coverly now offers to **organise** it: every file is identified (hash → header → extension → name, plus an optional online lookup), given a system, a confidence and a "why", and a **plan** proposes one folder per system in a layout profile (by default Anbernic stock: `ROMS/GBA/`, `ROMS/GB/`, `ROMS/SFC/`…). Planning is read-only. Applying moves or copies the files through the journaled writer, never replaces anything, can pause and resume, and is undone like a fill job. The result opens as a normal library, so scan and fill work unchanged. Containers are recognised by their **magic**, not their extension: a 7z named `.zip` is a 7z with a note, never "damaged". Every common archive and compressor opens (zip, 7z, RAR through an optional external program, tar, gz, bz2, xz, zstd, lz4, lzma). Disc games inside an archive are identified from their disc headers (PlayStation, Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD) and **extracted** on apply, verified track by track, with the archive sent to the Trash only after everything is committed. A pile copy of a game the library already holds (whatever its name or container) is **set aside** into `<pile>/_Duplicados/` instead of being organised a second time ([dedupe.md](./dedupe.md#organise-step)). Spec: [`2026-10-17-organize-loose-roms-design.md`](../superpowers/specs/2026-10-17-organize-loose-roms-design.md), extended by [`2026-10-23-organize-archives-and-discs.md`](../superpowers/specs/2026-10-23-organize-archives-and-discs.md) (archives and discs). Plans: [`2026-10-17-organize-loose-roms.md`](../superpowers/plans/2026-10-17-organize-loose-roms.md), [`2026-10-23-organize-archives-and-discs.md`](../superpowers/plans/2026-10-23-organize-archives-and-discs.md). Code: `crates/coverly-core/src/organize/` (`extract.rs` for extraction), `archive/`, `disc/`, `identify/sniff.rs`, `write/{noclobber,transfer,trash,undo_organize}.rs`, `crates/coverly-cli/src/organize.rs`, `src-tauri/src/organize/`, `src/screens/OrganizeScreen.tsx`, `src/components/organize/`, `src/stores/organizeStore.ts`.
 
 ## Pipeline
 
@@ -19,7 +19,9 @@ ladder    organize/evidence.rs  extension → zip CRCs → header → DAT by CRC
 combine   organize/evidence.rs  scores, margin, content support, vetoes → auto | review | unknown
    │
 target    organize/target.rs    folder per layout, target paths, safe names, collisions,
-   │                            duplicates, companions, sets, extract targets, FAT32 limits
+   │                            companions, sets, extract targets, FAT32 limits
+dedupe    dedupe::group_units   pile + library copies of the systems the plan touches:
+   │                            keys, keeper rules → SetAside | InLibrary (dedupe.md)
 plan      organize/plan.rs      OrganizePlan (items with Transfer::AsIs | Extract, counts,
    │                            warnings, free space); user decisions re-plan from the kept
    │                            survey without reading files again
@@ -58,7 +60,9 @@ Identification runs on `std::thread::scope` workers with an atomic work index (O
 | `set-unsafe-name`, `path-too-long`, `folder-full`, `unsafe-target` | extraction targets (see [Extract](#extract-disc-games-and-unloadable-containers)) |
 | `unsupported-system` | a signature of a system Coverly does not organise (Sega Pico, PlayStation 2) |
 | `unknown` | ROM-like, but nothing reached the review threshold (still assignable) |
-| `duplicate`, `already-present` | same CRC + size as another item, or already in the target folder |
+| `in-library` | the same game is already in the library (`path`, `relation`), with the duplicates step set to *report* (see [Sets and companions](#sets-and-companions)) |
+| `already-present` | already in the target folder |
+| `duplicate` | old plans only: still read, no longer produced |
 | `already-sorted`, `symlink`, `unreadable` | as named |
 | `set-incomplete`, `set-outside-folder`, `shared-track`, `collision-set` | disc sets (see [Sets](#sets-and-companions)) |
 | `ambiguous-companion` | a save/patch whose stem matches several moved ROMs |
@@ -230,7 +234,11 @@ Thresholds are `settings.organize.auto_threshold` / `review_threshold`, separate
 
 - **Disc sets** (`scan::multifile::group_sets`: `.cue` → tracks, `.gdi` → tracks, `.m3u` → discs) are one item, identified from the primary data track, and move together keeping their relative layout. A missing or partial member, a member outside the set's folder, a track shared by two sets, or a member colliding at the target leaves the **whole set** in place. Disc sets are never catalogue-renamed (their text names the members).
 - **Companions**: files with the exact stem of a moved ROM and an extension in `settings.organize.companion_exts` (`sav`, `srm`, `rtc`, `state*`, `cht`, `ips`, `bps`, `ups`, `txt`, `nfo`, `png`, `jpg`) follow it into the same folder (images are not put into `Imgs/`; that is the fill flow's job). With *Names: catalogue* they are renamed to the new stem; if any of them would collide, the ROM keeps its name too.
-- **Duplicates**: same CRC32 + size twice in the pile → the first (shortest name, then alphabetical) is planned, the others stay as `duplicate` of it. Browser suffixes (` (1)`) are never treated as duplicates by name; nothing is deleted.
+- **Duplicates** (`settings.dedupe.organize_step`, `--duplicates set-aside|report|off`): the duplicates finder (`dedupe::group_units`, [dedupe.md](./dedupe.md)) groups the pile items **and** the library copies of the target system folders the plan touches, by content (exact copy, the same disc in another format; never by name), and picks the copy that stays with the keeper rules (a library copy stays over a pile copy: `in_library`). Inner CRCs come from the `Inspection` the plan already holds, disc identity from `OrganizeItem.disc`.
+  - `set-aside` (default): each pile extra is `OrganizeAction::SetAside { keeper, relation, reason, dest }` with `dest` in `<pile root>/_Duplicados/<rel_dir>/` (an instant rename on the pile's volume, never copied onto the card), or the Trash when `dedupe.action = "trash"`. Its saves and states go with it. A set-aside archive is never extracted first. A pile inside a system folder uses the library quarantine.
+  - `report`: the item stays with `in-library { path, relation }`.
+  - `off`: no duplicates step.
+  - `Counts.set_aside` and `Counts.in_library` feed the summary; `OrganizePlan.duplicates` holds the groups (the screen shows them with the dedupe `DupGroup`). The shortest-name rule is gone; old plans with `duplicate` still load. Nothing is deleted.
 
 ## Apply
 
@@ -242,7 +250,8 @@ Thresholds are `settings.organize.auto_threshold` / `review_threshold`, separate
 4. The writer starts an organise journal (`kind: organize`, `source_root`), and the plan is saved to `<data>/jobs/<job>.plan.json` **before the first action** — that file is what makes resume possible after a restart.
 5. Every item is **re-validated** (each source still has the planned size and mtime, else `changed-since-plan` / `source-missing`), then moved or copied with `Writer::ensure_dir` / `move_file` / `copy_file`. One directory index per run (`DirIndex`, one `read_dir` per folder) replaces per-file folder listings.
 6. Manual identities (`identity-overrides.json`) keyed by a moved path follow the file (`override-moved`).
-7. A full, read-only or vanished volume pauses the job (`disk-full`, `write-denied`, `volume-gone`) with the not-attempted items as `resumable_items`. Other per-item errors fail that item only.
+7. `SetAside` items move into the pile quarantine (journaled `moved`, outcome `quarantined`) or go to the Trash (`archive-trash` → `archive-trashed`, outcome `trashed`); undo brings them back like any other move or trashed file.
+8. A full, read-only or vanished volume pauses the job (`disk-full`, `write-denied`, `volume-gone`) with the not-attempted items as `resumable_items`. Other per-item errors fail that item only.
 
 `resume_organize(job)` loads the saved plan, counts the items the journal shows as done, finishes items whose ROM moved but whose set members or companions did not, deletes the job's leftover `.coverly-<job>-*.tmp` files, and applies the rest into the **same journal**: one undo reverts every run.
 
@@ -297,7 +306,8 @@ Builds older than the archive work read these ops as `Unknown` and refuse to und
 - An unknown op kind (a journal from a newer Coverly) makes that job **not undoable** in `list_jobs` (`undoable: false`) instead of breaking the listing.
 - Undo of a `moved` entry needs the source root present; otherwise it is refused (`write-denied` on that root) instead of reporting every file as failed.
 - **Later jobs**: `write::later_jobs(job)` lists newer, not-undone jobs whose root or source root overlaps the job's root (a fill that wrote `ROMS/GBA/Imgs/…`, a later organise of the organised tree). The app (`organize_undo`) and `coverly undo --job` refuse with those jobs unless asked to include them, then undo them newest first (`undo_jobs_in_order`).
-- **Pruning** (at the end of every fill run, `prune_jobs_at`): fill and organise journals are counted separately, the newest `safety.undo_depth` of each kind kept; organise journals are also kept while younger than `settings.organize.keep_organize_journals_days` (90). Pruning removes the journal with its `.plan.json` and backups.
+- **Pruning** (at the end of every fill run, `prune_jobs_at`): fill, organise and dedupe journals are counted separately, the newest `safety.undo_depth` of each kind kept; organise and dedupe journals are also kept while younger than `settings.organize.keep_organize_journals_days` (90).
+- **Dedupe jobs** (`kind: "dedupe"`) use only these ops (`dir-created`, `moved`, `created`, `replaced`, and `archive-trash`/`archive-trashed`/`archive-kept` for a copy sent to the Trash) and undo through the same code: see [dedupe.md](./dedupe.md#journal-ops-dd-9). Pruning removes the journal with its `.plan.json` and backups.
 
 ## Cache schema v2
 
@@ -309,6 +319,8 @@ Builds older than the archive work read these ops as `Unknown` and refuse to und
 | index `dat_roms_game (dat, game)` | rows of one arcade set (`dat_rows_of_game`) |
 | table `organize_ids (path, size, mtime_ns, facts)` | memoised per-file facts (O-D6) |
 | table `organize_choices (crc32, size, system_id)` | remembered user choices |
+
+Schema v3 (duplicates) adds the DAT columns `serial`, `region`, `cloneof`, `isbios`, the `content_keys` and `content_key_index` tables and `dedupe_choices`: see [identification.md](./identification.md#dats) and [dedupe.md](./dedupe.md#performance-budget).
 
 ## Entry points
 
@@ -325,6 +337,7 @@ The screen, commands and events are described in [desktop-app.md](./desktop-app.
 ```text
 coverly organize <SOURCE> [--layout PROFILE_ID] [--target DIR] [--flat] [--copy | --move]
                  [--names keep|catalogue] [--assign FILE=SYSTEM_ID]… [--include-review]
+                 [--duplicates set-aside|report|off]
                  [--offline] [--no-external-tools] [--dry-run | --apply] [--resume JOB_ID]
                  [--report table|json] [--output FILE] [--data-dir DIR] [--cache-dir DIR]
 coverly undo [--job ID [--include-later]] [--list] [--data-dir DIR]
@@ -333,6 +346,7 @@ coverly systems                     # system ids for --assign
 
 - Dry run by default; the table groups items by system with target folder, confidence and why, then *To review* and *Left in place*, and ends with "Dry run: nothing was written. Re-run with --apply to organise {n} files."
 - An Extract item reads `extract 12 files 405.7 MB → ROMS/PS/`; the summary adds `Extracting: N games (bytes)` and the result `Extracted: N`. `--no-external-tools` plans, applies and resumes without unrar/7-Zip/bsdtar. `coverly undo` lists `archive restored:` and `archive lost:` lines.
+- `--duplicates` overrides the duplicates step setting; the table adds a *Duplicates set aside (n), to _Duplicados/* section (each row with the copy that stays and why) and the summary `Duplicates set aside: n · Already in your library: m`. `--resume` refuses it like the other plan options.
 - Review items are applied only with `--assign` (split on the last `=`, `FILE` relative to the source) or `--include-review` (best candidate). An `--assign` on an item that stays in place is reported, not dropped silently.
 - `--resume` continues an interrupted job from its saved plan and refuses the plan options (`--layout`, `--target`, `--flat`, `--copy`/`--move`, `--names`, `--assign`, `--include-review`, `--apply`, `--dry-run`).
 - Exit codes: 0 ok (also with items left in place), 1 I/O or job error (including not enough space), 2 usage (unknown layout or system id), 3 source not found or not a folder, 5 paused (prints the `--resume` and `coverly undo --job` commands). Exit 4 never applies: organise needs no detection.

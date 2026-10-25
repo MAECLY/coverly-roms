@@ -67,8 +67,40 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - New "left in place" reasons: encrypted, needs too much memory, too big to
   open safely, in several parts, unsafe entry, archive inside an archive,
   arcade set to repack, folder full on FAT32, unsafe target folder.
+- Duplicates: the same game stored more than once in a system, found by its
+  content and never by its name. Exact copies whatever the name, container,
+  copier header (SNES, Master System, Game Gear) or N64 byte order; the same
+  disc in another format (cue/bin, iso, chd, pbp, cso) by its serial and a
+  fingerprint of the disc; other versions (revision, region, beta) from the
+  catalogue, listed and set aside only with "One ROM per game". Identical
+  arcade sets under two valid driver names, BIOS files, hacks, translations
+  and soft-patched copies are never grouped.
+- For each game one copy stays, picked by rules you can reorder or turn off
+  (a save, played, verified dump, retail, region, revision, container, cover,
+  catalogue name) and shown with its reason. You can keep another copy, leave
+  a game or a system alone, and the pick is remembered. Copies with different
+  saves are never touched.
+- The other copies are set aside in `_Duplicados/` inside the library,
+  keeping their folders, with their saves, states, art and `gamelist.xml`
+  entries, plus a list of what was moved; or sent to the Trash if you choose.
+  Space, FAT32 limits and names are checked before anything moves, a disc set
+  moves whole or not at all, a full disk pauses the job, and resume finishes
+  it. Undo puts everything back, from the Trash too; nothing is deleted.
+- A Duplicates screen ("shelf and tray": the copy that stays above the
+  copies that go, with where each one goes), opened from the library
+  toolbar, plus duplicates jobs in the job history and a Duplicates block in
+  Settings → Library.
+- `coverly dedupe` finds and sets aside duplicates from the terminal (dry run
+  unless `--apply`; `--trash`, `--quarantine`, `--resume`, `--keep`,
+  `--one-game-one-rom`, JSON report), and `coverly undo` undoes its jobs.
 
 ### Changed
+
+- Organise no longer keeps the shortest name of two equal files and leaves
+  the other: a pile file the library already has (under any name or
+  container) is set aside in the pile's `_Duplicados/` with the same keeper
+  rules, and two equal pile files keep the better copy. Settings → Library
+  and `coverly organize --duplicates set-aside|report|off` choose the step.
 
 - Grid and List became Covers and Details. The saved choice carries over:
   List opens Details, Grid opens Covers.

@@ -97,10 +97,23 @@ compressed ROMs such as `game.gba.gz`. Disc games inside an archive (PlayStation
 Saturn, Dreamcast, Sega CD, PC Engine CD, Neo Geo CD) are identified from the
 disc itself, serial included, and on apply their `.cue`/`.gdi` and tracks are
 extracted into the system folder, each track checked against the archive.
-Unfinished downloads, BIOS files, web pages saved as `.zip`, damaged or
-multi-game archives and duplicates stay where they are. Nothing is clobbered,
-copies across drives are verified, and an interrupted job can be resumed or
-undone.
+A game you already have in the library, under any name or container, is set
+aside instead of being copied in twice. Unfinished downloads, BIOS files, web
+pages saved as `.zip` and damaged or multi-game archives stay where they are.
+Nothing is clobbered, copies across drives are verified, and an interrupted job
+can be resumed or undone.
+
+**Find duplicates.** Coverly finds the same game stored more than once in a
+system by its content, never by its name: the exact same data whatever the
+name, container, copier header or compression (`Tetris.gb` and
+`Tetris (1).zip`), and the same disc in another format by its serial
+(`Crash Bash.bin` and `Crash Bash.PBP`). Other versions of a game (revisions,
+regions, betas) are listed, and set aside only with "One ROM per game". For
+each game it picks the copy that stays, with a reason ("Stays: it has your
+save"), and you can pick another. The other copies are set aside in
+`_Duplicados/` inside the library, keeping their folders, together with their
+saves and art; or they go to the Trash if you prefer. Copies with different
+saves are never touched. Every job can be undone, and nothing is deleted.
 
 **Browse the library.** Folder, system, date and flat views; filters for
 missing art, system, extension and region; search; and a detail panel where you
@@ -357,9 +370,10 @@ writes nothing unless you pass `--apply`.
 | `audit`    | Report which ROMs of a library lack cover, screenshot or title art (read-only) |
 | `fill`     | Fill missing art from the enabled sources (dry run unless --apply)             |
 | `organize` | Sort a pile of loose ROMs into one folder per system (dry run unless --apply)  |
+| `dedupe`   | Find the same game stored twice in a system and set the copies aside (dry run) |
 | `profiles` | List the built-in and custom layout profiles                                   |
 | `systems`  | List the known systems and their folder aliases                                |
-| `undo`     | Undo the last job (fill or organise), or the one given with --job              |
+| `undo`     | Undo the last job (fill, organise or duplicates), or the one given with --job  |
 | `update`   | Check for a newer coverly, or install it (verified with minisign)              |
 
 ```bash
@@ -369,6 +383,9 @@ coverly fill /Volumes/SD --apply --auto-only --system gba,snes --media cover
 coverly fill /Volumes/SD --sources libretro,steamgriddb --strategy popularity
 coverly organize ~/Downloads/roms             # dry run: a proposal by system
 coverly organize ~/Downloads/roms --target /Volumes/SD --copy --apply
+coverly dedupe /Volumes/SD                    # dry run: which copy stays, where the rest go
+coverly dedupe /Volumes/SD --apply            # set them aside in /Volumes/SD/_Duplicados
+coverly dedupe /Volumes/SD --apply --trash    # or send them to the Trash
 coverly undo --list
 coverly undo                                  # undo the last job
 ```
@@ -384,7 +401,14 @@ candidates and indexes), `--report table|json`, `--output FILE`.
 **`organize`:** `--layout PROFILE_ID`, `--target DIR`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign FILE=SYSTEM_ID`
 (repeatable), `--resume JOB_ID`, `--include-review`, `--offline`,
-`--no-external-tools` (do not use unrar, 7-Zip or bsdtar).
+`--no-external-tools` (do not use unrar, 7-Zip or bsdtar),
+`--duplicates set-aside|report|off` (copies already in the library).
+
+**`dedupe`:** `--system gb,psx`, `--level exact,format,version`,
+`--one-game-one-rom`, `--keep PATH` (this copy stays; repeatable),
+`--keep-rules has_save,verified,…`, `--reset-choices`, `--quarantine DIR`,
+`--trash`, `--resume JOB_ID`, `--offline`, `--no-external-tools`,
+`--report table|json`, `--output FILE`.
 
 **`undo`:** `--list`, `--job ID`, `--include-later` (with `--job`: also undo
 the newer jobs that touched the same folder, newest first).
@@ -404,8 +428,9 @@ the newer jobs that touched the same folder, newest first).
 - **Images are re-encoded** before they are written, so they carry no metadata.
 - **Your SteamGridDB key stays in the OS keychain** and is sent only to
   SteamGridDB, as an `Authorization: Bearer` header.
-- **The audit only reads.** Fill and organise write nothing until you apply,
-  never outside the library root, and every job can be undone.
+- **The audit only reads.** Fill, organise and duplicates write nothing until
+  you apply, never outside the library root, and every job can be undone.
+  Duplicates are moved aside or to the Trash, never deleted.
 - **Backups and job logs** go to the app's data folder, not to the SD card.
 - **No ROMs, BIOS files or game art** ship with Coverly ROMs.
 

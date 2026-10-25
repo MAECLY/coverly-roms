@@ -4,7 +4,7 @@
 
 ## The model (`settings::model`)
 
-`Settings { version: 2, general, library, art, matching, sources, network, safety, advanced, organize }`, with one struct per §9 group (plus `organize`, added with [organising loose ROMs](./organize.md); a file without it reads the defaults, so the format stays 2). Every struct has `#[serde(default)]`, so a missing group or field is its default.
+`Settings { version: 2, general, library, art, matching, sources, network, safety, advanced, organize, dedupe }`, with one struct per §9 group (plus `organize`, added with [organising loose ROMs](./organize.md), and `dedupe`, added with [duplicates](./dedupe.md); a file without them reads the defaults, so the format stays 2). Every struct has `#[serde(default)]`, so a missing group or field is its default.
 
 | Group | Field | Default | Notes |
 |---|---|---|---|
@@ -44,6 +44,15 @@
 | | `folder_names`, `arcade_order` | `{}`, `{}` | per layout id: system id → folder name (must resolve back to that system), arcade systems in order |
 | | `recent_seconds`, `keep_organize_journals_days` | `60`, `90` | 0–3600, 1–3650; organise journals are kept at least this long ([fill-pipeline.md](./fill-pipeline.md#writer-guarantees)) |
 | | `external_tools` | `auto` | `auto` lets Organise run an external archive tool found on the system (unrar, 7-Zip, bsdtar) for RAR and unsupported 7z coders; `off` never runs one (those archives are left with an install/enable note) |
+| dedupe | `levels` | `exact, format, version` | at least one, no repeat; `version` acts only with `one_game_one_rom`, otherwise it is reported |
+| | `one_game_one_rom` | `false` | also set aside other versions of a game (1G1R) |
+| | `action` | `quarantine` | `quarantine`/`trash` (the OS Trash, opt-in) |
+| | `quarantine_dir`, `quarantine_name` | `null`, `null` | `null` dir = `<library>/<name>`; a custom dir must be absolute and not inside a ROMs or system folder (`invalid`). The name is fixed at first run from the app language (`_Duplicados` / `_Duplicates`); no `/`, `\`, `.` or `..`. Scans skip both default names and this one |
+| | `keep_rules` | all ten on, in the order `has_save, played, in_library, verified, retail, region, revision, container, cover, catalogue_name` | `{ rule, on }` each once (no `duplicate`); missing rules are appended, on. The user's pick and the tie-breaker are not settings |
+| | `container_order` | handheld profiles `chd > pbp > cue > iso > img > bin`, frontends `chd > cue > pbp > iso > img > bin`, `*` arcade `zip` | profile id (or `*`) → system id, `disc`, `cart`, `arcade` (or `*`) → containers, preferred first; unknown profile → `unknown`, bad key or container → `invalid` |
+| | `exclude_systems` | `ports, bios, apps` | folder names or system ids never looked at (lowercase) |
+| | `max_dat_downloads` | `12` | 0–100, catalogues a library run may download (organise has its own 4) |
+| | `organize_step` | `set-aside` | the Organise duplicates step: `set-aside`/`report`/`off` |
 
 ## Loading (`settings::load`, D24)
 
@@ -71,14 +80,15 @@ The core never reads the file itself. Callers turn `Settings` into the options t
 
 | Adapter | Feeds |
 |---|---|
-| `scan_options()` | `scan` (ignored folders/extensions, hidden, symlinks) |
+| `scan_options()` | `scan` (ignored folders/extensions, hidden, symlinks, the duplicates quarantine names) |
 | `fill_settings()` | the `fill` facade: media, strategy, regions, languages, thresholds, fuzzy, arcade, match method, max hash size |
 | `art_profile(&base)` | the profile with the single-slot media, output format and max size applied |
 | `fit()` | image fitting (keep aspect, JPEG quality) |
 | `net_config()` | `net` (concurrency, timeout, retries, proxy) |
 | `apply_options(root)` | the writer (`._*` cleanup on removable volumes, undo depth, organise journal retention) |
 | `manual_options()` | drawer writes (same retention) |
-| `OrganizeOptions::from_settings(settings, layout)` | organise plans (`organize/plan.rs`): layout, nesting, mode, names, thresholds, companions, the chosen layout's folder names and arcade order, catalogue downloads |
+| `OrganizeOptions::from_settings(settings, layout)` | organise plans (`organize/plan.rs`): layout, nesting, mode, names, thresholds, companions, the chosen layout's folder names and arcade order, catalogue downloads, the duplicates step and quarantine name |
+| `DedupeOptions::from_settings(&settings.dedupe)` | duplicates plans (`dedupe/mod.rs`): levels, 1G1R, keeper rules, container order, exclusions, DAT downloads; the CLI flags `--level`, `--one-game-one-rom`, `--keep-rules`, `--quarantine`, `--trash` override them |
 | `data_dir(default)` | the job data folder (backup location, D27) |
 | `needs_reopen(next)` | the reopen notice |
 
@@ -142,6 +152,7 @@ After the apply phase of a job on a profile with `gamelist = true` (Batocera/Knu
 ## The app side
 
 - `AppState::new(config_dir, base)` loads the settings once. Commands: `get_settings`, `update_settings` (emits `settings-changed`), `reset_settings`, `open_config_folder`, `open_logs_folder`, `open_link(LinkId)` (fixed ids: `repo`, `license`, `notices`, `trademarks`, `releases`, `issues`), `cache_usage`, `clear_cache`, profiles, credentials and search (see [desktop-app.md](./desktop-app.md#ipc-contract)). The webview never sends a folder or URL to open.
+- **Duplicates block** (Settings → Library, `DedupeSettings.tsx`): levels, 1G1R, action, quarantine folder, reorderable keeper rules, container order and exclusions; see [desktop-app.md](./desktop-app.md#duplicates).
 - **File logger** (`logging.rs`): `<data dir>/logs/coverly.log`, one line per message (newlines escaped), rotated once at 1 MiB, level from `advanced.log_level` and changed live. It never logs credential values. The CLI keeps writing to stderr.
 
 ## The mock (browser)

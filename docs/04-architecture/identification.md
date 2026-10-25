@@ -1,6 +1,6 @@
 # Identification
 
-> **TL;DR.** Before looking for art, `coverly fill` works out which game each ROM is. Non-arcade ROMs are hashed (CRC32, MD5 and SHA1 in one pass, with copier headers skipped) and looked up in the libretro-database DATs, which are downloaded on demand into the cache. Arcade sets are looked up by short name in the MAME/FBNeo DATs. When neither works, the ROM is identified by its normalised file name. Every identity records its **method** (`hash`, `arcade-dat`, `name` or `unknown`) and a **confidence**. Decision: [ADR-0006](../adr/0006-hash-then-name-identification.md). Spec: [§16.2–§16.7](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15). Code: `crates/coverly-core/src/identify/`. Organising a loose pile adds a second question, **which system** a file belongs to, answered with header magic (`identify::sniff`), evidence levels and content support: see [Header magic (organise)](#header-magic-organise) and [organize.md](./organize.md).
+> **TL;DR.** Before looking for art, `coverly fill` works out which game each ROM is. Non-arcade ROMs are hashed (CRC32, MD5 and SHA1 in one pass, with copier headers skipped) and looked up in the libretro-database DATs, which are downloaded on demand into the cache. Arcade sets are looked up by short name in the MAME/FBNeo DATs. When neither works, the ROM is identified by its normalised file name. Every identity records its **method** (`hash`, `arcade-dat`, `name` or `unknown`) and a **confidence**. Decision: [ADR-0006](../adr/0006-hash-then-name-identification.md). Spec: [§16.2–§16.7](../superpowers/specs/2026-10-15-coverly-roms-design.md#16-research-driven-refinements-2026-10-15). Code: `crates/coverly-core/src/identify/`. Organising a loose pile adds a second question, **which system** a file belongs to, answered with header magic (`identify::sniff`), evidence levels and content support: see [Header magic (organise)](#header-magic-organise) and [organize.md](./organize.md). Finding the same game stored twice ([dedupe.md](./dedupe.md)) reuses the hashes (payload SHA-1, `HashOutcome` v2), the DAT rows (serial, region, clone, BIOS) and a tag parser for catalogue names ([Name tags](#name-tags-duplicates)).
 
 ## Method setting
 
@@ -28,11 +28,14 @@ Arcade short-name translation can be switched off (`IdentifyOptions::arcade_tran
 | `nes` | NES / Famicom | `NES\x1A` at offset 0 | 16 bytes |
 | `fds` | Famicom Disk System | `FDS\x1A` at offset 0 | 16 bytes |
 | `snes-copier` | SNES | file length % 1024 = 512 | 512 bytes |
+| `sms-copier` | Master System, Game Gear | file length % 16384 = 512 | 512 bytes |
 | `lynx` | Atari Lynx | `LYNX` at offset 0 | 64 bytes |
 | `a7800` | Atari 7800 | `ATARI7800` at offset 1 | 128 bytes |
+| `n64-order` | Nintendo 64 | boot magic in `.v64` (byte-swapped) or `.n64` (little-endian) order | none; the payload SHA-1 is taken in big-endian `.z64` order |
 | `plain` (default) | everything else | — | — |
 
-- **Quick-id memo.** The result is stored in the SQLite cache under `path + size + mtime (ns)`. A second run, or a re-run after a pause, does not hash again unless the file changed.
+- **Payload SHA-1** (`HashOutcome` v2, `HASH_OUTCOME_VERSION = 2`). The same pass also keeps the SHA-1 of the payload: the headerless bytes, in big-endian order for N64. It is equal for the same game whatever its copier header or byte order, and it is the duplicates level 1 key. A single-entry zip gets it only in `HashMode::WithPayload` (the duplicates finder), by decoding the entry within the size cap and checking its CRC; fill and scan stay on `HashMode::Quick` (central directory only).
+- **Quick-id memo.** The result is stored in the SQLite cache under `path + size + mtime (ns)`. A second run, or a re-run after a pause, does not hash again unless the file changed. Rows written under `HashOutcome` v1 are a miss and are re-hashed lazily.
 - An unreadable file is identified by name instead of failing the job.
 
 ## DATs
@@ -42,6 +45,7 @@ Arcade short-name translation can be switched off (`IdentifyOptions::arcade_tran
 - **Paths per system.** A system's `dats = [...]` list in `systems.toml` replaces the default. The default is `metadat/no-intro/<libretro>.dat`, or `metadat/redump/<libretro>.dat` for disc systems, where `<libretro>` is the system's thumbnail folder name. Two systems name their DAT differently and set it explicitly: Atari 8-bit (`metadat/no-intro/Atari - 8-bit Family.dat`) and Game & Watch (`dat/Handheld Electronic Game.dat`). The M2 end-to-end run checked every path with HEAD requests (see [fill-pipeline.md](./fill-pipeline.md#end-to-end-evidence)). DOS, EasyRPG and ScummVM have no usable content DAT: their default path returns 404, which is remembered, and they match by name. Paths with `..`, absolute paths or backslashes are refused, in overrides and in derived names.
 - **Download on demand.** A DAT is fetched the first time a ROM of that system needs it. Its rows (game, ROM name, size, CRC, MD5, SHA1) go into SQLite, so each lookup is one indexed query. Bodies are capped at 64 MiB, and an empty DAT is refused.
 - **Freshness.** After **30 days** a DAT is revalidated with its ETag (a 304 only refreshes the timestamp). A **404 is remembered** for the same TTL. Any other failed refresh falls back to the older rows. With no older rows, the failure is remembered for the rest of the process, so a broken DAT is not downloaded once per ROM. Rate limits and going offline are never remembered: they pause the phase, and the next run tries again.
+- **Fields kept** (cache schema v3): besides game, ROM name, size and digests, each row keeps the DAT's `serial` (the first one, normalised; Redump discs), `region`, `cloneof` and `isbios` (`isbios "yes"` or a `[BIOS]` mark in the name). Duplicates use them for level 3 serial checks, the region rule and to keep BIOS files out of every group. The v2 → v3 migration clears every cached DAT's ETag, so each one downloads again on next use (its old rows stay as the offline fallback).
 - **Lookup.** For a zip, the inner CRC and size are compared. For content hashes, the headerless digests are tried first, then the full ones: CRC + size must match, and SHA1 must also match when both sides have one. Ties resolve to the first game by name.
 
 ## Arcade
@@ -79,6 +83,14 @@ Fuzzy matching (Levenshtein on characters, 0–100, `score("aé", "ae") = 50`) o
 ### Numbering prefixes
 
 Handheld packs often number ROMs (`001 Golden Sun.gba`, `12) Foo`, `7. Bar`, `3 - Baz`). `detect_numbering` decides per folder: at least 3 stems, and at least 60 % of them, carry a 1–4 digit prefix followed by text. Only then is the prefix stripped before matching, so `1942` in an unnumbered folder stays `1942`. The written art keeps the full stem (`Imgs/001 Golden Sun.png`).
+
+### Name tags (duplicates)
+
+`identify::names::parse_tags(name) -> NameTags` reads the tags of a **catalogue** name (the DAT game name, never a file name) for duplicates level 2 ([dedupe.md](./dedupe.md#keys)):
+
+- `title_key`: the `compare_key` of the title plus the disc number, every unknown group and the modification tags. Known groups are stripped: regions and languages (No-Intro words, GoodTools letters such as `(JUE)`), `(Rev N)`, `(Rev A)`, `(V1.1)`, `(v1.02)`, dump flags `[!] [a] [b] [o]`, `(SGB Enhanced)`, `(GB Compatible)`, `(Rumble Version)`, `(Virtual Console)`, dates, `(Beta)`, `(Proto)`, `(Demo)`, `(Sample)`, `(Kiosk)`. `(Disc 2)` is never merged with `(Disc 1)`, and an unknown group (`(Sporty Time & Fun)`) keeps two products apart.
+- `revision` (`Revision { major, minor, letter }`, comparable; `V1.1`, `Rev 1`, `Rev A` and `v1.02` all normalise) and `revision_text` as written, for the keeper's reason.
+- `class` (`ReleaseClass`: retail, beta, proto, demo, sample), `flags` (`DumpFlags`: verified, bad, overdump, alternate), `modification` (`ModClass`: original, hack, trainer, translation, fixed, pirate, unlicensed: GoodTools `[h]`, `[t]`, `[T+…]`, `[f]`, `[p]` and `(Unl)` are kept, because they name modified programs), `disc`, `regions` and `unknown_groups`.
 
 ## Output
 
