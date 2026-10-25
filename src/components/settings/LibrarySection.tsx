@@ -16,6 +16,7 @@ import { toolName } from '@/lib/organize';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+import { DedupeSettings } from './DedupeSettings';
 import {
   Field,
   hintText,
@@ -300,6 +301,7 @@ export function LibrarySection() {
         }
       />
       <OrganizeSettings profiles={profiles} />
+      <DedupeSettings profiles={profiles} />
       <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
         <EmptyState

@@ -245,6 +245,52 @@
       "namesCatalogue": "Usar el nombre del catálogo",
       "downloadDats": "Descargar catálogos de juegos para identificar las ROMs por su contenido",
       "advancedHint": "Los umbrales y las listas se editan en Avanzado (archivo de ajustes)."
+    },
+    "dedupe": {
+      "title": "Duplicados",
+      "levels": "Qué buscar",
+      "oneGameOneRom": "Una ROM por juego",
+      "oneGameOneRomHint": "Aparta también las otras versiones del mismo juego (otra región o revisión).",
+      "action": "Qué hacer con las copias",
+      "actionQuarantine": "Apartar en una carpeta",
+      "actionTrash": "Enviar a la Papelera",
+      "actionTrashHint": "Deshacer las devuelve desde la Papelera mientras no la vacíes.",
+      "organizeStep": "Al organizar",
+      "quarantine": "Carpeta de apartados",
+      "quarantineHint": "Vacía: {folder} dentro de la biblioteca, sin salir de su disco.",
+      "quarantineDefault": "<biblioteca>/{name}",
+      "quarantineInside": "No puede estar dentro de la carpeta de ROMs ni de un sistema: la consola listaría las copias.",
+      "choose": "Elegir…",
+      "rules": "Qué copia se queda",
+      "rulesHint": "Se miran en este orden; la primera regla que decide, decide.",
+      "use": "Usar: {rule}",
+      "moveUp": "Subir {rule}",
+      "moveDown": "Bajar {rule}",
+      "regionOrder": "Usa el orden de Coincidencias",
+      "containerOrder": "Orden de formatos por perfil",
+      "containerOrderHint": "Separados por comas, el preferido primero.",
+      "containerAll": "Todos los perfiles",
+      "containerKey": "{profile}: {kind}",
+      "containerKind": {
+        "disc": "discos",
+        "cart": "cartuchos",
+        "arcade": "arcade",
+        "*": "todo"
+      },
+      "exclude": "Sistemas que no se miran",
+      "excludeHint": "Ids de sistema separados por comas.",
+      "rule": {
+        "has_save": "Tiene tu partida",
+        "played": "Es la que has jugado",
+        "in_library": "Ya estaba en tu biblioteca",
+        "verified": "Volcado verificado en el catálogo",
+        "retail": "Versión comercial",
+        "region": "Región preferida",
+        "revision": "Revisión más nueva",
+        "container": "Formato preferido del perfil",
+        "cover": "Tiene portada",
+        "catalogue_name": "Se llama como en el catálogo"
+      }
     }
   },
   "about": {

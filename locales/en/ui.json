@@ -245,6 +245,52 @@
       "namesCatalogue": "Use the catalogue name",
       "downloadDats": "Download game catalogues to identify ROMs by their contents",
       "advancedHint": "Thresholds and lists are edited in Advanced (settings file)."
+    },
+    "dedupe": {
+      "title": "Duplicates",
+      "levels": "What to look for",
+      "oneGameOneRom": "One ROM per game",
+      "oneGameOneRomHint": "Also sets aside the other versions of the same game (another region or revision).",
+      "action": "What to do with the copies",
+      "actionQuarantine": "Set aside in a folder",
+      "actionTrash": "Send to the Trash",
+      "actionTrashHint": "Undo brings them back from the Trash as long as you don't empty it.",
+      "organizeStep": "When organising",
+      "quarantine": "Quarantine folder",
+      "quarantineHint": "Empty: {folder} inside the library, on its own drive.",
+      "quarantineDefault": "<library>/{name}",
+      "quarantineInside": "It can't be inside the ROMs folder or a system folder: the device would list the copies.",
+      "choose": "Choose…",
+      "rules": "Which copy stays",
+      "rulesHint": "Weighed in this order; the first rule that decides, decides.",
+      "use": "Use: {rule}",
+      "moveUp": "Move {rule} up",
+      "moveDown": "Move {rule} down",
+      "regionOrder": "Uses the Matching region order",
+      "containerOrder": "Format order per profile",
+      "containerOrderHint": "Comma-separated, preferred first.",
+      "containerAll": "All profiles",
+      "containerKey": "{profile}: {kind}",
+      "containerKind": {
+        "disc": "discs",
+        "cart": "cartridges",
+        "arcade": "arcade",
+        "*": "everything"
+      },
+      "exclude": "Systems to leave out",
+      "excludeHint": "System ids, comma-separated.",
+      "rule": {
+        "has_save": "Has your save",
+        "played": "It's the one you played",
+        "in_library": "Already in your library",
+        "verified": "Verified dump in the catalogue",
+        "retail": "Retail release",
+        "region": "Preferred region",
+        "revision": "Newer revision",
+        "container": "The profile's preferred format",
+        "cover": "Has a cover",
+        "catalogue_name": "Named as in the catalogue"
+      }
     }
   },
   "about": {
