@@ -564,7 +564,7 @@ fn emit(
 fn slash(path: &Path) -> String {
     path.components()
         .filter_map(|c| match c {
-            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            Component::Normal(s) => Some(table::one_line(&s.to_string_lossy())),
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -615,8 +615,13 @@ pub(crate) fn why_text(e: &Evidence) -> String {
     }
 }
 
-/// Why `reason` keeps a file where it is.
+/// Why `reason` keeps a file where it is, on one line: names read from
+/// an archive or a cue sheet cannot start a forged plan line.
 pub(crate) fn left_text(reason: &LeftReason) -> String {
+    table::one_line(&left_reason_text(reason))
+}
+
+fn left_reason_text(reason: &LeftReason) -> String {
     match reason {
         LeftReason::PartialDownload => "download not finished".into(),
         LeftReason::RecentlyModified => "modified moments ago, may still be written".into(),
@@ -1070,7 +1075,8 @@ fn render_table(
     if let Some((games, bytes)) = extract_totals(plan) {
         let _ = writeln!(
             out,
-            "\nExtracting: {games} games ({})",
+            "\nExtracting: {games} {} ({})",
+            if games == 1 { "game" } else { "games" },
             table::human_bytes(bytes)
         );
     }
@@ -1087,6 +1093,39 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_from_archives_and_paths_stay_on_one_line() {
+        use coverly_core::archive::names::UnsafeWhy;
+        let forged = "a\nROMS/PS/  (1)  forged\r";
+        let reasons = [
+            LeftReason::UnsafeArchiveEntry {
+                name: forged.into(),
+                why: UnsafeWhy::Illegal,
+            },
+            LeftReason::SetUnsafeName {
+                name: forged.into(),
+            },
+            LeftReason::SetIncomplete {
+                missing: vec![forged.into()],
+            },
+            LeftReason::FolderFull {
+                folder: forged.into(),
+            },
+            LeftReason::UnsupportedSystem {
+                name: forged.into(),
+            },
+            LeftReason::AlreadySorted {
+                folder: forged.into(),
+            },
+        ];
+        for r in &reasons {
+            let text = left_text(r);
+            assert!(!text.contains('\n') && !text.contains('\r'), "{text:?}");
+        }
+        let path = PathBuf::from("ROMS").join(forged);
+        assert!(!slash(&path).contains('\n'), "{:?}", slash(&path));
+    }
 
     #[test]
     fn assign_splits_on_the_last_equals() {

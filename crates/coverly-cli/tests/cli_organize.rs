@@ -697,7 +697,7 @@ mod archives {
             "{text}"
         );
         assert!(text.contains("it is a 7z archive named .zip"), "{text}");
-        assert!(text.contains("Extracting: 1 games (66.0 kB)"), "{text}");
+        assert!(text.contains("Extracting: 1 game (66.0 kB)"), "{text}");
         assert!(text.contains("Dry run: nothing was written"), "{text}");
         assert_eq!(tree_digest(p.path()), before);
     }
@@ -820,6 +820,37 @@ mod archives {
             .clone();
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("Hostile.7z"), "{text}");
+        assert!(
+            !text.chars().any(|c| c != '\n' && c.is_control()),
+            "control characters reached the terminal: {text:?}"
+        );
+    }
+
+    /// A name from inside the archive is printed when it is why the
+    /// archive stays (the cue lists a track it lacks): no escape in it may
+    /// reach the terminal.
+    #[test]
+    fn hostile_sheet_name_is_terminal_safe() {
+        let p = TempDir::new().unwrap();
+        let (data, cache) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let hostile = "Game\u{1b}]0;pwned\u{7}.bin";
+        let sheet = cue(&[hostile]);
+        let files: [(&str, &[u8]); 2] = [("Game.cue", &sheet), (hostile, &track)];
+        write_old(
+            &p.path().join("Evil.7z"),
+            &sevenz(&files, SevenZShape::non_solid_lzma()),
+        );
+        let out = coverly(data.path(), cache.path(), &["organize", "--offline"])
+            .arg(p.path())
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("game files missing: Game"), "{text}");
+        assert!(text.contains("]0;pwned"), "the name is shown: {text}");
         assert!(
             !text.chars().any(|c| c != '\n' && c.is_control()),
             "control characters reached the terminal: {text:?}"

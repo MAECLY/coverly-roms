@@ -172,13 +172,17 @@ fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>) -> String {
         let _ = write!(text, "\n  kept {}", p.display());
     }
     for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
-        let _ = write!(text, "\n  archive restored: {}", p.display());
+        let _ = write!(
+            text,
+            "\n  archive restored: {}",
+            table::one_line(&p.display().to_string())
+        );
     }
     for p in &report.archive_lost {
         let _ = write!(
             text,
             "\n  archive lost: {}; the archive couldn't be recovered from the Trash, the extracted files stay",
-            p.display()
+            table::one_line(&p.display().to_string())
         );
     }
     text.push('\n');

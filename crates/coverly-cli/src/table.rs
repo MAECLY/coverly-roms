@@ -45,6 +45,14 @@ pub fn terminal_safe(text: &str) -> String {
         .collect()
 }
 
+/// `text` with every control character, `\n` included, replaced by
+/// U+FFFD: for a name printed inside one line of a report.
+pub fn one_line(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
 /// `79.6 MB`: decimal units, one decimal.
 pub fn human_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
