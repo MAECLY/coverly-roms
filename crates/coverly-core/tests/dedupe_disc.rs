@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use coverly_core::archive::testing::sevenz_copy;
+use coverly_core::archive::testing::{sevenz_copy, tar_gz};
 use coverly_core::archive::Limits;
 use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::disc::ReaderDiscProbe;
@@ -494,4 +494,65 @@ fn pbp_and_cso_reads_are_bounded() {
     assert!(cso.inflated() <= MAX_INFLATED);
     let read = cso.into_inner().read;
     assert!(read <= RAW + MAX_INFLATED as u64, "{read} bytes read");
+}
+
+#[test]
+fn a_solid_archive_whose_sheet_comes_last_infers_the_primary_track() {
+    // As Redump sets are often packed: every track, then the sheets. The
+    // sheets lie past the head budget, so the primary track comes from the
+    // Redump names (a GD-ROM's track 3, never the decoy track 1).
+    let dir = TempDir::new().unwrap();
+    let budget = 8 * 1024 * 1024;
+    let tight = || {
+        ReaderDiscProbe::new(ArchiveEntryListing::new(Limits {
+            plan_head_budget: budget,
+            ..Limits::default()
+        }))
+    };
+    let padding = vec![0u8; budget as usize + 2352];
+    let decoy = dt::dreamcast_track03("T-99999N  ", "1/1");
+    let real = dt::dreamcast_track03("T-40214N  ", "1/1");
+    let gdi = b"4\n1 0 4 2352 \"G (Track 1).bin\" 0\n2 756 0 2352 \"G (Track 2).bin\" 0\n3 45000 4 2352 \"G (Track 3).bin\" 0\n4 99000 0 2352 \"G (Track 4).bin\" 0\n";
+    let gd = put(
+        dir.path(),
+        "G.tar.gz",
+        &tar_gz(
+            &[
+                ("G/G (Track 1).bin", &decoy),
+                ("G/G (Track 2).bin", &[0u8; 2352]),
+                ("G/G (Track 3).bin", &real),
+                ("G/G (Track 4).bin", &padding),
+                (
+                    "G/G.cue",
+                    b"FILE \"G (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n",
+                ),
+                ("G/G.gdi", gdi),
+            ],
+            0,
+        ),
+    );
+    let id = tight().probe(&gd, "dreamcast").unwrap().expect("a GD-ROM");
+    assert_eq!(id.serials, ["T-40214N"]);
+
+    // A Saturn set: track 1 is the data track.
+    let sat = put(
+        dir.path(),
+        "S.tar.gz",
+        &tar_gz(
+            &[
+                ("S (Track 1).bin", &saturn_disc("T-5704H   ", 1, 1)),
+                ("S (Track 2).bin", &padding),
+                (
+                    "S.cue",
+                    b"FILE \"S (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n",
+                ),
+            ],
+            0,
+        ),
+    );
+    let id = tight()
+        .probe(&sat, "saturn")
+        .unwrap()
+        .expect("a Saturn disc");
+    assert_eq!(id.serials, ["T-5704H"]);
 }

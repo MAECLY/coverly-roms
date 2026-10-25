@@ -32,8 +32,8 @@ use crate::archive::Budget;
 use crate::disc::sheets::MAX_SHEET_BYTES;
 use crate::disc::source::MAX_WINDOW;
 use crate::disc::{
-    parse_sheet, primary_track, Cso, DiscIdentity, DiscReader, DiscSystem, FileSource, Pbp,
-    SheetKind, WindowSource,
+    infer_redump_set, parse_sheet, primary_track, Cso, DiscIdentity, DiscReader, DiscSystem,
+    FileSource, Pbp, SheetKind, WindowSource,
 };
 
 use super::archive::ArchiveEntryListing;
@@ -82,20 +82,55 @@ impl ReaderDiscProbe {
     }
 
     /// A disc inside the archive at `path`, under one plan head budget.
+    /// No read is started that the budget cannot finish: in a solid
+    /// archive whose sheet comes after every track, the primary track is
+    /// inferred from the Redump names instead.
     fn in_archive(&self, path: &Path, entries: &[ListedEntry]) -> Option<DiscIdentity> {
         let mut budget = Budget::plan_head(self.listing.limits());
-        let primary = entries.iter().enumerate().find_map(|(n, e)| {
-            let kind = sheet_kind(&e.name)?;
-            let text = self
-                .listing
-                .head_with(path, n, MAX_SHEET_BYTES, &mut budget)
-                .ok()??;
-            let file = primary_file(kind, &text)?;
-            let dir = e.name.rfind('/').map_or("", |i| &e.name[..=i]);
-            let want = format!("{dir}{file}");
-            entries
-                .iter()
-                .position(|t| t.name.eq_ignore_ascii_case(&want))
+        let fits = |budget: &Budget, n: usize, want: u64| {
+            let Ok(cost) = self.listing.decode_cost(path, n) else {
+                return false;
+            };
+            let need = cost.saturating_add(want);
+            budget.remaining().is_none_or(|left| need <= left)
+        };
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        // A `.gdi` names a GD-ROM's tracks better than its `.cue` twin.
+        let mut sheets: Vec<(usize, SheetKind)> = entries
+            .iter()
+            .enumerate()
+            .filter_map(|(n, e)| Some((n, sheet_kind(&e.name)?)))
+            .collect();
+        sheets.sort_by_key(|&(_, kind)| kind != SheetKind::Gdi);
+        let primary = sheets.iter().find_map(|&(n, kind)| {
+            let e = &entries[n];
+            let read = fits(&budget, n, e.size)
+                .then(|| {
+                    self.listing
+                        .head_with(path, n, MAX_SHEET_BYTES, &mut budget)
+                })
+                .and_then(|r| r.ok().flatten());
+            match read {
+                Some(text) => {
+                    let file = primary_file(kind, &text)?;
+                    let dir = e.name.rfind('/').map_or("", |i| &e.name[..=i]);
+                    let want = format!("{dir}{file}");
+                    names.iter().position(|t| t.eq_ignore_ascii_case(&want))
+                }
+                None => {
+                    let tracks = infer_redump_set(&names, &e.name)?;
+                    let gd_rom = kind == SheetKind::Gdi
+                        || sheets.iter().any(|&(m, k)| {
+                            k == SheetKind::Gdi && same_stem(&entries[m].name, &e.name)
+                        });
+                    let track = if gd_rom {
+                        tracks.get(2)?
+                    } else {
+                        tracks.first()?
+                    };
+                    names.iter().position(|t| t == track)
+                }
+            }
         });
         let candidates: Vec<usize> = match primary {
             Some(n) => vec![n],
@@ -104,6 +139,10 @@ impl ReaderDiscProbe {
                 .collect(),
         };
         candidates.into_iter().find_map(|n| {
+            let want = entries[n].size.min(MAX_WINDOW as u64);
+            if !fits(&budget, n, want) {
+                return None;
+            }
             let head = self
                 .listing
                 .head_with(path, n, MAX_WINDOW, &mut budget)
@@ -236,6 +275,12 @@ fn extension(path: &Path) -> String {
 fn sheet_kind(name: &str) -> Option<SheetKind> {
     let ext = Path::new(name).extension()?.to_str()?;
     SheetKind::from_extension(ext).filter(|k| *k != SheetKind::M3u)
+}
+
+/// Whether two entry names differ only by extension.
+fn same_stem(a: &str, b: &str) -> bool {
+    let stem = |n: &str| n.rsplit_once('.').map_or(n, |(s, _)| s).to_lowercase();
+    stem(a) == stem(b)
 }
 
 /// The file name of `sheet`'s primary track.

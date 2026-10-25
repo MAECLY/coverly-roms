@@ -113,6 +113,28 @@ impl ArchiveEntryListing {
         entry.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {n}")))
     }
 
+    /// Decoded bytes it costs to reach the start of file entry `n`: the
+    /// earlier entries of its solid block (a 7z folder, a RAR solid group,
+    /// a tar inside a compressor); nothing for an independent entry.
+    pub(crate) fn decode_cost(&self, path: &Path, n: usize) -> io::Result<u64> {
+        let listing = self
+            .listing(path)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not an archive"))?;
+        let entry = files(&listing)
+            .nth(n)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {n}")))?;
+        let Some(block) = entry.solid_block else {
+            return Ok(0);
+        };
+        Ok(listing
+            .entries
+            .iter()
+            .take_while(|e| e.index != entry.index)
+            .filter(|e| e.solid_block == Some(block))
+            .map(|e| e.size)
+            .fold(0u64, u64::saturating_add))
+    }
+
     /// [`EntryListing::head`] with the bytes decoded charged to `budget`
     /// (one budget for every read of a disc probe). A head already cached
     /// costs nothing.
