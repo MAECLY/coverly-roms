@@ -5,6 +5,7 @@
 import type { TranslateVars } from '@/i18n/core';
 import type {
   ArchiveTool,
+  DupGroupView,
   DiscId,
   Evidence,
   ItemNote,
@@ -91,6 +92,74 @@ export function reviewBuckets(plan: OrganizePlan): ReviewBucket[] {
 /** Items that stay where they are. */
 export function leftItems(plan: OrganizePlan): OrganizeItem[] {
   return plan.items.filter((i) => i.action === 'left');
+}
+
+/** Pile copies the duplicates step found (set aside, or reported as
+ * already in the library) and how many of them the library holds. */
+export function duplicateCounts(plan: OrganizePlan): {
+  extras: number;
+  inLibrary: number;
+} {
+  const extras = plan.items.filter(
+    (i) =>
+      i.action === 'set-aside' ||
+      (i.action === 'left' && i.reason.kind === 'in-library'),
+  ).length;
+  return { extras, inLibrary: plan.counts.in_library };
+}
+
+/** One duplicates group of the proposal, ready for `DupGroup`. */
+export interface OrganizeDupGroup {
+  group: DupGroupView;
+  /** Where its copies go (absolute); '' when none is set aside. */
+  quarantine: string;
+  /** Some copy leaves (set-aside mode); otherwise they all stay. */
+  setAside: boolean;
+}
+
+const slashed = (p: string) => p.replace(/\\/g, '/');
+const isAbs = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+const joinPath = (root: string, rel: string) =>
+  `${root.replace(/[\\/]+$/, '')}/${rel}`;
+
+/**
+ * The plan's duplicate groups with each set-aside copy's destination
+ * written in (the plan item knows it: relative to the pile, or absolute
+ * in the library's quarantine) and the quarantine folder they land in.
+ */
+export function organizeDupGroups(plan: OrganizePlan): OrganizeDupGroup[] {
+  const bySource = new Map<string, OrganizeItem>();
+  for (const item of plan.items) {
+    const first = item.sources[0];
+    if (!first) continue;
+    const abs = isAbs(first) ? first : joinPath(plan.source_root, first);
+    bySource.set(slashed(abs).toLowerCase(), item);
+  }
+  return (plan.duplicates ?? []).map((group) => {
+    let quarantine = '';
+    const members = group.members.map((m) => {
+      const item = bySource.get(slashed(m.unit.primary).toLowerCase());
+      if (item?.action !== 'set-aside') return m;
+      const dest = isAbs(item.dest)
+        ? item.dest
+        : joinPath(plan.source_root, item.dest);
+      if (!quarantine) {
+        // The folder is the destination without the copy's own path.
+        const rel = slashed(item.sources[0] ?? '');
+        const d = slashed(dest);
+        quarantine =
+          rel && d.toLowerCase().endsWith(`/${rel.toLowerCase()}`)
+            ? dest.slice(0, d.length - rel.length - 1)
+            : dest.slice(0, Math.max(d.lastIndexOf('/'), 0));
+      }
+      return { ...m, dest };
+    });
+    return {
+      group: { ...group, members },
+      quarantine,
+      setAside: quarantine !== '',
+    };
+  });
 }
 
 /** High ≥ 0.95, medium ≥ 0.85, otherwise no label (review territory). */

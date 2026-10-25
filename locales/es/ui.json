@@ -1150,7 +1150,7 @@
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
       "title": "Se quedan donde están",
-      "inLibrary": "Ya está en la biblioteca como {path}"
+      "inLibrary": "Ya está en tu biblioteca como {path}"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1230,7 +1230,9 @@
     "pausedTitle": "En pausa",
     "result": {
       "counts": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
-      "extracted": "Extraídos: {count}"
+      "extracted": "Extraídos: {count}",
+      "setAside": "Apartados: {count}",
+      "trashed": "En la Papelera: {count}"
     },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
@@ -1277,7 +1279,23 @@
       "newCount": "Nuevos: {count}",
       "retry": "Reintentar",
       "nothingMoved": "No se ha movido nada."
-    }
+    },
+    "dedupe": {
+      "picker": "Duplicados",
+      "quarantine": "Apartar",
+      "report": "Solo informar",
+      "off": "No buscar",
+      "count": "Duplicados: {count}",
+      "inLibrary": "Ya en tu biblioteca: {count}",
+      "hint": "Las copias de más se apartan en {folder}, al lado de la pila: no se copian a la biblioteca.",
+      "hintTrash": "Las copias de más se envían a la Papelera: no se copian a la biblioteca.",
+      "reportHint": "Solo se informa: las copias de más se quedan donde están.",
+      "games": "Juegos: {count}"
+    },
+    "applyWithDedupe": "Organizar {count} archivos y apartar {extras}",
+    "applyOneWithDedupe": "Organizar 1 archivo y apartar {extras}",
+    "applyWithTrash": "Organizar {count} archivos y enviar {extras} a la Papelera",
+    "applyOneWithTrash": "Organizar 1 archivo y enviar {extras} a la Papelera"
   },
   "ui": {
     "close": "Cerrar",

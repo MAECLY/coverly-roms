@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ChevronRight,
   FileJson,
   FolderOpen,
   FolderTree,
@@ -14,6 +15,7 @@ import {
   useState,
 } from 'react';
 
+import { DupGroup } from '@/components/dedupe/DupGroup';
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
@@ -22,7 +24,13 @@ import {
   ReviewBuckets,
   type OrganizeChoice,
 } from '@/components/organize/ReviewBuckets';
-import { hintText } from '@/components/organize/styles';
+import {
+  chevron,
+  groupTrigger,
+  hintText,
+  panel,
+  sectionTitle,
+} from '@/components/organize/styles';
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -35,7 +43,13 @@ import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import type {
+  OrganizeDedupeMode,
   OrganizePlan,
   OrganizeProgressEvent,
   OrganizeRequest,
@@ -45,11 +59,15 @@ import type {
 import { formatDecimalSize } from '@/lib/format';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
+  duplicateCounts,
   extractSummary,
   groupBySystem,
   itemKey,
   leftItems,
+  organizeDupGroups,
   reviewBuckets,
+  ROWS_PER_GROUP,
+  type OrganizeDupGroup,
 } from '@/lib/organize';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore, type OrganizeRefresh } from '@/stores/organizeStore';
@@ -107,9 +125,18 @@ function barOf(progress: OrganizeProgressEvent | null): {
 function useCatalogues() {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [systems, setSystems] = useState<SystemInfo[]>([]);
+  /** `dedupe.organize_step`: the duplicates step a plan takes by default. */
+  const [duplicates, setDuplicates] = useState<OrganizeDedupeMode>('set-aside');
   useEffect(() => {
     let alive = true;
     void getBackend().then((b) => {
+      b.getSettings().then(
+        (s) =>
+          alive &&
+          s?.settings?.dedupe &&
+          setDuplicates(s.settings.dedupe.organize_step),
+        () => undefined,
+      );
       b.listProfiles().then(
         (p) => alive && setProfiles(Array.isArray(p) ? p : []),
         () => undefined,
@@ -123,7 +150,7 @@ function useCatalogues() {
       alive = false;
     };
   }, []);
-  return { profiles, systems };
+  return { profiles, systems, duplicates };
 }
 
 /** Plan-wide warnings as text (data from the core, never prose). */
@@ -194,7 +221,7 @@ export function OrganizeScreen() {
   const locked = useOrganizeStore((s) => s.locked);
   const lastRefresh = useOrganizeStore((s) => s.lastRefresh);
   const refreshing = useOrganizeStore((s) => s.refreshing);
-  const { profiles, systems } = useCatalogues();
+  const { profiles, systems, duplicates: defaultDuplicates } = useCatalogues();
   /** The change summary the user closed (the "New" marks stay). */
   const [dismissed, setDismissed] = useState<OrganizeRefresh | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
@@ -451,6 +478,7 @@ export function OrganizeScreen() {
         {proposing && plan && (
           <Proposal
             plan={plan}
+            duplicates={request?.duplicates ?? defaultDuplicates}
             locked={locked}
             profiles={profiles}
             systems={systems}
@@ -484,6 +512,8 @@ export function OrganizeScreen() {
 
 interface ProposalProps {
   plan: OrganizePlan;
+  /** The duplicates step the plan was made with. */
+  duplicates: OrganizeDedupeMode;
   /** Layout and target belong to the library being tidied. */
   locked: boolean;
   profiles: ProfileInfo[];
@@ -513,6 +543,7 @@ interface ProposalProps {
 
 function Proposal({
   plan,
+  duplicates,
   locked,
   profiles,
   systems,
@@ -540,6 +571,8 @@ function Proposal({
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
   const extracting = useMemo(() => extractSummary(plan), [plan]);
+  const dupGroups = useMemo(() => organizeDupGroups(plan), [plan]);
+  const dupCounts = useMemo(() => duplicateCounts(plan), [plan]);
   const layoutProfile =
     profiles.find((p) => p.profile.id === plan.layout)?.profile ?? null;
   const { counts } = plan;
@@ -554,6 +587,7 @@ function Proposal({
     <>
       <OptionsBar
         plan={plan}
+        duplicates={duplicates}
         profiles={profiles}
         disabled={busy}
         locked={locked}
@@ -588,6 +622,20 @@ function Proposal({
             left: counts.left,
           })}
         </p>
+        {(dupCounts.extras > 0 || dupCounts.inLibrary > 0) && (
+          <p className="m-0 text-dense tabular-nums text-cr-text">
+            {[
+              t('organize.dedupe.count', { count: dupCounts.extras }),
+              ...(dupCounts.inLibrary > 0
+                ? [
+                    t('organize.dedupe.inLibrary', {
+                      count: dupCounts.inLibrary,
+                    }),
+                  ]
+                : []),
+            ].join(' · ')}
+          </p>
+        )}
         {extracting && (
           <p className="m-0 text-dense tabular-nums text-cr-text">
             {t(
@@ -633,6 +681,13 @@ function Proposal({
           {...(isNew ? { isNew } : {})}
         />
       )}
+      {dupGroups.length > 0 && (
+        <DuplicatesSection
+          groups={dupGroups}
+          trash={plan.set_aside_trash}
+          profileName={profileName(plan.layout)}
+        />
+      )}
       <LeftInPlace
         items={left}
         systems={systems}
@@ -646,12 +701,10 @@ function Proposal({
       {/* The action bar sits on the page, ruled off like a shelf edge
           (brand §2), and lines up with the panels above it. */}
       <div className="sticky bottom-0 z-[1] flex flex-wrap items-center gap-2 border-t border-cr-border bg-background py-3">
-        {counts.auto > 0 ? (
+        {counts.auto > 0 || counts.set_aside > 0 ? (
           <Button variant="primary" disabled={stale} onClick={onApply}>
             <FolderTree aria-hidden />
-            {t(counts.auto === 1 ? 'organize.applyOne' : 'organize.apply', {
-              count: counts.auto,
-            })}
+            {applyLabel(t, counts.auto, counts.set_aside, plan.set_aside_trash)}
           </Button>
         ) : (
           // Sorted folders live in the source: "open" opens the target,
@@ -680,6 +733,124 @@ function Proposal({
         )}
       </div>
     </>
+  );
+}
+
+/** The primary button: the files that move, and apart the copies set
+ * aside (spec §11.2: "Organizar 16 archivos y apartar 3"). */
+function applyLabel(
+  t: TFunction,
+  count: number,
+  extras: number,
+  trash: boolean,
+): string {
+  if (extras === 0)
+    return t(count === 1 ? 'organize.applyOne' : 'organize.apply', { count });
+  if (count === 0)
+    return t(
+      trash
+        ? extras === 1
+          ? 'dedupe.applyTrashOne'
+          : 'dedupe.apply.trash'
+        : extras === 1
+          ? 'dedupe.applyOne'
+          : 'dedupe.apply.quarantine',
+      { count: extras },
+    );
+  const key = trash
+    ? count === 1
+      ? 'organize.applyOneWithTrash'
+      : 'organize.applyWithTrash'
+    : count === 1
+      ? 'organize.applyOneWithDedupe'
+      : 'organize.applyWithDedupe';
+  return t(key, { count, extras });
+}
+
+/** Whole groups up to `rows` rows (at least one), then "Show more". */
+function groupsWithin(
+  groups: OrganizeDupGroup[],
+  rows: number,
+): OrganizeDupGroup[] {
+  const out: OrganizeDupGroup[] = [];
+  let used = 0;
+  for (const g of groups) {
+    if (out.length > 0 && used + g.group.members.length > rows) break;
+    out.push(g);
+    used += g.group.members.length;
+  }
+  return out;
+}
+
+/** The proposal's duplicates (spec §11.2): the shelf and tray of the
+ * library screen, read-only (the picker above settles them), closed
+ * above `ROWS_PER_GROUP` rows like the system groups. */
+function DuplicatesSection({
+  groups,
+  trash,
+  profileName,
+}: {
+  groups: OrganizeDupGroup[];
+  trash: boolean;
+  profileName: string;
+}) {
+  const t = useT();
+  const rows = groups.reduce((n, g) => n + g.group.members.length, 0);
+  const [open, setOpen] = useState(rows <= ROWS_PER_GROUP);
+  const [visible, setVisible] = useState(ROWS_PER_GROUP);
+  const setAside = groups.find((g) => g.setAside);
+  const hint = !setAside
+    ? t('organize.dedupe.reportHint')
+    : trash
+      ? t('organize.dedupe.hintTrash')
+      : t('organize.dedupe.hint', {
+          folder: setAside.quarantine.split(/[\\/]/).pop() ?? '',
+        });
+  const shown = groupsWithin(groups, visible);
+  return (
+    // The relation badges carry tooltips.
+    <TooltipProvider>
+      <section aria-labelledby="organize-dedupe-title" className="grid gap-2">
+        <h2 id="organize-dedupe-title" className={sectionTitle}>
+          {t('organize.dedupe.picker')}
+        </h2>
+        <p className={hintText}>{hint}</p>
+        <Collapsible open={open} onOpenChange={setOpen} className={panel}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className={groupTrigger}>
+              <ChevronRight aria-hidden className={chevron} />
+              <span className="tabular-nums">
+                {t('organize.dedupe.games', { count: groups.length })}
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="dup-system__body border-t border-cr-border">
+            {shown.map(({ group, quarantine, setAside: leaves }) => (
+              <DupGroup
+                key={group.id}
+                group={group}
+                quarantine={quarantine}
+                profileName={profileName}
+                pickable={false}
+                reportOnly={!leaves}
+              />
+            ))}
+            {shown.length < groups.length && (
+              <Button
+                variant="link"
+                size="sm"
+                className="m-2"
+                onClick={() => setVisible((v) => v + ROWS_PER_GROUP)}
+              >
+                {t('organize.showMore', {
+                  count: groups.length - shown.length,
+                })}
+              </Button>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      </section>
+    </TooltipProvider>
   );
 }
 

@@ -60,6 +60,12 @@ export interface DupGroupProps {
   profileName?: string | undefined;
   /** Initial state of "No tocar este juego". */
   skipped?: boolean;
+  /** The keeper can be changed and the game left alone (the library
+   * screen); `false` shows the rules' decision only (the Organise
+   * proposal settles it with its own picker). */
+  pickable?: boolean;
+  /** Every copy stays, whatever the action (Organise "Solo informar"). */
+  reportOnly?: boolean;
   onKeeperChange?: ((groupId: number, keeper: number) => void) | undefined;
   onSkipChange?: ((groupId: number, skipped: boolean) => void) | undefined;
 }
@@ -74,6 +80,8 @@ export function DupGroup({
   quarantine,
   profileName,
   skipped = false,
+  pickable = true,
+  reportOnly = false,
   onKeeperChange,
   onSkipChange,
 }: DupGroupProps) {
@@ -88,7 +96,9 @@ export function DupGroup({
   const capShift = useRef<number | null>(null);
   const focusNext = useRef(false);
 
-  const acts = group.action.kind === 'act';
+  const acts = group.action.kind === 'act' && !reportOnly;
+  /** A radio group to pick the keeper, and "No tocar este juego". */
+  const picks = acts && pickable;
   const ids = group.members.map((m) => m.id);
   const keeperMember =
     group.members.find((m) => m.id === keeper) ?? group.members[0]!;
@@ -176,7 +186,7 @@ export function DupGroup({
   }
 
   function onKeyDownCapture(e: KeyboardEvent<HTMLDivElement>) {
-    if (!acts || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target as HTMLElement;
     if (target.getAttribute('role') !== 'radio') return;
     const step =
@@ -195,7 +205,7 @@ export function DupGroup({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!acts || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key !== 'x' && e.key !== 'X') return;
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, [contenteditable="true"]')) return;
@@ -209,7 +219,7 @@ export function DupGroup({
         <KeeperRow
           key={keeperMember.id}
           member={keeperMember}
-          interactive={acts}
+          interactive={picks}
           why={why}
           choiceDropped={group.choice_dropped && keeper === group.keeper}
           idPrefix={`${uid}-m${keeperMember.id}`}
@@ -224,6 +234,7 @@ export function DupGroup({
               members={members}
               keeper={keeperMember}
               interactive={acts}
+              pickable={picks}
               showRelation={mixed}
               quarantine={quarantine}
               system={group.system}
@@ -270,7 +281,7 @@ export function DupGroup({
         )}
       </div>
 
-      {acts ? (
+      {picks ? (
         <RadioGroup
           aria-labelledby={titleId}
           value={String(keeper)}
@@ -283,7 +294,7 @@ export function DupGroup({
         <div>{rows}</div>
       )}
 
-      {acts && (
+      {picks && (
         <div className="dup-group__foot">
           <label className="dup-group__skip">
             <Checkbox

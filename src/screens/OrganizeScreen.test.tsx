@@ -876,4 +876,133 @@ describe('OrganizeScreen', () => {
       expect(plan).not.toHaveBeenCalled();
     });
   });
+
+  describe('duplicates step', () => {
+    it('organize_options_picker_defaults_to_set_aside', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      const picker = screen.getByRole('combobox', { name: 'Duplicates' });
+      expect(picker).toHaveValue('set-aside');
+      expect(
+        within(picker)
+          .getAllByRole('option')
+          .map((o) => o.textContent),
+      ).toEqual(['Set aside', 'Report only', "Don't look"]);
+      expect(screen.getByText('Duplicates: 1')).toBeInTheDocument();
+      const plan = vi.spyOn(b, 'organizePlan');
+      await userEvent.selectOptions(picker, 'report');
+      await ready();
+      expect(plan.mock.calls.at(-1)![0]).toMatchObject({
+        duplicates: 'report',
+      });
+      expect(screen.getByRole('combobox', { name: 'Duplicates' })).toHaveValue(
+        'report',
+      );
+      expect(useOrganizeStore.getState().plan!.counts.set_aside).toBe(0);
+      expect(
+        screen.getByText(
+          'Already in your library as ROMS/GB/Super Mario Land (World).gb',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Organise 4 files' }),
+      ).toBeInTheDocument();
+      await userEvent.selectOptions(
+        screen.getByRole('combobox', { name: 'Duplicates' }),
+        'off',
+      );
+      await ready();
+      expect(
+        screen.queryByRole('heading', { name: 'Duplicates' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('the_picker_starts_from_the_setting', async () => {
+      await b.updateSettings({ dedupe: { organize_step: 'off' } });
+      renderScreen(MOCK_MIXED);
+      await ready();
+      await waitFor(() =>
+        expect(
+          screen.getByRole('combobox', { name: 'Duplicates' }),
+        ).toHaveValue('off'),
+      );
+    });
+
+    it('organize_apply_label_counts_set_aside', async () => {
+      renderScreen(MOCK_MIXED);
+      const apply = await screen.findByRole('button', {
+        name: 'Organise 4 files and set aside 1',
+      });
+      await userEvent.click(apply);
+      expect(
+        await screen.findByText(
+          'Moved: 4 · Copied: 0 · Skipped: 2 · Errors: 0 · Set aside: 1',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('the_trash_setting_names_the_trash_on_the_button_and_the_result', async () => {
+      await b.updateSettings({ dedupe: { action: 'trash' } });
+      renderScreen(MOCK_MIXED);
+      await userEvent.click(
+        await screen.findByRole('button', {
+          name: 'Organise 4 files and send 1 to the Trash',
+        }),
+      );
+      expect(
+        await screen.findByText(
+          'Moved: 4 · Copied: 0 · Skipped: 2 · Errors: 0 · In the Trash: 1',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Undo 5 files' }),
+      ).toBeInTheDocument();
+    });
+
+    it('organize_section_reuses_dup_group', async () => {
+      const { container } = renderScreen(MOCK_MIXED);
+      await ready();
+      const section = screen
+        .getByRole('heading', { name: 'Duplicates' })
+        .closest('section')!;
+      const groups = container.querySelectorAll('[data-dup-group]');
+      expect(groups).toHaveLength(1);
+      expect(section).toContainElement(groups[0] as HTMLElement);
+      const group = within(section).getByRole('group', {
+        name: 'Super Mario Land (World) (Rev 1)',
+      });
+      expect(
+        within(group).getByText('Super Mario Land (World).gb'),
+      ).toBeInTheDocument();
+      expect(within(group).getByText('Stays')).toBeInTheDocument();
+      expect(
+        within(group).getByText(
+          '→ _Duplicados/Super Mario Land (World) (1).gb',
+        ),
+      ).toBeInTheDocument();
+      // The proposal settles the keeper with the rules: nothing to pick.
+      expect(within(group).queryByRole('radio')).not.toBeInTheDocument();
+      expect(within(group).queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(
+        within(section).getByText(
+          'Extra copies are set aside in _Duplicados, beside the pile: they are not copied into the library.',
+        ),
+      ).toBeInTheDocument();
+      // Ordered between the review buckets and what stays in place.
+      const review = screen
+        .getByRole('heading', { name: 'To review' })
+        .closest('section')!;
+      const left = screen
+        .getByRole('heading', { name: 'Staying where they are' })
+        .closest('section')!;
+      expect(
+        review.compareDocumentPosition(section) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        section.compareDocumentPosition(left) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+  });
 });

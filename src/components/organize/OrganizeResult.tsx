@@ -123,7 +123,14 @@ export function OrganizeResult({
   const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
-  const placed = report ? report.moved + report.copied + report.extracted : 0;
+  const setAside =
+    report?.items.filter((o) => o.status === 'quarantined').length ?? 0;
+  const trashedCopies =
+    report?.items.filter((o) => o.status === 'trashed').length ?? 0;
+  // Set-aside copies come back with the undo too.
+  const placed = report
+    ? report.moved + report.copied + report.extracted + report.set_aside
+    : 0;
   const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
   const lost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
   // A verb plus the exact count when it is known (brand §7).
@@ -162,6 +169,13 @@ export function OrganizeResult({
                         count: report.extracted,
                       }),
                     ]
+                  : []),
+                // So do the duplicates set aside (or sent to the Trash).
+                ...(setAside > 0
+                  ? [t('organize.result.setAside', { count: setAside })]
+                  : []),
+                ...(trashedCopies > 0
+                  ? [t('organize.result.trashed', { count: trashedCopies })]
                   : []),
               ].join(' · ')}
             </p>

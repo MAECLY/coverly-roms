@@ -1150,7 +1150,7 @@
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
       "title": "Staying where they are",
-      "inLibrary": "Already in the library as {path}"
+      "inLibrary": "Already in your library as {path}"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
@@ -1230,7 +1230,9 @@
     "pausedTitle": "Paused",
     "result": {
       "counts": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
-      "extracted": "Extracted: {count}"
+      "extracted": "Extracted: {count}",
+      "setAside": "Set aside: {count}",
+      "trashed": "In the Trash: {count}"
     },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
@@ -1277,7 +1279,23 @@
       "newCount": "New: {count}",
       "retry": "Try again",
       "nothingMoved": "Nothing was moved."
-    }
+    },
+    "dedupe": {
+      "picker": "Duplicates",
+      "quarantine": "Set aside",
+      "report": "Report only",
+      "off": "Don't look",
+      "count": "Duplicates: {count}",
+      "inLibrary": "Already in your library: {count}",
+      "hint": "Extra copies are set aside in {folder}, beside the pile: they are not copied into the library.",
+      "hintTrash": "Extra copies go to the Trash: they are not copied into the library.",
+      "reportHint": "Report only: the extra copies stay where they are.",
+      "games": "Games: {count}"
+    },
+    "applyWithDedupe": "Organise {count} files and set aside {extras}",
+    "applyOneWithDedupe": "Organise 1 file and set aside {extras}",
+    "applyWithTrash": "Organise {count} files and send {extras} to the Trash",
+    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash"
   },
   "ui": {
     "close": "Close",

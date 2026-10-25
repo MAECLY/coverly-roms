@@ -17,6 +17,7 @@ import { autoItem } from '@/test/organizeFixtures';
 import {
   actionOf,
   confidenceKey,
+  duplicateCounts,
   extractDetail,
   extractSummary,
   groupBySystem,
@@ -27,6 +28,7 @@ import {
   leftReasonKey,
   leftReasonText,
   noteKey,
+  organizeDupGroups,
   reviewBuckets,
   ROWS_PER_GROUP,
   targetDir,
@@ -482,6 +484,141 @@ describe('organise extraction helpers', () => {
       bytes: 405_749_493 + 591_881_790,
     });
     expect(extractSummary(plan([autoItem(0, 'a.gb', 'gb', 'GB')]))).toBeNull();
+  });
+
+  it('an_archive_set_aside_as_a_duplicate_is_not_extracted', () => {
+    const p = plan([
+      discItem(0),
+      {
+        ...discItem(1),
+        action: 'set-aside',
+        keeper: 'ROMS/PS/Game.cue',
+        relation: 'format',
+        reason: { kind: 'tie' },
+        dest: '_Duplicados/Game.zip',
+      } as OrganizeItem,
+    ]);
+    expect(extractSummary(p)).toEqual({ count: 1, bytes: 405_749_493 });
+  });
+
+  it('duplicate_counts_set_aside_and_reported_copies', () => {
+    const p = {
+      ...plan([
+        item(0, { action: 'auto' }),
+        item(1, {
+          action: 'set-aside',
+          keeper: 'a',
+          relation: 'exact',
+          reason: { kind: 'tie' },
+          dest: '_Duplicados/b',
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+        item(2, {
+          action: 'left',
+          reason: { kind: 'in-library', path: 'ROMS/GB/c', relation: 'exact' },
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+        item(3, {
+          action: 'left',
+          reason: { kind: 'unknown' },
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+      ]),
+      counts: { in_library: 1 },
+    } as OrganizePlan;
+    expect(duplicateCounts(p)).toEqual({ extras: 2, inLibrary: 1 });
+  });
+
+  it('organize_dup_groups_write_where_each_copy_goes', () => {
+    const member = (id: number, primary: string) => ({
+      id,
+      unit: {
+        primary,
+        files: [primary],
+        kind: 'single' as const,
+        mtime_ns: 0,
+        in_library: false,
+      },
+      relation: 'exact' as const,
+      size: 1,
+      travels: [],
+      stays: [],
+      dest: null,
+      catalogue_name: null,
+      serials: [],
+      confidence: 1,
+    });
+    const p = {
+      ...plan([
+        item(0, { action: 'auto', sources: ['a.gb'] }),
+        item(1, {
+          action: 'set-aside',
+          sources: ['sub/b.gb'],
+          keeper: 'ROMS/GB/a.gb',
+          relation: 'exact',
+          reason: { kind: 'tie' },
+          dest: '_Duplicados/sub/b.gb',
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+        item(2, {
+          action: 'set-aside',
+          sources: ['GB/c.gb'],
+          keeper: 'ROMS/GB/c.gb',
+          relation: 'exact',
+          reason: { kind: 'in-library' },
+          dest: '/Volumes/SD/_Duplicados/GB/c.gb',
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+      ]),
+      source_root: '/pile',
+      duplicates: [
+        {
+          id: 7,
+          system: 'gb',
+          title: 'A',
+          keeper: 0,
+          reason: { kind: 'tie' },
+          runner_up: null,
+          members: [member(0, '/pile/a.gb'), member(1, '/pile/sub/b.gb')],
+          action: { kind: 'act' },
+          tie: true,
+          choice_dropped: false,
+        },
+        {
+          id: 8,
+          system: 'gb',
+          title: 'C',
+          keeper: 0,
+          reason: { kind: 'in-library' },
+          runner_up: null,
+          members: [
+            { ...member(0, '/Volumes/SD/ROMS/GB/c.gb'), dest: null },
+            member(1, '/pile/GB/c.gb'),
+          ],
+          action: { kind: 'act' },
+          tie: false,
+          choice_dropped: false,
+        },
+      ],
+    } as unknown as OrganizePlan;
+    const [a, c] = organizeDupGroups(p);
+    expect(a!.quarantine).toBe('/pile/_Duplicados');
+    expect(a!.setAside).toBe(true);
+    expect(a!.group.members.map((m) => m.dest)).toEqual([
+      null,
+      '/pile/_Duplicados/sub/b.gb',
+    ]);
+    expect(c!.group.members[1]!.dest).toBe('/Volumes/SD/_Duplicados/GB/c.gb');
+    expect(c!.quarantine).toBe('/Volumes/SD/_Duplicados');
+    // Report mode: the copies stay, nothing to write.
+    const reported = organizeDupGroups({
+      ...p,
+      items: p.items.map((i) =>
+        i.action === 'set-aside'
+          ? ({
+              ...i,
+              action: 'left',
+              reason: { kind: 'in-library', path: 'x', relation: 'exact' },
+            } as OrganizeItem)
+          : i,
+      ),
+    });
+    expect(reported.every((g) => !g.setAside)).toBe(true);
   });
 
   it('every_new_left_reason_has_a_key', () => {
