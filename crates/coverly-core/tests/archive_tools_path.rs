@@ -41,7 +41,7 @@ fn no_tools_passed_never_searches_path() {
         .err()
         .expect("no tool");
     assert!(needs_unrar(&err), "{err:?}");
-    let err = Cache::new().listing(&rar, &limits).err().expect("no tool");
+    let err = Cache::new().listing(&rar, &limits).expect_err("no tool");
     assert!(needs_unrar(&err), "{err:?}");
 
     let len = std::fs::metadata(&rar).unwrap().len();

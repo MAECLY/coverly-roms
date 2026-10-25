@@ -126,7 +126,7 @@ fn cache_runs_only_the_tools_discovered_for_the_roots() {
     let avoided = discover_with(&s, &[source.as_path()]);
     assert!(avoided.is_empty(), "{avoided:?}");
     let cache = Cache::with_tools(CacheCaps::default(), avoided);
-    let err = cache.listing(&rar, &limits).err().expect("no tool");
+    let err = cache.listing(&rar, &limits).expect_err("no tool");
     assert!(
         matches!(
             &err,
@@ -144,8 +144,7 @@ fn cache_runs_only_the_tools_discovered_for_the_roots() {
     let cache = Cache::with_tools(CacheCaps::default(), allowed);
     let err = cache
         .listing(&rar, &limits)
-        .err()
-        .expect("fake lists nothing");
+        .expect_err("fake lists nothing");
     assert!(
         !matches!(&err, ArchiveError::Unsupported { need: Some(_), .. }),
         "{err:?}"
