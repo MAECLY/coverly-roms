@@ -96,6 +96,10 @@ interface DedupeState {
   error: BackendError | null;
   exported: string | null;
   launch: DedupeLaunch;
+  /** Extra copies the last plan of each library found (the toolbar's
+   * "Duplicados {count}"); kept when the screen closes, dropped once an
+   * apply or an undo changed that library. */
+  counts: Readonly<Record<string, number>>;
   start(root: string, launch?: DedupeLaunch): Promise<void>;
   /** Looks again (⌘R), with the options on screen. */
   replan(): Promise<void>;
@@ -187,8 +191,18 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
     };
   }
 
+  /** Forgets what `root` held: the toolbar asks to look again. */
+  function forgetCount(root: string | null) {
+    if (!root) return;
+    set((s) => {
+      const { [root]: _gone, ...rest } = s.counts;
+      return { counts: rest };
+    });
+  }
+
   function shown(plan: DedupePlanView, remount: boolean) {
     set((s) => ({
+      counts: s.root ? { ...s.counts, [s.root]: plan.totals.extras } : s.counts,
       plan,
       skipped: skippedOf(plan),
       epoch: remount ? s.epoch + 1 : s.epoch,
@@ -272,7 +286,10 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
       progress: status === 'applying' ? get().progress : null,
       error: view.error ? toBackendError(view.error) : null,
     });
-    if (status !== 'applying') unfollow();
+    if (status !== 'applying') {
+      unfollow();
+      if (view.report?.job) forgetCount(view.root);
+    }
   }
 
   function follow(b: Backend): Promise<() => void> {
@@ -315,6 +332,7 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
 
   return {
     ...initial,
+    counts: {},
     async start(root, launch = {}) {
       get().reset();
       set({ root, launch });
@@ -410,6 +428,7 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
       try {
         const b = await getBackend();
         set({ undone: await b.organizeUndo(job, includeLater) });
+        forgetCount(get().root);
       } catch (e) {
         set({ error: toBackendError(e) });
       }
@@ -442,7 +461,7 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
           .catch(() => undefined);
       applyPlan = null;
       unfollow();
-      set({ ...initial, skipped: new Set() });
+      set({ ...initial, skipped: new Set(), counts: get().counts });
     },
   };
 });
