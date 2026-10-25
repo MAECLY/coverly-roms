@@ -23,7 +23,10 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::UNIX_EPOCH;
 use std::{fs, io, io::Read};
 
-use super::{open_archive, ArchiveError, ArchiveReader, Budget, Entry, Format, Limits};
+use super::{
+    open_archive, open_archive_with, ArchiveError, ArchiveReader, Budget, Entry, Format, FoundTool,
+    Limits,
+};
 
 const MIB: usize = 1024 * 1024;
 
@@ -96,7 +99,8 @@ impl Listing {
     }
 }
 
-/// How the cache opens an archive: [`open_archive`], or a test double.
+/// How the cache opens an archive: [`open_archive`], [`open_archive_with`]
+/// its tools, or a test double.
 pub type Opener =
     dyn Fn(&Path, &Limits) -> Result<Option<Box<dyn ArchiveReader>>, ArchiveError> + Send + Sync;
 
@@ -153,13 +157,23 @@ impl std::fmt::Debug for Cache {
 }
 
 impl Cache {
-    /// A cache with the spec's caps over [`open_archive`].
+    /// A cache with the spec's caps over [`open_archive`]: no external tool
+    /// runs.
     pub fn new() -> Self {
         Self::with_caps(CacheCaps::default())
     }
 
     pub fn with_caps(caps: CacheCaps) -> Self {
         Self::with_opener(caps, Box::new(open_archive))
+    }
+
+    /// A cache whose archives may run `tools`: the discovery for the job's
+    /// source and target roots (`discover(&[src, dst])`, spec §5.2).
+    pub fn with_tools(caps: CacheCaps, tools: Vec<FoundTool>) -> Self {
+        Self::with_opener(
+            caps,
+            Box::new(move |path, limits| open_archive_with(path, limits, Some(&tools))),
+        )
     }
 
     /// A cache that opens archives with `opener` (tests).

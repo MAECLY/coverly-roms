@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
+use coverly_core::archive::cache::{Cache, CacheCaps};
 use coverly_core::archive::external::{discover_with, pick_rar_tool, FoundTool, Search};
 use coverly_core::archive::testing::{fake_tool, run_tool, FakeCase, FakeScript};
-use coverly_core::archive::{ArchiveError, Tool, MAX_HEADER};
+use coverly_core::archive::{ArchiveError, Limits, Tool, MAX_HEADER};
 
 const SEVEN_ZIP_BANNER: &str =
     "7-Zip (z) 24.08 (arm64) : Copyright (c) 1999-2024 Igor Pavlov : 2024-08-11";
@@ -107,6 +108,48 @@ fn discover_ignores_relative_and_cwd_path_entries() {
     assert_eq!(tools[0].tool, Tool::Unrar);
     assert!(tools[0].path.is_absolute());
     assert!(tools[0].path.starts_with(&good), "{paths:?}");
+}
+
+#[test]
+fn cache_runs_only_the_tools_discovered_for_the_roots() {
+    setup();
+    let tmp = tempfile::tempdir().expect("tmp");
+    let source = tmp.path().join("ROMs");
+    let bin = source.join("bin");
+    std::fs::create_dir_all(&bin).expect("dir");
+    fake_tool(&bin, "unrar", &FakeScript::banner(UNRAR_BANNER));
+    let rar = archive(&source);
+    let s = search(&[bin.as_os_str()], tmp.path());
+    let limits = Limits::default();
+
+    // Discovered with the source root to avoid: nothing, so no tool runs.
+    let avoided = discover_with(&s, &[source.as_path()]);
+    assert!(avoided.is_empty(), "{avoided:?}");
+    let cache = Cache::with_tools(CacheCaps::default(), avoided);
+    let err = cache.listing(&rar, &limits).err().expect("no tool");
+    assert!(
+        matches!(
+            &err,
+            ArchiveError::Unsupported {
+                need: Some(Tool::Unrar),
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+
+    // The same folder outside the roots: the cache hands the tool over.
+    let allowed = discover_with(&s, &[]);
+    assert_eq!(allowed.len(), 1);
+    let cache = Cache::with_tools(CacheCaps::default(), allowed);
+    let err = cache
+        .listing(&rar, &limits)
+        .err()
+        .expect("fake lists nothing");
+    assert!(
+        !matches!(&err, ArchiveError::Unsupported { need: Some(_), .. }),
+        "{err:?}"
+    );
 }
 
 #[test]
