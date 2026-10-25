@@ -1502,6 +1502,35 @@ mod discs {
     }
 
     #[test]
+    fn judging_discs_past_the_wall_time_is_not_fully_read() {
+        // Two sheetless images read nothing: only the wall time stops the
+        // judging, and a plan past it is not fully read, never a verdict.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("Two.zip");
+        zip_file(
+            &p,
+            &[
+                ("Alpha.chd", &b""[..], false),
+                ("Beta.chd", &b""[..], false),
+            ],
+        );
+        let i = inspect_limited(&p, &no_tools());
+        assert_eq!(i.issue, Some(ArchiveIssue::SeveralGames { count: 2 }));
+        assert!(!i.budget_spent);
+        let late = Limits {
+            plan_wall_time: std::time::Duration::ZERO,
+            ..no_tools()
+        };
+        let i = inspect_limited(&p, &late);
+        assert!(i.budget_spent);
+        assert!(i.listing_complete, "the listing itself was whole");
+        assert_eq!((i.issue.clone(), i.disc_set.clone()), (None, None));
+        assert!(identify_offline(&p, i)
+            .notes
+            .contains(&ItemNote::ArchiveNotFullyRead));
+    }
+
+    #[test]
     fn a_track_of_two_discs_is_shared() {
         let tmp = tempfile::tempdir().unwrap();
         let p = write(

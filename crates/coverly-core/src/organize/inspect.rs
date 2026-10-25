@@ -1229,13 +1229,21 @@ fn inspect_discs(
             out.payloads.clear();
             out.issue = Some(issue);
         }
+        // Past the wall time: the set is not judged, the item not fully
+        // read (the listing itself was whole).
+        Err(ArchiveError::BudgetSpent { .. }) => {
+            out.payloads.clear();
+            out.spent();
+        }
         Err(e) => record_error(e, out)?,
     }
     Ok(true)
 }
 
 /// The disc set of a disc archive; `Ok(Err(issue))` when the set is
-/// unusable, `Ok(Ok(None))` when no disc was found after all.
+/// unusable, `Ok(Ok(None))` when no disc was found after all. The
+/// budget's wall time and cancel flag are checked per disc, playlist and
+/// pairing, also where nothing is decoded.
 #[allow(clippy::type_complexity)]
 fn disc_set(
     reader: &mut dyn ArchiveReader,
@@ -1252,6 +1260,7 @@ fn disc_set(
         let Some(kind) = SheetKind::from_extension(&f.ext) else {
             continue;
         };
+        budget.check()?;
         if kind == SheetKind::M3u {
             let entry = &entries[f.at];
             let mut listed = HashSet::new();
@@ -1285,6 +1294,7 @@ fn disc_set(
     let mut twins: Vec<usize> = Vec::new();
     let mut i = 0;
     while i < discs.len() {
+        budget.check()?;
         let mut j = i + 1;
         while j < discs.len() {
             let (a, b) = (&discs[i], &discs[j]);
@@ -1343,6 +1353,7 @@ fn disc_set(
         if !IMAGE_EXTS.contains(&f.ext.as_str()) || in_sets.contains(&ii) {
             continue;
         }
+        budget.check()?;
         let mut tracks = vec![ii];
         tracks.extend(
             lookup
@@ -1380,6 +1391,7 @@ fn disc_set(
         group[ra.max(rb)] = ra.min(rb);
     };
     for a in 0..discs.len() {
+        budget.check()?;
         for b in a + 1..discs.len() {
             if discs[a].title == discs[b].title {
                 join(&mut group, a, b);
@@ -1387,6 +1399,7 @@ fn disc_set(
         }
     }
     for (_, listed) in &playlists {
+        budget.check()?;
         let hit: Vec<usize> = (0..discs.len())
             .filter(|&d| {
                 discs[d]
