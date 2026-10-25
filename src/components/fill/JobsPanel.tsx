@@ -195,6 +195,10 @@ export function JobsPanel({
       const b = await getBackend();
       const result = await b.organizeUndo(job, includeLater);
       moved.current = true;
+      // Its copies are back: the toolbar's count no longer holds.
+      const undone = history.find((h) => h.job === job);
+      if (undone?.kind === 'dedupe')
+        useDedupeStore.getState().forgetCount(undone.root);
       setOrganizeUndo({
         job,
         done: undoCounts(result),

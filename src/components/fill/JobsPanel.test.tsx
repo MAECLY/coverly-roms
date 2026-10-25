@@ -288,6 +288,8 @@ describe('Jobs panel', () => {
       dedupe,
       { ...real!, undone: true },
     ]);
+    // The toolbar's "Duplicates 3" from the plan this job applied.
+    useDedupeStore.setState({ counts: { [view.root]: 3, '/other': 2 } });
     const undo = vi.spyOn(backend, 'organizeUndo').mockResolvedValue({
       report: [
         {
@@ -330,6 +332,9 @@ describe('Jobs panel', () => {
         'Restored: 3 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
+    // The copies are back: the toolbar asks to look again, for this
+    // library only.
+    expect(useDedupeStore.getState().counts).toEqual({ '/other': 2 });
   });
 
   it('jobs_panel_lists_copies_the_trash_lost', async () => {

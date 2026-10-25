@@ -113,6 +113,9 @@ interface DedupeState {
   resetRules(system?: string): Promise<void>;
   apply(): Promise<void>;
   resume(): Promise<void>;
+  /** Drops `root`'s count: something else (the jobs panel's undo)
+   * changed that library, so the toolbar asks to look again. */
+  forgetCount(root: string): void;
   /** Resumes interrupted job `job` of library `root` (the jobs panel). */
   resumeJob(job: string, root: string): Promise<void>;
   /** Stops planning, or the apply between groups. */
@@ -335,6 +338,7 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
   return {
     ...initial,
     counts: {},
+    forgetCount,
     async start(root, launch = {}) {
       get().reset();
       set({ root, launch });
