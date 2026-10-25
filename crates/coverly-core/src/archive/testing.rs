@@ -1460,6 +1460,10 @@ pub struct FakeCase {
     pub stdout_file: Option<std::path::PathBuf>,
     /// Then this many `o` bytes on stdout.
     pub stdout_fill: u64,
+    /// Then the bytes of every file the archive operand (the argument
+    /// after `--`) names once `*`, `?` and `[...]` in its file name are
+    /// expanded, as 7-Zip and unrar do even after `--`; in name order.
+    pub cat_archive: bool,
     pub stderr: String,
     /// This many `e` bytes on stderr, written before stdout.
     pub stderr_fill: u64,

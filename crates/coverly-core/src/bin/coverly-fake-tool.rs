@@ -64,6 +64,14 @@ fn main() -> ExitCode {
             let _ = out.write_all(&bytes);
         }
     }
+    if case.cat_archive {
+        let operand = args.iter().skip_while(|a| *a != "--").nth(1);
+        for file in operand.map(|o| archive_matches(o)).unwrap_or_default() {
+            if let Ok(bytes) = std::fs::read(file) {
+                let _ = out.write_all(&bytes);
+            }
+        }
+    }
     if case.report {
         report(&mut out, &args);
     }
@@ -115,6 +123,48 @@ fn report(out: &mut dyn Write, args: &[String]) {
                 let _ = writeln!(out, "env.{key}=<unset>");
             }
         }
+    }
+}
+
+/// The files an archive operand reaches when its file name is read as a
+/// pattern: `*` any run, `?` one character, `[...]` one of a set (a `[`
+/// without its `]` is literal). Relative to the working directory.
+fn archive_matches(operand: &str) -> Vec<PathBuf> {
+    let path = Path::new(operand);
+    let Some(pattern) = path.file_name().and_then(|n| n.to_str()) else {
+        return Vec::new();
+    };
+    let dir = match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    let pattern: Vec<char> = pattern.chars().collect();
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| {
+            e.file_name().to_str().is_some_and(|n| {
+                let name: Vec<char> = n.chars().collect();
+                wild_match(&pattern, &name)
+            })
+        })
+        .map(|e| e.path())
+        .collect();
+    out.sort();
+    out
+}
+
+fn wild_match(p: &[char], n: &[char]) -> bool {
+    match p.first() {
+        None => n.is_empty(),
+        Some('*') => (0..=n.len()).any(|i| wild_match(&p[1..], &n[i..])),
+        Some('?') => !n.is_empty() && wild_match(&p[1..], &n[1..]),
+        Some('[') if p[1..].contains(&']') => {
+            let end = 1 + p[1..].iter().position(|&c| c == ']').unwrap_or(0);
+            n.first().is_some_and(|c| p[1..end].contains(c)) && wild_match(&p[end + 1..], &n[1..])
+        }
+        Some(&c) => n.first() == Some(&c) && wild_match(&p[1..], &n[1..]),
     }
 }
 
