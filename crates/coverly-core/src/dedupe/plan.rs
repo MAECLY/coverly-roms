@@ -54,9 +54,6 @@ pub const DEFAULT_QUARANTINE_NAME: &str = "_Duplicados";
 /// Cache namespace of the catalogue CRCs read for level 2.
 const CRCS_NS: &str = "dedupe-crcs";
 
-/// Folders that list volumes, not hold libraries.
-const VOLUME_LISTS: [&str; 4] = ["/Volumes", "/media", "/mnt", "/run/media"];
-
 /// Where a plan is. Throttling is the caller's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DedupeProgress {
@@ -104,6 +101,10 @@ pub enum DedupeError {
     NoState,
     #[error("cache: {0}")]
     Cache(String),
+    /// A custom quarantine may be anywhere except inside a system folder
+    /// (spec §7.1): its copies would be found again as games.
+    #[error("the duplicates folder {} is inside a system folder", .0.display())]
+    QuarantineInSystemFolder(PathBuf),
 }
 
 impl From<CacheError> for DedupeError {
@@ -121,71 +122,29 @@ pub struct QuarantineSpot {
     pub writer_root: PathBuf,
     /// The folder of system folders.
     pub roms_dir: PathBuf,
-    /// The parent could not hold it, so it sits inside the library and the
-    /// walks must skip it.
+    /// Always false: the default quarantine is always inside the library
+    /// (plan DD-11). Kept for older readers of the type.
     pub fallback: bool,
 }
 
-/// The default quarantine of the library at `root` (spec §7.1): next to
-/// the ROMs folder (`/Volumes/SD/_Duplicados` for `roms_root = "ROMS"`),
-/// beside a folder opened as system folders (`~/Documents/ROMS
-/// _Duplicados`), or inside the library when that parent is a volume
-/// list, a system root or not writable.
+/// The default quarantine of the library at `root` (spec §7.1, plan
+/// DD-11): always `<root>/<name>`, inside the library, so ROM moves, art
+/// moves and `gamelist.xml` edits share one writer root and stay renames
+/// on one volume. `/Volumes/SD/_Duplicados` for `roms_root = "ROMS"`;
+/// `~/Documents/ROMS/_Duplicados` for a folder opened as system folders.
+/// Walks, scans and later runs skip it (`Exclusion::Quarantine`).
 pub fn default_quarantine(root: &Path, roms_root: &str, name: &str) -> QuarantineSpot {
     let roms_root = roms_root.trim_matches(|c| c == '/' || c == '\\');
-    if !roms_root.is_empty() {
-        return QuarantineSpot {
-            dir: root.join(name),
-            writer_root: root.to_path_buf(),
-            roms_dir: root.join(roms_root),
-            fallback: false,
-        };
-    }
-    let inside = QuarantineSpot {
+    QuarantineSpot {
         dir: root.join(name),
         writer_root: root.to_path_buf(),
-        roms_dir: root.to_path_buf(),
-        fallback: true,
-    };
-    let (Some(parent), Some(folder)) = (root.parent(), root.file_name()) else {
-        return inside;
-    };
-    if parent.as_os_str().is_empty()
-        || parent.parent().is_none()
-        || is_volume_list(parent)
-        || !writable(parent)
-    {
-        return inside;
-    }
-    QuarantineSpot {
-        dir: parent.join(format!("{} {name}", folder.to_string_lossy())),
-        writer_root: parent.to_path_buf(),
-        roms_dir: root.to_path_buf(),
+        roms_dir: if roms_root.is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(roms_root)
+        },
         fallback: false,
     }
-}
-
-fn is_volume_list(dir: &Path) -> bool {
-    let listed = |d: &Path| VOLUME_LISTS.iter().any(|v| d == Path::new(v));
-    listed(dir)
-        || dir
-            .parent()
-            .is_some_and(|p| p != Path::new("/") && listed(p))
-}
-
-#[cfg(unix)]
-fn writable(dir: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: `c` is a valid NUL-terminated path for the call's duration.
-    dir.is_dir() && unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0
-}
-
-#[cfg(not(unix))]
-fn writable(dir: &Path) -> bool {
-    std::fs::metadata(dir).is_ok_and(|m| m.is_dir() && !m.permissions().readonly())
 }
 
 /// What the planner knew when it made a plan. Opaque; two plans compare
@@ -294,6 +253,8 @@ pub fn plan_dedupe(
         .unwrap_or(DEFAULT_QUARANTINE_NAME);
     let spot = default_quarantine(&root, &env.profile.roms_root, name);
     let quarantine = quarantine_dir(&spot, &opts.quarantine);
+    let system_dirs: Vec<&Path> = scan.systems.iter().map(|s| s.dir.as_path()).collect();
+    check_quarantine(&quarantine, &system_dirs)?;
 
     // Units.
     let folders = scan.systems.len();
@@ -923,6 +884,44 @@ fn system_dir(unit: &Unit) -> PathBuf {
         dir.pop();
     }
     dir
+}
+
+/// Refuses a quarantine that is a system folder or lies inside one,
+/// compared lexically and, where both exist, as the file system resolves
+/// them (case, symlinks).
+pub(crate) fn check_quarantine(
+    quarantine: &Path,
+    system_dirs: &[&Path],
+) -> Result<(), DedupeError> {
+    let resolved = resolve_existing(quarantine);
+    let inside = system_dirs.iter().any(|dir| {
+        quarantine.starts_with(dir)
+            || match (&resolved, dir.canonicalize()) {
+                (Some(q), Ok(d)) => q.starts_with(d),
+                _ => false,
+            }
+    });
+    if inside {
+        Err(DedupeError::QuarantineInSystemFolder(
+            quarantine.to_path_buf(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// `path` resolved through its deepest existing ancestor (the rest
+/// appended as written); `None` when no ancestor resolves.
+fn resolve_existing(path: &Path) -> Option<PathBuf> {
+    let mut rest = Vec::new();
+    let mut probe = path;
+    loop {
+        if let Ok(canon) = probe.canonicalize() {
+            return Some(rest.iter().rev().fold(canon, |acc: PathBuf, c| acc.join(c)));
+        }
+        rest.push(probe.file_name()?.to_os_string());
+        probe = probe.parent()?;
+    }
 }
 
 fn quarantine_dir(spot: &QuarantineSpot, choice: &QuarantineChoice) -> PathBuf {

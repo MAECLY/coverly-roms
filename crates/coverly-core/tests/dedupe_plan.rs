@@ -445,44 +445,71 @@ fn dry_plan_writes_nothing() {
 }
 
 #[test]
-fn quarantine_next_to_roms_folder_and_fallbacks() {
-    // A card with a ROMs folder: next to it, on the card.
+fn default_quarantine_is_inside_the_library() {
+    // A card with a ROMs folder: beside it, inside the library root.
     let spot = default_quarantine(Path::new("/Volumes/SD"), "ROMS", "_Duplicados");
     assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicados"));
     assert_eq!(spot.writer_root, PathBuf::from("/Volumes/SD"));
     assert_eq!(spot.roms_dir, PathBuf::from("/Volumes/SD/ROMS"));
     assert!(!spot.fallback);
 
-    // A folder of system folders: beside it, named after it.
+    // A folder opened as system folders: inside it, never beside it
+    // (it was `<parent>/ROMS _Duplicados`).
     let dir = TempDir::new().unwrap();
     let roms = dir.path().join("ROMS");
     fs::create_dir_all(&roms).unwrap();
     let spot = default_quarantine(&roms, "", "_Duplicados");
-    assert_eq!(spot.dir, dir.path().join("ROMS _Duplicados"));
-    assert_eq!(spot.writer_root, dir.path());
+    assert_eq!(spot.dir, roms.join("_Duplicados"));
+    assert_eq!(spot.writer_root, roms);
     assert_eq!(spot.roms_dir, roms);
     assert!(!spot.fallback);
+    assert!(
+        !dir.path().join("ROMS _Duplicados").exists(),
+        "nothing beside the library"
+    );
 
-    // A volume opened as system folders: its parent is the volume list.
+    // A volume opened as system folders: the same rule.
     let spot = default_quarantine(Path::new("/Volumes/SD"), "", "_Duplicates");
     assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicates"));
     assert_eq!(spot.writer_root, PathBuf::from("/Volumes/SD"));
-    assert!(spot.fallback);
+    assert!(!spot.fallback);
 
-    // An unwritable parent: inside the library.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let locked = dir.path().join("locked");
-        let lib = locked.join("ROMS");
-        fs::create_dir_all(&lib).unwrap();
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
-        let spot = default_quarantine(&lib, "", "_Duplicados");
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(spot.dir, lib.join("_Duplicados"));
-        assert_eq!(spot.writer_root, lib);
-        assert!(spot.fallback);
+    // Slashes around the ROMs folder name do not matter.
+    let spot = default_quarantine(Path::new("/Volumes/SD"), "/ROMS/", "_Duplicados");
+    assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicados"));
+    assert_eq!(spot.roms_dir, PathBuf::from("/Volumes/SD/ROMS"));
+}
+
+#[test]
+fn custom_quarantine_inside_a_system_folder_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    let fx = Fx::new();
+    let scan = scan(root);
+
+    for inside in [root.join("ROMS/GB"), root.join("ROMS/GB/_Duplicados")] {
+        let mut opts = fx.opts();
+        opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+            path: inside.clone(),
+        };
+        let err = fx
+            .run(&scan, &opts, &fx.bytes, None, &|_| {})
+            .expect_err("a quarantine inside a system folder");
+        assert_eq!(err, DedupeError::QuarantineInSystemFolder(inside));
     }
+
+    // Anywhere else is fine: the library root, beside the ROMs folder, or
+    // outside the library.
+    for fine in [root.join("Dups"), root.join("ROMS"), dir.path().join("x")] {
+        let mut opts = fx.opts();
+        opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder { path: fine.clone() };
+        let plan = fx.plan(&scan, &opts);
+        assert_eq!(plan.quarantine, fine);
+    }
+    assert!(!root.join("Dups").exists(), "a dry run creates nothing");
 }
 
 #[test]

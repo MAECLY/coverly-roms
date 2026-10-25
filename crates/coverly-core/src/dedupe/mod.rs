@@ -258,7 +258,7 @@ impl Default for DedupePlan {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum QuarantineChoice {
-    /// The quarantine folder next to the ROMs folder (spec §7.1).
+    /// The quarantine folder inside the library root (spec §7.1).
     #[default]
     NextToRoms,
     /// A folder of your choice, anywhere.
