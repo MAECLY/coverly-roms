@@ -496,6 +496,56 @@ fn undo_removes_the_job_list_file_and_empty_quarantine_folders() {
     assert_eq!(folders(&card.q()), [card.q().join("SFC")], "{report:#?}");
 }
 
+fn cross_device(stage: CopyStage, _: &Path) -> Option<io::Error> {
+    (stage == CopyStage::Rename).then(|| io::Error::from(io::ErrorKind::CrossesDevices))
+}
+
+/// Whether `dir`'s volume tells `x` and `X` apart (ext4, case-sensitive
+/// APFS): only there can two copies differ by nothing but case.
+fn case_sensitive(dir: &Path) -> bool {
+    let probe = dir.join("case-probe");
+    fs::write(&probe, b"").unwrap();
+    let sensitive = !dir.join("CASE-PROBE").exists();
+    fs::remove_file(&probe).unwrap();
+    sensitive
+}
+
+/// `Tetris.gb` and `TETRIS.gb` side by side on a case-sensitive volume:
+/// the copy set aside across volumes must never be deleted at undo because
+/// its kept twin has the same bytes. The twin is not the copy's own place
+/// (a crash between the verified copy and the source deletion), so the
+/// copy stays in the quarantine, reported, never lost.
+#[test]
+fn undo_never_deletes_a_copy_whose_name_a_case_twin_holds() {
+    let card = Card::new();
+    if !case_sensitive(&card.root) {
+        eprintln!("skipped: the temp volume ignores case");
+        return;
+    }
+    let bytes = rom(1, 32 * 1024);
+    let keeper = card.put("ROMS/GB/Tetris.gb", &bytes);
+    let extra = card.put("ROMS/GB/TETRIS.gb", &bytes);
+    let plan = card.plan();
+    let g = &plan.groups[0];
+    let m = g.members.iter().find(|m| m.unit.primary == keeper).unwrap();
+    let keep = DedupeDecisions {
+        keepers: vec![(g.id, m.id)],
+        ..DedupeDecisions::default()
+    };
+    set_copy_fault(Some(cross_device));
+    let job = card.apply_decided(&plan, &keep, &card.trash()).job;
+    set_copy_fault(None);
+    let job = job.unwrap();
+    let parked = card.q().join("GB/TETRIS.gb");
+    assert!(parked.is_file() && !extra.exists() && keeper.is_file());
+
+    let report = undo_job_with(&card.data, &job, &card.trash()).unwrap();
+    assert_eq!(fs::read(&keeper).unwrap(), bytes, "{report:#?}");
+    assert_eq!(fs::read(&parked).unwrap(), bytes, "{report:#?}");
+    assert_eq!(report.skipped_occupied, std::slice::from_ref(&parked));
+    assert!(report.restored.is_empty(), "{report:#?}");
+}
+
 fn interrupt_tetris(stage: CopyStage, path: &Path) -> Option<io::Error> {
     (stage == CopyStage::Rename && path.to_string_lossy().contains("Tetris (1)"))
         .then(|| io::Error::other("unplugged"))

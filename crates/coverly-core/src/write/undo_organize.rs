@@ -19,7 +19,7 @@ use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 use super::noclobber::{is_cross_device, with_sharing_retries};
-use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, stream_copy};
+use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, same_entry, stream_copy};
 use super::trash::TrashBackend;
 use super::{
     absolute_from, apple_double, create_dirs, ensure_within, find_twin, is_job_temp, map_io,
@@ -406,6 +406,22 @@ fn occupant(from: &Path) -> Result<Option<PathBuf>, WriteError> {
     find_twin(parent, name)
 }
 
+/// Reports `target` as kept because its source name is taken, once: a
+/// move across volumes journals the rename it tried, the copy intent and
+/// the copy, and all three name the same target.
+fn occupied(report: &mut UndoReport, target: &Path) {
+    if !report.skipped_occupied.iter().any(|p| p == target) {
+        report.skipped_occupied.push(target.to_path_buf());
+    }
+}
+
+/// Whether `occupant` (what [`occupant`] found for `from`) is the file at
+/// `from` itself, under any spelling the volume folds to it, rather than
+/// a case/NFC twin a case-sensitive volume keeps beside it.
+fn is_from_itself(occupant: &Path, from: &Path) -> bool {
+    occupant == from || same_entry(occupant, from)
+}
+
 /// Two regular files with the same size and CRC-32.
 fn same_bytes(a: &Path, b: &Path) -> Result<bool, WriteError> {
     let (Ok(ma), Ok(mb)) = (fs::symlink_metadata(a), fs::symlink_metadata(b)) else {
@@ -462,19 +478,22 @@ fn undo_move(
     if let Some(occupant) = occupant(from)? {
         // A move across volumes copies, journals, then deletes the source:
         // a crash in between leaves both. Only then is the target a spare
-        // copy; a rename never leaves two.
-        if via == Via::Copy && same_bytes(&occupant, target)? {
+        // copy; a rename never leaves two. A case/NFC twin with the same
+        // bytes is another file (a kept duplicate on a case-sensitive
+        // volume), never the source: the target is then the only copy of
+        // that file and stays.
+        if via == Via::Copy && is_from_itself(&occupant, from) && same_bytes(&occupant, target)? {
             delete_ours(target)?;
             report.restored.push(from.to_path_buf());
         } else {
-            report.skipped_occupied.push(target.to_path_buf());
+            occupied(report, target);
         }
         return Ok(());
     }
     if put_back(ctx, target, from)? {
         report.restored.push(from.to_path_buf());
     } else {
-        report.skipped_occupied.push(target.to_path_buf());
+        occupied(report, target);
     }
     Ok(())
 }
@@ -527,6 +546,12 @@ fn undo_intent(
     let Some(occupant) = occupant(from)? else {
         return Ok(());
     };
+    if !is_from_itself(&occupant, from) {
+        // A twin of the source's name, not the source: the target may be
+        // the only copy left of it.
+        occupied(report, target);
+        return Ok(());
+    }
     if same_bytes(&occupant, target)? {
         delete_ours(target)?;
         if moved {

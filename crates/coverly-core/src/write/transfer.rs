@@ -615,7 +615,7 @@ fn too_many_collisions(dir: &Path, name: &str) -> WriteError {
 
 /// Whether `a` and `b` name the same directory entry: the same file in
 /// the same folder (a hard link elsewhere is another entry).
-fn same_entry(a: &Path, b: &Path) -> bool {
+pub(super) fn same_entry(a: &Path, b: &Path) -> bool {
     let (Some(pa), Some(pb)) = (a.parent(), b.parent()) else {
         return false;
     };
