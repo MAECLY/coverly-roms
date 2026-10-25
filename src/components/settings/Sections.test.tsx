@@ -525,6 +525,9 @@ describe('settings sections', () => {
       '7-Zip 24.08 (/opt/homebrew/bin/7zz), bsdtar 3.5.3 (/usr/bin/bsdtar)',
     );
     expect(list).toHaveClass('font-mono');
+    // Paths are long unbroken tokens (`C:\Program Files\…`):
+    // they wrap anywhere instead of pushing the panel wider.
+    expect(list).toHaveClass('[overflow-wrap:anywhere]');
     expect(
       within(group).queryByText('None. Install unrar or 7-Zip to open RAR.'),
     ).not.toBeInTheDocument();

@@ -83,7 +83,7 @@ function ExternalToolsHint({ found }: { found: FoundTool[] }) {
   return (
     <>
       {before}
-      <span className="font-mono">{list}</span>
+      <span className="font-mono [overflow-wrap:anywhere]">{list}</span>
       {after}
     </>
   );
