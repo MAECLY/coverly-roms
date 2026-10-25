@@ -1116,5 +1116,193 @@
     "restored": [],
     "skipped_modified": [],
     "skipped_occupied": []
-  }
+  },
+  "dedupe_plan_view": {
+    "chd_unread": 0,
+    "groups": [
+      {
+        "action": {
+          "kind": "act"
+        },
+        "choice_dropped": false,
+        "id": 4503599627370495,
+        "keeper": 0,
+        "members": [
+          {
+            "catalogue_name": "Tetris Worlds (USA)",
+            "confidence": 1.0,
+            "dest": null,
+            "id": 0,
+            "relation": "exact",
+            "serials": [],
+            "size": 4194304,
+            "stays": [],
+            "travels": [],
+            "unit": {
+              "files": ["/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba"],
+              "in_library": true,
+              "kind": "single",
+              "mtime_ns": 1700000000000000000,
+              "primary": "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba"
+            }
+          },
+          {
+            "catalogue_name": "Tetris Worlds (USA)",
+            "confidence": 1.0,
+            "dest": "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba",
+            "id": 1,
+            "relation": "exact",
+            "serials": [],
+            "size": 4194304,
+            "stays": [],
+            "travels": [
+              {
+                "from": "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA) (1).sav",
+                "kind": {
+                  "kind": "save"
+                }
+              }
+            ],
+            "unit": {
+              "files": ["/Volumes/SD/ROMS/GBA/Tetris Worlds (USA) (1).gba"],
+              "in_library": true,
+              "kind": "single",
+              "mtime_ns": 1700000100000000000,
+              "primary": "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA) (1).gba"
+            }
+          }
+        ],
+        "reason": {
+          "kind": "catalogue-name",
+          "name": "Tetris Worlds (USA)"
+        },
+        "runner_up": [
+          1,
+          {
+            "kind": "tie"
+          }
+        ],
+        "system": "gba",
+        "tie": false,
+        "title": "Tetris Worlds (USA)"
+      }
+    ],
+    "no_catalogue": [],
+    "not_roms": [],
+    "off_card_saves": [],
+    "plan_id": 5,
+    "profile_id": "anbernic-stock",
+    "quarantine": "/Volumes/SD/_Duplicados",
+    "removable": true,
+    "roms_dir": "/Volumes/SD/ROMS",
+    "root": "/Volumes/SD",
+    "same_volume": true,
+    "totals": {
+      "by_system": {
+        "gba": [1, 1, 4194304]
+      },
+      "bytes": 4194304,
+      "conflicts": 0,
+      "extras": 1,
+      "groups": 1
+    },
+    "trash_available": false,
+    "unchanged": [],
+    "unreadable": [],
+    "version": 1
+  },
+  "dedupe_progress": {
+    "done": 40,
+    "phase": "fingerprints",
+    "plan_id": 5,
+    "total": 631
+  },
+  "dedupe_progress_apply": {
+    "done": 1,
+    "phase": "apply",
+    "plan_id": 5,
+    "total": 1
+  },
+  "dedupe_job": {
+    "error": null,
+    "job": "20261025T101500Z-1bfb-0003",
+    "plan_id": 5,
+    "progress": null,
+    "quarantine": "/Volumes/SD/_Duplicados",
+    "report": {
+      "art_left": [],
+      "bytes_out": 4194304,
+      "job": "20261025T101500Z-1bfb-0003",
+      "notes": [],
+      "outcomes": [
+        {
+          "files": [
+            "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba",
+            "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).sav"
+          ],
+          "group": 4503599627370495,
+          "member": 1,
+          "status": "quarantined",
+          "to": "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba"
+        },
+        {
+          "files": [],
+          "group": 17,
+          "member": 2,
+          "reason": {
+            "kind": "conflict"
+          },
+          "status": "skipped"
+        }
+      ],
+      "paused": null,
+      "resumable": []
+    },
+    "root": "/Volumes/SD",
+    "state": "done",
+    "trash": false
+  },
+  "dedupe_job_applying": {
+    "error": null,
+    "job": null,
+    "plan_id": 5,
+    "progress": {
+      "done": 1,
+      "phase": "apply",
+      "plan_id": 5,
+      "total": 1
+    },
+    "quarantine": "/Volumes/SD/_Duplicados",
+    "report": null,
+    "root": "/Volumes/SD",
+    "state": "applying",
+    "trash": false
+  },
+  "dedupe_job_failed": {
+    "error": {
+      "code": "no-space",
+      "detail": "4194304/1000"
+    },
+    "job": null,
+    "plan_id": 5,
+    "progress": null,
+    "quarantine": "/Volumes/SD/_Duplicados",
+    "report": null,
+    "root": "/Volumes/SD",
+    "state": "failed",
+    "trash": false
+  },
+  "dedupe_errors": [
+    {
+      "code": "no-dedupe-plan"
+    },
+    {
+      "code": "keeper-required",
+      "detail": "duplicates group 17 would keep no copy"
+    },
+    {
+      "code": "quarantine-in-system-folder",
+      "detail": "/Volumes/SD/ROMS/GBA/dups"
+    }
+  ]
 }

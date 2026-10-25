@@ -795,7 +795,7 @@ describe('organise contract', () => {
       'assign',
       'leave',
     ]);
-    for (const e of sample.organize_errors) {
+    for (const e of [...sample.organize_errors, ...sample.dedupe_errors]) {
       expect(ERROR_CODES).toContain(e.code);
     }
     expect(ERROR_CODES).toContain('cancelled');

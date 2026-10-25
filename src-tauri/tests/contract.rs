@@ -789,3 +789,231 @@ fn rust_reads_the_shared_organise_requests() {
         ]
     );
 }
+
+/// A duplicates plan of one Game Boy Advance group: the copy named `(1)`
+/// goes to the quarantine with its save.
+fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
+    use coverly_core::dedupe::{
+        DedupePlan, DupGroup, GroupAction, KeepReason, Member, Relation, Totals, Travel,
+        TravelKind, UnitKind, UnitRef,
+    };
+    let member = |id: usize, path: &str, mtime_ns: i64, dest: Option<&str>| Member {
+        id,
+        unit: UnitRef {
+            primary: path.into(),
+            files: vec![path.into()],
+            kind: UnitKind::Single,
+            mtime_ns,
+            in_library: true,
+        },
+        relation: Relation::Exact,
+        size: 4_194_304,
+        travels: Vec::new(),
+        stays: Vec::new(),
+        dest: dest.map(Into::into),
+        catalogue_name: Some("Tetris Worlds (USA)".into()),
+        serials: Vec::new(),
+        confidence: 1.0,
+        gamelist: None,
+        art_leaves: Default::default(),
+    };
+    let mut extra = member(
+        1,
+        "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA) (1).gba",
+        1_700_000_100_000_000_000,
+        Some("/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba"),
+    );
+    extra.travels.push(Travel {
+        from: "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA) (1).sav".into(),
+        kind: TravelKind::Save,
+    });
+    DedupePlan {
+        root: "/Volumes/SD".into(),
+        roms_dir: "/Volumes/SD/ROMS".into(),
+        quarantine: "/Volumes/SD/_Duplicados".into(),
+        same_volume: true,
+        removable: true,
+        profile_id: "anbernic-stock".into(),
+        groups: vec![DupGroup {
+            id: 4_503_599_627_370_495,
+            system: "gba".into(),
+            title: "Tetris Worlds (USA)".into(),
+            keeper: 0,
+            reason: KeepReason::CatalogueName {
+                name: "Tetris Worlds (USA)".into(),
+            },
+            runner_up: Some((1, KeepReason::Tie)),
+            members: vec![
+                member(
+                    0,
+                    "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba",
+                    1_700_000_000_000_000_000,
+                    None,
+                ),
+                extra,
+            ],
+            action: GroupAction::Act,
+            tie: false,
+            choice_dropped: false,
+        }],
+        totals: Totals {
+            groups: 1,
+            extras: 1,
+            bytes: 4_194_304,
+            conflicts: 0,
+            by_system: [("gba".to_string(), (1, 1, 4_194_304))].into(),
+        },
+        ..DedupePlan::default()
+    }
+}
+
+#[test]
+fn dedupe_contract_samples_match_views() {
+    use coverly_core::dedupe::{
+        DedupeItemStatus, DedupeOutcome, DedupePhase, DedupeReport, DedupeSkip,
+    };
+    use coverly_roms_lib::dedupe::view::{
+        DedupeEventPhase, DedupeJobState, DedupeJobView, DedupePlanView, DedupeProgressEvent,
+    };
+
+    let job = "20261025T101500Z-1bfb-0003";
+    let progress = DedupeProgressEvent {
+        plan_id: 5,
+        phase: DedupeEventPhase::Plan(DedupePhase::Fingerprints),
+        done: 40,
+        total: 631,
+    };
+    let applying = DedupeProgressEvent {
+        plan_id: 5,
+        phase: DedupeEventPhase::Apply,
+        done: 1,
+        total: 1,
+    };
+    let job_view = |state, report, error| DedupeJobView {
+        job: Some(job.into()),
+        plan_id: 5,
+        state,
+        progress: None,
+        report,
+        root: "/Volumes/SD".into(),
+        quarantine: "/Volumes/SD/_Duplicados".into(),
+        trash: false,
+        error,
+    };
+    let actual = json!({
+        "dedupe_plan_view": DedupePlanView {
+            plan_id: 5,
+            plan: dedupe_plan_sample(),
+            trash_available: false,
+        },
+        "dedupe_progress": progress,
+        "dedupe_progress_apply": applying,
+        "dedupe_job": job_view(
+            DedupeJobState::Done,
+            Some(DedupeReport {
+                job: Some(job.into()),
+                outcomes: vec![
+                    DedupeOutcome {
+                        group: 4_503_599_627_370_495,
+                        member: 1,
+                        status: DedupeItemStatus::Quarantined {
+                            to: "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba".into(),
+                        },
+                        files: vec![
+                            "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).gba".into(),
+                            "/Volumes/SD/_Duplicados/GBA/Tetris Worlds (USA) (1).sav".into(),
+                        ],
+                    },
+                    DedupeOutcome {
+                        group: 17,
+                        member: 2,
+                        status: DedupeItemStatus::Skipped { reason: DedupeSkip::Conflict },
+                        files: vec![],
+                    },
+                ],
+                bytes_out: 4_194_304,
+                art_left: vec![],
+                paused: None,
+                resumable: vec![],
+                notes: vec![],
+            }),
+            None,
+        ),
+        "dedupe_job_applying": DedupeJobView {
+            job: None,
+            state: DedupeJobState::Applying,
+            progress: Some(applying),
+            ..job_view(DedupeJobState::Applying, None, None)
+        },
+        "dedupe_job_failed": DedupeJobView {
+            job: None,
+            ..job_view(
+                DedupeJobState::Failed,
+                None,
+                Some(IpcError::NoSpace("4194304/1000".into())),
+            )
+        },
+        "dedupe_errors": [
+            IpcError::NoDedupePlan,
+            IpcError::KeeperRequired("duplicates group 17 would keep no copy".into()),
+            IpcError::QuarantineInSystemFolder("/Volumes/SD/ROMS/GBA/dups".into()),
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}
+
+#[test]
+fn rust_reads_the_shared_dedupe_requests() {
+    use coverly_core::dedupe::QuarantineChoice;
+    use coverly_core::settings::{DedupeLevel, KeepRule, RuleToggle};
+    use coverly_roms_lib::dedupe::view::DedupeRequest;
+
+    let req: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.requests.json")).unwrap();
+    let full: DedupeRequest = serde_json::from_value(req["dedupe_request"].clone()).unwrap();
+    assert_eq!(full.profile.as_deref(), Some("anbernic-stock"));
+    assert_eq!(
+        full.levels,
+        Some(vec![DedupeLevel::Exact, DedupeLevel::Format])
+    );
+    assert_eq!(full.one_game_one_rom, Some(false));
+    assert_eq!(
+        full.rules,
+        Some(vec![
+            RuleToggle {
+                rule: KeepRule::HasSave,
+                on: true
+            },
+            RuleToggle {
+                rule: KeepRule::Cover,
+                on: false
+            },
+        ])
+    );
+    assert_eq!(full.systems, Some(vec!["gba".into(), "psx".into()]));
+    assert_eq!(full.offline, Some(true));
+    assert_eq!(
+        full.quarantine,
+        Some(QuarantineChoice::Folder {
+            path: "/Users/me/Duplicados".into()
+        })
+    );
+    assert_eq!(
+        full.forced_keepers,
+        ["/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba"]
+    );
+    assert!(full.reset_choices);
+    let bare: DedupeRequest = serde_json::from_value(req["dedupe_request_bare"].clone()).unwrap();
+    assert_eq!(bare, DedupeRequest::default());
+    let trash: DedupeRequest = serde_json::from_value(req["dedupe_request_trash"].clone()).unwrap();
+    assert_eq!(trash.quarantine, Some(QuarantineChoice::Trash));
+}

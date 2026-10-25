@@ -83,5 +83,34 @@
       "item": 3,
       "choice": "leave"
     }
-  ]
+  ],
+  "dedupe_request": {
+    "profile": "anbernic-stock",
+    "levels": ["exact", "format"],
+    "one_game_one_rom": false,
+    "rules": [
+      {
+        "rule": "has_save",
+        "on": true
+      },
+      {
+        "rule": "cover",
+        "on": false
+      }
+    ],
+    "systems": ["gba", "psx"],
+    "offline": true,
+    "quarantine": {
+      "kind": "folder",
+      "path": "/Users/me/Duplicados"
+    },
+    "forced_keepers": ["/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba"],
+    "reset_choices": true
+  },
+  "dedupe_request_bare": {},
+  "dedupe_request_trash": {
+    "quarantine": {
+      "kind": "trash"
+    }
+  }
 }
