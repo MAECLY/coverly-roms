@@ -406,6 +406,40 @@ fn tar_bz2_huge_zero_trailer_bounded() {
     assert_trailer_bounded(bytes, Compressor::Bzip2, plain.len() as u64);
 }
 
+/// lz4 frames of zeros after the tar's frame count against the same
+/// allowance as gzip members and xz streams.
+#[test]
+fn tar_lz4_huge_zero_trailer_bounded() {
+    let plain = small_tar();
+    let unit = lz4(&vec![0u8; MIB as usize]);
+    let bytes = repeated(lz4(&plain), &unit, 4096);
+    assert_trailer_bounded(bytes, Compressor::Lz4, plain.len() as u64);
+}
+
+/// A legacy `.lzma` stream that goes on with zeros after the tar's end
+/// marker, inside the one stream (the format has no members).
+#[test]
+fn tar_lzma_huge_zero_trailer_bounded() {
+    let plain = small_tar();
+    let mut data = plain.clone();
+    data.resize(plain.len() + 16 * MIB as usize, 0);
+    let mut options = lzma_rust2::LzmaOptions::with_preset(1);
+    options.dict_size = 1 << 16;
+    let mut w = lzma_rust2::LzmaWriter::new_no_header(Vec::new(), &options, false).unwrap();
+    w.write_all(&data).unwrap();
+    let raw = w.finish().unwrap();
+    let props = coverly_core::archive::testing::lzma_props(
+        options.lc as u8,
+        options.lp as u8,
+        options.pb as u8,
+        options.dict_size,
+    );
+    let mut bytes = props.to_vec();
+    bytes.extend_from_slice(&(data.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(&raw);
+    assert_trailer_bounded(bytes, Compressor::LzmaAlone, plain.len() as u64);
+}
+
 #[test]
 fn tar_gz_second_member_after_marker_bounded() {
     let plain = small_tar();
