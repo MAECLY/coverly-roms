@@ -316,6 +316,7 @@ describe('Jobs panel', () => {
           skipped_modified: ['/c.gba'],
           skipped_occupied: [],
           dirs_removed: [],
+          archive_lost: [],
         },
       ],
       later_jobs: [],

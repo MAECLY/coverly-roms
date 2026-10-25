@@ -56,9 +56,39 @@ describe('organise store', () => {
     expect(s.source).toBe(MOCK_DOWNLOADS);
     expect(s.request).toEqual({ source: MOCK_DOWNLOADS });
     expect(s.planId).not.toBeNull();
-    expect(s.plan?.counts).toMatchObject({ auto: 16, review: 0 });
+    expect(s.plan?.counts).toMatchObject({ auto: 19, review: 0 });
     expect(s.progress).toBeNull();
     expect(s.error).toBeNull();
+  });
+
+  it('a dry run never takes apply-time extract progress as its own', async () => {
+    const listeners: ((p: unknown) => void)[] = [];
+    vi.spyOn(b, 'onOrganizeProgress').mockImplementation(async (cb) => {
+      listeners.push(cb as (p: unknown) => void);
+      return () => {};
+    });
+    const plan = b.organizePlan.bind(b);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(b, 'organizePlan').mockImplementation(async (req, dec) => {
+      await gate;
+      return plan(req, dec);
+    });
+    const started = store().start(MOCK_DOWNLOADS);
+    await waitFor(() => expect(listeners.length).toBeGreaterThan(0));
+    for (const cb of listeners)
+      cb({
+        plan_id: 999,
+        phase: 'extract',
+        done: 1,
+        total: 12,
+        item: 0,
+        bytes_done: 0,
+        bytes_total: 10,
+      });
+    expect(store().progress).toBeNull();
+    release();
+    await started;
   });
 
   it('setOption re-plans and keeps decisions', async () => {
@@ -127,12 +157,12 @@ describe('organise store', () => {
     await waitFor(() => expect(store().status).toBe('done'));
     const s = store();
     expect(s.job?.state).toBe('done');
-    expect(s.job?.report?.moved).toBe(16);
+    expect(s.job?.report).toMatchObject({ moved: 16, extracted: 3 });
     expect(s.job?.job).toBeTruthy();
     await store().openResult();
     expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock');
     expect(useLibraryStore.getState().status).toBe('ready');
-    expect(useLibraryStore.getState().view?.entries).toHaveLength(16);
+    expect(useLibraryStore.getState().view?.entries).toHaveLength(20);
     expect(useNavStore.getState().screen).toBe('main');
   });
 
@@ -156,7 +186,7 @@ describe('organise store', () => {
     expect(s.undo?.later_jobs.map((j) => j.job)).toEqual([fill.job]);
     expect(s.undo?.report.map((r) => r.job)).toEqual([fill.job, s.job!.job]);
     // The pile is back: probing finds the ROMs loose again.
-    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(17);
+    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(20);
   });
 
   it('an outdated plan answer is ignored (sequence guard)', async () => {
@@ -313,7 +343,8 @@ describe('organise store', () => {
     expect(store().source).toBe(MOCK_DOWNLOADS);
     await waitFor(() => expect(store().status).toBe('done'));
     expect(store().job).toMatchObject({ job, state: 'done' });
-    expect(store().job?.report?.moved).toBe(8);
+    // The 11 left after the pause: 10 cartridges and the Saturn disc.
+    expect(store().job?.report).toMatchObject({ moved: 10, extracted: 1 });
   });
 
   describe('refresh (scan again)', () => {

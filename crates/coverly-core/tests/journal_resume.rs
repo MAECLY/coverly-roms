@@ -237,3 +237,144 @@ fn undo_removes_a_file_created_then_replaced_in_one_job() {
     assert!(!gl.exists());
     assert!(report.skipped_modified.is_empty(), "{report:?}");
 }
+
+mod extraction {
+    use super::*;
+    use coverly_core::write::{
+        job_archive_steps, job_transfers, prune_jobs_at, ArchiveStep, ExtractedFile, JobKind,
+        JobMeta,
+    };
+    use std::time::{Duration, SystemTime};
+
+    fn organise(root: &Path, src: &Path, data: &Path) -> Writer {
+        Writer::begin_with(
+            root,
+            data,
+            JobMeta {
+                kind: JobKind::Organize,
+                source_root: Some(src.to_path_buf()),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn job_transfers_reports_extracted() {
+        let tmp = TempDir::new().unwrap();
+        let (root, src, data) = (
+            tmp.path().join("T"),
+            tmp.path().join("S"),
+            tmp.path().join("d"),
+        );
+        fs::create_dir_all(root.join("PS/Next Tetris, The")).unwrap();
+        fs::create_dir_all(&src).unwrap();
+        let archive = src.join("Next Tetris, The.zip");
+        fs::write(&archive, b"7z").unwrap();
+        fs::write(src.join("Tetris.gba"), b"ROM").unwrap();
+        fs::create_dir_all(root.join("GBA")).unwrap();
+
+        let mut w = organise(&root, &src, &data);
+        let job = w.job_id().to_string();
+        w.move_file(
+            &src.join("Tetris.gba"),
+            &root.join("GBA/Tetris.gba"),
+            coverly_core::write::Collision::Skip,
+            Some(0),
+        )
+        .unwrap();
+        let dir = root.join("PS/Next Tetris, The");
+        let mut finals = Vec::new();
+        for (n, name) in ["Next Tetris, The.cue", "Track 01.bin"].iter().enumerate() {
+            let file = ExtractedFile {
+                from: archive.clone(),
+                entry: format!("Next Tetris, The/{name}"),
+                size: 3,
+                crc32: None,
+                temp: format!(".coverly-{job}-{n}.tmp"),
+            };
+            let target = dir.join(name);
+            w.extract_intent(&target, &file, Some(1)).unwrap();
+            fs::write(&target, b"abc").unwrap();
+            w.extract_done(&target, &file, 0x352441C2, Some(1)).unwrap();
+            finals.push(target);
+        }
+        drop(w); // a crash before the archive step
+
+        // A resumed run keeps appending to the same journal.
+        let mut w = Writer::resume(&root, &data, &job).unwrap();
+        w.archive_trash_intent(&archive, Some(1)).unwrap();
+        drop(w);
+
+        let records = job_transfers(&data, &job).unwrap();
+        let moved: Vec<_> = records.iter().filter(|r| r.extracted.is_none()).collect();
+        assert_eq!(moved.len(), 1);
+        assert!(!moved[0].copied && moved[0].finished);
+        let done: Vec<_> = records
+            .iter()
+            .filter(|r| r.extracted.is_some() && r.finished)
+            .collect();
+        assert_eq!(done.len(), 2);
+        for (record, target) in done.iter().zip(&finals) {
+            assert_eq!(record.item, Some(1));
+            assert_eq!(&record.target, target);
+            assert_eq!(record.from, archive);
+            assert!(!record.copied);
+            assert_eq!(record.fp.unwrap().crc32, Some(0x352441C2));
+            assert_eq!(record.extracted.as_ref().unwrap().crc32, None);
+        }
+        let steps = job_archive_steps(&data, &job).unwrap();
+        assert_eq!(steps.len(), 1);
+        assert!(matches!(
+            steps[0].step,
+            ArchiveStep::TrashIntent { fp: Some(_) }
+        ));
+    }
+
+    #[test]
+    fn prune_keeps_a_job_with_an_unresolved_archive_trash() {
+        let tmp = TempDir::new().unwrap();
+        let data = tmp.path();
+        let jobs = data.join("jobs");
+        fs::create_dir_all(&jobs).unwrap();
+        let header = |job: &str| {
+            format!(
+                "{{\"type\":\"header\",\"job\":\"{job}\",\"root\":\"/lib\",\"source_root\":\"/pile\",\"kind\":\"organize\",\"created_at\":\"x\"}}\n"
+            )
+        };
+        let trash = "{\"type\":\"entry\",\"target\":\"/pile/a.zip\",\"op\":{\"kind\":\"archive-trash\",\"from\":\"/pile/a.zip\"},\"fp\":{\"size\":2,\"mtime_ns\":0},\"item\":0}\n";
+        let trashed = "{\"type\":\"entry\",\"target\":\"/pile/a.zip\",\"op\":{\"kind\":\"archive-trashed\",\"from\":\"/pile/a.zip\",\"trash\":null},\"item\":0}\n";
+        let kept = "{\"type\":\"entry\",\"target\":\"/pile/b.zip\",\"op\":{\"kind\":\"archive-kept\",\"from\":\"/pile/b.zip\"},\"item\":1}\n";
+        // Old jobs, beyond both the count and the age limit.
+        let (open, resolved, other) = (
+            "20200101T000000Z-0000-0000",
+            "20200101T000001Z-0000-0000",
+            "20200101T000002Z-0000-0000",
+        );
+        fs::write(
+            jobs.join(format!("{open}.jsonl")),
+            format!("{}{trash}{kept}", header(open)),
+        )
+        .unwrap();
+        fs::write(
+            jobs.join(format!("{resolved}.jsonl")),
+            format!("{}{trash}{trashed}", header(resolved)),
+        )
+        .unwrap();
+        fs::write(
+            jobs.join(format!("{other}.jsonl")),
+            format!("{}{kept}", header(other)),
+        )
+        .unwrap();
+        let newest = "20261020T000000Z-0000-0000";
+        fs::write(jobs.join(format!("{newest}.jsonl")), header(newest)).unwrap();
+
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_195_200);
+        prune_jobs_at(data, 1, 90, now).unwrap();
+        let left: Vec<String> = list_jobs(data)
+            .unwrap()
+            .into_iter()
+            .map(|j| j.job)
+            .collect();
+        assert_eq!(left, [newest, open]);
+    }
+}

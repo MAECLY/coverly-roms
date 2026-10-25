@@ -89,6 +89,8 @@ impl From<io::Error> for Failure {
 
 fn main() -> ExitCode {
     debug_assert!(!coverly_core::VERSION.is_empty());
+    // Silences panics caught inside archive decoders (S1); others still print.
+    coverly_core::archive::guard::install_panic_hook();
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Audit(args) => audit::run(&args),

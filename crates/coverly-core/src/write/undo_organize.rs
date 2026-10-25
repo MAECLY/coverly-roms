@@ -5,16 +5,26 @@
 //! copy stays (`skipped_occupied`); a target changed after the job stays
 //! too (`skipped_modified`). Whole files are only read when a CRC must
 //! decide (a changed mtime, or two files that may be the same copy).
+//!
+//! Extracted items (archives spec §9.2): every archive the job sent to
+//! the Trash is brought back first ([`restore_archives`]); an archive
+//! that cannot come back keeps its extracted files (the only copy of the
+//! game left). Extracted files are then deleted when they still match
+//! the job's fingerprint, or, for an intent never completed, when their
+//! size and a full CRC-32 re-read equal what the archive lists.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 use super::noclobber::{is_cross_device, with_sharing_retries};
 use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, stream_copy};
+use super::trash::TrashBackend;
 use super::{
-    apple_double, create_dirs, ensure_within, find_twin, map_io, remove_apple_doubles,
-    rename_noclobber, CopyStage, Fingerprint, Op, UndoReport, Via, WriteError,
+    absolute_from, apple_double, create_dirs, ensure_within, find_twin, is_job_temp, map_io,
+    remove_apple_doubles, rename_noclobber, CopyStage, Fingerprint, Line, Op, UndoReport, Via,
+    WriteError,
 };
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 
@@ -33,13 +43,28 @@ pub(super) struct Ctx<'a> {
     /// Rekeyed manual identities (`from`, `to`), restored once every file
     /// had its chance to go back (see [`restore_overrides`]).
     pub overrides: Vec<(PathBuf, PathBuf)>,
+    /// Archives that could not be brought back, and their plan items:
+    /// what was extracted from them stays.
+    pub lost_archives: HashSet<PathBuf>,
+    pub lost_items: HashSet<usize>,
+    /// Extraction temps whose intent is settled by a later line (a
+    /// completion or a rollback), so the intent itself decides nothing.
+    pub settled_temps: HashSet<String>,
 }
 
 /// Whether `op` is one of the organise ops this module undoes.
 pub(super) fn is_organize_op(op: &Op) -> bool {
     matches!(
         op,
-        Op::Moved { .. } | Op::Copied { .. } | Op::DirCreated | Op::OverrideMoved { .. }
+        Op::Moved { .. }
+            | Op::Copied { .. }
+            | Op::DirCreated
+            | Op::OverrideMoved { .. }
+            | Op::Extracted { .. }
+            | Op::RolledBack { .. }
+            | Op::ArchiveTrash { .. }
+            | Op::ArchiveTrashed { .. }
+            | Op::ArchiveKept { .. }
     )
 }
 
@@ -49,6 +74,7 @@ pub(super) fn undo_entry(
     target: PathBuf,
     op: Op,
     fp: Option<Fingerprint>,
+    item: Option<usize>,
     report: &mut UndoReport,
 ) -> Result<(), WriteError> {
     match op {
@@ -79,6 +105,226 @@ pub(super) fn undo_entry(
         Op::Created | Op::Replaced { .. } | Op::Removed { .. } | Op::Unknown => {
             unreachable!("only organise ops reach here")
         }
+        Op::Extracted {
+            from,
+            size,
+            crc32,
+            temp,
+            ..
+        } => {
+            let target = ensure_within(ctx.root, &target)?;
+            let from = absolute_from(ctx.source_root, from);
+            if ctx.lost_archives.contains(&from)
+                || item.is_some_and(|i| ctx.lost_items.contains(&i))
+            {
+                return Ok(());
+            }
+            match fp {
+                Some(fp) => {
+                    ctx.settled_temps.insert(temp);
+                    undo_copy(ctx, &target, &fp, report)
+                }
+                None => {
+                    if !ctx.settled_temps.contains(&temp) {
+                        undo_extract_intent(ctx, &target, size, crc32, report)?;
+                    }
+                    remove_job_temp(ctx, &target, &temp);
+                    Ok(())
+                }
+            }
+        }
+        Op::RolledBack { temp } => {
+            let target = ensure_within(ctx.root, &target)?;
+            remove_job_temp(ctx, &target, &temp);
+            ctx.settled_temps.insert(temp);
+            Ok(())
+        }
+        // Brought back before any entry is undone (`restore_archives`).
+        Op::ArchiveTrash { .. } | Op::ArchiveTrashed { .. } | Op::ArchiveKept { .. } => Ok(()),
+    }
+}
+
+/// Where the newest line for an archive leaves it.
+enum ArchiveLast {
+    /// Sent to the Trash, maybe (no line after the intent: a crash during
+    /// the Trash call).
+    TrashIntent,
+    /// In the Trash, at the location when the OS said.
+    Trashed(Option<PathBuf>),
+    /// Never left.
+    Kept,
+}
+
+/// One archive of the journal: its newest step and the fingerprint its
+/// trash intent recorded.
+struct ArchiveState {
+    from: PathBuf,
+    item: Option<usize>,
+    last: ArchiveLast,
+    fp: Option<Fingerprint>,
+}
+
+/// Brings every archive the job sent to the Trash back to where it was,
+/// newest first, each resolved by its last line: already back (it matches
+/// the intent's fingerprint) → done; a recorded Trash location holding
+/// it → a no-clobber rename back (across volumes, a verified copy); no
+/// location (or a stale one) → looked up in the Trash by name and
+/// fingerprint. An archive that cannot come back is reported in
+/// `archive_lost` and its item's extracted files are kept.
+pub(super) fn restore_archives(
+    ctx: &mut Ctx<'_>,
+    entries: &[Line],
+    trash: &dyn TrashBackend,
+    report: &mut UndoReport,
+) -> Result<(), WriteError> {
+    let mut states: Vec<ArchiveState> = Vec::new();
+    for line in entries {
+        let Line::Entry { op, fp, item, .. } = line else {
+            continue;
+        };
+        let (from, last) = match op {
+            Op::ArchiveTrash { from } => (from, ArchiveLast::TrashIntent),
+            Op::ArchiveTrashed { from, trash } => (from, ArchiveLast::Trashed(trash.clone())),
+            Op::ArchiveKept { from } => (from, ArchiveLast::Kept),
+            _ => continue,
+        };
+        let from = absolute_from(ctx.source_root, from.clone());
+        // Newest line last: the archive's earlier lines are superseded.
+        let earlier = states
+            .iter()
+            .position(|s| s.from == from)
+            .map(|i| states.remove(i));
+        let intent_fp = match last {
+            ArchiveLast::TrashIntent => *fp,
+            _ => earlier.as_ref().and_then(|s| s.fp),
+        };
+        states.push(ArchiveState {
+            from,
+            item: *item,
+            last,
+            fp: intent_fp,
+        });
+    }
+    for state in states.into_iter().rev() {
+        if matches!(state.last, ArchiveLast::Kept) {
+            continue;
+        }
+        let from = source_path(ctx.source_root, &state.from)?;
+        match restore_archive(ctx, &from, &state, trash)? {
+            Restore::NeverLeft => {}
+            Restore::Back => report.restored.push(from),
+            Restore::Lost => {
+                ctx.lost_archives.insert(state.from.clone());
+                ctx.lost_items.extend(state.item);
+                report.archive_lost.push(from);
+            }
+        }
+    }
+    Ok(())
+}
+
+enum Restore {
+    /// The Trash call never happened: the archive is where it was.
+    NeverLeft,
+    /// At its place again (now, or by an earlier, interrupted undo).
+    Back,
+    Lost,
+}
+
+fn restore_archive(
+    ctx: &mut Ctx<'_>,
+    from: &Path,
+    state: &ArchiveState,
+    trash: &dyn TrashBackend,
+) -> Result<Restore, WriteError> {
+    let Some(fp) = state.fp else {
+        return Ok(Restore::Lost);
+    };
+    let at_from = || -> Result<Restore, WriteError> {
+        if !fs::symlink_metadata(from).is_ok_and(|m| m.file_type().is_file()) {
+            return Ok(Restore::Lost);
+        }
+        Ok(match state.last {
+            ArchiveLast::TrashIntent => Restore::NeverLeft,
+            _ => Restore::Back,
+        })
+    };
+    if let Some(occupant) = occupant(from)? {
+        // Back already (or never left) when it is the archive itself;
+        // anything else in its place is not ours to move.
+        let meta = fs::symlink_metadata(&occupant).map_err(|e| map_io(e, &occupant))?;
+        if occupant == from && meta.file_type().is_file() && matches_fp(from, &meta, &fp)? {
+            return at_from();
+        }
+        return Ok(Restore::Lost);
+    }
+    let recorded = match &state.last {
+        ArchiveLast::Trashed(Some(at)) => Some(at.clone()),
+        _ => None,
+    }
+    .filter(|at| {
+        fs::symlink_metadata(at)
+            .ok()
+            .filter(|m| m.file_type().is_file())
+            .is_some_and(|m| matches_fp(at, &m, &fp).unwrap_or(false))
+    });
+    let found = recorded.or_else(|| {
+        let name = from.file_name()?.to_str()?;
+        trash.find(from, name, &fp)
+    });
+    let Some(at) = found else {
+        return Ok(Restore::Lost);
+    };
+    if put_back(ctx, &at, from)? {
+        Ok(Restore::Back)
+    } else {
+        Ok(Restore::Lost)
+    }
+}
+
+/// An extraction intent never completed (a crash between the rename and
+/// its journal line): the file at `target` is the job's only when its
+/// size and a full CRC-32 re-read equal what the archive lists.
+fn undo_extract_intent(
+    ctx: &Ctx<'_>,
+    target: &Path,
+    size: u64,
+    crc32: Option<u32>,
+    report: &mut UndoReport,
+) -> Result<(), WriteError> {
+    let Some(meta) = target_meta(ctx, target)? else {
+        return Ok(());
+    };
+    if !meta.file_type().is_file() {
+        return Ok(());
+    }
+    let ours = meta.len() == size
+        && match crc32 {
+            Some(crc) => crc_of(target)? == crc,
+            None => false,
+        };
+    if ours {
+        delete_ours(target)?;
+        report.removed.push(target.to_path_buf());
+    } else {
+        report.skipped_modified.push(target.to_path_buf());
+    }
+    Ok(())
+}
+
+/// Deletes the job temp `temp` next to `target` (best effort; a name that
+/// is not one of this job's temps is never touched).
+fn remove_job_temp(ctx: &Ctx<'_>, target: &Path, temp: &str) {
+    let Some(dir) = target.parent() else {
+        return;
+    };
+    if !is_job_temp(ctx.job, temp) {
+        return;
+    }
+    let path = dir.join(temp);
+    if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
+        let _ = fs::remove_file(&path);
+        remove_apple_doubles(&[path]);
     }
 }
 
@@ -103,19 +349,45 @@ fn source_path(source_root: &Path, from: &Path) -> Result<PathBuf, WriteError> {
     ensure_within(source_root, &from)
 }
 
+/// `path` is a regular file the job left there as `fp` says (size, and
+/// the modification time within the volume's precision or else the
+/// CRC-32): what undo and resume treat as the job's file.
+pub(crate) fn file_matches_fp(path: &Path, fp: &Fingerprint) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| {
+        meta.file_type().is_file() && matches_fp(path, &meta, fp).unwrap_or(false)
+    })
+}
+
 /// The file now at `target` is still the one the job left there: same
 /// size and modification time, or (mtime changed) the same CRC-32.
 fn matches_fp(target: &Path, meta: &fs::Metadata, fp: &Fingerprint) -> Result<bool, WriteError> {
     if meta.len() != fp.size {
         return Ok(false);
     }
-    if meta.modified().map(mtime_ns).ok() == Some(fp.mtime_ns) {
+    if meta
+        .modified()
+        .map(mtime_ns)
+        .is_ok_and(|now| same_mtime(now, fp.mtime_ns))
+    {
         return Ok(true);
     }
     match fp.crc32 {
         Some(crc) => Ok(crc_of(target)? == crc),
         None => Ok(false),
     }
+}
+
+/// Whether the modification time `now` read back is the `recorded` one,
+/// allowing for the volume storing less than the job saw: FAT keeps even
+/// seconds (`now` a whole even second within 2 s), Windows 100 ns ticks
+/// (`now` a whole tick within one).
+pub(super) fn same_mtime(now: i64, recorded: i64) -> bool {
+    const FAT: i64 = 2_000_000_000;
+    const TICK: i64 = 100;
+    let gap = now.abs_diff(recorded);
+    now == recorded
+        || (now % FAT == 0 && gap < FAT.unsigned_abs())
+        || (now % TICK == 0 && gap < TICK.unsigned_abs())
 }
 
 /// Whatever takes the name `from` in its folder (any case or Unicode
@@ -393,4 +665,29 @@ pub(super) fn restore_overrides(ctx: &mut Ctx<'_>) -> Result<(), WriteError> {
         return Ok(());
     }
     overrides.save(&path).map_err(|e| map_io(e, &path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_mtime;
+
+    #[test]
+    fn mtimes_match_within_what_the_volume_stores() {
+        let t = 1_700_000_000_123_456_789i64;
+        assert!(same_mtime(t, t));
+        // FAT: rounded to an even second, up to 2 s off.
+        assert!(same_mtime(
+            1_700_000_000_000_000_000,
+            1_700_000_001_999_999_999
+        ));
+        assert!(!same_mtime(
+            1_700_000_000_000_000_000,
+            1_700_000_002_000_000_001
+        ));
+        // Windows: whole 100 ns ticks.
+        assert!(same_mtime(1_700_000_000_123_456_700, t));
+        assert!(!same_mtime(1_700_000_000_123_456_600, t));
+        // A precise mtime that differs is a different mtime.
+        assert!(!same_mtime(t + 1, t));
+    }
 }

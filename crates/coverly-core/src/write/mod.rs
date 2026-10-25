@@ -13,6 +13,7 @@
 //! `<job>.undone.jsonl` after undo) and backups
 //! `backups/<job>/<path relative to the library root>`.
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
@@ -28,15 +29,19 @@ use crate::time::{compact_utc, parse_compact_utc, rfc3339_utc};
 
 mod noclobber;
 mod transfer;
+pub mod trash;
 mod undo_organize;
 use noclobber::is_cross_device;
+pub(crate) use noclobber::rename_noclobber_indexed;
 #[doc(hidden)]
 pub use noclobber::rename_noclobber_using;
 pub use noclobber::{rename_noclobber, same_volume};
+pub(crate) use transfer::mtime_ns;
 #[cfg(feature = "test-util")]
 #[doc(hidden)]
 pub use transfer::set_copy_fault;
 pub use transfer::{Collision, CopyFault, CopyStage, MoveOutcome};
+pub(crate) use undo_organize::file_matches_fp;
 
 /// What to do when the target (or a case-insensitive twin) already exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,15 +315,49 @@ enum Op {
         from: PathBuf,
         to: PathBuf,
     },
+    /// `target` holds the entry `entry` of the archive `from` (absolute,
+    /// inside the source root). Written twice, like a copied `Moved`: the
+    /// intent (no `fp`) before the entry is decoded to the job temp file
+    /// `temp` in `target`'s folder, and the completion (`fp` with the CRC
+    /// computed while decoding) once the temp was renamed to `target`.
+    /// `size` and `crc32` are what the archive lists.
+    Extracted {
+        from: PathBuf,
+        entry: String,
+        size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        crc32: Option<u32>,
+        temp: String,
+    },
+    /// The extraction whose intent named the job temp `temp` was undone
+    /// before its rename (the temp is deleted, `target` never written).
+    RolledBack {
+        temp: String,
+    },
+    /// About to send the archive `from` to the Trash (`fp` = the archive).
+    ArchiveTrash {
+        from: PathBuf,
+    },
+    /// The archive `from` is in the Trash, at `trash` when the OS said.
+    ArchiveTrashed {
+        from: PathBuf,
+        trash: Option<PathBuf>,
+    },
+    /// The archive `from` stays where it was (no Trash on its volume).
+    ArchiveKept {
+        from: PathBuf,
+    },
     /// An op this build does not know (a journal from a newer Coverly):
     /// the job is listed but cannot be undone.
     #[serde(other)]
     Unknown,
 }
 
-/// Whether every entry of a journal can be undone by this build.
-fn entries_undoable(entries: &[Line]) -> bool {
-    !entries.iter().any(|e| {
+/// Why this build refuses to undo a journal, if it does: an op it does
+/// not know (a newer Coverly). The whole job is refused then, never half
+/// undone.
+fn undo_refusal(entries: &[Line]) -> Option<&'static str> {
+    let unknown = entries.iter().any(|e| {
         matches!(
             e,
             Line::Entry {
@@ -326,7 +365,28 @@ fn entries_undoable(entries: &[Line]) -> bool {
                 ..
             }
         )
-    })
+    });
+    unknown.then_some("written by a newer Coverly; update to undo it")
+}
+
+/// Whether every entry of a journal can be undone by this build.
+fn entries_undoable(entries: &[Line]) -> bool {
+    undo_refusal(entries).is_none()
+}
+
+/// One archive entry an extraction writes, as its journal lines name it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtractedFile {
+    /// The archive (absolute, inside the job's source root).
+    pub from: PathBuf,
+    /// The entry's name inside the archive.
+    pub entry: String,
+    /// The size and CRC-32 the archive lists for the entry.
+    pub size: u64,
+    pub crc32: Option<u32>,
+    /// The job temp file the entry is decoded to: a bare name
+    /// `.coverly-<job>-<n>.tmp` in the target's folder.
+    pub temp: String,
 }
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -351,6 +411,10 @@ pub struct Writer {
     journal: File,
     journal_path: PathBuf,
     counter: u32,
+    /// The job temps an `extracted` intent names in this journal (this
+    /// run's and earlier runs'): each is used by one intent only, so a
+    /// completion or rollback line always points at one extraction.
+    extract_temps: HashSet<String>,
     /// Changes this run made to the library (done, journaled or not).
     changes: usize,
     resumed: bool,
@@ -396,6 +460,7 @@ impl Writer {
             journal,
             journal_path,
             counter: 0,
+            extract_temps: HashSet::new(),
             changes: 0,
             resumed: false,
         };
@@ -450,6 +515,25 @@ impl Writer {
             .append(true)
             .open(&path)
             .map_err(|e| map_io(e, &path))?;
+        let extract_temps: HashSet<String> = entries
+            .iter()
+            .filter_map(|e| match e {
+                Line::Entry {
+                    op: Op::Extracted { temp, .. },
+                    ..
+                } => Some(temp.clone()),
+                _ => None,
+            })
+            .collect();
+        // Past every line and every journaled temp number: the temp
+        // counter of an earlier run can run ahead of its line count.
+        let counter = extract_temps
+            .iter()
+            .filter_map(|t| temp_number(job, t))
+            .map(|n| n.saturating_add(1))
+            .chain([u32::try_from(entries.len()).unwrap_or(u32::MAX)])
+            .max()
+            .unwrap_or(0);
         Ok(Writer {
             root: root.to_path_buf(),
             source_root: source_root.unwrap_or_else(|| root.to_path_buf()),
@@ -458,7 +542,8 @@ impl Writer {
             backups: data_dir.join("backups").join(job),
             journal,
             journal_path: path,
-            counter: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            counter,
+            extract_temps,
             changes: 0,
             resumed: true,
         })
@@ -466,6 +551,17 @@ impl Writer {
 
     pub fn job_id(&self) -> &str {
         &self.job
+    }
+
+    /// The library root this job writes into.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// The journal file of this job (in the app data dir): where a full
+    /// journal volume is reported (archives spec §9.1).
+    pub fn journal_path(&self) -> &Path {
+        &self.journal_path
     }
 
     pub fn kind(&self) -> JobKind {
@@ -605,6 +701,243 @@ impl Writer {
         Ok(())
     }
 
+    /// Journals that the archive entry `file` is about to be decoded to
+    /// its temp file for `target` (inside the root). Nothing is written
+    /// to the library yet; [`Writer::extract_done`] or
+    /// [`Writer::rolled_back`] follows.
+    /// `file.temp` must be a job temp no earlier intent of this job used
+    /// (see [`Writer::extract_temp`]).
+    pub fn extract_intent(
+        &mut self,
+        target: &Path,
+        file: &ExtractedFile,
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let op = self.extracted_op(file)?;
+        if self.extract_temps.contains(&file.temp) {
+            return Err(WriteError::NameInvalid(file.temp.clone()));
+        }
+        self.append_entry(target, op, None, None, item)?;
+        self.extract_temps.insert(file.temp.clone());
+        Ok(())
+    }
+
+    /// A fresh job temp name (`.coverly-<job>-<n>.tmp`) for an
+    /// extraction: never one an intent of this job (in this run or an
+    /// earlier one) already named.
+    pub fn extract_temp(&mut self) -> String {
+        loop {
+            let temp = format!(".coverly-{}-{}.tmp", self.job, self.counter);
+            self.counter = self.counter.wrapping_add(1);
+            if !self.extract_temps.contains(&temp) {
+                return temp;
+            }
+        }
+    }
+
+    /// Journals that the temp of `file` was renamed to `target` (a
+    /// regular file now): the completion line, with `target`'s size and
+    /// modification time and the CRC-32 computed while decoding. Returns
+    /// that fingerprint.
+    pub fn extract_done(
+        &mut self,
+        target: &Path,
+        file: &ExtractedFile,
+        crc32: u32,
+        item: Option<usize>,
+    ) -> Result<Fingerprint, WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let op = self.extracted_op(file)?;
+        self.check_intent(&file.temp)?;
+        let meta = fs::symlink_metadata(&target).map_err(|e| map_io(e, &target))?;
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(target));
+        }
+        // The rename already happened: count it even if the append fails.
+        self.changes += 1;
+        let fp = Fingerprint {
+            size: meta.len(),
+            mtime_ns: meta.modified().map_or(0, transfer::mtime_ns),
+            crc32: Some(crc32),
+        };
+        self.append_entry(target, op, None, Some(fp), item)?;
+        Ok(fp)
+    }
+
+    /// Journals that the extraction for `target` whose intent named the
+    /// job temp `temp` was rolled back (its temp deleted, no rename).
+    pub fn rolled_back(
+        &mut self,
+        target: &Path,
+        temp: &str,
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        self.check_job_temp(temp)?;
+        self.check_intent(temp)?;
+        let op = Op::RolledBack {
+            temp: temp.to_string(),
+        };
+        self.append_entry(target, op, None, None, item)
+    }
+
+    /// Journals that the archive `from` (a regular file inside the source
+    /// root) is about to go to the Trash, with its fingerprint (size and
+    /// modification time), which it returns.
+    pub fn archive_trash_intent(
+        &mut self,
+        from: &Path,
+        item: Option<usize>,
+    ) -> Result<Fingerprint, WriteError> {
+        let from = ensure_within(&self.source_root, from)?;
+        let meta = fs::symlink_metadata(&from).map_err(|e| map_io(e, &from))?;
+        if !meta.file_type().is_file() {
+            return Err(WriteError::NotAFile(from));
+        }
+        let fp = Fingerprint {
+            size: meta.len(),
+            mtime_ns: meta.modified().map_or(0, transfer::mtime_ns),
+            crc32: None,
+        };
+        let op = Op::ArchiveTrash { from: from.clone() };
+        self.append_entry(from, op, None, Some(fp), item)?;
+        Ok(fp)
+    }
+
+    /// Journals that the archive `from` went to the Trash, at `trash`
+    /// when the OS reported where.
+    pub fn archive_trashed(
+        &mut self,
+        from: &Path,
+        trash: Option<&Path>,
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let from = ensure_within(&self.source_root, from)?;
+        // The archive left its folder: count it even if the append fails.
+        self.changes += 1;
+        let op = Op::ArchiveTrashed {
+            from: from.clone(),
+            trash: trash.map(Path::to_path_buf),
+        };
+        self.append_entry(from, op, None, None, item)
+    }
+
+    /// Journals that the archive `from` stays where it is (its volume has
+    /// no Trash, or the Trash refused it).
+    pub fn archive_kept(&mut self, from: &Path, item: Option<usize>) -> Result<(), WriteError> {
+        let from = ensure_within(&self.source_root, from)?;
+        let op = Op::ArchiveKept { from: from.clone() };
+        self.append_entry(from, op, None, None, item)
+    }
+
+    /// Writes the new file `target` (inside the root, in an existing
+    /// folder) with `bytes` for plan item `item`: a job temp created with
+    /// `create_new`, synced, then renamed without ever replacing a file
+    /// (the caller checked for case/NFC twins), journaled `created`.
+    /// [`WriteError::Io`] `AlreadyExists` when `target` appeared meanwhile.
+    pub fn create_new_file(
+        &mut self,
+        target: &Path,
+        bytes: &[u8],
+        item: Option<usize>,
+    ) -> Result<(), WriteError> {
+        let target = ensure_within(&self.root, target)?;
+        let name = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| WriteError::NameInvalid(target.display().to_string()))?;
+        if safe_file_name(name)? != name {
+            return Err(WriteError::NameInvalid(name.to_string()));
+        }
+        let dir = target
+            .parent()
+            .ok_or_else(|| WriteError::OutsideRoot(target.clone()))?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut tries = 0;
+        let (tmp, mut file) = loop {
+            let tmp = dir.join(self.extract_temp());
+            match opts.open(&tmp) {
+                Ok(file) => break (tmp, file),
+                // A foreign file at that name: never written through.
+                Err(e) if e.kind() == ErrorKind::AlreadyExists && tries < 1000 => tries += 1,
+                Err(e) => return Err(map_io(e, &target)),
+            }
+        };
+        let result = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| {
+                drop(file);
+                noclobber::rename_noclobber_indexed(&tmp, &target)
+            });
+        if let Err(e) = result {
+            let _ = fs::remove_file(&tmp);
+            remove_apple_doubles(&[tmp]);
+            return Err(if e.kind() == ErrorKind::AlreadyExists {
+                WriteError::Io(e)
+            } else {
+                map_io(e, &target)
+            });
+        }
+        remove_apple_doubles(&[tmp]);
+        let journaled = self.append_entry(
+            target.clone(),
+            Op::Created,
+            Some(sha1_hex(bytes)),
+            None,
+            item,
+        );
+        if let Err(e) = journaled {
+            // Not in the journal, so no undo would ever find it: the file
+            // was renamed into place this very moment, it is ours to drop.
+            let _ = fs::remove_file(&target);
+            remove_apple_doubles(&[target]);
+            return Err(e);
+        }
+        self.changes += 1;
+        Ok(())
+    }
+
+    /// The `extracted` op of `file`, once its archive is inside the source
+    /// root and its temp is one of this job's.
+    fn extracted_op(&self, file: &ExtractedFile) -> Result<Op, WriteError> {
+        let from = ensure_within(&self.source_root, &file.from)?;
+        self.check_job_temp(&file.temp)?;
+        Ok(Op::Extracted {
+            from,
+            entry: file.entry.clone(),
+            size: file.size,
+            crc32: file.crc32,
+            temp: file.temp.clone(),
+        })
+    }
+
+    /// An `extracted` intent of this job named `temp`.
+    fn check_intent(&self, temp: &str) -> Result<(), WriteError> {
+        if self.extract_temps.contains(temp) {
+            Ok(())
+        } else {
+            Err(WriteError::NameInvalid(temp.to_string()))
+        }
+    }
+
+    /// `temp` is a bare file name `.coverly-<this job>-<n>.tmp`: undo and
+    /// resume only ever delete such names, next to the target.
+    fn check_job_temp(&self, temp: &str) -> Result<(), WriteError> {
+        if is_job_temp(&self.job, temp) {
+            Ok(())
+        } else {
+            Err(WriteError::NameInvalid(temp.to_string()))
+        }
+    }
+
     /// Marks the job complete and returns its id.
     pub fn finish(mut self) -> Result<String, WriteError> {
         self.append(&Line::Done)?;
@@ -683,10 +1016,34 @@ impl Writer {
         let mut text =
             serde_json::to_string(line).map_err(|e| WriteError::Journal(e.to_string()))?;
         text.push('\n');
+        #[cfg(feature = "test-util")]
+        if let Some(e) = JOURNAL_FAULT.with(|c| c.get()).and_then(|f| f()) {
+            return Err(WriteError::Io(e));
+        }
         self.journal.write_all(text.as_bytes())?;
         self.journal.sync_all()?;
         Ok(())
     }
+}
+
+/// Whether `name` is a temp file name of job `job`:
+/// `.coverly-<job>-<digits>.tmp`, with no path separator.
+pub(crate) fn is_job_temp(job: &str, name: &str) -> bool {
+    temp_digits(job, name).is_some()
+}
+
+/// The `<digits>` of the job temp name `name` of job `job`.
+fn temp_digits<'n>(job: &str, name: &'n str) -> Option<&'n str> {
+    name.strip_prefix(".coverly-")
+        .and_then(|rest| rest.strip_prefix(job))
+        .and_then(|rest| rest.strip_prefix('-'))
+        .and_then(|rest| rest.strip_suffix(".tmp"))
+        .filter(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The number of the job temp name `name` (`None` past `u32`).
+fn temp_number(job: &str, name: &str) -> Option<u32> {
+    temp_digits(job, name)?.parse().ok()
 }
 
 /// The key file names are compared by: NFC, lower case. FAT and exFAT
@@ -719,6 +1076,23 @@ pub(crate) fn find_twin(dir: &Path, name: &str) -> Result<Option<PathBuf>, Write
     Ok(found)
 }
 
+/// A journal fault hook: an error to return instead of appending a line.
+#[cfg(feature = "test-util")]
+pub type JournalFault = fn() -> Option<io::Error>;
+
+#[cfg(feature = "test-util")]
+thread_local! {
+    static JOURNAL_FAULT: std::cell::Cell<Option<JournalFault>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook: makes every journal append of the calling thread fail with
+/// the error `f` returns (a full journal volume). `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_journal_fault(f: Option<JournalFault>) {
+    JOURNAL_FAULT.with(|c| c.set(f));
+}
+
 #[cfg(feature = "test-util")]
 thread_local! {
     static TWIN_LISTINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -741,7 +1115,7 @@ fn apple_double(path: &Path) -> Option<PathBuf> {
 
 /// Deletes the AppleDouble sidecars of `paths`, best effort. Only for
 /// paths this writer created, or whose sidecar did not exist before.
-fn remove_apple_doubles(paths: &[PathBuf]) {
+pub(crate) fn remove_apple_doubles(paths: &[PathBuf]) {
     for sidecar in paths.iter().filter_map(|p| apple_double(p)) {
         let _ = fs::remove_file(sidecar);
     }
@@ -829,6 +1203,11 @@ pub struct UndoReport {
     /// Folders the job created and the undo removed (they held nothing
     /// of the user's).
     pub dirs_removed: Vec<PathBuf>,
+    /// Archives the job sent to the Trash that could not be brought back
+    /// (Trash emptied, location unknown, their place taken): the files
+    /// extracted from them are the only copy of the game, so they stay.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub archive_lost: Vec<PathBuf>,
 }
 
 /// One journaled job, for `coverly undo --list`.
@@ -954,24 +1333,67 @@ fn parse(path: &Path) -> Result<(Line, Vec<Line>, bool), WriteError> {
     Ok((header, entries, done))
 }
 
-/// A move or copy an organise journal records, as resume needs it.
+/// A move, copy or extracted file an organise journal records, as resume
+/// needs it. Lines are reported in journal order: an intent and its
+/// completion are two records (the later one supersedes).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TransferRecord {
     /// The plan item it belongs to.
     pub item: Option<usize>,
-    /// Absolute, inside the job's source root.
+    /// Absolute, inside the job's source root (the archive, for an
+    /// extracted file).
     pub from: PathBuf,
     pub target: PathBuf,
-    /// A copy (the source stays) rather than a move.
+    /// A copy (the source stays) rather than a move. False for an
+    /// extracted file (what happens to its archive is an [`ArchiveRecord`]).
     pub copied: bool,
     /// The entry carries the target's fingerprint: the copy finished (a
     /// rename is journaled with it before it happens, so a move by rename
-    /// is only done once the source is gone).
+    /// is only done once the source is gone), or the extracted file was
+    /// renamed into place.
     pub finished: bool,
+    /// The target's fingerprint when `finished`.
+    pub fp: Option<Fingerprint>,
+    /// Set for a file extracted from the archive `from`.
+    pub extracted: Option<ExtractedRecord>,
 }
 
-/// The moves and copies journaled by job `job` (not undone), in order.
-pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, WriteError> {
+/// The archive entry behind an extracted [`TransferRecord`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtractedRecord {
+    pub entry: String,
+    /// The size and CRC-32 the archive lists.
+    pub size: u64,
+    pub crc32: Option<u32>,
+    /// The job temp file (a bare name in `target`'s folder).
+    pub temp: String,
+    /// A later `rolled-back` line undid this intent.
+    pub rolled_back: bool,
+}
+
+/// What happened to an archive after its files were extracted, one per
+/// journal line, in order (the last line for an archive is its state).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArchiveRecord {
+    pub item: Option<usize>,
+    /// The archive, absolute, inside the job's source root.
+    pub from: PathBuf,
+    pub step: ArchiveStep,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArchiveStep {
+    /// About to go to the Trash; `fp` is the archive's when journaled.
+    /// Unresolved while no later line follows it.
+    TrashIntent { fp: Option<Fingerprint> },
+    /// In the Trash, at `trash` when the OS said where.
+    Trashed { trash: Option<PathBuf> },
+    /// Left where it was.
+    Kept,
+}
+
+/// The source root and the entries of job `job`'s journal (not undone).
+fn job_entries(data_dir: &Path, job: &str) -> Result<(PathBuf, Vec<Line>), WriteError> {
     if !valid_job_id(job) {
         return Err(WriteError::Journal(format!("not a job id: {job}")));
     }
@@ -983,37 +1405,127 @@ pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, 
     else {
         unreachable!("parse returns a header first")
     };
-    let source_root = source_root.unwrap_or(root);
-    Ok(entries
-        .into_iter()
-        .filter_map(|line| match line {
-            Line::Entry {
-                target,
-                op,
-                fp,
-                item,
-                ..
-            } => {
-                let (from, copied) = match op {
-                    Op::Moved { from, .. } => (from, false),
-                    Op::Copied { from } => (from, true),
-                    _ => return None,
-                };
-                Some(TransferRecord {
-                    item,
-                    from: if from.is_absolute() {
-                        from
-                    } else {
-                        source_root.join(from)
-                    },
-                    target,
-                    copied,
-                    finished: fp.is_some(),
-                })
+    Ok((source_root.unwrap_or(root), entries))
+}
+
+/// `from` made absolute against the source root (journals written by
+/// hand or by a later format may keep it relative).
+fn absolute_from(source_root: &Path, from: PathBuf) -> PathBuf {
+    if from.is_absolute() {
+        from
+    } else {
+        source_root.join(from)
+    }
+}
+
+/// The moves, copies and extracted files journaled by job `job` (not
+/// undone), in order.
+pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, WriteError> {
+    let (source_root, entries) = job_entries(data_dir, job)?;
+    let mut out: Vec<TransferRecord> = Vec::new();
+    for line in entries {
+        let Line::Entry {
+            target,
+            op,
+            fp,
+            item,
+            ..
+        } = line
+        else {
+            continue;
+        };
+        let (from, copied, extracted) = match op {
+            Op::Moved { from, .. } => (from, false, None),
+            Op::Copied { from } => (from, true, None),
+            Op::Extracted {
+                from,
+                entry,
+                size,
+                crc32,
+                temp,
+            } => (
+                from,
+                false,
+                Some(ExtractedRecord {
+                    entry,
+                    size,
+                    crc32,
+                    temp,
+                    rolled_back: false,
+                }),
+            ),
+            Op::RolledBack { temp } => {
+                // Its intent: the latest one naming the temp, not renamed.
+                let intent = out.iter_mut().rev().find(|r| {
+                    !r.finished && r.extracted.as_ref().is_some_and(|ex| ex.temp == temp)
+                });
+                if let Some(ex) = intent.and_then(|r| r.extracted.as_mut()) {
+                    ex.rolled_back = true;
+                }
+                continue;
             }
-            _ => None,
+            _ => continue,
+        };
+        out.push(TransferRecord {
+            item,
+            from: absolute_from(&source_root, from),
+            target,
+            copied,
+            finished: fp.is_some(),
+            fp,
+            extracted,
+        });
+    }
+    Ok(out)
+}
+
+/// The archive steps journaled by job `job` (not undone), in order.
+pub fn job_archive_steps(data_dir: &Path, job: &str) -> Result<Vec<ArchiveRecord>, WriteError> {
+    let (source_root, entries) = job_entries(data_dir, job)?;
+    Ok(archive_steps(&source_root, entries))
+}
+
+fn archive_steps(source_root: &Path, entries: Vec<Line>) -> Vec<ArchiveRecord> {
+    entries
+        .into_iter()
+        .filter_map(|line| {
+            let Line::Entry { op, fp, item, .. } = line else {
+                return None;
+            };
+            let (from, step) = match op {
+                Op::ArchiveTrash { from } => (from, ArchiveStep::TrashIntent { fp }),
+                Op::ArchiveTrashed { from, trash } => (from, ArchiveStep::Trashed { trash }),
+                Op::ArchiveKept { from } => (from, ArchiveStep::Kept),
+                _ => return None,
+            };
+            Some(ArchiveRecord {
+                item,
+                from: absolute_from(source_root, from),
+                step,
+            })
         })
-        .collect())
+        .collect()
+}
+
+/// Whether a journal sends an archive to the Trash with no line saying
+/// where it went (a crash during the Trash call): only that journal can
+/// still find the archive again, so it is never pruned.
+fn has_unresolved_trash(path: &Path) -> bool {
+    let Ok((
+        Line::Header {
+            root, source_root, ..
+        },
+        entries,
+        _,
+    )) = parse(path)
+    else {
+        return false;
+    };
+    let steps = archive_steps(&source_root.unwrap_or(root), entries);
+    steps.iter().enumerate().any(|(i, s)| {
+        matches!(s.step, ArchiveStep::TrashIntent { .. })
+            && !steps[i + 1..].iter().any(|later| later.from == s.from)
+    })
 }
 
 /// All journaled jobs, newest first.
@@ -1059,17 +1571,36 @@ pub fn list_jobs(data_dir: &Path) -> Result<Vec<JobSummary>, WriteError> {
     Ok(out)
 }
 
-/// Undoes the newest job that is not undone yet.
+/// Undoes the newest job that is not undone yet (archives come back from
+/// the OS Trash).
 pub fn undo_last(data_dir: &Path) -> Result<UndoReport, WriteError> {
+    undo_last_with(data_dir, &trash::OsTrash)
+}
+
+/// [`undo_last`], bringing archives back from `trash`.
+pub fn undo_last_with(
+    data_dir: &Path,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     let journal = journals(data_dir)?
         .into_iter()
         .find(|j| !j.undone)
         .ok_or(WriteError::NothingToUndo)?;
-    undo_journal(data_dir, &journal)
+    undo_journal(data_dir, &journal, trash)
 }
 
-/// Undoes the job `job` (an id from [`list_jobs`]).
+/// Undoes the job `job` (an id from [`list_jobs`]); archives come back
+/// from the OS Trash.
 pub fn undo_job(data_dir: &Path, job: &str) -> Result<UndoReport, WriteError> {
+    undo_job_with(data_dir, job, &trash::OsTrash)
+}
+
+/// [`undo_job`], bringing archives back from `trash`.
+pub fn undo_job_with(
+    data_dir: &Path,
+    job: &str,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     if !valid_job_id(job) {
         return Err(WriteError::NothingToUndo);
     }
@@ -1077,10 +1608,17 @@ pub fn undo_job(data_dir: &Path, job: &str) -> Result<UndoReport, WriteError> {
         .into_iter()
         .find(|j| j.job == job && !j.undone)
         .ok_or(WriteError::NothingToUndo)?;
-    undo_journal(data_dir, &journal)
+    undo_journal(data_dir, &journal, trash)
 }
 
-fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteError> {
+/// Undoes a journal, newest line first. Undo is idempotent: an undo
+/// stopped half way (an error, a crash) is simply run again, and finds
+/// what it already did done (files gone, archives back).
+fn undo_journal(
+    data_dir: &Path,
+    journal: &Journal,
+    trash: &dyn trash::TrashBackend,
+) -> Result<UndoReport, WriteError> {
     let (header, entries, _) = parse(&journal.path)?;
     let Line::Header {
         root, source_root, ..
@@ -1091,10 +1629,8 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     let source_root = source_root.unwrap_or_else(|| root.clone());
     // Refuse before touching anything: undoing part of a journal from a
     // newer build would leave the library half reverted.
-    if !entries_undoable(&entries) {
-        return Err(WriteError::Journal(
-            "written by a newer Coverly; update to undo it".to_string(),
-        ));
+    if let Some(why) = undo_refusal(&entries) {
+        return Err(WriteError::Journal(why.to_string()));
     }
     // An organise undo needs both volumes: with the card pulled every
     // target would look gone and the job would be marked undone for
@@ -1107,7 +1643,16 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
     if organise(undo_organize::is_organize_op) && !root.is_dir() {
         return Err(WriteError::Denied(root));
     }
-    if organise(|op| matches!(op, Op::Moved { .. } | Op::Copied { .. })) && !source_root.is_dir() {
+    let takes_from_source = |op: &Op| {
+        matches!(
+            op,
+            Op::Moved { .. }
+                | Op::Copied { .. }
+                | Op::ArchiveTrash { .. }
+                | Op::ArchiveTrashed { .. }
+        )
+    };
+    if organise(takes_from_source) && !source_root.is_dir() {
         return Err(WriteError::Denied(source_root));
     }
     let backups = data_dir.join("backups").join(&journal.job);
@@ -1118,6 +1663,7 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         skipped_modified: Vec::new(),
         skipped_occupied: Vec::new(),
         dirs_removed: Vec::new(),
+        archive_lost: Vec::new(),
     };
     let mut ctx = undo_organize::Ctx {
         root: &root,
@@ -1126,7 +1672,13 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
         job: &journal.job,
         counter: 0,
         overrides: Vec::new(),
+        lost_archives: Default::default(),
+        lost_items: Default::default(),
+        settled_temps: Default::default(),
     };
+    // Archives first: an extracted file is only deleted once its archive
+    // is back (or never left).
+    undo_organize::restore_archives(&mut ctx, &entries, trash, &mut report)?;
     // A target replaced twice in one job (a gamelist written by a run and
     // its resume) shares one backup holding the original bytes: once the
     // last write is restored, the earlier replace entries are done too.
@@ -1137,14 +1689,19 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
             op,
             sha1,
             fp,
-            ..
+            item,
         } = entry
         else {
             continue;
         };
         // Organise ops never read whole files unless a CRC must decide.
         if undo_organize::is_organize_op(&op) {
-            undo_organize::undo_entry(&mut ctx, target, op, fp, &mut report)?;
+            undo_organize::undo_entry(&mut ctx, target, op, fp, item, &mut report)?;
+            continue;
+        }
+        // The playlist of an item whose archive is lost stays with its
+        // extracted files.
+        if item.is_some_and(|i| ctx.lost_items.contains(&i)) {
             continue;
         }
         let target = ensure_within(&root, &target)?;
@@ -1199,9 +1756,14 @@ fn undo_journal(data_dir: &Path, journal: &Journal) -> Result<UndoReport, WriteE
                 | Op::Copied { .. }
                 | Op::DirCreated
                 | Op::OverrideMoved { .. }
+                | Op::Extracted { .. }
+                | Op::RolledBack { .. }
+                | Op::ArchiveTrash { .. }
+                | Op::ArchiveTrashed { .. }
+                | Op::ArchiveKept { .. }
                 | Op::Unknown,
                 _,
-            ) => unreachable!("handled before reading the target"),
+            ) => unreachable!("handled or refused before reading the target"),
         }
     }
     undo_organize::restore_overrides(&mut ctx)?;
@@ -1241,6 +1803,15 @@ pub fn later_jobs(data_dir: &Path, job: &str) -> Result<Vec<JobSummary>, WriteEr
 /// undone in). Every job must exist and not be undone yet, checked before
 /// anything is touched; the first failure stops the rest.
 pub fn undo_jobs_in_order(data_dir: &Path, jobs: &[String]) -> Result<Vec<UndoReport>, WriteError> {
+    undo_jobs_in_order_with(data_dir, jobs, &trash::OsTrash)
+}
+
+/// [`undo_jobs_in_order`], bringing archives back from `trash`.
+pub fn undo_jobs_in_order_with(
+    data_dir: &Path,
+    jobs: &[String],
+    trash: &dyn trash::TrashBackend,
+) -> Result<Vec<UndoReport>, WriteError> {
     let mut ids: Vec<&str> = jobs.iter().map(String::as_str).collect();
     ids.sort_unstable_by(|a, b| b.cmp(a));
     ids.dedup();
@@ -1251,7 +1822,9 @@ pub fn undo_jobs_in_order(data_dir: &Path, jobs: &[String]) -> Result<Vec<UndoRe
     {
         return Err(WriteError::NothingToUndo);
     }
-    ids.into_iter().map(|id| undo_job(data_dir, id)).collect()
+    ids.into_iter()
+        .map(|id| undo_job_with(data_dir, id, trash))
+        .collect()
 }
 
 /// Days an organise journal is kept even beyond the newest `keep`.
@@ -1292,7 +1865,7 @@ pub fn prune_jobs_at(
                 organises <= keep || young(&journal.job)
             }
         };
-        if kept {
+        if kept || has_unresolved_trash(&journal.path) {
             continue;
         }
         fs::remove_file(&journal.path).map_err(|e| map_io(e, &journal.path))?;

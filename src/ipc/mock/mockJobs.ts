@@ -850,6 +850,7 @@ export function createMockJobs(
         skipped_modified: [],
         skipped_occupied: [],
         dirs_removed: [],
+        archive_lost: [],
       };
     },
     jobHistory: () =>

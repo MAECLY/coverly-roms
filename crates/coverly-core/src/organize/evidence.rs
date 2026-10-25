@@ -12,12 +12,14 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::cache::Cache;
+use crate::dedupe::source::DiscId;
 use crate::identify::dat::{dat_sources, DatError, DatStatus, DatStore};
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
 use crate::identify::names::{parse_name, score, strip_numbering_prefix};
 use crate::identify::sniff::{Sniff, DECISIVE};
-use crate::organize::inspect::{ArchiveIssue, Container, Inspection, NOTE_ENCRYPTED};
+use crate::organize::inspect::{Container, DiscSetInfo, FoundSystem, Inspection, NOTE_ENCRYPTED};
+use crate::organize::plan::SheetCheck;
 use crate::organize::plan::{ItemNote, LeftReason};
 use crate::systems::{ExtClass, SystemDb};
 
@@ -491,6 +493,10 @@ pub struct Identification {
     /// ROM entries in a zip (multi-ROM note); 1 for a raw file.
     pub rom_count: usize,
     pub notes: Vec<ItemNote>,
+    /// The disc of a disc archive: serials and fingerprint for the item
+    /// (archives spec §6.2 step 5).
+    #[serde(default)]
+    pub disc: Option<DiscId>,
 }
 
 /// An online source asked by CRC when the offline levels leave a file
@@ -598,14 +604,8 @@ fn stem_of(name: &str) -> &str {
 
 /// Why a candidate stays put whatever its evidence.
 fn left_before_combining(insp: &Inspection) -> Option<LeftReason> {
-    match &insp.issue {
-        Some(ArchiveIssue::NotARom { what }) => return Some(LeftReason::NotARom { what: *what }),
-        Some(ArchiveIssue::Damaged) => return Some(LeftReason::DamagedArchive),
-        Some(ArchiveIssue::Unsupported) => return Some(LeftReason::UnsupportedArchive),
-        Some(ArchiveIssue::TooManyRoms { count }) => {
-            return Some(LeftReason::MultiGameArchive { count: *count })
-        }
-        None => {}
+    if let Some(issue) = &insp.issue {
+        return Some(crate::organize::plan::left_reason_for(issue));
     }
     if let Some(name) = insp
         .payloads
@@ -613,6 +613,14 @@ fn left_before_combining(insp: &Inspection) -> Option<LeftReason> {
         .find_map(|p| p.sniff.unsupported.clone())
     {
         return Some(LeftReason::UnsupportedSystem { name });
+    }
+    if let Some(FoundSystem::Unsupported { name }) = insp
+        .disc_set
+        .as_ref()
+        .and_then(|s| s.identity.as_ref())
+        .map(|f| &f.system)
+    {
+        return Some(LeftReason::UnsupportedSystem { name: name.clone() });
     }
     if insp.container == Container::Raw {
         if let Some(what) = insp.payloads.first().and_then(|p| p.sniff.not_a_rom) {
@@ -747,6 +755,47 @@ fn fuzzy_level(
     }
 }
 
+/// Evidence of a disc archive (archives spec §6.2 step 4): the primary
+/// track's header verdict at its spec §7 confidence, and the extensions
+/// of the set's sheets and images (one system: 0.85, several: 0.50;
+/// generic ones none).
+fn disc_evidence(db: &SystemDb, set: &DiscSetInfo, evidence: &mut Vec<Evidence>) {
+    if let Some(found) = &set.identity {
+        if let FoundSystem::Known { id } = &found.system {
+            evidence.push(Evidence::new(
+                IdLevel::Header,
+                id,
+                found.confidence,
+                found.detail.clone(),
+            ));
+        }
+    }
+    let mut exts: BTreeSet<String> = BTreeSet::new();
+    for name in &set.members {
+        let ext = crate::scan::classify::extension(Path::new(name));
+        // Tracks and playlists say nothing of the system.
+        if !matches!(ext.as_str(), "bin" | "raw" | "m3u" | "sub" | "") {
+            exts.insert(ext);
+        }
+    }
+    for ext in exts {
+        // Generic image extensions (`iso`, `chd`, `img`) name no system.
+        let weight = match db.extension_class(&ext) {
+            ExtClass::Unique => 0.85,
+            ExtClass::Shared => 0.50,
+            _ => continue,
+        };
+        for system in db.systems_for_extension(&ext) {
+            evidence.push(Evidence::new(
+                IdLevel::Extension,
+                &system.id,
+                weight,
+                ext.clone(),
+            ));
+        }
+    }
+}
+
 /// Identifies one candidate (organise spec §6): pre-checks from the
 /// inspection, a remembered choice, extension and header per payload,
 /// name hints, DAT hits by CRC, raw hashing only when it can change the
@@ -773,9 +822,16 @@ pub fn identify_candidate(
         content_key: None,
         rom_count: insp.payloads.len(),
         notes: Vec::new(),
+        disc: None,
     };
     if insp.notes.iter().any(|n| n == NOTE_ENCRYPTED) {
         id.notes.push(ItemNote::Encrypted);
+    }
+    if let Some((ext, format)) = &insp.mismatch {
+        id.notes.push(ItemNote::ContainerMismatch {
+            ext: ext.clone(),
+            actual: format.short_name(),
+        });
     }
     // 1. Pre-checks.
     if let Some(left) = left_before_combining(&insp) {
@@ -784,7 +840,7 @@ pub fn identify_candidate(
     }
     let content_read = !cloud_only
         && insp.payloads.iter().any(|p| p.sniff.read > 0)
-        && matches!(insp.container, Container::Raw | Container::Zip);
+        && (insp.container == Container::Raw || insp.container.is_archive());
     let decide = |evidence: &[Evidence], excluded: &[String]| {
         combine(&CombineInput {
             evidence,
@@ -797,7 +853,7 @@ pub fn identify_candidate(
     let mut evidence: Vec<Evidence> = Vec::new();
     let mut excluded: Vec<String> = Vec::new();
     match insp.container {
-        Container::Zip if insp.payloads.len() == 1 => {
+        c if c.is_archive() && insp.payloads.len() == 1 => {
             let p = &insp.payloads[0];
             id.content_key = p.crc32.clone().map(|crc| (crc, p.size));
         }
@@ -824,6 +880,18 @@ pub fn identify_candidate(
         evidence.extend(own);
         excluded.extend(p.sniff.excluded.iter().cloned());
     }
+    if let Some(set) = &insp.disc_set {
+        disc_evidence(env.db, set, &mut evidence);
+        id.disc = set.identity.as_ref().map(|f| f.id.clone());
+        if set.sheet_check == SheetCheck::Deferred && set.extractable {
+            id.notes.push(ItemNote::SheetNotReadYet);
+        }
+        if !set.twins.is_empty() {
+            id.notes.push(ItemNote::TwinSheets {
+                kept: set.twins.clone(),
+            });
+        }
+    }
     excluded.sort();
     excluded.dedup();
     if payload_systems.len() > 1 {
@@ -839,7 +907,7 @@ pub fn identify_candidate(
     }
     // 4. Name signals on the outer and inner stems.
     let mut stems: Vec<&str> = vec![strip_numbering_prefix(stem_of(outer_name))];
-    if insp.container == Container::Zip {
+    if insp.container.is_archive() {
         stems.extend(
             insp.payloads
                 .iter()
@@ -852,7 +920,7 @@ pub fn identify_candidate(
     }
     // 5. DAT by CRC.
     let mut crcs: Vec<(String, u64)> = match insp.container {
-        Container::Zip => insp
+        c if c.is_archive() => insp
             .payloads
             .iter()
             .filter_map(|p| p.crc32.clone().map(|c| (c, p.size)))
@@ -917,12 +985,17 @@ pub fn identify_candidate(
     // 8. Arcade sets: a zip with entries but no console ROM.
     let mut arcade_games: BTreeMap<String, String> = BTreeMap::new();
     let mut arcade_alternatives: Vec<(String, f32)> = Vec::new();
-    if insp.container == Container::Zip && insp.payloads.is_empty() && !insp.entries.is_empty() {
+    if insp.container == Container::Zip
+        && insp.disc_set.is_none()
+        && insp.payloads.is_empty()
+        && !insp.entries.is_empty()
+    {
         let set = stem_of(outer_name);
         let inside: HashSet<String> = insp
             .entries
             .iter()
-            .map(|e| e.crc32.to_ascii_uppercase())
+            .filter_map(|e| e.crc32.as_deref())
+            .map(str::to_ascii_uppercase)
             .collect();
         let mut winner = false;
         for system in env.arcade_order {
@@ -955,7 +1028,7 @@ pub fn identify_candidate(
         if let Some((crc, crc_size)) = known {
             if decide(&evidence, &excluded).verdict != Verdict::Auto {
                 let file_name = match insp.container {
-                    Container::Zip => insp
+                    c if c.is_archive() => insp
                         .payloads
                         .first()
                         .map_or(outer_name, |p| p.name.as_str()),
@@ -978,6 +1051,22 @@ pub fn identify_candidate(
     // A cloud-only placeholder is never moved without asking (spec §7.1),
     // even when facts memoised while it was local name its system.
     if cloud_only && combined.verdict == Verdict::Auto && combined.method != Some(IdLevel::User) {
+        combined.verdict = Verdict::Review;
+    }
+    // An archive not fully read within the plan budget is asked about,
+    // never moved on its own (archives spec §4.2).
+    if insp.budget_spent {
+        if combined.verdict == Verdict::Auto && combined.method != Some(IdLevel::User) {
+            combined.verdict = Verdict::Review;
+        }
+        id.notes.push(ItemNote::ArchiveNotFullyRead);
+    }
+    // A disc set guessed from a directory (its sheet unread and off the
+    // Redump pattern, or no sheet) is asked about, never extracted alone.
+    if insp.disc_set.as_ref().is_some_and(|s| !s.extractable)
+        && combined.verdict == Verdict::Auto
+        && combined.method != Some(IdLevel::User)
+    {
         combined.verdict = Verdict::Review;
     }
     if let Some(system) = combined.system.clone() {

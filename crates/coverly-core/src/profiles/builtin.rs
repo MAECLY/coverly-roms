@@ -3,7 +3,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use super::{FolderNaming, ImageFormat, Media, MediaSlot, Profile};
+use super::{
+    default_accepts_containers, default_container_overrides, DiscLayout, FolderNaming, ImageFormat,
+    Media, MediaSlot, Profile,
+};
+use crate::archive::ContainerKind;
 
 /// Largest cover Onion, GarlicOS and Anbernic stock display well (§16.8).
 const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
@@ -73,6 +77,19 @@ const ANBERNIC_FOLDERS: [&str; 55] = [
     "WS",
 ];
 
+/// Flat disc folders without `.m3u` (Onion and spruceOS hide `.bin`, R1-1).
+const FLAT: DiscLayout = DiscLayout::Flat {
+    m3u_for_multi: false,
+};
+/// Flat disc folders plus an `.m3u` per multi-disc game (R1-18, R1-19).
+const FLAT_M3U: DiscLayout = DiscLayout::Flat {
+    m3u_for_multi: true,
+};
+/// One folder per game with an `.m3u` for multi-disc (R1-13, R1-14).
+const GAME_FOLDER: DiscLayout = DiscLayout::GameFolder {
+    m3u_for_multi: true,
+};
+
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -109,6 +126,9 @@ pub fn builtin_profiles() -> Vec<Profile> {
         ),
         Profile {
             system_folder: FolderNaming::FirstAlias,
+            disc_layout: GAME_FOLDER,
+            // MinUI's launcher unpacks `.zip` only (R1-12).
+            accepts_containers: vec![ContainerKind::Zip],
             ..profile(
                 "minui",
                 "MinUI / NextUI",
@@ -119,30 +139,34 @@ pub fn builtin_profiles() -> Vec<Profile> {
                 None,
             )
         },
-        profile(
-            "esde",
-            "ES-DE",
-            "ROMs",
-            &[],
-            true,
-            &[
-                (
-                    Media::Cover,
-                    "{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png",
-                ),
-                (
-                    Media::Screenshot,
-                    "{root}/downloaded_media/{system_id}/screenshots/{rel_dir}/{stem}.png",
-                ),
-                (
-                    Media::Title,
-                    "{root}/downloaded_media/{system_id}/titlescreens/{rel_dir}/{stem}.png",
-                ),
-            ],
-            None,
-        ),
+        Profile {
+            disc_layout: GAME_FOLDER,
+            ..profile(
+                "esde",
+                "ES-DE",
+                "ROMs",
+                &[],
+                true,
+                &[
+                    (
+                        Media::Cover,
+                        "{root}/downloaded_media/{system_id}/covers/{rel_dir}/{stem}.png",
+                    ),
+                    (
+                        Media::Screenshot,
+                        "{root}/downloaded_media/{system_id}/screenshots/{rel_dir}/{stem}.png",
+                    ),
+                    (
+                        Media::Title,
+                        "{root}/downloaded_media/{system_id}/titlescreens/{rel_dir}/{stem}.png",
+                    ),
+                ],
+                None,
+            )
+        },
         Profile {
             gamelist: true,
+            disc_layout: FLAT_M3U,
             ..profile(
                 "batocera",
                 "Batocera / Knulli / EmulationStation",
@@ -162,6 +186,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             fixed_format: true,
+            disc_layout: FLAT_M3U,
             ..profile(
                 "retroarch",
                 "RetroArch",
@@ -245,6 +270,9 @@ fn profile(
         host_folders: BTreeMap::new(),
         arcade_order: strings(&DEFAULT_ARCADE),
         known_folders: Vec::new(),
+        disc_layout: FLAT,
+        accepts_containers: default_accepts_containers(),
+        container_overrides: default_container_overrides(),
     }
 }
 

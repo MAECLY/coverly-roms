@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use clap::{Args, ValueEnum};
+use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
 use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
@@ -22,7 +23,7 @@ use coverly_core::organize::{
     Choice, Decision, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode, OrganizeAction,
     OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
     OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    TransferMode,
+    Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -30,6 +31,7 @@ use coverly_core::profiles::Profile;
 use coverly_core::settings::Settings;
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREENSCRAPER_BASE};
 use coverly_core::systems::SystemDb;
+use coverly_core::write::trash::process_trash;
 
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
@@ -82,6 +84,10 @@ pub struct OrganizeArgs {
     /// Cached catalogues only: no download, no online lookup.
     #[arg(long)]
     offline: bool,
+    /// Never run unrar, 7-Zip or bsdtar: RAR archives (and 7z coders the
+    /// built-in reader lacks) stay where they are.
+    #[arg(long)]
+    no_external_tools: bool,
     /// Show the plan only (the default unless the "dry run by default"
     /// setting is off).
     #[arg(long, conflicts_with = "apply")]
@@ -222,6 +228,7 @@ fn progress_line(p: OrganizeProgress) {
         OrganizePhase::Dats => "catalogues",
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
+        OrganizePhase::Extract { .. } => "extract",
     };
     if p.total == 0 {
         eprintln!("{phase}");
@@ -257,6 +264,9 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         opts.names = n.into();
     }
     opts.offline = args.offline;
+    if args.no_external_tools {
+        opts.limits.external_tools = false;
+    }
     let profiles: Vec<Profile> = all_profiles(&cli.custom)
         .into_iter()
         .map(|(p, _)| p)
@@ -290,11 +300,18 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         }
     };
     let cancel = AtomicBool::new(false);
+    let trash = process_trash();
+    // No tools: an extraction never looks for one (`None` finds them on
+    // first need).
+    let no_tools: &[FoundTool] = &[];
+    let tools = (!opts.limits.external_tools).then_some(no_tools);
     if let Some(job) = &args.resume {
         let env = ApplyEnv {
             data_dir: &dirs.data,
             progress: &progress,
             cancel: &cancel,
+            trash: &*trash,
+            tools,
         };
         return resume(args, job, &source, &env, &db, s);
     }
@@ -384,6 +401,8 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         data_dir: &dirs.data,
         progress: &progress,
         cancel: &cancel,
+        trash: &*trash,
+        tools,
     };
     let report =
         apply_organize(&plan, &env).map_err(|e| apply_failure(e, Some(&plan.target_root)))?;
@@ -545,7 +564,7 @@ fn emit(
 fn slash(path: &Path) -> String {
     path.components()
         .filter_map(|c| match c {
-            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            Component::Normal(s) => Some(table::one_line(&s.to_string_lossy())),
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -596,8 +615,13 @@ pub(crate) fn why_text(e: &Evidence) -> String {
     }
 }
 
-/// Why `reason` keeps a file where it is.
+/// Why `reason` keeps a file where it is, on one line: names read from
+/// an archive or a cue sheet cannot start a forged plan line.
 pub(crate) fn left_text(reason: &LeftReason) -> String {
+    table::one_line(&left_reason_text(reason))
+}
+
+fn left_reason_text(reason: &LeftReason) -> String {
     match reason {
         LeftReason::PartialDownload => "download not finished".into(),
         LeftReason::RecentlyModified => "modified moments ago, may still be written".into(),
@@ -605,10 +629,39 @@ pub(crate) fn left_text(reason: &LeftReason) -> String {
         LeftReason::NotARom { what } => match what {
             NotARom::WebPage => "not a ROM (web page)".into(),
             NotARom::Text => "not a ROM (text)".into(),
+            NotARom::Patch => "not a ROM (a patch: apply it to the original ROM)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
-        LeftReason::UnsupportedArchive => "unsupported archive format".into(),
+        LeftReason::UnsupportedArchive { format, need } => match (format, need) {
+            (Some(format), Some(tool)) => {
+                format!("to open {format} archives, install {}", tool_name(*tool))
+            }
+            (_, Some(tool)) => format!("to open this archive, install {}", tool_name(*tool)),
+            (Some(format), None) => format!("unsupported archive format ({format})"),
+            (None, None) => "unsupported archive format".into(),
+        },
+        LeftReason::EncryptedArchive => "password protected".into(),
+        LeftReason::ArchiveNeedsMemory { mib } => {
+            format!("needs {mib} MB of memory to decompress")
+        }
+        LeftReason::ArchiveTooBig { .. } => "too large to open safely".into(),
+        LeftReason::MultiVolumeArchive { parts } => {
+            format!("multi-part archive ({parts} parts); join them first")
+        }
+        LeftReason::UnsafeArchiveEntry { name, .. } => {
+            format!("contains an unsafe path ({name}); not extracted")
+        }
+        LeftReason::SetUnsafeName { name } => {
+            format!("a game file has a name the card can't store: {name}")
+        }
+        LeftReason::PathTooLong => "the path would be too long for Windows".into(),
+        LeftReason::NestedArchive => "archive inside another archive; extract it first".into(),
+        LeftReason::RepackArcade => "arcade sets must be .zip; repack it".into(),
+        LeftReason::FolderFull { folder } => {
+            format!("the folder {folder} can't hold more files on FAT32")
+        }
+        LeftReason::UnsafeTarget => "the target folder is a link; nothing is written there".into(),
         LeftReason::MultiGameArchive { count } => format!("archive with {count} games"),
         LeftReason::UnsupportedSystem { name } => format!("{name} is not organised"),
         LeftReason::Unknown => "unknown system".into(),
@@ -627,6 +680,15 @@ pub(crate) fn left_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
+    }
+}
+
+/// The program's own name: never translated.
+fn tool_name(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Unrar => "unrar",
+        Tool::SevenZip => "7-Zip",
+        Tool::Bsdtar => "bsdtar",
     }
 }
 
@@ -656,6 +718,22 @@ fn note_text(n: &ItemNote) -> Option<String> {
             )
         }
         ItemNote::Encrypted => "encrypted archive: the header was not read".into(),
+        ItemNote::ContainerMismatch { ext, actual } => format!(
+            "it is a {actual} archive named .{}",
+            ext.trim_start_matches('.')
+        ),
+        ItemNote::TwinSheets { .. } => {
+            "has a .gdi and a .cue for the same tracks; some menus will list the game twice".into()
+        }
+        ItemNote::NoStoredChecksum => "this format stores no checksum; the size is checked".into(),
+        ItemNote::ArchiveNotFullyRead => {
+            "couldn't be read in full during the dry run; please review it".into()
+        }
+        ItemNote::ArchiveKeptLeftovers { count, .. } => {
+            format!("the archive stays: it has {count} files that are not extracted")
+        }
+        ItemNote::SheetNotReadYet => "the .cue sheet is checked while extracting".into(),
+        ItemNote::MultiRomExtract { count } => format!("contains {count} ROMs"),
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -675,6 +753,9 @@ fn warning_text(w: &PlanWarning) -> String {
         PlanWarning::SortedOnly => {
             "nothing loose: every ROM already sits in a system folder".into()
         }
+        PlanWarning::NoSpace { needed, free } => format!(
+            "not enough space on the target: {needed} bytes needed, {free} bytes free"
+        ),
     }
 }
 
@@ -719,6 +800,81 @@ fn item_extras(item: &OrganizeItem) -> String {
     }
 }
 
+/// The system folder an item lands in (`ROMS/PS`): its target's folder
+/// cut after the component named like the item's folder (a per-game
+/// subfolder stays out), else the target's folder.
+fn system_dir(item: &OrganizeItem) -> String {
+    let Some(parent) = item.target.as_deref().and_then(Path::parent) else {
+        return String::new();
+    };
+    let Some(folder) = item.folder.as_deref() else {
+        return slash(parent);
+    };
+    let mut prefix = PathBuf::new();
+    for c in parent.components() {
+        prefix.push(c);
+        if c.as_os_str() == folder {
+            return slash(&prefix);
+        }
+    }
+    slash(parent)
+}
+
+/// `Game.gba → ROMS/GBA/Game.gba`, or for an extraction `Game.zip
+/// extract 12 files 405.7 MB → ROMS/PS/` (the folder of its first file;
+/// a generated playlist is not counted).
+fn action_label(item: &OrganizeItem) -> String {
+    match &item.transfer {
+        Transfer::AsIs => format!(
+            "{} → {}",
+            source_label(item),
+            item.target.as_deref().map(slash).unwrap_or_default()
+        ),
+        Transfer::Extract { entries, bytes, .. } => {
+            let dir = item
+                .target
+                .as_deref()
+                .and_then(Path::parent)
+                .map(slash)
+                .unwrap_or_default();
+            let files = match entries.len() {
+                1 => "1 file".to_string(),
+                n => format!("{n} files"),
+            };
+            format!(
+                "{}  extract {files} {} → {dir}/",
+                source_label(item),
+                table::human_bytes(*bytes)
+            )
+        }
+    }
+}
+
+/// Games the plan extracts and their bytes, when it extracts any.
+fn extract_totals(plan: &OrganizePlan) -> Option<(usize, u64)> {
+    let (games, bytes) = plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto)
+        .filter_map(|i| match &i.transfer {
+            Transfer::Extract { bytes, .. } => Some(*bytes),
+            Transfer::AsIs => None,
+        })
+        .fold((0, 0u64), |(n, b), bytes| (n + 1, b.saturating_add(bytes)));
+    (games > 0).then_some((games, bytes))
+}
+
+/// Says why an archive that needs a program was not opened although the
+/// program may be installed: external programs are off.
+fn tools_off_hint(reason: &LeftReason, opts: &OrganizeOptions) -> &'static str {
+    match reason {
+        LeftReason::UnsupportedArchive { need: Some(_), .. } if !opts.limits.external_tools => {
+            " (external programs are off)"
+        }
+        _ => "",
+    }
+}
+
 /// What happened to an applied plan: counts, skipped and failed items,
 /// how to undo it and how to open the result.
 fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
@@ -733,6 +889,9 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         "\nOrganised: moved {}, copied {}, skipped {}, failed {}{job}",
         report.moved, report.copied, report.skipped, report.failed
     );
+    if report.extracted > 0 {
+        let _ = writeln!(out, "Extracted: {}", report.extracted);
+    }
     let label = |o: &ItemOutcome| {
         plan.items
             .get(o.item)
@@ -746,7 +905,8 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
             ItemStatus::CopiedNotRemoved => {
                 "copied, but the source could not be removed".to_string()
             }
-            ItemStatus::Moved | ItemStatus::Copied => continue,
+            ItemStatus::ExtractedKept => "extracted; the archive stays where it was".to_string(),
+            ItemStatus::Moved | ItemStatus::Copied | ItemStatus::Extracted => continue,
         };
         let _ = writeln!(out, "  {}  {line}", label(o));
     }
@@ -760,7 +920,7 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
         }
         let _ = writeln!(out, "Undo with: coverly undo --job {j}");
     }
-    if report.paused.is_none() && report.moved + report.copied > 0 {
+    if report.paused.is_none() && report.moved + report.copied + report.extracted > 0 {
         let _ = writeln!(
             out,
             "Open it with: coverly fill {} --profile {}",
@@ -792,6 +952,7 @@ fn skip_text(r: SkipReason) -> &'static str {
         SkipReason::CollisionSet => "a file of the game is taken at the target",
         SkipReason::NotDecided => "to review: no system chosen",
         SkipReason::Cancelled => "cancelled",
+        SkipReason::ToolGone => "the archive tool the plan used is gone",
     }
 }
 
@@ -823,13 +984,7 @@ fn render_table(
         if item.action != OrganizeAction::Auto {
             continue;
         }
-        let folder = item
-            .target
-            .as_deref()
-            .and_then(Path::parent)
-            .map(slash)
-            .unwrap_or_default();
-        groups.entry(folder).or_default().push(item);
+        groups.entry(system_dir(item)).or_default().push(item);
     }
     for (folder, items) in &groups {
         let system = items
@@ -840,13 +995,11 @@ fn render_table(
             .unwrap_or_default();
         let _ = writeln!(out, "\n{folder}/  ({}){system}", items.len());
         for item in items {
-            let target = item.target.as_deref().map(slash).unwrap_or_default();
             let why = item.why.first().map(why_text).unwrap_or_default();
             let _ = writeln!(
                 out,
-                "  {} → {}  {}  {why}{}",
-                source_label(item),
-                target,
+                "  {}  {}  {why}{}",
+                action_label(item),
                 confidence_label(item, opts),
                 item_extras(item)
             );
@@ -890,7 +1043,13 @@ fn render_table(
     if !left.is_empty() {
         let _ = writeln!(out, "\nStaying where they are ({})", left.len());
         for (item, reason) in left {
-            let _ = writeln!(out, "  {}  {}", source_label(item), left_text(reason));
+            let _ = writeln!(
+                out,
+                "  {}  {}{}",
+                source_label(item),
+                left_text(reason),
+                tools_off_hint(reason, opts)
+            );
         }
     }
     if !plan.sorted_folders.is_empty() {
@@ -914,6 +1073,14 @@ fn render_table(
             let _ = writeln!(out, "warning: {}", warning_text(w));
         }
     }
+    if let Some((games, bytes)) = extract_totals(plan) {
+        let _ = writeln!(
+            out,
+            "\nExtracting: {games} {} ({})",
+            if games == 1 { "game" } else { "games" },
+            table::human_bytes(bytes)
+        );
+    }
     if dry_run {
         let _ = writeln!(
             out,
@@ -927,6 +1094,39 @@ fn render_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_from_archives_and_paths_stay_on_one_line() {
+        use coverly_core::archive::names::UnsafeWhy;
+        let forged = "a\nROMS/PS/  (1)  forged\r";
+        let reasons = [
+            LeftReason::UnsafeArchiveEntry {
+                name: forged.into(),
+                why: UnsafeWhy::Illegal,
+            },
+            LeftReason::SetUnsafeName {
+                name: forged.into(),
+            },
+            LeftReason::SetIncomplete {
+                missing: vec![forged.into()],
+            },
+            LeftReason::FolderFull {
+                folder: forged.into(),
+            },
+            LeftReason::UnsupportedSystem {
+                name: forged.into(),
+            },
+            LeftReason::AlreadySorted {
+                folder: forged.into(),
+            },
+        ];
+        for r in &reasons {
+            let text = left_text(r);
+            assert!(!text.contains('\n') && !text.contains('\r'), "{text:?}");
+        }
+        let path = PathBuf::from("ROMS").join(forged);
+        assert!(!slash(&path).contains('\n'), "{:?}", slash(&path));
+    }
 
     #[test]
     fn assign_splits_on_the_last_equals() {
@@ -1007,6 +1207,56 @@ mod tests {
         assert_eq!(shell_word("/Volumes/SD"), "/Volumes/SD");
         assert_eq!(shell_word("/tmp/my roms"), "'/tmp/my roms'");
         assert_eq!(shell_word("/tmp/it's"), "'/tmp/it'\\''s'");
+    }
+
+    #[test]
+    fn archive_reasons_and_notes_follow_the_spec_copy() {
+        let unsupported = |format: Option<&str>, need| LeftReason::UnsupportedArchive {
+            format: format.map(str::to_string),
+            need,
+        };
+        assert_eq!(
+            left_text(&unsupported(Some("RAR"), Some(Tool::SevenZip))),
+            "to open RAR archives, install 7-Zip"
+        );
+        assert_eq!(
+            left_text(&unsupported(None, Some(Tool::Unrar))),
+            "to open this archive, install unrar"
+        );
+        assert_eq!(
+            left_text(&unsupported(Some("lzh"), None)),
+            "unsupported archive format (lzh)"
+        );
+        assert_eq!(
+            left_text(&unsupported(None, None)),
+            "unsupported archive format"
+        );
+        assert_eq!(
+            left_text(&LeftReason::ArchiveNeedsMemory { mib: 1536 }),
+            "needs 1536 MB of memory to decompress"
+        );
+        assert_eq!(
+            left_text(&LeftReason::MultiVolumeArchive { parts: 3 }),
+            "multi-part archive (3 parts); join them first"
+        );
+        for ext in ["zip", ".zip"] {
+            let note = ItemNote::ContainerMismatch {
+                ext: ext.into(),
+                actual: "7z".into(),
+            };
+            assert_eq!(
+                note_text(&note).as_deref(),
+                Some("it is a 7z archive named .zip")
+            );
+        }
+        let kept = ItemNote::ArchiveKeptLeftovers {
+            count: 2,
+            examples: vec!["Game.sav".into()],
+        };
+        assert_eq!(
+            note_text(&kept).as_deref(),
+            Some("the archive stays: it has 2 files that are not extracted")
+        );
     }
 
     #[test]

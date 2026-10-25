@@ -93,8 +93,13 @@ fn containers_are_recognised_not_read() {
     );
     assert_eq!(
         run(b"Rar!\x1a\x07\x01\x00", "rar").container,
-        Some(ContainerMagic::Rar)
+        Some(ContainerMagic::Rar5)
     );
+    // Raw code that starts like a weak magic (`60 EA` = 6502 RTS NOP) is
+    // not taken for a container, so header identification still runs.
+    let mut code = vec![0x60, 0xEA, 0x28, 0x00, 0x1E, 0x0B];
+    code.resize(4096, 0xEA);
+    assert_eq!(run(&code, "a26").container, None);
 }
 
 #[test]
@@ -608,4 +613,31 @@ fn cso_larger_than_a_umd_is_not_psp() {
     let mut cso = fx::cso();
     cso[8..16].copy_from_slice(&(4u64 * 1024 * 1024 * 1024).to_le_bytes());
     assert_eq!(best(&run(&cso, "cso")), None);
+}
+
+#[test]
+fn disc_rows_carry_serials() {
+    use coverly_core::disc::testing as dt;
+    // The head-magic verdicts are today's; the serial comes from `disc::`.
+    let saturn = run(&dt::saturn_track("T-5704H   "), "bin");
+    assert_eq!(best(&saturn), Some(("saturn".into(), 0.90)));
+    assert_eq!(saturn.serial.as_deref(), Some("T-5704H"));
+    let dc = run(&dt::dreamcast_track03("T-40214N  ", "1/1"), "bin");
+    assert_eq!(best(&dc), Some(("dreamcast".into(), 0.90)));
+    assert_eq!(dc.serial.as_deref(), Some("T-40214N"));
+    let segacd = run(&dt::segacd_track(), "bin");
+    assert_eq!(best(&segacd), Some(("segacd".into(), 0.95)));
+    assert_eq!(segacd.serial.as_deref(), Some("MK-4407"));
+    for raw in [false, true] {
+        let ps1 = run(&fx::psx_iso(raw, false), "bin");
+        assert_eq!(ps1.serial.as_deref(), Some("SLUS-00001"), "raw={raw}");
+        let ps2 = run(&fx::psx_iso(raw, true), "iso");
+        assert_eq!(ps2.serial.as_deref(), Some("SLUS-20001"), "raw={raw}");
+    }
+    // The bare magic fixtures have no product number; carts have no serial.
+    assert_eq!(run(&fx::saturn(), "iso").serial, None);
+    assert_eq!(run(&fx::md(), "md").serial, None);
+    let mut iso = fx::psx_iso(false, false);
+    fx::drop_system_cnf(&mut iso);
+    assert_eq!(run(&iso, "iso").serial, None);
 }

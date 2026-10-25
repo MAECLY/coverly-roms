@@ -11,7 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::organize::plan::{
-    Companion, ItemKind, ItemNote, LeftReason, NameMode, OrganizeItem, RenameReason,
+    Companion, ExtractEntry, ItemKind, ItemNote, LeftReason, NameMode, OrganizeItem, RenameReason,
+    Transfer,
 };
 use crate::profiles::naming::{system_folder, FolderChoice};
 use crate::profiles::Profile;
@@ -26,6 +27,15 @@ const FAT32_LIMIT: u64 = 4 << 30;
 const WINDOWS_MAX_PATH: usize = 259;
 /// Longest file name FAT/exFAT and most file systems store, in bytes.
 const MAX_NAME_BYTES: usize = 255;
+/// Longest file name FAT/NTFS store, in UTF-16 units.
+const MAX_NAME_UNITS: usize = 255;
+/// Deepest an extracted file may lie below its system folder, in
+/// components (archives spec §8.2).
+const MAX_EXTRACT_DEPTH: usize = 16;
+/// Longest temp name an extraction writes beside a final file:
+/// `.coverly-<job>-<n>.tmp` with a 26-character job id
+/// (`20261024T121930Z-ffff-ffff`) and a `u32` counter.
+pub const TEMP_NAME_MAX: usize = ".coverly-".len() + 26 + 1 + 10 + ".tmp".len();
 
 /// Companion extensions followed by default (spec §7.4); `state*` matches
 /// `state`, `state1`, `state.auto`…
@@ -119,6 +129,13 @@ impl DirIndex {
         Some(dir.join(found))
     }
 
+    /// `name` (ignoring case and Unicode normalisation) was claimed in
+    /// `dir` by an earlier item.
+    pub fn claimed(&mut self, dir: &Path, name: &str) -> bool {
+        let key = name_key(name);
+        self.names(dir).claimed.contains(&key)
+    }
+
     /// Reserves `name` in `dir` for a planned item.
     pub fn claim(&mut self, dir: &Path, name: &str) {
         let key = name_key(name);
@@ -129,6 +146,28 @@ impl DirIndex {
     pub fn read_dirs(&self) -> usize {
         self.reads
     }
+}
+
+/// How the entries of an `Extract` item are laid out (archives spec §8.2,
+/// §8.3). The planner sets the item's transfer to [`Transfer::Extract`]
+/// with the chosen entries (targets still empty) and hands one shape per
+/// item to [`assign_targets_with_extracts`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExtractShape {
+    /// Cartridge ROMs: each lands under its base name in the system
+    /// folder; one ROM may take the catalogue name like a loose file.
+    Roms,
+    /// A disc set, laid out by the profile's [`DiscLayout`].
+    ///
+    /// [`DiscLayout`]: crate::profiles::DiscLayout
+    Disc {
+        /// One entry name per disc, in disc order (the playlist lines).
+        discs: Vec<String>,
+        /// A multi-disc game's name without disc tags (its folder and
+        /// playlist name).
+        title: String,
+        multi_disc: bool,
+    },
 }
 
 /// `layout.roms_dir`, reusing an existing folder in another casing.
@@ -207,6 +246,34 @@ pub fn assign_targets(
     index: &mut DirIndex,
     same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
 ) -> Vec<(PathBuf, LeftReason)> {
+    assign_targets_with_extracts(
+        items,
+        &[],
+        layout,
+        db,
+        source_root,
+        companions,
+        index,
+        same_content,
+    )
+}
+
+/// [`assign_targets`] where `shapes[i]` lays out item `i` when its
+/// transfer is [`Transfer::Extract`] ([`assign_extract_targets`]). Every
+/// item, moved or extracted, claims its names in plan order, so the first
+/// item keeps a contested name and a later one stays (`CollisionSet`) or
+/// is numbered.
+#[allow(clippy::too_many_arguments)]
+pub fn assign_targets_with_extracts(
+    items: &mut [OrganizeItem],
+    shapes: &[Option<ExtractShape>],
+    layout: &TargetLayout,
+    db: &SystemDb,
+    source_root: &Path,
+    companions: &[PathBuf],
+    index: &mut DirIndex,
+    same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
+) -> Vec<(PathBuf, LeftReason)> {
     let roms = resolved_roms_dir(layout);
     let mut folders: HashMap<String, (PathBuf, FolderChoice)> = HashMap::new();
     let mut dirs: Vec<Option<(PathBuf, FolderChoice)>> = Vec::with_capacity(items.len());
@@ -250,11 +317,27 @@ pub fn assign_targets(
             continue;
         }
         let comps: Vec<&Comp> = attached[pos].iter().collect();
-        let outcome = match item.kind {
-            ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
-            ItemKind::File | ItemKind::Archive => {
-                plan_single(item, dir, layout, &comps, index, same_content)
+        let shape = shapes.get(pos).and_then(Option::as_ref);
+        let outcome = match (shape, &item.transfer) {
+            (Some(shape), Transfer::Extract { .. }) => {
+                assign_extract_targets(item, shape, dir, layout, &comps, index)
             }
+            _ => match item.kind {
+                ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
+                ItemKind::File | ItemKind::Archive => {
+                    let original = file_name(&item.sources[0]);
+                    let stem = split_name(&original).0.to_string();
+                    plan_single(
+                        item,
+                        (&original, &stem),
+                        dir,
+                        layout,
+                        &comps,
+                        index,
+                        same_content,
+                    )
+                }
+            },
         };
         match outcome {
             Planned::Placed(placed) => {
@@ -265,6 +348,12 @@ pub fn assign_targets(
                 item.target = Some(rel(&placed.target));
                 item.set_targets = placed.set_targets.iter().map(|p| rel(p)).collect();
                 item.rename = placed.rename;
+                if let Transfer::Extract { entries, m3u, .. } = &mut item.transfer {
+                    for (entry, target) in entries.iter_mut().zip(&placed.entry_targets) {
+                        entry.target = rel(target);
+                    }
+                    *m3u = placed.m3u.as_deref().map(rel);
+                }
                 item.companions = placed
                     .companions
                     .into_iter()
@@ -367,6 +456,11 @@ fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
 }
 
 fn too_big_for_fat(item: &OrganizeItem) -> bool {
+    // An extracted file is judged by its own declared size, not the
+    // archive's (archives spec §8.4).
+    if let Transfer::Extract { entries, .. } = &item.transfer {
+        return entries.iter().any(|e| e.size >= FAT32_LIMIT);
+    }
     let largest_source = item.fps.iter().map(|fp| fp.size).max();
     let largest = match item.kind {
         ItemKind::Set => largest_source.unwrap_or(item.size),
@@ -389,6 +483,10 @@ struct Placed {
     companions: Vec<(PathBuf, PathBuf)>,
     /// Every (folder, name) to claim.
     claims: Vec<(PathBuf, String)>,
+    /// The target of each extracted entry, in the transfer's order.
+    entry_targets: Vec<PathBuf>,
+    /// A generated playlist.
+    m3u: Option<PathBuf>,
 }
 
 /// One search for a free name from a base stem.
@@ -404,25 +502,28 @@ enum Search {
     CompanionBlocked,
 }
 
+/// One file named `original` in `dir`; companions beside the source
+/// matched `companion_stem` (the source's stem, or the archive's stem
+/// for a ROM extracted from it).
 fn plan_single(
     item: &OrganizeItem,
+    (original, companion_stem): (&str, &str),
     dir: &Path,
     layout: &TargetLayout,
     comps: &[&Comp],
     index: &mut DirIndex,
     same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
 ) -> Planned {
-    let original = file_name(&item.sources[0]);
-    let (original_stem, _) = split_name(&original);
-    let keep = safe_base(&original, &original, false);
+    let original_stem = companion_stem;
+    let keep = safe_base(original, original, false);
     let catalogue = match (&layout.names, &item.catalogue_name) {
         (NameMode::Catalogue, Some(game)) if !game.trim().is_empty() => {
-            let ext = split_name(&original).1;
+            let ext = split_name(original).1;
             let wanted = match ext {
                 Some(ext) => format!("{}.{ext}", game.trim()),
                 None => game.trim().to_string(),
             };
-            let base = safe_base(&wanted, &original, true);
+            let base = safe_base(&wanted, original, true);
             (base.name != keep.name).then_some(base)
         }
         _ => None,
@@ -486,6 +587,8 @@ fn plan_single(
                 rename,
                 companions,
                 claims,
+                entry_targets: Vec::new(),
+                m3u: None,
             })
         }
     }
@@ -693,7 +796,348 @@ fn plan_set(
         rename: None,
         companions,
         claims,
+        entry_targets: Vec::new(),
+        m3u: None,
     })
+}
+
+/// Lays out the entries of an `Extract` item in `dir`, its system folder
+/// (archives spec §8.2, §8.3), checking names, lengths and collisions
+/// against what is on disk and what earlier items reserved in `index`:
+///
+/// - [`ExtractShape::Roms`]: one ROM is named like a loose file (FAT-safe,
+///   catalogue name, ` (n)` on a collision, *already present* when the
+///   same bytes are there); several keep their base names and any
+///   collision leaves the item (`CollisionSet`).
+/// - [`ExtractShape::Disc`]: paths are kept relative to the members'
+///   common folder in the archive, which is dropped in a flat layout and
+///   replaced by `<stem>/` in a game-folder one; member names are never
+///   changed (sheets reference them), so a name the target cannot store
+///   is `SetUnsafeName`, a path over the limits `PathTooLong`, and any
+///   collision `CollisionSet`. A multi-disc game gets a `<title>.m3u`
+///   when the profile asks for one and the archive holds none.
+///
+/// Every final path is checked against 255 bytes and UTF-16 units per
+/// component and, with `layout.windows_paths`, 259 units for both the
+/// final path and the temp file written beside it.
+fn assign_extract_targets(
+    item: &OrganizeItem,
+    shape: &ExtractShape,
+    dir: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let Transfer::Extract { entries, .. } = &item.transfer else {
+        return Planned::Left(LeftReason::Unknown);
+    };
+    if entries.is_empty() {
+        return Planned::Left(LeftReason::Unknown);
+    }
+    match shape {
+        ExtractShape::Roms if entries.len() == 1 => {
+            extract_one_rom(item, &entries[0], dir, layout, comps, index)
+        }
+        ExtractShape::Roms => {
+            let mut targets = Vec::with_capacity(entries.len());
+            for e in entries {
+                // No safe spelling at all (only dots and spaces): the OS
+                // would store another name than the one planned.
+                let Ok(safe) = safe_file_name(base_name(&e.name)) else {
+                    return Planned::Left(LeftReason::SetUnsafeName {
+                        name: e.name.clone(),
+                    });
+                };
+                targets.push(dir.join(safe));
+            }
+            place_extracted(targets, None, dir, dir, layout, comps, index)
+        }
+        ExtractShape::Disc {
+            discs,
+            title,
+            multi_disc,
+        } => extract_disc(
+            entries,
+            (discs, title, *multi_disc),
+            dir,
+            layout,
+            comps,
+            index,
+        ),
+    }
+}
+
+/// One cartridge ROM out of an archive: named like a loose file.
+fn extract_one_rom(
+    item: &OrganizeItem,
+    entry: &ExtractEntry,
+    dir: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let original = base_name(&entry.name).to_string();
+    let archive = file_name(&item.sources[0]);
+    let companion_stem = split_name(&archive).0.to_string();
+    let same = |existing: &Path, _: &OrganizeItem| same_as_entry(existing, entry);
+    let mut planned = plan_single(
+        item,
+        (&original, &companion_stem),
+        dir,
+        layout,
+        comps,
+        index,
+        &same,
+    );
+    if let Planned::Placed(placed) = &mut planned {
+        if let Some(reason) = check_lengths(dir, &placed.target, layout.windows_paths) {
+            return Planned::Left(reason);
+        }
+        placed.entry_targets = vec![placed.target.clone()];
+    }
+    planned
+}
+
+/// A disc set out of an archive, laid out per the profile.
+fn extract_disc(
+    entries: &[ExtractEntry],
+    (discs, title, multi_disc): (&[String], &str, bool),
+    dir: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let disc_layout = layout.profile.disc_layout;
+    let first = discs
+        .first()
+        .map(String::as_str)
+        .unwrap_or(entries[0].name.as_str());
+    // `<stem>`: the primary sheet's stem, a multi-disc game's title.
+    let stem = if multi_disc && !title.trim().is_empty() {
+        title.trim().to_string()
+    } else {
+        split_name(base_name(first)).0.to_string()
+    };
+    // The folder and the playlist are no set members (no sheet names
+    // them), so a title the card cannot store as it is gets the safe
+    // spelling (`Vol.` → `Vol`, `CON` → `_CON`); members keep theirs.
+    let safe_stem = || safe_file_name(&stem).ok();
+    let unsafe_stem = || Planned::Left(LeftReason::SetUnsafeName { name: stem.clone() });
+    let folder = if disc_layout.is_game_folder() {
+        let Some(safe) = safe_stem() else {
+            return unsafe_stem();
+        };
+        match game_folder(dir, &safe, index) {
+            Some(folder) => folder,
+            None => return Planned::Left(LeftReason::CollisionSet),
+        }
+    } else {
+        dir.to_path_buf()
+    };
+    let common = common_folder(entries.iter().map(|e| e.name.as_str()));
+    let mut targets = Vec::with_capacity(entries.len());
+    for e in entries {
+        let inner = e.name[common.len()..].trim_start_matches('/');
+        let mut target = folder.clone();
+        for part in inner.split('/').filter(|p| !p.is_empty()) {
+            if name_too_long(part) {
+                return Planned::Left(LeftReason::PathTooLong);
+            }
+            if safe_file_name(part).ok().as_deref() != Some(part) {
+                return Planned::Left(LeftReason::SetUnsafeName {
+                    name: e.name.clone(),
+                });
+            }
+            target.push(part);
+        }
+        targets.push(target);
+    }
+    let has_playlist = entries.iter().any(|e| {
+        split_name(base_name(&e.name))
+            .1
+            .is_some_and(|x| x.eq_ignore_ascii_case("m3u"))
+    });
+    let m3u = if multi_disc && disc_layout.m3u_for_multi() && !has_playlist {
+        match safe_stem() {
+            Some(safe) => Some(folder.join(format!("{safe}.m3u"))),
+            None => return unsafe_stem(),
+        }
+    } else {
+        None
+    };
+    if let Some(m3u) = &m3u {
+        let name = file_name(m3u);
+        if safe_file_name(&name).ok().as_deref() != Some(name.as_str()) {
+            return Planned::Left(LeftReason::SetUnsafeName { name });
+        }
+    }
+    // The playlist's sheet or image first: what the dry run shows.
+    let primary = entries.iter().position(|e| e.name == first).unwrap_or(0);
+    place_extracted(targets, m3u, dir, &folder, layout, comps, index).map_placed(|p| {
+        p.target = p.entry_targets[primary].clone();
+        // The game folder's own name, so no later item (another archive
+        // whose stem differs only in case) shares it.
+        if folder != dir {
+            p.claims.push((dir.to_path_buf(), file_name(&folder)));
+        }
+    })
+}
+
+/// The folder `stem` in `dir` a game-folder extraction writes into: an
+/// existing real folder of that name in any case is reused under its own
+/// spelling; one an earlier item claimed, or a file or link in its place,
+/// is a collision (`None`).
+fn game_folder(dir: &Path, stem: &str, index: &mut DirIndex) -> Option<PathBuf> {
+    if index.claimed(dir, stem) {
+        return None;
+    }
+    match index.existing(dir, stem) {
+        Some(existing) => fs::symlink_metadata(&existing)
+            .is_ok_and(|m| m.is_dir())
+            .then_some(existing),
+        None => Some(dir.join(stem)),
+    }
+}
+
+impl Planned {
+    fn map_placed(mut self, f: impl FnOnce(&mut Placed)) -> Planned {
+        if let Planned::Placed(p) = &mut self {
+            f(p);
+        }
+        self
+    }
+}
+
+/// Reserves `targets` (one per extracted entry), the playlist and the
+/// companions (into `folder`, names kept): lengths first, then any name
+/// taken on disk, by an earlier item or twice within the item →
+/// `CollisionSet`.
+#[allow(clippy::too_many_arguments)]
+fn place_extracted(
+    targets: Vec<PathBuf>,
+    m3u: Option<PathBuf>,
+    dir: &Path,
+    folder: &Path,
+    layout: &TargetLayout,
+    comps: &[&Comp],
+    index: &mut DirIndex,
+) -> Planned {
+    let companions: Vec<(PathBuf, PathBuf)> = comps
+        .iter()
+        .map(|c| (c.rel.clone(), folder.join(&c.file_name)))
+        .collect();
+    let all: Vec<&PathBuf> = targets
+        .iter()
+        .chain(&m3u)
+        .chain(companions.iter().map(|(_, t)| t))
+        .collect();
+    for path in &all {
+        if let Some(reason) = check_lengths(dir, path, layout.windows_paths) {
+            return Planned::Left(reason);
+        }
+    }
+    let mut claims: Vec<(PathBuf, String)> = Vec::with_capacity(all.len());
+    let mut keys: HashSet<(String, String)> = HashSet::new();
+    for path in all {
+        let parent = path.parent().unwrap_or(dir).to_path_buf();
+        let name = file_name(path);
+        let key = (name_key(&parent.to_string_lossy()), name_key(&name));
+        if !keys.insert(key) || index.taken(&parent, &name) {
+            return Planned::Left(LeftReason::CollisionSet);
+        }
+        claims.push((parent, name));
+    }
+    Planned::Placed(Placed {
+        target: targets[0].clone(),
+        set_targets: Vec::new(),
+        rename: None,
+        companions,
+        claims,
+        entry_targets: targets,
+        m3u,
+    })
+}
+
+/// Why `path` (below the system folder `dir`) cannot be written as it is:
+/// a component over 255 bytes or UTF-16 units, more than
+/// [`MAX_EXTRACT_DEPTH`] components below `dir`, or, with
+/// `windows_paths`, the path or the temp file beside it over 259 units.
+fn check_lengths(dir: &Path, path: &Path, windows_paths: bool) -> Option<LeftReason> {
+    let below = path.strip_prefix(dir).unwrap_or(path);
+    let parts: Vec<String> = below
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if parts.len() > MAX_EXTRACT_DEPTH || parts.iter().any(|p| name_too_long(p)) {
+        return Some(LeftReason::PathTooLong);
+    }
+    if windows_paths {
+        let units = |p: &Path| p.to_string_lossy().encode_utf16().count();
+        let parent = path.parent().unwrap_or(dir);
+        let temp = units(parent) + 1 + TEMP_NAME_MAX;
+        if units(path).max(temp) > WINDOWS_MAX_PATH {
+            return Some(LeftReason::PathTooLong);
+        }
+    }
+    None
+}
+
+/// A file name over 255 UTF-8 bytes (APFS, ext4) or 255 UTF-16 units
+/// (FAT, NTFS).
+fn name_too_long(name: &str) -> bool {
+    name.len() > MAX_NAME_BYTES || name.encode_utf16().count() > MAX_NAME_UNITS
+}
+
+/// The last component of an archive entry name (`/`-separated).
+fn base_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
+/// The longest folder prefix (ending in `/`, or empty) every name shares.
+fn common_folder<'a>(mut names: impl Iterator<Item = &'a str>) -> String {
+    let Some(first) = names.next() else {
+        return String::new();
+    };
+    let mut prefix: Vec<&str> = first.split('/').collect();
+    prefix.pop();
+    for name in names {
+        let mut parts: Vec<&str> = name.split('/').collect();
+        parts.pop();
+        let same = prefix
+            .iter()
+            .zip(&parts)
+            .take_while(|(a, b)| a == b)
+            .count();
+        prefix.truncate(same);
+    }
+    prefix.iter().map(|p| format!("{p}/")).collect()
+}
+
+/// Whether the file at `existing` holds the entry's bytes: same size and,
+/// when the listing stores one, same CRC32.
+fn same_as_entry(existing: &Path, entry: &ExtractEntry) -> bool {
+    let Ok(meta) = fs::metadata(existing) else {
+        return false;
+    };
+    let Some(crc) = entry.crc32 else {
+        return false;
+    };
+    meta.len() == entry.size && file_crc32(existing) == Some(crc)
+}
+
+fn file_crc32(path: &Path) -> Option<u32> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = crc32fast::Hasher::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => return Some(hasher.finalize()),
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
 }
 
 /// Leaves every item but one of each content group in place as a
@@ -725,10 +1169,116 @@ pub fn mark_duplicates(items: &mut [OrganizeItem], keys: &[Option<(String, u64)>
     }
 }
 
+#[cfg(feature = "test-util")]
+thread_local! {
+    static FAT32: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook: makes [`file_system_is_fat32`] on the calling thread answer
+/// `fat32`. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_fat32_override(fat32: Option<bool>) {
+    FAT32.with(|c| c.set(fat32));
+}
+
+/// Directory slots a FAT32 folder may use once a plan is applied: a
+/// folder holds at most 65,536 32-byte slots; the rest is headroom
+/// (archives spec §8.2).
+pub const FAT_DIR_SLOTS_MAX: u64 = 65_000;
+
+/// The 32-byte directory slots `name` takes on FAT32: its long-name
+/// slots (13 UTF-16 units each) plus the short-name slot.
+pub fn fat_name_slots(name: &str) -> u64 {
+    (name.encode_utf16().count() as u64).div_ceil(13) + 1
+}
+
+/// The directory slots `dir` uses now: `.` and `..` plus every entry's
+/// name. A folder that does not exist (or cannot be listed) is counted
+/// as a new, empty one.
+pub fn fat_dir_slots(dir: &Path) -> u64 {
+    let names: u64 = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| fat_name_slots(&e.file_name().to_string_lossy()))
+            .sum(),
+        Err(_) => 0,
+    };
+    2 + names
+}
+
+/// Every path a placed item writes, absolute: its files (or extracted
+/// entries and playlist) and its companions.
+fn written_paths(item: &OrganizeItem, target_root: &Path) -> Vec<PathBuf> {
+    let mut rel: Vec<&PathBuf> = match &item.transfer {
+        Transfer::Extract { entries, m3u, .. } => {
+            entries.iter().map(|e| &e.target).chain(m3u).collect()
+        }
+        Transfer::AsIs => item.target.iter().chain(&item.set_targets).collect(),
+    };
+    rel.extend(item.companions.iter().map(|c| &c.target));
+    rel.into_iter().map(|p| target_root.join(p)).collect()
+}
+
+/// On a FAT32 target, leaves with [`LeftReason::FolderFull`] every placed
+/// item, in plan order, that would take a folder past
+/// [`FAT_DIR_SLOTS_MAX`] slots: the folder's existing entries plus every
+/// file and new sub-folder planned before it (archives spec §8.2).
+pub fn limit_fat_folders(items: &mut [OrganizeItem], target_root: &Path) {
+    let mut used: HashMap<PathBuf, u64> = HashMap::new();
+    let mut created: HashSet<PathBuf> = HashSet::new();
+    for item in items.iter_mut().filter(|i| !i.is_left()) {
+        let paths = written_paths(item, target_root);
+        if paths.is_empty() {
+            continue;
+        }
+        let mut charge: BTreeMap<PathBuf, u64> = BTreeMap::new();
+        let mut new_dirs: Vec<PathBuf> = Vec::new();
+        for path in &paths {
+            let Some(parent) = path.parent() else {
+                continue;
+            };
+            *charge.entry(parent.to_path_buf()).or_default() += fat_name_slots(&file_name(path));
+            // Folders the item creates take a slot set in their parent.
+            let mut dir = parent;
+            while dir != target_root
+                && dir.starts_with(target_root)
+                && !created.contains(dir)
+                && !new_dirs.iter().any(|d| d == dir)
+                && !dir.is_dir()
+            {
+                let Some(up) = dir.parent() else { break };
+                new_dirs.push(dir.to_path_buf());
+                *charge.entry(up.to_path_buf()).or_default() += fat_name_slots(&file_name(dir));
+                dir = up;
+            }
+        }
+        let full = charge.iter().find(|(dir, add)| {
+            let now = *used
+                .entry((*dir).clone())
+                .or_insert_with(|| fat_dir_slots(dir));
+            now + **add > FAT_DIR_SLOTS_MAX
+        });
+        if let Some((dir, _)) = full {
+            let folder = file_name(dir);
+            item.leave(LeftReason::FolderFull { folder });
+            continue;
+        }
+        for (dir, add) in charge {
+            *used.entry(dir).or_insert(2) += add;
+        }
+        created.extend(new_dirs);
+    }
+}
+
 /// Whether `path` (or its nearest existing ancestor) is on FAT32: macOS
 /// `statfs` type `msdos`, Linux the longest matching mount of type `vfat`,
 /// Windows `GetVolumeInformationW` name `FAT32`. Any error → `false`.
 pub fn file_system_is_fat32(path: &Path) -> bool {
+    #[cfg(feature = "test-util")]
+    if let Some(fat32) = FAT32.with(std::cell::Cell::get) {
+        return fat32;
+    }
     match path.ancestors().find(|p| p.exists()) {
         Some(existing) => fs_is_fat32(existing),
         None => false,

@@ -432,7 +432,17 @@ fn draft_from_facts(
             _ => return Err(Some(Exclusion::MultiGameArchive)),
         },
         Container::Chd => (UnitKind::Chd, None),
-        Container::SevenZip | Container::Rar => (UnitKind::Single, None),
+        // Opaque archives until dedupe phase B lists them.
+        Container::SevenZip
+        | Container::Rar
+        | Container::Tar
+        | Container::Gzip
+        | Container::Bzip2
+        | Container::Xz
+        | Container::Zstd
+        | Container::Lz4
+        | Container::Lzma
+        | Container::MultiVolume => (UnitKind::Single, None),
         Container::Raw => raw_kind(&ext, meta.len()),
     };
     let stem = path
@@ -498,18 +508,18 @@ fn classify(
         _ => {}
     }
     let probe = probe_magic(path, ext)?;
-    let want = match ext {
-        "zip" => Some(ContainerMagic::Zip),
-        "7z" => Some(ContainerMagic::SevenZip),
-        "chd" => Some(ContainerMagic::Chd),
-        "rar" => Some(ContainerMagic::Rar),
+    let want: Option<fn(ContainerMagic) -> bool> = match ext {
+        "zip" => Some(|m| m == ContainerMagic::Zip),
+        "7z" => Some(|m| m == ContainerMagic::SevenZip),
+        "chd" => Some(|m| m == ContainerMagic::Chd),
+        "rar" => Some(ContainerMagic::is_rar),
         _ => None,
     };
     match want {
-        Some(magic) => {
+        Some(is_own) => {
             // A container must open with its own magic: text or anything
             // else saved under its name is not a ROM.
-            if probe.not_a_rom.is_some() || probe.container != Some(magic) {
+            if probe.not_a_rom.is_some() || !probe.container.is_some_and(is_own) {
                 return Err(Some(Exclusion::NotARom));
             }
         }

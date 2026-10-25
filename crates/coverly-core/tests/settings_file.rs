@@ -1170,3 +1170,76 @@ fn normalise_cleans_dedupe_lists() {
     assert_eq!(s.dedupe.exclude_systems, ["ports", "bios"]);
     assert_eq!(s.dedupe.quarantine_name.as_deref(), Some("_Duplicados"));
 }
+
+#[test]
+fn external_tools_defaults_to_auto() {
+    let s = Settings::default();
+    assert_eq!(s.organize.external_tools, ExternalTools::Auto);
+    let json = serde_json::to_value(&s).unwrap();
+    assert_eq!(json["organize"]["external_tools"], json!("auto"));
+    let opts = coverly_core::organize::OrganizeOptions::from_settings(&s, None);
+    assert!(opts.limits.external_tools, "auto lets external tools run");
+    assert_eq!(opts.limits, coverly_core::archive::Limits::default());
+}
+
+#[test]
+fn external_tools_off_round_trips() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Settings::default();
+    s.organize.external_tools = ExternalTools::Off;
+    save_settings(dir.path(), &s).unwrap();
+    let text = fs::read_to_string(dir.path().join(SETTINGS_FILE)).unwrap();
+    assert!(text.contains(r#""external_tools": "off""#), "{text}");
+    let (back, report) = load_settings(dir.path(), &known());
+    assert_eq!(back.organize.external_tools, ExternalTools::Off);
+    assert_eq!(report.notice, None);
+    let opts = coverly_core::organize::OrganizeOptions::from_settings(&back, None);
+    assert!(
+        !opts.limits.external_tools,
+        "off keeps external tools from running"
+    );
+
+    // A UI patch turns it off and back on; a bad value names the field.
+    let off = Settings::default()
+        .with_patch(&json!({"organize": {"external_tools": "off"}}), &known())
+        .unwrap();
+    assert_eq!(off.organize.external_tools, ExternalTools::Off);
+    let on = off
+        .with_patch(&json!({"organize": {"external_tools": "auto"}}), &known())
+        .unwrap();
+    assert_eq!(on.organize.external_tools, ExternalTools::Auto);
+    let errors = Settings::default()
+        .with_patch(&json!({"organize": {"external_tools": "always"}}), &known())
+        .unwrap_err();
+    assert_eq!(
+        codes(&errors),
+        [(
+            "organize.external_tools".to_string(),
+            FieldErrorCode::Invalid
+        )]
+    );
+}
+
+#[test]
+fn old_settings_file_without_field_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":2,"organize":{"mode":"copy","recent_seconds":30}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.organize.external_tools, ExternalTools::Auto);
+    assert_eq!(s.organize.mode, OrganizeModeSetting::Copy);
+    assert_eq!(s.organize.recent_seconds, 30);
+    assert!(report.fixed.is_empty(), "{:?}", report.fixed);
+
+    // A value this version does not know resets only that field.
+    write(
+        dir.path(),
+        r#"{"version":2,"organize":{"external_tools":"sometimes","mode":"copy"}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.organize.external_tools, ExternalTools::Auto);
+    assert_eq!(s.organize.mode, OrganizeModeSetting::Copy);
+    assert_eq!(report.fixed, ["organize.external_tools"]);
+}

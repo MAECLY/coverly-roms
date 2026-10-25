@@ -6,6 +6,7 @@ import type { Backend } from '../backend';
 import { BackendError } from '../errors';
 import type {
   EntryView,
+  FoundTool,
   LibraryView,
   Media,
   ProfileInfo,
@@ -16,6 +17,7 @@ import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import {
   createMockOrganize,
+  ORGANIZE_SYSTEMS,
   readMockPick,
   type MockOrganizeTouch,
 } from './mockOrganize';
@@ -29,7 +31,12 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
-export { MOCK_DOWNLOADS, MOCK_MIXED, MOCK_PICK_KEY } from './mockOrganize';
+export {
+  MOCK_DOWNLOADS,
+  MOCK_MIXED,
+  MOCK_PICK_KEY,
+  MOCK_SAMPLE,
+} from './mockOrganize';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -59,6 +66,9 @@ export interface MockOptions {
   /** What "Open folder…" picks (default: `?mockPick=`, then localStorage
    * `coverly.mock.pick`, then the first fixture library). */
   folder?: string;
+  /** The external archive tools Settings → Organise lists as found
+   * (default none). */
+  externalTools?: readonly FoundTool[];
 }
 
 export interface MockBackend extends Backend {
@@ -145,6 +155,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'minui',
+      accepts_containers: ['zip'],
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       name: 'MinUI / NextUI',
       roms_root: 'Roms',
       art_dirs: ['.media', '.res'],
@@ -157,6 +169,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       name: 'ES-DE',
       roms_root: 'ROMs',
       art_dirs: [],
@@ -180,6 +193,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
+      disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'Batocera / Knulli / EmulationStation',
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],
@@ -197,6 +211,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'retroarch',
+      disc_layout: { kind: 'flat', m3u_for_multi: true },
       name: 'RetroArch',
       roms_root: '',
       art_dirs: ['thumbnails'],
@@ -238,6 +253,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const settings = createMockSettings({
     storage: opts.storage === undefined ? defaultStorage() : opts.storage,
     builtins: [...MOCK_BUILTIN_PROFILES],
+    ...(opts.externalTools ? { externalTools: opts.externalTools } : {}),
   });
   const jobs = createMockJobs(
     {
@@ -275,7 +291,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       exports: jobs.exports,
     },
-    { pauseAfter: opts.organizePauseAfter ?? null },
+    {
+      pauseAfter: opts.organizePauseAfter ?? null,
+      sortedLayout: MOCK_BUILTIN_PROFILES.find(
+        (p) => p.profile.id === 'anbernic-stock',
+      ),
+    },
   );
   const updateLog: string[] = [];
   const updates = createMockUpdates({
@@ -323,9 +344,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     listSystems: () =>
       Promise.resolve(
-        FIXTURE_SYSTEMS.map(({ id, name }) => ({ id, name })).sort((a, b) =>
-          a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
-        ),
+        // Like Rust, the whole catalogue: the organise piles' systems too.
+        [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS]
+          .map(({ id, name }) => ({ id, name }))
+          .sort((a, b) =>
+            a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+          ),
       ),
     updateLog,
     kind: 'mock',

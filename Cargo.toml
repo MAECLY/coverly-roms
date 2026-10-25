@@ -5,7 +5,7 @@ members = ["crates/coverly-core", "crates/coverly-cli", "src-tauri"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.90"
+rust-version = "1.93"
 license = "AGPL-3.0-only"
 repository = "https://github.com/MAECLY/coverly-roms"
 authors = ["Maecly maintainers"]
@@ -27,7 +27,19 @@ filetime = "0.2"
 crc32fast = "1.5"
 md-5 = "0.10"
 sha1 = "0.10"
+# Only deflate/deflate64/bzip2 are ever enabled (crates/coverly-core): LZMA,
+# XZ, PPMd and zstd entries are read raw and decoded by `archive` with capped
+# decoders (spec S2, S3). Guarded by scripts/check-zip-features.sh.
 zip = { version = "9", default-features = false }
+sevenz-rust2 = { version = "=0.23.0", default-features = false }
+lzma-rust2 = { version = "=0.21.0", default-features = false, features = ["std", "optimization", "xz"] }
+ppmd-rust = "=1.5.0"
+# `hash`: XXH64 content checksum, verified per frame (spec §9.1).
+ruzstd = { version = "=0.9.0", default-features = false, features = ["std", "hash"] }
+lz4_flex = { version = "=0.14.0", default-features = false, features = ["std", "safe-decode", "checked-decode", "frame"] }
+tar = { version = "=0.4.46", default-features = false }
+# Default features select the pure-Rust libbz2-rs-sys backend.
+bzip2 = "=0.6.1"
 rusqlite = { version = "0.40", features = ["bundled"] }
 directories = "6"
 ureq = "3.4"
@@ -43,3 +55,4 @@ minisign-verify = "0.3"
 minisign = "0.9"
 libc = "0.2"
 windows-sys = "0.61"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSError", "NSFileManager", "NSString", "NSURL"] }

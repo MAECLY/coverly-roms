@@ -73,6 +73,50 @@ The 41 files, named by system id: `a2600`, `a5200`, `a7800`, `a800`, `amiga`,
   from Feather, Copyright (c) 2013-present Cole Bemis, under the MIT License.
   Both texts are in `LICENSES/ISC-lucide-react.txt`.
 
+## Archive and compression crates
+
+The core library (`crates/coverly-core`, linked into the app and the `coverly`
+CLI) opens archives and compressed ROMs with these Rust crates. All are
+permissive; `scripts/check-licenses.sh` checks every crate in `Cargo.lock`
+against the allowed licences and refuses the UnRAR crates (RAR archives are
+opened through an optional external tool the user installs, never linked).
+
+- **zip** 9.0.3 (zip-rs contributors, https://github.com/zip-rs/zip2). MIT.
+- **deflate64** 0.1.12 (anatawa12, https://github.com/anatawa12/deflate64-rs).
+  MIT.
+- **sevenz-rust2** 0.23.0 (https://github.com/hasenbanck/sevenz-rust).
+  Apache-2.0.
+- **lzma-rust2** 0.21.0 (https://github.com/hasenbanck/lzma-rust2). Apache-2.0.
+- **ppmd-rust** 1.5.0 (https://github.com/hasenbanck/ppmd-rust). CC0-1.0 OR
+  MIT-0.
+- **ruzstd** 0.9.0 (Moritz Borcherding, https://github.com/KillingSpark/zstd-rs).
+  MIT.
+- **twox-hash** 2.1.5 (Jake Goulding, https://github.com/shepmaster/twox-hash),
+  used by ruzstd and lz4_flex. MIT.
+- **lz4_flex** 0.14.0 (Pascal Seitz, Arthur Silva and contributors,
+  https://github.com/pseitz/lz4_flex). MIT.
+- **tar** 0.4.46 (Alex Crichton and contributors,
+  https://github.com/composefs/tar-rs). MIT OR Apache-2.0.
+- **bzip2** 0.6.1 (https://github.com/trifectatechfoundation/bzip2-rs). MIT OR
+  Apache-2.0.
+- **libbz2-rs-sys** 0.2.5, a Rust port of bzip2 1.0.6
+  (https://github.com/trifectatechfoundation/libbzip2-rs). bzip2-1.0.6 licence
+  (BSD-style), Copyright (C) 1996-2010 Julian R Seward and the libbzip2-rs
+  contributors.
+- **flate2** 1.1 with the **zlib-rs** backend
+  (https://github.com/rust-lang/flate2-rs,
+  https://github.com/trifectatechfoundation/zlib-rs). MIT OR Apache-2.0;
+  zlib-rs is under the Zlib licence.
+- **objc2-foundation** 0.3.2 (https://github.com/madsmtm/objc2), macOS only,
+  for moving archives to the Trash. MIT.
+- **windows-sys** (https://github.com/microsoft/windows-rs), Windows only,
+  already used for file system calls; it also gives the Recycle Bin, process
+  Job object and ToolHelp calls of the archive work. MIT OR Apache-2.0.
+
+External archive programs (`unrar`, 7-Zip's `7zz`/`7z`, `bsdtar`) are not
+part of Coverly ROMs: they are found on the user's computer, run as separate
+processes and never linked or bundled.
+
 ## Art and metadata sources
 
 Art sources are fetched at the user's request and are not distributed with

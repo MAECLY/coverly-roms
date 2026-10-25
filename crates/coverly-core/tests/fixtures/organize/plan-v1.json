@@ -1,0 +1,153 @@
+{
+  "broad_root": false,
+  "counts": {
+    "auto": 16,
+    "bytes": 5387,
+    "deep_folders": 0,
+    "junk": 1,
+    "left": 1,
+    "other_files": 0,
+    "review": 0,
+    "roms": 16,
+    "systems": 4
+  },
+  "created_at": "2026-10-17T10:00:00Z",
+  "deep_folders": [],
+  "fat32": false,
+  "items": [
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 1.0,
+      "folder": "GBA",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 297
+        }
+      ],
+      "id": 0,
+      "kind": "archive",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "gba"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 297,
+      "sources": ["0319 - Crash Bandicoot XS (E)(Paracox).zip"],
+      "system_id": "gba",
+      "target": "ROMS/GBA/0319 - Crash Bandicoot XS (E)(Paracox).zip",
+      "why": [
+        {
+          "detail": "fixed 0x96, logo",
+          "kind": "header",
+          "system": "gba",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "gba",
+          "kind": "extension",
+          "system": "gba",
+          "weight": 0.8500000238418579
+        },
+        {
+          "detail": "Paracox",
+          "kind": "name",
+          "system": "gba",
+          "weight": 0.6000000238418579
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 88
+        }
+      ],
+      "id": 3,
+      "kind": "archive",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "not-a-rom",
+        "what": "web-page"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 88,
+      "sources": ["3-D Tetris (USA).zip"],
+      "system_id": null,
+      "target": null,
+      "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 297
+        }
+      ],
+      "id": 18,
+      "kind": "archive",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "unsupported-archive"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 297,
+      "sources": ["Old Game.rar"],
+      "system_id": null,
+      "target": null,
+      "why": []
+    }
+  ],
+  "layout": "anbernic-stock",
+  "mode": "move",
+  "move_allowed": true,
+  "names": "keep",
+  "other_files": [],
+  "roms_dir": "/card/ROMS",
+  "sorted_folders": [],
+  "source_root": "/pile",
+  "target_detected": null,
+  "target_root": "/card",
+  "warnings": [
+    {
+      "kind": "catalogue-missing",
+      "system": "gb"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "gba"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "gbc"
+    },
+    {
+      "kind": "catalogue-missing",
+      "system": "snes"
+    }
+  ]
+}

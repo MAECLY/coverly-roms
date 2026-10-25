@@ -320,6 +320,9 @@ fn custom_layout(roms_root: &str) -> coverly_core::profiles::custom::ProfileFile
         system_folder: FolderNaming::default(),
         folder_names: std::collections::BTreeMap::new(),
         host_folders: std::collections::BTreeMap::new(),
+        disc_layout: Default::default(),
+        accepts_containers: coverly_core::profiles::default_accepts_containers(),
+        container_overrides: coverly_core::profiles::default_container_overrides(),
     }
 }
 
@@ -911,4 +914,220 @@ fn rescan_reads_the_folder_again_and_sees_added_and_removed_files() {
         ),
         Err(IpcError::NotFound(_))
     ));
+}
+
+// ---- Archives and disc games (archives plan Task 37) ----
+
+mod archives {
+    use super::*;
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::disc::testing as dt;
+    use coverly_core::organize::{ArchiveAfter, Transfer, TransferMode};
+
+    const PS1_DIR: &str = "Next Tetris, The (USA)";
+    const PS1_CUE: &str = "Next Tetris, The (USA).cue";
+    const PS1_T1: &str = "Next Tetris, The (USA) (Track 01).bin";
+    const PS1_T2: &str = "Next Tetris, The (USA) (Track 02).bin";
+    /// The archive of the real case: a 7z named `.zip`.
+    const ARCHIVE: &str = "Next Tetris, The.zip";
+
+    fn cue(files: &[&str]) -> Vec<u8> {
+        let mut s = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let mode = if i == 0 { "MODE2/2352" } else { "AUDIO" };
+            s.push_str(&format!(
+                "FILE \"{f}\" BINARY\r\n  TRACK {:02} {mode}\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        s.into_bytes()
+    }
+
+    /// The synthetic PS1 disc of the real case: a cue and two tracks in a
+    /// 7z misnamed `.zip` (no copyrighted bytes).
+    fn disc_pile() -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let sheet = format!("{PS1_DIR}/{PS1_CUE}");
+        let t1 = format!("{PS1_DIR}/{PS1_T1}");
+        let t2 = format!("{PS1_DIR}/{PS1_T2}");
+        let track1 = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let track2 = vec![0u8; 2352 * 4];
+        let files: [(&str, &[u8]); 3] = [
+            (&sheet, &cue(&[PS1_T1, PS1_T2])),
+            (&t1, &track1),
+            (&t2, &track2),
+        ];
+        write_old(
+            tmp.path(),
+            ARCHIVE,
+            &sevenz(&files, SevenZShape::non_solid_lzma()),
+        );
+        tmp
+    }
+
+    #[test]
+    fn plan_view_carries_extract_transfer_and_disc() {
+        let config = TempDir::new().unwrap();
+        let st = state(&config);
+        let pile = disc_pile();
+        let view = st
+            .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
+            .unwrap();
+        let item = view
+            .plan
+            .items
+            .iter()
+            .find(|i| i.sources[0].ends_with(ARCHIVE))
+            .expect("the disc archive is planned");
+        assert_eq!(item.system_id.as_deref(), Some("psx"));
+        match &item.transfer {
+            Transfer::Extract {
+                entries,
+                bytes,
+                archive_after,
+                ..
+            } => {
+                assert_eq!(entries.len(), 3);
+                assert_eq!(*bytes, entries.iter().map(|e| e.size).sum::<u64>());
+                assert_eq!(*archive_after, ArchiveAfter::Trash);
+            }
+            other => panic!("not an extraction: {other:?}"),
+        }
+        let disc = item.disc.as_ref().expect("disc identity");
+        assert!(disc.serials.iter().any(|s| s == "SLUS-00862"), "{disc:?}");
+
+        // On the wire, as the webview reads it.
+        let json = serde_json::to_value(&view).unwrap();
+        let wire = json["plan"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["sources"][0].as_str().unwrap().ends_with(ARCHIVE))
+            .unwrap();
+        assert_eq!(wire["transfer"]["kind"], "extract");
+        assert_eq!(wire["transfer"]["entries"].as_array().unwrap().len(), 3);
+        assert_eq!(wire["transfer"]["archive_after"], "trash");
+        assert!(wire["disc"]["serials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "SLUS-00862"));
+    }
+
+    #[test]
+    fn extract_progress_events_have_bytes() {
+        let config = TempDir::new().unwrap();
+        let st = state(&config);
+        let pile = disc_pile();
+        let target = TempDir::new().unwrap();
+        let req = OrganizeRequest {
+            target: Some(target.path().display().to_string()),
+            mode: Some(TransferMode::Copy),
+            ..offline(pile.path())
+        };
+        let plan = st
+            .organize_plan(&req, &[], Arc::new(Recorder::default()))
+            .unwrap();
+        let archive_id = plan
+            .plan
+            .items
+            .iter()
+            .find(|i| i.sources[0].ends_with(ARCHIVE))
+            .expect("the disc archive is planned")
+            .id;
+        let events = Arc::new(ApplyRecorder::default());
+        st.organize_apply(plan.plan_id, &[], events.clone())
+            .unwrap();
+        let end = events.wait_end();
+        assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
+        let report = end.report.clone().unwrap();
+        assert_eq!(report.extracted, 1, "{report:?}");
+        // Copy mode keeps the archive; the tracks are in the system folder.
+        assert!(pile.path().join(ARCHIVE).is_file());
+        assert!(target
+            .path()
+            .join("ROMS/PS")
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some());
+
+        let progress = events.progress.lock().unwrap().clone();
+        let extract: Vec<_> = progress
+            .iter()
+            .filter(|e| matches!(e.phase, OrganizePhase::Extract { .. }))
+            .collect();
+        assert!(!extract.is_empty(), "{progress:?}");
+        let wire = serde_json::to_value(extract[0]).unwrap();
+        assert_eq!(wire["phase"], "extract");
+        assert!(wire["bytes_done"].is_u64(), "{wire}");
+        assert!(wire["bytes_total"].as_u64().unwrap() > 0, "{wire}");
+        // The item being extracted, so the webview can name it.
+        assert_eq!(wire["item"], archive_id, "{wire}");
+        // Its last event says the decode pass is through.
+        let last = serde_json::to_value(extract.last().unwrap()).unwrap();
+        assert_eq!(last["bytes_done"], last["bytes_total"], "{last}");
+        // Moving and copying carry no byte counts.
+        let other = OrganizeProgressEvent {
+            plan_id: 1,
+            phase: OrganizePhase::Apply,
+            done: 0,
+            total: 1,
+        };
+        let wire = serde_json::to_value(other).unwrap();
+        assert_eq!(wire["phase"], "apply");
+        assert!(wire.get("bytes_done").is_none(), "{wire}");
+        assert!(wire.get("bytes_total").is_none(), "{wire}");
+        assert!(wire.get("item").is_none(), "{wire}");
+        // The job view carries the same shape while applying.
+        let job = serde_json::to_value(&end).unwrap();
+        assert_eq!(job["report"]["extracted"], 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_view_lists_found_tools() {
+        use coverly_core::archive::external::Search;
+        use std::os::unix::fs::PermissionsExt;
+
+        let tools = TempDir::new().unwrap();
+        let exe = tools.path().join("7zz");
+        fs::write(
+            &exe,
+            "#!/bin/sh\necho '7-Zip (z) 24.08 (arm64) : Copyright (c) 1999-2024 Igor Pavlov'\n",
+        )
+        .unwrap();
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let config = TempDir::new().unwrap();
+        let st = state(&config).with_tool_search(Search {
+            path_var: Some(tools.path().as_os_str().to_owned()),
+            cwd: None,
+            fixed: vec![],
+        });
+        let view = st.settings_view();
+        assert_eq!(view.external_tools_found.len(), 1, "{view:?}");
+        let found = &view.external_tools_found[0];
+        assert_eq!(found.version, "24.08");
+        assert_eq!(found.path, exe.display().to_string());
+        let wire = serde_json::to_value(&view).unwrap();
+        assert_eq!(
+            wire["external_tools_found"],
+            serde_json::json!([{
+                "tool": "seven-zip",
+                "version": "24.08",
+                "path": exe.display().to_string(),
+            }])
+        );
+        assert_eq!(wire["settings"]["organize"]["external_tools"], "auto");
+
+        // Nothing found: an empty list (the UI shows the install hint).
+        let empty = TempDir::new().unwrap();
+        let st = state(&config).with_tool_search(Search {
+            path_var: Some(empty.path().as_os_str().to_owned()),
+            cwd: None,
+            fixed: vec![],
+        });
+        assert!(st.settings_view().external_tools_found.is_empty());
+    }
 }

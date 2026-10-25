@@ -157,6 +157,7 @@ export const DEFAULT_SETTINGS: Settings = {
     arcade_order: {},
     recent_seconds: 60,
     keep_organize_journals_days: 90,
+    external_tools: 'auto',
   },
   dedupe: {
     levels: ['exact', 'format', 'version'],
@@ -363,6 +364,7 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
     arcade_order: isArcadeOrders,
     recent_seconds: isUint(),
     keep_organize_journals_days: isUint(),
+    external_tools: oneOf(['auto', 'off']),
   },
   dedupe: {
     levels: listOf(oneOf(DEDUPE_LEVELS)),

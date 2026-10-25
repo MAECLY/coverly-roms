@@ -11,8 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use super::naming::validate_folder_override;
 use super::{
-    builtin_profiles, render, FolderNaming, ImageFormat, Media, MediaSlot, Profile, TemplateVars,
+    builtin_profiles, render, DiscLayout, FolderNaming, ImageFormat, Media, MediaSlot, Profile,
+    TemplateVars,
 };
+pub use super::{default_accepts_containers, default_container_overrides};
+use crate::archive::ContainerKind;
 use crate::settings::{FieldError, FieldErrorCode};
 use crate::systems::SystemDb;
 
@@ -68,6 +71,37 @@ pub struct ProfileFile {
     /// on Anbernic cards (`ngpc → ngp`): a copy of such a layout keeps them.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub host_folders: BTreeMap<String, String>,
+    /// Where disc games are extracted (spec §8.2), e.g.
+    /// `[disc_layout]` `kind = "game-folder"` `m3u_for_multi = true`.
+    #[serde(default, skip_serializing_if = "is_default_layout")]
+    pub disc_layout: DiscLayout,
+    /// Containers whose cartridge ROMs move as they are (`zip`, `7z`,
+    /// `rar`, `tar.gz`, `gz`…; spec §8.3).
+    #[serde(
+        default = "default_accepts_containers",
+        skip_serializing_if = "is_default_containers"
+    )]
+    pub accepts_containers: Vec<ContainerKind>,
+    /// Per-system replacements of `accepts_containers` (system id →
+    /// containers; `[]` = always extract). Starts from
+    /// [`default_container_overrides`].
+    #[serde(
+        default = "default_container_overrides",
+        skip_serializing_if = "is_default_overrides"
+    )]
+    pub container_overrides: BTreeMap<String, Vec<ContainerKind>>,
+}
+
+fn is_default_layout(l: &DiscLayout) -> bool {
+    *l == DiscLayout::default()
+}
+
+fn is_default_containers(c: &[ContainerKind]) -> bool {
+    c == default_accepts_containers().as_slice()
+}
+
+fn is_default_overrides(o: &BTreeMap<String, Vec<ContainerKind>>) -> bool {
+    *o == default_container_overrides()
 }
 
 fn is_default_naming(n: &FolderNaming) -> bool {
@@ -113,6 +147,9 @@ impl ProfileFile {
             system_folder: p.system_folder,
             folder_names: BTreeMap::new(),
             host_folders: p.host_folders.clone(),
+            disc_layout: p.disc_layout,
+            accepts_containers: p.accepts_containers.clone(),
+            container_overrides: p.container_overrides.clone(),
         }
     }
 
@@ -156,6 +193,9 @@ impl ProfileFile {
             host_folders: self.host_folders.clone(),
             arcade_order: vec!["fbneo".to_string(), "mame".to_string()],
             known_folders: Vec::new(),
+            disc_layout: self.disc_layout,
+            accepts_containers: self.accepts_containers.clone(),
+            container_overrides: self.container_overrides.clone(),
         }
     }
 
@@ -335,6 +375,19 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
         if !known(system_id) || !known(host_id) || system_id == host_id {
             out.push(FieldError::new(
                 format!("host_folders.{system_id}"),
+                Invalid,
+            ));
+        }
+    }
+    for (system_id, kinds) in &p.container_overrides {
+        // A disc system never takes an archive as-is (spec D4), so a
+        // non-empty override for one would be ignored without a word.
+        let known = db
+            .get(system_id)
+            .is_some_and(|s| s.id == *system_id && (!s.multi_file || kinds.is_empty()));
+        if !known {
+            out.push(FieldError::new(
+                format!("container_overrides.{system_id}"),
                 Invalid,
             ));
         }

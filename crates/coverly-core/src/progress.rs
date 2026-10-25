@@ -24,6 +24,10 @@ pub enum PauseKind {
     Offline,
     /// The library volume is full, read-only or gone.
     Volume,
+    /// An extraction ran out of space (archives spec §9.1): `needed`
+    /// bytes to write the item again, `free` on the volume that filled up.
+    /// The next items would fail the same way, so the job pauses.
+    DiskFull { needed: u64, free: u64 },
 }
 
 /// One progress event.

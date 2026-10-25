@@ -10,20 +10,29 @@ use std::fs::{self, File};
 use std::io::{self, ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::archive::{open_archive_with, FoundTool, Limits, ToolsOnDemand};
+use crate::disc::sheets::SheetKind;
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
+use crate::organize::extract::{
+    archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text, Adopted,
+    ArchiveFate, CommitRequest, ExtractError, ExtractRequest,
+};
 use crate::organize::plan::{
-    ItemKind, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan, OrganizeProgress,
-    TransferMode,
+    ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
+    OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
 use crate::progress::PauseKind;
+use crate::write::trash::TrashBackend;
 use crate::write::{
-    job_transfers, rename_noclobber, same_volume, Collision, JobKind, JobMeta, MoveOutcome,
+    file_matches_fp, job_archive_steps, job_transfers, remove_apple_doubles, rename_noclobber,
+    same_volume, ArchiveRecord, ArchiveStep, Collision, Fingerprint, JobKind, JobMeta, MoveOutcome,
     TransferRecord, WriteError, Writer,
 };
 
@@ -36,6 +45,12 @@ pub enum ItemStatus {
     /// A move across volumes copied the file but could not delete the
     /// source: both exist.
     CopiedNotRemoved,
+    /// The archive's entries were extracted and committed; in move mode
+    /// with nothing left in it, the archive went to the Trash.
+    Extracted,
+    /// Extracted, but the archive meant for the Trash stays where it was
+    /// (no Trash on its volume, the Trash refused it, or it changed).
+    ExtractedKept,
     Skipped {
         reason: SkipReason,
     },
@@ -59,6 +74,9 @@ pub enum SkipReason {
     /// A review item without the user's answer.
     NotDecided,
     Cancelled,
+    /// The external tool the plan opened the archive with is gone or is
+    /// another version now.
+    ToolGone,
 }
 
 /// One item of the plan and what happened to it.
@@ -80,6 +98,10 @@ pub struct OrganizeReport {
     pub job: Option<String>,
     pub moved: usize,
     pub copied: usize,
+    /// Archives whose entries were extracted (left out of the JSON when
+    /// none was).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub extracted: usize,
     pub skipped: usize,
     pub failed: usize,
     pub items: Vec<ItemOutcome>,
@@ -92,12 +114,22 @@ pub struct OrganizeReport {
     pub resumable_items: Vec<usize>,
 }
 
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
 /// What apply needs besides the plan.
 pub struct ApplyEnv<'a> {
     pub data_dir: &'a Path,
     pub progress: &'a (dyn Fn(OrganizeProgress) + Sync),
-    /// Checked between items.
+    /// Checked between items, and between and inside the entries of an
+    /// extraction until its files are renamed into place.
     pub cancel: &'a AtomicBool,
+    /// Where move mode sends an archive whose entries were all extracted.
+    pub trash: &'a dyn TrashBackend,
+    /// The external tools extractions may use; `None` finds them on first
+    /// need (never inside the source or target roots).
+    pub tools: Option<&'a [FoundTool]>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -119,15 +151,24 @@ type FreeSpaceFn = fn(&Path) -> Option<u64>;
 #[cfg(feature = "test-util")]
 thread_local! {
     static FREE_SPACE: std::cell::Cell<Option<FreeSpaceFn>> = const { std::cell::Cell::new(None) };
+    static CLUSTER_SIZE: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
     static LAST_DIR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Test hook: makes [`free_space`] on the calling thread answer with `f`.
-/// `None` clears it.
+/// Test hook: makes [`free_space`] (and [`user_available`]) on the calling
+/// thread answer with `f`. `None` clears it.
 #[doc(hidden)]
 #[cfg(feature = "test-util")]
 pub fn set_free_space_override(f: Option<FreeSpaceFn>) {
     FREE_SPACE.with(|c| c.set(f));
+}
+
+/// Test hook: makes [`cluster_size`] on the calling thread answer
+/// `bytes`. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_cluster_size_override(bytes: Option<u64>) {
+    CLUSTER_SIZE.with(|c| c.set(bytes));
 }
 
 /// Test hook: how many folders the last apply on the calling thread
@@ -139,20 +180,43 @@ pub fn last_apply_dir_reads() -> usize {
 }
 
 /// Bytes free for this user on the volume holding `path` (or its nearest
-/// existing parent); `None` when it cannot be told.
+/// existing parent); `None` when it cannot be told. The same as
+/// [`user_available`].
 pub fn free_space(path: &Path) -> Option<u64> {
+    user_available(path)
+}
+
+/// Bytes the calling user may still write on the volume holding `path`
+/// (or its nearest existing parent): `statvfs` `f_bavail × f_frsize`
+/// (blocks reserved for root are not counted), Windows
+/// `GetDiskFreeSpaceExW`'s caller quota. `None` when it cannot be told.
+pub fn user_available(path: &Path) -> Option<u64> {
     #[cfg(feature = "test-util")]
     if let Some(f) = FREE_SPACE.with(std::cell::Cell::get) {
         return f(path);
     }
-    let existing = path
-        .ancestors()
-        .find(|p| !p.as_os_str().is_empty() && p.exists())?;
-    os_free_space(existing)
+    os_free_space(existing_ancestor(path)?)
+}
+
+/// The allocation unit of the volume holding `path` (or its nearest
+/// existing parent): every file takes a whole number of these. `statvfs`
+/// `f_frsize`, Windows `GetDiskFreeSpaceW` sectors per cluster × bytes
+/// per sector. `None` when it cannot be told.
+pub fn cluster_size(path: &Path) -> Option<u64> {
+    #[cfg(feature = "test-util")]
+    if let Some(bytes) = CLUSTER_SIZE.with(std::cell::Cell::get) {
+        return Some(bytes);
+    }
+    os_cluster_size(existing_ancestor(path)?).filter(|&c| c > 0)
+}
+
+fn existing_ancestor(path: &Path) -> Option<&Path> {
+    path.ancestors()
+        .find(|p| !p.as_os_str().is_empty() && p.exists())
 }
 
 #[cfg(unix)]
-fn os_free_space(path: &Path) -> Option<u64> {
+fn statvfs_of(path: &Path) -> Option<libc::statvfs> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let c = CString::new(path.as_os_str().as_bytes()).ok()?;
@@ -162,20 +226,38 @@ fn os_free_space(path: &Path) -> Option<u64> {
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
         return None;
     }
+    Some(st)
+}
+
+#[cfg(unix)]
+fn os_free_space(path: &Path) -> Option<u64> {
+    let st = statvfs_of(path)?;
     // The field types differ between platforms.
     #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
     let (avail, frsize) = (u64::from(st.f_bavail), st.f_frsize as u64);
     Some(avail.saturating_mul(frsize))
 }
 
+#[cfg(unix)]
+fn os_cluster_size(path: &Path) -> Option<u64> {
+    let st = statvfs_of(path)?;
+    #[allow(clippy::unnecessary_cast)]
+    Some(st.f_frsize as u64)
+}
+
+#[cfg(windows)]
+fn wide_path(path: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
 #[cfg(windows)]
 fn os_free_space(path: &Path) -> Option<u64> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let wide = wide_path(path);
     let mut free: u64 = 0;
     // SAFETY: `wide` is NUL-terminated; the null pointers are optional
-    // outputs the call skips.
+    // outputs the call skips. The first output is the caller's quota.
     let ok = unsafe {
         GetDiskFreeSpaceExW(
             wide.as_ptr(),
@@ -187,8 +269,38 @@ fn os_free_space(path: &Path) -> Option<u64> {
     (ok != 0).then_some(free)
 }
 
+#[cfg(windows)]
+fn os_cluster_size(path: &Path) -> Option<u64> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceW, GetVolumePathNameW};
+    let wide = wide_path(path);
+    let mut root = [0u16; 1024];
+    // SAFETY: `wide` is NUL-terminated and `root` holds `len` u16s.
+    let ok = unsafe { GetVolumePathNameW(wide.as_ptr(), root.as_mut_ptr(), root.len() as u32) };
+    if ok == 0 {
+        return None;
+    }
+    let (mut sectors, mut bytes, mut free, mut total) = (0u32, 0u32, 0u32, 0u32);
+    // SAFETY: `root` was NUL-terminated by the call above (a volume root
+    // with its trailing backslash); the outputs are valid pointers.
+    let ok = unsafe {
+        GetDiskFreeSpaceW(
+            root.as_ptr(),
+            &mut sectors,
+            &mut bytes,
+            &mut free,
+            &mut total,
+        )
+    };
+    (ok != 0).then(|| u64::from(sectors) * u64::from(bytes))
+}
+
 #[cfg(not(any(unix, windows)))]
 fn os_free_space(_: &Path) -> Option<u64> {
+    None
+}
+
+#[cfg(not(any(unix, windows)))]
+fn os_cluster_size(_: &Path) -> Option<u64> {
     None
 }
 
@@ -230,10 +342,18 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let mut report = OrganizeReport::default();
     not_decided(&plan, &mut report);
     let records = job_transfers(env.data_dir, job)?;
+    let steps = job_archive_steps(env.data_dir, job)?;
     let applicable: Vec<&OrganizeItem> = plan.items.iter().filter(|i| applicable(i)).collect();
     let mut pending = Vec::new();
     let mut started = HashMap::new();
     for item in &applicable {
+        if matches!(item.transfer, Transfer::Extract { .. }) {
+            match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
+                Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
+                None => pending.push(*item),
+            }
+            continue;
+        }
         match finished_record(&plan, item, &records) {
             Some(record) => {
                 let status = match (record.copied, plan.mode) {
@@ -266,6 +386,7 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     writer.clean_temps(&target_dirs(&plan, &applicable));
     let mut run = Run::new(&plan, env, writer, true, records);
     run.started = started;
+    run.archive_steps = steps;
     Ok(run.run(&pending, done, report))
 }
 
@@ -298,6 +419,7 @@ fn record_outcome(
     match status {
         ItemStatus::Moved => report.moved += 1,
         ItemStatus::Copied | ItemStatus::CopiedNotRemoved => report.copied += 1,
+        ItemStatus::Extracted | ItemStatus::ExtractedKept => report.extracted += 1,
         ItemStatus::Skipped { .. } => report.skipped += 1,
         ItemStatus::Failed { .. } => report.failed += 1,
     }
@@ -309,7 +431,16 @@ fn record_outcome(
 }
 
 fn pause(report: &mut OrganizeReport, reason: ItemErrorKind, rest: &[&OrganizeItem]) {
-    report.paused = Some(PauseKind::Volume);
+    pause_as(report, reason, PauseKind::Volume, rest);
+}
+
+fn pause_as(
+    report: &mut OrganizeReport,
+    reason: ItemErrorKind,
+    kind: PauseKind,
+    rest: &[&OrganizeItem],
+) {
+    report.paused = Some(kind);
     report.pause_reason = Some(reason);
     report.resumable_items = rest.iter().map(|i| i.id).collect();
 }
@@ -385,7 +516,8 @@ fn finished_record<'r>(
 
 /// The finished journal record of `from` (a file of `item`): a finished
 /// copy that is still at its target (a set rolled back deletes the copies
-/// it made), or a finished move whose source is gone.
+/// it made), or a finished move whose source is gone. Files extracted
+/// from an archive never count as the archive moved or copied.
 fn record_of<'r>(
     records: &'r [TransferRecord],
     id: usize,
@@ -393,6 +525,7 @@ fn record_of<'r>(
 ) -> Option<&'r TransferRecord> {
     records.iter().rev().find(|r| {
         r.item == Some(id)
+            && r.extracted.is_none()
             && r.from == from
             && r.finished
             && if r.copied {
@@ -431,15 +564,164 @@ fn item_targets(
         .collect()
 }
 
+/// What earlier runs of the job journaled for one entry of an `Extract`
+/// item: its latest intent, unless a `rolled-back` line undid it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EntryLog {
+    /// Nothing, or only rolled-back intents.
+    None,
+    /// An intent without its completion: a crash in phase A/B (the temp
+    /// is a leftover), or between the rename and the completion line.
+    Intent { temp: String },
+    /// Renamed into place and journaled complete.
+    Completed { temp: String, fp: Fingerprint },
+}
+
+/// What earlier runs of the job journaled for one `Extract` item (resume,
+/// archives spec §9.3).
+struct ExtractJournal {
+    /// One per plan entry, in plan order.
+    entries: Vec<EntryLog>,
+    /// The item's last archive line.
+    archive: Option<ArchiveStep>,
+}
+
+impl ExtractJournal {
+    fn of(
+        plan: &OrganizePlan,
+        item: &OrganizeItem,
+        records: &[TransferRecord],
+        steps: &[ArchiveRecord],
+    ) -> ExtractJournal {
+        let Transfer::Extract { entries, .. } = &item.transfer else {
+            return ExtractJournal {
+                entries: Vec::new(),
+                archive: None,
+            };
+        };
+        // The item's own lines, found once: a resume of thousands of
+        // items must not rescan the whole journal for every entry.
+        let of_item: Vec<&TransferRecord> = records
+            .iter()
+            .filter(|r| r.item == Some(item.id) && r.extracted.is_some())
+            .collect();
+        let entries = entries
+            .iter()
+            .map(|e| {
+                let target = plan.target_root.join(&e.target);
+                let mine: Vec<&TransferRecord> = of_item
+                    .iter()
+                    .copied()
+                    .filter(|r| {
+                        r.target == target
+                            && r.extracted.as_ref().is_some_and(|x| x.entry == e.name)
+                    })
+                    .collect();
+                // A rollback line marks the intent; a completion it undid
+                // came before it, so the whole temp's story is undone.
+                let undone = |temp: &str| {
+                    mine.iter().any(|r| {
+                        r.extracted
+                            .as_ref()
+                            .is_some_and(|x| x.temp == temp && x.rolled_back)
+                    })
+                };
+                let mut log = EntryLog::None;
+                for r in &mine {
+                    let Some(x) = r.extracted.as_ref() else {
+                        continue;
+                    };
+                    log = match (undone(&x.temp), r.finished, r.fp) {
+                        (true, ..) => EntryLog::None,
+                        (false, true, Some(fp)) => EntryLog::Completed {
+                            temp: x.temp.clone(),
+                            fp,
+                        },
+                        _ => EntryLog::Intent {
+                            temp: x.temp.clone(),
+                        },
+                    };
+                }
+                log
+            })
+            .collect();
+        let archive = steps
+            .iter()
+            .rev()
+            .find(|s| s.item == Some(item.id))
+            .map(|s| s.step.clone());
+        ExtractJournal { entries, archive }
+    }
+
+    /// An earlier run left something of the item behind.
+    fn started(&self) -> bool {
+        self.archive.is_some() || self.entries.iter().any(|e| *e != EntryLog::None)
+    }
+
+    /// The item's outcome when an earlier run finished it: every entry
+    /// journaled complete, the playlist in place, and (move mode, archive
+    /// to the Trash) its archive line final, not just the intent.
+    fn done(&self, plan: &OrganizePlan, item: &OrganizeItem) -> Option<(ItemStatus, Vec<PathBuf>)> {
+        let Transfer::Extract {
+            entries,
+            archive_after,
+            m3u,
+            ..
+        } = &item.transfer
+        else {
+            return None;
+        };
+        if entries.is_empty() || self.entries.len() != entries.len() {
+            return None;
+        }
+        let mut targets: Vec<PathBuf> = Vec::with_capacity(entries.len() + 1);
+        for (e, log) in entries.iter().zip(&self.entries) {
+            if !matches!(log, EntryLog::Completed { .. }) {
+                return None;
+            }
+            targets.push(plan.target_root.join(&e.target));
+        }
+        if let Some(m3u) = m3u {
+            let m3u = plan.target_root.join(m3u);
+            if !fs::symlink_metadata(&m3u).is_ok_and(|m| m.file_type().is_file()) {
+                return None;
+            }
+            targets.push(m3u);
+        }
+        let status = if trashes(plan, *archive_after) {
+            match self.archive {
+                Some(ArchiveStep::Trashed { .. }) => ItemStatus::Extracted,
+                Some(ArchiveStep::Kept) => ItemStatus::ExtractedKept,
+                _ => return None,
+            }
+        } else {
+            ItemStatus::Extracted
+        };
+        Some((status, targets))
+    }
+}
+
+/// Whether an extracted item's archive goes to the Trash afterwards.
+fn trashes(plan: &OrganizePlan, after: ArchiveAfter) -> bool {
+    after == ArchiveAfter::Trash && plan.mode == TransferMode::Move
+}
+
 /// Every folder the items' files go to (absolute, without repeats).
 fn target_dirs(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     for item in items {
+        let extracted: Vec<&PathBuf> = match &item.transfer {
+            Transfer::Extract { entries, m3u, .. } => {
+                entries.iter().map(|e| &e.target).chain(m3u).collect()
+            }
+            Transfer::AsIs => Vec::new(),
+        };
         let targets = item
             .target
             .iter()
             .chain(&item.set_targets)
-            .chain(item.companions.iter().map(|c| &c.target));
+            .chain(item.companions.iter().map(|c| &c.target))
+            .chain(extracted);
         for target in targets {
             if let Some(dir) = plan.target_root.join(target).parent() {
                 if !dirs.iter().any(|d| d == dir) {
@@ -449,6 +731,61 @@ fn target_dirs(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Vec<PathBuf> {
         }
     }
     dirs
+}
+
+/// Bytes the target needs free for the extractions among `items`: every
+/// entry and playlist rounded up to whole `cluster`s, plus 1 % and the
+/// reserve (archives spec §8.4); 0 when none extracts.
+fn extract_need(items: &[&OrganizeItem], cluster: u64) -> u64 {
+    let cluster = cluster.max(1);
+    let round = |n: u64| n.div_ceil(cluster).saturating_mul(cluster);
+    let sum = items
+        .iter()
+        .filter_map(|i| match &i.transfer {
+            Transfer::Extract { entries, m3u, .. } => Some(
+                entries
+                    .iter()
+                    .map(|e| round(e.size))
+                    .chain(m3u.as_ref().map(|_| round(1)))
+                    .fold(0u64, u64::saturating_add),
+            ),
+            Transfer::AsIs => None,
+        })
+        .fold(0u64, u64::saturating_add);
+    if sum == 0 {
+        return 0;
+    }
+    sum.saturating_add(sum.div_ceil(100))
+        .saturating_add(SPACE_RESERVE)
+}
+
+/// Runs `f` with a cancel flag of its own that follows `outer` (polled by
+/// a helper thread until `f` returns): the decode budget of an extraction
+/// needs a shared flag, the apply environment lends a plain one.
+fn with_linked_cancel<T>(outer: &AtomicBool, f: impl FnOnce(&Arc<AtomicBool>) -> T) -> T {
+    /// Stops the helper when `f` returns or unwinds: the scope waits for
+    /// it, so a panic in `f` must not leave it polling forever.
+    struct Over<'f>(&'f AtomicBool);
+    impl Drop for Over<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    let inner = Arc::new(AtomicBool::new(outer.load(Ordering::SeqCst)));
+    let over = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !over.load(Ordering::SeqCst) {
+                if outer.load(Ordering::SeqCst) {
+                    inner.store(true, Ordering::SeqCst);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        let _over = Over(&over);
+        f(&inner)
+    })
 }
 
 fn mtime_ns(meta: &fs::Metadata) -> Option<i64> {
@@ -508,6 +845,12 @@ fn same_content(a: &Path, b: &Path) -> bool {
 enum Step {
     Done(ItemStatus, Vec<PathBuf>),
     Pause(ItemErrorKind),
+    /// A pause of another kind than [`PauseKind::Volume`] (a full disk
+    /// during an extraction, with the numbers).
+    PauseAs(ItemErrorKind, PauseKind),
+    /// Stopped at an injected crash point: the run ends as if killed (no
+    /// more lines, the job not finished).
+    Abort,
 }
 
 /// One apply (or resume) run.
@@ -526,6 +869,15 @@ struct Run<'a> {
     /// Items whose primary file a previous run already transferred, with
     /// its status and where it went (resume only).
     started: HashMap<usize, (ItemStatus, PathBuf)>,
+    /// Items done before the current one, and the run's item count (for
+    /// extraction progress).
+    at: (usize, usize),
+    /// Free space the current and later extractions need.
+    extract_need: u64,
+    /// The external tools, found on first need.
+    tools: ToolsOnDemand,
+    /// The journal's archive lines before this run (resume only).
+    archive_steps: Vec<ArchiveRecord>,
 }
 
 impl<'a> Run<'a> {
@@ -548,6 +900,10 @@ impl<'a> Run<'a> {
             overrides,
             records,
             started: HashMap::new(),
+            at: (0, 0),
+            extract_need: 0,
+            tools: ToolsOnDemand::new(&[&plan.source_root, &plan.target_root]),
+            archive_steps: Vec::new(),
         }
     }
 
@@ -573,6 +929,11 @@ impl<'a> Run<'a> {
                 last = Some(Instant::now());
                 self.progress(done_before + n, total);
             }
+            self.at = (done_before + n, total);
+            if matches!(item.transfer, Transfer::Extract { .. }) {
+                let cluster = cluster_size(&self.plan.target_root).unwrap_or(4096);
+                self.extract_need = extract_need(&pending[n..], cluster);
+            }
             match self.apply_item(item) {
                 Step::Done(status, targets) => {
                     record_outcome(&mut report, item.id, status, targets)
@@ -580,6 +941,15 @@ impl<'a> Run<'a> {
                 Step::Pause(reason) => {
                     pause(&mut report, reason, &pending[n..]);
                     break;
+                }
+                Step::PauseAs(reason, kind) => {
+                    pause_as(&mut report, reason, kind, &pending[n..]);
+                    break;
+                }
+                Step::Abort => {
+                    report.resumable_items = pending[n..].iter().map(|i| i.id).collect();
+                    report.job = Some(self.writer.job_id().to_string());
+                    return report;
                 }
             }
         }
@@ -698,8 +1068,17 @@ impl<'a> Run<'a> {
         if let Some((status, primary)) = self.started.remove(&item.id) {
             return self.finish_started(item, status, primary);
         }
+        if self.resumed && matches!(item.transfer, Transfer::Extract { .. }) {
+            let journal = ExtractJournal::of(self.plan, item, &self.records, &self.archive_steps);
+            if journal.started() {
+                return self.resume_extract(item, &journal);
+            }
+        }
         if let Some(step) = self.revalidate(item) {
             return step;
+        }
+        if matches!(item.transfer, Transfer::Extract { .. }) {
+            return self.apply_extract(item, &[]);
         }
         let Some(target) = &item.target else {
             return skipped(SkipReason::NotDecided);
@@ -939,6 +1318,407 @@ impl<'a> Run<'a> {
         Step::Done(status, targets)
     }
 
+    /// Extracts an `Extract` item (archives spec §9.1): the external tool
+    /// is the one the plan used, the volume has room for what is left to
+    /// extract, then phases A–C, then (move mode, nothing left behind) the
+    /// archive goes to the Trash once the reader has closed it. `adopted`
+    /// entries (resume) are in place already: only checked, never
+    /// rewritten.
+    fn apply_extract(&mut self, item: &OrganizeItem, adopted: &[Adopted]) -> Step {
+        let Transfer::Extract {
+            entries,
+            archive_after,
+            source,
+            sheet_check,
+            m3u,
+            ..
+        } = &item.transfer
+        else {
+            return skipped(SkipReason::NotDecided);
+        };
+        let Some(rel) = item.sources.first() else {
+            return skipped(SkipReason::SourceMissing);
+        };
+        let archive = self.plan.source_root.join(rel);
+        let tool: Vec<FoundTool> = match source {
+            ExtractSource::Builtin => Vec::new(),
+            ExtractSource::Tool { tool, version } => {
+                let found = match self.env.tools {
+                    Some(tools) => tools,
+                    None => self.tools.get(),
+                };
+                match found
+                    .iter()
+                    .find(|t| t.tool == *tool && t.version == *version)
+                {
+                    Some(t) => vec![t.clone()],
+                    None => return skipped(SkipReason::ToolGone),
+                }
+            }
+        };
+        if self.extract_need > 0 {
+            if let Some(free) =
+                user_available(&self.plan.target_root).filter(|&f| f < self.extract_need)
+            {
+                let needed = self.extract_need;
+                return Step::PauseAs(
+                    ItemErrorKind::DiskFull,
+                    PauseKind::DiskFull { needed, free },
+                );
+            }
+        }
+        let limits = Limits {
+            external_tools: !tool.is_empty(),
+            ..Limits::default()
+        };
+        let mut reader = match open_archive_with(&archive, &limits, Some(&tool)) {
+            Ok(Some(reader)) => reader,
+            Ok(None) => {
+                return failed(ItemErrorKind::Decode, "not an archive any more".into());
+            }
+            Err(e) => return failed(ItemErrorKind::Decode, e.to_string()),
+        };
+        if !tool.is_empty()
+            && reader.tool().map(|t| (&t.tool, &t.version))
+                != tool.first().map(|t| (&t.tool, &t.version))
+        {
+            return skipped(SkipReason::ToolGone);
+        }
+        let bytes_total = decode_total(reader.entries(), entries);
+        let (done, total) = self.at;
+        let progress = self.env.progress;
+        let item_id = item.id;
+        let report = |bytes_done: u64| {
+            progress(OrganizeProgress {
+                phase: OrganizePhase::Extract {
+                    item: item_id,
+                    bytes_done,
+                    bytes_total,
+                },
+                done,
+                total,
+            })
+        };
+        report(0);
+        let last = std::cell::Cell::new(Instant::now());
+        let on_bytes = |bytes: u64| {
+            if last.get().elapsed() >= PROGRESS_EVERY {
+                last.set(Instant::now());
+                report(bytes);
+            }
+        };
+        let fp = item.fps.first().copied();
+        let cancel = self.env.cancel;
+        let writer = &mut self.writer;
+        let committed = with_linked_cancel(cancel, |flag| {
+            extract_and_commit(
+                writer,
+                reader.as_mut(),
+                &CommitRequest {
+                    extract: ExtractRequest {
+                        item: item.id,
+                        archive: &archive,
+                        entries,
+                        cancel: flag,
+                        progress: &on_bytes,
+                    },
+                    archive_fp: fp,
+                    sheet_check: *sheet_check,
+                    m3u: m3u.as_deref(),
+                    adopted,
+                },
+            )
+        });
+        // Closed before the Trash: Windows cannot move an open file.
+        drop(reader);
+        let targets = match committed {
+            Ok(targets) => targets,
+            Err(e) => return self.on_extract_error(e),
+        };
+        report(bytes_total);
+        for t in &targets {
+            if let Some((dir, name)) = split(t) {
+                self.index.claim(dir, name);
+            }
+        }
+        if !trashes(self.plan, *archive_after) {
+            return Step::Done(ItemStatus::Extracted, targets);
+        }
+        self.dispose(item.id, &archive, fp, targets)
+    }
+
+    /// Phase D: the archive to the Trash (it must still be the planned
+    /// file), and the item's status by what became of it.
+    fn dispose(
+        &mut self,
+        id: usize,
+        archive: &Path,
+        fp: Option<crate::organize::plan::SourceFp>,
+        targets: Vec<PathBuf>,
+    ) -> Step {
+        match dispose_archive(&mut self.writer, id, archive, fp, self.env.trash) {
+            ArchiveFate::Trashed { .. } => Step::Done(ItemStatus::Extracted, targets),
+            ArchiveFate::Kept { .. } => Step::Done(ItemStatus::ExtractedKept, targets),
+            ArchiveFate::Aborted => Step::Abort,
+        }
+    }
+
+    /// Resumes an `Extract` item an earlier run started (archives spec
+    /// §9.3; leftover job temps were deleted when the run began):
+    /// - every entry complete and its final intact: only the playlist and
+    ///   the archive's fate are left (a Trash intent without a follow-up
+    ///   is trashed again, or looked up in the Trash when the archive is
+    ///   gone from its place);
+    /// - else, the archive changed or vanished since the plan: everything
+    ///   the item put in place is rolled back (each final only while it is
+    ///   still the job's file);
+    /// - else phases A–C again: complete finals that still match their
+    ///   line, and finals of an intent that match the listing's size and a
+    ///   full CRC re-read, are adopted (decoded to a sink and checked,
+    ///   never rewritten); the rest is extracted again.
+    fn resume_extract(&mut self, item: &OrganizeItem, journal: &ExtractJournal) -> Step {
+        let Transfer::Extract {
+            entries,
+            archive_after,
+            m3u,
+            ..
+        } = &item.transfer
+        else {
+            return skipped(SkipReason::NotDecided);
+        };
+        let Some(rel) = item.sources.first() else {
+            return skipped(SkipReason::SourceMissing);
+        };
+        if let Some(reason) = roots_gone(self.plan) {
+            return Step::Pause(reason);
+        }
+        let root = self.plan.target_root.clone();
+        let archive = self.plan.source_root.join(rel);
+        let fp = item.fps.first().copied();
+        let logs = entries.iter().zip(&journal.entries);
+        let intact = logs.clone().all(|(e, log)| match log {
+            EntryLog::Completed { fp, .. } => file_matches_fp(&root.join(&e.target), fp),
+            _ => false,
+        });
+        if intact && journal.entries.len() == entries.len() {
+            let mut targets: Vec<PathBuf> = entries.iter().map(|e| root.join(&e.target)).collect();
+            if let Some(m3u) = m3u {
+                let m3u = root.join(m3u);
+                if let Err(step) = self.ensure_m3u(item.id, entries, &m3u) {
+                    return step;
+                }
+                targets.push(m3u);
+            }
+            return self.resume_archive(item, &archive, *archive_after, journal, targets);
+        }
+        if !archive_unchanged(&archive, fp) {
+            let missing = !fs::symlink_metadata(&archive).is_ok_and(|m| m.file_type().is_file());
+            self.roll_back_started(item.id, entries, journal);
+            return skipped(if missing {
+                SkipReason::SourceMissing
+            } else {
+                SkipReason::ChangedSincePlan
+            });
+        }
+        let mut adopted = Vec::new();
+        for (e, log) in logs {
+            let target = root.join(&e.target);
+            match log {
+                EntryLog::None => {}
+                EntryLog::Completed { temp, fp } => {
+                    if file_matches_fp(&target, fp) {
+                        let Some(crc32) = fp.crc32.or_else(|| crc_of(&target)) else {
+                            return failed(
+                                ItemErrorKind::Io,
+                                format!("{} unreadable", target.display()),
+                            );
+                        };
+                        adopted.push(Adopted {
+                            index: e.index,
+                            temp: temp.clone(),
+                            crc32,
+                            journaled: true,
+                        });
+                    } else if fs::symlink_metadata(&target).is_ok() {
+                        let detail = format!("{} changed since it was extracted", target.display());
+                        return failed(ItemErrorKind::Io, detail);
+                    }
+                    // Gone since: extracted again under a new intent.
+                }
+                EntryLog::Intent { temp } => {
+                    let same_size = fs::symlink_metadata(&target)
+                        .is_ok_and(|m| m.file_type().is_file() && m.len() == e.size);
+                    let crc = same_size.then(|| crc_of(&target)).flatten();
+                    match crc.filter(|c| e.crc32.is_none_or(|want| want == *c)) {
+                        Some(crc32) => adopted.push(Adopted {
+                            index: e.index,
+                            temp: temp.clone(),
+                            crc32,
+                            journaled: false,
+                        }),
+                        None => {
+                            // Never renamed (its temp was a leftover), or
+                            // the file there is not the entry: the intent
+                            // is closed, the entry extracted again.
+                            if let Err(e) = self.writer.rolled_back(&target, temp, Some(item.id)) {
+                                return self.on_error(&e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The adopted finals take their room already: the free-space
+        // check counts only what is left to extract (archives spec §8.4).
+        if !adopted.is_empty() {
+            let cluster = cluster_size(&self.plan.target_root).unwrap_or(4096).max(1);
+            let in_place = entries
+                .iter()
+                .filter(|e| adopted.iter().any(|a| a.index == e.index))
+                .map(|e| e.size.div_ceil(cluster).saturating_mul(cluster))
+                .fold(0u64, u64::saturating_add);
+            self.extract_need = self.extract_need.saturating_sub(in_place);
+        }
+        self.apply_extract(item, &adopted)
+    }
+
+    /// The generated playlist of a resumed item whose entries are all in
+    /// place: written when it is missing; one with the very text is kept.
+    fn ensure_m3u(&mut self, id: usize, entries: &[ExtractEntry], m3u: &Path) -> Result<(), Step> {
+        let sheets: Vec<PathBuf> = entries
+            .iter()
+            .filter(|e| {
+                let ext = e.name.rsplit_once('.').map_or("", |(_, x)| x);
+                matches!(
+                    SheetKind::from_extension(ext),
+                    Some(SheetKind::Cue | SheetKind::Gdi)
+                )
+            })
+            .map(|e| self.plan.target_root.join(&e.target))
+            .collect();
+        let refs: Vec<&Path> = sheets.iter().map(PathBuf::as_path).collect();
+        let Some(text) = m3u_text(&refs, m3u) else {
+            return Err(failed(
+                ItemErrorKind::Io,
+                format!("{} cannot list the discs", m3u.display()),
+            ));
+        };
+        if fs::symlink_metadata(m3u).is_ok() {
+            return match fs::read(m3u) {
+                Ok(bytes) if bytes == text.as_bytes() => Ok(()),
+                _ => Err(skipped(SkipReason::CollisionSet)),
+            };
+        }
+        match self.writer.create_new_file(m3u, text.as_bytes(), Some(id)) {
+            Ok(()) => Ok(()),
+            Err(WriteError::Io(e)) if e.kind() == ErrorKind::AlreadyExists => {
+                Err(skipped(SkipReason::CollisionSet))
+            }
+            Err(e) => Err(self.on_error(&e)),
+        }
+    }
+
+    /// What is left of phase D for a resumed item whose files are all in
+    /// place.
+    fn resume_archive(
+        &mut self,
+        item: &OrganizeItem,
+        archive: &Path,
+        after: ArchiveAfter,
+        journal: &ExtractJournal,
+        targets: Vec<PathBuf>,
+    ) -> Step {
+        if !trashes(self.plan, after) {
+            return Step::Done(ItemStatus::Extracted, targets);
+        }
+        let at_from = fs::symlink_metadata(archive).is_ok_and(|m| m.file_type().is_file());
+        match &journal.archive {
+            Some(ArchiveStep::Trashed { .. }) => Step::Done(ItemStatus::Extracted, targets),
+            Some(ArchiveStep::Kept) => Step::Done(ItemStatus::ExtractedKept, targets),
+            // Killed during the Trash call: the archive left; only the
+            // Trash knows where it went.
+            Some(ArchiveStep::TrashIntent { fp }) if !at_from => {
+                let name = archive.file_name().and_then(|n| n.to_str());
+                let found = match (name, fp) {
+                    (Some(name), Some(fp)) => self.env.trash.find(archive, name, fp),
+                    _ => None,
+                };
+                if let Err(e) =
+                    self.writer
+                        .archive_trashed(archive, found.as_deref(), Some(item.id))
+                {
+                    return self.on_error(&e);
+                }
+                Step::Done(ItemStatus::Extracted, targets)
+            }
+            // Killed before the Trash call, or before phase D began.
+            _ if at_from => self.dispose(item.id, archive, item.fps.first().copied(), targets),
+            // Gone from its place without a line saying so: nothing left
+            // to send to the Trash.
+            _ => Step::Done(ItemStatus::Extracted, targets),
+        }
+    }
+
+    /// Rolls back what earlier runs put in place for an item whose archive
+    /// changed since the plan: each final that is still the job's file (a
+    /// complete one by its fingerprint, one with only an intent by the
+    /// listing's size and a full CRC re-read) is deleted, and every open
+    /// intent gets its `rolled-back` line (one whose final could not be
+    /// deleted stays open for undo). Best effort.
+    fn roll_back_started(&mut self, id: usize, entries: &[ExtractEntry], journal: &ExtractJournal) {
+        for (e, log) in entries.iter().zip(&journal.entries) {
+            let target = self.plan.target_root.join(&e.target);
+            let (temp, ours) = match log {
+                EntryLog::None => continue,
+                EntryLog::Completed { temp, fp } => (temp, file_matches_fp(&target, fp)),
+                EntryLog::Intent { temp } => {
+                    let ours = e.crc32.is_some()
+                        && fs::symlink_metadata(&target)
+                            .is_ok_and(|m| m.file_type().is_file() && m.len() == e.size)
+                        && crc_of(&target) == e.crc32;
+                    (temp, ours)
+                }
+            };
+            if ours {
+                if fs::remove_file(&target).is_err() {
+                    // Still in place: its lines stay open, so undo still
+                    // knows it as the job's file.
+                    continue;
+                }
+                remove_apple_doubles(std::slice::from_ref(&target));
+            }
+            let _ = self.writer.rolled_back(&target, temp, Some(id));
+        }
+    }
+
+    /// How a failed extraction ends: rolled back in every case; a full
+    /// volume pauses the job, a write the volume refuses pauses as for a
+    /// move, anything else skips or fails the item only.
+    fn on_extract_error(&self, e: ExtractError) -> Step {
+        if let Some(PauseKind::DiskFull { needed, free }) = e.pause() {
+            return Step::PauseAs(
+                ItemErrorKind::DiskFull,
+                PauseKind::DiskFull { needed, free },
+            );
+        }
+        match e {
+            ExtractError::Aborted => Step::Abort,
+            ExtractError::Cancelled => skipped(SkipReason::Cancelled),
+            ExtractError::ChangedSincePlan | ExtractError::ListingChanged { .. } => {
+                skipped(SkipReason::ChangedSincePlan)
+            }
+            ExtractError::Collision { .. } => skipped(SkipReason::CollisionSet),
+            ExtractError::UnsafeTarget { .. } => failed(ItemErrorKind::OutsideRoot, e.to_string()),
+            ExtractError::Write(w) => self.on_error(&w),
+            ExtractError::Archive(_)
+            | ExtractError::EntryMissing { .. }
+            | ExtractError::SetIncomplete { .. } => failed(ItemErrorKind::Decode, e.to_string()),
+            ExtractError::RereadMismatch { .. } | ExtractError::DiskFull { .. } => {
+                failed(ItemErrorKind::Io, e.to_string())
+            }
+        }
+    }
+
     /// The manual identity keyed by `from` moves to `to`: journaled first
     /// so undo puts it back; best effort (a failure keeps the old key).
     fn rekey_override(&mut self, id: usize, from: &Path, to: &Path) {
@@ -969,6 +1749,10 @@ impl<'a> Run<'a> {
 
 fn skipped(reason: SkipReason) -> Step {
     Step::Done(ItemStatus::Skipped { reason }, Vec::new())
+}
+
+fn failed(kind: ItemErrorKind, detail: String) -> Step {
+    Step::Done(ItemStatus::Failed { kind, detail }, Vec::new())
 }
 
 /// Puts the members of a set that were already moved back, newest first;
@@ -1037,5 +1821,21 @@ mod tests {
         assert_eq!(json["pause_reason"], "disk-full");
         let back: OrganizeReport = serde_json::from_value(json).unwrap();
         assert_eq!(back, report);
+    }
+
+    #[test]
+    fn a_panic_inside_a_linked_cancel_unwinds_instead_of_hanging() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outer = AtomicBool::new(false);
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_linked_cancel(&outer, |_| -> () { panic!("a bug inside an extraction") })
+            }));
+            let _ = tx.send(caught.is_err());
+        });
+        let unwound = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("with_linked_cancel hung after a panic");
+        assert!(unwound);
     }
 }

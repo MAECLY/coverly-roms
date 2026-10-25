@@ -198,6 +198,10 @@ pub enum DiscIdSource {
     Chd,
     /// The disc's position in an m3u playlist.
     M3uPosition,
+    /// A system signature or the file system alone, with no boot record
+    /// read (PC Engine CD, Neo Geo CD, 3DO; a PlayStation volume whose
+    /// `SYSTEM.CNF` was out of reach, its serial from the boot file name).
+    Signature,
 }
 
 /// The identity of a disc unit (one disc, or a multi-disc unit in order).

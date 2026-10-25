@@ -14,18 +14,25 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::archive::names::UnsafeWhy;
+use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
+use crate::dedupe::source::DiscId;
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{NotARom, Sniff};
+use crate::organize::apply::{cluster_size, user_available};
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
 };
-use crate::organize::inspect::{inspect_file, inspect_set_primary, Container, Inspection, Payload};
+use crate::organize::inspect::{
+    inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveIssue, Container, Inspection,
+    Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
+};
 use crate::organize::target::{
-    assign_targets, default_companion_exts, file_system_is_fat32, mark_duplicates, DirIndex,
-    TargetLayout,
+    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, limit_fat_folders,
+    mark_duplicates, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -36,8 +43,8 @@ use crate::scan::classify::{
 };
 use crate::scan::multifile::{group_sets, is_list_extension};
 use crate::scan::{find_dir_ignoring_case, ScanOptions, ScanWarning};
-use crate::settings::{OrganizeModeSetting, Settings};
-use crate::systems::SystemDb;
+use crate::settings::{ExternalTools, OrganizeModeSetting, Settings};
+use crate::systems::{System, SystemDb};
 
 /// How files reach their system folder.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +95,52 @@ pub enum LeftReason {
     /// BIOS or firmware: moving it into a game folder makes it a fake game.
     Bios,
     DamagedArchive,
-    UnsupportedArchive,
+    /// A container this build cannot open; `need` names the external
+    /// tool that would (fields absent in plans from before archives).
+    UnsupportedArchive {
+        #[serde(default)]
+        format: Option<String>,
+        #[serde(default)]
+        need: Option<Tool>,
+    },
+    /// The archive's header or every payload is password protected.
+    EncryptedArchive,
+    /// Decoding needs more memory than the cap (S2, S3).
+    ArchiveNeedsMemory {
+        mib: u64,
+    },
+    /// Too many entries or too many declared bytes to open safely; never
+    /// damage (D1).
+    ArchiveTooBig {
+        entries: Option<u64>,
+        bytes: Option<u64>,
+    },
+    /// One part of a multi-volume archive.
+    MultiVolumeArchive {
+        parts: usize,
+    },
+    /// A needed entry has an unsafe path (zip-slip, device name, link…).
+    UnsafeArchiveEntry {
+        name: String,
+        why: UnsafeWhy,
+    },
+    /// A set member's name the target cannot store unchanged (sheets
+    /// reference it, so it is never renamed).
+    SetUnsafeName {
+        name: String,
+    },
+    /// A target or temp path over the Windows limit.
+    PathTooLong,
+    /// The only payload is another archive.
+    NestedArchive,
+    /// An arcade set in a container other than zip.
+    RepackArcade,
+    /// The FAT32 folder has no directory slots left.
+    FolderFull {
+        folder: String,
+    },
+    /// The target folder is a symlink or junction.
+    UnsafeTarget,
     /// An archive holding several games.
     MultiGameArchive {
         count: usize,
@@ -130,6 +182,40 @@ pub enum LeftReason {
     CollisionSet,
 }
 
+/// The reason an inspection issue leaves an item in place (archives spec
+/// §4.2): size caps are never damage, and a spent budget is no issue at all
+/// (the item goes to Review with `ItemNote::ArchiveNotFullyRead`).
+pub fn left_reason_for(issue: &ArchiveIssue) -> LeftReason {
+    match issue {
+        ArchiveIssue::Damaged => LeftReason::DamagedArchive,
+        ArchiveIssue::Unsupported { format, need } => LeftReason::UnsupportedArchive {
+            format: format.clone(),
+            need: *need,
+        },
+        ArchiveIssue::Encrypted => LeftReason::EncryptedArchive,
+        ArchiveIssue::NeedsMemory { mib } => LeftReason::ArchiveNeedsMemory { mib: *mib },
+        ArchiveIssue::TooBig { entries, bytes } => LeftReason::ArchiveTooBig {
+            entries: *entries,
+            bytes: *bytes,
+        },
+        ArchiveIssue::MultiVolume { parts } => LeftReason::MultiVolumeArchive { parts: *parts },
+        ArchiveIssue::Nested => LeftReason::NestedArchive,
+        ArchiveIssue::NotARom { what } => LeftReason::NotARom { what: *what },
+        ArchiveIssue::TooManyRoms { count } | ArchiveIssue::SeveralGames { count } => {
+            LeftReason::MultiGameArchive { count: *count }
+        }
+        ArchiveIssue::UnsafeEntry { name, why } => LeftReason::UnsafeArchiveEntry {
+            name: name.clone(),
+            why: *why,
+        },
+        ArchiveIssue::SetIncomplete { missing } => LeftReason::SetIncomplete {
+            missing: missing.clone(),
+        },
+        ArchiveIssue::SetOutsideFolder => LeftReason::SetOutsideFolder,
+        ArchiveIssue::SharedTrack => LeftReason::SharedTrack,
+    }
+}
+
 /// Something worth telling about an item that still moves (data for the
 /// UI, never prose).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +231,87 @@ pub enum ItemNote {
     CatalogueMissing { system: String },
     /// An archive entry is encrypted: its header was not read.
     Encrypted,
+    /// The magic says another container than the extension (`actual` is
+    /// the format's short name, `7z`).
+    ContainerMismatch { ext: String, actual: String },
+    /// A `.gdi` and a `.cue` for the same tracks: both are extracted.
+    TwinSheets { kept: Vec<String> },
+    /// The format stores no CRC: only the size is checked.
+    NoStoredChecksum,
+    /// The decode budget ran out during the dry run.
+    ArchiveNotFullyRead,
+    /// Move mode keeps the archive: it holds files that are not extracted.
+    ArchiveKeptLeftovers { count: usize, examples: Vec<String> },
+    /// The sheet sits beyond the plan-time budget: checked on apply.
+    SheetNotReadYet,
+    /// Several ROMs of one system are extracted from one archive.
+    MultiRomExtract { count: usize },
+}
+
+/// How an item reaches its target (archives spec §8.1).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Transfer {
+    /// The file moves or is copied as it is.
+    #[default]
+    AsIs,
+    /// The listed entries are extracted; `m3u` is a generated playlist
+    /// (relative to the target root).
+    Extract {
+        entries: Vec<ExtractEntry>,
+        bytes: u64,
+        archive_after: ArchiveAfter,
+        #[serde(default)]
+        source: ExtractSource,
+        #[serde(default)]
+        sheet_check: SheetCheck,
+        #[serde(default)]
+        m3u: Option<PathBuf>,
+    },
+}
+
+/// One archive entry an `Extract` item writes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractEntry {
+    /// Position in the archive's own order.
+    pub index: usize,
+    /// The validated entry path (`RelPath`), `/`-separated.
+    pub name: String,
+    pub size: u64,
+    /// Stored CRC32 when the format has one.
+    pub crc32: Option<u32>,
+    /// Relative to the target root.
+    pub target: PathBuf,
+}
+
+/// What happens to the archive once every entry is verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArchiveAfter {
+    /// Copy mode, or move mode with leftovers.
+    Keep,
+    /// Move mode with nothing left behind: sent to the Trash.
+    Trash,
+}
+
+/// Who decodes the archive on apply: the same as at plan time.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ExtractSource {
+    #[default]
+    Builtin,
+    /// An external tool, by kind and the version it reported.
+    Tool { tool: Tool, version: String },
+}
+
+/// Whether a disc set's sheet was parsed at plan time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SheetCheck {
+    #[default]
+    Read,
+    /// Inferred from the listing; parsed and checked on apply.
+    Deferred,
 }
 
 /// Why an item's target name differs from its source name.
@@ -218,6 +385,12 @@ pub struct OrganizeItem {
     pub notes: Vec<ItemNote>,
     pub companions: Vec<Companion>,
     pub catalogue_name: Option<String>,
+    /// As-is (default, plans from before archives) or extract.
+    #[serde(default)]
+    pub transfer: Transfer,
+    /// The disc's serials and fingerprint, for the UI and dedupe level 3.
+    #[serde(default)]
+    pub disc: Option<DiscId>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -235,6 +408,7 @@ impl OrganizeItem {
         self.set_targets.clear();
         self.companions.clear();
         self.rename = None;
+        self.transfer = Transfer::AsIs;
     }
 }
 
@@ -284,6 +458,9 @@ pub struct OrganizeOptions {
     pub arcade_order: Option<Vec<String>>,
     /// Download missing DATs (up to [`MAX_DAT_DOWNLOADS`] per plan).
     pub download_dats: bool,
+    /// Bounds for every archive the plan opens (`external_tools` follows
+    /// the setting `organize.external_tools`).
+    pub limits: Limits,
 }
 
 impl Default for OrganizeOptions {
@@ -301,6 +478,7 @@ impl Default for OrganizeOptions {
             recent_secs: 60,
             arcade_order: None,
             download_dats: true,
+            limits: Limits::default(),
         }
     }
 }
@@ -339,6 +517,10 @@ impl OrganizeOptions {
                 .filter(|order| !order.is_empty())
                 .cloned(),
             download_dats: o.download_dats,
+            limits: Limits {
+                external_tools: o.external_tools == ExternalTools::Auto,
+                ..Limits::default()
+            },
             layout,
             ..OrganizeOptions::default()
         }
@@ -369,6 +551,15 @@ pub enum OrganizePhase {
     Hash,
     /// Moving or copying the items (`organize::apply`).
     Apply,
+    /// Extracting archive item `item` (its [`OrganizeItem::id`]):
+    /// `bytes_done` of the `bytes_total` its decode pass goes through (a
+    /// solid block's other entries included). The first event of an item
+    /// has `bytes_done == 0` and its last `bytes_done == bytes_total`.
+    Extract {
+        item: usize,
+        bytes_done: u64,
+        bytes_total: u64,
+    },
 }
 
 /// Planning progress: `done` of `total` in `phase`.
@@ -443,6 +634,10 @@ pub enum PlanWarning {
     MoveUnavailable,
     /// Nothing loose: every ROM already sits in a system folder.
     SortedOnly,
+    /// The target volume lacks room for what the plan writes: `needed`
+    /// (cluster-rounded bytes, 1 % and the reserve) against the bytes
+    /// `free` for this user (archives spec §8.4).
+    NoSpace { needed: u64, free: u64 },
 }
 
 /// A dry run: what would move where, and why.
@@ -486,6 +681,9 @@ pub struct SurveyEntry {
     /// Left before identification (walk, broken disc set, unreadable).
     pub left: Option<LeftReason>,
     pub identification: Option<Identification>,
+    /// What opening an archive found (archives only): the listing, the
+    /// disc set and the tool an extraction plan needs.
+    pub inspection: Option<Inspection>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -670,6 +868,7 @@ pub fn survey(
                 kind: ItemKind::File,
                 left: Some(reason),
                 identification: None,
+                inspection: None,
             },
             candidate: None,
             set_sniff: None,
@@ -714,12 +913,35 @@ pub fn survey(
     } else {
         WORKERS
     };
-    let results = identify_all(&entries, &todo, workers, env, &ladder, progress, cancel)?;
+    // External tools are looked for only when an archive needs one, and
+    // never in a `PATH` entry inside the source or target root (spec §5.2).
+    let tools = ToolsOnDemand::new(&[&source_abs, &target_root]);
+    let results = identify_all(
+        &entries,
+        &todo,
+        workers,
+        (env, &ladder, &opts.limits, &tools),
+        progress,
+        cancel,
+    )?;
     let mut facts_of: HashMap<usize, Facts> = HashMap::new();
+    let mut volume_sets: Vec<Vec<PathBuf>> = Vec::new();
     for (i, outcome) in results {
         match outcome {
             Ok((facts, id)) => {
-                entries[i].entry.identification = Some(id);
+                if !facts.inspection.volume_parts.is_empty() {
+                    volume_sets.push(facts.inspection.volume_parts.clone());
+                }
+                let entry = &mut entries[i].entry;
+                entry.identification = Some(id);
+                // Any container the reader opened is an archive item (a
+                // `.tar.gz` or a `game.gba.gz` too), extracted or moved.
+                if facts.inspection.container.is_archive() && entry.kind == ItemKind::File {
+                    entry.kind = ItemKind::Archive;
+                }
+                if entry.kind == ItemKind::Archive {
+                    entry.inspection = Some(facts.inspection.clone());
+                }
                 facts_of.insert(i, facts);
             }
             Err(left) => entries[i].entry.left = Some(left),
@@ -793,13 +1015,52 @@ pub fn survey(
         }
     }
 
+    let mut entries: Vec<SurveyEntry> = entries.into_iter().map(|p| p.entry).collect();
+    gather_volume_sets(&mut entries, &volume_sets, &mut walked);
+
     Ok(Survey {
         source_root: source_abs,
         target_root,
         broad_root,
-        entries: entries.into_iter().map(|p| p.entry).collect(),
+        entries,
         walked,
     })
+}
+
+/// Turns every multi-volume set into one Left entry holding all its parts
+/// (archives spec §3.2 rule 6): the entry of the set's first part found
+/// (in volume order) takes the others' files, which never become items,
+/// companions or other files of their own, so no part moves apart.
+fn gather_volume_sets(entries: &mut Vec<SurveyEntry>, sets: &[Vec<PathBuf>], walked: &mut Walked) {
+    let mut gone: BTreeSet<PathBuf> = BTreeSet::new();
+    for parts in sets {
+        if parts.iter().any(|p| gone.contains(p)) {
+            continue;
+        }
+        let Some(owner) = parts
+            .iter()
+            .find_map(|p| entries.iter().position(|e| e.sources[0] == *p))
+        else {
+            continue;
+        };
+        let present: Vec<PathBuf> = parts.iter().filter(|p| p.is_file()).cloned().collect();
+        let entry = &mut entries[owner];
+        entry.fps = present.iter().map(|p| fp_of(p)).collect();
+        entry.size = entry.fps.iter().map(|fp| fp.size).sum();
+        entry.sources = present;
+        entry.kind = ItemKind::Archive;
+        entry.left = Some(LeftReason::MultiVolumeArchive { parts: parts.len() });
+        entry.identification = None;
+        entry.inspection = None;
+        gone.extend(entry.sources.iter().skip(1).cloned());
+    }
+    if gone.is_empty() {
+        return;
+    }
+    entries.retain(|e| e.sources.len() > 1 || !gone.contains(&e.sources[0]));
+    walked.other_files.retain(|p| !gone.contains(p));
+    walked.companions.retain(|p| !gone.contains(p));
+    walked.left.retain(|(p, _)| !gone.contains(p));
 }
 
 /// An entry being surveyed: the candidate behind it (single files) or the
@@ -847,6 +1108,7 @@ fn build_entries(
             }],
             left: None,
             identification: None,
+            inspection: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -945,8 +1207,7 @@ fn identify_all(
     entries: &[Pending],
     todo: &[usize],
     workers: usize,
-    env: &OrganizeEnv,
-    ladder: &LadderEnv,
+    (env, ladder, limits, tools): (&OrganizeEnv, &LadderEnv, &Limits, &ToolsOnDemand),
     progress: &(dyn Fn(OrganizeProgress) + Sync),
     cancel: &AtomicBool,
 ) -> Result<Vec<(usize, Outcome)>, OrganizeError> {
@@ -970,7 +1231,7 @@ fn identify_all(
                 let Some(&i) = todo.get(k) else {
                     break;
                 };
-                let outcome = identify_entry(&entries[i], env, ladder);
+                let outcome = identify_entry(&entries[i], env, ladder, (limits, tools));
                 results
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -998,7 +1259,12 @@ fn identify_all(
 
 /// Facts (memoised or freshly inspected) and the ladder's verdict for one
 /// entry.
-fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> Outcome {
+fn identify_entry(
+    pending: &Pending,
+    env: &OrganizeEnv,
+    ladder: &LadderEnv,
+    (limits, tools): (&Limits, &ToolsOnDemand),
+) -> Outcome {
     let candidate = pending
         .candidate
         .as_ref()
@@ -1011,8 +1277,9 @@ fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> O
         match memoised_facts(env.cache, candidate) {
             Some(facts) => facts,
             None => {
-                let inspection = inspect_file(&candidate.path, candidate.size, env.db)
-                    .map_err(|_| LeftReason::Unreadable)?;
+                let inspection =
+                    inspect_file_with(&candidate.path, candidate.size, env.db, limits, Some(tools))
+                        .map_err(|_| LeftReason::Unreadable)?;
                 Facts {
                     inspection,
                     raw_crcs: Vec::new(),
@@ -1022,7 +1289,7 @@ fn identify_entry(pending: &Pending, env: &OrganizeEnv, ladder: &LadderEnv) -> O
         }
     };
     let id = identify_one(candidate, &mut facts, ladder);
-    if pending.entry.kind != ItemKind::Set && !candidate.cloud_only {
+    if pending.entry.kind != ItemKind::Set && !candidate.cloud_only && memoisable(&facts) {
         remember_facts(env.cache, candidate, &facts);
     }
     Ok((facts, id))
@@ -1048,13 +1315,53 @@ fn identify_one(
     )
 }
 
+/// Version of the memoised facts: facts from before the archive reader
+/// (no version) judged a 7z named `.zip` damaged, facts of version 1
+/// judged a disc archive by its cartridge rules, and facts of version 2
+/// lack the entry indices, the discs and the tool an extraction needs, so
+/// they are read again; facts of version 4 call a patch-only archive an
+/// unknown system.
+const FACTS_VERSION: u32 = 5;
+
+/// Facts as memoised, with their version.
+#[derive(Serialize, Deserialize)]
+struct StoredFacts {
+    #[serde(default)]
+    v: u32,
+    #[serde(flatten)]
+    facts: Facts,
+}
+
 fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
     let json = cache.organize_facts(&c.path, c.size, c.mtime_ns).ok()??;
-    serde_json::from_str(&json).ok()
+    let stored: StoredFacts = serde_json::from_str(&json).ok()?;
+    (stored.v == FACTS_VERSION).then_some(stored.facts)
+}
+
+/// Facts that depend only on the file: not those cut short by a budget,
+/// nor an archive that an external tool found later could open, nor one
+/// an external tool listed or failed on (the tool, its version or the
+/// setting may change while the file's size and mtime do not).
+fn memoisable(facts: &Facts) -> bool {
+    let insp = &facts.inspection;
+    // A multi-volume set's parts are the files beside it, not this file.
+    !insp.budget_spent
+        && insp.tool.is_none()
+        && !insp.notes.iter().any(|n| n == NOTE_TOOL_FAILED)
+        && !matches!(
+            insp.issue,
+            Some(
+                ArchiveIssue::Unsupported { need: Some(_), .. } | ArchiveIssue::MultiVolume { .. }
+            )
+        )
 }
 
 fn remember_facts(cache: &Cache, c: &WalkCandidate, facts: &Facts) {
-    if let Ok(json) = serde_json::to_string(facts) {
+    let stored = StoredFacts {
+        v: FACTS_VERSION,
+        facts: facts.clone(),
+    };
+    if let Ok(json) = serde_json::to_string(&stored) {
         let _ = cache.put_organize_facts(&c.path, c.size, c.mtime_ns, &json);
     }
 }
@@ -1080,6 +1387,14 @@ fn name_only_facts(c: &WalkCandidate) -> Facts {
             issue: None,
             notes: Vec::new(),
             head_crc: None,
+            format: None,
+            mismatch: None,
+            listing_complete: true,
+            budget_spent: false,
+            disc_set: None,
+            decoded: 0,
+            tool: None,
+            volume_parts: Vec::new(),
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1113,6 +1428,14 @@ fn set_facts(c: &WalkCandidate, entry: &SurveyEntry, sniff: Option<Sniff>) -> Fa
             issue: None,
             notes: Vec::new(),
             head_crc: None,
+            format: None,
+            mismatch: None,
+            listing_complete: true,
+            budget_spent: false,
+            disc_set: None,
+            decoded: 0,
+            tool: None,
+            volume_parts: Vec::new(),
         },
         raw_crcs: Vec::new(),
         hashed: true,
@@ -1164,6 +1487,8 @@ pub fn plan_from_survey(
             notes: Vec::new(),
             companions: Vec::new(),
             catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
             action: OrganizeAction::Left {
                 reason: LeftReason::Unknown,
             },
@@ -1183,6 +1508,7 @@ pub fn plan_from_survey(
                 item.alternatives = c.alternatives.clone();
                 item.notes = found.notes.clone();
                 item.catalogue_name = found.catalogue_name.clone();
+                item.disc = found.disc.clone();
                 key = found.content_key.clone();
                 item.action = match (&found.left, c.verdict) {
                     (Some(reason), _) => OrganizeAction::Left {
@@ -1247,8 +1573,35 @@ pub fn plan_from_survey(
         }
     }
 
-    // Duplicates, then targets.
+    // Mode: archives are kept in copy mode.
+    let mut warnings: Vec<PlanWarning> = Vec::new();
+    let move_allowed = dir_writable(src);
+    let mut mode = opts.mode.unwrap_or(if same_volume(src, &target_root) {
+        TransferMode::Move
+    } else {
+        TransferMode::Copy
+    });
+    if !move_allowed && mode == TransferMode::Move {
+        mode = TransferMode::Copy;
+        warnings.push(PlanWarning::MoveUnavailable);
+    }
+
+    // Duplicates, extractions, then targets.
     mark_duplicates(&mut items, &keys);
+    let mut shapes: Vec<Option<ExtractShape>> = vec![None; items.len()];
+    for item in items.iter_mut().filter(|i| !i.is_left()) {
+        let entry = &survey.entries[item.id];
+        let (Some(system), Some(insp)) = (item.system_id.clone(), entry.inspection.as_ref()) else {
+            continue;
+        };
+        let Some(system) = env.db.get(&system) else {
+            continue;
+        };
+        match plan_transfer(item, insp, system, &profile, mode) {
+            Ok(shape) => shapes[item.id] = shape,
+            Err(reason) => item.leave(reason),
+        }
+    }
     let fat32 = file_system_is_fat32(&target_root);
     let layout = TargetLayout {
         target_root: target_root.clone(),
@@ -1267,8 +1620,9 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let left_companions = assign_targets(
+    let left_companions = assign_targets_with_extracts(
         &mut items,
+        &shapes,
         &layout,
         env.db,
         src,
@@ -1276,6 +1630,9 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    if fat32 {
+        limit_fat_folders(&mut items, &target_root);
+    }
     for (path, reason) in left_companions {
         let abs = if path.is_absolute() {
             path.clone()
@@ -1301,22 +1658,13 @@ pub fn plan_from_survey(
             notes: Vec::new(),
             companions: Vec::new(),
             catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
             action: OrganizeAction::Left { reason },
         });
     }
 
-    // Mode, warnings, counts.
-    let mut warnings: Vec<PlanWarning> = Vec::new();
-    let move_allowed = dir_writable(src);
-    let mut mode = opts.mode.unwrap_or(if same_volume(src, &target_root) {
-        TransferMode::Move
-    } else {
-        TransferMode::Copy
-    });
-    if !move_allowed && mode == TransferMode::Move {
-        mode = TransferMode::Copy;
-        warnings.push(PlanWarning::MoveUnavailable);
-    }
+    // Warnings, counts.
     let missing: BTreeSet<String> = items
         .iter()
         .filter(|i| !i.is_left())
@@ -1348,6 +1696,12 @@ pub fn plan_from_survey(
         .count();
     if candidates == 0 && !survey.walked.sorted_folders.is_empty() {
         warnings.push(PlanWarning::SortedOnly);
+    }
+    let copies = mode == TransferMode::Copy || !same_volume(src, &target_root);
+    let cluster = cluster_size(&target_root).unwrap_or(DEFAULT_CLUSTER);
+    let needed = space_needed(&items, src, copies, cluster);
+    if let Some(free) = user_available(&target_root).filter(|&free| free < needed) {
+        warnings.push(PlanWarning::NoSpace { needed, free });
     }
     let counts = count(&items, &survey.walked);
 
@@ -1385,6 +1739,205 @@ pub fn plan_from_survey(
         target_detected,
         created_at: crate::time::rfc3339_utc(env.now),
     })
+}
+
+/// Leftover names a note shows.
+const LEFTOVER_EXAMPLES: usize = 3;
+
+/// Kept free on the target beyond what a plan writes (archives spec §8.4).
+pub const SPACE_RESERVE: u64 = 64 * 1024 * 1024;
+/// The allocation unit assumed when the volume does not tell its own.
+const DEFAULT_CLUSTER: u64 = 4096;
+
+/// Bytes the target volume needs free for the items that move: every
+/// extracted entry, generated playlist and, when `copies` (copy mode or
+/// another volume), every source file and companion, each rounded up to
+/// whole `cluster`s; plus 1 % and [`SPACE_RESERVE`]. Nothing to write
+/// needs nothing. A move on one volume renames, and the Trash frees no
+/// space on it, so an archive's own size is never taken off (spec §8.4).
+pub fn space_needed(items: &[OrganizeItem], source_root: &Path, copies: bool, cluster: u64) -> u64 {
+    let cluster = cluster.max(1);
+    let round = |n: u64| n.div_ceil(cluster).saturating_mul(cluster);
+    let mut sum: u64 = 0;
+    for item in items.iter().filter(|i| !i.is_left() && i.target.is_some()) {
+        let mut add = match &item.transfer {
+            // A playlist is a few lines: one cluster.
+            Transfer::Extract { entries, m3u, .. } => entries
+                .iter()
+                .map(|e| round(e.size))
+                .chain(m3u.as_ref().map(|_| round(1)))
+                .fold(0u64, u64::saturating_add),
+            Transfer::AsIs if copies => item
+                .fps
+                .iter()
+                .map(|fp| round(fp.size))
+                .fold(0u64, u64::saturating_add),
+            Transfer::AsIs => 0,
+        };
+        if copies {
+            for c in &item.companions {
+                let size = fs::metadata(source_root.join(&c.source)).map_or(0, |m| m.len());
+                add = add.saturating_add(round(size));
+            }
+        }
+        sum = sum.saturating_add(add);
+    }
+    if sum == 0 {
+        return 0;
+    }
+    sum.saturating_add(sum.div_ceil(100))
+        .saturating_add(SPACE_RESERVE)
+}
+
+/// How an archive item reaches `system`'s folder under `profile`
+/// (archives spec §8.1–§8.3): `Ok(None)` moves it as it is; `Ok(Some)`
+/// sets `item.transfer` to an extraction (targets assigned later) and
+/// returns its layout; `Err` leaves the item.
+///
+/// - Arcade sets are never extracted: a zip moves as it is, any other
+///   container is `RepackArcade`.
+/// - A disc archive always extracts its set (sheets, tracks, images).
+/// - A cartridge archive moves as it is when the profile's emulators load
+///   its container for the system, else its ROM entries are extracted.
+/// - An incomplete listing is never extracted: the archive moves as it is.
+/// - Move mode sends the archive to the Trash only when every file entry
+///   is extracted or OS junk (an unsafe name
+///   never counts as junk); anything else (a save, a readme) keeps it,
+///   with a note. Copy mode always keeps it.
+fn plan_transfer(
+    item: &mut OrganizeItem,
+    insp: &Inspection,
+    system: &System,
+    profile: &Profile,
+    mode: TransferMode,
+) -> Result<Option<ExtractShape>, LeftReason> {
+    let Some(format) = insp.format else {
+        return Ok(None);
+    };
+    // Before the listing rule: an arcade set that is not a zip never
+    // loads, however much of it was listed.
+    if system.arcade {
+        return match insp.container {
+            Container::Zip => Ok(None),
+            _ => Err(LeftReason::RepackArcade),
+        };
+    }
+    // Entries past an incomplete listing (a tar cut by the listing budget)
+    // are unknown: such an archive moves as it is, never extracted (spec
+    // §4.2).
+    if !insp.listing_complete {
+        return Ok(None);
+    }
+    let by_name = |name: &str| insp.entries.iter().find(|e| e.name == name);
+    let (chosen, shape, sheet_check): (Vec<&ZipEntryInfo>, ExtractShape, SheetCheck) =
+        match &insp.disc_set {
+            Some(set) => {
+                let chosen = set.members.iter().filter_map(|m| by_name(m)).collect();
+                let check = if set.extractable {
+                    set.sheet_check
+                } else {
+                    SheetCheck::Deferred
+                };
+                let shape = ExtractShape::Disc {
+                    discs: set.discs.clone(),
+                    title: set.title.clone(),
+                    multi_disc: set.multi_disc,
+                };
+                if profile.disc_layout.is_game_folder() {
+                    // One folder per game: menus list it once.
+                    item.notes
+                        .retain(|n| !matches!(n, ItemNote::TwinSheets { .. }));
+                }
+                (chosen, shape, check)
+            }
+            None => {
+                if profile.accepts_as_is(system, ContainerKind::of(format)) {
+                    return Ok(None);
+                }
+                let chosen: Vec<&ZipEntryInfo> = insp
+                    .payloads
+                    .iter()
+                    .filter_map(|p| by_name(&p.name))
+                    .collect();
+                if chosen.is_empty() {
+                    return Ok(None);
+                }
+                if chosen.len() > 1 {
+                    item.notes
+                        .retain(|n| !matches!(n, ItemNote::MultiRomZip { .. }));
+                    item.notes.push(ItemNote::MultiRomExtract {
+                        count: chosen.len(),
+                    });
+                }
+                (chosen, ExtractShape::Roms, SheetCheck::Read)
+            }
+        };
+    let mut entries = Vec::with_capacity(chosen.len());
+    for e in &chosen {
+        if let Some(why) = e.unsafe_why {
+            return Err(LeftReason::UnsafeArchiveEntry {
+                name: e.name.clone(),
+                why,
+            });
+        }
+        // Facts from before extraction carry no index: never guessed.
+        let Some(index) = e.index else {
+            return Err(LeftReason::Unknown);
+        };
+        entries.push(ExtractEntry {
+            index,
+            name: e.name.clone(),
+            size: e.size,
+            crc32: e
+                .crc32
+                .as_deref()
+                .and_then(|c| u32::from_str_radix(c, 16).ok()),
+            target: PathBuf::new(),
+        });
+    }
+    let leftovers: Vec<&ZipEntryInfo> = insp
+        .entries
+        .iter()
+        // An unsafe name is never junk: `__MACOSX/../Game.srm` is a save
+        // that is not extracted.
+        .filter(|e| e.unsafe_why.is_some() || !is_metadata_entry(&e.name))
+        .filter(|e| !entries.iter().any(|x| Some(x.index) == e.index))
+        .collect();
+    let archive_after = match mode {
+        TransferMode::Copy => ArchiveAfter::Keep,
+        TransferMode::Move if leftovers.is_empty() => ArchiveAfter::Trash,
+        TransferMode::Move => {
+            item.notes.push(ItemNote::ArchiveKeptLeftovers {
+                count: leftovers.len(),
+                examples: leftovers
+                    .iter()
+                    .take(LEFTOVER_EXAMPLES)
+                    .map(|e| e.name.clone())
+                    .collect(),
+            });
+            ArchiveAfter::Keep
+        }
+    };
+    if entries.iter().any(|e| e.crc32.is_none())
+        && !item.notes.contains(&ItemNote::NoStoredChecksum)
+    {
+        item.notes.push(ItemNote::NoStoredChecksum);
+    }
+    item.transfer = Transfer::Extract {
+        bytes: entries.iter().map(|e| e.size).sum(),
+        entries,
+        archive_after,
+        source: match &insp.tool {
+            Some((tool, version)) => ExtractSource::Tool {
+                tool: *tool,
+                version: version.clone(),
+            },
+            None => ExtractSource::Builtin,
+        },
+        sheet_check,
+        m3u: None,
+    };
+    Ok(Some(shape))
 }
 
 /// Whether the user may settle this item: it moves, or nothing placed it.
@@ -1621,4 +2174,41 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
     out.partial_downloads += partial_dirs;
     out.sorted_folders = sorted.into_iter().collect();
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(insp: Inspection) -> Facts {
+        Facts {
+            inspection: insp,
+            raw_crcs: Vec::new(),
+            hashed: false,
+        }
+    }
+
+    #[test]
+    fn tool_listed_archives_are_not_memoised() {
+        // A tool upgrade or the setting turned off must be seen by the
+        // next plan: the cache key (path, size, mtime) would not change.
+        let mut insp = Inspection::new(Container::Rar);
+        insp.tool = Some((Tool::Unrar, "7.01".into()));
+        assert!(!memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn a_failed_tool_is_not_memoised_as_damaged() {
+        let mut insp = Inspection::new(Container::Rar);
+        insp.issue = Some(ArchiveIssue::Damaged);
+        insp.notes.push(NOTE_TOOL_FAILED.into());
+        assert!(!memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn builtin_damaged_archives_stay_memoised() {
+        let mut insp = Inspection::new(Container::Zip);
+        insp.issue = Some(ArchiveIssue::Damaged);
+        assert!(memoisable(&facts(insp)));
+    }
 }

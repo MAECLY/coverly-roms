@@ -3,6 +3,7 @@
 
 pub mod apply;
 pub mod evidence;
+pub mod extract;
 pub mod inspect;
 pub mod online;
 pub mod plan;
@@ -10,15 +11,16 @@ pub mod target;
 pub mod walk;
 
 pub use apply::{
-    apply_organize, free_space, load_plan, resume_organize, ApplyEnv, ApplyError, ItemOutcome,
-    ItemStatus, OrganizeReport, SkipReason,
+    apply_organize, cluster_size, free_space, load_plan, resume_organize, user_available, ApplyEnv,
+    ApplyError, ItemOutcome, ItemStatus, OrganizeReport, SkipReason,
 };
 pub use plan::{
     count_library_loose_roms, count_loose_roms, plan_from_survey, plan_organize, probe_folder,
-    survey, Choice, Companion, Counts, Decision, FolderProbe, ItemKind, ItemNote, LeftReason,
-    NameMode, OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions,
-    OrganizePhase, OrganizePlan, OrganizeProgress, PlanWarning, RenameReason, SourceFp, Survey,
-    SurveyEntry, TransferMode, DEFAULT_LAYOUT, PROBE_LIMIT,
+    survey, ArchiveAfter, Choice, Companion, Counts, Decision, ExtractEntry, ExtractSource,
+    FolderProbe, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction, OrganizeEnv,
+    OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress,
+    PlanWarning, RenameReason, SheetCheck, SourceFp, Survey, SurveyEntry, Transfer, TransferMode,
+    DEFAULT_LAYOUT, PROBE_LIMIT,
 };
 pub use target::{
     assign_targets, file_system_is_fat32, folder_dir, mark_duplicates, DirIndex, TargetLayout,

@@ -7,10 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import type {
+  FoundTool,
   OrganizeModeSetting,
   OrganizeNameMode,
   ProfileInfo,
 } from '@/ipc/types';
+import { toolName } from '@/lib/organize';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -65,12 +67,35 @@ function ListSetting({
   );
 }
 
+/** What was found, each tool as a mono readout (brand §5) inside the
+ * translated line; or how to get one. */
+function ExternalToolsHint({ found }: { found: FoundTool[] }) {
+  const t = useT();
+  if (found.length === 0)
+    return <>{t('settings.organize.externalToolsNone')}</>;
+  const MARK = '\u0000';
+  const [before = '', after = ''] = t('settings.organize.externalToolsFound', {
+    tools: MARK,
+  }).split(MARK);
+  const list = found
+    .map((f) => `${toolName(f.tool)} ${f.version} (${f.path})`)
+    .join(', ');
+  return (
+    <>
+      {before}
+      <span className="font-mono [overflow-wrap:anywhere]">{list}</span>
+      {after}
+    </>
+  );
+}
+
 /** Defaults of the organise screen (organise spec §12); thresholds and
  * lists stay in the settings file. */
 function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
   const t = useT();
   const org = useSettingsStore((s) => s.settings!.organize);
   const update = useSettingsStore((s) => s.update);
+  const found = useSettingsStore((s) => s.externalToolsFound);
   const listed = profiles.some((p) => p.profile.id === org.default_layout);
   return (
     <fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
@@ -157,6 +182,16 @@ function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
         checked={org.download_dats}
         onCheckedChange={(on) =>
           void update({ organize: { download_dats: on } })
+        }
+      />
+      <SwitchSetting
+        id={settingId('organize.external_tools')}
+        name="organize-external-tools"
+        label={t('settings.organize.externalTools')}
+        hint={<ExternalToolsHint found={found} />}
+        checked={org.external_tools === 'auto'}
+        onCheckedChange={(on) =>
+          void update({ organize: { external_tools: on ? 'auto' : 'off' } })
         }
       />
       <p className={hintText}>{t('settings.organize.advancedHint')}</p>

@@ -2,7 +2,7 @@
 //! (duplicates spec §15, read-only). Run by hand:
 //!
 //! ```text
-//! COVERLY_LIBRARY_DIR=~/Documents/ROMS COVERLY_SAMPLE_DIR=~/Documents/ROMs-Downloaded \
+//! COVERLY_LIBRARY_DIR=~/Documents/ROMS COVERLY_SAMPLE_DIR=/Volumes/TinyExt/ROMs-Downloaded \
 //!   cargo test -p coverly-core --test dedupe_real_sample -- --ignored --nocapture
 //! ```
 //!

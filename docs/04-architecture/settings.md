@@ -43,6 +43,7 @@
 | | `companion_exts` | `sav, srm, rtc, state*, cht, ips, bps, ups, txt, nfo, png, jpg` | files with a moved ROM's stem that follow it (`state*` = prefix) |
 | | `folder_names`, `arcade_order` | `{}`, `{}` | per layout id: system id → folder name (must resolve back to that system), arcade systems in order |
 | | `recent_seconds`, `keep_organize_journals_days` | `60`, `90` | 0–3600, 1–3650; organise journals are kept at least this long ([fill-pipeline.md](./fill-pipeline.md#writer-guarantees)) |
+| | `external_tools` | `auto` | `auto` lets Organise run an external archive tool found on the system (unrar, 7-Zip, bsdtar) for RAR and unsupported 7z coders; `off` never runs one (those archives are left with an install/enable note) |
 
 ## Loading (`settings::load`, D24)
 

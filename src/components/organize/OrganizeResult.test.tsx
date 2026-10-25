@@ -7,7 +7,12 @@ import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
-import type { JobHistoryItem, OrganizeJobView } from '@/ipc/types';
+import type {
+  JobHistoryItem,
+  OrganizeJobView,
+  OrganizeUndoReport,
+} from '@/ipc/types';
+import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 import { OrganizeResult } from './OrganizeResult';
 
@@ -24,6 +29,7 @@ function view(patch: Partial<OrganizeJobView> = {}): OrganizeJobView {
       job: 'organize-0001',
       moved: 1,
       copied: 1,
+      extracted: 0,
       skipped: 1,
       failed: 1,
       paused: null,
@@ -165,6 +171,7 @@ describe('OrganizeResult', () => {
       skipped_modified: Array.from({ length: modified }, (_, i) => `/m/${i}`),
       skipped_occupied: [],
       dirs_removed: [],
+      archive_lost: [],
     });
     render(
       <I18nProvider locale="en">
@@ -232,5 +239,115 @@ describe('OrganizeResult', () => {
       screen.getByRole('button', { name: 'Undo all in order' }),
     );
     expect(h.onUndo).toHaveBeenCalledWith(true);
+  });
+
+  it('result_counts_extracted_and_kept_note', async () => {
+    const plan = planOf([
+      autoItem(0, 'a.gba', 'gba', 'ROMS/GBA'),
+      discItem(1),
+      discItem(2, { sources: ['Tetris Plus.zip'] }),
+    ]);
+    render(
+      <I18nProvider locale="es">
+        <OrganizeResult
+          job={view({
+            report: {
+              job: 'organize-0001',
+              moved: 1,
+              copied: 0,
+              extracted: 2,
+              skipped: 0,
+              failed: 0,
+              paused: null,
+              pause_reason: null,
+              resumable_items: [],
+              items: [
+                { item: 0, status: 'moved', targets: ['/SD/ROMS/GBA/a.gba'] },
+                {
+                  item: 1,
+                  status: 'extracted',
+                  targets: ['/SD/ROMS/PS/x.cue'],
+                },
+                {
+                  item: 2,
+                  status: 'extracted-kept',
+                  targets: ['/SD/ROMS/PS/y.cue'],
+                },
+              ],
+            },
+          })}
+          plan={plan}
+          undo={null}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    expect(
+      screen.getByText(
+        'Movidos: 1 · Copiados: 0 · Omitidos: 0 · Errores: 0 · Extraídos: 2',
+      ),
+    ).toBeInTheDocument();
+    // The archive that stayed is said in sight, with its name.
+    expect(
+      screen.getByText(
+        'Tetris Plus.zip · Extraído; el comprimido se queda porque este disco no tiene papelera',
+      ),
+    ).toBeInTheDocument();
+    // Undo counts every placed item, extracted ones too.
+    expect(
+      screen.getByRole('button', { name: 'Deshacer 3 archivos' }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Qué ha pasado con cada archivo' }),
+    );
+    expect(
+      screen.getByText(
+        'Next Tetris, The.zip · Extraído · El comprimido se ha enviado a la papelera',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Tetris Plus.zip · Extraído; el comprimido se queda donde estaba',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('no extracted count when nothing was extracted', () => {
+    show(view());
+    expect(screen.queryByText(/Extracted/)).not.toBeInTheDocument();
+  });
+
+  it('undo_archive_lost_message', () => {
+    const report: OrganizeUndoReport = {
+      job: 'organize-0001',
+      removed: [],
+      restored: [],
+      skipped_modified: [],
+      skipped_occupied: [],
+      dirs_removed: [],
+      archive_lost: ['/pile/Next Tetris, The.zip'],
+    };
+    render(
+      <I18nProvider locale="es">
+        <OrganizeResult
+          job={view()}
+          plan={null}
+          undo={{ report: [report], later_jobs: [] }}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    const alert = screen
+      .getByText(
+        'No se pudo recuperar el comprimido de la papelera; los archivos extraídos se quedan',
+      )
+      .closest('[role]')!;
+    expect(alert).toHaveTextContent('Next Tetris, The.zip');
   });
 });

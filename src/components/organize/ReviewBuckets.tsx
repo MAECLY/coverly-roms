@@ -275,7 +275,7 @@ function ReviewRow({
         </NativeSelect>
       </div>
       {item.why.map((e, i) => {
-        const why = whyKey(e, systemName);
+        const why = whyKey(e, systemName, item.disc);
         return (
           <p key={i} className={hintText}>
             {t(why.key, why.vars)}

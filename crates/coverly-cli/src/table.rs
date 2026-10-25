@@ -45,9 +45,43 @@ pub fn terminal_safe(text: &str) -> String {
         .collect()
 }
 
+/// `text` with every control character, `\n` included, replaced by
+/// U+FFFD: for a name printed inside one line of a report.
+pub fn one_line(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
+/// `79.6 MB`: decimal units, one decimal.
+pub fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "kB", "MB", "GB", "TB"];
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let mut v = bytes as f64;
+    let mut unit = 0;
+    // Compare the value as it is printed: 999,960 B is `1.0 MB`, never
+    // `1000.0 kB`.
+    while (v * 10.0).round() / 10.0 >= 1000.0 && unit < UNITS.len() - 1 {
+        v /= 1000.0;
+        unit += 1;
+    }
+    format!("{v:.1} {}", UNITS[unit])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_bytes_never_prints_1000_of_a_unit() {
+        assert_eq!(human_bytes(999), "999 B");
+        assert_eq!(human_bytes(999_949), "999.9 kB");
+        assert_eq!(human_bytes(999_960), "1.0 MB");
+        assert_eq!(human_bytes(999_960_000), "1.0 GB");
+        assert_eq!(human_bytes(405_749_493), "405.7 MB");
+    }
 
     #[test]
     fn terminal_safe_strips_escape_sequences() {

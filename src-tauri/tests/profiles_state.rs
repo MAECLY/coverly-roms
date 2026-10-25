@@ -38,6 +38,9 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         system_folder: FolderNaming::default(),
         folder_names: BTreeMap::new(),
         host_folders: BTreeMap::new(),
+        disc_layout: Default::default(),
+        accepts_containers: coverly_core::profiles::default_accepts_containers(),
+        container_overrides: coverly_core::profiles::default_container_overrides(),
     }
 }
 

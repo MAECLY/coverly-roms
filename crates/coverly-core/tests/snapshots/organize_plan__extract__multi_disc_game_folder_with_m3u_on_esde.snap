@@ -1,0 +1,55 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: extract_json(item)
+---
+{
+  "action": "auto",
+  "notes": [
+    {
+      "kind": "catalogue-missing",
+      "system": "psx"
+    }
+  ],
+  "system": "psx",
+  "target": "ROMs/psx/Final Game (USA)/Final Game (USA) (Disc 1).cue",
+  "transfer": {
+    "archive_after": "trash",
+    "bytes": 113078,
+    "entries": [
+      {
+        "crc32": 2910373788,
+        "index": 0,
+        "name": "Final Game (USA) (Disc 1).cue",
+        "size": 91,
+        "target": "ROMs/psx/Final Game (USA)/Final Game (USA) (Disc 1).cue"
+      },
+      {
+        "crc32": 2888163661,
+        "index": 1,
+        "name": "Final Game (USA) (Disc 2).cue",
+        "size": 91,
+        "target": "ROMs/psx/Final Game (USA)/Final Game (USA) (Disc 2).cue"
+      },
+      {
+        "crc32": 3885044386,
+        "index": 2,
+        "name": "Final Game (USA) (Disc 1).bin",
+        "size": 56448,
+        "target": "ROMs/psx/Final Game (USA)/Final Game (USA) (Disc 1).bin"
+      },
+      {
+        "crc32": 2597067119,
+        "index": 3,
+        "name": "Final Game (USA) (Disc 2).bin",
+        "size": 56448,
+        "target": "ROMs/psx/Final Game (USA)/Final Game (USA) (Disc 2).bin"
+      }
+    ],
+    "kind": "extract",
+    "m3u": "ROMs/psx/Final Game (USA)/Final Game (USA).m3u",
+    "sheet_check": "read",
+    "source": {
+      "kind": "builtin"
+    }
+  }
+}

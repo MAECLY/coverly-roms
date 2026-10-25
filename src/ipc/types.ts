@@ -377,6 +377,8 @@ export type ProxyChoice = 'system' | 'env' | 'manual';
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 /** Organise transfer mode (`auto` = move on the same volume, copy otherwise). */
 export type OrganizeModeSetting = 'auto' | 'move' | 'copy';
+/** Whether Organise may run an external archive tool (unrar, 7-Zip, bsdtar). */
+export type ExternalToolsSetting = 'auto' | 'off';
 /** Organised files keep their name or take the catalogue name. */
 export type OrganizeNameMode = 'keep' | 'catalogue';
 
@@ -395,6 +397,7 @@ export interface OrganizeSettings {
   arcade_order: Record<string, string[]>;
   recent_seconds: number;
   keep_organize_journals_days: number;
+  external_tools: ExternalToolsSetting;
 }
 export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
 export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';
@@ -510,6 +513,18 @@ export interface SettingsView {
   notice: SettingsNotice | null;
   backup: string | null;
   fixed: string[];
+  /** The external archive tools found on this machine, in preference
+   * order, whatever `organize.external_tools` says. */
+  external_tools_found: FoundTool[];
+}
+
+/** One external archive tool found on this machine. */
+export interface FoundTool {
+  tool: ArchiveTool;
+  /** From the tool's banner (`24.08`, `7.01`). */
+  version: string;
+  /** Absolute path of the executable. */
+  path: string;
 }
 
 export interface SettingsUpdate {
@@ -578,7 +593,38 @@ export interface ProfileFile {
   /** Systems kept in another system's folder (system id → host id, e.g.
    * `ngpc → ngp` on Anbernic cards); absent = none. */
   host_folders?: Record<string, string>;
+  /** Where disc games are extracted; absent = flat without `.m3u`. */
+  disc_layout?: DiscLayout;
+  /** Containers whose cartridge ROMs move as they are; absent = zip, 7z. */
+  accepts_containers?: ContainerKind[];
+  /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
+  container_overrides?: Record<string, ContainerKind[]>;
 }
+
+/** `profiles::DiscLayout`. */
+export interface DiscLayout {
+  kind: 'flat' | 'game-folder';
+  m3u_for_multi: boolean;
+}
+
+/** `archive::ContainerKind`, as profile files name it. */
+export type ContainerKind =
+  | 'zip'
+  | '7z'
+  | 'rar'
+  | 'tar'
+  | 'tar.gz'
+  | 'tar.bz2'
+  | 'tar.xz'
+  | 'tar.zst'
+  | 'tar.lz4'
+  | 'tar.lzma'
+  | 'gz'
+  | 'bz2'
+  | 'xz'
+  | 'zst'
+  | 'lz4'
+  | 'lzma';
 
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
 export type FolderNaming = 'first-alias' | 'id';
@@ -664,15 +710,48 @@ export interface Evidence {
   detail: string;
 }
 
+/** Why an archive entry's stored path is never extracted. */
+export type UnsafeWhy =
+  | 'absolute'
+  | 'dot-dot'
+  | 'device'
+  | 'illegal'
+  | 'encoding'
+  | 'link'
+  | 'too-long';
+
 /** Why a file stays where it is. */
 export type LeftReason =
   | { kind: 'partial-download' }
   | { kind: 'recently-modified' }
   | { kind: 'cloud-only' }
-  | { kind: 'not-a-rom'; what: 'web-page' | 'text' }
+  | { kind: 'not-a-rom'; what: 'web-page' | 'text' | 'patch' }
   | { kind: 'bios' }
   | { kind: 'damaged-archive' }
-  | { kind: 'unsupported-archive' }
+  /** `need` names the tool that would open it (absent in older plans). */
+  | {
+      kind: 'unsupported-archive';
+      format?: string | null;
+      need?: ArchiveTool | null;
+    }
+  | { kind: 'encrypted-archive' }
+  /** Decoding needs more memory than the cap. */
+  | { kind: 'archive-needs-memory'; mib: number }
+  /** Too many entries or declared bytes to open safely (not damage). */
+  | { kind: 'archive-too-big'; entries: number | null; bytes: number | null }
+  | { kind: 'multi-volume-archive'; parts: number }
+  | { kind: 'unsafe-archive-entry'; name: string; why: UnsafeWhy }
+  /** A set member's name the target cannot store unchanged. */
+  | { kind: 'set-unsafe-name'; name: string }
+  | { kind: 'path-too-long' }
+  /** The only payload is another archive. */
+  | { kind: 'nested-archive' }
+  /** An arcade set in a container other than zip. */
+  | { kind: 'repack-arcade' }
+  /** The FAT32 folder has no directory slots left. */
+  | { kind: 'folder-full'; folder: string }
+  /** The target folder is a symlink or junction. */
+  | { kind: 'unsafe-target' }
   | { kind: 'multi-game-archive'; count: number }
   | { kind: 'unsupported-system'; name: string }
   | { kind: 'unknown' }
@@ -694,7 +773,21 @@ export type ItemNote =
   | { kind: 'no-folder-on-device'; folder: string }
   | { kind: 'extension-contradicted'; ext: string }
   | { kind: 'catalogue-missing'; system: string }
-  | { kind: 'encrypted' };
+  | { kind: 'encrypted' }
+  /** The magic says another container than the extension (`actual`: `7z`). */
+  | { kind: 'container-mismatch'; ext: string; actual: string }
+  /** A `.gdi` and a `.cue` for the same tracks: both are extracted. */
+  | { kind: 'twin-sheets'; kept: string[] }
+  /** The format stores no CRC: only the size is checked. */
+  | { kind: 'no-stored-checksum' }
+  /** The decode budget ran out during the dry run. */
+  | { kind: 'archive-not-fully-read' }
+  /** Move mode keeps the archive: it holds files that are not extracted. */
+  | { kind: 'archive-kept-leftovers'; count: number; examples: string[] }
+  /** The sheet sits beyond the plan-time budget: checked on apply. */
+  | { kind: 'sheet-not-read-yet' }
+  /** Several ROMs of one system are extracted from one archive. */
+  | { kind: 'multi-rom-extract'; count: number };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -708,7 +801,9 @@ export type PlanWarning =
   | { kind: 'catalogue-missing'; system: string }
   | { kind: 'target-layout-mismatch'; profile: string }
   | { kind: 'move-unavailable' }
-  | { kind: 'sorted-only' };
+  | { kind: 'sorted-only' }
+  /** The target lacks room: cluster-rounded bytes needed vs free for this user. */
+  | { kind: 'no-space'; needed: number; free: number };
 
 /** A save, patch or note that follows its ROM. */
 export interface Companion {
@@ -730,6 +825,69 @@ export type OrganizeAction =
   | { action: 'auto' }
   | { action: 'review' }
   | { action: 'left'; reason: LeftReason };
+
+/** An external archive program (unrar, 7-Zip, bsdtar; names are not translated). */
+export type ArchiveTool = 'unrar' | 'seven-zip' | 'bsdtar';
+
+/** One archive entry an extract item writes. */
+export interface ExtractEntry {
+  /** Position in the archive's own order. */
+  index: number;
+  /** The validated entry path, `/`-separated. */
+  name: string;
+  size: number;
+  crc32: number | null;
+  /** Relative to the target root. */
+  target: string;
+}
+
+/** What happens to the archive once every entry is verified. */
+export type ArchiveAfter = 'keep' | 'trash';
+
+/** Who decodes the archive on apply. */
+export type ExtractSource =
+  { kind: 'builtin' } | { kind: 'tool'; tool: ArchiveTool; version: string };
+
+/** Whether a disc set's sheet was parsed at plan time. */
+export type SheetCheck = 'read' | 'deferred';
+
+/** How an item reaches its target. */
+export type Transfer =
+  | { kind: 'as-is' }
+  | {
+      kind: 'extract';
+      entries: ExtractEntry[];
+      bytes: number;
+      archive_after: ArchiveAfter;
+      source: ExtractSource;
+      sheet_check: SheetCheck;
+      /** A generated playlist, relative to the target root. */
+      m3u: string | null;
+    };
+
+/** The ISO 9660 descriptor and boot-file hash of a disc. */
+export interface VolumeFingerprint {
+  space_size: number;
+  created: number[];
+  modified: number[];
+  boot_sha1: string;
+}
+
+/** A disc's serials and fingerprint. */
+export interface DiscId {
+  /** Normalised serials (`SLUS-00862`), in disc order. */
+  serials: string[];
+  disc_no: number | null;
+  volume: VolumeFingerprint | null;
+  source:
+    | 'system-cnf'
+    | 'param-sfo'
+    | 'ip-bin'
+    | 'umd-data'
+    | 'chd'
+    | 'm3u-position'
+    | 'signature';
+}
 
 /** One game of the plan: a file, an archive or a disc set. */
 export type OrganizeItem = OrganizeAction & {
@@ -755,6 +913,9 @@ export type OrganizeItem = OrganizeAction & {
   notes: ItemNote[];
   companions: Companion[];
   catalogue_name: string | null;
+  /** As-is (move or copy the file) or extract. */
+  transfer: Transfer;
+  disc: DiscId | null;
 };
 
 export interface OrganizeCounts {
@@ -839,15 +1000,27 @@ export interface OrganizePlanView {
   plan: OrganizePlan;
 }
 
-export type OrganizePhase = 'walk' | 'identify' | 'dats' | 'hash' | 'apply';
+export type OrganizePhase =
+  'walk' | 'identify' | 'dats' | 'hash' | 'apply' | 'extract';
 
-/** The `organize-progress` event (planning and applying). */
-export interface OrganizeProgressEvent {
+/** The `organize-progress` event (planning and applying). An `extract`
+ * event also names the `item` being extracted and how many of the bytes
+ * its decode pass goes through are done; an item's first event has
+ * `bytes_done` 0 and its last `bytes_done === bytes_total`. */
+export type OrganizeProgressEvent = {
   plan_id: number;
-  phase: OrganizePhase;
   done: number;
   total: number;
-}
+} & (
+  | { phase: Exclude<OrganizePhase, 'extract'> }
+  | {
+      phase: 'extract';
+      /** The plan item's id. */
+      item: number;
+      bytes_done: number;
+      bytes_total: number;
+    }
+);
 
 export type OrganizeSkipReason =
   | 'changed-since-plan'
@@ -855,13 +1028,20 @@ export type OrganizeSkipReason =
   | 'already-present'
   | 'collision-set'
   | 'not-decided'
-  | 'cancelled';
+  | 'cancelled'
+  /** The external tool the plan used is gone or another version now. */
+  | 'tool-gone';
 
 export type OrganizeItemStatus =
   | { status: 'moved' }
   | { status: 'copied' }
   /** A cross-volume move whose source could not be deleted: both exist. */
   | { status: 'copied-not-removed' }
+  /** Every entry extracted and verified; in move mode with nothing left
+   * in it, the archive went to the Trash. */
+  | { status: 'extracted' }
+  /** Extracted, but the archive meant for the Trash stays where it was. */
+  | { status: 'extracted-kept' }
   | { status: 'skipped'; reason: OrganizeSkipReason }
   | { status: 'failed'; kind: ItemErrorKind; detail: string };
 
@@ -877,6 +1057,9 @@ export interface OrganizeReport {
   job: string | null;
   moved: number;
   copied: number;
+  /** Archives whose entries were extracted (Rust leaves it out when 0;
+   * the adapter fills it in). */
+  extracted: number;
   skipped: number;
   failed: number;
   items: OrganizeItemOutcome[];
@@ -919,10 +1102,52 @@ export interface OrganizeUndoReport {
   skipped_modified: string[];
   skipped_occupied: string[];
   dirs_removed: string[];
+  /** Archives sent to the Trash that could not be brought back: their
+   * extracted files stay (Rust leaves it out when empty; the adapter
+   * fills it in). */
+  archive_lost: string[];
 }
 
 /** One report per job undone (newest first) and the later jobs included. */
 export interface OrganizeUndoView {
   report: OrganizeUndoReport[];
+  later_jobs: JobHistoryItem[];
+}
+
+/* Wire forms: what Rust actually sends. It leaves `extracted` out of a
+ * report when nothing was extracted and `archive_lost` out of an undo
+ * report when empty, and plans exported before archives have no
+ * `transfer`/`disc`. The Tauri adapter fills them in, so the app only
+ * sees the types above. */
+
+/** `T` with the keys `K` optional, member by member of a union. */
+type WithOptional<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K & keyof T> & Partial<Pick<T, K & keyof T>>
+  : never;
+
+export type OrganizeItemWire = WithOptional<OrganizeItem, 'transfer' | 'disc'>;
+
+export type OrganizePlanWire = Omit<OrganizePlan, 'items'> & {
+  items: OrganizeItemWire[];
+};
+
+export interface OrganizePlanViewWire {
+  plan_id: number;
+  plan: OrganizePlanWire;
+}
+
+export type OrganizeReportWire = WithOptional<OrganizeReport, 'extracted'>;
+
+export type OrganizeJobViewWire = Omit<OrganizeJobView, 'report'> & {
+  report: OrganizeReportWire | null;
+};
+
+export type OrganizeUndoReportWire = WithOptional<
+  OrganizeUndoReport,
+  'archive_lost'
+>;
+
+export interface OrganizeUndoViewWire {
+  report: OrganizeUndoReportWire[];
   later_jobs: JobHistoryItem[];
 }

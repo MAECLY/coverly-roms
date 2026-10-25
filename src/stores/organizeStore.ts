@@ -156,7 +156,8 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     // Every dry run started before this one has an id <= floor.
     const floor = maxSeenPlan;
     const off = await b.onOrganizeProgress((p) => {
-      if (p.phase === 'apply') return;
+      // Apply-time phases belong to a job, never to a dry run.
+      if (p.phase === 'apply' || p.phase === 'extract') return;
       maxSeenPlan = Math.max(maxSeenPlan, p.plan_id);
       if (mine !== seq || p.plan_id <= floor || p.plan_id < maxSeenPlan) return;
       planning = p.plan_id;
@@ -290,7 +291,10 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
           accept(view);
         }),
         b.onOrganizeProgress((p) => {
-          if (p.phase !== 'apply' || get().status !== 'applying') return;
+          // Applying reports items (`apply`) and, inside an archive, the
+          // bytes of the game being extracted (`extract`).
+          if (p.phase !== 'apply' && p.phase !== 'extract') return;
+          if (get().status !== 'applying') return;
           if (applyPlan !== null && p.plan_id !== applyPlan) return;
           set({ progress: p });
         }),

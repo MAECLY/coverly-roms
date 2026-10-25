@@ -5,7 +5,14 @@ import {
   FolderTree,
   RotateCw,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
@@ -24,17 +31,21 @@ import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import type {
   OrganizePlan,
+  OrganizeProgressEvent,
   OrganizeRequest,
   ProfileInfo,
   SystemInfo,
 } from '@/ipc/types';
+import { formatDecimalSize } from '@/lib/format';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
+  extractSummary,
   groupBySystem,
   itemKey,
   leftItems,
@@ -45,6 +56,52 @@ import { useOrganizeStore, type OrganizeRefresh } from '@/stores/organizeStore';
 
 /** Slots of the apply progress (same row as the library scan). */
 const SLOTS = 16;
+
+const baseName = (path: string) =>
+  path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+
+/** The apply line: the game being extracted, or the files moved so far. */
+function applyingText(
+  t: TFunction,
+  plan: OrganizePlan | null,
+  progress: OrganizeProgressEvent | null,
+): string {
+  if (!progress) return t('organize.starting');
+  const counts = { done: progress.done, total: progress.total };
+  if (progress.phase === 'extract') {
+    const source = plan?.items.find((i) => i.id === progress.item)?.sources[0];
+    return t('organize.extracting', {
+      name: source ? baseName(source) : `#${progress.item}`,
+      ...counts,
+    });
+  }
+  return t(
+    !plan
+      ? 'organize.organizing'
+      : plan.mode === 'copy'
+        ? 'organize.copying'
+        : 'organize.applying',
+    counts,
+  );
+}
+
+/** The bar: bytes of the game being extracted (a disc can be gigabytes),
+ * otherwise items. */
+function barOf(progress: OrganizeProgressEvent | null): {
+  max: number;
+  value: number | null;
+} {
+  if (!progress) return { max: 1, value: null };
+  if (progress.phase === 'extract')
+    return {
+      max: progress.bytes_total || 1,
+      value: Math.min(progress.bytes_done, progress.bytes_total),
+    };
+  return {
+    max: progress.total || 1,
+    value: Math.min(progress.done, progress.total),
+  };
+}
 
 /** Profiles and systems for the pickers, loaded once per screen. */
 function useCatalogues() {
@@ -72,6 +129,7 @@ function useCatalogues() {
 /** Plan-wide warnings as text (data from the core, never prose). */
 function warningLines(
   t: TFunction,
+  locale: string,
   plan: OrganizePlan,
   systemName: (id: string) => string,
   profileName: (id: string) => string,
@@ -102,6 +160,14 @@ function warningLines(
       case 'target-layout-mismatch':
         lines.push(
           t('organize.target.mismatch', { profile: profileName(w.profile) }),
+        );
+        break;
+      case 'no-space':
+        lines.push(
+          t('organize.noSpace', {
+            needed: formatDecimalSize(w.needed, locale),
+            free: formatDecimalSize(w.free, locale),
+          }),
         );
         break;
       case 'move-unavailable':
@@ -354,22 +420,12 @@ export function OrganizeScreen() {
             {/* A row of slots filling left to right (brand §2). */}
             <Progress
               slots={SLOTS}
-              max={progress?.total || 1}
-              value={progress ? Math.min(progress.done, progress.total) : null}
+              {...barOf(progress)}
               aria-label={t('organize.progressLabel')}
             />
             <div className="flex flex-wrap items-center gap-3">
               <p role="status" className="m-0 text-ui tabular-nums">
-                {progress
-                  ? t(
-                      !plan
-                        ? 'organize.organizing'
-                        : plan.mode === 'copy'
-                          ? 'organize.copying'
-                          : 'organize.applying',
-                      { done: progress.done, total: progress.total },
-                    )
-                  : t('organize.starting')}
+                {applyingText(t, plan, progress)}
               </p>
               <Button
                 variant="ghost"
@@ -417,6 +473,7 @@ export function OrganizeScreen() {
             onApply={() => void useOrganizeStore.getState().apply()}
             onOpenLibrary={() => void useOrganizeStore.getState().openResult()}
             onExport={() => void exportPlan()}
+            onRescan={refresh}
             onCancel={back}
           />
         )}
@@ -449,6 +506,8 @@ interface ProposalProps {
   onApply(): void;
   onOpenLibrary(): void;
   onExport(): void;
+  /** Reads the folder again (the ⌘R of the screen). */
+  onRescan(): void;
   onCancel(): void;
 }
 
@@ -472,14 +531,19 @@ function Proposal({
   onApply,
   onOpenLibrary,
   onExport,
+  onRescan,
   onCancel,
 }: ProposalProps) {
   const t = useT();
+  const locale = useContext(LocaleContext);
   const groups = useMemo(() => groupBySystem(plan), [plan]);
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
   const left = useMemo(() => leftItems(plan), [plan]);
+  const extracting = useMemo(() => extractSummary(plan), [plan]);
+  const layoutProfile =
+    profiles.find((p) => p.profile.id === plan.layout)?.profile ?? null;
   const { counts } = plan;
-  const warnings = warningLines(t, plan, systemName, profileName);
+  const warnings = warningLines(t, locale, plan, systemName, profileName);
   const nothingToFile = groups.length === 0 && buckets.length === 0;
   const isNew = useMemo<IsNew | undefined>(() => {
     if (!lastRefresh || lastRefresh.added.length === 0) return undefined;
@@ -524,6 +588,19 @@ function Proposal({
             left: counts.left,
           })}
         </p>
+        {extracting && (
+          <p className="m-0 text-dense tabular-nums text-cr-text">
+            {t(
+              extracting.count === 1
+                ? 'organize.extract.summaryOne'
+                : 'organize.extract.summary',
+              {
+                count: extracting.count,
+                bytes: formatDecimalSize(extracting.bytes, locale),
+              },
+            )}
+          </p>
+        )}
         <p className={hintText}>{t('organize.dryRunHint')}</p>
       </div>
       {nothingToFile ? (
@@ -538,6 +615,8 @@ function Proposal({
         <SystemGroups
           groups={groups}
           layoutName={profileName(plan.layout)}
+          mode={plan.mode}
+          profile={layoutProfile}
           systemName={systemName}
           systems={systems}
           disabled={busy}
@@ -561,6 +640,7 @@ function Proposal({
         deepFolders={counts.deep_folders}
         disabled={busy}
         onDecide={onDecide}
+        onRescan={onRescan}
         {...(isNew ? { isNew } : {})}
       />
       {/* The action bar sits on the page, ruled off like a shelf edge
@@ -569,7 +649,9 @@ function Proposal({
         {counts.auto > 0 ? (
           <Button variant="primary" disabled={stale} onClick={onApply}>
             <FolderTree aria-hidden />
-            {t('organize.apply', { count: counts.auto })}
+            {t(counts.auto === 1 ? 'organize.applyOne' : 'organize.apply', {
+              count: counts.auto,
+            })}
           </Button>
         ) : (
           // Sorted folders live in the source: "open" opens the target,

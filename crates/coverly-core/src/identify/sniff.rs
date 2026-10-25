@@ -113,16 +113,66 @@ impl<R: Read> ReadAt for StreamAt<R> {
 pub enum NotARom {
     WebPage,
     Text,
+    /// An archive holding only a ROM patch (`.ips`, `.bps`…): it needs
+    /// the original ROM and does not play on its own.
+    Patch,
 }
 
 /// Container formats recognised by their magic (contents not read here).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The magic table is spec `2026-10-23-organize-archives-and-discs.md`
+/// §3.1; [`crate::archive::detect::detect_container`] decides it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ContainerMagic {
+    /// `PK\x03\x04` or an empty archive's `PK\x05\x06` at offset 0.
     Zip,
+    /// No zip magic at 0, but a valid end-of-central-directory record at
+    /// the end of the file: a self-extracting or prefixed zip.
+    ZipEocdOnly,
+    /// Spanned/split zip marker `PK\x07\x08`, or an EOCD on disk ≠ 0:
+    /// one part of a multi-volume set (spec §3.2 rule 6).
+    ZipSpanned,
     SevenZip,
+    Rar4,
+    Rar5,
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+    /// LZ4 frame or legacy format.
+    Lz4,
+    Tar,
+    /// The legacy `.lzma` format: no magic, extension and plausible
+    /// properties only.
+    LzmaAlone,
+    /// A disc image, not an archive.
     Chd,
-    Rar,
+    /// Recognised, never opened: `Unsupported { format }`.
+    Cab,
+    Arj,
+    Lzh,
+    /// Unix `compress` (`.Z`).
+    Compress,
+    /// ECM-encoded disc image.
+    Ecm,
+}
+
+impl ContainerMagic {
+    /// One part of a multi-volume set, never opened alone.
+    pub fn is_multi_volume(self) -> bool {
+        self == Self::ZipSpanned
+    }
+
+    /// Any zip shape (local header, prefixed, spanned).
+    pub fn is_zip(self) -> bool {
+        matches!(self, Self::Zip | Self::ZipEocdOnly | Self::ZipSpanned)
+    }
+
+    /// RAR 4 or RAR 5.
+    pub fn is_rar(self) -> bool {
+        matches!(self, Self::Rar4 | Self::Rar5)
+    }
 }
 
 /// Result of [`sniff`].
@@ -136,6 +186,10 @@ pub struct Sniff {
     pub unsupported: Option<String>,
     pub not_a_rom: Option<NotARom>,
     pub container: Option<ContainerMagic>,
+    /// The disc serial the header names (`SLUS-00862`, `T-5704H`), read
+    /// by `disc::`; `None` for carts and discs without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<String>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }
@@ -182,7 +236,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         }
         return s;
     }
-    if let Some(c) = container(&head) {
+    if let Some(c) = container(&head, len) {
         s.container = Some(c);
         return s;
     }
@@ -196,7 +250,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 
 /// Printable text (no NUL/control bytes but tab/CR/LF in the first 512
 /// bytes, valid UTF-8): a web page when it starts like one.
-fn text_kind(head: &[u8]) -> Option<NotARom> {
+pub(crate) fn text_kind(head: &[u8]) -> Option<NotARom> {
     let probe = &head[..head.len().min(512)];
     let text = match std::str::from_utf8(probe) {
         Ok(t) => t,
@@ -229,18 +283,10 @@ fn starts_with_markup(head: &[u8]) -> bool {
     head.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'<')
 }
 
-fn container(head: &[u8]) -> Option<ContainerMagic> {
-    if starts(head, 0, b"PK\x03\x04") || starts(head, 0, b"PK\x05\x06") {
-        Some(ContainerMagic::Zip)
-    } else if starts(head, 0, &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) {
-        Some(ContainerMagic::SevenZip)
-    } else if starts(head, 0, b"MComprHD") {
-        Some(ContainerMagic::Chd)
-    } else if starts(head, 0, b"Rar!\x1a\x07") {
-        Some(ContainerMagic::Rar)
-    } else {
-        None
-    }
+/// Container magic of the prefix alone (no tail: a prefixed zip is found
+/// by `inspect`, which reads the end of the file).
+fn container(head: &[u8], len: u64) -> Option<ContainerMagic> {
+    crate::archive::detect::detect_container(head, len, None)
 }
 
 /// ISO 9660 primary volume descriptor at sector 16, as a 2048-byte ISO or
@@ -280,6 +326,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
     ] {
         if starts(head, 0, magic) || starts(head, 0x10, magic) {
             s.hit(system, 0.90, detail);
+            s.serial = ip_bin_serial(head);
             return;
         }
     }
@@ -307,7 +354,16 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         if &pvd[8..19] != b"PLAYSTATION" {
             return; // another ISO 9660 disc: nothing to say
         }
-        match system_cnf(src, head, layout, &pvd, len) {
+        let cnf = system_cnf(src, head, layout, &pvd, len);
+        if let Some(text) = &cnf {
+            let lines = crate::disc::iso9660::parse_system_cnf(text.as_bytes());
+            s.serial = lines
+                .boot2
+                .or(lines.boot)
+                .as_deref()
+                .and_then(crate::disc::serial::boot_file_serial);
+        }
+        match cnf {
             Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
             Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
             // No CD holds this much: a PS2 DVD whose SYSTEM.CNF was not found.
@@ -316,6 +372,11 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         }
         return;
     }
+}
+
+/// The product number of a Sega boot header at 0 or 0x10 of `head`.
+fn ip_bin_serial(head: &[u8]) -> Option<String> {
+    crate::disc::sega::ip_bin_in_head(head).and_then(|ip| ip.serial)
 }
 
 /// `n` bytes at `offset`, from the prefix when it covers them.
@@ -496,6 +557,7 @@ fn gba_signature(head: &[u8]) -> Option<bool> {
 fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
     if starts(head, 0, b"SEGADISCSYSTEM") || starts(head, 0x10, b"SEGADISCSYSTEM") {
         s.hit("segacd", 0.95, "SEGADISCSYSTEM");
+        s.serial = ip_bin_serial(head);
         return true;
     }
     let sega_at_100 = starts(head, 0x100, b"SEGA") || starts(head, 0x101, b"SEGA");
@@ -900,7 +962,7 @@ pub mod fixtures {
     }
 
     /// One ISO 9660 directory record pointing at `lba` (`size` bytes).
-    fn dir_record(rec: &mut [u8], lba: u32, size: u32, name: &[u8]) -> usize {
+    pub(crate) fn dir_record(rec: &mut [u8], lba: u32, size: u32, name: &[u8]) -> usize {
         let len = (33 + name.len()).next_multiple_of(2);
         rec[0] = len as u8;
         rec[2..6].copy_from_slice(&lba.to_le_bytes());

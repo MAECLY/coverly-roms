@@ -63,6 +63,9 @@ choice!(/// Proxy source (D26: `system` reads the standard environment variables
     ProxyChoice { System, Env, Manual });
 choice!(/// Organise transfer mode (`auto` = move on the same volume, copy otherwise).
     OrganizeModeSetting { Auto, Move, Copy });
+choice!(/// Whether Organise may run an external archive tool (unrar, 7-Zip,
+    /// bsdtar) found on the system (`auto`) or never (`off`).
+    ExternalTools { Auto, Off });
 
 /// App log level.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -370,6 +373,8 @@ pub struct OrganizeSettings {
     pub recent_seconds: u32,
     /// How long organise journals are kept for undo.
     pub keep_organize_journals_days: u32,
+    /// Whether external archive tools may run while organising.
+    pub external_tools: ExternalTools,
 }
 
 impl Default for OrganizeSettings {
@@ -387,6 +392,7 @@ impl Default for OrganizeSettings {
             arcade_order: BTreeMap::new(),
             recent_seconds: 60,
             keep_organize_journals_days: 90,
+            external_tools: ExternalTools::Auto,
         }
     }
 }

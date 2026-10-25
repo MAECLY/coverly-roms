@@ -83,7 +83,7 @@ export function SwitchSetting({
   id: string;
   name: string;
   label: string;
-  hint?: string;
+  hint?: ReactNode;
   checked: boolean;
   disabled?: boolean;
   onCheckedChange?: (on: boolean) => void;

@@ -26,6 +26,7 @@ import { getBackend } from '@/ipc/backend';
 import { errorKey, type BackendError } from '@/ipc/errors';
 import type {
   JobHistoryItem,
+  OrganizeItem,
   OrganizeItemOutcome,
   OrganizeJobView,
   OrganizePlan,
@@ -56,6 +57,21 @@ interface Props {
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() || path;
 
+/** Whether an extracted item's archive went to the Trash: a move whose
+ * plan sent it there (copy mode and leftovers keep it). */
+function trashed(
+  o: OrganizeItemOutcome,
+  item: OrganizeItem | undefined,
+  plan: OrganizePlan | null,
+): boolean {
+  return (
+    o.status === 'extracted' &&
+    plan?.mode === 'move' &&
+    item?.transfer.kind === 'extract' &&
+    item.transfer.archive_after === 'trash'
+  );
+}
+
 function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
   switch (o.status) {
     case 'moved':
@@ -64,6 +80,10 @@ function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
       return t('organize.outcome.copied');
     case 'copied-not-removed':
       return t('organize.copiedNotRemoved');
+    case 'extracted':
+      return t('organize.outcome.extracted');
+    case 'extracted-kept':
+      return t('organize.outcome.extractedKept');
     case 'skipped':
       return t(`organize.outcome.skipped.${o.reason}`);
     case 'failed':
@@ -136,21 +156,23 @@ export function OrganizeResult({
           .filter(Boolean)
       : null;
   const later = useLaterJobs(laterIds);
-  const names = useMemo(
-    () => new Map((plan?.items ?? []).map((i) => [i.id, i.sources[0] ?? ''])),
+  const items = useMemo(
+    () => new Map((plan?.items ?? []).map((i) => [i.id, i])),
     [plan],
   );
   const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
-  const placed = report ? report.moved + report.copied : 0;
+  const placed = report ? report.moved + report.copied + report.extracted : 0;
+  const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
+  const lost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
   // A verb plus the exact count when it is known (brand §7).
   const undoLabel =
     placed > 0
       ? t('organize.undo.actionCount', { count: placed })
       : t('organize.undo.action');
   const nameOf = (o: OrganizeItemOutcome) => {
-    const source = names.get(o.item) || o.targets[0];
+    const source = items.get(o.item)?.sources[0] || o.targets[0];
     return source ? baseName(source) : `#${o.item}`;
   };
 
@@ -166,12 +188,22 @@ export function OrganizeResult({
         (() => {
           const line = (
             <p className="m-0 text-dense tabular-nums text-cr-text">
-              {t('organize.result', {
-                moved: report.moved,
-                copied: report.copied,
-                skipped: report.skipped,
-                failed: report.failed,
-              })}
+              {[
+                t('organize.result.counts', {
+                  moved: report.moved,
+                  copied: report.copied,
+                  skipped: report.skipped,
+                  failed: report.failed,
+                }),
+                // Extracted archives join the counts only when there are some.
+                ...(report.extracted > 0
+                  ? [
+                      t('organize.result.extracted', {
+                        count: report.extracted,
+                      }),
+                    ]
+                  : []),
+              ].join(' · ')}
             </p>
           );
           // A finished run reads as a status with its icon (brand §4.1):
@@ -187,6 +219,17 @@ export function OrganizeResult({
         <p className={hintText}>
           {t('organize.copiedNotRemovedCount', { count: notRemoved })}
         </p>
+      )}
+      {kept.length > 0 && (
+        // The archive a move meant to send to the Trash is still there:
+        // said in sight, by name, not only in the details.
+        <ul className="m-0 grid list-none gap-0.5 p-0">
+          {kept.map((o) => (
+            <li key={o.item} className={hintText}>
+              {`${nameOf(o)} · ${t('organize.extract.kept')}`}
+            </li>
+          ))}
+        </ul>
       )}
       {job.state === 'cancelled' && (
         <p className={hintText}>{t('organize.stopped')}</p>
@@ -222,7 +265,11 @@ export function OrganizeResult({
                   <li
                     key={o.item}
                     className={`${pathText} px-3 py-1.5 text-cr-text`}
-                  >{`${nameOf(o)} · ${outcomeText(t, o)}`}</li>
+                  >
+                    {`${nameOf(o)} · ${outcomeText(t, o)}`}
+                    {trashed(o, items.get(o.item), plan) &&
+                      ` · ${t('organize.extract.trashed')}`}
+                  </li>
                 ))}
               </ul>
             </ScrollArea>
@@ -239,6 +286,18 @@ export function OrganizeResult({
           <p className="m-0">
             {t(errorKey(error.code), { detail: error.detail ?? '' })}
           </p>
+        </Alert>
+      )}
+      {lost.length > 0 && (
+        <Alert variant="warning">
+          <p className="m-0">{t('organize.undo.archiveLost')}</p>
+          <ul className="m-0 grid list-none gap-0.5 p-0">
+            {lost.map((path) => (
+              <li key={path} className={pathText}>
+                {baseName(path)}
+              </li>
+            ))}
+          </ul>
         </Alert>
       )}
       {undone && (

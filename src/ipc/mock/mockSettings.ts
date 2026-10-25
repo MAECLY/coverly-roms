@@ -33,6 +33,7 @@ import {
   MEDIA,
   type CredentialKey,
   type CredentialStatus,
+  type FoundTool,
   type KeyCheck,
   type ProfileFile,
   type ProfileInfo,
@@ -159,8 +160,13 @@ const mirrors = (p: ProfileFile) =>
 export function createMockSettings(opts: {
   storage: Storage | null;
   builtins: readonly ProfileInfo[];
+  /** The external archive tools "found on this machine" (default none,
+   * like the organise mock, which leaves every `.rar`). */
+  externalTools?: readonly FoundTool[];
 }): MockSettingsApi {
   const { storage, builtins } = opts;
+  const toolsFound = (opts.externalTools ?? []).map((t) => ({ ...t }));
+  const foundTools = () => toolsFound.map((t) => ({ ...t }));
   const opened: string[] = [];
   const listeners = new Set<(s: Settings) => void>();
   const builtinIds = builtins.map((b) => b.profile.id);
@@ -272,6 +278,7 @@ export function createMockSettings(opts: {
         notice,
         backup: notice ? 'mock-storage' : null,
         fixed: [...fixed],
+        external_tools_found: foundTools(),
       }),
     async updateSettings(patch) {
       const unchanged = (errors: ReturnType<typeof validateSettings>) => ({
@@ -307,6 +314,7 @@ export function createMockSettings(opts: {
         notice: null,
         backup: null,
         fixed: [],
+        external_tools_found: foundTools(),
       };
     },
     onSettingsChanged(cb) {

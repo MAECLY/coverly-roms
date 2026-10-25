@@ -66,6 +66,7 @@ use crate::organize::view::{
 use crate::organize::{ApplyStart, OrganizeEvents, OrganizeManager, StoredPlan, Throttle};
 use crate::prefs::{SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
+use coverly_core::archive::external::{discover, discover_with, FoundTool, Search};
 
 pub struct AppState {
     latest: AtomicU64,
@@ -83,6 +84,9 @@ pub struct AppState {
     keys: Mutex<KeyCache>,
     /// Organise plans by id and the survey in progress.
     organize: OrganizeManager,
+    /// Where external archive tools are looked for (`None` = this
+    /// process's `PATH` and the fixed locations; tests point it elsewhere).
+    tool_search: Option<Search>,
 }
 
 /// A snapshot of the stored keys, dropped when a credential is saved or
@@ -280,6 +284,23 @@ impl AppState {
             credentials: Arc::new(MemoryStore::default()),
             keys: Mutex::new(KeyCache::default()),
             organize: OrganizeManager::default(),
+            tool_search: None,
+        }
+    }
+
+    /// Looks for external archive tools with `search` instead of this
+    /// process's `PATH` (tests).
+    pub fn with_tool_search(mut self, search: Search) -> AppState {
+        self.tool_search = Some(search);
+        self
+    }
+
+    /// The external archive tools of this machine (each banner is read
+    /// once per call: a tool installed meanwhile shows up).
+    fn found_tools(&self) -> Vec<FoundTool> {
+        match &self.tool_search {
+            Some(search) => discover_with(search, &[]),
+            None => discover(&[]),
         }
     }
 
@@ -325,10 +346,14 @@ impl AppState {
         lock(&self.prefs).settings.clone()
     }
 
-    /// The settings with what loading them had to do.
+    /// The settings with what loading them had to do, and the external
+    /// archive tools found.
     pub fn settings_view(&self) -> SettingsView {
-        let p = lock(&self.prefs);
-        SettingsView::new(p.settings.clone(), &p.report)
+        let view = {
+            let p = lock(&self.prefs);
+            SettingsView::new(p.settings.clone(), &p.report)
+        };
+        view.with_tools(&self.found_tools())
     }
 
     /// The custom profiles folder.
@@ -393,7 +418,9 @@ impl AppState {
         log::info!("settings reset to defaults");
         p.settings = next;
         p.report = LoadReport::default();
-        Ok(SettingsView::new(p.settings.clone(), &p.report))
+        let view = SettingsView::new(p.settings.clone(), &p.report);
+        drop(p);
+        Ok(view.with_tools(&self.found_tools()))
     }
 
     pub fn config_dir(&self) -> &Path {
@@ -1480,6 +1507,7 @@ impl AppState {
     ) -> Result<OrganizeJobView, IpcError> {
         let cfg = self.fill_config();
         let plan = self.decided_plan(plan_id, decisions, &cfg)?;
+        let external_tools = self.organize.get(plan_id)?.opts.limits.external_tools;
         check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
         let guard = self.organize_guard()?;
         fs::create_dir_all(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
@@ -1494,6 +1522,7 @@ impl AppState {
             target_root: plan.target_root.display().to_string(),
             layout: plan.layout.clone(),
             data_dir: cfg.data_dir.clone(),
+            external_tools,
         };
         Ok(self
             .organize
@@ -1527,6 +1556,9 @@ impl AppState {
             target_root: plan.target_root.display().to_string(),
             layout: plan.layout.clone(),
             data_dir: cfg.data_dir.clone(),
+            external_tools: OrganizeOptions::from_settings(&cfg.settings, None)
+                .limits
+                .external_tools,
         };
         let job = job.to_string();
         Ok(self

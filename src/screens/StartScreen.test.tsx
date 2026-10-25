@@ -207,7 +207,7 @@ describe('Start screen', () => {
     expect(probe).toHaveBeenCalledWith(MOCK_DOWNLOADS);
     expect(probe).toHaveBeenCalledTimes(1);
     expect(
-      screen.getByText(/It holds 17 files that look like ROMs/),
+      screen.getByText(/It holds 20 files that look like ROMs/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Organise this folder…' }),

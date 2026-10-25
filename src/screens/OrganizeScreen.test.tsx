@@ -84,14 +84,14 @@ describe('OrganizeScreen', () => {
     renderScreen(MOCK_DOWNLOADS);
     expect(
       await screen.findByText(
-        'ROMs: 16 · Systems: 4 · To review: 0 · Staying put: 4',
+        'ROMs: 19 · Systems: 7 · To review: 0 · Staying put: 4',
       ),
     ).toBeInTheDocument();
     expect(
       screen.getByText('This is a proposal. Nothing has moved yet.'),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Organise 16 files' }),
+      screen.getByRole('button', { name: 'Organise 19 files' }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: 'To review' }),
@@ -285,6 +285,23 @@ describe('OrganizeScreen', () => {
     });
   });
 
+  it('warns when the target lacks room, with both sizes', async () => {
+    tweakPlans(b, ({ plan }) => {
+      plan.warnings.push({
+        kind: 'no-space',
+        // The three disc games: same decimal units as the extract summary.
+        needed: 2_188_698_846,
+        free: 1_500_000_000,
+      });
+    });
+    renderScreen(MOCK_DOWNLOADS);
+    expect(
+      await screen.findByText(
+        'Not enough space on the target: 2.19 GB needed, 1.5 GB free.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('hides the primary action when nothing would move and offers open library', async () => {
     tweakPlans(b, ({ plan }) => {
       plan.items = plan.items.map((i) => ({
@@ -382,6 +399,117 @@ describe('OrganizeScreen', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('summary_shows_extract_count_and_bytes', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    const plan = useOrganizeStore.getState().plan!;
+    const discs = plan.items.filter(
+      (i) => i.action === 'auto' && i.transfer.kind === 'extract',
+    );
+    expect(discs).toHaveLength(3);
+    const bytes = discs.reduce(
+      (n, i) => n + (i.transfer.kind === 'extract' ? i.transfer.bytes : 0),
+      0,
+    );
+    // Decimal units, like the CLI and the spec: 2,188,698,846 B.
+    expect(bytes).toBe(2_188_698_846);
+    expect(
+      screen.getByText('Extracting: 3 games (2.19 GB)'),
+    ).toBeInTheDocument();
+    // The apply button still counts items, not extracted files.
+    expect(
+      screen.getByRole('button', { name: 'Organise 19 files' }),
+    ).toBeInTheDocument();
+  });
+
+  it('disc_rows_show_spec_sizes_and_system_names', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    expect(screen.getByText('12 files · 405.7 MB')).toBeInTheDocument();
+    expect(screen.getByText('16 files · 1.19 GB')).toBeInTheDocument();
+    expect(screen.getByText('52 files · 591.9 MB')).toBeInTheDocument();
+    // Saturn is named like the Rust catalogue, never by its id.
+    expect(
+      screen.getByRole('button', { name: 'ROMS/SATURN/ (1)Sega Saturn' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Sega Saturn disc: IP.BIN SEGA SEGASATURN T-5704H (T-5704H)',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('no extract summary when nothing is extracted', async () => {
+    renderScreen(MOCK_MIXED);
+    await ready();
+    expect(screen.queryByText(/^Extracting: /)).not.toBeInTheDocument();
+  });
+
+  it('progress_shows_extracting_name_and_counts', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    const s = useOrganizeStore.getState();
+    const disc = s.plan!.items.find(
+      (i) => i.sources[0] === 'Next Tetris, The.zip',
+    )!;
+    act(() =>
+      useOrganizeStore.setState({
+        status: 'applying',
+        progress: {
+          plan_id: s.planId!,
+          phase: 'extract',
+          item: disc.id,
+          done: 5,
+          total: 19,
+          bytes_done: 300,
+          bytes_total: 1200,
+        },
+      }),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Extracting Next Tetris, The.zip: 5 of 19 files…',
+    );
+    // The bar follows the bytes of the game being extracted.
+    const bar = screen.getByRole('progressbar', {
+      name: 'Organising progress',
+    });
+    expect(bar).toHaveAttribute('aria-valuenow', '300');
+    expect(bar).toHaveAttribute('aria-valuemax', '1200');
+  });
+
+  it('follows extract progress events while applying', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
+    );
+    expect(
+      await screen.findByText(/^Extracting .+\.zip: \d+ of 19 files…$/),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('a RAR without its tool says what to install and scans again', async () => {
+    b.organizeTouch(MOCK_DOWNLOADS, { add: ['Tetris Collection.rar'] });
+    renderScreen(MOCK_DOWNLOADS);
+    const left = (
+      await screen.findByRole('heading', { name: 'Staying where they are' })
+    ).closest('section')!;
+    const row = within(left).getByText('Tetris Collection.rar').closest('li')!;
+    expect(
+      within(row).getByText('To open RAR archives, install unrar'),
+    ).toBeInTheDocument();
+    const plans = vi.spyOn(b, 'organizePlan');
+    await userEvent.click(
+      within(row).getByRole('button', { name: 'Scan again' }),
+    );
+    await waitFor(() => expect(plans).toHaveBeenCalled());
+    expect(plans.mock.calls[0]![0]).toMatchObject({ rescan: true });
+  });
+
   it('back waits while files are being moved', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await ready();
@@ -412,10 +540,12 @@ describe('OrganizeScreen', () => {
   it('shows the result counts when done, and the outcome of each file on demand', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     expect(
-      await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0'),
+      await screen.findByText(
+        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText('This is a proposal. Nothing has moved yet.'),
@@ -434,7 +564,7 @@ describe('OrganizeScreen', () => {
     const open = vi.spyOn(b, 'openLibrary');
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
       await screen.findByRole('button', { name: 'Open library' }),
@@ -443,21 +573,21 @@ describe('OrganizeScreen', () => {
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
     );
     expect(useNavStore.getState().screen).toBe('main');
-    expect(useLibraryStore.getState().view?.entries).toHaveLength(16);
+    expect(useLibraryStore.getState().view?.entries).toHaveLength(20);
   });
 
   it('undo restores and reports', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Undo 16 files' }),
+      await screen.findByRole('button', { name: 'Undo 19 files' }),
     );
     await confirmUndo();
     expect(
       await screen.findByText(
-        'Restored: 16 · Left alone because they changed: 0',
+        'Restored: 98 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
     expect(
@@ -466,19 +596,19 @@ describe('OrganizeScreen', () => {
     expect(
       screen.queryByRole('button', { name: 'Open library' }),
     ).not.toBeInTheDocument();
-    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(17);
+    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(20);
   });
 
   it('undo lists later jobs and offers undo all in order', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
-    await screen.findByRole('button', { name: 'Undo 16 files' });
+    await screen.findByRole('button', { name: 'Undo 19 files' });
     const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
     await b.setEntryArtFromFile(lib.generation, 0, 'cover');
     await userEvent.click(
-      screen.getByRole('button', { name: 'Undo 16 files' }),
+      screen.getByRole('button', { name: 'Undo 19 files' }),
     );
     await confirmUndo();
     expect(
@@ -489,7 +619,7 @@ describe('OrganizeScreen', () => {
     );
     expect(
       await screen.findByText(
-        'Restored: 16 · Left alone because they changed: 0',
+        'Restored: 98 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
     expect(
@@ -508,7 +638,7 @@ describe('OrganizeScreen', () => {
     setBackend(b);
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     expect(
       await screen.findByText(
@@ -516,12 +646,17 @@ describe('OrganizeScreen', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Disk full')).toBeInTheDocument();
+    // The first 8 items: 6 cartridges moved and 2 discs extracted.
     expect(
-      screen.getByText('Moved: 8 · Copied: 0 · Skipped: 0 · Errors: 0'),
+      screen.getByText(
+        'Moved: 6 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 2',
+      ),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
     expect(
-      await screen.findByText('Moved: 8 · Copied: 0 · Skipped: 0 · Errors: 0'),
+      await screen.findByText(
+        'Moved: 10 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 1',
+      ),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(useOrganizeStore.getState().status).toBe('done'),
@@ -552,9 +687,11 @@ describe('OrganizeScreen', () => {
     expect(screen.getByRole('combobox', { name: 'Layout' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Target' })).toBeDisabled();
     await userEvent.click(
-      screen.getByRole('button', { name: 'Organise 16 files' }),
+      screen.getByRole('button', { name: 'Organise 19 files' }),
     );
-    await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0');
+    await screen.findByText(
+      'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
@@ -709,7 +846,7 @@ describe('OrganizeScreen', () => {
       );
       expect(alert).toHaveTextContent('Nothing was moved.');
       expect(
-        screen.getByRole('button', { name: 'Organise 16 files' }),
+        screen.getByRole('button', { name: 'Organise 19 files' }),
       ).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
       b.organizeTouch(MOCK_DOWNLOADS, { gone: false });
@@ -719,16 +856,18 @@ describe('OrganizeScreen', () => {
       await ready();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: 'Organise 16 files' }),
+        screen.getByRole('button', { name: 'Organise 19 files' }),
       ).toBeEnabled();
     });
 
     it('is not offered once the files were organised', async () => {
       renderScreen(MOCK_DOWNLOADS);
       await userEvent.click(
-        await screen.findByRole('button', { name: 'Organise 16 files' }),
+        await screen.findByRole('button', { name: 'Organise 19 files' }),
       );
-      await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0');
+      await screen.findByText(
+        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
+      );
       expect(
         screen.queryByRole('button', { name: 'Scan again' }),
       ).not.toBeInTheDocument();

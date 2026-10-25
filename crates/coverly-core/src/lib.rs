@@ -3,12 +3,14 @@
 //! Pure Rust, no Tauri: everything the app and the `coverly` CLI share
 //! lives here. Network access is confined to `net`.
 
+pub mod archive;
 pub mod art;
 pub mod audit;
 pub mod cache;
 pub mod credentials;
 mod csv_util;
 pub mod dedupe;
+pub mod disc;
 pub mod fill;
 pub mod gamelist;
 pub mod gather;

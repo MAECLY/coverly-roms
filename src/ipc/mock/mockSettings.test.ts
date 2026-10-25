@@ -60,6 +60,35 @@ describe('mock settings', () => {
     expect((await m.resetSettings()).settings.art.jpeg_quality).toBe(90);
   });
 
+  it('external_tools_found: none by default, like the organise mock', async () => {
+    const m = make();
+    expect((await m.getSettings()).external_tools_found).toEqual([]);
+    expect((await m.resetSettings()).external_tools_found).toEqual([]);
+  });
+
+  it('external_tools_found: lists the tools it was given, whatever the setting says', async () => {
+    const found = [
+      { tool: 'seven-zip', version: '24.08', path: '/opt/homebrew/bin/7zz' },
+      { tool: 'bsdtar', version: '3.5.3', path: '/usr/bin/bsdtar' },
+    ] as const;
+    const m = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+      externalTools: [...found],
+    });
+    const view = await m.getSettings();
+    expect(view.external_tools_found).toEqual(found);
+    // A copy: what the caller does with it never changes the mock.
+    view.external_tools_found.pop();
+    expect((await m.getSettings()).external_tools_found).toEqual(found);
+    const off = await m.updateSettings({ organize: { external_tools: 'off' } });
+    expect(off.errors).toEqual([]);
+    expect(off.settings.organize.external_tools).toBe('off');
+    expect((await m.getSettings()).external_tools_found).toEqual(found);
+    expect((await m.resetSettings()).external_tools_found).toEqual(found);
+  });
+
   it('reports SteamGridDB ready only with a key and tests it without keeping the value', async () => {
     const storage = new MemoryStorage();
     const m = make(storage);

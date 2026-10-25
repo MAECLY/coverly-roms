@@ -482,6 +482,7 @@ mod plans {
     #[cfg(unix)]
     use coverly_core::progress::PauseKind;
     use coverly_core::systems::SystemDb;
+    use coverly_core::write::trash::FakeTrash;
     use coverly_core::write::{
         list_jobs, set_copy_fault, twin_listings, undo_job, CopyStage, JobKind,
     };
@@ -562,6 +563,8 @@ mod plans {
             data_dir: data,
             progress: &|_| {},
             cancel,
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         apply_organize(plan, &env)
     }
@@ -575,6 +578,8 @@ mod plans {
             data_dir: data,
             progress: &|_| {},
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         resume_organize(job, &env).unwrap()
     }
@@ -628,6 +633,40 @@ mod plans {
 
     fn set(paths: &[&str]) -> BTreeSet<PathBuf> {
         paths.iter().map(PathBuf::from).collect()
+    }
+
+    /// Until the extraction engine exists, an `Extract` item must never be
+    /// carried out as a plain move of the archive (fail closed).
+    #[test]
+    fn an_extract_item_is_never_moved_as_is() {
+        use coverly_core::organize::Transfer;
+        use coverly_core::organize::{ArchiveAfter, ExtractEntry, ExtractSource, SheetCheck};
+        let (_tmp, pile, data) = pile();
+        put(&pile.join("Advance.gba"), &fx::gba_tagged(1));
+        let world = World::new();
+        let mut plan = world.plan(&pile, offline());
+        let gba = id_of(&plan, "Advance.gba");
+        let item = plan.items.iter_mut().find(|i| i.id == gba).unwrap();
+        assert_eq!(item.action, OrganizeAction::Auto);
+        item.transfer = Transfer::Extract {
+            entries: vec![ExtractEntry {
+                index: 0,
+                name: "Advance.gba".into(),
+                size: 1,
+                crc32: None,
+                target: PathBuf::from("ROMS/GBA/Advance.gba"),
+            }],
+            bytes: 1,
+            archive_after: ArchiveAfter::Trash,
+            source: ExtractSource::Builtin,
+            sheet_check: SheetCheck::Read,
+            m3u: None,
+        };
+
+        let report = apply(&plan, &data);
+        assert_eq!(report.moved, 0, "{report:?}");
+        assert_eq!(report.copied, 0, "{report:?}");
+        assert_eq!(tree(&pile), set(&["Advance.gba"]));
     }
 
     #[test]
@@ -1143,6 +1182,8 @@ mod plans {
             data_dir: &data,
             progress: &|p| seen.lock().unwrap().push(p),
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         let report = apply_organize(&plan, &env).unwrap();
         assert_eq!(report.moved, 300, "{:?}", report.items.first());
@@ -1185,6 +1226,8 @@ mod plans {
             data_dir: &data,
             progress: &|_| {},
             cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
         };
         assert!(matches!(
             resume_organize("20261017T000000Z-0000-0000", &env),

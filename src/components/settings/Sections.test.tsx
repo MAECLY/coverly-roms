@@ -484,6 +484,64 @@ describe('settings sections', () => {
     );
   });
 
+  it('library: external_tools_toggle_saves_off', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Organise' });
+    const tools = within(group).getByRole('switch', {
+      name: 'External programs for RAR',
+    });
+    expect(tools).toBeChecked();
+    await userEvent.click(tools);
+    await waitFor(async () =>
+      expect((await saved()).organize.external_tools).toBe('off'),
+    );
+    expect(tools).not.toBeChecked();
+    await userEvent.click(tools);
+    await waitFor(async () =>
+      expect((await saved()).organize.external_tools).toBe('auto'),
+    );
+  });
+
+  it('library: found_tools_listed_in_mono', async () => {
+    backend = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+      externalTools: [
+        { tool: 'seven-zip', version: '24.08', path: '/opt/homebrew/bin/7zz' },
+        { tool: 'bsdtar', version: '3.5.3', path: '/usr/bin/bsdtar' },
+      ],
+    });
+    setBackend(backend);
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Organise' });
+    const tools = within(group).getByRole('switch', {
+      name: 'External programs for RAR',
+    });
+    expect(tools).toHaveAccessibleDescription(
+      'Found: 7-Zip 24.08 (/opt/homebrew/bin/7zz), bsdtar 3.5.3 (/usr/bin/bsdtar)',
+    );
+    const list = within(group).getByText(
+      '7-Zip 24.08 (/opt/homebrew/bin/7zz), bsdtar 3.5.3 (/usr/bin/bsdtar)',
+    );
+    expect(list).toHaveClass('font-mono');
+    // Paths are long unbroken tokens (`C:\Program Files\…`):
+    // they wrap anywhere instead of pushing the panel wider.
+    expect(list).toHaveClass('[overflow-wrap:anywhere]');
+    expect(
+      within(group).queryByText('None. Install unrar or 7-Zip to open RAR.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('library: no_tools_shows_install_hint', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Organise' });
+    expect(
+      within(group).getByRole('switch', { name: 'External programs for RAR' }),
+    ).toHaveAccessibleDescription('None. Install unrar or 7-Zip to open RAR.');
+    expect(within(group).queryByText(/^Found:/)).not.toBeInTheDocument();
+  });
+
   it('safety: backups are locked on; the rest saves', async () => {
     await open('safety');
     expect(

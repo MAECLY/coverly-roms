@@ -230,6 +230,9 @@
       "cancel": "Cancelar"
     },
     "organize": {
+      "externalTools": "Programas externos para RAR",
+      "externalToolsFound": "Encontrado: {tools}",
+      "externalToolsNone": "Ninguno. Instala unrar o 7-Zip para abrir RAR.",
       "title": "Organizar",
       "defaultLayout": "Formato por defecto",
       "nestInRoms": "Poner las carpetas de sistema dentro de la carpeta de ROMs del formato",
@@ -1016,6 +1019,41 @@
     }
   },
   "organize": {
+    "action": {
+      "copy": "Copiar",
+      "extract": "Extraer",
+      "move": "Mover"
+    },
+    "extract": {
+      "detail": "{count} archivos · {bytes}",
+      "detailOne": "1 archivo · {bytes}",
+      "files": "Archivos que se extraen",
+      "filesFrom": "Archivos que se extraen de {name}",
+      "into": "Se extraen en {folder}",
+      "kept": "Extraído; el comprimido se queda porque este disco no tiene papelera",
+      "layoutFlat": "Las pistas van directamente en {folder}",
+      "layoutFolder": "Cada juego en su carpeta: {folder}",
+      "m3u": "Se crea {name} para cambiar de disco",
+      "summary": "Se extraen: {count} juegos ({bytes})",
+      "summaryOne": "Se extrae: 1 juego ({bytes})",
+      "trashed": "El comprimido se ha enviado a la papelera"
+    },
+    "extracting": "Extrayendo {name}: {done} de {total} archivos…",
+    "note": {
+      "archiveKeptLeftovers": "El comprimido se queda: tiene {count} archivos que no se extraen",
+      "containerMismatch": "Es un archivo {actual} con extensión .{ext}",
+      "multiRomExtract": "Contiene {count} ROMs; se extraen todas",
+      "noStoredChecksum": "Este formato no guarda suma de comprobación; se comprueba el tamaño",
+      "notFullyRead": "No se pudo leer entero al simular; revísalo",
+      "sheetNotReadYet": "La hoja .cue se comprueba al extraer",
+      "twinSheets": "Trae .gdi y .cue de las mismas pistas; algunos menús mostrarán el juego dos veces"
+    },
+    "pause": {
+      "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
+    },
+    "skip": {
+      "toolGone": "La herramienta {tool} ya no está; vuelve a analizar"
+    },
     "title": "Organizar por sistema",
     "back": "Volver",
     "layout": "Formato",
@@ -1025,6 +1063,7 @@
       "medium": "Media"
     },
     "why": {
+      "disc": "Disco de {system}: {detail} ({serial})",
       "hash": "CRC {crc} en el catálogo de {system}: {name}",
       "header": "La cabecera es de {system} ({detail})",
       "extension": "Extensión .{ext}, propia de {system}",
@@ -1035,13 +1074,27 @@
       "user": "Elegido por ti"
     },
     "left": {
+      "archiveNeedsMemory": "Necesita {mib} MB de memoria para descomprimirse",
+      "archiveTooBig": "Demasiado grande para abrirlo con seguridad",
+      "encryptedArchive": "Protegido con contraseña",
       "files": "Archivos que se quedan donde están",
+      "folderFull": "La carpeta {folder} ya no admite más archivos en FAT32",
+      "multiVolume": "Archivo en varias partes ({parts}); únelas antes",
+      "nestedArchive": "Archivo dentro de otro archivo; extráelo antes",
       "partialDownload": "Descarga sin terminar",
+      "pathTooLong": "La ruta sería demasiado larga para Windows",
       "recent": "Modificado hace un momento; puede que aún se esté descargando",
       "cloudOnly": "Está en la nube, sin descargar",
       "notARom": "No es una ROM ({what})",
+      "repackArcade": "Los juegos de recreativa deben ir en .zip; vuelve a comprimirlo",
+      "setUnsafeName": "Un archivo del juego tiene un nombre que la tarjeta no admite: {name}",
+      "unsafeArchiveEntry": "Contiene una ruta no segura ({name}); no se extrae",
+      "unsafeTarget": "La carpeta de destino es un enlace; no se escribe en ella",
+      "unsupportedArchiveInstall": "Para abrir este archivo instala {tool}",
+      "unsupportedArchiveTool": "Para abrir archivos {format} instala {tool}",
       "webPage": "página web",
       "text": "texto",
+      "patch": "parche; aplícalo a la ROM original",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
       "damagedArchive": "Archivo comprimido dañado",
       "unsupportedArchive": "Formato comprimido no compatible",
@@ -1114,6 +1167,7 @@
     "multiRomZip": "Contiene {count} ROMs; la consola cargará solo la primera.",
     "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
     "noCatalogue": "Sin catálogo de {system}: decidido por {level}",
+    "noSpace": "No hay espacio suficiente en el destino: hacen falta {needed} y quedan {free} libres.",
     "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
     "level": {
       "hash": "catálogo",
@@ -1124,6 +1178,7 @@
       "user": "tu elección"
     },
     "apply": "Organizar {count} archivos",
+    "applyOne": "Organizar 1 archivo",
     "exportPlan": "Exportar plan (JSON)",
     "exported": "Plan guardado como {name}.",
     "openLibrary": "Abrir biblioteca",
@@ -1135,7 +1190,10 @@
     "progressLabel": "Progreso de la organización",
     "resultTitle": "Resultado",
     "pausedTitle": "En pausa",
-    "result": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
+    "result": {
+      "counts": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
+      "extracted": "Extraídos: {count}"
+    },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
     "stopped": "Detenido. Lo ya organizado se queda; Deshacer lo devuelve a su sitio.",
@@ -1143,6 +1201,8 @@
     "outcome": {
       "moved": "Movido",
       "copied": "Copiado",
+      "extracted": "Extraído",
+      "extractedKept": "Extraído; el comprimido se queda donde estaba",
       "failed": "Error: {reason}",
       "skipped": {
         "changed-since-plan": "Omitido: ha cambiado desde la propuesta",
@@ -1150,12 +1210,14 @@
         "already-present": "Omitido: ya está en el destino",
         "collision-set": "Omitido: otro juego ya usa esos nombres",
         "not-decided": "Omitido: sin sistema elegido",
-        "cancelled": "Omitido: se detuvo antes de llegar"
+        "cancelled": "Omitido: se detuvo antes de llegar",
+        "tool-gone": "Omitido: la herramienta de comprimidos ya no está o cambió de versión"
       }
     },
     "undo": {
       "action": "Deshacer",
       "actionCount": "Deshacer {count} archivos",
+      "archiveLost": "No se pudo recuperar el comprimido de la papelera; los archivos extraídos se quedan",
       "confirmTitle": "¿Deshacer esta organización?",
       "laterJobs": "Primero hay que deshacer: {jobs}",
       "laterJob": "{kind} {date}",

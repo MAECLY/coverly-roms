@@ -17,6 +17,11 @@ import {
   type ProfileInfo,
   type SettingsPatch,
   type DecisionIn,
+  type DiscId,
+  type ExtractEntry,
+  type FoundTool,
+  type ItemNote,
+  type Transfer,
   type EntriesUpdated,
   type EntryView,
   type FillRequest,
@@ -34,12 +39,14 @@ import {
   type OrganizeDecision,
   type OrganizeItem,
   type OrganizeJobView,
+  type OrganizeJobViewWire,
   type OrganizePlan,
   type OrganizePlanView,
   type OrganizeProgressEvent,
   type OrganizeReport,
   type OrganizeRequest,
   type OrganizeUndoView,
+  type OrganizeUndoViewWire,
   type OrganizeUndoReport,
   type ProfileView,
   type RecentLibrary,
@@ -232,6 +239,8 @@ const ORGANIZE_ITEM_KEYS = [
   'notes',
   'companions',
   'catalogue_name',
+  'transfer',
+  'disc',
   'action',
 ] as const;
 const COUNTS_KEYS = [
@@ -246,6 +255,30 @@ const COUNTS_KEYS = [
   'bytes',
 ] as const;
 const ORGANIZE_PROGRESS_KEYS = ['plan_id', 'phase', 'done', 'total'] as const;
+const EXTRACT_PROGRESS_KEYS = [
+  ...ORGANIZE_PROGRESS_KEYS,
+  'item',
+  'bytes_done',
+  'bytes_total',
+] as const;
+const EXTRACT_TRANSFER_KEYS = [
+  'kind',
+  'entries',
+  'bytes',
+  'archive_after',
+  'source',
+  'sheet_check',
+  'm3u',
+] as const;
+const EXTRACT_ENTRY_KEYS = [
+  'index',
+  'name',
+  'size',
+  'crc32',
+  'target',
+] as const;
+const DISC_KEYS = ['serials', 'disc_no', 'volume', 'source'] as const;
+const FOUND_TOOL_KEYS = ['tool', 'version', 'path'] as const;
 const ORGANIZE_JOB_KEYS = [
   'job',
   'plan_id',
@@ -260,6 +293,7 @@ const ORGANIZE_REPORT_KEYS = [
   'job',
   'moved',
   'copied',
+  'extracted',
   'skipped',
   'failed',
   'items',
@@ -275,6 +309,7 @@ const UNDO_REPORT_KEYS = [
   'skipped_modified',
   'skipped_occupied',
   'dirs_removed',
+  'archive_lost',
 ] as const;
 const ORGANIZE_REQUEST_KEYS = [
   'source',
@@ -440,6 +475,41 @@ const checks: [string, readonly string[], object][] = [
     sample.organize_progress,
   ],
   [
+    'OrganizeProgressEvent (extract)',
+    EXTRACT_PROGRESS_KEYS satisfies AllKeys<
+      Extract<OrganizeProgressEvent, { phase: 'extract' }>,
+      typeof EXTRACT_PROGRESS_KEYS
+    >,
+    sample.organize_progress_extract,
+  ],
+  ['OrganizeItem (extract)', ORGANIZE_ITEM_KEYS, sample.organize_extract_item],
+  [
+    'Transfer (extract)',
+    EXTRACT_TRANSFER_KEYS satisfies AllKeys<
+      Extract<Transfer, { kind: 'extract' }>,
+      typeof EXTRACT_TRANSFER_KEYS
+    >,
+    sample.organize_extract_item.transfer,
+  ],
+  [
+    'ExtractEntry',
+    EXTRACT_ENTRY_KEYS satisfies AllKeys<
+      ExtractEntry,
+      typeof EXTRACT_ENTRY_KEYS
+    >,
+    sample.organize_extract_item.transfer.entries[0]!,
+  ],
+  [
+    'DiscId',
+    DISC_KEYS satisfies AllKeys<DiscId, typeof DISC_KEYS>,
+    sample.organize_extract_item.disc,
+  ],
+  [
+    'FoundTool',
+    FOUND_TOOL_KEYS satisfies AllKeys<FoundTool, typeof FOUND_TOOL_KEYS>,
+    sample.settings_external_tools_found[0]!,
+  ],
+  [
     'OrganizeJobView',
     ORGANIZE_JOB_KEYS satisfies AllKeys<
       OrganizeJobView,
@@ -453,7 +523,7 @@ const checks: [string, readonly string[], object][] = [
       OrganizeReport,
       typeof ORGANIZE_REPORT_KEYS
     >,
-    sample.organize_job.report,
+    sample.organize_report_extracted,
   ],
   [
     'OrganizeUndoView',
@@ -469,7 +539,7 @@ const checks: [string, readonly string[], object][] = [
       OrganizeUndoReport,
       typeof UNDO_REPORT_KEYS
     >,
-    sample.organize_undo.report[0]!,
+    sample.organize_undo_archive_lost,
   ],
   [
     'OrganizeRequest',
@@ -618,7 +688,7 @@ describe('organise contract', () => {
   });
 
   it('job views, outcomes and undo use the Rust spellings', () => {
-    const job = sample.organize_job as OrganizeJobView;
+    const job = sample.organize_job as OrganizeJobViewWire;
     const outcomes: OrganizeItemOutcome[] = job.report!.items;
     expect(outcomes.map((o) => o.status)).toEqual(['moved', 'skipped']);
     expect(outcomes[1]).toMatchObject({ reason: 'not-decided' });
@@ -631,8 +701,89 @@ describe('organise contract', () => {
     );
     const failed = sample.organize_job_failed as OrganizeJobView;
     expect(failed.error).toEqual({ code: 'no-space', detail: '8473027/1000' });
-    const undo = sample.organize_undo as OrganizeUndoView;
+    const undo = sample.organize_undo as OrganizeUndoViewWire;
     expect(undo.later_jobs[0]!.kind).toBe('fill');
+  });
+
+  it('Rust leaves zero extractions and no lost archive out of the JSON', () => {
+    const omitted = (keys: readonly string[], key: string) =>
+      keys.filter((k) => k !== key).sort();
+    expect(Object.keys(sample.organize_job.report).sort()).toEqual(
+      omitted(ORGANIZE_REPORT_KEYS, 'extracted'),
+    );
+    expect(Object.keys(sample.organize_undo.report[0]!).sort()).toEqual(
+      omitted(UNDO_REPORT_KEYS, 'archive_lost'),
+    );
+  });
+
+  it('extract items, disc ids and progress use the Rust spellings', () => {
+    const item = sample.organize_extract_item as OrganizeItem;
+    expect(item.kind).toBe('archive');
+    expect(item.transfer).toMatchObject({
+      kind: 'extract',
+      bytes: 405_749_493,
+      archive_after: 'trash',
+      source: { kind: 'builtin' },
+      sheet_check: 'read',
+      m3u: null,
+    });
+    const notes: ItemNote[] = item.notes;
+    expect(notes).toEqual([
+      { kind: 'container-mismatch', ext: 'zip', actual: '7z' },
+    ]);
+    const disc: DiscId | null = item.disc;
+    expect(disc).toEqual({
+      serials: ['SLUS-00862'],
+      disc_no: null,
+      volume: null,
+      source: 'system-cnf',
+    });
+    const progress = sample.organize_progress_extract as OrganizeProgressEvent;
+    expect(progress.phase).toBe('extract');
+    if (progress.phase === 'extract') {
+      expect([
+        progress.item,
+        progress.bytes_done,
+        progress.bytes_total,
+      ]).toEqual([3, 104_857_600, 405_749_493]);
+    }
+    const report = sample.organize_report_extracted as OrganizeReport;
+    expect(report.extracted).toBe(1);
+    expect(report.items.map((o) => o.status)).toEqual(['extracted-kept']);
+    const undo = sample.organize_undo_archive_lost as OrganizeUndoReport;
+    expect(undo.archive_lost).toEqual([
+      '/Users/me/ROMs-Downloaded/Next Tetris, The.zip',
+    ]);
+    const tools: FoundTool[] =
+      sample.settings_external_tools_found as FoundTool[];
+    expect(tools.map((t) => t.tool)).toEqual(['seven-zip']);
+  });
+
+  it('the new left reasons and notes type-check with the Rust fields', () => {
+    const reasons: LeftReason[] = [
+      { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+      { kind: 'encrypted-archive' },
+      { kind: 'archive-needs-memory', mib: 1536 },
+      { kind: 'archive-too-big', entries: 20_000, bytes: null },
+      { kind: 'multi-volume-archive', parts: 2 },
+      { kind: 'unsafe-archive-entry', name: '../x.bin', why: 'dot-dot' },
+      { kind: 'set-unsafe-name', name: 'a:b.bin' },
+      { kind: 'path-too-long' },
+      { kind: 'nested-archive' },
+      { kind: 'repack-arcade' },
+      { kind: 'folder-full', folder: 'PS' },
+      { kind: 'unsafe-target' },
+    ];
+    const notes: ItemNote[] = [
+      { kind: 'twin-sheets', kept: ['a.cue', 'a.gdi'] },
+      { kind: 'no-stored-checksum' },
+      { kind: 'archive-not-fully-read' },
+      { kind: 'archive-kept-leftovers', count: 2, examples: ['readme.txt'] },
+      { kind: 'sheet-not-read-yet' },
+      { kind: 'multi-rom-extract', count: 3 },
+    ];
+    expect(reasons).toHaveLength(12);
+    expect(notes).toHaveLength(6);
   });
 
   it('requests, decisions and organise errors match Rust', () => {

@@ -3,21 +3,30 @@ import { describe, expect, it } from 'vitest';
 import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
 import type {
+  DiscId,
   Evidence,
+  ExtractEntry,
+  ItemNote,
   LeftReason,
   OrganizeItem,
   OrganizePlan,
+  Transfer,
 } from '@/ipc/types';
 import { autoItem } from '@/test/organizeFixtures';
 
 import {
+  actionOf,
   confidenceKey,
+  extractDetail,
+  extractSummary,
   groupBySystem,
   itemKey,
   itemNotes,
+  layoutNote,
   leftItems,
   leftReasonKey,
   leftReasonText,
+  noteKey,
   reviewBuckets,
   ROWS_PER_GROUP,
   targetDir,
@@ -46,6 +55,8 @@ function item(
     notes: [],
     companions: [],
     catalogue_name: null,
+    transfer: { kind: 'as-is' },
+    disc: null,
     ...patch,
   } as OrganizeItem;
 }
@@ -69,6 +80,7 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'cloud-only' },
   { kind: 'not-a-rom', what: 'web-page' },
   { kind: 'not-a-rom', what: 'text' },
+  { kind: 'not-a-rom', what: 'patch' },
   { kind: 'bios' },
   { kind: 'damaged-archive' },
   { kind: 'unsupported-archive' },
@@ -161,6 +173,9 @@ describe('organise plan helpers', () => {
       `${key}${vars ? JSON.stringify(vars) : ''}`;
     expect(leftReasonText(t, { kind: 'not-a-rom', what: 'web-page' })).toBe(
       'organize.left.notARom{"what":"organize.left.webPage"}',
+    );
+    expect(leftReasonText(t, { kind: 'not-a-rom', what: 'patch' })).toBe(
+      'organize.left.notARom{"what":"organize.left.patch"}',
     );
     expect(leftReasonText(t, { kind: 'duplicate', of: 'a.zip' })).toBe(
       'organize.left.duplicate{"name":"a.zip"}',
@@ -284,5 +299,373 @@ describe('itemKey', () => {
     expect(itemKey(a)).toBe('roms/tetris (usa).gb');
     expect(itemKey(a)).toBe(itemKey(b));
     expect(itemKey(item(1, { action: 'auto', sources: [] }))).toBe('');
+  });
+});
+
+/** The PlayStation archive of the real case: a .cue and 11 tracks. */
+function psEntries(): ExtractEntry[] {
+  const tracks = Array.from({ length: 11 }, (_, i) => ({
+    index: i + 1,
+    name: `Next Tetris, The (USA)/Next Tetris, The (USA) (Track ${String(i + 1).padStart(2, '0')}).bin`,
+    size: i === 0 ? 405_748_000 - 1_000 * 10 : 1_000,
+    crc32: 0x1234_0000 + i,
+    target: `PS/Next Tetris, The (USA) (Track ${String(i + 1).padStart(2, '0')}).bin`,
+  }));
+  return [
+    {
+      index: 0,
+      name: 'Next Tetris, The (USA)/Next Tetris, The (USA).cue',
+      size: 1_493,
+      crc32: 0xabcd_ef01,
+      target: 'PS/Next Tetris, The (USA).cue',
+    },
+    ...tracks,
+  ];
+}
+
+function extract(patch: Partial<Extract<Transfer, { kind: 'extract' }>> = {}) {
+  return {
+    kind: 'extract',
+    entries: psEntries(),
+    bytes: 405_749_493,
+    archive_after: 'trash',
+    source: { kind: 'builtin' },
+    sheet_check: 'read',
+    m3u: null,
+    ...patch,
+  } as Transfer;
+}
+
+function discItem(id: number, patch: Partial<OrganizeItem> = {}) {
+  return autoItem(id, 'Next Tetris, The.zip', 'psx', 'PS', {
+    target: 'PS/Next Tetris, The (USA).cue',
+    transfer: extract(),
+    ...patch,
+  });
+}
+
+const NEW_REASONS: [LeftReason, string, Record<string, string | number>][] = [
+  [
+    { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+    'organize.left.unsupportedArchiveTool',
+    { format: 'RAR', tool: 'unrar' },
+  ],
+  [
+    { kind: 'unsupported-archive', format: 'rar', need: 'seven-zip' },
+    'organize.left.unsupportedArchiveTool',
+    { format: 'RAR', tool: '7-Zip' },
+  ],
+  [
+    { kind: 'unsupported-archive', format: 'tar.lz4', need: 'bsdtar' },
+    'organize.left.unsupportedArchiveTool',
+    { format: 'TAR.LZ4', tool: 'bsdtar' },
+  ],
+  [
+    { kind: 'unsupported-archive', format: 'arj' },
+    'organize.left.unsupportedArchive',
+    {},
+  ],
+  [{ kind: 'encrypted-archive' }, 'organize.left.encryptedArchive', {}],
+  [
+    { kind: 'archive-needs-memory', mib: 1536 },
+    'organize.left.archiveNeedsMemory',
+    { mib: 1536 },
+  ],
+  [
+    { kind: 'archive-too-big', entries: 2_000_000, bytes: null },
+    'organize.left.archiveTooBig',
+    {},
+  ],
+  [
+    { kind: 'multi-volume-archive', parts: 3 },
+    'organize.left.multiVolume',
+    { parts: 3 },
+  ],
+  [
+    { kind: 'unsafe-archive-entry', name: '../../etc/passwd', why: 'dot-dot' },
+    'organize.left.unsafeArchiveEntry',
+    { name: '../../etc/passwd' },
+  ],
+  [
+    { kind: 'set-unsafe-name', name: 'Track 01?.bin' },
+    'organize.left.setUnsafeName',
+    { name: 'Track 01?.bin' },
+  ],
+  [{ kind: 'path-too-long' }, 'organize.left.pathTooLong', {}],
+  [{ kind: 'nested-archive' }, 'organize.left.nestedArchive', {}],
+  [{ kind: 'repack-arcade' }, 'organize.left.repackArcade', {}],
+  [
+    { kind: 'folder-full', folder: 'PS' },
+    'organize.left.folderFull',
+    { folder: 'PS' },
+  ],
+  [{ kind: 'unsafe-target' }, 'organize.left.unsafeTarget', {}],
+];
+
+const NEW_NOTES: [ItemNote, string, Record<string, string | number>][] = [
+  [
+    { kind: 'container-mismatch', ext: 'zip', actual: '7z' },
+    'organize.note.containerMismatch',
+    { actual: '7z', ext: 'zip' },
+  ],
+  [
+    { kind: 'twin-sheets', kept: ['gdi', 'cue'] },
+    'organize.note.twinSheets',
+    {},
+  ],
+  [{ kind: 'no-stored-checksum' }, 'organize.note.noStoredChecksum', {}],
+  [{ kind: 'archive-not-fully-read' }, 'organize.note.notFullyRead', {}],
+  [
+    { kind: 'archive-kept-leftovers', count: 2, examples: ['a.sav', 'b.txt'] },
+    'organize.note.archiveKeptLeftovers',
+    { count: 2 },
+  ],
+  [{ kind: 'sheet-not-read-yet' }, 'organize.note.sheetNotReadYet', {}],
+  [
+    { kind: 'multi-rom-extract', count: 3 },
+    'organize.note.multiRomExtract',
+    { count: 3 },
+  ],
+];
+
+function placeholders(s: string): string[] {
+  return [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!).sort();
+}
+
+function lookup(catalog: object, key: string): string {
+  let node: unknown = catalog;
+  for (const part of key.split('.'))
+    node = (node as Record<string, unknown>)[part];
+  return node as string;
+}
+
+describe('organise extraction helpers', () => {
+  it('action_of_extract', () => {
+    expect(actionOf(discItem(0), 'move')).toBe('extract');
+    expect(actionOf(discItem(0), 'copy')).toBe('extract');
+    const asIs = autoItem(1, 'Tetris (World).zip', 'gb', 'GB');
+    expect(actionOf(asIs, 'move')).toBe('move');
+    expect(actionOf(asIs, 'copy')).toBe('copy');
+  });
+
+  it('extract_detail_counts_and_bytes', () => {
+    // The real PlayStation archive: a .cue and 11 tracks, 405,749,493 B.
+    expect(extractDetail(discItem(0))).toEqual({
+      count: 12,
+      bytes: 405_749_493,
+    });
+    // A generated playlist is not a file of the archive (CLI counts alike).
+    expect(
+      extractDetail(discItem(0, { transfer: extract({ m3u: 'PS/x.m3u' }) })),
+    ).toEqual({ count: 12, bytes: 405_749_493 });
+    expect(extractDetail(autoItem(1, 'a.gb', 'gb', 'GB'))).toBeNull();
+  });
+
+  it('extract_summary_counts_games', () => {
+    const p = plan([
+      discItem(0),
+      discItem(1, {
+        transfer: extract({ bytes: 591_881_790 }),
+        folder: 'SATURN',
+      }),
+      autoItem(2, 'a.gb', 'gb', 'GB'),
+      // Undecided and left items never extract.
+      { ...discItem(3), action: 'review' } as OrganizeItem,
+      {
+        ...discItem(4),
+        action: 'left',
+        reason: { kind: 'collision-set' },
+      } as OrganizeItem,
+    ]);
+    expect(extractSummary(p)).toEqual({
+      count: 2,
+      bytes: 405_749_493 + 591_881_790,
+    });
+    expect(extractSummary(plan([autoItem(0, 'a.gb', 'gb', 'GB')]))).toBeNull();
+  });
+
+  it('every_new_left_reason_has_a_key', () => {
+    for (const [reason, key, vars] of NEW_REASONS) {
+      expect(leftReasonKey(reason), reason.kind).toEqual({ key, vars });
+      expect(has(en, key), `en ${key}`).toBe(true);
+      expect(has(es, key), `es ${key}`).toBe(true);
+      // Every placeholder the copy needs is filled.
+      expect(placeholders(lookup(es, key))).toEqual(Object.keys(vars).sort());
+    }
+    // An archive this build cannot open is never "damaged".
+    for (const [reason] of NEW_REASONS)
+      expect(leftReasonKey(reason).key).not.toBe(
+        'organize.left.damagedArchive',
+      );
+  });
+
+  it('every_new_note_has_a_key', () => {
+    for (const [note, key, vars] of NEW_NOTES) {
+      expect(noteKey(note), note.kind).toEqual({ key, vars });
+      expect(has(en, key), `en ${key}`).toBe(true);
+      expect(has(es, key), `es ${key}`).toBe(true);
+      expect(placeholders(lookup(es, key))).toEqual(Object.keys(vars).sort());
+    }
+    const t = (key: string, vars?: Record<string, string | number>) =>
+      `${key}${vars ? JSON.stringify(vars) : ''}`;
+    const row = discItem(0, {
+      notes: [
+        { kind: 'container-mismatch', ext: '.zip', actual: '7z' },
+        { kind: 'twin-sheets', kept: ['gdi', 'cue'] },
+      ],
+    });
+    expect(itemNotes(t, row, 'Anbernic stock', () => 'PlayStation')).toEqual([
+      'organize.note.containerMismatch{"actual":"7z","ext":"zip"}',
+      'organize.note.twinSheets{}',
+    ]);
+  });
+
+  it('layout_note_names_flat_folder_and_m3u', () => {
+    const flat = {
+      disc_layout: { kind: 'flat', m3u_for_multi: false },
+    } as const;
+    const folder = {
+      disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+    } as const;
+    expect(layoutNote(discItem(0), flat)).toEqual([
+      { key: 'organize.extract.layoutFlat', vars: { folder: 'PS' } },
+    ]);
+    // Absent = flat (profiles::DiscLayout default).
+    expect(layoutNote(discItem(0), {})).toEqual(layoutNote(discItem(0), flat));
+    const inFolder = discItem(1, {
+      target: 'psx\\Colony Wars\\Colony Wars (Disc 1).cue',
+      disc: {
+        serials: ['SCUS-94181'],
+        disc_no: 1,
+        volume: null,
+        source: 'system-cnf',
+      },
+      transfer: extract({ m3u: 'psx\\Colony Wars\\Colony Wars.m3u' }),
+    });
+    expect(layoutNote(inFolder, folder)).toEqual([
+      {
+        key: 'organize.extract.layoutFolder',
+        vars: { folder: 'psx\\Colony Wars' },
+      },
+      { key: 'organize.extract.m3u', vars: { name: 'Colony Wars.m3u' } },
+    ]);
+    // A cartridge extracted from a .tar.gz names only its folder.
+    const cart = autoItem(2, 'Tetris DX.tar.gz', 'gbc', 'GBC', {
+      kind: 'archive',
+      target: 'GBC/Tetris DX (World).gbc',
+      transfer: extract({
+        entries: [
+          {
+            index: 0,
+            name: 'Tetris DX (World).gbc',
+            size: 1_048_576,
+            crc32: 1,
+            target: 'GBC/Tetris DX (World).gbc',
+          },
+        ],
+        bytes: 1_048_576,
+      }),
+    });
+    expect(layoutNote(cart, folder)).toEqual([
+      { key: 'organize.extract.into', vars: { folder: 'GBC' } },
+    ]);
+    expect(layoutNote(autoItem(3, 'a.gb', 'gb', 'GB'), flat)).toEqual([]);
+    for (const k of ['layoutFlat', 'layoutFolder', 'm3u', 'into'])
+      expect(
+        has(es, `organize.extract.${k}`) && has(en, `organize.extract.${k}`),
+        k,
+      ).toBe(true);
+  });
+
+  it('spanish_copy_matches_the_spec', () => {
+    expect(lookup(es, 'organize.action.extract')).toBe('Extraer');
+    expect(lookup(es, 'organize.extract.detail')).toBe(
+      '{count} archivos · {bytes}',
+    );
+    expect(lookup(es, 'organize.extract.summary')).toBe(
+      'Se extraen: {count} juegos ({bytes})',
+    );
+    expect(lookup(es, 'organize.result.extracted')).toBe('Extraídos: {count}');
+    expect(lookup(es, 'organize.note.containerMismatch')).toBe(
+      'Es un archivo {actual} con extensión .{ext}',
+    );
+    expect(lookup(en, 'organize.left.unsupportedArchiveTool')).toBe(
+      'To open {format} archives, install {tool}',
+    );
+  });
+});
+
+describe('organise disc and tool copy', () => {
+  it('disc_header_reason_names_the_serial', () => {
+    const name = (id: string) => ({ ps: 'PlayStation' })[id] ?? id;
+    const ev: Evidence = {
+      kind: 'header',
+      system: 'ps',
+      weight: 0.75,
+      detail: 'Licensed by Sony Computer Entertainment America',
+    };
+    const disc: DiscId = {
+      serials: ['SLUS-00862'],
+      disc_no: null,
+      volume: null,
+      source: 'system-cnf',
+    };
+    expect(whyKey(ev, name, disc)).toEqual({
+      key: 'organize.why.disc',
+      vars: {
+        system: 'PlayStation',
+        detail: 'Licensed by Sony Computer Entertainment America',
+        serial: 'SLUS-00862',
+      },
+    });
+    // Several discs list every serial; none keeps the header wording.
+    expect(
+      whyKey(ev, name, { ...disc, serials: ['SCUS-94181', 'SCUS-94182'] }).vars
+        .serial,
+    ).toBe('SCUS-94181, SCUS-94182');
+    expect(whyKey(ev, name, { ...disc, serials: [] }).key).toBe(
+      'organize.why.header',
+    );
+    expect(whyKey(ev, name, null).key).toBe('organize.why.header');
+    // Only a header clue is a disc header.
+    expect(whyKey({ ...ev, kind: 'name' }, name, disc).key).toBe(
+      'organize.why.name',
+    );
+    expect(has(es, 'organize.why.disc') && has(en, 'organize.why.disc')).toBe(
+      true,
+    );
+  });
+
+  it('tool_hint_never_shows_a_diagnostic_as_the_format', () => {
+    // The core puts "<Tool> at <path> (<why>)" in `format` when a found
+    // tool is refused; that is no format name to show the user.
+    expect(
+      leftReasonKey({
+        kind: 'unsupported-archive',
+        format: 'Unrar at /opt/homebrew/bin/unrar (not executable)',
+        need: 'unrar',
+      }),
+    ).toEqual({
+      key: 'organize.left.unsupportedArchiveInstall',
+      vars: { tool: 'unrar' },
+    });
+    expect(
+      leftReasonKey({ kind: 'unsupported-archive', need: 'seven-zip' }),
+    ).toEqual({
+      key: 'organize.left.unsupportedArchiveInstall',
+      vars: { tool: '7-Zip' },
+    });
+    // 7z keeps its own spelling.
+    expect(
+      leftReasonKey({
+        kind: 'unsupported-archive',
+        format: '7z',
+        need: 'seven-zip',
+      }).vars,
+    ).toEqual({ format: '7z', tool: '7-Zip' });
+    for (const cat of [es, en])
+      expect(
+        placeholders(lookup(cat, 'organize.left.unsupportedArchiveInstall')),
+      ).toEqual(['tool']);
   });
 });
