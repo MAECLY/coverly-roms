@@ -52,6 +52,66 @@ async function applied(b: MockBackend, source = MOCK_DOWNLOADS) {
 }
 
 describe('mock organise backend', () => {
+  it('sets_a_pile_copy_aside_by_default_and_reports_it_on_request', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_MIXED });
+    expect(plan.counts).toMatchObject({ set_aside: 1, in_library: 0 });
+    const copy = plan.items.find((i) => i.action === 'set-aside')!;
+    expect(copy).toMatchObject({
+      sources: ['Super Mario Land (World) (1).gb'],
+      keeper: 'ROMS/GB/Super Mario Land (World).gb',
+      relation: 'exact',
+      dest: '_Duplicados/Super Mario Land (World) (1).gb',
+      target: null,
+    });
+    expect(plan.duplicates).toHaveLength(1);
+    const group = plan.duplicates[0]!;
+    expect(group.members.map((m) => m.dest)).toEqual([
+      null,
+      `${MOCK_MIXED}/_Duplicados/Super Mario Land (World) (1).gb`,
+    ]);
+    expect(plan.set_aside_trash).toBe(false);
+
+    const report = await b.organizePlan({
+      source: MOCK_MIXED,
+      duplicates: 'report',
+    });
+    expect(report.plan.counts.set_aside).toBe(0);
+    expect(
+      report.plan.items.find(
+        (i) => i.action === 'left' && i.reason.kind === 'in-library',
+      ),
+    ).toMatchObject({
+      reason: { path: 'ROMS/GB/Super Mario Land (World).gb' },
+    });
+    const off = await b.organizePlan({ source: MOCK_MIXED, duplicates: 'off' });
+    expect(off.plan.duplicates).toEqual([]);
+  });
+
+  it('applies_and_undoes_a_set_aside_copy', async () => {
+    const b = backend();
+    const view = await applied(b, MOCK_MIXED);
+    expect(view.report).toMatchObject({ set_aside: 1 });
+    expect(
+      view.report?.items.find((o) => o.status === 'quarantined'),
+    ).toMatchObject({
+      targets: [`${MOCK_MIXED}/_Duplicados/Super Mario Land (World) (1).gb`],
+    });
+    const undo = await b.organizeUndo(view.job!, false);
+    expect(undo.report[0]?.restored).toContain(
+      `${MOCK_MIXED}/Super Mario Land (World) (1).gb`,
+    );
+    const again = await b.organizePlan({ source: MOCK_MIXED, rescan: true });
+    expect(again.plan.counts.set_aside).toBe(1);
+  });
+
+  it('sends_set_aside_copies_to_the_trash_when_the_setting_says', async () => {
+    const b = backend();
+    await b.updateSettings({ dedupe: { action: 'trash' } });
+    const view = await applied(b, MOCK_MIXED);
+    expect(view.report?.items.some((o) => o.status === 'trashed')).toBe(true);
+  });
+
   it('plans the downloads pile like the real sample', async () => {
     const b = backend();
     await expect(b.openLibrary(MOCK_DOWNLOADS)).rejects.toMatchObject({
@@ -255,7 +315,11 @@ describe('mock organise backend', () => {
 
   it('settles review items with decisions', async () => {
     const b = backend();
-    const { plan } = await b.organizePlan({ source: MOCK_MIXED });
+    // Without the duplicates step the copy stays as a plain duplicate.
+    const { plan } = await b.organizePlan({
+      source: MOCK_MIXED,
+      duplicates: 'off',
+    });
     expect(plan.counts).toMatchObject({ review: 2 });
     const left = plan.items.flatMap((i) =>
       i.action === 'left' ? [i.reason.kind] : [],

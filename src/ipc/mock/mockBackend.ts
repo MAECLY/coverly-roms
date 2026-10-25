@@ -294,6 +294,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const organize = createMockOrganize(
     {
       settings: () => settings.current().organize,
+      dedupe: () => settings.current().dedupe,
       profiles: () => settings.listProfiles(),
       fillHistory: () => jobs.jobHistory(),
       undoFill: (job) => jobs.undoJournal(job),

@@ -66,6 +66,9 @@ import {
   type OrganizeUndoReport,
   type ProfileInfo,
   type Region,
+  type DedupeSettings,
+  type DupGroupView,
+  type OrganizeDedupeMode,
   type SystemView,
   type Transfer,
   type TransferMode,
@@ -512,6 +515,12 @@ interface Resolved {
   names: NameMode;
   offline: boolean;
   overrides: Record<string, string>;
+  /** The duplicates step (`request.duplicates`, else the setting). */
+  duplicates: OrganizeDedupeMode;
+  /** Set-aside copies go to the Trash (`dedupe.action`). */
+  trash: boolean;
+  /** The pile's quarantine folder, relative to the pile. */
+  quarantine: string;
 }
 
 /** A file (or the files of an archive) an apply put in a target. */
@@ -551,6 +560,8 @@ interface OrgJournal {
   /** Fill journals that existed when it started: later ones block undo. */
   fillsBefore: Set<string>;
   placed: Placed[];
+  /** Pile copies set aside (file names): undo puts them back. */
+  setAside: string[];
   /** Items not attempted yet (a pause), with their target. */
   remaining: { item: OrganizeItem; file: PileFile }[];
   pausedOnce: boolean;
@@ -558,6 +569,11 @@ interface OrgJournal {
 
 export interface MockOrganizeHost {
   settings(): OrganizeSettings;
+  /** The duplicates step's settings (absent: set aside in `_Duplicados`). */
+  dedupe?(): Pick<
+    DedupeSettings,
+    'organize_step' | 'quarantine_name' | 'action'
+  >;
   profiles(): Promise<ProfileInfo[]>;
   /** The fill journals, newest first. */
   fillHistory(): Promise<JobHistoryItem[]>;
@@ -774,6 +790,7 @@ export function createMockOrganize(
     const layout = (await host.profiles()).find((p) => p.profile.id === id);
     if (!layout) throw new BackendError('unknown-profile', id);
     const nest = req.flat == null ? s.nest_in_roms_root : !req.flat;
+    const d = host.dedupe?.();
     return {
       source: req.source,
       layout,
@@ -783,6 +800,9 @@ export function createMockOrganize(
       names: req.names ?? s.names,
       offline: req.offline ?? false,
       overrides: s.folder_names[id] ?? {},
+      duplicates: req.duplicates ?? d?.organize_step ?? 'set-aside',
+      trash: d?.action === 'trash',
+      quarantine: d?.quarantine_name?.trim() || '_Duplicados',
     };
   }
 
@@ -1057,6 +1077,95 @@ export function createMockOrganize(
     return { items, files };
   }
 
+  /**
+   * The duplicates step over the pile's exact copies (`left: duplicate`
+   * in `PILES`), like Rust's `duplicates_step`: `off` leaves the copy as a
+   * duplicate, `report` leaves it "already in your library as" the copy
+   * that stays, `set-aside` moves it to the pile's quarantine. The copy
+   * that stays is the original (the oldest: a tie). Returns the groups.
+   */
+  function settleDuplicates(
+    r: Resolved,
+    items: OrganizeItem[],
+  ): DupGroupView[] {
+    if (r.duplicates === 'off') return [];
+    const groups: DupGroupView[] = [];
+    for (const [i, item] of items.entries()) {
+      if (item.action !== 'left' || item.reason.kind !== 'duplicate') continue;
+      const of = item.reason.of;
+      const keeper = items.find((k) => k.sources[0] === of);
+      if (!keeper || keeper.system_id === null) continue;
+      const stays =
+        keeper.action === 'auto' && keeper.target ? keeper.target : of;
+      const source = item.sources[0]!;
+      if (r.duplicates === 'report') {
+        items[i] = {
+          ...item,
+          reason: { kind: 'in-library', path: stays, relation: 'exact' },
+        } as OrganizeItem;
+      } else {
+        const { reason: _left, ...rest } = item as Extract<
+          OrganizeItem,
+          { action: 'left' }
+        >;
+        items[i] = {
+          ...rest,
+          action: 'set-aside',
+          keeper: stays,
+          relation: 'exact',
+          reason: { kind: 'tie' },
+          dest: join(r.quarantine, source),
+          target: null,
+          set_targets: [],
+          companions: [],
+          rename: null,
+          transfer: { kind: 'as-is' },
+        } as OrganizeItem;
+      }
+      const unit = (path: string, age: number) => ({
+        primary: `${r.source}/${path}`,
+        files: [`${r.source}/${path}`],
+        kind: 'single' as const,
+        mtime_ns: (host.now - age) * 1e9,
+        in_library: false,
+      });
+      const member = (id: number, path: string, dest: string | null) => ({
+        id,
+        unit: unit(path, id === 0 ? 7_200 : 3_600),
+        relation: 'exact' as const,
+        size: item.size,
+        travels: [],
+        stays: [],
+        dest,
+        catalogue_name: keeper.catalogue_name,
+        serials: [],
+        confidence: 1,
+      });
+      groups.push({
+        id: nameCrc(`${r.source}/${of}`),
+        system: keeper.system_id,
+        title: keeper.catalogue_name ?? stemOf(of),
+        keeper: 0,
+        reason: { kind: 'tie' },
+        runner_up: null,
+        members: [
+          member(0, of, null),
+          member(
+            1,
+            source,
+            r.duplicates === 'set-aside'
+              ? `${r.source}/${join(r.quarantine, source)}`
+              : null,
+          ),
+        ],
+        action: { kind: 'act' },
+        tie: true,
+        choice_dropped: false,
+      });
+    }
+    return groups;
+  }
+
   function planOf(
     r: Resolved,
     decisions: readonly OrganizeDecision[],
@@ -1065,7 +1174,10 @@ export function createMockOrganize(
     files: PileFile[];
   } {
     const { items, files } = buildPlan(r, decisions);
-    const moving = items.filter((i) => i.action !== 'left');
+    const duplicates = settleDuplicates(r, items);
+    const moving = items.filter(
+      (i) => i.action !== 'left' && i.action !== 'set-aside',
+    );
     const systems = [
       ...new Set(moving.flatMap((i) => (i.system_id ? [i.system_id] : []))),
     ].sort();
@@ -1102,7 +1214,8 @@ export function createMockOrganize(
         other_files: 0,
         deep_folders: 0,
         bytes: moving.reduce((n, i) => n + i.size, 0),
-        set_aside: 0,
+        set_aside: items.filter((i) => i.action === 'set-aside').length,
+        // Pile copies of each other only: none is in a library yet.
         in_library: 0,
       },
       sorted_folders: sortedFolders,
@@ -1114,8 +1227,9 @@ export function createMockOrganize(
       move_allowed: true,
       target_detected: null,
       created_at: iso(host.now),
-      duplicates: [],
-      set_aside_trash: false,
+      duplicates,
+      set_aside_trash:
+        r.trash && duplicates.length > 0 && r.duplicates === 'set-aside',
     };
     return { plan, files };
   }
@@ -1394,7 +1508,7 @@ export function createMockOrganize(
       job: j.job,
       root: j.target,
       created_at: j.createdAt,
-      entries: j.placed.length,
+      entries: j.placed.length + j.setAside.length,
       complete: j.complete,
       undone: j.undone,
       kind: 'organize' as const,
@@ -1453,6 +1567,10 @@ export function createMockOrganize(
         if (t.romsRel) dirsRemoved.push(`${j.target}/${t.romsRel}`);
         targets.delete(j.target);
       }
+    }
+    for (const name of [...j.setAside].reverse()) {
+      here.add(name);
+      restored.push(`${j.source}/${name}`);
     }
     j.undone = true;
     j.remaining = [];
@@ -1561,10 +1679,23 @@ export function createMockOrganize(
         undone: false,
         fillsBefore: new Set(fills.map((f) => f.job)),
         placed: [],
+        setAside: [],
         remaining: [],
         pausedOnce: false,
       };
       journals.push(j);
+      // Set-aside copies are a rename inside the pile, done first.
+      for (const item of plan.items) {
+        if (item.action !== 'set-aside') continue;
+        const name = item.sources[0]!;
+        loose.get(r.source)!.delete(name);
+        j.setAside.push(name);
+        outcomes.push({
+          item: item.id,
+          status: plan.set_aside_trash ? 'trashed' : 'quarantined',
+          targets: plan.set_aside_trash ? [] : [`${r.source}/${item.dest}`],
+        });
+      }
       if (!targets.has(r.target)) {
         targets.set(r.target, {
           root: r.target,
