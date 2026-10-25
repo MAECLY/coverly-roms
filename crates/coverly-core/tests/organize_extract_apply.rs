@@ -1111,18 +1111,26 @@ mod apply_phases {
     }
 
     #[test]
-    fn a_sheet_naming_a_track_in_another_case_rolls_back() {
-        let env = env();
+    fn a_sheet_naming_a_track_in_another_case_extracts() {
         // The archive's track is `track 1.bin`; the cue names `Track 1.bin`.
+        // The plan resolves it ignoring case and Unicode form (spec §6), so
+        // phase B must too, or the dry run promises what apply refuses.
+        let env = env();
         let (archive, entries) = deferred_archive(&env, &["Track 1.bin"], &["track 1.bin"]);
-        let before = fs::read(&archive).unwrap();
         let item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
         let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
-        assert!(
-            matches!(status(&report), ItemStatus::Failed { .. }),
-            "{report:?}"
-        );
-        assert_untouched(&env, &archive, &before, &entries);
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
+        assert!(entries.iter().all(|e| env.root.join(&e.target).is_file()));
+    }
+
+    #[test]
+    fn a_deferred_sheet_naming_a_track_in_another_case_is_confirmed() {
+        let env = env();
+        let (archive, entries) = deferred_archive(&env, &["Track 1.bin"], &["track 1.bin"]);
+        let mut item = extract_item(&env, &archive, entries.clone(), ArchiveAfter::Keep);
+        set_transfer(&mut item, |sc, _, _| *sc = SheetCheck::Deferred);
+        let report = apply(&env, &plan_of(&env, vec![item], TransferMode::Move));
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
     }
 
     #[test]

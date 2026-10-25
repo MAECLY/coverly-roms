@@ -358,7 +358,7 @@ For each item, in plan order, after the organise spec's revalidation (archive si
 
 **Phase B — validate the whole item** (still nothing renamed):
 - the decode pass ended cleanly: compressor trailer check (gzip CRC32/ISIZE, xz check, zstd/lz4 content checksum when present) within the S6 allowance; external tool exit status 0 (`ToolFailed` otherwise); for formats with no per-entry CRC and no container check, size only and `ItemNote::NoStoredChecksum`;
-- every sheet parses and every `FILE`/track line resolves, case- and NFC-exactly as it will on the target, to the extracted set and nothing else (`SheetCheck::Deferred` sets are confirmed or rejected here: `SetIncomplete`);
+- every sheet parses and every `FILE`/track line resolves to the extracted set and nothing else, exactly or else with the same case-insensitive + NFC fallback the plan used (§6; FAT/exFAT and default APFS/NTFS open it that way), so a set the dry run shows as *Extraer* is never refused here for case alone (`SheetCheck::Deferred` sets are confirmed or rejected here: `SetIncomplete`);
 - the final names are still free (twin-aware, `name_key`) — the real collision check, done for the whole item before the first rename;
 - the archive is re-checked against its plan fingerprint (size + mtime) — it was being read for seconds or minutes.
 Any failure → **rollback**: delete this item's temps (they are only ever this job's `create_new` files), append a `rolled-back` line for each intent, archive untouched; the item reports the reason.

@@ -550,8 +550,8 @@ fn sheet_kind(name: &str) -> Option<SheetKind> {
 }
 
 /// Every sheet kept in memory parses, and each file it names resolves,
-/// relative to the sheet's own folder and byte for byte, to a file of the
-/// item. A deferred set must hold a sheet, and its sheets must name every
+/// relative to the sheet's own folder (exactly, else ignoring case and
+/// Unicode form like the plan), to a file of the item. A deferred set must hold a sheet, and its sheets must name every
 /// other file of the item.
 fn check_sheets(staged: &[StagedEntry], check: SheetCheck) -> Result<(), ExtractError> {
     let incomplete = |detail: String| ExtractError::SetIncomplete { detail };
@@ -568,7 +568,15 @@ fn check_sheets(staged: &[StagedEntry], check: SheetCheck) -> Result<(), Extract
         for file in &sheet.files {
             let resolved = resolve_ref(dir, file)
                 .ok_or_else(|| incomplete(format!("{} names {file:?}", s.entry.name)))?;
-            let Some(hit) = staged.iter().find(|o| o.target == resolved) else {
+            // Exact first; then ignoring case and Unicode form, as the plan
+            // resolved it (archives spec §6) and as FAT/exFAT and default
+            // APFS/NTFS open it.
+            let key = name_key(&resolved.to_string_lossy());
+            let Some(hit) = staged.iter().find(|o| o.target == resolved).or_else(|| {
+                staged
+                    .iter()
+                    .find(|o| name_key(&o.target.to_string_lossy()) == key)
+            }) else {
                 return Err(incomplete(format!(
                     "{} names {file:?}, not in the archive",
                     s.entry.name
