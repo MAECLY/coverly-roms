@@ -862,3 +862,29 @@ fn json_report_of_an_apply_holds_the_plan_and_the_job() {
     let outcomes = v["job"]["outcomes"].as_array().unwrap();
     assert!(outcomes.iter().any(|o| o["status"] == "quarantined"), "{v}");
 }
+
+/// A finished job resumes as a no-op; an undone one is refused by name,
+/// moving nothing back out.
+#[test]
+fn resume_is_idempotent_and_refuses_an_undone_job() {
+    let lib = Library::new();
+    let trash = TempDir::new().unwrap();
+    let before = files_under(&lib.root().join("ROMS"));
+    stdout_of(&mut apply_cmd(&lib, trash.path(), &[]));
+    let jobs = job_ids(&lib, trash.path());
+    assert_eq!(jobs.len(), 1);
+    let q = lib.root().join("_Duplicados");
+    let set_aside = files_under(&q);
+    stdout_of(lib.cmd().args(["--resume", &jobs[0]]));
+    assert_eq!(files_under(&q), set_aside, "a second run moves nothing");
+    assert_eq!(job_ids(&lib, trash.path()), jobs);
+
+    stdout_of(&mut coverly(&lib, trash.path(), &["undo"]));
+    assert_eq!(files_under(&lib.root().join("ROMS")), before);
+    lib.cmd()
+        .args(["--resume", &jobs[0]])
+        .assert()
+        .code(1)
+        .stderr(contains("undone").and(contains(jobs[0].as_str())));
+    assert_eq!(files_under(&lib.root().join("ROMS")), before);
+}
