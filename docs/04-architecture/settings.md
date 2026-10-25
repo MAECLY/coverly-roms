@@ -47,7 +47,7 @@
 | dedupe | `levels` | `exact, format, version` | at least one, no repeat; `version` acts only with `one_game_one_rom`, otherwise it is reported |
 | | `one_game_one_rom` | `false` | also set aside other versions of a game (1G1R) |
 | | `action` | `quarantine` | `quarantine`/`trash` (the OS Trash, opt-in) |
-| | `quarantine_dir`, `quarantine_name` | `null`, `null` | `null` dir = `<library>/<name>`; a custom dir must be absolute and not inside a ROMs or system folder (`invalid`). The name is fixed at first run from the app language (`_Duplicados` / `_Duplicates`); no `/`, `\`, `.` or `..`. Scans skip both default names and this one |
+| | `quarantine_dir`, `quarantine_name` | `null`, `null` | `null` dir = `<library>/<name>`; a custom dir must be absolute and not inside a ROMs or system folder (`invalid`). `null` name = `_Duplicados` in every language (choosing `_Duplicates` from the app language at first run is not built yet); no `/`, `\`, `.` or `..`. Scans skip both default names and this one |
 | | `keep_rules` | all ten on, in the order `has_save, played, in_library, verified, retail, region, revision, container, cover, catalogue_name` | `{ rule, on }` each once (no `duplicate`); missing rules are appended, on. The user's pick and the tie-breaker are not settings |
 | | `container_order` | handheld profiles `chd > pbp > cue > iso > img > bin`, frontends `chd > cue > pbp > iso > img > bin`, `*` arcade `zip` | profile id (or `*`) → system id, `disc`, `cart`, `arcade` (or `*`) → containers, preferred first; unknown profile → `unknown`, bad key or container → `invalid` |
 | | `exclude_systems` | `ports, bios, apps` | folder names or system ids never looked at (lowercase) |
