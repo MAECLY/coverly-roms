@@ -45,7 +45,18 @@ fn put(root: &Path, rel: &str, bytes: &[u8]) -> PathBuf {
     let p = root.join(rel);
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(&p, bytes).unwrap();
+    pin_mtime(&p);
     p
+}
+
+/// Gives each fixture file its own modified time, one second after the
+/// previous one, so the oldest-first tie-break follows the write order on
+/// every OS (Windows clocks can stamp quick writes with one time).
+fn pin_mtime(p: &Path) {
+    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = filetime::FileTime::from_unix_time(1_700_000_000 + n, 0);
+    filetime::set_file_mtime(p, t).unwrap();
 }
 
 /// A zip at `root/rel` holding one stored entry.
@@ -58,6 +69,7 @@ fn put_zip(root: &Path, rel: &str, inner: &str, bytes: &[u8]) -> PathBuf {
     zip.start_file(inner, opts).unwrap();
     zip.write_all(bytes).unwrap();
     zip.finish().unwrap();
+    pin_mtime(&p);
     p
 }
 
