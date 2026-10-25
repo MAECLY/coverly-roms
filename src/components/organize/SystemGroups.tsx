@@ -25,7 +25,7 @@ import {
   actionOf,
   confidenceKey,
   extractDetail,
-  itemNotes,
+  rowNotes,
   targetDir,
   whyKey,
   type SystemGroup,
@@ -177,8 +177,7 @@ function Row({
     item.method === 'user' && !!onDecide && !!systems && !!item.system_id;
   const fresh = isNew?.(item) ?? false;
   const serials = item.disc?.serials.join(', ') ?? '';
-  const notes = itemNotes(t, item, layoutName, systemName);
-  const extracts = item.transfer.kind === 'extract';
+  const notes = rowNotes(t, item, layoutName, systemName);
   return (
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -226,16 +225,18 @@ function Row({
         )}
       </div>
       {reason && <p className={hintText}>{t(reason.key, reason.vars)}</p>}
-      {/* An extract row folds its notes into the detail with its files. */}
-      {extracts ? (
-        <ExtractDetail item={item} profile={profile} notes={notes} />
-      ) : (
-        notes.map((line) => (
-          <p key={line} className={hintText}>
-            {line}
-          </p>
-        ))
-      )}
+      {notes.inline.map((line) => (
+        <p key={line} className={hintText}>
+          {line}
+        </p>
+      ))}
+      {/* An extract row folds the archive's own facts into its detail. */}
+      <ExtractDetail
+        item={item}
+        name={name}
+        profile={profile}
+        notes={notes.detail}
+      />
     </li>
   );
 }

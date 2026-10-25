@@ -1027,6 +1027,7 @@
     "extract": {
       "detail": "{count} files · {bytes}",
       "files": "Files to extract",
+      "filesFrom": "Files to extract from {name}",
       "into": "Extracted into {folder}",
       "kept": "Extracted; the archive stays because this disk has no Trash",
       "layoutFlat": "Tracks go straight into {folder}",

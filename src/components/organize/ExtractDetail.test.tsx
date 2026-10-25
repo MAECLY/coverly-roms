@@ -17,6 +17,7 @@ function renderDetail(
     <I18nProvider locale={locale}>
       <ExtractDetail
         item={item}
+        name="Next Tetris, The.zip"
         profile={disc_layout ? { disc_layout } : null}
         notes={notes}
       />
@@ -27,13 +28,17 @@ function renderDetail(
 describe('ExtractDetail', () => {
   it('expand_lists_files_and_target', async () => {
     renderDetail(discItem(0));
-    const toggle = screen.getByRole('button', { name: 'Files to extract' });
+    const toggle = screen.getByRole('button', {
+      name: 'Files to extract from Next Tetris, The.zip',
+    });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     // Closed, the list is not in the DOM (thousand-row piles stay light).
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    const list = screen.getByRole('list', { name: 'Files to extract' });
+    const list = screen.getByRole('list', {
+      name: 'Files to extract from Next Tetris, The.zip',
+    });
     const rows = within(list).getAllByRole('listitem');
     expect(rows).toHaveLength(12);
     expect(within(rows[0]!).getByText('Next Tetris, The.cue')).toBeVisible();
@@ -64,7 +69,9 @@ describe('ExtractDetail', () => {
       { kind: 'game-folder', m3u_for_multi: true },
     );
     await userEvent.click(
-      screen.getByRole('button', { name: 'Files to extract' }),
+      screen.getByRole('button', {
+        name: 'Files to extract from Next Tetris, The.zip',
+      }),
     );
     expect(
       screen.getByText('Each game in its own folder: ROMS/PS/Next Tetris, The'),
@@ -80,7 +87,9 @@ describe('ExtractDetail', () => {
       'Has a .gdi and a .cue for the same tracks; some menus will list the game twice',
     ]);
     await userEvent.click(
-      screen.getByRole('button', { name: 'Files to extract' }),
+      screen.getByRole('button', {
+        name: 'Files to extract from Next Tetris, The.zip',
+      }),
     );
     expect(screen.getByText('It is a 7z archive named .zip')).toBeVisible();
     expect(
@@ -104,7 +113,9 @@ describe('ExtractDetail', () => {
       },
     });
     await userEvent.click(
-      screen.getByRole('button', { name: 'Files to extract' }),
+      screen.getByRole('button', {
+        name: 'Files to extract from Next Tetris, The.zip',
+      }),
     );
     const cue = screen.getByText('Next Tetris, The.cue');
     expect(cue).toHaveAttribute('title', 'Disc/Next Tetris, The.cue');
@@ -113,7 +124,9 @@ describe('ExtractDetail', () => {
   it('uses the Spanish copy and separators', async () => {
     renderDetail(discItem(0), [], undefined, 'es');
     await userEvent.click(
-      screen.getByRole('button', { name: 'Archivos que se extraen' }),
+      screen.getByRole('button', {
+        name: 'Archivos que se extraen de Next Tetris, The.zip',
+      }),
     );
     expect(screen.getByText('1,2 KB')).toBeVisible();
     expect(
@@ -126,6 +139,7 @@ describe('ExtractDetail', () => {
       <I18nProvider locale="en">
         <ExtractDetail
           item={{ ...discItem(0), transfer: { kind: 'as-is' } }}
+          name="Next Tetris, The.zip"
           profile={null}
           notes={[]}
         />

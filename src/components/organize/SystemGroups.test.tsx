@@ -269,9 +269,60 @@ describe('SystemGroups — actions and discs', () => {
       screen.queryByText('It is a 7z archive named .zip'),
     ).not.toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole('button', { name: 'Files to extract' }),
+      screen.getByRole('button', {
+        name: 'Files to extract from Next Tetris, The.zip',
+      }),
     );
     expect(screen.getByText('It is a 7z archive named .zip')).toBeVisible();
     expect(screen.getByText('Tracks go straight into ROMS/PS')).toBeVisible();
+  });
+});
+
+describe('SystemGroups — extract rows keep warnings in sight', () => {
+  it('folds only the archive notes; warnings and renames stay visible', () => {
+    renderGroups([
+      discItem(0, {
+        rename: { kind: 'collision', name: 'Next Tetris, The (1).cue' },
+        notes: [
+          { kind: 'container-mismatch', actual: '7z', ext: 'zip' },
+          { kind: 'archive-not-fully-read' },
+          { kind: 'archive-kept-leftovers', count: 2, examples: ['a.txt'] },
+        ],
+      }),
+    ]);
+    // The archive's own facts wait in the detail ...
+    expect(
+      screen.queryByText('It is a 7z archive named .zip'),
+    ).not.toBeInTheDocument();
+    // ... but what asks the user to look, or changes the result, does not.
+    expect(
+      screen.getByText(
+        "Couldn't be read in full during the dry run; please review it",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'The archive stays: it has 2 files that are not extracted',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        'Will be saved as Next Tetris, The (1).cue because a different file already exists',
+      ),
+    ).toBeVisible();
+  });
+
+  it('names each detail toggle after its archive', () => {
+    renderGroups([discItem(0), discItem(1, { sources: ['Tetris Plus.zip'] })]);
+    expect(
+      screen.getByRole('button', {
+        name: 'Files to extract from Next Tetris, The.zip',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Files to extract from Tetris Plus.zip',
+      }),
+    ).toBeInTheDocument();
   });
 });

@@ -17,9 +17,11 @@ import { chevron, hintText, pathText } from './styles';
 
 interface Props {
   item: OrganizeItem;
+  /** The archive's name, so every row's toggle is told apart. */
+  name: string;
   /** The target layout: where a disc's tracks go (absent = flat). */
   profile: Pick<ProfileFile, 'disc_layout'> | null | undefined;
-  /** The row's note lines, already worded (`itemNotes`). */
+  /** The archive notes folded into the detail, already worded (`rowNotes`). */
   notes: string[];
 }
 
@@ -34,22 +36,25 @@ function fileName(path: string): string {
  * of the archive with its size, where they go and the archive's notes.
  * Nothing for an item that moves as it is.
  */
-export function ExtractDetail({ item, profile, notes }: Props) {
+export function ExtractDetail({ item, name, profile, notes }: Props) {
   const t = useT();
   const locale = useContext(LocaleContext);
   const transfer = item.transfer;
   if (transfer.kind !== 'extract') return null;
-  const label = t('organize.extract.files');
+  // The visible words start the accessible name (label in name), the
+  // archive tells one row's toggle from the next.
+  const label = t('organize.extract.filesFrom', { name });
   return (
     <Collapsible className="grid gap-1">
       <CollapsibleTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
+          aria-label={label}
           className="group -ml-1.5 w-fit gap-1 px-1.5 text-caption text-cr-text-secondary"
         >
           <ChevronRight aria-hidden className={chevron} />
-          {label}
+          {t('organize.extract.files')}
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>

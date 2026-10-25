@@ -305,6 +305,38 @@ export function itemNotes(
   return lines;
 }
 
+/** Archive facts the extract row folds into its detail (spec §11.1). */
+const DETAIL_NOTES: ReadonlySet<ItemNote['kind']> = new Set([
+  'container-mismatch',
+  'twin-sheets',
+  'no-stored-checksum',
+]);
+
+/**
+ * An item's note lines split for its row: an extract row folds the archive's
+ * own facts (`ContainerMismatch`, `TwinSheets`, `NoStoredChecksum`) into its
+ * detail, while renames and anything that asks the user to look or changes
+ * the result stay in sight. Every line is inline for an as-is item.
+ */
+export function rowNotes(
+  t: Translate,
+  item: OrganizeItem,
+  layoutName: string,
+  systemName: (id: string) => string,
+): { inline: string[]; detail: string[] } {
+  if (item.transfer.kind !== 'extract')
+    return { inline: itemNotes(t, item, layoutName, systemName), detail: [] };
+  const inline: string[] = [];
+  const detail: string[] = [];
+  if (item.rename) inline.push(renameText(t, item.rename));
+  const system = item.system_id ? systemName(item.system_id) : '';
+  for (const n of item.notes) {
+    const line = noteText(t, n, system, layoutName, item);
+    if (line !== null) (DETAIL_NOTES.has(n.kind) ? detail : inline).push(line);
+  }
+  return { inline, detail };
+}
+
 function renameText(t: Translate, r: RenameReason): string {
   switch (r.kind) {
     case 'collision':
