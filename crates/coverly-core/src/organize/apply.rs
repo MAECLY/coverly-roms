@@ -599,15 +599,21 @@ impl ExtractJournal {
                 archive: None,
             };
         };
+        // The item's own lines, found once: a resume of thousands of
+        // items must not rescan the whole journal for every entry.
+        let of_item: Vec<&TransferRecord> = records
+            .iter()
+            .filter(|r| r.item == Some(item.id) && r.extracted.is_some())
+            .collect();
         let entries = entries
             .iter()
             .map(|e| {
                 let target = plan.target_root.join(&e.target);
-                let mine: Vec<&TransferRecord> = records
+                let mine: Vec<&TransferRecord> = of_item
                     .iter()
+                    .copied()
                     .filter(|r| {
-                        r.item == Some(item.id)
-                            && r.target == target
+                        r.target == target
                             && r.extracted.as_ref().is_some_and(|x| x.entry == e.name)
                     })
                     .collect();
