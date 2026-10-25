@@ -230,6 +230,9 @@
       "cancel": "Cancel"
     },
     "organize": {
+      "externalTools": "External programs for RAR",
+      "externalToolsFound": "Found: {tools}",
+      "externalToolsNone": "None. Install unrar or 7-Zip to open RAR.",
       "title": "Organise",
       "defaultLayout": "Default layout",
       "nestInRoms": "Put the system folders inside the layout's ROMs folder",
@@ -1016,6 +1019,37 @@
     }
   },
   "organize": {
+    "action": {
+      "copy": "Copy",
+      "extract": "Extract",
+      "move": "Move"
+    },
+    "extract": {
+      "detail": "{count} files · {bytes}",
+      "into": "Extracted into {folder}",
+      "kept": "Extracted; the archive stays because this disk has no Trash",
+      "layoutFlat": "Tracks go straight into {folder}",
+      "layoutFolder": "Each game in its own folder: {folder}",
+      "m3u": "{name} is created for disc swapping",
+      "summary": "Extracting: {count} games ({bytes})",
+      "trashed": "The archive was moved to the Trash"
+    },
+    "extracting": "Extracting {name}: {done} of {total} files…",
+    "note": {
+      "archiveKeptLeftovers": "The archive stays: it has {count} files that are not extracted",
+      "containerMismatch": "It is a {actual} archive named .{ext}",
+      "multiRomExtract": "Has {count} ROMs; all of them are extracted",
+      "noStoredChecksum": "This format stores no checksum; the size is checked",
+      "notFullyRead": "Couldn't be read in full during the dry run; please review it",
+      "sheetNotReadYet": "The .cue sheet is checked while extracting",
+      "twinSheets": "Has a .gdi and a .cue for the same tracks; some menus will list the game twice"
+    },
+    "pause": {
+      "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
+    },
+    "skip": {
+      "toolGone": "The tool {tool} is no longer there; scan again"
+    },
     "title": "Organise by system",
     "back": "Back",
     "layout": "Layout",
@@ -1025,6 +1059,7 @@
       "medium": "Medium"
     },
     "why": {
+      "disc": "{system} disc: {detail} ({serial})",
       "hash": "CRC {crc} in the {system} catalogue: {name}",
       "header": "The header is {system} ({detail})",
       "extension": ".{ext} extension, used only by {system}",
@@ -1035,11 +1070,23 @@
       "user": "Chosen by you"
     },
     "left": {
+      "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
+      "archiveTooBig": "Too large to open safely",
+      "encryptedArchive": "Password protected",
       "files": "Files staying where they are",
+      "folderFull": "The folder {folder} can't hold more files on FAT32",
+      "multiVolume": "Multi-part archive ({parts} parts); join them first",
+      "nestedArchive": "Archive inside another archive; extract it first",
       "partialDownload": "Download not finished",
+      "pathTooLong": "The path would be too long for Windows",
       "recent": "Changed moments ago; it may still be downloading",
       "cloudOnly": "In the cloud, not downloaded",
       "notARom": "Not a ROM ({what})",
+      "repackArcade": "Arcade sets must be .zip; repack it",
+      "setUnsafeName": "A game file has a name the card can't store: {name}",
+      "unsafeArchiveEntry": "Contains an unsafe path ({name}); not extracted",
+      "unsafeTarget": "The target folder is a link; nothing is written there",
+      "unsupportedArchiveTool": "To open {format} archives, install {tool}",
       "webPage": "web page",
       "text": "text",
       "bios": "BIOS: belongs in the device's BIOS folder",
@@ -1136,7 +1183,10 @@
     "progressLabel": "Organising progress",
     "resultTitle": "Result",
     "pausedTitle": "Paused",
-    "result": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
+    "result": {
+      "counts": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
+      "extracted": "Extracted: {count}"
+    },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
     "stopped": "Stopped. What was already organised stays; Undo puts it back.",
@@ -1160,6 +1210,7 @@
     "undo": {
       "action": "Undo",
       "actionCount": "Undo {count} files",
+      "archiveLost": "The archive couldn't be recovered from the Trash; the extracted files stay",
       "confirmTitle": "Undo this organisation?",
       "laterJobs": "These must be undone first: {jobs}",
       "laterJob": "{kind} {date}",

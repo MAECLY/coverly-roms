@@ -4,12 +4,15 @@
  */
 import type { TranslateVars } from '@/i18n/core';
 import type {
+  ArchiveTool,
   Evidence,
   ItemNote,
   LeftReason,
   OrganizeItem,
   OrganizePlan,
+  ProfileFile,
   RenameReason,
+  TransferMode,
 } from '@/ipc/types';
 
 type Translate = (key: string, vars?: TranslateVars) => string;
@@ -103,6 +106,13 @@ export interface KeyedText {
   vars: TranslateVars;
 }
 
+/** Tool names are never translated (spec §11.2). */
+const TOOL_NAMES: Record<ArchiveTool, string> = {
+  unrar: 'unrar',
+  'seven-zip': '7-Zip',
+  bsdtar: 'bsdtar',
+};
+
 /**
  * The i18n key of a left reason. A var whose value is itself an
  * `organize.*` key (the `what` of `not-a-rom`) is a fragment to translate
@@ -131,22 +141,35 @@ export function leftReasonKey(r: LeftReason): KeyedText {
       return k('bios');
     case 'damaged-archive':
       return k('damagedArchive');
-    // Until each archive reason has its own text (plan Task 40), they read
-    // as an archive this build cannot open, never as damage.
     case 'unsupported-archive':
+      return r.need
+        ? k('unsupportedArchiveTool', {
+            format: (r.format ?? '').toUpperCase(),
+            tool: TOOL_NAMES[r.need],
+          })
+        : k('unsupportedArchive');
     case 'encrypted-archive':
+      return k('encryptedArchive');
     case 'archive-needs-memory':
+      return k('archiveNeedsMemory', { mib: r.mib });
     case 'archive-too-big':
+      return k('archiveTooBig');
     case 'multi-volume-archive':
+      return k('multiVolume', { parts: r.parts });
     case 'nested-archive':
+      return k('nestedArchive');
     case 'repack-arcade':
-      return k('unsupportedArchive');
+      return k('repackArcade');
     case 'unsafe-archive-entry':
+      return k('unsafeArchiveEntry', { name: r.name });
     case 'set-unsafe-name':
+      return k('setUnsafeName', { name: r.name });
     case 'path-too-long':
+      return k('pathTooLong');
     case 'unsafe-target':
+      return k('unsafeTarget');
     case 'folder-full':
-      return k('unreadable');
+      return k('folderFull', { folder: r.folder });
     case 'multi-game-archive':
       return k('multiGameArchive', { count: r.count });
     case 'unsupported-system':
@@ -301,14 +324,120 @@ function noteText(
       });
     case 'encrypted':
       return t('organize.encrypted');
-    // The archive and disc notes get their text with plan Task 40.
+    default: {
+      const keyed = noteKey(n);
+      return keyed ? t(keyed.key, keyed.vars) : null;
+    }
+  }
+}
+
+/**
+ * The i18n key of an archive or disc note (data only). The older notes need
+ * the system, layout or level of their row and are worded by `itemNotes`.
+ */
+export function noteKey(n: ItemNote): KeyedText | null {
+  const k = (name: string, vars: TranslateVars = {}): KeyedText => ({
+    key: `organize.note.${name}`,
+    vars,
+  });
+  switch (n.kind) {
     case 'container-mismatch':
+      return k('containerMismatch', {
+        actual: n.actual,
+        ext: n.ext.replace(/^\./, ''),
+      });
     case 'twin-sheets':
+      return k('twinSheets');
     case 'no-stored-checksum':
+      return k('noStoredChecksum');
     case 'archive-not-fully-read':
+      return k('notFullyRead');
     case 'archive-kept-leftovers':
+      return k('archiveKeptLeftovers', { count: n.count });
     case 'sheet-not-read-yet':
+      return k('sheetNotReadYet');
     case 'multi-rom-extract':
+      return k('multiRomExtract', { count: n.count });
+    case 'multi-rom-zip':
+    case 'no-folder-on-device':
+    case 'extension-contradicted':
+    case 'catalogue-missing':
+    case 'encrypted':
       return null;
   }
+}
+
+/** What applying does with an item: the plan's mode, or extracting it. */
+export function actionOf(
+  item: OrganizeItem,
+  mode: TransferMode,
+): 'move' | 'copy' | 'extract' {
+  return item.transfer.kind === 'extract' ? 'extract' : mode;
+}
+
+export interface ExtractTotals {
+  count: number;
+  bytes: number;
+}
+
+/**
+ * Files an extract item writes out of its archive and their bytes; a
+ * generated `.m3u` is not one of them (the CLI counts alike). `null` when
+ * the item moves as it is.
+ */
+export function extractDetail(item: OrganizeItem): ExtractTotals | null {
+  const t = item.transfer;
+  return t.kind === 'extract'
+    ? { count: t.entries.length, bytes: t.bytes }
+    : null;
+}
+
+/**
+ * Games the plan extracts (decided items only, like the apply button) and
+ * their bytes; `null` when nothing is extracted.
+ */
+export function extractSummary(plan: OrganizePlan): ExtractTotals | null {
+  let count = 0;
+  let bytes = 0;
+  for (const item of plan.items) {
+    if (item.action !== 'auto' || item.transfer.kind !== 'extract') continue;
+    count += 1;
+    bytes += item.transfer.bytes;
+  }
+  return count > 0 ? { count, bytes } : null;
+}
+
+function baseName(path: string): string {
+  return path.slice(
+    Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1,
+  );
+}
+
+/**
+ * Where an extract item's files go, as lines for the row detail: a disc's
+ * layout (flat or one folder per game, absent = flat) and its generated
+ * playlist, or a cartridge's folder. Empty when the item moves as it is.
+ */
+export function layoutNote(
+  item: OrganizeItem,
+  profile: Pick<ProfileFile, 'disc_layout'> | null | undefined,
+): KeyedText[] {
+  const t = item.transfer;
+  if (t.kind !== 'extract') return [];
+  const folder = targetDir(item);
+  if (item.kind !== 'set' && item.disc === null && t.m3u === null) {
+    const isDisc = t.entries.some((e) => /\.(cue|gdi)$/i.test(e.name));
+    if (!isDisc) return [{ key: 'organize.extract.into', vars: { folder } }];
+  }
+  const lines: KeyedText[] = [
+    profile?.disc_layout?.kind === 'game-folder'
+      ? { key: 'organize.extract.layoutFolder', vars: { folder } }
+      : { key: 'organize.extract.layoutFlat', vars: { folder } },
+  ];
+  if (t.m3u)
+    lines.push({
+      key: 'organize.extract.m3u',
+      vars: { name: baseName(t.m3u) },
+    });
+  return lines;
 }

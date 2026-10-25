@@ -170,7 +170,7 @@ export function OrganizeResult({
         (() => {
           const line = (
             <p className="m-0 text-dense tabular-nums text-cr-text">
-              {t('organize.result', {
+              {t('organize.result.counts', {
                 moved: report.moved,
                 copied: report.copied,
                 skipped: report.skipped,
