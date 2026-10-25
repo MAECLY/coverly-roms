@@ -220,7 +220,8 @@ fn tool_cwd_is_empty_tempdir() {
     )
     .expect("run");
     let out = String::from_utf8(run.stdout).expect("utf8");
-    assert_eq!(report_value(&out, "cwd_entries"), "0");
+    // Nothing but the archive's link under its fixed name.
+    assert_eq!(report_value(&out, "cwd_entries"), "1");
     let cwd = PathBuf::from(report_value(&out, "cwd"));
     assert!(
         !cwd.starts_with(tmp.path()),
@@ -229,12 +230,67 @@ fn tool_cwd_is_empty_tempdir() {
     assert!(!cwd.exists(), "the working directory is removed afterwards");
 
     let args: Vec<String> = serde_json::from_str(report_value(&out, "args")).expect("args");
-    let archive_arg = archive.to_string_lossy().into_owned();
     assert_eq!(
         args,
-        vec!["l".to_string(), "-slt".into(), "--".into(), archive_arg],
-        "`--` right before the archive"
+        vec![
+            "l".to_string(),
+            "-slt".into(),
+            "--".into(),
+            "archive.rar".into()
+        ],
+        "`--` right before the archive, by its fixed name"
     );
+}
+
+fn cat_case() -> FakeScript {
+    FakeScript {
+        cases: vec![FakeCase {
+            cat_archive: true,
+            ..FakeCase::default()
+        }],
+    }
+}
+
+/// 7-Zip and unrar expand wildcards in the archive name even after `--`:
+/// the tool gets a fixed name, so `a*.rar` reads only itself.
+#[cfg(unix)] // `*` cannot be in a Windows file name.
+#[test]
+fn archive_named_like_a_wildcard_reads_only_itself() {
+    setup();
+    let tmp = tempfile::tempdir().expect("tmp");
+    let exe = fake_tool(tmp.path(), "7zz", &cat_case());
+    let wanted = tmp.path().join("a*.rar");
+    std::fs::write(&wanted, b"wanted").expect("a*.rar");
+    std::fs::write(tmp.path().join("ab.rar"), b"other").expect("ab.rar");
+    let run = run_tool(
+        &found(Tool::SevenZip, exe),
+        &[OsStr::new("l")],
+        &wanted,
+        MAX_HEADER,
+        Duration::from_secs(20),
+    )
+    .expect("run");
+    assert_eq!(run.stdout, b"wanted");
+}
+
+/// GoodTools names carry `[!]`, which a tool would read as a set.
+#[test]
+fn archive_named_with_brackets_is_read() {
+    setup();
+    let tmp = tempfile::tempdir().expect("tmp");
+    let exe = fake_tool(tmp.path(), "7zz", &cat_case());
+    let archive = tmp.path().join("Juego (Europe) [!].7z");
+    std::fs::write(&archive, b"juego").expect("archive");
+    std::fs::write(tmp.path().join("Juego (Europe) !.7z"), b"other").expect("twin");
+    let run = run_tool(
+        &found(Tool::SevenZip, exe),
+        &[OsStr::new("l")],
+        &archive,
+        MAX_HEADER,
+        Duration::from_secs(20),
+    )
+    .expect("run");
+    assert_eq!(run.stdout, b"juego");
 }
 
 #[test]
@@ -1364,6 +1420,72 @@ mod reads {
             Err(ArchiveError::Damaged { .. }) => {}
             other => panic!("{what}: expected Damaged, got {other:?}"),
         }
+    }
+
+    /// A read whose output is the bytes of the archive the tool reached.
+    fn cat_read(args: Vec<String>) -> FakeCase {
+        FakeCase {
+            args_prefix: args,
+            cat_archive: true,
+            ..FakeCase::default()
+        }
+    }
+
+    /// An archive `name` in its own folder holding `data`, beside a file
+    /// its name would match as a pattern.
+    fn patterned(name: &str, data: &[u8]) -> Case {
+        setup();
+        let tmp = tempfile::tempdir().expect("tmp");
+        let archive = tmp.path().join(name);
+        std::fs::write(&archive, data).expect("archive");
+        std::fs::write(tmp.path().join(name.replace("[!]", "!")), b"other").expect("twin");
+        let dir = tmp.path().to_path_buf();
+        Case {
+            _tmp: tmp,
+            archive,
+            dir,
+        }
+    }
+
+    #[test]
+    fn name_read_reaches_an_archive_named_like_a_pattern() {
+        let c = patterned("Juego (Europe) [!].7z", b"juego data");
+        let files: [(&str, &[u8]); 1] = [("Juego.bin", b"juego data")];
+        let entries = listing(&files);
+        let script = seven_zip_listing_script(&seven_zip_slt(&entries), &seven_zip_l(&entries))
+            .with_first(cat_read(read_args(
+                SEVEN_ZIP_NAME_ARGS,
+                &c.archive,
+                Some("Juego.bin"),
+            )));
+        let tool = found(Tool::SevenZip, fake_tool(&c.dir, "7zz", &script));
+        let mut r = ToolReader::open(&[tool], &c.archive, Format::SevenZip, &Limits::default())
+            .expect("listing");
+        assert_eq!(read_entry(&mut r, 0).expect("by name"), b"juego data");
+    }
+
+    #[test]
+    fn stream_read_reaches_an_archive_named_like_a_pattern() {
+        let c = patterned("Juego (Europe) [!].rar", b"juego data");
+        let files: [(&str, &[u8]); 2] = [("a.bin", b"juego "), ("b.bin", b"data")];
+        let entries = listing(&files);
+        let script = unrar_listing_script(&unrar_lt(&entries), &unrar_l(&entries))
+            .with_first(cat_read(read_args(UNRAR_READ_ARGS, &c.archive, None)));
+        let tool = FoundTool {
+            tool: Tool::Unrar,
+            path: fake_tool(&c.dir, "unrar", &script),
+            version: "7.01".into(),
+            rar5: true,
+        };
+        let mut r =
+            ToolReader::open(&[tool], &c.archive, RAR5, &Limits::default()).expect("listing");
+        assert_eq!(
+            stream_all(&mut r, &[0, 1]).expect("stream"),
+            vec![
+                ("a.bin".to_string(), b"juego ".to_vec()),
+                ("b.bin".to_string(), b"data".to_vec()),
+            ]
+        );
     }
 
     #[test]

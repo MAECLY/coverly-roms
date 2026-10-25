@@ -4,8 +4,8 @@
 //!
 //! This module finds the tools ([`discover`]) and runs them with strict
 //! process hygiene ([`run_tool`]): only an absolute regular executable, no
-//! shell, `--` before the archive, a fresh empty working directory, a
-//! cleared environment, stdin closed, both pipes drained, output capped,
+//! shell, `--` before the archive, a fresh working directory holding only
+//! a link to the archive under a fixed name, a cleared environment, stdin closed, both pipes drained, output capped,
 //! and a timeout that kills the whole process tree. [`ToolReader`] lists
 //! an archive through 7-Zip or unrar with strict parsers that a hostile
 //! entry name cannot forge (S7); reads by name or stream (S8) build on it.
@@ -232,7 +232,8 @@ fn probe(tool: Tool, path: PathBuf) -> Option<FoundTool> {
         version: String::new(),
         rar5: false,
     };
-    let run = spawn_bounded(&t, args, BANNER_CAP, BANNER_TIMEOUT, None).ok()?;
+    let args: Vec<Arg<'_>> = args.iter().copied().map(Arg::Plain).collect();
+    let run = spawn_bounded(&t, &args, BANNER_CAP, BANNER_TIMEOUT, None).ok()?;
     let text = String::from_utf8_lossy(&run.stdout);
     let (version, rar5) = parse_banner(tool, &text)?;
     t.version = version;
@@ -312,8 +313,8 @@ pub struct ToolRun {
     pub status: Option<i32>,
 }
 
-/// Runs `t` with `args`, then `--`, then `archive`, under the hygiene of
-/// spec §5.2. stdout goes to `sink` when given (streamed reads), else is
+/// Runs `t` with `args`, then `--`, then `archive` (by its link in the run
+/// directory, [`RunDir::link`]), under the hygiene of spec §5.2. stdout goes to `sink` when given (streamed reads), else is
 /// returned; either way more than `out_cap` bytes → [`ArchiveError::TooLarge`].
 /// A run past `timeout` is killed with its whole process tree →
 /// [`ArchiveError::ToolFailed`] with no status. A non-zero exit is
@@ -326,12 +327,12 @@ pub(crate) fn run_tool(
     timeout: Duration,
     sink: Option<&mut dyn Write>,
 ) -> Result<ToolRun, ArchiveError> {
-    // The tool runs in an empty directory: a relative path would not reach
-    // the archive.
-    let archive = std::path::absolute(archive)?;
-    let mut all: Vec<&OsStr> = args.to_vec();
-    all.push(OsStr::new("--"));
-    all.push(archive.as_os_str());
+    let mut all: Vec<Arg<'_>> = args.iter().copied().map(Arg::Plain).collect();
+    all.push(Arg::Plain(OsStr::new("--")));
+    all.push(Arg::Archive {
+        path: archive,
+        prefix: "",
+    });
     spawn_bounded(t, &all, out_cap, timeout, sink)
 }
 
@@ -372,6 +373,32 @@ fn platform_executable_problem(path: &Path, _meta: &std::fs::Metadata) -> Option
     (!exe).then_some("not an .exe")
 }
 
+/// One argument of a run: as given, or the archive, which [`start`] turns
+/// into `prefix` (bsdtar's `@`) and the archive's name in the run
+/// directory.
+#[derive(Clone, Copy)]
+enum Arg<'a> {
+    Plain(&'a OsStr),
+    Archive {
+        path: &'a Path,
+        prefix: &'static str,
+    },
+}
+
+/// The fixed name an archive is linked under in the run directory:
+/// `archive`, plus its own extension when that is 1 to 8 ASCII letters or
+/// digits (a tool may go by it), so the name never holds a wildcard.
+pub fn tool_archive_name(archive: &Path) -> String {
+    let ext = archive
+        .extension()
+        .and_then(OsStr::to_str)
+        .filter(|e| (1..=8).contains(&e.len()) && e.bytes().all(|b| b.is_ascii_alphanumeric()));
+    match ext {
+        Some(e) => format!("archive.{e}"),
+        None => "archive".into(),
+    }
+}
+
 /// A fresh empty directory for one run, removed on drop.
 struct RunDir(PathBuf);
 
@@ -394,6 +421,55 @@ impl RunDir {
             }
         }
     }
+}
+
+impl RunDir {
+    /// Links `archive` into the directory under [`tool_archive_name`] and
+    /// returns how the tool is to name it: 7-Zip and unrar expand `*`, `?`
+    /// and `[...]` in an archive name even after `--`, and ROM names carry
+    /// `[!]`. The tool sees only that one file (volumes of a set never get
+    /// this far: they are refused before any run).
+    fn link(&self, t: &FoundTool, archive: &Path) -> Result<OsString, ArchiveError> {
+        // Absolute: the link must not resolve against the run directory.
+        let target = std::path::absolute(archive)?;
+        let name = tool_archive_name(&target);
+        link_archive(t, target, &self.0.join(&name), name)
+    }
+}
+
+#[cfg(unix)]
+fn link_archive(
+    _t: &FoundTool,
+    target: PathBuf,
+    link: &Path,
+    name: String,
+) -> Result<OsString, ArchiveError> {
+    std::os::unix::fs::symlink(target, link)?;
+    Ok(name.into())
+}
+
+/// A symlink needs developer mode or a privilege, a hard link the same
+/// volume; with neither the tool gets the absolute path, unless it holds
+/// a character the tool would read as a pattern (or 7-Zip's `@` list).
+#[cfg(windows)]
+fn link_archive(
+    t: &FoundTool,
+    target: PathBuf,
+    link: &Path,
+    name: String,
+) -> Result<OsString, ArchiveError> {
+    if std::os::windows::fs::symlink_file(&target, link).is_ok()
+        || std::fs::hard_link(&target, link).is_ok()
+    {
+        return Ok(name.into());
+    }
+    if target.to_string_lossy().contains(['*', '?', '@', '[', ']']) {
+        return Err(refused(
+            t,
+            "an archive name the tool would read as a pattern",
+        ));
+    }
+    Ok(target.into_os_string())
 }
 
 impl Drop for RunDir {
@@ -612,17 +688,29 @@ struct Running {
 }
 
 /// Spawns `t` with exactly `args` under the hygiene of [`run_tool`]: an
-/// absolute regular executable, a fresh empty working directory, a cleared
+/// absolute regular executable, a fresh working directory with nothing but
+/// the archive's link ([`RunDir::link`]), a cleared
 /// environment, stdin closed, its own process tree, and both pipes read on
 /// their own detached threads (a process that left the tree and keeps a
 /// pipe open cannot block us).
-fn start(t: &FoundTool, args: &[&OsStr]) -> Result<Running, ArchiveError> {
+fn start(t: &FoundTool, args: &[Arg<'_>]) -> Result<Running, ArchiveError> {
     if let Some(why) = executable_problem(&t.path) {
         return Err(refused(t, why));
     }
     let dir = RunDir::new()?;
+    let mut argv: Vec<OsString> = Vec::with_capacity(args.len());
+    for arg in args {
+        argv.push(match *arg {
+            Arg::Plain(a) => a.to_os_string(),
+            Arg::Archive { path, prefix } => {
+                let mut a = OsString::from(prefix);
+                a.push(dir.link(t, path)?);
+                a
+            }
+        });
+    }
     let mut cmd = Command::new(&t.path);
-    cmd.args(args)
+    cmd.args(&argv)
         .current_dir(&dir.0)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -674,7 +762,7 @@ fn start(t: &FoundTool, args: &[&OsStr]) -> Result<Running, ArchiveError> {
 /// hold the run past it.
 fn spawn_bounded(
     t: &FoundTool,
-    args: &[&OsStr],
+    args: &[Arg<'_>],
     out_cap: u64,
     timeout: Duration,
     sink: Option<&mut dyn Write>,
@@ -1787,16 +1875,14 @@ impl ToolReader {
         let entry = self.entries.get(index).ok_or_else(|| no_entry(index))?;
         readable(entry)?;
         let switches = read_switches(self.tool.tool)?;
-        let archive = std::path::absolute(&self.path)?;
+        let archive = Arg::Archive {
+            path: &self.path,
+            prefix: "",
+        };
         let wait = budget.gate_wait();
         if !self.ambiguity.at(index) {
-            let name = OsStr::new(entry.name.as_str());
-            let stream = spawn_stream(
-                &self.tool,
-                switches.by_name,
-                &[archive.as_os_str(), name],
-                wait,
-            )?;
+            let name = Arg::Plain(OsStr::new(entry.name.as_str()));
+            let stream = spawn_stream(&self.tool, switches.by_name, &[archive, name], wait)?;
             let charged = ChargedRead::new(stream, budget);
             return Ok(Box::new(VerifyingReader::new(
                 charged,
@@ -1807,7 +1893,7 @@ impl ToolReader {
         stream_refusal(&self.entries)?;
         let (slices, positions) = file_slices(&self.entries);
         let target = positions[index].ok_or_else(|| no_entry(index))?;
-        let stream = spawn_stream(&self.tool, switches.stream, &[archive.as_os_str()], wait)?;
+        let stream = spawn_stream(&self.tool, switches.stream, &[archive], wait)?;
         let mut slicer = Slicer::new(ChargedRead::new(stream, budget), slices);
         for _ in 0..target {
             slicer.skip()?;
@@ -1853,13 +1939,11 @@ impl ToolReader {
         }
         refusal?;
         let switches = read_switches(self.tool.tool)?;
-        let archive = std::path::absolute(&self.path)?;
-        let stream = spawn_stream(
-            &self.tool,
-            switches.stream,
-            &[archive.as_os_str()],
-            budget.gate_wait(),
-        )?;
+        let archive = Arg::Archive {
+            path: &self.path,
+            prefix: "",
+        };
+        let stream = spawn_stream(&self.tool, switches.stream, &[archive], budget.gate_wait())?;
         let (slices, positions) = file_slices(&self.entries);
         let mut slicer = Slicer::new(ChargedRead::new(stream, budget), slices);
         let mut want = order.into_iter().peekable();
@@ -2163,12 +2247,12 @@ pub(crate) struct ToolStream {
 fn spawn_stream(
     t: &FoundTool,
     switches: &[&str],
-    operands: &[&OsStr],
+    operands: &[Arg<'_>],
     wait: GateWait,
 ) -> Result<ToolStream, ArchiveError> {
     wait.check()?;
-    let mut args: Vec<&OsStr> = switches.iter().map(OsStr::new).collect();
-    args.push(OsStr::new("--"));
+    let mut args: Vec<Arg<'_>> = switches.iter().map(|s| Arg::Plain(OsStr::new(s))).collect();
+    args.push(Arg::Plain(OsStr::new("--")));
     args.extend_from_slice(operands);
     let run = start(t, &args)?;
     Ok(ToolStream {
@@ -2445,12 +2529,13 @@ impl<R: Read> Read for SliceToEnd<R> {
 
 /// bsdtar's pax transcode of `archive` as a stream.
 fn transcode(t: &FoundTool, archive: &Path, wait: GateWait) -> Result<ToolStream, ArchiveError> {
-    let archive = std::path::absolute(archive)?;
     // `@` makes bsdtar read the archive's entries, also after `--`; the
-    // path is absolute, so it never starts with `-`.
-    let mut operand = OsString::from("@");
-    operand.push(archive.as_os_str());
-    spawn_stream(t, BSDTAR_TRANSCODE, &[operand.as_os_str()], wait)
+    // name is the fixed link name (or an absolute path), never `-…`.
+    let operand = Arg::Archive {
+        path: archive,
+        prefix: "@",
+    };
+    spawn_stream(t, BSDTAR_TRANSCODE, &[operand], wait)
 }
 
 /// An archive read through bsdtar (spec §5.2): libarchive opens it and

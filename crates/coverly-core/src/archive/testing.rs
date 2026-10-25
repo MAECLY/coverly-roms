@@ -1832,13 +1832,13 @@ pub const UNRAR_READ_ARGS: &[&str] = &["p", "-inul", "-cfg-", "-p-"];
 /// The switches of bsdtar's pax transcode, before `--`.
 pub const BSDTAR_TRANSCODE_ARGS: &[&str] = &["-c", "--format=pax", "-f", "-"];
 
-/// The full arguments of one read: `switches`, `--`, the archive, then
-/// `name` when the read is by name. A fake case with them as its prefix
-/// answers exactly that read.
+/// The full arguments of one read: `switches`, `--`, the archive (by its
+/// fixed link name), then `name` when the read is by name. A fake case
+/// with them as its prefix answers exactly that read.
 pub fn read_args(switches: &[&str], archive: &std::path::Path, name: Option<&str>) -> Vec<String> {
     let mut out: Vec<String> = switches.iter().map(|a| (*a).to_string()).collect();
     out.push("--".into());
-    out.push(archive.to_string_lossy().into_owned());
+    out.push(super::external::tool_archive_name(archive));
     out.extend(name.map(str::to_string));
     out
 }
@@ -1850,7 +1850,7 @@ pub fn transcode_args(archive: &std::path::Path) -> Vec<String> {
         .map(|a| (*a).to_string())
         .collect();
     out.push("--".into());
-    out.push(format!("@{}", archive.to_string_lossy()));
+    out.push(format!("@{}", super::external::tool_archive_name(archive)));
     out
 }
 
