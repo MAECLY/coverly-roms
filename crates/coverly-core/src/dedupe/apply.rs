@@ -213,6 +213,14 @@ pub fn apply_dedupe(
 /// revalidated and set aside into the same journal.
 pub fn resume_dedupe(job: &str, env: &DedupeApplyEnv) -> Result<DedupeReport, ApplyError> {
     let plan = load_dedupe_plan(env.data_dir, job)?;
+    // The plan outlives an undo; the journal is renamed by it.
+    let undone = env
+        .data_dir
+        .join("jobs")
+        .join(format!("{job}.undone.jsonl"));
+    if undone.exists() {
+        return Err(ApplyError::Undone(job.to_string()));
+    }
     check_plan(&plan)?;
     let works = works(&plan);
     let mut report = DedupeReport::default();

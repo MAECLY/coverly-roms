@@ -154,6 +154,10 @@ pub enum ApplyError {
     Write(#[from] WriteError),
     #[error("the plan of job {0} is missing")]
     NoPlan(String),
+    /// The job was undone: resuming it would redo it in a journal undo no
+    /// longer lists.
+    #[error("job {0} was undone: there is nothing to resume")]
+    Undone(String),
     /// A duplicates plan or its decisions cannot be applied (nothing was
     /// written).
     #[error(transparent)]

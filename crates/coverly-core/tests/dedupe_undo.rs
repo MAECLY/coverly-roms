@@ -14,8 +14,8 @@ use coverly_core::cache::Cache;
 use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::testing::{pin_mtime, CountingBytes, FakeDiscProbe};
 use coverly_core::dedupe::{
-    apply_dedupe, plan_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv, DedupeItemStatus,
-    DedupeOptions, DedupePlan, DedupeReport, QuarantineChoice,
+    apply_dedupe, plan_dedupe, resume_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv,
+    DedupeItemStatus, DedupeOptions, DedupePlan, DedupeReport, QuarantineChoice,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::scan::{scan_library, ScanOptions};
@@ -576,4 +576,29 @@ fn undo_is_idempotent_after_an_interrupted_undo() {
     assert_eq!(tree(&card.root), before);
     assert!(the_job(&card, &job).undone);
     assert!(undo_job_with(&card.data, &job, &card.trash()).is_err());
+}
+
+/// An undone job is never resumed: it would set the copies aside again in
+/// a journal undo no longer lists. The refusal names the job and moves
+/// nothing.
+#[test]
+fn resume_of_an_undone_job_is_refused_and_moves_nothing() {
+    let card = Card::new();
+    two_groups(&card);
+    let before = tree(&card.root);
+    let job = card.apply(&card.plan());
+    undo_job_with(&card.data, &job, &card.trash()).unwrap();
+    assert_eq!(tree(&card.root), before);
+    let cancel = AtomicBool::new(false);
+    let trash = card.trash();
+    let env = DedupeApplyEnv {
+        data_dir: &card.data,
+        trash: &trash,
+        cache: &card.cache,
+        progress: &|_, _| {},
+        cancel: &cancel,
+    };
+    let err = resume_dedupe(&job, &env).unwrap_err().to_string();
+    assert!(err.contains(&job) && err.contains("undone"), "{err}");
+    assert_eq!(tree(&card.root), before);
 }
