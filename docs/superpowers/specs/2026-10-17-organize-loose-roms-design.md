@@ -518,7 +518,7 @@ All fixtures are **synthetic and tiny**, generated in tests; no copyrighted ROM 
 - **Detection**: weak `system-folders` rule fires only when markers don't; existing `detect` snapshots unchanged.
 - **CLI** (`crates/coverly-cli/tests/cli_organize.rs`, `assert_cmd`): dry run writes nothing (tree hash before/after), `--apply`, `--copy`, `--assign`, `--report json`, `coverly undo` restores.
 - **App**: Vitest for `organizeStore` (plan → decisions → apply → open with `profileId`), StartScreen offer on `no-profile` with/without ROM-like files, contract fixtures, i18n parity. E2E with the mock backend through Chrome DevTools MCP.
-- **Real sample (manual, read-only)**: an `#[ignore]` test gated by `COVERLY_SAMPLE_DIR` runs **plan only** against `~/Documents/ROMs-Downloaded` and asserts the §6.7 counts. Apply is verified on a copy under `target/` (copied with `cp -X` / without xattrs), never on the original. `~/Documents/ROMS` is read only to compare folder names.
+- **Real sample (manual, read-only)**: an `#[ignore]` test gated by `COVERLY_SAMPLE_DIR` runs **plan only** against `/Volumes/TinyExt/ROMs-Downloaded` (it was `~/Documents/ROMs-Downloaded` when this spec was written) and asserts the §6.7 counts. Apply is verified on a copy under `target/` (copied with `cp -X` / without xattrs), never on the original. `~/Documents/ROMS` is read only to compare folder names.
 
 ## 16. Milestones (input for the implementation plan)
 
