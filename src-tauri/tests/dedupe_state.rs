@@ -449,3 +449,203 @@ fn undo_of_a_trashed_dedupe_job_brings_the_copy_back() {
         .unwrap();
     assert!(extra.is_file(), "back from the Trash");
 }
+
+/// A Trash that holds its first file until the test lets it go, so an
+/// apply can be caught while it runs.
+struct GatedTrash {
+    inner: FakeTrash,
+    entered: Mutex<Option<Sender<()>>>,
+    release: Mutex<Option<Receiver<()>>>,
+}
+
+impl GatedTrash {
+    fn new(dir: PathBuf) -> (Arc<GatedTrash>, Receiver<()>, Sender<()>) {
+        let (entered_tx, entered_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let t = GatedTrash {
+            inner: FakeTrash::new(dir),
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(Some(release_rx)),
+        };
+        (Arc::new(t), entered_rx, release_tx)
+    }
+}
+
+impl coverly_core::write::trash::TrashBackend for GatedTrash {
+    fn trash(
+        &self,
+        path: &Path,
+    ) -> Result<Option<PathBuf>, coverly_core::write::trash::TrashError> {
+        if let Some(tx) = self.entered.lock().unwrap().take() {
+            let _ = tx.send(());
+            if let Some(rx) = self.release.lock().unwrap().take() {
+                let _ = rx.recv_timeout(Duration::from_secs(30));
+            }
+        }
+        self.inner.trash(path)
+    }
+
+    fn find(
+        &self,
+        volume_of: &Path,
+        name: &str,
+        fp: &coverly_core::write::Fingerprint,
+    ) -> Option<PathBuf> {
+        self.inner.find(volume_of, name, fp)
+    }
+
+    fn available(&self, path: &Path) -> bool {
+        self.inner.available(path)
+    }
+}
+
+/// Two games stored twice each, pinned mtimes.
+fn two_pairs() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("anbernic")).unwrap();
+    let files = [
+        ("ROMS/GBA/Alpha (USA).gba", b'A'),
+        ("ROMS/GBA/Alpha (USA) (1).gba", b'A'),
+        ("ROMS/GBA/Beta (USA).gba", b'B'),
+        ("ROMS/GBA/Beta (USA) (1).gba", b'B'),
+    ];
+    for (n, (rel, tag)) in files.into_iter().enumerate() {
+        write(dir.path(), rel, &fixtures::gba_tagged(tag));
+        pin_mtime(&dir.path().join(rel), n as u64 + 1);
+    }
+    dir
+}
+
+/// Every file under `root` (but the quarantine) with its bytes.
+fn snapshot(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, root, out);
+            } else {
+                out.push((
+                    p.strip_prefix(root).unwrap().to_path_buf(),
+                    fs::read(&p).unwrap(),
+                ));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&root.join("ROMS"), root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn while_an_apply_runs_nothing_else_writes_and_a_cancel_resumes_to_the_end() {
+    let config = TempDir::new().unwrap();
+    let (trash, entered, release) = GatedTrash::new(config.path().join("trash"));
+    let st = AppState::new(
+        config.path().to_path_buf(),
+        FillConfig::new(config.path().join("cache"), config.path().join("data")),
+    )
+    .with_trash(trash);
+    let lib = two_pairs();
+    let before = snapshot(lib.path());
+    let req = DedupeRequest {
+        quarantine: Some(coverly_core::dedupe::QuarantineChoice::Trash),
+        ..request()
+    };
+    let view = st
+        .dedupe_plan(lib.path(), &req, Arc::new(Recorder::default()))
+        .unwrap();
+    assert_eq!(view.plan.groups.len(), 2, "{:#?}", view.plan.groups);
+    let keepers: Vec<PathBuf> = view
+        .plan
+        .groups
+        .iter()
+        .map(|g| g.members[g.keeper].unit.primary.clone())
+        .collect();
+    let other = st
+        .dedupe_plan(lib.path(), &req, Arc::new(Recorder::default()))
+        .unwrap();
+
+    let (events, done) = Recorder::waiting();
+    st.dedupe_apply(view.plan_id, events).unwrap();
+    entered.recv_timeout(Duration::from_secs(30)).unwrap();
+    // Caught mid-apply: every other write is refused.
+    assert_eq!(st.dedupe_job().unwrap().state, DedupeJobState::Applying);
+    assert_eq!(
+        st.jobs().begin_manual().map(|_| ()),
+        Err(IpcError::JobRunning)
+    );
+    assert_eq!(
+        st.dedupe_apply(other.plan_id, Arc::new(Recorder::default()))
+            .map(|_| ()),
+        Err(IpcError::NoDedupePlan),
+        "applying dropped the other kept plans"
+    );
+    let again = st
+        .dedupe_plan(lib.path(), &req, Arc::new(Recorder::default()))
+        .unwrap();
+    assert_eq!(
+        st.dedupe_apply(again.plan_id, Arc::new(Recorder::default()))
+            .map(|_| ()),
+        Err(IpcError::JobRunning)
+    );
+    st.dedupe_cancel_apply().unwrap();
+    release.send(()).unwrap();
+
+    let ended = done.recv_timeout(Duration::from_secs(30)).unwrap();
+    assert_eq!(ended.state, DedupeJobState::Cancelled, "{ended:?}");
+    let job = ended.job.clone().expect("a journal to resume");
+    for k in &keepers {
+        assert!(k.is_file(), "the copy that stays never moves: {k:?}");
+    }
+    let left = snapshot(lib.path()).len();
+    assert_eq!(left, 3, "one extra set aside before the cancel");
+
+    // Resume sets the rest aside; a second resume is refused, nothing moves.
+    let (events, done) = Recorder::waiting();
+    st.dedupe_resume(&job, events).unwrap();
+    let resumed = done.recv_timeout(Duration::from_secs(30)).unwrap();
+    assert_eq!(resumed.state, DedupeJobState::Done, "{resumed:?}");
+    assert_eq!(resumed.job.as_deref(), Some(job.as_str()));
+    let after = snapshot(lib.path());
+    assert_eq!(after.len(), 2);
+    for k in &keepers {
+        assert!(k.is_file(), "{k:?}");
+    }
+    assert!(matches!(
+        st.dedupe_resume(&job, Arc::new(Recorder::default())),
+        Err(IpcError::BadRequest(_))
+    ));
+    assert_eq!(snapshot(lib.path()), after);
+    assert_eq!(
+        st.dedupe_resume("20990101T000000Z-0000-0000", Arc::new(Recorder::default()))
+            .map(|_| ()),
+        Err(IpcError::NoDedupePlan)
+    );
+
+    // Undo brings every copy back byte for byte, under its own name.
+    st.organize_undo(&job, false).unwrap();
+    assert_eq!(snapshot(lib.path()), before);
+}
+
+#[test]
+fn undo_of_a_quarantined_job_restores_the_library_byte_for_byte() {
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let lib = two_pairs();
+    let before = snapshot(lib.path());
+    let view = plan(&st, lib.path());
+    let (events, done) = Recorder::waiting();
+    st.dedupe_apply(view.plan_id, events).unwrap();
+    let ended = done.recv_timeout(Duration::from_secs(30)).unwrap();
+    assert_eq!(ended.state, DedupeJobState::Done, "{ended:?}");
+    assert_eq!(snapshot(lib.path()).len(), 2);
+    let job = ended.job.unwrap();
+    // A finished job has nothing to resume.
+    assert!(matches!(
+        st.dedupe_resume(&job, Arc::new(Recorder::default())),
+        Err(IpcError::BadRequest(_))
+    ));
+    st.organize_undo(&job, false).unwrap();
+    assert_eq!(snapshot(lib.path()), before);
+}
