@@ -1,3 +1,4 @@
+import { RotateCw } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,16 @@ interface Props {
   onDecide(itemIds: number[], choice: OrganizeChoice): void;
   /** Files the last "scan again" found. */
   isNew?: IsNew;
+  /** Reads the folder again (the screen's ⌘R): offered next to an archive
+   * that a program the user can install would open. */
+  onRescan?(): void;
 }
+
+/** An archive that a known program would open, once installed. */
+const needsTool = (item: OrganizeItem) =>
+  item.action === 'left' &&
+  item.reason.kind === 'unsupported-archive' &&
+  Boolean(item.reason.need);
 
 /** What stays where it is, with the reason (spec §4.2.5). */
 export function LeftInPlace({
@@ -40,6 +50,7 @@ export function LeftInPlace({
   disabled = false,
   onDecide,
   isNew,
+  onRescan,
 }: Props) {
   const t = useT();
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
@@ -92,9 +103,28 @@ export function LeftInPlace({
                         </NativeSelect>
                       )}
                   </div>
-                  {item.action === 'left' && (
-                    <p className={hintText}>{leftReasonText(t, item.reason)}</p>
-                  )}
+                  {item.action === 'left' &&
+                    (onRescan && needsTool(item) ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <p className={hintText}>
+                          {leftReasonText(t, item.reason)}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={disabled}
+                          aria-keyshortcuts="Meta+R Control+R"
+                          onClick={onRescan}
+                        >
+                          <RotateCw aria-hidden />
+                          {t('organize.refresh.button')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className={hintText}>
+                        {leftReasonText(t, item.reason)}
+                      </p>
+                    ))}
                 </li>
               );
             })}

@@ -291,7 +291,10 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
           accept(view);
         }),
         b.onOrganizeProgress((p) => {
-          if (p.phase !== 'apply' || get().status !== 'applying') return;
+          // Applying reports items (`apply`) and, inside an archive, the
+          // bytes of the game being extracted (`extract`).
+          if (p.phase !== 'apply' && p.phase !== 'extract') return;
+          if (get().status !== 'applying') return;
           if (applyPlan !== null && p.plan_id !== applyPlan) return;
           set({ progress: p });
         }),
