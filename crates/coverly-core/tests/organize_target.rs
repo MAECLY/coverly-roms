@@ -712,6 +712,47 @@ mod extract {
     }
 
     #[test]
+    fn a_multi_disc_title_the_card_cannot_store_names_a_safe_folder() {
+        // Every member name is fine; only the title (the folder and the
+        // playlist, which no sheet references) ends with a dot.
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        let names = [
+            "Saga Vol. (Disc 1).cue",
+            "Saga Vol. (Disc 1).bin",
+            "Saga Vol. (Disc 2).cue",
+            "Saga Vol. (Disc 2).bin",
+        ];
+        let mut items = vec![disc_item(0, "Saga.7z", &names)];
+        let shapes = vec![Some(ExtractShape::Disc {
+            discs: vec![names[0].to_string(), names[2].to_string()],
+            title: "Saga Vol.".into(),
+            multi_disc: true,
+        })];
+        let db = SystemDb::builtin();
+        let never = |_: &Path, _: &OrganizeItem| false;
+        assign_targets_with_extracts(
+            &mut items,
+            &shapes,
+            &minui(t.path()),
+            &db,
+            s.path(),
+            &[],
+            &mut DirIndex::new(),
+            &never,
+        );
+        assert_eq!(left(&items[0]), None, "{:?}", items[0].action);
+        let cue = target_of(&items[0], 0);
+        assert!(cue.ends_with("/Saga Vol/Saga Vol. (Disc 1).cue"), "{cue}");
+        match &items[0].transfer {
+            Transfer::Extract { m3u: Some(m3u), .. } => {
+                let m3u = m3u.to_string_lossy().replace('\\', "/");
+                assert!(m3u.ends_with("/Saga Vol/Saga Vol.m3u"), "{m3u}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn game_folders_differing_only_in_case_collide() {
         let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
         // On FAT, exFAT and default APFS/NTFS both land in one folder.

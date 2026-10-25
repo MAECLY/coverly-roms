@@ -914,11 +914,21 @@ fn extract_disc(
     } else {
         split_name(base_name(first)).0.to_string()
     };
+    // The folder and the playlist are no set members (no sheet names
+    // them), so a title the card cannot store as it is gets the safe
+    // spelling (`Vol.` → `Vol`, `CON` → `_CON`); members keep theirs.
+    let safe_stem = || match safe_file_name(&stem) {
+        Ok(safe) => Ok(safe),
+        Err(_) => Err(Planned::Left(LeftReason::SetUnsafeName {
+            name: stem.clone(),
+        })),
+    };
     let folder = if disc_layout.is_game_folder() {
-        if safe_file_name(&stem).ok().as_deref() != Some(stem.as_str()) {
-            return Planned::Left(LeftReason::SetUnsafeName { name: stem });
-        }
-        match game_folder(dir, &stem, index) {
+        let safe = match safe_stem() {
+            Ok(safe) => safe,
+            Err(left) => return left,
+        };
+        match game_folder(dir, &safe, index) {
             Some(folder) => folder,
             None => return Planned::Left(LeftReason::CollisionSet),
         }
@@ -948,10 +958,14 @@ fn extract_disc(
             .1
             .is_some_and(|x| x.eq_ignore_ascii_case("m3u"))
     });
-    let m3u = (multi_disc && disc_layout.m3u_for_multi() && !has_playlist).then(|| {
-        let name = format!("{stem}.m3u");
-        folder.join(name)
-    });
+    let m3u = if multi_disc && disc_layout.m3u_for_multi() && !has_playlist {
+        match safe_stem() {
+            Ok(safe) => Some(folder.join(format!("{safe}.m3u"))),
+            Err(left) => return left,
+        }
+    } else {
+        None
+    };
     if let Some(m3u) = &m3u {
         let name = file_name(m3u);
         if safe_file_name(&name).ok().as_deref() != Some(name.as_str()) {
