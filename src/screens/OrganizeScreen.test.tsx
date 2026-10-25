@@ -15,7 +15,6 @@ import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import { MOCK_DOWNLOADS, MOCK_MIXED } from '@/ipc/mock/mockOrganize';
 import type { OrganizePlanView, OrganizeRequest } from '@/ipc/types';
-import { formatSize } from '@/lib/format';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
@@ -411,12 +410,31 @@ describe('OrganizeScreen', () => {
       (n, i) => n + (i.transfer.kind === 'extract' ? i.transfer.bytes : 0),
       0,
     );
+    // Decimal units, like the CLI and the spec: 2,188,698,846 B.
+    expect(bytes).toBe(2_188_698_846);
     expect(
-      screen.getByText(`Extracting: 3 games (${formatSize(bytes, 'en')})`),
+      screen.getByText('Extracting: 3 games (2.19 GB)'),
     ).toBeInTheDocument();
     // The apply button still counts items, not extracted files.
     expect(
       screen.getByRole('button', { name: 'Organise 19 files' }),
+    ).toBeInTheDocument();
+  });
+
+  it('disc_rows_show_spec_sizes_and_system_names', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    expect(screen.getByText('12 files · 405.7 MB')).toBeInTheDocument();
+    expect(screen.getByText('16 files · 1.19 GB')).toBeInTheDocument();
+    expect(screen.getByText('52 files · 591.9 MB')).toBeInTheDocument();
+    // Saturn is named like the Rust catalogue, never by its id.
+    expect(
+      screen.getByRole('button', { name: 'ROMS/SATURN/ (1)Sega Saturn' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Sega Saturn disc: IP.BIN SEGA SEGASATURN T-5704H (T-5704H)',
+      ),
     ).toBeInTheDocument();
   });
 

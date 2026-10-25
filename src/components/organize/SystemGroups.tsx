@@ -19,7 +19,7 @@ import type {
   SystemInfo,
   TransferMode,
 } from '@/ipc/types';
-import { formatSize } from '@/lib/format';
+import { formatDecimalSize } from '@/lib/format';
 import {
   ROWS_PER_GROUP,
   actionOf,
@@ -269,7 +269,7 @@ function ActionBadge({
         <span className="whitespace-nowrap font-mono text-caption tabular-nums text-cr-text-secondary">
           {t('organize.extract.detail', {
             count: detail.count,
-            bytes: formatSize(detail.bytes, locale),
+            bytes: formatDecimalSize(detail.bytes, locale),
           })}
         </span>
       )}

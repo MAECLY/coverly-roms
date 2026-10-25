@@ -245,7 +245,7 @@ describe('SystemGroups — actions and discs', () => {
 
   it('extract_detail_in_mono_with_exact_count', () => {
     renderGroups([discItem(0)]);
-    const detail = screen.getByText('12 files · 400 MB');
+    const detail = screen.getByText('12 files · 419.4 MB');
     expect(detail).toHaveClass('font-mono');
   });
 

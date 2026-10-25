@@ -10,7 +10,7 @@ import {
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem, ProfileFile } from '@/ipc/types';
-import { formatSize } from '@/lib/format';
+import { formatDecimalSize } from '@/lib/format';
 import { layoutNote } from '@/lib/organize';
 
 import { chevron, hintText, pathText } from './styles';
@@ -71,7 +71,7 @@ export function ExtractDetail({ item, name, profile, notes }: Props) {
                   {fileName(e.target || e.name)}
                 </span>
                 <span className="text-right font-mono text-caption tabular-nums text-cr-text-secondary">
-                  {formatSize(e.size, locale)}
+                  {formatDecimalSize(e.size, locale)}
                 </span>
               </li>
             ))}

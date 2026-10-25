@@ -42,7 +42,7 @@ import type {
   ProfileInfo,
   SystemInfo,
 } from '@/ipc/types';
-import { formatSize } from '@/lib/format';
+import { formatDecimalSize, formatSize } from '@/lib/format';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import {
   extractSummary,
@@ -592,7 +592,7 @@ function Proposal({
           <p className="m-0 text-dense tabular-nums text-cr-text">
             {t('organize.extract.summary', {
               count: extracting.count,
-              bytes: formatSize(extracting.bytes, locale),
+              bytes: formatDecimalSize(extracting.bytes, locale),
             })}
           </p>
         )}

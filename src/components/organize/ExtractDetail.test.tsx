@@ -42,12 +42,12 @@ describe('ExtractDetail', () => {
     const rows = within(list).getAllByRole('listitem');
     expect(rows).toHaveLength(12);
     expect(within(rows[0]!).getByText('Next Tetris, The.cue')).toBeVisible();
-    expect(within(rows[0]!).getByText('1.2 KB')).toHaveClass('font-mono');
+    expect(within(rows[0]!).getByText('1.2 kB')).toHaveClass('font-mono');
     expect(
       within(rows[1]!).getByText('Next Tetris, The (Track 01).bin'),
     ).toBeVisible();
     // Sizes are mono and right-aligned, like a ledger column.
-    const size = within(rows[1]!).getByText('300 MB');
+    const size = within(rows[1]!).getByText('314.6 MB');
     expect(size).toHaveClass('font-mono');
     expect(size).toHaveClass('text-right');
     expect(screen.getByText('Tracks go straight into ROMS/PS')).toBeVisible();
@@ -128,7 +128,7 @@ describe('ExtractDetail', () => {
         name: 'Archivos que se extraen de Next Tetris, The.zip',
       }),
     );
-    expect(screen.getByText('1,2 KB')).toBeVisible();
+    expect(screen.getByText('1,2 kB')).toBeVisible();
     expect(
       screen.getByText('Las pistas van directamente en ROMS/PS'),
     ).toBeVisible();
