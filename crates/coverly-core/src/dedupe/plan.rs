@@ -392,6 +392,148 @@ pub fn plan_dedupe(
     Ok(plan)
 }
 
+/// What [`group_units`] reads with: the library the units are compared
+/// against (saves, game lists and art are looked up there) and the
+/// readers.
+pub struct GroupEnv<'a> {
+    pub cache: &'a Cache,
+    pub db: &'a SystemDb,
+    pub profile: &'a Profile,
+    /// The library root.
+    pub root: &'a Path,
+    /// The folder of system folders.
+    pub roms_dir: &'a Path,
+    /// Lists and decodes archive entries.
+    pub listing: &'a dyn EntryListing,
+    /// Reads disc serials and volume fingerprints.
+    pub discs: &'a dyn DiscProbe,
+    /// Catalogue answers (cached catalogues only: nothing is downloaded).
+    pub dats: &'a dyn DatLookup,
+    /// `content_keys` rows are read and written for this volume only:
+    /// `None` keeps the cache out (units on several volumes).
+    pub volume_uuid: Option<&'a str>,
+    /// Lower-case extensions that follow a ROM.
+    pub companion_exts: &'a [String],
+    /// `settings.matching.regions`.
+    pub regions: &'a [String],
+    pub cancel: &'a AtomicBool,
+}
+
+/// Groups `units` that may come from two places, a library and an
+/// organise pile (`Unit::in_library`), with the planner's keys and keeper
+/// rules (spec §4, Organise step). When a group mixes library and pile
+/// copies, only a library copy may stay: a pile copy is never organised
+/// over a game the library already holds. Extras get no `dest` (the
+/// caller decides where they go). Nothing is written but the cache; fails
+/// only on cancel.
+pub fn group_units(
+    units: Vec<Unit>,
+    opts: &DedupeOptions,
+    env: &GroupEnv,
+) -> Result<Vec<DupGroup>, DedupeError> {
+    let check = || {
+        if env.cancel.load(Ordering::Relaxed) {
+            Err(DedupeError::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
+    let units: Vec<Unit> = units
+        .into_iter()
+        .enumerate()
+        .map(|(i, u)| Unit { id: i, ..u })
+        .collect();
+    let ctx = KeyCtx {
+        db: env.db,
+        listing: env.listing,
+        bytes: &super::keys::DiskBytes,
+        cache: Some(env.cache),
+        volume_uuid: env.volume_uuid,
+        max_hash_bytes: crate::identify::hash::DEFAULT_HASH_MAX_BYTES,
+        workers: workers_for(env.root),
+    };
+    let l1 = level_one(&units, &ctx, &|_, _, _| {}, env.cancel);
+    check()?;
+    let snapshot = Snapshot::default();
+    let (l2, l3, mut raw) = {
+        let rec = Recorder {
+            inner: env.dats,
+            snap: &snapshot,
+        };
+        let l3 = level_three(&units, env.discs, &rec);
+        check()?;
+        let l2 = level_two(&units, &l1, &rec);
+        let raw = raw_groups(&units, &l1, &l2, &l3, env.db, &rec, opts);
+        (l2, l3, raw)
+    };
+    for (_, group) in &mut raw {
+        library_keeps(&units, group);
+    }
+    let remembered = units
+        .iter()
+        .enumerate()
+        .filter_map(|(i, u)| {
+            let key = content_key(u, &l1[i], l2[i].as_ref(), l3[i].as_ref())?;
+            let choice = env.cache.dedupe_choice(&u.system, &key).ok()??;
+            Some((i, choice.saves_fp))
+        })
+        .collect();
+    let spot = default_quarantine(env.root, &env.profile.roms_root, DEFAULT_QUARANTINE_NAME);
+    let base = Base {
+        root: env.root.to_path_buf(),
+        roms_dir: env.roms_dir.to_path_buf(),
+        saves: SaveIndex::new(&env.profile.id, env.root),
+        spot,
+        stem_index: stem_index(&units),
+        units,
+        l1,
+        l2,
+        l3,
+        dats: snapshot,
+        db: env.db.clone(),
+        profile: env.profile.clone(),
+        companion_exts: env.companion_exts.to_vec(),
+        regions: region_order(env.regions),
+        facts: Mutex::new(HashMap::new()),
+        dirs: Mutex::new(DirListings::default()),
+        remembered,
+        session: Mutex::new(Vec::new()),
+        skipped: Mutex::new(HashSet::new()),
+    };
+    let no_dest = DedupeOptions {
+        quarantine: QuarantineChoice::Trash,
+        ..opts.clone()
+    };
+    Ok(raw
+        .iter()
+        .map(|(id, group)| base.build_group(*id, group, &no_dest))
+        .collect())
+}
+
+/// In a group of library and pile copies, only a library copy may stay
+/// (the copies the group already limited the keeper to, when one of them
+/// is in the library).
+fn library_keeps(units: &[Unit], group: &mut RawGroup) {
+    let library: Vec<usize> = group
+        .members
+        .iter()
+        .map(|(u, _)| *u)
+        .filter(|&u| units[u].in_library)
+        .collect();
+    if library.is_empty() || library.len() == group.members.len() {
+        return;
+    }
+    let allowed: Vec<usize> = match &group.keeper_only {
+        Some(only) => library
+            .iter()
+            .copied()
+            .filter(|u| only.contains(u))
+            .collect(),
+        None => library.clone(),
+    };
+    group.keeper_only = Some(if allowed.is_empty() { library } else { allowed });
+}
+
 /// The plan for other options, from what the planner already read: no ROM
 /// is read again. A plan with no internals (read back from disk) comes
 /// back unchanged.

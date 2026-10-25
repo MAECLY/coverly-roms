@@ -294,6 +294,73 @@ pub fn units_from_facts(
     finish(drafts, excluded, &link_targets)
 }
 
+/// Units of an organise pile's loose disc sets: each entry is the set's
+/// files (the sheet or playlist first) and the system it belongs to. A
+/// set whose sheet is an `.m3u` is a [`UnitKind::MultiDisc`], any other a
+/// [`UnitKind::DiscSet`]. Reads metadata and folder listings only.
+pub fn units_from_sets(sets: &[(Vec<PathBuf>, String)]) -> UnitSet {
+    let mut excluded = Vec::new();
+    let mut drafts = Vec::new();
+    let mut link_targets = HashSet::new();
+    let mut dir_cache = DirCache::default();
+    for (files, system) in sets {
+        let Some(primary) = files.first() else {
+            continue;
+        };
+        match draft_from_set(files, system, &mut dir_cache) {
+            Ok(draft) => drafts.push(draft),
+            Err(Some(why)) => {
+                if why == Exclusion::Symlink {
+                    link_targets.extend(files.iter().filter_map(|f| symlink_target(f)));
+                }
+                excluded.push((primary.clone(), why));
+            }
+            Err(None) => {}
+        }
+    }
+    finish(drafts, excluded, &link_targets)
+}
+
+fn draft_from_set(
+    files: &[PathBuf],
+    system: &str,
+    dirs: &mut DirCache,
+) -> Result<Draft, Option<Exclusion>> {
+    let primary = &files[0];
+    common_checks(primary, None)?;
+    let (meta, sizes) = read_metas(files)?;
+    let ext = extension(primary);
+    let kind = if ext == "m3u" {
+        UnitKind::MultiDisc
+    } else {
+        UnitKind::DiscSet
+    };
+    let stem = primary
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(Draft {
+        unit: Unit {
+            id: 0,
+            system: system.to_string(),
+            primary: primary.clone(),
+            files: files.to_vec(),
+            kind,
+            size: sizes.iter().sum(),
+            payload_size: None,
+            mtime_ns: mtime_ns(&meta),
+            file_id: file_id(&meta),
+            patches: patches_of(primary, dirs),
+            rel_dir: PathBuf::new(),
+            stem,
+            ext,
+            in_library: false,
+        },
+        sizes,
+        dev_ino: dev_ino(&meta),
+    })
+}
+
 /// Drops hard-link twins and units a symlink points into, numbers the
 /// units and sorts the exclusions. `link_targets` are canonical paths.
 fn finish(
@@ -427,7 +494,16 @@ fn draft_from_facts(
         None => {}
     }
     let (kind, payload_size) = match inspection.container {
-        Container::Zip => match inspection.payloads.as_slice() {
+        // A disc game inside an archive: compared whole (level 1) and by
+        // the disc identity the inspection read (level 3).
+        _ if inspection.disc_set.is_some() => (UnitKind::Image, None),
+        Container::Chd => (UnitKind::Chd, None),
+        // One part of a multi-volume archive is no game on its own.
+        Container::MultiVolume => return Err(Some(Exclusion::Unreadable)),
+        Container::Raw => raw_kind(&ext, meta.len()),
+        // Every archive format the inspection listed: its entries and
+        // their CRCs are already known (no second read).
+        _ => match inspection.payloads.as_slice() {
             [one] => (UnitKind::Zip, Some(one.size)),
             [] if !inspection.entries.is_empty() => (
                 UnitKind::Arcade,
@@ -436,19 +512,6 @@ fn draft_from_facts(
             [] => return Err(Some(Exclusion::NotARom)),
             _ => return Err(Some(Exclusion::MultiGameArchive)),
         },
-        Container::Chd => (UnitKind::Chd, None),
-        // Opaque archives until dedupe phase B lists them.
-        Container::SevenZip
-        | Container::Rar
-        | Container::Tar
-        | Container::Gzip
-        | Container::Bzip2
-        | Container::Xz
-        | Container::Zstd
-        | Container::Lz4
-        | Container::Lzma
-        | Container::MultiVolume => (UnitKind::Single, None),
-        Container::Raw => raw_kind(&ext, meta.len()),
     };
     let stem = path
         .file_stem()

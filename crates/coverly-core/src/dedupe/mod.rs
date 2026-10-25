@@ -33,8 +33,8 @@ pub use apply::{
 pub use companions::{ArtLeaves, GamelistEntry, SharedStay, Travel, TravelKind};
 pub use keeper::{DumpQuality, KeepReason};
 pub use plan::{
-    default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
-    DedupeProgress, PlanInternals, QuarantineSpot, DEFAULT_QUARANTINE_NAME,
+    default_quarantine, group_units, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv,
+    DedupeError, DedupeProgress, GroupEnv, PlanInternals, QuarantineSpot, DEFAULT_QUARANTINE_NAME,
 };
 pub use saves::{SaveInfo, SaveKey};
 pub use units::UnitKind;
