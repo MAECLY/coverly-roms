@@ -1319,8 +1319,9 @@ fn identify_one(
 /// (no version) judged a 7z named `.zip` damaged, facts of version 1
 /// judged a disc archive by its cartridge rules, and facts of version 2
 /// lack the entry indices, the discs and the tool an extraction needs, so
-/// they are read again.
-const FACTS_VERSION: u32 = 4;
+/// they are read again; facts of version 4 call a patch-only archive an
+/// unknown system.
+const FACTS_VERSION: u32 = 5;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]

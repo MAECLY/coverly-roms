@@ -629,6 +629,7 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::NotARom { what } => match what {
             NotARom::WebPage => "not a ROM (web page)".into(),
             NotARom::Text => "not a ROM (text)".into(),
+            NotARom::Patch => "not a ROM (a patch: apply it to the original ROM)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),

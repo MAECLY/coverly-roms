@@ -152,7 +152,9 @@ export function leftReasonKey(r: LeftReason): KeyedText {
         what:
           r.what === 'web-page'
             ? 'organize.left.webPage'
-            : 'organize.left.text',
+            : r.what === 'patch'
+              ? 'organize.left.patch'
+              : 'organize.left.text',
       });
     case 'bios':
       return k('bios');

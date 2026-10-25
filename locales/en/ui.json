@@ -1092,6 +1092,7 @@
       "unsupportedArchiveTool": "To open {format} archives, install {tool}",
       "webPage": "web page",
       "text": "text",
+      "patch": "a patch; apply it to the original ROM",
       "bios": "BIOS: belongs in the device's BIOS folder",
       "damagedArchive": "Damaged archive",
       "unsupportedArchive": "Unsupported archive format",

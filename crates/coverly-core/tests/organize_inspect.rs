@@ -731,6 +731,47 @@ fn nested_archive_only_payload_left_nested() {
 }
 
 #[test]
+fn patch_only_archive_is_not_a_rom() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Pokemon Jupiter (Ruby Hack).zip");
+    zip_file(
+        &p,
+        &[
+            (
+                "Pok\u{e9}mon Jupiter Version 6.ips",
+                b"PATCH\0\0\0EOF",
+                false,
+            ),
+            ("readme.txt", b"apply to Ruby", false),
+        ],
+    );
+    let i = inspect(&p);
+    assert_eq!(
+        i.issue,
+        Some(ArchiveIssue::NotARom {
+            what: NotARom::Patch
+        })
+    );
+    assert!(i.payloads.is_empty());
+}
+
+#[test]
+fn a_rom_shipped_with_its_patch_is_still_the_rom() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Hack.zip");
+    zip_file(
+        &p,
+        &[
+            ("Game.gba", &fx::gba(), false),
+            ("Hack.ips", b"PATCHEOF", false),
+        ],
+    );
+    let i = inspect(&p);
+    assert_eq!(i.issue, None);
+    assert_eq!(i.payloads.len(), 1);
+}
+
+#[test]
 fn a_multi_volume_part_is_never_opened() {
     let tmp = tempfile::tempdir().unwrap();
     let whole = sevenz(&[("Game.gba", &fx::gba())], SevenZShape::non_solid_lzma());

@@ -547,6 +547,10 @@ const README_EXTS: [&str; 17] = [
     "jpeg", "png", "gif", "bmp",
 ];
 
+/// ROM patch formats: an archive holding only these is a patch for a ROM
+/// the user must supply, not a game.
+const PATCH_EXTS: [&str; 7] = ["ips", "bps", "ups", "xdelta", "vcdiff", "ppf", "aps"];
+
 /// An archive entry that is read and sniffed.
 struct RomEntry {
     index: usize,
@@ -655,7 +659,7 @@ fn inspect_archive(
     let mut candidates: Vec<(RomEntry, ExtClass)> = Vec::new();
     // File entries that are neither metadata nor readme-like, and how many
     // of them are archives themselves.
-    let (mut substantive, mut nested) = (0usize, 0usize);
+    let (mut substantive, mut nested, mut patches) = (0usize, 0usize, 0usize);
     for entry in &entries {
         let info = ZipEntryInfo {
             name: entry_name(entry),
@@ -673,6 +677,9 @@ fn inspect_archive(
             substantive += 1;
             if names_an_archive(&entry_ext) {
                 nested += 1;
+            }
+            if PATCH_EXTS.contains(&entry_ext.as_str()) {
+                patches += 1;
             }
         }
         let class = db.extension_class(&entry_ext);
@@ -715,6 +722,13 @@ fn inspect_archive(
     }
     if roms.is_empty() && substantive > 0 && nested == substantive {
         out.fail(ArchiveIssue::Nested);
+        return Ok(());
+    }
+    // `Pokemon Jupiter (Ruby Hack).zip` holds only `Version 6.ips`.
+    if roms.is_empty() && substantive > 0 && patches == substantive {
+        out.issue = Some(ArchiveIssue::NotARom {
+            what: NotARom::Patch,
+        });
         return Ok(());
     }
     for rom in roms {

@@ -113,6 +113,9 @@ impl<R: Read> ReadAt for StreamAt<R> {
 pub enum NotARom {
     WebPage,
     Text,
+    /// An archive holding only a ROM patch (`.ips`, `.bps`…): it needs
+    /// the original ROM and does not play on its own.
+    Patch,
 }
 
 /// Container formats recognised by their magic (contents not read here).

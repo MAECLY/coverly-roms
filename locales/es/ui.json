@@ -1092,6 +1092,7 @@
       "unsupportedArchiveTool": "Para abrir archivos {format} instala {tool}",
       "webPage": "página web",
       "text": "texto",
+      "patch": "parche; aplícalo a la ROM original",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
       "damagedArchive": "Archivo comprimido dañado",
       "unsupportedArchive": "Formato comprimido no compatible",

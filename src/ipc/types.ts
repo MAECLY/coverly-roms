@@ -725,7 +725,7 @@ export type LeftReason =
   | { kind: 'partial-download' }
   | { kind: 'recently-modified' }
   | { kind: 'cloud-only' }
-  | { kind: 'not-a-rom'; what: 'web-page' | 'text' }
+  | { kind: 'not-a-rom'; what: 'web-page' | 'text' | 'patch' }
   | { kind: 'bios' }
   | { kind: 'damaged-archive' }
   /** `need` names the tool that would open it (absent in older plans). */
