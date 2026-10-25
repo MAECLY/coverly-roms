@@ -99,6 +99,14 @@ function statusText(
 const done = (s: DedupeItemStatusView) =>
   s.status === 'quarantined' || s.status === 'trashed';
 
+/** A copy the plan itself kept in place (report only, left alone, a
+ * conflict): not a failure of the apply. */
+const planned = (s: DedupeItemStatusView) =>
+  s.status === 'skipped' &&
+  (s.reason.kind === 'report-only' ||
+    s.reason.kind === 'excluded' ||
+    s.reason.kind === 'conflict');
+
 export function DedupeResult({
   plan,
   report,
@@ -122,7 +130,7 @@ export function DedupeResult({
     members.get(`${group}:${member}`) ?? `#${group}/${member}`;
 
   const moved = report.outcomes.filter(done).length;
-  const left = report.outcomes.filter((o) => !done(o));
+  const left = report.outcomes.filter((o) => !done(o) && !planned(o));
   const bytes = formatBytes(report.bytes_out, locale);
   const trash = action === 'trash';
   const headline = trash

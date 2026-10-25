@@ -279,17 +279,19 @@ describe('DedupeOptions', () => {
 
   it('trash_option_shows_its_caveats', async () => {
     const p = options();
-    expect(screen.queryByText(/Deshacer no podrá devolverlos/)).toBeNull();
+    expect(
+      screen.queryByText(/Deshacer los devuelve desde la Papelera/),
+    ).toBeNull();
     await userEvent.click(
       screen.getByRole('radio', { name: 'Enviar a la Papelera' }),
     );
     expect(p.onActionChange).toHaveBeenCalledWith('trash');
   });
 
-  it('trash caveats name the manual restore and the card Trash', () => {
+  it('trash caveats say undo brings them back and name the card Trash', () => {
     options({ action: 'trash' });
     expect(
-      screen.getByText(/Deshacer no podrá devolverlos solo/),
+      screen.getByText(/Deshacer los devuelve desde la Papelera/),
     ).toBeInTheDocument();
     // The fixture library is a removable card.
     expect(
@@ -461,6 +463,26 @@ describe('DedupeResult', () => {
     expect(alert).toHaveTextContent('más de 4 GB en FAT32');
     expect(alert).toHaveTextContent('No se ha movido nada más.');
     expect(alert).toHaveTextContent('Adventures of Dolphins.sms');
+  });
+
+  it('copies the plan never meant to move keep the result a success', () => {
+    const plan = dedupeFixture();
+    const r = report(plan);
+    for (const kind of ['report-only', 'excluded', 'conflict'] as const)
+      r.outcomes.push({
+        group: 1,
+        member: 1,
+        files: [],
+        status: 'skipped',
+        reason: { kind },
+      });
+    result(plan, r);
+    expect(
+      screen.getByText(
+        '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Sin tocar/)).toBeNull();
   });
 
   it('result_offers_find_covers_when_art_left', async () => {

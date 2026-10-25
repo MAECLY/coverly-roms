@@ -426,7 +426,9 @@
       "badge": "Partidas distintas",
       "note": "No se tocará nada en este juego. Mira las partidas y decide a mano qué copia juegas.",
       "openFolder": "Abrir carpeta",
-      "openFolderOf": "Abrir carpeta de {path}"
+      "openFolderOf": "Abrir carpeta de {path}",
+      "alertOne": "1 juego tiene copias con partidas distintas. No se tocará nada en él.",
+      "show": "Ver"
     },
     "system": {
       "summary": "{name}: {groups} juegos, {extras} copias",
@@ -534,7 +536,8 @@
     "delta": "+{count} archivos",
     "bulk": {
       "confirmTitle": "¿Apartar {count} archivos?",
-      "confirmBody": "Son {bytes}, {share} de ellos en {system}. Irán a {folder}."
+      "confirmBody": "Son {bytes}, {share} de ellos en {system}. Irán a {folder}.",
+      "otherVolume": "{folder} está en otro disco: cada copia se copia allí y después sale de su sitio."
     },
     "findCovers": "Buscar portadas para {count} juegos",
     "skipGroup": "No tocar este juego",
@@ -548,9 +551,10 @@
     },
     "trash": {
       "confirmTitle": "¿Enviar {count} archivos a la Papelera?",
-      "confirmBody": "Son {bytes}. Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera.",
+      "confirmBody": "Son {bytes}. Deshacer los devuelve desde la Papelera mientras no la vacíes.",
       "cardNote": "En una tarjeta SD la Papelera está en la propia tarjeta; el espacio no se libera hasta vaciarla.",
-      "caveat": "Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera."
+      "caveat": "Deshacer los devuelve desde la Papelera mientras no la vacíes.",
+      "unavailable": "Este disco no tiene Papelera: las copias solo pueden apartarse."
     },
     "applying": "Apartando {done} de {total}…",
     "done": "{count} archivos apartados en {folder}. Deshacer está a un clic.",
@@ -596,7 +600,32 @@
     "nothingElse": "No se ha movido nada más.",
     "findCoversOne": "Buscar portada para 1 juego",
     "backToLibrary": "Volver a la biblioteca",
-    "levelsLabel": "Qué buscar"
+    "levelsLabel": "Qué buscar",
+    "back": "Biblioteca",
+    "summaryCount": "{extras} copias de más en {groups} juegos.",
+    "summaryCountOne": "1 copia de más en 1 juego.",
+    "summaryCountOneGame": "{extras} copias de más en 1 juego.",
+    "summaryBytes": "Quitarías {bytes} de {folder}.",
+    "phaseProgress": "{phase}: {done} de {total}",
+    "phasesLabel": "Pasos de la búsqueda",
+    "phaseDone": "hecho",
+    "starting": "Empezando…",
+    "applyingTrash": "Enviando {done} de {total} a la Papelera…",
+    "progressLabel": "Progreso",
+    "cancel": "Cancelar",
+    "replan": "Volver a buscar",
+    "retry": "Volver a intentarlo",
+    "nothingMoved": "No se ha movido nada.",
+    "exportPlan": "Exportar informe",
+    "exported": "Informe guardado: {name}",
+    "applyOne": "Apartar 1 archivo",
+    "applyTrashOne": "Enviar 1 archivo a la Papelera",
+    "noneHint": "Con estas opciones ninguna copia sale de su sitio.",
+    "chdUnread": "Otros formatos: {count} CHD sin leer por dentro.",
+    "undone": "{count} archivos devueltos a su sitio.",
+    "undoneOne": "1 archivo devuelto a su sitio.",
+    "resume": "Continuar",
+    "paused": "Se ha parado: {reason}. Lo que falta puede continuar."
   },
   "toolbar": {
     "search": "Buscar por nombre",

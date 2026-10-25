@@ -426,7 +426,9 @@
       "badge": "Different saves",
       "note": "Nothing in this game will be touched. Look at the saves and decide by hand which copy you play.",
       "openFolder": "Open folder",
-      "openFolderOf": "Open the folder of {path}"
+      "openFolderOf": "Open the folder of {path}",
+      "alertOne": "1 game has copies with different saves. Nothing in it will be touched.",
+      "show": "Show"
     },
     "system": {
       "summary": "{name}: {groups} games, {extras} copies",
@@ -534,7 +536,8 @@
     "delta": "+{count} files",
     "bulk": {
       "confirmTitle": "Set aside {count} files?",
-      "confirmBody": "That is {bytes}, {share} of them in {system}. They'll go to {folder}."
+      "confirmBody": "That is {bytes}, {share} of them in {system}. They'll go to {folder}.",
+      "otherVolume": "{folder} is on another drive: each copy is copied there, then leaves its place."
     },
     "findCovers": "Find covers for {count} games",
     "skipGroup": "Leave this game alone",
@@ -548,9 +551,10 @@
     },
     "trash": {
       "confirmTitle": "Send {count} files to the Trash?",
-      "confirmBody": "That is {bytes}. Undo can't bring them back by itself: you'll restore them from the Trash.",
+      "confirmBody": "That is {bytes}. Undo brings them back from the Trash as long as you don't empty it.",
       "cardNote": "On an SD card the Trash is on the card itself; space is freed only when you empty it.",
-      "caveat": "Undo can't bring them back by itself: you'll restore them from the Trash."
+      "caveat": "Undo brings them back from the Trash as long as you don't empty it.",
+      "unavailable": "This drive has no Trash: the copies can only be set aside."
     },
     "applying": "Setting aside {done} of {total}…",
     "done": "Set aside {count} files in {folder}. Undo is one click away.",
@@ -596,7 +600,32 @@
     "nothingElse": "Nothing else was moved.",
     "findCoversOne": "Find a cover for 1 game",
     "backToLibrary": "Back to the library",
-    "levelsLabel": "What to look for"
+    "levelsLabel": "What to look for",
+    "back": "Library",
+    "summaryCount": "{extras} extra copies across {groups} games.",
+    "summaryCountOne": "1 extra copy in 1 game.",
+    "summaryCountOneGame": "{extras} extra copies in 1 game.",
+    "summaryBytes": "{bytes} would leave {folder}.",
+    "phaseProgress": "{phase}: {done} of {total}",
+    "phasesLabel": "Search steps",
+    "phaseDone": "done",
+    "starting": "Starting…",
+    "applyingTrash": "Sending {done} of {total} to the Trash…",
+    "progressLabel": "Progress",
+    "cancel": "Cancel",
+    "replan": "Look again",
+    "retry": "Try again",
+    "nothingMoved": "Nothing was moved.",
+    "exportPlan": "Export report",
+    "exported": "Report saved: {name}",
+    "applyOne": "Set aside 1 file",
+    "applyTrashOne": "Send 1 file to the Trash",
+    "noneHint": "With these options no copy leaves its place.",
+    "chdUnread": "Other formats: {count} CHD not read inside.",
+    "undone": "Put back {count} files.",
+    "undoneOne": "Put back 1 file.",
+    "resume": "Resume",
+    "paused": "Stopped: {reason}. The rest can resume."
   },
   "toolbar": {
     "search": "Search by name",
