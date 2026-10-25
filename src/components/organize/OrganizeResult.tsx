@@ -22,6 +22,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useT, type TFunction } from '@/i18n/useT';
 import { errorKey, type BackendError } from '@/ipc/errors';
+import { lostTrashedCopies } from '@/lib/organize';
 import type {
   OrganizeItem,
   OrganizeItemOutcome,
@@ -132,7 +133,10 @@ export function OrganizeResult({
     ? report.moved + report.copied + report.extracted + report.set_aside
     : 0;
   const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
-  const lost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
+  const allLost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
+  // Duplicates sent to the Trash are not archives with extracted files.
+  const lostCopies = lostTrashedCopies(allLost, report, plan);
+  const lost = allLost.filter((p) => !lostCopies.has(p));
   // A verb plus the exact count when it is known (brand §7).
   const undoLabel =
     placed > 0
@@ -269,6 +273,19 @@ export function OrganizeResult({
             {lost.map((path) => (
               <li key={path} className={pathText}>
                 {baseName(path)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+      {lostCopies.size > 0 && (
+        // The rest of the job is undone; these copies could not come
+        // back (their keepers stay in the library).
+        <Alert variant="warning">
+          <ul className="m-0 grid list-none gap-0.5 p-0">
+            {[...lostCopies].map((path) => (
+              <li key={path} className={pathText}>
+                {t('dedupe.undo.notInTrash', { path })}
               </li>
             ))}
           </ul>

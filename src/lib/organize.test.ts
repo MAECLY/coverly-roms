@@ -4,6 +4,7 @@ import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
 import type {
   DiscId,
+  OrganizeReport,
   Evidence,
   ExtractEntry,
   ItemNote,
@@ -27,6 +28,7 @@ import {
   leftItems,
   leftReasonKey,
   leftReasonText,
+  lostTrashedCopies,
   noteKey,
   organizeDupGroups,
   reviewBuckets,
@@ -804,5 +806,37 @@ describe('organise disc and tool copy', () => {
       expect(
         placeholders(lookup(cat, 'organize.left.unsupportedArchiveInstall')),
       ).toEqual(['tool']);
+  });
+  it('lost_trashed_copies_tell_duplicates_from_archives', () => {
+    const p = {
+      ...plan([
+        item(0, {
+          action: 'set-aside',
+          sources: ['dup\\a.gb'],
+        } as Partial<OrganizeItem> & Pick<OrganizeItem, 'action'>),
+        item(1, { action: 'auto', sources: ['b.zip'] }),
+      ]),
+      source_root: 'C:\\Pile',
+    };
+    const report = {
+      items: [
+        { item: 0, status: 'trashed', targets: [] },
+        { item: 1, status: 'extracted', targets: [] },
+      ],
+    } as unknown as OrganizeReport;
+    const lost = ['C:\\Pile\\dup\\a.gb', 'C:\\Pile\\b.zip'];
+    // Windows separators and case do not hide the copy.
+    expect([...lostTrashedCopies(lost, report, p)]).toEqual([lost[0]]);
+    // Without the plan: only a job that extracted nothing is sure.
+    expect(lostTrashedCopies(lost, report, null).size).toBe(0);
+    const onlyCopies = {
+      items: [{ item: 0, status: 'trashed', targets: [] }],
+    } as unknown as OrganizeReport;
+    expect(lostTrashedCopies(lost, onlyCopies, null).size).toBe(2);
+    // Nothing went to the Trash as a duplicate: every loss is an archive.
+    expect(
+      lostTrashedCopies(lost, { items: [] } as unknown as OrganizeReport, p)
+        .size,
+    ).toBe(0);
   });
 });
