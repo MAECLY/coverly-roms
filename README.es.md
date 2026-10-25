@@ -20,6 +20,9 @@
 <p align="center">
   <a href="https://github.com/MAECLY/coverly-roms/releases/latest"><img alt="Última versión" src="https://img.shields.io/github/v/release/MAECLY/coverly-roms?style=flat-square&label=versi%C3%B3n&color=0E5E6F&labelColor=1B1E1B"></a>
   <a href="https://github.com/MAECLY/coverly-roms/releases"><img alt="Descargas" src="https://img.shields.io/github/downloads/MAECLY/coverly-roms/total?style=flat-square&label=descargas&color=0E5E6F&labelColor=1B1E1B"></a>
+  <a href="https://github.com/MAECLY/coverly-roms/stargazers"><img alt="Estrellas en GitHub" src="https://img.shields.io/github/stars/MAECLY/coverly-roms?style=flat-square&color=0E5E6F&labelColor=1B1E1B&label=estrellas"></a>
+  <a href="https://hits.sh/github.com/MAECLY/coverly-roms/"><img alt="Visitas al repositorio" src="https://hits.sh/github.com/MAECLY/coverly-roms.svg?style=flat-square&label=visitas&color=0E5E6F&labelColor=1B1E1B"></a>
+  <a href="https://github.com/MAECLY/coverly-roms/commits/main"><img alt="Último commit" src="https://img.shields.io/github/last-commit/MAECLY/coverly-roms?style=flat-square&color=0E5E6F&labelColor=1B1E1B&label=último%20commit"></a>
   <a href="https://github.com/MAECLY/coverly-roms/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/MAECLY/coverly-roms/ci.yml?branch=main&style=flat-square&label=CI&labelColor=1B1E1B"></a>
   <a href="LICENSE"><img alt="Licencia: AGPL-3.0" src="https://img.shields.io/badge/licencia-AGPL--3.0-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
   <a href="#instalar"><img alt="macOS, Windows y Linux" src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-escritorio%20%2B%20CLI-0E5E6F?style=flat-square&labelColor=1B1E1B"></a>
