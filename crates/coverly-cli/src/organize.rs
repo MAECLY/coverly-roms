@@ -886,17 +886,30 @@ fn action_label(item: &OrganizeItem) -> String {
     }
 }
 
-/// The pile's quarantine folder (relative to the source root) of a plan
-/// with set-aside items: the first part of their `dest`.
+/// The quarantine folder of a plan with set-aside items: their `dest`
+/// without the item's own path, relative to the source root (or absolute:
+/// the library's quarantine, for a pile inside a system folder).
 fn quarantine_of(plan: &OrganizePlan) -> PathBuf {
     plan.items
         .iter()
-        .find_map(|i| match &i.action {
-            OrganizeAction::SetAside { dest, .. } => dest.components().next(),
+        .find_map(|i| match (&i.action, i.sources.first()) {
+            (OrganizeAction::SetAside { dest, .. }, Some(primary)) if dest.ends_with(primary) => {
+                let mut base = dest.clone();
+                primary.components().all(|_| base.pop()).then_some(base)
+            }
             _ => None,
         })
-        .map(|c| PathBuf::from(c.as_os_str()))
         .unwrap_or_else(|| PathBuf::from(coverly_core::dedupe::DEFAULT_QUARANTINE_NAME))
+}
+
+/// A set-aside path as the table shows it: relative ones with `/`,
+/// absolute ones whole.
+fn aside_path(path: &Path) -> String {
+    if path.is_absolute() {
+        table::one_line(&path.display().to_string())
+    } else {
+        slash(path)
+    }
 }
 
 /// Games the plan extracts and their bytes, when it extracts any.
@@ -1109,7 +1122,7 @@ fn render_table(
         let place = if plan.set_aside_trash {
             "to the Trash".to_string()
         } else {
-            format!("to {}/", slash(&quarantine_of(plan)))
+            format!("to {}/", aside_path(&quarantine_of(plan)))
         };
         let _ = writeln!(out, "\nDuplicates set aside ({}), {place}", set_aside.len());
         for item in set_aside {
@@ -1123,7 +1136,7 @@ fn render_table(
                 let to = if plan.set_aside_trash {
                     "Trash".to_string()
                 } else {
-                    slash(dest)
+                    aside_path(dest)
                 };
                 let _ = writeln!(
                     out,

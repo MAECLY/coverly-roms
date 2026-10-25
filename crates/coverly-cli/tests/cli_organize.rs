@@ -950,3 +950,33 @@ fn cli_organize_sets_aside_and_undo_restores() {
     undo(data.path(), &[]).assert().success();
     assert_eq!(tree_digest(p.path()), before);
 }
+
+#[test]
+fn cli_organize_names_the_library_quarantine_for_a_pile_inside_a_system_folder() {
+    let (p, data, cache) = (
+        pile_with_a_copy(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let rom = fx::gb_tagged(0x00, 41);
+    fs::create_dir_all(p.path().join("ROMS/GB/incoming")).unwrap();
+    write_old(&p.path().join("ROMS/GB/incoming/Game B again.gb"), &rom);
+    let incoming = p.path().join("ROMS/GB/incoming");
+    let target = format!("--target={}", p.path().display());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", &target],
+    )
+    .arg(&incoming)
+    .assert()
+    .success()
+    .stdout(contains(format!(
+        "Duplicates set aside (1), to {}",
+        p.path()
+            .join("_Duplicados")
+            .join("GB")
+            .join("incoming")
+            .display()
+    )));
+}
