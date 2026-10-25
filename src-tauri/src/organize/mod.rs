@@ -365,12 +365,14 @@ fn end_state(report: &OrganizeReport) -> OrganizeJobState {
     }
 }
 
-/// The options a survey depends on: everything but the transfer mode and
-/// the names (layout, target, flat, offline, thresholds, folders…).
+/// The options a survey depends on: everything but the transfer mode, the
+/// names and the duplicates step (layout, target, flat, offline,
+/// thresholds, folders…).
 fn survey_key(opts: &OrganizeOptions) -> OrganizeOptions {
     OrganizeOptions {
         mode: None,
         names: Default::default(),
+        duplicates: Default::default(),
         ..opts.clone()
     }
 }

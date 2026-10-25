@@ -427,6 +427,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'names',
   'offline',
   'rescan',
+  'duplicates',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */

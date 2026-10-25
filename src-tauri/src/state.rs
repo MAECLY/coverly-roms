@@ -1375,6 +1375,9 @@ impl AppState {
         if let Some(names) = req.names {
             opts.names = names;
         }
+        if let Some(duplicates) = req.duplicates {
+            opts.duplicates = duplicates;
+        }
         opts.offline = req.offline.unwrap_or(false);
         Ok((source, opts))
     }

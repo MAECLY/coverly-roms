@@ -4,6 +4,7 @@
 use coverly_core::organize::{
     FolderProbe, NameMode, OrganizePhase, OrganizePlan, OrganizeReport, TransferMode,
 };
+use coverly_core::settings::OrganizeDedupeMode;
 use coverly_core::write::UndoReport;
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +65,8 @@ pub struct OrganizeRequest {
     /// Read the folder again instead of reusing a kept survey (the user
     /// added or removed files). Never kept with a stored plan.
     pub rescan: bool,
+    /// What the duplicates step does (`None` = `dedupe.organize_step`).
+    pub duplicates: Option<OrganizeDedupeMode>,
 }
 
 /// A dry run kept by the backend under `plan_id`: the webview only sends

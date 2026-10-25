@@ -64,7 +64,8 @@
     "mode": "copy",
     "names": "catalogue",
     "offline": true,
-    "rescan": true
+    "rescan": true,
+    "duplicates": "report"
   },
   "organize_request_bare": {
     "source": "/Users/me/ROMs-Downloaded"

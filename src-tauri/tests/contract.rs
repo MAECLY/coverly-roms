@@ -746,6 +746,7 @@ fn organise_views_match_the_shared_sample() {
 #[test]
 fn rust_reads_the_shared_organise_requests() {
     use coverly_core::organize::{Choice, Decision as OrganizeDecision, NameMode, TransferMode};
+    use coverly_core::settings::OrganizeDedupeMode;
     use coverly_roms_lib::organize::view::OrganizeRequest;
 
     let req: Value =
@@ -759,10 +760,12 @@ fn rust_reads_the_shared_organise_requests() {
     assert_eq!(full.names, Some(NameMode::Catalogue));
     assert_eq!(full.offline, Some(true));
     assert!(full.rescan);
+    assert_eq!(full.duplicates, Some(OrganizeDedupeMode::Report));
     let bare: OrganizeRequest =
         serde_json::from_value(req["organize_request_bare"].clone()).unwrap();
     assert_eq!(bare.source, "/Users/me/ROMs-Downloaded");
     assert_eq!(bare.layout, None);
+    assert_eq!(bare.duplicates, None);
     assert!(
         !bare.rescan,
         "a request reuses the kept survey unless asked"

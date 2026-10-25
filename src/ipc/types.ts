@@ -3,6 +3,7 @@
 import type {
   DupGroupView,
   InLibraryReason,
+  OrganizeDedupeMode,
   OrganizeSetAsideAction,
 } from './dedupeTypes';
 import type { ErrorCode } from './errors';
@@ -992,6 +993,8 @@ export interface OrganizeRequest {
   /** Read the folder again instead of reusing the kept survey (files were
    * added or removed). Sent only by a refresh, never kept in a request. */
   rescan?: boolean;
+  /** What the duplicates step does (missing: `dedupe.organize_step`). */
+  duplicates?: OrganizeDedupeMode | null;
 }
 
 /** The user's answer for one plan item. */
