@@ -3,7 +3,7 @@
 //! compressor is compared by its entries like a zip (plan DD-13).
 //!
 //! Listings and heads go through the process-wide
-//! [`Cache`](crate::archive::cache::Cache) the organise planner shares; a
+//! [`Cache`] the organise planner shares; a
 //! payload hash opens a fresh reader under the caller's budget, its CRC
 //! checked by the reader at the end of the entry. A spent budget is "not
 //! read" (`Ok(None)`), never an error. External tools (RAR, 7z coders the
