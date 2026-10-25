@@ -452,7 +452,7 @@ impl From<ApplyError> for IpcError {
             ApplyError::Write(w) => w.into(),
             ApplyError::NoPlan(_) => IpcError::NoPlan,
             e @ ApplyError::Undone(_) => IpcError::BadRequest(e.to_string()),
-            ApplyError::Dedupe(d) => IpcError::BadRequest(d.to_string()),
+            ApplyError::Dedupe(d) => d.into(),
         }
     }
 }

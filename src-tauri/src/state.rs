@@ -46,7 +46,7 @@ use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig};
 use coverly_core::sources::Candidate;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::{
-    later_jobs, list_jobs, undo_job, undo_jobs_in_order, JobKind, OverwritePolicy,
+    later_jobs, list_jobs, undo_job, undo_jobs_in_order_with, JobKind, OverwritePolicy,
 };
 
 use crate::error::IpcError;
@@ -67,6 +67,19 @@ use crate::organize::{ApplyStart, OrganizeEvents, OrganizeManager, StoredPlan, T
 use crate::prefs::{SettingsUpdateView, SettingsView};
 use crate::profiles::{ProfileInfoView, ProfilePreviewView, ProfileSaveView};
 use coverly_core::archive::external::{discover, discover_with, FoundTool, Search};
+use coverly_core::archive::{Limits, ToolsOnDemand};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
+use coverly_core::dedupe::keys::{DiskBytes, FileBytes};
+use coverly_core::dedupe::{
+    apply_dedupe, load_dedupe_plan, plan_dedupe, regroup, resume_dedupe, set_keeper, DedupeEnv,
+    DedupeOptions, QuarantineChoice,
+};
+use coverly_core::scan::scan_library;
+use coverly_core::write::trash::{OsTrash, TrashBackend};
+
+use crate::dedupe::view::{DedupeJobView, DedupePlanView, DedupeRequest};
+use crate::dedupe::{DedupeEvents, DedupeManager, StoredDedupe, Throttle as DedupeThrottle};
 
 pub struct AppState {
     latest: AtomicU64,
@@ -84,6 +97,13 @@ pub struct AppState {
     keys: Mutex<KeyCache>,
     /// Organise plans by id and the survey in progress.
     organize: OrganizeManager,
+    /// Duplicates plans by id, the plan being made and the apply.
+    dedupe: DedupeManager,
+    /// Where duplicates go when sent to the Trash, and where undo looks for
+    /// them (the OS Trash; tests use a fake one).
+    trash: Arc<dyn TrashBackend>,
+    /// How duplicates planning opens loose files (a seam to count reads).
+    file_bytes: Arc<dyn FileBytes>,
     /// Where external archive tools are looked for (`None` = this
     /// process's `PATH` and the fixed locations; tests point it elsewhere).
     tool_search: Option<Search>,
@@ -284,6 +304,9 @@ impl AppState {
             credentials: Arc::new(MemoryStore::default()),
             keys: Mutex::new(KeyCache::default()),
             organize: OrganizeManager::default(),
+            dedupe: DedupeManager::default(),
+            trash: Arc::new(OsTrash),
+            file_bytes: Arc::new(DiskBytes),
             tool_search: None,
         }
     }
@@ -292,6 +315,20 @@ impl AppState {
     /// process's `PATH` (tests).
     pub fn with_tool_search(mut self, search: Search) -> AppState {
         self.tool_search = Some(search);
+        self
+    }
+
+    /// Sends duplicates to `trash` (and undoes from it) instead of the OS
+    /// Trash (tests).
+    pub fn with_trash(mut self, trash: Arc<dyn TrashBackend>) -> AppState {
+        self.trash = trash;
+        self
+    }
+
+    /// Opens loose files for duplicates planning through `bytes` (tests
+    /// count the reads).
+    pub fn with_file_bytes(mut self, bytes: Arc<dyn FileBytes>) -> AppState {
+        self.file_bytes = bytes;
         self
     }
 
@@ -1604,8 +1641,9 @@ impl AppState {
         }
         let mut ids: Vec<String> = later.iter().map(|j| j.job.clone()).collect();
         ids.push(job.to_string());
-        let report = undo_jobs_in_order(&data_dir, &ids)?;
+        let report = undo_jobs_in_order_with(&data_dir, &ids, self.trash.as_ref())?;
         self.organize.forget_all();
+        self.dedupe.forget_all();
         log::info!("undid organise job {job} ({} jobs)", report.len());
         Ok(OrganizeUndoView {
             report,
@@ -1619,6 +1657,371 @@ impl AppState {
         write_export(dest, |w| {
             serde_json::to_writer_pretty(w, &stored.plan).map_err(io::Error::other)
         })
+    }
+}
+
+/// Duplicates (duplicates spec §11, §12): plans kept by id, picks, the
+/// apply behind the manual-write guard. Undo is `organize_undo`.
+impl AppState {
+    /// The plans of the duplicates screen and its apply.
+    pub fn dedupe(&self) -> &DedupeManager {
+        &self.dedupe
+    }
+
+    /// The options of `req` over `settings.dedupe`.
+    fn dedupe_options(settings: &Settings, req: &DedupeRequest) -> Result<DedupeOptions, IpcError> {
+        let mut opts = DedupeOptions::from_settings(&settings.dedupe);
+        Self::regroup_options(&mut opts, req)?;
+        if let Some(systems) = &req.systems {
+            opts.systems = Some(systems.clone());
+        }
+        opts.offline = req.offline.unwrap_or(false);
+        opts.reset_choices = req.reset_choices;
+        opts.forced_keepers = req
+            .forced_keepers
+            .iter()
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| std::path::absolute(Path::new(p)).map_err(|e| IpcError::Io(e.to_string())))
+            .collect::<Result<_, _>>()?;
+        Ok(opts)
+    }
+
+    /// What a regroup may change: levels, 1G1R, rules and where the copies go.
+    fn regroup_options(opts: &mut DedupeOptions, req: &DedupeRequest) -> Result<(), IpcError> {
+        if let Some(levels) = &req.levels {
+            opts.levels = levels.clone();
+        }
+        if let Some(on) = req.one_game_one_rom {
+            opts.one_game_one_rom = on;
+        }
+        if let Some(rules) = &req.rules {
+            opts.rules = rules.clone();
+        }
+        if let Some(q) = &req.quarantine {
+            opts.quarantine = match q {
+                QuarantineChoice::Folder { path } => QuarantineChoice::Folder {
+                    path: std::path::absolute(path).map_err(|e| IpcError::Io(e.to_string()))?,
+                },
+                other => other.clone(),
+            };
+        }
+        Ok(())
+    }
+
+    /// Plans the duplicates of the library at `root` (blocking, a dry run):
+    /// throttled progress through `events`, cancelled by
+    /// [`Self::dedupe_cancel`]. The plan is kept under a new id.
+    pub fn dedupe_plan(
+        &self,
+        root: &Path,
+        req: &DedupeRequest,
+        events: Arc<dyn DedupeEvents>,
+    ) -> Result<DedupePlanView, IpcError> {
+        existing_folder(root)?;
+        let root = std::path::absolute(root).map_err(|e| IpcError::Io(e.to_string()))?;
+        let cfg = self.fill_config();
+        let settings = &cfg.settings;
+        let opts = Self::dedupe_options(settings, req)?;
+        let db = SystemDb::builtin();
+        // The open library's profile when it is this library (what its
+        // screen shows), else picked as opening it would.
+        let open = lock(&self.session).clone();
+        let profile = match open {
+            Some(s)
+                if req.profile.is_none()
+                    && std::path::absolute(&s.root).ok() == Some(root.clone()) =>
+            {
+                s.profile.clone()
+            }
+            _ => crate::library::library_profile(
+                &root,
+                req.profile.as_deref(),
+                &self.custom_profiles(),
+                settings,
+                &db,
+            )?,
+        };
+        let cache = self.cache()?;
+        let http = PoliteHttp::new(UreqHttp::new(&cfg.net), &cfg.net);
+        let store = DatStore::new(&http, &cache, cfg.endpoints.database.clone());
+        // External tools as organise uses them (one setting), never found
+        // inside the library (it holds the quarantine) or a custom
+        // quarantine.
+        let limits = Limits {
+            external_tools: OrganizeOptions::from_settings(settings, None)
+                .limits
+                .external_tools,
+            ..Limits::default()
+        };
+        let mut avoid: Vec<&Path> = vec![&root];
+        if let QuarantineChoice::Folder { path } = &opts.quarantine {
+            avoid.push(path);
+        }
+        let tools = Arc::new(match &self.tool_search {
+            Some(search) => ToolsOnDemand::with_search(search.clone(), &avoid),
+            None => ToolsOnDemand::new(&avoid),
+        });
+        let listing = ArchiveEntryListing::with_tools_on_demand(limits.clone(), Arc::clone(&tools));
+        let discs = ReaderDiscProbe::new(ArchiveEntryListing::with_tools_on_demand(limits, tools));
+
+        let plan_id = self.dedupe.next_id();
+        let cancel = self.dedupe.begin(plan_id);
+        let throttle = DedupeThrottle::new(plan_id, events);
+        let progress = |p: coverly_core::dedupe::DedupeProgress| throttle.progress(&p);
+        let scan = scan_library(&root, &profile, &db, &settings.scan_options());
+        let env = DedupeEnv {
+            cache: &cache,
+            db: &db,
+            profile: &profile,
+            settings,
+            listing: &listing,
+            discs: &discs,
+            dats: (!opts.offline).then_some(&store),
+            bytes: self.file_bytes.as_ref(),
+            progress: &progress,
+            cancel: &cancel,
+        };
+        let planned = plan_dedupe(&scan, &opts, &env);
+        self.dedupe.finish(plan_id);
+        let plan = planned?;
+        log::info!(
+            "duplicates plan {plan_id}: {} groups, {} extras",
+            plan.totals.groups,
+            plan.totals.extras
+        );
+        let trash_available = self.trash.available(&root);
+        Ok(self.dedupe.store(
+            plan_id,
+            StoredDedupe {
+                root,
+                opts,
+                plan,
+                skipped_groups: Default::default(),
+                skipped_systems: Default::default(),
+                trash_available,
+            },
+        ))
+    }
+
+    /// Cancels plan `plan_id` while it is being made; a no-op otherwise.
+    pub fn dedupe_cancel(&self, plan_id: u64) -> Result<(), IpcError> {
+        self.dedupe.cancel(plan_id);
+        Ok(())
+    }
+
+    /// Plan `plan_id` again with other levels, rules or destination, from
+    /// what was read (no ROM is read again). Same id; picks and skips stay.
+    pub fn dedupe_regroup(
+        &self,
+        plan_id: u64,
+        req: &DedupeRequest,
+    ) -> Result<DedupePlanView, IpcError> {
+        self.dedupe.edit(plan_id, |stored| {
+            let mut opts = stored.opts.clone();
+            Self::regroup_options(&mut opts, req)?;
+            stored.plan = regroup(&stored.plan, &opts);
+            stored.opts = opts;
+            stored.reapply_skips(None);
+            Ok(())
+        })
+    }
+
+    /// Makes `member` the copy of `group` that stays, remembered by content
+    /// for later runs.
+    pub fn dedupe_set_keeper(
+        &self,
+        plan_id: u64,
+        group: u64,
+        member: usize,
+    ) -> Result<DedupePlanView, IpcError> {
+        let cache = self.cache()?;
+        self.dedupe.edit(plan_id, |stored| {
+            set_keeper(&mut stored.plan, group, member, &cache)?;
+            stored.reapply_skips(None);
+            Ok(())
+        })
+    }
+
+    /// Skips group `group` (nothing moves) or takes it back.
+    pub fn dedupe_skip_group(
+        &self,
+        plan_id: u64,
+        group: u64,
+        skip: bool,
+    ) -> Result<DedupePlanView, IpcError> {
+        self.dedupe
+            .edit(plan_id, |stored| stored.skip_group(group, skip))
+    }
+
+    /// Skips every group of `system` or takes them back.
+    pub fn dedupe_skip_system(
+        &self,
+        plan_id: u64,
+        system: &str,
+        skip: bool,
+    ) -> Result<DedupePlanView, IpcError> {
+        self.dedupe.edit(plan_id, |stored| {
+            stored.skip_system(system, skip);
+            Ok(())
+        })
+    }
+
+    /// Forgets the keepers chosen for the library at `root` (`systems`, or
+    /// every system): the rules decide again on the next plan. Returns how
+    /// many picks were forgotten.
+    pub fn dedupe_reset_choices(
+        &self,
+        root: &Path,
+        systems: Option<&[String]>,
+    ) -> Result<usize, IpcError> {
+        existing_folder(root)?;
+        let all: Vec<String>;
+        let systems = match systems {
+            Some(s) => s,
+            None => {
+                all = SystemDb::builtin()
+                    .all()
+                    .iter()
+                    .map(|s| s.id.clone())
+                    .collect();
+                &all
+            }
+        };
+        let cleared = self
+            .cache()?
+            .clear_dedupe_choices(systems)
+            .map_err(|e| IpcError::Io(e.to_string()))?;
+        log::info!("duplicates: {cleared} remembered picks forgotten");
+        Ok(cleared)
+    }
+
+    /// Applies plan `plan_id` with its picks and skips on a worker thread:
+    /// the extras go to the quarantine (or the Trash), journaled. Refused
+    /// while a fill, an organise job or another write runs; progress and
+    /// the end arrive through `events`. The kept plans are dropped: the
+    /// library changes.
+    pub fn dedupe_apply(
+        &self,
+        plan_id: u64,
+        events: Arc<dyn DedupeEvents>,
+    ) -> Result<DedupeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let kept = self.dedupe.get(plan_id)?;
+        let (plan, decisions) = {
+            let stored = lock(&kept);
+            (stored.plan.clone(), stored.decisions())
+        };
+        check_organize_data_dir(&cfg, &[&plan.root, &plan.quarantine])?;
+        let guard = self.organize_guard()?;
+        fs::create_dir_all(&cfg.data_dir).map_err(|e| IpcError::Io(e.to_string()))?;
+        self.dedupe.forget_all();
+        log::info!(
+            "duplicates plan {plan_id}: setting aside {} copies",
+            plan.totals.extras
+        );
+        let start = crate::dedupe::ApplyStart {
+            plan_id,
+            job: None,
+            root: plan.root.display().to_string(),
+            quarantine: plan.quarantine.display().to_string(),
+            trash: plan.trash,
+            data_dir: cfg.data_dir.clone(),
+            cache_dir: cfg.cache_dir.clone(),
+            backend: Arc::clone(&self.trash),
+        };
+        Ok(self.dedupe.spawn_apply(start, guard, events, move |env| {
+            apply_dedupe(&plan, &decisions, env)
+        }))
+    }
+
+    /// Continues the paused or interrupted duplicates job `job` from the
+    /// plan saved with it, into the same journal.
+    pub fn dedupe_resume(
+        &self,
+        job: &str,
+        events: Arc<dyn DedupeEvents>,
+    ) -> Result<DedupeJobView, IpcError> {
+        let cfg = self.fill_config();
+        let plan = load_dedupe_plan(&cfg.data_dir, job).map_err(|e| match e {
+            coverly_core::organize::apply::ApplyError::NoPlan(_) => IpcError::NoDedupePlan,
+            e => e.into(),
+        })?;
+        let summary = list_jobs(&cfg.data_dir)?
+            .into_iter()
+            .find(|j| j.job == job)
+            .ok_or(IpcError::NoDedupePlan)?;
+        if summary.undone || summary.complete {
+            return Err(IpcError::BadRequest(format!(
+                "job {job} has nothing left to resume"
+            )));
+        }
+        check_organize_data_dir(&cfg, &[&plan.root, &plan.quarantine])?;
+        let guard = self.organize_guard()?;
+        self.dedupe.forget_all();
+        let start = crate::dedupe::ApplyStart {
+            plan_id: self.dedupe.next_id(),
+            job: Some(job.to_string()),
+            root: plan.root.display().to_string(),
+            quarantine: plan.quarantine.display().to_string(),
+            trash: plan.trash,
+            data_dir: cfg.data_dir.clone(),
+            cache_dir: cfg.cache_dir.clone(),
+            backend: Arc::clone(&self.trash),
+        };
+        let job = job.to_string();
+        Ok(self
+            .dedupe
+            .spawn_apply(start, guard, events, move |env| resume_dedupe(&job, env)))
+    }
+
+    /// Stops the running duplicates apply between groups (a no-op otherwise).
+    pub fn dedupe_cancel_apply(&self) -> Result<(), IpcError> {
+        self.dedupe.cancel_apply();
+        Ok(())
+    }
+
+    /// The current (or last) duplicates apply of this app session.
+    pub fn dedupe_job(&self) -> Option<DedupeJobView> {
+        self.dedupe.current_apply()
+    }
+
+    /// Writes plan `plan_id` (picks and skips applied) to `dest` as JSON.
+    pub fn dedupe_export_plan(&self, plan_id: u64, dest: &Path) -> Result<(), IpcError> {
+        let kept = self.dedupe.get(plan_id)?;
+        let plan = lock(&kept).plan.clone();
+        write_export(dest, |w| {
+            serde_json::to_writer_pretty(w, &plan).map_err(io::Error::other)
+        })
+    }
+
+    /// `path` when the file manager may show it: inside the open library,
+    /// a kept duplicates plan's library or quarantine, or the last
+    /// duplicates job's; the nearest existing folder when it is gone.
+    pub fn revealable(&self, path: &Path) -> Result<PathBuf, IpcError> {
+        let shown = path.display().to_string();
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(IpcError::OutsideLibrary(shown));
+        }
+        let mut folders = self.dedupe.known_folders();
+        if let Some(s) = lock(&self.session).as_ref() {
+            folders.push(s.root.clone());
+            folders.push(s.root_canon.clone());
+        }
+        if !folders
+            .iter()
+            .filter(|f| !f.as_os_str().is_empty())
+            .any(|f| path.starts_with(f))
+        {
+            return Err(IpcError::OutsideLibrary(shown));
+        }
+        path.ancestors()
+            .find(|p| p.exists())
+            .map(Path::to_path_buf)
+            .ok_or(IpcError::NotFound(shown))
     }
 }
 

@@ -208,6 +208,26 @@ pub fn open_session(
     Ok((session, view))
 }
 
+/// The profile the library at `root` is read with, picked and fitted as
+/// [`open_session`] does it (the Art settings applied).
+pub fn library_profile(
+    root: &Path,
+    profile_id: Option<&str>,
+    custom: &[ProfileFile],
+    settings: &Settings,
+    systems: &SystemDb,
+) -> Result<Profile, IpcError> {
+    let (base, _, _) = choose_profile(
+        root,
+        profile_id,
+        custom,
+        settings.library.default_profile.as_deref(),
+        settings.organize.default_layout.as_str(),
+        systems,
+    )?;
+    Ok(settings.art_profile(&fit_to_root(&base, root, systems)))
+}
+
 /// The requested profile (built-in or custom), else the default profile
 /// when it still exists, else the best detected one; a tree organised by
 /// system without markers suggests `fallback` (evidence `system-folders`).
