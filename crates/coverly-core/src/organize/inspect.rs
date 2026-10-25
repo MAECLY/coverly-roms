@@ -55,6 +55,11 @@ pub const CRC_DECODE_CAP: u64 = 64 * 1024 * 1024;
 pub const NOTE_ENCRYPTED: &str = "encrypted";
 /// Note: an entry uses a compression method this build cannot decode.
 pub const NOTE_UNSUPPORTED_COMPRESSION: &str = "unsupported-compression";
+/// Note: an external tool failed (non-zero exit, or killed at its
+/// deadline). The archive is reported damaged for this plan only: a
+/// slow disk or another tool version may open it next time, so the facts
+/// are never memoised.
+pub const NOTE_TOOL_FAILED: &str = "tool-failed";
 
 const MIB: u64 = 1024 * 1024;
 
@@ -554,9 +559,11 @@ struct RomEntry {
 /// caller's.
 fn record_error(e: ArchiveError, out: &mut Inspection) -> io::Result<()> {
     match e {
-        ArchiveError::Damaged { .. }
-        | ArchiveError::ToolFailed { .. }
-        | ArchiveError::UnsafeEntry { .. } => out.damaged(),
+        ArchiveError::Damaged { .. } | ArchiveError::UnsafeEntry { .. } => out.damaged(),
+        ArchiveError::ToolFailed { .. } => {
+            out.damaged();
+            out.note(NOTE_TOOL_FAILED);
+        }
         ArchiveError::Unsupported { format, need } => out.fail(ArchiveIssue::Unsupported {
             format: Some(format),
             need,
@@ -1624,5 +1631,28 @@ mod tests {
         assert!(!Container::MultiVolume.is_archive());
         assert!(names_an_archive("zip") && names_an_archive("tgz"));
         assert!(!names_an_archive("chd") && !names_an_archive("bin"));
+    }
+
+    #[test]
+    fn a_failed_tool_is_damaged_and_noted() {
+        for status in [None, Some(3)] {
+            let mut out = Inspection::new(Container::Rar);
+            record_error(
+                ArchiveError::ToolFailed {
+                    tool: Tool::Unrar,
+                    status,
+                },
+                &mut out,
+            )
+            .unwrap();
+            assert_eq!(out.issue, Some(ArchiveIssue::Damaged), "{status:?}");
+            assert!(
+                out.notes.iter().any(|n| n == NOTE_TOOL_FAILED),
+                "{status:?}"
+            );
+        }
+        let mut out = Inspection::new(Container::Zip);
+        record_error(ArchiveError::Damaged { detail: "x".into() }, &mut out).unwrap();
+        assert!(out.notes.is_empty());
     }
 }

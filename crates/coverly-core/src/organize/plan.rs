@@ -28,7 +28,7 @@ use crate::organize::evidence::{
 };
 use crate::organize::inspect::{
     inspect_file_with, inspect_set_primary, is_metadata_entry, ArchiveIssue, Container, Inspection,
-    Payload, ZipEntryInfo,
+    Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
     assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, limit_fat_folders,
@@ -1339,13 +1339,14 @@ fn memoised_facts(cache: &Cache, c: &WalkCandidate) -> Option<Facts> {
 
 /// Facts that depend only on the file: not those cut short by a budget,
 /// nor an archive that an external tool found later could open, nor one
-/// an external tool listed (the tool, its version or the
+/// an external tool listed or failed on (the tool, its version or the
 /// setting may change while the file's size and mtime do not).
 fn memoisable(facts: &Facts) -> bool {
     let insp = &facts.inspection;
     // A multi-volume set's parts are the files beside it, not this file.
     !insp.budget_spent
         && insp.tool.is_none()
+        && !insp.notes.iter().any(|n| n == NOTE_TOOL_FAILED)
         && !matches!(
             insp.issue,
             Some(
@@ -2192,6 +2193,14 @@ mod tests {
         // next plan: the cache key (path, size, mtime) would not change.
         let mut insp = Inspection::new(Container::Rar);
         insp.tool = Some((Tool::Unrar, "7.01".into()));
+        assert!(!memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn a_failed_tool_is_not_memoised_as_damaged() {
+        let mut insp = Inspection::new(Container::Rar);
+        insp.issue = Some(ArchiveIssue::Damaged);
+        insp.notes.push(NOTE_TOOL_FAILED.into());
         assert!(!memoisable(&facts(insp)));
     }
 
