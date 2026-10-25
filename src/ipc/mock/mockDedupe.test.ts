@@ -304,11 +304,32 @@ describe('mock duplicates backend', () => {
     await b.dedupeCancelApply();
     const end = await done;
     expect(end.state).toBe('cancelled');
-    expect(
-      end.report!.outcomes.some(
-        (o) => o.status === 'skipped' && o.reason.kind === 'cancelled',
-      ),
-    ).toBe(true);
+    const cancelled = end.report!.outcomes.filter(
+      (o) => o.status === 'skipped' && o.reason.kind === 'cancelled',
+    );
+    expect(cancelled.length).toBeGreaterThan(0);
+    // Like Rust: what the cancel left is resumable, into the same journal.
+    expect(end.report!.resumable).toEqual(
+      cancelled.map((o) => [o.group, o.member]),
+    );
+    const job = end.report!.job!;
+    expect(job).not.toBeNull();
+    expect((await b.jobHistory())[0]).toMatchObject({ job, complete: false });
+    const finished = ended(b);
+    await b.dedupeResume(job);
+    const resumed = await finished;
+    expect(resumed.state).toBe('done');
+    expect(resumed.report!.job).toBe(job);
+    expect((await b.dedupePlan(ROOT)).totals.extras).toBe(0);
+    await expect(b.dedupeResume(job)).rejects.toMatchObject({
+      code: 'bad-request',
+    });
+    await expect(
+      b.dedupeResume('20990101T000000Z-0000-0000'),
+    ).rejects.toMatchObject({ code: 'no-dedupe-plan' });
+    // Undo brings back what both runs set aside.
+    await b.organizeUndo(job, false);
+    expect((await b.dedupePlan(ROOT)).totals).toEqual(plan.totals);
   });
 
   it('refuses a second write while one runs', async () => {

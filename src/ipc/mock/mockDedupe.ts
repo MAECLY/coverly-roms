@@ -447,7 +447,9 @@ export function createMockDedupe(
       const newGroup = i === 0 || works[i - 1]!.group !== w.group;
       if (newGroup && own.cancel) {
         state = 'cancelled';
-        for (const c of works.slice(i))
+        // Like Rust, what the cancel left can be resumed.
+        resumable = works.slice(i);
+        for (const c of resumable)
           outcomes.push({
             group: c.group,
             member: c.member,
@@ -718,7 +720,7 @@ export function createMockDedupe(
     },
     async dedupeResume(job) {
       const j = journals.find((x) => x.job === job);
-      if (!j) throw new BackendError('no-plan', job);
+      if (!j) throw new BackendError('no-dedupe-plan', job);
       if (j.undone || j.complete || j.remaining.length === 0)
         throw new BackendError(
           'bad-request',
