@@ -17,6 +17,7 @@ import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import {
   createMockOrganize,
+  ORGANIZE_SYSTEMS,
   readMockPick,
   type MockOrganizeTouch,
 } from './mockOrganize';
@@ -333,9 +334,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     listSystems: () =>
       Promise.resolve(
-        FIXTURE_SYSTEMS.map(({ id, name }) => ({ id, name })).sort((a, b) =>
-          a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
-        ),
+        // Like Rust, the whole catalogue: the organise piles' systems too.
+        [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS]
+          .map(({ id, name }) => ({ id, name }))
+          .sort((a, b) =>
+            a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
+          ),
       ),
     updateLog,
     kind: 'mock',

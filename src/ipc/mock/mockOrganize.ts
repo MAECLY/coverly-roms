@@ -379,8 +379,13 @@ const collator = new Intl.Collator('en', {
   sensitivity: 'base',
   numeric: true,
 });
-/** Systems only the organise piles have (the fixture libraries do not). */
-const ORGANIZE_SYSTEMS = [{ id: 'saturn', name: 'Saturn', folder: 'SATURN' }];
+/** Systems only the organise piles have (the fixture libraries do not),
+ * named like the Rust catalogue (`systems.toml`). */
+export const ORGANIZE_SYSTEMS: readonly {
+  id: string;
+  name: string;
+  folder: string;
+}[] = [{ id: 'saturn', name: 'Sega Saturn', folder: 'SATURN' }];
 const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
   [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
 );
