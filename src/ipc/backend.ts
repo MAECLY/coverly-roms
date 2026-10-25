@@ -9,6 +9,10 @@ import type {
   CredentialKey,
   CredentialStatus,
   DecisionIn,
+  DedupeJobView,
+  DedupePlanView,
+  DedupeProgressEvent,
+  DedupeRequest,
   EntriesUpdated,
   EntryArtUpdate,
   ExportFormat,
@@ -150,6 +154,54 @@ export interface Backend {
   ): Promise<() => void>;
   onOrganizeChanged(cb: (v: OrganizeJobView) => void): Promise<() => void>;
 
+  /* Duplicates (duplicates spec §11, §12): the backend keeps each plan
+   * under its id; the UI sends back only the id and its picks. Undo goes
+   * through `organizeUndo`. */
+  /** Looks for duplicates in the library at `root` (a dry run; progress
+   * via `onDedupeProgress`). Missing options take `settings.dedupe`. */
+  dedupePlan(root: string, opts?: DedupeRequest): Promise<DedupePlanView>;
+  /** Stops planning `planId`; its `dedupePlan` rejects with `cancelled`. */
+  dedupeCancel(planId: number): Promise<void>;
+  /** Plan `planId` with other levels, rules or destination (nothing is
+   * read again). */
+  dedupeRegroup(planId: number, opts: DedupeRequest): Promise<DedupePlanView>;
+  /** Keeps member `member` of group `group` (remembered for next time). */
+  dedupeSetKeeper(
+    planId: number,
+    group: number,
+    member: number,
+  ): Promise<DedupePlanView>;
+  /** Leaves group `group` alone (or takes it back). */
+  dedupeSkipGroup(
+    planId: number,
+    group: number,
+    skip: boolean,
+  ): Promise<DedupePlanView>;
+  /** Leaves every group of `system` alone (or takes them back). */
+  dedupeSkipSystem(
+    planId: number,
+    system: string,
+    skip: boolean,
+  ): Promise<DedupePlanView>;
+  /** Forgets the keepers chosen for `root` (`systems`, or all); how many. */
+  dedupeResetChoices(root: string, systems?: string[]): Promise<number>;
+  /** Sets the extras of plan `planId` aside; the end arrives via
+   * `onDedupeChanged`. `job-running` while a fill or organise job writes. */
+  dedupeApply(planId: number): Promise<DedupeJobView>;
+  /** Stops the running duplicates apply between groups. */
+  dedupeCancelApply(): Promise<void>;
+  /** The current (or last) duplicates apply of this session. */
+  dedupeJob(): Promise<DedupeJobView | null>;
+  /** Continues a paused or interrupted duplicates job into its journal. */
+  dedupeResume(job: string): Promise<DedupeJobView>;
+  /** Saves plan `planId` as JSON through a native dialog; null when cancelled. */
+  dedupeExportPlan(planId: number): Promise<string | null>;
+  /** Shows `path` in Finder / Explorer: only inside the open library or a
+   * duplicates plan's library or quarantine. */
+  revealPath(path: string): Promise<void>;
+  onDedupeProgress(cb: (e: DedupeProgressEvent) => void): Promise<() => void>;
+  onDedupeChanged(cb: (v: DedupeJobView) => void): Promise<() => void>;
+
   /* Settings (§9): field problems come back as data, not errors. */
   getSettings(): Promise<SettingsView>;
   updateSettings(patch: SettingsPatch): Promise<SettingsUpdate>;
@@ -229,6 +281,9 @@ type MockWindow = Window & {
     path: string,
     change: import('./mock/mockOrganize').MockOrganizeTouch,
   ) => void;
+  mockDedupeScenario?: (
+    patch: Partial<import('./mock/mockDedupe').MockDedupeScenario>,
+  ) => void;
 };
 
 let current: Backend | null = null;
@@ -243,8 +298,14 @@ async function createBackend(): Promise<Backend> {
   const mock = createMockBackend();
   // The browser check changes a pile between scans from the console:
   // `mockOrganizeTouch('/Users/demo/Mixed', { add: 2, remove: 1 })`.
-  if (typeof window !== 'undefined')
-    (window as MockWindow).mockOrganizeTouch = mock.organizeTouch;
+  // The duplicates screen's states from the console:
+  // `mockDedupeScenario({ empty: true })`, `({ failPlan: 'volume-gone' })`,
+  // `({ trashAvailable: false })`, `({ pauseAfter: 10 })`.
+  if (typeof window !== 'undefined') {
+    const w = window as MockWindow;
+    w.mockOrganizeTouch = mock.organizeTouch;
+    w.mockDedupeScenario = mock.dedupeScenario;
+  }
   return mock;
 }
 

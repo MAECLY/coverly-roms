@@ -14,6 +14,13 @@ describe('getBackend', () => {
     expect((await getBackend()).kind).toBe('mock');
   });
 
+  it('puts the mock dev hooks on window', async () => {
+    await getBackend();
+    const w = window as unknown as Record<string, unknown>;
+    expect(typeof w.mockOrganizeTouch).toBe('function');
+    expect(typeof w.mockDedupeScenario).toBe('function');
+  });
+
   it('uses Tauri when the IPC bridge exists', async () => {
     mockIPC(() => undefined);
     expect((await getBackend()).kind).toBe('tauri');

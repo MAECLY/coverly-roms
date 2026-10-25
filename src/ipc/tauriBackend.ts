@@ -7,6 +7,8 @@ import type { AppInfo } from './appInfo';
 import type { Backend } from './backend';
 import { BackendError, toBackendError } from './errors';
 import {
+  normalizeDedupeJob,
+  normalizeDedupePlanView,
   normalizeOrganizeJob,
   normalizeOrganizePlanView,
   normalizeOrganizeUndo,
@@ -16,6 +18,9 @@ import type {
   ArtImage,
   CandidateView,
   CredentialStatus,
+  DedupeJobView,
+  DedupePlanViewWire,
+  DedupeProgressEvent,
   EntriesUpdated,
   EntryArtUpdate,
   FolderProbe,
@@ -56,6 +61,16 @@ export const SETTINGS_CHANGED_EVENT = 'settings-changed';
 export const UPDATE_PROGRESS_EVENT = 'update-progress';
 export const ORGANIZE_PROGRESS_EVENT = 'organize-progress';
 export const ORGANIZE_CHANGED_EVENT = 'organize-changed';
+export const DEDUPE_PROGRESS_EVENT = 'dedupe-progress';
+export const DEDUPE_CHANGED_EVENT = 'dedupe-changed';
+
+async function dedupePlanCall(cmd: string, args: Record<string, unknown>) {
+  return normalizeDedupePlanView(await call<DedupePlanViewWire>(cmd, args));
+}
+
+async function dedupeJobCall(cmd: string, args?: Record<string, unknown>) {
+  return normalizeDedupeJob(await call<DedupeJobView>(cmd, args));
+}
 
 async function call<T>(
   cmd: string,
@@ -198,6 +213,35 @@ export function createTauriBackend(): Backend {
     onOrganizeChanged: (cb) =>
       listen<OrganizeJobViewWire>(ORGANIZE_CHANGED_EVENT, (e) =>
         cb(normalizeOrganizeJob(e.payload)),
+      ),
+    dedupePlan: (root, opts) =>
+      dedupePlanCall('dedupe_plan', { root, opts: opts ?? null }),
+    dedupeCancel: (planId) => call<void>('dedupe_cancel', { planId }),
+    dedupeRegroup: (planId, opts) =>
+      dedupePlanCall('dedupe_regroup', { planId, opts }),
+    dedupeSetKeeper: (planId, group, member) =>
+      dedupePlanCall('dedupe_set_keeper', { planId, group, member }),
+    dedupeSkipGroup: (planId, group, skip) =>
+      dedupePlanCall('dedupe_skip_group', { planId, group, skip }),
+    dedupeSkipSystem: (planId, system, skip) =>
+      dedupePlanCall('dedupe_skip_system', { planId, system, skip }),
+    dedupeResetChoices: (root, systems) =>
+      call<number>('dedupe_reset_choices', { root, systems: systems ?? null }),
+    dedupeApply: (planId) => dedupeJobCall('dedupe_apply', { planId }),
+    dedupeCancelApply: () => call<void>('dedupe_cancel_apply'),
+    dedupeJob: async () => {
+      const view = await call<DedupeJobView | null>('dedupe_job');
+      return view ? normalizeDedupeJob(view) : null;
+    },
+    dedupeResume: (job) => dedupeJobCall('dedupe_resume', { job }),
+    dedupeExportPlan: (planId) =>
+      call<string | null>('dedupe_export_plan', { planId }),
+    revealPath: (path) => call<void>('reveal_path', { path }),
+    onDedupeProgress: (cb) =>
+      listen<DedupeProgressEvent>(DEDUPE_PROGRESS_EVENT, (e) => cb(e.payload)),
+    onDedupeChanged: (cb) =>
+      listen<DedupeJobView>(DEDUPE_CHANGED_EVENT, (e) =>
+        cb(normalizeDedupeJob(e.payload)),
       ),
     getSettings: () => call<SettingsView>('get_settings'),
     updateSettings: (patch) =>
