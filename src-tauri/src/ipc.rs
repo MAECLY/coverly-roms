@@ -477,10 +477,12 @@ pub async fn export_job_report(
     .await
 }
 
-/// The settings with what loading them had to do (a one-time notice).
+/// The settings with what loading them had to do (a one-time notice) and
+/// the external archive tools found. Off the main thread: finding a tool
+/// runs its version banner.
 #[tauri::command]
-pub fn get_settings(state: State<'_, AppState>) -> SettingsView {
-    state.settings_view()
+pub async fn get_settings(app: AppHandle) -> Result<SettingsView, IpcError> {
+    blocking(move || Ok(app.state::<AppState>().settings_view())).await
 }
 
 /// Validates and saves a JSON merge patch of the settings; field problems

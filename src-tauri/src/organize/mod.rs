@@ -18,6 +18,7 @@ use coverly_core::organize::{
     OrganizeProgress, OrganizeReport, SkipReason, Survey,
 };
 
+use coverly_core::archive::external::FoundTool;
 use coverly_core::jobs::ItemErrorKind;
 use coverly_core::profiles::Profile;
 
@@ -179,7 +180,8 @@ impl OrganizeManager {
         self.lock().apply.as_ref().map(|j| j.view())
     }
 
-    /// Asks the running apply to stop before its next item; a no-op when
+    /// Asks the running apply to stop before its next item (or inside an
+    /// extraction, before its files are renamed into place); a no-op when
     /// none runs.
     pub fn cancel_apply(&self) {
         if let Some(job) = &self.lock().apply {
@@ -208,6 +210,7 @@ impl OrganizeManager {
             target_root: start.target_root,
             layout: start.layout,
             data_dir: start.data_dir,
+            external_tools: start.external_tools,
             cancel: AtomicBool::new(false),
             data: Mutex::new(ApplyData {
                 job: start.job,
@@ -232,12 +235,15 @@ impl OrganizeManager {
                     });
                     throttle.progress(p);
                 };
+                // External tools off: an extraction never looks for one;
+                // otherwise they are found on first need.
+                let no_tools: &[FoundTool] = &[];
                 let env = ApplyEnv {
                     data_dir: &job.data_dir,
                     progress: &progress,
                     cancel: &job.cancel,
                     trash: &coverly_core::write::trash::OsTrash,
-                    tools: None,
+                    tools: (!job.external_tools).then_some(no_tools),
                 };
                 apply(&env).map_err(IpcError::from)
             }))
@@ -271,6 +277,8 @@ pub struct ApplyStart {
     pub layout: String,
     /// Journals and saved plans (the job's settings snapshot).
     pub data_dir: PathBuf,
+    /// `organize.external_tools` is on: extractions may run 7-Zip or unrar.
+    pub external_tools: bool,
 }
 
 /// One apply (or resume) of an organise plan.
@@ -279,6 +287,7 @@ pub struct ApplyJob {
     target_root: String,
     layout: String,
     data_dir: PathBuf,
+    external_tools: bool,
     cancel: AtomicBool,
     data: Mutex<ApplyData>,
 }
@@ -392,7 +401,8 @@ impl Throttle {
         let due = match *last {
             None => true,
             Some((phase, at)) => {
-                phase != p.phase
+                // An extraction's byte counts are progress, not a new phase.
+                std::mem::discriminant(&phase) != std::mem::discriminant(&p.phase)
                     || (p.total > 0 && p.done >= p.total)
                     || now.duration_since(at) >= PROGRESS_EVERY
             }
@@ -463,6 +473,26 @@ mod tests {
         assert_eq!(got.first().unwrap().phase, OrganizePhase::Walk);
         assert_eq!(got[1].phase, OrganizePhase::Identify);
         assert_eq!(got.last().unwrap().done, 500);
+        assert!(got.len() < 10, "throttled: {} events", got.len());
+    }
+
+    #[test]
+    fn extract_byte_counts_are_throttled_like_one_phase() {
+        let sink = Arc::new(Sink(Mutex::new(Vec::new())));
+        let t = Throttle::new(2, sink.clone());
+        let p = |bytes_done| OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                bytes_done,
+                bytes_total: 1000,
+            },
+            done: 0,
+            total: 1,
+        };
+        for b in 0..1000 {
+            t.progress(p(b));
+        }
+        let got = sink.0.lock().unwrap().clone();
+        assert!(!got.is_empty());
         assert!(got.len() < 10, "throttled: {} events", got.len());
     }
 

@@ -321,9 +321,20 @@ fn settings_samples_match_rust() {
         backup: Some("/config/settings.json.bak-1".into()),
         fixed: vec!["network.timeout_secs".into()],
     };
-    let mut view = serde_json::to_value(SettingsView::new(Settings::default(), &report)).unwrap();
-    view.as_object_mut().unwrap().remove("settings");
-    assert_eq!(view, sample["settings_view_meta"]);
+    let found = coverly_core::archive::external::FoundTool {
+        tool: coverly_core::archive::Tool::SevenZip,
+        path: "/opt/homebrew/bin/7zz".into(),
+        version: "24.08".into(),
+        rar5: true,
+    };
+    let mut view =
+        serde_json::to_value(SettingsView::new(Settings::default(), &report).with_tools(&[found]))
+            .unwrap();
+    let view = view.as_object_mut().unwrap();
+    view.remove("settings");
+    let tools = view.remove("external_tools_found").unwrap();
+    assert_eq!(tools, sample["settings_external_tools_found"]);
+    assert_eq!(Value::Object(view.clone()), sample["settings_view_meta"]);
     let store = MemoryStore::default();
     store.set(CredentialKey::SteamgriddbApiKey, "x").unwrap();
     assert_eq!(
@@ -466,6 +477,141 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         move_allowed: true,
         target_detected: None,
         created_at: "2026-10-17T10:32:00Z".into(),
+    }
+}
+
+/// A disc game in a 7z named `.zip`, extracted into the system folder
+/// (the real case's PS1 archive, archives spec §1).
+fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
+    use coverly_core::dedupe::source::{DiscId, DiscIdSource};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::organize::{
+        ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, ItemNote, OrganizeAction,
+        OrganizeItem, SheetCheck, SourceFp, Transfer,
+    };
+    let entry = |index: usize, name: &str, size: u64, crc32: u32| ExtractEntry {
+        index,
+        name: format!("Next Tetris, The (USA)/{name}"),
+        size,
+        crc32: Some(crc32),
+        target: format!("ROMS/PS/{name}").into(),
+    };
+    OrganizeItem {
+        id: 3,
+        sources: vec!["Next Tetris, The.zip".into()],
+        kind: ItemKind::Archive,
+        size: 197_012_345,
+        fps: vec![SourceFp {
+            size: 197_012_345,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("/Users/me/ROMs-Downloaded/ROMS/PS/Next Tetris, The (USA).cue".into()),
+        set_targets: vec![],
+        system_id: Some("psx".into()),
+        folder: Some("PS".into()),
+        confidence: 0.75,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(
+            IdLevel::Header,
+            "psx",
+            0.75,
+            "SYSTEM.CNF BOOT + licence text",
+        )],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![ItemNote::ContainerMismatch {
+            ext: "zip".into(),
+            actual: "7z".into(),
+        }],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::Extract {
+            entries: vec![
+                entry(0, "Next Tetris, The (USA).cue", 1_214, 0x0A1B_2C3D),
+                entry(
+                    1,
+                    "Next Tetris, The (USA) (Track 01).bin",
+                    385_000_000,
+                    0x1122_3344,
+                ),
+                entry(
+                    2,
+                    "Next Tetris, The (USA) (Track 02).bin",
+                    20_748_279,
+                    0x5566_7788,
+                ),
+            ],
+            bytes: 405_749_493,
+            archive_after: ArchiveAfter::Trash,
+            source: ExtractSource::Builtin,
+            sheet_check: SheetCheck::Read,
+            m3u: None,
+        },
+        disc: Some(DiscId {
+            serials: vec!["SLUS-00862".into()],
+            disc_no: None,
+            volume: None,
+            source: DiscIdSource::SystemCnf,
+        }),
+        action: OrganizeAction::Auto,
+    }
+}
+
+#[test]
+fn archive_and_disc_views_match_the_shared_sample() {
+    use coverly_core::organize::{ItemOutcome, ItemStatus, OrganizePhase, OrganizeReport};
+    use coverly_core::write::UndoReport;
+    use coverly_roms_lib::organize::view::OrganizeProgressEvent;
+
+    let job = "20261024T091500Z-1bfb-0002";
+    let actual = json!({
+        "organize_extract_item": organize_extract_item_sample(),
+        "organize_progress_extract": OrganizeProgressEvent {
+            plan_id: 3,
+            phase: OrganizePhase::Extract {
+                bytes_done: 104_857_600,
+                bytes_total: 405_749_493,
+            },
+            done: 0,
+            total: 1,
+        },
+        "organize_report_extracted": OrganizeReport {
+            job: Some(job.into()),
+            moved: 0,
+            copied: 0,
+            extracted: 1,
+            skipped: 0,
+            failed: 0,
+            items: vec![ItemOutcome {
+                item: 3,
+                status: ItemStatus::ExtractedKept,
+                targets: vec![
+                    "/Users/me/ROMs-Downloaded/ROMS/PS/Next Tetris, The (USA).cue".into(),
+                ],
+            }],
+            paused: None,
+            pause_reason: None,
+            resumable_items: vec![],
+        },
+        "organize_undo_archive_lost": UndoReport {
+            job: job.into(),
+            removed: vec![],
+            restored: vec![],
+            skipped_modified: vec![],
+            skipped_occupied: vec![],
+            dirs_removed: vec![],
+            archive_lost: vec!["/Users/me/ROMs-Downloaded/Next Tetris, The.zip".into()],
+        },
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
     }
 }
 

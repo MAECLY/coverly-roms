@@ -74,14 +74,66 @@ pub struct OrganizePlanView {
     pub plan: OrganizePlan,
 }
 
-/// Planning progress of plan `plan_id` (at most every 100 ms; phase
-/// changes and ends always).
+/// Planning or apply progress of plan `plan_id` (at most every 100 ms;
+/// phase changes and ends always). On the wire the phase is a plain
+/// kebab-case name; an `extract` event also carries `bytes_done` of the
+/// `bytes_total` its decode pass goes through (archives spec §12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(into = "ProgressWire")]
 pub struct OrganizeProgressEvent {
     pub plan_id: u64,
     pub phase: OrganizePhase,
     pub done: usize,
     pub total: usize,
+}
+
+/// The wire form of an [`OrganizeProgressEvent`].
+#[derive(Serialize)]
+struct ProgressWire {
+    plan_id: u64,
+    phase: PhaseName,
+    done: usize,
+    total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bytes_done: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bytes_total: Option<u64>,
+}
+
+/// [`OrganizePhase`] without its byte counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum PhaseName {
+    Walk,
+    Identify,
+    Dats,
+    Hash,
+    Apply,
+    Extract,
+}
+
+impl From<OrganizeProgressEvent> for ProgressWire {
+    fn from(e: OrganizeProgressEvent) -> Self {
+        let (phase, bytes) = match e.phase {
+            OrganizePhase::Walk => (PhaseName::Walk, None),
+            OrganizePhase::Identify => (PhaseName::Identify, None),
+            OrganizePhase::Dats => (PhaseName::Dats, None),
+            OrganizePhase::Hash => (PhaseName::Hash, None),
+            OrganizePhase::Apply => (PhaseName::Apply, None),
+            OrganizePhase::Extract {
+                bytes_done,
+                bytes_total,
+            } => (PhaseName::Extract, Some((bytes_done, bytes_total))),
+        };
+        ProgressWire {
+            plan_id: e.plan_id,
+            phase,
+            done: e.done,
+            total: e.total,
+            bytes_done: bytes.map(|b| b.0),
+            bytes_total: bytes.map(|b| b.1),
+        }
+    }
 }
 
 /// Where an organise apply (or resume) stands.
@@ -160,6 +212,30 @@ mod tests {
         assert_eq!(
             serde_json::to_value(e).unwrap(),
             json!({ "plan_id": 3, "phase": "identify", "done": 4, "total": 17 })
+        );
+    }
+
+    #[test]
+    fn extract_progress_has_a_plain_phase_and_byte_counts() {
+        let e = OrganizeProgressEvent {
+            plan_id: 3,
+            phase: OrganizePhase::Extract {
+                bytes_done: 1024,
+                bytes_total: 405_749_493,
+            },
+            done: 1,
+            total: 3,
+        };
+        assert_eq!(
+            serde_json::to_value(e).unwrap(),
+            json!({
+                "plan_id": 3,
+                "phase": "extract",
+                "done": 1,
+                "total": 3,
+                "bytes_done": 1024,
+                "bytes_total": 405_749_493u64,
+            })
         );
     }
 }

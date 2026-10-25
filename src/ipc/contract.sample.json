@@ -994,5 +994,126 @@
       "code": "no-space",
       "detail": "8473027/1000"
     }
-  ]
+  ],
+  "settings_external_tools_found": [
+    {
+      "tool": "seven-zip",
+      "version": "24.08",
+      "path": "/opt/homebrew/bin/7zz"
+    }
+  ],
+  "organize_extract_item": {
+    "action": "auto",
+    "alternatives": [],
+    "catalogue_name": null,
+    "companions": [],
+    "confidence": 0.75,
+    "disc": {
+      "disc_no": null,
+      "serials": ["SLUS-00862"],
+      "source": "system-cnf",
+      "volume": null
+    },
+    "folder": "PS",
+    "fps": [
+      {
+        "mtime_ns": 1700000000000000000,
+        "size": 197012345
+      }
+    ],
+    "id": 3,
+    "kind": "archive",
+    "method": "header",
+    "notes": [
+      {
+        "actual": "7z",
+        "ext": "zip",
+        "kind": "container-mismatch"
+      }
+    ],
+    "rename": null,
+    "set_targets": [],
+    "size": 197012345,
+    "sources": ["Next Tetris, The.zip"],
+    "system_id": "psx",
+    "target": "/Users/me/ROMs-Downloaded/ROMS/PS/Next Tetris, The (USA).cue",
+    "transfer": {
+      "archive_after": "trash",
+      "bytes": 405749493,
+      "entries": [
+        {
+          "crc32": 169552957,
+          "index": 0,
+          "name": "Next Tetris, The (USA)/Next Tetris, The (USA).cue",
+          "size": 1214,
+          "target": "ROMS/PS/Next Tetris, The (USA).cue"
+        },
+        {
+          "crc32": 287454020,
+          "index": 1,
+          "name": "Next Tetris, The (USA)/Next Tetris, The (USA) (Track 01).bin",
+          "size": 385000000,
+          "target": "ROMS/PS/Next Tetris, The (USA) (Track 01).bin"
+        },
+        {
+          "crc32": 1432778632,
+          "index": 2,
+          "name": "Next Tetris, The (USA)/Next Tetris, The (USA) (Track 02).bin",
+          "size": 20748279,
+          "target": "ROMS/PS/Next Tetris, The (USA) (Track 02).bin"
+        }
+      ],
+      "kind": "extract",
+      "m3u": null,
+      "sheet_check": "read",
+      "source": {
+        "kind": "builtin"
+      }
+    },
+    "why": [
+      {
+        "detail": "SYSTEM.CNF BOOT + licence text",
+        "kind": "header",
+        "system": "psx",
+        "weight": 0.75
+      }
+    ]
+  },
+  "organize_progress_extract": {
+    "bytes_done": 104857600,
+    "bytes_total": 405749493,
+    "done": 0,
+    "phase": "extract",
+    "plan_id": 3,
+    "total": 1
+  },
+  "organize_report_extracted": {
+    "copied": 0,
+    "extracted": 1,
+    "failed": 0,
+    "items": [
+      {
+        "item": 3,
+        "status": "extracted-kept",
+        "targets": [
+          "/Users/me/ROMs-Downloaded/ROMS/PS/Next Tetris, The (USA).cue"
+        ]
+      }
+    ],
+    "job": "20261024T091500Z-1bfb-0002",
+    "moved": 0,
+    "pause_reason": null,
+    "paused": null,
+    "resumable_items": [],
+    "skipped": 0
+  },
+  "organize_undo_archive_lost": {
+    "archive_lost": ["/Users/me/ROMs-Downloaded/Next Tetris, The.zip"],
+    "dirs_removed": [],
+    "job": "20261024T091500Z-1bfb-0002",
+    "removed": [],
+    "restored": [],
+    "skipped_modified": [],
+    "skipped_occupied": []
+  }
 }
