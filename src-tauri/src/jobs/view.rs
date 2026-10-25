@@ -406,3 +406,25 @@ pub enum ExportFormat {
     Csv,
     Json,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dedupe_job_reaches_the_history_as_kind_dedupe() {
+        let view = JobHistoryView::from(JobSummary {
+            job: "20261025T100000Z-0000-0000".into(),
+            root: "/lib".into(),
+            created_at: "2026-10-25T10:00:00Z".into(),
+            entries: 2,
+            complete: true,
+            undone: false,
+            kind: JobKind::Dedupe,
+            source_root: None,
+            undoable: true,
+        });
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["kind"], "dedupe");
+    }
+}

@@ -888,3 +888,134 @@ fn completion_and_rollback_need_a_journaled_intent() {
     ));
     assert!(!w.has_entries());
 }
+
+// --- Duplicates jobs (duplicates plan Task 21) ---
+
+fn dedupe_job(root: &Path, data: &Path) -> Writer {
+    Writer::begin_with(
+        root,
+        data,
+        JobMeta {
+            kind: JobKind::Dedupe,
+            source_root: None,
+        },
+    )
+    .unwrap()
+}
+
+/// A journal with only a header of `kind` and a done line.
+fn bare_journal(data: &Path, job: &str, kind: &str) {
+    let jobs = data.join("jobs");
+    fs::create_dir_all(&jobs).unwrap();
+    fs::write(
+        jobs.join(format!("{job}.jsonl")),
+        format!(
+            "{{\"type\":\"header\",\"job\":\"{job}\",\"root\":\"/lib\",\"kind\":\"{kind}\",\"created_at\":\"x\"}}\n{{\"type\":\"done\"}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn job_ids(data: &Path) -> Vec<String> {
+    list_jobs(data)
+        .unwrap()
+        .into_iter()
+        .map(|j| j.job)
+        .collect()
+}
+
+/// 2026-10-17T00:00:00Z.
+fn oct_17() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_792_195_200)
+}
+
+#[test]
+fn dedupe_job_lists_with_kind_dedupe() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("T"), tmp.path().join("d"));
+    fs::create_dir_all(&root).unwrap();
+    let w = dedupe_job(&root, &data);
+    assert_eq!(w.kind(), JobKind::Dedupe);
+    let journal = w.journal_path().to_path_buf();
+    let job = w.finish().unwrap();
+    let header = fs::read_to_string(&journal).unwrap();
+    let first = header.lines().next().unwrap();
+    assert!(first.contains("\"kind\":\"dedupe\""), "{first}");
+    let s = list_jobs(&data)
+        .unwrap()
+        .into_iter()
+        .find(|j| j.job == job)
+        .unwrap();
+    assert_eq!(s.kind, JobKind::Dedupe);
+    assert!(s.undoable);
+    let w = Writer::resume(&root, &data, &job).unwrap();
+    assert_eq!(w.kind(), JobKind::Dedupe);
+}
+
+#[test]
+fn dedupe_jobs_survive_thirty_fill_jobs() {
+    let tmp = TempDir::new().unwrap();
+    let data = tmp.path();
+    // Ten days before 2026-10-17, older in id order than every fill.
+    let dedupe = "20261007T000000Z-0000-0000".to_string();
+    bare_journal(data, &dedupe, "dedupe");
+    let fills: Vec<String> = (0..30)
+        .map(|n| format!("20261016T0000{n:02}Z-0000-0000"))
+        .collect();
+    for job in &fills {
+        bare_journal(data, job, "fill");
+    }
+    prune_jobs_at(data, 20, 90, oct_17()).unwrap();
+    let left = job_ids(data);
+    assert!(left.contains(&dedupe), "{left:?}");
+    assert_eq!(left.iter().filter(|j| fills.contains(j)).count(), 20);
+}
+
+#[test]
+fn dedupe_and_organise_are_counted_apart() {
+    let tmp = TempDir::new().unwrap();
+    let data = tmp.path();
+    // All older than 90 days at 2026-10-17; keep 1 per kind.
+    let (old_org, new_org) = (
+        "20260101T000000Z-0000-0000".to_string(),
+        "20260301T000000Z-0000-0000".to_string(),
+    );
+    let (old_dd, new_dd) = (
+        "20260102T000000Z-0000-0000".to_string(),
+        "20260201T000000Z-0000-0000".to_string(),
+    );
+    bare_journal(data, &old_org, "organize");
+    bare_journal(data, &new_org, "organize");
+    bare_journal(data, &old_dd, "dedupe");
+    bare_journal(data, &new_dd, "dedupe");
+    prune_jobs_at(data, 1, 90, oct_17()).unwrap();
+    assert_eq!(job_ids(data), [new_org, new_dd]);
+}
+
+#[test]
+fn an_older_reader_never_undoes_a_dedupe_journal() {
+    /// `JobKind` as builds before duplicates had it.
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    #[allow(dead_code)]
+    enum OldJobKind {
+        Fill,
+        Organize,
+    }
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OldHeader {
+        kind: OldJobKind,
+    }
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("T"), tmp.path().join("d"));
+    fs::create_dir_all(&root).unwrap();
+    let w = dedupe_job(&root, &data);
+    let journal = w.journal_path().to_path_buf();
+    w.finish().unwrap();
+    let text = fs::read_to_string(journal).unwrap();
+    let header = text.lines().next().unwrap();
+    // An older build cannot read the header: it lists the job unreadable
+    // (not undoable) and never half-undoes it.
+    assert!(serde_json::from_str::<OldHeader>(header).is_err());
+}

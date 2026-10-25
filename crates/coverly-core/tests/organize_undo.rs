@@ -663,3 +663,35 @@ fn manual_writes_keep_organise_journals_as_long_as_the_settings_say() {
         .collect();
     assert!(!left.contains(&old.to_string()), "{left:?}");
 }
+
+#[test]
+fn dedupe_job_undo_moves_files_back() {
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("T"), tmp.path().join("d"));
+    let gb = root.join("ROMS/GB");
+    fs::create_dir_all(&gb).unwrap();
+    let from = gb.join("Tetris (1).gb");
+    fs::write(&from, b"tetris").unwrap();
+    let quarantine = root.join("_Duplicados/GB");
+    let mut w = Writer::begin_with(
+        &root,
+        &data,
+        JobMeta {
+            kind: JobKind::Dedupe,
+            source_root: None,
+        },
+    )
+    .unwrap();
+    w.ensure_dir(&quarantine).unwrap();
+    let to = quarantine.join("Tetris (1).gb");
+    w.move_file(&from, &to, Collision::Rename, Some(0)).unwrap();
+    let job = w.finish().unwrap();
+    assert!(to.exists() && !from.exists());
+
+    let trash = coverly_core::write::trash::FakeTrash::new(tmp.path().join("trash"));
+    let report = undo_job_with(&data, &job, &trash).unwrap();
+    assert_eq!(report.restored, std::slice::from_ref(&from));
+    assert_eq!(fs::read(&from).unwrap(), b"tetris");
+    assert!(!root.join("_Duplicados").exists());
+    assert_eq!(report.dirs_removed.len(), 2);
+}
