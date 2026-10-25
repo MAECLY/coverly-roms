@@ -80,6 +80,12 @@ function statusText(
             folder,
             why: t(`dedupe.limit.${s.reason.why}`),
           });
+        case 'trash-unavailable':
+          return t('dedupe.skip.trashUnavailable');
+        case 'report-only':
+          return t('dedupe.skip.reportOnly');
+        case 'taken':
+          return t('dedupe.skip.taken', { folder });
         case 'excluded':
           return t('dedupe.skip.excluded');
         case 'conflict':
@@ -115,8 +121,8 @@ export function DedupeResult({
   const nameOf = (group: number, member: number) =>
     members.get(`${group}:${member}`) ?? `#${group}/${member}`;
 
-  const moved = report.outcomes.filter(([, , s]) => done(s)).length;
-  const left = report.outcomes.filter(([, , s]) => !done(s));
+  const moved = report.outcomes.filter(done).length;
+  const left = report.outcomes.filter((o) => !done(o));
   const bytes = formatBytes(report.bytes_out, locale);
   const trash = action === 'trash';
   const headline = trash
@@ -139,10 +145,10 @@ export function DedupeResult({
             {t('dedupe.partial', { done: moved, skipped: left.length })}
           </AlertTitle>
           <ul className="dup-result__left">
-            {left.map(([g, m, s]) => (
-              <li key={`${g}:${m}`}>
-                <span className="dup-mono">{nameOf(g, m)}</span>{' '}
-                <span>{statusText(t, s, folder)}</span>
+            {left.map((o) => (
+              <li key={`${o.group}:${o.member}`}>
+                <span className="dup-mono">{nameOf(o.group, o.member)}</span>{' '}
+                <span>{statusText(t, o, folder)}</span>
               </li>
             ))}
           </ul>
@@ -222,13 +228,16 @@ export function DedupeResult({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <ul className="dup-unchanged__list">
-              {report.outcomes.map(([g, m, s]) => (
-                <li key={`${g}:${m}`} className="dup-unchanged__row">
+              {report.outcomes.map((o) => (
+                <li
+                  key={`${o.group}:${o.member}`}
+                  className="dup-unchanged__row"
+                >
                   <span className="dup-mono dup-unchanged__file">
-                    {nameOf(g, m)}
+                    {nameOf(o.group, o.member)}
                   </span>
                   <span className="dup-unchanged__why">
-                    {statusText(t, s, folder)}
+                    {statusText(t, o, folder)}
                   </span>
                 </li>
               ))}

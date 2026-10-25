@@ -526,7 +526,10 @@
       "sourceMissing": "It was no longer there; not moved.",
       "excluded": "You left it out; still in place.",
       "conflict": "It has different saves; still in place.",
-      "cancelled": "Cancelled before reaching it; still in place."
+      "cancelled": "Cancelled before reaching it; still in place.",
+      "trashUnavailable": "Its drive has no Trash; still in place.",
+      "reportOnly": "This game is only reported; still in place.",
+      "taken": "{folder} already holds a file with that name; still in place."
     },
     "delta": "+{count} files",
     "bulk": {
@@ -1115,7 +1118,8 @@
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
-      "title": "Staying where they are"
+      "title": "Staying where they are",
+      "inLibrary": "Already in the library as {path}"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
@@ -1215,7 +1219,9 @@
         "not-decided": "Skipped: no system chosen",
         "cancelled": "Skipped: stopped before it",
         "tool-gone": "Skipped: the archive tool is gone or another version now"
-      }
+      },
+      "quarantined": "Set aside",
+      "trashed": "In the Trash"
     },
     "undo": {
       "action": "Undo",

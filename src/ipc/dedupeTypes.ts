@@ -1,8 +1,8 @@
-/* Duplicates — mirror of coverly_core::settings::DedupeSettings (and, from
- * Task 18 on, of coverly_core::dedupe). Kept apart from `types.ts` until
- * the archive branch lands; Phase B re-exports it from there. */
+/* Duplicates — mirror of coverly_core::settings::DedupeSettings,
+ * coverly_core::dedupe and src-tauri/src/dedupe/view.rs. `types.ts`
+ * re-exports everything here. */
 
-import type { ItemErrorKind } from './types';
+import type { ItemErrorKind, OrganizeJobState, WireError } from './types';
 
 export const DEDUPE_LEVELS = ['exact', 'format', 'version'] as const;
 export type DedupeLevel = (typeof DEDUPE_LEVELS)[number];
@@ -274,10 +274,21 @@ export interface DedupePlanView {
   chd_unread: number;
   off_card_saves: string[];
   totals: TotalsView;
+  /** Extras go to the OS Trash (the plan was made with `quarantine:
+   * trash`); Rust leaves it out when false, the adapter fills it in. */
+  trash: boolean;
+  /** The library's volume has a Trash: false on a Windows removable
+   * drive or a FAT volume without `.Trashes`; the screen disables the
+   * Trash option with that reason. */
+  trash_available: boolean;
 }
 
-/* ---- Apply report: mirror of coverly_core::dedupe::apply (Task 23) ----
- * Phase B wires it to the backend; the result view is built on it now. */
+/** What Rust sends: `trash` is left out when false. */
+export type DedupePlanViewWire = Omit<DedupePlanView, 'trash'> & {
+  trash?: boolean;
+};
+
+/* ---- Apply report: mirror of coverly_core::dedupe::apply ------------- */
 
 export const DEST_LIMITS = [
   'fat32-size',
@@ -287,29 +298,167 @@ export const DEST_LIMITS = [
 ] as const;
 export type DestLimitView = (typeof DEST_LIMITS)[number];
 
+export const DEDUPE_SKIP_KINDS = [
+  'keeper-changed',
+  'changed-since-plan',
+  'source-missing',
+  'destination-limit',
+  'trash-unavailable',
+  'conflict',
+  'report-only',
+  'excluded',
+  'cancelled',
+  'taken',
+] as const;
+
+/** Why an extra copy stayed where it was. */
 export type DedupeSkipView =
   | { kind: 'keeper-changed' }
   | { kind: 'changed-since-plan' }
   | { kind: 'source-missing' }
   | { kind: 'destination-limit'; why: DestLimitView }
-  | { kind: 'excluded' }
+  /** Its volume has no Trash. */
+  | { kind: 'trash-unavailable' }
   | { kind: 'conflict' }
-  | { kind: 'cancelled' };
+  | { kind: 'report-only' }
+  | { kind: 'excluded' }
+  | { kind: 'cancelled' }
+  /** A file of the set already sits in the quarantine under that name. */
+  | { kind: 'taken' };
 
 export type DedupeItemStatusView =
-  | { status: 'quarantined' }
-  | { status: 'trashed' }
+  /** `to`: where its primary file landed in the quarantine. */
+  | { status: 'quarantined'; to: string }
+  /** `location`: its place in the Trash, when the OS said. */
+  | { status: 'trashed'; location: string | null }
   | { status: 'skipped'; reason: DedupeSkipView }
   | { status: 'failed'; kind: ItemErrorKind; detail: string };
 
+/** One extra copy and what happened to it. */
+export type DedupeOutcomeView = DedupeItemStatusView & {
+  group: number;
+  /** `MemberView.id`. */
+  member: number;
+  /** Where its files are now: the unit's files, then companions and art. */
+  files: string[];
+};
+
+export type DedupeApplyNoteView =
+  /** The game list of `system` lies outside the folder Coverly writes
+   * into: its entries stay. */
+  | { kind: 'gamelist-not-updated'; system: string }
+  /** Art left with a copy and `keeper` has none in that slot now. */
+  | { kind: 'art-leaves'; keeper: string };
+
+/** What an apply (or a resume) did. */
 export interface DedupeReportView {
-  job: string;
-  /** `[group id, MemberView.id, what happened]`, one per extra. */
-  outcomes: [number, number, DedupeItemStatusView][];
+  /** The journal; `null` when nothing changed. */
+  job: string | null;
+  outcomes: DedupeOutcomeView[];
   /** Bytes that left the ROMs folder. */
   bytes_out: number;
   /** Covers that left with an extra: keepers now without one. */
   art_left: string[];
+  /** Set when the run stopped on a full, read-only or vanished volume. */
+  paused: ItemErrorKind | null;
+  /** `[group, member]` not attempted yet: what a resume does. */
+  resumable: [number, number][];
+  notes: DedupeApplyNoteView[];
+}
+
+/* ---- Requests, progress and the job: mirror of src-tauri dedupe/view.rs */
+
+/** Where extras go. */
+export type QuarantineChoiceView =
+  /** `_Duplicados/` inside the library root (the default). */
+  | { kind: 'next-to-roms' }
+  | { kind: 'folder'; path: string }
+  /** The OS Trash (opt-in). */
+  | { kind: 'trash' };
+
+/** What to look for; missing fields take `settings.dedupe`. A regroup
+ * reads only `levels`, `one_game_one_rom`, `rules` and `quarantine`. */
+export interface DedupeRequest {
+  profile?: string | null;
+  levels?: DedupeLevel[] | null;
+  one_game_one_rom?: boolean | null;
+  /** Keeper rules in the order they are weighed. */
+  rules?: RuleToggle[] | null;
+  /** System ids (`null` = every system). */
+  systems?: string[] | null;
+  /** Cached catalogues only: no download. */
+  offline?: boolean | null;
+  quarantine?: QuarantineChoiceView | null;
+  /** Copies that must stay, whatever the rules say (absolute paths). */
+  forced_keepers?: string[];
+  /** Forget the keepers chosen in earlier runs. */
+  reset_choices?: boolean;
+}
+
+/** Planning phases in the order they run, then `apply`. */
+export const DEDUPE_PHASES = [
+  'listing',
+  'sizes',
+  'fingerprints',
+  'serials',
+  'catalogues',
+] as const;
+export type DedupePhaseView = (typeof DEDUPE_PHASES)[number];
+export type DedupeEventPhase = DedupePhaseView | 'apply';
+
+/** `dedupe-progress`: at most every 100 ms; phase changes and ends always. */
+export interface DedupeProgressEvent {
+  plan_id: number;
+  phase: DedupeEventPhase;
+  done: number;
+  total: number;
+}
+
+export type DedupeJobState = OrganizeJobState;
+
+/** The duplicates apply of the app (`dedupe-changed` event). */
+export interface DedupeJobView {
+  /** The journal, once known (always for a resume). */
+  job: string | null;
+  /** The plan applied; a resume gets a new id for its progress events. */
+  plan_id: number;
+  state: DedupeJobState;
+  /** The last progress, while applying. */
+  progress: DedupeProgressEvent | null;
+  /** What was done, once it ended (`done`, `paused`, `cancelled`). */
+  report: DedupeReportView | null;
+  /** The library the copies came from. */
+  root: string;
+  /** The quarantine folder (also set for the Trash, as the plan named it). */
+  quarantine: string;
+  /** The copies went to the OS Trash instead of the quarantine. */
+  trash: boolean;
+  /** Why it failed (`failed` only). */
+  error: WireError | null;
+}
+
+/* ---- Organise wire additions (the duplicates step, DD-6) -------------- */
+
+/** A pile copy of a game the library holds (or of a pile copy that
+ * stays): moved to the pile's quarantine (or the Trash). */
+export interface OrganizeSetAsideAction {
+  action: 'set-aside';
+  /** The copy that stays, relative to the target root (a pile copy that
+   * stays on the pile: relative to the source root). */
+  keeper: string;
+  relation: RelationView;
+  reason: KeepReasonView;
+  /** Where the primary file goes: relative to the source root, or
+   * absolute in the library's quarantine. */
+  dest: string;
+}
+
+/** The game is already in the library: reported, not set aside. */
+export interface InLibraryReason {
+  kind: 'in-library';
+  /** That copy, relative to the target root (or the source root). */
+  path: string;
+  relation: RelationView;
 }
 
 /** The options the UI can change without a new scan. */

@@ -1102,6 +1102,8 @@ export function createMockOrganize(
         other_files: 0,
         deep_folders: 0,
         bytes: moving.reduce((n, i) => n + i.size, 0),
+        set_aside: 0,
+        in_library: 0,
       },
       sorted_folders: sortedFolders,
       deep_folders: [],
@@ -1112,6 +1114,8 @@ export function createMockOrganize(
       move_allowed: true,
       target_detected: null,
       created_at: iso(host.now),
+      duplicates: [],
+      set_aside_trash: false,
     };
     return { plan, files };
   }
@@ -1138,6 +1142,7 @@ export function createMockOrganize(
       extracted: count('extracted') + count('extracted-kept'),
       skipped: count('skipped'),
       failed: count('failed'),
+      set_aside: count('quarantined') + count('trashed'),
       items: outcomes,
       paused: null,
       pause_reason: null,

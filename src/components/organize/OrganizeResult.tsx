@@ -84,6 +84,10 @@ function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
       return t('organize.outcome.extracted');
     case 'extracted-kept':
       return t('organize.outcome.extractedKept');
+    case 'quarantined':
+      return t('organize.outcome.quarantined');
+    case 'trashed':
+      return t('organize.outcome.trashed');
     case 'skipped':
       return t(`organize.outcome.skipped.${o.reason}`);
     case 'failed':

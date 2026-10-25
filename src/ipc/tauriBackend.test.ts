@@ -393,7 +393,7 @@ describe('Tauri backend', () => {
       sample.organize_progress,
       {
         ...sample.organize_job,
-        report: { ...sample.organize_job.report, extracted: 0 },
+        report: { ...sample.organize_job.report, extracted: 0, set_aside: 0 },
       },
     ]);
     offProgress();
@@ -473,5 +473,19 @@ describe('Tauri backend', () => {
     await expect(
       createTauriBackend().organizeUndo('j', false),
     ).rejects.toMatchObject({ code: 'later-jobs', detail: 'j2' });
+  });
+
+  it('fills in the organise duplicates fields Rust leaves out', async () => {
+    mockIPC((cmd) =>
+      cmd === 'organize_plan' ? sample.organize_plan_view : sample.organize_job,
+    );
+    const b = createTauriBackend();
+    const view = await b.organizePlan({ source: '/x' });
+    expect(view.plan.duplicates).toEqual([]);
+    expect(view.plan.set_aside_trash).toBe(false);
+    expect([view.plan.counts.set_aside, view.plan.counts.in_library]).toEqual([
+      0, 0,
+    ]);
+    expect((await b.organizeApply(3, [])).report!.set_aside).toBe(0);
   });
 });

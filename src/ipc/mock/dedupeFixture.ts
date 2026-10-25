@@ -256,7 +256,7 @@ function fillers(): DupGroupView[] {
 }
 
 /** The core's `totals()`: conflicts counted apart, sums over acting groups. */
-function totals(groups: DupGroupView[]): TotalsView {
+export function dedupeTotals(groups: DupGroupView[]): TotalsView {
   const t: TotalsView = {
     groups: 0,
     extras: 0,
@@ -302,6 +302,8 @@ export function dedupeFixture(): DedupePlanView {
     no_catalogue: ['NDS', 'PSP', 'N64'],
     chd_unread: 0,
     off_card_saves: [],
-    totals: totals(groups),
+    totals: dedupeTotals(groups),
+    trash: false,
+    trash_available: true,
   };
 }

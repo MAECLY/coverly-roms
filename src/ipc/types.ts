@@ -1,6 +1,13 @@
 /** Wire types: mirror of src-tauri/src/library/{view,identify}.rs. */
 
+import type {
+  DupGroupView,
+  InLibraryReason,
+  OrganizeSetAsideAction,
+} from './dedupeTypes';
 import type { ErrorCode } from './errors';
+
+export * from './dedupeTypes';
 
 export type Media = 'cover' | 'screenshot' | 'title';
 export const MEDIA: readonly Media[] = ['cover', 'screenshot', 'title'];
@@ -360,7 +367,7 @@ export interface JobHistoryItem {
   undoable: boolean;
 }
 
-export type JobKind = 'fill' | 'organize';
+export type JobKind = 'fill' | 'organize' | 'dedupe';
 
 export type ExportFormat = 'csv' | 'json';
 
@@ -758,6 +765,8 @@ export type LeftReason =
   | { kind: 'duplicate'; of: string }
   | { kind: 'already-present'; at: string }
   | { kind: 'already-sorted'; folder: string }
+  /** The game is already in the library (duplicates step). */
+  | InLibraryReason
   | { kind: 'symlink' }
   | { kind: 'set-incomplete'; missing: string[] }
   | { kind: 'set-outside-folder' }
@@ -824,7 +833,8 @@ export type OrganizeItemKind = 'file' | 'archive' | 'set';
 export type OrganizeAction =
   | { action: 'auto' }
   | { action: 'review' }
-  | { action: 'left'; reason: LeftReason };
+  | { action: 'left'; reason: LeftReason }
+  | OrganizeSetAsideAction;
 
 /** An external archive program (unrar, 7-Zip, bsdtar; names are not translated). */
 export type ArchiveTool = 'unrar' | 'seven-zip' | 'bsdtar';
@@ -930,6 +940,11 @@ export interface OrganizeCounts {
   deep_folders: number;
   /** Bytes of the items that move. */
   bytes: number;
+  /** Pile copies set aside as duplicates (Rust leaves it out when 0). */
+  set_aside: number;
+  /** Pile copies of games the library already holds, set aside or
+   * reported (Rust leaves it out when 0). */
+  in_library: number;
 }
 
 /** A dry run: what would move where, and why. */
@@ -955,6 +970,11 @@ export interface OrganizePlan {
   /** The layout the target already looks like, when not the chosen one. */
   target_detected: string | null;
   created_at: string;
+  /** Duplicate groups with at least one pile copy (Rust leaves it out
+   * when empty). */
+  duplicates: DupGroupView[];
+  /** Set-aside items go to the OS Trash (Rust leaves it out when false). */
+  set_aside_trash: boolean;
 }
 
 /** What to plan; missing fields take `settings.organize`. */
@@ -1042,6 +1062,10 @@ export type OrganizeItemStatus =
   | { status: 'extracted' }
   /** Extracted, but the archive meant for the Trash stays where it was. */
   | { status: 'extracted-kept' }
+  /** A duplicate set aside in the pile's quarantine. */
+  | { status: 'quarantined' }
+  /** A duplicate sent to the Trash (`targets`: its places there). */
+  | { status: 'trashed' }
   | { status: 'skipped'; reason: OrganizeSkipReason }
   | { status: 'failed'; kind: ItemErrorKind; detail: string };
 
@@ -1062,6 +1086,9 @@ export interface OrganizeReport {
   extracted: number;
   skipped: number;
   failed: number;
+  /** Duplicates set aside or sent to the Trash (Rust leaves it out when
+   * 0; the adapter fills it in). */
+  set_aside: number;
   items: OrganizeItemOutcome[];
   /** Set when the run stopped on a full, read-only or vanished volume. */
   paused: PauseKind | null;
@@ -1127,8 +1154,19 @@ type WithOptional<T, K extends PropertyKey> = T extends unknown
 
 export type OrganizeItemWire = WithOptional<OrganizeItem, 'transfer' | 'disc'>;
 
-export type OrganizePlanWire = Omit<OrganizePlan, 'items'> & {
+export type OrganizeCountsWire = WithOptional<
+  OrganizeCounts,
+  'set_aside' | 'in_library'
+>;
+
+export type OrganizePlanWire = Omit<
+  OrganizePlan,
+  'items' | 'counts' | 'duplicates' | 'set_aside_trash'
+> & {
   items: OrganizeItemWire[];
+  counts: OrganizeCountsWire;
+  duplicates?: DupGroupView[];
+  set_aside_trash?: boolean;
 };
 
 export interface OrganizePlanViewWire {
@@ -1136,7 +1174,10 @@ export interface OrganizePlanViewWire {
   plan: OrganizePlanWire;
 }
 
-export type OrganizeReportWire = WithOptional<OrganizeReport, 'extracted'>;
+export type OrganizeReportWire = WithOptional<
+  OrganizeReport,
+  'extracted' | 'set_aside'
+>;
 
 export type OrganizeJobViewWire = Omit<OrganizeJobView, 'report'> & {
   report: OrganizeReportWire | null;

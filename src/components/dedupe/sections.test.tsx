@@ -342,13 +342,22 @@ describe('DedupeResult', () => {
       if (g.action.kind !== 'act') continue;
       for (const m of g.members)
         if (m.id !== g.keeper)
-          outcomes.push([g.id, m.id, { status: 'quarantined' }]);
+          outcomes.push({
+            group: g.id,
+            member: m.id,
+            status: 'quarantined',
+            to: m.dest ?? '',
+            files: [],
+          });
     }
     return {
       job: 'job-1',
       outcomes,
       bytes_out: plan.totals.bytes,
       art_left: [],
+      paused: null,
+      resumable: [],
+      notes: [],
       ...extra,
     };
   }
@@ -426,11 +435,18 @@ describe('DedupeResult', () => {
   it('result_partial_turns_warning_with_reasons', () => {
     const plan = dedupeFixture();
     const r = report(plan);
-    r.outcomes[0]![2] = {
+    const [a, b] = r.outcomes;
+    r.outcomes[0] = {
+      group: a!.group,
+      member: a!.member,
+      files: [],
       status: 'skipped',
       reason: { kind: 'keeper-changed' },
     };
-    r.outcomes[1]![2] = {
+    r.outcomes[1] = {
+      group: b!.group,
+      member: b!.member,
+      files: [],
       status: 'skipped',
       reason: { kind: 'destination-limit', why: 'fat32-size' },
     };

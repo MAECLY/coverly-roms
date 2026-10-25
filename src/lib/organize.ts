@@ -199,6 +199,8 @@ export function leftReasonKey(r: LeftReason): KeyedText {
       return k('unknown');
     case 'duplicate':
       return k('duplicate', { name: r.of });
+    case 'in-library':
+      return k('inLibrary', { path: r.path });
     case 'already-present':
       return k('alreadyPresent', { path: r.at });
     case 'already-sorted':

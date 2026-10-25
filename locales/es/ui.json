@@ -526,7 +526,10 @@
       "sourceMissing": "Ya no estaba en su sitio; no se ha movido.",
       "excluded": "Lo has dejado fuera; sigue en su sitio.",
       "conflict": "Tiene partidas distintas; sigue en su sitio.",
-      "cancelled": "Cancelado antes de llegar a él; sigue en su sitio."
+      "cancelled": "Cancelado antes de llegar a él; sigue en su sitio.",
+      "trashUnavailable": "Su disco no tiene Papelera; sigue en su sitio.",
+      "reportOnly": "Solo se informa de este juego; sigue en su sitio.",
+      "taken": "{folder} ya tiene un archivo con ese nombre; sigue en su sitio."
     },
     "delta": "+{count} archivos",
     "bulk": {
@@ -1115,7 +1118,8 @@
       "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
-      "title": "Se quedan donde están"
+      "title": "Se quedan donde están",
+      "inLibrary": "Ya está en la biblioteca como {path}"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1215,7 +1219,9 @@
         "not-decided": "Omitido: sin sistema elegido",
         "cancelled": "Omitido: se detuvo antes de llegar",
         "tool-gone": "Omitido: la herramienta de comprimidos ya no está o cambió de versión"
-      }
+      },
+      "quarantined": "Apartado",
+      "trashed": "En la Papelera"
     },
     "undo": {
       "action": "Deshacer",
