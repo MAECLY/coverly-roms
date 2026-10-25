@@ -84,14 +84,14 @@ describe('OrganizeScreen', () => {
     renderScreen(MOCK_DOWNLOADS);
     expect(
       await screen.findByText(
-        'ROMs: 16 · Systems: 4 · To review: 0 · Staying put: 4',
+        'ROMs: 19 · Systems: 7 · To review: 0 · Staying put: 4',
       ),
     ).toBeInTheDocument();
     expect(
       screen.getByText('This is a proposal. Nothing has moved yet.'),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Organise 16 files' }),
+      screen.getByRole('button', { name: 'Organise 19 files' }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: 'To review' }),
@@ -428,7 +428,7 @@ describe('OrganizeScreen', () => {
   it('shows the result counts when done, and the outcome of each file on demand', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     expect(
       await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0'),
@@ -450,7 +450,7 @@ describe('OrganizeScreen', () => {
     const open = vi.spyOn(b, 'openLibrary');
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
       await screen.findByRole('button', { name: 'Open library' }),
@@ -459,13 +459,13 @@ describe('OrganizeScreen', () => {
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
     );
     expect(useNavStore.getState().screen).toBe('main');
-    expect(useLibraryStore.getState().view?.entries).toHaveLength(16);
+    expect(useLibraryStore.getState().view?.entries).toHaveLength(20);
   });
 
   it('undo restores and reports', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
       await screen.findByRole('button', { name: 'Undo 16 files' }),
@@ -473,7 +473,7 @@ describe('OrganizeScreen', () => {
     await confirmUndo();
     expect(
       await screen.findByText(
-        'Restored: 16 · Left alone because they changed: 0',
+        'Restored: 98 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
     expect(
@@ -482,13 +482,13 @@ describe('OrganizeScreen', () => {
     expect(
       screen.queryByRole('button', { name: 'Open library' }),
     ).not.toBeInTheDocument();
-    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(17);
+    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(20);
   });
 
   it('undo lists later jobs and offers undo all in order', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await screen.findByRole('button', { name: 'Undo 16 files' });
     const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
@@ -505,7 +505,7 @@ describe('OrganizeScreen', () => {
     );
     expect(
       await screen.findByText(
-        'Restored: 16 · Left alone because they changed: 0',
+        'Restored: 98 · Left alone because they changed: 0',
       ),
     ).toBeInTheDocument();
     expect(
@@ -524,7 +524,7 @@ describe('OrganizeScreen', () => {
     setBackend(b);
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Organise 16 files' }),
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     expect(
       await screen.findByText(
@@ -532,12 +532,13 @@ describe('OrganizeScreen', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Disk full')).toBeInTheDocument();
+    // The first 8 items: 6 cartridges moved and 2 discs extracted.
     expect(
-      screen.getByText('Moved: 8 · Copied: 0 · Skipped: 0 · Errors: 0'),
+      screen.getByText('Moved: 6 · Copied: 0 · Skipped: 0 · Errors: 0'),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Resume' }));
     expect(
-      await screen.findByText('Moved: 8 · Copied: 0 · Skipped: 0 · Errors: 0'),
+      await screen.findByText('Moved: 10 · Copied: 0 · Skipped: 0 · Errors: 0'),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(useOrganizeStore.getState().status).toBe('done'),
@@ -568,7 +569,7 @@ describe('OrganizeScreen', () => {
     expect(screen.getByRole('combobox', { name: 'Layout' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Target' })).toBeDisabled();
     await userEvent.click(
-      screen.getByRole('button', { name: 'Organise 16 files' }),
+      screen.getByRole('button', { name: 'Organise 19 files' }),
     );
     await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0');
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
@@ -725,7 +726,7 @@ describe('OrganizeScreen', () => {
       );
       expect(alert).toHaveTextContent('Nothing was moved.');
       expect(
-        screen.getByRole('button', { name: 'Organise 16 files' }),
+        screen.getByRole('button', { name: 'Organise 19 files' }),
       ).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
       b.organizeTouch(MOCK_DOWNLOADS, { gone: false });
@@ -735,14 +736,14 @@ describe('OrganizeScreen', () => {
       await ready();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(
-        screen.getByRole('button', { name: 'Organise 16 files' }),
+        screen.getByRole('button', { name: 'Organise 19 files' }),
       ).toBeEnabled();
     });
 
     it('is not offered once the files were organised', async () => {
       renderScreen(MOCK_DOWNLOADS);
       await userEvent.click(
-        await screen.findByRole('button', { name: 'Organise 16 files' }),
+        await screen.findByRole('button', { name: 'Organise 19 files' }),
       );
       await screen.findByText('Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0');
       expect(

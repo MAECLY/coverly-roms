@@ -56,7 +56,7 @@ describe('organise store', () => {
     expect(s.source).toBe(MOCK_DOWNLOADS);
     expect(s.request).toEqual({ source: MOCK_DOWNLOADS });
     expect(s.planId).not.toBeNull();
-    expect(s.plan?.counts).toMatchObject({ auto: 16, review: 0 });
+    expect(s.plan?.counts).toMatchObject({ auto: 19, review: 0 });
     expect(s.progress).toBeNull();
     expect(s.error).toBeNull();
   });
@@ -157,12 +157,12 @@ describe('organise store', () => {
     await waitFor(() => expect(store().status).toBe('done'));
     const s = store();
     expect(s.job?.state).toBe('done');
-    expect(s.job?.report?.moved).toBe(16);
+    expect(s.job?.report).toMatchObject({ moved: 16, extracted: 3 });
     expect(s.job?.job).toBeTruthy();
     await store().openResult();
     expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock');
     expect(useLibraryStore.getState().status).toBe('ready');
-    expect(useLibraryStore.getState().view?.entries).toHaveLength(16);
+    expect(useLibraryStore.getState().view?.entries).toHaveLength(20);
     expect(useNavStore.getState().screen).toBe('main');
   });
 
@@ -186,7 +186,7 @@ describe('organise store', () => {
     expect(s.undo?.later_jobs.map((j) => j.job)).toEqual([fill.job]);
     expect(s.undo?.report.map((r) => r.job)).toEqual([fill.job, s.job!.job]);
     // The pile is back: probing finds the ROMs loose again.
-    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(17);
+    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(20);
   });
 
   it('an outdated plan answer is ignored (sequence guard)', async () => {
@@ -343,7 +343,8 @@ describe('organise store', () => {
     expect(store().source).toBe(MOCK_DOWNLOADS);
     await waitFor(() => expect(store().status).toBe('done'));
     expect(store().job).toMatchObject({ job, state: 'done' });
-    expect(store().job?.report?.moved).toBe(8);
+    // The 11 left after the pause: 10 cartridges and the Saturn disc.
+    expect(store().job?.report).toMatchObject({ moved: 10, extracted: 1 });
   });
 
   describe('refresh (scan again)', () => {

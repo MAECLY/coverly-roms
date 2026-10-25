@@ -8,13 +8,24 @@
  * a resume or an undo drops every kept plan.
  *
  * - `MOCK_DOWNLOADS` mirrors the owner's real sample: 16 ROMs that go to
- *   GBA 6 / GB 6 / GBC 2 / SFC 2, a saved web page named like a ROM,
- *   3 partial downloads and a `.DS_Store`.
+ *   GBA 6 / GB 6 / GBC 2 / SFC 2, three disc games in 7z archives named
+ *   `.zip` (PS1, Dreamcast, Saturn; `discFixture.ts`) that are extracted,
+ *   a saved web page named like a ROM, 3 partial downloads and a
+ *   `.DS_Store`.
  * - `MOCK_MIXED` has 4 sure ROMs (one with a name that is markup), 2 for
  *   review, 1 unknown, 1 duplicate and 2 partial downloads.
  *
  * Only these two folders exist for organising; any other source is
  * `not-found`. Targets are not checked.
+ *
+ * Extraction: disc archives always extract (flat, or one folder per game
+ * on `game-folder` layouts); cartridges extract only from a container the
+ * profile does not take as it is (`organizeTouch` adds `.tar.gz` ones; a
+ * `.rar` is left, no external tool is found in the mock). Progress is per
+ * `EXTRACT_CHUNK` bytes. In move mode a verified archive goes to the
+ * Trash, except over `TRASH_MAX_BYTES` (the mock's Trash refuses it:
+ * `extracted-kept`, the archive stays); undo deletes the extracted files
+ * and brings trashed archives back.
  *
  * Like Rust, a plan reuses the kept read of its pile (a survey) until the
  * request asks for `rescan`; `organizeTouch` adds or removes files (or the
@@ -25,8 +36,11 @@ import { BackendError } from '../errors';
 import {
   MEDIA,
   type ArtMarks,
+  type ContainerKind,
+  type DiscId,
   type EntryView,
   type Evidence,
+  type ExtractEntry,
   type IdLevel,
   type JobHistoryItem,
   type LeftReason,
@@ -34,6 +48,7 @@ import {
   type Media,
   type NameMode,
   type OrganizeDecision,
+  type ItemNote,
   type OrganizeItem,
   type OrganizeItemOutcome,
   type OrganizeJobView,
@@ -46,8 +61,10 @@ import {
   type ProfileInfo,
   type Region,
   type SystemView,
+  type Transfer,
   type TransferMode,
 } from '../types';
+import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
 import type { MockExport } from './mockJobs';
 
@@ -82,6 +99,26 @@ export function readMockPick(): string | null {
 
 /** Items moved between two apply progress events. */
 const STEP = 4;
+/** Bytes decoded between two extract progress events. */
+const EXTRACT_CHUNK = 128 * 1024 * 1024;
+/** The mock's Trash refuses bigger archives (they stay: `extracted-kept`). */
+const TRASH_MAX_BYTES = 450_000_000;
+
+/** What an archive holds and how it is extracted. */
+interface ArchiveDef {
+  /** The container its magic says. */
+  container: ContainerKind;
+  /** The extension says another container (`ContainerMismatch`). */
+  mismatch?: { ext: string; actual: string };
+  /** File entries in archive order. */
+  entries: MockArchiveEntry[];
+  /** A disc game: its id and the sheet the item is named after. */
+  disc?: {
+    id: DiscId;
+    primary: string;
+    sheetDeferred: boolean;
+  };
+}
 
 interface PileFile {
   name: string;
@@ -95,6 +132,7 @@ interface PileFile {
   alternatives?: [string, number][];
   catalogue?: string;
   left?: LeftReason;
+  archive?: ArchiveDef;
 }
 
 interface PileDef {
@@ -123,6 +161,41 @@ const header = (system: string, detail: string): Partial<PileFile> => ({
 const GBC_HEADER = header('gbc', 'Nintendo logo, CGB 0xC0');
 const SFC_HEADER = header('snes', 'LoROM header, checksum ok');
 const PARTIAL: LeftReason = { kind: 'partial-download' };
+
+/** A disc archive of `discFixture.ts` as a pile file. */
+const DISC_FILES: PileFile[] = MOCK_DISC_ARCHIVES.map((d) => ({
+  name: d.name,
+  size: d.size,
+  system: d.system,
+  method: 'header',
+  confidence: 0.75,
+  detail: d.detail,
+  archive: {
+    container: d.actual,
+    mismatch: {
+      ext: d.name.slice(d.name.lastIndexOf('.') + 1),
+      actual: d.actual,
+    },
+    entries: d.entries,
+    disc: {
+      id: {
+        serials: [d.serial],
+        disc_no: null,
+        volume: null,
+        source: d.source,
+      },
+      primary: d.primary,
+      sheetDeferred: d.sheetDeferred,
+    },
+  },
+}));
+
+/** A made-up CRC32 for an added file, stable for its name. */
+function nameCrc(name: string): number {
+  let h = 0x811c9dc5;
+  for (const c of name) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
+  return h >>> 0;
+}
 
 const PILES: readonly PileDef[] = [
   {
@@ -238,6 +311,7 @@ const PILES: readonly PileDef[] = [
         left: PARTIAL,
       },
       { name: 'Unconfirmed 471203.crdownload', size: 0, left: PARTIAL },
+      ...DISC_FILES,
     ],
   },
   {
@@ -295,11 +369,21 @@ const PILES: readonly PileDef[] = [
   },
 ];
 
+const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
+/** An archive as the plan sees it (its kind is `archive`). */
+const isArchive = (file: PileFile) =>
+  file.archive !== undefined ||
+  ARCHIVE_EXTS.some((x) => file.name.toLowerCase().endsWith(x));
+
 const collator = new Intl.Collator('en', {
   sensitivity: 'base',
   numeric: true,
 });
-const SYSTEMS = new Map(FIXTURE_SYSTEMS.map((s) => [s.id, s]));
+/** Systems only the organise piles have (the fixture libraries do not). */
+const ORGANIZE_SYSTEMS = [{ id: 'saturn', name: 'Saturn', folder: 'SATURN' }];
+const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
+  [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
+);
 
 function iso(secs: number): string {
   return new Date(secs * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -341,13 +425,21 @@ interface Resolved {
   overrides: Record<string, string>;
 }
 
-/** A file an apply put in a target. */
+/** A file (or the files of an archive) an apply put in a target. */
 interface Placed {
   job: string;
   file: PileFile;
   system: string;
-  /** Relative to the target root. */
-  rel: string;
+  /** The system folder, relative to the target root. */
+  dir: string;
+  /** Every file written, relative to the target root. */
+  written: string[];
+  /** What the library lists (the sheets of a disc), with its size. */
+  shown: { rel: string; size: number }[];
+  /** Its archive was extracted (not moved or copied as it is). */
+  extracted: boolean;
+  /** Its archive went to the Trash (undo brings it back). */
+  trashed: boolean;
 }
 
 interface Target {
@@ -413,6 +505,38 @@ const ADDED_BY_EXT: Record<string, Partial<PileFile>> = {
   '.md': header('megadrive', 'SEGA header'),
   '.nes': header('nes', 'iNES header'),
 };
+
+/** A file `organizeTouch` adds, placed by its name. */
+function addedFile(name: string): PileFile {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.rar')) {
+    // No external tool is found in the mock (settings list none).
+    return {
+      name,
+      size: 2_097_152,
+      left: { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+    };
+  }
+  if (lower.endsWith('.tar.gz')) {
+    // A GBA ROM in a container no profile takes as it is: extracted.
+    const rom = `${name.slice(0, -'.tar.gz'.length)}.gba`;
+    return {
+      name,
+      size: 2_097_152,
+      ...header('gba', 'Nintendo logo, GBA header'),
+      archive: {
+        container: 'tar.gz',
+        entries: [
+          { index: 0, name: rom, size: 4_194_304, crc32: nameCrc(rom) },
+        ],
+      },
+    };
+  }
+  const known = ADDED_BY_EXT[extOf(name)];
+  return known
+    ? { name, size: 4_194_304, ...known }
+    : { name, size: 32_768, left: { kind: 'unknown' } };
+}
 
 type OrganizeApi = Pick<
   Backend,
@@ -513,12 +637,7 @@ export function createMockOrganize(
         : (change.add ?? []);
     for (const name of toAdd) {
       if (!extra.some((f) => f.name === name)) {
-        const known = ADDED_BY_EXT[extOf(name)];
-        extra.push(
-          known
-            ? { name, size: 4_194_304, ...known }
-            : { name, size: 32_768, left: { kind: 'unknown' } },
-        );
+        extra.push(addedFile(name));
       }
       names.add(name);
     }
@@ -579,8 +698,7 @@ export function createMockOrganize(
     const common = {
       id,
       sources: [file.name],
-      kind:
-        extOf(file.name) === '.zip' ? ('archive' as const) : ('file' as const),
+      kind: isArchive(file) ? ('archive' as const) : ('file' as const),
       size: file.size,
       fps: [{ size: file.size, mtime_ns: host.now * 1e9 - (id + 1) * 6e10 }],
       target: null,
@@ -608,6 +726,80 @@ export function createMockOrganize(
       } as OrganizeItem;
     if (file.alternatives) return { ...common, action: 'review' };
     return { ...common, action: 'auto' };
+  }
+
+  /** How an archive item extracts on this plan's layout; null: as it is. */
+  function extractOf(
+    r: Resolved,
+    file: PileFile,
+    system: string,
+    dir: string,
+  ): {
+    transfer: Extract<Transfer, { kind: 'extract' }>;
+    target: string;
+    notes: ItemNote[];
+    disc: DiscId | null;
+  } | null {
+    const a = file.archive;
+    if (!a) return null;
+    const p = r.layout.profile;
+    const notes: ItemNote[] = [];
+    if (a.mismatch) notes.push({ kind: 'container-mismatch', ...a.mismatch });
+    const entry = (e: MockArchiveEntry, target: string): ExtractEntry => ({
+      index: e.index,
+      name: e.name,
+      size: e.size,
+      crc32: e.crc32,
+      target,
+    });
+    let entries: ExtractEntry[];
+    let target: string;
+    if (a.disc) {
+      // Paths are relative to the sheet's folder: the archive's game
+      // folder is dropped (flat) or becomes `<stem>/` (one per game).
+      const { primary } = a.disc;
+      const base = primary.slice(0, primary.lastIndexOf('/') + 1);
+      const perGame = p.disc_layout?.kind === 'game-folder';
+      const into = perGame
+        ? join(dir, stemOf(primary.slice(base.length)))
+        : dir;
+      const to = (name: string) =>
+        join(into, name.startsWith(base) ? name.slice(base.length) : name);
+      entries = a.entries.map((e) => entry(e, to(e.name)));
+      target = to(primary);
+      if (a.disc.sheetDeferred) notes.push({ kind: 'sheet-not-read-yet' });
+      const exts = new Set(
+        a.entries.map((e) => extOf(e.name).slice(1).toLowerCase()),
+      );
+      // One folder per game: menus list it once.
+      if (!perGame && exts.has('gdi') && exts.has('cue'))
+        notes.push({ kind: 'twin-sheets', kept: ['gdi', 'cue'] });
+    } else {
+      const accepts = p.container_overrides?.[system] ??
+        p.accepts_containers ?? ['zip', '7z'];
+      if (accepts.includes(a.container)) return null;
+      entries = a.entries.map((e) =>
+        entry(e, join(dir, e.name.slice(e.name.lastIndexOf('/') + 1))),
+      );
+      target = entries[0]!.target;
+      if (entries.length > 1)
+        notes.push({ kind: 'multi-rom-extract', count: entries.length });
+    }
+    return {
+      transfer: {
+        kind: 'extract',
+        entries,
+        bytes: entries.reduce((n, e) => n + e.size, 0),
+        // Copy mode never touches the archive; nothing is left in these.
+        archive_after: r.mode === 'move' ? 'trash' : 'keep',
+        source: { kind: 'builtin' },
+        sheet_check: a.disc?.sheetDeferred ? 'deferred' : 'read',
+        m3u: null,
+      },
+      target,
+      notes,
+      disc: a.disc ? structuredClone(a.disc.id) : null,
+    };
   }
 
   /** The loose files of a pile, in name order, with their item. */
@@ -689,7 +881,9 @@ export function createMockOrganize(
     decide(items, decisions);
     const existing = targets.get(r.target);
     const taken = new Set(
-      existing ? existing.files.map((p) => p.rel.toLowerCase()) : [],
+      existing
+        ? existing.files.flatMap((p) => p.written.map((w) => w.toLowerCase()))
+        : [],
     );
     for (const [i, item] of items.entries()) {
       if (item.action === 'left' || item.system_id === null) continue;
@@ -697,6 +891,30 @@ export function createMockOrganize(
       const dir = join(r.romsRel, folder);
       if (item.action === 'review') {
         items[i] = { ...item, folder };
+        continue;
+      }
+      const extract = extractOf(r, files[i]!, item.system_id, dir);
+      if (extract) {
+        // Set members keep their names: any collision leaves the item.
+        const keys = extract.transfer.entries.map((e) =>
+          e.target.toLowerCase(),
+        );
+        if (
+          keys.some((k) => taken.has(k)) ||
+          new Set(keys).size !== keys.length
+        ) {
+          items[i] = leave(item, { kind: 'collision-set' });
+          continue;
+        }
+        keys.forEach((k) => taken.add(k));
+        items[i] = {
+          ...item,
+          folder,
+          target: extract.target,
+          notes: [...item.notes, ...extract.notes],
+          transfer: extract.transfer,
+          disc: extract.disc,
+        };
         continue;
       }
       const source = files[i]!.name;
@@ -738,12 +956,7 @@ export function createMockOrganize(
       r.target === r.source ? targets.get(r.source) : undefined;
     const sortedFolders: [string, string][] = sortedHere
       ? [
-          ...new Map(
-            sortedHere.files.map((p) => [
-              p.rel.slice(0, p.rel.lastIndexOf('/')),
-              p.system,
-            ]),
-          ).entries(),
+          ...new Map(sortedHere.files.map((p) => [p.dir, p.system])).entries(),
         ].sort(([a], [b]) => collator.compare(a, b))
       : [];
     const warnings: OrganizePlan['warnings'] = r.offline
@@ -849,25 +1062,53 @@ export function createMockOrganize(
             break;
           }
           const { item, file } = work[done]!;
-          const placed: Placed = {
-            job: j.job,
-            file,
-            system: item.system_id!,
-            rel: item.target!,
-          };
+          const t = item.transfer;
+          if (t.kind === 'extract') {
+            // Byte-based, like Rust: 0 first, `bytes_total` last.
+            const at = {
+              plan_id: planId,
+              phase: 'extract' as const,
+              item: item.id,
+              done,
+              total,
+              bytes_total: t.bytes,
+            };
+            emitProgress({ ...at, bytes_done: 0 });
+            for (let b = EXTRACT_CHUNK; b < t.bytes; b += EXTRACT_CHUNK) {
+              await host.tick();
+              // Cancelled mid-item: its temps are rolled back.
+              if (own.cancel) break;
+              emitProgress({ ...at, bytes_done: b });
+            }
+            if (own.cancel) {
+              state = 'cancelled';
+              break;
+            }
+            emitProgress({ ...at, bytes_done: t.bytes });
+          }
+          const placed = placedOf(j, item, file);
           j.placed.push(placed);
           target.files.push(placed);
-          if (j.mode === 'move') loose.get(j.source)!.delete(file.name);
+          let status: 'moved' | 'copied' | 'extracted' | 'extracted-kept' =
+            j.mode === 'move' ? 'moved' : 'copied';
+          if (t.kind === 'extract') {
+            const trash = j.mode === 'move' && t.archive_after === 'trash';
+            placed.trashed = trash && file.size <= TRASH_MAX_BYTES;
+            status = trash && !placed.trashed ? 'extracted-kept' : 'extracted';
+          }
+          if (j.mode === 'move' && (t.kind === 'as-is' || placed.trashed))
+            loose.get(j.source)!.delete(file.name);
           out.push({
             item: item.id,
-            status: j.mode === 'move' ? 'moved' : 'copied',
-            targets: [`${j.target}/${item.target!}`],
+            status,
+            targets: placed.written.map((w) => `${j.target}/${w}`),
           });
         }
         if (paused) {
           state = 'paused';
           break;
         }
+        if (state === 'cancelled') break;
         emitProgress({ plan_id: planId, phase: 'apply', done, total });
       }
     } catch (e) {
@@ -898,6 +1139,39 @@ export function createMockOrganize(
     emitChanged({ ...own.view, job: j.job, state, progress: null, report: r });
   }
 
+  /** What applying `item` writes into the target. */
+  function placedOf(j: OrgJournal, item: OrganizeItem, file: PileFile): Placed {
+    const dir = join(j.romsRel, item.folder!);
+    const t = item.transfer;
+    if (t.kind === 'as-is') {
+      return {
+        job: j.job,
+        file,
+        system: item.system_id!,
+        dir,
+        written: [item.target!],
+        shown: [{ rel: item.target!, size: file.size }],
+        extracted: false,
+        trashed: false,
+      };
+    }
+    const sheet = (rel: string) => /\.(cue|gdi|m3u)$/i.test(rel);
+    const shown = t.entries
+      .filter((e) => item.disc === null || sheet(e.target))
+      .map((e) => ({ rel: e.target, size: e.size }));
+    if (t.m3u) shown.push({ rel: t.m3u, size: 0 });
+    return {
+      job: j.job,
+      file,
+      system: item.system_id!,
+      dir,
+      written: [...t.entries.map((e) => e.target), ...(t.m3u ? [t.m3u] : [])],
+      shown,
+      extracted: true,
+      trashed: false,
+    };
+  }
+
   function notApplying() {
     if (applying || host.fillBusy()) throw new BackendError('job-running');
   }
@@ -925,17 +1199,17 @@ export function createMockOrganize(
     ) as unknown as ArtMarks;
     const bySystem = new Map<string, Placed[]>();
     for (const f of t.files) {
-      const folder = f.rel.slice(0, f.rel.lastIndexOf('/'));
-      bySystem.set(folder, [...(bySystem.get(folder) ?? []), f]);
+      bySystem.set(f.dir, [...(bySystem.get(f.dir) ?? []), f]);
     }
     const dirs = [...bySystem.keys()].sort((a, b) => collator.compare(a, b));
     const systems: SystemView[] = [];
     const entries: EntryView[] = [];
     dirs.forEach((dir, index) => {
-      const files = [...bySystem.get(dir)!].sort((a, b) =>
-        collator.compare(a.rel, b.rel),
-      );
-      const first = files[0]!;
+      const placed = bySystem.get(dir)!;
+      const files = placed
+        .flatMap((p) => p.shown)
+        .sort((a, b) => collator.compare(a.rel, b.rel));
+      const first = placed[0]!;
       systems.push({
         index,
         folder: dir.slice(dir.lastIndexOf('/') + 1),
@@ -946,14 +1220,15 @@ export function createMockOrganize(
       });
       for (const f of files) {
         const file = f.rel.slice(f.rel.lastIndexOf('/') + 1);
+        const fileDir = f.rel.slice(0, f.rel.lastIndexOf('/'));
         entries.push({
           id: entries.length,
           system: index,
           rel_path: f.rel,
-          dir,
+          dir: fileDir,
           name: stemOf(file),
           ext: extOf(file).slice(1),
-          size: f.file.size,
+          size: f.size,
           mtime: host.now - 3_600,
           regions: regionsOf(file),
           art: { ...art },
@@ -1001,22 +1276,33 @@ export function createMockOrganize(
     const restored: string[] = [];
     const removed: string[] = [];
     for (const p of [...j.placed].reverse()) {
-      if (j.mode === 'move') {
+      if (p.extracted) {
+        // Extracted files are deleted; a trashed archive comes back.
+        for (const w of [...p.written].reverse())
+          removed.push(`${j.target}/${w}`);
+        if (p.trashed) {
+          loose.get(j.source)!.add(p.file.name);
+          restored.push(`${j.source}/${p.file.name}`);
+        }
+      } else if (j.mode === 'move') {
         loose.get(j.source)!.add(p.file.name);
         restored.push(`${j.source}/${p.file.name}`);
       } else {
-        removed.push(`${j.target}/${p.rel}`);
+        removed.push(`${j.target}/${p.written[0]!}`);
       }
     }
     const dirsRemoved: string[] = [];
     if (t) {
-      const before = new Set(
-        t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
-      );
+      const dirsOf = (files: Placed[]) =>
+        new Set(
+          files.flatMap((p) => [
+            p.dir,
+            ...p.written.map((w) => w.slice(0, w.lastIndexOf('/'))),
+          ]),
+        );
+      const before = dirsOf(t.files);
       t.files = t.files.filter((p) => p.job !== j.job);
-      const after = new Set(
-        t.files.map((p) => p.rel.slice(0, p.rel.lastIndexOf('/'))),
-      );
+      const after = dirsOf(t.files);
       for (const dir of [...before].sort((a, b) => collator.compare(a, b))) {
         if (!after.has(dir)) dirsRemoved.push(`${j.target}/${dir}`);
       }
@@ -1057,7 +1343,7 @@ export function createMockOrganize(
       ).length;
       const t = targets.get(path);
       const folders = t
-        ? [...new Set(t.files.map((f) => f.rel.split('/').at(-2)!))].sort(
+        ? [...new Set(t.files.map((f) => f.dir.split('/').at(-1)!))].sort(
             (a, b) => collator.compare(a, b),
           )
         : [];

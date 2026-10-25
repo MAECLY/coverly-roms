@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type {
+  OrganizeItem,
   OrganizeJobView,
   OrganizeJobState,
   OrganizeProgressEvent,
@@ -57,23 +58,25 @@ describe('mock organise backend', () => {
     });
     const probe = await b.probeFolder(MOCK_DOWNLOADS);
     expect(probe).toMatchObject({
-      rom_like: 17,
+      rom_like: 20,
       partial_downloads: 3,
       sorted_folders: [],
       writable: true,
     });
     const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
     expect(plan.counts).toMatchObject({
-      auto: 16,
+      auto: 19,
       review: 0,
-      roms: 16,
-      systems: 4,
+      roms: 19,
+      systems: 7,
       left: 4,
       junk: 1,
     });
     expect(
       new Set(plan.items.flatMap((i) => (i.folder ? [i.folder] : []))),
-    ).toEqual(new Set(['GBA', 'GB', 'GBC', 'SFC']));
+    ).toEqual(
+      new Set(['GBA', 'GB', 'GBC', 'SFC', 'PS', 'DREAMCAST', 'SATURN']),
+    );
     expect(plan).toMatchObject({
       source_root: MOCK_DOWNLOADS,
       target_root: MOCK_DOWNLOADS,
@@ -100,9 +103,17 @@ describe('mock organise backend', () => {
     const perFolder: Record<string, number> = {};
     for (const i of plan.items)
       if (i.folder) perFolder[i.folder] = (perFolder[i.folder] ?? 0) + 1;
-    expect(perFolder).toEqual({ GBA: 6, GB: 6, GBC: 2, SFC: 2 });
+    expect(perFolder).toEqual({
+      GBA: 6,
+      GB: 6,
+      GBC: 2,
+      SFC: 2,
+      PS: 1,
+      DREAMCAST: 1,
+      SATURN: 1,
+    });
     for (const i of plan.items.filter((i) => i.action === 'auto')) {
-      expect(i.target).toMatch(/^ROMS\/(GBA|GB|GBC|SFC)\//);
+      expect(i.target).toMatch(/^ROMS\/(GBA|GB|GBC|SFC|PS|DREAMCAST|SATURN)\//);
       expect(i.why.length).toBeGreaterThan(0);
       expect(i.method).not.toBeNull();
     }
@@ -124,7 +135,7 @@ describe('mock organise backend', () => {
     expect(plan.roms_dir).toBe('/Volumes/SD/ROMs');
     expect(plan.mode).toBe('copy');
     expect(new Set(plan.items.flatMap((i) => i.folder ?? []))).toEqual(
-      new Set(['gba', 'gb', 'gbc', 'snes']),
+      new Set(['gba', 'gb', 'gbc', 'snes', 'psx', 'dreamcast', 'saturn']),
     );
     const renamed = plan.items.find((i) => i.rename?.kind === 'catalogue');
     expect(renamed?.catalogue_name).toEqual(expect.any(String));
@@ -154,9 +165,14 @@ describe('mock organise backend', () => {
     await b.onOrganizeProgress((e) => progress.push(e));
     const view = await applied(b);
     const apply = progress.filter((e) => e.phase === 'apply');
-    expect(apply.map((e) => e.done)).toEqual([0, 4, 8, 12, 16]);
+    expect(apply.map((e) => e.done)).toEqual([0, 4, 8, 12, 16, 19]);
     expect(view.state).toBe('done');
-    expect(view.report).toMatchObject({ moved: 16, copied: 0, failed: 0 });
+    expect(view.report).toMatchObject({
+      moved: 16,
+      copied: 0,
+      extracted: 3,
+      failed: 0,
+    });
     expect(view.job).toEqual(expect.any(String));
     expect(view).toMatchObject({
       target_root: MOCK_DOWNLOADS,
@@ -164,37 +180,46 @@ describe('mock organise backend', () => {
     });
 
     const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
-    expect(lib.entries).toHaveLength(16);
+    // 16 cartridges and 4 sheets (Dreamcast brings a .gdi and a .cue).
+    expect(lib.entries).toHaveLength(20);
     expect(lib.profile.id).toBe('anbernic-stock');
     expect(lib.systems.map((s) => s.folder)).toEqual([
+      'DREAMCAST',
       'GB',
       'GBA',
       'GBC',
+      'PS',
+      'SATURN',
       'SFC',
     ]);
-    expect(lib.entries[0]?.rel_path).toMatch(/^ROMS\/GB\//);
+    expect(lib.entries[0]?.rel_path).toMatch(/^ROMS\/DREAMCAST\//);
 
     const history = await b.jobHistory();
     expect(history[0]).toMatchObject({
       job: view.job,
       kind: 'organize',
-      entries: 16,
+      entries: 19,
       complete: true,
       undone: false,
       undoable: true,
     });
-    // What is left loose: the duplicate, the partial downloads.
+    // What is left loose: the web page, the partial downloads and the
+    // archive the Trash refused.
     expect((await b.probeFolder(MOCK_DOWNLOADS)).sorted_folders).toEqual([
+      'DREAMCAST',
       'GB',
       'GBA',
       'GBC',
+      'PS',
+      'SATURN',
       'SFC',
     ]);
 
     const undo = await b.organizeUndo(view.job!, false);
     expect(undo.later_jobs).toEqual([]);
     expect(undo.report).toHaveLength(1);
-    expect(undo.report[0]?.restored).toHaveLength(16);
+    // 16 moved back and the 2 archives brought back from the Trash.
+    expect(undo.report[0]?.restored).toHaveLength(18);
     expect(undo.report[0]?.dirs_removed).toContain(`${MOCK_DOWNLOADS}/ROMS`);
     await expect(b.openLibrary(MOCK_DOWNLOADS)).rejects.toMatchObject({
       code: 'no-profile',
@@ -215,11 +240,15 @@ describe('mock organise backend', () => {
     const done = ended(b);
     await b.organizeApply(plan_id, []);
     const view = await done;
-    expect(view.report).toMatchObject({ moved: 0, copied: 16 });
-    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(17);
-    expect((await b.openLibrary('/Volumes/SD')).entries).toHaveLength(16);
+    expect(view.report).toMatchObject({ moved: 0, copied: 16, extracted: 3 });
+    expect(
+      view.report?.items.filter((o) => o.status === 'extracted'),
+    ).toHaveLength(3);
+    expect((await b.probeFolder(MOCK_DOWNLOADS)).rom_like).toBe(20);
+    expect((await b.openLibrary('/Volumes/SD')).entries).toHaveLength(20);
     const undo = await b.organizeUndo(view.job!, false);
-    expect(undo.report[0]?.removed).toHaveLength(16);
+    // The 16 copies and the 80 extracted files.
+    expect(undo.report[0]?.removed).toHaveLength(96);
     expect(undo.report[0]?.restored).toEqual([]);
   });
 
@@ -354,12 +383,14 @@ describe('mock organise backend', () => {
     const { plan_id } = await b.organizePlan({ source: MOCK_DOWNLOADS });
     await b.organizeApply(plan_id, []);
     const p = await paused;
+    // The first six: five cartridges and the PlayStation disc.
     expect(p.report).toMatchObject({
-      moved: 6,
+      moved: 5,
+      extracted: 1,
       paused: 'volume',
       pause_reason: 'disk-full',
     });
-    expect(p.report?.resumable_items).toHaveLength(10);
+    expect(p.report?.resumable_items).toHaveLength(13);
     expect((await b.jobHistory())[0]).toMatchObject({
       job: p.job,
       complete: false,
@@ -369,8 +400,8 @@ describe('mock organise backend', () => {
     expect(resumed.state).toBe('applying');
     const d = await done;
     expect(d.job).toBe(p.job);
-    expect(d.report?.moved).toBe(10);
-    expect((await b.openLibrary(MOCK_DOWNLOADS)).entries).toHaveLength(16);
+    expect(d.report).toMatchObject({ moved: 11, extracted: 2 });
+    expect((await b.openLibrary(MOCK_DOWNLOADS)).entries).toHaveLength(20);
     await expect(b.organizeResume('nope')).rejects.toMatchObject({
       code: 'no-plan',
     });
@@ -397,7 +428,7 @@ describe('mock organise backend', () => {
     const saved = JSON.parse(c.exports.at(-1)!.text) as {
       items: unknown[];
     };
-    expect(saved.items).toHaveLength(20);
+    expect(saved.items).toHaveLength(23);
     await expect(c.organizeExportPlan(999)).rejects.toMatchObject({
       code: 'no-plan',
     });
@@ -604,5 +635,287 @@ describe('mock folder pick', () => {
     expect(await backend({ folder: MOCK_MIXED }).pickFolder()).toBe(MOCK_MIXED);
     window.history.replaceState(null, '', '/');
     expect(await backend().pickFolder()).toBe(MOCK_LIBRARIES[0].path);
+  });
+});
+
+describe('mock organise: archives and disc games', () => {
+  const CASES = [
+    {
+      name: 'Next Tetris, The.zip',
+      size: 355_281_551,
+      system: 'psx',
+      folder: 'PS',
+      serial: 'SLUS-00862',
+      files: 12,
+      bytes: 405_749_493,
+      target: 'ROMS/PS/Next Tetris, The (USA).cue',
+      deferred: false,
+      twin: false,
+    },
+    {
+      name: 'Next Tetris, The_ On-Line Edition.zip',
+      size: 381_421_246,
+      system: 'dreamcast',
+      folder: 'DREAMCAST',
+      serial: 'T-40214N',
+      files: 16,
+      bytes: 1_191_067_563,
+      target: 'ROMS/DREAMCAST/Next Tetris, The - On-Line Edition (USA).gdi',
+      deferred: true,
+      twin: true,
+    },
+    {
+      name: 'Tetris Plus.zip',
+      size: 478_731_748,
+      system: 'saturn',
+      folder: 'SATURN',
+      serial: 'T-5704H',
+      files: 52,
+      bytes: 591_881_790,
+      target: 'ROMS/SATURN/Tetris Plus (USA).cue',
+      deferred: true,
+      twin: false,
+    },
+  ] as const;
+
+  const extractOf = (item: OrganizeItem) => {
+    if (item.transfer.kind !== 'extract') throw new Error('not an extract');
+    return item.transfer;
+  };
+
+  it('downloads_has_three_disc_archives_with_real_numbers', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    for (const c of CASES) {
+      const it = plan.items.find((i) => i.sources[0] === c.name)!;
+      expect(it, c.name).toMatchObject({
+        action: 'auto',
+        kind: 'archive',
+        size: c.size,
+        system_id: c.system,
+        folder: c.folder,
+        method: 'header',
+        target: c.target,
+      });
+      expect(it.disc?.serials).toEqual([c.serial]);
+      const t = extractOf(it);
+      expect(t.entries).toHaveLength(c.files);
+      expect(t.bytes).toBe(c.bytes);
+      expect(t.entries.reduce((n, e) => n + e.size, 0)).toBe(c.bytes);
+      expect(t.archive_after).toBe('trash');
+      expect(t.source).toEqual({ kind: 'builtin' });
+      expect(t.m3u).toBeNull();
+      for (const e of t.entries) {
+        expect(e.target.startsWith(`ROMS/${c.folder}/`)).toBe(true);
+        // Flat: the archive's game folder is dropped.
+        expect(e.target.split('/')).toHaveLength(3);
+        expect(e.crc32).toEqual(expect.any(Number));
+      }
+      expect(it.notes).toContainEqual({
+        kind: 'container-mismatch',
+        ext: 'zip',
+        actual: '7z',
+      });
+      expect(t.sheet_check).toBe(c.deferred ? 'deferred' : 'read');
+      expect(it.notes.some((n) => n.kind === 'sheet-not-read-yet')).toBe(
+        c.deferred,
+      );
+      expect(it.notes.some((n) => n.kind === 'twin-sheets')).toBe(c.twin);
+    }
+    const dc = plan.items.find((i) => i.sources[0] === CASES[1].name)!;
+    expect(dc.notes).toContainEqual({
+      kind: 'twin-sheets',
+      kept: ['gdi', 'cue'],
+    });
+    // The saved web page stays a web page.
+    expect(
+      plan.items.find((i) => i.sources[0] === '3-D Tetris (USA).zip'),
+    ).toMatchObject({
+      action: 'left',
+      reason: { kind: 'not-a-rom', what: 'web-page' },
+      transfer: { kind: 'as-is' },
+    });
+    // The cartridge zips move as they are.
+    for (const i of plan.items.filter((i) => i.folder === 'GBA'))
+      expect(i.transfer).toEqual({ kind: 'as-is' });
+    expect(plan.counts).toMatchObject({ auto: 19, roms: 19, systems: 7 });
+
+    // One folder per game on ES-DE: menus list it once, so no twin note.
+    const esde = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      layout: 'esde',
+    });
+    const dcEsde = esde.plan.items.find((i) => i.sources[0] === CASES[1].name)!;
+    expect(dcEsde.target).toBe(
+      'ROMs/dreamcast/Next Tetris, The - On-Line Edition (USA)/Next Tetris, The - On-Line Edition (USA).gdi',
+    );
+    expect(dcEsde.notes.some((n) => n.kind === 'twin-sheets')).toBe(false);
+    // Copy mode never touches the archive.
+    const copy = await b.organizePlan({ source: MOCK_DOWNLOADS, mode: 'copy' });
+    for (const c of CASES) {
+      const it = copy.plan.items.find((i) => i.sources[0] === c.name)!;
+      expect(extractOf(it).archive_after).toBe('keep');
+    }
+  });
+
+  it('rar_without_tool_left_with_need', async () => {
+    const b = backend();
+    b.organizeTouch(MOCK_DOWNLOADS, { add: ['Tetris DX (World).rar'] });
+    const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    expect(
+      plan.items.find((i) => i.sources[0] === 'Tetris DX (World).rar'),
+    ).toMatchObject({
+      action: 'left',
+      kind: 'archive',
+      reason: { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+    });
+  });
+
+  it('tar_gz_cartridge_extracts', async () => {
+    const b = backend();
+    b.organizeTouch(MOCK_DOWNLOADS, { add: ['Tetris Worlds (Europe).tar.gz'] });
+    const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const it = plan.items.find(
+      (i) => i.sources[0] === 'Tetris Worlds (Europe).tar.gz',
+    )!;
+    expect(it).toMatchObject({
+      action: 'auto',
+      kind: 'archive',
+      system_id: 'gba',
+      folder: 'GBA',
+      target: 'ROMS/GBA/Tetris Worlds (Europe).gba',
+      disc: null,
+    });
+    const t = extractOf(it);
+    expect(t.entries).toEqual([
+      {
+        index: 0,
+        name: 'Tetris Worlds (Europe).gba',
+        size: 4_194_304,
+        crc32: expect.any(Number),
+        target: 'ROMS/GBA/Tetris Worlds (Europe).gba',
+      },
+    ]);
+    expect(t).toMatchObject({ bytes: 4_194_304, archive_after: 'trash' });
+
+    const done = ended(b);
+    const { plan_id } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.report?.items).toContainEqual({
+      item: it.id,
+      status: 'extracted',
+      targets: [`${MOCK_DOWNLOADS}/ROMS/GBA/Tetris Worlds (Europe).gba`],
+    });
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(lib.entries.map((e) => e.rel_path)).toContain(
+      'ROMS/GBA/Tetris Worlds (Europe).gba',
+    );
+  });
+
+  it('extract_progress_is_byte_based', async () => {
+    const b = backend();
+    const events: OrganizeProgressEvent[] = [];
+    await b.onOrganizeProgress((e) => events.push(e));
+    const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    await done;
+    const total = plan.counts.auto;
+    for (const c of CASES) {
+      const item = plan.items.find((i) => i.sources[0] === c.name)!;
+      const mine = events.flatMap((e) =>
+        e.phase === 'extract' && e.item === item.id ? [e] : [],
+      );
+      expect(mine.length).toBeGreaterThan(2);
+      expect(mine[0]!.bytes_done).toBe(0);
+      expect(mine.at(-1)!.bytes_done).toBe(c.bytes);
+      for (const [n, e] of mine.entries()) {
+        expect(e).toMatchObject({ plan_id, total, bytes_total: c.bytes });
+        if (n > 0)
+          expect(e.bytes_done).toBeGreaterThan(mine[n - 1]!.bytes_done);
+      }
+      // `done` counts the items before this one.
+      expect(new Set(mine.map((e) => e.done)).size).toBe(1);
+    }
+  });
+
+  it('apply_reports_extracted_and_one_extracted_kept', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const view = await applied(b);
+    expect(view.state).toBe('done');
+    expect(view.report).toMatchObject({ moved: 16, extracted: 3, failed: 0 });
+    const outcome = (name: string) => {
+      const id = plan.items.find((i) => i.sources[0] === name)!.id;
+      return view.report!.items.find((o) => o.item === id)!;
+    };
+    expect(outcome(CASES[0].name).status).toBe('extracted');
+    expect(outcome(CASES[1].name).status).toBe('extracted');
+    // The mock's Trash refuses archives over 450 MB: the archive stays.
+    expect(outcome(CASES[2].name).status).toBe('extracted-kept');
+    for (const c of CASES) {
+      const o = outcome(c.name);
+      expect(o.targets).toHaveLength(c.files);
+      expect(o.targets).toContain(`${MOCK_DOWNLOADS}/${c.target}`);
+    }
+    // Trashed archives leave the pile; the kept one stays.
+    const left = await b.organizePlan({ source: MOCK_DOWNLOADS, rescan: true });
+    const names = left.plan.items.map((i) => i.sources[0]);
+    expect(names).not.toContain(CASES[0].name);
+    expect(names).not.toContain(CASES[1].name);
+    expect(names).toContain(CASES[2].name);
+    // Its files are already there: planned again, it collides.
+    expect(
+      left.plan.items.find((i) => i.sources[0] === CASES[2].name),
+    ).toMatchObject({ action: 'left', reason: { kind: 'collision-set' } });
+
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(lib.systems.map((s) => s.folder)).toEqual([
+      'DREAMCAST',
+      'GB',
+      'GBA',
+      'GBC',
+      'PS',
+      'SATURN',
+      'SFC',
+    ]);
+    // The library lists the sheets, not the tracks.
+    expect(
+      lib.entries
+        .filter((e) => /^ROMS\/(PS|DREAMCAST|SATURN)\//.test(e.rel_path))
+        .map((e) => e.rel_path)
+        .sort(),
+    ).toEqual([
+      'ROMS/DREAMCAST/Next Tetris, The - On-Line Edition (USA).cue',
+      'ROMS/DREAMCAST/Next Tetris, The - On-Line Edition (USA).gdi',
+      'ROMS/PS/Next Tetris, The (USA).cue',
+      'ROMS/SATURN/Tetris Plus (USA).cue',
+    ]);
+  });
+
+  it('undo_reports_archive_restored', async () => {
+    const b = backend();
+    const view = await applied(b);
+    const undo = await b.organizeUndo(view.job!, false);
+    const r = undo.report[0]!;
+    expect(r.restored).toHaveLength(18);
+    expect(r.restored).toContain(`${MOCK_DOWNLOADS}/${CASES[0].name}`);
+    expect(r.restored).toContain(`${MOCK_DOWNLOADS}/${CASES[1].name}`);
+    // Never sent to the Trash, so nothing to bring back.
+    expect(r.restored).not.toContain(`${MOCK_DOWNLOADS}/${CASES[2].name}`);
+    expect(r.removed).toHaveLength(12 + 16 + 52);
+    expect(r.removed).toContain(`${MOCK_DOWNLOADS}/${CASES[1].target}`);
+    expect(r.archive_lost).toEqual([]);
+    expect(r.dirs_removed).toContain(`${MOCK_DOWNLOADS}/ROMS/SATURN`);
+    const again = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      rescan: true,
+    });
+    for (const c of CASES) {
+      expect(
+        again.plan.items.find((i) => i.sources[0] === c.name),
+      ).toMatchObject({ action: 'auto', transfer: { kind: 'extract' } });
+    }
   });
 });
