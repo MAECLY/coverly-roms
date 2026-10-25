@@ -64,6 +64,10 @@ function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
       return t('organize.outcome.copied');
     case 'copied-not-removed':
       return t('organize.copiedNotRemoved');
+    case 'extracted':
+      return t('organize.outcome.extracted');
+    case 'extracted-kept':
+      return t('organize.outcome.extractedKept');
     case 'skipped':
       return t(`organize.outcome.skipped.${o.reason}`);
     case 'failed':

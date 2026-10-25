@@ -805,6 +805,7 @@ export function createMockOrganize(
       job: job.job,
       moved: count('moved'),
       copied: count('copied'),
+      extracted: count('extracted') + count('extracted-kept'),
       skipped: count('skipped'),
       failed: count('failed'),
       items: outcomes,
@@ -1033,6 +1034,7 @@ export function createMockOrganize(
       skipped_modified: [],
       skipped_occupied: [],
       dirs_removed: dirsRemoved,
+      archive_lost: [],
     };
   }
 

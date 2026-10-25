@@ -389,9 +389,83 @@ describe('Tauri backend', () => {
     events.handlers.get(ORGANIZE_CHANGED_EVENT)!({
       payload: sample.organize_job,
     });
-    expect(seen).toEqual([sample.organize_progress, sample.organize_job]);
+    expect(seen).toEqual([
+      sample.organize_progress,
+      {
+        ...sample.organize_job,
+        report: { ...sample.organize_job.report, extracted: 0 },
+      },
+    ]);
     offProgress();
     expect(events.handlers.has(ORGANIZE_PROGRESS_EVENT)).toBe(false);
+  });
+
+  it('old_plan_without_transfer_defaults_as_is', async () => {
+    const old = structuredClone(sample.organize_plan_view) as {
+      plan: { items: Record<string, unknown>[] };
+    };
+    for (const item of old.plan.items) {
+      delete item.transfer;
+      delete item.disc;
+    }
+    mockIPC(() => old);
+    const view = await createTauriBackend().organizePlan({ source: '/x' });
+    expect(view.plan.items.map((i) => i.transfer)).toEqual([
+      { kind: 'as-is' },
+      { kind: 'as-is' },
+      { kind: 'as-is' },
+    ]);
+    expect(view.plan.items.map((i) => i.disc)).toEqual([null, null, null]);
+  });
+
+  it('keeps extract transfers and disc ids as Rust sent them', async () => {
+    const plan = structuredClone(sample.organize_plan_view);
+    plan.plan.items = [sample.organize_extract_item as never];
+    mockIPC(() => plan);
+    const view = await createTauriBackend().organizePlan({ source: '/x' });
+    expect(view.plan.items[0]).toEqual(sample.organize_extract_item);
+  });
+
+  it('fills the counts Rust leaves out when zero or empty', async () => {
+    mockIPC((cmd) =>
+      cmd === 'organize_undo' ? sample.organize_undo : sample.organize_job,
+    );
+    const b = createTauriBackend();
+    const job = await b.organizeApply(3, []);
+    expect(job.report!.extracted).toBe(0);
+    expect((await b.organizeResume('j')).report!.extracted).toBe(0);
+    const undo = await b.organizeUndo('j', false);
+    expect(undo.report.map((r) => r.archive_lost)).toEqual([[]]);
+
+    const seen: unknown[] = [];
+    await b.onOrganizeChanged((v) => seen.push(v.report?.extracted));
+    events.handlers.get(ORGANIZE_CHANGED_EVENT)!({
+      payload: sample.organize_job,
+    });
+    expect(seen).toEqual([0]);
+  });
+
+  it('forwards extract progress with its item and byte counts', async () => {
+    const seen: unknown[] = [];
+    await createTauriBackend().onOrganizeProgress((e) => seen.push(e));
+    events.handlers.get(ORGANIZE_PROGRESS_EVENT)!({
+      payload: sample.organize_progress_extract,
+    });
+    expect(seen).toEqual([sample.organize_progress_extract]);
+  });
+
+  it('returns the external tools the settings view lists', async () => {
+    mockIPC(() => ({
+      settings: sample.settings,
+      notice: null,
+      backup: null,
+      fixed: [],
+      external_tools_found: sample.settings_external_tools_found,
+    }));
+    const view = await createTauriBackend().getSettings();
+    expect(view.external_tools_found).toEqual([
+      { tool: 'seven-zip', version: '24.08', path: '/opt/homebrew/bin/7zz' },
+    ]);
   });
 
   it('maps organise refusals to their codes', async () => {

@@ -1144,6 +1144,8 @@
     "outcome": {
       "moved": "Movido",
       "copied": "Copiado",
+      "extracted": "Extraído",
+      "extractedKept": "Extraído; el comprimido se queda donde estaba",
       "failed": "Error: {reason}",
       "skipped": {
         "changed-since-plan": "Omitido: ha cambiado desde la propuesta",
@@ -1151,7 +1153,8 @@
         "already-present": "Omitido: ya está en el destino",
         "collision-set": "Omitido: otro juego ya usa esos nombres",
         "not-decided": "Omitido: sin sistema elegido",
-        "cancelled": "Omitido: se detuvo antes de llegar"
+        "cancelled": "Omitido: se detuvo antes de llegar",
+        "tool-gone": "Omitido: la herramienta de comprimidos ya no está o cambió de versión"
       }
     },
     "undo": {

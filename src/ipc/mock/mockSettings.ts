@@ -272,6 +272,7 @@ export function createMockSettings(opts: {
         notice,
         backup: notice ? 'mock-storage' : null,
         fixed: [...fixed],
+        external_tools_found: [],
       }),
     async updateSettings(patch) {
       const unchanged = (errors: ReturnType<typeof validateSettings>) => ({
@@ -307,6 +308,7 @@ export function createMockSettings(opts: {
         notice: null,
         backup: null,
         fixed: [],
+        external_tools_found: [],
       };
     },
     onSettingsChanged(cb) {

@@ -1144,6 +1144,8 @@
     "outcome": {
       "moved": "Moved",
       "copied": "Copied",
+      "extracted": "Extracted",
+      "extractedKept": "Extracted; the archive stays where it was",
       "failed": "Error: {reason}",
       "skipped": {
         "changed-since-plan": "Skipped: changed since the proposal",
@@ -1151,7 +1153,8 @@
         "already-present": "Skipped: already in the target",
         "collision-set": "Skipped: another game already uses those names",
         "not-decided": "Skipped: no system chosen",
-        "cancelled": "Skipped: stopped before it"
+        "cancelled": "Skipped: stopped before it",
+        "tool-gone": "Skipped: the archive tool is gone or another version now"
       }
     },
     "undo": {

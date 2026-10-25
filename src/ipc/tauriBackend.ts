@@ -6,6 +6,11 @@ import { open } from '@tauri-apps/plugin-dialog';
 import type { AppInfo } from './appInfo';
 import type { Backend } from './backend';
 import { BackendError, toBackendError } from './errors';
+import {
+  normalizeOrganizeJob,
+  normalizeOrganizePlanView,
+  normalizeOrganizeUndo,
+} from './organizeWire';
 import { sniffImageMime } from './sniff';
 import type {
   ArtImage,
@@ -22,10 +27,10 @@ import type {
   KeyCheck,
   LibrarySettings,
   LibraryView,
-  OrganizeJobView,
-  OrganizePlanView,
+  OrganizeJobViewWire,
+  OrganizePlanViewWire,
   OrganizeProgressEvent,
-  OrganizeUndoView,
+  OrganizeUndoViewWire,
   ProfileInfo,
   SystemInfo,
   ProfilePreview,
@@ -157,18 +162,33 @@ export function createTauriBackend(): Backend {
     exportJobReport: (job, format) =>
       call<string | null>('export_job_report', { job, format }),
     probeFolder: (path) => call<FolderProbe>('probe_folder', { path }),
-    organizePlan: (request, decisions) =>
-      call<OrganizePlanView>('organize_plan', {
-        request,
-        decisions: decisions ?? null,
-      }),
+    organizePlan: async (request, decisions) =>
+      normalizeOrganizePlanView(
+        await call<OrganizePlanViewWire>('organize_plan', {
+          request,
+          decisions: decisions ?? null,
+        }),
+      ),
     organizeCancel: (planId) => call<void>('organize_cancel', { planId }),
-    organizeApply: (planId, decisions) =>
-      call<OrganizeJobView>('organize_apply', { planId, decisions }),
-    organizeResume: (job) => call<OrganizeJobView>('organize_resume', { job }),
+    organizeApply: async (planId, decisions) =>
+      normalizeOrganizeJob(
+        await call<OrganizeJobViewWire>('organize_apply', {
+          planId,
+          decisions,
+        }),
+      ),
+    organizeResume: async (job) =>
+      normalizeOrganizeJob(
+        await call<OrganizeJobViewWire>('organize_resume', { job }),
+      ),
     organizeCancelApply: () => call<void>('organize_cancel_apply'),
-    organizeUndo: (job, includeLater) =>
-      call<OrganizeUndoView>('organize_undo', { job, includeLater }),
+    organizeUndo: async (job, includeLater) =>
+      normalizeOrganizeUndo(
+        await call<OrganizeUndoViewWire>('organize_undo', {
+          job,
+          includeLater,
+        }),
+      ),
     organizeExportPlan: (planId) =>
       call<string | null>('organize_export_plan', { planId }),
     onOrganizeProgress: (cb) =>
@@ -176,7 +196,9 @@ export function createTauriBackend(): Backend {
         cb(e.payload),
       ),
     onOrganizeChanged: (cb) =>
-      listen<OrganizeJobView>(ORGANIZE_CHANGED_EVENT, (e) => cb(e.payload)),
+      listen<OrganizeJobViewWire>(ORGANIZE_CHANGED_EVENT, (e) =>
+        cb(normalizeOrganizeJob(e.payload)),
+      ),
     getSettings: () => call<SettingsView>('get_settings'),
     updateSettings: (patch) =>
       call<SettingsUpdate>('update_settings', { patch }),

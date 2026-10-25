@@ -24,6 +24,7 @@ function view(patch: Partial<OrganizeJobView> = {}): OrganizeJobView {
       job: 'organize-0001',
       moved: 1,
       copied: 1,
+      extracted: 0,
       skipped: 1,
       failed: 1,
       paused: null,
@@ -165,6 +166,7 @@ describe('OrganizeResult', () => {
       skipped_modified: Array.from({ length: modified }, (_, i) => `/m/${i}`),
       skipped_occupied: [],
       dirs_removed: [],
+      archive_lost: [],
     });
     render(
       <I18nProvider locale="en">

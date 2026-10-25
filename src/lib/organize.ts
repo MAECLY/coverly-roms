@@ -131,8 +131,22 @@ export function leftReasonKey(r: LeftReason): KeyedText {
       return k('bios');
     case 'damaged-archive':
       return k('damagedArchive');
+    // Until each archive reason has its own text (plan Task 40), they read
+    // as an archive this build cannot open, never as damage.
     case 'unsupported-archive':
+    case 'encrypted-archive':
+    case 'archive-needs-memory':
+    case 'archive-too-big':
+    case 'multi-volume-archive':
+    case 'nested-archive':
+    case 'repack-arcade':
       return k('unsupportedArchive');
+    case 'unsafe-archive-entry':
+    case 'set-unsafe-name':
+    case 'path-too-long':
+    case 'unsafe-target':
+    case 'folder-full':
+      return k('unreadable');
     case 'multi-game-archive':
       return k('multiGameArchive', { count: r.count });
     case 'unsupported-system':
@@ -240,8 +254,10 @@ export function itemNotes(
   const lines: string[] = [];
   if (item.rename) lines.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
-  for (const n of item.notes)
-    lines.push(noteText(t, n, system, layoutName, item));
+  for (const n of item.notes) {
+    const line = noteText(t, n, system, layoutName, item);
+    if (line !== null) lines.push(line);
+  }
   return lines;
 }
 
@@ -263,7 +279,7 @@ function noteText(
   system: string,
   layout: string,
   item: OrganizeItem,
-): string {
+): string | null {
   switch (n.kind) {
     case 'multi-rom-zip':
       return t('organize.multiRomZip', { count: n.count });
@@ -285,5 +301,14 @@ function noteText(
       });
     case 'encrypted':
       return t('organize.encrypted');
+    // The archive and disc notes get their text with plan Task 40.
+    case 'container-mismatch':
+    case 'twin-sheets':
+    case 'no-stored-checksum':
+    case 'archive-not-fully-read':
+    case 'archive-kept-leftovers':
+    case 'sheet-not-read-yet':
+    case 'multi-rom-extract':
+      return null;
   }
 }
