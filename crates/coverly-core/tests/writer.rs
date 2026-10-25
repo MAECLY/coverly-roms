@@ -1019,3 +1019,40 @@ fn an_older_reader_never_undoes_a_dedupe_journal() {
     // (not undoable) and never half-undoes it.
     assert!(serde_json::from_str::<OldHeader>(header).is_err());
 }
+
+#[test]
+fn a_journal_of_an_unknown_kind_is_listed_unreadable_and_never_undone() {
+    // What an older build sees in a dedupe journal, reproduced here with a
+    // kind this build does not know: listed, not undoable, and an undo
+    // refuses before touching a file.
+    let tmp = TempDir::new().unwrap();
+    let (root, data) = (tmp.path().join("T"), tmp.path().join("d"));
+    let from = root.join("ROMS/GB/Tetris (1).gb");
+    fs::create_dir_all(from.parent().unwrap()).unwrap();
+    fs::write(&from, b"tetris").unwrap();
+    let mut w = dedupe_job(&root, &data);
+    let quarantine = root.join("_Duplicados/GB");
+    w.ensure_dir(&quarantine).unwrap();
+    let to = quarantine.join("Tetris (1).gb");
+    w.move_file(&from, &to, Collision::Rename, Some(0)).unwrap();
+    let journal = w.journal_path().to_path_buf();
+    let job = w.finish().unwrap();
+    let text = fs::read_to_string(&journal).unwrap();
+    assert!(text.contains("\"kind\":\"dedupe\""));
+    fs::write(
+        &journal,
+        text.replacen("\"kind\":\"dedupe\"", "\"kind\":\"from-a-later-build\"", 1),
+    )
+    .unwrap();
+
+    let s = list_jobs(&data)
+        .unwrap()
+        .into_iter()
+        .find(|j| j.job == job)
+        .unwrap();
+    assert!(!s.undoable && !s.complete, "{s:?}");
+    let trash = trash::FakeTrash::new(tmp.path().join("trash"));
+    assert!(undo_job_with(&data, &job, &trash).is_err());
+    assert_eq!(fs::read(&to).unwrap(), b"tetris");
+    assert!(!from.exists());
+}
