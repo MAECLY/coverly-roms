@@ -170,8 +170,12 @@ const header = (system: string, detail: string): Partial<PileFile> => ({
   detail,
 });
 const GBC_HEADER = header('gbc', 'Nintendo logo, CGB 0xC0');
-/** What the core's GBA header check reports on the real sample. */
-const GBA_HEADER = header('gba', 'fixed 0x96, logo');
+/** What the core reports for the loose GBA zips of the real sample: the
+ * header check plus the `.gba` inside agree (0.98, high). */
+const GBA_HEADER: Partial<PileFile> = {
+  ...header('gba', 'fixed 0x96, logo'),
+  confidence: 0.98,
+};
 const SFC_HEADER = header('snes', 'LoROM header, checksum ok');
 const PARTIAL: LeftReason = { kind: 'partial-download' };
 

@@ -681,6 +681,7 @@ describe('mock organise: the sample as it is now', () => {
       target: 'ROMS/GBA/Pokemon Ultra Violet (1.22) LSA (Fire Red Hack).zip',
       rename: null,
       method: 'header',
+      confidence: 0.98,
     });
     expect(by('Pokemon - Leaf Green Version (U) (V1.1) (1).zip').target).toBe(
       'ROMS/GBA/Pokemon - Leaf Green Version (U) (V1.1) (1).zip',
