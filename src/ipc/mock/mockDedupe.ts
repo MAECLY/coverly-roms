@@ -348,7 +348,8 @@ export function createMockDedupe(
       not_roms: scenario.empty
         ? []
         : fixture.not_roms.map((p) => join(roms, p)),
-      no_catalogue: scenario.empty ? [] : fixture.no_catalogue,
+      // No duplicates found does not bring the missing catalogues.
+      no_catalogue: fixture.no_catalogue,
       totals: dedupeTotals(groups),
       trash,
       trash_available: scenario.trashAvailable,
