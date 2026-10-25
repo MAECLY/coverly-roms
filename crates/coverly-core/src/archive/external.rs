@@ -2906,4 +2906,117 @@ mod tests {
         drop(a);
         assert!(!path.exists());
     }
+
+    /// Garbled tool output (spec §13 S7): seeded byte mutations of real
+    /// shaped `7zz -slt`/`l` and `unrar lt`/`l` output, plus line-level
+    /// edits (a line duplicated, dropped, split by a newline, or a forged
+    /// `Path = `/`Name: ` line inserted), go through every parser and the
+    /// count cross-check. Each returns `Ok` or a typed error, never
+    /// panics; the intact output parses and cross-checks; and whenever a
+    /// garbled pair passes every check, its records are exactly as many as
+    /// the tool's own count says.
+    #[test]
+    fn garbled_listings_never_panic() {
+        use crate::archive::testing::{
+            mutate, next_tetris_ps1_listing, seven_zip_l, seven_zip_slt, unrar_l, unrar_lt,
+            ToolEntry,
+        };
+
+        fn line_edits(seed: u64, text: &str, n: usize) -> Vec<String> {
+            let lines: Vec<&str> = text.split('\n').collect();
+            let mut state = seed | 1;
+            let mut next = move |m: usize| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state % m.max(1) as u64) as usize
+            };
+            (0..n)
+                .map(|_| {
+                    let mut out: Vec<String> = lines.iter().map(|l| (*l).to_owned()).collect();
+                    let at = next(out.len());
+                    match next(5) {
+                        0 => {
+                            let dup = out[at].clone();
+                            out.insert(at, dup);
+                        }
+                        1 => {
+                            out.remove(at);
+                        }
+                        2 => {
+                            let l = out[at].clone();
+                            let cut = next(l.len() + 1);
+                            let cut = (0..=cut)
+                                .rev()
+                                .find(|&c| l.is_char_boundary(c))
+                                .unwrap_or(0);
+                            out[at] = format!("{}\n{}", &l[..cut], &l[cut..]);
+                        }
+                        3 => out.insert(at, "Path = evil.bin".to_owned()),
+                        _ => out.insert(at, "        Name: evil.bin".to_owned()),
+                    }
+                    out.join("\n")
+                })
+                .collect()
+        }
+
+        let limits = Limits::default();
+        let mut entries = next_tetris_ps1_listing();
+        entries.insert(0, ToolEntry::dir("Next Tetris, The (USA)"));
+        let cases: [(&str, String, String); 2] = [
+            ("7zz", seven_zip_slt(&entries), seven_zip_l(&entries)),
+            ("unrar", unrar_lt(&entries), unrar_l(&entries)),
+        ];
+        for (n, (tool, records, summary)) in cases.iter().enumerate() {
+            let parse = |records: &str, summary: &str| {
+                let listed = if *tool == "unrar" {
+                    parse_unrar(records, &limits)
+                } else {
+                    parse_seven_zip(records, &SEVEN_ZIP_7Z, &limits)
+                };
+                let totals = if *tool == "unrar" {
+                    parse_unrar_summary(summary)
+                } else {
+                    parse_seven_zip_summary(summary)
+                };
+                match (listed, totals) {
+                    (Ok(listed), Ok(totals)) => {
+                        check_summary(&listed, &totals).map(|()| (listed, totals))
+                    }
+                    (Err(e), _) | (_, Err(e)) => Err(e),
+                }
+            };
+            let (listed, _) = parse(records, summary).expect("intact output parses");
+            assert_eq!(listed.len(), entries.len(), "{tool}");
+
+            let seed = 0x7001_0000 + n as u64;
+            let garbled_bytes = |text: &str, salt: u64| {
+                mutate(seed + salt, text.as_bytes(), 1_500)
+                    .map(|b| {
+                        decode_tool_text(&b)
+                            .unwrap_or_else(|_| String::from_utf8_lossy(&b).into_owned())
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let garbled_records =
+                garbled_bytes(records, 0)
+                    .into_iter()
+                    .chain(line_edits(seed + 1, records, 1_500));
+            for bad in garbled_records {
+                if let Ok((listed, totals)) = parse(&bad, summary) {
+                    // 7-Zip counts files and folders apart, unrar every
+                    // record in `files`.
+                    let counted = totals.files + totals.folders.unwrap_or(0);
+                    assert_eq!(counted, listed.len() as u64, "{tool}: {bad:?}");
+                }
+            }
+            let garbled_summaries =
+                garbled_bytes(summary, 2)
+                    .into_iter()
+                    .chain(line_edits(seed + 3, summary, 1_500));
+            for bad in garbled_summaries {
+                let _ = parse(records, &bad);
+            }
+        }
+    }
 }
