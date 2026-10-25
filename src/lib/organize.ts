@@ -5,6 +5,7 @@
 import type { TranslateVars } from '@/i18n/core';
 import type {
   ArchiveTool,
+  DiscId,
   Evidence,
   ItemNote,
   LeftReason,
@@ -114,6 +115,17 @@ const TOOL_NAMES: Record<ArchiveTool, string> = {
 };
 
 /**
+ * A container's name for the copy (`RAR`, `TAR.LZ4`, `7z`), or `null` when
+ * `format` is absent or is a diagnostic rather than a name (a refused tool
+ * puts its path and the reason there).
+ */
+function formatLabel(format: string | null | undefined): string | null {
+  const f = format?.trim() ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9.]{0,11}$/.test(f)) return null;
+  return f.toLowerCase() === '7z' ? '7z' : f.toUpperCase();
+}
+
+/**
  * The i18n key of a left reason. A var whose value is itself an
  * `organize.*` key (the `what` of `not-a-rom`) is a fragment to translate
  * first: `leftReasonText` does that.
@@ -142,12 +154,14 @@ export function leftReasonKey(r: LeftReason): KeyedText {
     case 'damaged-archive':
       return k('damagedArchive');
     case 'unsupported-archive':
-      return r.need
-        ? k('unsupportedArchiveTool', {
-            format: (r.format ?? '').toUpperCase(),
-            tool: TOOL_NAMES[r.need],
-          })
-        : k('unsupportedArchive');
+      if (!r.need) return k('unsupportedArchive');
+      {
+        const format = formatLabel(r.format);
+        const tool = TOOL_NAMES[r.need];
+        return format
+          ? k('unsupportedArchiveTool', { format, tool })
+          : k('unsupportedArchiveInstall', { tool });
+      }
     case 'encrypted-archive':
       return k('encryptedArchive');
     case 'archive-needs-memory':
@@ -223,8 +237,15 @@ const CRC_DETAIL = /^(?:CRC\s+)?([0-9A-Fa-f]{8})(?:\s+(.*))?$/;
 export function whyKey(
   e: Evidence,
   systemName: (id: string) => string,
+  disc?: DiscId | null,
 ): KeyedText {
   const system = systemName(e.system);
+  // A disc's header clue names the serials read off the disc too.
+  if (e.kind === 'header' && disc && disc.serials.length > 0)
+    return {
+      key: 'organize.why.disc',
+      vars: { system, detail: e.detail, serial: disc.serials.join(', ') },
+    };
   switch (e.kind) {
     case 'hash': {
       // Rust: "<crc> <catalogue game>".

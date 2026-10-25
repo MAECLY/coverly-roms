@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
 import type {
+  DiscId,
   Evidence,
   ExtractEntry,
   ItemNote,
@@ -587,5 +588,80 @@ describe('organise extraction helpers', () => {
     expect(lookup(en, 'organize.left.unsupportedArchiveTool')).toBe(
       'To open {format} archives, install {tool}',
     );
+  });
+});
+
+describe('organise disc and tool copy', () => {
+  it('disc_header_reason_names_the_serial', () => {
+    const name = (id: string) => ({ ps: 'PlayStation' })[id] ?? id;
+    const ev: Evidence = {
+      kind: 'header',
+      system: 'ps',
+      weight: 0.75,
+      detail: 'Licensed by Sony Computer Entertainment America',
+    };
+    const disc: DiscId = {
+      serials: ['SLUS-00862'],
+      disc_no: null,
+      volume: null,
+      source: 'system-cnf',
+    };
+    expect(whyKey(ev, name, disc)).toEqual({
+      key: 'organize.why.disc',
+      vars: {
+        system: 'PlayStation',
+        detail: 'Licensed by Sony Computer Entertainment America',
+        serial: 'SLUS-00862',
+      },
+    });
+    // Several discs list every serial; none keeps the header wording.
+    expect(
+      whyKey(ev, name, { ...disc, serials: ['SCUS-94181', 'SCUS-94182'] }).vars
+        .serial,
+    ).toBe('SCUS-94181, SCUS-94182');
+    expect(whyKey(ev, name, { ...disc, serials: [] }).key).toBe(
+      'organize.why.header',
+    );
+    expect(whyKey(ev, name, null).key).toBe('organize.why.header');
+    // Only a header clue is a disc header.
+    expect(whyKey({ ...ev, kind: 'name' }, name, disc).key).toBe(
+      'organize.why.name',
+    );
+    expect(has(es, 'organize.why.disc') && has(en, 'organize.why.disc')).toBe(
+      true,
+    );
+  });
+
+  it('tool_hint_never_shows_a_diagnostic_as_the_format', () => {
+    // The core puts "<Tool> at <path> (<why>)" in `format` when a found
+    // tool is refused; that is no format name to show the user.
+    expect(
+      leftReasonKey({
+        kind: 'unsupported-archive',
+        format: 'Unrar at /opt/homebrew/bin/unrar (not executable)',
+        need: 'unrar',
+      }),
+    ).toEqual({
+      key: 'organize.left.unsupportedArchiveInstall',
+      vars: { tool: 'unrar' },
+    });
+    expect(
+      leftReasonKey({ kind: 'unsupported-archive', need: 'seven-zip' }),
+    ).toEqual({
+      key: 'organize.left.unsupportedArchiveInstall',
+      vars: { tool: '7-Zip' },
+    });
+    // 7z keeps its own spelling.
+    expect(
+      leftReasonKey({
+        kind: 'unsupported-archive',
+        format: '7z',
+        need: 'seven-zip',
+      }).vars,
+    ).toEqual({ format: '7z', tool: '7-Zip' });
+    for (const cat of [es, en])
+      expect(
+        placeholders(lookup(cat, 'organize.left.unsupportedArchiveInstall')),
+      ).toEqual(['tool']);
   });
 });

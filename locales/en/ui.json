@@ -1086,6 +1086,7 @@
       "setUnsafeName": "A game file has a name the card can't store: {name}",
       "unsafeArchiveEntry": "Contains an unsafe path ({name}); not extracted",
       "unsafeTarget": "The target folder is a link; nothing is written there",
+      "unsupportedArchiveInstall": "To open this archive, install {tool}",
       "unsupportedArchiveTool": "To open {format} archives, install {tool}",
       "webPage": "web page",
       "text": "text",

@@ -151,7 +151,7 @@ function Row({
   const confidence =
     item.method === 'user' ? null : confidenceKey(item.confidence);
   const why = item.why[0];
-  const reason = why ? whyKey(why, systemName) : null;
+  const reason = why ? whyKey(why, systemName, item.disc) : null;
   const name = item.sources[0] ?? '';
   // A system the user chose (now or remembered) stays changeable: a slip in
   // the review list must not need starting over.

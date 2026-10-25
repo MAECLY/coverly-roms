@@ -1086,6 +1086,7 @@
       "setUnsafeName": "Un archivo del juego tiene un nombre que la tarjeta no admite: {name}",
       "unsafeArchiveEntry": "Contiene una ruta no segura ({name}); no se extrae",
       "unsafeTarget": "La carpeta de destino es un enlace; no se escribe en ella",
+      "unsupportedArchiveInstall": "Para abrir este archivo instala {tool}",
       "unsupportedArchiveTool": "Para abrir archivos {format} instala {tool}",
       "webPage": "página web",
       "text": "texto",
