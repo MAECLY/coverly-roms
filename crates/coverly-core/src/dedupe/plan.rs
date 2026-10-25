@@ -267,7 +267,7 @@ pub fn plan_dedupe(
     let scoped = scoped(scan, opts, &env.settings.dedupe.exclude_systems);
     let mut unit_opts = UnitOptions::for_profile(env.profile);
     unit_opts.quarantine = Some(quarantine.clone());
-    let set = units_from_scan(&scoped, env.db, &unit_opts);
+    let set = units_from_scan(&scoped, env.db, &unit_opts, env.listing);
     report(DedupePhase::Listing, folders, folders);
     check()?;
     let units = set.units;

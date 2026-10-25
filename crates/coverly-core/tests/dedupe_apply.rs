@@ -321,8 +321,9 @@ mod run {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+    use coverly_core::archive::Limits;
     use coverly_core::cache::Cache;
-    use coverly_core::dedupe::source::ZipListing;
+    use coverly_core::dedupe::archive::ArchiveEntryListing;
     use coverly_core::dedupe::testing::{pin_mtime, CountingBytes, FakeDiscProbe};
     use coverly_core::dedupe::{
         apply_dedupe, plan_dedupe, resume_dedupe, set_keeper, DedupeApplyEnv, DedupeApplyNote,
@@ -408,7 +409,7 @@ mod run {
                 db: &db,
                 profile: &self.profile,
                 settings: &self.settings,
-                listing: &ZipListing,
+                listing: &ArchiveEntryListing::new(Limits::default()),
                 discs: &FakeDiscProbe::new(),
                 dats: None,
                 bytes: &CountingBytes::new(),

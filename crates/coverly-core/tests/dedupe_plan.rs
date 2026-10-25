@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
+use coverly_core::archive::Limits;
 use coverly_core::cache::{Cache, DatRow};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::FileBytes;
-use coverly_core::dedupe::source::ZipListing;
 use coverly_core::dedupe::testing::{
     self, disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
 };
@@ -95,7 +96,7 @@ struct Fx {
     db: SystemDb,
     profile: Profile,
     settings: Settings,
-    listing: CountingListing<ZipListing>,
+    listing: CountingListing<ArchiveEntryListing>,
     discs: FakeDiscProbe,
     bytes: CountingBytes,
     cancel: AtomicBool,
@@ -112,7 +113,7 @@ impl Fx {
             db: SystemDb::builtin(),
             profile: profile(),
             settings: Settings::default(),
-            listing: CountingListing::new(ZipListing),
+            listing: CountingListing::new(ArchiveEntryListing::new(Limits::default())),
             discs,
             bytes: CountingBytes::new(),
             cancel: AtomicBool::new(false),
@@ -671,7 +672,13 @@ fn warm_run_hashes_nothing() {
     let listing_before = fx.listing.calls();
     let second = fx.run(&library, &fx.opts(), &warm, None, &|_| {}).unwrap();
     assert_eq!(warm.opens(), 0, "a warm run reads no file");
-    assert_eq!(fx.listing.calls(), listing_before, "nor lists a zip");
+    // Units still list each archive once to know its kind (served by the
+    // archive cache); the keys list and decode nothing.
+    assert_eq!(
+        fx.listing.calls(),
+        listing_before + 1,
+        "only the units list the zip"
+    );
     assert_eq!(second.groups, first.groups);
 }
 

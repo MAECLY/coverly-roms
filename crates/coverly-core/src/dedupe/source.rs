@@ -1,23 +1,20 @@
 //! The two seams through which duplicates reads inside containers (plan
 //! DD-1): [`EntryListing`] for archive entries and [`DiscProbe`] for disc
-//! identity. Both are narrow so the archive and disc readers can be swapped
-//! in later without touching the planner. A third, [`DatLookup`], answers
-//! catalogue questions for levels 2 and 3. Read-only.
+//! identity. Both are narrow, so the planner never sees the readers: the
+//! real ones are [`ArchiveEntryListing`](super::archive::ArchiveEntryListing)
+//! over the archive reader and `ReaderDiscProbe` (`dedupe::disc`) over the
+//! disc reader; the fakes live in `dedupe::testing`. A third,
+//! [`DatLookup`], answers catalogue questions for levels 2 and 3. Read-only.
 
-use std::fs::File;
-use std::io::{self, Read};
+use std::io;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::cache::Cache;
 use crate::identify::dat::dat_sources;
-use crate::identify::hash::{hash_stream, HeaderRule};
+use crate::identify::hash::HeaderRule;
 use crate::systems::SystemDb;
-
-/// An archive with more entries than this is not listed (a ROM set never
-/// comes close); listing it is an error so the unit is reported unreadable.
-const MAX_ENTRIES: usize = 4096;
 
 /// One file entry of an archive, as its directory states it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,116 +52,6 @@ pub trait EntryListing: Send + Sync {
         let _ = (path, entry, len);
         Ok(None)
     }
-}
-
-/// [`EntryListing`] for zip files, through the `zip` crate. Other archive
-/// formats are name-only until the archive reader lands (plan Task 25).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ZipListing;
-
-impl ZipListing {
-    fn open(path: &Path) -> io::Result<Option<zip::ZipArchive<File>>> {
-        let is_zip = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("zip"));
-        if !is_zip {
-            return Ok(None);
-        }
-        let archive = zip::ZipArchive::new(File::open(path)?).map_err(invalid)?;
-        if archive.len() > MAX_ENTRIES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("more than {MAX_ENTRIES} entries"),
-            ));
-        }
-        Ok(Some(archive))
-    }
-
-    /// The listed entries with their index in the archive.
-    fn entries(archive: &mut zip::ZipArchive<File>) -> io::Result<Vec<(usize, ListedEntry)>> {
-        let mut out = Vec::new();
-        for i in 0..archive.len() {
-            let entry = archive.by_index_raw(i).map_err(invalid)?;
-            if entry.is_dir() {
-                continue;
-            }
-            let name = entry.name().map_err(invalid)?.into_owned();
-            out.push((
-                i,
-                ListedEntry {
-                    name,
-                    size: entry.size(),
-                    crc32: Some(entry.crc32()),
-                },
-            ));
-        }
-        Ok(out)
-    }
-}
-
-impl EntryListing for ZipListing {
-    fn list(&self, path: &Path) -> io::Result<Option<Vec<ListedEntry>>> {
-        let Some(mut archive) = Self::open(path)? else {
-            return Ok(None);
-        };
-        let entries = Self::entries(&mut archive)?;
-        Ok(Some(entries.into_iter().map(|(_, e)| e).collect()))
-    }
-
-    fn payload_sha1(
-        &self,
-        path: &Path,
-        entry: usize,
-        rule: HeaderRule,
-        budget: u64,
-    ) -> io::Result<Option<String>> {
-        let Some(mut archive) = Self::open(path)? else {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a zip"));
-        };
-        let entries = Self::entries(&mut archive)?;
-        let Some((index, listed)) = entries.into_iter().nth(entry) else {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("no entry {entry}"),
-            ));
-        };
-        if listed.size > budget {
-            return Ok(None);
-        }
-        let file = archive.by_index(index).map_err(invalid)?;
-        // One byte past the size shows an entry that inflates to more.
-        let h = hash_stream(file.take(listed.size.saturating_add(1)), listed.size, rule)?;
-        let crc = listed.crc32.map(|c| format!("{c:08X}"));
-        if h.full.size != listed.size || crc.as_deref() != Some(h.full.crc32.as_str()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("entry {} does not match its directory", listed.name),
-            ));
-        }
-        Ok(h.payload_sha1)
-    }
-
-    fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
-        let Some(mut archive) = Self::open(path)? else {
-            return Ok(None);
-        };
-        let entries = Self::entries(&mut archive)?;
-        let Some((index, _)) = entries.into_iter().nth(entry) else {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("no entry {entry}"),
-            ));
-        };
-        let file = archive.by_index(index).map_err(invalid)?;
-        let mut head = Vec::with_capacity(len);
-        file.take(len as u64).read_to_end(&mut head)?;
-        Ok(Some(head))
-    }
-}
-
-fn invalid(e: impl std::error::Error + Send + Sync + 'static) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, e)
 }
 
 /// What tells two builds of one disc apart (spec §5.4): the ISO 9660
@@ -230,7 +117,7 @@ pub trait DiscProbe: Send + Sync {
 }
 
 /// A [`DiscProbe`] that reads nothing: level 3 is disabled with the "needs
-/// disc reading" note until the disc reader lands (plan Task 25).
+/// disc reading" note (tests, and callers that read no discs).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoDiscProbe;
 

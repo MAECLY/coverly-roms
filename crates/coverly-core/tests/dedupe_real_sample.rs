@@ -18,9 +18,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
+use coverly_core::archive::Limits;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::DiskBytes;
-use coverly_core::dedupe::source::{NoDiscProbe, ZipListing};
+use coverly_core::dedupe::source::NoDiscProbe;
 use coverly_core::dedupe::units::{units_from_scan, Exclusion, UnitOptions};
 use coverly_core::dedupe::{
     plan_dedupe, regroup, DedupeEnv, DedupeOptions, DedupePlan, DupGroup, GroupAction, Relation,
@@ -138,7 +140,7 @@ fn plan(scan: &LibraryScan, profile: &Profile, cache: &Cache) -> DedupePlan {
         db: &db,
         profile,
         settings: &settings,
-        listing: &ZipListing,
+        listing: &ArchiveEntryListing::new(Limits::default()),
         discs: &NoDiscProbe,
         dats: None,
         bytes: &DiskBytes,
@@ -295,7 +297,12 @@ fn the_real_library_plans_duplicates_as_the_spec_says() {
 
     // `PS/Grandia.bios` is never a unit: the scan does not list it as a
     // ROM, and if it ever did, the BIOS rule would set it aside.
-    let set = units_from_scan(&lib_scan, &db, &UnitOptions::for_profile(&lib_profile));
+    let set = units_from_scan(
+        &lib_scan,
+        &db,
+        &UnitOptions::for_profile(&lib_profile),
+        &ArchiveEntryListing::new(Limits::default()),
+    );
     let bios = Path::new("PS/Grandia.bios");
     if let Some((_, why)) = set.excluded.iter().find(|(p, _)| p.ends_with(bios)) {
         assert_eq!(why, &Exclusion::Bios, "PS/Grandia.bios");

@@ -11,19 +11,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use clap::{Args, ValueEnum};
+use coverly_core::archive::Limits;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::DiskBytes;
-use coverly_core::dedupe::source::{NoDiscProbe, ZipListing};
+use coverly_core::dedupe::source::NoDiscProbe;
 use coverly_core::dedupe::DedupeEnv;
 use coverly_core::dedupe::{
     plan_dedupe, DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, DupGroup, GroupAction,
-    KeepReason, Member, Relation, ReportWhy, TravelKind,
+    KeepReason, Member, QuarantineChoice, Relation, ReportWhy, TravelKind,
 };
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::paths::AppDirs;
 use coverly_core::scan::scan_library;
-use coverly_core::settings::{DedupeLevel, KeepRule, RuleToggle};
+use coverly_core::settings::{DedupeLevel, ExternalTools, KeepRule, RuleToggle};
 use coverly_core::systems::SystemDb;
 
 use crate::profile::{check_root, choose_profile};
@@ -65,6 +67,10 @@ pub struct DedupeArgs {
     /// Cached catalogues only: no download.
     #[arg(long)]
     offline: bool,
+    /// Never run unrar, 7-Zip or bsdtar: RAR archives (and 7z coders the
+    /// built-in reader lacks) are not read inside.
+    #[arg(long)]
+    no_external_tools: bool,
     /// Show the plan only (the default, whatever the "dry run by default"
     /// setting says).
     #[arg(long, conflicts_with = "apply")]
@@ -316,12 +322,23 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
             table::terminal_safe(&format!("warning: {}: {}", w.path.display(), w.message))
         );
     }
+    // External tools are found on first need, never inside the library
+    // (which holds the default quarantine) or a custom quarantine.
+    let limits = Limits {
+        external_tools: !args.no_external_tools && s.organize.external_tools == ExternalTools::Auto,
+        ..Limits::default()
+    };
+    let mut avoid: Vec<&Path> = vec![&root];
+    if let QuarantineChoice::Folder { path } = &opts.quarantine {
+        avoid.push(path);
+    }
+    let listing = ArchiveEntryListing::with_tools(limits, &avoid);
     let env = DedupeEnv {
         cache: &cache,
         db: &db,
         profile,
         settings: s,
-        listing: &ZipListing,
+        listing: &listing,
         discs: &NoDiscProbe,
         dats,
         bytes: &DiskBytes,

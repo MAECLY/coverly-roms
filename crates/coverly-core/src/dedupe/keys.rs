@@ -39,7 +39,7 @@ use crate::scan::classify::extension;
 use crate::systems::SystemDb;
 
 use super::source::{DatLookup, DiscProbe, EntryListing, ListedEntry, VolumeFingerprint};
-use super::units::{Unit, UnitKind};
+use super::units::{is_nested_archive, Unit, UnitKind};
 use super::{DedupePhase, ReportWhy};
 
 /// Worker threads on internal disks, and on removable or network volumes
@@ -394,8 +394,8 @@ fn class_of(u: &Unit, ctx: &KeyCtx) -> Class {
         UnitKind::Image => plain,
         UnitKind::Zip if u.payload_size.is_some() => Class::Payload(How::Zip(ctx.rule(&u.system))),
         UnitKind::Zip => plain,
-        UnitKind::Arcade if u.ext == "zip" => Class::Arcade,
-        UnitKind::Arcade => plain,
+        // Every arcade unit comes from a listing (any archive format).
+        UnitKind::Arcade => Class::Arcade,
         UnitKind::DiscSet | UnitKind::MultiDisc => Class::Disc,
         UnitKind::Chd => Class::Chd,
     }
@@ -739,7 +739,7 @@ fn zip_entry(u: &Unit, ctx: &KeyCtx) -> io::Result<Option<(usize, ListedEntry)>>
     };
     let rom_like = |e: &ListedEntry| {
         let ext = extension(Path::new(&e.name));
-        !matches!(ext.as_str(), "zip" | "7z" | "rar") && ctx.db.is_rom_like_extension(&ext)
+        !is_nested_archive(&ext) && ctx.db.is_rom_like_extension(&ext)
     };
     let pick = entries
         .iter()

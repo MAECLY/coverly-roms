@@ -9,8 +9,9 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
+use coverly_core::archive::Limits;
 use coverly_core::cache::Cache;
-use coverly_core::dedupe::source::ZipListing;
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::testing::{pin_mtime, CountingBytes, FakeDiscProbe};
 use coverly_core::dedupe::{
     apply_dedupe, plan_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv, DedupeItemStatus,
@@ -90,7 +91,7 @@ impl Card {
             db: &db,
             profile: &self.profile,
             settings: &self.settings,
-            listing: &ZipListing,
+            listing: &ArchiveEntryListing::new(Limits::default()),
             discs: &FakeDiscProbe::new(),
             dats: None,
             bytes: &CountingBytes::new(),
