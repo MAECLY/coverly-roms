@@ -31,7 +31,12 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
-export { MOCK_DOWNLOADS, MOCK_MIXED, MOCK_PICK_KEY } from './mockOrganize';
+export {
+  MOCK_DOWNLOADS,
+  MOCK_MIXED,
+  MOCK_PICK_KEY,
+  MOCK_SAMPLE,
+} from './mockOrganize';
 
 export const MOCK_LIBRARIES = [
   { path: '/mock/Fixture SD (12k)', count: 12_000, seed: 12 },
@@ -286,7 +291,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       exports: jobs.exports,
     },
-    { pauseAfter: opts.organizePauseAfter ?? null },
+    {
+      pauseAfter: opts.organizePauseAfter ?? null,
+      sortedLayout: MOCK_BUILTIN_PROFILES.find(
+        (p) => p.profile.id === 'anbernic-stock',
+      ),
+    },
   );
   const updateLog: string[] = [];
   const updates = createMockUpdates({

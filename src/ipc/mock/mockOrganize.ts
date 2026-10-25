@@ -12,6 +12,11 @@
  *   `.zip` (PS1, Dreamcast, Saturn; `discFixture.ts`) that are extracted,
  *   a saved web page named like a ROM, 3 partial downloads and a
  *   `.DS_Store`.
+ * - `MOCK_SAMPLE` is that sample as it is now (2026-10-24): partly
+ *   organised, so it opens as an Anbernic stock library (`ROMS/GB`, `GBA`,
+ *   `GBC`, `SFC` of `sampleFixture.ts`, never touched) whose loose files are
+ *   5 GBA zips (two ROM hacks, a ` (1)` copy), the three disc archives, the
+ *   web page, a patch-only zip and a `.rar` no tool can open.
  * - `MOCK_MIXED` has 4 sure ROMs (one with a name that is markup), 2 for
  *   review, 1 unknown, 1 duplicate and 2 partial downloads.
  *
@@ -67,21 +72,25 @@ import {
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
 import type { MockExport } from './mockJobs';
+import { MOCK_SAMPLE_SORTED, type MockSortedFolder } from './sampleFixture';
 
 export const MOCK_DOWNLOADS = '/Users/demo/Downloads/roms';
 export const MOCK_MIXED = '/Users/demo/Mixed';
+export const MOCK_SAMPLE = '/Users/demo/ROMs-Downloaded';
 export const MOCK_PLAN_EXPORT = 'coverly-organize-plan.json';
 export const MOCK_PICK_KEY = 'coverly.mock.pick';
 
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
- * reachable from the start screen: `?mockPick=downloads|mixed|<absolute
- * path>` (or localStorage `coverly.mock.pick`). Null: the first fixture
- * library, as before.
+ * reachable from the start screen: `?mockPick=downloads|loose|mixed|<absolute
+ * path>` (or localStorage `coverly.mock.pick`). `downloads` is the owner's
+ * pile as it is now (`MOCK_SAMPLE`), `loose` the same pile before any of it
+ * was sorted (`MOCK_DOWNLOADS`). Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
   const resolve = (v: string | null): string | null => {
-    if (v === 'downloads') return MOCK_DOWNLOADS;
+    if (v === 'downloads') return MOCK_SAMPLE;
+    if (v === 'loose') return MOCK_DOWNLOADS;
     if (v === 'mixed') return MOCK_MIXED;
     return v && v.startsWith('/') ? v : null;
   };
@@ -139,6 +148,8 @@ interface PileDef {
   path: string;
   files: PileFile[];
   junk: string[];
+  /** System folders already sorted there (opens as a library). */
+  sorted?: readonly MockSortedFolder[];
 }
 
 const hash = (
@@ -159,6 +170,8 @@ const header = (system: string, detail: string): Partial<PileFile> => ({
   detail,
 });
 const GBC_HEADER = header('gbc', 'Nintendo logo, CGB 0xC0');
+/** What the core's GBA header check reports on the real sample. */
+const GBA_HEADER = header('gba', 'fixed 0x96, logo');
 const SFC_HEADER = header('snes', 'LoROM header, checksum ok');
 const PARTIAL: LeftReason = { kind: 'partial-download' };
 
@@ -311,6 +324,54 @@ const PILES: readonly PileDef[] = [
         left: PARTIAL,
       },
       { name: 'Unconfirmed 471203.crdownload', size: 0, left: PARTIAL },
+      ...DISC_FILES,
+    ],
+  },
+  {
+    // The same sample as it is now (`coverly organize --offline` on it,
+    // docs/TRACKER.md 2026-10-24): what was sorted stays in `ROMS/`; the
+    // loose GBA zips are decided by header (no GBA catalogue cached), the
+    // patch-only zip and the web page stay, and the `.rar` needs unrar.
+    path: MOCK_SAMPLE,
+    junk: ['.DS_Store'],
+    sorted: MOCK_SAMPLE_SORTED,
+    files: [
+      {
+        name: 'Avatar - the Last Airbender GBA.zip',
+        size: 3_022_101,
+        ...GBA_HEADER,
+      },
+      {
+        name: 'Dragonball Z - Supersonic Warriors GBA.zip',
+        size: 9_192_857,
+        ...GBA_HEADER,
+      },
+      { name: 'FIFA Soccer 07.zip', size: 3_760_849, ...GBA_HEADER },
+      {
+        name: 'Pokemon - Leaf Green Version (U) (V1.1) (1).zip',
+        size: 5_329_069,
+        ...GBA_HEADER,
+      },
+      {
+        name: 'Pokemon Jupiter - 6.04 (Ruby Hack) (1).zip',
+        size: 2_179_492,
+        left: { kind: 'not-a-rom', what: 'patch' },
+      },
+      {
+        name: 'Pokemon Ultra Violet (1.22) LSA (Fire Red Hack).zip',
+        size: 5_328_440,
+        ...GBA_HEADER,
+      },
+      {
+        name: '3-D Tetris (USA).zip',
+        size: 5_900,
+        left: { kind: 'not-a-rom', what: 'web-page' },
+      },
+      {
+        name: 'Tetris Collection.rar',
+        size: 2_097_152,
+        left: { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+      },
       ...DISC_FILES,
     ],
   },
@@ -488,6 +549,9 @@ export interface MockOrganizeHost {
 export interface MockOrganizeOptions {
   /** The first apply of each job pauses (disk full) after this many items; null = never. */
   pauseAfter: number | null;
+  /** The layout of the folders a pile already has sorted (`PileDef.sorted`);
+   * absent: those piles open as loose piles. */
+  sortedLayout?: ProfileInfo | undefined;
 }
 
 /** How `organizeTouch` changes a pile on "disk". */
@@ -585,6 +649,31 @@ export function createMockOrganize(
   const surveyed = new Map<string, Set<string>>();
   let madeUp = 0;
   const targets = new Map<string, Target>();
+  // What a pile already has sorted: no job wrote it, so no undo touches it.
+  for (const p of PILES) {
+    const layout = opts.sortedLayout;
+    if (!p.sorted || !layout) continue;
+    targets.set(p.path, {
+      root: p.path,
+      layout,
+      romsRel: layout.profile.roms_root,
+      files: p.sorted.flatMap((f) =>
+        f.files.map(([name, size]): Placed => {
+          const rel = join(f.dir, name);
+          return {
+            job: '',
+            file: { name, size, system: f.system },
+            system: f.system,
+            dir: f.dir,
+            written: [rel],
+            shown: [{ rel, size }],
+            extracted: false,
+            trashed: false,
+          };
+        }),
+      ),
+    });
+  }
   const journals: OrgJournal[] = [];
   const plans = new Map<number, Resolved>();
   const cancelled = new Set<number>();
@@ -1196,6 +1285,16 @@ export function createMockOrganize(
     return { ...view };
   }
 
+  /** ROM-like files still loose at the top of pile `path` (what the
+   * library's "Organise loose files" offers); 0 for a folder no pile is. */
+  function looseCount(path: string): number {
+    const names = loose.get(path);
+    if (!names || gone.has(path)) return 0;
+    return allFiles(path).filter(
+      (f) => names.has(f.name) && f.left?.kind !== 'partial-download',
+    ).length;
+  }
+
   function libraryView(t: Target, generation: number): LibraryView {
     const p = t.layout.profile;
     const media = MEDIA.filter((m) => p.slots[m] !== undefined);
@@ -1257,7 +1356,7 @@ export function createMockOrganize(
       entries,
       warnings: [],
       scan_ms: 0,
-      loose_files: 0,
+      loose_files: looseCount(t.root),
     };
   }
 

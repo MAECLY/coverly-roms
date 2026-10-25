@@ -17,6 +17,7 @@ import {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
   MOCK_PICK_KEY,
+  MOCK_SAMPLE,
   readMockPick,
 } from './mockOrganize';
 
@@ -618,6 +619,8 @@ describe('mock folder pick', () => {
   it('reads ?mockPick= aliases and absolute paths, then storage, else nothing', () => {
     expect(readMockPick()).toBeNull();
     window.history.replaceState(null, '', '/?mockPick=downloads');
+    expect(readMockPick()).toBe(MOCK_SAMPLE);
+    window.history.replaceState(null, '', '/?mockPick=loose');
     expect(readMockPick()).toBe(MOCK_DOWNLOADS);
     window.history.replaceState(null, '', '/?mockPick=mixed');
     expect(readMockPick()).toBe(MOCK_MIXED);
@@ -628,13 +631,120 @@ describe('mock folder pick', () => {
   });
 
   it('open folder picks the asked pile, which has no known layout', async () => {
-    window.history.replaceState(null, '', '/?mockPick=downloads');
+    window.history.replaceState(null, '', '/?mockPick=loose');
     const b = backend();
     const path = await b.pickFolder();
     expect(path).toBe(MOCK_DOWNLOADS);
     expect(await backend({ folder: MOCK_MIXED }).pickFolder()).toBe(MOCK_MIXED);
     window.history.replaceState(null, '', '/');
     expect(await backend().pickFolder()).toBe(MOCK_LIBRARIES[0].path);
+  });
+});
+
+describe('mock organise: the sample as it is now', () => {
+  it('opens as a library and plans only the loose files', async () => {
+    const b = backend();
+    const lib = await b.openLibrary(MOCK_SAMPLE);
+    expect(lib.profile.id).toBe('anbernic-stock');
+    expect(lib.systems.map((s) => [s.folder, s.roms])).toEqual([
+      ['GB', 6],
+      ['GBA', 146],
+      ['GBC', 2],
+      ['SFC', 2],
+    ]);
+    // 5 GBA zips, the patch, the web page, the .rar and 3 disc archives.
+    expect(lib.loose_files).toBe(11);
+    const probe = await b.probeFolder(MOCK_SAMPLE);
+    expect(probe.sorted_folders).toEqual(['GB', 'GBA', 'GBC', 'SFC']);
+
+    const { plan } = await b.organizePlan({
+      source: MOCK_SAMPLE,
+      layout: 'anbernic-stock',
+      mode: 'move',
+    });
+    expect(plan.counts).toMatchObject({ auto: 8, review: 0, left: 3 });
+    expect(plan.sorted_folders).toEqual([
+      ['ROMS/GB', 'gb'],
+      ['ROMS/GBA', 'gba'],
+      ['ROMS/GBC', 'gbc'],
+      ['ROMS/SFC', 'snes'],
+    ]);
+    // Nothing already in ROMS/ is part of the plan.
+    expect(plan.items.every((i) => !i.sources[0]!.startsWith('ROMS/'))).toBe(
+      true,
+    );
+    const by = (name: string) => plan.items.find((i) => i.sources[0] === name)!;
+    expect(
+      by('Pokemon Ultra Violet (1.22) LSA (Fire Red Hack).zip'),
+    ).toMatchObject({
+      action: 'auto',
+      target: 'ROMS/GBA/Pokemon Ultra Violet (1.22) LSA (Fire Red Hack).zip',
+      rename: null,
+      method: 'header',
+    });
+    expect(by('Pokemon - Leaf Green Version (U) (V1.1) (1).zip').target).toBe(
+      'ROMS/GBA/Pokemon - Leaf Green Version (U) (V1.1) (1).zip',
+    );
+    for (const [name, folder] of [
+      ['Next Tetris, The.zip', 'PS'],
+      ['Next Tetris, The_ On-Line Edition.zip', 'DREAMCAST'],
+      ['Tetris Plus.zip', 'SATURN'],
+    ] as const) {
+      expect(by(name)).toMatchObject({ folder, transfer: { kind: 'extract' } });
+    }
+    const left = Object.fromEntries(
+      plan.items.flatMap((i) =>
+        i.action === 'left' ? [[i.sources[0], i.reason]] : [],
+      ),
+    );
+    expect(left).toEqual({
+      '3-D Tetris (USA).zip': { kind: 'not-a-rom', what: 'web-page' },
+      'Pokemon Jupiter - 6.04 (Ruby Hack) (1).zip': {
+        kind: 'not-a-rom',
+        what: 'patch',
+      },
+      'Tetris Collection.rar': {
+        kind: 'unsupported-archive',
+        format: 'rar',
+        need: 'unrar',
+      },
+    });
+  });
+
+  it('apply adds to the sorted folders and undo leaves them as they were', async () => {
+    const b = backend();
+    const { plan_id } = await b.organizePlan({
+      source: MOCK_SAMPLE,
+      layout: 'anbernic-stock',
+      mode: 'move',
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.report).toMatchObject({ moved: 5, extracted: 3, failed: 0 });
+    const after = await b.openLibrary(MOCK_SAMPLE);
+    expect(after.systems.map((s) => [s.folder, s.roms])).toEqual([
+      ['DREAMCAST', 2],
+      ['GB', 6],
+      ['GBA', 151],
+      ['GBC', 2],
+      ['PS', 1],
+      ['SATURN', 1],
+      ['SFC', 2],
+    ]);
+    // The patch, the web page and the .rar stay loose, and so does
+    // Tetris Plus.zip: the mock's Trash refuses an archive that big.
+    expect(after.loose_files).toBe(4);
+
+    await b.organizeUndo(view.job!, false);
+    const back = await b.openLibrary(MOCK_SAMPLE);
+    expect(back.systems.map((s) => [s.folder, s.roms])).toEqual([
+      ['GB', 6],
+      ['GBA', 146],
+      ['GBC', 2],
+      ['SFC', 2],
+    ]);
+    expect(back.loose_files).toBe(11);
   });
 });
 
