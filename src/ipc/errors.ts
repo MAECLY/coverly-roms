@@ -40,6 +40,9 @@ export const ERROR_CODES = [
   'no-plan',
   'later-jobs',
   'no-space',
+  'no-dedupe-plan',
+  'keeper-required',
+  'quarantine-in-system-folder',
   'unknown',
 ] as const;
 

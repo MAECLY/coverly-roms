@@ -359,6 +359,9 @@
     "no-plan": "Ese plan de organización ya no se conserva. Vuelve a planificar.",
     "later-jobs": "Trabajos posteriores cambiaron archivos en esta carpeta ({detail}). Deshazlos también o conserva esta organización.",
     "no-space": "No hay espacio libre suficiente para esta copia (bytes necesarios/libres: {detail}).",
+    "no-dedupe-plan": "Esa búsqueda de duplicados ya no se conserva. Vuelve a buscar duplicados.",
+    "keeper-required": "Cada grupo necesita una copia que se quede. Elige la copia que conservas ({detail}).",
+    "quarantine-in-system-folder": "La carpeta de duplicados no puede estar dentro de una carpeta de sistema ni contener una ({detail}). Elige otra carpeta.",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",

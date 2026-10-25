@@ -359,6 +359,9 @@
     "no-plan": "That organise plan is no longer kept. Plan again.",
     "later-jobs": "Newer jobs changed files under this folder ({detail}). Undo them too, or keep this organisation.",
     "no-space": "There is not enough free space for this copy (needed/free bytes: {detail}).",
+    "no-dedupe-plan": "That duplicates search is no longer kept. Look for duplicates again.",
+    "keeper-required": "Every group needs one copy that stays. Pick the copy to keep ({detail}).",
+    "quarantine-in-system-folder": "The duplicates folder cannot be inside a system folder, or hold one ({detail}). Choose another folder.",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",

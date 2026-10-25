@@ -85,6 +85,14 @@ pub enum IpcError {
     /// Detail: `"<needed>/<free>"` bytes.
     #[error("not enough space (needed/free bytes): {0}")]
     NoSpace(String),
+    #[error("that duplicates plan is no longer kept; look for duplicates again")]
+    NoDedupePlan,
+    /// A group must keep one copy that does not move (a conflict has no
+    /// keeper until you pick one; some copies may never stay).
+    #[error("this group needs a copy that stays: {0}")]
+    KeeperRequired(String),
+    #[error("the duplicates folder is inside or around a system folder: {0}")]
+    QuarantineInSystemFolder(String),
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {
@@ -185,6 +193,18 @@ mod tests {
         assert_eq!(
             serde_json::to_value(IpcError::LaterJobs("a, b".into())).unwrap(),
             serde_json::json!({ "code": "later-jobs", "detail": "a, b" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::NoDedupePlan).unwrap(),
+            serde_json::json!({ "code": "no-dedupe-plan" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::KeeperRequired("group 4".into())).unwrap(),
+            serde_json::json!({ "code": "keeper-required", "detail": "group 4" })
+        );
+        assert_eq!(
+            serde_json::to_value(IpcError::QuarantineInSystemFolder("/sd/ROMS/GB".into())).unwrap(),
+            serde_json::json!({ "code": "quarantine-in-system-folder", "detail": "/sd/ROMS/GB" })
         );
     }
 }
