@@ -894,6 +894,70 @@ describe('mock organise: archives and disc games', () => {
     ]);
   });
 
+  it('undo_keeps_extracted_files_when_the_archive_place_is_taken', async () => {
+    const b = backend();
+    const { plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const gba = plan.items.find((i) => i.folder === 'GBA')!;
+    const view = await applied(b);
+    // Something else now sits where the PS1 archive and a GBA ROM were.
+    b.organizeTouch(MOCK_DOWNLOADS, {
+      add: [CASES[0].name, gba.sources[0]!],
+    });
+    const r = (await b.organizeUndo(view.job!, false)).report[0]!;
+    // Like Rust: the trashed archive cannot come back, so its extracted
+    // files stay; the moved ROM stays at its target.
+    expect(r.archive_lost).toEqual([`${MOCK_DOWNLOADS}/${CASES[0].name}`]);
+    expect(r.restored).not.toContain(`${MOCK_DOWNLOADS}/${CASES[0].name}`);
+    expect(r.removed.some((x) => x.includes('/ROMS/PS/'))).toBe(false);
+    expect(r.skipped_occupied).toEqual([`${MOCK_DOWNLOADS}/${gba.target!}`]);
+    expect(r.restored).not.toContain(`${MOCK_DOWNLOADS}/${gba.sources[0]!}`);
+    expect(r.restored).toHaveLength(16);
+    expect(r.dirs_removed).not.toContain(`${MOCK_DOWNLOADS}/ROMS/PS`);
+    expect(r.dirs_removed).not.toContain(`${MOCK_DOWNLOADS}/ROMS`);
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(lib.entries.map((e) => e.rel_path).sort()).toEqual(
+      [CASES[0].target, gba.target!].sort(),
+    );
+  });
+
+  it('cancel_mid_extract_rolls_the_item_back', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const dc = plan.items.find((i) => i.sources[0] === CASES[1].name)!;
+    // Cancelled once the Dreamcast decode is under way.
+    await b.onOrganizeProgress((e) => {
+      if (e.phase === 'extract' && e.item === dc.id && e.bytes_done > 0)
+        void b.organizeCancelApply();
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('cancelled');
+    expect(view.report?.items.find((o) => o.item === dc.id)).toEqual({
+      item: dc.id,
+      status: 'skipped',
+      reason: 'cancelled',
+      targets: [],
+    });
+    // Nothing of it reached the target, and the archive is still loose.
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(
+      lib.entries.some((e) => e.rel_path.startsWith('ROMS/DREAMCAST/')),
+    ).toBe(false);
+    const again = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      rescan: true,
+    });
+    expect(
+      again.plan.items.find((i) => i.sources[0] === CASES[1].name),
+    ).toMatchObject({ action: 'auto', transfer: { kind: 'extract' } });
+    // Undo removes only what was written before the cancel.
+    const undo = await b.organizeUndo(view.job!, false);
+    expect(
+      undo.report[0]!.removed.some((r) => r.includes('/ROMS/DREAMCAST/')),
+    ).toBe(false);
+  });
+
   it('undo_reports_archive_restored', async () => {
     const b = backend();
     const view = await applied(b);

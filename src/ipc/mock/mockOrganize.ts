@@ -1270,26 +1270,37 @@ export function createMockOrganize(
     }));
   }
 
-  /** Undoes organise journal `j` alone: moves back or removes its files. */
+  /** Undoes organise journal `j` alone: moves back or removes its files.
+   * Like Rust, nothing is put back over a file now at the source's place:
+   * a moved ROM stays at its target (`skipped_occupied`) and a trashed
+   * archive is lost, so its extracted files stay (`archive_lost`). */
   function undoOne(j: OrgJournal): OrganizeUndoReport {
     const t = targets.get(j.target);
+    const here = loose.get(j.source)!;
     const restored: string[] = [];
     const removed: string[] = [];
+    const occupied: string[] = [];
+    const lost: string[] = [];
+    /** Files of this job that stay in the target. */
+    const stay = new Set<Placed>();
     for (const p of [...j.placed].reverse()) {
-      if (p.extracted) {
-        // Extracted files are deleted; a trashed archive comes back.
+      const back = (p.extracted ? p.trashed : j.mode === 'move')
+        ? !here.has(p.file.name)
+        : null;
+      if (back === false) {
+        stay.add(p);
+        if (p.extracted) lost.push(`${j.source}/${p.file.name}`);
+        else occupied.push(`${j.target}/${p.written[0]!}`);
+        continue;
+      }
+      if (back) {
+        here.add(p.file.name);
+        restored.push(`${j.source}/${p.file.name}`);
+      }
+      // Extracted files and copies are deleted.
+      if (p.extracted || j.mode === 'copy')
         for (const w of [...p.written].reverse())
           removed.push(`${j.target}/${w}`);
-        if (p.trashed) {
-          loose.get(j.source)!.add(p.file.name);
-          restored.push(`${j.source}/${p.file.name}`);
-        }
-      } else if (j.mode === 'move') {
-        loose.get(j.source)!.add(p.file.name);
-        restored.push(`${j.source}/${p.file.name}`);
-      } else {
-        removed.push(`${j.target}/${p.written[0]!}`);
-      }
     }
     const dirsRemoved: string[] = [];
     if (t) {
@@ -1301,7 +1312,7 @@ export function createMockOrganize(
           ]),
         );
       const before = dirsOf(t.files);
-      t.files = t.files.filter((p) => p.job !== j.job);
+      t.files = t.files.filter((p) => p.job !== j.job || stay.has(p));
       const after = dirsOf(t.files);
       for (const dir of [...before].sort((a, b) => collator.compare(a, b))) {
         if (!after.has(dir)) dirsRemoved.push(`${j.target}/${dir}`);
@@ -1318,9 +1329,9 @@ export function createMockOrganize(
       removed,
       restored,
       skipped_modified: [],
-      skipped_occupied: [],
+      skipped_occupied: occupied,
       dirs_removed: dirsRemoved,
-      archive_lost: [],
+      archive_lost: lost,
     };
   }
 
