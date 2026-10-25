@@ -28,12 +28,12 @@ use coverly_core::organize::{
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
 use coverly_core::profiles::Profile;
-use coverly_core::settings::Settings;
+use coverly_core::settings::{OrganizeDedupeMode, Settings};
 use coverly_core::sources::screenscraper::{ScreenScraperSource, SsConfig, SCREENSCRAPER_BASE};
 use coverly_core::systems::SystemDb;
 use coverly_core::write::trash::process_trash;
 
-use crate::dedupe::relation_text;
+use crate::dedupe::{reason_text, relation_text};
 use crate::fill::write_file;
 use crate::profile::{check_folder, profile_ids};
 use crate::{print_stdout, table, Failure};
@@ -75,10 +75,17 @@ pub struct OrganizeArgs {
         value_name = "JOB_ID",
         conflicts_with_all = [
             "apply", "dry_run", "layout", "target", "flat", "copy", "move_",
-            "names", "assign", "include_review",
+            "names", "assign", "include_review", "duplicates",
         ]
     )]
     resume: Option<String>,
+    /// What to do with pile copies of games the library already holds, or
+    /// that the pile holds twice: set them aside in `<source>/_Duplicados`
+    /// (or the Trash, when the duplicates action setting says so), only
+    /// report them, or not look (default: the duplicates setting, else
+    /// set-aside).
+    #[arg(long, value_enum, value_name = "MODE")]
+    duplicates: Option<DuplicatesArg>,
     /// Move the items to review with their best candidate system.
     #[arg(long)]
     include_review: bool,
@@ -113,6 +120,23 @@ pub struct OrganizeArgs {
     database_url: Option<String>,
     #[arg(long, hide = true)]
     screenscraper_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum DuplicatesArg {
+    SetAside,
+    Report,
+    Off,
+}
+
+impl From<DuplicatesArg> for OrganizeDedupeMode {
+    fn from(d: DuplicatesArg) -> OrganizeDedupeMode {
+        match d {
+            DuplicatesArg::SetAside => OrganizeDedupeMode::SetAside,
+            DuplicatesArg::Report => OrganizeDedupeMode::Report,
+            DuplicatesArg::Off => OrganizeDedupeMode::Off,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -263,6 +287,9 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
     }
     if let Some(n) = args.names {
         opts.names = n.into();
+    }
+    if let Some(d) = args.duplicates {
+        opts.duplicates = d.into();
     }
     opts.offline = args.offline;
     if args.no_external_tools {
@@ -859,6 +886,19 @@ fn action_label(item: &OrganizeItem) -> String {
     }
 }
 
+/// The pile's quarantine folder (relative to the source root) of a plan
+/// with set-aside items: the first part of their `dest`.
+fn quarantine_of(plan: &OrganizePlan) -> PathBuf {
+    plan.items
+        .iter()
+        .find_map(|i| match &i.action {
+            OrganizeAction::SetAside { dest, .. } => dest.components().next(),
+            _ => None,
+        })
+        .map(|c| PathBuf::from(c.as_os_str()))
+        .unwrap_or_else(|| PathBuf::from(coverly_core::dedupe::DEFAULT_QUARANTINE_NAME))
+}
+
 /// Games the plan extracts and their bytes, when it extracts any.
 fn extract_totals(plan: &OrganizePlan) -> Option<(usize, u64)> {
     let (games, bytes) = plan
@@ -900,6 +940,17 @@ fn render_report(plan: &OrganizePlan, report: &OrganizeReport) -> String {
     );
     if report.extracted > 0 {
         let _ = writeln!(out, "Extracted: {}", report.extracted);
+    }
+    if report.set_aside > 0 {
+        let place = if plan.set_aside_trash {
+            "sent to the Trash".to_string()
+        } else {
+            format!(
+                "in {}",
+                plan.source_root.join(quarantine_of(plan)).display()
+            )
+        };
+        let _ = writeln!(out, "Duplicates set aside: {} ({place})", report.set_aside);
     }
     let label = |o: &ItemOutcome| {
         plan.items
@@ -991,6 +1042,13 @@ fn render_table(
         "ROMs: {} · Systems: {} · To review: {} · Staying put: {}",
         c.roms, c.systems, c.review, c.left
     );
+    if c.set_aside + c.in_library > 0 {
+        let _ = writeln!(
+            out,
+            "Duplicates set aside: {} · Already in your library: {}",
+            c.set_aside, c.in_library
+        );
+    }
 
     // Moving items, grouped by their system folder.
     let mut groups: BTreeMap<String, Vec<&OrganizeItem>> = BTreeMap::new();
@@ -1043,6 +1101,39 @@ fn render_table(
                 source_label(item),
                 candidates_text(item)
             );
+        }
+    }
+
+    let set_aside: Vec<&OrganizeItem> = plan.items.iter().filter(|i| i.is_set_aside()).collect();
+    if !set_aside.is_empty() {
+        let place = if plan.set_aside_trash {
+            "to the Trash".to_string()
+        } else {
+            format!("to {}/", slash(&quarantine_of(plan)))
+        };
+        let _ = writeln!(out, "\nDuplicates set aside ({}), {place}", set_aside.len());
+        for item in set_aside {
+            if let OrganizeAction::SetAside {
+                keeper,
+                relation,
+                reason,
+                dest,
+            } = &item.action
+            {
+                let to = if plan.set_aside_trash {
+                    "Trash".to_string()
+                } else {
+                    slash(dest)
+                };
+                let _ = writeln!(
+                    out,
+                    "  {}  {}  → {to}  [stays: {}, {}]",
+                    source_label(item),
+                    relation_text(*relation),
+                    slash(keeper),
+                    table::one_line(&reason_text(reason))
+                );
+            }
         }
     }
 
