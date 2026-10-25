@@ -16,7 +16,8 @@
  *   organised, so it opens as an Anbernic stock library (`ROMS/GB`, `GBA`,
  *   `GBC`, `SFC` of `sampleFixture.ts`, never touched) whose loose files are
  *   5 GBA zips (two ROM hacks, a ` (1)` copy), the three disc archives, the
- *   web page, a patch-only zip and a `.rar` no tool can open.
+ *   web page, a patch-only zip, a `.rar` no tool can open and (not in the
+ *   real pile) a `.tar.gz` cartridge that is extracted.
  * - `MOCK_MIXED` has 4 sure ROMs (one with a name that is markup), 2 for
  *   review, 1 unknown, 1 duplicate and 2 partial downloads.
  *
@@ -375,6 +376,24 @@ const PILES: readonly PileDef[] = [
         name: 'Tetris Collection.rar',
         size: 2_097_152,
         left: { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
+      },
+      {
+        // Not in the real pile (archives spec §11.1): a cartridge in a
+        // container the layout does not take as it is, so it is extracted.
+        name: 'Kirby - Nightmare in Dream Land (USA).tar.gz',
+        size: 3_861_029,
+        ...GBA_HEADER,
+        archive: {
+          container: 'tar.gz',
+          entries: [
+            {
+              index: 0,
+              name: 'Kirby - Nightmare in Dream Land (USA).gba',
+              size: 8_388_608,
+              crc32: 0x6e9a1b2c,
+            },
+          ],
+        },
       },
       ...DISC_FILES,
     ],

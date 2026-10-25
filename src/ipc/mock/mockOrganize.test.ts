@@ -652,8 +652,9 @@ describe('mock organise: the sample as it is now', () => {
       ['GBC', 2],
       ['SFC', 2],
     ]);
-    // 5 GBA zips, the patch, the web page, the .rar and 3 disc archives.
-    expect(lib.loose_files).toBe(11);
+    // 5 GBA zips, the patch, the web page, the .rar, a .tar.gz and 3 disc
+    // archives.
+    expect(lib.loose_files).toBe(12);
     const probe = await b.probeFolder(MOCK_SAMPLE);
     expect(probe.sorted_folders).toEqual(['GB', 'GBA', 'GBC', 'SFC']);
 
@@ -662,7 +663,7 @@ describe('mock organise: the sample as it is now', () => {
       layout: 'anbernic-stock',
       mode: 'move',
     });
-    expect(plan.counts).toMatchObject({ auto: 8, review: 0, left: 3 });
+    expect(plan.counts).toMatchObject({ auto: 9, review: 0, left: 3 });
     expect(plan.sorted_folders).toEqual([
       ['ROMS/GB', 'gb'],
       ['ROMS/GBA', 'gba'],
@@ -686,6 +687,10 @@ describe('mock organise: the sample as it is now', () => {
     expect(by('Pokemon - Leaf Green Version (U) (V1.1) (1).zip').target).toBe(
       'ROMS/GBA/Pokemon - Leaf Green Version (U) (V1.1) (1).zip',
     );
+    expect(by('Kirby - Nightmare in Dream Land (USA).tar.gz')).toMatchObject({
+      target: 'ROMS/GBA/Kirby - Nightmare in Dream Land (USA).gba',
+      transfer: { kind: 'extract', archive_after: 'trash' },
+    });
     for (const [name, folder] of [
       ['Next Tetris, The.zip', 'PS'],
       ['Next Tetris, The_ On-Line Edition.zip', 'DREAMCAST'],
@@ -722,12 +727,12 @@ describe('mock organise: the sample as it is now', () => {
     const done = ended(b);
     await b.organizeApply(plan_id, []);
     const view = await done;
-    expect(view.report).toMatchObject({ moved: 5, extracted: 3, failed: 0 });
+    expect(view.report).toMatchObject({ moved: 5, extracted: 4, failed: 0 });
     const after = await b.openLibrary(MOCK_SAMPLE);
     expect(after.systems.map((s) => [s.folder, s.roms])).toEqual([
       ['DREAMCAST', 2],
       ['GB', 6],
-      ['GBA', 151],
+      ['GBA', 152],
       ['GBC', 2],
       ['PS', 1],
       ['SATURN', 1],
@@ -745,7 +750,7 @@ describe('mock organise: the sample as it is now', () => {
       ['GBC', 2],
       ['SFC', 2],
     ]);
-    expect(back.loose_files).toBe(11);
+    expect(back.loose_files).toBe(12);
   });
 });
 
