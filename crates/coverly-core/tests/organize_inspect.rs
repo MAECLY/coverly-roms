@@ -969,9 +969,10 @@ fn tools_are_looked_for_only_when_an_archive_needs_one() {
 mod discs {
     use super::*;
     use coverly_core::archive::testing::SevenZCoder;
+    use coverly_core::disc::sheets::MAX_SHEET_BYTES;
     use coverly_core::disc::testing as dt;
     use coverly_core::organize::evidence::Verdict;
-    use coverly_core::organize::inspect::{DiscSetInfo, FoundSystem};
+    use coverly_core::organize::inspect::{DiscSetInfo, FoundSystem, MAX_DISC_SHEETS};
     use coverly_core::organize::plan::{ItemNote, LeftReason, SheetCheck};
 
     const MIB: usize = 1024 * 1024;
@@ -1430,6 +1431,73 @@ mod discs {
         assert_eq!(
             identify_offline(&p, i).left,
             Some(LeftReason::MultiGameArchive { count })
+        );
+    }
+
+    #[test]
+    fn a_full_listing_with_discs_under_the_cap_is_judged_quickly() {
+        // Past the cap, a thousand sheets in a listing of the most entries
+        // an archive may hold are a collection at once: the time this
+        // takes is the cost of the listing alone.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("Thousand.zip");
+        let mut names: Vec<String> = (0..1_000).map(|n| format!("Game {n}.cue")).collect();
+        let mut n = 0;
+        while names.len() < MAX_ZIP_ENTRIES {
+            names.push(format!("Game {n}.bin"));
+            n += 1;
+        }
+        let entries: Vec<(&str, &[u8], bool)> = names
+            .iter()
+            .map(|name| (name.as_str(), &b"\0"[..], false))
+            .collect();
+        zip_file(&p, &entries);
+        let started = std::time::Instant::now();
+        let i = inspect(&p);
+        let listing = started.elapsed();
+        assert_eq!(i.issue, Some(ArchiveIssue::SeveralGames { count: 1_000 }));
+        assert!(
+            listing < std::time::Duration::from_secs(2),
+            "took {listing:?}"
+        );
+
+        // Under the cap, as many discs as one archive may hold in the same
+        // full listing: sheets too large to read (their set inferred, then
+        // their directory guessed) and sheetless images beside thousands
+        // of image companions. Each disc looks its files up once instead
+        // of folding every listed name again, so judging them costs about
+        // what the listing does.
+        let p = tmp.path().join("Full.zip");
+        let big = vec![b' '; MAX_SHEET_BYTES + 1];
+        let mut names: Vec<(String, &[u8])> = Vec::new();
+        for n in 0..MAX_DISC_SHEETS / 2 {
+            names.push((format!("Big/Large {n}.cue"), &big[..]));
+        }
+        for n in 0..MAX_DISC_SHEETS - names.len() {
+            names.push((format!("Image {n}.iso"), &b""[..]));
+        }
+        let mut n = 0;
+        while names.len() < MAX_ZIP_ENTRIES {
+            names.push((format!("Image {n}.sub"), &b""[..]));
+            n += 1;
+        }
+        let entries: Vec<(&str, &[u8], bool)> = names
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), *bytes, false))
+            .collect();
+        zip_file(&p, &entries);
+        let started = std::time::Instant::now();
+        let i = inspect(&p);
+        let took = started.elapsed();
+        assert_eq!(
+            i.issue,
+            Some(ArchiveIssue::SeveralGames {
+                count: MAX_DISC_SHEETS
+            })
+        );
+        assert!(
+            took < listing * 3 + std::time::Duration::from_millis(50),
+            "took {took:?}, the listing alone {listing:?}"
         );
     }
 

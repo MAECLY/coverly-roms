@@ -13,7 +13,7 @@
 //! the archive, and the primary data track's head goes to
 //! [`DiscReader`]. Never extracts.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Range;
@@ -821,6 +821,52 @@ struct Listed {
     name: String,
     key: String,
     ext: String,
+    /// `name_key` of the directory and of the file stem, folded once.
+    dir: String,
+    stem: String,
+}
+
+/// The listed files of a disc archive by the keys a disc looks them up
+/// by, built once: a disc never folds every listed name again (a full
+/// listing times every disc it may hold).
+struct Lookup {
+    /// By `name_key` of the whole name (the first of equal keys).
+    by_key: HashMap<String, usize>,
+    /// By directory key, in listing order.
+    by_dir: HashMap<String, Vec<usize>>,
+    /// By directory and stem key, in listing order.
+    by_stem: HashMap<(String, String), Vec<usize>>,
+}
+
+impl Lookup {
+    fn of(files: &[Listed]) -> Lookup {
+        let mut l = Lookup {
+            by_key: HashMap::new(),
+            by_dir: HashMap::new(),
+            by_stem: HashMap::new(),
+        };
+        for (i, f) in files.iter().enumerate() {
+            l.by_key.entry(f.key.clone()).or_insert(i);
+            l.by_dir.entry(f.dir.clone()).or_default().push(i);
+            l.by_stem
+                .entry((f.dir.clone(), f.stem.clone()))
+                .or_default()
+                .push(i);
+        }
+        l
+    }
+
+    /// The files in the directory of `f`, `f` among them.
+    fn dir_of(&self, f: &Listed) -> &[usize] {
+        self.by_dir.get(&f.dir).map_or(&[], Vec::as_slice)
+    }
+
+    /// The files of `f`'s directory and stem, `f` among them.
+    fn stem_of(&self, f: &Listed) -> &[usize] {
+        self.by_stem
+            .get(&(f.dir.clone(), f.stem.clone()))
+            .map_or(&[], Vec::as_slice)
+    }
 }
 
 /// One disc of a disc archive, by positions into the listed files.
@@ -1036,11 +1082,12 @@ pub fn disc_title_text(stem: &str) -> (String, Option<u32>) {
 
 /// The files of `sheet`'s directory a guessed set holds: every file there
 /// but other discs' sheets, the first track-like one as primary.
-fn guessed_set(files: &[Listed], sheet: usize) -> (Vec<usize>, Option<usize>) {
-    let dir = name_key(split_dir(&files[sheet].name).0);
-    let tracks: Vec<usize> = (0..files.len())
-        .filter(|&i| i != sheet && name_key(split_dir(&files[i].name).0) == dir)
-        .filter(|&i| SheetKind::from_extension(&files[i].ext).is_none())
+fn guessed_set(files: &[Listed], lookup: &Lookup, sheet: usize) -> (Vec<usize>, Option<usize>) {
+    let tracks: Vec<usize> = lookup
+        .dir_of(&files[sheet])
+        .iter()
+        .copied()
+        .filter(|&i| i != sheet && SheetKind::from_extension(&files[i].ext).is_none())
         .collect();
     let primary = tracks
         .iter()
@@ -1052,12 +1099,7 @@ fn guessed_set(files: &[Listed], sheet: usize) -> (Vec<usize>, Option<usize>) {
 /// The disc of a cue/gdi sheet at `si`: parsed when reachable, inferred
 /// from the listing when not. `Err` stops the archive with an issue.
 fn sheet_disc(
-    (reader, entries, files, by_key): (
-        &mut dyn ArchiveReader,
-        &[Entry],
-        &[Listed],
-        &HashMap<String, usize>,
-    ),
+    (reader, entries, files, lookup): (&mut dyn ArchiveReader, &[Entry], &[Listed], &Lookup),
     si: usize,
     kind: SheetKind,
     budget: &mut Budget,
@@ -1088,7 +1130,7 @@ fn sheet_disc(
     let parsed: Option<Result<Sheet, _>> = text.map(|t| parse_sheet(kind, &t));
     match parsed {
         Some(Ok(sheet)) => {
-            let found = match resolve(&f.name, &sheet.files, by_key) {
+            let found = match resolve(&f.name, &sheet.files, &lookup.by_key) {
                 Ok(found) => found,
                 Err(Unresolved::Outside) => return Ok(Err(ArchiveIssue::SetOutsideFolder)),
                 Err(Unresolved::Missing(missing)) => {
@@ -1098,7 +1140,7 @@ fn sheet_disc(
             disc.primary =
                 primary_track(&sheet).and_then(|t| found.get(sheet.tracks[t].file).copied());
             let mut tracks = found;
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             tracks.retain(|i| seen.insert(*i));
             disc.tracks = tracks;
         }
@@ -1106,28 +1148,26 @@ fn sheet_disc(
         // directory is a guess.
         Some(Err(_)) => {
             disc.known = false;
-            (disc.tracks, disc.primary) = guessed_set(files, si);
+            (disc.tracks, disc.primary) = guessed_set(files, lookup, si);
         }
         None => {
             disc.check = SheetCheck::Deferred;
-            let listing: Vec<&str> = files.iter().map(|l| l.name.as_str()).collect();
+            // Only the sheet's directory can hold its set.
+            let listing: Vec<&str> = lookup
+                .dir_of(f)
+                .iter()
+                .map(|&i| files[i].name.as_str())
+                .collect();
             match infer_redump_set(&listing, &f.name) {
                 Some(names) => {
                     let tracks: Vec<usize> = names
                         .iter()
-                        .filter_map(|n| by_key.get(&name_key(n)).copied())
+                        .filter_map(|n| lookup.by_key.get(&name_key(n)).copied())
                         .collect();
                     // Track 03 is a GD-ROM's data track: when a `.gdi`
                     // names the set, or for a `.gdi` itself.
-                    let gdi_twin = kind == SheetKind::Gdi || {
-                        let stem = name_key(entry_stem(&f.name));
-                        let dir = name_key(split_dir(&f.name).0);
-                        files.iter().any(|l| {
-                            l.ext == "gdi"
-                                && name_key(entry_stem(&l.name)) == stem
-                                && name_key(split_dir(&l.name).0) == dir
-                        })
-                    };
+                    let gdi_twin = kind == SheetKind::Gdi
+                        || lookup.stem_of(f).iter().any(|&i| files[i].ext == "gdi");
                     disc.primary = if gdi_twin && tracks.len() >= 3 {
                         Some(tracks[2])
                     } else {
@@ -1139,7 +1179,7 @@ fn sheet_disc(
                 None => {
                     disc.known = false;
                     out.spent();
-                    (disc.tracks, disc.primary) = guessed_set(files, si);
+                    (disc.tracks, disc.primary) = guessed_set(files, lookup, si);
                 }
             }
         }
@@ -1164,6 +1204,8 @@ fn inspect_discs(
             at,
             key: name_key(&name),
             ext: extension(Path::new(&name)),
+            dir: name_key(split_dir(&name).0),
+            stem: name_key(entry_stem(&name)),
             name,
         })
         .collect();
@@ -1179,11 +1221,8 @@ fn inspect_discs(
         out.issue = Some(ArchiveIssue::SeveralGames { count: discs });
         return Ok(true);
     }
-    let mut by_key: HashMap<String, usize> = HashMap::new();
-    for (i, f) in files.iter().enumerate() {
-        by_key.entry(f.key.clone()).or_insert(i);
-    }
-    match disc_set(reader, entries, &files, &by_key, budget, out) {
+    let lookup = Lookup::of(&files);
+    match disc_set(reader, entries, &files, &lookup, budget, out) {
         Ok(Ok(Some(set))) => out.disc_set = Some(set),
         Ok(Ok(None)) => return Ok(false),
         Ok(Err(issue)) => {
@@ -1202,28 +1241,28 @@ fn disc_set(
     reader: &mut dyn ArchiveReader,
     entries: &[Entry],
     files: &[Listed],
-    by_key: &HashMap<String, usize>,
+    lookup: &Lookup,
     budget: &mut Budget,
     out: &mut Inspection,
 ) -> Result<Result<Option<DiscSetInfo>, ArchiveIssue>, ArchiveError> {
     let mut discs: Vec<Disc> = Vec::new();
     // Each m3u and the files it lists.
-    let mut playlists: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut playlists: Vec<(usize, HashSet<usize>)> = Vec::new();
     for (si, f) in files.iter().enumerate() {
         let Some(kind) = SheetKind::from_extension(&f.ext) else {
             continue;
         };
         if kind == SheetKind::M3u {
             let entry = &entries[f.at];
-            let mut listed = Vec::new();
+            let mut listed = HashSet::new();
             if entry.size <= MAX_SHEET_BYTES as u64 && reachable(entries, f.at, entry.size, budget)
             {
                 if let Small::Bytes(text) =
                     read_small(reader, entry.index, MAX_SHEET_BYTES as u64 + 1, budget, out)?
                 {
                     if let Ok(sheet) = parse_sheet(kind, &text) {
-                        listed = match resolve(&f.name, &sheet.files, by_key) {
-                            Ok(found) => found,
+                        listed = match resolve(&f.name, &sheet.files, &lookup.by_key) {
+                            Ok(found) => found.into_iter().collect(),
                             Err(Unresolved::Outside) => {
                                 return Ok(Err(ArchiveIssue::SetOutsideFolder))
                             }
@@ -1237,7 +1276,7 @@ fn disc_set(
             playlists.push((si, listed));
             continue;
         }
-        match sheet_disc((reader, entries, files, by_key), si, kind, budget, out)? {
+        match sheet_disc((reader, entries, files, lookup), si, kind, budget, out)? {
             Ok(disc) => discs.push(disc),
             Err(issue) => return Ok(Err(issue)),
         }
@@ -1296,7 +1335,7 @@ fn disc_set(
         return Ok(Err(ArchiveIssue::SharedTrack));
     }
     // Images no sheet lists are discs of their own.
-    let in_sets: std::collections::HashSet<usize> = discs
+    let in_sets: HashSet<usize> = discs
         .iter()
         .flat_map(|d| d.tracks.iter().chain(&d.sheets).copied())
         .collect();
@@ -1304,14 +1343,14 @@ fn disc_set(
         if !IMAGE_EXTS.contains(&f.ext.as_str()) || in_sets.contains(&ii) {
             continue;
         }
-        let stem = name_key(entry_stem(&f.name));
-        let dir = name_key(split_dir(&f.name).0);
         let mut tracks = vec![ii];
-        tracks.extend((0..files.len()).filter(|&c| {
-            IMAGE_COMPANION_EXTS.contains(&files[c].ext.as_str())
-                && name_key(entry_stem(&files[c].name)) == stem
-                && name_key(split_dir(&files[c].name).0) == dir
-        }));
+        tracks.extend(
+            lookup
+                .stem_of(f)
+                .iter()
+                .copied()
+                .filter(|&c| IMAGE_COMPANION_EXTS.contains(&files[c].ext.as_str())),
+        );
         let (title, number) = disc_title(entry_stem(&f.name));
         discs.push(Disc {
             sheets: Vec::new(),
