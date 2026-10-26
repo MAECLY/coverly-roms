@@ -280,6 +280,13 @@
   padding: 4px 28px 4px 4px;
 }
 
+.dup-system__heading {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
 .dup-system__trigger {
   display: inline-flex;
   align-items: center;

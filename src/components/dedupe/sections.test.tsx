@@ -102,6 +102,20 @@ describe('SystemSection', () => {
     expect(gba).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('system_header_is_a_level_two_heading_above_the_games', () => {
+    // Games are h3 under the screen's h1: the shelf header is the h2 in
+    // between, so headings descend in order (Lighthouse heading-order).
+    const plan = dedupeFixture();
+    wrap(section(plan, 'GB', 'Game Boy'));
+    const heading = screen.getByRole('heading', {
+      level: 2,
+      name: /^Game Boy:/,
+    });
+    expect(
+      within(heading).getByRole('button', { name: /^Game Boy:/ }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('closed_system_mounts_no_rows', async () => {
     const plan = dedupeFixture();
     wrap(section(plan, 'GBA', 'Game Boy Advance'));
