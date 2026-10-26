@@ -788,6 +788,8 @@ function companionsOf(plan: DedupePlanView): (path: string) => boolean {
     for (const m of g.members) {
       for (const tr of m.travels) along.add(tr.from);
       for (const f of m.unit.files) if (f !== m.unit.primary) along.add(f);
+      // Undo restores an edited game list byte for byte; not a copy.
+      if (m.gamelist) along.add(m.gamelist.gamelist);
     }
   const relative = [...along].filter((c) => !/^([/\\]|[A-Za-z]:)/.test(c));
   return (path) =>

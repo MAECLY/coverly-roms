@@ -294,6 +294,30 @@ describe('DuplicatesScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('undo_does_not_count_the_game_list_it_restored_as_a_copy', async () => {
+    // Undo restores an edited gamelist.xml byte for byte and lists it in
+    // `restored`: it is not a copy coming back.
+    const list = `${ROOT}/ROMS/SMS/gamelist.xml`;
+    tweakPlans(b, (view) => {
+      const extra = view.groups[0]!.members.find(
+        (m) => m.id !== view.groups[0]!.keeper,
+      )!;
+      extra.gamelist = { gamelist: list, path: './extra.sms' };
+    });
+    const real = b.organizeUndo.bind(b);
+    vi.spyOn(b, 'organizeUndo').mockImplementation(async (job, later) => {
+      const view = await real(job, later);
+      view.report[0]!.restored.push(list);
+      return view;
+    });
+    renderScreen();
+    await ready();
+    await applyThenUndo();
+    expect(
+      await screen.findByText('89 archivos devueltos a su sitio.'),
+    ).toBeInTheDocument();
+  });
+
   /** Applies the plan on screen and confirms its undo. */
   async function applyThenUndo() {
     await userEvent.click(
