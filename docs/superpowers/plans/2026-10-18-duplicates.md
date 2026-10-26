@@ -2,22 +2,24 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. UI tasks (Group D and Group F) also REQUIRE frontend-design:frontend-design: follow the design brief in this plan ("UI design brief") and critique each screen with screenshots before committing.
 
-**Goal:** Coverly finds the same game stored more than once inside one system, at three levels: (1) exact copy, whatever the name, container, copier header or compression; (2) same game, other version, from the catalogue (revision, region, beta), opt-in and report-only by default; (3) same disc game, other format, from the disc serial plus a volume fingerprint (cue/bin vs chd vs pbp). It picks one copy to keep per group with ordered, configurable rules and gives a one-line reason. It then sets the other copies aside in a quarantine folder outside `ROMS/`, together with their saves and art. The move is journaled and undoable, and nothing is ever deleted. Sending to the OS Trash is opt-in. All of this is a step of Organise, a library action (`DuplicatesScreen`) and `coverly dedupe` (dry run unless `--apply`).
+**Goal:** Coverly finds the same game stored more than once inside one system, at three levels: (1) exact copy, whatever the name, container, copier header or compression; (2) same game, other version, from the catalogue (revision, region, beta), opt-in and report-only by default; (3) same disc game, other format, from the disc serial plus a volume fingerprint (cue/bin vs chd vs pbp). It picks one copy to keep per group with ordered, configurable rules and gives a one-line reason. It then sets the other copies aside in a quarantine folder `_Duplicados/` inside the library (outside the system folders, relative paths kept; DD-11), together with their saves and art. The move is journaled and undoable, and nothing is ever deleted. Sending to the OS Trash is opt-in. All of this is a step of Organise, a library action (`DuplicatesScreen`) and `coverly dedupe` (dry run unless `--apply`).
 
-**Architecture:** A new read-only planner in `coverly-core` (`dedupe/`): `units` (what is compared, exclusions, sets), `keys` (level 1 content keys with size bucketing, level 2 `title_key`, level 3 serial + volume fingerprint), `group` (connected components per system, weakest-link relation, report-only reasons), `saves`, `keeper` (ordered rules → `KeepReason`), `companions`, `plan` (`plan_dedupe`), and later `apply` (journaled moves to the quarantine or the Trash, revalidation, pause, resume). Archive listings and disc identity come through two narrow traits that dedupe owns (`EntryListing`, `DiscProbe`). Phase A builds and tests them with fakes. Phase B implements them on top of `feat/organize-disc-archives`. Supporting changes: `identify/names.rs::parse_tags`, the DAT parser keeps `serial`/`region`/`cloneof`/`isbios`, cache schema v3 (`content_keys`, `dedupe_choices`, DAT columns), `HashOutcome` v2, `settings.dedupe`, journal `JobKind::Dedupe` + `Op::Trashed`. The CLI adds `coverly dedupe`. `src-tauri` adds a `dedupe` module (plan store, progress events, apply behind the job guard, undo through `organize_undo`). The React app adds `DuplicatesScreen`, `components/dedupe/*`, `dedupeStore`, a Toolbar entry, a section in the Organise proposal, a Jobs kind and a settings block.
+**Architecture:** A new read-only planner in `coverly-core` (`dedupe/`): `units` (what is compared, exclusions, sets), `keys` (level 1 content keys with size bucketing, level 2 `title_key`, level 3 serial + volume fingerprint), `group` (connected components per system, weakest-link relation, report-only reasons), `saves`, `keeper` (ordered rules → `KeepReason`), `companions`, `plan` (`plan_dedupe`), and later `apply` (journaled moves to the quarantine or the Trash, revalidation, pause, resume). Archive listings and disc identity come through two narrow traits that dedupe owns (`EntryListing`, `DiscProbe`). Phase A builds and tests them with fakes. Phase B implements them over `archive::open_archive` and `disc::DiscReader`, merged into `main` with PR #24. Supporting changes: `identify/names.rs::parse_tags`, the DAT parser keeps `serial`/`region`/`cloneof`/`isbios`, cache schema v3 (`content_keys`, `dedupe_choices`, DAT columns), `HashOutcome` v2, `settings.dedupe`, journal `JobKind::Dedupe` (the Trash reuses the existing `write::trash` backend and its journal ops, DD-9). The CLI adds `coverly dedupe`. `src-tauri` adds a `dedupe` module (plan store, progress events, apply behind the job guard, undo through `organize_undo`). The React app adds `DuplicatesScreen`, `components/dedupe/*`, `dedupeStore`, a Toolbar entry, a section in the Organise proposal, a Jobs kind and a settings block.
 
-**Tech Stack:** Rust 1.90 (1.93 once `feat/organize-disc-archives` raises the MSRV), edition 2021, `rusqlite`, `zip`, `crc32fast`, `sha1`, `flate2` (already deps). There is one new dependency, `trash` 5.x, in Phase B only and behind a trait (deviation DD-4). Tauri 2.12, React 19 + TypeScript 6 strict + Tailwind 3 + zustand 5, `src/components/ui` primitives (Radix-based), `lucide-react` 1.59. Tests: `cargo test`, `insta` JSON snapshots, `assert_cmd`, Vitest + Testing Library. E2E: Chrome DevTools MCP on `pnpm dev` (mock backend).
+**Tech Stack:** Rust 1.93 (MSRV raised by the archive work), edition 2021, `rusqlite`, `zip`, `crc32fast`, `sha1`, `flate2` (already deps). No new dependency: the optional Trash uses `write::trash` from `main` (DD-4 superseded by AP-3). Tauri 2.12, React 19 + TypeScript 6 strict + Tailwind 3 + zustand 5, `src/components/ui` primitives (Radix-based), `lucide-react` 1.59. Tests: `cargo test`, `insta` JSON snapshots, `assert_cmd`, Vitest + Testing Library. E2E: Chrome DevTools MCP on `pnpm dev` (mock backend).
 
 **Spec:** [`docs/superpowers/specs/2026-10-18-duplicates-design.md`](../specs/2026-10-18-duplicates-design.md) (all sections). Its §17 milestones D1–D11 map to the task groups below. It builds on [`2026-10-17-organize-loose-roms-design.md`](../specs/2026-10-17-organize-loose-roms-design.md) and the archive spec on branch `feat/organize-disc-archives` (`docs/superpowers/specs/2026-10-18-organize-disc-archives.md`). Brand: [`docs/08-brand/brand.md`](../../08-brand/brand.md). Tracker: `docs/TRACKER.md`.
 
 ## Global Constraints
+
+> Phase B (Tasks 21–33) works on branch `feat/dedupe-apply` and **pushes after every commit**; its own rules in "Phase B working rules" below override the branch, push, crate and real-data lines here.
 
 - Work only in the worktree `/Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-dedupe`, branch `feat/organize-dedupe`. Never switch branches, never push, never touch `main`. Every shell command starts with `cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-dedupe &&`.
 - **Phase gate.** Tasks marked **BLOCKED** start only after `feat/organize-disc-archives` is merged into `main` and this branch is rebased on it (`git rebase main`, then all gates green). Tasks marked **light** may start now but will need a textual merge on rebase. Tasks marked **none** never touch a file the archive branch changes.
 - TDD: write the failing test, run it and watch it fail, implement, watch it pass.
 - After **every** task, run all gates and fix anything red before committing: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `pnpm lint`, `pnpm typecheck`, `pnpm format:check`, `pnpm test`, `pnpm build`. Rust-only tasks may skip the `pnpm` gates when no file under `src/`, `locales/` or `src-tauri/` changed. UI tasks run everything.
 - Commits: conventional (`feat(core): …`, `test(core): …`, `feat(ui): …`, `docs: …`), granular, English. **Never** add `Co-Authored-By`, "Generated with", or any mention of Claude/AI. Do not push.
-- No crate that is not already in `Cargo.lock`, except `trash` (DD-4). `cargo build --offline` must keep working after the one `cargo fetch` of Task 22.
+- No crate that is not already in `Cargo.lock` (DD-4 superseded: no `trash` crate). `cargo build --offline` must keep working.
 - The core never depends on Tauri and holds no UI strings. Reasons are enums plus data, and the UI and the CLI render them.
 - **Real data is read-only.** Never write to `/Users/miguelangelesparzacalero/Documents/ROMS`, `/Users/miguelangelesparzacalero/Documents/ROMs-Downloaded` or `/Volumes/*`, and never create `._*` files there. Write tests use `tempfile` dirs. Manual apply runs use a copy under `target/dedupe-sample/` made with `cp -X`.
 - Fixtures are synthetic and tiny, with no copyrighted ROM bytes. The real names from spec §15 may appear as file names in tests, over synthetic bytes.
@@ -30,22 +32,24 @@
 
 1. **Two different games grouped.** Same name in two systems (`SFC/Tetris 2.zip` vs `GB/Tetris 2 (1).zip`), identical arcade zips under two valid set names (`ffight.zip`/`ffightu.zip`), soft-patched vs clean, PS BIOS twins, discs 1 and 2 of one game (`Driver 2.img` SLUS-01161 vs `Driver 2.bin` SLUS-01318), a translation that shares a serial, NES headers with different mappers. Expected: no group, or a report-only group. Tests: Task 8 (`bios_twins_are_never_units`), Task 9 (`names_never_group`, `two_valid_arcade_set_names_are_not_duplicates`, `soft_patch_splits_identical_roms`, `nes_headers_that_differ_are_report_only`), Task 10 (`different_serials_never_group`, `same_serial_other_build_is_report_only`, `modification_tag_vetoes_level_three`), Task 11 (`no_group_spans_two_systems`).
 2. **The copy you play loses its save.** Exact copies with different saves, a remembered pick vs a new save, shared-stem saves, per-core save folders, a blank PS memory card, saves off the card. Tests: Task 12 (`blank_ps_card_is_no_save`, `different_real_saves_make_a_conflict`), Task 13 (`remembered_pick_drops_when_the_other_copy_gains_a_save`), Task 14 (`shared_stem_save_stays_with_the_keeper`).
-3. **Something gets lost on apply.** Keeper changed after the plan, collision in the quarantine, cross-volume copy corrupt, FAT32 over 4 GiB, a set moved by halves, undo after a later job, trashed files. Tests: Task 23 (`keeper_changed_skips_the_group`, `set_moves_all_or_nothing`, `fat32_destination_skips_before_any_copy`), Task 24 (`undo_restores_rom_companions_art_and_gamelist`, `undo_lists_trashed_files_for_manual_restore`).
+3. **Something gets lost on apply.** Keeper changed after the plan, collision in the quarantine, cross-volume copy corrupt, FAT32 over 4 GiB, a set moved by halves, undo after a later job, trashed files. Tests: Task 22 (`trashed_rom_and_companion_come_back_on_undo`), Task 23 (`keeper_changed_skips_the_group`, `set_moves_all_or_nothing`, `fat32_destination_skips_before_any_copy`), Task 24 (`undo_restores_rom_companions_art_and_gamelist`, `undo_brings_trashed_copies_back_from_the_exact_place`, `undo_reports_a_copy_the_trash_lost`).
 4. **Scale.** 50 000 files, power-of-two cartridge sizes, a warm run with no reads, a pathological 3 000-member group. Tests: Task 15 (`warm_run_hashes_nothing`, `ten_thousand_files_hash_only_colliders` ignored perf gate, `huge_group_is_collapsed_and_report_only`), Task 20 (`system_section_windows_over_200_groups`).
 5. **UI traps.** A tray radio mistaken for "remove this", counts that grow silently, "free space" that is not freed, a confirm missing on an unusual plan. Tests: Task 19 (`tray_radio_has_a_visible_keep_label`, `changing_keeper_announces_and_offers_undo`), Task 20 (`option_change_shows_the_delta`), Task 30 (`bulk_confirm_above_500_files`, `same_volume_done_state_says_the_card_is_as_full`).
 
 ## Deviations from the spec (decided in this plan)
 
-- **DD-1: the archive contract is narrower than spec §12.4.** The archive branch exposes `organize::archive::ArchiveSource { list() -> Listing; stream(order) }` and puts disc evidence into sniff `detail` strings. It has no `ArchiveReader`, no `DiscId` and no `read_disc_id`. Dedupe therefore owns two narrow traits in `dedupe/source.rs`: `EntryListing` (entry sizes + CRCs + bounded open) and `DiscProbe` (`DiscId { serials, disc_no, volume, source }`). Phase A implements `EntryListing` for zip with the existing `hash_rom` / `organize::inspect` code and tests `DiscProbe` with a fake. Phase B adds `ArchiveEntryListing` over `ArchiveSource` and `IsoDiscProbe` (Task 25), which reuses the archive branch's PVD/`SYSTEM.CNF` sniff helpers and adds the boot-file SHA1, PVD timestamps, `IP.BIN` disc number and PBP `PSISO` reading.
+- **DD-1: the archive contract is narrower than spec §12.4.** (Phase B status: the merged work names these `archive::ArchiveReader`/`open_archive` and `disc::DiscReader`/`DiscIdentity::to_dedupe_id`; Task 25 adapts them, see "What `main` gives Phase B".) The archive branch exposes `organize::archive::ArchiveSource { list() -> Listing; stream(order) }` and puts disc evidence into sniff `detail` strings. It has no `ArchiveReader`, no `DiscId` and no `read_disc_id`. Dedupe therefore owns two narrow traits in `dedupe/source.rs`: `EntryListing` (entry sizes + CRCs + bounded open) and `DiscProbe` (`DiscId { serials, disc_no, volume, source }`). Phase A implements `EntryListing` for zip with the existing `hash_rom` / `organize::inspect` code and tests `DiscProbe` with a fake. Phase B adds `ArchiveEntryListing` over `ArchiveSource` and `IsoDiscProbe` (Task 25), which reuses the archive branch's PVD/`SYSTEM.CNF` sniff helpers and adds the boot-file SHA1, PVD timestamps, `IP.BIN` disc number and PBP `PSISO` reading.
 - **DD-2: CHD.** Level 1 uses the CHD v3/v4/v5 header `sha1`/`rawsha1`, a header-only read with no decompression. Level 3 for CHD needs hunk decompression, which has no crate in the lockfile, so it is **deferred**. A CHD only takes part in level 3 if a later reader provides a `DiscId`. The summary says "Otros formatos: {n} CHD sin leer por dentro". This matches spec §15.3: 24 CHDs gave no serial.
 - **DD-3: PBP serial.** `IsoDiscProbe` reads the PBP `DATA.PSAR` `PSISO` index and inflates only the blocks that hold sector 16, the root directory and `SYSTEM.CNF` (`flate2`, a bounded 1 MiB output). It never reads the outer EBOOT `PARAM.SFO` for the fingerprint (spec §5.4).
 - **DD-4 (superseded by archive plan AP-3, 2026-10-24): use `write::trash` from `feat/organize-disc-archives`, no `trash` crate.** The archive branch ships `crates/coverly-core/src/write/trash.rs` (`TrashBackend` with `trash(path) -> Option<location>`, `find(volume, name, fp)`, `available(path)`; `OsTrash` for macOS `NSFileManager trashItemAtURL:resultingItemURL:`, Windows Recycle Bin, Linux freedesktop; `FakeTrash` for tests), because organise's undo needs the exact Trash location, which the `trash` crate does not return on macOS. Phase B uses that module: Task 22 adds no dependency and no `dedupe/trash.rs`, `THIRD-PARTY-NOTICES.md` needs no `trash` entry, and "Put Back" in Finder keeps working because the file goes through `NSFileManager`. The original text follows for history. **DD-4 (original): `trash` is a new dependency.** The owner's decision (optional OS Trash) cannot be met with lockfile crates. Task 22 adds `trash` 5.x (MIT) behind `dedupe::trash::TrashBackend`, records it in `THIRD-PARTY-NOTICES.md`, and runs `cargo fetch` once. On macOS it uses the Finder method so "Put Back" works. `dedupe.undo.trashed` shows "(Volver a poner)" only when `cfg!(target_os = "macos")` (spec open question 8).
 - **DD-5: per-profile data stays out of `profiles/`.** The archive branch edits `profiles/{mod,builtin}.rs`. The container order defaults (spec §6.3) live in `settings.dedupe.container_order`. The off-card `save_locations` (spec §8.2) are a static table in `dedupe/saves.rs`, keyed by profile id: `muos` → internal, `anbernic-stock` → none, all others → none. Moving them into `Profile` is a follow-up.
 - **DD-6: `OrganizeAction::SetAside` instead of a new `ItemAction`.** The organise plan has `OrganizeAction { Auto, Review, Left }`. Dedupe adds `SetAside { keeper: PathBuf, relation: Relation, reason: KeepReason, dest: PathBuf }`. `LeftReason::Duplicate { of }` stays deserialisable for old plans but is no longer produced. `LeftReason::InLibrary { path, relation }` is new.
 - **DD-7: UI uses the `src/components/ui` primitives.** They exist now: `RadioGroup`, `ToggleGroup`, `Collapsible`, `Badge`, `Alert`, `AlertDialog`, `Progress`, `EmptyState`, `Kbd`, `DropdownMenu`, `Checkbox`, `Switch`. The older organise rule ("plain markup only") no longer applies. The design pass revised three spec details (see "UI design brief", revisions R1–R3).
-- **DD-8: open questions of spec §18 get these defaults.** All can change later without changing the format. Q1 `has_save` above everything automatic. Q2 no P/C download. Q3 translations and hacks in their own class. Q4 `_Duplicados`/`_Duplicates` fixed at first run. Q5 accept `~/Documents/ROMS _Duplicados`. Q6 zip vs raw has no preference. Q7 the Organise step defaults to "Apartar". Q8 per DD-4. Q9 the quarantine stays on the card, with the honest wording. Q10 accept level 3 false negatives. Q11 keep 500 files / 25 % and re-tune in Task 33.
+- **DD-8: open questions of spec §18 get these defaults.** All can change later without changing the format. Q1 `has_save` above everything automatic. Q2 no P/C download. Q3 translations and hacks in their own class. Q4 `_Duplicados`/`_Duplicates` fixed at first run. Q5 superseded by DD-11 (always inside the library: `~/Documents/ROMS/_Duplicados`). Q6 zip vs raw has no preference. Q7 the Organise step defaults to "Apartar". Q8 per DD-4/AP-3 and DD-9 (undo brings trashed copies back by itself; Put Back also works in Finder). Q9 the quarantine stays on the card, with the honest wording. Q10 accept level 3 false negatives. Q11 keep 500 files / 25 % and re-tune in Task 33.
 
 ## Overlap map with `feat/organize-disc-archives`
+
+> Historical: the archive branch is merged (PR #24). The BLOCKED markers in Phase A no longer gate anything; Phase B tasks name the files they touch.
 
 | File | Archive branch changes | Dedupe tasks | Marker |
 |---|---|---|---|
@@ -138,7 +142,7 @@ crates/coverly-core/
 │                                        content_key_index, dedupe_choices; accessors
 ├─ src/settings/{model,validate}.rs    + DedupeSettings (settings.dedupe)
 ├─ src/dedupe/mod.rs                   public types, re-exports
-├─ src/dedupe/source.rs                EntryListing, DiscProbe, DiscId, VolumeFingerprint, ZipListing
+├─ src/dedupe/source.rs                EntryListing, DiscProbe, DiscId, VolumeFingerprint, DatLookup (ZipListing removed in Task 25)
 ├─ src/dedupe/testing.rs               FakeDiscProbe, FakeListing, synthetic builders (cfg test-util)
 ├─ src/dedupe/units.rs                 Unit, UnitKind, build_units (library + organise facts), exclusions
 ├─ src/dedupe/keys.rs                  level 1 keys + bucketing, title_key, level 3 keys
@@ -147,16 +151,15 @@ crates/coverly-core/
 ├─ src/dedupe/keeper.rs                rules, KeepReason, container order
 ├─ src/dedupe/companions.rs            same-stem, art slots, shared stems, AppleDouble, gamelist entries
 ├─ src/dedupe/plan.rs                  plan_dedupe, DedupeProgress, phases, cache use, remembered choices
-├─ src/dedupe/disc.rs                  IsoDiscProbe (Phase B)
-├─ src/dedupe/archive.rs               ArchiveEntryListing over organize::archive::ArchiveSource (Phase B)
-├─ src/dedupe/trash.rs                 TrashBackend, OsTrash (Phase B)
-├─ src/dedupe/apply.rs                 apply_dedupe, resume_dedupe, quarantine paths, preflight (Phase B)
-├─ src/write/mod.rs                    JobKind::Dedupe, Op::Trashed, Header.quarantine, prune, header_kind (Phase B)
-├─ src/write/undo_organize.rs          Trashed → manual-restore report (Phase B)
+├─ src/dedupe/disc.rs                  ReaderDiscProbe over disc::DiscReader, sheets, m3u (Phase B, Task 25)
+├─ src/dedupe/archive.rs               ArchiveEntryListing over archive::open_archive_with + archive::cache (Phase B, Task 25)
+├─ src/disc/{pbp,cso}.rs               PBP PSISO and CSO sector sources (Phase B, Task 25)
+├─ src/dedupe/apply.rs                 trash_file over write::trash, apply_dedupe, resume_dedupe, preflight (Phase B, Tasks 22–23)
+├─ src/write/mod.rs                    JobKind::Dedupe, header_kind, prune (Phase B, Task 21; no new op, no header field)
 ├─ src/organize/{plan,target,walk,apply}.rs   SetAside, InLibrary, mark_duplicates removed (Phase B)
 ├─ src/scan/mod.rs                     quarantine folder skipped
 └─ tests/{dedupe_units.rs, dedupe_keys.rs, dedupe_group.rs, dedupe_saves.rs, dedupe_keeper.rs,
-          dedupe_companions.rs, dedupe_plan.rs, dedupe_apply.rs, dedupe_undo.rs, dedupe_disc.rs,
+          dedupe_companions.rs, dedupe_plan.rs, dedupe_apply.rs, dedupe_undo.rs, dedupe_disc.rs, archive_dedupe_contract.rs,
           dedupe_real_sample.rs, names_tags.rs}
 crates/coverly-cli/
 ├─ src/main.rs                         + Dedupe subcommand
@@ -787,258 +790,368 @@ it('hostile file names render as text')
 
 ---
 
-## Phase B — BLOCKED until `feat/organize-disc-archives` is merged
+## Phase B — unblocked (archive and disc work merged, PR #24, `eb25460`)
 
-Start: `git fetch && git rebase main` (no push). Resolve conflicts in `locales/*` by keeping both blocks. Run all gates. Re-run `dedupe_real_sample` (Task 16) to confirm nothing moved under the rebase.
+Refreshed on 2026-10-25 against `main` at `fb94b20`. The tasks below replace the Phase B text written before the merge. They reuse what `main` now has (table below) instead of building it again.
+
+### Phase B working rules (override the Global Constraints above where they differ)
+
+- Worktree `/Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-dedupe`, branch `feat/dedupe-apply` (from `main`, tracks `origin/feat/dedupe-apply`). Every shell command starts with `cd /Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-dedupe &&`.
+- **Push after every commit:** `git commit -m "…" && git push`. A branch that only exists locally can be lost. Every task ends with `git status -sb` showing nothing ahead of `origin/feat/dedupe-apply`.
+- Conventional, granular, English commits. No `Co-Authored-By`, no "Generated with", no mention of Claude or AI.
+- Gates after every task: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `scripts/dev/clippy-windows.sh` (must print `windows: clippy ok`), `cargo test --workspace`. When `Cargo.toml`/`Cargo.lock` change, also `scripts/check-licenses.sh` and `scripts/check-zip-features.sh`. When `src/`, `locales/` or `src-tauri/` change, also `pnpm lint`, `pnpm typecheck`, `pnpm format:check`, `pnpm test`, `pnpm build`.
+- No new crate (DD-4 / AP-3). MSRV is 1.93.
+- **Pinned mtimes.** On Windows, files written in one clock tick share an mtime. Every fixture whose test depends on "changed since plan", on mtime order or on a fingerprint sets its mtime with `filetime::set_file_mtime` (the `pin_mtime` helper of `crates/coverly-core/tests/dedupe_plan.rs`; move it to `coverly_core::dedupe::testing::pin_mtime` in Task 21 so the new test files share it).
+- **Real data is read-only:** `/Users/miguelangelesparzacalero/Documents/ROMS`, `/Volumes/TinyExt/ROMs-Downloaded`, `/Volumes/System`. Never write there, never create `._*` files there. Write tests use `tempfile` dirs. Manual write runs only touch copies made with `cp -RXp` under `/Users/miguelangelesparzacalero/Documents/GitHub/coverly-roms-dedupe/target/`, deleted afterwards.
+- Dev server only on port 1456 (`pnpm dev --port 1456 --strictPort`), stopped by port only: `lsof -ti tcp:1456 -sTCP:LISTEN | xargs -r kill`.
+- E2E with Chrome DevTools MCP (`isolatedContext: 'dedupe'`). Fall back to Playwright MCP when the Chrome profile is locked.
+- UI tasks load frontend-design:frontend-design and follow the "UI design brief" above and the existing tokens (`--cr-*`), primitives in `src/components/ui`, `SystemIcon` for system marks.
+- TDD in every task: write the failing test, run it and watch it fail, implement, watch it pass.
+
+### What `main` gives Phase B (read these before Task 21)
+
+| Need | Reuse | Where |
+|---|---|---|
+| Archive listing, heads, CRC-checked decode | `archive::open_archive_with(path, limits, tools)`, `archive::file_entries` (dedupe's `entry: usize` index space), `ArchiveReader::open_entry(index, &mut Budget)`, `archive::cache::Cache::{listing, head, forget}` and the process-wide `Cache::global()`, `Budget::plan_head`, `Limits` (`plan_head_budget` = 64 MiB, `PLAN_WALL_TIME` = 20 s, `external_tools`), `is_budget_spent(&e)` → `Ok(None)`, `From<ArchiveError> for io::Error` (`OutOfMemory`, `InvalidData`, …) | `crates/coverly-core/src/archive/{mod,cache,budget}.rs` |
+| External tools (RAR, 7z coders) | `ToolsOnDemand::new(&[library_root, quarantine])`: found on first need, never from a `PATH` entry inside those roots. Only for `Rar`/`SevenZip` and only when `limits.external_tools` (the `may_need_tool` rule in `organize/inspect.rs`) | `archive/external.rs` |
+| Disc identity | `disc::DiscReader::identify_with(src, image_len, fetch)`, `DiscIdentity::to_dedupe_id()`, `disc::{FileSource, WindowSource, source::MAX_WINDOW}`, `disc::{parse_sheet, primary_track, SheetKind, sheets::MAX_SHEET_BYTES}`, `normalise_serial`. `VolumeFingerprint` and `DiscIdSource` are dedupe's own types, re-exported by `disc` | `crates/coverly-core/src/disc/*` |
+| The adapters, as a template | `TestArchiveListing: EntryListing` and `TestDiscProbe: DiscProbe` with 7 tests (index space, CRC check, head budget, the caller's budget, serial + fingerprint, sheet → primary track, memory cap) | `crates/coverly-core/tests/archive_dedupe_contract.rs` |
+| Trash | `write::trash::{TrashBackend, OsTrash, FakeTrash, TrashError, process_trash}`: `trash(path) -> Option<location>`, `find(volume_of, name, fp)`, `available(path)`. macOS `NSFileManager trashItemAtURL` (exact location, Finder "Put Back" works); Windows Recycle Bin of the current user only, fixed drives only; Linux freedesktop. `process_trash()` honours `COVERLY_TEST_FAKE_TRASH` in `test-util` builds | `write/trash.rs` |
+| Trash journal ops | `Writer::{archive_trash_intent, archive_trashed, archive_kept}` → `Op::{ArchiveTrash, ArchiveTrashed, ArchiveKept}`. Undo (`undo_organize::restore_archives`) brings each file back from its exact Trash location, or finds it by name and fingerprint, and lists what it cannot in `UndoReport.archive_lost`. `prune_jobs_at` never prunes a journal with an unresolved trash intent. The ops accept any regular file inside the source root, not only archives | `write/mod.rs`, `write/undo_organize.rs` |
+| Moves, journal, resume | `Writer::{begin_with(root, data_dir, JobMeta { kind, source_root }), resume, ensure_dir, move_file, move_file_indexed, write(…, OverwritePolicy::Backup), create_new_file, clean_temps}`, `write::{job_transfers, job_archive_steps, later_jobs, undo_job_with, undo_jobs_in_order_with}`, `write::transfer::{Collision, set_copy_fault, CopyStage}`, `write::noclobber::same_volume`, `organize::apply::{free_space, user_available, cluster_size, set_free_space_override, ApplyError}`, `organize::target::{DirIndex, file_system_is_fat32, set_fat32_override}`, `jobs::ItemErrorKind` | `write/*`, `organize/*`, `jobs/mod.rs` |
+
+### Deviations decided in this refresh
+
+- **DD-4 → AP-3 applied.** No `trash` crate, no `dedupe/trash.rs`, no `THIRD-PARTY-NOTICES.md` entry. The old Task 22 ("`trash` dependency behind `TrashBackend`") is dropped; the new Task 22 proves the reuse of `write::trash`.
+- **DD-9: no `Op::Trashed`.** A copy sent to the Trash is journaled with the existing ops: `ArchiveTrash` (intent, with fingerprint) before the call, `ArchiveTrashed { trash }` after it, `ArchiveKept` when the volume has no Trash or the Trash refuses. Undo puts it back by itself, from the exact place. Only a copy the Trash no longer holds is reported (`archive_lost`). Older builds already know these ops, so no "unknown op" path is needed.
+- **DD-10: no `Header.quarantine`.** The quarantine is recorded in `jobs/<job>.plan.json` (the saved plan, as organise does). The header only gains `kind: "dedupe"`.
+- **DD-11: the quarantine is inside the library (owner, Phase B).** The default `_Duplicados/` always sits under the library root and keeps relative paths: `<root>/_Duplicados/<system folder>/<rel_dir>/<file>`. For `roms_root = "ROMS"` that is unchanged (`/Volumes/SD/_Duplicados`). For a folder opened as system folders (`roms_root = ""`) it becomes `<root>/_Duplicados` (it was `<parent>/ROMS _Duplicados`), which answers spec Q5. The writer root is then always the library root. Walks, scans and later runs skip it (`Exclusion::Quarantine`, Task 26 for organise). A custom folder (`--quarantine`, `dedupe.quarantine_dir`) may be anywhere except inside a system folder.
+- **DD-12: organise apply is not refactored.** Dedupe apply is its own small run in `dedupe/apply.rs` over `Writer` and the public organise helpers above. The organise `Run` stays private.
+- **DD-13: `ZipListing` is deleted in Task 25.** `units.rs`, `keys.rs`, the CLI and the tests use `dedupe::archive::ArchiveEntryListing`, so 7z, rar, tar and single-compressor units get entry sizes, CRCs and heads like zips (until now they were name-only and never grouped).
+- **Windows, kept:** a remembered pick is keyed by path on Windows (`file_id: None`; std has no file id there). The keeper never moves, so apply never invalidates it. A copy renamed outside Coverly falls back to the rules (spec §9.3).
 
 ## Group B1: Journal, Trash, apply, undo (spec D6)
 
-### Task 21: Core: `JobKind::Dedupe`, `Op::Trashed`, header, pruning, undo report
-
-**Overlap:** BLOCKED (`write/mod.rs`, `write/undo_organize.rs`).
+### Task 21: Core: `JobKind::Dedupe`, header kind, pruning, undo text
 
 **Files:**
-- Modify: `crates/coverly-core/src/write/mod.rs` (`JobKind::Dedupe`; `Op::Trashed { from: PathBuf }`; `Header.quarantine: Option<PathBuf>` with `#[serde(default)]`; `header_kind` reads `"dedupe"`; `prune_jobs_at` keeps dedupe jobs `KEEP_ORGANIZE_DAYS`; `undo_last_job` skips dedupe)
-- Modify: `crates/coverly-core/src/write/undo_organize.rs` (`Trashed` → `UndoReport.manual_restore: Vec<PathBuf>`)
-- Modify: `crates/coverly-cli/src/undo.rs` (`kind_name`, trashed lines)
-- Test: `crates/coverly-core/tests/organize_undo.rs`, `crates/coverly-core/tests/writer.rs` (append)
+- Modify: `crates/coverly-core/src/write/mod.rs` (`JobKind::Dedupe`, serde `"dedupe"`; `header_kind` returns it; `prune_jobs_at` counts dedupe journals on their own counter with the organise rule: the newest `keep` plus every one younger than `KEEP_ORGANIZE_DAYS`)
+- Modify: `crates/coverly-core/src/dedupe/testing.rs` (`pub fn pin_mtime(path, n)`, moved from `tests/dedupe_plan.rs`, which then imports it)
+- Modify: `crates/coverly-cli/src/undo.rs` (`kind_name` → `"dedupe"`; a dedupe report uses `organize_text`; each `archive_lost` path of a dedupe job prints `not found in the Trash: {path}` through `table::terminal_safe`)
+- Modify: every exhaustive `match` on `JobKind` the compiler points at (`src-tauri/src/jobs/view.rs` maps it to `"dedupe"`; the TS side follows in Task 29)
+- Test: `crates/coverly-core/tests/writer.rs`, `crates/coverly-core/tests/organize_undo.rs`, `crates/coverly-cli/tests/cli_dedupe.rs` (append to each)
 
-- [ ] **Step 1: Failing tests:** `header_kind_reads_dedupe`, `dedupe_jobs_survive_thirty_fill_jobs`, `fill_undo_skips_dedupe_jobs`, `trashed_op_round_trips_and_is_reported_for_manual_restore`, `older_build_reads_trashed_as_unknown_not_undoable` (deserialise into a copy of the old enum), `extract_ops_from_archive_branch_still_undo` (regression after the merge).
-- [ ] **Step 2:** `cargo test -p coverly-core --test organize_undo --test writer` fails.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Tests and gates.
-- [ ] **Step 5:** `git commit -m "feat(core): journal duplicates jobs and trashed files"`
+- [ ] **Step 1: Failing tests:**
+```rust
+// crates/coverly-core/tests/writer.rs
+#[test] fn dedupe_job_lists_with_kind_dedupe() {}        // begin_with(JobMeta { kind: Dedupe, .. }); header line has "kind":"dedupe"; list_jobs → JobKind::Dedupe
+#[test] fn dedupe_jobs_survive_thirty_fill_jobs() {}     // 30 fill journals + 1 dedupe 10 days old, prune_jobs_at(keep 20, 90, now) → dedupe kept
+#[test] fn dedupe_and_organise_are_counted_apart() {}    // keep 1, both older than 90 days → the newest organise and the newest dedupe both kept
+#[test] fn an_older_reader_never_undoes_a_dedupe_journal() {} // header into a copy of the pre-dedupe JobKind → Err: an older build lists it unreadable, never half-undoes it
+// crates/coverly-core/tests/organize_undo.rs
+#[test] fn dedupe_job_undo_moves_files_back() {}          // Moved + DirCreated in a JobKind::Dedupe journal → undo_job_with(&FakeTrash) restores and removes the folder
+// crates/coverly-cli/tests/cli_dedupe.rs
+#[test] fn undo_list_names_dedupe_jobs() {}               // journal written with the core into a temp data dir; `coverly undo --list --data-dir DIR` shows "dedupe"
+#[test] fn undo_text_of_a_dedupe_job_names_lost_trash_items() {}
+```
+- [ ] **Step 2:** `cargo test -p coverly-core --test writer --test organize_undo && cargo test -p coverly-cli --test cli_dedupe` fails (no `JobKind::Dedupe`).
+- [ ] **Step 3:** Implement. Organise and dedupe journals never count against the fill `keep`.
+- [ ] **Step 4:** Gates (Rust only: no `src/` change).
+- [ ] **Step 5:** `git commit -m "feat(core): journal duplicates jobs as their own kind" && git push`, then `git status -sb`.
 
-### Task 22: Core: `trash` dependency behind `TrashBackend`
+### Task 22: Core: send set-aside copies to the Trash through `write::trash` (no new crate)
 
-**Overlap:** BLOCKED (`crates/coverly-core/Cargo.toml`, `Cargo.lock`, MSRV).
+Proves that the Trash backend and its journal ops, built for archives, carry a set-aside ROM and its companions, before apply builds on them.
 
 **Files:**
-- Modify: `crates/coverly-core/Cargo.toml` (`trash = "5"`, default features), `Cargo.lock`, `THIRD-PARTY-NOTICES.md`
-- Create: `crates/coverly-core/src/dedupe/trash.rs`
-- Test: unit tests with `FakeTrash`
+- Create: `crates/coverly-core/src/dedupe/apply.rs` with, for now, only:
+  ```rust
+  pub enum TrashStep { Trashed { location: Option<PathBuf> }, Kept { why: TrashKept }, Gone }
+  pub enum TrashKept { Unavailable, Refused }
+  /// archive_trash_intent → trash.trash(path) → archive_trashed(path, location);
+  /// Unavailable/Refused → archive_kept (file stays); Missing → Gone. Io → Err.
+  #[doc(hidden)] pub fn trash_file(w: &mut Writer, trash: &dyn TrashBackend, path: &Path, item: Option<usize>) -> Result<TrashStep, WriteError>;
+  ```
+- Modify: `crates/coverly-core/src/dedupe/mod.rs` (`pub mod apply`)
+- Modify: `crates/coverly-core/src/write/mod.rs` (doc comments only: the three trash ops and `archive_trash_intent`/`archive_trashed`/`archive_kept` take "a file: an archive organise extracted, or a copy dedupe sets aside". No rename, no behaviour change unless a test below fails)
+- Test: `crates/coverly-core/tests/dedupe_apply.rs` (new; `trash_file` is `pub` and `#[doc(hidden)]` so the integration test reaches it)
 
-**Interfaces:** `pub trait TrashBackend: Send + Sync { fn trash(&self, path: &Path) -> Result<(), TrashError>; fn supports_put_back(&self) -> bool; }`, `pub struct OsTrash;` (macOS `DeleteMethod::Finder`), `pub struct FakeTrash` (testing, moves into a temp "trash" dir and records calls).
-
-- [ ] **Step 1: Failing tests:** `fake_trash_records_calls`, `volume_without_trash_is_an_error_not_a_delete` (FakeTrash configured to fail → file still present).
-- [ ] **Step 2:** `cargo fetch` (one time, network) then `cargo test -p coverly-core dedupe::trash` fails.
-- [ ] **Step 3:** Implement. Confirm `cargo build --offline` afterwards.
-- [ ] **Step 4:** Tests and gates, plus `cargo deny check licenses` if configured (`Makefile` target), else note the MIT licence in `THIRD-PARTY-NOTICES.md`.
-- [ ] **Step 5:** Two commits: `git commit -m "build(deps): add trash for the optional send-to-Trash action"` (Cargo files + notices) then `git commit -m "feat(core): trash backend for set-aside copies"`.
+- [ ] **Step 1: Failing tests** (tempdirs, `FakeTrash::new(tmp/trash)`, pinned mtimes):
+```rust
+#[test] fn trashed_rom_and_companion_come_back_on_undo() {}   // GB/Tetris (1).gb + GB/Tetris (1).sav → trash → undo_job_with(&fake) → both back, byte-identical, in report.restored
+#[test] fn trash_intent_is_journaled_before_the_call() {}     // FakeTrash::fail_after(0): journal has ArchiveTrash with fp, then ArchiveKept; file still in place
+#[test] fn volume_without_trash_keeps_the_file() {}            // FakeTrash::unavailable → TrashStep::Kept { Unavailable }, file in place, trash dir empty
+#[test] fn trash_emptied_is_reported_lost_not_an_error() {}    // empty the fake trash, undo → archive_lost = [rom], the companion still restored
+#[test] fn unresolved_trash_intent_keeps_the_dedupe_journal() {} // intent line only (journal fault after it) → prune_jobs_at(keep 0) keeps the journal
+```
+- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_apply` fails (no `dedupe::apply`).
+- [ ] **Step 3:** Implement `trash_file` over the existing Writer methods. Nothing in `write/trash.rs` changes.
+- [ ] **Step 4:** Gates, including `scripts/dev/clippy-windows.sh` (the Windows Trash code is compiled there).
+- [ ] **Step 5:** `git commit -m "feat(core): send set-aside copies to the Trash through the journaled trash backend" && git push`, then `git status -sb`.
 
 ### Task 23: Core: `dedupe::apply`, quarantine moves, preflight, pause and resume
 
-**Overlap:** BLOCKED (reuses `organize/apply.rs` internals that the archive branch rewrites: `revalidate`, `apply_set`, the pause/resume path).
-
 **Files:**
-- Create: `crates/coverly-core/src/dedupe/apply.rs`
-- Modify: `crates/coverly-core/src/organize/apply.rs` (extract the shared run loop into `pub(crate) struct Run` if the merged code has not already; no behaviour change, organise tests stay green)
-- Test: `crates/coverly-core/tests/dedupe_apply.rs`
+- Modify: `crates/coverly-core/src/dedupe/plan.rs` (`default_quarantine` per DD-11: always `<root>/<name>`, `fallback` false, `writer_root` = root; `quarantine_dir` refuses a custom folder inside a system folder with `DedupeError::QuarantineInSystemFolder`)
+- Modify: `crates/coverly-core/src/dedupe/apply.rs` (the run), `crates/coverly-core/src/dedupe/mod.rs` (re-exports, `DedupeDecisions`)
+- Modify: `crates/coverly-core/src/cache/mod.rs` only if no accessor rekeys a `content_keys` row to a new path (add `rekey_content(volume_uuid, from, to)`)
+- Test: `crates/coverly-core/tests/dedupe_apply.rs`, `crates/coverly-core/tests/dedupe_plan.rs` (update `quarantine_next_to_roms_folder_and_fallbacks` → `default_quarantine_is_inside_the_library`)
 
 **Interfaces:**
 ```rust
-pub enum DedupeItemStatus { Quarantined, Trashed, Skipped { reason: DedupeSkip }, Failed { kind: ItemErrorKind, detail: String } }
-pub enum DedupeSkip { KeeperChanged, ChangedSincePlan, SourceMissing, DestinationLimit { why: DestLimit }, Excluded, Conflict, Cancelled }
+pub struct DedupeDecisions { pub keepers: Vec<(u64 /*group*/, usize /*member*/)>, pub skipped_groups: Vec<u64>, pub skipped_systems: Vec<String> }
+pub enum DedupeItemStatus { Quarantined { to: PathBuf }, Trashed { location: Option<PathBuf> }, Skipped { reason: DedupeSkip }, Failed { kind: ItemErrorKind, detail: String } }
+pub enum DedupeSkip { KeeperChanged, ChangedSincePlan, SourceMissing, DestinationLimit { why: DestLimit }, TrashUnavailable, Conflict, ReportOnly, Excluded, Cancelled }
 pub enum DestLimit { Fat32Size, BadName, PathTooLong, CaseCollision }
-pub struct DedupeReport { pub job: String, pub outcomes: Vec<(u64 /*group*/, usize /*member*/, DedupeItemStatus)>, pub bytes_out: u64, pub art_left: Vec<PathBuf> }
+pub enum DedupeApplyNote { GamelistNotUpdated { system: String }, ArtLeaves { keeper: PathBuf } }
+pub struct DedupeOutcome { pub group: u64, pub member: usize, pub status: DedupeItemStatus, pub files: Vec<PathBuf> }
+pub struct DedupeReport { pub job: Option<String>, pub outcomes: Vec<DedupeOutcome>, pub bytes_out: u64, pub art_left: Vec<PathBuf>,
+                          pub paused: Option<ItemErrorKind>, pub resumable: Vec<(u64, usize)>, pub notes: Vec<DedupeApplyNote> }
 pub struct DedupeApplyEnv<'a> { pub data_dir: &'a Path, pub trash: &'a dyn TrashBackend, pub cache: &'a Cache,
-                                pub progress: &'a dyn Fn(usize, usize), pub cancel: &'a AtomicBool }
-pub fn apply_dedupe(plan: &DedupePlan, decisions: &DedupeDecisions, env: &DedupeApplyEnv) -> Result<DedupeReport, ApplyError>;
+                                pub progress: &'a (dyn Fn(usize, usize) + Sync), pub cancel: &'a AtomicBool }
+pub fn apply_dedupe(plan: &DedupePlan, decisions: &DedupeDecisions, env: &DedupeApplyEnv) -> Result<DedupeReport, ApplyError>; // organize::apply::ApplyError
 pub fn resume_dedupe(job: &str, env: &DedupeApplyEnv) -> Result<DedupeReport, ApplyError>;
+pub fn load_dedupe_plan(data_dir: &Path, job: &str) -> Result<DedupePlan, ApplyError>;
 ```
 
-- [ ] **Step 1: Failing tests** (tempdirs):
+**What the run does (spec §7–§9):**
+1. Applies the decisions to a copy of the plan (`set_keeper`, `skip_group`, skipped systems) and checks, before writing anything, that every acting group keeps exactly one member that is not moving. A decision set that would move every member is an error.
+2. `Writer::begin_with(root, data_dir, JobMeta { kind: JobKind::Dedupe, source_root })`: `root` = the library root for the default quarantine and for the Trash; for a custom quarantine on another volume, `root` = the quarantine and `source_root` = the library root. Saves `jobs/<job>.plan.json` (decisions applied) before the first move.
+3. Preflight once per destination folder, before any copy: `user_available` against the bytes that will copy across volumes (`ApplyError::NoSpace`); FAT32 4 GiB limit, names FAT/exFAT/NTFS reject, path length, case-only collisions (`DirIndex`) → `DestinationLimit`. For the Trash, `trash.available(path)` once per volume → `TrashUnavailable` for every extra on it.
+4. Per group, in plan order: revalidate the keeper (exists, same size and mtime) → `KeeperChanged` skips the whole group; revalidate every file of each extra → `ChangedSincePlan` / `SourceMissing`. A set (cue + bins, gdi, m3u + discs) is checked whole first and moves all-or-nothing: a write error in the middle moves its already-moved files back in the same run.
+5. Quarantine: `ensure_dir` + `move_file_indexed` with `Collision::Rename` (`" (2)"`) into `<quarantine>/<system folder>/<rel_dir>/`. Travelling companions and art follow into the same relative places, with their `._` AppleDouble twins. Shared-stem companions stay. A failed companion is reported and never fails the item. The `gamelist.xml` entry is removed through `Writer::write(…, OverwritePolicy::Backup)` when the gamelist is inside the writer root; otherwise `GamelistNotUpdated`.
+6. Trash: `trash_file` (Task 22) for the extra and each travelling companion and art file.
+7. Writes `<quarantine>/<job>.txt` with `create_new_file` (journaled `Created`): one line per extra, `<keeper rel path> <- <extra rel path> (<relation>, <keep reason>)` with kebab-case enum names as data. Quarantine action only.
+8. Moved files' `content_keys` rows follow them to the quarantine path. `dedupe_choices` are untouched: the keeper never moves, so a pick remembered by path (Windows) stays valid.
+9. Errors map like organise's `on_error`: `DiskFull`, `Denied` and a vanished root pause (`paused`, `resumable`); other errors fail the item and the run goes on. Cancel is checked between groups, never inside a set. Progress is throttled to 100 ms like organise.
+10. `resume_dedupe` reloads the plan, reads `job_transfers` and `job_archive_steps`, skips what the journal shows done, revalidates the rest and finishes the same job.
+
+- [ ] **Step 1: Failing tests** (tempdirs, pinned mtimes, `FakeTrash`):
 ```rust
+// tests/dedupe_plan.rs
+#[test] fn default_quarantine_is_inside_the_library() {} // "ROMS" → <root>/_Duplicados; "" → <root>/_Duplicados (was <parent>/ROMS _Duplicados); writer_root = root
+#[test] fn custom_quarantine_inside_a_system_folder_is_refused() {}
+// tests/dedupe_apply.rs
 #[test] fn quarantine_path_mirrors_rel_dir_and_art_follows() {}
 #[test] fn gamelist_entry_removed_with_backup() {}
+#[test] fn gamelist_outside_the_writer_root_is_noted_not_written() {}
 #[test] fn collision_in_quarantine_gets_numbered() {}
 #[test] fn keeper_changed_skips_the_group() {}
 #[test] fn changed_extra_is_left_alone() {}
-#[test] fn set_moves_all_or_nothing() {}
+#[test] fn set_moves_all_or_nothing() {}                  // a missing bin skips the set before any move; set_copy_fault(Rename → error) on the 2nd bin moves the 1st back
 #[test] fn conflict_and_report_only_groups_never_move() {}
-#[test] fn never_moves_every_member() { /* decisions trying to skip the keeper → error before any move */ }
-#[test] fn cross_volume_copies_verify_then_delete() { /* injected EXDEV */ }
-#[test] fn fat32_destination_skips_before_any_copy() { /* injected fs probe: 4.2 GiB → DestinationLimit */ }
+#[test] fn never_moves_every_member() {}                  // decisions trying to skip the keeper → error before any write; tree unchanged
+#[test] fn cross_volume_copies_verify_then_delete() {}    // set_copy_fault(CopyStage::Rename → EXDEV) → Via::Copy, verified, source gone
+#[test] fn fat32_destination_skips_before_any_copy() {}   // set_fat32_override(Some(true)) + a 4.2 GiB sparse file (set_len) → DestinationLimit { Fat32Size }, nothing copied
 #[test] fn bad_name_and_case_collision_on_exfat() {}
-#[test] fn disk_full_pauses_and_resume_finishes() {}
-#[test] fn writes_the_job_list_file_in_the_quarantine() { /* <quarantine>/<job>.txt journaled Created */ }
-#[test] fn trash_action_journals_before_calling_the_backend() {}
-#[test] fn content_cache_rows_are_rekeyed_to_the_quarantine() {}
-#[test] fn quarantine_inside_roms_or_a_system_folder_is_refused() {}
+#[test] fn disk_full_pauses_and_resume_finishes() {}      // set_free_space_override / copy fault DiskFull → paused; resume_dedupe → all set aside, one job
+#[test] fn cancel_between_groups_leaves_a_resumable_job() {}
+#[test] fn writes_the_job_list_file_in_the_quarantine() {}
+#[test] fn trash_action_sets_aside_through_the_backend_and_undo_brings_it_back() {}
+#[test] fn trash_unavailable_on_the_volume_skips_with_a_reason() {}
+#[test] fn content_cache_rows_follow_the_moved_files() {}
+#[test] fn remembered_choice_by_path_survives_apply() {}  // a dedupe_choices row with file_id None (Windows shape) → next plan still UserChoice
+#[test] fn apply_writes_nothing_outside_the_writer_root() {} // tree hash of a sibling folder before/after
 ```
-- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_apply` fails.
-- [ ] **Step 3:** Implement per spec §7–§9. The writer root holds both the ROMs folder and the quarantine (spec §7.1 "option B"). Do the cross-volume preflight once per destination before the first move. Persist the plan as `jobs/<job>.plan.json`.
-- [ ] **Step 4:** Tests and gates (all organise apply tests green).
-- [ ] **Step 5:** `git commit -m "feat(core): set aside duplicate copies with a journal, preflight and resume"`
+- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_apply --test dedupe_plan` fails.
+- [ ] **Step 3:** Implement DD-11 first and commit it alone: `git commit -m "feat(core): keep the default duplicates quarantine inside the library" && git push`. Then the run.
+- [ ] **Step 4:** Gates, all organise apply/undo tests green, `scripts/dev/clippy-windows.sh` clean.
+- [ ] **Step 5:** `git commit -m "feat(core): set aside duplicate copies with a journal, preflight and resume" && git push`, then `git status -sb`.
 
 ### Task 24: Core: undo of dedupe jobs
 
-**Overlap:** BLOCKED (`write/undo_organize.rs`).
-
 **Files:**
-- Test: `crates/coverly-core/tests/dedupe_undo.rs`
-- Modify (only if a test needs it): `crates/coverly-core/src/write/undo_organize.rs`
+- Test: `crates/coverly-core/tests/dedupe_undo.rs` (new)
+- Modify (only if a test needs it): `crates/coverly-core/src/write/undo_organize.rs`, `crates/coverly-core/src/write/mod.rs`
 
-- [ ] **Step 1: Failing tests:** `undo_restores_rom_companions_art_and_gamelist`, `undo_refuses_with_a_later_job_unless_include_later`, `undo_keeps_a_file_that_took_the_original_place` (`skipped_occupied`), `undo_lists_trashed_files_for_manual_restore`, `undo_after_crash_mid_copy_removes_the_partial_copy`.
-- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_undo` fails or passes. A test that passes on the first run must be shown to fail by temporarily breaking the code path it guards. Note this in the commit body.
+Undo goes through the existing `undo_job_with(data_dir, job, trash)` / `undo_jobs_in_order_with` (the organise path: per op, not per kind). Nothing dedupe-specific should be needed.
+
+- [ ] **Step 1: Tests:**
+```rust
+#[test] fn undo_restores_rom_companions_art_and_gamelist() {}
+#[test] fn undo_refuses_with_a_later_job_unless_include_later() {} // later_jobs → refusal; undo_jobs_in_order_with both
+#[test] fn undo_keeps_a_file_that_took_the_original_place() {}  // skipped_occupied
+#[test] fn undo_brings_trashed_copies_back_from_the_exact_place() {} // FakeTrash; location recorded → no lookup
+#[test] fn undo_finds_a_trashed_copy_whose_location_line_is_missing() {} // crash after the Trash call: find(name, fp)
+#[test] fn undo_reports_a_copy_the_trash_lost() {}               // archive_lost, the rest restored, job marked undone
+#[test] fn undo_after_crash_mid_copy_removes_the_partial_copy() {}
+#[test] fn undo_removes_the_job_list_file_and_empty_quarantine_folders() {}
+#[test] fn undo_is_idempotent_after_an_interrupted_undo() {}
+```
+- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_undo`. A test that passes on the first run must be shown to fail by temporarily breaking the code path it guards (say which in the commit body).
 - [ ] **Step 3:** Implement the gaps.
-- [ ] **Step 4:** Tests and gates.
-- [ ] **Step 5:** `git commit -m "test(core): undo puts set-aside copies, saves, art and game lists back"`
+- [ ] **Step 4:** Gates.
+- [ ] **Step 5:** `git commit -m "test(core): undo puts set-aside copies, saves, art and game lists back" && git push`, then `git status -sb`.
 
 ## Group B2: Real archive and disc readers (spec D4 completion)
 
-### Task 25: Core: `IsoDiscProbe` and `ArchiveEntryListing`
+### Task 25: Core: `ArchiveEntryListing` and `ReaderDiscProbe` over `archive::open_archive` and `disc::DiscReader`; `ZipListing` removed
 
-**Overlap:** BLOCKED (builds on `identify/sniff.rs` disc rows and `organize/archive/*` from the archive branch; edits neither unless a helper must become `pub(crate)`).
+The contract test already holds both adapters as test code. This task promotes them to `coverly-core`, points the contract test at the real types, and adds what the contract left out (m3u, PBP, CSO, tools, the plan's caches).
 
 **Files:**
-- Create: `crates/coverly-core/src/dedupe/disc.rs`, `crates/coverly-core/src/dedupe/archive.rs`
-- Modify (visibility only): `crates/coverly-core/src/identify/sniff.rs`, `crates/coverly-core/src/organize/archive/mod.rs`
-- Test: `crates/coverly-core/tests/dedupe_disc.rs`
+- Create: `crates/coverly-core/src/dedupe/archive.rs`:
+  ```rust
+  pub struct ArchiveEntryListing { limits: Limits, cache: &'static archive::cache::Cache /* Cache::global() */, tools: Option<Arc<ToolsOnDemand>> }
+  impl ArchiveEntryListing {
+      pub fn new(limits: Limits) -> Self;                                  // no external tools
+      pub fn with_tools(limits: Limits, roots_to_avoid: &[&Path]) -> Self; // ToolsOnDemand over the library root and the quarantine
+  }
+  impl EntryListing for ArchiveEntryListing { /* list: Cache::listing, file entries only (EntryKind::File, archive order);
+      head: Cache::head under Budget::plan_head; payload_sha1: open_entry(entry.index) under the caller's budget
+      (Limits { plan_head_budget: budget, .. }), hash_stream, CRC checked by the reader; is_budget_spent → Ok(None) */ }
+  ```
+  Tools are passed to `open_archive_with` only for `Rar`/`SevenZip` and only when `limits.external_tools`, so a zip never triggers discovery.
+- Create: `crates/coverly-core/src/dedupe/disc.rs`: `pub struct ReaderDiscProbe { listing: ArchiveEntryListing }`, `impl DiscProbe` = the contract's `TestDiscProbe` (raw image through `FileSource` with `image_len`; `.cue`/`.gdi` → `parse_sheet` + `primary_track`; inside an archive the sheet's primary track by name, case-insensitive, in the sheet's folder, else every entry in order; `WindowSource` heads ≤ `MAX_WINDOW`; a `SYSTEM.CNF` past the window fetched through `identify_with`'s `fetch`, charged to the plan head budget; the answer only when `DiscSystem::Known(id) == system`), plus:
+  - `.m3u`: each listed disc probed in order → `DiscId { serials: in order, disc_no: None, volume: disc 1's when every disc has one, source: M3uPosition }`; any disc unreadable → `None`.
+  - `.pbp` (DD-3) and `.cso` (PSP): read through the new sector sources below.
+  - `.chd` (DD-2): `None`.
+- Create: `crates/coverly-core/src/disc/pbp.rs` (PBP `DATA.PSAR` `PSISO` index → a `SectorSource` that inflates only the 16-sector blocks it is asked for, ≤ 1 MiB inflated in all; `flate2`; never the outer EBOOT `PARAM.SFO`) and `crates/coverly-core/src/disc/cso.rs` (CISO v1 index → `SectorSource`, deflate per block, same cap); `disc/testing.rs` gains `pbp_of(iso)` and `cso_of(iso)` builders.
+- Modify: `crates/coverly-core/src/dedupe/source.rs` (delete `ZipListing` and its `MAX_ENTRIES`; module docs point at `dedupe::archive` / `dedupe::disc`; `NoDiscProbe` stays for tests and callers that read no discs)
+- Modify: `crates/coverly-core/src/dedupe/units.rs` (`zip_kind` → `archive_kind(path, system, db, listing: &dyn EntryListing)`: any container `listing.list` reads; a single-ROM archive of any format is `UnitKind::Zip`, serde name kept for plan v1; `units_from_scan` takes the listing through `UnitOptions` or a parameter), `crates/coverly-core/src/dedupe/plan.rs` (passes `env.listing` down)
+- Modify: `crates/coverly-cli/src/dedupe.rs` (`ArchiveEntryListing::with_tools(limits, &[root, quarantine])` and `ReaderDiscProbe` instead of `ZipListing`/`NoDiscProbe`; `--no-external-tools` like organise)
+- Modify: `crates/coverly-core/tests/archive_dedupe_contract.rs` (delete `TestArchiveListing`/`TestDiscProbe`; every test runs against `ArchiveEntryListing`/`ReaderDiscProbe`; the `ZipListing` equality line becomes an explicit expected listing), `crates/coverly-core/tests/dedupe_keys.rs`, `tests/dedupe_units.rs`, `tests/dedupe_plan.rs`, `tests/dedupe_real_sample.rs` (no `ZipListing`)
+- Test: `crates/coverly-core/tests/dedupe_disc.rs` (new)
 
-**What `IsoDiscProbe` reads (bounded, a few sectors per unit, cached in `content_keys.serials_json`/`volume_fp`):** for raw `.bin` (2352) / `.img` / `.iso` (2048): PVD at sector 16 (space size, creation/modification timestamps), root directory → `SYSTEM.CNF` (PS1 `BOOT`, PS2 `BOOT2`) → serial + SHA1 of `SYSTEM.CNF`. Sega: `IP.BIN` product number at 0x20, device field for `disc_no`, SHA1 of the first 0x100 bytes. PSP ISO/CSO: `UMD_DATA.BIN` + `PSP_GAME/PARAM.SFO` `DISC_ID`. PBP (DD-3): the `PSISO` index, inflating only the needed blocks. `.m3u`: per-disc probes in order. CHD (DD-2): `None` unless a later reader exists.
-
-- [ ] **Step 1: Failing tests** (synthetic images built in `testing.rs`): `ps1_bin_serial_and_fingerprint`, `iso_2048_and_bin_2352_of_the_same_disc_share_fingerprint`, `pbp_reads_inner_system_cnf_not_outer_param_sfo`, `saturn_disc_no_from_device_field`, `psp_disc_id`, `m3u_lists_serials_in_order`, `chd_returns_none`, `reads_are_bounded` (counting reader ≤ 64 KiB raw + 1 MiB inflated), `archive_listing_lists_7z_and_tar_crcs` (via the archive branch fixtures), `unreadable_archive_is_reported_not_fatal`.
-- [ ] **Step 2:** `cargo test -p coverly-core --test dedupe_disc` fails.
-- [ ] **Step 3:** Implement and plug the probes into `DedupeEnv` construction in the CLI (Task 27) and Tauri (Task 28). Extend `dedupe_real_sample` with the spec §15.3 PS groups (Crash Bash, Gran Turismo, Tekken 3 / Iron fist 3), recording whether the Tekken pair is `BuildDiffers`.
-- [ ] **Step 4:** Tests, gates and the ignored real-sample test.
-- [ ] **Step 5:** `git commit -m "feat(core): read disc serials and volume fingerprints for format duplicates"`
+- [ ] **Step 1: Failing tests:**
+  - The contract test with its adapters deleted (it no longer compiles: the real types do not exist yet).
+  - `tests/dedupe_disc.rs` (synthetic images from `disc::testing`): `ps1_bin_serial_and_fingerprint`, `iso_2048_and_bin_2352_of_the_same_disc_share_fingerprint`, `system_cnf_past_the_window_is_fetched_within_the_budget`, `pbp_reads_inner_system_cnf_not_outer_param_sfo`, `cso_psp_disc_id`, `saturn_disc_no_from_device_field`, `m3u_lists_serials_in_order`, `m3u_with_an_unreadable_disc_is_none`, `chd_returns_none`, `reads_are_bounded` (counting source: ≤ 64 KiB raw + 1 MiB inflated per PBP/CSO), `probe_of_another_system_is_none`.
+  - `tests/dedupe_units.rs`: `seven_zip_and_tar_gz_units_have_entry_crcs`, `rar_without_tools_is_unreadable_not_fatal`, `tools_are_never_discovered_for_a_zip` (a `ToolsOnDemand` with a search that panics if used), `names_never_group` over 7z twins with different names.
+  - `tests/dedupe_keys.rs`: `raw_vs_single_entry_7z_is_an_exact_copy`.
+- [ ] **Step 2:** `cargo test -p coverly-core --test archive_dedupe_contract --test dedupe_disc --test dedupe_units --test dedupe_keys` fails.
+- [ ] **Step 3:** Implement in this order, each its own commit followed by `git push`:
+  1. `feat(core): read duplicates inside every archive format through the archive reader` (`dedupe/archive.rs`, `units.rs`, contract test listing half, `ZipListing` removed, tests migrated).
+  2. `feat(core): read disc serials and volume fingerprints for format duplicates` (`dedupe/disc.rs`, m3u, contract test probe half, CLI wired).
+  3. `feat(core): read PBP and CSO disc images for format duplicates` (`disc/pbp.rs`, `disc/cso.rs`, builders, tests).
+- [ ] **Step 4:** Gates, then the ignored real-sample test (read-only): `COVERLY_LIBRARY_DIR=/Users/miguelangelesparzacalero/Documents/ROMS COVERLY_SAMPLE_DIR=/Volumes/TinyExt/ROMs-Downloaded cargo test -p coverly-core --release --test dedupe_real_sample -- --ignored --nocapture`, extended with the spec §15.3 PS groups (Crash Bash, Gran Turismo, Tekken 3 / Iron fist 3; record whether the Tekken pair is `BuildDiffers`). Check afterwards that nothing changed: `find /Users/miguelangelesparzacalero/Documents/ROMS /Volumes/TinyExt/ROMs-Downloaded -newer <stamp> | wc -l` = 0 and no `._*` new files.
+- [ ] **Step 5:** `git commit -m "test(core): real-library duplicates across formats (ignored, read-only)" && git push`, then `git status -sb`.
 
 ## Group B3: Organise integration (spec D7)
 
 ### Task 26: Core: duplicates as an Organise step
 
-**Overlap:** BLOCKED (`organize/plan.rs`, `organize/target.rs`, `organize/walk.rs`, `organize/apply.rs`, `organize/inspect.rs`, `crates/coverly-cli/src/organize.rs`).
-
 **Files:**
-- Modify: `crates/coverly-core/src/organize/plan.rs` (`OrganizeAction::SetAside {…}`, `LeftReason::InLibrary { path, relation }`, `Counts.{set_aside, in_library}`; call `dedupe::group_units` instead of `mark_duplicates` at the former line ~1251)
-- Modify: `crates/coverly-core/src/organize/target.rs` (remove `mark_duplicates`; make `match_companions` `pub(crate)` and drop the Task 14 copy)
-- Modify: `crates/coverly-core/src/organize/walk.rs` (skip the pile-side and library-side quarantine)
-- Modify: `crates/coverly-core/src/organize/apply.rs` (SetAside items move to `<pile root>/_Duplicados/` as an instant rename, same journal, outcome `Quarantined`/`Trashed`)
-- Modify: `crates/coverly-core/src/scan/mod.rs` (quarantine folder skipped by library scans)
-- Modify: `crates/coverly-cli/src/organize.rs` (`--duplicates set-aside|report|off`, column)
-- Modify: `crates/coverly-core/tests/organize_target.rs` (drop the `mark_duplicates` test; it is replaced below)
-- Test: `crates/coverly-core/tests/organize_plan.rs` (append), `crates/coverly-cli/tests/cli_organize.rs` (append)
+- Modify: `crates/coverly-core/src/organize/plan.rs` (`OrganizeAction::SetAside { keeper, relation, reason, dest }` (DD-6), `LeftReason::InLibrary { path, relation }`, `Counts.{set_aside, in_library}`; call `dedupe::group_units` instead of `mark_duplicates` (now near line 1590))
+- Modify: `crates/coverly-core/src/organize/target.rs` (remove `mark_duplicates`; make `match_companions` `pub(crate)` and drop dedupe's copy of it)
+- Modify: `crates/coverly-core/src/organize/walk.rs` (skip the pile-side and the library-side quarantine)
+- Modify: `crates/coverly-core/src/organize/apply.rs` (`SetAside` items move to `<pile root>/_Duplicados/<rel_dir>/` as an instant rename on the pile's volume, same journal, outcomes `Quarantined`/`Trashed`; trash through the `ApplyEnv.trash` already there and Task 22's `trash_file`; `applicable()` keeps requiring `Transfer::AsIs`, so a set-aside archive is never extracted first)
+- Modify: `crates/coverly-core/src/scan/mod.rs` (library scans skip the quarantine folder)
+- Modify: `crates/coverly-cli/src/organize.rs` (`--duplicates set-aside|report|off`, a column)
+- Modify: `crates/coverly-core/tests/organize_target.rs` (drop the `mark_duplicates` test; replaced below)
+- Test: `crates/coverly-core/tests/organize_plan.rs`, `crates/coverly-core/tests/organize_apply.rs`, `crates/coverly-cli/tests/cli_organize.rs` (append)
 
-- [ ] **Step 1: Failing tests:** `pile_item_equal_to_a_library_rom_under_another_name_is_in_library_and_set_aside`, `pile_pair_headered_and_headerless_is_one_group` (regression for `raw_crcs.first()`), `keeper_follows_rules_not_the_shortest_name`, `pile_extras_stay_on_the_pile_volume`, `report_mode_moves_nothing_extra`, `off_mode_matches_old_behaviour_minus_shortest_name`, `walk_and_scan_skip_quarantine`, `old_plan_json_with_duplicate_left_reason_still_loads`, `cli_organize_duplicates_flag`.
-- [ ] **Step 2:** `cargo test -p coverly-core --test organize_plan && cargo test -p coverly-cli --test cli_organize` fails.
-- [ ] **Step 3:** Implement. Pile units come from organise `Facts` (`units_from_facts`), and the archive branch's `Inspection` gives the inner CRCs of 7z/rar/tar. Library units come from a scan of only the target system folders that the plan touches.
-- [ ] **Step 4:** Tests and gates (every organise test green).
-- [ ] **Step 5:** `git commit -m "feat(core): organise sets aside copies already in the library instead of keeping the shortest name"`
+Pile units come from organise `Facts` (`units_from_facts`). Inner CRCs of zip, 7z, rar, tar and single-compressor archives come from the organise `Inspection` the plan already holds (no second read); disc identity from `OrganizeItem.disc` (`DiscId`, already filled by the merged disc work). Library units come from a scan of only the target system folders the plan touches.
+
+- [ ] **Step 1: Failing tests:** `pile_item_equal_to_a_library_rom_under_another_name_is_in_library_and_set_aside`, `pile_7z_equal_to_a_library_zip_is_in_library` (inner CRCs from `Inspection`), `pile_disc_archive_equal_to_a_library_cue_set_by_serial_is_a_format_duplicate`, `pile_pair_headered_and_headerless_is_one_group` (regression for `raw_crcs.first()`), `keeper_follows_rules_not_the_shortest_name`, `pile_extras_stay_on_the_pile_volume`, `set_aside_archive_is_never_extracted`, `report_mode_moves_nothing_extra`, `off_mode_matches_old_behaviour_minus_shortest_name`, `walk_and_scan_skip_quarantine`, `old_plan_json_with_duplicate_left_reason_still_loads` (`tests/fixtures/organize/plan-v1.json`), `cli_organize_duplicates_flag`, `undo_of_an_organise_job_with_set_aside_items`.
+- [ ] **Step 2:** `cargo test -p coverly-core --test organize_plan --test organize_apply && cargo test -p coverly-cli --test cli_organize` fails.
+- [ ] **Step 3:** Implement.
+- [ ] **Step 4:** Gates (every organise test green, including the extract apply/resume/undo suites).
+- [ ] **Step 5:** `git commit -m "feat(core): organise sets aside copies already in the library instead of keeping the shortest name" && git push`, then `git status -sb`.
 
 ## Group B4: CLI apply (spec D8, part 2)
 
 ### Task 27: CLI: `--apply`, `--quarantine`, `--trash`, `--resume`, exit codes, undo
 
-**Overlap:** BLOCKED (depends on Tasks 21–25).
-
 **Files:**
-- Modify: `crates/coverly-cli/src/dedupe.rs` (remove the Task 17 stub), `crates/coverly-cli/src/undo.rs`
+- Modify: `crates/coverly-cli/src/dedupe.rs` (remove the Task 17 "available after the archive work lands" stub; build `DedupeApplyEnv` with `process_trash()` and `Cache`; print the report through `table::terminal_safe`), `crates/coverly-cli/src/undo.rs`
 - Test: `crates/coverly-cli/tests/cli_dedupe.rs` (append)
 
-- [ ] **Step 1: Failing tests:** `apply_creates_the_quarantine_and_a_job`, `quarantine_flag_on_another_dir`, `trash_uses_the_injected_backend` (env `COVERLY_TEST_TRASH_DIR` read only under `cfg(debug_assertions)` → `FakeTrash`), `disk_full_exits_5_and_resume_finishes`, `undo_restores_a_dedupe_job`, `apply_and_trash_together_is_exit_2`.
+- [ ] **Step 1: Failing tests** (`assert_cmd`, tempdir library, pinned mtimes): `apply_creates_the_quarantine_inside_the_library_and_a_job`, `quarantine_flag_on_another_dir`, `quarantine_flag_inside_a_system_folder_is_exit_2`, `trash_uses_the_fake_trash` (env `COVERLY_TEST_FAKE_TRASH=<tmp>`, the core's `test-util` hook; the CLI dev-dependency enables the feature), `trash_on_a_volume_without_trash_reports_skips_and_exits_0`, `disk_full_exits_5_and_resume_finishes`, `undo_restores_a_dedupe_job` (also the trashed variant: files back from the fake trash), `apply_without_changes_creates_no_job`, `dry_run_is_still_the_default`.
 - [ ] **Step 2:** `cargo test -p coverly-cli --test cli_dedupe` fails.
-- [ ] **Step 3:** Implement with the exit codes of spec §14.
-- [ ] **Step 4:** Tests and gates.
-- [ ] **Step 5:** `git commit -m "feat(cli): apply, resume and undo duplicates jobs"`
+- [ ] **Step 3:** Implement with the exit codes of spec §14 (0 ok, conflicts included; 1 I/O or job error; 2 bad usage; 3 root not found; 4 no profile; 5 paused). `--quarantine` and `--trash` stay mutually exclusive (clap `conflicts_with`).
+- [ ] **Step 4:** Gates.
+- [ ] **Step 5:** `git commit -m "feat(cli): apply, resume and undo duplicates jobs" && git push`, then `git status -sb`.
 
 ## Group B5: App (spec D9–D10)
 
 ### Task 28: Tauri: `DedupeManager`, IPC, events, contract
 
-**Overlap:** BLOCKED (`src-tauri/src/ipc.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/jobs/view.rs`).
-
 **Files:**
 - Create: `src-tauri/src/dedupe/mod.rs`, `src-tauri/src/dedupe/view.rs`, `src-tauri/tests/dedupe_state.rs`
-- Modify: `src-tauri/src/ipc.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/state.rs`, `src-tauri/src/error.rs` (`no-dedupe-plan`, `keeper-required`), `src-tauri/src/jobs/view.rs` (kind `dedupe`), `src-tauri/tests/contract.rs`, `src/ipc/contract.sample.json`, `src/ipc/contract.requests.json`
+- Modify: `src-tauri/src/ipc.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/state.rs`, `src-tauri/src/error.rs` (`no-dedupe-plan`, `keeper-required`, `quarantine-in-system-folder`), `src-tauri/src/jobs/view.rs` (kind `dedupe`), `src-tauri/tests/contract.rs`, `src/ipc/contract.sample.json`, `src/ipc/contract.requests.json`
 
-**Commands:** `dedupe_plan(root, opts) -> DedupePlanView` (emits `dedupe-progress`), `dedupe_cancel(plan_id)`, `dedupe_regroup(plan_id, opts)`, `dedupe_set_keeper(plan_id, group, member)`, `dedupe_skip_group(plan_id, group, skip)`, `dedupe_skip_system(plan_id, system, skip)`, `dedupe_reset_choices(root, systems?)`, `dedupe_apply(plan_id) -> DedupeJobView` (emits `dedupe-progress`, `dedupe-changed`), `dedupe_cancel_apply()`, `dedupe_resume(job)`, `dedupe_export_plan(plan_id) -> path?`, `reveal_path(path)` (reuse if present). Undo goes through `organize_undo`.
+**Commands:** `dedupe_plan(root, opts) -> DedupePlanView` (emits `dedupe-progress`), `dedupe_cancel(plan_id)`, `dedupe_regroup(plan_id, opts)`, `dedupe_set_keeper(plan_id, group, member)`, `dedupe_skip_group(plan_id, group, skip)`, `dedupe_skip_system(plan_id, system, skip)`, `dedupe_reset_choices(root, systems?)`, `dedupe_apply(plan_id) -> DedupeJobView` (emits `dedupe-progress`, `dedupe-changed`), `dedupe_cancel_apply()`, `dedupe_resume(job)`, `dedupe_export_plan(plan_id) -> path?`, `reveal_path(path)` (reuse if present). Undo goes through the existing `organize_undo`, which already calls `undo_job_with(…, &OsTrash)`. The plan view carries `trash_available: bool` (`OsTrash.available(root)`: false on a removable card on Windows, on a FAT volume without `.Trashes`), so the screen can disable the Trash option with a reason.
 
-- [ ] **Step 1: Failing tests:** `plan_store_keeps_four_plans`, `apply_is_guarded_by_the_job_manager`, `set_keeper_persists_choice`, `regroup_does_not_rehash` (counting env), `progress_is_throttled`, `contract_samples_match_views`.
+The planner env uses `ArchiveEntryListing::with_tools(limits, &[root, quarantine])` honouring the existing organise setting for external tools (`state.rs` `found_tools()` and `SettingsView::with_tools` stay the single source), and `ReaderDiscProbe`.
+
+- [ ] **Step 1: Failing tests:** `plan_store_keeps_four_plans`, `apply_is_guarded_by_the_job_manager` (no dedupe apply while an organise or fill job runs), `set_keeper_persists_choice`, `regroup_does_not_rehash` (counting env), `progress_is_throttled`, `trash_available_is_reported`, `undo_of_a_dedupe_job_goes_through_organize_undo`, `contract_samples_match_views`.
 - [ ] **Step 2:** `cargo test -p coverly-roms --test dedupe_state --test contract` fails.
 - [ ] **Step 3:** Implement on the `OrganizeManager` pattern (`KEPT_PLANS`, `Throttle`, `spawn_apply`).
 - [ ] **Step 4:** All gates.
-- [ ] **Step 5:** `git commit -m "feat(app): duplicates commands, progress events and job wiring"`
+- [ ] **Step 5:** `git commit -m "feat(app): duplicates commands, progress events and job wiring" && git push`, then `git status -sb`.
 
 ### Task 29: Frontend IPC: backend methods, Tauri adapter, mock backend
 
-**Overlap:** BLOCKED (`src/ipc/types.ts`, `src/ipc/backend.ts`, `src/ipc/tauriBackend.ts`, `src/ipc/mock/mockBackend.ts`).
-
 **Files:**
-- Modify: `src/ipc/types.ts` (`export * from './dedupeTypes'`; `JobKind = 'fill' | 'organize' | 'dedupe'`), `src/ipc/backend.ts`, `src/ipc/tauriBackend.ts`, `src/ipc/mock/mockBackend.ts`
+- Modify: `src/ipc/types.ts` (`export * from './dedupeTypes'`; `JobKind = 'fill' | 'organize' | 'dedupe'`), `src/ipc/dedupeTypes.ts` (`trash_available`, apply/report views; organise `set-aside`/`in-library` wire types), `src/ipc/backend.ts`, `src/ipc/tauriBackend.ts`, `src/ipc/mock/mockBackend.ts`
 - Create: `src/ipc/mock/mockDedupe.ts`, `src/ipc/mock/mockDedupe.test.ts`
 - Test: `src/ipc/contract.test.ts`, `src/ipc/tauriBackend.test.ts`
 
-- [ ] **Step 1: Failing tests:** `mock_plan_emits_phases_in_order`, `mock_set_keeper_moves_the_old_keeper_to_the_tray`, `mock_apply_then_undo_restores_counts`, `tauri_adapter_uses_camelCase_args`, `contract_round_trip`.
+- [ ] **Step 1: Failing tests:** `mock_plan_emits_phases_in_order`, `mock_set_keeper_moves_the_old_keeper_to_the_tray`, `mock_apply_then_undo_restores_counts`, `mock_trash_undo_brings_files_back` (no manual-restore list: DD-9), `tauri_adapter_uses_camelCase_args`, `contract_round_trip`.
 - [ ] **Step 2:** `pnpm vitest run src/ipc` fails.
-- [ ] **Step 3:** Implement. The mock is deterministic and uses `dedupeFixture.ts` (Task 18). Expose `window.mockDedupe*` hooks for E2E, like `mockOrganizeTouch`.
+- [ ] **Step 3:** Implement. The mock is deterministic and uses `src/ipc/mock/dedupeFixture.ts` (Task 18) and, for archives and discs, the shapes of `src/ipc/mock/discFixture.ts`/`sampleFixture.ts`. Expose `window.mockDedupe*` hooks for E2E, like `mockOrganizeTouch`.
 - [ ] **Step 4:** All gates.
-- [ ] **Step 5:** `git commit -m "feat(ui): duplicates backend methods and mock"`
+- [ ] **Step 5:** `git commit -m "feat(ui): duplicates backend methods and mock" && git push`, then `git status -sb`.
 
-### Task 30: Frontend: `dedupeStore`, navigation, `DuplicatesScreen`
-
-**Overlap:** BLOCKED for `src/stores/navStore.ts` and `src/App.tsx` only as a textual merge (the archive branch does not list them). Kept in Phase B because it needs Task 29.
+### Task 30: Frontend: `dedupeStore`, navigation, `DuplicatesScreen` (shelf and tray)
 
 **Files:**
 - Create: `src/stores/dedupeStore.ts` (+ test), `src/screens/DuplicatesScreen.tsx` (+ test)
-- Modify: `src/stores/navStore.ts` (`Screen = 'main' | 'settings' | 'organize' | 'duplicates'`), `src/App.tsx`, locales
+- Modify: `src/stores/navStore.ts` (`Screen = 'main' | 'settings' | 'organize' | 'duplicates'`), `src/App.tsx`, `locales/{es,en}/ui.json` (same keys; `src/i18n/parity.test.ts`)
 
-**States:** `idle | planning | ready | applying | done | error`. Planning shows the phase sequence (Listando, Tamaños, Huellas, Números de serie, Catálogos) with checks, because it is a real sequence. Ready shows the summary sentence (Archivo 32 on the first clause), the options strip, the conflicts alert, the systems, "Sin cambios" and a sticky bar. Applying uses `<Progress slots={16}>` and Cancel. Done shows the result. The empty state is `EmptyState` ("Este estante está en orden."). Error says what failed, then "No se ha movido nada." and offers a retry.
+**States:** `idle | planning | ready | applying | done | error`. Planning shows the phase sequence (Listando, Tamaños, Huellas, Números de serie, Catálogos) with checks. Ready shows the summary sentence (Archivo 32 on the first clause), the options strip (`DedupeOptions`), the conflicts alert, the systems (`SystemSection` → `DupGroup`: the keeper on the shelf, the copies in the tray, Task 19–20 components unchanged), "Sin cambios" and a sticky bar. Applying uses `<Progress slots={16}>` and Cancel. Done shows `DedupeResult`. The empty state is `EmptyState` ("Este estante está en orden."). Error says what failed, then "No se ha movido nada." and offers a retry. The Trash option is disabled with its reason when `trash_available` is false. The Trash confirm (`dedupe.trash.confirmBody`, revised in spec §11.5) says that undo brings the files back from the Trash and that emptying the Trash makes that impossible (DD-9, no "restore by hand" text).
 
-- [ ] **Step 1: Failing tests:** `store_plan_set_keeper_skip_apply_undo` (on the mock), `cmd_r_replans`, `sticky_bar_counts_files_and_bytes_out_of_roms`, `primary_disabled_with_reason_when_zero`, `bulk_confirm_above_500_files` (and above 25 % of bytes, a confirmed big group, or the quarantine on another volume), `trash_confirm_names_count_bytes_and_manual_restore`, `same_volume_done_state_says_the_card_is_as_full`, `export_report_writes_json`, `off_card_saves_note_once_per_system`, `chd_unread_note`, `empty_state_lists_systems_without_catalogue`, `error_state_says_nothing_moved`.
+- [ ] **Step 1: Failing tests:** `store_plan_set_keeper_skip_apply_undo` (on the mock), `cmd_r_replans`, `sticky_bar_counts_files_and_bytes_out_of_roms`, `primary_disabled_with_reason_when_zero`, `bulk_confirm_above_500_files` (and above 25 % of bytes, a confirmed big group, or a quarantine on another volume), `trash_confirm_names_count_bytes_and_says_undo_brings_them_back`, `trash_option_disabled_when_the_volume_has_no_trash`, `same_volume_done_state_says_the_card_is_as_full`, `export_report_writes_json`, `off_card_saves_note_once_per_system`, `chd_unread_note`, `empty_state_lists_systems_without_catalogue`, `error_state_says_nothing_moved`.
 - [ ] **Step 2:** `pnpm vitest run src/stores/dedupeStore.test.ts src/screens/DuplicatesScreen.test.tsx` fails.
-- [ ] **Step 3:** Implement. Reuse the `OrganizeScreen` header and sticky-bar markup (copy the classes, do not import organise components). Do a screenshot critique on `pnpm dev` (mock) in light/dark at 720/1280 and record the changes in the commit body.
+- [ ] **Step 3:** Implement. Reuse the `OrganizeScreen` header and sticky-bar markup (copy the classes, do not import organise components). Screenshot critique on `pnpm dev --port 1456 --strictPort` (mock) in light/dark at 720/1280 px, with Chrome DevTools MCP (`isolatedContext: 'dedupe'`); record the changes in the commit body. Stop the server with `lsof -ti tcp:1456 -sTCP:LISTEN | xargs -r kill`.
 - [ ] **Step 4:** All gates.
-- [ ] **Step 5:** `git commit -m "feat(ui): duplicates screen with planning, review, apply and result"`
+- [ ] **Step 5:** `git commit -m "feat(ui): duplicates screen with planning, review, apply and result" && git push`, then `git status -sb`.
 
 ### Task 31: Frontend: entry points: Toolbar, Organise section, Jobs panel, settings
 
-**Overlap:** BLOCKED (`src/components/organize/{OptionsBar,OrganizeResult}.tsx`, `src/screens/OrganizeScreen.tsx`, `src/lib/organize.ts`).
-
 **Files:**
 - Modify: `src/components/library/Toolbar.tsx` (outline button "Buscar duplicados" / "Duplicados {count}", icon-only below 1180px, lucide `Copy`)
-- Modify: `src/components/organize/OptionsBar.tsx` (picker Duplicados: Apartar · Solo informar · No buscar), `src/screens/OrganizeScreen.tsx` (summary "Duplicados: {n}", "Ya en tu biblioteca: {n}", section rendering `DupGroup` between `ReviewBuckets` and `LeftInPlace`, capped at 200 rows; primary "Organizar {n} archivos y apartar {m}"), `src/components/organize/OrganizeResult.tsx` (outcomes `quarantined`/`trashed`), `src/lib/organize.ts`
-- Modify: `src/components/fill/JobsPanel.tsx` (label "Duplicados", organise Resume/Undo branches, fill-undo filter excludes dedupe)
-- Create: `src/components/settings/DedupeSettings.tsx`. Modify `src/components/settings/LibrarySection.tsx` to mount it under the organise block: three level switches, "Una ROM por juego", action radio, quarantine path + "Elegir…", a reorderable rule list on the `MatchingSection` pattern with `ReorderAnnouncer`, the region rule reading "Usa el orden de Coincidencias" with a link, a collapsed container order editor, and exclusions.
-- Modify: `src/lib/settingsRules.ts` (+ test): no duplicate rules, quarantine not inside `ROMS/` or a system folder
+- Modify: `src/components/organize/OptionsBar.tsx` (picker Duplicados: Apartar · Solo informar · No buscar), `src/screens/OrganizeScreen.tsx` (summary "Duplicados: {n}", "Ya en tu biblioteca: {n}", a section rendering `DupGroup` between `ReviewBuckets` and `LeftInPlace`, capped at 200 rows; primary "Organizar {n} archivos y apartar {m}"; an archive that would be extracted and is a duplicate shows as set aside, not extracted), `src/components/organize/OrganizeResult.tsx` (outcomes `quarantined`/`trashed`), `src/lib/organize.ts`
+- Modify: `src/components/fill/JobsPanel.tsx` (label "Duplicados", Resume/Undo through the organise branches, the fill-undo filter excludes dedupe; an undo report with `archive_lost` items lists them with `dedupe.undo.notInTrash`, "No estaba en la Papelera: {path}")
+- Create: `src/components/settings/DedupeSettings.tsx`. Modify `src/components/settings/LibrarySection.tsx` to mount it under the organise block: three level switches, "Una ROM por juego", action radio (Apartar / Papelera), quarantine path + "Elegir…" (default shown as `<biblioteca>/_Duplicados`), a reorderable rule list on the `MatchingSection` pattern with `ReorderAnnouncer`, the region rule reading "Usa el orden de Coincidencias" with a link, a collapsed container order editor, and exclusions.
+- Modify: `src/lib/settingsRules.ts` (+ test): no duplicate rules; a custom quarantine never inside a system folder
 - Tests: the matching `*.test.tsx` files
 
-- [ ] **Step 1: Failing tests:** `toolbar_shows_find_then_count`, `organize_options_picker_defaults_to_set_aside`, `organize_apply_label_counts_set_aside`, `organize_section_reuses_dup_group`, `jobs_panel_dedupe_undo_uses_organize_undo`, `settings_reorder_rules_announces`, `settings_rejects_quarantine_inside_roms`.
+- [ ] **Step 1: Failing tests:** `toolbar_shows_find_then_count`, `organize_options_picker_defaults_to_set_aside`, `organize_apply_label_counts_set_aside`, `organize_section_reuses_dup_group`, `jobs_panel_dedupe_undo_uses_organize_undo`, `jobs_panel_lists_copies_the_trash_lost`, `settings_reorder_rules_announces`, `settings_rejects_quarantine_inside_a_system_folder`.
 - [ ] **Step 2:** `pnpm vitest run src/components src/screens src/lib` fails.
-- [ ] **Step 3:** Implement and do a screenshot critique of the Organise proposal with duplicates.
+- [ ] **Step 3:** Implement and do a screenshot critique of the Organise proposal with duplicates (port 1456, Chrome DevTools MCP).
 - [ ] **Step 4:** All gates.
-- [ ] **Step 5:** `git commit -m "feat(ui): duplicates in the toolbar, organise proposal, jobs and settings"`
+- [ ] **Step 5:** `git commit -m "feat(ui): duplicates in the toolbar, organise proposal, jobs and settings" && git push`, then `git status -sb`.
 
 ## Group G: Docs and verification (spec D11)
 
 ### Task 32: Docs: architecture, README, changelog, tracker
 
-**Overlap:** light (`docs/04-architecture/organize.md`, `CHANGELOG.md`, `docs/TRACKER.md`).
-
 **Files:**
-- Create: `docs/04-architecture/dedupe.md` (pipeline, keys table, keeper rules, safety rules, journal ops, archive/disc seams, performance budget)
-- Modify: `docs/04-architecture/{organize.md, identification.md, desktop-app.md, settings.md}`, `README.md`, `README.es.md` (feature bullet + `coverly dedupe` usage), `CHANGELOG.md` (Unreleased: Added), `docs/TRACKER.md` (duplicates row with evidence links)
+- Create: `docs/04-architecture/dedupe.md` (pipeline, keys table, keeper rules, safety rules, journal ops (the reused trash ops, DD-9), the archive/disc adapters over `archive::`/`disc::`, the quarantine inside the library (DD-11), performance budget)
+- Modify: `docs/04-architecture/{organize.md, identification.md, desktop-app.md, settings.md}`, `README.md`, `README.es.md` (feature bullet + `coverly dedupe` usage), `CHANGELOG.md` (Unreleased: Added), `docs/TRACKER.md` (duplicates phase B rows with evidence)
 
-- [ ] **Step 1:** Write the docs. Every command shown in a README must run as written on the synthetic fixture (copy-paste check).
-- [ ] **Step 2:** `pnpm format:check` (Markdown under `src/` only) and a link check by `grep -o '](\.[^)]*)'` on the changed files, resolving each path.
-- [ ] **Step 3:** `git commit -m "docs: duplicates architecture, usage and tracker"`
+- [ ] **Step 1:** Write the docs. Every command in a README must run as written on the synthetic fixture (copy-paste check).
+- [ ] **Step 2:** `pnpm format:check` and a link check (`grep -o '](\.[^)]*)'` on the changed files, resolving each path).
+- [ ] **Step 3:** `git commit -m "docs: duplicates architecture, usage and tracker" && git push`, then `git status -sb`.
 
 ### Task 33: Verification: real sample, apply on a copy, E2E
 
-**Overlap:** none (no source changes unless a bug is found; any fix gets its own TDD task, inserted before this one).
+**Overlap:** none (no source changes unless a bug is found; any fix gets its own TDD task inserted before this one, with its own commit and push).
 
-- [ ] **Step 1: Real dry runs (read-only).** `cargo run -p coverly-cli -- dedupe /Users/miguelangelesparzacalero/Documents/ROMS --report json --output target/dedupe-evidence/library.json` and the same for `ROMs-Downloaded` with `--one-game-one-rom` (still a dry run). Before and after, record tree hashes of both folders (`find … -type f -print0 | xargs -0 stat -f '%N %z %m' | shasum`) and assert they are equal. Compare with spec §15. List the acting vs found totals and the FC header groups.
-- [ ] **Step 2: Apply on a copy.** `mkdir -p target/dedupe-sample && cp -X -R /Users/miguelangelesparzacalero/Documents/ROMS/{SMS,GB,PS} target/dedupe-sample/ROMS/`, then `coverly dedupe target/dedupe-sample --apply`. Check `_Duplicados/` shape, the `.txt` list, saves and art. `coverly undo <job>`, then compare SHA1s before/after (byte-identical). Then `--trash` with the real OS Trash on that copy only. Check the undo report lists manual restores, then empty those items from the Trash by hand. Delete `target/dedupe-sample` afterwards.
-- [ ] **Step 3: Tune bulk-confirm thresholds** (DD-8 Q11) from Step 1's numbers. If they change, add a test in Task 30's file and a `fix(ui): …` commit.
-- [ ] **Step 4: E2E on the mock** with Chrome DevTools MCP on `pnpm dev`. Flow: library → Duplicados → plan → change a keeper (check the live region) → "No tocar este juego" → enable Otras versiones (delta shown) → apply → done → Deshacer. Also the Organise proposal with duplicates, and keyboard only (Tab, arrows, X). Take screenshots in light/dark at 720px and 1280px, save them to `docs/assets/dedupe/`, and run a Lighthouse accessibility audit on the screen.
-- [ ] **Step 5:** Update `docs/TRACKER.md` with the evidence paths and the numbers. `git commit -m "docs(tracker): record duplicates verification evidence"`
+- [ ] **Step 1: Real dry runs (read-only).** `cargo run -p coverly-cli -- dedupe /Users/miguelangelesparzacalero/Documents/ROMS --report json --output target/dedupe-evidence/library.json`, and the same for `/Volumes/TinyExt/ROMs-Downloaded` with `--one-game-one-rom` (still a dry run). Before and after, record tree hashes of both folders (`find … -type f -print0 | xargs -0 stat -f '%N %z %m' | shasum`) and assert they are equal; check no `._*` file appeared. Compare with spec §15, now including level 3 across 7z/zip/cue/pbp. List the acting vs found totals and the FC header groups.
+- [ ] **Step 2: Apply on a copy.** `mkdir -p target/dedupe-sample/ROMS && cp -RXp /Users/miguelangelesparzacalero/Documents/ROMS/{SMS,GB,PS} target/dedupe-sample/ROMS/`, then `coverly dedupe target/dedupe-sample --apply`. Check `target/dedupe-sample/_Duplicados/` (inside the library, relative paths kept), the `.txt` list, saves and art. `coverly undo --job <job>`, then compare SHA1s before/after (byte-identical). Then `--trash` with the real OS Trash on that copy only, then `coverly undo --job <job>`: the files come back from the Trash by themselves (macOS `NSFileManager` location); nothing is left in the Trash from the run. Delete `target/dedupe-sample` afterwards.
+- [ ] **Step 3: Tune the bulk-confirm thresholds** (DD-8 Q11) from Step 1's numbers. If they change, add a test in Task 30's file and a `fix(ui): …` commit, pushed.
+- [ ] **Step 4: E2E on the mock** with Chrome DevTools MCP (`isolatedContext: 'dedupe'`; Playwright MCP if the profile is locked) on `pnpm dev --port 1456 --strictPort`. Flow: library → Duplicados → plan → change a keeper (check the live region) → "No tocar este juego" → enable Otras versiones (delta shown) → apply → done → Deshacer; the Trash variant; the Organise proposal with duplicates (a 7z already in the library shows as set aside); keyboard only (Tab, arrows, X). Screenshots in light/dark at 720px and 1280px saved to `docs/assets/dedupe/`; a Lighthouse accessibility audit on the screen. Stop the server by port.
+- [ ] **Step 5:** Update `docs/TRACKER.md` with the evidence paths and numbers. `git commit -m "docs(tracker): record duplicates verification evidence" && git push`, then `git status -sb`.
+
 
 ---
 
 ## Self-review checklist (done while writing this plan)
 
-- Every spec section maps to a task: §5.1→8, §5.2→4/9, §5.3→1/10, §5.4→10/25, §5.5→11, §6→13 (+5 settings), §7.1→15/23, §7.2→22/23, §7.3→11, §8→12/23, §9.1→14, §9.2→21/24, §9.3→3/13/15, §10→3/9/15, §11→18–20/30/31, §12→all core, §13→5/31, §14→17/27, §15→16/25/33, §16→per task, §17 D1–D11→groups.
-- Spec §12.4 contract mismatch with the archive branch resolved by DD-1. CHD level 3 explicitly deferred (DD-2). The only new crate is justified (DD-4).
+- Every spec section maps to a task: §5.1→8, §5.2→4/9, §5.3→1/10, §5.4→10/25, §5.5→11, §6→13 (+5 settings), §7.1→15/23, §7.2→22/23 (write::trash), §7.3→11, §8→12/23, §9.1→14, §9.2→21/22/24, §9.3→3/13/15, §10→3/9/15, §11→18–20/30/31, §12→all core, §13→5/31, §14→17/27, §15→16/25/33, §16→per task, §17 D1–D11→groups.
+- Spec §12.4 contract mismatch with the archive branch resolved by DD-1. CHD level 3 explicitly deferred (DD-2). No new crate (DD-4 superseded by AP-3). Phase B refreshed on 2026-10-25 against `main` (DD-9 to DD-13).
 - Every BLOCKED task names the overlapping files. Phase A (Tasks 1–20) touches no file the archive branch edits, except the locale JSON (light).
 - No task decides by file name. The "names never group" tests exist at keys (9), group (11) and keeper (13) level.
 - The real data paths appear only in read-only tests and in the copy-based manual apply.

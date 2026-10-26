@@ -11,8 +11,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::organize::plan::{
-    Companion, ExtractEntry, ItemKind, ItemNote, LeftReason, NameMode, OrganizeItem, RenameReason,
-    Transfer,
+    Companion, ExtractEntry, ItemKind, ItemNote, LeftReason, NameMode, OrganizeAction,
+    OrganizeItem, RenameReason, Transfer,
 };
 use crate::profiles::naming::{system_folder, FolderChoice};
 use crate::profiles::Profile;
@@ -278,8 +278,8 @@ pub fn assign_targets_with_extracts(
     let mut folders: HashMap<String, (PathBuf, FolderChoice)> = HashMap::new();
     let mut dirs: Vec<Option<(PathBuf, FolderChoice)>> = Vec::with_capacity(items.len());
     for item in items.iter() {
-        let dir = match (&item.system_id, item.is_left()) {
-            (Some(system), false) => Some(
+        let dir = match (&item.system_id, item.moves_in()) {
+            (Some(system), true) => Some(
                 folders
                     .entry(system.clone())
                     .or_insert_with(|| folder_in(&roms, layout, db, system))
@@ -444,7 +444,78 @@ fn match_companions(
     (attached, left)
 }
 
-fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
+/// Same-stem companions of each set-aside item (duplicates spec §9.1):
+/// a save, state or patch beside a pile copy that is set aside goes with
+/// it, to the same place below its quarantine. A companion already
+/// attached to an item, or whose stem also names an item that is not set
+/// aside in the same folder (a shared stem), stays.
+pub(crate) fn attach_set_aside_companions(
+    items: &mut [OrganizeItem],
+    companions: &[PathBuf],
+    source_root: &Path,
+    companion_exts: &[String],
+) {
+    let mut claimed: HashSet<PathBuf> = items
+        .iter()
+        .flat_map(|i| {
+            i.sources
+                .iter()
+                .cloned()
+                .chain(i.companions.iter().map(|c| c.source.clone()))
+        })
+        .collect();
+    let stem_key = |primary: &Path| (parent(primary), name_key(split_name(&file_name(primary)).0));
+    let staying: HashSet<(PathBuf, String)> = items
+        .iter()
+        .filter(|i| !i.is_set_aside())
+        .filter_map(|i| i.sources.first().map(|p| stem_key(p)))
+        .collect();
+    for item in items.iter_mut() {
+        let OrganizeAction::SetAside { dest, .. } = &item.action else {
+            continue;
+        };
+        let Some(primary) = item.sources.first() else {
+            continue;
+        };
+        let key = stem_key(primary);
+        if staying.contains(&key) {
+            continue;
+        }
+        // The quarantine folder: `dest` without the primary's own path.
+        let mut base = dest.clone();
+        if !dest.ends_with(primary) || !primary.components().all(|_| base.pop()) {
+            continue;
+        }
+        let mut found = Vec::new();
+        for given in companions {
+            let rel = given.strip_prefix(source_root).unwrap_or(given);
+            if claimed.contains(rel) || parent(rel) != key.0 {
+                continue;
+            }
+            let name = file_name(rel);
+            let matches = name
+                .match_indices('.')
+                .map(|(i, _)| i)
+                .filter(|&i| i > 0 && i + 1 < name.len())
+                .any(|i| {
+                    name_key(&name[..i]) == key.1
+                        && companion_ext_matches(companion_exts, &name[i + 1..])
+                });
+            if matches {
+                found.push(Companion {
+                    source: rel.to_path_buf(),
+                    target: base.join(rel),
+                });
+            }
+        }
+        for c in found {
+            claimed.insert(c.source.clone());
+            item.companions.push(c);
+        }
+    }
+}
+
+pub(crate) fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
     let ext = ext.to_lowercase();
     patterns.iter().any(|p| {
         let p = p.trim().trim_start_matches('.').to_lowercase();
@@ -1140,35 +1211,6 @@ fn file_crc32(path: &Path) -> Option<u32> {
     }
 }
 
-/// Leaves every item but one of each content group in place as a
-/// duplicate: the kept one has the shortest file name, then the first
-/// alphabetically. `keys[i]` is item `i`'s CRC32 + size (or SHA1 + size);
-/// `None` never matches. Items already left are not considered.
-pub fn mark_duplicates(items: &mut [OrganizeItem], keys: &[Option<(String, u64)>]) {
-    let mut groups: HashMap<&(String, u64), Vec<usize>> = HashMap::new();
-    for (pos, item) in items.iter().enumerate() {
-        if let Some(Some(key)) = keys.get(pos) {
-            if !item.is_left() {
-                groups.entry(key).or_default().push(pos);
-            }
-        }
-    }
-    for mut group in groups.into_values().filter(|g| g.len() > 1) {
-        group.sort_by_key(|&pos| {
-            let name = items[pos]
-                .sources
-                .first()
-                .map(|s| file_name(s))
-                .unwrap_or_default();
-            (name.chars().count(), name)
-        });
-        let of = items[group[0]].sources[0].clone();
-        for &pos in &group[1..] {
-            items[pos].leave(LeftReason::Duplicate { of: of.clone() });
-        }
-    }
-}
-
 #[cfg(feature = "test-util")]
 thread_local! {
     static FAT32: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
@@ -1227,7 +1269,7 @@ fn written_paths(item: &OrganizeItem, target_root: &Path) -> Vec<PathBuf> {
 pub fn limit_fat_folders(items: &mut [OrganizeItem], target_root: &Path) {
     let mut used: HashMap<PathBuf, u64> = HashMap::new();
     let mut created: HashSet<PathBuf> = HashSet::new();
-    for item in items.iter_mut().filter(|i| !i.is_left()) {
+    for item in items.iter_mut().filter(|i| i.moves_in()) {
         let paths = written_paths(item, target_root);
         if paths.is_empty() {
             continue;

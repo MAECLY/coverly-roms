@@ -1,5 +1,6 @@
 import {
   ChevronLeft,
+  Copy,
   FileText,
   FolderTree,
   ListChecks,
@@ -18,6 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/i18n/useT';
 import type { LibraryView } from '@/ipc/types';
 import { activeFilterCount } from '@/lib/filters';
+import { useDedupeStore } from '@/stores/dedupeStore';
 import { useFilterStore } from '@/stores/filterStore';
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -35,6 +37,7 @@ export function Toolbar({
   onJobs,
   onReports,
   onOrganizeLoose,
+  onDuplicates,
 }: {
   view: LibraryView;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -44,6 +47,8 @@ export function Toolbar({
   onReports(): void;
   /** Sorts the ROMs lying outside any system folder (spec §4.5). */
   onOrganizeLoose(): void;
+  /** Opens the duplicates screen for this library (spec §4). */
+  onDuplicates(): void;
 }) {
   const t = useT();
   const filters = useFilterStore((s) => s.filters);
@@ -53,6 +58,11 @@ export function Toolbar({
   const close = useLibraryStore((s) => s.close);
   const job = useJobStore((s) => s.job);
   const active = activeFilterCount(filters);
+  const dupCount = useDedupeStore((s) => s.counts[view.root] ?? 0);
+  const dupLabel =
+    dupCount > 0
+      ? t('dedupe.entry.count', { count: dupCount })
+      : t('dedupe.entry.find');
   const running = isRunning(job);
   const jobsLabel = running
     ? t('toolbar.jobsRunning')
@@ -138,6 +148,12 @@ export function Toolbar({
           </Button>
         </Tip>
       )}
+      <Tip content={dupLabel}>
+        <Button variant="outline" onClick={onDuplicates}>
+          <Copy aria-hidden className="toolbar-icon" />
+          <span className="toolbar-label tabular-nums">{dupLabel}</span>
+        </Button>
+      </Tip>
       <Button variant="primary" onClick={onFill}>
         {t('toolbar.fill')}
       </Button>

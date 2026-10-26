@@ -5,11 +5,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
+use coverly_core::archive::testing::sevenz_copy;
+use coverly_core::archive::Limits;
 use coverly_core::cache::Cache;
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::{
     level_one, parse_chd_header, track_layout, ExactKey, KeyCtx, KeyedUnit,
 };
-use coverly_core::dedupe::source::ZipListing;
 use coverly_core::dedupe::testing::{chd_header, nes_header, CountingBytes, CountingListing};
 use coverly_core::dedupe::units::Unit;
 use coverly_core::dedupe::UnitKind;
@@ -111,9 +113,15 @@ fn run(units: &[Unit], ctx: &KeyCtx) -> Vec<KeyedUnit> {
     level_one(units, ctx, &|_, _, _| {}, &AtomicBool::new(false))
 }
 
+/// The archive reader's listing, with no external tool.
+fn listing() -> ArchiveEntryListing {
+    ArchiveEntryListing::new(Limits::default())
+}
+
 fn keys_of(units: &[Unit]) -> Vec<KeyedUnit> {
     let db = SystemDb::builtin();
-    let ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let ctx = KeyCtx::new(&db, &archives);
     run(units, &ctx)
 }
 
@@ -259,7 +267,8 @@ fn zip_over_budget_is_unconfirmed() {
     ]);
 
     let db = SystemDb::builtin();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.max_hash_bytes = 1024;
     let keys = run(&units, &ctx);
     let want = ExactKey::ZipCrc {
@@ -480,6 +489,32 @@ fn names_never_group() {
     assert!(gk(0).is_none() || gk(4) != gk(0));
 }
 
+#[test]
+fn raw_vs_single_entry_7z_is_an_exact_copy() {
+    let dir = TempDir::new().unwrap();
+    let rom = rom_bytes(19, 32 * 1024);
+    let loose = put(dir.path(), "GB/Tetris.gb", &rom);
+    let sz = put(
+        dir.path(),
+        "GB/Tetris (Europe).7z",
+        &sevenz_copy(&[("readme.txt", b"hi"), ("Tetris (Europe).gb", &rom)]),
+    );
+    let units = numbered(vec![raw("gb", &loose), zipped("gb", &sz, rom.len())]);
+
+    let keys = keys_of(&units);
+    assert_eq!(
+        exact(&keys[1]),
+        &ExactKey::Payload {
+            sha1: sha1_hex(&rom),
+            size: rom.len() as u64
+        },
+        "the 7z entry is decoded and hashed"
+    );
+    assert_eq!(exact(&keys[0]), exact(&keys[1]));
+    assert!(keys[0].confirmed && keys[1].confirmed);
+    assert_eq!(keys[0].group_key("gb"), keys[1].group_key("gb"));
+}
+
 // --- Bucketing and reuse ---
 
 #[test]
@@ -502,7 +537,7 @@ fn singleton_size_buckets_are_never_read() {
 
     let db = SystemDb::builtin();
     let bytes = CountingBytes::new();
-    let listing = CountingListing::new(ZipListing);
+    let listing = CountingListing::new(listing());
     let mut ctx = KeyCtx::new(&db, &listing);
     ctx.bytes = &bytes;
     let keys = run(&units, &ctx);
@@ -551,7 +586,8 @@ fn quick_ids_v2_rows_are_reused_without_reading() {
 
     let db = SystemDb::builtin();
     let bytes = CountingBytes::new();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.bytes = &bytes;
     ctx.cache = Some(&cache);
     let keys = run(&units, &ctx);
@@ -575,7 +611,8 @@ fn colliding_bucket_ignores_max_hash_mb() {
     let units = numbered(vec![raw("gb", &a), raw("gb", &b)]);
 
     let db = SystemDb::builtin();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.max_hash_bytes = 1024;
     let keys = run(&units, &ctx);
     assert_eq!(exact(&keys[0]), exact(&keys[1]));
@@ -591,7 +628,8 @@ fn prefix_crc_spares_full_reads_of_different_files() {
 
     let db = SystemDb::builtin();
     let bytes = CountingBytes::new();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.bytes = &bytes;
     let keys = run(&units, &ctx);
     assert!(keys.iter().all(|k| k.exact.is_none()));
@@ -612,7 +650,8 @@ fn computed_keys_are_cached_and_a_warm_run_reads_nothing() {
     let db = SystemDb::builtin();
 
     let cold = CountingBytes::new();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.cache = Some(&cache);
     ctx.volume_uuid = Some("VOL-1");
     ctx.bytes = &cold;
@@ -676,7 +715,8 @@ fn a_cached_disc_key_is_dropped_when_a_track_changes_behind_its_sheet() {
     };
     let cache = Cache::in_memory().unwrap();
     let db = SystemDb::builtin();
-    let mut ctx = KeyCtx::new(&db, &ZipListing);
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
     ctx.cache = Some(&cache);
     ctx.volume_uuid = Some("VOL-1");
 

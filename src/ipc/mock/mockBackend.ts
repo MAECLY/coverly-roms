@@ -14,6 +14,7 @@ import type {
   ScanProgress,
 } from '../types';
 import { FIXTURE_SYSTEMS, generateLibrary } from './fixture';
+import { createMockDedupe, type MockDedupeScenario } from './mockDedupe';
 import { createMockJobs, mockTitle, type MockExport } from './mockJobs';
 import {
   createMockOrganize,
@@ -31,6 +32,7 @@ import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
 export type { MockExport } from './mockJobs';
+export type { MockDedupeScenario } from './mockDedupe';
 export {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
@@ -69,6 +71,11 @@ export interface MockOptions {
   /** The external archive tools Settings → Organise lists as found
    * (default none). */
   externalTools?: readonly FoundTool[];
+  /** The duplicates plans' library volume has a Trash (default true). */
+  dedupeTrashAvailable?: boolean;
+  /** The first duplicates apply of each job pauses (disk full) after this
+   * many extras; null = never (default). */
+  dedupePauseAfter?: number | null;
 }
 
 export interface MockBackend extends Backend {
@@ -83,6 +90,10 @@ export interface MockBackend extends Backend {
   readonly updateLog: string[];
   /** Adds or removes files of an organise pile between scans (dev, tests). */
   organizeTouch(path: string, change: MockOrganizeTouch): void;
+  /** Paths passed to `revealPath`, for tests. */
+  readonly revealedPaths: string[];
+  /** What the next duplicates plans and applies do (dev, tests). */
+  dedupeScenario(patch: Partial<MockDedupeScenario>): void;
 }
 
 export function mockArtSvg(e: EntryView, media: Media): string {
@@ -273,7 +284,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       now,
       sgdbReady: () => settings.isSourceReady('steamgriddb'),
       sgdbRefused: () => settings.isSourceRefused('steamgriddb'),
-      organizing: () => organize.isApplying(),
+      organizing: () => organize.isApplying() || dedupe.isDedupeApplying(),
     },
     {
       pauseAfter: opts.pauseAfter === undefined ? 25 : opts.pauseAfter,
@@ -283,10 +294,11 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const organize = createMockOrganize(
     {
       settings: () => settings.current().organize,
+      dedupe: () => settings.current().dedupe,
       profiles: () => settings.listProfiles(),
       fillHistory: () => jobs.jobHistory(),
       undoFill: (job) => jobs.undoJournal(job),
-      fillBusy: () => jobs.isBusy(),
+      fillBusy: () => jobs.isBusy() || dedupe.isDedupeApplying(),
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
       exports: jobs.exports,
@@ -296,6 +308,19 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       sortedLayout: MOCK_BUILTIN_PROFILES.find(
         (p) => p.profile.id === 'anbernic-stock',
       ),
+    },
+  );
+  const dedupe = createMockDedupe(
+    {
+      settings: () => settings.current().dedupe,
+      otherBusy: () => jobs.isBusy() || organize.isApplying(),
+      tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
+      now,
+      exports: jobs.exports,
+    },
+    {
+      trashAvailable: opts.dedupeTrashAvailable ?? true,
+      pauseAfter: opts.dedupePauseAfter ?? null,
     },
   );
   const updateLog: string[] = [];
@@ -337,11 +362,22 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     ...settings,
     ...updates,
     ...organize,
+    ...dedupe,
     async jobHistory() {
-      // Fill and organise journals, newest first (ISO stamps sort as text).
-      const all = [...(await jobs.jobHistory()), ...organize.history()];
+      // Fill, organise and duplicates journals, newest first (ISO stamps
+      // sort as text).
+      const all = [
+        ...(await jobs.jobHistory()),
+        ...organize.history(),
+        ...dedupe.dedupeHistory(),
+      ];
       return all.sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
+    // Like Rust, `organize_undo` undoes duplicates journals too.
+    organizeUndo: (job, includeLater) =>
+      dedupe.ownsDedupeJob(job)
+        ? dedupe.dedupeUndo(job, includeLater)
+        : organize.organizeUndo(job, includeLater),
     listSystems: () =>
       Promise.resolve(
         // Like Rust, the whole catalogue: the organise piles' systems too.

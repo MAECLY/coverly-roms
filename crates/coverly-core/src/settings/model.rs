@@ -524,10 +524,11 @@ pub struct DedupeSettings {
     /// Also set aside other versions of a game (1G1R).
     pub one_game_one_rom: bool,
     pub action: DedupeActionSetting,
-    /// Absolute; `None` = next to the ROMs folder.
+    /// Absolute, never inside a system folder; `None` =
+    /// `<library>/<quarantine_name>`, inside the library (DD-11).
     pub quarantine_dir: Option<PathBuf>,
-    /// Quarantine folder name, fixed at first run from the app language
-    /// (`_Duplicados` / `_Duplicates`); `None` = not chosen yet.
+    /// Quarantine folder name; `None` = `_Duplicados` in every language
+    /// (nothing fixes it from the app language yet, spec §18 Q4).
     pub quarantine_name: Option<String>,
     /// Every [`KeepRule`] once, in the order they are weighed.
     pub keep_rules: Vec<RuleToggle>,

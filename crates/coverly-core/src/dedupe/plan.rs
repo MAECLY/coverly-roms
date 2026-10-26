@@ -54,9 +54,6 @@ pub const DEFAULT_QUARANTINE_NAME: &str = "_Duplicados";
 /// Cache namespace of the catalogue CRCs read for level 2.
 const CRCS_NS: &str = "dedupe-crcs";
 
-/// Folders that list volumes, not hold libraries.
-const VOLUME_LISTS: [&str; 4] = ["/Volumes", "/media", "/mnt", "/run/media"];
-
 /// Where a plan is. Throttling is the caller's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DedupeProgress {
@@ -104,6 +101,15 @@ pub enum DedupeError {
     NoState,
     #[error("cache: {0}")]
     Cache(String),
+    /// A custom quarantine may be anywhere except inside a system folder
+    /// (spec §7.1), nor around one: its copies would be found again as
+    /// games.
+    #[error("the duplicates folder {} is inside or around a system folder", .0.display())]
+    QuarantineInSystemFolder(PathBuf),
+    /// Applying would set aside every copy of a group, or move the copy
+    /// that stays (hard rule 4): nothing is written.
+    #[error("duplicates group {0} would keep no copy")]
+    EveryMemberMoves(u64),
 }
 
 impl From<CacheError> for DedupeError {
@@ -121,71 +127,29 @@ pub struct QuarantineSpot {
     pub writer_root: PathBuf,
     /// The folder of system folders.
     pub roms_dir: PathBuf,
-    /// The parent could not hold it, so it sits inside the library and the
-    /// walks must skip it.
+    /// Always false: the default quarantine is always inside the library
+    /// (plan DD-11). Kept for older readers of the type.
     pub fallback: bool,
 }
 
-/// The default quarantine of the library at `root` (spec §7.1): next to
-/// the ROMs folder (`/Volumes/SD/_Duplicados` for `roms_root = "ROMS"`),
-/// beside a folder opened as system folders (`~/Documents/ROMS
-/// _Duplicados`), or inside the library when that parent is a volume
-/// list, a system root or not writable.
+/// The default quarantine of the library at `root` (spec §7.1, plan
+/// DD-11): always `<root>/<name>`, inside the library, so ROM moves, art
+/// moves and `gamelist.xml` edits share one writer root and stay renames
+/// on one volume. `/Volumes/SD/_Duplicados` for `roms_root = "ROMS"`;
+/// `~/Documents/ROMS/_Duplicados` for a folder opened as system folders.
+/// Walks, scans and later runs skip it (`Exclusion::Quarantine`).
 pub fn default_quarantine(root: &Path, roms_root: &str, name: &str) -> QuarantineSpot {
     let roms_root = roms_root.trim_matches(|c| c == '/' || c == '\\');
-    if !roms_root.is_empty() {
-        return QuarantineSpot {
-            dir: root.join(name),
-            writer_root: root.to_path_buf(),
-            roms_dir: root.join(roms_root),
-            fallback: false,
-        };
-    }
-    let inside = QuarantineSpot {
+    QuarantineSpot {
         dir: root.join(name),
         writer_root: root.to_path_buf(),
-        roms_dir: root.to_path_buf(),
-        fallback: true,
-    };
-    let (Some(parent), Some(folder)) = (root.parent(), root.file_name()) else {
-        return inside;
-    };
-    if parent.as_os_str().is_empty()
-        || parent.parent().is_none()
-        || is_volume_list(parent)
-        || !writable(parent)
-    {
-        return inside;
-    }
-    QuarantineSpot {
-        dir: parent.join(format!("{} {name}", folder.to_string_lossy())),
-        writer_root: parent.to_path_buf(),
-        roms_dir: root.to_path_buf(),
+        roms_dir: if roms_root.is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(roms_root)
+        },
         fallback: false,
     }
-}
-
-fn is_volume_list(dir: &Path) -> bool {
-    let listed = |d: &Path| VOLUME_LISTS.iter().any(|v| d == Path::new(v));
-    listed(dir)
-        || dir
-            .parent()
-            .is_some_and(|p| p != Path::new("/") && listed(p))
-}
-
-#[cfg(unix)]
-fn writable(dir: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: `c` is a valid NUL-terminated path for the call's duration.
-    dir.is_dir() && unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0
-}
-
-#[cfg(not(unix))]
-fn writable(dir: &Path) -> bool {
-    std::fs::metadata(dir).is_ok_and(|m| m.is_dir() && !m.permissions().readonly())
 }
 
 /// What the planner knew when it made a plan. Opaque; two plans compare
@@ -221,6 +185,9 @@ struct Base {
     root: PathBuf,
     roms_dir: PathBuf,
     spot: QuarantineSpot,
+    /// The scanned system folders a quarantine may not overlap (empty when
+    /// the units did not come from one library scan).
+    system_dirs: Vec<PathBuf>,
     units: Vec<Unit>,
     l1: Vec<KeyedUnit>,
     l2: Vec<Option<VersionKey>>,
@@ -294,6 +261,8 @@ pub fn plan_dedupe(
         .unwrap_or(DEFAULT_QUARANTINE_NAME);
     let spot = default_quarantine(&root, &env.profile.roms_root, name);
     let quarantine = quarantine_dir(&spot, &opts.quarantine);
+    let system_dirs: Vec<&Path> = scan.systems.iter().map(|s| s.dir.as_path()).collect();
+    check_quarantine(&quarantine, &system_dirs)?;
 
     // Units.
     let folders = scan.systems.len();
@@ -301,7 +270,7 @@ pub fn plan_dedupe(
     let scoped = scoped(scan, opts, &env.settings.dedupe.exclude_systems);
     let mut unit_opts = UnitOptions::for_profile(env.profile);
     unit_opts.quarantine = Some(quarantine.clone());
-    let set = units_from_scan(&scoped, env.db, &unit_opts);
+    let set = units_from_scan(&scoped, env.db, &unit_opts, env.listing);
     report(DedupePhase::Listing, folders, folders);
     check()?;
     let units = set.units;
@@ -388,6 +357,7 @@ pub fn plan_dedupe(
         roms_dir: spot.roms_dir.clone(),
         saves: SaveIndex::new(&env.profile.id, &root),
         spot,
+        system_dirs: scan.systems.iter().map(|s| s.dir.clone()).collect(),
         units,
         l1,
         l2,
@@ -426,14 +396,159 @@ pub fn plan_dedupe(
     Ok(plan)
 }
 
+/// What [`group_units`] reads with: the library the units are compared
+/// against (saves, game lists and art are looked up there) and the
+/// readers.
+pub struct GroupEnv<'a> {
+    pub cache: &'a Cache,
+    pub db: &'a SystemDb,
+    pub profile: &'a Profile,
+    /// The library root.
+    pub root: &'a Path,
+    /// The folder of system folders.
+    pub roms_dir: &'a Path,
+    /// Lists and decodes archive entries.
+    pub listing: &'a dyn EntryListing,
+    /// Reads disc serials and volume fingerprints.
+    pub discs: &'a dyn DiscProbe,
+    /// Catalogue answers (cached catalogues only: nothing is downloaded).
+    pub dats: &'a dyn DatLookup,
+    /// `content_keys` rows are read and written for this volume only:
+    /// `None` keeps the cache out (units on several volumes).
+    pub volume_uuid: Option<&'a str>,
+    /// Lower-case extensions that follow a ROM.
+    pub companion_exts: &'a [String],
+    /// `settings.matching.regions`.
+    pub regions: &'a [String],
+    pub cancel: &'a AtomicBool,
+}
+
+/// Groups `units` that may come from two places, a library and an
+/// organise pile (`Unit::in_library`), with the planner's keys and keeper
+/// rules (spec §4, Organise step). When a group mixes library and pile
+/// copies, only a library copy may stay: a pile copy is never organised
+/// over a game the library already holds. Extras get no `dest` (the
+/// caller decides where they go). Nothing is written but the cache; fails
+/// only on cancel.
+pub fn group_units(
+    units: Vec<Unit>,
+    opts: &DedupeOptions,
+    env: &GroupEnv,
+) -> Result<Vec<DupGroup>, DedupeError> {
+    let check = || {
+        if env.cancel.load(Ordering::Relaxed) {
+            Err(DedupeError::Cancelled)
+        } else {
+            Ok(())
+        }
+    };
+    let units: Vec<Unit> = units
+        .into_iter()
+        .enumerate()
+        .map(|(i, u)| Unit { id: i, ..u })
+        .collect();
+    let ctx = KeyCtx {
+        db: env.db,
+        listing: env.listing,
+        bytes: &super::keys::DiskBytes,
+        cache: Some(env.cache),
+        volume_uuid: env.volume_uuid,
+        max_hash_bytes: crate::identify::hash::DEFAULT_HASH_MAX_BYTES,
+        workers: workers_for(env.root),
+    };
+    let l1 = level_one(&units, &ctx, &|_, _, _| {}, env.cancel);
+    check()?;
+    let snapshot = Snapshot::default();
+    let (l2, l3, mut raw) = {
+        let rec = Recorder {
+            inner: env.dats,
+            snap: &snapshot,
+        };
+        let l3 = level_three(&units, env.discs, &rec);
+        check()?;
+        let l2 = level_two(&units, &l1, &rec);
+        let raw = raw_groups(&units, &l1, &l2, &l3, env.db, &rec, opts);
+        (l2, l3, raw)
+    };
+    for (_, group) in &mut raw {
+        library_keeps(&units, group);
+    }
+    let remembered = units
+        .iter()
+        .enumerate()
+        .filter_map(|(i, u)| {
+            let key = content_key(u, &l1[i], l2[i].as_ref(), l3[i].as_ref())?;
+            let choice = env.cache.dedupe_choice(&u.system, &key).ok()??;
+            Some((i, choice.saves_fp))
+        })
+        .collect();
+    let spot = default_quarantine(env.root, &env.profile.roms_root, DEFAULT_QUARANTINE_NAME);
+    let base = Base {
+        root: env.root.to_path_buf(),
+        roms_dir: env.roms_dir.to_path_buf(),
+        saves: SaveIndex::new(&env.profile.id, env.root),
+        spot,
+        system_dirs: Vec::new(),
+        stem_index: stem_index(&units),
+        units,
+        l1,
+        l2,
+        l3,
+        dats: snapshot,
+        db: env.db.clone(),
+        profile: env.profile.clone(),
+        companion_exts: env.companion_exts.to_vec(),
+        regions: region_order(env.regions),
+        facts: Mutex::new(HashMap::new()),
+        dirs: Mutex::new(DirListings::default()),
+        remembered,
+        session: Mutex::new(Vec::new()),
+        skipped: Mutex::new(HashSet::new()),
+    };
+    let no_dest = DedupeOptions {
+        quarantine: QuarantineChoice::Trash,
+        ..opts.clone()
+    };
+    Ok(raw
+        .iter()
+        .map(|(id, group)| base.build_group(*id, group, &no_dest))
+        .collect())
+}
+
+/// In a group of library and pile copies, only a library copy may stay
+/// (the copies the group already limited the keeper to, when one of them
+/// is in the library).
+fn library_keeps(units: &[Unit], group: &mut RawGroup) {
+    let library: Vec<usize> = group
+        .members
+        .iter()
+        .map(|(u, _)| *u)
+        .filter(|&u| units[u].in_library)
+        .collect();
+    if library.is_empty() || library.len() == group.members.len() {
+        return;
+    }
+    let allowed: Vec<usize> = match &group.keeper_only {
+        Some(only) => library
+            .iter()
+            .copied()
+            .filter(|u| only.contains(u))
+            .collect(),
+        None => library.clone(),
+    };
+    group.keeper_only = Some(if allowed.is_empty() { library } else { allowed });
+}
+
 /// The plan for other options, from what the planner already read: no ROM
 /// is read again. A plan with no internals (read back from disk) comes
-/// back unchanged.
-pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> DedupePlan {
+/// back unchanged. A new quarantine gets the same check as in [`plan`].
+pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> Result<DedupePlan, DedupeError> {
     let Some(state) = &plan.internals.0 else {
-        return plan.clone();
+        return Ok(plan.clone());
     };
     let base = Arc::clone(&state.base);
+    let dirs: Vec<&Path> = base.system_dirs.iter().map(PathBuf::as_path).collect();
+    check_quarantine(&quarantine_dir(&base.spot, &opts.quarantine), &dirs)?;
     let raw = raw_groups(
         &base.units,
         &base.l1,
@@ -452,7 +567,7 @@ pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> DedupePlan {
             opts: opts.clone(),
         }),
     );
-    out
+    Ok(out)
 }
 
 /// Makes `member` the copy that stays in `group`, and remembers the pick
@@ -552,7 +667,12 @@ pub fn skip_group(plan: &mut DedupePlan, group: u64, skip: bool) {
             None => {
                 g.action = GroupAction::Act;
                 let keeper = g.keeper;
-                for m in g.members.iter_mut().filter(|m| m.id != keeper) {
+                let quarantine = !plan.trash;
+                for m in g
+                    .members
+                    .iter_mut()
+                    .filter(|m| quarantine && m.id != keeper)
+                {
                     m.dest = Some(dest_for(
                         &plan.roms_dir,
                         &plan.quarantine,
@@ -571,6 +691,7 @@ pub fn skip_group(plan: &mut DedupePlan, group: u64, skip: bool) {
 fn fill(plan: &mut DedupePlan, state: Arc<PlanState>) {
     let base = &state.base;
     plan.quarantine = quarantine_dir(&base.spot, &state.opts.quarantine);
+    plan.trash = state.opts.quarantine == QuarantineChoice::Trash;
     plan.same_volume = state.opts.quarantine != QuarantineChoice::Trash
         && same_volume(&base.root, &plan.quarantine);
     plan.removable = on_removable_volume(&base.root);
@@ -923,6 +1044,47 @@ fn system_dir(unit: &Unit) -> PathBuf {
         dir.pop();
     }
     dir
+}
+
+/// Refuses a quarantine that is a system folder, lies inside one or holds
+/// one (the library root, the ROMs folder): its copies would be found
+/// again as games, or land where they already are. Compared lexically
+/// and, where both exist, as the file system resolves them (case,
+/// symlinks).
+pub(crate) fn check_quarantine(
+    quarantine: &Path,
+    system_dirs: &[&Path],
+) -> Result<(), DedupeError> {
+    let resolved = resolve_existing(quarantine);
+    let overlaps = |a: &Path, b: &Path| a.starts_with(b) || b.starts_with(a);
+    let bad = system_dirs.iter().any(|dir| {
+        overlaps(quarantine, dir)
+            || match (&resolved, dir.canonicalize()) {
+                (Some(q), Ok(d)) => overlaps(q, &d),
+                _ => false,
+            }
+    });
+    if bad {
+        Err(DedupeError::QuarantineInSystemFolder(
+            quarantine.to_path_buf(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// `path` resolved through its deepest existing ancestor (the rest
+/// appended as written); `None` when no ancestor resolves.
+fn resolve_existing(path: &Path) -> Option<PathBuf> {
+    let mut rest = Vec::new();
+    let mut probe = path;
+    loop {
+        if let Ok(canon) = probe.canonicalize() {
+            return Some(rest.iter().rev().fold(canon, |acc: PathBuf, c| acc.join(c)));
+        }
+        rest.push(probe.file_name()?.to_os_string());
+        probe = probe.parent()?;
+    }
 }
 
 fn quarantine_dir(spot: &QuarantineSpot, choice: &QuarantineChoice) -> PathBuf {

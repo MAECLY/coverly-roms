@@ -19,7 +19,7 @@ use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 use super::noclobber::{is_cross_device, with_sharing_retries};
-use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, stream_copy};
+use super::transfer::{clean_job_temps, crc_of, fault, mtime_ns, same_entry, stream_copy};
 use super::trash::TrashBackend;
 use super::{
     absolute_from, apple_double, create_dirs, ensure_within, find_twin, is_job_temp, map_io,
@@ -87,7 +87,7 @@ pub(super) fn undo_entry(
             Ok(())
         }
         Op::Moved { from, via } => {
-            let target = ensure_within(ctx.root, &target)?;
+            let target = within_either(ctx, &target)?;
             let from = source_path(ctx.source_root, &from)?;
             match fp {
                 Some(fp) => undo_move(ctx, &target, &from, via, &fp, report),
@@ -95,7 +95,7 @@ pub(super) fn undo_entry(
             }
         }
         Op::Copied { from } => {
-            let target = ensure_within(ctx.root, &target)?;
+            let target = within_either(ctx, &target)?;
             let from = source_path(ctx.source_root, &from)?;
             match fp {
                 Some(fp) => undo_copy(ctx, &target, &fp, report),
@@ -142,6 +142,16 @@ pub(super) fn undo_entry(
         // Brought back before any entry is undone (`restore_archives`).
         Op::ArchiveTrash { .. } | Op::ArchiveTrashed { .. } | Op::ArchiveKept { .. } => Ok(()),
     }
+}
+
+/// `target` inside the job's root, or inside its source root: a pile copy
+/// the duplicates step set aside stays on the pile's side (moves and the
+/// folders they created).
+fn within_either(ctx: &Ctx<'_>, target: &Path) -> Result<PathBuf, WriteError> {
+    ensure_within(ctx.root, target).or_else(|e| match ensure_within(ctx.source_root, target) {
+        Ok(t) => Ok(t),
+        Err(_) => Err(e),
+    })
 }
 
 /// Where the newest line for an archive leaves it.
@@ -262,6 +272,9 @@ fn restore_archive(
         ArchiveLast::Trashed(Some(at)) => Some(at.clone()),
         _ => None,
     }
+    // Only an item of this Trash: a journal edited to name any other file
+    // of the same size and time never brings that file into the library.
+    .filter(|at| trash.holds(from, at))
     .filter(|at| {
         fs::symlink_metadata(at)
             .ok()
@@ -406,6 +419,22 @@ fn occupant(from: &Path) -> Result<Option<PathBuf>, WriteError> {
     find_twin(parent, name)
 }
 
+/// Reports `target` as kept because its source name is taken, once: a
+/// move across volumes journals the rename it tried, the copy intent and
+/// the copy, and all three name the same target.
+fn occupied(report: &mut UndoReport, target: &Path) {
+    if !report.skipped_occupied.iter().any(|p| p == target) {
+        report.skipped_occupied.push(target.to_path_buf());
+    }
+}
+
+/// Whether `occupant` (what [`occupant`] found for `from`) is the file at
+/// `from` itself, under any spelling the volume folds to it, rather than
+/// a case/NFC twin a case-sensitive volume keeps beside it.
+fn is_from_itself(occupant: &Path, from: &Path) -> bool {
+    occupant == from || same_entry(occupant, from)
+}
+
 /// Two regular files with the same size and CRC-32.
 fn same_bytes(a: &Path, b: &Path) -> Result<bool, WriteError> {
     let (Ok(ma), Ok(mb)) = (fs::symlink_metadata(a), fs::symlink_metadata(b)) else {
@@ -462,19 +491,22 @@ fn undo_move(
     if let Some(occupant) = occupant(from)? {
         // A move across volumes copies, journals, then deletes the source:
         // a crash in between leaves both. Only then is the target a spare
-        // copy; a rename never leaves two.
-        if via == Via::Copy && same_bytes(&occupant, target)? {
+        // copy; a rename never leaves two. A case/NFC twin with the same
+        // bytes is another file (a kept duplicate on a case-sensitive
+        // volume), never the source: the target is then the only copy of
+        // that file and stays.
+        if via == Via::Copy && is_from_itself(&occupant, from) && same_bytes(&occupant, target)? {
             delete_ours(target)?;
             report.restored.push(from.to_path_buf());
         } else {
-            report.skipped_occupied.push(target.to_path_buf());
+            occupied(report, target);
         }
         return Ok(());
     }
     if put_back(ctx, target, from)? {
         report.restored.push(from.to_path_buf());
     } else {
-        report.skipped_occupied.push(target.to_path_buf());
+        occupied(report, target);
     }
     Ok(())
 }
@@ -527,6 +559,12 @@ fn undo_intent(
     let Some(occupant) = occupant(from)? else {
         return Ok(());
     };
+    if !is_from_itself(&occupant, from) {
+        // A twin of the source's name, not the source: the target may be
+        // the only copy left of it.
+        occupied(report, target);
+        return Ok(());
+    }
     if same_bytes(&occupant, target)? {
         delete_ours(target)?;
         if moved {
@@ -612,7 +650,7 @@ fn remove_litter(dir: &Path) {
 /// A folder the job created: removed when it holds nothing of the user's
 /// (litter and emptied folders do not count); otherwise kept untouched.
 fn remove_created_dir(ctx: &Ctx<'_>, dir: &Path, report: &mut UndoReport) {
-    let Ok(dir) = ensure_within(ctx.root, dir) else {
+    let Ok(dir) = within_either(ctx, dir) else {
         return;
     };
     if !fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir()) {

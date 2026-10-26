@@ -1,7 +1,8 @@
 //! Organise plan types (organise spec §11) and the planner: the survey of
 //! a pile (walk, disc sets, identification on a few worker threads,
 //! memoised facts, the duplicate bucket), the plan built from a survey
-//! with the user's decisions, and the cheap name-only folder probe.
+//! with the user's decisions (including the duplicates step against the
+//! target's system folders), and the cheap name-only folder probe.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -17,9 +18,18 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
+use crate::dedupe::archive::ArchiveEntryListing;
+use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
+use crate::dedupe::source::{CacheDats, DiscProbe, EntryListing, ListedEntry};
+use crate::dedupe::units::{units_from_facts, units_from_scan, units_from_sets, UnitOptions};
+use crate::dedupe::{
+    group_units, DedupeOptions, DupGroup, GroupAction, GroupEnv, KeepReason, QuarantineChoice,
+    Relation, ReportWhy, DEFAULT_QUARANTINE_NAME,
+};
 use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
+use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, user_available};
 use crate::organize::evidence::{
@@ -31,8 +41,8 @@ use crate::organize::inspect::{
     Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
-    assign_targets_with_extracts, default_companion_exts, file_system_is_fat32, limit_fat_folders,
-    mark_duplicates, DirIndex, ExtractShape, TargetLayout,
+    assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
+    file_system_is_fat32, limit_fat_folders, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -42,8 +52,8 @@ use crate::scan::classify::{
     extension, is_appledouble, is_hidden, is_junk_file, is_partial_download, is_zone_identifier,
 };
 use crate::scan::multifile::{group_sets, is_list_extension};
-use crate::scan::{find_dir_ignoring_case, ScanOptions, ScanWarning};
-use crate::settings::{ExternalTools, OrganizeModeSetting, Settings};
+use crate::scan::{find_dir_ignoring_case, scan_systems, ScanOptions, ScanWarning};
+use crate::settings::{ExternalTools, OrganizeDedupeMode, OrganizeModeSetting, Settings};
 use crate::systems::{System, SystemDb};
 
 /// How files reach their system folder.
@@ -151,9 +161,20 @@ pub enum LeftReason {
     },
     /// ROM-like, but no level could place it.
     Unknown,
-    /// Same content as another item of the plan.
+    /// Same content as another item of the plan. Plans from before the
+    /// duplicates step only: no longer produced (pile copies are set aside
+    /// or reported as [`LeftReason::InLibrary`]).
     Duplicate {
         of: PathBuf,
+    },
+    /// The game is already in the library (or will be, as another pile
+    /// copy): `path` is that copy, relative to the target root (a pile
+    /// copy that stays on the pile: relative to the source root), and
+    /// `relation` how the two are the same game. Reported, not set aside
+    /// (the duplicates step only reports, or the group may not act).
+    InLibrary {
+        path: PathBuf,
+        relation: Relation,
     },
     /// The same content already sits in the target folder.
     AlreadyPresent {
@@ -335,7 +356,8 @@ pub enum RenameReason {
 pub struct Companion {
     /// Relative to the source root.
     pub source: PathBuf,
-    /// Relative to the target root.
+    /// Relative to the target root; for a set-aside item, where it goes
+    /// below the quarantine, as the item's `dest`.
     pub target: PathBuf,
 }
 
@@ -357,6 +379,25 @@ pub enum OrganizeAction {
     Review,
     /// Stays where it is.
     Left { reason: LeftReason },
+    /// Another copy of a game the library holds, or of a pile copy that
+    /// stays (duplicates spec §4, §7.1): moved to the pile's own
+    /// quarantine (or the Trash), never copied into the library.
+    SetAside {
+        /// The copy that stays, relative to the target root (the library
+        /// copy, or where the pile copy that stays is organised to); a
+        /// pile copy that stays on the pile: relative to the source root.
+        keeper: PathBuf,
+        /// How this copy is the same game as the keeper.
+        relation: Relation,
+        /// Why the keeper stays.
+        reason: KeepReason,
+        /// Where the primary file goes, relative to the source root
+        /// (`_Duplicados/<its path>`), or absolute in the library's
+        /// quarantine for a pile inside a system folder
+        /// (`<target>/_Duplicados/GB/<pile>/<its path>`); the other files
+        /// of a set keep their own paths below the same folder.
+        dest: PathBuf,
+    },
 }
 
 /// One game of the plan: a file, an archive or a disc set.
@@ -399,6 +440,16 @@ impl OrganizeItem {
     /// The item stays in place.
     pub fn is_left(&self) -> bool {
         matches!(self.action, OrganizeAction::Left { .. })
+    }
+
+    /// The item goes into the library (automatically or once reviewed).
+    pub fn moves_in(&self) -> bool {
+        matches!(self.action, OrganizeAction::Auto | OrganizeAction::Review)
+    }
+
+    /// The item is set aside as a duplicate.
+    pub fn is_set_aside(&self) -> bool {
+        matches!(self.action, OrganizeAction::SetAside { .. })
     }
 
     /// Leaves the item in place with `reason` and drops its targets.
@@ -461,6 +512,16 @@ pub struct OrganizeOptions {
     /// Bounds for every archive the plan opens (`external_tools` follows
     /// the setting `organize.external_tools`).
     pub limits: Limits,
+    /// What the duplicates step does (`dedupe.organize_step`).
+    pub duplicates: OrganizeDedupeMode,
+    /// Keeper rules, levels and container order of the duplicates step;
+    /// `quarantine: Trash` sends set-aside copies to the Trash.
+    pub dedupe: DedupeOptions,
+    /// The quarantine folder's name (`dedupe.quarantine_name`): set-aside
+    /// pile copies go to `<source>/<name>`, and walks skip it.
+    pub quarantine_name: String,
+    /// `settings.matching.regions`: the keeper rules' region order.
+    pub regions: Vec<String>,
 }
 
 impl Default for OrganizeOptions {
@@ -479,6 +540,10 @@ impl Default for OrganizeOptions {
             arcade_order: None,
             download_dats: true,
             limits: Limits::default(),
+            duplicates: OrganizeDedupeMode::SetAside,
+            dedupe: DedupeOptions::default(),
+            quarantine_name: DEFAULT_QUARANTINE_NAME.to_string(),
+            regions: Vec::new(),
         }
     }
 }
@@ -521,6 +586,17 @@ impl OrganizeOptions {
                 external_tools: o.external_tools == ExternalTools::Auto,
                 ..Limits::default()
             },
+            duplicates: settings.dedupe.organize_step,
+            regions: settings.matching.regions.clone(),
+            dedupe: DedupeOptions::from_settings(&settings.dedupe),
+            quarantine_name: settings
+                .dedupe
+                .quarantine_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .unwrap_or(DEFAULT_QUARANTINE_NAME)
+                .to_string(),
             layout,
             ..OrganizeOptions::default()
         }
@@ -620,6 +696,17 @@ pub struct Counts {
     pub deep_folders: usize,
     /// Bytes of the items that move.
     pub bytes: u64,
+    /// Pile copies set aside as duplicates (left out of the JSON when 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub set_aside: usize,
+    /// Pile copies of games the library already holds, set aside or
+    /// reported (left out of the JSON when 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub in_library: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Something about the whole plan (data, never prose).
@@ -668,6 +755,14 @@ pub struct OrganizePlan {
     /// chosen one.
     pub target_detected: Option<String>,
     pub created_at: String,
+    /// Duplicate groups with at least one pile copy (duplicates spec
+    /// §11.2); left out of the JSON when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub duplicates: Vec<DupGroup>,
+    /// Set-aside items go to the OS Trash instead of the quarantine
+    /// (left out of the JSON when false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub set_aside_trash: bool,
 }
 
 /// One future plan item as the survey found it.
@@ -684,6 +779,9 @@ pub struct SurveyEntry {
     /// What opening an archive found (archives only): the listing, the
     /// disc set and the tool an extraction plan needs.
     pub inspection: Option<Inspection>,
+    /// What the ladder read (identified entries): the duplicates step
+    /// builds its units from it without reading the file again.
+    pub facts: Option<Facts>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -742,6 +840,36 @@ fn roms_dir_of(target: &Path, profile: &Profile, flat: bool) -> PathBuf {
         find_dir_ignoring_case(target, &profile.roms_root)
             .unwrap_or_else(|| target.join(&profile.roms_root))
     }
+}
+
+/// The quarantine folders a walk of `source` organised into `target`
+/// skips: `<source>/<name>` and `<target>/<name>` (the library's default
+/// one), for `name` and both default names, in any letter case (a
+/// case-sensitive file system can hold `_duplicates` beside `_Duplicados`).
+pub fn quarantine_dirs(source: &Path, target: &Path, name: &str) -> Vec<PathBuf> {
+    let names = [name, DEFAULT_QUARANTINE_NAME, "_Duplicates"];
+    let mut out = Vec::new();
+    for root in [source, target] {
+        let mut push = |dir: PathBuf| {
+            if !out.contains(&dir) {
+                out.push(dir);
+            }
+        };
+        for n in &names {
+            push(root.join(n));
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let found = entry.file_name();
+            let found = found.to_string_lossy();
+            if names.iter().any(|n| n.eq_ignore_ascii_case(&found)) {
+                push(root.join(&*found));
+            }
+        }
+    }
+    out
 }
 
 /// `inner` is `outer` or below it (lexically).
@@ -824,11 +952,18 @@ pub fn survey(
         done: 0,
         total: 0,
     });
-    let skip_dirs = if target_root != source_abs && is_within(&target_root, &source_abs) {
+    let mut skip_dirs = if target_root != source_abs && is_within(&target_root, &source_abs) {
         vec![target_root.clone()]
     } else {
         Vec::new()
     };
+    // The pile's own quarantine and the library's are never walked
+    // (duplicates spec §7.1): their copies are set aside on purpose.
+    skip_dirs.extend(quarantine_dirs(
+        &source_abs,
+        &target_root,
+        &opts.quarantine_name,
+    ));
     let roms_root =
         (roms_dir != source_abs && is_within(&roms_dir, &source_abs)).then(|| roms_dir.clone());
     let ignored = ScanOptions::default().ignored_dirs;
@@ -869,6 +1004,7 @@ pub fn survey(
                 left: Some(reason),
                 identification: None,
                 inspection: None,
+                facts: None,
             },
             candidate: None,
             set_sniff: None,
@@ -1007,6 +1143,7 @@ pub fn survey(
             let id = identify_one(&candidate, &mut facts, &hashing);
             remember_facts(env.cache, &candidate, &facts);
             entries[i].entry.identification = Some(id);
+            entries[i].entry.facts = Some(facts);
             progress(OrganizeProgress {
                 phase: OrganizePhase::Hash,
                 done: done + 1,
@@ -1015,6 +1152,9 @@ pub fn survey(
         }
     }
 
+    for (i, facts) in facts_of {
+        entries[i].entry.facts = Some(facts);
+    }
     let mut entries: Vec<SurveyEntry> = entries.into_iter().map(|p| p.entry).collect();
     gather_volume_sets(&mut entries, &volume_sets, &mut walked);
 
@@ -1109,6 +1249,7 @@ fn build_entries(
             left: None,
             identification: None,
             inspection: None,
+            facts: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -1449,8 +1590,10 @@ fn rel(root: &Path, path: &Path) -> PathBuf {
 }
 
 /// Builds the plan of `survey` under `opts` with the user's `decisions`.
-/// Reads no ROM: only the target folders are listed (collisions) and
-/// files compared when a name is already taken.
+/// Reads no pile ROM again: the target folders are listed (collisions),
+/// files compared when a name is already taken, and the duplicates step
+/// reads only files that share a size with another copy in their system
+/// (the library side is cached when pile and library share a volume).
 pub fn plan_from_survey(
     survey: &Survey,
     opts: &OrganizeOptions,
@@ -1586,10 +1729,21 @@ pub fn plan_from_survey(
         warnings.push(PlanWarning::MoveUnavailable);
     }
 
-    // Duplicates, extractions, then targets.
-    mark_duplicates(&mut items, &keys);
+    // Duplicates (against the pile and the target's system folders),
+    // extractions, then targets. A copy set aside is never extracted.
+    let dups = match opts.duplicates {
+        OrganizeDedupeMode::Off => DupStep::default(),
+        mode => duplicates_step(
+            survey,
+            &mut items,
+            (&profile, &target_root, &roms_dir),
+            mode,
+            opts,
+            env,
+        ),
+    };
     let mut shapes: Vec<Option<ExtractShape>> = vec![None; items.len()];
-    for item in items.iter_mut().filter(|i| !i.is_left()) {
+    for item in items.iter_mut().filter(|i| i.moves_in()) {
         let entry = &survey.entries[item.id];
         let (Some(system), Some(insp)) = (item.system_id.clone(), entry.inspection.as_ref()) else {
             continue;
@@ -1633,6 +1787,13 @@ pub fn plan_from_survey(
     if fat32 {
         limit_fat_folders(&mut items, &target_root);
     }
+    point_at_keepers(&mut items, &dups.keepers);
+    attach_set_aside_companions(
+        &mut items,
+        &survey.walked.companions,
+        src,
+        &opts.companion_exts,
+    );
     for (path, reason) in left_companions {
         let abs = if path.is_absolute() {
             path.clone()
@@ -1667,7 +1828,7 @@ pub fn plan_from_survey(
     // Warnings, counts.
     let missing: BTreeSet<String> = items
         .iter()
-        .filter(|i| !i.is_left())
+        .filter(|i| i.moves_in())
         .flat_map(|i| i.notes.iter())
         .filter_map(|n| match n {
             ItemNote::CatalogueMissing { system } => Some(system.clone()),
@@ -1703,7 +1864,8 @@ pub fn plan_from_survey(
     if let Some(free) = user_available(&target_root).filter(|&free| free < needed) {
         warnings.push(PlanWarning::NoSpace { needed, free });
     }
-    let counts = count(&items, &survey.walked);
+    let mut counts = count(&items, &survey.walked);
+    counts.in_library = dups.in_library;
 
     Ok(OrganizePlan {
         source_root: src.clone(),
@@ -1738,7 +1900,396 @@ pub fn plan_from_survey(
         move_allowed,
         target_detected,
         created_at: crate::time::rfc3339_utc(env.now),
+        set_aside_trash: opts.duplicates == OrganizeDedupeMode::SetAside
+            && opts.dedupe.quarantine == QuarantineChoice::Trash,
+        duplicates: dups.groups,
     })
+}
+
+// --- The duplicates step (duplicates spec §4, §7.1) ---
+
+/// What the duplicates step decided.
+#[derive(Default)]
+struct DupStep {
+    /// Groups with at least one pile copy.
+    groups: Vec<DupGroup>,
+    /// `(extra, keeper)` item ids whose keeper is a pile copy: the extra
+    /// points at where the keeper lands once targets are known.
+    keepers: Vec<(usize, usize)>,
+    /// Pile copies of games already in the library.
+    in_library: usize,
+}
+
+/// Groups the pile items that move with each other and with the target's
+/// system folders they go to, with the duplicates keys and keeper rules,
+/// and settles the pile copies that are extras: set aside on the pile's
+/// side (`SetAside` mode, groups that act) or left with
+/// [`LeftReason::InLibrary`] (reported). Reads the library's colliding
+/// files (cached by volume when pile and library share one); pile
+/// archives answer from their inspection.
+fn duplicates_step(
+    survey: &Survey,
+    items: &mut [OrganizeItem],
+    (profile, target_root, roms_dir): (&Profile, &Path, &Path),
+    mode: OrganizeDedupeMode,
+    opts: &OrganizeOptions,
+    env: &OrganizeEnv,
+) -> DupStep {
+    let src = &survey.source_root;
+    let wanted = |system: &str| {
+        opts.dedupe
+            .systems
+            .as_ref()
+            .is_none_or(|list| list.iter().any(|s| s == system))
+    };
+
+    // Pile units, from what the survey read.
+    let mut facts: Vec<(PathBuf, Facts)> = Vec::new();
+    let mut fact_systems: Vec<String> = Vec::new();
+    let mut sets: Vec<(Vec<PathBuf>, String)> = Vec::new();
+    let mut by_primary: HashMap<PathBuf, usize> = HashMap::new();
+    let mut listed: HashMap<PathBuf, Vec<ListedEntry>> = HashMap::new();
+    let mut discs: HashMap<PathBuf, Option<DiscId>> = HashMap::new();
+    for item in items.iter().filter(|i| i.moves_in()) {
+        let (Some(system), Some(entry)) = (&item.system_id, survey.entries.get(item.id)) else {
+            continue;
+        };
+        let Some(primary) = entry.sources.first().cloned() else {
+            continue;
+        };
+        if !wanted(system) {
+            continue;
+        }
+        match (entry.kind, &entry.facts) {
+            (ItemKind::Set, _) => sets.push((entry.sources.clone(), system.clone())),
+            (_, Some(f)) => {
+                if f.inspection.container.is_archive() {
+                    listed.insert(primary.clone(), listed_entries(&f.inspection));
+                    discs.insert(primary.clone(), item.disc.clone());
+                }
+                facts.push((primary.clone(), f.clone()));
+                fact_systems.push(system.clone());
+            }
+            _ => continue,
+        }
+        by_primary.insert(primary, item.id);
+    }
+    if by_primary.is_empty() {
+        return DupStep::default();
+    }
+    let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
+    units.extend(units_from_sets(&sets).units);
+
+    // Library units: only the system folders the pile goes to.
+    let listing = ArchiveEntryListing::with_tools(opts.limits.clone(), &[src, target_root]);
+    let systems: BTreeSet<String> = units.iter().map(|u| u.system.clone()).collect();
+    if roms_dir.is_dir() && !systems.is_empty() {
+        let scan_profile = Profile {
+            roms_root: String::new(),
+            ..profile.clone()
+        };
+        let mut scan_opts = ScanOptions::default();
+        if !scan_opts
+            .quarantine_names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(&opts.quarantine_name))
+        {
+            scan_opts
+                .quarantine_names
+                .push(opts.quarantine_name.clone());
+        }
+        let only: Vec<String> = systems.into_iter().collect();
+        let scan = scan_systems(roms_dir, &scan_profile, env.db, &scan_opts, &only);
+        let mut unit_opts = UnitOptions::for_profile(profile);
+        unit_opts.quarantine = Some(target_root.join(&opts.quarantine_name));
+        let library = units_from_scan(&scan, env.db, &unit_opts, &listing).units;
+        // A pile inside the library is never compared with itself, even
+        // when it was reached by another spelling or through a link: a
+        // library file that is a pile file is no other copy of it.
+        let pile_files: std::collections::HashSet<FileKey> = units
+            .iter()
+            .flat_map(|u| u.files.iter())
+            .filter_map(|f| file_key(f))
+            .collect();
+        units.extend(library.into_iter().filter(|u| {
+            !by_primary.contains_key(&u.primary)
+                && !u
+                    .files
+                    .iter()
+                    .any(|f| file_key(f).is_some_and(|k| pile_files.contains(&k)))
+        }));
+    }
+
+    // Group and choose the keepers.
+    let pile_listing = PileListing {
+        listed,
+        real: &listing,
+    };
+    let reader = ReaderDiscProbe::new(ArchiveEntryListing::with_tools(
+        opts.limits.clone(),
+        &[src, target_root],
+    ));
+    let pile_discs = PileDiscs {
+        discs,
+        real: &reader,
+    };
+    let dats = CacheDats::new(env.cache, env.db);
+    let volume = same_volume(src, target_root)
+        .then(|| crate::volumes::volume_uuid(target_root))
+        .flatten();
+    let cancel = AtomicBool::new(false);
+    let genv = GroupEnv {
+        cache: env.cache,
+        db: env.db,
+        profile,
+        root: target_root,
+        roms_dir,
+        listing: &pile_listing,
+        discs: &pile_discs,
+        dats: &dats,
+        volume_uuid: volume.as_deref(),
+        companion_exts: &opts.companion_exts,
+        regions: &opts.regions,
+        cancel: &cancel,
+    };
+    let groups = group_units(units, &opts.dedupe, &genv).unwrap_or_default();
+
+    // Settle the pile extras.
+    let quarantine = pile_quarantine(src, target_root, roms_dir, &opts.quarantine_name, env.db);
+    let mut out = DupStep::default();
+    for g in groups {
+        if g.members.iter().all(|m| m.unit.in_library) {
+            continue;
+        }
+        let keeper = &g.members[g.keeper];
+        let has_library = g.members.iter().any(|m| m.unit.in_library);
+        let keeper_item = if keeper.unit.in_library {
+            None
+        } else {
+            by_primary.get(&keeper.unit.primary).copied()
+        };
+        let keeper_path = if keeper.unit.in_library {
+            rel(target_root, &keeper.unit.primary)
+        } else {
+            rel(src, &keeper.unit.primary)
+        };
+        let acts = g.action == GroupAction::Act;
+        // A copy only a CRC matched is still never copied over the
+        // library's; other report-only groups (another header, build or
+        // version, a conflict) move as usual.
+        let unconfirmed = matches!(
+            g.action,
+            GroupAction::ReportOnly {
+                why: ReportWhy::Unconfirmed
+            }
+        );
+        for m in &g.members {
+            if m.id == g.keeper || m.unit.in_library {
+                continue;
+            }
+            let Some(&id) = by_primary.get(&m.unit.primary) else {
+                continue;
+            };
+            let Some(item) = items.get_mut(id) else {
+                continue;
+            };
+            if acts && mode == OrganizeDedupeMode::SetAside {
+                let dest = quarantine.join(&item.sources[0]);
+                set_aside(
+                    item,
+                    OrganizeAction::SetAside {
+                        keeper: keeper_path.clone(),
+                        relation: m.relation,
+                        reason: g.reason.clone(),
+                        dest,
+                    },
+                );
+            } else if (acts || (unconfirmed && has_library)) && m.relation != Relation::Version {
+                item.leave(LeftReason::InLibrary {
+                    path: keeper_path.clone(),
+                    relation: m.relation,
+                });
+            } else {
+                continue;
+            }
+            if has_library {
+                out.in_library += 1;
+            }
+            if let Some(k) = keeper_item {
+                out.keepers.push((id, k));
+            }
+        }
+        out.groups.push(g);
+    }
+    out
+}
+
+/// Where a pile's extras go: `<name>` inside the pile (relative to it),
+/// or, for a pile inside one of the library's system folders, the
+/// library's quarantine keeping the system folder's shape
+/// (`<target>/<name>/GB/incoming`, absolute): a quarantine is never inside
+/// a system folder, where the device would list its games.
+fn pile_quarantine(
+    src: &Path,
+    target_root: &Path,
+    roms_dir: &Path,
+    name: &str,
+    db: &SystemDb,
+) -> PathBuf {
+    let in_system_folder = src.strip_prefix(roms_dir).ok().is_some_and(|rel| {
+        rel.components().next().is_some_and(|c| match c {
+            std::path::Component::Normal(folder) => {
+                db.resolve_folder(&folder.to_string_lossy()).is_some()
+            }
+            _ => false,
+        })
+    });
+    match src.strip_prefix(roms_dir) {
+        Ok(rel) if in_system_folder => target_root.join(name).join(rel),
+        _ => PathBuf::from(name),
+    }
+}
+
+/// What makes two paths the same file: the device and inode (Unix), or
+/// the canonical path ignoring case (elsewhere).
+#[cfg(unix)]
+type FileKey = (u64, u64);
+#[cfg(not(unix))]
+type FileKey = String;
+
+#[cfg(unix)]
+fn file_key(path: &Path) -> Option<FileKey> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_key(path: &Path) -> Option<FileKey> {
+    fs::canonicalize(path)
+        .ok()
+        .map(|p| p.to_string_lossy().to_lowercase())
+}
+
+/// Sets `item` aside with `action` (a [`OrganizeAction::SetAside`]): it
+/// gets no target in the library, and nothing travels with it.
+fn set_aside(item: &mut OrganizeItem, action: OrganizeAction) {
+    item.action = action;
+    item.target = None;
+    item.set_targets.clear();
+    item.companions.clear();
+    item.rename = None;
+    item.transfer = Transfer::AsIs;
+}
+
+/// Points each extra whose keeper is a pile copy at where that copy is
+/// organised to (relative to the target root), or, when it stays on the
+/// pile, at its place there.
+fn point_at_keepers(items: &mut [OrganizeItem], keepers: &[(usize, usize)]) {
+    for &(extra, keeper) in keepers {
+        let Some(k) = items.get(keeper) else {
+            continue;
+        };
+        let at = match (&k.target, k.moves_in()) {
+            (Some(target), true) => target.clone(),
+            _ => match k.sources.first() {
+                Some(source) => source.clone(),
+                None => continue,
+            },
+        };
+        match items.get_mut(extra).map(|i| &mut i.action) {
+            Some(OrganizeAction::SetAside { keeper, .. }) => *keeper = at,
+            Some(OrganizeAction::Left {
+                reason: LeftReason::InLibrary { path, .. },
+            }) => *path = at,
+            _ => {}
+        }
+    }
+}
+
+/// The file entries of an inspected archive as a listing states them.
+fn listed_entries(insp: &Inspection) -> Vec<ListedEntry> {
+    insp.entries
+        .iter()
+        .map(|e| ListedEntry {
+            name: e.name.clone(),
+            size: e.size,
+            crc32: e
+                .crc32
+                .as_deref()
+                .and_then(|c| u32::from_str_radix(c, 16).ok()),
+        })
+        .collect()
+}
+
+/// Pile archives listed from their organise inspection (the CRCs the
+/// survey read); everything else, and every decode, by the archive
+/// reader. Entry `n` of a pile listing is matched to the reader's entry
+/// by name and size.
+struct PileListing<'a> {
+    listed: HashMap<PathBuf, Vec<ListedEntry>>,
+    real: &'a ArchiveEntryListing,
+}
+
+impl PileListing<'_> {
+    /// The reader's index of pile entry `entry` of `path` (`entry` itself
+    /// for an archive not on the pile).
+    fn real_index(&self, path: &Path, entry: usize) -> io::Result<Option<usize>> {
+        let Some(ours) = self.listed.get(path) else {
+            return Ok(Some(entry));
+        };
+        let Some(want) = ours.get(entry) else {
+            return Ok(None);
+        };
+        Ok(self.real.list(path)?.and_then(|real| {
+            real.iter()
+                .position(|e| e.name == want.name && e.size == want.size)
+        }))
+    }
+}
+
+impl EntryListing for PileListing<'_> {
+    fn list(&self, path: &Path) -> io::Result<Option<Vec<ListedEntry>>> {
+        match self.listed.get(path) {
+            Some(entries) => Ok(Some(entries.clone())),
+            None => self.real.list(path),
+        }
+    }
+
+    fn payload_sha1(
+        &self,
+        path: &Path,
+        entry: usize,
+        rule: HeaderRule,
+        budget: u64,
+    ) -> io::Result<Option<String>> {
+        match self.real_index(path, entry)? {
+            Some(n) => self.real.payload_sha1(path, n, rule, budget),
+            None => Ok(None),
+        }
+    }
+
+    fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
+        match self.real_index(path, entry)? {
+            Some(n) => self.real.head(path, n, len),
+            None => Ok(None),
+        }
+    }
+}
+
+/// Pile archives answer with the disc identity their inspection read
+/// (`OrganizeItem::disc`); loose discs and the library are read.
+struct PileDiscs<'a> {
+    discs: HashMap<PathBuf, Option<DiscId>>,
+    real: &'a ReaderDiscProbe,
+}
+
+impl DiscProbe for PileDiscs<'_> {
+    fn probe(&self, path: &Path, system: &str) -> io::Result<Option<DiscId>> {
+        match self.discs.get(path) {
+            Some(id) => Ok(id.clone()),
+            None => self.real.probe(path, system),
+        }
+    }
 }
 
 /// Leftover names a note shows.
@@ -1759,7 +2310,7 @@ pub fn space_needed(items: &[OrganizeItem], source_root: &Path, copies: bool, cl
     let cluster = cluster.max(1);
     let round = |n: u64| n.div_ceil(cluster).saturating_mul(cluster);
     let mut sum: u64 = 0;
-    for item in items.iter().filter(|i| !i.is_left() && i.target.is_some()) {
+    for item in items.iter().filter(|i| i.moves_in() && i.target.is_some()) {
         let mut add = match &item.transfer {
             // A playlist is a few lines: one cluster.
             Transfer::Extract { entries, m3u, .. } => entries
@@ -1945,6 +2496,7 @@ fn decidable(item: &OrganizeItem) -> bool {
     match &item.action {
         OrganizeAction::Auto | OrganizeAction::Review => true,
         OrganizeAction::Left { reason } => matches!(reason, LeftReason::Unknown),
+        OrganizeAction::SetAside { .. } => false,
     }
 }
 
@@ -1962,6 +2514,10 @@ fn count(items: &[OrganizeItem], walked: &Walked) -> Counts {
             OrganizeAction::Review => counts.review += 1,
             OrganizeAction::Left { .. } => {
                 counts.left += 1;
+                continue;
+            }
+            OrganizeAction::SetAside { .. } => {
+                counts.set_aside += 1;
                 continue;
             }
         }

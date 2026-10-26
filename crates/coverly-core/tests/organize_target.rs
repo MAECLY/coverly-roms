@@ -12,8 +12,7 @@ use coverly_core::organize::plan::{
     RenameReason, SourceFp,
 };
 use coverly_core::organize::target::{
-    assign_targets, default_companion_exts, file_system_is_fat32, mark_duplicates, DirIndex,
-    TargetLayout,
+    assign_targets, default_companion_exts, file_system_is_fat32, DirIndex, TargetLayout,
 };
 use coverly_core::systems::SystemDb;
 use tempfile::TempDir;
@@ -219,28 +218,6 @@ fn unsafe_names_are_made_fat_safe_with_a_reason() {
             from: "Zelda: Link?.gb".into()
         })
     );
-}
-
-#[test]
-fn duplicates_by_content_keep_the_shortest_name() {
-    let mut items = vec![
-        auto(0, "Tetris 2 (1).zip", "gb"),
-        auto(1, "Tetris 2.zip", "gb"),
-        auto(2, "Other.zip", "gb"),
-        auto(3, "Tetris 2 - Copy.zip", "gb"),
-    ];
-    let key = Some(("ABCD1234".to_string(), 4));
-    let keys = vec![key.clone(), key.clone(), None, key];
-    mark_duplicates(&mut items, &keys);
-    let dup = OrganizeAction::Left {
-        reason: LeftReason::Duplicate {
-            of: PathBuf::from("Tetris 2.zip"),
-        },
-    };
-    assert_eq!(items[0].action, dup);
-    assert_eq!(items[1].action, OrganizeAction::Auto);
-    assert_eq!(items[2].action, OrganizeAction::Auto);
-    assert_eq!(items[3].action, dup);
 }
 
 #[test]

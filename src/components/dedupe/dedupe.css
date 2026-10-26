@@ -249,6 +249,20 @@
   }
 }
 
+/* Phone widths: «Quedarme con esta» would squeeze the file name into a
+ * sliver beside it. It stays the radio's accessible name (aria-labelledby
+ * reads hidden text); the radio and the name carry the row. */
+@media (max-width: 599px) {
+  .dup-row__keep {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dup-shelf::before {
     transition: none;
@@ -278,6 +292,13 @@
   align-items: center;
   column-gap: 10px;
   padding: 4px 28px 4px 4px;
+}
+
+.dup-system__heading {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
 }
 
 .dup-system__trigger {
@@ -431,6 +452,16 @@
 .dup-options__choice label,
 .dup-options__check {
   cursor: pointer;
+}
+
+/* A long label wraps beside its box, never leaving the box on a line
+ * of its own (390 px). */
+.dup-options__check {
+  flex-wrap: nowrap;
+}
+
+.dup-options__check > button {
+  flex: none;
 }
 
 .dup-options__muted {
@@ -616,4 +647,84 @@
 
 .dup-conflict__label {
   font: var(--cr-type-app-base);
+}
+
+/* ---- The screen (spec §11.3) ------------------------------------------ */
+
+/* The title: Archivo condensed, the only display type besides the count. */
+.dup-screen__title {
+  margin: 0;
+  font-family: var(--cr-font-display);
+  font-size: 1.5rem;
+  font-stretch: 75%;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+/* The answer of the screen: the first clause of the summary (brief). */
+.dup-screen__count {
+  margin: 0;
+  font-family: var(--cr-font-display);
+  font-size: 2rem;
+  font-stretch: 75%;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  color: var(--cr-text);
+}
+
+.dup-screen__summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dup-screen__summary p {
+  margin: 0;
+}
+
+/* Planning: the steps in the order they run, a check once done. */
+.dup-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--cr-text-muted);
+}
+
+.dup-phases li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.dup-phases li[data-state='done'] {
+  color: var(--cr-text);
+}
+
+.dup-phases li[data-state='current'] {
+  color: var(--cr-text);
+  font-weight: 600;
+}
+
+.dup-phases svg {
+  color: var(--cr-primary);
+}
+
+.dup-notes {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--cr-text-secondary);
+}
+
+/* The sticky bar: freed bytes on the right, in the size column's face. */
+.dup-bar__freed {
+  margin-left: auto;
+  white-space: nowrap;
 }

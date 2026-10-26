@@ -17,6 +17,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
+use crate::archive::detect::by_extension;
 use crate::identify::dat::DatGame;
 use crate::identify::sniff::{sniff, ContainerMagic, NotARom, SliceAt};
 use crate::organize::evidence::Facts;
@@ -26,7 +27,7 @@ use crate::scan::classify::{extension, is_bios_name, is_partial_download, is_ski
 use crate::scan::{LibraryScan, RomEntry, ScanOptions};
 use crate::systems::{System, SystemDb};
 
-use super::source::{EntryListing, ZipListing};
+use super::source::{EntryListing, ListedEntry};
 use super::UnitRef;
 
 /// Folder names that are out of scope at any depth (spec §5.1, hard rule
@@ -45,12 +46,12 @@ const MAGIC_PROBE: usize = 512;
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum UnitKind {
-    /// One loose ROM file (also a 7z or rar, compared as a whole file
-    /// until the archive reader lands).
+    /// One loose ROM file.
     Single,
-    /// A zip with one ROM inside.
+    /// An archive of any format (zip, 7z, rar, tar, a compressor) with one
+    /// ROM inside. The name is kept for plan v1.
     Zip,
-    /// An arcade set (a zip named after the set).
+    /// An arcade set (an archive named after the set).
     Arcade,
     /// A cue/gdi/ccd sheet and its tracks.
     DiscSet,
@@ -99,14 +100,30 @@ pub struct Unit {
 }
 
 impl Unit {
-    /// The part of the unit a plan carries.
+    /// The part of the unit a plan carries. A set's other files are read
+    /// once more for their modification times (what apply checks them
+    /// against).
     pub fn to_ref(&self) -> UnitRef {
+        let mtimes_ns = if self.files.len() > 1 {
+            self.files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| match i {
+                    0 => Some(self.mtime_ns),
+                    _ => fs::symlink_metadata(f).ok().map(|m| mtime_ns(&m)),
+                })
+                .collect::<Option<Vec<i64>>>()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         UnitRef {
             primary: self.primary.clone(),
             files: self.files.clone(),
             kind: self.kind,
             mtime_ns: self.mtime_ns,
             in_library: self.in_library,
+            mtimes_ns,
         }
     }
 }
@@ -224,8 +241,13 @@ struct Draft {
 /// m3u and a loose cue of the same disc, a ccd beside its img) merge into
 /// one unit. Out-of-scope top-level folders are reported once as
 /// [`Exclusion::Folder`]. Reads only file metadata, the first bytes of
-/// each file and zip central directories.
-pub fn units_from_scan(scan: &LibraryScan, db: &SystemDb, opts: &UnitOptions) -> UnitSet {
+/// each file and archive listings (through `listing`).
+pub fn units_from_scan(
+    scan: &LibraryScan,
+    db: &SystemDb,
+    opts: &UnitOptions,
+    listing: &dyn EntryListing,
+) -> UnitSet {
     let mut excluded = Vec::new();
     let mut drafts = Vec::new();
     let mut link_targets = HashSet::new();
@@ -240,7 +262,7 @@ pub fn units_from_scan(scan: &LibraryScan, db: &SystemDb, opts: &UnitOptions) ->
         let mut dir_cache = DirCache::default();
         let mut found = Vec::new();
         for rom in &sys.roms {
-            match draft_from_rom(rom, system, db, opts, &mut dir_cache) {
+            match draft_from_rom(rom, (system, db, listing), opts, &mut dir_cache) {
                 Ok(draft) => found.push(draft),
                 Err(Some(why)) => {
                     if why == Exclusion::Symlink {
@@ -286,6 +308,73 @@ pub fn units_from_facts(
         }
     }
     finish(drafts, excluded, &link_targets)
+}
+
+/// Units of an organise pile's loose disc sets: each entry is the set's
+/// files (the sheet or playlist first) and the system it belongs to. A
+/// set whose sheet is an `.m3u` is a [`UnitKind::MultiDisc`], any other a
+/// [`UnitKind::DiscSet`]. Reads metadata and folder listings only.
+pub fn units_from_sets(sets: &[(Vec<PathBuf>, String)]) -> UnitSet {
+    let mut excluded = Vec::new();
+    let mut drafts = Vec::new();
+    let mut link_targets = HashSet::new();
+    let mut dir_cache = DirCache::default();
+    for (files, system) in sets {
+        let Some(primary) = files.first() else {
+            continue;
+        };
+        match draft_from_set(files, system, &mut dir_cache) {
+            Ok(draft) => drafts.push(draft),
+            Err(Some(why)) => {
+                if why == Exclusion::Symlink {
+                    link_targets.extend(files.iter().filter_map(|f| symlink_target(f)));
+                }
+                excluded.push((primary.clone(), why));
+            }
+            Err(None) => {}
+        }
+    }
+    finish(drafts, excluded, &link_targets)
+}
+
+fn draft_from_set(
+    files: &[PathBuf],
+    system: &str,
+    dirs: &mut DirCache,
+) -> Result<Draft, Option<Exclusion>> {
+    let primary = &files[0];
+    common_checks(primary, None)?;
+    let (meta, sizes) = read_metas(files)?;
+    let ext = extension(primary);
+    let kind = if ext == "m3u" {
+        UnitKind::MultiDisc
+    } else {
+        UnitKind::DiscSet
+    };
+    let stem = primary
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok(Draft {
+        unit: Unit {
+            id: 0,
+            system: system.to_string(),
+            primary: primary.clone(),
+            files: files.to_vec(),
+            kind,
+            size: sizes.iter().sum(),
+            payload_size: None,
+            mtime_ns: mtime_ns(&meta),
+            file_id: file_id(&meta),
+            patches: patches_of(primary, dirs),
+            rel_dir: PathBuf::new(),
+            stem,
+            ext,
+            in_library: false,
+        },
+        sizes,
+        dev_ino: dev_ino(&meta),
+    })
 }
 
 /// Drops hard-link twins and units a symlink points into, numbers the
@@ -346,8 +435,7 @@ fn is_bios_file(name: &str, ext: &str) -> bool {
 
 fn draft_from_rom(
     rom: &RomEntry,
-    system: &System,
-    db: &SystemDb,
+    (system, db, listing): (&System, &SystemDb, &dyn EntryListing),
     opts: &UnitOptions,
     dirs: &mut DirCache,
 ) -> Result<Draft, Option<Exclusion>> {
@@ -375,7 +463,7 @@ fn draft_from_rom(
     if meta.len() == 0 {
         return Err(Some(Exclusion::NotARom));
     }
-    let (kind, payload_size) = classify(primary, &ext, meta.len(), system, db)?;
+    let (kind, payload_size) = classify(primary, &ext, meta.len(), (system, db, listing))?;
     Ok(Draft {
         unit: Unit {
             id: 0,
@@ -422,7 +510,16 @@ fn draft_from_facts(
         None => {}
     }
     let (kind, payload_size) = match inspection.container {
-        Container::Zip => match inspection.payloads.as_slice() {
+        // A disc game inside an archive: compared whole (level 1) and by
+        // the disc identity the inspection read (level 3).
+        _ if inspection.disc_set.is_some() => (UnitKind::Image, None),
+        Container::Chd => (UnitKind::Chd, None),
+        // One part of a multi-volume archive is no game on its own.
+        Container::MultiVolume => return Err(Some(Exclusion::Unreadable)),
+        Container::Raw => raw_kind(&ext, meta.len()),
+        // Every archive format the inspection listed: its entries and
+        // their CRCs are already known (no second read).
+        _ => match inspection.payloads.as_slice() {
             [one] => (UnitKind::Zip, Some(one.size)),
             [] if !inspection.entries.is_empty() => (
                 UnitKind::Arcade,
@@ -431,19 +528,6 @@ fn draft_from_facts(
             [] => return Err(Some(Exclusion::NotARom)),
             _ => return Err(Some(Exclusion::MultiGameArchive)),
         },
-        Container::Chd => (UnitKind::Chd, None),
-        // Opaque archives until dedupe phase B lists them.
-        Container::SevenZip
-        | Container::Rar
-        | Container::Tar
-        | Container::Gzip
-        | Container::Bzip2
-        | Container::Xz
-        | Container::Zstd
-        | Container::Lz4
-        | Container::Lzma
-        | Container::MultiVolume => (UnitKind::Single, None),
-        Container::Raw => raw_kind(&ext, meta.len()),
     };
     let stem = path
         .file_stem()
@@ -494,48 +578,50 @@ fn read_metas(files: &[PathBuf]) -> Result<(Metadata, Vec<u64>), Option<Exclusio
 }
 
 /// Kind and payload size of a scanned primary file, after checking that
-/// its first bytes agree with its extension.
+/// its first bytes agree with its extension. A file named as an archive
+/// must open as one (text or ROM bytes under an archive name are not a
+/// ROM); a file whose magic shows an archive under another name is read as
+/// the archive it is, or as raw bytes when no archive opens.
 fn classify(
     path: &Path,
     ext: &str,
     len: u64,
-    system: &System,
-    db: &SystemDb,
+    (system, db, listing): (&System, &SystemDb, &dyn EntryListing),
 ) -> Result<(UnitKind, Option<u64>), Option<Exclusion>> {
     match ext {
         "m3u" => return Ok((UnitKind::MultiDisc, None)),
         "cue" | "gdi" | "ccd" => return Ok((UnitKind::DiscSet, None)),
         _ => {}
     }
-    let probe = probe_magic(path, ext)?;
-    let want: Option<fn(ContainerMagic) -> bool> = match ext {
-        "zip" => Some(|m| m == ContainerMagic::Zip),
-        "7z" => Some(|m| m == ContainerMagic::SevenZip),
-        "chd" => Some(|m| m == ContainerMagic::Chd),
-        "rar" => Some(ContainerMagic::is_rar),
-        _ => None,
-    };
-    match want {
-        Some(is_own) => {
-            // A container must open with its own magic: text or anything
-            // else saved under its name is not a ROM.
-            if probe.not_a_rom.is_some() || !probe.container.is_some_and(is_own) {
-                return Err(Some(Exclusion::NotARom));
-            }
+    let (probe, head) = probe_magic(path, ext)?;
+    if ext == "chd" {
+        if probe.not_a_rom.is_some() || probe.container != Some(ContainerMagic::Chd) {
+            return Err(Some(Exclusion::NotARom));
         }
-        None => {
-            if probe.not_a_rom == Some(NotARom::WebPage) {
-                return Err(Some(Exclusion::NotARom));
-            }
+        return Ok((UnitKind::Chd, None));
+    }
+    let named = by_extension(ext).is_some_and(|m| m != ContainerMagic::Chd);
+    let magic = probe.container.is_some_and(|m| m != ContainerMagic::Chd);
+    if named {
+        // An empty zip (its end record at offset 0) holds no game either.
+        if probe.not_a_rom.is_some() || !magic || head.starts_with(b"PK\x05\x06") {
+            return Err(Some(Exclusion::NotARom));
+        }
+        return match listing.list(path) {
+            Ok(Some(entries)) => archive_kind(&entries, system, db),
+            Ok(None) => Err(Some(Exclusion::NotARom)),
+            Err(_) => Err(Some(Exclusion::Unreadable)),
+        };
+    }
+    if probe.not_a_rom == Some(NotARom::WebPage) {
+        return Err(Some(Exclusion::NotARom));
+    }
+    if magic {
+        if let Ok(Some(entries)) = listing.list(path) {
+            return archive_kind(&entries, system, db);
         }
     }
-    match ext {
-        "zip" => zip_kind(path, system, db),
-        "chd" => Ok((UnitKind::Chd, None)),
-        "7z" | "rar" if system.arcade => Ok((UnitKind::Arcade, None)),
-        "7z" | "rar" => Ok((UnitKind::Single, None)),
-        _ => Ok(raw_kind(ext, len)),
-    }
+    Ok(raw_kind(ext, len))
 }
 
 /// Kind of a raw (not archived) file by its extension.
@@ -548,19 +634,15 @@ fn raw_kind(ext: &str, len: u64) -> (UnitKind, Option<u64>) {
     }
 }
 
-/// An arcade set, a one-ROM zip, or several games in one zip, from its
-/// central directory only.
-fn zip_kind(
-    path: &Path,
+/// An arcade set, a one-ROM archive, or several games in one archive,
+/// from its listing only (any format the listing reads).
+fn archive_kind(
+    entries: &[ListedEntry],
     system: &System,
     db: &SystemDb,
 ) -> Result<(UnitKind, Option<u64>), Option<Exclusion>> {
-    let entries = match ZipListing.list(path) {
-        Ok(Some(entries)) => entries,
-        Ok(None) | Err(_) => return Err(Some(Exclusion::Unreadable)),
-    };
     if entries.is_empty() {
-        // An empty zip holds no game; identical ones would group.
+        // An empty archive holds no game; identical ones would group.
         return Err(Some(Exclusion::NotARom));
     }
     if system.arcade {
@@ -570,7 +652,7 @@ fn zip_kind(
         .iter()
         .filter(|e| {
             let ext = extension(Path::new(&e.name));
-            !matches!(ext.as_str(), "zip" | "7z" | "rar") && db.is_rom_like_extension(&ext)
+            !is_nested_archive(&ext) && db.is_rom_like_extension(&ext)
         })
         .map(|e| e.size)
         .collect();
@@ -582,13 +664,23 @@ fn zip_kind(
     }
 }
 
-/// Sniffs the first [`MAGIC_PROBE`] bytes of `path`.
-fn probe_magic(path: &Path, ext: &str) -> Result<crate::identify::sniff::Sniff, Option<Exclusion>> {
+/// Whether an entry with extension `ext` is an archive itself (never the
+/// ROM of the archive holding it). A CHD is a disc image, not one.
+pub(crate) fn is_nested_archive(ext: &str) -> bool {
+    by_extension(ext).is_some_and(|m| m != ContainerMagic::Chd)
+}
+
+/// Sniffs the first [`MAGIC_PROBE`] bytes of `path`, returned with them.
+fn probe_magic(
+    path: &Path,
+    ext: &str,
+) -> Result<(crate::identify::sniff::Sniff, Vec<u8>), Option<Exclusion>> {
     let mut head = Vec::with_capacity(MAGIC_PROBE);
     File::open(path)
         .and_then(|f| f.take(MAGIC_PROBE as u64).read_to_end(&mut head))
         .map_err(|_| Some(Exclusion::Unreadable))?;
-    Ok(sniff(&mut SliceAt(&head), head.len() as u64, ext))
+    let sniffed = sniff(&mut SliceAt(&head), head.len() as u64, ext);
+    Ok((sniffed, head))
 }
 
 /// Gives each `.ccd` its same-stem `.img` and `.sub` (a CloneCD triple):

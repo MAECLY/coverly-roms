@@ -1,6 +1,7 @@
 //! `coverly undo`: remove the files a fill job wrote and restore what it
 //! replaced, or put back the files an organise job moved (and remove its
-//! copies and the folders it created).
+//! copies and the folders it created), or put back the copies a
+//! duplicates job set aside or sent to the Trash.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -98,7 +99,8 @@ pub fn run(args: &UndoArgs) -> Result<(), Failure> {
     let text: String = reports
         .iter()
         .map(|r| match kind_of(&r.job) {
-            JobKind::Organize => organize_text(r, &trashed),
+            JobKind::Organize => organize_text(r, &trashed, JobKind::Organize),
+            JobKind::Dedupe => organize_text(r, &trashed, JobKind::Dedupe),
             JobKind::Fill => fill_text(r),
         })
         .collect();
@@ -109,6 +111,7 @@ fn kind_name(kind: JobKind) -> &'static str {
     match kind {
         JobKind::Fill => "fill",
         JobKind::Organize => "organize",
+        JobKind::Dedupe => "dedupe",
     }
 }
 
@@ -126,7 +129,7 @@ fn fill_text(report: &UndoReport) -> String {
             report.skipped_modified.len()
         );
         for p in &report.skipped_modified {
-            let _ = write!(text, "\n  {}", p.display());
+            let _ = write!(text, "\n  {}", table::one_line(&p.display().to_string()));
         }
     }
     text.push('\n');
@@ -147,10 +150,16 @@ fn trashed_archives(data: &std::path::Path, ids: &[String]) -> BTreeSet<PathBuf>
 
 /// `Undid organise job …: moved back 2, removed 0 copies, kept 0 changed,
 /// 2 folders removed`, then the files left as they are, the archives
-/// brought back from the Trash and the ones that could not be.
-fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>) -> String {
+/// brought back from the Trash and the ones that could not be. A
+/// duplicates job (`kind` dedupe) reads the same, with its own name and
+/// its own words for the copies the Trash brought back or no longer holds.
+/// Every path prints on one line: a name holding a newline must not forge
+/// a second line of the report.
+fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>, kind: JobKind) -> String {
+    let dedupe = kind == JobKind::Dedupe;
     let mut text = format!(
-        "Undid organise job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
+        "Undid {} job {}: moved back {}, removed {} copies, kept {} changed, {} folders removed",
+        if dedupe { "dedupe" } else { "organise" },
         report.job,
         report.restored.len(),
         report.removed.len(),
@@ -169,7 +178,29 @@ fn organize_text(report: &UndoReport, trashed: &BTreeSet<PathBuf>) -> String {
         .iter()
         .chain(&report.skipped_occupied)
     {
-        let _ = write!(text, "\n  kept {}", p.display());
+        let _ = write!(
+            text,
+            "\n  kept {}",
+            table::one_line(&p.display().to_string())
+        );
+    }
+    if dedupe {
+        for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
+            let _ = write!(
+                text,
+                "\n  back from the Trash: {}",
+                table::one_line(&p.display().to_string())
+            );
+        }
+        for p in &report.archive_lost {
+            let _ = write!(
+                text,
+                "\n  not found in the Trash: {}",
+                table::one_line(&p.display().to_string())
+            );
+        }
+        text.push('\n');
+        return text;
     }
     for p in report.restored.iter().filter(|p| trashed.contains(*p)) {
         let _ = write!(

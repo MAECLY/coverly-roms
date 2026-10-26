@@ -219,14 +219,18 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
     hex_upper(&Sha1::digest(bytes))
 }
 
-/// What a job did: fill art (and gamelists) or organise a ROM pile.
-/// Journals written before organise jobs existed have no kind: fill.
+/// What a job did: fill art (and gamelists), organise a ROM pile, or set
+/// duplicate copies aside. Journals written before organise jobs existed
+/// have no kind: fill. Builds older than duplicates cannot read a
+/// `"dedupe"` header, so they list such a job as unreadable and never
+/// undo it by halves.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum JobKind {
     #[default]
     Fill,
     Organize,
+    Dedupe,
 }
 
 /// Enough of a file's state to tell, at undo time, whether it is still the
@@ -334,16 +338,19 @@ enum Op {
     RolledBack {
         temp: String,
     },
-    /// About to send the archive `from` to the Trash (`fp` = the archive).
+    /// About to send the file `from` to the Trash (`fp` = the file): an
+    /// archive organise extracted, or a copy dedupe sets aside.
     ArchiveTrash {
         from: PathBuf,
     },
-    /// The archive `from` is in the Trash, at `trash` when the OS said.
+    /// The file `from` (an archive organise extracted, or a copy dedupe
+    /// sets aside) is in the Trash, at `trash` when the OS said.
     ArchiveTrashed {
         from: PathBuf,
         trash: Option<PathBuf>,
     },
-    /// The archive `from` stays where it was (no Trash on its volume).
+    /// The file `from` (an archive organise extracted, or a copy dedupe
+    /// sets aside) stays where it was (no Trash on its volume).
     ArchiveKept {
         from: PathBuf,
     },
@@ -782,8 +789,9 @@ impl Writer {
         self.append_entry(target, op, None, None, item)
     }
 
-    /// Journals that the archive `from` (a regular file inside the source
-    /// root) is about to go to the Trash, with its fingerprint (size and
+    /// Journals that the file `from` (a regular file inside the source
+    /// root: an archive organise extracted, or a copy dedupe sets aside)
+    /// is about to go to the Trash, with its fingerprint (size and
     /// modification time), which it returns.
     pub fn archive_trash_intent(
         &mut self,
@@ -805,8 +813,9 @@ impl Writer {
         Ok(fp)
     }
 
-    /// Journals that the archive `from` went to the Trash, at `trash`
-    /// when the OS reported where.
+    /// Journals that the file `from` (an archive organise extracted, or a
+    /// copy dedupe sets aside) went to the Trash, at `trash` when the OS
+    /// reported where.
     pub fn archive_trashed(
         &mut self,
         from: &Path,
@@ -823,8 +832,9 @@ impl Writer {
         self.append_entry(from, op, None, None, item)
     }
 
-    /// Journals that the archive `from` stays where it is (its volume has
-    /// no Trash, or the Trash refused it).
+    /// Journals that the file `from` (an archive organise extracted, or a
+    /// copy dedupe sets aside) stays where it is (its volume has no Trash,
+    /// or the Trash refused it).
     pub fn archive_kept(&mut self, from: &Path, item: Option<usize>) -> Result<(), WriteError> {
         let from = ensure_within(&self.source_root, from)?;
         let op = Op::ArchiveKept { from: from.clone() };
@@ -1827,21 +1837,23 @@ pub fn undo_jobs_in_order_with(
         .collect()
 }
 
-/// Days an organise journal is kept even beyond the newest `keep`.
+/// Days an organise or duplicates journal is kept even beyond the newest
+/// `keep`.
 pub const KEEP_ORGANIZE_DAYS: u32 = 90;
 
-/// Prunes journals (and their backups and plans), counting fill and
-/// organise jobs separately: [`prune_jobs_at`] with
+/// Prunes journals (and their backups and plans), counting fill, organise
+/// and duplicates jobs separately: [`prune_jobs_at`] with
 /// [`KEEP_ORGANIZE_DAYS`] and the current time.
 pub fn prune_jobs(data_dir: &Path, keep: usize) -> Result<(), WriteError> {
     prune_jobs_at(data_dir, keep, KEEP_ORGANIZE_DAYS, SystemTime::now())
 }
 
-/// Keeps the newest `keep` fill journals and the newest `keep` organise
-/// journals, plus every organise journal younger than
-/// `keep_organize_days` at `now` (its id gives its age); deletes the rest
-/// with their `backups/<job>` and `jobs/<job>.plan.json`. A few fill runs
-/// must never destroy the only way to put hundreds of moved ROMs back.
+/// Keeps the newest `keep` fill journals, the newest `keep` organise
+/// journals and the newest `keep` duplicates journals, plus every organise
+/// or duplicates journal younger than `keep_organize_days` at `now` (its
+/// id gives its age); deletes the rest with their `backups/<job>` and
+/// `jobs/<job>.plan.json`. A few fill runs must never destroy the only way
+/// to put hundreds of moved ROMs back.
 pub fn prune_jobs_at(
     data_dir: &Path,
     keep: usize,
@@ -1853,7 +1865,7 @@ pub fn prune_jobs_at(
         parse_compact_utc(job)
             .is_some_and(|at| now.duration_since(at).map_or(true, |age| age < max_age))
     };
-    let (mut fills, mut organises) = (0usize, 0usize);
+    let (mut fills, mut organises, mut dedupes) = (0usize, 0usize, 0usize);
     for journal in journals(data_dir)? {
         let kept = match header_kind(&journal.path) {
             JobKind::Fill => {
@@ -1863,6 +1875,10 @@ pub fn prune_jobs_at(
             JobKind::Organize => {
                 organises += 1;
                 organises <= keep || young(&journal.job)
+            }
+            JobKind::Dedupe => {
+                dedupes += 1;
+                dedupes <= keep || young(&journal.job)
             }
         };
         if kept || has_unresolved_trash(&journal.path) {

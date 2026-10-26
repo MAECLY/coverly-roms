@@ -15,6 +15,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
+use crate::dedupe::view::{
+    DedupeJobView, DedupePlanView, DedupeProgressEvent, DedupeRequest, DEDUPE_CHANGED_EVENT,
+    DEDUPE_PROGRESS_EVENT,
+};
+use crate::dedupe::DedupeEvents;
 use crate::error::IpcError;
 use crate::jobs::view::{
     CandidateView, DecisionIn, EntriesUpdatedEvent, ExportFormat, FillRequest, ItemFilter,
@@ -842,4 +847,175 @@ pub async fn organize_undo(
     include_later: bool,
 ) -> Result<OrganizeUndoView, IpcError> {
     blocking(move || app.state::<AppState>().organize_undo(&job, include_later)).await
+}
+
+/// Duplicates planning and apply progress, and the end of an apply, as
+/// Tauri events.
+struct TauriDedupeEvents(AppHandle);
+
+impl DedupeEvents for TauriDedupeEvents {
+    fn progress(&self, event: DedupeProgressEvent) {
+        let _ = self.0.emit(DEDUPE_PROGRESS_EVENT, event);
+    }
+
+    fn changed(&self, view: DedupeJobView) {
+        let _ = self.0.emit(DEDUPE_CHANGED_EVENT, view);
+    }
+}
+
+fn dedupe_events(app: &AppHandle) -> Arc<dyn DedupeEvents> {
+    Arc::new(TauriDedupeEvents(app.clone()))
+}
+
+/// Looks for duplicates in the library at `root` (a dry run), emitting
+/// `dedupe-progress`.
+#[tauri::command]
+pub async fn dedupe_plan(
+    app: AppHandle,
+    root: String,
+    opts: Option<DedupeRequest>,
+) -> Result<DedupePlanView, IpcError> {
+    blocking(move || {
+        let events = dedupe_events(&app);
+        app.state::<AppState>()
+            .dedupe_plan(Path::new(&root), &opts.unwrap_or_default(), events)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn dedupe_cancel(state: State<'_, AppState>, plan_id: u64) -> Result<(), IpcError> {
+    state.dedupe_cancel(plan_id)
+}
+
+/// Plan `plan_id` with other levels, rules or destination (nothing is read
+/// again).
+#[tauri::command]
+pub async fn dedupe_regroup(
+    app: AppHandle,
+    plan_id: u64,
+    opts: DedupeRequest,
+) -> Result<DedupePlanView, IpcError> {
+    blocking(move || app.state::<AppState>().dedupe_regroup(plan_id, &opts)).await
+}
+
+#[tauri::command]
+pub async fn dedupe_set_keeper(
+    app: AppHandle,
+    plan_id: u64,
+    group: u64,
+    member: usize,
+) -> Result<DedupePlanView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_set_keeper(plan_id, group, member)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn dedupe_skip_group(
+    app: AppHandle,
+    plan_id: u64,
+    group: u64,
+    skip: bool,
+) -> Result<DedupePlanView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_skip_group(plan_id, group, skip)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn dedupe_skip_system(
+    app: AppHandle,
+    plan_id: u64,
+    system: String,
+    skip: bool,
+) -> Result<DedupePlanView, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_skip_system(plan_id, &system, skip)
+    })
+    .await
+}
+
+/// Forgets the keepers chosen for `root` (`systems`, or all); returns how
+/// many.
+#[tauri::command]
+pub async fn dedupe_reset_choices(
+    app: AppHandle,
+    root: String,
+    systems: Option<Vec<String>>,
+) -> Result<usize, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_reset_choices(Path::new(&root), systems.as_deref())
+    })
+    .await
+}
+
+/// Sets the extras of plan `plan_id` aside; progress arrives as
+/// `dedupe-progress`, the end as `dedupe-changed`. Undo with `organize_undo`.
+#[tauri::command]
+pub async fn dedupe_apply(app: AppHandle, plan_id: u64) -> Result<DedupeJobView, IpcError> {
+    blocking(move || {
+        let events = dedupe_events(&app);
+        app.state::<AppState>().dedupe_apply(plan_id, events)
+    })
+    .await
+}
+
+/// Stops the running duplicates apply between groups.
+#[tauri::command]
+pub fn dedupe_cancel_apply(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.dedupe_cancel_apply()
+}
+
+/// The current (or last) duplicates apply of this app session.
+#[tauri::command]
+pub fn dedupe_job(state: State<'_, AppState>) -> Option<DedupeJobView> {
+    state.dedupe_job()
+}
+
+/// Continues a paused or interrupted duplicates job into its journal.
+#[tauri::command]
+pub async fn dedupe_resume(app: AppHandle, job: String) -> Result<DedupeJobView, IpcError> {
+    blocking(move || {
+        let events = dedupe_events(&app);
+        app.state::<AppState>().dedupe_resume(&job, events)
+    })
+    .await
+}
+
+/// Saves plan `plan_id` as JSON where the user picks; `None` when cancelled.
+#[tauri::command]
+pub async fn dedupe_export_plan(app: AppHandle, plan_id: u64) -> Result<Option<String>, IpcError> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        state.dedupe().get(plan_id)?;
+        let Some(path) = save_path(&app, "coverly-duplicates-plan.json", ExportFormat::Json)?
+        else {
+            return Ok(None);
+        };
+        state.dedupe_export_plan(plan_id, &path)?;
+        Ok(Some(shown_name(&path)))
+    })
+    .await
+}
+
+/// Shows `path` (a copy, its quarantine folder) in Finder / Explorer / the
+/// file manager: only inside the open library or a duplicates plan's
+/// library or quarantine.
+#[tauri::command]
+pub fn reveal_path(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), IpcError> {
+    let path = state.revealable(Path::new(&path))?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| IpcError::Io(e.to_string()))
 }

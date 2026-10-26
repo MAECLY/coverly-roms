@@ -531,6 +531,86 @@ pub fn merge(
     Ok(Some(out))
 }
 
+/// `existing` without the `<game>` entries whose `<path>` is one of
+/// `roms` (relative to the system folder, `./`-prefixed), matched as
+/// [`merge`] matches them (the exact spelling first, then ignoring case).
+/// A game standing on its own lines takes its line with it; every other
+/// byte is kept. `None` when no entry matched.
+pub fn remove_games(existing: &str, roms: &[String]) -> Result<Option<String>, MergeError> {
+    if existing.len() > MAX_GAMELIST_BYTES {
+        return Err(MergeError::TooLarge);
+    }
+    let doc = scan(existing)?;
+    let index = PathIndex::new(existing, &doc);
+    let mut used = vec![false; doc.games.len()];
+    let mut cuts: Vec<(usize, usize)> = Vec::new();
+    let mut keys: Vec<String> = roms.iter().map(|r| norm(r)).collect();
+    keys.sort_by_key(|k| !index.exact.contains_key(k));
+    for key in keys {
+        let Some(i) = index.find(&key, &used) else {
+            continue;
+        };
+        used[i] = true;
+        let g = &doc.games[i].elem;
+        let indent = indent_before(existing, g.start);
+        let own_line = existing[..g.start - indent.len()].is_empty()
+            || existing[..g.start - indent.len()].ends_with('\n');
+        let (mut start, mut end) = (g.start, g.end);
+        if own_line {
+            let tail = &existing[end..];
+            let ws = tail.len() - tail.trim_start_matches([' ', '\t']).len();
+            let rest = &tail[ws..];
+            let nl = if rest.starts_with("\r\n") {
+                2
+            } else if rest.starts_with('\n') {
+                1
+            } else {
+                0
+            };
+            if nl > 0 || rest.is_empty() {
+                start -= indent.len();
+                end += ws + nl;
+            }
+        }
+        cuts.push((start, end));
+    }
+    if cuts.is_empty() {
+        return Ok(None);
+    }
+    cuts.sort_unstable();
+    let mut out = String::with_capacity(existing.len());
+    let mut at = 0;
+    for (start, end) in cuts {
+        if start < at {
+            return Err(MergeError::Malformed("overlapping edits".into()));
+        }
+        out.push_str(&existing[at..start]);
+        at = end;
+    }
+    out.push_str(&existing[at..]);
+    scan(&out)
+        .map_err(|e| MergeError::Malformed(format!("the edited file would be broken: {e}")))?;
+    Ok(Some(out))
+}
+
+/// Removes the `<game>` entries of `roms` from the game list at `path`
+/// through `writer` (backed up and journaled `Replaced`; undo restores it
+/// byte for byte). `Ok(false)` when there is no file or nothing matched.
+pub fn remove_from(writer: &mut Writer, path: &Path, roms: &[String]) -> Result<bool, String> {
+    let Some(existing) = read_existing(path)? else {
+        return Ok(false);
+    };
+    match remove_games(&existing, roms).map_err(|e| e.to_string())? {
+        None => Ok(false),
+        Some(text) => {
+            writer
+                .write(path, text.as_bytes(), OverwritePolicy::Backup)
+                .map_err(|e| e.to_string())?;
+            Ok(true)
+        }
+    }
+}
+
 /// `./a/b` form of a relative path.
 pub fn rel_slash(p: &Path) -> String {
     let parts: Vec<String> = p

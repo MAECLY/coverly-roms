@@ -46,7 +46,11 @@ import { fileName, formatBytes } from '@/lib/dedupe';
 import './dedupe.css';
 
 export interface DedupeResultProps {
-  plan: DedupePlanView;
+  /** The plan applied; `null` for a job resumed from the jobs panel,
+   * whose plan stays in its journal: names then come from the outcomes. */
+  plan: DedupePlanView | null;
+  /** The quarantine folder when there is no plan (`DedupeJobView`). */
+  quarantine?: string | undefined;
   report: DedupeReportView;
   action: DedupeActionSetting;
   onOpenFolder(): void;
@@ -80,6 +84,12 @@ function statusText(
             folder,
             why: t(`dedupe.limit.${s.reason.why}`),
           });
+        case 'trash-unavailable':
+          return t('dedupe.skip.trashUnavailable');
+        case 'report-only':
+          return t('dedupe.skip.reportOnly');
+        case 'taken':
+          return t('dedupe.skip.taken', { folder });
         case 'excluded':
           return t('dedupe.skip.excluded');
         case 'conflict':
@@ -93,8 +103,17 @@ function statusText(
 const done = (s: DedupeItemStatusView) =>
   s.status === 'quarantined' || s.status === 'trashed';
 
+/** A copy the plan itself kept in place (report only, left alone, a
+ * conflict): not a failure of the apply. */
+const planned = (s: DedupeItemStatusView) =>
+  s.status === 'skipped' &&
+  (s.reason.kind === 'report-only' ||
+    s.reason.kind === 'excluded' ||
+    s.reason.kind === 'conflict');
+
 export function DedupeResult({
   plan,
+  quarantine,
   report,
   action,
   onOpenFolder,
@@ -105,19 +124,26 @@ export function DedupeResult({
   const t = useT();
   const locale = useContext(LocaleContext);
   const titleId = `${useId()}-title`;
-  const folder = `${fileName(plan.quarantine)}/`;
-  const roms = `${fileName(plan.roms_dir)}/`;
+  const folder = `${fileName(plan?.quarantine ?? quarantine ?? '')}/`;
 
   const members = new Map<string, string>();
-  for (const g of plan.groups)
+  for (const g of plan?.groups ?? [])
     for (const m of g.members)
       members.set(`${g.id}:${m.id}`, fileName(m.unit.primary));
+  // Without the plan, an outcome's first file is the copy where it is now.
+  for (const o of report.outcomes) {
+    const key = `${o.group}:${o.member}`;
+    if (!members.has(key) && o.files[0]) members.set(key, fileName(o.files[0]));
+  }
   const nameOf = (group: number, member: number) =>
     members.get(`${group}:${member}`) ?? `#${group}/${member}`;
 
-  const moved = report.outcomes.filter(([, , s]) => done(s)).length;
-  const left = report.outcomes.filter(([, , s]) => !done(s));
+  const moved = report.outcomes.filter(done).length;
+  const left = report.outcomes.filter((o) => !done(o) && !planned(o));
   const bytes = formatBytes(report.bytes_out, locale);
+  const freed = plan
+    ? t('dedupe.freed', { folder: `${fileName(plan.roms_dir)}/`, bytes })
+    : t('dedupe.freedLibrary', { bytes });
   const trash = action === 'trash';
   const headline = trash
     ? t('dedupe.doneTrash', { count: moved })
@@ -129,9 +155,7 @@ export function DedupeResult({
       {left.length === 0 ? (
         <Alert variant="success">
           <AlertTitle id={titleId}>{headline}</AlertTitle>
-          <p className="dup-result__freed">
-            {t('dedupe.freed', { folder: roms, bytes })}
-          </p>
+          <p className="dup-result__freed">{freed}</p>
         </Alert>
       ) : (
         <Alert variant="warning">
@@ -139,21 +163,19 @@ export function DedupeResult({
             {t('dedupe.partial', { done: moved, skipped: left.length })}
           </AlertTitle>
           <ul className="dup-result__left">
-            {left.map(([g, m, s]) => (
-              <li key={`${g}:${m}`}>
-                <span className="dup-mono">{nameOf(g, m)}</span>{' '}
-                <span>{statusText(t, s, folder)}</span>
+            {left.map((o) => (
+              <li key={`${o.group}:${o.member}`}>
+                <span className="dup-mono">{nameOf(o.group, o.member)}</span>{' '}
+                <span>{statusText(t, o, folder)}</span>
               </li>
             ))}
           </ul>
           <p>{t('dedupe.nothingElse')}</p>
-          <p className="dup-result__freed">
-            {t('dedupe.freed', { folder: roms, bytes })}
-          </p>
+          <p className="dup-result__freed">{freed}</p>
         </Alert>
       )}
 
-      {!trash && plan.same_volume && plan.removable && moved > 0 && (
+      {!trash && plan?.same_volume && plan.removable && moved > 0 && (
         <p className="dup-result__note">
           {t('dedupe.sameVolumeNote', { quarantine: folder })}
         </p>
@@ -222,13 +244,16 @@ export function DedupeResult({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <ul className="dup-unchanged__list">
-              {report.outcomes.map(([g, m, s]) => (
-                <li key={`${g}:${m}`} className="dup-unchanged__row">
+              {report.outcomes.map((o) => (
+                <li
+                  key={`${o.group}:${o.member}`}
+                  className="dup-unchanged__row"
+                >
                   <span className="dup-mono dup-unchanged__file">
-                    {nameOf(g, m)}
+                    {nameOf(o.group, o.member)}
                   </span>
                   <span className="dup-unchanged__why">
-                    {statusText(t, s, folder)}
+                    {statusText(t, o, folder)}
                   </span>
                 </li>
               ))}

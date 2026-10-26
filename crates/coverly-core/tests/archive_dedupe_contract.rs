@@ -1,191 +1,26 @@
-//! Contract test for dedupe phase B (spec §10, plan AP-6): an
-//! `EntryListing` and a `DiscProbe` written in a few lines over the archive
-//! and disc readers of this branch, with no new types. Phase B's adapters
-//! replace these; the seams they rely on are pinned here. Fixtures are
+//! Contract test for dedupe phase B (spec §10, plan AP-6): the
+//! `EntryListing` is `dedupe::archive::ArchiveEntryListing` over the archive
+//! reader and the `DiscProbe` is `dedupe::disc::ReaderDiscProbe` over it and
+//! the disc reader. The seams they rely on are pinned here. Fixtures are
 //! synthetic.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 use coverly_core::archive::testing::{
     lzma_props, sevenz_copy, zip_crafted, zip_lzma_payload, ZipMethod, ZipSpec,
 };
-use coverly_core::archive::{file_entries, is_budget_spent, open_archive, Budget, Limits};
-use coverly_core::dedupe::source::{
-    DiscId, DiscIdSource, DiscProbe, EntryListing, ListedEntry, ZipListing,
-};
-use coverly_core::disc::sheets::MAX_SHEET_BYTES;
-use coverly_core::disc::source::MAX_WINDOW;
+use coverly_core::archive::{is_budget_spent, Limits};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
+use coverly_core::dedupe::source::{DiscIdSource, DiscProbe, EntryListing, ListedEntry};
 use coverly_core::disc::testing as dt;
-use coverly_core::disc::{
-    parse_sheet, primary_track, DiscReader, DiscSystem, FileSource, SheetKind, WindowSource,
-};
 use coverly_core::identify::hash::{hash_stream, HeaderRule};
-
-// ---- The adapters: what phase B writes (spec §10) ----------------------
-
-/// `EntryListing` over every format `open_archive` reads.
-struct TestArchiveListing {
-    limits: Limits,
-}
-
-impl TestArchiveListing {
-    /// The first `cap` bytes of the `n`-th file entry, decoding at most
-    /// `budget` bytes (skips inside a solid block count); a spent budget
-    /// is `Ok(None)`.
-    fn read(
-        &self,
-        path: &Path,
-        n: usize,
-        cap: u64,
-        budget: u64,
-    ) -> io::Result<Option<(ListedEntry, Vec<u8>)>> {
-        let mut r = open_archive(path, &self.limits)?
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not an archive"))?;
-        let entry = file_entries(r.as_ref())
-            .nth(n)
-            .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {n}")))?;
-        // The caller's byte budget with the plan's wall time.
-        let mut budget = Budget::plan_head(&Limits {
-            plan_head_budget: budget,
-            ..self.limits.clone()
-        });
-        let mut out = Vec::new();
-        let read = r
-            .open_entry(entry.index, &mut budget)
-            .map_err(io::Error::from)
-            .and_then(|s| s.take(cap).read_to_end(&mut out));
-        match read {
-            Err(e) if is_budget_spent(&e) => Ok(None),
-            Err(e) => Err(e),
-            Ok(_) => Ok(Some((listed(&entry), out))),
-        }
-    }
-
-    fn head_bytes(&self, path: &Path, n: usize, cap: u64) -> io::Result<Option<Vec<u8>>> {
-        Ok(self
-            .read(path, n, cap, self.limits.plan_head_budget)?
-            .map(|(_, b)| b))
-    }
-}
-
-fn listed(e: &coverly_core::archive::Entry) -> ListedEntry {
-    ListedEntry {
-        name: e.name.as_str().to_owned(),
-        size: e.size,
-        crc32: e.crc32,
-    }
-}
-
-impl EntryListing for TestArchiveListing {
-    fn list(&self, path: &Path) -> io::Result<Option<Vec<ListedEntry>>> {
-        let Some(r) = open_archive(path, &self.limits)? else {
-            return Ok(None);
-        };
-        Ok(Some(file_entries(r.as_ref()).map(listed).collect()))
-    }
-
-    fn payload_sha1(
-        &self,
-        path: &Path,
-        entry: usize,
-        rule: HeaderRule,
-        budget: u64,
-    ) -> io::Result<Option<String>> {
-        let Some(e) = self.list(path)?.and_then(|l| l.into_iter().nth(entry)) else {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "no entry"));
-        };
-        if e.size > budget {
-            return Ok(None);
-        }
-        // The archive reader verifies size and CRC at EOF.
-        let Some((e, bytes)) = self.read(path, entry, e.size.saturating_add(1), budget)? else {
-            return Ok(None);
-        };
-        Ok(hash_stream(&bytes[..], e.size, rule)?.payload_sha1)
-    }
-
-    fn head(&self, path: &Path, entry: usize, len: usize) -> io::Result<Option<Vec<u8>>> {
-        self.head_bytes(path, entry, len as u64)
-    }
-}
-
-/// `DiscProbe` over raw images, cue/gdi sets and disc archives. A sheet
-/// names the primary track (a GD-ROM's track 03, never the low-density
-/// track 01); without one every entry is tried in order.
-struct TestDiscProbe {
-    listing: TestArchiveListing,
-}
-
-fn sheet_kind(name: &str) -> Option<SheetKind> {
-    let ext = Path::new(name).extension()?.to_str()?;
-    SheetKind::from_extension(ext).filter(|k| *k != SheetKind::M3u)
-}
-
-/// The file name of `sheet`'s primary track.
-fn primary_file(kind: SheetKind, text: &[u8]) -> Option<String> {
-    let sheet = parse_sheet(kind, text).ok()?;
-    let track = &sheet.tracks[primary_track(&sheet)?];
-    sheet.files.get(track.file).cloned()
-}
-
-impl DiscProbe for TestDiscProbe {
-    fn probe(&self, path: &Path, system: &str) -> io::Result<Option<DiscId>> {
-        let found = match self.listing.list(path)? {
-            None => {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let image = match sheet_kind(name) {
-                    Some(kind) => {
-                        let mut text = Vec::new();
-                        std::fs::File::open(path)?
-                            .take(MAX_SHEET_BYTES as u64)
-                            .read_to_end(&mut text)?;
-                        match primary_file(kind, &text) {
-                            Some(file) => path.with_file_name(file),
-                            None => return Ok(None),
-                        }
-                    }
-                    None => path.to_path_buf(),
-                };
-                DiscReader::identify(&mut FileSource::open(&image)?)
-            }
-            Some(entries) => {
-                // The primary track a sheet in the archive names, else all.
-                let primary = entries.iter().enumerate().find_map(|(n, e)| {
-                    let kind = sheet_kind(&e.name)?;
-                    let text = self
-                        .listing
-                        .head_bytes(path, n, MAX_SHEET_BYTES as u64)
-                        .ok()??;
-                    let file = primary_file(kind, &text)?;
-                    let dir = e.name.rfind('/').map_or("", |i| &e.name[..=i]);
-                    let want = format!("{dir}{file}");
-                    entries
-                        .iter()
-                        .position(|t| t.name.eq_ignore_ascii_case(&want))
-                });
-                let candidates: Vec<usize> = match primary {
-                    Some(n) => vec![n],
-                    None => (0..entries.len()).collect(),
-                };
-                candidates.into_iter().find_map(|n| {
-                    let head = self.listing.head_bytes(path, n, MAX_WINDOW as u64).ok()??;
-                    DiscReader::identify(&mut WindowSource::new(head))
-                })
-            }
-        };
-        let ours = |d: &coverly_core::disc::DiscIdentity| matches!(d.system, DiscSystem::Known(id) if id == system);
-        Ok(found.filter(ours).map(|d| d.to_dedupe_id()))
-    }
-}
 
 // ---- Helpers ------------------------------------------------------------
 
-fn listing() -> TestArchiveListing {
-    TestArchiveListing {
-        limits: Limits::default(),
-    }
+fn listing() -> ArchiveEntryListing {
+    ArchiveEntryListing::new(Limits::default())
 }
 
 fn write(dir: &Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
@@ -221,8 +56,22 @@ fn listing_index_space_is_file_entries_in_archive_order() {
     );
     assert_eq!(got[0].size, 500);
     assert_eq!(got[0].crc32, Some(crc32fast::hash(&b)));
-    // The same index space as today's `ZipListing`: a drop-in for phase B.
-    assert_eq!(ZipListing.list(&zip).unwrap(), Some(got));
+    // The index space phase A's zip listing had: file entries only.
+    assert_eq!(
+        got,
+        [
+            ListedEntry {
+                name: "set/b.gba".into(),
+                size: 500,
+                crc32: Some(crc32fast::hash(&b)),
+            },
+            ListedEntry {
+                name: "set/a.gba".into(),
+                size: 300,
+                crc32: Some(crc32fast::hash(&a)),
+            },
+        ]
+    );
 
     // Entry n of the listing is the n-th file entry.
     let head = listing().head(&zip, 1, 16).unwrap().expect("decoded");
@@ -291,12 +140,10 @@ fn head_budget_spent_is_none() {
     gz.write_all(&data).unwrap();
     let path = write(dir.path(), "game.gba.gz", &gz.finish().unwrap());
 
-    let tight = TestArchiveListing {
-        limits: Limits {
-            plan_head_budget: 1024,
-            ..Limits::default()
-        },
-    };
+    let tight = ArchiveEntryListing::new(Limits {
+        plan_head_budget: 1024,
+        ..Limits::default()
+    });
     assert_eq!(tight.list(&path).unwrap().map(|l| l.len()), Some(1));
     // Headerless (not read), never an error and never a spin.
     assert_eq!(tight.head(&path, 0, 8192).unwrap(), None);
@@ -310,7 +157,7 @@ fn head_budget_spent_is_none() {
 #[test]
 fn probe_returns_serial_and_fingerprint() {
     let dir = tempfile::tempdir().unwrap();
-    let probe = TestDiscProbe { listing: listing() };
+    let probe = ReaderDiscProbe::new(listing());
     let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
 
     // A raw image on disk.
@@ -381,12 +228,10 @@ fn payload_sha1_honours_the_callers_budget() {
         "game.zip",
         &zip_crafted(&[ZipSpec::new("game.gba", &data, ZipMethod::Deflate)]),
     );
-    let tight = TestArchiveListing {
-        limits: Limits {
-            plan_head_budget: 1024,
-            ..Limits::default()
-        },
-    };
+    let tight = ArchiveEntryListing::new(Limits {
+        plan_head_budget: 1024,
+        ..Limits::default()
+    });
     let want = hash_stream(&data[..], data.len() as u64, HeaderRule::Plain).unwrap();
     let got = tight
         .payload_sha1(&path, 0, HeaderRule::Plain, 1 << 20)
@@ -398,7 +243,7 @@ fn payload_sha1_honours_the_callers_budget() {
 #[test]
 fn probe_follows_the_sheet_to_the_primary_track() {
     let dir = tempfile::tempdir().unwrap();
-    let probe = TestDiscProbe { listing: listing() };
+    let probe = ReaderDiscProbe::new(listing());
 
     // A cue set on disk: dedupe's `DiscSet` unit probes its sheet.
     let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");

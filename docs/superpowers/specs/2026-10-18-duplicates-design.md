@@ -3,7 +3,7 @@
 > Status: **Draft for review** · Date: 2026-10-18 · Owner: Miguel Angel Esparza Calero (MAECLY)
 > Revised after an adversarial review (false positives, data loss, UX traps, 50k-file scale): functional headers, arcade set names, soft patches, BIOS by hash, overlapping sets, level 3 volume fingerprint, off-card saves, pile-side quarantine, honest space wording, cross-volume preflight, volume-UUID cache keys, bulk confirm.
 > Extends [`2026-10-17-organize-loose-roms-design.md`](2026-10-17-organize-loose-roms-design.md) (its §2 listed "deleting duplicates" and "1G1R curation" as non-goals; this spec brings them in, without ever deleting).
-> Branch: `feat/organize-dedupe`. Depends on the archive and disc work in `feat/organize-disc-archives` (§7.4). Spec and plan only: no code in this branch until the plan is approved.
+> Branch: phase A on `feat/organize-dedupe` (merged); phase B on `feat/dedupe-apply`. The archive and disc work it depends on is merged into `main` (PR #24, `eb25460`): §5.4, §7.2, §9.2 and §12.4 were revised on 2026-10-25 to use it (`archive::`, `disc::`, `write::trash`).
 
 ## 1. Purpose
 
@@ -13,7 +13,7 @@ Coverly must be able to:
 
 1. **Find** duplicates inside each system, at three levels, with a confidence and a plain reason. Content decides, never the file name.
 2. **Pick one copy to keep** per group with ordered, configurable rules, and say in one line why that copy won.
-3. **Set the others aside** in a quarantine folder outside `ROMS/`, carrying their saves and art, journaled and undoable. The OS Trash is an opt-in alternative. Nothing is ever deleted.
+3. **Set the others aside** in a quarantine folder `_Duplicados/` inside the library, outside the system folders, with the same relative paths, carrying their saves and art, journaled and undoable. The OS Trash is an opt-in alternative. Nothing is ever deleted.
 4. Do this as **a step of Organise** (the pile against itself and against the library) and as **a library action** (an existing library against itself), plus `coverly dedupe` in the CLI.
 
 ### Owner's decisions (approved) vs. what this spec assumes
@@ -22,8 +22,8 @@ Coverly must be able to:
 |---|---|
 | 3 levels: exact copy · same game, other version · same disc game, other format | Levels chain into one group per game; each extra carries its own relation to the keeper (§5.4) |
 | Keeper rules: region order, verified dump, latest revision, preferred container per device, already has a cover | Two more rules ranked above them: **has a real save** and **user's own pick**; one tie-breaker: **named like the catalogue** (§6) |
-| Default: move extras to a quarantine outside `ROMS/`, journaled, undoable, with saves and art | Default folder is `_Duplicados/` next to the ROMs folder on the same volume (§7.1) |
-| OS Trash optional, off by default, never hard delete | Trash undo is "restore by hand" and says so before you choose it (§7.2) |
+| Default: move extras to a quarantine `_Duplicados/` inside the library (relative paths kept), journaled, undoable, resumable, with saves and art (phase B) | `<library root>/_Duplicados`: next to `ROMS/` on a card, among the system folders when the library is opened as system folders (§7.1) |
+| OS Trash optional, off by default, never hard delete | Undo brings trashed copies back from the Trash by itself (`write::trash` records the exact place); only a copy the Trash no longer holds is reported (§7.2) |
 | Level 2 (1G1R) opt-in, report-only by default | Level 2 also needs both copies identified by the catalogue; unknown dumps never join a level 2 group |
 | Exact copies with different saves: warn, touch nothing | A blank memory card or an all-`0xFF` save counts as "no save" (§8.2) |
 | Never decide by file name alone | File names are never a grouping key at any level. A name may only **split or downgrade** a group (arcade set names §5.2, hack/translation tags §5.4), never create or upgrade one; otherwise names appear only as display and as the last tie-breaker among copies proven to be the same game |
@@ -141,7 +141,7 @@ Level 2 is **report-only** unless 1G1R is on (`dedupe.one_game_one_rom`, `--one-
 
 The same disc game as cue/bin, img, iso, chd, pbp, cso or a different PBP packaging. Container bytes differ, so only the **disc serial** can match them.
 
-**Key:** `(system, disc serial, disc_no)`. Serials come from the disc reader in `feat/organize-disc-archives` (§7.4): `SYSTEM.CNF` `BOOT` line (PS1/PS2), `PARAM.SFO` `DISC_ID` (PBP, PSP), `IP.BIN` product number (Saturn, Sega CD, Dreamcast), `UMD_DATA.BIN`, CHD metadata or first hunks. Serials are normalised (`SLUS_005.43` → `SLUS-00543`).
+**Key:** `(system, disc serial, disc_no)`. Serials come from `disc::DiscReader` in `main` (through `DiscIdentity::to_dedupe_id`, §12.4): `SYSTEM.CNF` `BOOT` line (PS1/PS2), `IP.BIN` product number and disc number (Saturn, Sega CD, Dreamcast track 03), `UMD_DATA.BIN` (PSP ISO). Dedupe adds the PBP `PSISO` and CSO sector readers (`disc/pbp.rs`, `disc/cso.rs`) and the m3u order. CHD needs hunk decompression and is deferred: a CHD takes part in level 1 only (plan DD-2). Serials are normalised (`SLUS_005.43` → `SLUS-00543`).
 
 Rules:
 - A **multi-disc unit** (m3u, multi-disc PBP) is keyed by its ordered serial list. Two units match only when the lists are equal. A full set vs a lone disc of it is shown as "Juego incompleto / Partial set", report-only.
@@ -240,16 +240,16 @@ The UI localises it into one contrastive line, naming what the others had: "Se q
 
 Extras move to `<quarantine>/<system folder>/<rel_dir>/<file name>`, keeping the library's own shape so a manual restore is obvious. Companions and art follow into the same relative places (`_Duplicados/GB/Imgs/Tetris (JUE) (V1.0) [!].png`).
 
-**Default location:** `_Duplicados` (es) / `_Duplicates` (en, chosen once from the app language and then fixed in settings) **next to the ROMs folder**:
+**Default location:** `_Duplicados` (es) / `_Duplicates` (en, chosen once from the app language and then fixed in settings) **inside the library root**, never inside a system folder (owner, phase B):
 
 | Library | ROMs folder | Quarantine | Writer root |
 |---|---|---|---|
 | `/Volumes/SD` (`roms_root = ROMS`) | `/Volumes/SD/ROMS` | `/Volumes/SD/_Duplicados` | `/Volumes/SD` |
-| `~/Documents/ROMS` opened as system folders (`roms_root = ""`) | `~/Documents/ROMS` | `~/Documents/ROMS _Duplicados` | `~/Documents` |
+| `~/Documents/ROMS` opened as system folders (`roms_root = ""`) | `~/Documents/ROMS` | `~/Documents/ROMS/_Duplicados` | `~/Documents/ROMS` |
 
 - The writer uses one root that holds both (organise spec "option B"), so ROM moves, art moves and `gamelist.xml` edits share one journal and stay instant renames on one volume.
-- If the parent is not writable, is a volume list (`/Volumes`) or a system root, the quarantine falls back to `<library root>/_Duplicados` and the planner adds it to the walk's skip list and the scan's ignored folders.
-- A **custom folder** (`dedupe.quarantine_dir`, `--quarantine`) may be anywhere. On another volume the writer uses root = quarantine and source root = library: moves become verified copies + delete (organise `copy_into`), the space check runs, and `gamelist.xml` edits are skipped with a note ("La lista de juegos de {system} no se ha actualizado").
+- The quarantine is on the walk's skip list and the scan's ignored folders whatever its place (`Exclusion::Quarantine`). (The earlier draft put the second row's quarantine beside the folder, `~/Documents/ROMS _Duplicados`, with a fallback inside; open question 5 is answered "always inside".)
+- A **custom folder** (`dedupe.quarantine_dir`, `--quarantine`) may be anywhere except inside a system folder. On another volume the writer uses root = quarantine and source root = library: moves become verified copies + delete (organise `copy_into`), the space check runs, and `gamelist.xml` edits are skipped with a note ("La lista de juegos de {system} no se ha actualizado").
 - **Pile extras stay on the pile's side.** In the Organise step, a pile item that is already in the library (or loses to another pile item) moves to `<pile root>/_Duplicados/`, on the pile's volume, as an instant rename. It is never copied onto the card just to be set aside, which would spend card space on a file the user does not want there. Library extras use the library-side quarantine.
 - **Same volume frees nothing on that volume.** Moving to `/Volumes/SD/_Duplicados` takes 1,53 GB out of `ROMS/` (shorter game lists) but the card is exactly as full. Every count of bytes says **where** they leave ("Quitarías 1,53 GB de ROMS/"), never "liberar" alone; the done state adds "La tarjeta sigue igual de llena hasta que vacíes {folder} o lo muevas a tu ordenador" when the quarantine shares the volume with the library and that volume is removable. The `Cambiar…` picker suggests a folder on the computer for removable libraries.
 - **Cross-volume preflight.** Before the first move to a quarantine on another volume, the planner probes the destination file system and marks items that cannot land there as `SkipReason::DestinationLimit` (never a mid-copy failure): files over 4 GiB on FAT32 (PS2 ISOs, large CHDs), names with characters FAT/exFAT/NTFS reject (`: * ? " < > |`, trailing dot or space), paths over the destination's length limit, and collisions that only exist on a case-insensitive destination (`Tetris.gb` vs `tetris.gb`; `Collision::Rename` compares with the destination's case rule). Free space is checked against the sum of the items that will copy.
@@ -261,11 +261,12 @@ Extras move to `<quarantine>/<system folder>/<rel_dir>/<file name>`, keeping the
 
 `dedupe.action = "trash"` / `--trash`. Off by default.
 
-- Uses the `trash` crate (new dependency, platform API, no shelling out). Each file is journaled as a new op `Trashed { from }` with its fingerprint **before** the call.
-- **Undo cannot restore automatically** on every OS. The undo report lists each trashed path with "Recupéralo desde la Papelera (Volver a poner)" / "Restore it from the Trash (Put Back)". This is said in the setting's help text and in the confirm dialog before the first trash apply.
-- On a removable volume, the Trash lives on the card (`.Trashes`) and frees no space until emptied; the confirm dialog says so. If the volume has no Trash (FAT on some systems), that item fails and the file stays.
-- The extra's travelling companions and art (§9.1) go to the Trash with it, each journaled as its own `Trashed`; shared-stem companions stay, as with the quarantine.
-- Older builds see `Trashed` as `Unknown` and mark the job not undoable. That is the intended safe reading.
+- Uses `write::trash` from `main` (no new dependency): `TrashBackend` with `OsTrash` (macOS `NSFileManager trashItemAtURL`, which returns the exact place, so Finder "Put Back" also works; Windows Recycle Bin of the current user, fixed drives only; Linux freedesktop Trash) and `FakeTrash` for tests.
+- Each file is journaled with the existing trash ops: `ArchiveTrash { from }` with its fingerprint **before** the call, `ArchiveTrashed { from, trash }` with the place after it, `ArchiveKept { from }` when the volume has no Trash or the Trash refuses (the file stays). There is no `Trashed` op.
+- **Undo brings the files back by itself**, from the recorded place, or by name and fingerprint when the place line is missing (a crash during the call). A file the Trash no longer holds (emptied, or its place taken) is listed in `UndoReport.archive_lost` and shown as "No estaba en la Papelera: {path}" / "Not in the Trash any more: {path}"; the rest of the job is still undone. A journal whose trash call has no outcome line is never pruned.
+- The confirm dialog says that undo brings the files back from the Trash and that emptying the Trash makes that impossible. On a removable volume the Trash lives on the card (`.Trashes`) and frees no space until emptied; the dialog says so. If the volume has no Trash (Windows removable drives, FAT without `.Trashes`), the option is disabled with that reason (`trash_available`), and an item that still meets one is skipped (`TrashUnavailable`) with the file in place.
+- The extra's travelling companions and art (§9.1) go to the Trash with it, each journaled on its own; shared-stem companions stay, as with the quarantine.
+- Older builds already know these ops: a dedupe job that used the Trash stays undoable in them.
 
 ### 7.3 Report only
 
@@ -327,12 +328,12 @@ Companions keep their names (dedupe never renames). A companion that fails to mo
 
 ### 9.2 Journal and undo
 
-- New `JobKind::Dedupe` (`write/mod.rs:221`). Header carries `root`, `source_root`, `kind`, `created_at`, plus `quarantine` (optional field).
-- Ops: `Moved{from, via}`, `DirCreated`, `Created` (the `.txt` list), `Replaced{backup}` (gamelist), new `Trashed{from}`. Each with `fp` and `item`.
-- `header_kind` must learn `dedupe`, and `prune_jobs_at` keeps dedupe jobs on the organise rule (`KEEP_ORGANIZE_DAYS = 90`) instead of the fill count. An older build would read the kind as `fill` and prune it early; this is acceptable only because the journal stays readable.
-- `undo_last_job` (fill) skips dedupe jobs, like organise. Dedupe undo reuses `organize_undo(job, include_later)`: `later_jobs` → "Primero hay que deshacer…", `undo_jobs_in_order`, `undo_move` with fingerprint checks, `skipped_occupied` when a file has taken the original place.
-- Plan saved as `jobs/<job>.plan.json`; `resume` as organise (`job_transfers`, `Writer::resume`). Pause on `DiskFull`, `Denied`, vanished root.
-- CLI `undo.rs` `kind_name` gains `Dedupe`.
+- New `JobKind::Dedupe` (serde `"dedupe"`). The header carries `root`, `source_root`, `kind`, `created_at`; the quarantine is recorded in the saved plan (`jobs/<job>.plan.json`), not in the header.
+- Ops, all existing: `Moved{from, via}`, `DirCreated`, `Created` (the `.txt` list), `Replaced{backup}` (gamelist), and for the Trash `ArchiveTrash` / `ArchiveTrashed` / `ArchiveKept` (§7.2). Each with `fp` and `item`.
+- `header_kind` learns `dedupe`, and `prune_jobs_at` keeps dedupe jobs on the organise rule (newest `keep` plus `KEEP_ORGANIZE_DAYS = 90`), counted apart from fill and organise. An older build cannot parse the new kind: it lists the journal as unreadable and never undoes it half.
+- Undo is the organise undo (per op, not per kind): `undo_job_with(…, trash)`, `later_jobs` → "Primero hay que deshacer…", `undo_jobs_in_order_with`, `undo_move` with fingerprint checks, `skipped_occupied` when a file has taken the original place, `restore_archives` for trashed copies. The app reuses `organize_undo`; the fill undo filter skips dedupe jobs like organise ones.
+- Plan saved as `jobs/<job>.plan.json`; resume as organise (`job_transfers`, `job_archive_steps`, `Writer::resume`). Pause on `DiskFull`, `Denied`, vanished root.
+- CLI `undo.rs` `kind_name` gains `dedupe`.
 
 ### 9.3 Remembered choices
 
@@ -470,7 +471,7 @@ Anatomy, top to bottom:
 
 **Options that change the count say by how much.** Turning on "Apartar también las otras versiones" or another level shows the delta next to the control ("+37 archivos") and the primary button updates in the same frame; the change is announced in the live region. A count never grows silently at the bottom of the screen.
 
-**Apply.** Quarantine: no confirm dialog for an ordinary plan (it is undoable in one click; brand §7 "say what will happen" is the button itself). A confirm `AlertDialog` **is** shown when the plan looks unlike a tidy-up: more than 500 files, more than 25 % of the library's ROM bytes, any pathological group (§10) the user opened and confirmed, or the quarantine on another volume (moves become copies). Its body names the count, the bytes, the largest system share ("2.940 de ellos en GB/") and the destination. Trash: `AlertDialog` with destructive action "Enviar 89 archivos a la Papelera", body naming the count, the bytes, that undo cannot restore them automatically, and the card-Trash caveat when removable. Progress: "Apartando {done} de {total}…" with `<Progress slots={16}>` and Cancel (between items).
+**Apply.** Quarantine: no confirm dialog for an ordinary plan (it is undoable in one click; brand §7 "say what will happen" is the button itself). A confirm `AlertDialog` **is** shown when the plan looks unlike a tidy-up: more than 500 files, more than 25 % of the library's ROM bytes, any pathological group (§10) the user opened and confirmed, or the quarantine on another volume (moves become copies). Its body names the count, the bytes, the largest system share ("2.940 de ellos en GB/") and the destination. Trash: `AlertDialog` with destructive action "Enviar 89 archivos a la Papelera", body naming the count, the bytes, that undo brings them back unless the Trash is emptied, and the card-Trash caveat when removable. The option is disabled with its reason when the volume has no Trash. Progress: "Apartando {done} de {total}…" with `<Progress slots={16}>` and Cancel (between items).
 
 **Done.**
 
@@ -579,7 +580,7 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `dedupe.apply.trash` | Enviar {count} archivos a la Papelera | Send {count} files to the Trash |
 | `dedupe.apply.none` | No hay nada que apartar | Nothing to set aside |
 | `dedupe.trash.confirmTitle` | ¿Enviar {count} archivos a la Papelera? | Send {count} files to the Trash? |
-| `dedupe.trash.confirmBody` | Son {bytes}. Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera. | That is {bytes}. Undo can't bring them back by itself: you'll restore them from the Trash. |
+| `dedupe.trash.confirmBody` | Son {bytes}. Deshacer los devuelve desde la Papelera mientras no la vacíes. | That is {bytes}. Undo brings them back from the Trash as long as you don't empty it. |
 | `dedupe.trash.cardNote` | En una tarjeta SD la Papelera está en la propia tarjeta; el espacio no se libera hasta vaciarla. | On an SD card the Trash is on the card itself; space is freed only when you empty it. |
 | `dedupe.applying` | Apartando {done} de {total}… | Setting aside {done} of {total}… |
 | `dedupe.done` | {count} archivos apartados en {folder}. Deshacer está a un clic. | Set aside {count} files in {folder}. Undo is one click away. |
@@ -592,7 +593,7 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `dedupe.skip.changed` | Ha cambiado desde la propuesta; sigue en su sitio. | Changed since the proposal; still in place. |
 | `dedupe.undo.title` | ¿Devolver {count} archivos a su sitio? | Put {count} files back? |
 | `dedupe.undo.action` | Devolver {count} archivos | Put back {count} files |
-| `dedupe.undo.trashed` | Recupéralo desde la Papelera (Volver a poner): {path} | Restore it from the Trash (Put Back): {path} |
+| `dedupe.undo.notInTrash` | No estaba en la Papelera: {path} | Not in the Trash any more: {path} |
 | `dedupe.empty.title` | No hay duplicados en {systems} sistemas. | No duplicates in {systems} systems. |
 | `dedupe.empty.body` | Este estante está en orden. | This shelf is in order. |
 | `dedupe.noCatalogue` | Otras versiones: sin catálogo para {count} sistemas ({systems}). | Other versions: no catalogue for {count} systems ({systems}). |
@@ -620,7 +621,9 @@ Keys under `dedupe.*` and `organize.dedupe.*`, every key in both locales (`parit
 | `saves.rs` | Save detection, blank-card check, conflict test |
 | `companions.rs` | Same-stem companions, art slots, shared-stem rule, gamelist entries |
 | `plan.rs` | `plan_dedupe(scan, catalogue, cache, opts, progress, cancel) -> DedupePlan` |
-| `apply.rs` | Generic move run built from organise `Run` (`revalidate`, `apply_set`, `on_error` pause, cancel); `apply_dedupe`, `resume_dedupe` |
+| `apply.rs` | Its own small run over `Writer` and the public organise helpers (organise `Run` stays private): revalidation, all-or-nothing sets, preflight, `on_error`-style pause, cancel, `trash_file` over `write::trash`; `apply_dedupe`, `resume_dedupe` |
+| `archive.rs` | `ArchiveEntryListing`: `EntryListing` over `archive::open_archive_with`, `archive::cache::Cache`, `ToolsOnDemand` |
+| `disc.rs` | `ReaderDiscProbe`: `DiscProbe` over `disc::DiscReader`, sheets, m3u, PBP, CSO |
 
 Organise integration: `organize/plan.rs` calls `dedupe::group_units` on the pile + target-system units, replacing `mark_duplicates`; pile extras become `OrganizeItem`s with `target` in the quarantine and `ItemAction::SetAside`.
 
@@ -635,25 +638,15 @@ Organise integration: `organize/plan.rs` calls `dedupe::group_units` on the pile
 - `dedupe_choices(system, keeper_key, signature, saves_fp, chosen_at, PRIMARY KEY(system, keeper_key))`.
 - Migration `2 → 3` adds columns and tables; old rows stay valid.
 
-### 12.4 Contract with `feat/organize-disc-archives`
+### 12.4 Contract with the archive and disc readers (merged, PR #24)
 
-This spec assumes that branch lands:
+The draft assumed an `ArchiveReader { entries, open }` and a `read_disc_id(path, system)`. What landed, and what dedupe uses:
 
-```rust
-pub trait ArchiveReader {
-    fn entries(&self) -> io::Result<Vec<ArchiveEntry>>;          // name, size, crc32: Option<u32>
-    fn open(&self, entry: usize, budget: u64) -> io::Result<Box<dyn Read>>;
-}
-pub struct DiscId {
-    pub serials: Vec<String>,
-    pub disc_no: Option<u8>,              // from IP.BIN device field, PARAM.SFO, m3u position
-    pub volume: Option<VolumeFingerprint>, // PVD space size + timestamps, sha1 of the disc's own boot file (§5.4)
-    pub source: DiscIdSource,
-}
-pub fn read_disc_id(path: &Path, system: SystemId) -> io::Result<Option<DiscId>>;
-```
-
-If it is not merged when dedupe is built: zip only through the existing reader; level 3 disabled with "Otros formatos: necesita leer discos (próxima versión)"; 7z/rar units are name-only and never grouped. If it lands without `volume`, level 3 groups are found but stay report-only (`BuildDiffers` cannot be ruled out).
+- **Archives** (`crates/coverly-core/src/archive/`): `open_archive_with(path, &Limits, tools) -> Option<Box<dyn ArchiveReader>>` (magic first, zip, 7z, rar through external tools, tar, gz/bz2/xz/zst/lz4/lzma), `file_entries(reader)` (file entries in archive order: dedupe's `entry: usize` index space), `ArchiveReader::open_entry(index, &mut Budget)` (CRC checked at EOF), the process-wide `archive::cache::Cache` for listings and heads, `Limits` (64 MiB plan head budget, 20 s wall time), `is_budget_spent` (a spent budget is "not read", never an error), `From<ArchiveError> for io::Error`. External tools come from `ToolsOnDemand::new(&[library root, quarantine])`: found on first need, never from a `PATH` entry inside those roots.
+- **Discs** (`crates/coverly-core/src/disc/`): `DiscReader::identify_with(src, image_len, fetch)` over `FileSource` or a `WindowSource` head, `parse_sheet` + `primary_track` for cue/gdi, `DiscIdentity::to_dedupe_id() -> dedupe::source::DiscId` (serials, disc number, volume fingerprint, source). `VolumeFingerprint` and `DiscIdSource` are dedupe's own types, re-exported by `disc`.
+- **Seams:** dedupe keeps its two traits (`EntryListing`, `DiscProbe`, `dedupe/source.rs`). `crates/coverly-core/tests/archive_dedupe_contract.rs` proves both fit with no new types; phase B turns its test adapters into `dedupe::archive::ArchiveEntryListing` and `dedupe::disc::ReaderDiscProbe` and deletes the phase A `ZipListing`, so 7z/rar/tar/compressed units are no longer name-only.
+- **Trash:** `write::trash` and its journal ops (§7.2, §9.2).
+- Still missing: CHD hunks (level 1 only) and PBP/CSO sector readers, which dedupe adds in `disc/pbp.rs` and `disc/cso.rs`.
 
 ### 12.5 App
 
@@ -780,14 +773,14 @@ All fixtures are synthetic and generated in tests; no ROM data is committed.
 - **Level 3** (fake `DiscId` provider): PBP + bin same serial → group; disc 1 vs disc 2 serials → no group; m3u (2 discs) vs lone disc 1 → partial set, report-only; serial mapped to two titles in the DAT → report-only; no serial → level 1 only.
 - **Keeper**: one test per rule, with the expected `KeepReason` and its values; rule order changes the winner; disabled rule skipped; `user` choice survives a rename (signature); `tie` reason when everything equal; container order per profile, `*` fallback, arcade zip-only.
 - **Saves**: all-zero, all-`0xFF`, blank PS card (`MC` header, empty frames) → no save; real saves equal → not a conflict, extra's save travels; real saves different → conflict, nothing in the plan acts; shared-stem save stays with the keeper (Crash Bash shape).
-- **Apply/undo** (tempdirs): quarantine path mirrors `rel_dir`; art in `Imgs/` follows; gamelist entry removed and restored; collision in the quarantine → `(2)`; keeper changed after plan → group skipped; extra changed → `ChangedSincePlan`; set moved all-or-nothing; cross-volume fallback via injected `EXDEV`; disk full → pause + resume; undo restores ROM, companions, art, gamelist; undo with a later job refuses unless `include_later`; trash op journaled, undo reports manual restore (trash backend injected); pruning keeps dedupe jobs 90 days; older journals still parse; `header_kind("dedupe")`.
+- **Apply/undo** (tempdirs): quarantine path mirrors `rel_dir`; art in `Imgs/` follows; gamelist entry removed and restored; collision in the quarantine → `(2)`; keeper changed after plan → group skipped; extra changed → `ChangedSincePlan`; set moved all-or-nothing; cross-volume fallback via injected `EXDEV`; disk full → pause + resume; undo restores ROM, companions, art, gamelist; undo with a later job refuses unless `include_later`; trash ops journaled before the call, undo brings the files back from the Trash and lists only what the Trash lost (`FakeTrash`); pruning keeps dedupe jobs 90 days; older journals still parse; `header_kind("dedupe")`.
 - **Exclusions**: files under `PORTS/`, `BIOS/`, `Imgs/`, `Saves/`, the quarantine folder → never units; Organise walk and library scan skip the quarantine.
 - **Adversarial review cases** (§5–§10): `PS/scph1001.bin` = `PS/scph5501.bin` (synthetic bytes, real names) → no group; `neogeo.zip` copies → no group; two zero-byte `.gba` and two identical HTML pages named `.zip` → "No es una ROM", no group; symlink → target pair → no unit for the link, target never moved; two `.cue` over one `.bin` → one unit; NES pair with equal PRG/CHR and different iNES mapper → report-only `HeaderDiffers`; NES headered vs headerless → headered stays; `ffight.zip` vs `ffightu.zip` identical with a mock arcade DAT → no group; `ffight.zip` vs `ffight (1).zip` → group, `ffight.zip` forced keeper; arcade with no DAT → report-only; `Game.sfc`+`Game.ips` vs `Game (1).sfc` → no group, and with equal `.ips` → group; CHD equal `rawsha1`, different combined `sha1` → report-only; cue/bin with equal tracks and a different `INDEX 01` → no level 1 group; DAT names with `[h1]`/`[T+Eng]` vs clean → no level 2 group; level 3 same serial + different PVD timestamp → `BuildDiffers`; PBP with rewritten outer `PARAM.SFO` + same disc → group; same serial with `[T+Spa]` in a name → report-only; Saturn two discs sharing a product number with `disc_no` unknown → no level 3; RetroArch `saves/<core>/<stem>.srm` found; DuckStation `memcards/<serial>.mcd` stays; remembered pick + new save on the other copy → pick dropped; FAT32 destination with a 4.2 GiB ISO → `DestinationLimit` before any copy; `Game:1.gb` to exFAT → `DestinationLimit`; `Tetris.gb` + `tetris.gb` (case-sensitive source) to a case-insensitive quarantine → `(2)`; content cache on FAT with a reused file id at another path → not trusted; `played` rule from `gamelist.xml`; >500-file plan → bulk confirm; 60-member group → collapsed report-only until confirmed; pile extra lands in `<pile>/_Duplicados`.
 - **Organise step**: pile item equal to a library ROM under another name → `InLibrary`, set aside; pile pair with header/headerless → one group (regression for `raw_crcs.first()`); `mark_duplicates` removed, no "shortest name" behaviour left (test asserts keeper ≠ shortest name when rules say so).
 - **Performance** (`#[ignore]`, CI-local): 10,000 synthetic files with 2% duplicates plan with `hash_rom` calls ≤ colliders; warm second run hashes 0 files; a moved file keeps its cache row (dev+inode).
-- **CLI** (`assert_cmd`): dry run writes nothing (tree hash before/after, also with `safety.dry_run_default = false`); `--apply` creates the quarantine; `--trash` with an injected backend; `--report json` matches the schema; `--keep PATH` overrides; `coverly undo` restores.
+- **CLI** (`assert_cmd`): dry run writes nothing (tree hash before/after, also with `safety.dry_run_default = false`); `--apply` creates the quarantine; `--trash` with `FakeTrash` through `COVERLY_TEST_FAKE_TRASH`; `--report json` matches the schema; `--keep PATH` overrides; `coverly undo` restores.
 - **App**: Vitest for `dedupeStore` (plan → set keeper → skip group → apply → undo), `DupGroup` radio semantics and keyboard, reason texts for every `KeepReason`, i18n parity, contract fixtures; E2E on the mock backend through Chrome DevTools MCP (screenshots light/dark, 720px and 1280px).
-- **Real sample** (`#[ignore]`, `COVERLY_SAMPLE_DIR` and `COVERLY_LIBRARY_DIR`): **plan only** against both folders; asserts §15.1 totals per system, zero cross-system groups, the §15.2 "never offered" list, the §15.3 PS groups once the disc reader exists. Apply is tested on a copy under `target/` (`cp -X`), never on the originals.
+- **Real sample** (`#[ignore]`, `COVERLY_SAMPLE_DIR` and `COVERLY_LIBRARY_DIR`): **plan only** against both folders; asserts §15.1 totals per system, zero cross-system groups, the §15.2 "never offered" list, the §15.3 PS groups once the disc reader exists. Apply is tested on a copy under `target/` (`cp -RXp`), never on the originals (`~/Documents/ROMS`, `/Volumes/TinyExt/ROMs-Downloaded`, `/Volumes/System` are read-only).
 
 ## 17. Milestones (input for the implementation plan)
 
@@ -798,7 +791,7 @@ All fixtures are synthetic and generated in tests; no ROM data is committed.
 | D3 | `dedupe/units.rs` + `keys.rs`: units, exclusions, level 1 bucketing and keys (incl. CHD `rawsha1`) |
 | D4 | `group.rs` + level 2 + level 3 (behind the `DiscId` contract, disabled if absent) |
 | D5 | `keeper.rs`, `saves.rs`, `companions.rs`; `plan.rs` with snapshots |
-| D6 | Journal: `JobKind::Dedupe`, `Trashed` op, pruning, `header_kind`; `dedupe/apply.rs` (generic run from organise), resume, undo wiring; `trash` crate behind a trait |
+| D6 | Journal: `JobKind::Dedupe`, pruning, `header_kind`; Trash through `write::trash` and its existing ops; `dedupe/apply.rs`, resume, undo wiring |
 | D7 | Organise integration: replace `mark_duplicates`, `InLibrary`, set-aside items, quarantine skip in walk/scan |
 | D8 | CLI `coverly dedupe` + `undo` kind |
 | D9 | Tauri `DedupeManager`, IPC, events, mock backend, contract |
@@ -811,10 +804,10 @@ All fixtures are synthetic and generated in tests; no ROM data is committed.
 2. **Parent/clone source.** Add the No-Intro P/C XML (or Retool clone lists) as an optional download so level 2 groups regional retitles and reaches confidence 1.00?
 3. **Translations and hacks in level 2.** Keep them in their own class (proposed), or let 1G1R set aside a translation when the original is present?
 4. **Quarantine name.** `_Duplicados` fixed at first run from the app language (proposed) vs always `_Duplicates`.
-5. **Quarantine on a broad parent.** For `~/Documents/ROMS`, the default lands in `~/Documents/ROMS _Duplicados`. Acceptable, or always inside the library root?
+5. **Quarantine on a broad parent.** Answered (owner, phase B): always inside the library root, `~/Documents/ROMS/_Duplicados` (§7.1).
 6. **Zip vs raw on handhelds.** Leave "no preference" (proposed) or prefer `zip` to save space on stock firmwares that load zips?
 7. **Organise default.** Should the Organise step set aside duplicates by default (proposed: yes, they are pile files) or only report them?
-8. **Trash Put Back.** Confirm per OS which `trash` crate backend supports Finder/Explorer "Put Back" before wording `dedupe.undo.trashed`.
+8. **Trash Put Back.** Answered: `write::trash` restores from the exact place itself, so `dedupe.undo.trashed` is replaced by `dedupe.undo.notInTrash` (§7.2). Finder "Put Back" also works on macOS.
 9. **Card space.** A same-volume quarantine on an SD card frees no space (§7.1). Default stays on the card (instant, undoable) with the honest wording — or default to a folder on the computer for removable libraries, accepting slower copies?
 10. **Level 3 strictness.** The volume fingerprint (§5.4) will turn some true copies (a PBP whose converter re-mastered the ISO) into report-only. Accept the false negatives, or allow acting on serial + Redump single-entry agreement alone when no member's name carries a modification tag?
 11. **Bulk confirm thresholds.** 500 files / 25 % of ROM bytes (§11.3) are guesses; tune after the real-sample run.

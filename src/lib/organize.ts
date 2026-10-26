@@ -5,12 +5,14 @@
 import type { TranslateVars } from '@/i18n/core';
 import type {
   ArchiveTool,
+  DupGroupView,
   DiscId,
   Evidence,
   ItemNote,
   LeftReason,
   OrganizeItem,
   OrganizePlan,
+  OrganizeReport,
   ProfileFile,
   RenameReason,
   TransferMode,
@@ -91,6 +93,112 @@ export function reviewBuckets(plan: OrganizePlan): ReviewBucket[] {
 /** Items that stay where they are. */
 export function leftItems(plan: OrganizePlan): OrganizeItem[] {
   return plan.items.filter((i) => i.action === 'left');
+}
+
+/** Pile copies the duplicates step found (set aside, or reported as
+ * already in the library) and how many of them the library holds. */
+export function duplicateCounts(plan: OrganizePlan): {
+  extras: number;
+  inLibrary: number;
+} {
+  const extras = plan.items.filter(
+    (i) =>
+      i.action === 'set-aside' ||
+      (i.action === 'left' && i.reason.kind === 'in-library'),
+  ).length;
+  return { extras, inLibrary: plan.counts.in_library };
+}
+
+/** One duplicates group of the proposal, ready for `DupGroup`. */
+export interface OrganizeDupGroup {
+  group: DupGroupView;
+  /** Where its copies go (absolute); '' when none is set aside. */
+  quarantine: string;
+  /** Some copy leaves (set-aside mode); otherwise they all stay. */
+  setAside: boolean;
+}
+
+const slashed = (p: string) => p.replace(/\\/g, '/');
+const isAbs = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+const joinPath = (root: string, rel: string) =>
+  `${root.replace(/[\\/]+$/, '')}/${rel}`;
+
+/** Where plan item source `rel` lies (absolute; sources may be
+ * relative to the pile). */
+export function sourcePath(plan: OrganizePlan, rel: string): string {
+  return isAbs(rel) ? rel : joinPath(plan.source_root, rel);
+}
+
+/** A path as a comparison key: forward slashes, any case. */
+export const pathKey = (p: string) => slashed(p).toLowerCase();
+
+/**
+ * Which of the paths an undo could not bring back from the Trash were
+ * duplicates the job sent there (status `trashed`), not archives it
+ * extracted: a lost copy is simply gone (its keeper stays), while a lost
+ * archive leaves its extracted files in place. Without the plan, a job
+ * that extracted nothing only trashed duplicates.
+ */
+export function lostTrashedCopies(
+  lost: readonly string[],
+  report: OrganizeReport | null,
+  plan: OrganizePlan | null,
+): Set<string> {
+  const trashed = (report?.items ?? []).filter((o) => o.status === 'trashed');
+  if (trashed.length === 0) return new Set();
+  if (!plan)
+    return report?.items.some(
+      (o) => o.status === 'extracted' || o.status === 'extracted-kept',
+    )
+      ? new Set()
+      : new Set(lost);
+  const byId = new Map(plan.items.map((i) => [i.id, i]));
+  const keys = new Set(
+    trashed.flatMap((o) => {
+      const first = byId.get(o.item)?.sources[0];
+      return first ? [pathKey(sourcePath(plan, first))] : [];
+    }),
+  );
+  return new Set(lost.filter((p) => keys.has(pathKey(p))));
+}
+
+/**
+ * The plan's duplicate groups with each set-aside copy's destination
+ * written in (the plan item knows it: relative to the pile, or absolute
+ * in the library's quarantine) and the quarantine folder they land in.
+ */
+export function organizeDupGroups(plan: OrganizePlan): OrganizeDupGroup[] {
+  const bySource = new Map<string, OrganizeItem>();
+  for (const item of plan.items) {
+    const first = item.sources[0];
+    if (!first) continue;
+    bySource.set(pathKey(sourcePath(plan, first)), item);
+  }
+  return (plan.duplicates ?? []).map((group) => {
+    let quarantine = '';
+    const members = group.members.map((m) => {
+      const item = bySource.get(pathKey(m.unit.primary));
+      if (item?.action !== 'set-aside') return m;
+      const dest = isAbs(item.dest)
+        ? item.dest
+        : joinPath(plan.source_root, item.dest);
+      if (!quarantine) {
+        // The folder is the destination without the copy's own path.
+        const rel = slashed(item.sources[0] ?? '');
+        const d = slashed(dest);
+        quarantine =
+          rel && d.toLowerCase().endsWith(`/${rel.toLowerCase()}`)
+            ? dest.slice(0, d.length - rel.length - 1)
+            : dest.slice(0, Math.max(d.lastIndexOf('/'), 0));
+      }
+      return { ...m, dest };
+    });
+    return {
+      group: { ...group, members },
+      quarantine,
+      setAside: quarantine !== '',
+    };
+  });
 }
 
 /** High ≥ 0.95, medium ≥ 0.85, otherwise no label (review territory). */
@@ -199,6 +307,8 @@ export function leftReasonKey(r: LeftReason): KeyedText {
       return k('unknown');
     case 'duplicate':
       return k('duplicate', { name: r.of });
+    case 'in-library':
+      return k('inLibrary', { path: r.path });
     case 'already-present':
       return k('alreadyPresent', { path: r.at });
     case 'already-sorted':

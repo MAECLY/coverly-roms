@@ -129,6 +129,7 @@ fn print_table(plan: &OrganizePlan) {
             OrganizeAction::Auto => "auto".to_string(),
             OrganizeAction::Review => "review".to_string(),
             OrganizeAction::Left { reason } => format!("left {reason:?}"),
+            OrganizeAction::SetAside { keeper, .. } => format!("set aside, keeps {keeper:?}"),
         };
         let why: Vec<String> = item
             .why

@@ -198,9 +198,19 @@ const DEDUPE_REPORT: DedupeReportView = (() => {
     if (g.action.kind !== 'act') continue;
     for (const m of g.members)
       if (m.id !== g.keeper)
-        outcomes.push([g.id, m.id, { status: 'quarantined' }]);
+        outcomes.push({
+          group: g.id,
+          member: m.id,
+          status: 'quarantined',
+          to: m.dest ?? '',
+          files: [],
+        });
   }
-  outcomes[1]![2] = {
+  const second = outcomes[1]!;
+  outcomes[1] = {
+    group: second.group,
+    member: second.member,
+    files: [],
     status: 'skipped',
     reason: { kind: 'destination-limit', why: 'fat32-size' },
   };
@@ -209,6 +219,9 @@ const DEDUPE_REPORT: DedupeReportView = (() => {
     outcomes,
     bytes_out: DEDUPE.totals.bytes,
     art_left: ['SMS/Imgs/Adventures of Dolphins.png'],
+    paused: null,
+    resumable: [],
+    notes: [],
   };
 })();
 

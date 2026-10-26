@@ -3,12 +3,14 @@ import type { ReactNode } from 'react';
 import { Field, FieldControl, FieldLabel } from '@/components/ui/field';
 import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
-import type {
-  NameMode,
-  OrganizePlan,
-  OrganizeRequest,
-  ProfileInfo,
-  TransferMode,
+import {
+  ORGANIZE_DEDUPE_MODES,
+  type NameMode,
+  type OrganizeDedupeMode,
+  type OrganizePlan,
+  type OrganizeRequest,
+  type ProfileInfo,
+  type TransferMode,
 } from '@/ipc/types';
 
 /** One labelled picker of the bar. */
@@ -26,8 +28,17 @@ function Picker({ label, children }: { label: string; children: ReactNode }) {
 const HERE = 'here';
 const OTHER = 'other';
 
+/** The i18n key of each duplicates step. */
+const DEDUPE_LABEL: Record<OrganizeDedupeMode, string> = {
+  'set-aside': 'organize.dedupe.quarantine',
+  report: 'organize.dedupe.report',
+  off: 'organize.dedupe.off',
+};
+
 interface Props {
   plan: OrganizePlan;
+  /** The duplicates step the plan was made with. */
+  duplicates: OrganizeDedupeMode;
   profiles: ProfileInfo[];
   disabled?: boolean;
   /** Layout, target and folders are fixed (a library's loose files). */
@@ -43,6 +54,7 @@ interface Props {
  */
 export function OptionsBar({
   plan,
+  duplicates,
   profiles,
   disabled = false,
   locked = false,
@@ -131,6 +143,22 @@ export function OptionsBar({
         >
           <option value="keep">{t('organize.names.keep')}</option>
           <option value="catalogue">{t('organize.names.catalogue')}</option>
+        </NativeSelect>
+      </Picker>
+      <Picker label={t('organize.dedupe.picker')}>
+        <NativeSelect
+          size="sm"
+          value={duplicates}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({ duplicates: e.target.value as OrganizeDedupeMode })
+          }
+        >
+          {ORGANIZE_DEDUPE_MODES.map((m) => (
+            <option key={m} value={m}>
+              {t(DEDUPE_LABEL[m])}
+            </option>
+          ))}
         </NativeSelect>
       </Picker>
     </div>

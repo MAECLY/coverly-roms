@@ -5,13 +5,26 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+use coverly_core::archive::external::{Search, ToolsOnDemand};
+use coverly_core::archive::testing::{sevenz_copy, tar_gz};
+use coverly_core::archive::Limits;
+use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::keys::{level_one, KeyCtx};
 use coverly_core::dedupe::source::{
-    DiscIdSource, DiscProbe, EntryListing, ListedEntry, NoDiscProbe, ZipListing,
+    DiscIdSource, DiscProbe, EntryListing, ListedEntry, NoDiscProbe,
 };
 use coverly_core::dedupe::testing::{disc_id, fingerprint, FakeDiscProbe, FakeListing};
 use coverly_core::identify::hash::HeaderRule;
 use sha1::{Digest, Sha1};
 use tempfile::TempDir;
+
+/// The archive reader's listing, with no external tool.
+fn listing() -> ArchiveEntryListing {
+    ArchiveEntryListing::new(Limits::default())
+}
 
 fn sha1_hex(bytes: &[u8]) -> String {
     Sha1::digest(bytes)
@@ -64,7 +77,7 @@ fn zip_listing_reads_central_directory_without_decoding() {
     let p = zip_with(&dir, "Set.ZIP", &[("a.bin", &a), ("b.bin", &b)]);
     corrupt(&p, &a[..64]);
 
-    let listed = ZipListing.list(&p).unwrap().expect("a zip is listed");
+    let listed = listing().list(&p).unwrap().expect("a zip is listed");
     assert_eq!(
         listed,
         vec![
@@ -84,11 +97,11 @@ fn zip_listing_reads_central_directory_without_decoding() {
     // Not a zip: not this lister's business.
     let rom = dir.path().join("Game.sfc");
     fs::write(&rom, &a).unwrap();
-    assert_eq!(ZipListing.list(&rom).unwrap(), None);
+    assert_eq!(listing().list(&rom).unwrap(), None);
     // A broken zip is an error, not "not an archive".
     let broken = dir.path().join("Broken.zip");
     fs::write(&broken, b"PK\x03\x04 not really").unwrap();
-    assert!(ZipListing.list(&broken).is_err());
+    assert!(listing().list(&broken).is_err());
 }
 
 #[test]
@@ -106,32 +119,32 @@ fn zip_payload_sha1_respects_budget() {
     // Index 1 of the listing (the directory entry is not listed).
     let size = headered.len() as u64;
     assert_eq!(
-        ZipListing
+        listing()
             .payload_sha1(&p, 1, HeaderRule::SmsCopier, size)
             .unwrap(),
         Some(sha1_hex(&payload)),
         "copier header skipped"
     );
     assert_eq!(
-        ZipListing
+        listing()
             .payload_sha1(&p, 1, HeaderRule::Plain, size)
             .unwrap(),
         Some(sha1_hex(&headered))
     );
     assert_eq!(
-        ZipListing
+        listing()
             .payload_sha1(&p, 1, HeaderRule::SmsCopier, size - 1)
             .unwrap(),
         None,
         "over budget: nothing decoded"
     );
-    assert!(ZipListing
+    assert!(listing()
         .payload_sha1(&p, 2, HeaderRule::Plain, size)
         .is_err());
 
     // An entry whose bytes do not match its directory CRC is an error.
     corrupt(&p, &payload[..64]);
-    assert!(ZipListing
+    assert!(listing()
         .payload_sha1(&p, 1, HeaderRule::SmsCopier, size)
         .is_err());
 }
@@ -247,6 +260,7 @@ fn units_of(root: &Path) -> UnitSet {
         &scan,
         &SystemDb::builtin(),
         &UnitOptions::for_profile(&profile),
+        &listing(),
     )
 }
 
@@ -296,6 +310,7 @@ fn ports_bios_apps_art_and_saves_folders_are_excluded() {
         &scan,
         &SystemDb::builtin(),
         &UnitOptions::for_profile(&profile),
+        &listing(),
     );
 
     assert_eq!(primaries(&set), vec![keep]);
@@ -388,7 +403,7 @@ fn bios_by_dat_isbios_and_arcade_bios_sets() {
             is_bios: false,
         },
     );
-    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts);
+    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts, &listing());
 
     assert_eq!(primaries(&set), vec![ffight.clone()]);
     assert_eq!(unit_at(&set, &ffight).kind, UnitKind::Arcade);
@@ -604,10 +619,22 @@ fn quarantine_folder_is_never_walked() {
     // A quarantine chosen inside a system folder.
     let inside = put(root, "ROMS/GB/_Duplicados/x.gb", &rom);
     let profile = common::profile("anbernic-stock");
-    let scan = scan_with(root, &profile, &ScanOptions::default());
+    // The scan never walks a quarantine by its default names; the units
+    // keep one out whatever its name (a scan told nothing about it).
+    let default_scan = scan_with(root, &profile, &ScanOptions::default());
+    assert!(default_scan
+        .systems
+        .iter()
+        .flat_map(|s| &s.roms)
+        .all(|r| r.path != inside));
+    let unaware = ScanOptions {
+        quarantine_names: Vec::new(),
+        ..ScanOptions::default()
+    };
+    let scan = scan_with(root, &profile, &unaware);
     let mut opts = UnitOptions::for_profile(&profile);
     opts.quarantine = Some(root.join("ROMS/GB/_duplicados"));
-    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts);
+    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts, &listing());
     assert_eq!(primaries(&set), vec![keep]);
     assert_eq!(excluded_as(&set, &inside), Some(Exclusion::Quarantine));
 
@@ -620,7 +647,7 @@ fn quarantine_folder_is_never_walked() {
         roms_root: String::new(),
         ..profile.clone()
     };
-    let mut scan = scan_with(froot, &flat_profile, &ScanOptions::default());
+    let mut scan = scan_with(froot, &flat_profile, &unaware);
     // Even a walk that took it as a system folder never yields its files.
     let mut fake = scan
         .systems
@@ -633,7 +660,7 @@ fn quarantine_folder_is_never_walked() {
     scan.systems.push(fake);
     let mut opts = UnitOptions::for_profile(&flat_profile);
     opts.quarantine = Some(froot.join("_Duplicados"));
-    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts);
+    let set = units_from_scan(&scan, &SystemDb::builtin(), &opts, &listing());
     assert_eq!(primaries(&set), vec![gb]);
     assert_eq!(excluded_as(&set, &parked), Some(Exclusion::Quarantine));
 }
@@ -666,6 +693,7 @@ fn apple_double_and_hidden_files_are_skipped() {
         &scan,
         &SystemDb::builtin(),
         &UnitOptions::for_profile(&profile),
+        &listing(),
     );
     assert_eq!(primaries(&set), vec![keep]);
     assert!(set.excluded.is_empty(), "{:?}", set.excluded);
@@ -826,4 +854,200 @@ fn xdelta_and_ppf_are_soft_patches() {
     let set = units_of(root);
     assert_eq!(unit_at(&set, &gba).patches, vec![xdelta]);
     assert_eq!(unit_at(&set, &cue).patches, vec![ppf]);
+}
+
+// --- Every archive format (plan Task 25, DD-13) ---
+
+/// `rom` as a scan entry of the GB folder of `set`'s scan: the scan only
+/// yields the extensions a system lists, units take whatever it hands them.
+fn scan_with_extra(root: &Path, extra: &[&Path]) -> LibraryScan {
+    let profile = common::profile("anbernic-stock");
+    let mut scan = scan_with(root, &profile, &ScanOptions::default());
+    let gb = scan
+        .systems
+        .iter_mut()
+        .find(|s| s.folder_name == "GB")
+        .unwrap();
+    let template: RomEntry = gb.roms[0].clone();
+    for p in extra {
+        let name = p.file_name().unwrap().to_string_lossy().into_owned();
+        gb.roms.push(RomEntry {
+            path: p.to_path_buf(),
+            stem: name.split('.').next().unwrap().to_string(),
+            ext: name.rsplit('.').next().unwrap().to_string(),
+            ..template.clone()
+        });
+    }
+    scan
+}
+
+fn units_of_scan(scan: &LibraryScan, listing: &dyn EntryListing) -> UnitSet {
+    let profile = common::profile("anbernic-stock");
+    units_from_scan(
+        scan,
+        &SystemDb::builtin(),
+        &UnitOptions::for_profile(&profile),
+        listing,
+    )
+}
+
+#[test]
+fn seven_zip_and_tar_gz_units_have_entry_crcs() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let rom = rom_bytes(21, 3000);
+    let loose = put(root, "ROMS/GB/Loose.gb", &rom_bytes(22, 100));
+    let sz = put(
+        root,
+        "ROMS/GB/Tetris.7z",
+        &sevenz_copy(&[("readme.txt", b"hi"), ("Tetris.gb", &rom)]),
+    );
+    let tgz = put(
+        root,
+        "ROMS/GB/Tetris.tar.gz",
+        &tar_gz(&[("Tetris.gb", &rom)], 0),
+    );
+    // A 7z saved under a zip name is read as the 7z it is.
+    let misnamed = put(
+        root,
+        "ROMS/GB/Next Tetris.zip",
+        &sevenz_copy(&[("Next Tetris.gb", &rom)]),
+    );
+    let set = units_of_scan(&scan_with_extra(root, &[&tgz]), &listing());
+
+    assert_eq!(unit_at(&set, &loose).kind, UnitKind::Single);
+    for p in [&sz, &tgz, &misnamed] {
+        let unit = unit_at(&set, p);
+        assert_eq!(unit.kind, UnitKind::Zip, "{}", p.display());
+        assert_eq!(unit.payload_size, Some(rom.len() as u64));
+        let entries = listing().list(p).unwrap().expect("listed");
+        let n = entries
+            .iter()
+            .position(|e| e.name.ends_with(".gb"))
+            .unwrap();
+        // A tar stores no CRC: its entry is confirmed by decoding.
+        let want = (p != &tgz).then(|| crc32fast::hash(&rom));
+        assert_eq!(entries[n].crc32, want, "{}", p.display());
+        assert_eq!(
+            listing()
+                .payload_sha1(p, n, HeaderRule::Plain, 1 << 20)
+                .unwrap(),
+            Some(sha1_hex(&rom)),
+            "{}",
+            p.display()
+        );
+    }
+    assert!(set.excluded.is_empty(), "{:?}", set.excluded);
+}
+
+#[test]
+fn rar_without_tools_is_unreadable_not_fatal() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let good = put(root, "ROMS/GB/Good.gb", &rom_bytes(23, 2048));
+    let mut bytes = b"Rar!\x1a\x07\x00".to_vec();
+    bytes.extend(rom_bytes(24, 512));
+    let rar = put(root, "ROMS/GB/Game.rar", &bytes);
+    let set = units_of_scan(&scan_with_extra(root, &[&rar]), &listing());
+
+    assert_eq!(primaries(&set), vec![good]);
+    assert_eq!(excluded_as(&set, &rar), Some(Exclusion::Unreadable));
+}
+
+/// A tool discovery over an empty folder: nothing to find, and
+/// `discovered()` tells whether anything asked.
+fn tools_in_empty(dir: &Path) -> Arc<ToolsOnDemand> {
+    let search = Search {
+        path_var: Some(std::env::join_paths([dir.as_os_str()]).unwrap()),
+        cwd: None,
+        fixed: Vec::new(),
+    };
+    Arc::new(ToolsOnDemand::with_search(search, &[]))
+}
+
+#[test]
+fn tools_are_never_discovered_for_a_zip() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let bin = TempDir::new().unwrap();
+    let rom = rom_bytes(25, 4096);
+    let zip = zip_with(&dir, "Game.zip", &[("Game.gb", &rom)]);
+    let sz = dir.path().join("Game.7z");
+    fs::write(&sz, sevenz_copy(&[("Game.gb", &rom)])).unwrap();
+    let tools = tools_in_empty(bin.path());
+    let listing = ArchiveEntryListing::with_tools_on_demand(Limits::default(), Arc::clone(&tools));
+
+    assert_eq!(listing.list(&zip).unwrap().map(|l| l.len()), Some(1));
+    assert!(listing.head(&zip, 0, 16).unwrap().is_some());
+    assert!(listing
+        .payload_sha1(&zip, 0, HeaderRule::Plain, 1 << 20)
+        .unwrap()
+        .is_some());
+    assert!(!tools.discovered(), "a zip never asks for a tool");
+
+    // Tools off: not even a 7z or a RAR asks.
+    let off = ArchiveEntryListing::with_tools_on_demand(
+        Limits {
+            external_tools: false,
+            ..Limits::default()
+        },
+        Arc::clone(&tools),
+    );
+    assert!(off.list(&sz).unwrap().is_some());
+    let mut rar = b"Rar!\x1a\x07\x00".to_vec();
+    rar.extend(rom_bytes(26, 512));
+    let rar = put(root, "Game.rar", &rar);
+    assert!(off.list(&rar).is_err());
+    assert!(!tools.discovered());
+
+    // A RAR may need one: asked on first need, and none found is an
+    // error for that file only.
+    assert!(listing.list(&rar).is_err());
+    assert!(tools.discovered());
+}
+
+#[test]
+fn names_never_group_over_seven_zip_twins() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let rom = rom_bytes(27, 32 * 1024);
+    let other = rom_bytes(28, 32 * 1024);
+    // The same bytes under two names: one group.
+    let a = put(
+        root,
+        "ROMS/GBA/234 Golden Nugget Casino.7z",
+        &sevenz_copy(&[("Golden Nugget Casino.gba", &rom)]),
+    );
+    let b = put(
+        root,
+        "ROMS/GBA/786 Caesar's Palace Advance.7z",
+        &sevenz_copy(&[("Caesars Palace.gba", &rom)]),
+    );
+    // The same name over other bytes: no group.
+    let c = put(
+        root,
+        "ROMS/GBA/Tetris.7z",
+        &sevenz_copy(&[("Tetris.gba", &other)]),
+    );
+    let d = put(
+        root,
+        "ROMS/GBA/Sub/Tetris.7z",
+        &sevenz_copy(&[("Tetris.gba", &rom_bytes(29, 32 * 1024))]),
+    );
+    let set = units_of(root);
+    let db = SystemDb::builtin();
+    let archives = listing();
+    let ctx = KeyCtx::new(&db, &archives);
+    let keys = level_one(&set.units, &ctx, &|_, _, _| {}, &AtomicBool::new(false));
+    let gk = |p: &Path| {
+        let u = unit_at(&set, p);
+        keys[u.id].group_key(&u.system)
+    };
+    assert!(gk(&a).is_some());
+    assert_eq!(gk(&a), gk(&b), "content decides, whatever the names");
+    assert!(
+        gk(&c).is_none() || gk(&c) != gk(&d),
+        "a shared name never groups"
+    );
+    assert_ne!(gk(&a), gk(&c));
 }

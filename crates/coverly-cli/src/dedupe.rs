@@ -1,7 +1,10 @@
 //! `coverly dedupe`: find the same game stored more than once inside one
 //! system and show which copy stays and where the others would go
-//! (duplicates spec §14). Always a dry run for now: setting copies aside
-//! arrives with the archive work.
+//! (duplicates spec §14). A dry run unless `--apply`, whatever the "dry
+//! run by default" setting says: then the extra copies are set aside in
+//! the quarantine (`_Duplicados/` inside the library, or `--quarantine
+//! DIR`) or sent to the Trash (`--trash`), journaled so `coverly undo`
+//! puts them back. A paused job (exit 5) continues with `--resume JOB`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -9,28 +12,35 @@ use std::fs::File;
 use std::io::{self, BufWriter, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use clap::{Args, ValueEnum};
+use coverly_core::archive::{Limits, ToolsOnDemand};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::dedupe::apply::{
+    apply_dedupe, load_dedupe_plan, resume_dedupe, DedupeApplyEnv, DedupeApplyNote,
+    DedupeItemStatus, DedupeReport, DedupeSkip, DestLimit,
+};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
 use coverly_core::dedupe::keys::DiskBytes;
-use coverly_core::dedupe::source::{NoDiscProbe, ZipListing};
 use coverly_core::dedupe::DedupeEnv;
 use coverly_core::dedupe::{
-    plan_dedupe, DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, DupGroup, GroupAction,
-    KeepReason, Member, Relation, ReportWhy, TravelKind,
+    plan_dedupe, DedupeDecisions, DedupeError, DedupeOptions, DedupePhase, DedupePlan,
+    DedupeProgress, DupGroup, GroupAction, KeepReason, Member, QuarantineChoice, Relation,
+    ReportWhy, TravelKind,
 };
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::net::{PoliteHttp, UreqHttp};
+use coverly_core::organize::apply::ApplyError;
 use coverly_core::paths::AppDirs;
 use coverly_core::scan::scan_library;
-use coverly_core::settings::{DedupeLevel, KeepRule, RuleToggle};
+use coverly_core::settings::{DedupeLevel, ExternalTools, KeepRule, RuleToggle};
 use coverly_core::systems::SystemDb;
+use coverly_core::write::trash::process_trash;
 
 use crate::profile::{check_root, choose_profile};
 use crate::{print_stdout, table, Failure};
-
-/// Until setting aside lands (plan Task 27), these flags are refused.
-const NOT_YET: &str = "available after the archive work lands";
 
 #[derive(Debug, Args)]
 pub struct DedupeArgs {
@@ -65,21 +75,36 @@ pub struct DedupeArgs {
     /// Cached catalogues only: no download.
     #[arg(long)]
     offline: bool,
+    /// Never run unrar, 7-Zip or bsdtar: RAR archives (and 7z coders the
+    /// built-in reader lacks) are not read inside.
+    #[arg(long)]
+    no_external_tools: bool,
     /// Show the plan only (the default, whatever the "dry run by default"
     /// setting says).
     #[arg(long, conflicts_with = "apply")]
     dry_run: bool,
-    /// Set the extra copies aside (not available yet).
+    /// Set the extra copies aside: into the quarantine (`_Duplicados/`
+    /// inside the library unless --quarantine), or the Trash with --trash.
+    /// Undo with `coverly undo`.
     #[arg(long)]
     apply: bool,
-    /// Set the extra copies aside in this folder (not available yet).
+    /// Set the extra copies aside in this folder instead (anywhere but
+    /// inside a system folder).
     #[arg(long, value_name = "DIR", conflicts_with = "trash")]
     quarantine: Option<PathBuf>,
-    /// Send the extra copies to the Trash (not available yet).
+    /// Send the extra copies to the Trash instead of the quarantine.
     #[arg(long)]
     trash: bool,
-    /// Continue an interrupted duplicates job (not available yet).
-    #[arg(long, value_name = "JOB_ID")]
+    /// Continue a paused or interrupted duplicates job from its saved plan
+    /// (the options that shape a plan are refused).
+    #[arg(
+        long,
+        value_name = "JOB_ID",
+        conflicts_with_all = [
+            "dry_run", "quarantine", "trash", "system", "level", "one_game_one_rom",
+            "keep_rules", "keep", "reset_choices",
+        ]
+    )]
     resume: Option<String>,
     /// Output format.
     #[arg(long, value_enum, default_value_t = ReportArg::Table)]
@@ -231,27 +256,85 @@ fn progress_line(p: &DedupeProgress) {
     }
 }
 
-pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
-    if args.apply || args.trash || args.quarantine.is_some() || args.resume.is_some() {
-        let flag = if args.apply {
-            "--apply"
-        } else if args.trash {
-            "--trash"
-        } else if args.quarantine.is_some() {
-            "--quarantine"
-        } else {
-            "--resume"
-        };
-        return Err(Failure::usage(format!(
-            "{flag} is {NOT_YET}; `coverly dedupe` only shows the plan for now"
-        )));
+/// How the report was made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    DryRun,
+    Apply,
+    Resume,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Mode::DryRun => "dry-run",
+            Mode::Apply => "apply",
+            Mode::Resume => "resume",
+        }
     }
+}
+
+/// The app folders, created, and the cache opened in them.
+fn open_dirs(
+    args: &DedupeArgs,
+    s: &coverly_core::settings::Settings,
+) -> Result<(AppDirs, Cache), Failure> {
+    let data = crate::settings::data_dir(args.data_dir.as_deref(), s);
+    let dirs = AppDirs::resolve(args.cache_dir.as_deref(), data.as_deref()).ok_or_else(|| {
+        fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
+    })?;
+    std::fs::create_dir_all(&dirs.cache).map_err(|e| {
+        fail(format!(
+            "cannot create the cache folder {}: {e}",
+            dirs.cache.display()
+        ))
+    })?;
+    let cache = Cache::open(&dirs.cache.join(CACHE_FILE)).map_err(fail)?;
+    Ok((dirs, cache))
+}
+
+/// A quarantine inside a system folder is bad usage (exit 2); anything
+/// else the planner refuses is an error (exit 1).
+fn plan_failure(e: DedupeError) -> Failure {
+    match e {
+        DedupeError::QuarantineInSystemFolder(_) => Failure::usage(e.to_string()),
+        e => fail(e),
+    }
+}
+
+/// Not enough space names both numbers; a missing plan or a journal
+/// error is a job error (exit 1).
+fn apply_failure(e: ApplyError, plan: Option<&DedupePlan>) -> Failure {
+    match (&e, plan) {
+        (ApplyError::NoSpace { needed, free }, Some(plan)) => fail(format!(
+            "not enough space in {}: {needed} bytes needed, {free} free; nothing was written",
+            plan.quarantine.display()
+        )),
+        (ApplyError::Dedupe(DedupeError::QuarantineInSystemFolder(_)), _) => {
+            Failure::usage(e.to_string())
+        }
+        _ => fail(e),
+    }
+}
+
+/// Prints `setting aside 3/10` lines to stderr, only when it is a
+/// terminal: the start, the end and every 25th copy.
+fn apply_progress_line(done: usize, total: usize) {
+    if done == 0 || done == total || done.is_multiple_of(25) {
+        eprintln!("setting aside {done}/{total}");
+    }
+}
+
+pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     check_root(&args.root)?;
     // Absolute, never canonical: the plan's paths match what you typed.
     let root = std::path::absolute(&args.root)?;
     let cli = crate::settings::load_cli_settings();
     let s = &cli.settings;
     let db = SystemDb::builtin();
+    if let Some(job) = &args.resume {
+        return resume(args, job, &root, s, &db);
+    }
 
     let mut opts = DedupeOptions::from_settings(&s.dedupe);
     if !args.level.is_empty() {
@@ -272,6 +355,13 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     opts.systems = system_ids(&args.system, &db)?;
     opts.offline = args.offline;
     opts.reset_choices = args.reset_choices;
+    if args.trash {
+        opts.quarantine = QuarantineChoice::Trash;
+    } else if let Some(dir) = &args.quarantine {
+        opts.quarantine = QuarantineChoice::Folder {
+            path: std::path::absolute(dir)?,
+        };
+    }
 
     let mut chosen = choose_profile(&root, args.profile.as_deref(), &cli)?;
     chosen.profile = s.art_profile(&chosen.profile);
@@ -282,17 +372,7 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
         .map(|p| keep_path(p, &root, &profile.roms_root))
         .collect::<io::Result<_>>()?;
 
-    let data = crate::settings::data_dir(args.data_dir.as_deref(), s);
-    let dirs = AppDirs::resolve(args.cache_dir.as_deref(), data.as_deref()).ok_or_else(|| {
-        fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
-    })?;
-    std::fs::create_dir_all(&dirs.cache).map_err(|e| {
-        fail(format!(
-            "cannot create the cache folder {}: {e}",
-            dirs.cache.display()
-        ))
-    })?;
-    let cache = Cache::open(&dirs.cache.join(CACHE_FILE)).map_err(fail)?;
+    let (dirs, cache) = open_dirs(args, s)?;
     let net = s.net_config();
     let http = PoliteHttp::new(UreqHttp::new(&net), &net);
     let base = args
@@ -316,19 +396,33 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
             table::terminal_safe(&format!("warning: {}: {}", w.path.display(), w.message))
         );
     }
+    // External tools are found on first need, never inside the library
+    // (which holds the default quarantine) or a custom quarantine.
+    let limits = Limits {
+        external_tools: !args.no_external_tools && s.organize.external_tools == ExternalTools::Auto,
+        ..Limits::default()
+    };
+    let mut avoid: Vec<&Path> = vec![&root];
+    if let QuarantineChoice::Folder { path } = &opts.quarantine {
+        avoid.push(path);
+    }
+    // One discovery for the entry listing and the disc probe.
+    let tools = Arc::new(ToolsOnDemand::new(&avoid));
+    let listing = ArchiveEntryListing::with_tools_on_demand(limits.clone(), Arc::clone(&tools));
+    let discs = ReaderDiscProbe::new(ArchiveEntryListing::with_tools_on_demand(limits, tools));
     let env = DedupeEnv {
         cache: &cache,
         db: &db,
         profile,
         settings: s,
-        listing: &ZipListing,
-        discs: &NoDiscProbe,
+        listing: &listing,
+        discs: &discs,
         dats,
         bytes: &DiskBytes,
         progress: &progress,
         cancel: &cancel,
     };
-    let plan = plan_dedupe(&scan, &opts, &env).map_err(fail)?;
+    let plan = plan_dedupe(&scan, &opts, &env).map_err(plan_failure)?;
     for path in &opts.forced_keepers {
         let found = plan
             .groups
@@ -346,10 +440,122 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
         }
     }
 
-    let text = match args.report {
-        ReportArg::Table => table::terminal_safe(&render_table(&plan, &db)),
-        ReportArg::Json => {
-            let mut buf = serde_json::to_string_pretty(&plan).map_err(io::Error::from)?;
+    if !args.apply {
+        return emit(args, Mode::DryRun, &plan, None, &db);
+    }
+    std::fs::create_dir_all(&dirs.data).map_err(|e| {
+        fail(format!(
+            "cannot create the data folder {}: {e}",
+            dirs.data.display()
+        ))
+    })?;
+    let trash = process_trash();
+    let apply_progress = move |done: usize, total: usize| {
+        if tty {
+            apply_progress_line(done, total);
+        }
+    };
+    let env = DedupeApplyEnv {
+        data_dir: &dirs.data,
+        trash: &*trash,
+        cache: &cache,
+        progress: &apply_progress,
+        cancel: &cancel,
+    };
+    // `--keep` is already in the plan: no other decision to pass.
+    let report = apply_dedupe(&plan, &DedupeDecisions::default(), &env)
+        .map_err(|e| apply_failure(e, Some(&plan)))?;
+    finish(args, Mode::Apply, &plan, &report, &db)
+}
+
+/// `--resume <job>`: continues the job from its saved plan, which must be
+/// a plan of this library.
+fn resume(
+    args: &DedupeArgs,
+    job: &str,
+    root: &Path,
+    s: &coverly_core::settings::Settings,
+    db: &SystemDb,
+) -> Result<(), Failure> {
+    let (dirs, cache) = open_dirs(args, s)?;
+    let plan = load_dedupe_plan(&dirs.data, job).map_err(|e| apply_failure(e, None))?;
+    if plan.root != root {
+        return Err(Failure::usage(format!(
+            "job {job} sets aside copies of {}, not {}",
+            plan.root.display(),
+            root.display()
+        )));
+    }
+    let tty = io::stderr().is_terminal();
+    let progress = move |done: usize, total: usize| {
+        if tty {
+            apply_progress_line(done, total);
+        }
+    };
+    let cancel = AtomicBool::new(false);
+    let trash = process_trash();
+    let env = DedupeApplyEnv {
+        data_dir: &dirs.data,
+        trash: &*trash,
+        cache: &cache,
+        progress: &progress,
+        cancel: &cancel,
+    };
+    let report = resume_dedupe(job, &env).map_err(|e| apply_failure(e, Some(&plan)))?;
+    finish(args, Mode::Resume, &plan, &report, db)
+}
+
+/// Prints the report of an apply or resume; a paused job is exit 5 with
+/// the command that continues it.
+fn finish(
+    args: &DedupeArgs,
+    mode: Mode,
+    plan: &DedupePlan,
+    report: &DedupeReport,
+    db: &SystemDb,
+) -> Result<(), Failure> {
+    emit(args, mode, plan, Some(report), db)?;
+    let Some(kind) = report.paused else {
+        return Ok(());
+    };
+    let message = match &report.job {
+        Some(job) => format!(
+            "paused: {}; resume with --resume {job} (or undo with `coverly undo --job {job}`)",
+            kind.as_str()
+        ),
+        None => format!(
+            "paused: {}; nothing was written. Run the same command later",
+            kind.as_str()
+        ),
+    };
+    Err(Failure { code: 5, message })
+}
+
+/// The dry run prints the plan (JSON: the plan itself, `version: 1`); an
+/// apply or resume adds what it did (JSON: `{ mode, plan, job }`).
+fn emit(
+    args: &DedupeArgs,
+    mode: Mode,
+    plan: &DedupePlan,
+    report: Option<&DedupeReport>,
+    db: &SystemDb,
+) -> Result<(), Failure> {
+    let text = match (args.report, report) {
+        (ReportArg::Table, report) => {
+            let mut text = render_table(plan, db, report.is_none());
+            if let Some(report) = report {
+                text.push_str(&render_report(plan, report));
+            }
+            table::terminal_safe(&text)
+        }
+        (ReportArg::Json, None) => {
+            let mut buf = serde_json::to_string_pretty(plan).map_err(io::Error::from)?;
+            buf.push('\n');
+            buf
+        }
+        (ReportArg::Json, Some(report)) => {
+            let v = serde_json::json!({ "mode": mode.name(), "plan": plan, "job": report });
+            let mut buf = serde_json::to_string_pretty(&v).map_err(io::Error::from)?;
             buf.push('\n');
             buf
         }
@@ -403,7 +609,7 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-fn relation_text(r: Relation) -> &'static str {
+pub(crate) fn relation_text(r: Relation) -> &'static str {
     match r {
         Relation::Exact => "exact copy",
         Relation::Format => "other format",
@@ -412,7 +618,7 @@ fn relation_text(r: Relation) -> &'static str {
 }
 
 /// Why the keeper stays, in one line.
-fn reason_text(reason: &KeepReason) -> String {
+pub(crate) fn reason_text(reason: &KeepReason) -> String {
     match reason {
         KeepReason::UserChoice => "your pick".into(),
         KeepReason::HasSave { path } => format!("has a save ({})", file_name(path)),
@@ -637,7 +843,7 @@ fn render_group(out: &mut String, plan: &DedupePlan, folder: &str, g: &DupGroup)
 
 /// The plain-text report of spec §14: one block per system, one per
 /// group, then the totals.
-fn render_table(plan: &DedupePlan, db: &SystemDb) -> String {
+fn render_table(plan: &DedupePlan, db: &SystemDb, dry_run: bool) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "library: {}", plan.root.display());
     let _ = writeln!(out, "profile: {}", plan.profile_id);
@@ -685,10 +891,15 @@ fn render_table(plan: &DedupePlan, db: &SystemDb) -> String {
         .count();
     let _ = writeln!(
         out,
-        "{} across {}, {} bytes. Dry run: nothing moved.",
+        "{} across {}, {} bytes.{}",
         plural(t.extras, "extra copy", "extra copies"),
         plural(acting, "game", "games"),
-        thousands(t.bytes)
+        thousands(t.bytes),
+        if dry_run {
+            " Dry run: nothing moved."
+        } else {
+            ""
+        }
     );
     if reported > 0 {
         let _ = writeln!(
@@ -704,7 +915,7 @@ fn render_table(plan: &DedupePlan, db: &SystemDb) -> String {
             plural(t.conflicts, "group", "groups")
         );
     }
-    if plan.same_volume && t.extras > 0 {
+    if dry_run && plan.same_volume && t.extras > 0 && !plan.trash {
         let _ = writeln!(
             out,
             "The quarantine is on the same volume: setting copies aside frees no space there."
@@ -733,6 +944,140 @@ fn render_table(plan: &DedupePlan, db: &SystemDb) -> String {
     }
     for p in &plan.unreadable {
         let _ = writeln!(out, "unreadable: {}", p.display());
+    }
+    out
+}
+
+// --- Apply report ---
+
+/// Why a copy stayed where it was, in a few words.
+fn skip_text(reason: &DedupeSkip) -> String {
+    match reason {
+        DedupeSkip::KeeperChanged => "the copy that stays changed since the plan".into(),
+        DedupeSkip::ChangedSincePlan => "changed since the plan".into(),
+        DedupeSkip::SourceMissing => "no longer there".into(),
+        DedupeSkip::DestinationLimit { why } => match why {
+            DestLimit::Fat32Size => "4 GiB or more: too big for FAT32 there".into(),
+            DestLimit::BadName => "a name the destination refuses".into(),
+            DestLimit::PathTooLong => "the path is too long there".into(),
+            DestLimit::CaseCollision => "a name that only differs by case is there".into(),
+        },
+        DedupeSkip::TrashUnavailable => "its volume has no Trash".into(),
+        DedupeSkip::Conflict => "the copies have different saves".into(),
+        DedupeSkip::ReportOnly => "only reported".into(),
+        DedupeSkip::Excluded => "left out".into(),
+        DedupeSkip::Cancelled => "cancelled".into(),
+        DedupeSkip::Taken => "a file of the set is in the quarantine already".into(),
+        _ => "left alone".into(),
+    }
+}
+
+/// The copy `(group, member)` of the plan as the table names it, else the
+/// first of its files.
+fn outcome_name(plan: &DedupePlan, group: u64, member: usize, files: &[PathBuf]) -> String {
+    plan.groups
+        .iter()
+        .find(|g| g.id == group)
+        .and_then(|g| {
+            let m = g.members.iter().find(|m| m.id == member)?;
+            Some(member_name(plan, &group_folder(plan, g), m))
+        })
+        .or_else(|| files.first().map(|p| p.display().to_string()))
+        .unwrap_or_else(|| format!("group {group}, copy {member}"))
+}
+
+/// What an apply or resume did: one row per copy it touched (the
+/// conflicts, reported and left-out groups are in the table above), then
+/// the totals, the job and how to undo it.
+fn render_report(plan: &DedupePlan, report: &DedupeReport) -> String {
+    let mut out = String::from("\n");
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let (mut quarantined, mut trashed) = (0usize, 0usize);
+    for o in &report.outcomes {
+        let name = outcome_name(plan, o.group, o.member, &o.files);
+        match &o.status {
+            DedupeItemStatus::Quarantined { to } => {
+                quarantined += 1;
+                rows.push(vec![
+                    "set aside".into(),
+                    name,
+                    format!("→ {}", dest_text(plan, to)),
+                ]);
+            }
+            DedupeItemStatus::Trashed { .. } => {
+                trashed += 1;
+                rows.push(vec!["to the Trash".into(), name, String::new()]);
+            }
+            DedupeItemStatus::Skipped {
+                reason: DedupeSkip::Conflict | DedupeSkip::ReportOnly | DedupeSkip::Excluded,
+            } => {}
+            DedupeItemStatus::Skipped { reason } => {
+                rows.push(vec!["left".into(), name, skip_text(reason)]);
+            }
+            DedupeItemStatus::Failed { kind, detail } => {
+                rows.push(vec![
+                    "failed".into(),
+                    name,
+                    format!("{}: {}", kind.as_str(), table::one_line(detail)),
+                ]);
+            }
+        }
+    }
+    out.push_str(&table::render(&rows));
+    for note in &report.notes {
+        match note {
+            DedupeApplyNote::GamelistNotUpdated { system } => {
+                let _ = writeln!(
+                    out,
+                    "The game list of {system} was not updated: it is outside the folder Coverly writes into."
+                );
+            }
+            DedupeApplyNote::ArtLeaves { keeper } => {
+                let _ = writeln!(
+                    out,
+                    "{} is left without some art.",
+                    table::one_line(&keeper.display().to_string())
+                );
+            }
+            _ => {}
+        }
+    }
+    let done = quarantined + trashed;
+    if done == 0 {
+        let _ = writeln!(out, "Nothing was set aside.");
+    } else {
+        let mut line = format!("Set aside {}", plural(done, "copy", "copies"));
+        if quarantined > 0 && trashed > 0 {
+            let _ = write!(
+                line,
+                " ({quarantined} in the quarantine, {trashed} in the Trash)"
+            );
+        } else if trashed > 0 {
+            line.push_str(" in the Trash");
+        } else {
+            let _ = write!(line, " in {}", plan.quarantine.display());
+        }
+        let _ = writeln!(
+            out,
+            "{line}: {} bytes left the ROMs folder.",
+            thousands(report.bytes_out)
+        );
+        if quarantined > 0 && plan.same_volume {
+            let _ = writeln!(
+                out,
+                "The quarantine is on the same volume: the card is as full as before."
+            );
+        }
+    }
+    if let Some(job) = &report.job {
+        if report.paused.is_some() && !report.resumable.is_empty() {
+            let _ = writeln!(
+                out,
+                "{} not done yet: continue with --resume {job}.",
+                plural(report.resumable.len(), "copy", "copies")
+            );
+        }
+        let _ = writeln!(out, "Job {job}: undo with `coverly undo --job {job}`.");
     }
     out
 }

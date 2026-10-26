@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import requests from './contract.requests.json';
 import sample from './contract.sample.json';
 import { BackendError } from './errors';
-import type { OrganizeDecision, OrganizeRequest } from './types';
+import type { DedupeRequest, OrganizeDecision, OrganizeRequest } from './types';
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => dialog);
@@ -23,6 +23,8 @@ vi.mock('@tauri-apps/api/event', async (importOriginal) => ({
 
 import {
   createTauriBackend,
+  DEDUPE_CHANGED_EVENT,
+  DEDUPE_PROGRESS_EVENT,
   ENTRIES_UPDATED_EVENT,
   JOB_CHANGED_EVENT,
   ORGANIZE_CHANGED_EVENT,
@@ -393,7 +395,7 @@ describe('Tauri backend', () => {
       sample.organize_progress,
       {
         ...sample.organize_job,
-        report: { ...sample.organize_job.report, extracted: 0 },
+        report: { ...sample.organize_job.report, extracted: 0, set_aside: 0 },
       },
     ]);
     offProgress();
@@ -473,5 +475,105 @@ describe('Tauri backend', () => {
     await expect(
       createTauriBackend().organizeUndo('j', false),
     ).rejects.toMatchObject({ code: 'later-jobs', detail: 'j2' });
+  });
+
+  it('tauri_adapter_uses_camelCase_args', async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((cmd, args) => {
+      calls.push([cmd, args]);
+      switch (cmd) {
+        case 'dedupe_plan':
+        case 'dedupe_regroup':
+        case 'dedupe_set_keeper':
+        case 'dedupe_skip_group':
+        case 'dedupe_skip_system':
+          return sample.dedupe_plan_view;
+        case 'dedupe_reset_choices':
+          return 3;
+        case 'dedupe_export_plan':
+          return 'coverly-duplicates-plan.json';
+        case 'dedupe_job':
+          return null;
+        case 'dedupe_cancel':
+        case 'dedupe_cancel_apply':
+        case 'reveal_path':
+          return null;
+        default:
+          return sample.dedupe_job;
+      }
+    });
+    const b = createTauriBackend();
+    const opts = requests.dedupe_request as DedupeRequest;
+    const plan = await b.dedupePlan('/Volumes/SD', opts);
+    // Rust leaves `trash` out of a quarantine plan; the adapter fills it in.
+    expect(plan).toEqual({ ...sample.dedupe_plan_view, trash: false });
+    await b.dedupePlan('/Volumes/SD');
+    await b.dedupeCancel(5);
+    await b.dedupeRegroup(5, { levels: ['exact'] });
+    await b.dedupeSetKeeper(5, 4_503_599_627_370_495, 1);
+    await b.dedupeSkipGroup(5, 17, true);
+    await b.dedupeSkipSystem(5, 'gba', false);
+    await expect(b.dedupeResetChoices('/Volumes/SD', ['gba'])).resolves.toBe(3);
+    await b.dedupeResetChoices('/Volumes/SD');
+    await expect(b.dedupeApply(5)).resolves.toEqual(sample.dedupe_job);
+    await b.dedupeCancelApply();
+    await expect(b.dedupeJob()).resolves.toBeNull();
+    await b.dedupeResume('j');
+    await expect(b.dedupeExportPlan(5)).resolves.toBe(
+      'coverly-duplicates-plan.json',
+    );
+    await b.revealPath('/Volumes/SD/_Duplicados');
+    expect(calls).toEqual([
+      ['dedupe_plan', { root: '/Volumes/SD', opts }],
+      ['dedupe_plan', { root: '/Volumes/SD', opts: null }],
+      ['dedupe_cancel', { planId: 5 }],
+      ['dedupe_regroup', { planId: 5, opts: { levels: ['exact'] } }],
+      [
+        'dedupe_set_keeper',
+        { planId: 5, group: 4_503_599_627_370_495, member: 1 },
+      ],
+      ['dedupe_skip_group', { planId: 5, group: 17, skip: true }],
+      ['dedupe_skip_system', { planId: 5, system: 'gba', skip: false }],
+      ['dedupe_reset_choices', { root: '/Volumes/SD', systems: ['gba'] }],
+      ['dedupe_reset_choices', { root: '/Volumes/SD', systems: null }],
+      ['dedupe_apply', { planId: 5 }],
+      ['dedupe_cancel_apply', {}],
+      ['dedupe_job', {}],
+      ['dedupe_resume', { job: 'j' }],
+      ['dedupe_export_plan', { planId: 5 }],
+      ['reveal_path', { path: '/Volumes/SD/_Duplicados' }],
+    ]);
+
+    const seen: unknown[] = [];
+    const off = await b.onDedupeProgress((e) => seen.push(e));
+    await b.onDedupeChanged((v) => seen.push(v));
+    events.handlers.get(DEDUPE_PROGRESS_EVENT)!({
+      payload: sample.dedupe_progress,
+    });
+    events.handlers.get(DEDUPE_CHANGED_EVENT)!({ payload: sample.dedupe_job });
+    expect(seen).toEqual([sample.dedupe_progress, sample.dedupe_job]);
+    off();
+    expect(events.handlers.has(DEDUPE_PROGRESS_EVENT)).toBe(false);
+  });
+
+  it('fills in the organise duplicates fields Rust leaves out', async () => {
+    mockIPC((cmd) =>
+      cmd === 'organize_plan' ? sample.organize_plan_view : sample.organize_job,
+    );
+    const b = createTauriBackend();
+    const view = await b.organizePlan({ source: '/x' });
+    expect(view.plan.duplicates).toEqual([]);
+    expect(view.plan.set_aside_trash).toBe(false);
+    expect([view.plan.counts.set_aside, view.plan.counts.in_library]).toEqual([
+      0, 0,
+    ]);
+    expect((await b.organizeApply(3, [])).report!.set_aside).toBe(0);
+  });
+
+  it('maps duplicates refusals to their codes', async () => {
+    mockIPC(() => Promise.reject({ code: 'no-dedupe-plan' }));
+    await expect(
+      createTauriBackend().dedupeSetKeeper(9, 1, 0),
+    ).rejects.toMatchObject({ code: 'no-dedupe-plan' });
   });
 });

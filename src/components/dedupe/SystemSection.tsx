@@ -115,24 +115,27 @@ export function SystemSection({
       data-system={system}
     >
       <div className="dup-system__head">
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            id={triggerId}
-            title={system}
-            aria-describedby={sizeId}
-            className="dup-system__trigger group"
-          >
-            <ChevronRight
-              aria-hidden
-              size={16}
-              className="dup-system__chevron"
-            />
-            <span className="dup-system__name">
-              {sentence(t, name, summary)}
-            </span>
-          </button>
-        </CollapsibleTrigger>
+        {/* The shelf's h2 sits between the screen's h1 and the games' h3. */}
+        <h2 className="dup-system__heading">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              id={triggerId}
+              title={system}
+              aria-describedby={sizeId}
+              className="dup-system__trigger group"
+            >
+              <ChevronRight
+                aria-hidden
+                size={16}
+                className="dup-system__chevron"
+              />
+              <span className="dup-system__name">
+                {sentence(t, name, summary)}
+              </span>
+            </button>
+          </CollapsibleTrigger>
+        </h2>
         {summary.conflicts > 0 && (
           <span className="dup-system__conflicts">
             <TriangleAlert size={14} aria-hidden />

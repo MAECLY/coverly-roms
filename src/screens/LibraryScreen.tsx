@@ -227,6 +227,7 @@ export function LibraryScreen() {
         onFill={() => setOverlay('wizard')}
         onJobs={() => setOverlay('jobs')}
         onReports={() => setOverlay('reports')}
+        onDuplicates={() => useNavStore.getState().openDuplicates(view.root)}
         onOrganizeLoose={() =>
           useNavStore.getState().openOrganize(view.root, {
             layout: view.profile.id,

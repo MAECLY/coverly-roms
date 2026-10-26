@@ -1,5 +1,5 @@
 import { ChevronRight, FolderOpen, Play, Undo2 } from 'lucide-react';
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 import { Alert, AlertTitle } from '@/components/ui/alert';
 import {
@@ -20,12 +20,10 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
-import { getBackend } from '@/ipc/backend';
 import { errorKey, type BackendError } from '@/ipc/errors';
+import { lostTrashedCopies } from '@/lib/organize';
 import type {
-  JobHistoryItem,
   OrganizeItem,
   OrganizeItemOutcome,
   OrganizeJobView,
@@ -42,6 +40,7 @@ import {
   pathText,
   sectionTitle,
 } from './styles';
+import { useLaterJobs } from './laterJobs';
 import { undoCounts } from './undoCounts';
 
 interface Props {
@@ -84,6 +83,10 @@ function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
       return t('organize.outcome.extracted');
     case 'extracted-kept':
       return t('organize.outcome.extractedKept');
+    case 'quarantined':
+      return t('organize.outcome.quarantined');
+    case 'trashed':
+      return t('organize.outcome.trashed');
     case 'skipped':
       return t(`organize.outcome.skipped.${o.reason}`);
     case 'failed':
@@ -91,48 +94,6 @@ function outcomeText(t: TFunction, o: OrganizeItemOutcome): string {
         reason: t(`jobs.error.${o.kind}`),
       });
   }
-}
-
-/** The ids of `later-jobs` as "Covers 17 Oct 2026, 10:32", once the
- * history is there (the ids themselves until then). */
-function useLaterJobs(ids: string[] | null): string {
-  const t = useT();
-  const locale = useContext(LocaleContext);
-  const [history, setHistory] = useState<JobHistoryItem[]>([]);
-  const key = ids?.join(', ') ?? null;
-  useEffect(() => {
-    if (key === null) return;
-    let alive = true;
-    void getBackend()
-      .then((b) => b.jobHistory())
-      .then(
-        (h) => alive && setHistory(Array.isArray(h) ? h : []),
-        () => undefined,
-      );
-    return () => {
-      alive = false;
-    };
-  }, [key]);
-  return useMemo(() => {
-    if (!ids) return '';
-    const dates = new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-    return ids
-      .map((id) => {
-        const h = history.find((x) => x.job === id);
-        if (!h) return id;
-        const d = new Date(h.created_at);
-        return t('organize.undo.laterJob', {
-          kind: t(`jobs.kind.${h.kind}`),
-          date: Number.isNaN(d.getTime())
-            ? t('jobs.unknownDate')
-            : dates.format(d),
-        });
-      })
-      .join(', ');
-  }, [ids, history, locale, t]);
 }
 
 /** What an organise apply did, with open, undo and resume (spec §4.3). */
@@ -163,9 +124,19 @@ export function OrganizeResult({
   const undone = undoCounts(undo);
   const notRemoved =
     report?.items.filter((o) => o.status === 'copied-not-removed').length ?? 0;
-  const placed = report ? report.moved + report.copied + report.extracted : 0;
+  const setAside =
+    report?.items.filter((o) => o.status === 'quarantined').length ?? 0;
+  const trashedCopies =
+    report?.items.filter((o) => o.status === 'trashed').length ?? 0;
+  // Set-aside copies come back with the undo too.
+  const placed = report
+    ? report.moved + report.copied + report.extracted + report.set_aside
+    : 0;
   const kept = report?.items.filter((o) => o.status === 'extracted-kept') ?? [];
-  const lost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
+  const allLost = (undo?.report ?? []).flatMap((r) => r.archive_lost);
+  // Duplicates sent to the Trash are not archives with extracted files.
+  const lostCopies = lostTrashedCopies(allLost, report, plan);
+  const lost = allLost.filter((p) => !lostCopies.has(p));
   // A verb plus the exact count when it is known (brand §7).
   const undoLabel =
     placed > 0
@@ -202,6 +173,13 @@ export function OrganizeResult({
                         count: report.extracted,
                       }),
                     ]
+                  : []),
+                // So do the duplicates set aside (or sent to the Trash).
+                ...(setAside > 0
+                  ? [t('organize.result.setAside', { count: setAside })]
+                  : []),
+                ...(trashedCopies > 0
+                  ? [t('organize.result.trashed', { count: trashedCopies })]
                   : []),
               ].join(' · ')}
             </p>
@@ -295,6 +273,19 @@ export function OrganizeResult({
             {lost.map((path) => (
               <li key={path} className={pathText}>
                 {baseName(path)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+      {lostCopies.size > 0 && (
+        // The rest of the job is undone; these copies could not come
+        // back (their keepers stay in the library).
+        <Alert variant="warning">
+          <ul className="m-0 grid list-none gap-0.5 p-0">
+            {[...lostCopies].map((path) => (
+              <li key={path} className={pathText}>
+                {t('dedupe.undo.notInTrash', { path })}
               </li>
             ))}
           </ul>

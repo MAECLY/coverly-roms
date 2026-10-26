@@ -60,8 +60,10 @@ export interface TrayRowProps {
   members: MemberView[];
   /** The copy on the shelf now. */
   keeper: MemberView;
-  /** A radio and a destination; `false` for report-only groups. */
+  /** A destination (and a radio); `false` for report-only groups. */
   interactive: boolean;
+  /** The radio to keep this copy instead (default: `interactive`). */
+  pickable?: boolean;
   /** Show this row's own relation badge (when the tray mixes relations). */
   showRelation: boolean;
   quarantine: string;
@@ -84,6 +86,7 @@ export function TrayRow({
   members,
   keeper,
   interactive,
+  pickable = interactive,
   showRelation,
   quarantine,
   system,
@@ -119,7 +122,7 @@ export function TrayRow({
   return (
     <div className="dup-row">
       <span className="dup-row__pick">
-        {interactive && (
+        {pickable && (
           <>
             <RadioGroupItem
               id={keepId + '-radio'}

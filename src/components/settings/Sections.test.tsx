@@ -484,6 +484,95 @@ describe('settings sections', () => {
     );
   });
 
+  it('library: the duplicates block shows and saves', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Duplicates' });
+    const version = within(group).getByRole('switch', {
+      name: 'Other versions',
+    });
+    expect(version).toBeChecked();
+    await userEvent.click(version);
+    await userEvent.click(
+      within(group).getByRole('switch', { name: 'One ROM per game' }),
+    );
+    await userEvent.click(
+      within(group).getByRole('radio', { name: 'Send to the Trash' }),
+    );
+    await userEvent.selectOptions(
+      within(group).getByRole('combobox', { name: 'When organising' }),
+      'report',
+    );
+    expect(
+      within(group).getByRole('textbox', { name: 'Quarantine folder' }),
+    ).toHaveAttribute('placeholder', '<library>/_Duplicados');
+    const exclude = within(group).getByRole('textbox', {
+      name: 'Systems to leave out',
+    });
+    await userEvent.clear(exclude);
+    await userEvent.type(exclude, 'ports, msu');
+    await userEvent.tab();
+    await waitFor(async () =>
+      expect((await saved()).dedupe).toMatchObject({
+        levels: ['exact', 'format'],
+        one_game_one_rom: true,
+        action: 'trash',
+        organize_step: 'report',
+        exclude_systems: ['ports', 'msu'],
+      }),
+    );
+    // Region order is not repeated here: it links to Matching.
+    await userEvent.click(
+      within(group).getByRole('button', {
+        name: 'Uses the Matching region order',
+      }),
+    );
+    expect(useNavStore.getState().section).toBe('matching');
+  });
+
+  it('library: settings_reorder_rules_announces', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Duplicates' });
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Move Has a cover up' }),
+    );
+    expect(
+      within(group).getByText('Has a cover: position 8 of 10'),
+    ).toBeInTheDocument();
+    await waitFor(async () =>
+      expect(
+        (await saved()).dedupe.keep_rules.map((r) => r.rule).slice(6, 9),
+      ).toEqual(['revision', 'cover', 'container']),
+    );
+    await userEvent.click(
+      within(group).getByRole('switch', { name: 'Use: Has a cover' }),
+    );
+    await waitFor(async () =>
+      expect(
+        (await saved()).dedupe.keep_rules.find((r) => r.rule === 'cover')?.on,
+      ).toBe(false),
+    );
+  });
+
+  it('library: settings_rejects_quarantine_inside_a_system_folder', async () => {
+    await open('library');
+    const group = screen.getByRole('group', { name: 'Duplicates' });
+    const dir = within(group).getByRole('textbox', {
+      name: 'Quarantine folder',
+    });
+    await userEvent.type(dir, '/Volumes/SD/ROMS/GB/dup');
+    await userEvent.tab();
+    expect(dir).toHaveAccessibleDescription(/can't be inside/);
+    expect((await saved()).dedupe.quarantine_dir).toBeNull();
+    await userEvent.clear(dir);
+    await userEvent.type(dir, '/Users/demo/Duplicados');
+    await userEvent.tab();
+    await waitFor(async () =>
+      expect((await saved()).dedupe.quarantine_dir).toBe(
+        '/Users/demo/Duplicados',
+      ),
+    );
+  });
+
   it('library: external_tools_toggle_saves_off', async () => {
     await open('library');
     const group = screen.getByRole('group', { name: 'Organise' });

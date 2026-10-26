@@ -223,7 +223,6 @@ impl OrganizeManager {
         self.install(Arc::clone(&job));
         let view = job.view();
         std::thread::spawn(move || {
-            let _guard = guard;
             let throttle = Throttle::new(job.plan_id, Arc::clone(&events));
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let progress = |p: OrganizeProgress| {
@@ -262,6 +261,9 @@ impl OrganizeManager {
                 ),
                 None => log::warn!("organise job {:?} failed: {:?}", view.job, view.error),
             }
+            // Writes are free again before the end is announced: an undo
+            // asked for on that event must not find the job still running.
+            drop(guard);
             events.changed(view);
         });
         view
@@ -365,12 +367,14 @@ fn end_state(report: &OrganizeReport) -> OrganizeJobState {
     }
 }
 
-/// The options a survey depends on: everything but the transfer mode and
-/// the names (layout, target, flat, offline, thresholds, folders…).
+/// The options a survey depends on: everything but the transfer mode, the
+/// names and the duplicates step (layout, target, flat, offline,
+/// thresholds, folders…).
 fn survey_key(opts: &OrganizeOptions) -> OrganizeOptions {
     OrganizeOptions {
         mode: None,
         names: Default::default(),
+        duplicates: Default::default(),
         ..opts.clone()
     }
 }
@@ -451,6 +455,8 @@ impl From<ApplyError> for IpcError {
             ApplyError::NoSpace { needed, free } => IpcError::NoSpace(format!("{needed}/{free}")),
             ApplyError::Write(w) => w.into(),
             ApplyError::NoPlan(_) => IpcError::NoPlan,
+            e @ ApplyError::Undone(_) => IpcError::BadRequest(e.to_string()),
+            ApplyError::Dedupe(d) => d.into(),
         }
     }
 }

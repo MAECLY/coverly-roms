@@ -72,6 +72,8 @@ export function planOf(items: OrganizeItem[]): OrganizePlan {
       other_files: 0,
       deep_folders: 0,
       bytes: 0,
+      set_aside: 0,
+      in_library: 0,
     },
     sorted_folders: [],
     deep_folders: [],
@@ -82,6 +84,8 @@ export function planOf(items: OrganizeItem[]): OrganizePlan {
     move_allowed: true,
     target_detected: null,
     created_at: '2026-10-17T10:00:00Z',
+    duplicates: [],
+    set_aside_trash: false,
   };
 }
 

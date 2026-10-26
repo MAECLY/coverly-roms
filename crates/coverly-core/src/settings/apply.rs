@@ -40,6 +40,15 @@ impl Settings {
             follow_symlinks: self.library.follow_symlinks,
             ignored_dirs: self.library.ignored_dirs.clone(),
             ignored_exts: self.library.ignored_exts.clone(),
+            quarantine_names: {
+                let mut names = ScanOptions::default().quarantine_names;
+                if let Some(name) = self.dedupe.quarantine_name.as_deref().map(str::trim) {
+                    if !name.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                        names.push(name.to_string());
+                    }
+                }
+                names
+            },
         }
     }
 

@@ -66,8 +66,9 @@ This directory holds the documentation of the **Coverly ROMs** project: research
 - [Identification](./04-architecture/identification.md) — hashing, header rules, DATs, arcade names, name normalisation, header magic per system and evidence levels
 - [Art Sources](./04-architecture/art-sources.md) — `ArtSource` trait, libretro-thumbnails, hostile names, polite HTTP
 - [Fill Pipeline](./04-architecture/fill-pipeline.md) — gather, plan, strategies, image limits, safe writes, undo, CLI, E2E evidence
-- [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, organise screen, art security, UI stores, browser mock, performance
+- [Desktop App](./04-architecture/desktop-app.md) — Tauri shell, IPC contract and errors, generations, organise and duplicates screens, art security, UI stores, browser mock, performance
 - [Organise](./04-architecture/organize.md) — loose ROMs into one folder per system: walk, archives, identification ladder, combine, target layout, safe apply, journal ops and undo, cache v2, CLI
+- [Duplicates](./04-architecture/dedupe.md) — the same game twice in one system: units, keys per level, groups, keeper rules, quarantine inside the library, apply, journal ops, Trash, archive/disc adapters, performance budget
 - [Updates](./04-architecture/updates.md) — update manifest and channels, minisign key, check/download/install with the fill-job gate, CLI self-update, errors, connected drives
 
 ### 07 — Build & Release

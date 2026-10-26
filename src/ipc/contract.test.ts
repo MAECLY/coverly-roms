@@ -12,6 +12,17 @@ import {
   type PickReason,
   type SourceInfo,
   type CandidateView,
+  type DedupeJobView,
+  type DedupeOutcomeView,
+  type DedupePlanView,
+  type DedupePlanViewWire,
+  type DedupeProgressEvent,
+  type DedupeReportView,
+  type DedupeRequest,
+  type DupGroupView,
+  type MemberView,
+  type TotalsView,
+  type UnitRefView,
   type CredentialStatus,
   type FieldError,
   type ProfileInfo,
@@ -41,6 +52,9 @@ import {
   type OrganizeJobView,
   type OrganizeJobViewWire,
   type OrganizePlan,
+  type OrganizePlanWire,
+  type OrganizeReportWire,
+  type OrganizeCountsWire,
   type OrganizePlanView,
   type OrganizeProgressEvent,
   type OrganizeReport,
@@ -220,7 +234,11 @@ const PLAN_KEYS = [
   'move_allowed',
   'target_detected',
   'created_at',
+  'duplicates',
+  'set_aside_trash',
 ] as const;
+/** Keys Rust leaves out of a plan with no duplicates step. */
+const PLAN_OMITTED = ['duplicates', 'set_aside_trash'] as const;
 const ORGANIZE_ITEM_KEYS = [
   'id',
   'sources',
@@ -253,6 +271,8 @@ const COUNTS_KEYS = [
   'other_files',
   'deep_folders',
   'bytes',
+  'set_aside',
+  'in_library',
 ] as const;
 const ORGANIZE_PROGRESS_KEYS = ['plan_id', 'phase', 'done', 'total'] as const;
 const EXTRACT_PROGRESS_KEYS = [
@@ -296,10 +316,97 @@ const ORGANIZE_REPORT_KEYS = [
   'extracted',
   'skipped',
   'failed',
+  'set_aside',
   'items',
   'paused',
   'pause_reason',
   'resumable_items',
+] as const;
+const DEDUPE_PLAN_KEYS = [
+  'plan_id',
+  'version',
+  'root',
+  'roms_dir',
+  'quarantine',
+  'same_volume',
+  'removable',
+  'profile_id',
+  'groups',
+  'unchanged',
+  'not_roms',
+  'unreadable',
+  'no_catalogue',
+  'chd_unread',
+  'off_card_saves',
+  'totals',
+  'trash',
+  'trash_available',
+] as const;
+const DUP_GROUP_KEYS = [
+  'id',
+  'system',
+  'title',
+  'keeper',
+  'reason',
+  'runner_up',
+  'members',
+  'action',
+  'tie',
+  'choice_dropped',
+] as const;
+const MEMBER_KEYS = [
+  'id',
+  'unit',
+  'relation',
+  'size',
+  'travels',
+  'stays',
+  'dest',
+  'catalogue_name',
+  'serials',
+  'confidence',
+] as const;
+const UNIT_KEYS = [
+  'primary',
+  'files',
+  'kind',
+  'mtime_ns',
+  'in_library',
+] as const;
+const TOTALS_KEYS = [
+  'groups',
+  'extras',
+  'bytes',
+  'conflicts',
+  'by_system',
+] as const;
+const DEDUPE_PROGRESS_KEYS = ['plan_id', 'phase', 'done', 'total'] as const;
+const DEDUPE_JOB_KEYS = [
+  'job',
+  'plan_id',
+  'state',
+  'progress',
+  'report',
+  'root',
+  'quarantine',
+  'trash',
+  'error',
+] as const;
+const DEDUPE_REPORT_KEYS = [
+  'job',
+  'outcomes',
+  'bytes_out',
+  'art_left',
+  'paused',
+  'resumable',
+  'notes',
+] as const;
+const DEDUPE_OUTCOME_KEYS = [
+  'group',
+  'member',
+  'status',
+  'to',
+  'files',
 ] as const;
 const ORGANIZE_UNDO_KEYS = ['report', 'later_jobs'] as const;
 const UNDO_REPORT_KEYS = [
@@ -320,6 +427,7 @@ const ORGANIZE_REQUEST_KEYS = [
   'names',
   'offline',
   'rescan',
+  'duplicates',
 ] as const;
 
 /** Compiles only when `K` lists every member of the union `T`. */
@@ -451,7 +559,11 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizePlan',
     PLAN_KEYS satisfies AllKeys<OrganizePlan, typeof PLAN_KEYS>,
-    sample.organize_plan_view.plan,
+    {
+      ...sample.organize_plan_view.plan,
+      duplicates: [],
+      set_aside_trash: true,
+    },
   ],
   [
     'OrganizeItem',
@@ -464,7 +576,12 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeCounts',
     COUNTS_KEYS satisfies AllKeys<OrganizeCounts, typeof COUNTS_KEYS>,
-    sample.organize_plan_view.plan.counts,
+    sample.organize_counts_set_aside,
+  ],
+  [
+    'OrganizeItem (set aside)',
+    [...ORGANIZE_ITEM_KEYS, 'keeper', 'relation', 'reason', 'dest'],
+    sample.organize_set_aside_item,
   ],
   [
     'OrganizeProgressEvent',
@@ -523,7 +640,72 @@ const checks: [string, readonly string[], object][] = [
       OrganizeReport,
       typeof ORGANIZE_REPORT_KEYS
     >,
-    sample.organize_report_extracted,
+    {
+      ...sample.organize_report_extracted,
+      ...sample.organize_report_set_aside,
+    },
+  ],
+  [
+    'DedupePlanView',
+    DEDUPE_PLAN_KEYS satisfies AllKeys<DedupePlanView, typeof DEDUPE_PLAN_KEYS>,
+    { ...sample.dedupe_plan_view, trash: false },
+  ],
+  [
+    'DupGroupView',
+    DUP_GROUP_KEYS satisfies AllKeys<DupGroupView, typeof DUP_GROUP_KEYS>,
+    sample.dedupe_plan_view.groups[0]!,
+  ],
+  [
+    'MemberView',
+    // `gamelist` and `art_leaves` are left out when there are none.
+    MEMBER_KEYS satisfies AllKeys<
+      Omit<MemberView, 'gamelist' | 'art_leaves'>,
+      typeof MEMBER_KEYS
+    >,
+    sample.dedupe_plan_view.groups[0]!.members[1]!,
+  ],
+  [
+    'UnitRefView',
+    // `mtimes_ns` is left out for a unit of one file.
+    UNIT_KEYS satisfies AllKeys<
+      Omit<UnitRefView, 'mtimes_ns'>,
+      typeof UNIT_KEYS
+    >,
+    sample.dedupe_plan_view.groups[0]!.members[0]!.unit,
+  ],
+  [
+    'TotalsView',
+    TOTALS_KEYS satisfies AllKeys<TotalsView, typeof TOTALS_KEYS>,
+    sample.dedupe_plan_view.totals,
+  ],
+  [
+    'DedupeProgressEvent',
+    DEDUPE_PROGRESS_KEYS satisfies AllKeys<
+      DedupeProgressEvent,
+      typeof DEDUPE_PROGRESS_KEYS
+    >,
+    sample.dedupe_progress,
+  ],
+  [
+    'DedupeJobView',
+    DEDUPE_JOB_KEYS satisfies AllKeys<DedupeJobView, typeof DEDUPE_JOB_KEYS>,
+    sample.dedupe_job,
+  ],
+  [
+    'DedupeReportView',
+    DEDUPE_REPORT_KEYS satisfies AllKeys<
+      DedupeReportView,
+      typeof DEDUPE_REPORT_KEYS
+    >,
+    sample.dedupe_job.report,
+  ],
+  [
+    'DedupeOutcomeView (quarantined)',
+    DEDUPE_OUTCOME_KEYS satisfies AllKeys<
+      Extract<DedupeOutcomeView, { status: 'quarantined' }>,
+      typeof DEDUPE_OUTCOME_KEYS
+    >,
+    sample.dedupe_job.report.outcomes[0]!,
   ],
   [
     'OrganizeUndoView',
@@ -665,7 +847,7 @@ describe('settings contract', () => {
 });
 
 describe('organise contract', () => {
-  const plan = sample.organize_plan_view.plan as OrganizePlan;
+  const plan = sample.organize_plan_view.plan as OrganizePlanWire;
 
   it('plan items use the Rust tags', () => {
     expect(plan.items.map((i) => i.action)).toEqual(['auto', 'review', 'left']);
@@ -706,13 +888,19 @@ describe('organise contract', () => {
   });
 
   it('Rust leaves zero extractions and no lost archive out of the JSON', () => {
-    const omitted = (keys: readonly string[], key: string) =>
-      keys.filter((k) => k !== key).sort();
+    const omitted = (keys: readonly string[], ...out: string[]) =>
+      keys.filter((k) => !out.includes(k)).sort();
     expect(Object.keys(sample.organize_job.report).sort()).toEqual(
-      omitted(ORGANIZE_REPORT_KEYS, 'extracted'),
+      omitted(ORGANIZE_REPORT_KEYS, 'extracted', 'set_aside'),
     );
     expect(Object.keys(sample.organize_undo.report[0]!).sort()).toEqual(
       omitted(UNDO_REPORT_KEYS, 'archive_lost'),
+    );
+    expect(Object.keys(sample.organize_plan_view.plan).sort()).toEqual(
+      omitted(PLAN_KEYS, ...PLAN_OMITTED),
+    );
+    expect(Object.keys(sample.organize_plan_view.plan.counts).sort()).toEqual(
+      omitted(COUNTS_KEYS, 'set_aside', 'in_library'),
     );
   });
 
@@ -747,7 +935,7 @@ describe('organise contract', () => {
         progress.bytes_total,
       ]).toEqual([3, 104_857_600, 405_749_493]);
     }
-    const report = sample.organize_report_extracted as OrganizeReport;
+    const report = sample.organize_report_extracted as OrganizeReportWire;
     expect(report.extracted).toBe(1);
     expect(report.items.map((o) => o.status)).toEqual(['extracted-kept']);
     const undo = sample.organize_undo_archive_lost as OrganizeUndoReport;
@@ -795,9 +983,82 @@ describe('organise contract', () => {
       'assign',
       'leave',
     ]);
-    for (const e of sample.organize_errors) {
+    for (const e of [...sample.organize_errors, ...sample.dedupe_errors]) {
       expect(ERROR_CODES).toContain(e.code);
     }
     expect(ERROR_CODES).toContain('cancelled');
+  });
+});
+
+describe('duplicates contract', () => {
+  it('contract_round_trip', () => {
+    // Requests: what the webview sends reads in Rust (rust_reads_the_shared_dedupe_requests).
+    const full: DedupeRequest = requests.dedupe_request as DedupeRequest;
+    expect(full.quarantine).toEqual({
+      kind: 'folder',
+      path: '/Users/me/Duplicados',
+    });
+    const bare: DedupeRequest = requests.dedupe_request_bare;
+    expect(bare).toEqual({});
+    const trash = requests.dedupe_request_trash as DedupeRequest;
+    expect(trash.quarantine).toEqual({ kind: 'trash' });
+
+    // Views: Rust leaves `trash` out of a plan made for the quarantine.
+    const wire = sample.dedupe_plan_view as unknown as DedupePlanViewWire;
+    expect('trash' in wire).toBe(false);
+    expect(wire.trash_available).toBe(false);
+    expect(wire.groups[0]!.reason).toEqual({
+      kind: 'catalogue-name',
+      name: 'Tetris Worlds (USA)',
+    });
+    const progress: DedupeProgressEvent[] = [
+      sample.dedupe_progress as DedupeProgressEvent,
+      sample.dedupe_progress_apply as DedupeProgressEvent,
+    ];
+    expect(progress.map((p) => p.phase)).toEqual(['fingerprints', 'apply']);
+
+    const job = sample.dedupe_job as DedupeJobView;
+    expect(job.report!.outcomes.map((o) => o.status)).toEqual([
+      'quarantined',
+      'skipped',
+    ]);
+    const skipped = job.report!.outcomes[1]!;
+    expect(skipped.status === 'skipped' && skipped.reason).toEqual({
+      kind: 'conflict',
+    });
+    expect((sample.dedupe_job_applying as DedupeJobView).progress).toEqual(
+      sample.dedupe_progress_apply,
+    );
+    expect((sample.dedupe_job_failed as DedupeJobView).error).toEqual({
+      code: 'no-space',
+      detail: '4194304/1000',
+    });
+    for (const e of sample.dedupe_errors) expect(ERROR_CODES).toContain(e.code);
+  });
+
+  it('organise set-aside items, in-library reasons and counts use the Rust spellings', () => {
+    const item = sample.organize_set_aside_item as OrganizeItem;
+    expect(item.action).toBe('set-aside');
+    if (item.action === 'set-aside') {
+      expect(item.keeper).toBe('ROMS/GB/Tetris (World) (Rev 1).gb');
+      expect(item.relation).toBe('exact');
+      expect(item.reason).toEqual({ kind: 'in-library' });
+      expect(item.dest).toBe('_Duplicados/Tetris (1).gb');
+    }
+    const reason = sample.organize_in_library_reason as LeftReason;
+    expect(reason).toEqual({
+      kind: 'in-library',
+      path: 'ROMS/GB/Tetris (World) (Rev 1).gb',
+      relation: 'version',
+    });
+    const counts: OrganizeCountsWire = sample.organize_counts_set_aside;
+    expect([counts.set_aside, counts.in_library]).toEqual([1, 2]);
+    const report = sample.organize_report_set_aside as OrganizeReportWire;
+    expect(report.items.map((o) => o.status)).toEqual([
+      'quarantined',
+      'trashed',
+    ]);
+    expect(report.set_aside).toBe(2);
+    expect(report.extracted).toBeUndefined();
   });
 });

@@ -1131,3 +1131,42 @@ mod archives {
         assert!(st.settings_view().external_tools_found.is_empty());
     }
 }
+
+#[test]
+fn the_request_picks_the_duplicates_step_over_the_setting() {
+    use coverly_core::organize::LeftReason;
+    use coverly_core::settings::OrganizeDedupeMode;
+
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = TempDir::new().unwrap();
+    let rom = fixtures::gba_tagged(b'A');
+    write_old(pile.path(), "Alpha (USA).gba", &rom);
+    write_old(pile.path(), "Alpha (USA) (1).gba", &rom);
+
+    let set_aside = st
+        .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
+        .unwrap();
+    assert_eq!(
+        set_aside.plan.counts.set_aside, 1,
+        "the setting's default sets one aside"
+    );
+
+    let report = OrganizeRequest {
+        duplicates: Some(OrganizeDedupeMode::Report),
+        ..offline(pile.path())
+    };
+    let events = Arc::new(Recorder::default());
+    let reported = st.organize_plan(&report, &[], events.clone()).unwrap();
+    assert!(
+        events.events().is_empty(),
+        "another step reuses the kept survey"
+    );
+    assert_eq!(reported.plan.counts.set_aside, 0);
+    assert!(reported.plan.items.iter().any(|i| matches!(
+        &i.action,
+        OrganizeAction::Left {
+            reason: LeftReason::InLibrary { .. }
+        }
+    )));
+}

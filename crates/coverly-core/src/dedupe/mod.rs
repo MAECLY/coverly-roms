@@ -12,7 +12,10 @@ use sha1::{Digest, Sha1};
 
 use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 
+pub mod apply;
+pub mod archive;
 pub mod companions;
+pub mod disc;
 pub mod group;
 pub mod keeper;
 pub mod keys;
@@ -23,11 +26,15 @@ pub mod source;
 pub mod testing;
 pub mod units;
 
+pub use apply::{
+    apply_dedupe, load_dedupe_plan, resume_dedupe, DedupeApplyEnv, DedupeApplyNote,
+    DedupeItemStatus, DedupeOutcome, DedupeReport, DedupeSkip, DestLimit,
+};
 pub use companions::{ArtLeaves, GamelistEntry, SharedStay, Travel, TravelKind};
 pub use keeper::{DumpQuality, KeepReason};
 pub use plan::{
-    default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
-    DedupeProgress, PlanInternals, QuarantineSpot, DEFAULT_QUARANTINE_NAME,
+    default_quarantine, group_units, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv,
+    DedupeError, DedupeProgress, GroupEnv, PlanInternals, QuarantineSpot, DEFAULT_QUARANTINE_NAME,
 };
 pub use saves::{SaveInfo, SaveKey};
 pub use units::UnitKind;
@@ -127,6 +134,13 @@ pub struct UnitRef {
     pub mtime_ns: i64,
     /// Already in a system folder (false for an Organise pile item).
     pub in_library: bool,
+    /// For a unit of several files, the modification time of each one of
+    /// `files`, in order, when the plan was made: a set whose track was
+    /// rewritten since (same size, new bytes) is not the set the plan
+    /// compared. Empty for one file (`mtime_ns` says it all) or when a
+    /// file could not be read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mtimes_ns: Vec<i64>,
 }
 
 /// One copy in a group.
@@ -221,6 +235,10 @@ pub struct DedupePlan {
     /// Systems whose saves may live off the card.
     pub off_card_saves: Vec<String>,
     pub totals: Totals,
+    /// The extras go to the OS Trash instead of the quarantine (no
+    /// member has a `dest`). Left out of the JSON when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trash: bool,
     /// What the planner knew, so options and picks can change without
     /// reading the library again. Not serialised: a plan read back from
     /// disk has none.
@@ -247,9 +265,23 @@ impl Default for DedupePlan {
             chd_unread: 0,
             off_card_saves: Vec::new(),
             totals: Totals::default(),
+            trash: false,
             internals: PlanInternals::default(),
         }
     }
+}
+
+/// What the user decided on the screen before applying a plan: the copy
+/// that stays per group, the groups and the systems left alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DedupeDecisions {
+    /// `(group id, member id)` of the copy that stays.
+    pub keepers: Vec<(u64, usize)>,
+    /// Groups nothing is done to.
+    pub skipped_groups: Vec<u64>,
+    /// Systems nothing is done to.
+    pub skipped_systems: Vec<String>,
 }
 
 /// Where extras go.
@@ -257,7 +289,7 @@ impl Default for DedupePlan {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum QuarantineChoice {
-    /// The quarantine folder next to the ROMs folder (spec §7.1).
+    /// The quarantine folder inside the library root (spec §7.1).
     #[default]
     NextToRoms,
     /// A folder of your choice, anywhere.
@@ -354,6 +386,7 @@ mod tests {
                 kind: UnitKind::DiscSet,
                 mtime_ns: 1_700_000_000_000_000_000,
                 in_library: true,
+                mtimes_ns: Vec::new(),
             },
             relation,
             size: 512 * 1024 * 1024,

@@ -462,10 +462,53 @@ function check(out: FieldError[], rule: string, field: string, value: number) {
 const isAbsolute = (p: string) =>
   p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 
-/** Every problem, in the order of `Settings::validate`. */
+/** Folder names of the built-in layouts' ROMs folders (`roms_root`). */
+const ROMS_ROOTS: readonly string[] = ['roms'];
+
+/** Leading components that name a mount point and its label (Rust
+ * `mount_label_len`): a card called `ROMS` is not a ROMs folder. */
+function mountLabelLen(names: readonly string[]): number {
+  const len =
+    names[0] === 'Volumes' || names[0] === 'mnt'
+      ? 2
+      : names[0] === 'media'
+        ? 3
+        : names[0] === 'run' && names[1] === 'media'
+          ? 4
+          : 0;
+  return Math.min(len, names.length);
+}
+
+/**
+ * Whether a custom quarantine `dir` lies inside a ROMs folder or a system
+ * folder (`systemFolders`: folder names and ids, any case), where the
+ * device would list the copies set aside. Like Rust, by shape only: the
+ * planner checks it again against the open library.
+ */
+export function quarantineInsideSystemFolder(
+  dir: string,
+  systemFolders: readonly string[],
+): boolean {
+  const names = dir
+    .replace(/^[A-Za-z]:/, '')
+    .split(/[\\/]+/)
+    .filter((n) => n !== '' && n !== '.');
+  const folders = new Set(
+    [...ROMS_ROOTS, ...systemFolders].map((f) => f.toLowerCase()),
+  );
+  return names
+    .slice(mountLabelLen(names))
+    .some((n) => folders.has(n.toLowerCase()));
+}
+
+const hasRepeat = <T>(list: readonly T[]) => new Set(list).size !== list.length;
+
+/** Every problem, in the order of `Settings::validate`. `systemFolders`
+ * are the folder names a custom quarantine may not sit inside. */
 export function validateSettings(
   s: Settings,
   known: readonly string[],
+  systemFolders: readonly string[] = [],
 ): FieldError[] {
   const out: FieldError[] = [];
   const simple = (f: string, v: number) => check(out, f, f, v);
@@ -557,6 +600,26 @@ export function validateSettings(
     else if (new Set(order).size !== order.length)
       out.push(err(`organize.arcade_order.${id}`, 'invalid'));
   }
+  // `dedupe` (Rust `validate_dedupe`; container orders are checked there).
+  const d = s.dedupe;
+  if (d.levels.length === 0) out.push(err('dedupe.levels', 'required'));
+  else if (hasRepeat(d.levels)) out.push(err('dedupe.levels', 'duplicate'));
+  if (hasRepeat(d.keep_rules.map((r) => r.rule)))
+    out.push(err('dedupe.keep_rules', 'duplicate'));
+  if (d.quarantine_dir !== null) {
+    if (!isAbsolute(d.quarantine_dir))
+      out.push(err('dedupe.quarantine_dir', 'not-absolute'));
+    else if (quarantineInsideSystemFolder(d.quarantine_dir, systemFolders))
+      out.push(err('dedupe.quarantine_dir', 'invalid'));
+  }
+  if (d.quarantine_name !== null) {
+    const name = d.quarantine_name.trim();
+    if (!name || name === '.' || name === '..' || /[\\/]/.test(name))
+      out.push(err('dedupe.quarantine_name', 'invalid'));
+  }
+  if (d.exclude_systems.some((e) => /[\\/]/.test(e)))
+    out.push(err('dedupe.exclude_systems', 'invalid'));
+  simple('dedupe.max_dat_downloads', d.max_dat_downloads);
   return out;
 }
 

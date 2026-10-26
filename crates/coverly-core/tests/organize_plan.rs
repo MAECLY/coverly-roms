@@ -11,6 +11,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use coverly_core::cache::Cache;
+use coverly_core::dedupe::testing::pin_mtime;
+use coverly_core::dedupe::Relation;
 use coverly_core::identify::dat::{dat_sources, DatStore};
 use coverly_core::identify::evidence::IdLevel;
 use coverly_core::identify::sniff::{fixtures as fx, NotARom};
@@ -681,11 +683,14 @@ fn progress_reports_walk_and_identify() {
 }
 
 #[test]
-fn equal_raw_files_are_hashed_and_marked_duplicate() {
+fn equal_raw_files_are_hashed_and_one_is_set_aside() {
     let dir = TempDir::new().unwrap();
     put(&dir.path().join("Game.gba"), &fx::gba_tagged(9));
     put(&dir.path().join("Game (1).gba"), &fx::gba_tagged(9));
     put(&dir.path().join("Other.gba"), &fx::gba_tagged(10));
+    // The tie-breaker keeps the oldest copy.
+    pin_mtime(&dir.path().join("Game.gba"), 1);
+    pin_mtime(&dir.path().join("Game (1).gba"), 2);
     let world = World::new();
     let plan = plan(
         &world,
@@ -695,14 +700,23 @@ fn equal_raw_files_are_hashed_and_marked_duplicate() {
             ..defaults("anbernic-stock")
         },
     );
-    assert_eq!(
-        left_reason(&plan, "Game (1).gba"),
-        Some(LeftReason::Duplicate {
-            of: PathBuf::from("Game.gba")
-        })
-    );
+    match &by_name(&plan, "Game (1).gba").action {
+        OrganizeAction::SetAside {
+            keeper,
+            relation,
+            dest,
+            ..
+        } => {
+            assert_eq!(keeper, &PathBuf::from("ROMS/GBA/Game.gba"));
+            assert_eq!(*relation, Relation::Exact);
+            assert_eq!(dest, &PathBuf::from("_Duplicados/Game (1).gba"));
+        }
+        other => panic!("not set aside: {other:?}"),
+    }
     assert_eq!(by_name(&plan, "Other.gba").action, OrganizeAction::Auto);
     assert_eq!(plan.counts.auto, 2);
+    assert_eq!(plan.counts.set_aside, 1);
+    assert_eq!(plan.counts.in_library, 0);
 }
 
 #[test]
@@ -963,7 +977,7 @@ fn a_raw_file_equal_to_a_zipped_one_is_a_duplicate() {
     );
     let dup = ["Game.zip", "Game copy.gba"]
         .iter()
-        .filter(|n| matches!(left_reason(&plan, n), Some(LeftReason::Duplicate { .. })))
+        .filter(|n| by_name(&plan, n).is_set_aside())
         .count();
     assert_eq!(dup, 1, "{:#?}", plan.items);
     assert_eq!(by_name(&plan, "Other.gba").action, OrganizeAction::Auto);
@@ -2411,4 +2425,414 @@ mod extract {
             assert_eq!(entries(item).len(), 3);
         }
     }
+}
+
+// --- Duplicates as an Organise step (duplicates spec §4, §7.1; plan Task 26) ---
+
+mod duplicates {
+    use super::*;
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::dedupe::{KeepReason, DEFAULT_QUARANTINE_NAME};
+    use coverly_core::disc::testing as dt;
+    use coverly_core::identify::sniff::fixtures::SnesMap;
+    use coverly_core::profiles::Profile;
+    use coverly_core::scan::{scan_library, ScanOptions};
+    use coverly_core::settings::OrganizeDedupeMode;
+
+    /// `<tmp>/pile` and `<tmp>/card` (an Anbernic card with `ROMS/`).
+    fn pile_and_card() -> (TempDir, PathBuf, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let pile = tmp.path().join("pile");
+        let card = tmp.path().join("card");
+        fs::create_dir_all(&pile).unwrap();
+        fs::create_dir_all(card.join("ROMS")).unwrap();
+        (tmp, pile, card)
+    }
+
+    fn into(card: &Path, mode: OrganizeDedupeMode) -> OrganizeOptions {
+        OrganizeOptions {
+            target: Some(card.to_path_buf()),
+            offline: true,
+            duplicates: mode,
+            ..defaults("anbernic-stock")
+        }
+    }
+
+    /// `(keeper, relation, reason, dest)` of a set-aside item.
+    fn set_aside_of(item: &OrganizeItem) -> (PathBuf, Relation, KeepReason, PathBuf) {
+        match &item.action {
+            OrganizeAction::SetAside {
+                keeper,
+                relation,
+                reason,
+                dest,
+            } => (keeper.clone(), *relation, reason.clone(), dest.clone()),
+            other => panic!("{:?} is not set aside: {other:?}", item.sources),
+        }
+    }
+
+    fn write7z(path: &Path, files: &[(&str, &[u8])]) {
+        put(path, &sevenz(files, SevenZShape::non_solid_lzma()));
+    }
+
+    #[test]
+    fn pile_item_equal_to_a_library_rom_under_another_name_is_in_library_and_set_aside() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 7);
+        put(&card.join("ROMS/GB/Tetris (World).gb"), &rom);
+        put(&pile.join("tetris copy.gb"), &rom);
+        put(&pile.join("Other.gb"), &fx::gb_tagged(0x00, 8));
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let item = by_name(&plan, "tetris copy.gb");
+        let (keeper, relation, _, dest) = set_aside_of(item);
+        assert_eq!(keeper, PathBuf::from("ROMS/GB/Tetris (World).gb"));
+        assert_eq!(relation, Relation::Exact);
+        assert_eq!(
+            dest,
+            Path::new(DEFAULT_QUARANTINE_NAME).join("tetris copy.gb")
+        );
+        assert_eq!(item.target, None, "never copied into the library");
+        assert_eq!(by_name(&plan, "Other.gb").action, OrganizeAction::Auto);
+        assert_eq!(plan.counts.set_aside, 1);
+        assert_eq!(plan.counts.in_library, 1);
+        assert_eq!(plan.counts.roms, 1);
+        assert_eq!(plan.duplicates.len(), 1);
+        let group = &plan.duplicates[0];
+        assert!(group.members[group.keeper].unit.in_library);
+    }
+
+    #[test]
+    fn pile_7z_equal_to_a_library_zip_is_in_library() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 9);
+        zip(&card.join("ROMS/GB/Game (USA).zip"), "Game (USA).gb", &rom);
+        write7z(&pile.join("Game.7z"), &[("Game.gb", &rom)]);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let item = by_name(&plan, "Game.7z");
+        let (keeper, relation, ..) = set_aside_of(item);
+        assert_eq!(keeper, PathBuf::from("ROMS/GB/Game (USA).zip"));
+        assert_eq!(relation, Relation::Exact);
+        assert_eq!(plan.counts.in_library, 1);
+    }
+
+    /// A cue sheet over `files`, one track per file.
+    fn cue(files: &[&str]) -> Vec<u8> {
+        let mut s = String::new();
+        for (i, f) in files.iter().enumerate() {
+            let mode = if i == 0 { "MODE2/2352" } else { "AUDIO" };
+            s.push_str(&format!(
+                "FILE \"{f}\" BINARY\r\n  TRACK {:02} {mode}\r\n    INDEX 01 00:00:00\r\n",
+                i + 1
+            ));
+        }
+        s.into_bytes()
+    }
+
+    #[test]
+    fn pile_disc_archive_equal_to_a_library_cue_set_by_serial_is_a_format_duplicate() {
+        let (_tmp, pile, card) = pile_and_card();
+        let t1 = "Next Tetris, The (USA) (Track 01).bin";
+        let t2 = "Next Tetris, The (USA) (Track 02).bin";
+        let track = dt::psx_track(true, "cdrom:\\SLUS_008.62;1");
+        let ps = card.join("ROMS/PS");
+        put(&ps.join("Next Tetris, The (USA).cue"), &cue(&[t1, t2]));
+        put(&ps.join(t1), &track);
+        put(&ps.join(t2), &[0u8; 2352 * 4]);
+        // The same disc in a 7z on the pile, with another audio track
+        // rip: not the same bytes, the same disc.
+        let dir = "Next Tetris, The (USA)";
+        write7z(
+            &pile.join("Next Tetris.7z"),
+            &[
+                (
+                    &format!("{dir}/Next Tetris, The (USA).cue"),
+                    &cue(&[t1, t2]),
+                ),
+                (&format!("{dir}/{t1}"), &track),
+                (&format!("{dir}/{t2}"), &[1u8; 2352 * 4]),
+            ],
+        );
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let item = by_name(&plan, "Next Tetris.7z");
+        let (keeper, relation, ..) = set_aside_of(item);
+        assert_eq!(keeper, PathBuf::from("ROMS/PS/Next Tetris, The (USA).cue"));
+        assert_eq!(relation, Relation::Format);
+        assert_eq!(item.transfer, coverly_core::organize::Transfer::AsIs);
+    }
+
+    #[test]
+    fn pile_pair_headered_and_headerless_is_one_group() {
+        let (_tmp, pile, card) = pile_and_card();
+        put(&pile.join("Mario.smc"), &fx::snes(SnesMap::Lo, true));
+        put(&pile.join("Mario.sfc"), &fx::snes(SnesMap::Lo, false));
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        assert_eq!(plan.duplicates.len(), 1, "{:#?}", plan.items);
+        // Headerless wins for a copier header.
+        let (keeper, relation, reason, _) = set_aside_of(by_name(&plan, "Mario.smc"));
+        assert_eq!(relation, Relation::Exact);
+        assert!(matches!(reason, KeepReason::Verified { .. }), "{reason:?}");
+        assert_eq!(keeper, PathBuf::from("ROMS/SFC/Mario.sfc"));
+        assert_eq!(by_name(&plan, "Mario.sfc").action, OrganizeAction::Auto);
+    }
+
+    #[test]
+    fn keeper_follows_rules_not_the_shortest_name() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 11);
+        let long = pile.join("Tetris (World) (Rev 1).gb");
+        let short = pile.join("Tetris.gb");
+        put(&long, &rom);
+        put(&short, &rom);
+        // The tie-breaker keeps the oldest copy, whatever its name.
+        pin_mtime(&long, 1);
+        pin_mtime(&short, 2);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let (keeper, _, reason, dest) = set_aside_of(by_name(&plan, "Tetris.gb"));
+        assert_eq!(reason, KeepReason::Tie);
+        assert_eq!(keeper, PathBuf::from("ROMS/GB/Tetris (World) (Rev 1).gb"));
+        assert_eq!(dest, Path::new(DEFAULT_QUARANTINE_NAME).join("Tetris.gb"));
+        assert_eq!(
+            by_name(&plan, "Tetris (World) (Rev 1).gb").action,
+            OrganizeAction::Auto
+        );
+    }
+
+    #[test]
+    fn pile_extras_stay_on_the_pile_volume() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 12);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom);
+        put(&pile.join("sub/Copy.gb"), &rom);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let item = by_name(&plan, "Copy.gb");
+        assert_eq!(item.sources, vec![PathBuf::from("sub/Copy.gb")]);
+        let (_, _, _, dest) = set_aside_of(item);
+        // Relative to the pile, keeping the pile's own shape.
+        assert_eq!(dest, Path::new(DEFAULT_QUARANTINE_NAME).join("sub/Copy.gb"));
+        assert!(item.target.is_none() && item.companions.is_empty());
+        assert_eq!(plan.source_root, pile);
+        // Nothing to write on the card: no space needed for it.
+        assert!(!plan
+            .warnings
+            .iter()
+            .any(|w| matches!(w, PlanWarning::NoSpace { .. })));
+    }
+
+    #[test]
+    fn report_mode_moves_nothing_extra() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 13);
+        put(&card.join("ROMS/GB/Tetris (World).gb"), &rom);
+        put(&pile.join("tetris copy.gb"), &rom);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::Report));
+
+        assert_eq!(
+            left_reason(&plan, "tetris copy.gb"),
+            Some(LeftReason::InLibrary {
+                path: PathBuf::from("ROMS/GB/Tetris (World).gb"),
+                relation: Relation::Exact,
+            })
+        );
+        assert!(!plan.items.iter().any(|i| i.is_set_aside()));
+        assert_eq!(plan.counts.set_aside, 0);
+        assert_eq!(plan.counts.in_library, 1);
+        assert_eq!(plan.counts.roms, 0);
+        assert_eq!(plan.duplicates.len(), 1);
+    }
+
+    #[test]
+    fn off_mode_matches_old_behaviour_minus_shortest_name() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gba_tagged(14);
+        put(&card.join("ROMS/GBA/Game (USA).gba"), &rom);
+        put(&pile.join("Game.gba"), &rom);
+        put(&pile.join("Game (1).gba"), &rom);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::Off));
+
+        // No step: every copy moves, nothing is a duplicate.
+        assert_eq!(by_name(&plan, "Game.gba").action, OrganizeAction::Auto);
+        assert_eq!(by_name(&plan, "Game (1).gba").action, OrganizeAction::Auto);
+        assert!(plan.duplicates.is_empty());
+        assert_eq!((plan.counts.set_aside, plan.counts.in_library), (0, 0));
+        assert_eq!(plan.counts.auto, 2);
+    }
+
+    #[test]
+    fn walk_and_scan_skip_quarantine() {
+        let (_tmp, pile, card) = pile_and_card();
+        put(&pile.join("_Duplicados/Old.gb"), &fx::gb_tagged(0x00, 15));
+        put(&pile.join("_duplicates/Older.gb"), &fx::gb_tagged(0x00, 16));
+        put(&pile.join("New.gb"), &fx::gb_tagged(0x00, 17));
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+        let names: Vec<String> = plan
+            .items
+            .iter()
+            .map(|i| file_name(&i.sources[0]))
+            .collect();
+        assert_eq!(names, vec!["New.gb".to_string()]);
+
+        // A library opened as system folders keeps its quarantine inside:
+        // the scan neither lists it as a system nor walks one inside GB.
+        let lib = pile.join("lib");
+        put(&lib.join("GB/Tetris.gb"), &fx::gb_tagged(0x00, 18));
+        put(
+            &lib.join("GB/_Duplicados/Tetris.gb"),
+            &fx::gb_tagged(0x00, 18),
+        );
+        put(
+            &lib.join("_Duplicados/GB/Tetris.gb"),
+            &fx::gb_tagged(0x00, 18),
+        );
+        let open = Profile {
+            roms_root: String::new(),
+            ..world
+                .profiles
+                .iter()
+                .find(|p| p.id == "anbernic-stock")
+                .unwrap()
+                .clone()
+        };
+        let scan = scan_library(&lib, &open, &world.db, &ScanOptions::default());
+        let folders: Vec<&str> = scan
+            .systems
+            .iter()
+            .map(|s| s.folder_name.as_str())
+            .collect();
+        assert_eq!(folders, vec!["GB"]);
+        assert_eq!(scan.systems[0].roms.len(), 1);
+        assert_eq!(scan.systems[0].roms[0].path, lib.join("GB/Tetris.gb"));
+    }
+
+    #[test]
+    fn old_plan_json_with_duplicate_left_reason_still_loads() {
+        let plan: OrganizePlan =
+            serde_json::from_str(include_str!("fixtures/organize/plan-v1.json")).unwrap();
+        assert_eq!(
+            left_reason(&plan, "Tetris 2 (1).zip"),
+            Some(LeftReason::Duplicate {
+                of: PathBuf::from("Tetris 2.zip")
+            })
+        );
+        assert!(plan.duplicates.is_empty());
+        assert_eq!((plan.counts.set_aside, plan.counts.in_library), (0, 0));
+        // The new fields stay out of an old-shaped plan's JSON.
+        let json = serde_json::to_value(&plan).unwrap();
+        assert!(json.get("duplicates").is_none());
+        assert!(json["counts"].get("set_aside").is_none());
+    }
+
+    #[test]
+    fn set_aside_and_in_library_round_trip() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 19);
+        put(&card.join("ROMS/GB/Tetris (World).gb"), &rom);
+        put(&pile.join("tetris copy.gb"), &rom);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+        let json = serde_json::to_value(&plan).unwrap();
+        let item = &json["items"][0];
+        assert_eq!(item["action"], "set-aside");
+        assert_eq!(item["relation"], "exact");
+        assert_eq!(json["counts"]["set_aside"], 1);
+        let again: OrganizePlan = serde_json::from_value(json).unwrap();
+        assert_eq!(again, plan);
+
+        let reason = LeftReason::InLibrary {
+            path: PathBuf::from("ROMS/GB/Tetris (World).gb"),
+            relation: Relation::Format,
+        };
+        let v = serde_json::to_value(&reason).unwrap();
+        assert_eq!(v["kind"], "in-library");
+        assert_eq!(serde_json::from_value::<LeftReason>(v).unwrap(), reason);
+    }
+}
+
+mod duplicates_same_file {
+    use super::*;
+    use coverly_core::settings::OrganizeDedupeMode;
+
+    fn card_with_tetris() -> (TempDir, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let card = tmp.path().join("card");
+        put(&card.join("ROMS/GB/Tetris.gb"), &fx::gb_tagged(0x00, 40));
+        (tmp, card)
+    }
+
+    fn assert_never_set_aside(plan: &OrganizePlan) {
+        assert!(
+            !plan.items.iter().any(|i| i.is_set_aside()),
+            "the only copy is set aside: {:#?}",
+            plan.items
+        );
+        assert!(plan.duplicates.is_empty(), "{:#?}", plan.duplicates);
+    }
+
+    #[test]
+    fn a_system_folder_organised_into_its_own_card_is_not_its_own_duplicate() {
+        let (_tmp, card) = card_with_tetris();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        let plan = plan(&world, &card.join("ROMS/GB"), opts);
+        assert_never_set_aside(&plan);
+    }
+
+    #[test]
+    fn a_pile_reached_by_another_spelling_is_not_its_own_duplicate() {
+        let (_tmp, card) = card_with_tetris();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        // `card/ROMS/GB/../GB`: the same folder, another path.
+        let plan = plan(&world, &card.join("ROMS/GB/../GB"), opts);
+        assert_never_set_aside(&plan);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pile_reached_through_a_link_is_not_its_own_duplicate() {
+        let (tmp, card) = card_with_tetris();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(card.join("ROMS/GB"), &link).unwrap();
+        let world = World::new();
+        let opts = OrganizeOptions {
+            target: Some(card.clone()),
+            offline: true,
+            duplicates: OrganizeDedupeMode::SetAside,
+            ..defaults("anbernic-stock")
+        };
+        let plan = plan(&world, &link, opts);
+        assert_never_set_aside(&plan);
+    }
+}
+
+#[test]
+fn the_duplicates_step_follows_the_region_order_of_the_settings() {
+    let mut settings = coverly_core::settings::Settings::default();
+    settings.matching.regions = vec!["Europe".into(), "USA".into()];
+    let opts = OrganizeOptions::from_settings(&settings, None);
+    assert_eq!(opts.regions, settings.matching.regions);
 }

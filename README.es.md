@@ -104,9 +104,24 @@ comprimidas como `juego.gba.gz`. Los juegos de disco dentro de un comprimido
 identifican por el propio disco, con su número de serie, y al aplicar se
 extraen su `.cue`/`.gdi` y sus pistas a la carpeta del sistema, cada pista
 comprobada contra el comprimido. Las descargas sin terminar, las BIOS, las
-páginas web guardadas como `.zip`, los archivos dañados o con varios juegos y
-los duplicados se quedan donde están. No pisa ningún archivo, las copias entre
-discos se verifican y un trabajo interrumpido se puede reanudar o deshacer.
+páginas web guardadas como `.zip` y los archivos dañados o con varios juegos se
+quedan donde están. Un juego que ya tienes en la biblioteca, con cualquier
+nombre o formato, se aparta en vez de copiarse otra vez. No pisa ningún
+archivo, las copias entre discos se verifican y un trabajo interrumpido se
+puede reanudar o deshacer.
+
+**Encontrar duplicados.** Coverly encuentra el mismo juego guardado más de una
+vez en un sistema por su contenido, nunca por su nombre: los mismos datos
+exactos, sea cual sea el nombre, el contenedor, la cabecera de copiadora o la
+compresión (`Tetris.gb` y `Tetris (1).zip`), y el mismo disco en otro formato
+por su número de serie (`Crash Bash.bin` y `Crash Bash.PBP`). Las otras
+versiones de un juego (revisiones, regiones, betas) se enumeran, y solo se
+apartan con «Una ROM por juego». Para cada juego elige la copia que se queda,
+con su motivo («Se queda: tiene tu partida»), y puedes elegir otra. Las demás
+copias se apartan en `_Duplicados/` dentro de la biblioteca, con sus carpetas,
+sus partidas y sus imágenes; o van a la Papelera si lo prefieres. Las copias
+con partidas distintas no se tocan. Cada trabajo se puede deshacer y nada se
+borra.
 
 **Explorar la biblioteca.** Vistas por carpeta, sistema, fecha y lista plana;
 filtros por imágenes que faltan, sistema, extensión y región; búsqueda; y una
@@ -368,15 +383,16 @@ descarga que no pasa la comprobación no se instala. Hay canal estable y beta.
 `coverly` es la misma lógica que la app, para la terminal. Como la app, no
 escribe nada salvo que pases `--apply`.
 
-| Orden      | Qué hace                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------- |
-| `audit`    | Informa de qué ROMs no tienen portada, captura o título (solo lectura)                        |
-| `fill`     | Rellena las imágenes que faltan desde las fuentes activas (simulación salvo con `--apply`)    |
-| `organize` | Reparte un montón de ROMs sueltas en una carpeta por sistema (simulación salvo con `--apply`) |
-| `profiles` | Lista los perfiles de formato, de serie y propios                                             |
-| `systems`  | Lista los sistemas conocidos y sus nombres de carpeta                                         |
-| `undo`     | Deshace el último trabajo (relleno u organización), o el que indiques con `--job`             |
-| `update`   | Comprueba si hay un `coverly` más nuevo, o lo instala (verificado con minisign)               |
+| Orden      | Qué hace                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------- |
+| `audit`    | Informa de qué ROMs no tienen portada, captura o título (solo lectura)                                         |
+| `fill`     | Rellena las imágenes que faltan desde las fuentes activas (simulación salvo con `--apply`)                     |
+| `organize` | Reparte un montón de ROMs sueltas en una carpeta por sistema (simulación salvo con `--apply`)                  |
+| `dedupe`   | Encuentra el mismo juego guardado dos veces en un sistema y aparta las copias (simulación salvo con `--apply`) |
+| `profiles` | Lista los perfiles de formato, de serie y propios                                                              |
+| `systems`  | Lista los sistemas conocidos y sus nombres de carpeta                                                          |
+| `undo`     | Deshace el último trabajo (relleno, organización o duplicados), o el que indiques con `--job`                  |
+| `update`   | Comprueba si hay un `coverly` más nuevo, o lo instala (verificado con minisign)                                |
 
 La ayuda de `coverly` está en inglés; la tabla traduce su descripción.
 
@@ -387,6 +403,9 @@ coverly fill /Volumes/SD --apply --auto-only --system gba,snes --media cover
 coverly fill /Volumes/SD --sources libretro,steamgriddb --strategy popularity
 coverly organize ~/Downloads/roms             # simulación: propuesta por sistema
 coverly organize ~/Downloads/roms --target /Volumes/SD --copy --apply
+coverly dedupe /Volumes/SD                    # simulación: qué copia se queda y adónde van las demás
+coverly dedupe /Volumes/SD --apply            # las aparta en /Volumes/SD/_Duplicados
+coverly dedupe /Volumes/SD --apply --trash    # o las manda a la Papelera
 coverly undo --list
 coverly undo                                  # deshace el último trabajo
 ```
@@ -402,7 +421,14 @@ candidatos e índices en caché), `--report table|json`, `--output ARCHIVO`.
 **`organize`:** `--layout PERFIL`, `--target CARPETA`, `--flat`,
 `--copy`/`--move`, `--names keep|catalogue`, `--assign ARCHIVO=SISTEMA`
 (repetible), `--resume TRABAJO`, `--include-review`, `--offline`,
-`--no-external-tools` (no usa unrar, 7-Zip ni bsdtar).
+`--no-external-tools` (no usa unrar, 7-Zip ni bsdtar),
+`--duplicates set-aside|report|off` (copias que ya están en la biblioteca).
+
+**`dedupe`:** `--system gb,psx`, `--level exact,format,version`,
+`--one-game-one-rom`, `--keep RUTA` (esta copia se queda; repetible),
+`--keep-rules has_save,verified,…`, `--reset-choices`, `--quarantine CARPETA`,
+`--trash`, `--resume TRABAJO`, `--offline`, `--no-external-tools`,
+`--report table|json`, `--output ARCHIVO`.
 
 **`undo`:** `--list`, `--job ID`, `--include-later` (con `--job`: deshace
 también los trabajos posteriores que tocaron la misma carpeta, del más nuevo al
@@ -425,9 +451,10 @@ ScreenScraper, para `organize`).
   metadatos.
 - **Tu clave de SteamGridDB se queda en el llavero del sistema** y solo se
   envía a SteamGridDB, en una cabecera `Authorization: Bearer`.
-- **La auditoría solo lee.** Rellenar y organizar no escriben nada hasta que
-  aplicas, nunca fuera de la raíz de la biblioteca, y cada trabajo se puede
-  deshacer.
+- **La auditoría solo lee.** Rellenar, organizar y apartar duplicados no
+  escriben nada hasta que aplicas, nunca fuera de la raíz de la biblioteca, y
+  cada trabajo se puede deshacer. Los duplicados se apartan o van a la
+  Papelera; nunca se borran.
 - **Las copias y el registro de cada trabajo** van a la carpeta de datos de la
   app, no a la tarjeta SD.
 - **Coverly ROMs no incluye ROMs, BIOS ni imágenes de juegos.**

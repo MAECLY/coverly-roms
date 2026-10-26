@@ -22,7 +22,5 @@ pub use plan::{
     PlanWarning, RenameReason, SheetCheck, SourceFp, Survey, SurveyEntry, Transfer, TransferMode,
     DEFAULT_LAYOUT, PROBE_LIMIT,
 };
-pub use target::{
-    assign_targets, file_system_is_fat32, folder_dir, mark_duplicates, DirIndex, TargetLayout,
-};
+pub use target::{assign_targets, file_system_is_fat32, folder_dir, DirIndex, TargetLayout};
 pub use walk::{is_broad_root, MetaProbe, OsMetaProbe, WalkCandidate, WalkOptions, Walked};

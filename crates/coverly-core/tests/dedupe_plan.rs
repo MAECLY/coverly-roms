@@ -11,11 +11,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
+use coverly_core::archive::Limits;
 use coverly_core::cache::{Cache, DatRow};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::FileBytes;
-use coverly_core::dedupe::source::ZipListing;
 use coverly_core::dedupe::testing::{
-    disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
+    self, disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
 };
 use coverly_core::dedupe::{
     default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
@@ -53,10 +54,9 @@ fn put(root: &Path, rel: &str, bytes: &[u8]) -> PathBuf {
 /// previous one, so the oldest-first tie-break follows the write order on
 /// every OS (Windows clocks can stamp quick writes with one time).
 fn pin_mtime(p: &Path) {
-    static NEXT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let t = filetime::FileTime::from_unix_time(1_700_000_000 + n, 0);
-    filetime::set_file_mtime(p, t).unwrap();
+    testing::pin_mtime(p, n);
 }
 
 /// A zip at `root/rel` holding one stored entry.
@@ -96,7 +96,7 @@ struct Fx {
     db: SystemDb,
     profile: Profile,
     settings: Settings,
-    listing: CountingListing<ZipListing>,
+    listing: CountingListing<ArchiveEntryListing>,
     discs: FakeDiscProbe,
     bytes: CountingBytes,
     cancel: AtomicBool,
@@ -113,7 +113,7 @@ impl Fx {
             db: SystemDb::builtin(),
             profile: profile(),
             settings: Settings::default(),
-            listing: CountingListing::new(ZipListing),
+            listing: CountingListing::new(ArchiveEntryListing::new(Limits::default())),
             discs,
             bytes: CountingBytes::new(),
             cancel: AtomicBool::new(false),
@@ -304,6 +304,12 @@ fn normalised(plan: &DedupePlan, root: &Path) -> serde_json::Value {
                 for (k, x) in map.iter_mut() {
                     if k == "mtime_ns" {
                         *x = serde_json::Value::from(0);
+                    } else if k == "mtimes_ns" {
+                        // Only whether a set is timed file by file.
+                        if let serde_json::Value::Array(list) = x {
+                            list.iter_mut()
+                                .for_each(|t| *t = serde_json::Value::from(0));
+                        }
                     } else {
                         walk(x, roots);
                     }
@@ -446,44 +452,76 @@ fn dry_plan_writes_nothing() {
 }
 
 #[test]
-fn quarantine_next_to_roms_folder_and_fallbacks() {
-    // A card with a ROMs folder: next to it, on the card.
+fn default_quarantine_is_inside_the_library() {
+    // A card with a ROMs folder: beside it, inside the library root.
     let spot = default_quarantine(Path::new("/Volumes/SD"), "ROMS", "_Duplicados");
     assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicados"));
     assert_eq!(spot.writer_root, PathBuf::from("/Volumes/SD"));
     assert_eq!(spot.roms_dir, PathBuf::from("/Volumes/SD/ROMS"));
     assert!(!spot.fallback);
 
-    // A folder of system folders: beside it, named after it.
+    // A folder opened as system folders: inside it, never beside it
+    // (it was `<parent>/ROMS _Duplicados`).
     let dir = TempDir::new().unwrap();
     let roms = dir.path().join("ROMS");
     fs::create_dir_all(&roms).unwrap();
     let spot = default_quarantine(&roms, "", "_Duplicados");
-    assert_eq!(spot.dir, dir.path().join("ROMS _Duplicados"));
-    assert_eq!(spot.writer_root, dir.path());
+    assert_eq!(spot.dir, roms.join("_Duplicados"));
+    assert_eq!(spot.writer_root, roms);
     assert_eq!(spot.roms_dir, roms);
     assert!(!spot.fallback);
+    assert!(
+        !dir.path().join("ROMS _Duplicados").exists(),
+        "nothing beside the library"
+    );
 
-    // A volume opened as system folders: its parent is the volume list.
+    // A volume opened as system folders: the same rule.
     let spot = default_quarantine(Path::new("/Volumes/SD"), "", "_Duplicates");
     assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicates"));
     assert_eq!(spot.writer_root, PathBuf::from("/Volumes/SD"));
-    assert!(spot.fallback);
+    assert!(!spot.fallback);
 
-    // An unwritable parent: inside the library.
-    #[cfg(unix)]
+    // Slashes around the ROMs folder name do not matter.
+    let spot = default_quarantine(Path::new("/Volumes/SD"), "/ROMS/", "_Duplicados");
+    assert_eq!(spot.dir, PathBuf::from("/Volumes/SD/_Duplicados"));
+    assert_eq!(spot.roms_dir, PathBuf::from("/Volumes/SD/ROMS"));
+}
+
+#[test]
+fn custom_quarantine_inside_a_system_folder_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    let fx = Fx::new();
+    let scan = scan(root);
+
+    // Inside a system folder, or around one (the ROMs folder, the root).
+    let around = [root.join("ROMS"), root.to_path_buf()];
+    for inside in [root.join("ROMS/GB"), root.join("ROMS/GB/_Duplicados")]
+        .into_iter()
+        .chain(around)
     {
-        use std::os::unix::fs::PermissionsExt;
-        let locked = dir.path().join("locked");
-        let lib = locked.join("ROMS");
-        fs::create_dir_all(&lib).unwrap();
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
-        let spot = default_quarantine(&lib, "", "_Duplicados");
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(spot.dir, lib.join("_Duplicados"));
-        assert_eq!(spot.writer_root, lib);
-        assert!(spot.fallback);
+        let mut opts = fx.opts();
+        opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+            path: inside.clone(),
+        };
+        let err = fx
+            .run(&scan, &opts, &fx.bytes, None, &|_| {})
+            .expect_err("a quarantine inside a system folder");
+        assert_eq!(err, DedupeError::QuarantineInSystemFolder(inside));
     }
+
+    // Anywhere else is fine: beside the ROMs folder, or outside the
+    // library.
+    for fine in [root.join("Dups"), dir.path().join("x")] {
+        let mut opts = fx.opts();
+        opts.quarantine = coverly_core::dedupe::QuarantineChoice::Folder { path: fine.clone() };
+        let plan = fx.plan(&scan, &opts);
+        assert_eq!(plan.quarantine, fine);
+    }
+    assert!(!root.join("Dups").exists(), "a dry run creates nothing");
 }
 
 #[test]
@@ -640,7 +678,13 @@ fn warm_run_hashes_nothing() {
     let listing_before = fx.listing.calls();
     let second = fx.run(&library, &fx.opts(), &warm, None, &|_| {}).unwrap();
     assert_eq!(warm.opens(), 0, "a warm run reads no file");
-    assert_eq!(fx.listing.calls(), listing_before, "nor lists a zip");
+    // Units still list each archive once to know its kind (served by the
+    // archive cache); the keys list and decode nothing.
+    assert_eq!(
+        fx.listing.calls(),
+        listing_before + 1,
+        "only the units list the zip"
+    );
     assert_eq!(second.groups, first.groups);
 }
 
@@ -820,6 +864,34 @@ fn skip_group_reports_only_and_comes_back() {
 }
 
 #[test]
+fn regroup_refuses_a_quarantine_inside_a_system_folder() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    let fx = Fx::new();
+    let opts = fx.opts();
+    let plan = fx.plan(&scan(root), &opts);
+
+    for inside in [root.join("ROMS/GB/_Duplicados"), root.join("ROMS")] {
+        let mut moved = opts.clone();
+        moved.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+            path: inside.clone(),
+        };
+        let err = regroup(&plan, &moved).expect_err("a quarantine inside a system folder");
+        assert_eq!(err, DedupeError::QuarantineInSystemFolder(inside));
+    }
+
+    let mut fine = opts.clone();
+    fine.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+        path: root.join("Dups"),
+    };
+    let regrouped = regroup(&plan, &fine).expect("beside the ROMs folder");
+    assert_eq!(regrouped.quarantine, root.join("Dups"));
+}
+
+#[test]
 fn regroup_with_1g1r_adds_version_groups_without_reading() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
@@ -833,7 +905,7 @@ fn regroup_with_1g1r_adds_version_groups_without_reading() {
 
     let mut one = opts.clone();
     one.one_game_one_rom = true;
-    let regrouped = regroup(&plan, &one);
+    let regrouped = regroup(&plan, &one).expect("regroup");
     assert_eq!(
         (fx.bytes.opens(), fx.listing.calls()),
         reads,
@@ -856,7 +928,10 @@ fn regroup_with_1g1r_adds_version_groups_without_reading() {
     assert_eq!(regrouped.totals.extras, 1);
 
     // Back to the first options: the version group is gone again.
-    assert!(regroup(&regrouped, &opts).groups.is_empty());
+    assert!(regroup(&regrouped, &opts)
+        .expect("regroup")
+        .groups
+        .is_empty());
 }
 
 #[test]

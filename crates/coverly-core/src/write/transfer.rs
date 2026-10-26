@@ -212,6 +212,52 @@ impl Writer {
         self.transfer(from, to, collision, item, Mode::Move, false)
     }
 
+    /// Moves `from` to `to`: a pile copy the duplicates step sets aside
+    /// (duplicates spec §7.1), on the pile's own side when `to` is inside
+    /// the source root, else in the library's quarantine (a pile inside a
+    /// system folder); an instant rename either way. Journaled as any move
+    /// (folders it creates too), so undo puts it back.
+    pub fn set_aside_file(
+        &mut self,
+        from: &Path,
+        to: &Path,
+        collision: Collision,
+        item: Option<usize>,
+    ) -> Result<MoveOutcome, WriteError> {
+        if !to.starts_with(&self.source_root) {
+            return self.transfer(from, to, collision, item, Mode::Move, true);
+        }
+        let library = std::mem::replace(&mut self.root, self.source_root.clone());
+        let out = self.transfer(from, to, collision, item, Mode::Move, true);
+        self.root = library;
+        out
+    }
+
+    /// Puts back a file this run just moved from `from` to `to` (a set
+    /// rolled back by its caller): a no-clobber rename, or across volumes a
+    /// streamed, verified copy home and then `to` deleted. The journal keeps
+    /// the move; undo later finds the file already at `from` and leaves it.
+    /// An `AlreadyExists` I/O error means `from` was taken meanwhile and
+    /// nothing changed.
+    pub fn move_back(&mut self, to: &Path, from: &Path) -> Result<(), WriteError> {
+        let to = ensure_within(&self.root, to)?;
+        let from = ensure_within(&self.source_root, from)?;
+        let renamed = with_sharing_retries(|| match fault(CopyStage::Rename, &to) {
+            Some(e) => Err(e),
+            None => rename_noclobber(&to, &from),
+        });
+        match renamed {
+            Ok(()) => Ok(()),
+            Err(e) if is_cross_device(&e) => {
+                self.stream_copy(&to, &from, true)?;
+                with_sharing_retries(|| fs::remove_file(&to)).map_err(|e| map_io(e, &to))?;
+                remove_apple_doubles(&[to]);
+                Ok(())
+            }
+            Err(e) => Err(map_io(e, &to)),
+        }
+    }
+
     /// Copies `from` (inside the source root) to `to` (inside the root),
     /// streamed and verified; the source stays.
     pub fn copy_file(
@@ -590,7 +636,7 @@ fn too_many_collisions(dir: &Path, name: &str) -> WriteError {
 
 /// Whether `a` and `b` name the same directory entry: the same file in
 /// the same folder (a hard link elsewhere is another entry).
-fn same_entry(a: &Path, b: &Path) -> bool {
+pub(super) fn same_entry(a: &Path, b: &Path) -> bool {
     let (Some(pa), Some(pb)) = (a.parent(), b.parent()) else {
         return false;
     };

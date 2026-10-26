@@ -45,6 +45,7 @@ import type {
 import { undoCounts } from '@/components/organize/undoCounts';
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
+import { useDedupeStore } from '@/stores/dedupeStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
 
@@ -102,6 +103,8 @@ export function JobsPanel({
   const [organizeUndo, setOrganizeUndo] = useState<{
     job: string;
     done: { restored: number; modified: number } | null;
+    /** Copies a dedupe undo could not bring back from the Trash. */
+    lost: string[];
     error: BackendError | null;
   } | null>(null);
   /** An organise undo moved ROMs: the open library rescans on close. */
@@ -153,9 +156,7 @@ export function JobsPanel({
   const canUndo =
     !running &&
     job?.state !== 'paused' &&
-    history.some(
-      (h) => !h.undone && h.root === view.root && h.kind !== 'organize',
-    );
+    history.some((h) => !h.undone && h.root === view.root && h.kind === 'fill');
 
   // Journal headers come from disk and may be empty or garbage.
   function when(createdAt: string) {
@@ -168,10 +169,16 @@ export function JobsPanel({
     if (name) setSaved(name);
   }
 
-  /** An interrupted organise job resumes on the organise screen. */
-  function resumeOrganize(job: string, source: string) {
-    void useOrganizeStore.getState().resumeJob(job, source);
-    useNavStore.getState().openOrganize(source);
+  /** An interrupted organise job resumes on the organise screen; a
+   * duplicates one on the duplicates screen of its library. */
+  function resumeOrganize(h: JobHistoryItem) {
+    if (h.kind === 'dedupe') {
+      void useDedupeStore.getState().resumeJob(h.job, h.root);
+      useNavStore.getState().openDuplicates(h.root);
+      return;
+    }
+    void useOrganizeStore.getState().resumeJob(h.job, h.root);
+    useNavStore.getState().openOrganize(h.root);
   }
 
   async function undo() {
@@ -188,10 +195,24 @@ export function JobsPanel({
       const b = await getBackend();
       const result = await b.organizeUndo(job, includeLater);
       moved.current = true;
-      setOrganizeUndo({ job, done: undoCounts(result), error: null });
+      // Its copies are back: the toolbar's count no longer holds.
+      const undone = history.find((h) => h.job === job);
+      if (undone?.kind === 'dedupe')
+        useDedupeStore.getState().forgetCount(undone.root);
+      setOrganizeUndo({
+        job,
+        done: undoCounts(result),
+        // Organise archives the Trash lost keep their extracted files
+        // (the organise screen says so); dedupe copies are just gone.
+        lost:
+          history.find((h) => h.job === job)?.kind === 'dedupe'
+            ? result.report.flatMap((r) => r.archive_lost)
+            : [],
+        error: null,
+      });
       await loadHistory();
     } catch (e) {
-      setOrganizeUndo({ job, done: null, error: toBackendError(e) });
+      setOrganizeUndo({ job, done: null, lost: [], error: toBackendError(e) });
     } finally {
       setOrganizeBusy(false);
     }
@@ -457,7 +478,7 @@ export function JobsPanel({
                       <Badge variant="neutral">{t('jobs.undoneBadge')}</Badge>
                     ) : h.complete ? (
                       <Badge variant="success">{t('jobs.complete')}</Badge>
-                    ) : h.kind === 'organize' ? (
+                    ) : h.kind !== 'fill' ? (
                       <Badge variant="warning">
                         {t('organize.interrupted')}
                       </Badge>
@@ -465,7 +486,7 @@ export function JobsPanel({
                       <Badge variant="warning">{t('jobs.incomplete')}</Badge>
                     )}
                     <span className="flex flex-wrap justify-end gap-1">
-                      {h.kind === 'organize' &&
+                      {h.kind !== 'fill' &&
                         !h.complete &&
                         !h.undone &&
                         h.undoable && (
@@ -473,12 +494,12 @@ export function JobsPanel({
                             variant="outline"
                             size="sm"
                             disabled={running}
-                            onClick={() => resumeOrganize(h.job, h.root)}
+                            onClick={() => resumeOrganize(h)}
                           >
                             {t('organize.resume')}
                           </Button>
                         )}
-                      {h.kind === 'organize' && !h.undone && h.undoable && (
+                      {h.kind !== 'fill' && !h.undone && h.undoable && (
                         <AlertDialog
                           open={organizeConfirm === h.job}
                           onOpenChange={(on) =>
@@ -490,9 +511,12 @@ export function JobsPanel({
                               variant="outline"
                               size="sm"
                               disabled={running || organizeBusy}
-                              aria-label={t('jobs.organizeUndo.label', {
-                                date: when(h.created_at),
-                              })}
+                              aria-label={t(
+                                h.kind === 'dedupe'
+                                  ? 'jobs.dedupeUndo.label'
+                                  : 'jobs.organizeUndo.label',
+                                { date: when(h.created_at) },
+                              )}
                             >
                               <Undo2 aria-hidden />
                               {t('organize.undo.action')}
@@ -501,9 +525,13 @@ export function JobsPanel({
                           <AlertDialogContent>
                             <AlertDialogHeader>
                               <AlertDialogTitle>
-                                {t('jobs.organizeUndo.title', {
-                                  date: when(h.created_at),
-                                })}
+                                {h.kind === 'dedupe'
+                                  ? t('dedupe.undo.title', {
+                                      count: n.format(h.entries),
+                                    })
+                                  : t('jobs.organizeUndo.title', {
+                                      date: when(h.created_at),
+                                    })}
                               </AlertDialogTitle>
                               <AlertDialogDescription>
                                 {t('jobs.organizeUndo.confirm')}
@@ -519,9 +547,12 @@ export function JobsPanel({
                                 onClick={() => void undoOrganize(h.job, false)}
                               >
                                 {h.entries > 0
-                                  ? t('organize.undo.actionCount', {
-                                      count: n.format(h.entries),
-                                    })
+                                  ? t(
+                                      h.kind === 'dedupe'
+                                        ? 'dedupe.undo.action'
+                                        : 'organize.undo.actionCount',
+                                      { count: n.format(h.entries) },
+                                    )
                                   : t('jobs.undoYes')}
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -544,6 +575,21 @@ export function JobsPanel({
               <p className="m-0 tabular-nums">
                 {t('organize.undone', organizeUndo.done)}
               </p>
+            </Alert>
+          )}
+          {organizeUndo && organizeUndo.lost.length > 0 && (
+            // The rest of the job is undone; these could not come back.
+            <Alert variant="warning">
+              <ul className="m-0 grid list-none gap-0.5 p-0">
+                {organizeUndo.lost.map((path) => (
+                  <li
+                    key={path}
+                    className="font-mono text-caption [overflow-wrap:anywhere]"
+                  >
+                    {t('dedupe.undo.notInTrash', { path })}
+                  </li>
+                ))}
+              </ul>
             </Alert>
           )}
           {organizeUndo?.error?.code === 'later-jobs' && (

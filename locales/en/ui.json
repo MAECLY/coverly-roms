@@ -245,6 +245,52 @@
       "namesCatalogue": "Use the catalogue name",
       "downloadDats": "Download game catalogues to identify ROMs by their contents",
       "advancedHint": "Thresholds and lists are edited in Advanced (settings file)."
+    },
+    "dedupe": {
+      "title": "Duplicates",
+      "levels": "What to look for",
+      "oneGameOneRom": "One ROM per game",
+      "oneGameOneRomHint": "Also sets aside the other versions of the same game (another region or revision).",
+      "action": "What to do with the copies",
+      "actionQuarantine": "Set aside in a folder",
+      "actionTrash": "Send to the Trash",
+      "actionTrashHint": "Undo brings them back from the Trash as long as you don't empty it.",
+      "organizeStep": "When organising",
+      "quarantine": "Quarantine folder",
+      "quarantineHint": "Empty: {folder} inside the library, on its own drive.",
+      "quarantineDefault": "<library>/{name}",
+      "quarantineInside": "It can't be inside the ROMs folder or a system folder: the device would list the copies.",
+      "choose": "Choose…",
+      "rules": "Which copy stays",
+      "rulesHint": "Weighed in this order; the first rule that decides, decides.",
+      "use": "Use: {rule}",
+      "moveUp": "Move {rule} up",
+      "moveDown": "Move {rule} down",
+      "regionOrder": "Uses the Matching region order",
+      "containerOrder": "Format order per profile",
+      "containerOrderHint": "Comma-separated, preferred first.",
+      "containerAll": "All profiles",
+      "containerKey": "{profile}: {kind}",
+      "containerKind": {
+        "disc": "discs",
+        "cart": "cartridges",
+        "arcade": "arcade",
+        "*": "everything"
+      },
+      "exclude": "Systems to leave out",
+      "excludeHint": "System ids, comma-separated.",
+      "rule": {
+        "has_save": "Has your save",
+        "played": "It's the one you played",
+        "in_library": "Already in your library",
+        "verified": "Verified dump in the catalogue",
+        "retail": "Retail release",
+        "region": "Preferred region",
+        "revision": "Newer revision",
+        "container": "The profile's preferred format",
+        "cover": "Has a cover",
+        "catalogue_name": "Named as in the catalogue"
+      }
     }
   },
   "about": {
@@ -359,6 +405,9 @@
     "no-plan": "That organise plan is no longer kept. Plan again.",
     "later-jobs": "Newer jobs changed files under this folder ({detail}). Undo them too, or keep this organisation.",
     "no-space": "There is not enough free space for this copy (needed/free bytes: {detail}).",
+    "no-dedupe-plan": "That duplicates search is no longer kept. Look for duplicates again.",
+    "keeper-required": "Every group needs one copy that stays. Pick the copy to keep ({detail}).",
+    "quarantine-in-system-folder": "The duplicates folder cannot be inside a system folder, or hold one ({detail}). Choose another folder.",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",
@@ -423,7 +472,9 @@
       "badge": "Different saves",
       "note": "Nothing in this game will be touched. Look at the saves and decide by hand which copy you play.",
       "openFolder": "Open folder",
-      "openFolderOf": "Open the folder of {path}"
+      "openFolderOf": "Open the folder of {path}",
+      "alertOne": "1 game has copies with different saves. Nothing in it will be touched.",
+      "show": "Show"
     },
     "system": {
       "summary": "{name}: {groups} games, {extras} copies",
@@ -456,7 +507,8 @@
       "container": "Stays: preferred format on {profile} ({kept}); the other is {other}.",
       "cover": "Stays: it has a cover; the other doesn't.",
       "catalogueName": "Stays: named as in the catalogue.",
-      "tie": "They are identical; the oldest stays. Pick another if you prefer."
+      "tie": "They are identical; the oldest stays. Pick another if you prefer.",
+      "tieSettled": "They are identical; the oldest stays."
     },
     "quality": {
       "kept": {
@@ -523,12 +575,16 @@
       "sourceMissing": "It was no longer there; not moved.",
       "excluded": "You left it out; still in place.",
       "conflict": "It has different saves; still in place.",
-      "cancelled": "Cancelled before reaching it; still in place."
+      "cancelled": "Cancelled before reaching it; still in place.",
+      "trashUnavailable": "Its drive has no Trash; still in place.",
+      "reportOnly": "This game is only reported; still in place.",
+      "taken": "{folder} already holds a file with that name; still in place."
     },
     "delta": "+{count} files",
     "bulk": {
       "confirmTitle": "Set aside {count} files?",
-      "confirmBody": "That is {bytes}, {share} of them in {system}. They'll go to {folder}."
+      "confirmBody": "That is {bytes}, {share} of them in {system}. They'll go to {folder}.",
+      "otherVolume": "{folder} is on another drive: each copy is copied there, then leaves its place."
     },
     "findCovers": "Find covers for {count} games",
     "skipGroup": "Leave this game alone",
@@ -542,22 +598,26 @@
     },
     "trash": {
       "confirmTitle": "Send {count} files to the Trash?",
-      "confirmBody": "That is {bytes}. Undo can't bring them back by itself: you'll restore them from the Trash.",
+      "confirmBody": "That is {bytes}. Undo brings them back from the Trash as long as you don't empty it.",
       "cardNote": "On an SD card the Trash is on the card itself; space is freed only when you empty it.",
-      "caveat": "Undo can't bring them back by itself: you'll restore them from the Trash."
+      "caveat": "Undo brings them back from the Trash as long as you don't empty it.",
+      "unavailable": "This drive has no Trash: the copies can only be set aside."
     },
     "applying": "Setting aside {done} of {total}…",
     "done": "Set aside {count} files in {folder}. Undo is one click away.",
     "doneTrash": "Sent {count} files to the Trash.",
     "freed": "Out of {folder}: {bytes}",
+    "freedLibrary": "Out of the library: {bytes}",
     "sameVolumeNote": "The card is just as full until you empty {quarantine} or move it to your computer.",
     "openFolder": "Open {folder}",
     "partial": "Set aside: {done} · Left alone: {skipped}",
     "undo": {
       "title": "Put {count} files back?",
       "action": "Put back {count} files",
-      "trashed": "Restore it from the Trash (Put Back): {path}",
-      "button": "Undo"
+      "notInTrash": "Not in the Trash any more: {path}",
+      "button": "Undo",
+      "notBack": "{count} files did not go back: another file is in their place, or they changed since.",
+      "notBackOne": "1 file did not go back: another file is in its place, or it changed since."
     },
     "empty": {
       "title": "No duplicates in {systems} systems.",
@@ -590,7 +650,32 @@
     "nothingElse": "Nothing else was moved.",
     "findCoversOne": "Find a cover for 1 game",
     "backToLibrary": "Back to the library",
-    "levelsLabel": "What to look for"
+    "levelsLabel": "What to look for",
+    "back": "Library",
+    "summaryCount": "{extras} extra copies across {groups} games.",
+    "summaryCountOne": "1 extra copy in 1 game.",
+    "summaryCountOneGame": "{extras} extra copies in 1 game.",
+    "summaryBytes": "{bytes} would leave {folder}.",
+    "phaseProgress": "{phase}: {done} of {total}",
+    "phasesLabel": "Search steps",
+    "phaseDone": "done",
+    "starting": "Starting…",
+    "applyingTrash": "Sending {done} of {total} to the Trash…",
+    "progressLabel": "Progress",
+    "cancel": "Cancel",
+    "replan": "Look again",
+    "retry": "Try again",
+    "nothingMoved": "Nothing was moved.",
+    "exportPlan": "Export report",
+    "exported": "Report saved: {name}",
+    "applyOne": "Set aside 1 file",
+    "applyTrashOne": "Send 1 file to the Trash",
+    "noneHint": "With these options no copy leaves its place.",
+    "chdUnread": "Other formats: {count} CHD not read inside.",
+    "undone": "Put back {count} files.",
+    "undoneOne": "Put back 1 file.",
+    "resume": "Resume",
+    "paused": "Stopped: {reason}. The rest can resume."
   },
   "toolbar": {
     "search": "Search by name",
@@ -915,7 +1000,11 @@
     "unknownError": "Unknown problem",
     "kind": {
       "fill": "Covers",
-      "organize": "Organisation"
+      "organize": "Organisation",
+      "dedupe": "Duplicates"
+    },
+    "dedupeUndo": {
+      "label": "Undo the duplicates of {date}"
     }
   },
   "review": {
@@ -1112,7 +1201,8 @@
       "tooBigForFat": "Too big for FAT32 (exFAT needed)",
       "unreadable": "Can't be read",
       "collisionSet": "Another game already uses those names in the target",
-      "title": "Staying where they are"
+      "title": "Staying where they are",
+      "inLibrary": "Already in your library as {path}"
     },
     "planning": "Identifying {done} of {total}…",
     "walking": "Looking for files…",
@@ -1192,7 +1282,9 @@
     "pausedTitle": "Paused",
     "result": {
       "counts": "Moved: {moved} · Copied: {copied} · Skipped: {skipped} · Errors: {failed}",
-      "extracted": "Extracted: {count}"
+      "extracted": "Extracted: {count}",
+      "setAside": "Set aside: {count}",
+      "trashed": "In the Trash: {count}"
     },
     "copiedNotRemoved": "Copied; the original couldn't be removed",
     "copiedNotRemovedCount": "Copied without removing the original: {count}",
@@ -1212,7 +1304,9 @@
         "not-decided": "Skipped: no system chosen",
         "cancelled": "Skipped: stopped before it",
         "tool-gone": "Skipped: the archive tool is gone or another version now"
-      }
+      },
+      "quarantined": "Set aside",
+      "trashed": "In the Trash"
     },
     "undo": {
       "action": "Undo",
@@ -1237,7 +1331,23 @@
       "newCount": "New: {count}",
       "retry": "Try again",
       "nothingMoved": "Nothing was moved."
-    }
+    },
+    "dedupe": {
+      "picker": "Duplicates",
+      "quarantine": "Set aside",
+      "report": "Report only",
+      "off": "Don't look",
+      "count": "Duplicates: {count}",
+      "inLibrary": "Already in your library: {count}",
+      "hint": "Extra copies are set aside in {folder}, beside the pile: they are not copied into the library.",
+      "hintTrash": "Extra copies go to the Trash: they are not copied into the library.",
+      "reportHint": "Report only: the extra copies stay where they are.",
+      "games": "Games: {count}"
+    },
+    "applyWithDedupe": "Organise {count} files and set aside {extras}",
+    "applyOneWithDedupe": "Organise 1 file and set aside {extras}",
+    "applyWithTrash": "Organise {count} files and send {extras} to the Trash",
+    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash"
   },
   "ui": {
     "close": "Close",

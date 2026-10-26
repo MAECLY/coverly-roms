@@ -9,6 +9,7 @@ import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import type {
   JobHistoryItem,
+  OrganizeItem,
   OrganizeJobView,
   OrganizeUndoReport,
 } from '@/ipc/types';
@@ -32,6 +33,7 @@ function view(patch: Partial<OrganizeJobView> = {}): OrganizeJobView {
       extracted: 0,
       skipped: 1,
       failed: 1,
+      set_aside: 0,
       paused: null,
       pause_reason: null,
       resumable_items: [],
@@ -258,6 +260,7 @@ describe('OrganizeResult', () => {
               extracted: 2,
               skipped: 0,
               failed: 0,
+              set_aside: 0,
               paused: null,
               pause_reason: null,
               resumable_items: [],
@@ -349,5 +352,71 @@ describe('OrganizeResult', () => {
       )
       .closest('[role]')!;
     expect(alert).toHaveTextContent('Next Tetris, The.zip');
+  });
+  it('a_duplicate_the_trash_lost_is_not_called_an_archive', () => {
+    // A copy set aside to the Trash and an extracted archive sent there
+    // too: neither is in the Trash any more when the job is undone.
+    const plan = {
+      ...planOf([
+        {
+          ...autoItem(0, 'dup/Tetris (USA).gb', 'gb', 'ROMS/GB'),
+          action: 'set-aside',
+          keeper: 'ROMS/GB/Tetris (USA).gb',
+          relation: 'exact',
+          reason: { kind: 'tie' },
+          dest: '_Duplicados/dup/Tetris (USA).gb',
+        } as OrganizeItem,
+        autoItem(1, 'Next Tetris, The.zip', 'gb', 'ROMS/GB', {
+          transfer: { kind: 'extract', archive_after: 'trash' },
+        } as Partial<OrganizeItem>),
+      ]),
+      mode: 'move' as const,
+      set_aside_trash: true,
+    };
+    const job = view({
+      report: {
+        ...view().report!,
+        moved: 0,
+        copied: 0,
+        extracted: 1,
+        skipped: 0,
+        failed: 0,
+        set_aside: 1,
+        items: [
+          { item: 0, status: 'trashed', targets: ['/T/Tetris (USA).gb'] },
+          { item: 1, status: 'extracted', targets: ['/pile/ROMS/GB/n.gb'] },
+        ],
+      },
+    });
+    const report: OrganizeUndoReport = {
+      job: 'organize-0001',
+      removed: [],
+      restored: [],
+      skipped_modified: [],
+      skipped_occupied: [],
+      dirs_removed: [],
+      archive_lost: ['/pile/dup/Tetris (USA).gb', '/pile/Next Tetris, The.zip'],
+    };
+    render(
+      <I18nProvider locale="en">
+        <OrganizeResult
+          job={job}
+          plan={plan}
+          undo={{ report: [report], later_jobs: [] }}
+          error={null}
+          onOpen={vi.fn()}
+          onUndo={vi.fn()}
+          onResume={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+    // The copy is just gone (its keeper stays in the library): no
+    // "the extracted files stay" for it.
+    expect(
+      screen.getByText('Not in the Trash any more: /pile/dup/Tetris (USA).gb'),
+    ).toBeInTheDocument();
+    const archive = screen.getByText(/extracted files stay/).closest('[role]')!;
+    expect(archive).toHaveTextContent('Next Tetris, The.zip');
+    expect(archive).not.toHaveTextContent('Tetris (USA).gb');
   });
 });

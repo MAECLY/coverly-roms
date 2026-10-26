@@ -9,8 +9,9 @@
 //! Plan only: nothing is moved, and a tree digest (sizes + mtimes) of both
 //! folders is compared before and after. The app cache (cached catalogues)
 //! is used through a copy in a temp dir, so the planner's cache writes
-//! never touch the real one; nothing is downloaded. Discs are not read
-//! inside yet (`NoDiscProbe`, Phase A), so §15.3 waits for the disc reader.
+//! never touch the real one; nothing is downloaded. Archives are read
+//! through `ArchiveEntryListing` and discs through `ReaderDiscProbe` (no
+//! external tool runs), so the §15.3 format groups are checked too.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -18,9 +19,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
+use coverly_core::archive::Limits;
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::dedupe::archive::ArchiveEntryListing;
+use coverly_core::dedupe::disc::ReaderDiscProbe;
 use coverly_core::dedupe::keys::DiskBytes;
-use coverly_core::dedupe::source::{NoDiscProbe, ZipListing};
 use coverly_core::dedupe::units::{units_from_scan, Exclusion, UnitOptions};
 use coverly_core::dedupe::{
     plan_dedupe, regroup, DedupeEnv, DedupeOptions, DedupePlan, DupGroup, GroupAction, Relation,
@@ -68,6 +71,19 @@ const NEVER_OFFERED: [(&str, &str, &str); 8] = [
     ("SFC", "Blues Brothers", "Blues Brothers"),
     ("SFC", "King of Dragons", "King of Dragons"),
     ("SFC", "Great Circus Mystery", "Great Circus Mystery"),
+];
+
+/// Spec §15.3: PS format groups (level 3): a member to find the group by,
+/// every member, and the keeper on anbernic-stock.
+const FORMAT_GROUPS: [(&[&str], &str); 2] = [
+    (
+        &["Crash Bash.PBP", "Crash Bash.bin", "Crash Bash 1.bin"],
+        "Crash Bash.PBP",
+    ),
+    (
+        &["GranTurismo1.PBP", "Gran Turismo.img"],
+        "GranTurismo1.PBP",
+    ),
 ];
 
 /// Spec §15.2: different content under one name that may meet only as
@@ -138,8 +154,8 @@ fn plan(scan: &LibraryScan, profile: &Profile, cache: &Cache) -> DedupePlan {
         db: &db,
         profile,
         settings: &settings,
-        listing: &ZipListing,
-        discs: &NoDiscProbe,
+        listing: &ArchiveEntryListing::new(Limits::default()),
+        discs: &ReaderDiscProbe::new(ArchiveEntryListing::new(Limits::default())),
         dats: None,
         bytes: &DiskBytes,
         progress: &|_| {},
@@ -273,6 +289,77 @@ fn assert_never_offered(plan: &DedupePlan) {
     }
 }
 
+/// Spec §15.3: the PS format groups and their keepers; the Tekken 3 pair
+/// is recorded (it acts only when both PBPs hold the same disc build).
+fn assert_format_groups(plan: &DedupePlan) {
+    eprintln!("--- format groups (level 3) ---");
+    let format: Vec<&DupGroup> = plan
+        .groups
+        .iter()
+        .filter(|g| g.members.iter().any(|m| m.relation == Relation::Format))
+        .collect();
+    for g in &format {
+        eprintln!("format: {} ({:?})", g.title, g.action);
+    }
+    let names = |g: &DupGroup| {
+        let mut n: Vec<String> = g
+            .members
+            .iter()
+            .map(|m| file_name(&m.unit.primary))
+            .collect();
+        n.sort();
+        n
+    };
+    for (members, keeper) in FORMAT_GROUPS {
+        let g = plan
+            .groups
+            .iter()
+            .filter(|g| group_folder(plan, g).eq_ignore_ascii_case("PS"))
+            .find(|g| names(g).iter().any(|n| n == members[0]))
+            .unwrap_or_else(|| panic!("no group holds PS/{}", members[0]));
+        let mut want: Vec<String> = members.iter().map(|m| m.to_string()).collect();
+        want.sort();
+        assert_eq!(names(g), want, "{}", g.title);
+        assert!(
+            g.members.iter().any(|m| m.relation == Relation::Format),
+            "{}: no format member",
+            g.title
+        );
+        assert_eq!(g.action, GroupAction::Act, "{}", g.title);
+        assert_eq!(
+            file_name(&g.members[g.keeper].unit.primary),
+            keeper,
+            "{}: {:?}",
+            g.title,
+            g.reason
+        );
+    }
+    let tekken = plan.groups.iter().find(|g| {
+        let n = names(g);
+        n.iter().any(|n| n == "Tekken 3.PBP") && n.iter().any(|n| n == "Iron fist 3.PBP")
+    });
+    match tekken {
+        Some(g) => {
+            eprintln!(
+                "Tekken 3 / Iron fist 3: {:?}, reason {:?}",
+                g.action, g.reason
+            );
+            match &g.action {
+                GroupAction::Act => {
+                    assert_eq!(file_name(&g.members[g.keeper].unit.primary), "Tekken 3.PBP")
+                }
+                other => assert_eq!(
+                    other,
+                    &GroupAction::ReportOnly {
+                        why: ReportWhy::BuildDiffers
+                    }
+                ),
+            }
+        }
+        None => eprintln!("Tekken 3 / Iron fist 3: not grouped"),
+    }
+}
+
 #[test]
 #[ignore = "needs COVERLY_LIBRARY_DIR and COVERLY_SAMPLE_DIR; plan only, never writes"]
 fn the_real_library_plans_duplicates_as_the_spec_says() {
@@ -295,7 +382,12 @@ fn the_real_library_plans_duplicates_as_the_spec_says() {
 
     // `PS/Grandia.bios` is never a unit: the scan does not list it as a
     // ROM, and if it ever did, the BIOS rule would set it aside.
-    let set = units_from_scan(&lib_scan, &db, &UnitOptions::for_profile(&lib_profile));
+    let set = units_from_scan(
+        &lib_scan,
+        &db,
+        &UnitOptions::for_profile(&lib_profile),
+        &ArchiveEntryListing::new(Limits::default()),
+    );
     let bios = Path::new("PS/Grandia.bios");
     if let Some((_, why)) = set.excluded.iter().find(|(p, _)| p.ends_with(bios)) {
         assert_eq!(why, &Exclusion::Bios, "PS/Grandia.bios");
@@ -315,7 +407,8 @@ fn the_real_library_plans_duplicates_as_the_spec_says() {
             levels: vec![DedupeLevel::Exact],
             ..all_levels()
         },
-    );
+    )
+    .expect("regroup");
     eprintln!("--- level 1 groups ---");
     print_groups(&exact);
 
@@ -359,13 +452,15 @@ fn the_real_library_plans_duplicates_as_the_spec_says() {
     // whose iNES headers differ (spec §15.1 re-measure note).
     eprintln!("acting (level 1): {:?}", exact.totals);
     eprintln!("acting (all levels): {:?}", full.totals);
-    // Other versions add report-only groups; they never hold back an exact
-    // copy that acts at level 1.
-    assert_eq!(
-        (full.totals.extras, full.totals.bytes),
-        (exact.totals.extras, exact.totals.bytes),
-        "level 2 swallowed exact copies"
+    // Other versions add report-only groups and other formats add copies;
+    // neither ever holds back an exact copy that acts at level 1.
+    assert!(
+        full.totals.extras >= exact.totals.extras && full.totals.bytes >= exact.totals.bytes,
+        "levels 2 and 3 swallowed exact copies: {:?} vs {:?}",
+        full.totals,
+        exact.totals
     );
+    assert_format_groups(&full);
     for g in exact.groups.iter().filter(|g| {
         matches!(
             g.action,

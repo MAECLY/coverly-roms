@@ -245,6 +245,52 @@
       "namesCatalogue": "Usar el nombre del catálogo",
       "downloadDats": "Descargar catálogos de juegos para identificar las ROMs por su contenido",
       "advancedHint": "Los umbrales y las listas se editan en Avanzado (archivo de ajustes)."
+    },
+    "dedupe": {
+      "title": "Duplicados",
+      "levels": "Qué buscar",
+      "oneGameOneRom": "Una ROM por juego",
+      "oneGameOneRomHint": "Aparta también las otras versiones del mismo juego (otra región o revisión).",
+      "action": "Qué hacer con las copias",
+      "actionQuarantine": "Apartar en una carpeta",
+      "actionTrash": "Enviar a la Papelera",
+      "actionTrashHint": "Deshacer las devuelve desde la Papelera mientras no la vacíes.",
+      "organizeStep": "Al organizar",
+      "quarantine": "Carpeta de apartados",
+      "quarantineHint": "Vacía: {folder} dentro de la biblioteca, sin salir de su disco.",
+      "quarantineDefault": "<biblioteca>/{name}",
+      "quarantineInside": "No puede estar dentro de la carpeta de ROMs ni de un sistema: la consola listaría las copias.",
+      "choose": "Elegir…",
+      "rules": "Qué copia se queda",
+      "rulesHint": "Se miran en este orden; la primera regla que decide, decide.",
+      "use": "Usar: {rule}",
+      "moveUp": "Subir {rule}",
+      "moveDown": "Bajar {rule}",
+      "regionOrder": "Usa el orden de Coincidencias",
+      "containerOrder": "Orden de formatos por perfil",
+      "containerOrderHint": "Separados por comas, el preferido primero.",
+      "containerAll": "Todos los perfiles",
+      "containerKey": "{profile}: {kind}",
+      "containerKind": {
+        "disc": "discos",
+        "cart": "cartuchos",
+        "arcade": "arcade",
+        "*": "todo"
+      },
+      "exclude": "Sistemas que no se miran",
+      "excludeHint": "Ids de sistema separados por comas.",
+      "rule": {
+        "has_save": "Tiene tu partida",
+        "played": "Es la que has jugado",
+        "in_library": "Ya estaba en tu biblioteca",
+        "verified": "Volcado verificado en el catálogo",
+        "retail": "Versión comercial",
+        "region": "Región preferida",
+        "revision": "Revisión más nueva",
+        "container": "Formato preferido del perfil",
+        "cover": "Tiene portada",
+        "catalogue_name": "Se llama como en el catálogo"
+      }
     }
   },
   "about": {
@@ -359,6 +405,9 @@
     "no-plan": "Ese plan de organización ya no se conserva. Vuelve a planificar.",
     "later-jobs": "Trabajos posteriores cambiaron archivos en esta carpeta ({detail}). Deshazlos también o conserva esta organización.",
     "no-space": "No hay espacio libre suficiente para esta copia (bytes necesarios/libres: {detail}).",
+    "no-dedupe-plan": "Esa búsqueda de duplicados ya no se conserva. Vuelve a buscar duplicados.",
+    "keeper-required": "Cada grupo necesita una copia que se quede. Elige la copia que conservas ({detail}).",
+    "quarantine-in-system-folder": "La carpeta de duplicados no puede estar dentro de una carpeta de sistema ni contener una ({detail}). Elige otra carpeta.",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
@@ -423,7 +472,9 @@
       "badge": "Partidas distintas",
       "note": "No se tocará nada en este juego. Mira las partidas y decide a mano qué copia juegas.",
       "openFolder": "Abrir carpeta",
-      "openFolderOf": "Abrir carpeta de {path}"
+      "openFolderOf": "Abrir carpeta de {path}",
+      "alertOne": "1 juego tiene copias con partidas distintas. No se tocará nada en él.",
+      "show": "Ver"
     },
     "system": {
       "summary": "{name}: {groups} juegos, {extras} copias",
@@ -456,7 +507,8 @@
       "container": "Se queda: formato preferido en {profile} ({kept}); la otra es {other}.",
       "cover": "Se queda: tiene portada; la otra no.",
       "catalogueName": "Se queda: se llama como en el catálogo.",
-      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres."
+      "tie": "Son idénticas; se queda la más antigua. Elige otra si prefieres.",
+      "tieSettled": "Son idénticas; se queda la más antigua."
     },
     "quality": {
       "kept": {
@@ -523,12 +575,16 @@
       "sourceMissing": "Ya no estaba en su sitio; no se ha movido.",
       "excluded": "Lo has dejado fuera; sigue en su sitio.",
       "conflict": "Tiene partidas distintas; sigue en su sitio.",
-      "cancelled": "Cancelado antes de llegar a él; sigue en su sitio."
+      "cancelled": "Cancelado antes de llegar a él; sigue en su sitio.",
+      "trashUnavailable": "Su disco no tiene Papelera; sigue en su sitio.",
+      "reportOnly": "Solo se informa de este juego; sigue en su sitio.",
+      "taken": "{folder} ya tiene un archivo con ese nombre; sigue en su sitio."
     },
     "delta": "+{count} archivos",
     "bulk": {
       "confirmTitle": "¿Apartar {count} archivos?",
-      "confirmBody": "Son {bytes}, {share} de ellos en {system}. Irán a {folder}."
+      "confirmBody": "Son {bytes}, {share} de ellos en {system}. Irán a {folder}.",
+      "otherVolume": "{folder} está en otro disco: cada copia se copia allí y después sale de su sitio."
     },
     "findCovers": "Buscar portadas para {count} juegos",
     "skipGroup": "No tocar este juego",
@@ -542,22 +598,26 @@
     },
     "trash": {
       "confirmTitle": "¿Enviar {count} archivos a la Papelera?",
-      "confirmBody": "Son {bytes}. Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera.",
+      "confirmBody": "Son {bytes}. Deshacer los devuelve desde la Papelera mientras no la vacíes.",
       "cardNote": "En una tarjeta SD la Papelera está en la propia tarjeta; el espacio no se libera hasta vaciarla.",
-      "caveat": "Deshacer no podrá devolverlos solo: tendrás que recuperarlos desde la Papelera."
+      "caveat": "Deshacer los devuelve desde la Papelera mientras no la vacíes.",
+      "unavailable": "Este disco no tiene Papelera: las copias solo pueden apartarse."
     },
     "applying": "Apartando {done} de {total}…",
     "done": "{count} archivos apartados en {folder}. Deshacer está a un clic.",
     "doneTrash": "{count} archivos enviados a la Papelera.",
     "freed": "Fuera de {folder}: {bytes}",
+    "freedLibrary": "Fuera de la biblioteca: {bytes}",
     "sameVolumeNote": "La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador.",
     "openFolder": "Abrir {folder}",
     "partial": "Apartados: {done} · Sin tocar: {skipped}",
     "undo": {
       "title": "¿Devolver {count} archivos a su sitio?",
       "action": "Devolver {count} archivos",
-      "trashed": "Recupéralo desde la Papelera (Volver a poner): {path}",
-      "button": "Deshacer"
+      "notInTrash": "No estaba en la Papelera: {path}",
+      "button": "Deshacer",
+      "notBack": "{count} archivos no han vuelto a su sitio: allí ya hay otro archivo o cambiaron después.",
+      "notBackOne": "1 archivo no ha vuelto a su sitio: allí ya hay otro archivo o cambió después."
     },
     "empty": {
       "title": "No hay duplicados en {systems} sistemas.",
@@ -590,7 +650,32 @@
     "nothingElse": "No se ha movido nada más.",
     "findCoversOne": "Buscar portada para 1 juego",
     "backToLibrary": "Volver a la biblioteca",
-    "levelsLabel": "Qué buscar"
+    "levelsLabel": "Qué buscar",
+    "back": "Biblioteca",
+    "summaryCount": "{extras} copias de más en {groups} juegos.",
+    "summaryCountOne": "1 copia de más en 1 juego.",
+    "summaryCountOneGame": "{extras} copias de más en 1 juego.",
+    "summaryBytes": "Quitarías {bytes} de {folder}.",
+    "phaseProgress": "{phase}: {done} de {total}",
+    "phasesLabel": "Pasos de la búsqueda",
+    "phaseDone": "hecho",
+    "starting": "Empezando…",
+    "applyingTrash": "Enviando {done} de {total} a la Papelera…",
+    "progressLabel": "Progreso",
+    "cancel": "Cancelar",
+    "replan": "Volver a buscar",
+    "retry": "Volver a intentarlo",
+    "nothingMoved": "No se ha movido nada.",
+    "exportPlan": "Exportar informe",
+    "exported": "Informe guardado: {name}",
+    "applyOne": "Apartar 1 archivo",
+    "applyTrashOne": "Enviar 1 archivo a la Papelera",
+    "noneHint": "Con estas opciones ninguna copia sale de su sitio.",
+    "chdUnread": "Otros formatos: {count} CHD sin leer por dentro.",
+    "undone": "{count} archivos devueltos a su sitio.",
+    "undoneOne": "1 archivo devuelto a su sitio.",
+    "resume": "Continuar",
+    "paused": "Se ha parado: {reason}. Lo que falta puede continuar."
   },
   "toolbar": {
     "search": "Buscar por nombre",
@@ -915,7 +1000,11 @@
     "unknownError": "Problema desconocido",
     "kind": {
       "fill": "Portadas",
-      "organize": "Organización"
+      "organize": "Organización",
+      "dedupe": "Duplicados"
+    },
+    "dedupeUndo": {
+      "label": "Deshacer los duplicados del {date}"
     }
   },
   "review": {
@@ -1112,7 +1201,8 @@
       "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
-      "title": "Se quedan donde están"
+      "title": "Se quedan donde están",
+      "inLibrary": "Ya está en tu biblioteca como {path}"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
@@ -1192,7 +1282,9 @@
     "pausedTitle": "En pausa",
     "result": {
       "counts": "Movidos: {moved} · Copiados: {copied} · Omitidos: {skipped} · Errores: {failed}",
-      "extracted": "Extraídos: {count}"
+      "extracted": "Extraídos: {count}",
+      "setAside": "Apartados: {count}",
+      "trashed": "En la Papelera: {count}"
     },
     "copiedNotRemoved": "Copiado; el original no se pudo borrar",
     "copiedNotRemovedCount": "Copiados sin borrar el original: {count}",
@@ -1212,7 +1304,9 @@
         "not-decided": "Omitido: sin sistema elegido",
         "cancelled": "Omitido: se detuvo antes de llegar",
         "tool-gone": "Omitido: la herramienta de comprimidos ya no está o cambió de versión"
-      }
+      },
+      "quarantined": "Apartado",
+      "trashed": "En la Papelera"
     },
     "undo": {
       "action": "Deshacer",
@@ -1237,7 +1331,23 @@
       "newCount": "Nuevos: {count}",
       "retry": "Reintentar",
       "nothingMoved": "No se ha movido nada."
-    }
+    },
+    "dedupe": {
+      "picker": "Duplicados",
+      "quarantine": "Apartar",
+      "report": "Solo informar",
+      "off": "No buscar",
+      "count": "Duplicados: {count}",
+      "inLibrary": "Ya en tu biblioteca: {count}",
+      "hint": "Las copias de más se apartan en {folder}, al lado de la pila: no se copian a la biblioteca.",
+      "hintTrash": "Las copias de más se envían a la Papelera: no se copian a la biblioteca.",
+      "reportHint": "Solo se informa: las copias de más se quedan donde están.",
+      "games": "Juegos: {count}"
+    },
+    "applyWithDedupe": "Organizar {count} archivos y apartar {extras}",
+    "applyOneWithDedupe": "Organizar 1 archivo y apartar {extras}",
+    "applyWithTrash": "Organizar {count} archivos y enviar {extras} a la Papelera",
+    "applyOneWithTrash": "Organizar 1 archivo y enviar {extras} a la Papelera"
   },
   "ui": {
     "close": "Cerrar",

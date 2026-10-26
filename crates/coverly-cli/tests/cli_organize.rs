@@ -285,18 +285,24 @@ fn assign_accepts_a_dot_slash_path() {
 #[test]
 fn an_assign_the_plan_cannot_honour_is_reported() {
     let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
-    // Same bytes as Game A.gba: a duplicate that stays where it is.
-    write_old(&p.path().join("Game A copy.gba"), &fx::gba_tagged(1));
+    // Same bytes as Game A.gba, and newer: in its system it is the copy
+    // set aside, so the assign changes nothing. (Another system is never
+    // compared: an assign to gbc would be honoured.)
+    let copy = p.path().join("Game A copy.gba");
+    write_old(&copy, &fx::gba_tagged(1));
+    filetime::set_file_mtime(&copy, filetime::FileTime::from_unix_time(1_600_000_100, 0)).unwrap();
     coverly(
         data.path(),
         cache.path(),
-        &["organize", "--offline", "--assign", "Game A copy.gba=gbc"],
+        &["organize", "--offline", "--assign", "Game A copy.gba=gba"],
     )
     .arg(p.path())
     .assert()
     .success()
     .stderr(contains("Game A copy.gba"))
-    .stderr(contains("ignored"));
+    .stderr(contains(
+        "ignored: it is set aside as a copy of ROMS/GBA/Game A.gba",
+    ));
 }
 
 #[test]
@@ -856,4 +862,121 @@ mod archives {
             "control characters reached the terminal: {text:?}"
         );
     }
+}
+
+/// A pile that already holds a library (`ROMS/GB`) with one game, and a
+/// loose copy of that game under another name.
+fn pile_with_a_copy() -> TempDir {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("ROMS/GB")).unwrap();
+    let rom = fx::gb_tagged(0x00, 41);
+    write_old(&tmp.path().join("ROMS/GB/Game B (USA).gb"), &rom);
+    write_old(&tmp.path().join("Game B copy.gb"), &rom);
+    write_old(&tmp.path().join("Game A.gba"), &fx::gba_tagged(42));
+    tmp
+}
+
+#[test]
+fn cli_organize_duplicates_flag() {
+    let (p, data, cache) = (
+        pile_with_a_copy(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    // Default: set aside in the pile's quarantine.
+    coverly(data.path(), cache.path(), &["organize", "--offline"])
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("Duplicates set aside: 1 · Already in your library: 1"))
+        .stdout(contains("Duplicates set aside (1), to _Duplicados/"))
+        .stdout(contains(
+            "Game B copy.gb  exact copy  → _Duplicados/Game B copy.gb  [stays: ROMS/GB/Game B (USA).gb",
+        ));
+    // Report only: it stays where it is, with the reason.
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--duplicates", "report"],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains(
+        "Game B copy.gb  already in your library as ROMS/GB/Game B (USA).gb (exact copy)",
+    ))
+    .stdout(contains("Duplicates set aside (").not());
+    // Off: the old behaviour, the copy moves in.
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--duplicates", "off"],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains("Game B copy.gb → ROMS/GB/Game B copy.gb"));
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--duplicates", "maybe"],
+    )
+    .arg(p.path())
+    .assert()
+    .code(2);
+}
+
+#[test]
+fn cli_organize_sets_aside_and_undo_restores() {
+    let (p, data, cache) = (
+        pile_with_a_copy(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let before = tree_digest(p.path());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--apply"],
+    )
+    .arg(p.path())
+    .assert()
+    .success()
+    .stdout(contains("moved 1"))
+    .stdout(contains("Duplicates set aside: 1 (in "));
+    assert!(p.path().join("_Duplicados/Game B copy.gb").is_file());
+    assert!(p.path().join("ROMS/GBA/Game A.gba").is_file());
+    assert!(!p.path().join("ROMS/GB/Game B copy.gb").exists());
+    undo(data.path(), &[]).assert().success();
+    assert_eq!(tree_digest(p.path()), before);
+}
+
+#[test]
+fn cli_organize_names_the_library_quarantine_for_a_pile_inside_a_system_folder() {
+    let (p, data, cache) = (
+        pile_with_a_copy(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let rom = fx::gb_tagged(0x00, 41);
+    fs::create_dir_all(p.path().join("ROMS/GB/incoming")).unwrap();
+    write_old(&p.path().join("ROMS/GB/incoming/Game B again.gb"), &rom);
+    let incoming = p.path().join("ROMS/GB/incoming");
+    let target = format!("--target={}", p.path().display());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", &target],
+    )
+    .arg(&incoming)
+    .assert()
+    .success()
+    .stdout(contains(format!(
+        "Duplicates set aside (1), to {}",
+        p.path()
+            .join("_Duplicados")
+            .join("GB")
+            .join("incoming")
+            .display()
+    )));
 }

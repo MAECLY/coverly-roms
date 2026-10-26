@@ -33,6 +33,10 @@ export interface DedupeOptionsProps {
   onActionChange(action: DedupeActionSetting): void;
   /** "Cambiar…": pick another quarantine folder. */
   onChangeFolder(): void;
+  /** The library's volume has no Trash: the option is off, with why. */
+  trashUnavailable?: boolean | undefined;
+  /** An answer is pending: the controls wait for it. */
+  disabled?: boolean | undefined;
 }
 
 type Control = 'levels' | 'oneGameOneRom';
@@ -59,6 +63,8 @@ export function DedupeOptions({
   onOptionsChange,
   onActionChange,
   onChangeFolder,
+  trashUnavailable = false,
+  disabled = false,
 }: DedupeOptionsProps) {
   const t = useT();
   const uid = useId();
@@ -102,6 +108,7 @@ export function DedupeOptions({
             size="sm"
             aria-labelledby={levelsLabel}
             value={options.levels}
+            disabled={disabled}
             onValueChange={(v) =>
               change('levels', {
                 ...options,
@@ -140,6 +147,7 @@ export function DedupeOptions({
           <RadioGroup
             aria-labelledby={actionLabel}
             value={action}
+            disabled={disabled}
             onValueChange={(v) => onActionChange(v as DedupeActionSetting)}
             className="dup-options__actions"
           >
@@ -154,15 +162,32 @@ export function DedupeOptions({
                 <span className="dup-mono">{folder}</span>
                 {quarantineAfter}
               </label>
-              <Button variant="link" size="sm" onClick={onChangeFolder}>
+              <Button
+                variant="link"
+                size="sm"
+                disabled={disabled}
+                onClick={onChangeFolder}
+              >
                 {t('dedupe.action.change')}
               </Button>
             </div>
             <div className="dup-options__choice">
-              <RadioGroupItem id={`${uid}-trash`} value="trash" />
+              <RadioGroupItem
+                id={`${uid}-trash`}
+                value="trash"
+                disabled={trashUnavailable && action !== 'trash'}
+                aria-describedby={
+                  trashUnavailable ? `${uid}-no-trash` : undefined
+                }
+              />
               <label htmlFor={`${uid}-trash`}>{t('dedupe.action.trash')}</label>
             </div>
           </RadioGroup>
+          {trashUnavailable && (
+            <p id={`${uid}-no-trash`} className="dup-options__muted">
+              {t('dedupe.trash.unavailable')}
+            </p>
+          )}
           {action === 'trash' && (
             <div className="dup-options__caveats">
               <p>{t('dedupe.trash.caveat')}</p>
@@ -178,7 +203,7 @@ export function DedupeOptions({
           <label className="dup-options__check">
             <Checkbox
               checked={options.one_game_one_rom}
-              disabled={!versionsOn}
+              disabled={disabled || !versionsOn}
               onCheckedChange={(c) =>
                 change('oneGameOneRom', {
                   ...options,

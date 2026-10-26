@@ -206,6 +206,52 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
     );
   });
 
+  it('settings_rejects_quarantine_inside_a_system_folder', () => {
+    const folders = ['GB', 'gba', 'SFC'];
+    const at = (dir: string | null) => {
+      const s = cloneSettings(DEFAULT_SETTINGS);
+      s.dedupe.quarantine_dir = dir;
+      return validateSettings(s, known, folders).map(
+        (e) => `${e.field}:${e.code}`,
+      );
+    };
+    expect(at(null)).toEqual([]);
+    expect(at('/Users/me/Duplicados')).toEqual([]);
+    // A card named ROMS or GB is a mount label, not a ROMs folder.
+    expect(at('/Volumes/ROMS/_Duplicados')).toEqual([]);
+    expect(at('/Volumes/GB/_Duplicados')).toEqual([]);
+    expect(at('/Volumes/SD/ROMS/GB/_Duplicados')).toEqual([
+      'dedupe.quarantine_dir:invalid',
+    ]);
+    expect(at('/Volumes/SD/Roms/_Duplicados')).toEqual([
+      'dedupe.quarantine_dir:invalid',
+    ]);
+    expect(at('/Users/me/ROMs/gb/x')).toEqual([
+      'dedupe.quarantine_dir:invalid',
+    ]);
+    expect(at('D:\\ROMS\\SFC\\dup')).toEqual(['dedupe.quarantine_dir:invalid']);
+    expect(at('relative/dup')).toEqual(['dedupe.quarantine_dir:not-absolute']);
+  });
+
+  it('checks_the_dedupe_group_like_rust', () => {
+    const s = cloneSettings(DEFAULT_SETTINGS);
+    s.dedupe.levels = [];
+    s.dedupe.keep_rules = [
+      { rule: 'cover', on: true },
+      { rule: 'cover', on: false },
+    ];
+    s.dedupe.quarantine_name = 'a/b';
+    s.dedupe.exclude_systems = ['ports/x'];
+    expect(codes(s)).toEqual([
+      'dedupe.levels:required',
+      'dedupe.keep_rules:duplicate',
+      'dedupe.quarantine_name:invalid',
+      'dedupe.exclude_systems:invalid',
+    ]);
+    s.dedupe.levels = ['exact', 'exact'];
+    expect(codes(s)[0]).toBe('dedupe.levels:duplicate');
+  });
+
   it('knows which changes need a reopen', () => {
     const b = cloneSettings(DEFAULT_SETTINGS);
     b.general.theme = 'dark';

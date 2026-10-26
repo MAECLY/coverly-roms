@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::archive::{open_archive_with, FoundTool, Limits, ToolsOnDemand};
+use crate::dedupe::apply::{trash_file, TrashStep};
 use crate::disc::sheets::SheetKind;
 use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
@@ -51,6 +52,12 @@ pub enum ItemStatus {
     /// Extracted, but the archive meant for the Trash stays where it was
     /// (no Trash on its volume, the Trash refused it, or it changed).
     ExtractedKept,
+    /// A duplicate set aside in the pile's quarantine (`targets` say
+    /// where its files are now).
+    Quarantined,
+    /// A duplicate sent to the Trash (`targets` are its places there, when
+    /// the OS said).
+    Trashed,
     Skipped {
         reason: SkipReason,
     },
@@ -77,6 +84,9 @@ pub enum SkipReason {
     /// The external tool the plan opened the archive with is gone or is
     /// another version now.
     ToolGone,
+    /// A duplicate meant for the Trash: its volume has none, or the Trash
+    /// refused it. It stays where it was.
+    TrashUnavailable,
 }
 
 /// One item of the plan and what happened to it.
@@ -104,6 +114,10 @@ pub struct OrganizeReport {
     pub extracted: usize,
     pub skipped: usize,
     pub failed: usize,
+    /// Duplicates set aside or sent to the Trash (left out of the JSON
+    /// when none was).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub set_aside: usize,
     pub items: Vec<ItemOutcome>,
     /// Set when the run stopped on a full, read-only or vanished volume.
     pub paused: Option<PauseKind>,
@@ -140,6 +154,14 @@ pub enum ApplyError {
     Write(#[from] WriteError),
     #[error("the plan of job {0} is missing")]
     NoPlan(String),
+    /// The job was undone: resuming it would redo it in a journal undo no
+    /// longer lists.
+    #[error("job {0} was undone: there is nothing to resume")]
+    Undone(String),
+    /// A duplicates plan or its decisions cannot be applied (nothing was
+    /// written).
+    #[error(transparent)]
+    Dedupe(#[from] crate::dedupe::DedupeError),
 }
 
 /// Apply progress is reported at most this often.
@@ -347,6 +369,13 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
     let mut pending = Vec::new();
     let mut started = HashMap::new();
     for item in &applicable {
+        if item.is_set_aside() {
+            match set_aside_done(&plan, item, &records, &steps) {
+                Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
+                None => pending.push(*item),
+            }
+            continue;
+        }
         if matches!(item.transfer, Transfer::Extract { .. }) {
             match ExtractJournal::of(&plan, item, &records, &steps).done(&plan, item) {
                 Some((status, targets)) => record_outcome(&mut report, item.id, status, targets),
@@ -391,9 +420,11 @@ pub fn resume_organize(job: &str, env: &ApplyEnv) -> Result<OrganizeReport, Appl
 }
 
 /// Items apply moves: automatic ones with a target (review items become
-/// automatic only through the user's decisions).
+/// automatic only through the user's decisions), and duplicates set aside
+/// as they are (never extracted first).
 fn applicable(item: &OrganizeItem) -> bool {
-    item.action == OrganizeAction::Auto && item.target.is_some()
+    (item.action == OrganizeAction::Auto && item.target.is_some())
+        || (item.is_set_aside() && item.transfer == Transfer::AsIs)
 }
 
 /// Review items are reported as waiting for the user.
@@ -420,6 +451,7 @@ fn record_outcome(
         ItemStatus::Moved => report.moved += 1,
         ItemStatus::Copied | ItemStatus::CopiedNotRemoved => report.copied += 1,
         ItemStatus::Extracted | ItemStatus::ExtractedKept => report.extracted += 1,
+        ItemStatus::Quarantined | ItemStatus::Trashed => report.set_aside += 1,
         ItemStatus::Skipped { .. } => report.skipped += 1,
         ItemStatus::Failed { .. } => report.failed += 1,
     }
@@ -458,7 +490,12 @@ fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), Apply
     if !copies || items.is_empty() {
         return Ok(());
     }
-    let sum: u64 = items.iter().map(|i| i.size).sum();
+    // A duplicate set aside stays on the pile's volume.
+    let sum: u64 = items
+        .iter()
+        .filter(|i| !i.is_set_aside())
+        .map(|i| i.size)
+        .sum();
     let needed = sum.saturating_add(sum.div_ceil(100));
     match free_space(&plan.target_root) {
         Some(free) if free < needed => Err(ApplyError::NoSpace { needed, free }),
@@ -498,6 +535,98 @@ pub fn load_plan(data_dir: &Path, job: &str) -> Result<OrganizePlan, ApplyError>
     };
     serde_json::from_slice(&bytes)
         .map_err(|e| WriteError::Journal(format!("plan of job {job}: {e}")).into())
+}
+
+/// A duplicate's files: where each goes in the pile's quarantine (the
+/// plan's `dest` for the primary, the same place below the quarantine for
+/// the other files of a set). Absolute.
+fn set_aside_paths(plan: &OrganizePlan, item: &OrganizeItem) -> Vec<(PathBuf, PathBuf)> {
+    let OrganizeAction::SetAside { dest, .. } = &item.action else {
+        return Vec::new();
+    };
+    let src = &plan.source_root;
+    // `dest` is `<quarantine>/<primary's path>`: the quarantine is what is
+    // left once the primary's path is taken off.
+    let base = item
+        .sources
+        .first()
+        .and_then(|first| {
+            let mut base = dest.clone();
+            for _ in first.components() {
+                if !base.pop() {
+                    return None;
+                }
+            }
+            dest.ends_with(first).then_some(base)
+        })
+        .or_else(|| dest.parent().map(Path::to_path_buf))
+        .unwrap_or_default();
+    item.sources
+        .iter()
+        .enumerate()
+        .map(|(i, rel)| {
+            let to = if i == 0 {
+                src.join(dest)
+            } else {
+                src.join(&base).join(rel)
+            };
+            (src.join(rel), to)
+        })
+        .collect()
+}
+
+/// A duplicate an earlier run of the job finished: every file in the
+/// quarantine by the journal, or (Trash) every file's last line `trashed`.
+fn set_aside_done(
+    plan: &OrganizePlan,
+    item: &OrganizeItem,
+    records: &[TransferRecord],
+    steps: &[ArchiveRecord],
+) -> Option<(ItemStatus, Vec<PathBuf>)> {
+    let paths = set_aside_paths(plan, item);
+    if paths.is_empty() {
+        return None;
+    }
+    let mut targets = Vec::with_capacity(paths.len());
+    for (from, _) in &paths {
+        if plan.set_aside_trash {
+            match last_step(steps, item.id, from) {
+                Some(ArchiveStep::Trashed { trash }) => targets.extend(trash.clone()),
+                _ => return None,
+            }
+        } else {
+            targets.push(record_of(records, item.id, from)?.target.clone());
+        }
+    }
+    // A companion still at its source with no line yet: the run stopped
+    // before it followed.
+    for companion in &item.companions {
+        let from = plan.source_root.join(&companion.source);
+        if let Some(record) = record_of(records, item.id, &from) {
+            targets.push(record.target.clone());
+        } else if let Some(step) = last_step(steps, item.id, &from) {
+            if let ArchiveStep::Trashed { trash } = step {
+                targets.extend(trash.clone());
+            }
+        } else if fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+            return None;
+        }
+    }
+    let status = if plan.set_aside_trash {
+        ItemStatus::Trashed
+    } else {
+        ItemStatus::Quarantined
+    };
+    Some((status, targets))
+}
+
+/// The newest archive line of `from` for item `id`.
+fn last_step<'s>(steps: &'s [ArchiveRecord], id: usize, from: &Path) -> Option<&'s ArchiveStep> {
+    steps
+        .iter()
+        .rev()
+        .find(|s| s.item == Some(id) && s.from == from)
+        .map(|s| &s.step)
 }
 
 /// The journal record showing `item` done: its primary file was copied
@@ -1074,6 +1203,9 @@ impl<'a> Run<'a> {
                 return self.resume_extract(item, &journal);
             }
         }
+        if item.is_set_aside() {
+            return self.apply_set_aside(item);
+        }
         if let Some(step) = self.revalidate(item) {
             return step;
         }
@@ -1116,6 +1248,173 @@ impl<'a> Run<'a> {
             return pause;
         }
         Step::Done(status, targets)
+    }
+
+    /// Sets a duplicate aside (duplicates spec §7.1): its files go to the
+    /// pile's quarantine as instant renames on the pile's volume, a set
+    /// whole (every name must be free), or to the Trash. Files an earlier
+    /// run of the job already set aside are not done again.
+    fn apply_set_aside(&mut self, item: &OrganizeItem) -> Step {
+        let paths = set_aside_paths(self.plan, item);
+        if paths.is_empty() {
+            return skipped(SkipReason::NotDecided);
+        }
+        let started = paths.iter().any(|(from, _)| {
+            record_of(&self.records, item.id, from).is_some()
+                || last_step(&self.archive_steps, item.id, from).is_some()
+        });
+        if !started {
+            if let Some(step) = self.revalidate(item) {
+                return step;
+            }
+        }
+        if self.plan.set_aside_trash {
+            return self.trash_set_aside(item, &paths);
+        }
+        let set = paths.len() > 1;
+        if set
+            && paths.iter().any(|(from, to)| {
+                record_of(&self.records, item.id, from).is_none()
+                    && fs::symlink_metadata(to).is_ok()
+            })
+        {
+            return skipped(SkipReason::CollisionSet);
+        }
+        let collision = if set {
+            Collision::Skip
+        } else {
+            Collision::Rename
+        };
+        let mut targets = Vec::with_capacity(paths.len());
+        for (from, to) in &paths {
+            if let Some(record) = record_of(&self.records, item.id, from) {
+                targets.push(record.target.clone());
+                continue;
+            }
+            match self
+                .writer
+                .set_aside_file(from, to, collision, Some(item.id))
+            {
+                Ok(
+                    MoveOutcome::Moved { to, .. }
+                    | MoveOutcome::Copied { to, .. }
+                    | MoveOutcome::CopiedNotRemoved { to, .. },
+                ) => targets.push(to),
+                Ok(MoveOutcome::SkippedExists { existing }) => {
+                    if targets.is_empty() {
+                        return skipped(SkipReason::CollisionSet);
+                    }
+                    // Undo puts the files already set aside back.
+                    let detail = format!(
+                        "{} of the set stayed: {} is taken",
+                        from.display(),
+                        existing.display()
+                    );
+                    return Step::Done(
+                        ItemStatus::Failed {
+                            kind: ItemErrorKind::Io,
+                            detail,
+                        },
+                        targets,
+                    );
+                }
+                Err(e) => return self.on_error(&e),
+            }
+        }
+        if let Some(pause) = self.set_aside_companions(item, &mut targets) {
+            return pause;
+        }
+        Step::Done(ItemStatus::Quarantined, targets)
+    }
+
+    /// The companions of a set-aside item follow it below the quarantine
+    /// (or to the Trash); one that cannot stays where it is and never fails
+    /// the item, unless the volume itself is the problem (`Some`: a pause).
+    fn set_aside_companions(
+        &mut self,
+        item: &OrganizeItem,
+        targets: &mut Vec<PathBuf>,
+    ) -> Option<Step> {
+        let src = self.plan.source_root.clone();
+        for companion in &item.companions {
+            let from = src.join(&companion.source);
+            if let Some(record) = record_of(&self.records, item.id, &from) {
+                targets.push(record.target.clone());
+                continue;
+            }
+            if let Some(ArchiveStep::Trashed { trash }) =
+                last_step(&self.archive_steps, item.id, &from)
+            {
+                targets.extend(trash.clone());
+                continue;
+            }
+            if !fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_file()) {
+                continue;
+            }
+            let result = if self.plan.set_aside_trash {
+                trash_file(&mut self.writer, self.env.trash, &from, Some(item.id)).map(|step| {
+                    if let TrashStep::Trashed { location } = step {
+                        targets.extend(location);
+                    }
+                })
+            } else {
+                self.writer
+                    .set_aside_file(
+                        &from,
+                        &src.join(&companion.target),
+                        Collision::Rename,
+                        Some(item.id),
+                    )
+                    .map(|outcome| match outcome {
+                        MoveOutcome::Moved { to, .. }
+                        | MoveOutcome::Copied { to, .. }
+                        | MoveOutcome::CopiedNotRemoved { to, .. } => targets.push(to),
+                        MoveOutcome::SkippedExists { .. } => {}
+                    })
+            };
+            if let Err(e) = result {
+                if let Step::Pause(reason) = self.on_error(&e) {
+                    return Some(Step::Pause(reason));
+                }
+            }
+        }
+        None
+    }
+
+    /// Sends a duplicate's files to the Trash through the journaled
+    /// Trash steps (undo brings them back from there).
+    fn trash_set_aside(&mut self, item: &OrganizeItem, paths: &[(PathBuf, PathBuf)]) -> Step {
+        let mut targets = Vec::new();
+        for (n, (from, _)) in paths.iter().enumerate() {
+            if let Some(ArchiveStep::Trashed { trash }) =
+                last_step(&self.archive_steps, item.id, from)
+            {
+                targets.extend(trash.clone());
+                continue;
+            }
+            match trash_file(&mut self.writer, self.env.trash, from, Some(item.id)) {
+                Ok(TrashStep::Trashed { location }) => targets.extend(location),
+                Ok(TrashStep::Gone) => {}
+                Ok(TrashStep::Kept { .. }) if n == 0 => {
+                    return skipped(SkipReason::TrashUnavailable)
+                }
+                Ok(TrashStep::Kept { .. }) => {
+                    let detail = format!("{} stayed: the Trash refused it", from.display());
+                    return Step::Done(
+                        ItemStatus::Failed {
+                            kind: ItemErrorKind::Io,
+                            detail,
+                        },
+                        targets,
+                    );
+                }
+                Err(e) => return self.on_error(&e),
+            }
+        }
+        if let Some(pause) = self.set_aside_companions(item, &mut targets) {
+            return pause;
+        }
+        Step::Done(ItemStatus::Trashed, targets)
     }
 
     /// Finishes an item whose primary file an earlier run already put at

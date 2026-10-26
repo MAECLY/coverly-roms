@@ -41,8 +41,8 @@ enum Command {
     /// Report which ROMs of a library lack cover, screenshot or title art
     /// (read-only).
     Audit(audit::AuditArgs),
-    /// Find the same game stored more than once inside one system and show
-    /// which copy stays (dry run).
+    /// Find the same game stored more than once inside one system, show
+    /// which copy stays and set the others aside (dry run unless --apply).
     Dedupe(Box<dedupe::DedupeArgs>),
     /// Fill missing art from the enabled sources (dry run unless --apply).
     Fill(Box<fill::FillArgs>),

@@ -1235,3 +1235,498 @@ mod plans {
         ));
     }
 }
+
+// --- Duplicates set aside by Organise (duplicates spec §7.1; plan Task 26) ---
+
+mod set_aside {
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicBool;
+    use std::time::SystemTime;
+
+    use coverly_core::archive::testing::{sevenz, SevenZShape};
+    use coverly_core::cache::Cache;
+    use coverly_core::dedupe::testing::pin_mtime;
+    use coverly_core::dedupe::QuarantineChoice;
+    use coverly_core::identify::sniff::fixtures as fx;
+    use coverly_core::organize::{
+        apply_organize, plan_organize, ApplyEnv, ItemStatus, MetaProbe, OrganizeEnv,
+        OrganizeOptions, OrganizePlan, OrganizeReport, Transfer, TransferMode,
+    };
+    use coverly_core::profiles::{builtin_profiles, Profile};
+    use coverly_core::systems::SystemDb;
+    use coverly_core::write::trash::{FakeTrash, TrashBackend};
+    use coverly_core::write::{undo_job, undo_job_with};
+    use tempfile::TempDir;
+
+    struct NoCloud;
+
+    impl MetaProbe for NoCloud {
+        fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+            false
+        }
+    }
+
+    fn plan(dir: &Path, opts: OrganizeOptions) -> OrganizePlan {
+        let (db, profiles, cache): (SystemDb, Vec<Profile>, Cache) = (
+            SystemDb::builtin(),
+            builtin_profiles(),
+            Cache::in_memory().unwrap(),
+        );
+        let env = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: None,
+            probe: &NoCloud,
+            online: None,
+            now: SystemTime::now(),
+        };
+        plan_organize(dir, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+    }
+
+    /// `<tmp>/pile`, `<tmp>/card` and `<tmp>/data`.
+    fn dirs() -> (TempDir, PathBuf, PathBuf, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let (pile, card, data) = (
+            tmp.path().join("pile"),
+            tmp.path().join("card"),
+            tmp.path().join("data"),
+        );
+        fs::create_dir_all(&pile).unwrap();
+        fs::create_dir_all(card.join("ROMS")).unwrap();
+        (tmp, pile, card, data)
+    }
+
+    /// Writes `bytes` at `path` (parents created), modified at pinned
+    /// time `n`.
+    fn put(path: &Path, bytes: &[u8], n: u64) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+        pin_mtime(path, n);
+    }
+
+    fn opts(layout: &str, card: &Path) -> OrganizeOptions {
+        OrganizeOptions {
+            layout: layout.into(),
+            target: Some(card.to_path_buf()),
+            mode: Some(TransferMode::Move),
+            offline: true,
+            ..OrganizeOptions::default()
+        }
+    }
+
+    fn apply_with(plan: &OrganizePlan, data: &Path, trash: &dyn TrashBackend) -> OrganizeReport {
+        let env = ApplyEnv {
+            data_dir: data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash,
+            tools: Some(&[]),
+        };
+        apply_organize(plan, &env).unwrap()
+    }
+
+    fn tree(dir: &Path) -> BTreeSet<PathBuf> {
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if entry.file_type().unwrap().is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, &mut out);
+        out.into_iter()
+            .map(|p| p.strip_prefix(dir).unwrap().to_path_buf())
+            .collect()
+    }
+
+    fn set(paths: &[&str]) -> BTreeSet<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
+    }
+
+    fn item_id(plan: &OrganizePlan, name: &str) -> usize {
+        plan.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("no item {name}"))
+            .id
+    }
+
+    fn status(report: &OrganizeReport, id: usize) -> &ItemStatus {
+        &report
+            .items
+            .iter()
+            .find(|o| o.item == id)
+            .unwrap_or_else(|| panic!("no outcome for {id}: {report:?}"))
+            .status
+    }
+
+    #[test]
+    fn pile_extras_stay_on_the_pile_volume() {
+        let (_tmp, pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 31);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&pile.join("sub/Copy.gb"), &rom, 2);
+        put(&pile.join("New.gb"), &fx::gb_tagged(0x00, 32), 3);
+        let plan = plan(&pile, opts("anbernic-stock", &card));
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+
+        let copy = item_id(&plan, "sub/Copy.gb");
+        assert_eq!(status(&report, copy), &ItemStatus::Quarantined);
+        assert_eq!((report.moved, report.set_aside), (1, 1));
+        assert_eq!(tree(&pile), set(&["_Duplicados/sub/Copy.gb"]));
+        assert_eq!(tree(&card), set(&["ROMS/GB/Kept.gb", "ROMS/GB/New.gb"]));
+        let job = report.job.expect("a job");
+        let text = fs::read_to_string(data.join("jobs").join(format!("{job}.jsonl"))).unwrap();
+        assert!(
+            text.contains(r#""kind":"moved""#) && text.contains("_Duplicados"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn set_aside_archive_is_never_extracted() {
+        let (_tmp, pile, card, data) = dirs();
+        let rom = fx::gb(0xC0);
+        // MinUI extracts a cartridge 7z; the copy that stays is the loose
+        // one (older), so the 7z is set aside whole.
+        put(&pile.join("Tetris DX.gbc"), &rom, 1);
+        put(
+            &pile.join("Tetris DX.7z"),
+            &sevenz(&[("Tetris DX.gbc", &rom)], SevenZShape::non_solid_lzma()),
+            2,
+        );
+        let plan = plan(&pile, opts("minui", &card));
+        let archive = plan
+            .items
+            .iter()
+            .find(|i| i.sources[0] == Path::new("Tetris DX.7z"))
+            .unwrap();
+        assert!(archive.is_set_aside(), "{:?}", archive.action);
+        assert_eq!(archive.transfer, Transfer::AsIs);
+
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        assert_eq!(report.extracted, 0, "{report:?}");
+        assert_eq!(status(&report, archive.id), &ItemStatus::Quarantined);
+        assert_eq!(tree(&pile), set(&["_Duplicados/Tetris DX.7z"]));
+        assert_eq!(tree(&card).len(), 1, "only the loose copy lands");
+    }
+
+    #[test]
+    fn set_aside_to_the_trash_when_the_setting_says_so() {
+        let (tmp, pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 33);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&pile.join("Copy.gb"), &rom, 2);
+        put(&pile.join("Copy.sav"), b"save", 3);
+        let mut o = opts("anbernic-stock", &card);
+        o.dedupe.quarantine = QuarantineChoice::Trash;
+        let plan = plan(&pile, o);
+        assert!(plan.set_aside_trash);
+        let trash = FakeTrash::new(tmp.path().join("trash"));
+        let report = apply_with(&plan, &data, &trash);
+
+        let copy = item_id(&plan, "Copy.gb");
+        assert_eq!(status(&report, copy), &ItemStatus::Trashed);
+        // Its save goes with it.
+        assert_eq!(trash.trashed(), 2);
+        assert!(tree(&pile).is_empty());
+
+        // Undo brings both back from the Trash.
+        let job = report.job.expect("a job");
+        undo_job_with(&data, &job, &trash).unwrap();
+        assert_eq!(tree(&pile), set(&["Copy.gb", "Copy.sav"]));
+        assert_eq!(fs::read(pile.join("Copy.sav")).unwrap(), b"save");
+    }
+
+    #[test]
+    fn no_trash_on_the_volume_leaves_the_copy() {
+        let (_tmp, pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 34);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&pile.join("Copy.gb"), &rom, 2);
+        let mut o = opts("anbernic-stock", &card);
+        o.dedupe.quarantine = QuarantineChoice::Trash;
+        let plan = plan(&pile, o);
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        let copy = item_id(&plan, "Copy.gb");
+        assert!(matches!(status(&report, copy), ItemStatus::Skipped { .. }));
+        assert_eq!(tree(&pile), set(&["Copy.gb"]));
+    }
+
+    #[test]
+    fn undo_of_an_organise_job_with_set_aside_items() {
+        let (_tmp, pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 35);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&pile.join("sub/Copy.gb"), &rom, 2);
+        put(&pile.join("New.gb"), &fx::gb_tagged(0x00, 36), 3);
+        let before = tree(&pile);
+        let plan = plan(&pile, opts("anbernic-stock", &card));
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        let job = report.job.expect("a job");
+
+        let undone = undo_job(&data, &job).unwrap();
+        assert_eq!(tree(&pile), before);
+        assert_eq!(tree(&card), set(&["ROMS/GB/Kept.gb"]));
+        // The quarantine the job made is gone again.
+        assert!(!pile.join("_Duplicados").exists(), "{undone:?}");
+    }
+
+    #[test]
+    fn a_pile_inside_a_system_folder_sets_aside_into_the_library_quarantine() {
+        let (_tmp, _pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 41);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&card.join("ROMS/GB/incoming/Copy.gb"), &rom, 2);
+        let plan = plan(
+            &card.join("ROMS/GB/incoming"),
+            opts("anbernic-stock", &card),
+        );
+        let id = item_id(&plan, "Copy.gb");
+        assert!(plan.items[id].is_set_aside(), "{:?}", plan.items[id]);
+
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        assert_eq!(status(&report, id), &ItemStatus::Quarantined);
+        // Never a quarantine inside a system folder: the device would list it.
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GB/Kept.gb", "_Duplicados/GB/incoming/Copy.gb"])
+        );
+        undo_job(&data, &report.job.unwrap()).unwrap();
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GB/Kept.gb", "ROMS/GB/incoming/Copy.gb"])
+        );
+    }
+
+    #[test]
+    fn an_extras_save_travels_with_it_and_a_shared_one_stays_with_the_keeper() {
+        let (_tmp, pile, card, data) = dirs();
+        let rom = fx::gb_tagged(0x00, 42);
+        put(&card.join("ROMS/GB/Kept.gb"), &rom, 1);
+        put(&pile.join("sub/Copy.gb"), &rom, 2);
+        put(&pile.join("sub/Copy.sav"), b"save of the copy", 3);
+        put(&pile.join("sub/Copy.state.auto"), b"state", 4);
+        // A loose copy kept and a zipped twin set aside share `Game.sav`:
+        // it follows the copy that stays.
+        let other = fx::gb_tagged(0x00, 43);
+        put(&pile.join("Game.gb"), &other, 5);
+        put(
+            &pile.join("Game.7z"),
+            &sevenz(&[("Game.gb", &other)], SevenZShape::non_solid_lzma()),
+            6,
+        );
+        put(&pile.join("Game.sav"), b"shared save", 7);
+        let before = tree(&pile);
+        let plan = plan(&pile, opts("anbernic-stock", &card));
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+
+        assert_eq!(
+            tree(&pile),
+            set(&[
+                "_Duplicados/sub/Copy.gb",
+                "_Duplicados/sub/Copy.sav",
+                "_Duplicados/sub/Copy.state.auto",
+                "_Duplicados/Game.7z",
+            ]),
+            "{report:?}"
+        );
+        assert_eq!(
+            tree(&card),
+            set(&["ROMS/GB/Kept.gb", "ROMS/GB/Game.gb", "ROMS/GB/Game.sav"])
+        );
+        undo_job(&data, &report.job.unwrap()).unwrap();
+        assert_eq!(tree(&pile), before);
+        assert_eq!(
+            fs::read(pile.join("sub/Copy.sav")).unwrap(),
+            b"save of the copy"
+        );
+    }
+
+    fn cue(track: &str) -> Vec<u8> {
+        format!("FILE \"{track}\" BINARY\r\n  TRACK 01 MODE2/2352\r\n    INDEX 01 00:00:00\r\n")
+            .into_bytes()
+    }
+
+    #[test]
+    fn a_loose_disc_set_is_set_aside_whole() {
+        let (_tmp, pile, card, data) = dirs();
+        let track = coverly_core::disc::testing::psx_track(true, "cdrom:\\SLUS_012.34;1");
+        put(
+            &card.join("ROMS/PS/Game (USA).cue"),
+            &cue("Game (USA).bin"),
+            1,
+        );
+        put(&card.join("ROMS/PS/Game (USA).bin"), &track, 2);
+        put(&pile.join("Game.cue"), &cue("Game.bin"), 3);
+        put(&pile.join("Game.bin"), &track, 4);
+        let plan = plan(&pile, opts("anbernic-stock", &card));
+        let id = item_id(&plan, "Game.cue");
+        assert!(plan.items[id].is_set_aside(), "{:?}", plan.items[id]);
+
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        assert_eq!(status(&report, id), &ItemStatus::Quarantined);
+        assert_eq!(
+            tree(&pile),
+            set(&["_Duplicados/Game.cue", "_Duplicados/Game.bin"])
+        );
+        undo_job(&data, &report.job.unwrap()).unwrap();
+        assert_eq!(tree(&pile), set(&["Game.cue", "Game.bin"]));
+    }
+
+    #[cfg(unix)]
+    fn disk_full_on_b(
+        stage: coverly_core::write::CopyStage,
+        path: &Path,
+    ) -> Option<std::io::Error> {
+        (stage == coverly_core::write::CopyStage::Rename
+            && path.file_name().is_some_and(|n| n == "B copy.gb"))
+        .then(|| std::io::Error::from_raw_os_error(28))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_paused_set_aside_is_finished_by_resume() {
+        use coverly_core::organize::resume_organize;
+        use coverly_core::write::set_copy_fault;
+        let (_tmp, pile, card, data) = dirs();
+        let (a, b) = (fx::gb_tagged(0x00, 37), fx::gb_tagged(0x00, 38));
+        put(&card.join("ROMS/GB/A.gb"), &a, 1);
+        put(&card.join("ROMS/GB/B.gb"), &b, 2);
+        put(&pile.join("A copy.gb"), &a, 3);
+        put(&pile.join("B copy.gb"), &b, 4);
+        let plan = plan(&pile, opts("anbernic-stock", &card));
+        set_copy_fault(Some(disk_full_on_b));
+        let report = apply_with(&plan, &data, &FakeTrash::unavailable("no-trash"));
+        set_copy_fault(None);
+        assert!(report.paused.is_some(), "{report:?}");
+        let job = report.job.clone().unwrap();
+
+        let env = ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        };
+        let resumed = resume_organize(&job, &env).unwrap();
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert_eq!(resumed.set_aside, 2, "{resumed:?}");
+        assert_eq!(
+            tree(&pile),
+            set(&["_Duplicados/A copy.gb", "_Duplicados/B copy.gb"])
+        );
+        undo_job(&data, &job).unwrap();
+        assert_eq!(tree(&pile), set(&["A copy.gb", "B copy.gb"]));
+    }
+}
+
+#[cfg(unix)]
+mod set_aside_companion_resume {
+    use std::fs;
+    use std::path::Path;
+    use std::sync::atomic::AtomicBool;
+    use std::time::SystemTime;
+
+    use coverly_core::cache::Cache;
+    use coverly_core::dedupe::testing::pin_mtime;
+    use coverly_core::identify::sniff::fixtures as fx;
+    use coverly_core::organize::{
+        apply_organize, plan_organize, resume_organize, ApplyEnv, MetaProbe, OrganizeEnv,
+        OrganizeOptions, TransferMode,
+    };
+    use coverly_core::profiles::builtin_profiles;
+    use coverly_core::systems::SystemDb;
+    use coverly_core::write::trash::FakeTrash;
+    use coverly_core::write::{set_copy_fault, undo_job, CopyStage};
+    use tempfile::TempDir;
+
+    struct NoCloud;
+
+    impl MetaProbe for NoCloud {
+        fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+            false
+        }
+    }
+
+    fn disk_full_on_the_save(stage: CopyStage, path: &Path) -> Option<std::io::Error> {
+        (stage == CopyStage::Rename && path.file_name().is_some_and(|n| n == "Copy.sav"))
+            .then(|| std::io::Error::from_raw_os_error(28))
+    }
+
+    #[test]
+    fn a_companion_left_by_a_pause_follows_on_resume() {
+        let tmp = TempDir::new().unwrap();
+        let (pile, card, data) = (
+            tmp.path().join("pile"),
+            tmp.path().join("card"),
+            tmp.path().join("data"),
+        );
+        let rom = fx::gb_tagged(0x00, 44);
+        for (path, bytes, n) in [
+            (card.join("ROMS/GB/Kept.gb"), rom.clone(), 1),
+            (pile.join("Copy.gb"), rom.clone(), 2),
+            (pile.join("Copy.sav"), b"save".to_vec(), 3),
+        ] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, bytes).unwrap();
+            pin_mtime(&path, n);
+        }
+        let (db, profiles, cache) = (
+            SystemDb::builtin(),
+            builtin_profiles(),
+            Cache::in_memory().unwrap(),
+        );
+        let env = OrganizeEnv {
+            db: &db,
+            profiles: &profiles,
+            cache: &cache,
+            dats: None,
+            probe: &NoCloud,
+            online: None,
+            now: SystemTime::now(),
+        };
+        let opts = OrganizeOptions {
+            layout: "anbernic-stock".into(),
+            target: Some(card.clone()),
+            mode: Some(TransferMode::Move),
+            offline: true,
+            ..OrganizeOptions::default()
+        };
+        let plan = plan_organize(&pile, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap();
+        let trash = FakeTrash::unavailable("no-trash");
+        let apply_env = ApplyEnv {
+            data_dir: &data,
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &trash,
+            tools: Some(&[]),
+        };
+        set_copy_fault(Some(disk_full_on_the_save));
+        let report = apply_organize(&plan, &apply_env).unwrap();
+        set_copy_fault(None);
+        assert!(report.paused.is_some(), "{report:?}");
+        assert!(pile.join("Copy.sav").exists());
+        let job = report.job.clone().unwrap();
+
+        let resumed = resume_organize(&job, &apply_env).unwrap();
+        assert!(resumed.paused.is_none(), "{resumed:?}");
+        assert!(pile.join("_Duplicados/Copy.gb").exists());
+        assert!(pile.join("_Duplicados/Copy.sav").exists());
+        // Resuming a finished job does nothing more.
+        let again = resume_organize(&job, &apply_env).unwrap();
+        assert_eq!(again.set_aside, 1, "{again:?}");
+        assert!(pile.join("_Duplicados/Copy.sav").exists());
+
+        undo_job(&data, &job).unwrap();
+        assert!(pile.join("Copy.gb").exists() && pile.join("Copy.sav").exists());
+        assert!(!pile.join("_Duplicados").exists());
+    }
+}

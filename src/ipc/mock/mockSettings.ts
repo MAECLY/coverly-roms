@@ -28,6 +28,8 @@ import {
 
 import type { Backend } from '../backend';
 import { BackendError } from '../errors';
+import { FIXTURE_SYSTEMS } from './fixture';
+import { ORGANIZE_SYSTEMS } from './mockOrganize';
 import {
   CREDENTIAL_KEYS,
   MEDIA,
@@ -42,6 +44,13 @@ import {
   type SourceId,
   type SourceInfo,
 } from '../types';
+
+/** Folder names and ids of the mock's systems: a custom quarantine may
+ * not sit inside one (Rust resolves them with its system database). */
+const SYSTEM_FOLDERS: readonly string[] = [
+  ...FIXTURE_SYSTEMS,
+  ...ORGANIZE_SYSTEMS,
+].flatMap((sys) => [sys.folder, sys.id]);
 
 export const MOCK_STORAGE_KEYS = {
   settings: 'coverly.mock.settings',
@@ -290,7 +299,7 @@ export function createMockSettings(opts: {
       if (shape.length) return unchanged(shape);
       // A `null` group or field is its default again (serde defaults).
       const merged = shapeSettings(mergePatch(settings, patch)).settings;
-      const errors = validateSettings(merged, known());
+      const errors = validateSettings(merged, known(), SYSTEM_FOLDERS);
       if (errors.length) return unchanged(errors);
       const next = normaliseSettings(merged);
       const reopen = needsReopen(settings, next);

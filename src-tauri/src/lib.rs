@@ -1,5 +1,6 @@
 //! Tauri shell of Coverly ROMs: a thin IPC layer over `coverly-core`.
 
+pub mod dedupe;
 pub mod error;
 pub mod ipc;
 pub mod jobs;
@@ -106,6 +107,19 @@ pub fn run() {
             ipc::organize_resume,
             ipc::organize_cancel_apply,
             ipc::organize_undo,
+            ipc::dedupe_plan,
+            ipc::dedupe_cancel,
+            ipc::dedupe_regroup,
+            ipc::dedupe_set_keeper,
+            ipc::dedupe_skip_group,
+            ipc::dedupe_skip_system,
+            ipc::dedupe_reset_choices,
+            ipc::dedupe_apply,
+            ipc::dedupe_cancel_apply,
+            ipc::dedupe_job,
+            ipc::dedupe_resume,
+            ipc::dedupe_export_plan,
+            ipc::reveal_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Coverly ROMs");

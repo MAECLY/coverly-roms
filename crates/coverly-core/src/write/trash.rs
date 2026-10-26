@@ -29,11 +29,33 @@ use super::Fingerprint;
 /// Where trashed files go. `trash` returns the location in the Trash when
 /// the OS tells it (`Ok(None)`: trashed, location unknown); `find` looks a
 /// file up in the Trash of the volume of `volume_of` by its original file
-/// name and fingerprint; `available` says whether that volume has a Trash.
+/// name and fingerprint; `available` says whether that volume has a Trash;
+/// `holds` says whether `at` is an item of that Trash (of the current
+/// user), so a location read back from a journal is only trusted when it
+/// is one: undo never brings back a file from anywhere else.
 pub trait TrashBackend: Send + Sync {
     fn trash(&self, path: &Path) -> Result<Option<PathBuf>, TrashError>;
     fn find(&self, volume_of: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf>;
     fn available(&self, path: &Path) -> bool;
+    fn holds(&self, volume_of: &Path, at: &Path) -> bool;
+}
+
+/// `at` sits directly in the folder `dir` (both resolved by the file
+/// system when they exist) and is no symlink.
+fn directly_in(dir: &Path, at: &Path) -> bool {
+    let Some(parent) = at.parent() else {
+        return false;
+    };
+    if fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink()) {
+        return false;
+    }
+    if parent == dir {
+        return true;
+    }
+    matches!(
+        (parent.canonicalize(), dir.canonicalize()),
+        (Ok(a), Ok(b)) if a == b
+    )
 }
 
 /// Why a file was not sent to the Trash. The file is still where it was in
@@ -65,6 +87,10 @@ impl TrashBackend for OsTrash {
 
     fn available(&self, path: &Path) -> bool {
         platform::available(path)
+    }
+
+    fn holds(&self, volume_of: &Path, at: &Path) -> bool {
+        platform::holds(volume_of, at)
     }
 }
 
@@ -151,7 +177,7 @@ mod platform {
 
     use objc2_foundation::{NSFileManager, NSURL};
 
-    use super::{fp_matches, missing_or_io, Fingerprint, TrashError};
+    use super::{directly_in, fp_matches, missing_or_io, Fingerprint, TrashError};
 
     pub(super) fn trash(path: &Path) -> Result<Option<PathBuf>, TrashError> {
         fs::symlink_metadata(path).map_err(|e| missing_or_io(e, path))?;
@@ -183,6 +209,10 @@ mod platform {
 
     pub(super) fn find(volume_of: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf> {
         find_in_dir(&trash_dir(volume_of)?, name, fp)
+    }
+
+    pub(super) fn holds(volume_of: &Path, at: &Path) -> bool {
+        trash_dir(volume_of).is_some_and(|dir| directly_in(&dir, at))
     }
 
     /// The file in the Trash folder `dir` that was `name` and matches `fp`:
@@ -273,7 +303,7 @@ mod platform {
     use percent_encoding::{percent_decode, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
     use super::super::noclobber::rename_noclobber;
-    use super::{fp_matches, missing_or_io, Fingerprint, TrashError};
+    use super::{directly_in, fp_matches, missing_or_io, Fingerprint, TrashError};
 
     /// RFC 2396 escaping of the `Path=` key; `/` stays.
     const PATH_SET: &AsciiSet = &NON_ALPHANUMERIC
@@ -294,6 +324,23 @@ mod platform {
 
     pub(super) fn find(volume_of: &Path, name: &str, fp: &Fingerprint) -> Option<PathBuf> {
         find_in(volume_of, name, fp, home_data().as_deref())
+    }
+
+    pub(super) fn holds(volume_of: &Path, at: &Path) -> bool {
+        holds_in(volume_of, at, home_data().as_deref())
+    }
+
+    /// `at` is an item of the `files/` folder of the trash of the volume
+    /// of `volume_of`.
+    pub(super) fn holds_in(volume_of: &Path, at: &Path, home_data: Option<&Path>) -> bool {
+        let Some(here) = existing(volume_of) else {
+            return false;
+        };
+        let Ok(meta) = fs::metadata(&here) else {
+            return false;
+        };
+        trash_dir(&here, meta.dev(), home_data, false)
+            .is_some_and(|t| directly_in(&t.dir.join("files"), at))
     }
 
     /// `$XDG_DATA_HOME` (absolute only) or `$HOME/.local/share`.
@@ -627,7 +674,9 @@ mod platform {
         FOF_WANTNUKEWARNING, FO_DELETE, SHFILEOPSTRUCTW,
     };
 
-    use super::{fp_matches, missing_or_io, mtime_ns, recycle_info, Fingerprint, TrashError};
+    use super::{
+        directly_in, fp_matches, missing_or_io, mtime_ns, recycle_info, Fingerprint, TrashError,
+    };
 
     /// `GetDriveTypeW`: a fixed drive (removable and network drives have
     /// no Recycle Bin).
@@ -749,6 +798,23 @@ mod platform {
         String::from_utf16(&units).ok()
     }
 
+    /// `at` is a `$R<id>` item of the current user's Recycle Bin folder on
+    /// the volume of `volume_of`; another user's bin never counts.
+    pub(super) fn holds(volume_of: &Path, at: &Path) -> bool {
+        let is_item = at
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|n| n.starts_with("$R"));
+        let bin = || -> Option<PathBuf> {
+            Some(
+                volume_root(volume_of)?
+                    .join("$Recycle.Bin")
+                    .join(current_user_sid()?),
+            )
+        };
+        is_item && bin().is_some_and(|bin| directly_in(&bin, at))
+    }
+
     /// `<root>\$Recycle.Bin\<SID>\$I<id>` names the original path and
     /// size of `$R<id>`. Only the current user's folder is read, and only a
     /// record of exactly the absolute path `volume_of` (the file that was
@@ -809,6 +875,10 @@ mod platform {
         None
     }
 
+    pub(super) fn holds(_volume_of: &Path, _at: &Path) -> bool {
+        false
+    }
+
     pub(super) fn available(_path: &Path) -> bool {
         false
     }
@@ -819,14 +889,27 @@ mod platform {
 #[cfg(feature = "test-util")]
 pub const FAKE_TRASH_ENV: &str = "COVERLY_TEST_FAKE_TRASH";
 
+/// With [`FAKE_TRASH_ENV`], any non-empty value makes the fake Trash
+/// behave like a volume without one ([`FakeTrash::unavailable`]).
+#[cfg(feature = "test-util")]
+pub const FAKE_TRASH_UNAVAILABLE_ENV: &str = "COVERLY_TEST_FAKE_TRASH_UNAVAILABLE";
+
 /// The Trash of this process: the OS Trash, or, in a build with the
 /// `test-util` feature only, a [`FakeTrash`] in the folder
 /// `COVERLY_TEST_FAKE_TRASH` names, so end-to-end tests of the CLI never
-/// fill the real Trash. Release builds ignore the variable.
+/// fill the real Trash (unavailable when `COVERLY_TEST_FAKE_TRASH_UNAVAILABLE`
+/// is set). Release builds ignore both variables.
 pub fn process_trash() -> Box<dyn TrashBackend> {
     #[cfg(feature = "test-util")]
     if let Some(dir) = std::env::var_os(FAKE_TRASH_ENV).filter(|d| !d.is_empty()) {
-        return Box::new(FakeTrash::new(PathBuf::from(dir)));
+        let dir = PathBuf::from(dir);
+        let unavailable =
+            std::env::var_os(FAKE_TRASH_UNAVAILABLE_ENV).is_some_and(|v| !v.is_empty());
+        return Box::new(if unavailable {
+            FakeTrash::unavailable(dir)
+        } else {
+            FakeTrash::new(dir)
+        });
     }
     Box::new(OsTrash)
 }
@@ -930,6 +1013,13 @@ impl TrashBackend for FakeTrash {
     fn available(&self, _path: &Path) -> bool {
         !self.unavailable
     }
+
+    /// A file in one of its slots.
+    fn holds(&self, _volume_of: &Path, at: &Path) -> bool {
+        at.parent().is_some_and(|slot| {
+            slot.parent().is_some_and(|d| d == self.dir) && directly_in(slot, at)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -984,6 +1074,36 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read(&first).unwrap(), b"first run");
         assert_eq!(fs::read(&second).unwrap(), b"second run");
+    }
+
+    #[test]
+    fn a_trash_holds_only_its_own_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("game.zip");
+        fs::write(&src, b"x").unwrap();
+        let trash = FakeTrash::new(tmp.path().join("trash"));
+        let at = trash.trash(&src).unwrap().unwrap();
+        assert!(trash.holds(&src, &at));
+        let elsewhere = tmp.path().join("elsewhere.zip");
+        fs::write(&elsewhere, b"x").unwrap();
+        assert!(!trash.holds(&src, &elsewhere));
+        assert!(!trash.holds(&src, &trash.dir().join("loose.zip")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directly_in_refuses_a_symlink_and_another_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("bin");
+        fs::create_dir_all(&dir).unwrap();
+        let other = tmp.path().join("other");
+        fs::write(&other, b"x").unwrap();
+        fs::write(dir.join("item"), b"x").unwrap();
+        std::os::unix::fs::symlink(&other, dir.join("link")).unwrap();
+        assert!(directly_in(&dir, &dir.join("item")));
+        assert!(!directly_in(&dir, &dir.join("link")));
+        assert!(!directly_in(&dir, &other));
+        assert!(!directly_in(&dir, &dir.join("sub").join("item")));
     }
 
     #[test]
