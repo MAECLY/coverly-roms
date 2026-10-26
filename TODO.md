@@ -15,6 +15,16 @@ El detalle está en `RELEASING.md` y `docs/TRACKER.md`:
 - [ ] Credenciales de SteamGridDB y ScreenScraper para las pruebas reales (responsable: Miguel).
 - [ ] Pruebas manuales de la app Tauri en macOS, Windows y Linux, y en la consola real (M2-12) (responsable: Miguel).
 
+## Mejoras de interfaz
+
+- [ ] Animación de progreso al extraer en «Organizar por sistema». Ahora solo muestra la carpeta y una línea de texto («Extrayendo Next Tetris, The.zip: 0 de 1 archivos…»), y se queda corta para extracciones que duran minutos. Propuesta:
+  - Un movimiento propio, en la línea de la landing «The Lean-To»: por ejemplo, el comprimido que se abre y las pistas que salen hacia la carpeta del sistema, con su `SystemIcon`.
+  - Barra por bytes (`OrganizePhase::Extract { bytes_done, bytes_total }` ya llega del núcleo), velocidad y tiempo restante.
+  - Lista de las pistas del juego en curso, con su CRC verificado (✓) a medida que terminan.
+  - Respetar `prefers-reduced-motion` y usar los tokens de `design/tokens.json`.
+- [ ] El contador «0 de 1 archivos» cuenta elementos del plan, no archivos dentro del comprimido, y se lee mal. Separar «juego 1 de 3» de «pista 4 de 12».
+- [ ] Revisar otras pantallas de progreso que también están demasiado simples (relleno de portadas, duplicados, escaneo) para darles el mismo tratamiento.
+
 ## Sistemas que faltan
 
 Hoy `crates/coverly-core/src/systems/systems.toml` define 54 sistemas. Faltan los de esta lista. Por cada sistema hay que añadir:
