@@ -223,7 +223,6 @@ impl OrganizeManager {
         self.install(Arc::clone(&job));
         let view = job.view();
         std::thread::spawn(move || {
-            let _guard = guard;
             let throttle = Throttle::new(job.plan_id, Arc::clone(&events));
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let progress = |p: OrganizeProgress| {
@@ -262,6 +261,9 @@ impl OrganizeManager {
                 ),
                 None => log::warn!("organise job {:?} failed: {:?}", view.job, view.error),
             }
+            // Writes are free again before the end is announced: an undo
+            // asked for on that event must not find the job still running.
+            drop(guard);
             events.changed(view);
         });
         view

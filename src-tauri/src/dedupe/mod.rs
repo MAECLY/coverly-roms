@@ -289,7 +289,6 @@ impl DedupeManager {
         let cache_dir = start.cache_dir;
         let backend = start.backend;
         std::thread::spawn(move || {
-            let _guard = guard;
             let throttle = Throttle::new(job.plan_id, Arc::clone(&events));
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let cache = Cache::open(&cache_dir.join(CACHE_FILE))
@@ -330,6 +329,9 @@ impl DedupeManager {
                 ),
                 None => log::warn!("duplicates job {:?} failed: {:?}", view.job, view.error),
             }
+            // Writes are free again before the end is announced: an undo
+            // asked for on that event must not find the job still running.
+            drop(guard);
             events.changed(view);
         });
         view
