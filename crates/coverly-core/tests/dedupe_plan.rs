@@ -864,6 +864,34 @@ fn skip_group_reports_only_and_comes_back() {
 }
 
 #[test]
+fn regroup_refuses_a_quarantine_inside_a_system_folder() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    let fx = Fx::new();
+    let opts = fx.opts();
+    let plan = fx.plan(&scan(root), &opts);
+
+    for inside in [root.join("ROMS/GB/_Duplicados"), root.join("ROMS")] {
+        let mut moved = opts.clone();
+        moved.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+            path: inside.clone(),
+        };
+        let err = regroup(&plan, &moved).expect_err("a quarantine inside a system folder");
+        assert_eq!(err, DedupeError::QuarantineInSystemFolder(inside));
+    }
+
+    let mut fine = opts.clone();
+    fine.quarantine = coverly_core::dedupe::QuarantineChoice::Folder {
+        path: root.join("Dups"),
+    };
+    let regrouped = regroup(&plan, &fine).expect("beside the ROMs folder");
+    assert_eq!(regrouped.quarantine, root.join("Dups"));
+}
+
+#[test]
 fn regroup_with_1g1r_adds_version_groups_without_reading() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
@@ -877,7 +905,7 @@ fn regroup_with_1g1r_adds_version_groups_without_reading() {
 
     let mut one = opts.clone();
     one.one_game_one_rom = true;
-    let regrouped = regroup(&plan, &one);
+    let regrouped = regroup(&plan, &one).expect("regroup");
     assert_eq!(
         (fx.bytes.opens(), fx.listing.calls()),
         reads,
@@ -900,7 +928,10 @@ fn regroup_with_1g1r_adds_version_groups_without_reading() {
     assert_eq!(regrouped.totals.extras, 1);
 
     // Back to the first options: the version group is gone again.
-    assert!(regroup(&regrouped, &opts).groups.is_empty());
+    assert!(regroup(&regrouped, &opts)
+        .expect("regroup")
+        .groups
+        .is_empty());
 }
 
 #[test]

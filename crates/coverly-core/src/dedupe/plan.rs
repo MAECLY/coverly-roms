@@ -185,6 +185,9 @@ struct Base {
     root: PathBuf,
     roms_dir: PathBuf,
     spot: QuarantineSpot,
+    /// The scanned system folders a quarantine may not overlap (empty when
+    /// the units did not come from one library scan).
+    system_dirs: Vec<PathBuf>,
     units: Vec<Unit>,
     l1: Vec<KeyedUnit>,
     l2: Vec<Option<VersionKey>>,
@@ -354,6 +357,7 @@ pub fn plan_dedupe(
         roms_dir: spot.roms_dir.clone(),
         saves: SaveIndex::new(&env.profile.id, &root),
         spot,
+        system_dirs: scan.systems.iter().map(|s| s.dir.clone()).collect(),
         units,
         l1,
         l2,
@@ -484,6 +488,7 @@ pub fn group_units(
         roms_dir: env.roms_dir.to_path_buf(),
         saves: SaveIndex::new(&env.profile.id, env.root),
         spot,
+        system_dirs: Vec::new(),
         stem_index: stem_index(&units),
         units,
         l1,
@@ -536,12 +541,14 @@ fn library_keeps(units: &[Unit], group: &mut RawGroup) {
 
 /// The plan for other options, from what the planner already read: no ROM
 /// is read again. A plan with no internals (read back from disk) comes
-/// back unchanged.
-pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> DedupePlan {
+/// back unchanged. A new quarantine gets the same check as in [`plan`].
+pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> Result<DedupePlan, DedupeError> {
     let Some(state) = &plan.internals.0 else {
-        return plan.clone();
+        return Ok(plan.clone());
     };
     let base = Arc::clone(&state.base);
+    let dirs: Vec<&Path> = base.system_dirs.iter().map(PathBuf::as_path).collect();
+    check_quarantine(&quarantine_dir(&base.spot, &opts.quarantine), &dirs)?;
     let raw = raw_groups(
         &base.units,
         &base.l1,
@@ -560,7 +567,7 @@ pub fn regroup(plan: &DedupePlan, opts: &DedupeOptions) -> DedupePlan {
             opts: opts.clone(),
         }),
     );
-    out
+    Ok(out)
 }
 
 /// Makes `member` the copy that stays in `group`, and remembers the pick

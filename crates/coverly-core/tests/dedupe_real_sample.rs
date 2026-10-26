@@ -407,7 +407,8 @@ fn the_real_library_plans_duplicates_as_the_spec_says() {
             levels: vec![DedupeLevel::Exact],
             ..all_levels()
         },
-    );
+    )
+    .expect("regroup");
     eprintln!("--- level 1 groups ---");
     print_groups(&exact);
 

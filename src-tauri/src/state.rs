@@ -1822,7 +1822,7 @@ impl AppState {
         self.dedupe.edit(plan_id, |stored| {
             let mut opts = stored.opts.clone();
             Self::regroup_options(&mut opts, req)?;
-            stored.plan = regroup(&stored.plan, &opts);
+            stored.plan = regroup(&stored.plan, &opts)?;
             stored.opts = opts;
             stored.reapply_skips(None);
             Ok(())
