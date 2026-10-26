@@ -334,6 +334,10 @@ impl TrashBackend for CountingTrash {
     fn available(&self, path: &Path) -> bool {
         self.inner.available(path)
     }
+
+    fn holds(&self, volume_of: &Path, at: &Path) -> bool {
+        self.inner.holds(volume_of, at)
+    }
 }
 
 #[test]

@@ -272,6 +272,9 @@ fn restore_archive(
         ArchiveLast::Trashed(Some(at)) => Some(at.clone()),
         _ => None,
     }
+    // Only an item of this Trash: a journal edited to name any other file
+    // of the same size and time never brings that file into the library.
+    .filter(|at| trash.holds(from, at))
     .filter(|at| {
         fs::symlink_metadata(at)
             .ok()

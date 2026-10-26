@@ -22,7 +22,7 @@ use coverly_core::scan::{scan_library, ScanOptions};
 use coverly_core::settings::Settings;
 use coverly_core::systems::SystemDb;
 use coverly_core::write::trash::{FakeTrash, TrashBackend};
-use coverly_core::write::{undo_job_with, WriteError};
+use coverly_core::write::undo_job_with;
 use tempfile::TempDir;
 
 /// Synthetic ROM bytes: binary, distinct per `seed`.
@@ -141,6 +141,7 @@ impl Card {
         resume_dedupe(job, &env)
     }
 
+    #[cfg(unix)]
     fn q(&self) -> PathBuf {
         self.root.join("_Duplicados")
     }
@@ -199,6 +200,8 @@ fn status<'a>(report: &'a DedupeReport, plan: &DedupePlan, path: &Path) -> &'a D
 #[cfg(unix)]
 mod symlinks {
     use std::os::unix::fs::symlink;
+
+    use coverly_core::write::WriteError;
 
     use super::*;
 
@@ -347,4 +350,45 @@ fn a_set_whose_track_changed_since_the_plan_stays() {
         "{report:#?}"
     );
     assert_eq!(fs::read(&t2).unwrap(), rom(9, 2352 * 2));
+}
+
+/// A journal edited so the Trash location of a set-aside copy names
+/// another file of the same size and time outside the Trash: undo leaves
+/// that file alone and brings back the exact item the Trash holds.
+#[test]
+fn undo_brings_back_only_an_item_of_the_trash() {
+    let card = Card::new();
+    let (_, extra) = tetris(&card);
+    let bytes = fs::read(&extra).unwrap();
+    let plan = card.plan_with(Some(QuarantineChoice::Trash));
+    let trash = card.trash();
+    let job = card.apply_on(&plan, &trash, false).unwrap().job.unwrap();
+    assert!(!extra.exists());
+    // A decoy outside the library, same size and time as the copy.
+    let decoy = card.outside().join("secret.bin");
+    fs::write(&decoy, rom(42, bytes.len())).unwrap();
+    let trashed = fs::read_dir(trash.dir())
+        .unwrap()
+        .flatten()
+        .map(|e| e.path().join("Tetris (1).gb"))
+        .find(|p| p.is_file())
+        .unwrap();
+    let mtime = fs::metadata(&trashed).unwrap().modified().unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&decoy)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let journal = card.journal(&job);
+    let text = fs::read_to_string(&journal).unwrap();
+    let real = serde_json::to_string(&trashed).unwrap();
+    assert!(text.contains(&real), "{text}");
+    let fake = serde_json::to_string(&decoy).unwrap();
+    fs::write(&journal, text.replace(&real, &fake)).unwrap();
+
+    let undo = undo_job_with(&card.data, &job, &trash).unwrap();
+    assert_eq!(fs::read(&decoy).unwrap(), rom(42, bytes.len()), "{undo:?}");
+    assert_eq!(fs::read(&extra).unwrap(), bytes, "the real item came back");
+    assert!(undo.archive_lost.is_empty(), "{undo:?}");
 }

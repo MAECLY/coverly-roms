@@ -497,6 +497,10 @@ impl coverly_core::write::trash::TrashBackend for GatedTrash {
     fn available(&self, path: &Path) -> bool {
         self.inner.available(path)
     }
+
+    fn holds(&self, volume_of: &Path, at: &Path) -> bool {
+        self.inner.holds(volume_of, at)
+    }
 }
 
 /// Two games stored twice each, pinned mtimes.
