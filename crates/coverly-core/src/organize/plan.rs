@@ -844,15 +844,28 @@ fn roms_dir_of(target: &Path, profile: &Profile, flat: bool) -> PathBuf {
 
 /// The quarantine folders a walk of `source` organised into `target`
 /// skips: `<source>/<name>` and `<target>/<name>` (the library's default
-/// one), for `name` and both default names.
+/// one), for `name` and both default names, in any letter case (a
+/// case-sensitive file system can hold `_duplicates` beside `_Duplicados`).
 pub fn quarantine_dirs(source: &Path, target: &Path, name: &str) -> Vec<PathBuf> {
     let names = [name, DEFAULT_QUARANTINE_NAME, "_Duplicates"];
     let mut out = Vec::new();
     for root in [source, target] {
-        for n in &names {
-            let dir = root.join(n);
+        let mut push = |dir: PathBuf| {
             if !out.contains(&dir) {
                 out.push(dir);
+            }
+        };
+        for n in &names {
+            push(root.join(n));
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let found = entry.file_name();
+            let found = found.to_string_lossy();
+            if names.iter().any(|n| n.eq_ignore_ascii_case(&found)) {
+                push(root.join(&*found));
             }
         }
     }
