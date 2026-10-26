@@ -159,6 +159,23 @@ Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingS
 - [ ] Rediseñar Inicio: «Mi biblioteca» como centro, y debajo «Dispositivos» (bloque 4) en lugar de rutas sueltas.
 - [ ] Exportar / importar la biblioteca y su base de datos.
 
+### RetroAchievements
+
+Revisado: se puede integrar, y encaja con la biblioteca porque los logros son por juego y por usuario.
+
+- **API web pública**: cada usuario saca su clave en RetroAchievements → Settings → Keys y la usa junto a su usuario ([docs de la API](https://api-docs.retroachievements.org/v1/get-game-info-and-user-progress.html)). Hay endpoints para la ficha del juego con el progreso del usuario (`API_GetGameInfoAndUserProgress`), el progreso por juegos (`API_GetUserProgress`) y el rango y puntuación por juego. Clientes oficiales en JS y Python (MIT); para Rust habría que escribir el cliente (HTTP + JSON, sencillo).
+- **Identificar el juego**: RetroAchievements no usa el hash del archivo entero sino su propio hash por sistema (sin cabecera iNES en NES, sin la cabecera de 512 bytes en SNES, el ejecutable de `SYSTEM.CNF` en PlayStation, orden de bytes en N64, sectores concretos en discos, nombre del archivo en arcade). Lo implementa la librería C `rcheevos` (`rc_hash_generate`), que ya usan RetroArch y DuckStation ([rcheevos en DuckStation](https://git.morozoff.pro/aiden/duckstation/src/branch/master/dep/rcheevos), [node-rcheevos](https://github.com/JZimz/node-rcheevos)). Opciones: enlazar `rcheevos` o portar a Rust el hash de los sistemas que soportamos. Comprobar antes su licencia en el repositorio oficial (creemos que es MIT, no está confirmado).
+- **Usuarios**: desde 2025 el nombre de usuario puede cambiar; guardar su ULID, no el nombre.
+
+Tareas:
+
+- [ ] Ajuste «Cuenta de RetroAchievements»: usuario y clave de la API web en el llavero del sistema, como las credenciales de SteamGridDB y ScreenScraper (nunca en el disco ni en los registros). «Probar clave» igual que en Fuentes.
+- [ ] Calcular el hash de RetroAchievements de cada juego al escanear (guardado en la caché, como las claves de contenido) y averiguar su id de juego en RA.
+- [ ] En la ficha de cada juego: si tiene logros, cuántos, cuántos has conseguido (normal y hardcore), puntos y el último desbloqueo, con los iconos de los logros.
+- [ ] En la biblioteca: insignia «tiene logros» / «sin logros» / «versión no compatible» (cuando el hash no coincide con ninguna versión soportada, avisar y proponer la versión buena), filtro por logros y colección inteligente «con logros pendientes».
+- [ ] Al elegir qué copia se conserva en duplicados y al sincronizar (bloque 4), preferir la versión compatible con RetroAchievements como regla opcional.
+- [ ] Respetar los límites de uso de la API: caché local, sin peticiones masivas, y todo opcional y desactivado sin clave.
+
 ## 4. Sincronizar con dispositivos
 
 Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder llevar la biblioteca a cada una, sabiendo qué juegos hay en la biblioteca, cuáles hay en el dispositivo y cuáles solo en uno de los dos.
