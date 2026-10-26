@@ -647,6 +647,18 @@ fn record_of<'r>(
     })
 }
 
+/// `lines` grouped by the item `item_of` names (lines of no item are
+/// never looked up), each group in journal order.
+fn by_item<T>(lines: Vec<T>, item_of: impl Fn(&T) -> Option<usize>) -> HashMap<usize, Vec<T>> {
+    let mut out: HashMap<usize, Vec<T>> = HashMap::new();
+    for line in lines {
+        if let Some(item) = item_of(&line) {
+            out.entry(item).or_default().push(line);
+        }
+    }
+    out
+}
+
 struct Run<'a> {
     plan: &'a DedupePlan,
     env: &'a DedupeApplyEnv<'a>,
@@ -655,9 +667,15 @@ struct Run<'a> {
     resumed: bool,
     /// One listing per quarantine folder for the whole run.
     index: DirIndex,
-    /// The journal's transfers and Trash lines before this run (resume).
-    records: Vec<TransferRecord>,
-    steps: Vec<ArchiveRecord>,
+    /// The journal's transfers and Trash lines before this run (resume),
+    /// by item, in journal order: a resume of a job of many thousand copies
+    /// looks each one up without walking the whole journal.
+    records: HashMap<usize, Vec<TransferRecord>>,
+    steps: HashMap<usize, Vec<ArchiveRecord>>,
+    /// Keepers already named in `art_left`, systems already noted for
+    /// their game list: one note each, without a scan of every note.
+    art_seen: BTreeSet<PathBuf>,
+    gamelists_noted: BTreeSet<String>,
     /// Extras the destination cannot hold, by item.
     limits: HashMap<usize, DestLimit>,
     /// A sample path per volume and whether it has a Trash.
@@ -690,8 +708,10 @@ impl<'a> Run<'a> {
             layout,
             resumed,
             index: DirIndex::new(),
-            records,
-            steps,
+            records: by_item(records, |r| r.item),
+            steps: by_item(steps, |s| s.item),
+            art_seen: BTreeSet::new(),
+            gamelists_noted: BTreeSet::new(),
             limits: HashMap::new(),
             trash_ok: Vec::new(),
             gamelists: BTreeMap::new(),
@@ -854,12 +874,17 @@ impl<'a> Run<'a> {
             return false;
         }
         if self.plan.trash {
-            return self.steps.iter().any(|s| s.item == Some(w.item));
+            return self.steps.contains_key(&w.item);
         }
         let files = m.unit.files.iter().chain(m.travels.iter().map(|t| &t.from));
         files
             .into_iter()
-            .any(|f| record_of(&self.records, w.item, f).is_some())
+            .any(|f| record_of(self.records_of(w.item), w.item, f).is_some())
+    }
+
+    /// The journal's transfers of `item` before this run.
+    fn records_of(&self, item: usize) -> &[TransferRecord] {
+        self.records.get(&item).map_or(&[], Vec::as_slice)
     }
 
     fn trash_available(&mut self, path: &Path) -> bool {
@@ -1069,7 +1094,7 @@ impl<'a> Run<'a> {
         landed: &mut Vec<PathBuf>,
     ) -> Option<Step> {
         for t in &m.travels {
-            if let Some(r) = record_of(&self.records, w.item, &t.from) {
+            if let Some(r) = record_of(self.records_of(w.item), w.item, &t.from) {
                 landed.push(r.target.clone());
                 continue;
             }
@@ -1097,7 +1122,7 @@ impl<'a> Run<'a> {
     fn finish_started(&mut self, w: &Work, system: &str, m: &Member) -> Step {
         let mut landed = Vec::new();
         for from in &m.unit.files {
-            if let Some(r) = record_of(&self.records, w.item, from) {
+            if let Some(r) = record_of(self.records_of(w.item), w.item, from) {
                 landed.push(r.target.clone());
                 continue;
             }
@@ -1190,7 +1215,8 @@ impl<'a> Run<'a> {
 
     /// Where an earlier run of the job put `from` in the Trash.
     fn trashed_at(&self, item: usize, from: &Path) -> Option<PathBuf> {
-        self.steps.iter().rev().find_map(|s| match &s.step {
+        let steps = self.steps.get(&item).map_or(&[][..], Vec::as_slice);
+        steps.iter().rev().find_map(|s| match &s.step {
             ArchiveStep::Trashed { trash } if s.item == Some(item) && s.from == from => {
                 trash.clone()
             }
@@ -1201,7 +1227,7 @@ impl<'a> Run<'a> {
     /// What setting `m` aside means for the report and the game list.
     fn set_aside(&mut self, system: &str, keeper: &Member, m: &Member, report: &mut DedupeReport) {
         report.bytes_out += m.size;
-        if !m.art_leaves.is_empty() && !report.art_left.contains(&keeper.unit.primary) {
+        if !m.art_leaves.is_empty() && self.art_seen.insert(keeper.unit.primary.clone()) {
             report.art_left.push(keeper.unit.primary.clone());
             report.notes.push(DedupeApplyNote::ArtLeaves {
                 keeper: keeper.unit.primary.clone(),
@@ -1214,7 +1240,9 @@ impl<'a> Run<'a> {
                     .or_default()
                     .push(entry.path.clone());
             } else {
-                note_gamelist(report, system);
+                if self.gamelists_noted.insert(system.to_string()) {
+                    note_gamelist(report, system);
+                }
             }
         }
     }
