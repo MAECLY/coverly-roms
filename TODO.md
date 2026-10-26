@@ -22,6 +22,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 0. [Nombres de los archivos de cada release y Windows ARM](#0-nombres-de-los-archivos-de-cada-release-y-windows-arm)
 1. [Mejora de la interfaz de «Organizar por sistema»](#1-mejora-de-la-interfaz-de-organizar-por-sistema)
    1.5. [Mejora de la interfaz de Duplicados](#15-mejora-de-la-interfaz-de-duplicados)
+   1.6. [Reordenar los ajustes de Biblioteca](#16-reordenar-los-ajustes-de-biblioteca)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
@@ -67,6 +68,23 @@ La pantalla «estante y bandeja» da la información, pero se queda simple. Mejo
 - [ ] **Portadas**: hoy la pantalla no muestra ninguna. Enseñar la portada de cada grupo (y de cada copia si tiene la suya), reutilizando las de la biblioteca y las de libretro-thumbnails; con hueco de portada claro cuando falte.
 - [ ] Más detalle por copia: tamaño, formato (zip, 7z, CHD, CUE/BIN), fecha de modificación, si tiene partida guardada y de cuándo, y por qué regla se eligió la que se queda.
 - [ ] Repaso visual con el skill de diseño: jerarquía entre el juego, la copia que se queda y las apartadas; estados (conflicto, solo informado, otra versión) más visibles; atajos de teclado para elegir copia y aplicar; animación al apartar en la línea de la landing.
+
+## 1.6. Reordenar los ajustes de Biblioteca
+
+Configuración › Biblioteca (`src/components/settings/LibrarySection.tsx` + `DedupeSettings.tsx`, unas 770 líneas) mezcla tres cosas distintas en una sola pestaña y se hace larga:
+
+- **Escaneo**: perfil por defecto, seguir enlaces simbólicos, archivos ocultos, carpetas y extensiones ignoradas, bibliotecas recientes.
+- **Organizar**: modo (mover / copiar / automático), disposición por defecto, nombres (catálogo / conservar), anidar en `ROMS/`, programas externos para RAR, descargar catálogos.
+- **Duplicados**: acción (cuarentena / Papelera), carpeta de cuarentena, niveles, una ROM por juego, reglas para elegir la copia que se queda y su orden, orden de regiones, orden de contenedores por sistema, sistemas excluidos, paso dentro de Organizar.
+
+Tareas:
+
+- [ ] Separar en pestañas propias: **Biblioteca** (solo escaneo y bibliotecas recientes), **Organizar** y **Duplicados**. Valorar si «Coincidencias» (regiones) absorbe el orden de regiones de duplicados para no tenerlo dos veces.
+- [ ] Dentro de cada pestaña, lo habitual arriba y lo avanzado plegado («Opciones avanzadas»): por ejemplo, en Duplicados dejar a la vista la acción y la carpeta, y plegar niveles, reglas, contenedores y exclusiones.
+- [ ] Revisar textos de ayuda: uno corto por opción y el detalle en un «Más información», en vez de párrafos largos.
+- [ ] Buscador de ajustes (⌘/Ctrl+F dentro de Configuración) y enlaces directos desde cada pantalla («Ajustes de Duplicados» desde la pantalla de duplicados, «Ajustes de Organizar» desde Organizar).
+- [ ] Preparar el sitio para lo que viene del roadmap (Biblioteca con colecciones, Dispositivos, Partidas, RetroAchievements): cada uno con su pestaña, no apilado en Biblioteca.
+- [ ] Mantener los tests de `Sections.test.tsx` y la paridad i18n; E2E de la navegación por pestañas con teclado.
 
 ## 2. Sistemas que faltan
 
