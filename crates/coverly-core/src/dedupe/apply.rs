@@ -30,8 +30,8 @@ use crate::organize::target::{file_system_is_fat32, DirIndex};
 use crate::volumes::volume_uuid;
 use crate::write::trash::{TrashBackend, TrashError};
 use crate::write::{
-    job_archive_steps, job_transfers, safe_file_name, same_volume, ArchiveRecord, ArchiveStep,
-    Collision, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError, Writer,
+    ensure_within, job_archive_steps, job_transfers, safe_file_name, same_volume, ArchiveRecord,
+    ArchiveStep, Collision, JobKind, JobMeta, MoveOutcome, TransferRecord, WriteError, Writer,
 };
 
 use super::plan::{set_keeper, skip_group};
@@ -188,6 +188,7 @@ pub fn apply_dedupe(
         pause_all(&plan, &works, &mut report, ItemErrorKind::VolumeGone);
         return Ok(report);
     }
+    check_inside(&plan, &layout)?;
     check_space(&plan, &works)?;
     if layout.source_root.is_some() {
         fs::create_dir_all(&layout.root).map_err(WriteError::from)?;
@@ -231,10 +232,25 @@ pub fn resume_dedupe(job: &str, env: &DedupeApplyEnv) -> Result<DedupeReport, Ap
         pause_all(&plan, &works, &mut report, ItemErrorKind::VolumeGone);
         return Ok(report);
     }
+    check_inside(&plan, &layout)?;
+    let writer = Writer::resume(&layout.root, env.data_dir, job)?;
+    // The journal must be this plan's: a duplicates job taking files from
+    // the library the plan names, whatever its header was edited to say.
+    let source = layout.source_root.as_deref().unwrap_or(&layout.root);
+    if writer.kind() != JobKind::Dedupe || writer.source_root() != source {
+        return Err(WriteError::Journal(format!(
+            "job {job} is not a duplicates job of {}",
+            plan.root.display()
+        ))
+        .into());
+    }
     let records = job_transfers(env.data_dir, job)?;
     let steps = job_archive_steps(env.data_dir, job)?;
-    let writer = Writer::resume(&layout.root, env.data_dir, job)?;
-    writer.clean_temps(&quarantine_dirs(&plan, &works));
+    let dirs: Vec<PathBuf> = quarantine_dirs(&plan, &works)
+        .into_iter()
+        .filter(|d| ensure_within(&layout.root, d).is_ok())
+        .collect();
+    writer.clean_temps(&dirs);
     let run = Run::new(&plan, env, writer, layout, records, steps, true);
     Ok(run.run(&works, report))
 }
@@ -443,6 +459,17 @@ impl Layout {
             }
         }
     }
+}
+
+/// The quarantine of a plan that sets copies aside inside the library
+/// resolves inside it on disk: `_Duplicados` (or a folder above it) made a
+/// symlink out of the library is refused before anything moves, rather
+/// than failing copy by copy. Every write is also checked on its own.
+fn check_inside(plan: &DedupePlan, layout: &Layout) -> Result<(), WriteError> {
+    if plan.trash || layout.source_root.is_some() {
+        return Ok(());
+    }
+    ensure_within(&layout.root, &plan.quarantine).map(|_| ())
 }
 
 /// Copies across volumes need their bytes plus 1 % free on the
