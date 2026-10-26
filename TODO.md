@@ -15,7 +15,17 @@ El detalle está en `RELEASING.md` y `docs/TRACKER.md`:
 - [ ] Credenciales de SteamGridDB y ScreenScraper para las pruebas reales (responsable: Miguel).
 - [ ] Pruebas manuales de la app Tauri en macOS, Windows y Linux, y en la consola real (M2-12) (responsable: Miguel).
 
-## Mejoras de interfaz
+## Roadmap
+
+Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista de tareas de cada uno es el punto de partida para su spec y su plan.
+
+1. [Mejora de la interfaz de «Organizar por sistema»](#1-mejora-de-la-interfaz-de-organizar-por-sistema)
+2. [Sistemas que faltan](#2-sistemas-que-faltan)
+3. [Biblioteca](#3-biblioteca)
+4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
+5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
+
+## 1. Mejora de la interfaz de «Organizar por sistema»
 
 - [ ] Animación de progreso al extraer en «Organizar por sistema». Ahora solo muestra la carpeta y una línea de texto («Extrayendo Next Tetris, The.zip: 0 de 1 archivos…»), y se queda corta para extracciones que duran minutos. Propuesta:
   - Un movimiento propio, en la línea de la landing «The Lean-To»: por ejemplo, el comprimido que se abre y las pistas que salen hacia la carpeta del sistema, con su `SystemIcon`.
@@ -25,7 +35,7 @@ El detalle está en `RELEASING.md` y `docs/TRACKER.md`:
 - [ ] El contador «0 de 1 archivos» cuenta elementos del plan, no archivos dentro del comprimido, y se lee mal. Separar «juego 1 de 3» de «pista 4 de 12».
 - [ ] Revisar otras pantallas de progreso que también están demasiado simples (relleno de portadas, duplicados, escaneo) para darles el mismo tratamiento.
 
-## Sistemas que faltan
+## 2. Sistemas que faltan
 
 Hoy `crates/coverly-core/src/systems/systems.toml` define 54 sistemas. Faltan los de esta lista. Por cada sistema hay que añadir:
 
@@ -118,3 +128,105 @@ En estas consolas casi no hay emulación jugable: shadPS4 para PS4 está en desa
 - [ ] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda.
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
+
+## 3. Biblioteca
+
+Hoy la app abre carpetas: en Inicio aparecen como «Unidades conectadas» y «Bibliotecas recientes», pero solo son rutas, y la «biblioteca» es lo que haya en esa ruta en ese momento. La idea es que exista **una biblioteca propia, la definitiva**, que vive en el ordenador y tiene identidad y funciones propias. Los dispositivos (la SD de la Anbernic, la Ayaneo…) pasan a ser destinos que se comparan y sincronizan con ella (bloque 4).
+
+### Qué suele tener una biblioteca para considerarse como tal
+
+Referencias revisadas: [Playnite](https://api.playnite.link/docs/manual/gettingStarted/comparisonWithOtherSoftware.html), [LaunchBox](https://mundobytes.com/en/Organize-your-game-library-with-Launchbox-or-Playnite/), [RomM](https://github.com/rommapp/romm/) ([docs](https://docs.romm.app/4.9.2/)), ES-DE y Batocera. En común:
+
+- **Identidad propia.** Un nombre, una ubicación fija (una o varias carpetas raíz) y una base de datos que persiste entre sesiones. No depende de que la unidad esté conectada para ver qué hay.
+- **El juego como entidad, no el archivo.** Un juego identificado (hash / serial / catálogo) con sus archivos: ROM o set de disco, partidas, portadas, manual, parches. Varias versiones o regiones del mismo juego agrupadas.
+- **Metadatos ricos y editables.** Título, sistema, región, idioma, año, desarrollador, editor, género, jugadores, descripción, valoración. Fuentes: catálogos (No-Intro, Redump), ScreenScraper, IGDB, MobyGames, SteamGridDB. Corrección manual que no se pierde al volver a escanear.
+- **Arte completo.** Portada, título, captura, logo, fondo, caja 3D, vídeo de muestra; lo que ya hace el relleno, pero guardado en la biblioteca y no solo en la carpeta de cada frontend.
+- **Colecciones y etiquetas.** Favoritos, listas manuales («para la Anbernic», «RPG pendientes»), colecciones inteligentes por filtro (sistema, género, región, «sin portada») y etiquetas libres.
+- **Estado del jugador.** Jugado / sin jugar, completado, valoración propia, notas, tiempo de juego y última partida cuando se puedan leer (`gamelist.xml`, historial de RetroArch, Playnite).
+- **Integridad.** Verificación contra DAT (bien / mala / desconocida), duplicados (ya existe), huecos de arte (ya existe), archivos que faltan o cambiaron desde el último escaneo.
+- **Historial y deshacer.** Registro de cada cambio que hace la app, como los trabajos actuales.
+- **Copia de seguridad y exportación.** Exportar / importar la base de datos, informes (ya hay CSV/JSON), y backup de partidas (bloque 5).
+- **Varias raíces y volúmenes.** Una biblioteca puede repartirse entre discos (p. ej. arcade en un externo); se reconocen por UUID de volumen aunque cambie la letra o el punto de montaje.
+
+### Tareas
+
+- [ ] Investigar a fondo y escribir la spec: modelo de datos (biblioteca → juegos → archivos → arte / partidas), dónde vive la base de datos (la caché SQLite actual u otra), migración desde «bibliotecas recientes».
+- [ ] Crear biblioteca: nombre, carpetas raíz, perfil de organización interno (el formato «maestro» de la biblioteca, independiente del de cada dispositivo).
+- [ ] Importar a la biblioteca desde una carpeta o un dispositivo (copiar o mover, con deshacer), reutilizando Organizar y duplicados.
+- [ ] Ficha de juego con metadatos editables y fuentes nuevas (IGDB, MobyGames) además de las de arte.
+- [ ] Colecciones manuales, inteligentes y favoritos; etiquetas.
+- [ ] Estado del jugador y lectura de tiempo de juego donde exista.
+- [ ] Rediseñar Inicio: «Mi biblioteca» como centro, y debajo «Dispositivos» (bloque 4) en lugar de rutas sueltas.
+- [ ] Exportar / importar la biblioteca y su base de datos.
+
+## 4. Sincronizar con dispositivos
+
+Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder llevar la biblioteca a cada una, sabiendo qué juegos hay en la biblioteca, cuáles hay en el dispositivo y cuáles solo en uno de los dos.
+
+### Cómo lo resuelve hoy la gente (investigación)
+
+- **Syncthing** es lo más usado entre portátiles retro, pero exige firmware personalizado (Knulli lo trae instalado; en el firmware de fábrica de Anbernic no se puede) y se recomienda sincronizar solo las partidas, no la carpeta de ROMs entera, porque bloquea la SD durante minutos u horas ([Knulli](https://knulli.org/configure/syncthing/), [Retro Game Corps](https://retrogamecorps.com/2024/08/11/guide-using-syncthing-with-retro-handhelds/)).
+- **RetroArch** tiene sincronización en la nube por WebDAV solo para sus propias partidas.
+- **EmuDeck** sincroniza partidas en la nube (Google Drive, Box…) y está pensado para Steam Deck y PC ([EmuSync](https://github.com/emu-sync/EmuSync/wiki/Setting-up-a-game-sync) es otra herramienta parecida).
+- **RomM** es un gestor de ROMs en servidor propio con apps para Android y portátiles y un protocolo de sincronización de dispositivos en desarrollo, pero exige montar un servidor ([RomM](https://github.com/rommapp/romm/)).
+- No se ha encontrado ninguna app de escritorio que compare juego a juego una biblioteca con varios dispositivos y los sincronice con el formato de carpetas de cada uno. Ese es el hueco que puede cubrir Coverly.
+
+### Dispositivos
+
+- [ ] Añadir dispositivo: una ruta (SD montada, carpeta) o un dispositivo Android por USB-C.
+- [ ] **Seudónimo**: nombre propio para mostrar («Mi Ayaneo»), guardado solo en Coverly. Nunca se renombra el dispositivo, el volumen ni la carpeta.
+- [ ] **Icono**: elegir cualquier icono del pack de `SystemIcon` (siluetas de RetroArch Assets) o uno de consola portátil.
+- [ ] Reconocer el dispositivo al volver a conectarlo: UUID de volumen para SD y discos; número de serie USB / identificador MTP para Android.
+- [ ] Perfil por dispositivo: qué frontend usa (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch Android…), qué sistemas acepta y dónde guarda las partidas (bloque 5). Detección automática como la actual de perfiles, con corrección manual.
+- [ ] **Android por USB (MTP)**: un dispositivo Android conectado por USB no aparece como disco en macOS, así que hace falta MTP. Opción en Rust puro: [`mtp-rs`](https://docs.rs/crate/mtp-rs/0.32.0) (sin dependencias de C, listar / subir / bajar / mover; no cubre Android anterior a 5.0). Alternativa: [libmtp](https://manpages.debian.org/bookworm/libmtp-doc/mtp_basic.3), que además lee el «friendly name» del dispositivo para proponerlo como nombre inicial. Investigar permisos en macOS (Android File Transfer bloquea el acceso exclusivo), Windows y Linux.
+- [ ] Alternativas a MTP para Android: carpeta compartida por red (SMB/WebDAV) o un modo «cable» con ADB, si MTP resulta poco fiable.
+
+### Comparar y sincronizar
+
+- [ ] Comparación juego a juego (por identidad de contenido, no por nombre): **en ambos**, **solo en la biblioteca**, **solo en el dispositivo**, **distinta versión** (región, revisión, formato: p. ej. CHD en la biblioteca y CUE/BIN en el dispositivo).
+- [ ] Vista de diferencias: reutilizar las vistas actuales (Detalles, Columnas) con un filtro por estado de sincronización, o una pantalla nueva de dos columnas «Biblioteca ↔ Dispositivo». Investigar UX de herramientas de sincronización (FreeFileSync, Syncthing, Beyond Compare, la de iTunes / Finder con iPhone) antes de decidir.
+- [ ] Selección de qué llevar: por colección («lo que quiero en la Anbernic»), por sistema o juego a juego. Avisar del espacio libre.
+- [ ] Llevar al dispositivo con su formato: carpetas del perfil, arte en el sitio del frontend, `gamelist.xml` o equivalentes, y conversión si el dispositivo no acepta el formato (p. ej. extraer un 7z).
+- [ ] Traer del dispositivo a la biblioteca los juegos que solo están allí (importación del bloque 3).
+- [ ] Dirección y conflictos: biblioteca → dispositivo, dispositivo → biblioteca, o en los dos sentidos; nunca borrar en el destino sin confirmación; todo con deshacer y registro, como los trabajos actuales.
+- [ ] Sincronizar varios dispositivos con la misma biblioteca y ver de un vistazo qué tiene cada uno.
+
+## 5. Partidas guardadas (saves)
+
+Rescatar, ordenar, respaldar y sincronizar las partidas del usuario. Es parte de lo que hace que la biblioteca sea mejor que una carpeta de ROMs. Ninguna herramienta revisada lo hace para emuladores junto con la biblioteca de juegos: [Ludusavi](https://github.com/mtkennerly/ludusavi) respalda partidas de juegos de PC con un manifiesto de rutas (YAML, sacado de PCGamingWiki) y entradas propias, pero no cubre emuladores; RetroArch, EmuDeck y Syncthing solo copian carpetas.
+
+### 5.1 Un juego, una carpeta
+
+- [ ] Opción en Organizar: guardar cada juego en su propia carpeta, junto a sus partidas.
+  - Ahora: `ROMS/SFC/Tetris 2.zip`
+  - Propuesta: `ROMS/SFC/Tetris 2/Tetris 2.zip` (y la partida `ROMS/SFC/Tetris 2/Tetris 2.srm` al lado).
+- [ ] Comprobar en cada frontend antes de activarla: algunos muestran una carpeta como subcarpeta en vez de como juego (ES-DE la trata como juego solo si la carpeta se llama `Tetris 2.zip/` o con su configuración de directorios como juegos; el firmware de fábrica de Anbernic y muOS pueden mostrarla como carpeta). Debe ser una opción por perfil, no la regla general.
+- [ ] Mover también el arte y `gamelist.xml` para que el frontend no pierda la portada.
+
+### 5.2 Dónde guarda cada emulador
+
+Primera lista, a completar con una investigación por emulador y plataforma (escritorio, Android, firmwares de portátiles). Fuente inicial: [Joey's Retro Handhelds](https://joeysretrohandhelds.com/guides/where-to-find-save-files-for-every-emulator-and-custom-firmware/).
+
+- **RetroArch**: carpeta `saves/` propia por defecto; con `savefiles_in_content_dir` la partida va junto a la ROM; con `sort_savefiles_by_content_enable` / por núcleo se crean subcarpetas. Cambiar la opción no mueve las partidas que ya existen.
+- **melonDS** y **mGBA**: por defecto junto a la ROM (`.sav`).
+- **PPSSPP**: `PSP/SAVEDATA/` (partidas) y `PSP/PPSSPP_STATE/` (estados).
+- **DuckStation**: `memcards/` y `savestates/` en su carpeta de datos.
+- **PCSX2 / AetherSX2 / NetherSX2**: `memcards/` y `sstates/` en su carpeta de datos.
+- **Dolphin**: `GC/<región>/` para GameCube y `Wii/title/` para Wii, en sus datos de usuario.
+- **Azahar (3DS)**: `sdmc/Nintendo 3DS/<id>/<id>/title/…`.
+- Pendiente de investigar: Flycast, Redream, Mupen64Plus / ParaLLEl, Snes9x y bsnes independientes, Citra, Yuzu / Ryujinx / sus sucesores, Vita3K, RPCS3, Xemu, Cemu, Lime3DS, Drastic, y las rutas de cada firmware (Anbernic stock, muOS, Knulli, ROCKNIX, ArkOS, Batocera, Android).
+- [ ] Guardar todo esto como datos (un manifiesto por emulador y plataforma, al estilo del de Ludusavi), no en el código, para poder ampliarlo sin publicar versión.
+
+### 5.3 Rescatar y respaldar
+
+- [ ] Buscar partidas junto a las ROMs y en las carpetas conocidas de cada emulador del perfil.
+- [ ] Carpeta personalizada: el usuario elige la carpeta de partidas de un emulador (muchos la permiten cambiar); Coverly trae las partidas y recuerda la carpeta para sincronizarlas después.
+- [ ] Asociar cada partida a su juego de la biblioteca (por nombre de la ROM, id del juego o serial; memorias de PS1/PS2 compartidas como caso aparte).
+- [ ] Copia de seguridad versionada en la biblioteca: varias versiones por partida, con fecha y dispositivo de origen; restaurar una versión anterior.
+- [ ] Distinguir partidas (`.srm`, `.sav`, memorias) de estados (`.state`, savestates): los estados dependen de la versión del emulador y se tratan aparte.
+
+### 5.4 Sincronizar partidas
+
+- [ ] Llevar y traer partidas con cada dispositivo (bloque 4), traduciendo la ruta y el nombre según el emulador de cada lado (p. ej. RetroArch `saves/` en la Anbernic ↔ junto a la ROM en la Ayaneo).
+- [ ] Conflictos: si la partida cambió en los dos lados, quedarse con las dos versiones y preguntar; nunca sobrescribir sin copia.
+- [ ] Convertir formatos cuando haga falta y se pueda (p. ej. extensiones `.srm` ↔ `.sav`, tamaños de memoria distintos según el emulador).
