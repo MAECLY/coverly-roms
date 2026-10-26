@@ -141,7 +141,6 @@ impl Card {
         resume_dedupe(job, &env)
     }
 
-    #[cfg(unix)]
     fn q(&self) -> PathBuf {
         self.root.join("_Duplicados")
     }
@@ -391,4 +390,65 @@ fn undo_brings_back_only_an_item_of_the_trash() {
     assert_eq!(fs::read(&decoy).unwrap(), rom(42, bytes.len()), "{undo:?}");
     assert_eq!(fs::read(&extra).unwrap(), bytes, "the real item came back");
     assert!(undo.archive_lost.is_empty(), "{undo:?}");
+}
+
+/// A file already in the quarantine whose name differs only by case from
+/// the copy's: never replaced, the copy takes a numbered name, and undo
+/// brings the copy back while the earlier file stays.
+#[test]
+fn a_case_twin_in_the_quarantine_is_never_replaced() {
+    let card = Card::new();
+    let (_, extra) = tetris(&card);
+    let bytes = fs::read(&extra).unwrap();
+    let twin = card.root.join("_Duplicados/GB/old/tetris (1).GB");
+    fs::create_dir_all(twin.parent().unwrap()).unwrap();
+    fs::write(&twin, b"an earlier job's copy").unwrap();
+    let plan = card.plan();
+    let report = card.apply(&plan).unwrap();
+    let DedupeItemStatus::Quarantined { to } = status(&report, &plan, &extra) else {
+        panic!("{report:#?}");
+    };
+    assert_eq!(
+        to.file_name().unwrap().to_string_lossy().to_lowercase(),
+        "tetris (1) (2).gb",
+        "{report:#?}"
+    );
+    assert_eq!(fs::read(&twin).unwrap(), b"an earlier job's copy");
+    undo_job_with(&card.data, report.job.as_deref().unwrap(), &card.trash()).unwrap();
+    assert_eq!(fs::read(&extra).unwrap(), bytes);
+    assert_eq!(fs::read(&twin).unwrap(), b"an earlier job's copy");
+}
+
+/// Many groups in one job: every copy is set aside, a resume of the
+/// finished job moves nothing again, and undo puts every one back.
+#[test]
+fn many_groups_apply_resume_and_undo_whole() {
+    const N: u8 = 200;
+    let card = Card::new();
+    let mut extras = Vec::new();
+    for i in 0..N {
+        let bytes = rom(i, 4096 + usize::from(i));
+        card.put(&format!("ROMS/GB/Game {i:03}.gb"), &bytes);
+        extras.push((
+            card.put(&format!("ROMS/GB/old/Game {i:03}.gb"), &bytes),
+            bytes,
+        ));
+    }
+    let plan = card.plan();
+    assert_eq!(plan.groups.len(), usize::from(N));
+    let report = card.apply(&plan).unwrap();
+    let job = report.job.clone().unwrap();
+    assert!(extras.iter().all(|(p, _)| !p.exists()), "{report:#?}");
+    let after = tree(&card.root);
+    let again = card.resume(&job).unwrap();
+    assert_eq!(tree(&card.root), after, "{again:#?}");
+    undo_job_with(&card.data, &job, &card.trash()).unwrap();
+    for (p, bytes) in &extras {
+        assert_eq!(&fs::read(p).unwrap(), bytes, "{}", p.display());
+    }
+    let left: Vec<_> = tree(&card.q())
+        .into_keys()
+        .filter(|p| p.extension().is_some_and(|e| e == "gb"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
 }
