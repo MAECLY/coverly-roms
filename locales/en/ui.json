@@ -607,6 +607,7 @@
     "done": "Set aside {count} files in {folder}. Undo is one click away.",
     "doneTrash": "Sent {count} files to the Trash.",
     "freed": "Out of {folder}: {bytes}",
+    "freedLibrary": "Out of the library: {bytes}",
     "sameVolumeNote": "The card is just as full until you empty {quarantine} or move it to your computer.",
     "openFolder": "Open {folder}",
     "partial": "Set aside: {done} · Left alone: {skipped}",

@@ -607,6 +607,7 @@
     "done": "{count} archivos apartados en {folder}. Deshacer está a un clic.",
     "doneTrash": "{count} archivos enviados a la Papelera.",
     "freed": "Fuera de {folder}: {bytes}",
+    "freedLibrary": "Fuera de la biblioteca: {bytes}",
     "sameVolumeNote": "La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador.",
     "openFolder": "Abrir {folder}",
     "partial": "Apartados: {done} · Sin tocar: {skipped}",

@@ -46,6 +46,7 @@ import {
   DEDUPE_PHASES,
   type DedupePhaseView,
   type DedupePlanView,
+  type DedupeReportView,
   type DupGroupView,
   type OrganizeUndoView,
   type ProfileInfo,
@@ -286,7 +287,7 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
             </div>
           )}
 
-          {showResult && plan && (
+          {showResult && (
             <Ended
               t={t}
               plan={plan}
@@ -686,7 +687,9 @@ function FreedBytes({
 
 interface EndedProps {
   t: TFunction;
-  plan: DedupePlanView;
+  /** `null` for a job resumed from the jobs panel (its plan is in the
+   * journal, not in this window). */
+  plan: DedupePlanView | null;
   undone: ReturnType<typeof useDedupeStore.getState>['undone'];
   onBack(): void;
   onReplan(): void;
@@ -710,6 +713,7 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
       <Undone
         t={t}
         plan={plan}
+        report={job.report}
         undone={undone}
         onBack={onBack}
         onReplan={onReplan}
@@ -768,6 +772,7 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
       {report && (
         <DedupeResult
           plan={plan}
+          quarantine={job.quarantine}
           report={report}
           action={job.trash ? 'trash' : 'quarantine'}
           onOpenFolder={() => void store().reveal(job.quarantine)}
@@ -782,7 +787,11 @@ function Ended({ t, plan, undone, onBack, onReplan }: EndedProps) {
 /** Whether a path is a file that travels with a copy (its art, its
  * saves, the other files of a set) rather than the copy itself. Plan
  * paths may be relative to the ROMs folder, so a suffix match counts. */
-function companionsOf(plan: DedupePlanView): (path: string) => boolean {
+function companionsOf(
+  plan: DedupePlanView | null,
+  report: DedupeReportView | null,
+): (path: string) => boolean {
+  if (!plan) return companionsOfReport(report);
   const along = new Set<string>();
   for (const g of plan.groups)
     for (const m of g.members) {
@@ -796,9 +805,32 @@ function companionsOf(plan: DedupePlanView): (path: string) => boolean {
     along.has(path) || relative.some((c) => path.endsWith(`/${c}`));
 }
 
+/** Without the plan: an outcome lists the copy first, then the files that
+ * went with it, where they were put. Undo restores them under their old
+ * names, so a file name that only ever travelled along is not a copy. */
+function companionsOfReport(
+  report: DedupeReportView | null,
+): (path: string) => boolean {
+  const copies = new Set<string>();
+  const along = new Set<string>();
+  for (const o of report?.outcomes ?? []) {
+    const [first, ...rest] = o.files;
+    if (first) copies.add(fileName(first));
+    for (const f of rest) along.add(fileName(f));
+  }
+  return (path) => {
+    const name = fileName(path);
+    return (
+      (along.has(name) && !copies.has(name)) ||
+      name.toLowerCase() === 'gamelist.xml'
+    );
+  };
+}
+
 interface UndoneProps {
   t: TFunction;
-  plan: DedupePlanView;
+  plan: DedupePlanView | null;
+  report: DedupeReportView | null;
   undone: OrganizeUndoView;
   onBack(): void;
   onReplan(): void;
@@ -806,7 +838,7 @@ interface UndoneProps {
 
 /** After an undo: what came back, and by name what did not (a copy the
  * Trash no longer holds, one whose place is taken or that changed). */
-function Undone({ t, plan, undone, onBack, onReplan }: UndoneProps) {
+function Undone({ t, plan, report, undone, onBack, onReplan }: UndoneProps) {
   // "Undo all in order" may include later fill jobs: their art is not a
   // copy coming back.
   const fills = new Set(
@@ -815,7 +847,7 @@ function Undone({ t, plan, undone, onBack, onReplan }: UndoneProps) {
   const reports = undone.report.filter((r) => !fills.has(r.job));
   // A copy's art, saves and other files come back with it: count the
   // copies, as the result and the confirm did.
-  const along = companionsOf(plan);
+  const along = companionsOf(plan, report);
   const count = reports.reduce(
     (n, r) => n + r.restored.filter((p) => !along(p)).length,
     0,

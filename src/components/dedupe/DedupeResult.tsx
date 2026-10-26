@@ -46,7 +46,11 @@ import { fileName, formatBytes } from '@/lib/dedupe';
 import './dedupe.css';
 
 export interface DedupeResultProps {
-  plan: DedupePlanView;
+  /** The plan applied; `null` for a job resumed from the jobs panel,
+   * whose plan stays in its journal: names then come from the outcomes. */
+  plan: DedupePlanView | null;
+  /** The quarantine folder when there is no plan (`DedupeJobView`). */
+  quarantine?: string | undefined;
   report: DedupeReportView;
   action: DedupeActionSetting;
   onOpenFolder(): void;
@@ -109,6 +113,7 @@ const planned = (s: DedupeItemStatusView) =>
 
 export function DedupeResult({
   plan,
+  quarantine,
   report,
   action,
   onOpenFolder,
@@ -119,19 +124,26 @@ export function DedupeResult({
   const t = useT();
   const locale = useContext(LocaleContext);
   const titleId = `${useId()}-title`;
-  const folder = `${fileName(plan.quarantine)}/`;
-  const roms = `${fileName(plan.roms_dir)}/`;
+  const folder = `${fileName(plan?.quarantine ?? quarantine ?? '')}/`;
 
   const members = new Map<string, string>();
-  for (const g of plan.groups)
+  for (const g of plan?.groups ?? [])
     for (const m of g.members)
       members.set(`${g.id}:${m.id}`, fileName(m.unit.primary));
+  // Without the plan, an outcome's first file is the copy where it is now.
+  for (const o of report.outcomes) {
+    const key = `${o.group}:${o.member}`;
+    if (!members.has(key) && o.files[0]) members.set(key, fileName(o.files[0]));
+  }
   const nameOf = (group: number, member: number) =>
     members.get(`${group}:${member}`) ?? `#${group}/${member}`;
 
   const moved = report.outcomes.filter(done).length;
   const left = report.outcomes.filter((o) => !done(o) && !planned(o));
   const bytes = formatBytes(report.bytes_out, locale);
+  const freed = plan
+    ? t('dedupe.freed', { folder: `${fileName(plan.roms_dir)}/`, bytes })
+    : t('dedupe.freedLibrary', { bytes });
   const trash = action === 'trash';
   const headline = trash
     ? t('dedupe.doneTrash', { count: moved })
@@ -143,9 +155,7 @@ export function DedupeResult({
       {left.length === 0 ? (
         <Alert variant="success">
           <AlertTitle id={titleId}>{headline}</AlertTitle>
-          <p className="dup-result__freed">
-            {t('dedupe.freed', { folder: roms, bytes })}
-          </p>
+          <p className="dup-result__freed">{freed}</p>
         </Alert>
       ) : (
         <Alert variant="warning">
@@ -161,13 +171,11 @@ export function DedupeResult({
             ))}
           </ul>
           <p>{t('dedupe.nothingElse')}</p>
-          <p className="dup-result__freed">
-            {t('dedupe.freed', { folder: roms, bytes })}
-          </p>
+          <p className="dup-result__freed">{freed}</p>
         </Alert>
       )}
 
-      {!trash && plan.same_volume && plan.removable && moved > 0 && (
+      {!trash && plan?.same_volume && plan.removable && moved > 0 && (
         <p className="dup-result__note">
           {t('dedupe.sameVolumeNote', { quarantine: folder })}
         </p>

@@ -430,6 +430,38 @@ describe('DuplicatesScreen', () => {
     expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull();
   });
 
+  it('a job resumed from the jobs panel ends on its result, and undo counts the copies', async () => {
+    // The jobs panel resumes by journal: the screen opens with no plan.
+    b = mock({ dedupePauseAfter: 5 });
+    setBackend(b);
+    renderScreen();
+    await ready();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Apartar 89 archivos' }),
+    );
+    await screen.findByRole('button', { name: 'Continuar' });
+    const job = useDedupeStore.getState().job!.job!;
+    await useDedupeStore.getState().resumeJob(job, ROOT);
+    expect(useDedupeStore.getState().plan).toBeNull();
+    expect(
+      await screen.findByText(
+        '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Fuera de la biblioteca:/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Deshacer' }));
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '¿Devolver 89 archivos a su sitio?',
+    });
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Devolver 89 archivos' }),
+    );
+    // The whole journal comes back, the Ecco cover not counted as a copy.
+    expect(
+      await screen.findByText('89 archivos devueltos a su sitio.'),
+    ).toBeInTheDocument();
+  });
+
   it('export_report_writes_json', async () => {
     renderScreen();
     await ready();
