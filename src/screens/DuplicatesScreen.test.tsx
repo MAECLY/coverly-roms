@@ -420,10 +420,11 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Continuar' }),
     );
-    // The resume sets aside what the pause left (84 of 89).
+    // The resume finishes the job; its report covers the whole job, the
+    // 5 set aside before the pause too (Rust's `finish_started`).
     expect(
       await screen.findByText(
-        '84 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+        '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull();

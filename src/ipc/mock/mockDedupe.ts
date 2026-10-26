@@ -126,8 +126,14 @@ interface Journal {
   quarantine: string;
   trash: boolean;
   planId: number;
-  /** Where each moved extra's files went (`[from, to]`, absolute). */
-  moved: { rels: string[]; placed: string[] }[];
+  /** Where each moved extra's files went (`[from, to]`, absolute), and
+   * its outcome: a resume reports it again, as Rust's does. */
+  moved: {
+    rels: string[];
+    placed: string[];
+    size: number;
+    outcome: DedupeOutcomeView;
+  }[];
   remaining: Work[];
   pausedOnce: boolean;
   complete: boolean;
@@ -436,7 +442,13 @@ export function createMockDedupe(
   ) {
     const own = applying!;
     const outcomes: DedupeOutcomeView[] = [...left];
+    // A resume counts what earlier runs of the job set aside (Rust's
+    // `finish_started`): its report covers the whole job.
     let bytes = 0;
+    for (const m of j.moved) {
+      outcomes.push(m.outcome);
+      bytes += m.size;
+    }
     let state: DedupeJobView['state'] = 'done';
     let paused: DedupeReportView['paused'] = null;
     let resumable: Work[] = [];
@@ -491,17 +503,18 @@ export function createMockDedupe(
         placed = w.rels.map((r) => join(j.quarantine, r));
         status = { status: 'quarantined', to: placed[0]! };
       }
-      j.moved.push({ rels: w.rels, placed });
-      (away.get(j.root) ?? away.set(j.root, new Set()).get(j.root)!).add(
-        w.rels[0]!,
-      );
-      bytes += w.size;
-      outcomes.push({
+      const outcome: DedupeOutcomeView = {
         group: w.group,
         member: w.member,
         files: placed,
         ...status,
-      });
+      };
+      j.moved.push({ rels: w.rels, placed, size: w.size, outcome });
+      (away.get(j.root) ?? away.set(j.root, new Set()).get(j.root)!).add(
+        w.rels[0]!,
+      );
+      bytes += w.size;
+      outcomes.push(outcome);
       emitProgress({ plan_id: planId, phase: 'apply', done: i + 1, total });
     }
     j.remaining = resumable;
