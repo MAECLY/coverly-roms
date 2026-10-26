@@ -695,7 +695,7 @@ mod run {
     }
 
     fn fail_track_two(stage: CopyStage, path: &Path) -> Option<io::Error> {
-        (stage == CopyStage::Rename && path.to_string_lossy().ends_with("old/Crash (Track 2).bin"))
+        (stage == CopyStage::Rename && path.ends_with(Path::new("old").join("Crash (Track 2).bin")))
             .then(|| io::Error::other("injected"))
     }
 
@@ -1084,22 +1084,24 @@ mod run {
         let plan = card.plan();
         let vol = coverly_core::volumes::volume_uuid(&card.root).unwrap();
         let meta = fs::metadata(&extra).unwrap();
-        let mtime = plan
+        let unit = &plan
             .groups
             .iter()
             .flat_map(|g| &g.members)
             .find(|m| m.unit.primary == extra)
             .unwrap()
-            .unit
-            .mtime_ns;
+            .unit;
+        let mtime = unit.mtime_ns;
         assert!(card
             .cache
-            .content_row(&vol, &extra, meta.len(), mtime)
+            .content_row(&vol, &unit.primary, meta.len(), mtime)
             .unwrap()
             .is_some());
 
         card.apply(&plan, &DedupeDecisions::default()).unwrap();
-        let to = card.q().join("GB/old/Tetris (1).gb");
+        // The cache keys paths as text: build them with the OS separator.
+        let to: PathBuf = card.q().join("GB/old/Tetris (1).gb").components().collect();
+        let extra: PathBuf = extra.components().collect();
         assert!(card
             .cache
             .content_row(&vol, &to, meta.len(), mtime)
@@ -1246,8 +1248,7 @@ mod run {
         match stage {
             CopyStage::Rename => Some(io::Error::from(io::ErrorKind::CrossesDevices)),
             CopyStage::Verify => path
-                .to_string_lossy()
-                .ends_with("_Duplicados/PS/old/Crash (Track 2).bin")
+                .ends_with(Path::new("_Duplicados/PS/old").join("Crash (Track 2).bin"))
                 .then(|| io::Error::other("injected")),
             CopyStage::Delete => None,
         }
