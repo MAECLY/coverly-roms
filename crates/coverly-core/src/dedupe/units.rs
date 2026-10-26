@@ -100,14 +100,30 @@ pub struct Unit {
 }
 
 impl Unit {
-    /// The part of the unit a plan carries.
+    /// The part of the unit a plan carries. A set's other files are read
+    /// once more for their modification times (what apply checks them
+    /// against).
     pub fn to_ref(&self) -> UnitRef {
+        let mtimes_ns = if self.files.len() > 1 {
+            self.files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| match i {
+                    0 => Some(self.mtime_ns),
+                    _ => fs::symlink_metadata(f).ok().map(|m| mtime_ns(&m)),
+                })
+                .collect::<Option<Vec<i64>>>()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         UnitRef {
             primary: self.primary.clone(),
             files: self.files.clone(),
             kind: self.kind,
             mtime_ns: self.mtime_ns,
             in_library: self.in_library,
+            mtimes_ns,
         }
     }
 }

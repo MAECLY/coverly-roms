@@ -334,6 +334,10 @@ expression: "normalised(&plan, root)"
             "in_library": true,
             "kind": "disc-set",
             "mtime_ns": 0,
+            "mtimes_ns": [
+              0,
+              0
+            ],
             "primary": "[root]/ROMS/PS/Crash Bash.cue"
           }
         },

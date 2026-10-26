@@ -808,6 +808,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
             kind: UnitKind::Single,
             mtime_ns,
             in_library: true,
+            mtimes_ns: Vec::new(),
         },
         relation: Relation::Exact,
         size: 4_194_304,

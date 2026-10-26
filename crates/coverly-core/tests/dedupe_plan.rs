@@ -304,6 +304,12 @@ fn normalised(plan: &DedupePlan, root: &Path) -> serde_json::Value {
                 for (k, x) in map.iter_mut() {
                     if k == "mtime_ns" {
                         *x = serde_json::Value::from(0);
+                    } else if k == "mtimes_ns" {
+                        // Only whether a set is timed file by file.
+                        if let serde_json::Value::Array(list) = x {
+                            list.iter_mut()
+                                .for_each(|t| *t = serde_json::Value::from(0));
+                        }
                     } else {
                         walk(x, roots);
                     }

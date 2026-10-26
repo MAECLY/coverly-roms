@@ -666,7 +666,11 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'UnitRefView',
-    UNIT_KEYS satisfies AllKeys<UnitRefView, typeof UNIT_KEYS>,
+    // `mtimes_ns` is left out for a unit of one file.
+    UNIT_KEYS satisfies AllKeys<
+      Omit<UnitRefView, 'mtimes_ns'>,
+      typeof UNIT_KEYS
+    >,
     sample.dedupe_plan_view.groups[0]!.members[0]!.unit,
   ],
   [

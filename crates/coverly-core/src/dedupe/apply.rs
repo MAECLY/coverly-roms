@@ -597,7 +597,8 @@ fn skipped(reason: DedupeSkip) -> Step {
 }
 
 /// Whether a copy is still the one the plan saw: every file there, the
-/// primary's modification time and the total size unchanged.
+/// primary's modification time (each file's, for a set the plan timed)
+/// and the total size unchanged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Check {
     Same,
@@ -613,7 +614,12 @@ fn check_unit(m: &Member) -> Check {
             Ok(_) => return Check::Changed,
             Err(_) => return Check::Missing,
         };
-        if i == 0 && mtime_ns(&meta) != m.unit.mtime_ns {
+        let planned = match m.unit.mtimes_ns.get(i) {
+            Some(&t) if m.unit.mtimes_ns.len() == m.unit.files.len() => Some(t),
+            _ if i == 0 => Some(m.unit.mtime_ns),
+            _ => None,
+        };
+        if planned.is_some_and(|t| mtime_ns(&meta) != t) {
             return Check::Changed;
         }
         size += meta.len();

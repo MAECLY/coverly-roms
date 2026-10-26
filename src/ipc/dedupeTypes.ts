@@ -185,6 +185,8 @@ export interface UnitRefView {
   kind: UnitKindView;
   mtime_ns: number;
   in_library: boolean;
+  /** A set's files' modification times, in `files` order; absent for one file. */
+  mtimes_ns?: number[];
 }
 
 export type MediaView = 'cover' | 'screenshot' | 'title';

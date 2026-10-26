@@ -134,6 +134,13 @@ pub struct UnitRef {
     pub mtime_ns: i64,
     /// Already in a system folder (false for an Organise pile item).
     pub in_library: bool,
+    /// For a unit of several files, the modification time of each one of
+    /// `files`, in order, when the plan was made: a set whose track was
+    /// rewritten since (same size, new bytes) is not the set the plan
+    /// compared. Empty for one file (`mtime_ns` says it all) or when a
+    /// file could not be read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mtimes_ns: Vec<i64>,
 }
 
 /// One copy in a group.
@@ -379,6 +386,7 @@ mod tests {
                 kind: UnitKind::DiscSet,
                 mtime_ns: 1_700_000_000_000_000_000,
                 in_library: true,
+                mtimes_ns: Vec::new(),
             },
             relation,
             size: 512 * 1024 * 1024,

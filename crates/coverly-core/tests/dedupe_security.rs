@@ -14,7 +14,7 @@ use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::testing::{pin_mtime, CountingBytes, FakeDiscProbe};
 use coverly_core::dedupe::{
     apply_dedupe, plan_dedupe, resume_dedupe, DedupeApplyEnv, DedupeDecisions, DedupeEnv,
-    DedupeOptions, DedupePlan, DedupeReport, QuarantineChoice,
+    DedupeItemStatus, DedupeOptions, DedupePlan, DedupeReport, DedupeSkip, QuarantineChoice,
 };
 use coverly_core::organize::apply::ApplyError;
 use coverly_core::profiles::{builtin_profiles, Profile};
@@ -179,6 +179,23 @@ fn tetris(card: &Card) -> (PathBuf, PathBuf) {
     (keeper, extra)
 }
 
+fn status<'a>(report: &'a DedupeReport, plan: &DedupePlan, path: &Path) -> &'a DedupeItemStatus {
+    let (g, m) = plan
+        .groups
+        .iter()
+        .find_map(|g| {
+            let m = g.members.iter().find(|m| m.unit.primary == path)?;
+            Some((g.id, m.id))
+        })
+        .unwrap();
+    &report
+        .outcomes
+        .iter()
+        .find(|o| o.group == g && o.member == m)
+        .unwrap_or_else(|| panic!("no outcome for {}: {report:#?}", path.display()))
+        .status
+}
+
 #[cfg(unix)]
 mod symlinks {
     use std::os::unix::fs::symlink;
@@ -304,4 +321,30 @@ fn resume_refuses_a_journal_whose_source_root_was_changed() {
     assert!(result.is_err(), "{result:?}");
     assert!(!extra.exists());
     assert!(tree(&card.outside()).is_empty());
+}
+
+/// A file of a set that is not its primary changed since the plan (same
+/// size, new bytes, new time): the set stays.
+#[test]
+fn a_set_whose_track_changed_since_the_plan_stays() {
+    const CUE: &[u8] = b"FILE \"Crash (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\nFILE \"Crash (Track 2).bin\" BINARY\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n";
+    let card = Card::new();
+    card.put("ROMS/PS/Crash.cue", CUE);
+    card.put("ROMS/PS/Crash (Track 1).bin", &rom(5, 2352 * 4));
+    card.put("ROMS/PS/Crash (Track 2).bin", &rom(6, 2352 * 2));
+    let cue = card.put("ROMS/PS/old/Crash.cue", CUE);
+    card.put("ROMS/PS/old/Crash (Track 1).bin", &rom(5, 2352 * 4));
+    card.put("ROMS/PS/old/Crash (Track 2).bin", &rom(6, 2352 * 2));
+    let plan = card.plan();
+    // Track 2 of the copy in old/ is rewritten: same size, new bytes.
+    let t2 = card.put("ROMS/PS/old/Crash (Track 2).bin", &rom(9, 2352 * 2));
+    let report = card.apply(&plan).unwrap();
+    assert_eq!(
+        status(&report, &plan, &cue),
+        &DedupeItemStatus::Skipped {
+            reason: DedupeSkip::ChangedSincePlan
+        },
+        "{report:#?}"
+    );
+    assert_eq!(fs::read(&t2).unwrap(), rom(9, 2352 * 2));
 }
