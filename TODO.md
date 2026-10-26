@@ -20,6 +20,7 @@ El detalle está en `RELEASING.md` y `docs/TRACKER.md`:
 Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista de tareas de cada uno es el punto de partida para su spec y su plan.
 
 1. [Mejora de la interfaz de «Organizar por sistema»](#1-mejora-de-la-interfaz-de-organizar-por-sistema)
+   1.5. [Mejora de la interfaz de Duplicados](#15-mejora-de-la-interfaz-de-duplicados)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
@@ -34,6 +35,16 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
   - Respetar `prefers-reduced-motion` y usar los tokens de `design/tokens.json`.
 - [ ] El contador «0 de 1 archivos» cuenta elementos del plan, no archivos dentro del comprimido, y se lee mal. Separar «juego 1 de 3» de «pista 4 de 12».
 - [ ] Revisar otras pantallas de progreso que también están demasiado simples (relleno de portadas, duplicados, escaneo) para darles el mismo tratamiento.
+
+## 1.5. Mejora de la interfaz de Duplicados
+
+La pantalla «estante y bandeja» da la información, pero se queda simple. Mejoras:
+
+- [ ] **Mostrar en Finder / Explorador / gestor de archivos** para cada copia (la que se queda y las que se apartan) y para la carpeta `_Duplicados/` tras aplicar. En Tauri, `tauri-plugin-opener` (`revealItemInDir`) cubre macOS, Windows y Linux; texto según el sistema: «Mostrar en Finder», «Mostrar en el Explorador», «Mostrar en la carpeta».
+- [ ] **Etiqueta de región** en cada copia (USA, Europe, Japan, World…, con su bandera o código), sacada del nombre del catálogo o de las etiquetas del nombre del archivo (`NameTags`). Cuando las copias son el mismo juego, la región es lo que más ayuda a decidir; también revisión (`Rev 1`), idioma (`En,Fr,De`) y marcas de volcado (`[!]`, `[b]`, hack, traducción) como etiquetas.
+- [ ] **Portadas**: hoy la pantalla no muestra ninguna. Enseñar la portada de cada grupo (y de cada copia si tiene la suya), reutilizando las de la biblioteca y las de libretro-thumbnails; con hueco de portada claro cuando falte.
+- [ ] Más detalle por copia: tamaño, formato (zip, 7z, CHD, CUE/BIN), fecha de modificación, si tiene partida guardada y de cuándo, y por qué regla se eligió la que se queda.
+- [ ] Repaso visual con el skill de diseño: jerarquía entre el juego, la copia que se queda y las apartadas; estados (conflicto, solo informado, otra versión) más visibles; atajos de teclado para elegir copia y aplicar; animación al apartar en la línea de la landing.
 
 ## 2. Sistemas que faltan
 
