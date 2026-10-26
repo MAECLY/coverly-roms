@@ -297,7 +297,7 @@ export function DedupeSettings({
                       <Button
                         variant="link"
                         size="sm"
-                        className="h-auto p-0 align-baseline"
+                        className="h-auto shrink whitespace-normal p-0 text-left align-baseline"
                         onClick={() =>
                           useNavStore.getState().setSection('matching')
                         }
