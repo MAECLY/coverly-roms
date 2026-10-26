@@ -249,6 +249,20 @@
   }
 }
 
+/* Phone widths: «Quedarme con esta» would squeeze the file name into a
+ * sliver beside it. It stays the radio's accessible name (aria-labelledby
+ * reads hidden text); the radio and the name carry the row. */
+@media (max-width: 599px) {
+  .dup-row__keep {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dup-shelf::before {
     transition: none;
@@ -438,6 +452,16 @@
 .dup-options__choice label,
 .dup-options__check {
   cursor: pointer;
+}
+
+/* A long label wraps beside its box, never leaving the box on a line
+ * of its own (390 px). */
+.dup-options__check {
+  flex-wrap: nowrap;
+}
+
+.dup-options__check > button {
+  flex: none;
 }
 
 .dup-options__muted {
