@@ -19,12 +19,34 @@ El detalle está en `RELEASING.md` y `docs/TRACKER.md`:
 
 Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista de tareas de cada uno es el punto de partida para su spec y su plan.
 
+0. [Nombres de los archivos de cada release y Windows ARM](#0-nombres-de-los-archivos-de-cada-release-y-windows-arm)
 1. [Mejora de la interfaz de «Organizar por sistema»](#1-mejora-de-la-interfaz-de-organizar-por-sistema)
    1.5. [Mejora de la interfaz de Duplicados](#15-mejora-de-la-interfaz-de-duplicados)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
+
+## 0. Nombres de los archivos de cada release y Windows ARM
+
+Hoy los archivos se llaman como los genera Tauri (`Coverly.ROMs_0.2.0_universal.dmg`, `_x64-setup.exe`, `_amd64.AppImage`, `_aarch64.AppImage`, `_arm64.deb`…) y la CLI `coverly-0.2.0-darwin-aarch64`. Mezclan `amd64`/`x64` y `aarch64`/`arm64` y no dicen el sistema con palabras normales. Nombres propuestos, iguales para la app y la CLI:
+
+| Plataforma            | Sufijo                                     |
+| --------------------- | ------------------------------------------ |
+| macOS Apple silicon   | `_mac_arm` (o `_mac_silicon`; decidir uno) |
+| macOS Intel           | `_mac_intel`                               |
+| Linux x64             | `_linux_x64`                               |
+| Linux ARM64           | `_linux_arm`                               |
+| Windows x64           | `_windows_x64`                             |
+| Windows ARM64 (nuevo) | `_windows_arm`                             |
+
+Ejemplos: `Coverly-ROMs_0.3.0_mac_arm.dmg`, `Coverly-ROMs_0.3.0_windows_x64-setup.exe`, `Coverly-ROMs_0.3.0_linux_arm.AppImage`, `coverly_0.3.0_linux_x64`.
+
+- [ ] Decidir `_mac_arm` o `_mac_silicon`, y si se mantiene además el `.dmg` universal (un solo archivo para los dos Mac) o se cambia por dos builds separados, más pequeños. Si se separan, el job `app` de macOS pasa a dos (`aarch64-apple-darwin` y `x86_64-apple-darwin`).
+- [ ] Renombrar en el paso de staging de `release.yml` (`release_tools.py stage-builds`), no en Tauri, para no tocar los nombres que espera el updater por dentro.
+- [ ] Actualizar `latest.json` (las URLs de cada plataforma), `SHA256SUMS`, `.github/release-notes.md` (tabla de descargas en/es), `RELEASING.md` §5 (lista de archivos a revisar), README en/es y la landing (`site/assets/release.js` elige el archivo según el sistema del visitante).
+- [ ] Compatibilidad: las versiones ya instaladas leen `latest.json` por clave de plataforma (`darwin-aarch64`, `windows-x86_64`…), no por nombre de archivo, así que el cambio de nombres no rompe las actualizaciones. Comprobarlo con una actualización real de 0.2.0 a la siguiente.
+- [ ] **Windows ARM64**: añadir el build `aarch64-pc-windows-msvc` de la app (NSIS y MSI) y de la CLI en el runner `windows-11-arm` (gratis en repositorios públicos), su entrada `windows-aarch64` en `latest.json` y en las notas, y probar que WebView2 y el instalador funcionan en ARM.
 
 ## 1. Mejora de la interfaz de «Organizar por sistema»
 
