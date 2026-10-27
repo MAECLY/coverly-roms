@@ -136,9 +136,12 @@ a short label where no neutral drawing exists.
 **Jobs you control.** The fill wizard shows the whole plan before it runs.
 Jobs can be paused, resumed, cancelled and undone.
 
-**Settings.** General, Library, Art, Matching, Sources, Network, Safety,
-Advanced, Profiles and About. Custom layout profiles have a live path preview.
-API keys are kept in the OS keychain.
+**Settings.** General, Library, Organise, Duplicates, Profiles, Art, Matching,
+Sources, Network, Safety, Advanced and About, in three groups. Common options
+come first and the rest wait under _Advanced options_. Search with ⌘F (Ctrl+F
+on Windows and Linux) and land on the setting. The Duplicates and Organise
+screens open their own tab and come back with your choices kept. Custom layout
+profiles have a live path preview. API keys are kept in the OS keychain.
 
 **Also:** a command-line tool, `coverly`; English and Spanish interface; light
 and dark themes; in-app updates.
@@ -287,12 +290,20 @@ More detail: [docs/04-architecture/art-sources.md](docs/04-architecture/art-sour
 Download the file for your computer from the
 [latest release](https://github.com/MAECLY/coverly-roms/releases/latest):
 
-| System                                      | File                                                                                |
-| ------------------------------------------- | ----------------------------------------------------------------------------------- |
-| macOS 11 or newer (Apple silicon and Intel) | `Coverly.ROMs_<version>_universal.dmg`                                              |
-| Windows 10/11 (x64)                         | `Coverly.ROMs_<version>_x64-setup.exe` (recommended) or `.msi`                      |
-| Linux (x64, ARM64)                          | `.AppImage` or `.deb`                                                               |
-| Command line (`coverly`)                    | `coverly-<version>-<os>-<arch>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
+| System                                         | File                                                                                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS 11 or later, Apple silicon (M1 or newer) | `Coverly-ROMs_<version>_mac_arm.dmg`                                                                                                                                             |
+| macOS 11 or later, Intel                       | `Coverly-ROMs_<version>_mac_intel.dmg`                                                                                                                                           |
+| Windows 10/11 (x64)                            | `Coverly-ROMs_<version>_windows_x64-setup.exe` (recommended); stable releases also `Coverly-ROMs_<version>_windows_x64.msi`                                                      |
+| Windows 11 (ARM64)                             | `Coverly-ROMs_<version>_windows_arm-setup.exe` (recommended); stable releases also `Coverly-ROMs_<version>_windows_arm.msi`                                                      |
+| Linux x64                                      | `Coverly-ROMs_<version>_linux_x64.AppImage` or `Coverly-ROMs_<version>_linux_x64.deb`                                                                                            |
+| Linux ARM64                                    | `Coverly-ROMs_<version>_linux_arm.AppImage` or `Coverly-ROMs_<version>_linux_arm.deb`                                                                                            |
+| Command line                                   | `coverly_<version>_<system>` (`mac_arm`, `mac_intel`, `windows_x64.exe`, `windows_arm.exe`, `linux_x64`, `linux_arm`); once installed, `coverly update install` keeps it current |
+
+Not sure which Mac you have? Apple menu → About This Mac:
+"Chip" means Apple silicon, "Processor" means Intel. On a Windows ARM64 PC,
+install the ARM64 build; a copy of the x64 build installed earlier keeps
+working and updating as x64.
 
 Check the file against `SHA256SUMS` from the same release, for example
 `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS),
@@ -319,7 +330,7 @@ Check the file against `SHA256SUMS` from the same release, for example
 > Terminal you can also try to open it once, then go to **System Settings →
 > Privacy & Security**, scroll down and click **Open Anyway**. The `coverly`
 > binary for macOS is quarantined the same way when a browser downloads it:
-> `xattr -d com.apple.quarantine coverly-<version>-darwin-<arch>`.
+> `xattr -d com.apple.quarantine coverly_<version>_mac_arm` (or `_mac_intel`).
 >
 > </details>
 >
@@ -330,10 +341,11 @@ Check the file against `SHA256SUMS` from the same release, for example
 > with **Publisher: Unknown Publisher** instead, choose **Run**. With Smart App
 > Control turned on there is no **Run anyway**: it blocks unsigned apps, and
 > turning it off may not be reversible without reinstalling Windows.
-> Coverly ROMs needs Windows 10 or 11 on x64. The `-setup.exe` installs for your
-> user without administrator rights; the `.msi` installs for every user. Both
-> use Microsoft Edge WebView2: Windows 11 has it, and on Windows 10 the
-> installer downloads it if it is missing (that needs internet).
+> Coverly ROMs needs Windows 10/11 (x64) or Windows 11 (ARM64). The
+> `-setup.exe` installs for your user without administrator rights; the `.msi`
+> installs for every user. Both use Microsoft Edge WebView2: Windows 11 has it,
+> and on Windows 10 the installer downloads it if it is missing (that needs
+> internet).
 >
 > </details>
 >
@@ -342,9 +354,9 @@ Check the file against `SHA256SUMS` from the same release, for example
 >
 > Mark the AppImage executable (`chmod +x`) if your file manager has not. The
 > `.deb` depends on `libwebkit2gtk-4.1-0` and `libgtk-3-0`;
-> `sudo apt install ./Coverly.ROMs_<version>_amd64.deb` (or `_arm64.deb`) pulls
-> them in. Both are built on Ubuntu 22.04 for x64 and ARM64, so they need glibc
-> 2.35 or newer (Ubuntu 22.04, Debian 12 or later).
+> `sudo apt install ./Coverly-ROMs_<version>_linux_x64.deb` (or
+> `_linux_arm.deb`) pulls them in. Both are built on Ubuntu 22.04 for x64 and
+> ARM64, so they need glibc 2.35 or newer (Ubuntu 22.04, Debian 12 or later).
 >
 > </details>
 
@@ -502,8 +514,8 @@ or `bsdtar`, which macOS already includes (`/usr/bin/bsdtar`). On Windows,
 7-Zip or WinRAR in their usual folders are found; on Linux, install `unrar`,
 `7zip` or `libarchive-tools`. Without one, a RAR stays where it is with the note
 "To open RAR archives, install unrar" and the rest is organised. Settings →
-Organise → _External programs for RAR_ shows what was found and can turn them
-off.
+Organise → _Advanced options_ → _External programs for RAR_ shows what was
+found and can turn them off.
 
 Disc games are extracted, because handhelds load `.cue`/`.gdi` and tracks, not
 archives. Cartridge ROMs in a zip or 7z are moved as they are when the layout

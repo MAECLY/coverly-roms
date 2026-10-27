@@ -145,10 +145,13 @@ CC BY 4.0) o una etiqueta corta cuando no hay un dibujo neutro.
 antes de ejecutarlo. Los trabajos se pueden pausar, reanudar, cancelar y
 deshacer.
 
-**Configuración.** General, Biblioteca, Arte, Coincidencias, Fuentes, Red,
-Seguridad, Avanzado, Perfiles y Acerca de. Los perfiles de formato propios
-tienen vista previa de las rutas. Las claves de API se guardan en el llavero
-del sistema.
+**Configuración.** General, Biblioteca, Organizar, Duplicados, Perfiles, Arte,
+Coincidencias, Fuentes, Red, Seguridad, Avanzado y Acerca de, en tres grupos.
+Las opciones comunes van primero y el resto espera en _Opciones avanzadas_.
+Busca con ⌘F (Ctrl+F en Windows y Linux) y llega al ajuste. Las pantallas de
+Duplicados y Organizar abren su pestaña y vuelven con lo que habías elegido.
+Los perfiles de formato propios tienen vista previa de las rutas. Las claves de
+API se guardan en el llavero del sistema.
 
 **Además:** una herramienta de línea de comandos, `coverly`; interfaz en
 inglés y español; temas claro y oscuro; actualizaciones desde la app.
@@ -300,12 +303,20 @@ Más detalle (en inglés): [docs/04-architecture/art-sources.md](docs/04-archite
 Descarga el archivo para tu ordenador desde la
 [última versión](https://github.com/MAECLY/coverly-roms/releases/latest):
 
-| Sistema                                     | Archivo                                                                            |
-| ------------------------------------------- | ---------------------------------------------------------------------------------- |
-| macOS 11 o superior (Apple silicon e Intel) | `Coverly.ROMs_<versión>_universal.dmg`                                             |
-| Windows 10/11 (x64)                         | `Coverly.ROMs_<versión>_x64-setup.exe` (recomendado) o `.msi`                      |
-| Linux (x64, ARM64)                          | `.AppImage` o `.deb`                                                               |
-| Línea de comandos (`coverly`)               | `coverly-<versión>-<os>-<arq>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
+| Sistema                                              | Archivo                                                                                                                                                                      |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS 11 o posterior, Apple silicon (M1 o posterior) | `Coverly-ROMs_<versión>_mac_arm.dmg`                                                                                                                                         |
+| macOS 11 o posterior, Intel                          | `Coverly-ROMs_<versión>_mac_intel.dmg`                                                                                                                                       |
+| Windows 10/11 (x64)                                  | `Coverly-ROMs_<versión>_windows_x64-setup.exe` (recomendado); las versiones estables también `Coverly-ROMs_<versión>_windows_x64.msi`                                        |
+| Windows 11 (ARM64)                                   | `Coverly-ROMs_<versión>_windows_arm-setup.exe` (recomendado); las versiones estables también `Coverly-ROMs_<versión>_windows_arm.msi`                                        |
+| Linux x64                                            | `Coverly-ROMs_<versión>_linux_x64.AppImage` o `Coverly-ROMs_<versión>_linux_x64.deb`                                                                                         |
+| Linux ARM64                                          | `Coverly-ROMs_<versión>_linux_arm.AppImage` o `Coverly-ROMs_<versión>_linux_arm.deb`                                                                                         |
+| Línea de comandos                                    | `coverly_<versión>_<sistema>` (`mac_arm`, `mac_intel`, `windows_x64.exe`, `windows_arm.exe`, `linux_x64`, `linux_arm`); después, `coverly update install` la mantiene al día |
+
+¿No sabes qué Mac tienes? Menú Apple → Acerca de este Mac:
+«Chip» es Apple silicon, «Procesador» es Intel. En un PC con Windows ARM64,
+instala la versión ARM64; una copia de la versión x64 instalada antes sigue
+funcionando y actualizándose como x64.
 
 Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS),
@@ -333,7 +344,8 @@ Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 > lugar de Terminal, también puedes intentar abrirla una vez, ir a **Ajustes del
 > Sistema → Privacidad y seguridad**, bajar y pulsar **Abrir igualmente**. El
 > binario `coverly` para macOS queda en cuarentena igual si lo baja un
-> navegador: `xattr -d com.apple.quarantine coverly-<versión>-darwin-<arq>`.
+> navegador: `xattr -d com.apple.quarantine coverly_<versión>_mac_arm`
+> (o `_mac_intel`).
 >
 > </details>
 >
@@ -344,7 +356,8 @@ Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 > ves una **Advertencia de seguridad** con **Editor: Editor desconocido**, elige
 > **Ejecutar**. Con Smart App Control activado no hay **Ejecutar de todas
 > formas**: bloquea las apps sin firmar, y puede que desactivarlo no tenga
-> vuelta atrás sin reinstalar Windows. Coverly ROMs necesita Windows 10 u 11 en x64.
+> vuelta atrás sin reinstalar Windows. Coverly ROMs necesita Windows 10/11
+> (x64) o Windows 11 (ARM64).
 > El `-setup.exe` instala para tu usuario sin permisos de administrador; el
 > `.msi` instala para todos los usuarios. Los dos usan Microsoft Edge WebView2:
 > Windows 11 ya lo trae, y en Windows 10 el instalador lo descarga si falta
@@ -357,9 +370,10 @@ Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 >
 > Marca el AppImage como ejecutable (`chmod +x`) si tu gestor de archivos no lo
 > ha hecho. El `.deb` depende de `libwebkit2gtk-4.1-0` y `libgtk-3-0`;
-> `sudo apt install ./Coverly.ROMs_<versión>_amd64.deb` (o `_arm64.deb`) los
-> instala. Los dos se compilan en Ubuntu 22.04 para x64 y ARM64, así que
-> necesitan glibc 2.35 o posterior (Ubuntu 22.04, Debian 12 o posteriores).
+> `sudo apt install ./Coverly-ROMs_<versión>_linux_x64.deb` (o
+> `_linux_arm.deb`) los instala. Los dos se compilan en Ubuntu 22.04 para x64
+> y ARM64, así que necesitan glibc 2.35 o posterior (Ubuntu 22.04, Debian 12 o
+> posteriores).
 >
 > </details>
 
@@ -526,8 +540,8 @@ oficial de RAR no puede ir dentro de un programa libre: `unrar`, 7-Zip (`7zz` o
 7-Zip o WinRAR en sus carpetas habituales; en Linux, instala `unrar`, `7zip` o
 `libarchive-tools`. Si no hay ninguno, el RAR se queda donde está con el aviso
 «Para abrir archivos RAR instala unrar» y se organiza lo demás. Configuración →
-Organizar → _Programas externos para RAR_ muestra lo que ha encontrado y
-permite desactivarlos.
+Organizar → _Opciones avanzadas_ → _Programas externos para RAR_ muestra lo que
+ha encontrado y permite desactivarlos.
 
 Los juegos de disco se **extraen**, porque las consolas cargan el `.cue`/`.gdi`
 y las pistas, no el comprimido. Las ROMs de cartucho en zip o 7z se mueven tal

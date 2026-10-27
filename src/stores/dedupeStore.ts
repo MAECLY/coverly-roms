@@ -96,6 +96,9 @@ interface DedupeState {
   error: BackendError | null;
   exported: string | null;
   launch: DedupeLaunch;
+  /** The plan-read settings when Settings was opened from this screen
+   * (`dedupeStamp`); null when not stamped or after looking again. */
+  settingsStamp: string | null;
   /** Extra copies the last plan of each library found (the toolbar's
    * "Duplicados {count}"); kept when the screen closes, dropped once an
    * apply or an undo changed that library. */
@@ -148,6 +151,7 @@ const initial = {
   error: null,
   exported: null,
   launch: {} as DedupeLaunch,
+  settingsStamp: null as string | null,
 };
 
 /** Bumped by every request that replaces the plan: older answers drop. */
@@ -223,6 +227,8 @@ export const useDedupeStore = create<DedupeState>()((set, get) => {
     const mine = (seq += 1);
     planning = null;
     set({
+      // A new plan reads the settings as they are now (replan, reset).
+      settingsStamp: null,
       status: 'planning',
       progress: null,
       phasesDone: [],

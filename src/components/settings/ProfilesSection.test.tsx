@@ -8,7 +8,7 @@ import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
 import { resetLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
@@ -35,7 +35,7 @@ describe('profiles editor', () => {
     resetSettingsStore();
     resetLibraryStore();
     // A previous test leaves the settings screen open.
-    useNavStore.getState().closeSettings();
+    resetNavStore();
     restore = stubLayout(1280, 800);
   });
   afterEach(() => {
