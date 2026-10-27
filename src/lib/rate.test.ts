@@ -108,7 +108,7 @@ describe('rate', () => {
         const { key, vars } = etaKey(s);
         const text = translate(locale, key, vars);
         expect(text).not.toBe(key);
-        expect(text).not.toMatch(/unos 1 |1 horas|about 1 minutes|1 hours/);
+        expect(text).not.toMatch(/\b1 (minutos|horas|minutes|hours)\b/i);
       }
     }
   });

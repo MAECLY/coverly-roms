@@ -2,7 +2,7 @@ import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import type { TranslateVars } from './core';
+import { translate, type TranslateVars } from './core';
 import { I18nProvider } from './I18nProvider';
 import { useRichT } from './rich';
 
@@ -69,5 +69,51 @@ describe('useRichT', () => {
     expect(p.textContent).toBe('Extrayendo Next Tetris, The.zip en PS1');
     expect(monoTexts(p)).toEqual(['Next Tetris, The.zip']);
     expect(p.querySelectorAll('bdi')).toHaveLength(2);
+  });
+});
+
+// Spec §7 (plus the plan's `movingLabel`): parity only proves es == en, so a
+// key missing from both would slip through until a screen shows the raw key.
+const PROGRESS_KEYS = [
+  ...[
+    'extracting',
+    'checking',
+    'game',
+    'track',
+    'file',
+    'amount',
+    'rate',
+    'leftMinutes',
+    'leftUnderMinute',
+    'leftOverHour',
+    'leftOverHours',
+    'measuring',
+    'cancelling',
+    'cancellingButton',
+    'tracksLabel',
+    'filesLabel',
+    'showTracks',
+    'showFiles',
+    'waiting',
+    'writing',
+    'crcChecked',
+    'sizeChecked',
+    'cancelNote',
+    'stageLabel',
+    'movingLabel',
+  ].map((k) => `organize.progress.${k}`),
+  'start.progress.folders',
+  'progress.perMinute',
+];
+
+describe('progress copy', () => {
+  it('resolves every key of spec §7 in both locales without exclamation marks', () => {
+    for (const locale of ['es', 'en'] as const) {
+      for (const key of PROGRESS_KEYS) {
+        const text = translate(locale, key);
+        expect(text, `${locale} ${key}`).not.toBe(key);
+        expect(text, `${locale} ${key}`).not.toMatch(/[!¡]/);
+      }
+    }
   });
 });
