@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use coverly_core::archive::testing::{
     sevenz, zip_crafted, zip_with, SevenZShape, ZipMethod, ZipSpec,
@@ -16,7 +16,8 @@ use coverly_core::archive::{
 };
 use coverly_core::organize::apply::set_free_space_override;
 use coverly_core::organize::extract::{
-    extract_to_temps, set_write_fault, ExtractError, ExtractRequest, Fault, PhaseA, CANCEL_EVERY,
+    extract_to_temps, set_write_fault, ExtractError, ExtractRequest, ExtractTick, Fault, PhaseA,
+    CANCEL_EVERY,
 };
 use coverly_core::organize::ExtractEntry;
 use coverly_core::progress::PauseKind;
@@ -394,7 +395,8 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     let cancel = Arc::new(AtomicBool::new(false));
     let cancelled_at = AtomicU64::new(0);
     let last = AtomicU64::new(0);
-    let progress = |bytes: u64| {
+    let progress = |t: ExtractTick| {
+        let bytes = t.bytes;
         last.store(bytes, Ordering::SeqCst);
         if bytes >= 1 << 20 && !cancel.swap(true, Ordering::SeqCst) {
             cancelled_at.store(bytes, Ordering::SeqCst);
@@ -422,6 +424,58 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     );
     assert!(stopped < 64 << 20);
     assert_rolled_back(&env, &writer, &env.root.join("PS/Big"), &entries);
+}
+
+/// D2: at every tick, the staged entries are the first `entries_done` of
+/// the plan entries by archive index, whatever order the plan lists them.
+#[test]
+fn staged_entries_are_a_prefix_by_archive_index() {
+    let env = env();
+    let files: Vec<(String, Vec<u8>)> = (1..=5)
+        .map(|i| (format!("Game (Track {i}).bin"), vec![i as u8; 300_000 * i]))
+        .collect();
+    let refs: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(n, d)| (n.as_str(), d.as_slice()))
+        .collect();
+    let (archive, mut reader) = write_archive(
+        &env,
+        "Game.7z",
+        &sevenz(&refs, SevenZShape::solid_lzma2_sheets_last()),
+    );
+    let mut entries = plan_entries(reader.as_ref(), "PS/Game");
+    entries.reverse(); // the plan lists them out of archive order
+    let mut writer = env.writer();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ticks: Mutex<Vec<ExtractTick>> = Mutex::default();
+    let progress = |t: ExtractTick| ticks.lock().unwrap().push(t);
+    let done = extract_to_temps(
+        &mut writer,
+        reader.as_mut(),
+        &ExtractRequest {
+            item: 0,
+            archive: &archive,
+            entries: &entries,
+            cancel: &cancel,
+            progress: &progress,
+        },
+    )
+    .unwrap();
+    let ticks = ticks.into_inner().unwrap();
+    let staged: Vec<usize> = done.staged.iter().map(|s| s.entry.index).collect();
+    let mut by_index: Vec<usize> = entries.iter().map(|e| e.index).collect();
+    by_index.sort_unstable();
+    assert_eq!(staged, by_index, "staged in ascending archive index");
+    assert_eq!(ticks.first().unwrap().entries_done, 0);
+    assert_eq!(ticks.last().unwrap().entries_done, entries.len());
+    assert!(ticks
+        .windows(2)
+        .all(|w| w[0].entries_done <= w[1].entries_done));
+    assert!(ticks.windows(2).all(|w| w[0].bytes <= w[1].bytes));
+    // Every count from 1 to 5 is reported right after its entry is staged.
+    for k in 1..=entries.len() {
+        assert!(ticks.iter().any(|t| t.entries_done == k), "no tick for {k}");
+    }
 }
 
 /// A backend that streams entry 0, then decodes `skip` MiB it was not
@@ -508,7 +562,7 @@ fn cancel_reaches_the_decoder_between_wanted_entries() {
     let entries = plan_entries(&reader, "PS/Game");
     let mut writer = env.writer();
     let cancel = Arc::new(AtomicBool::new(false));
-    let progress = |_: u64| cancel.store(true, Ordering::SeqCst);
+    let progress = |_: ExtractTick| cancel.store(true, Ordering::SeqCst);
     let err = extract_to_temps(
         &mut writer,
         &mut reader,

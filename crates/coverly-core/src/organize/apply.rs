@@ -22,7 +22,7 @@ use crate::identify::overrides::{Overrides, OVERRIDES_FILE};
 use crate::jobs::ItemErrorKind;
 use crate::organize::extract::{
     archive_unchanged, decode_total, dispose_archive, extract_and_commit, m3u_text, Adopted,
-    ArchiveFate, CommitRequest, ExtractError, ExtractRequest,
+    ArchiveFate, CommitRequest, ExtractError, ExtractRequest, ExtractTick,
 };
 use crate::organize::plan::{
     ArchiveAfter, ExtractEntry, ExtractSource, ItemKind, OrganizeAction, OrganizeItem,
@@ -1700,10 +1700,10 @@ impl<'a> Run<'a> {
         };
         report(0);
         let last = std::cell::Cell::new(Instant::now());
-        let on_bytes = |bytes: u64| {
+        let on_bytes = |tick: ExtractTick| {
             if last.get().elapsed() >= PROGRESS_EVERY {
                 last.set(Instant::now());
-                report(bytes);
+                report(tick.bytes);
             }
         };
         let fp = item.fps.first().copied();
