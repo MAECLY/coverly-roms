@@ -21,8 +21,8 @@ import { KeeperRow } from '@/components/dedupe/KeeperRow';
 import { RelationBadge, TrayRow } from '@/components/dedupe/TrayRow';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { RadioGroup } from '@/components/ui/radio-group';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useT } from '@/i18n/useT';
 import type { DupGroupView } from '@/ipc/dedupeTypes';
 import {

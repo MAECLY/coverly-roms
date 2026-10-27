@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
-import { clearArtCache } from '@/lib/artCache';
+import { ART_CACHE_SIZE, clearArtCache, loadUrl } from '@/lib/artCache';
 
 import { useDedupeArt } from './useDedupeArt';
 
@@ -79,6 +79,29 @@ describe('useDedupeArt', () => {
     clearArtCache();
     renderHook(() => useDedupeArt(1, 2, 3, 'cover', true));
     await waitFor(() => expect(dedupeArt).toHaveBeenCalledTimes(2));
+  });
+
+  it('loads again once its URL was evicted from the LRU', async () => {
+    const dedupeArt = vi.fn(async () => PNG.slice().buffer as ArrayBuffer);
+    setBackend({ ...createMockBackend({ delayMs: 0 }), dedupeArt });
+    let n = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(
+      () => `blob:${(n += 1)}`,
+    );
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+    const { result, rerender } = renderHook(() =>
+      useDedupeArt(1, 2, null, 'cover', true),
+    );
+    await waitFor(() =>
+      expect(result.current).toEqual({ status: 'ready', url: 'blob:1' }),
+    );
+    for (let i = 0; i < ART_CACHE_SIZE; i += 1)
+      await loadUrl(`other:${i}`, async () => new Blob(['y']));
+    rerender();
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current).not.toEqual({ status: 'ready', url: 'blob:1' });
+    expect(dedupeArt).toHaveBeenCalledTimes(2);
   });
 
   it('makes no request when disabled or without a plan', async () => {
