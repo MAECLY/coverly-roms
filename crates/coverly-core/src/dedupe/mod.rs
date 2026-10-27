@@ -557,6 +557,32 @@ mod tests {
         assert!(!back.facts.is_empty());
     }
 
+    #[test]
+    fn unset_facts_fields_are_not_written() {
+        let mut m = member(0, Relation::Exact);
+        m.facts.regions = vec![Region::Usa];
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["facts"], serde_json::json!({"regions": ["usa"]}));
+        assert!(DumpFlags::default().is_empty());
+        let flagged = DumpFlags {
+            alternate: true,
+            ..DumpFlags::default()
+        };
+        assert!(!flagged.is_empty());
+        // A partial facts object, as a later writer may emit, reads back.
+        let back: MemberFacts =
+            serde_json::from_value(serde_json::json!({"saves": {"count": 2, "last_ns": 5}}))
+                .unwrap();
+        assert_eq!(
+            back.saves,
+            Some(SavesSeen {
+                count: 2,
+                last_ns: 5
+            })
+        );
+        assert!(back.regions.is_empty() && back.flags.is_empty());
+    }
+
     fn sample_plan() -> DedupePlan {
         let save = SaveInfo {
             path: PathBuf::from("GB/Tetris.sav"),
