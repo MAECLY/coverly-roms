@@ -29,4 +29,10 @@ describe('settings tab row on narrow windows', () => {
   it('keeps a scrollbar so a mouse without a trackpad reaches every tab', () => {
     expect(row()).not.toMatch(/scrollbar-width: none/);
   });
+
+  it('draws the tab focus ring inside the tab so the row does not clip it', () => {
+    expect(narrowRule(".settings-nav [role='tab']:focus-visible")).toMatch(
+      /outline-offset: -2px;/,
+    );
+  });
 });

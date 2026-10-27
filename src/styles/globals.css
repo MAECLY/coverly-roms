@@ -2069,6 +2069,12 @@ time {
     scrollbar-width: thin;
   }
 
+  /* The row clips what spills past it, so the focus ring sits inside the
+     tab: at the row's edge an outer ring would lose a side. */
+  .settings-nav [role='tab']:focus-visible {
+    outline-offset: -2px;
+  }
+
   .settings-nav__group {
     display: none;
   }
