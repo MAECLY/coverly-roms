@@ -18,8 +18,8 @@ use coverly_core::archive::{file_entries, open_archive, Limits};
 use coverly_core::organize::extract::{set_write_fault, Fault};
 use coverly_core::organize::{
     apply_organize, resume_organize, ApplyEnv, ArchiveAfter, Counts, ExtractEntry, ExtractSource,
-    ItemKind, ItemStatus, NameMode, OrganizeAction, OrganizeItem, OrganizePlan, OrganizeReport,
-    SheetCheck, SkipReason, SourceFp, Transfer, TransferMode,
+    ItemKind, ItemStatus, NameMode, OrganizeAction, OrganizeItem, OrganizePhase, OrganizePlan,
+    OrganizeProgress, OrganizeReport, SheetCheck, SkipReason, SourceFp, Transfer, TransferMode,
 };
 use coverly_core::write::trash::{FakeTrash, TrashBackend};
 use coverly_core::write::{
@@ -204,10 +204,18 @@ fn apply_killed(
 }
 
 fn resume(env: &Env, job: &str, trash: &dyn TrashBackend) -> OrganizeReport {
-    let progress = |_| {};
+    resume_with(env, job, trash, &|_| {})
+}
+
+fn resume_with(
+    env: &Env,
+    job: &str,
+    trash: &dyn TrashBackend,
+    progress: &(dyn Fn(OrganizeProgress) + Sync),
+) -> OrganizeReport {
     let aenv = ApplyEnv {
         data_dir: &env.data,
-        progress: &progress,
+        progress,
         cancel: &AtomicBool::new(false),
         trash,
         tools: Some(&[]),
@@ -357,6 +365,37 @@ fn crash_after_5_of_12_resume_finishes_no_double_files() {
         let done = completions(&records, &env.root.join(&e.target));
         assert_eq!(done.len(), 1, "{}: {done:?}", e.name);
     }
+}
+
+/// D1: entries adopted from the crashed run count as staged, so the
+/// resumed item still ends at `entries_total`.
+#[test]
+fn resume_reports_adopted_entries_in_the_count() {
+    let env = env();
+    let trash = FakeTrash::new(&env.trash);
+    let (archive, entries) = disc_archive(&env, "Tetris Plus", 11, "PS");
+    assert_eq!(entries.len(), 12);
+    let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep, None);
+    let plan = plan_of(&env, vec![item], TransferMode::Copy);
+    let job = apply_killed(&env, &plan, &trash, 12 + 5).job.unwrap();
+
+    let seen: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::default();
+    let report = resume_with(&env, &job, &trash, &|p| {
+        if let OrganizePhase::Extract {
+            entries_done,
+            entries_total,
+            ..
+        } = p.phase
+        {
+            seen.lock().unwrap().push((entries_done, entries_total));
+        }
+    });
+    assert_eq!(report.items[0].status, ItemStatus::Extracted, "{report:?}");
+    let seen = seen.into_inner().unwrap();
+    assert!(!seen.is_empty());
+    assert!(seen.iter().all(|&(_, t)| t == 12), "{seen:?}");
+    assert_eq!(seen.last().unwrap().0, 12, "{seen:?}");
+    assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "{seen:?}");
 }
 
 #[test]

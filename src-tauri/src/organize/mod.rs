@@ -502,6 +502,8 @@ mod tests {
                 item: 0,
                 bytes_done,
                 bytes_total: 1000,
+                entries_done: 0,
+                entries_total: 1,
             },
             done: 0,
             total: 1,
@@ -523,6 +525,8 @@ mod tests {
                 item,
                 bytes_done,
                 bytes_total: 1000,
+                entries_done: 0,
+                entries_total: 1,
             },
             done: item,
             total: 3,
@@ -538,6 +542,8 @@ mod tests {
             item,
             bytes_done,
             bytes_total: 1000,
+            entries_done: 0,
+            entries_total: 1,
         };
         // Each item's start (its name shows up) and its end (the bar fills)
         // reach the webview; the steps in between are throttled.

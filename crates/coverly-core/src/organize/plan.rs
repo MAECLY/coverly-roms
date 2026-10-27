@@ -635,6 +635,12 @@ pub enum OrganizePhase {
         item: usize,
         bytes_done: u64,
         bytes_total: u64,
+        /// Entries of the item staged so far (written, re-read, CRC equal),
+        /// in ascending archive index; adopted entries count.
+        entries_done: usize,
+        /// The item's entries (`Transfer::Extract::entries.len()`; a
+        /// generated playlist is not one).
+        entries_total: usize,
     },
 }
 

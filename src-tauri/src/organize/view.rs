@@ -131,6 +131,7 @@ impl From<OrganizeProgressEvent> for ProgressWire {
                 item,
                 bytes_done,
                 bytes_total,
+                ..
             } => (PhaseName::Extract, Some((item, bytes_done, bytes_total))),
         };
         ProgressWire {
@@ -232,6 +233,8 @@ mod tests {
                 item: 5,
                 bytes_done: 1024,
                 bytes_total: 405_749_493,
+                entries_done: 0,
+                entries_total: 1,
             },
             done: 1,
             total: 3,

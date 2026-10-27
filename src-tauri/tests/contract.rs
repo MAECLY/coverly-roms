@@ -576,6 +576,8 @@ fn archive_and_disc_views_match_the_shared_sample() {
                 item: 3,
                 bytes_done: 104_857_600,
                 bytes_total: 405_749_493,
+                entries_done: 0,
+                entries_total: 1,
             },
             done: 0,
             total: 1,

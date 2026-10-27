@@ -1687,23 +1687,31 @@ impl<'a> Run<'a> {
         let (done, total) = self.at;
         let progress = self.env.progress;
         let item_id = item.id;
-        let report = |bytes_done: u64| {
+        let entries_total = entries.len();
+        let report = |bytes_done: u64, entries_done: usize| {
             progress(OrganizeProgress {
                 phase: OrganizePhase::Extract {
                     item: item_id,
                     bytes_done,
                     bytes_total,
+                    entries_done,
+                    entries_total,
                 },
                 done,
                 total,
             })
         };
-        report(0);
+        report(0, 0);
         let last = std::cell::Cell::new(Instant::now());
-        let on_bytes = |tick: ExtractTick| {
-            if last.get().elapsed() >= PROGRESS_EVERY {
+        let all_staged = std::cell::Cell::new(false);
+        let on_tick = |tick: ExtractTick| {
+            // The count rides the 100 ms cadence; only the moment every
+            // entry is staged goes out at once (phase B starts and no tick
+            // follows it).
+            let edge = tick.entries_done == entries_total && !all_staged.replace(true);
+            if edge || last.get().elapsed() >= PROGRESS_EVERY {
                 last.set(Instant::now());
-                report(tick.bytes);
+                report(tick.bytes, tick.entries_done);
             }
         };
         let fp = item.fps.first().copied();
@@ -1719,7 +1727,7 @@ impl<'a> Run<'a> {
                         archive: &archive,
                         entries,
                         cancel: flag,
-                        progress: &on_bytes,
+                        progress: &on_tick,
                     },
                     archive_fp: fp,
                     sheet_check: *sheet_check,
@@ -1734,7 +1742,7 @@ impl<'a> Run<'a> {
             Ok(targets) => targets,
             Err(e) => return self.on_extract_error(e),
         };
-        report(bytes_total);
+        report(bytes_total, entries_total);
         for t in &targets {
             if let Some((dir, name)) = split(t) {
                 self.index.claim(dir, name);
