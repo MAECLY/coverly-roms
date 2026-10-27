@@ -554,6 +554,17 @@ describe('OrganizeScreen', () => {
     expect(await screen.findByText(RESULT, {}, APPLY_WAIT)).toBeInTheDocument();
   });
 
+  it('hands keyboard focus to the result once the progress block goes', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
+    );
+    expect(await screen.findByText(RESULT, {}, APPLY_WAIT)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Result' })).toHaveFocus(),
+    );
+  });
+
   it('a RAR without its tool says what to install and scans again', async () => {
     b.organizeTouch(MOCK_DOWNLOADS, { add: ['Tetris Collection.rar'] });
     renderScreen(MOCK_DOWNLOADS);

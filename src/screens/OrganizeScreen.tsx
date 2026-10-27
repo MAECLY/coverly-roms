@@ -264,6 +264,17 @@ export function OrganizeScreen() {
 
   const applying = status === 'applying';
   const showResult = job !== null && !applying;
+  // The progress block unmounts when the job ends, taking keyboard focus
+  // (Cancel, the track list) with it: hand it to the result's heading.
+  const wasApplying = useRef(applying);
+  useEffect(() => {
+    const ended = wasApplying.current && !applying;
+    wasApplying.current = applying;
+    if (!ended || !showResult) return;
+    const active = document.activeElement;
+    if (!active || active === document.body)
+      document.getElementById('organize-result-title')?.focus();
+  }, [applying, showResult]);
   const proposing =
     !showResult &&
     (status === 'planning' || status === 'ready' || status === 'error');
