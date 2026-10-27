@@ -31,6 +31,27 @@ describe('navStore settings round trip', () => {
     useNavStore.setState({ duplicatesRoot: null });
     nav().closeSettings();
     expect(nav().screen).toBe('main');
+    nav().openOrganize('/Users/demo/Downloads');
+    nav().openSettings();
+    useNavStore.setState({ organizeSource: null });
+    nav().closeSettings();
+    expect(nav().screen).toBe('main');
+  });
+
+  it('records main as the opener and clears the focus target on Back', () => {
+    nav().openSettings('library', { focus: 'setting-library-include-hidden' });
+    expect(nav().settingsFrom).toBe('main');
+    nav().closeSettings();
+    expect(nav().screen).toBe('main');
+    expect(nav().settingsFrom).toBeNull();
+    expect(nav().focusSetting).toBeNull();
+  });
+
+  it('ignores an unknown tab id passed to openSettings', () => {
+    nav().openSettings('sources');
+    nav().openSettings('nope' as never);
+    expect(nav().screen).toBe('settings');
+    expect(nav().section).toBe('sources');
   });
 
   it('keeps the last tab, ignores unknown ids and sets the focus target', () => {
