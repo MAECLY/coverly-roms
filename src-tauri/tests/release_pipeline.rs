@@ -791,11 +791,32 @@ fn release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
         "xattr -rd com.apple.quarantine \"/Applications/Coverly ROMs.app\"",
         "«Windows protegió su PC»",
         "libwebkit2gtk-4.1-0",
-        // GitHub's names for the uploaded files (release.yml stages them so).
-        "Coverly.ROMs_<version>_universal.dmg",
-        "Coverly.ROMs_<versión>_x64-setup.exe",
+        // The names stage-builds publishes (spec §4), in both languages.
+        "Coverly-ROMs_<version>_mac_arm.dmg",
+        "Coverly-ROMs_<version>_mac_intel.dmg",
+        "Coverly-ROMs_<version>_windows_x64-setup.exe",
+        "Coverly-ROMs_<version>_windows_arm-setup.exe",
+        "Coverly-ROMs_<version>_linux_arm.AppImage",
+        "Coverly-ROMs_<versión>_mac_arm.dmg",
+        "Coverly-ROMs_<versión>_windows_x64-setup.exe",
+        "Coverly-ROMs_<versión>_windows_arm-setup.exe",
+        "coverly_<version>_<system>",
+        "coverly_<versión>_<sistema>",
+        "Windows 11 (ARM64)",
+        "\"Chip\" means Apple silicon",
+        "«Chip» es Apple silicon",
+        "xattr -d com.apple.quarantine coverly_<version>_mac_arm",
     ] {
         assert!(notes.contains(needle), "{needle}");
+    }
+    for old in [
+        "Coverly.ROMs_",
+        "_universal",
+        "_amd64",
+        "_x64_en-US",
+        "coverly-<",
+    ] {
+        assert!(!notes.contains(old), "old release name left: {old}");
     }
     assert!(!notes.contains("Coverly ROMs_<"), "use the uploaded names");
     assert!(!notes.contains('!'), "brand voice: no exclamation marks");
