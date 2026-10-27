@@ -415,6 +415,37 @@ function extOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toUpperCase() : '';
 }
 
+/** A disc's own file: a sheet or a whole image (a sheet's tracks are not). */
+const DISC_EXTS = new Set([
+  'CUE',
+  'GDI',
+  'CCD',
+  'CDI',
+  'MDS',
+  'CHD',
+  'ISO',
+  'CSO',
+  'PBP',
+  'RVZ',
+]);
+const DISC_NO = /\((?:disc|disk|cd)\s*(\d+)/i;
+
+/**
+ * Discs of a playlist. The unit's files are the `.m3u` itself, its discs
+ * and their sheets' tracks, so the file count overstates it: count the
+ * distinct `(Disc n)` numbers, else the sheets and images, else one disc
+ * per file besides the playlist.
+ */
+function discCount(unit: UnitRefView): number {
+  const rest = unit.files.filter((f) => extOf(f) !== 'M3U');
+  const numbers = new Set(
+    rest.map((f) => DISC_NO.exec(fileName(f))?.[1]).filter(Boolean),
+  );
+  if (numbers.size > 0) return numbers.size;
+  const discs = rest.filter((f) => DISC_EXTS.has(extOf(f))).length;
+  return discs > 0 ? discs : Math.max(rest.length, 1);
+}
+
 /** `ZIP`, `7Z`, `CUE/BIN`, `GDI`, `CCD/IMG`, `CHD`, `PBP`, `ISO`, `M3U`, `GB`… (spec D8). */
 export function formatOf(unit: UnitRefView, t: Translate): string {
   const ext = extOf(unit.primary);
@@ -426,7 +457,7 @@ export function formatOf(unit: UnitRefView, t: Translate): string {
     case 'chd':
       return 'CHD';
     case 'multi-disc':
-      return `M3U · ${t('dedupe.format.discs', { count: unit.files.length })}`;
+      return `M3U · ${t('dedupe.format.discs', { count: discCount(unit) })}`;
     case 'zip':
     case 'image':
     case 'single':

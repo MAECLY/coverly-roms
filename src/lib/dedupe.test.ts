@@ -497,8 +497,10 @@ describe('formatOf', () => {
   });
 
   it('multi_disc_names_the_playlist_and_its_disc_count', () => {
+    // The core lists the playlist itself first, then its discs.
     const u = unit('/SD/ROMS/PS/FF7.m3u', 'multi-disc', {
       files: [
+        '/SD/ROMS/PS/FF7.m3u',
         '/SD/ROMS/PS/FF7 1.chd',
         '/SD/ROMS/PS/FF7 2.chd',
         '/SD/ROMS/PS/FF7 3.chd',
@@ -506,6 +508,56 @@ describe('formatOf', () => {
     });
     expect(formatOf(u, tr('es'))).toBe('M3U · 3 discos');
     expect(formatOf(u, tr('en'))).toBe('M3U · 3 discs');
+  });
+
+  it('multi_disc_counts_discs_not_the_tracks_of_their_sheets', () => {
+    // A cue/bin playlist: each disc's sheet and its tracks are all files.
+    const cueBin = unit('/SD/ROMS/PS/FF7.m3u', 'multi-disc', {
+      files: [
+        '/SD/ROMS/PS/FF7.m3u',
+        '/SD/ROMS/PS/FF7 (Disc 1).cue',
+        '/SD/ROMS/PS/FF7 (Disc 2).cue',
+        '/SD/ROMS/PS/FF7 (Disc 3).cue',
+        '/SD/ROMS/PS/FF7 (Disc 1).bin',
+        '/SD/ROMS/PS/FF7 (Disc 2).bin',
+        '/SD/ROMS/PS/FF7 (Disc 3).bin',
+      ],
+    });
+    expect(formatOf(cueBin, tr('en'))).toBe('M3U · 3 discs');
+
+    // Multi-track discs, one sheet each, on Windows.
+    const tracks = unit('C:\\Roms\\PS\\Rayman.m3u', 'multi-disc', {
+      files: [
+        'C:\\Roms\\PS\\Rayman.m3u',
+        'C:\\Roms\\PS\\Rayman (Disc 1).cue',
+        'C:\\Roms\\PS\\Rayman (Disc 2).cue',
+        'C:\\Roms\\PS\\Rayman (Disc 1) (Track 1).bin',
+        'C:\\Roms\\PS\\Rayman (Disc 1) (Track 2).bin',
+        'C:\\Roms\\PS\\Rayman (Disc 2) (Track 1).bin',
+      ],
+    });
+    expect(formatOf(tracks, tr('en'))).toBe('M3U · 2 discs');
+
+    // A playlist naming one sheet and one raw track (core test shape).
+    const mixed = unit('/SD/ROMS/PS/Driver 2.m3u', 'multi-disc', {
+      files: [
+        '/SD/ROMS/PS/Driver 2.m3u',
+        '/SD/ROMS/PS/discs/Driver 2 (Disc 1).cue',
+        '/SD/ROMS/PS/Driver 2 (Disc 2).bin',
+        '/SD/ROMS/PS/discs/Driver 2 (Disc 1).bin',
+      ],
+    });
+    expect(formatOf(mixed, tr('en'))).toBe('M3U · 2 discs');
+
+    // Raw images with no disc numbers: one file per disc.
+    const raw = unit('/SD/ROMS/PS/X.m3u', 'multi-disc', {
+      files: [
+        '/SD/ROMS/PS/X.m3u',
+        '/SD/ROMS/PS/X a.img',
+        '/SD/ROMS/PS/X b.img',
+      ],
+    });
+    expect(formatOf(raw, tr('en'))).toBe('M3U · 2 discs');
   });
 });
 
