@@ -56,7 +56,7 @@ interface OrganizeState {
   /** The plan in flight is a refresh (the button shows it is busy). */
   refreshing: boolean;
   /** The plan-read settings when Settings was opened from this screen
-   * (`organizeStamp`); null when not stamped or once a new plan is shown. */
+   * (`organizeStamp`); null when not stamped or once a newer plan starts. */
   settingsStamp: string | null;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
@@ -111,6 +111,9 @@ let shownWith: {
   request: OrganizeRequest;
   decisions: Record<number, OrganizeDecision>;
 } | null = null;
+/** The stamp of the shown plan while a newer dry run is in flight (restored
+ * by cancel or a failure: the shown plan still read those settings). */
+let stampOfShown: string | null = null;
 /** A job of the history being resumed: its events are ours. */
 let ownJob: string | null = null;
 /** Apply/resume event subscription. */
@@ -134,7 +137,17 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     const previous = planning;
     const mine = (seq += 1);
     planning = null;
-    set({ status: 'planning', progress: null, error: null, refreshing });
+    // This dry run reads the settings as they are now, so the stamp of the
+    // shown plan no longer applies. One taken while it runs (Settings opened
+    // mid-scan) is what it read, and stays when it is shown.
+    stampOfShown = get().settingsStamp ?? stampOfShown;
+    set({
+      status: 'planning',
+      progress: null,
+      error: null,
+      refreshing,
+      settingsStamp: null,
+    });
     return { mine, previous };
   }
 
@@ -182,11 +195,8 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
   ) {
     planning = null;
     shownWith = { request, decisions };
+    stampOfShown = null;
     set({
-      // Every plan reads the settings as they are now (scan again, an
-      // option, a decision). A cancelled one keeps the stamp of the plan
-      // still on screen.
-      settingsStamp: null,
       status: 'ready',
       planId: view.plan_id,
       plan: view.plan,
@@ -197,9 +207,17 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     });
   }
 
+  /** Puts back the stamp of the plan still on screen (cancel, failure). */
+  function keepShownStamp() {
+    if (get().settingsStamp === null && stampOfShown !== null)
+      set({ settingsStamp: stampOfShown });
+    stampOfShown = null;
+  }
+
   function failed(e: unknown, mine: number) {
     if (mine !== seq) return;
     planning = null;
+    keepShownStamp();
     set({
       status: 'error',
       error: toBackendError(e),
@@ -412,6 +430,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         // Back to the shown plan with the options it was made with, so an
         // apply cannot run it under options the user no longer sees.
         if (get().plan && shownWith) {
+          keepShownStamp();
           set({
             status: 'ready',
             progress: null,
@@ -474,6 +493,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       applyPlan = null;
       ownJob = null;
       shownWith = null;
+      stampOfShown = null;
       unfollow();
       set(initial);
     },

@@ -271,6 +271,65 @@ describe('Organise screen settings link', () => {
     expect(screen.getByText(ORG_CHANGED)).toBeInTheDocument();
   });
 
+  /** Holds every `organizePlan` call until `release()` runs. */
+  function holdPlans() {
+    const original = backend.organizePlan.bind(backend);
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const spy = vi
+      .spyOn(backend, 'organizePlan')
+      .mockImplementation(async (...args) => {
+        await gate;
+        return original(...args);
+      });
+    return { spy, release: () => open() };
+  }
+
+  async function changeNames() {
+    const names = screen.getByRole('combobox', { name: 'Names' });
+    const other =
+      (names as HTMLSelectElement).value === 'keep' ? 'catalogue' : 'keep';
+    await userEvent.selectOptions(names, other);
+  }
+
+  it('a change made while a scan runs shows the alert once that scan is shown', async () => {
+    const link = await openOrganize();
+    const { spy, release } = holdPlans();
+    await userEvent.click(screen.getByRole('button', { name: 'Scan again' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(useOrganizeStore.getState().status).toBe('planning');
+    // The scan in flight already read the settings: a change now is newer.
+    await toOrganizeSettings(link);
+    await changeNames();
+    await waitFor(() => expect(useSettingsStore.getState().saved).toBe(1));
+    release();
+    await organizeReady();
+    await backToOrganize(1);
+    expect(screen.getByText(ORG_CHANGED)).toBeInTheDocument();
+  });
+
+  it('a cancelled scan keeps the alert of the plan on screen', async () => {
+    const link = await openOrganize();
+    await toOrganizeSettings(link);
+    await changeNames();
+    await backToOrganize(1);
+    const alert = screen
+      .getByText(ORG_CHANGED)
+      .closest<HTMLElement>('[role="status"]');
+    const { spy } = holdPlans();
+    await userEvent.click(
+      within(alert!).getByRole('button', { name: 'Scan again' }),
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.queryByText(ORG_CHANGED)).not.toBeInTheDocument();
+    await useOrganizeStore.getState().cancel();
+    await organizeReady();
+    // The plan on screen still has the old settings.
+    expect(await screen.findByText(ORG_CHANGED)).toBeInTheDocument();
+  });
+
   it('the organise link is disabled while applying', async () => {
     const link = await openOrganize();
     expect(link).toBeEnabled();

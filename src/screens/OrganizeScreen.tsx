@@ -327,7 +327,7 @@ export function OrganizeScreen() {
   const planFailed = status === 'error' && job === null && error !== null;
 
   /** Stamps what the plan falls back to before Settings opens (settings
-   * UI spec §8.6). The first stamp stays until a new plan is shown: a
+   * UI spec §8.6). The first stamp stays until a newer plan starts: a
    * later visit must not take a change the plan on screen never used. */
   const stampSettings = () => {
     const s = useSettingsStore.getState().settings;
