@@ -396,6 +396,13 @@ fn resume_reports_adopted_entries_in_the_count() {
     assert!(seen.iter().all(|&(_, t)| t == 12), "{seen:?}");
     assert_eq!(seen.last().unwrap().0, 12, "{seen:?}");
     assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "{seen:?}");
+    // The closing event always says 12; phase A itself must reach 12 too
+    // (the all-staged edge), which it only does if the six adopted finals
+    // count.
+    assert!(
+        seen[..seen.len() - 1].iter().any(|&(d, _)| d == 12),
+        "adopted entries not counted in phase A: {seen:?}"
+    );
 }
 
 #[test]
