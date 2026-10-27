@@ -14,14 +14,22 @@ import {
 import type { TranslateVars } from '@/i18n/core';
 import {
   RELATIONS,
+  type ArtSeenView,
   type DedupeLevel,
+  type DedupeOutcomeView,
   type DedupePlanView,
   type DedupeViewOptions,
   type DupGroupView,
   type KeepReasonView,
+  type MediaView,
+  type MemberFactsView,
   type MemberView,
+  type ModClassView,
+  type RegionId,
   type RelationView,
   type ReportWhyView,
+  type TagSourceView,
+  type UnitRefView,
 } from '@/ipc/dedupeTypes';
 
 export { formatSize as formatBytes } from './format';
@@ -371,4 +379,277 @@ export function unchangedItems(
       out.push({ group: g, why: g.action.why });
   }
   return out;
+}
+
+/* ---- Copy facts (spec D3, D5–D8, D11; plan DP-4) --------------------- */
+
+/** Short, untranslated region codes (spec D3): a label-maker readout. */
+export const REGION_CODES: Record<RegionId, string> = {
+  world: 'WLD',
+  usa: 'USA',
+  europe: 'EUR',
+  japan: 'JPN',
+  asia: 'ASI',
+  australia: 'AUS',
+  brazil: 'BRA',
+  canada: 'CAN',
+  china: 'CHN',
+  france: 'FRA',
+  germany: 'GER',
+  'hong-kong': 'HKG',
+  italy: 'ITA',
+  korea: 'KOR',
+  netherlands: 'NLD',
+  spain: 'ESP',
+  sweden: 'SWE',
+  taiwan: 'TWN',
+  'united-kingdom': 'UK',
+};
+
+export const regionCode = (r: RegionId): string => REGION_CODES[r];
+
+/** Uppercased extension of a path's file name (`''` without one). */
+function extOf(path: string): string {
+  const name = fileName(path);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot + 1).toUpperCase() : '';
+}
+
+/** `ZIP`, `7Z`, `CUE/BIN`, `GDI`, `CCD/IMG`, `CHD`, `PBP`, `ISO`, `M3U`, `GB`… (spec D8). */
+export function formatOf(unit: UnitRefView, t: Translate): string {
+  const ext = extOf(unit.primary);
+  switch (unit.kind) {
+    case 'arcade':
+      return `${ext} (${t('dedupe.format.arcade')})`;
+    case 'disc-set':
+      return ext === 'GDI' ? 'GDI' : ext === 'CCD' ? 'CCD/IMG' : 'CUE/BIN';
+    case 'chd':
+      return 'CHD';
+    case 'multi-disc':
+      return `M3U · ${t('dedupe.format.discs', { count: unit.files.length })}`;
+    case 'zip':
+    case 'image':
+    case 'single':
+      return ext;
+  }
+}
+
+/** A unit's modification date: the newest file of a set (spec D9). */
+export const newestMtime = (u: UnitRefView): number =>
+  Math.max(u.mtime_ns, ...(u.mtimes_ns ?? []));
+
+export type TagTone = 'neutral' | 'danger' | 'warning';
+
+export interface TagChip {
+  key: string;
+  /** What the chip shows (a code, a short word). */
+  text: string;
+  /** Visually hidden full text for screen readers (spec D3, R14). */
+  hidden?: string;
+  tone: TagTone;
+  /** Which name it was read from; the chip's tooltip says so. */
+  from?: TagSourceView;
+  /** Hover text beyond the source (region names, the overflow's rest). */
+  title?: string;
+}
+
+const SHOWN_REGIONS = 3;
+const SHOWN_OTHER = 2;
+
+const MOD_TONE: Record<Exclude<ModClassView, 'original'>, TagTone> = {
+  hack: 'warning',
+  translation: 'warning',
+  trainer: 'warning',
+  pirate: 'warning',
+  fixed: 'neutral',
+  unlicensed: 'neutral',
+};
+
+/** `{ from }` only when the source is known (exact optional properties). */
+const src = (from: TagSourceView | undefined): { from?: TagSourceView } =>
+  from ? { from } : {};
+
+const FLAG_KEYS = ['verified', 'bad', 'overdump', 'alternate'] as const;
+
+/** Language names in the app locale; the code itself when unknown. */
+function languageNames(codes: string[], locale: string): string[] {
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames([locale], { type: 'language' });
+  } catch {
+    names = null;
+  }
+  return codes.map((c) => {
+    try {
+      return names?.of(c) ?? c.toUpperCase();
+    } catch {
+      return c.toUpperCase();
+    }
+  });
+}
+
+/**
+ * Chips in display order: regions (first 3, then "+n" with the rest in
+ * `title`), revision, languages (one chip, codes uppercased, names in
+ * `hidden`), class, flags ([b] danger, others neutral), modification
+ * (hack/translation/trainer/pirate warning, fixed/unlicensed neutral),
+ * other (first 2, then "+n").
+ */
+export function tagChips(
+  f: MemberFactsView | undefined,
+  t: Translate,
+  locale: string,
+): TagChip[] {
+  if (!f) return [];
+  const out: TagChip[] = [];
+  const from = src(f.tags_from);
+  const more = (key: string, rest: string[]): TagChip => ({
+    key,
+    text: t('dedupe.tags.more', { count: rest.length }),
+    hidden: rest.join(', '),
+    tone: 'neutral',
+    ...from,
+    title: rest.join(', '),
+  });
+
+  const regions = f.regions ?? [];
+  for (const r of regions.slice(0, SHOWN_REGIONS)) {
+    const name = t(`regions.${r}`);
+    out.push({
+      key: `region:${r}`,
+      text: regionCode(r),
+      hidden: name,
+      tone: 'neutral',
+      ...from,
+      title: name,
+    });
+  }
+  if (regions.length > SHOWN_REGIONS)
+    out.push(
+      more(
+        'region:more',
+        regions.slice(SHOWN_REGIONS).map((r) => t(`regions.${r}`)),
+      ),
+    );
+
+  if (f.revision)
+    out.push({ key: 'revision', text: f.revision, tone: 'neutral', ...from });
+
+  if (f.languages?.length) {
+    const list = languageNames(f.languages, locale).join(', ');
+    const label = t('dedupe.tags.languages', { list });
+    out.push({
+      key: 'languages',
+      text: f.languages.map((l) => l.toUpperCase()).join(' '),
+      hidden: label,
+      tone: 'neutral',
+      ...from,
+      title: label,
+    });
+  }
+
+  if (f.class && f.class !== 'retail')
+    out.push({
+      key: `class:${f.class}`,
+      text: t(`dedupe.tags.class.${f.class}`),
+      tone: 'neutral',
+      ...from,
+    });
+
+  if (f.flags)
+    for (const flag of FLAG_KEYS)
+      if (f.flags[flag])
+        out.push({
+          key: `flag:${flag}`,
+          text: t(`dedupe.tags.${flag}`),
+          tone: flag === 'bad' ? 'danger' : 'neutral',
+          ...src(f.flags_from),
+        });
+
+  if (f.modification && f.modification !== 'original')
+    out.push({
+      key: `mod:${f.modification}`,
+      text: t(`dedupe.tags.${f.modification}`),
+      tone: MOD_TONE[f.modification],
+      ...src(f.modification_from),
+    });
+
+  const other = f.other ?? [];
+  for (const [i, o] of other.slice(0, SHOWN_OTHER).entries())
+    out.push({ key: `other:${i}`, text: o, tone: 'neutral', ...from });
+  if (other.length > SHOWN_OTHER)
+    out.push(more('other:more', other.slice(SHOWN_OTHER)));
+
+  return out;
+}
+
+const RULE_KEYS: Record<KeepReasonView['kind'], string> = {
+  'user-choice': 'dedupe.rule.userChoice',
+  'has-save': 'dedupe.rule.hasSave',
+  played: 'dedupe.rule.played',
+  'in-library': 'dedupe.rule.inLibrary',
+  verified: 'dedupe.rule.verified',
+  retail: 'dedupe.rule.retail',
+  region: 'dedupe.rule.region',
+  revision: 'dedupe.rule.revision',
+  container: 'dedupe.rule.container',
+  'has-cover': 'dedupe.rule.hasCover',
+  'catalogue-name': 'dedupe.rule.catalogueName',
+  tie: 'dedupe.rule.tie',
+};
+
+/** Rule chip key for the keeper (spec D11); `user-choice` when the user picked. */
+export const ruleKey = (reason: KeepReasonView['kind']): string =>
+  RULE_KEYS[reason];
+
+/**
+ * Where the copy is now (DP-4): primary before apply and after undo, the
+ * quarantine `to` once moved, null after a Trash apply.
+ */
+export function currentPath(
+  m: MemberView,
+  group: number,
+  outcomes: DedupeOutcomeView[] | null,
+): string | null {
+  const o = outcomes?.find((x) => x.group === group && x.member === m.id);
+  if (o?.status === 'quarantined') return o.to;
+  if (o?.status === 'trashed') return null;
+  return m.unit.primary;
+}
+
+/** Cover first, then the title screen, then a screenshot (spec D5). */
+const COVER_ORDER: readonly MediaView[] = ['cover', 'title', 'screenshot'];
+
+const hasMedia = (m: MemberView | undefined, media: MediaView) =>
+  m?.facts?.art?.some((a) => a.media === media) ?? false;
+
+/** The media to show as the group cover (spec D5) and its caption key. */
+export function coverMedia(g: DupGroupView): {
+  media: MediaView;
+  caption: string | null;
+} {
+  const keeper = g.members.find((m) => m.id === g.keeper);
+  const pick =
+    COVER_ORDER.find((media) => hasMedia(keeper, media)) ??
+    COVER_ORDER.find((media) => g.members.some((m) => hasMedia(m, media)));
+  if (!pick) return { media: 'cover', caption: null };
+  return {
+    media: pick,
+    caption: pick === 'cover' ? null : `dedupe.cover.media.${pick}`,
+  };
+}
+
+/** A copy shows its own thumbnail when its art in `media` differs from the cover's (D6, D7). */
+export function ownArtDiffers(
+  m: MemberView,
+  cover: ArtSeenView | null,
+  media: MediaView,
+): boolean {
+  const own = m.facts?.art?.find((a) => a.media === media);
+  if (!own) return false;
+  if (!cover) return true;
+  return !(
+    own.path === cover.path ||
+    (own.media === cover.media && own.size === cover.size)
+  );
 }

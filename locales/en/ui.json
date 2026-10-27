@@ -675,7 +675,56 @@
     "undone": "Put back {count} files.",
     "undoneOne": "Put back 1 file.",
     "resume": "Resume",
-    "paused": "Stopped: {reason}. The rest can resume."
+    "paused": "Stopped: {reason}. The rest can resume.",
+    "format": {
+      "arcade": "arcade",
+      "discs": "{count} discs"
+    },
+    "tags": {
+      "from": {
+        "catalogue": "From the catalogue name",
+        "fileName": "From the file name"
+      },
+      "verified": "Verified [!]",
+      "bad": "Bad dump [b]",
+      "overdump": "Overdump [o]",
+      "alternate": "Alternate [a]",
+      "hack": "Hack",
+      "translation": "Translation",
+      "trainer": "Trainer",
+      "fixed": "Fixed",
+      "pirate": "Pirate",
+      "unlicensed": "Unlicensed",
+      "class": {
+        "beta": "Beta",
+        "proto": "Prototype",
+        "demo": "Demo",
+        "sample": "Sample"
+      },
+      "languages": "Languages: {list}",
+      "more": "+{count}"
+    },
+    "rule": {
+      "userChoice": "Your pick",
+      "hasSave": "Save",
+      "played": "Played",
+      "inLibrary": "Already in library",
+      "verified": "Verified",
+      "retail": "Retail",
+      "region": "Region",
+      "revision": "Revision",
+      "container": "Format",
+      "hasCover": "Cover",
+      "catalogueName": "Catalogue name",
+      "tie": "Tie",
+      "runnerUp": "Otherwise {name} would win on {rule}"
+    },
+    "cover": {
+      "media": {
+        "title": "Title screen",
+        "screenshot": "Screenshot"
+      }
+    }
   },
   "toolbar": {
     "search": "Search by name",

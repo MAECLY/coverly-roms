@@ -675,7 +675,56 @@
     "undone": "{count} archivos devueltos a su sitio.",
     "undoneOne": "1 archivo devuelto a su sitio.",
     "resume": "Continuar",
-    "paused": "Se ha parado: {reason}. Lo que falta puede continuar."
+    "paused": "Se ha parado: {reason}. Lo que falta puede continuar.",
+    "format": {
+      "arcade": "arcade",
+      "discs": "{count} discos"
+    },
+    "tags": {
+      "from": {
+        "catalogue": "Del nombre del catálogo",
+        "fileName": "Del nombre del archivo"
+      },
+      "verified": "Verificada [!]",
+      "bad": "Volcado malo [b]",
+      "overdump": "Sobrevolcado [o]",
+      "alternate": "Alternativa [a]",
+      "hack": "Hack",
+      "translation": "Traducción",
+      "trainer": "Trainer",
+      "fixed": "Corregida",
+      "pirate": "Pirata",
+      "unlicensed": "Sin licencia",
+      "class": {
+        "beta": "Beta",
+        "proto": "Prototipo",
+        "demo": "Demo",
+        "sample": "Muestra"
+      },
+      "languages": "Idiomas: {list}",
+      "more": "+{count}"
+    },
+    "rule": {
+      "userChoice": "Tu elección",
+      "hasSave": "Partida",
+      "played": "Jugada",
+      "inLibrary": "Ya en la biblioteca",
+      "verified": "Verificada",
+      "retail": "Comercial",
+      "region": "Región",
+      "revision": "Revisión",
+      "container": "Formato",
+      "hasCover": "Portada",
+      "catalogueName": "Nombre del catálogo",
+      "tie": "Empate",
+      "runnerUp": "Si no, ganaría {name} por {rule}"
+    },
+    "cover": {
+      "media": {
+        "title": "Pantalla de título",
+        "screenshot": "Captura"
+      }
+    }
   },
   "toolbar": {
     "search": "Buscar por nombre",

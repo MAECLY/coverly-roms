@@ -1,32 +1,48 @@
 import { CircleHelp, Copy, Disc3, History } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 
+import en from '../../locales/en/ui.json';
+import es from '../../locales/es/ui.json';
 import { translate, type Locale, type TranslateVars } from '@/i18n/core';
 import {
   DUMP_QUALITIES,
   KEEP_REASON_KINDS,
   RELEASE_CLASSES,
   REPORT_WHY_KINDS,
+  type DedupeOutcomeView,
   type DupGroupView,
+  type MemberFactsView,
+  type MemberView,
+  type RegionId,
   type ReportWhyView,
   type KeepReasonView,
+  type UnitKindView,
+  type UnitRefView,
 } from '@/ipc/dedupeTypes';
 import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 
 import {
   badgeRelation,
+  coverMedia,
+  currentPath,
   deltaFor,
   destLabel,
   destOf,
   extrasFor,
   formatBytes,
+  formatOf,
   levelCounts,
+  newestMtime,
+  ownArtDiffers,
   reasonText,
+  regionCode,
   reportWhyText,
   relationMeta,
+  ruleKey,
   sortGroups,
   systemStartsOpen,
   systemSummary,
+  tagChips,
   weakestExtra,
 } from './dedupe';
 
@@ -369,5 +385,337 @@ describe('report-only and per-level counts', () => {
       s.map((x) => [x.system, systemStartsOpen(x)]),
     );
     expect(open).toEqual({ GB: true, GBA: false, PS: true, SMS: true });
+  });
+});
+
+/* ---- Copy facts helpers (Task 11) ------------------------------------ */
+
+function unit(
+  primary: string,
+  kind: UnitKindView = 'single',
+  extra: Partial<UnitRefView> = {},
+): UnitRefView {
+  return {
+    primary,
+    files: [primary],
+    kind,
+    mtime_ns: 1_700_000_000_000_000_000,
+    in_library: true,
+    ...extra,
+  };
+}
+
+function member(
+  id: number,
+  primary: string,
+  facts?: MemberFactsView,
+): MemberView {
+  return {
+    id,
+    unit: unit(primary),
+    relation: 'exact',
+    size: 1024,
+    travels: [],
+    stays: [],
+    dest: null,
+    catalogue_name: null,
+    serials: [],
+    confidence: 1,
+    ...(facts ? { facts } : {}),
+  };
+}
+
+function group(
+  members: MemberView[],
+  keeper = members[0]?.id ?? 0,
+): DupGroupView {
+  return {
+    id: 7,
+    system: 'GB',
+    title: 'Tetris',
+    keeper,
+    reason: { kind: 'tie' },
+    runner_up: null,
+    members,
+    action: { kind: 'act' },
+    tie: false,
+    choice_dropped: false,
+  };
+}
+
+const ALL_REGIONS: readonly RegionId[] = [
+  'world',
+  'usa',
+  'europe',
+  'japan',
+  'asia',
+  'australia',
+  'brazil',
+  'canada',
+  'china',
+  'france',
+  'germany',
+  'hong-kong',
+  'italy',
+  'korea',
+  'netherlands',
+  'spain',
+  'sweden',
+  'taiwan',
+  'united-kingdom',
+];
+
+function has(catalog: object, key: string): boolean {
+  let node: unknown = catalog;
+  for (const part of key.split('.')) {
+    if (typeof node !== 'object' || node === null) return false;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return typeof node === 'string' && node.length > 0;
+}
+
+describe('formatOf', () => {
+  const t = tr('es');
+  it.each([
+    ['/SD/ROMS/GB/Tetris.zip', 'zip', 'ZIP'],
+    ['/SD/ROMS/GB/Tetris.7z', 'zip', '7Z'],
+    ['/SD/ROMS/GB/Tetris.rar', 'zip', 'RAR'],
+    ['/SD/ROMS/ARCADE/sf2.zip', 'arcade', 'ZIP (arcade)'],
+    ['/SD/ROMS/ARCADE/sf2.7z', 'arcade', '7Z (arcade)'],
+    ['/SD/ROMS/PS/Crash.cue', 'disc-set', 'CUE/BIN'],
+    ['/SD/ROMS/DC/Crazy Taxi.gdi', 'disc-set', 'GDI'],
+    ['/SD/ROMS/PS/Crash.ccd', 'disc-set', 'CCD/IMG'],
+    ['/SD/ROMS/PS/Crash.chd', 'chd', 'CHD'],
+    ['/SD/ROMS/PS/Crash.pbp', 'image', 'PBP'],
+    ['/SD/ROMS/PS2/Ico.iso', 'image', 'ISO'],
+    ['/SD/ROMS/PSP/Loco.cso', 'image', 'CSO'],
+    ['/SD/ROMS/GC/Melee.rvz', 'image', 'RVZ'],
+    ['/SD/ROMS/GB/Tetris.gb', 'single', 'GB'],
+    ['C:\\Roms\\PS\\Crash.pbp', 'image', 'PBP'],
+  ] as const)('%s (%s) → %s', (primary, kind, want) => {
+    expect(formatOf(unit(primary, kind), t)).toBe(want);
+  });
+
+  it('multi_disc_names_the_playlist_and_its_disc_count', () => {
+    const u = unit('/SD/ROMS/PS/FF7.m3u', 'multi-disc', {
+      files: [
+        '/SD/ROMS/PS/FF7 1.chd',
+        '/SD/ROMS/PS/FF7 2.chd',
+        '/SD/ROMS/PS/FF7 3.chd',
+      ],
+    });
+    expect(formatOf(u, tr('es'))).toBe('M3U · 3 discos');
+    expect(formatOf(u, tr('en'))).toBe('M3U · 3 discs');
+  });
+});
+
+describe('regionCode', () => {
+  it('every_region_has_a_short_uppercase_code', () => {
+    expect(ALL_REGIONS).toHaveLength(19);
+    const codes = ALL_REGIONS.map(regionCode);
+    for (const [i, code] of codes.entries())
+      expect(code, ALL_REGIONS[i]).toMatch(/^[A-Z]{2,3}$/);
+    expect(new Set(codes).size).toBe(19);
+    expect(regionCode('europe')).toBe('EUR');
+    expect(regionCode('united-kingdom')).toBe('UK');
+  });
+});
+
+describe('ruleKey', () => {
+  it('every_keep_reason_has_a_rule_chip_in_both_locales', () => {
+    for (const kind of KEEP_REASON_KINDS) {
+      const key = ruleKey(kind);
+      expect(key, kind).toMatch(/^dedupe\.rule\./);
+      expect(has(es, key), `es ${key}`).toBe(true);
+      expect(has(en, key), `en ${key}`).toBe(true);
+    }
+    expect(ruleKey('user-choice')).toBe('dedupe.rule.userChoice');
+    expect(ruleKey('catalogue-name')).toBe('dedupe.rule.catalogueName');
+    expect(translate('es', ruleKey('container'))).toBe('Formato');
+    expect(has(es, 'dedupe.rule.runnerUp')).toBe(true);
+  });
+});
+
+describe('newestMtime', () => {
+  it('takes_the_newest_file_of_a_set', () => {
+    expect(newestMtime(unit('/a.gb'))).toBe(1_700_000_000_000_000_000);
+    expect(
+      newestMtime(
+        unit('/a.cue', 'disc-set', { mtime_ns: 5, mtimes_ns: [5, 9, 7] }),
+      ),
+    ).toBe(9);
+  });
+});
+
+describe('currentPath', () => {
+  const m = member(2, '/SD/ROMS/GB/Tetris (Japan).gb');
+  const out = (
+    status: DedupeOutcomeView['status'],
+    member = 2,
+  ): DedupeOutcomeView =>
+    status === 'quarantined'
+      ? {
+          status,
+          to: '/SD/_Duplicados/GB/Tetris (Japan).gb',
+          group: 7,
+          member,
+          files: [],
+        }
+      : { status: 'trashed', location: null, group: 7, member, files: [] };
+
+  it('is_the_primary_before_apply_and_after_undo', () => {
+    expect(currentPath(m, 7, null)).toBe(m.unit.primary);
+  });
+  it('is_the_quarantine_once_moved', () => {
+    expect(currentPath(m, 7, [out('quarantined')])).toBe(
+      '/SD/_Duplicados/GB/Tetris (Japan).gb',
+    );
+  });
+  it('is_nothing_after_a_trash_apply', () => {
+    expect(currentPath(m, 7, [out('trashed')])).toBeNull();
+  });
+  it('keeper_without_outcome_stays_at_its_primary', () => {
+    expect(currentPath(m, 7, [out('quarantined', 3)])).toBe(m.unit.primary);
+    expect(currentPath(m, 8, [out('quarantined')])).toBe(m.unit.primary);
+  });
+});
+
+describe('tagChips', () => {
+  const t = tr('es');
+  it('undefined_facts_have_no_chips', () => {
+    expect(tagChips(undefined, t, 'es')).toEqual([]);
+    expect(tagChips({}, t, 'es')).toEqual([]);
+  });
+
+  it('five_regions_show_three_and_an_overflow_with_the_rest', () => {
+    const chips = tagChips(
+      {
+        tags_from: 'catalogue',
+        regions: ['usa', 'europe', 'japan', 'brazil', 'korea'],
+      },
+      t,
+      'es',
+    );
+    expect(chips.map((c) => c.text)).toEqual(['USA', 'EUR', 'JPN', '+2']);
+    expect(chips[1]?.hidden).toBe('Europa');
+    expect(chips[3]?.title).toContain('Brasil');
+    expect(chips[3]?.title).toContain('Corea');
+    expect(chips[0]?.from).toBe('catalogue');
+  });
+
+  it('a_bad_dump_is_danger_and_a_translation_is_a_warning', () => {
+    const chips = tagChips(
+      {
+        flags: {
+          verified: false,
+          bad: true,
+          overdump: false,
+          alternate: false,
+        },
+        flags_from: 'file-name',
+        modification: 'translation',
+        modification_from: 'file-name',
+      },
+      t,
+      'es',
+    );
+    const bad = chips.find((c) => c.text === 'Volcado malo [b]');
+    expect(bad?.tone).toBe('danger');
+    const tr8 = chips.find((c) => c.text === 'Traducción');
+    expect(tr8?.tone).toBe('warning');
+    expect(tr8?.from).toBe('file-name');
+  });
+
+  it('languages_are_one_chip_with_their_names_hidden', () => {
+    const chips = tagChips({ languages: ['en', 'fr', 'de'] }, tr('en'), 'en');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]?.text).toBe('EN FR DE');
+    expect(chips[0]?.hidden).toContain('English');
+    expect(chips[0]?.hidden).toContain('French');
+  });
+
+  it('keeps_display_order_revision_class_other', () => {
+    const chips = tagChips(
+      {
+        tags_from: 'file-name',
+        regions: ['world'],
+        revision: 'Rev 1',
+        class: 'proto',
+        modification: 'fixed',
+        other: ['Virtual Console', 'Switch Online', 'Collection'],
+      },
+      t,
+      'es',
+    );
+    expect(chips.map((c) => c.text)).toEqual([
+      'WLD',
+      'Rev 1',
+      'Prototipo',
+      'Corregida',
+      'Virtual Console',
+      'Switch Online',
+      '+1',
+    ]);
+    expect(chips.find((c) => c.text === 'Corregida')?.tone).toBe('neutral');
+    expect(chips.at(-1)?.title).toBe('Collection');
+  });
+});
+
+describe('coverMedia', () => {
+  it('uses_the_keepers_title_when_that_is_all_it_has', () => {
+    const g = group([
+      member(1, '/a.gb', {
+        art: [{ media: 'title', path: '/Imgs/a-title.png', size: 10 }],
+      }),
+      member(2, '/b.gb'),
+    ]);
+    expect(coverMedia(g)).toEqual({
+      media: 'title',
+      caption: 'dedupe.cover.media.title',
+    });
+  });
+  it('falls_back_to_another_copys_cover', () => {
+    const g = group([
+      member(1, '/a.gb'),
+      member(2, '/b.gb', {
+        art: [{ media: 'screenshot', path: '/Imgs/b.png', size: 10 }],
+      }),
+    ]);
+    expect(coverMedia(g)).toEqual({
+      media: 'screenshot',
+      caption: 'dedupe.cover.media.screenshot',
+    });
+  });
+  it('asks_for_a_cover_with_no_art_anywhere', () => {
+    expect(coverMedia(group([member(1, '/a.gb'), member(2, '/b.gb')]))).toEqual(
+      { media: 'cover', caption: null },
+    );
+  });
+});
+
+describe('ownArtDiffers', () => {
+  const cover = { media: 'cover' as const, path: '/Imgs/a.png', size: 12_288 };
+  const withArt = (path: string, size: number) =>
+    member(2, '/b.gb', { art: [{ media: 'cover', path, size }] });
+  it('same_path_is_the_same_image', () => {
+    expect(ownArtDiffers(withArt('/Imgs/a.png', 1), cover, 'cover')).toBe(
+      false,
+    );
+  });
+  it('same_media_and_size_is_the_same_image', () => {
+    expect(ownArtDiffers(withArt('/Imgs/b.png', 12_288), cover, 'cover')).toBe(
+      false,
+    );
+  });
+  it('a_different_size_is_its_own_art', () => {
+    expect(ownArtDiffers(withArt('/Imgs/b.png', 9_001), cover, 'cover')).toBe(
+      true,
+    );
+  });
+  it('no_art_in_that_media_shows_nothing', () => {
+    expect(ownArtDiffers(member(2, '/b.gb'), cover, 'cover')).toBe(false);
+    expect(ownArtDiffers(withArt('/Imgs/b.png', 9_001), cover, 'title')).toBe(
+      false,
+    );
   });
 });
