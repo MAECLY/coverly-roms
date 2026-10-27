@@ -8,6 +8,17 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+
+- Windows on ARM64 builds of the app and the command line.
+
+### Changed
+
+- Release files are named by system and processor
+  (`Coverly-ROMs_<version>_mac_arm.dmg`, `coverly_<version>_linux_x64`, …);
+  macOS ships one download per chip instead of a universal one. Installed
+  copies keep updating.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
