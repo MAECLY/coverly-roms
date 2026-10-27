@@ -184,10 +184,13 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
     useNavStore.getState().closeDuplicates();
   };
 
-  /** Stamps what the plan reads before Settings opens (spec §8.6). */
+  /** Stamps what the plan reads before Settings opens (spec §8.6). The
+   * first stamp stays until a new plan clears it: a later visit must not
+   * take a change the plan on screen has not used as its baseline. */
   const stampSettings = () => {
     const s = useSettingsStore.getState().settings;
-    if (s) useDedupeStore.setState({ settingsStamp: dedupeStamp(s) });
+    if (s && useDedupeStore.getState().settingsStamp === null)
+      useDedupeStore.setState({ settingsStamp: dedupeStamp(s) });
   };
   const settingsChanged =
     canReplan &&

@@ -108,6 +108,28 @@ describe('Duplicates screen settings link', () => {
     expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
   });
 
+  it('keeps the alert after a second visit to Settings with no change', async () => {
+    const link = await openDuplicates();
+    await toSettings(link);
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Advanced options/ }),
+    );
+    const rules = screen.getByRole('list', { name: 'Which copy stays' });
+    const [down] = within(rules).getAllByRole('button', {
+      name: /^Move .* down$/,
+    });
+    await userEvent.click(down!);
+    await back(1);
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+    // The plan on screen still reads the old order: opening Settings again
+    // must not take the changed order as the new baseline.
+    await toSettings(
+      screen.getByRole('button', { name: 'Duplicates settings' }),
+    );
+    await back(1);
+    expect(screen.getByText(CHANGED)).toBeInTheDocument();
+  });
+
   it('a changed default action shows no alert', async () => {
     const link = await openDuplicates();
     await toSettings(link);
