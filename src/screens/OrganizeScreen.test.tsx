@@ -527,7 +527,10 @@ describe('OrganizeScreen', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancelling…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     expect(screen.getByRole('status')).toHaveTextContent(
       `Cancelling: undoing what was extracted of ${game.sources[0]!}…`,
     );

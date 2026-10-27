@@ -191,7 +191,7 @@ describe('ApplyProgress cancelling', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     const button = screen.getByRole('button', { name: 'Cancelando…' });
-    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('status')).toHaveTextContent(
       'Cancelando: se deshace lo extraído de Next Tetris, The.zip…',
     );
@@ -213,12 +213,29 @@ describe('ApplyProgress cancelling', () => {
     );
   });
 
+  it('keeps keyboard focus on the button while cancelling', async () => {
+    const onCancel = vi.fn(() => new Promise<boolean>(() => undefined));
+    renderProgress(extract(), PLAN, onCancel);
+    const button = screen.getByRole('button', { name: 'Cancelar' });
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    const busy = screen.getByRole('button', { name: 'Cancelando…' });
+    expect(busy).toHaveFocus();
+    expect(busy).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.keyboard('{Enter}');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it('stays cancelling once the request went through', async () => {
     const onCancel = vi.fn(() => Promise.resolve(true));
     renderProgress(extract(), PLAN, onCancel);
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     await act(async () => {});
-    expect(screen.getByRole('button', { name: 'Cancelando…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancelando…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 });
 

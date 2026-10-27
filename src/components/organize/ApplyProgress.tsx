@@ -204,9 +204,13 @@ export function ApplyProgress({
       <Button
         variant="ghost"
         size="sm"
-        disabled={cancelling}
+        // aria-disabled, not disabled: a disabled button drops keyboard
+        // focus to the page for as long as the undo takes.
+        aria-disabled={cancelling || undefined}
+        className="aria-disabled:text-cr-text-disabled aria-disabled:hover:bg-transparent"
         {...(showNote ? { 'aria-describedby': noteId } : {})}
         onClick={() => {
+          if (cancelling) return;
           setCancelling(true);
           void Promise.resolve(onCancel()).then(
             (sent) => {
