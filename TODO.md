@@ -43,11 +43,11 @@ Hoy los archivos se llaman como los genera Tauri (`Coverly.ROMs_0.2.0_universal.
 
 Ejemplos: `Coverly-ROMs_0.3.0_mac_arm.dmg`, `Coverly-ROMs_0.3.0_windows_x64-setup.exe`, `Coverly-ROMs_0.3.0_linux_arm.AppImage`, `coverly_0.3.0_linux_x64`.
 
-- [ ] Decidir `_mac_arm` o `_mac_silicon`, y si se mantiene además el `.dmg` universal (un solo archivo para los dos Mac) o se cambia por dos builds separados, más pequeños. Si se separan, el job `app` de macOS pasa a dos (`aarch64-apple-darwin` y `x86_64-apple-darwin`).
-- [ ] Renombrar en el paso de staging de `release.yml` (`release_tools.py stage-builds`), no en Tauri, para no tocar los nombres que espera el updater por dentro.
-- [ ] Actualizar `latest.json` (las URLs de cada plataforma), `SHA256SUMS`, `.github/release-notes.md` (tabla de descargas en/es), `RELEASING.md` §5 (lista de archivos a revisar), README en/es y la landing (`site/assets/release.js` elige el archivo según el sistema del visitante).
-- [ ] Compatibilidad: las versiones ya instaladas leen `latest.json` por clave de plataforma (`darwin-aarch64`, `windows-x86_64`…), no por nombre de archivo, así que el cambio de nombres no rompe las actualizaciones. Comprobarlo con una actualización real de 0.2.0 a la siguiente.
-- [ ] **Windows ARM64**: añadir el build `aarch64-pc-windows-msvc` de la app (NSIS y MSI) y de la CLI en el runner `windows-11-arm` (gratis en repositorios públicos), su entrada `windows-aarch64` en `latest.json` y en las notas, y probar que WebView2 y el instalador funcionan en ARM.
+- [x] Decidir `_mac_arm` o `_mac_silicon`, y si se mantiene además el `.dmg` universal (un solo archivo para los dos Mac) o se cambia por dos builds separados, más pequeños. Si se separan, el job `app` de macOS pasa a dos (`aarch64-apple-darwin` y `x86_64-apple-darwin`). Hecho en PR #29: `_mac_arm` y dos builds separados, sin `.dmg` universal.
+- [x] Renombrar en el paso de staging de `release.yml` (`release_tools.py stage-builds`), no en Tauri, para no tocar los nombres que espera el updater por dentro.
+- [x] Actualizar `latest.json` (las URLs de cada plataforma), `SHA256SUMS`, `.github/release-notes.md` (tabla de descargas en/es), `RELEASING.md` §5 (lista de archivos a revisar), README en/es y la landing (`site/assets/release.js` elige el archivo según el sistema del visitante).
+- [ ] Compatibilidad: las versiones ya instaladas leen `latest.json` por clave de plataforma (`darwin-aarch64`, `windows-x86_64`…), no por nombre de archivo, así que el cambio de nombres no rompe las actualizaciones. Comprobarlo con una actualización real de 0.2.0 a la siguiente. PR #29 lo prueba con tests del manifiesto (las claves no cambian); falta la actualización real tras la próxima release.
+- [ ] **Windows ARM64**: añadir el build `aarch64-pc-windows-msvc` de la app (NSIS y MSI) y de la CLI en el runner `windows-11-arm` (gratis en repositorios públicos), su entrada `windows-aarch64` en `latest.json` y en las notas, y probar que WebView2 y el instalador funcionan en ARM. Build, entrada y notas hechos en PR #29; falta probar el instalador y WebView2 en un Windows 11 ARM real tras la próxima release.
 
 ## 1. Mejora de la interfaz de «Organizar por sistema»
 
