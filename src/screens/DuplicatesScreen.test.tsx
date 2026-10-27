@@ -311,6 +311,19 @@ describe('DuplicatesScreen', () => {
     await waitFor(() => expect(b.revealedPaths).toEqual([keeper.unit.primary]));
   });
 
+  it('a refused reveal says the file is outside the library, not an image', async () => {
+    renderScreen();
+    await ready();
+    vi.spyOn(b, 'revealPath').mockRejectedValueOnce(
+      new BackendError('outside-library', '/etc/passwd'),
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Mostrar Ecco the Dolphin\.sms en/ }),
+    );
+    const banner = await screen.findByText(/fuera de la biblioteca/);
+    expect(banner.textContent).not.toMatch(/imagen/i);
+  });
+
   it('undo from the result puts the files back', async () => {
     renderScreen();
     await ready();

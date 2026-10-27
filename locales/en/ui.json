@@ -414,7 +414,7 @@
     "superseded": "Another library was opened meanwhile.",
     "unknown-entry": "This ROM is no longer in the library.",
     "art-missing": "There is no image for this ROM.",
-    "outside-library": "This image is outside the library and was not opened.",
+    "outside-library": "This file is outside the library and was not opened.",
     "art-too-large": "This image is too large to show.",
     "io": "Something went wrong: {detail}",
     "settings": "The settings could not be saved: {detail}",

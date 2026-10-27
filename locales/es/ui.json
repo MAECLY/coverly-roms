@@ -414,7 +414,7 @@
     "superseded": "Mientras tanto se abrió otra biblioteca.",
     "unknown-entry": "Esta ROM ya no está en la biblioteca.",
     "art-missing": "No hay imagen para esta ROM.",
-    "outside-library": "Esta imagen está fuera de la biblioteca y no se ha abierto.",
+    "outside-library": "Este archivo está fuera de la biblioteca y no se ha abierto.",
     "art-too-large": "Esta imagen es demasiado grande para mostrarla.",
     "io": "Algo ha fallado: {detail}",
     "settings": "No se han podido guardar los ajustes: {detail}",
