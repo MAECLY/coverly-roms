@@ -20,15 +20,35 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'library',
   'organize',
   'duplicates',
+  'profiles',
   'art',
   'matching',
   'sources',
   'network',
   'safety',
   'advanced',
-  'profiles',
   'about',
 ];
+
+export type SettingsGroup = 'collection' | 'covers' | 'app';
+/** Visual groups of the tab list (D3); future tabs (collections, devices,
+ * saves, RetroAchievements) join 'collection'. */
+export const SETTINGS_GROUPS: Readonly<
+  Record<SettingsSection, SettingsGroup | null>
+> = {
+  general: null,
+  library: 'collection',
+  organize: 'collection',
+  duplicates: 'collection',
+  profiles: 'collection',
+  art: 'covers',
+  matching: 'covers',
+  sources: 'covers',
+  network: 'app',
+  safety: 'app',
+  advanced: 'app',
+  about: null,
+};
 
 export type Screen = 'main' | 'settings' | 'organize' | 'duplicates';
 

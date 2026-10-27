@@ -1893,6 +1893,15 @@ time {
   gap: 0.125rem;
 }
 
+/* Group label of the tab list (D3): sentence case, never a tab stop. */
+.settings-nav__group {
+  /* Lined up with the tab text (pl-3.5). */
+  margin: 0.75rem 0.875rem 0.25rem;
+  font: var(--cr-type-app-caption);
+  font-weight: 500;
+  color: var(--cr-text-secondary);
+}
+
 .settings-group {
   display: flex;
   max-width: 40rem;
@@ -1969,15 +1978,29 @@ time {
     flex-direction: column;
   }
 
+  /* The horizontal tablist draws its own shelf rule underneath. */
   .settings-nav {
     flex-basis: auto;
+    padding: 0.5rem 1rem 0;
     border-right: 0;
-    border-bottom: 1px solid var(--cr-border);
   }
 
+  /* One row that scrolls inside itself (D14): groups keep a wider gap. */
   .settings-nav [role='tablist'] {
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .settings-nav__group {
+    display: none;
+  }
+
+  .settings-nav [data-group-start] {
+    margin-left: 0.75rem;
   }
 }
 

@@ -59,6 +59,11 @@
       "fixed": "Some settings were not valid and went back to their defaults ({fields}). A copy of the file was kept: {backup}",
       "future-version": "These settings were saved by a newer version; what this version does not know is ignored. A copy was kept: {backup}"
     },
+    "group": {
+      "collection": "Collection",
+      "covers": "Covers",
+      "app": "App"
+    },
     "section": {
       "general": "General",
       "library": "Library",

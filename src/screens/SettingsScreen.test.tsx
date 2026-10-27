@@ -60,13 +60,13 @@ describe('Settings screen', () => {
       'Library',
       'Organise',
       'Duplicates',
+      'Profiles',
       'Art',
       'Matching',
       'Sources',
       'Network',
       'Safety',
       'Advanced',
-      'Profiles',
       'About',
     ]);
     expect(
@@ -243,6 +243,70 @@ describe('Settings screen', () => {
     expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();
+    await userEvent.keyboard('{End}');
+    expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+  });
+
+  it('groups the tabs without leaving the tab list', async () => {
+    await start();
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const tabs = screen.getByRole('tablist', { name: 'Settings sections' });
+    expect(tabs).toHaveAttribute('aria-orientation', 'vertical');
+    expect(within(tabs).queryAllByRole('group')).toHaveLength(0);
+    const labels = tabs.querySelectorAll('.settings-nav__group');
+    expect([...labels].map((l) => l.textContent)).toEqual([
+      'Collection',
+      'Covers',
+      'App',
+    ]);
+    for (const l of labels) expect(l).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen.getByRole('tab', { name: 'Library' }),
+    ).toHaveAccessibleDescription('Collection');
+    expect(
+      screen.getByRole('tab', { name: 'Art' }),
+    ).toHaveAccessibleDescription('Covers');
+    expect(
+      screen.getByRole('tab', { name: 'Network' }),
+    ).toHaveAccessibleDescription('App');
+    expect(
+      screen.getByRole('tab', { name: 'Organise' }),
+    ).not.toHaveAccessibleDescription();
+    expect(
+      screen.getByRole('tab', { name: 'General' }),
+    ).not.toHaveAccessibleDescription();
+    // The group labels are not stops for the arrow keys.
+    await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('tab', { name: 'Art' })).toHaveFocus();
+  });
+
+  it('lays the tabs out in a row that answers left and right when narrow', async () => {
+    restore();
+    restore = stubLayout(375, 800);
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 40rem)',
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    try {
+      await start();
+      await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      const tabs = screen.getByRole('tablist', { name: 'Settings sections' });
+      expect(tabs).toHaveAttribute('aria-orientation', 'horizontal');
+      await userEvent.click(screen.getByRole('tab', { name: 'General' }));
+      await userEvent.keyboard('{ArrowRight}');
+      expect(screen.getByRole('tab', { name: 'Library' })).toHaveFocus();
+      await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+      expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('switches the theme for the whole app and keeps it after a reload', async () => {

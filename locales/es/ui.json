@@ -59,6 +59,11 @@
       "fixed": "Algunos ajustes no eran válidos y han vuelto a su valor por defecto ({fields}). Se ha guardado una copia del archivo: {backup}",
       "future-version": "Esta configuración la guardó una versión más nueva; lo que esta versión no conoce se ignora. Se ha guardado una copia: {backup}"
     },
+    "group": {
+      "collection": "Colección",
+      "covers": "Portadas",
+      "app": "Aplicación"
+    },
     "section": {
       "general": "General",
       "library": "Biblioteca",

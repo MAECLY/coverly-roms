@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 
 import { AboutSection } from '@/components/settings/AboutSection';
 import { AdvancedSection } from '@/components/settings/AdvancedSection';
@@ -17,10 +17,12 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useT } from '@/i18n/useT';
 import { errorKey } from '@/ipc/errors';
 import { useLibraryStore } from '@/stores/libraryStore';
 import {
+  SETTINGS_GROUPS,
   SETTINGS_SECTIONS,
   useNavStore,
   type SettingsSection,
@@ -89,6 +91,14 @@ export function SettingsScreen() {
   const focusSetting = useNavStore((s) => s.focusSetting);
   const openFolds = useNavStore((s) => s.openFolds);
   const heading = useRef<HTMLHeadingElement>(null);
+  // Narrow windows show the tabs as one row: the arrow keys follow (D14).
+  const narrow = useMediaQuery('(max-width: 40rem)');
+  const tabList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabList.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [section, narrow]);
   // The screen replaces the one that opened it: focus starts at its title,
   // unless it was opened to land on one setting.
   useEffect(() => {
@@ -227,18 +237,43 @@ export function SettingsScreen() {
           </div>
         )}
         <Tabs
-          orientation="vertical"
+          orientation={narrow ? 'horizontal' : 'vertical'}
           value={section}
           onValueChange={(v) => setSection(v as SettingsSection)}
           className="settings-body gap-0 max-[40rem]:!flex-col"
         >
           <nav className="settings-nav">
-            <TabsList aria-label={t('settings.sections')}>
-              {SETTINGS_SECTIONS.map((s) => (
-                <TabsTrigger key={s} value={s}>
-                  {t(`settings.section.${s}`)}
-                </TabsTrigger>
-              ))}
+            <TabsList ref={tabList} aria-label={t('settings.sections')}>
+              {SETTINGS_SECTIONS.map((s, i) => {
+                const group = SETTINGS_GROUPS[s];
+                // A label before the first tab of each group: not a stop
+                // for the arrow keys and not a role="group" (ARIA allows
+                // only tabs in a tablist); its first tab names it once.
+                const before = SETTINGS_SECTIONS[i - 1];
+                const prev = before ? SETTINGS_GROUPS[before] : null;
+                const first = group !== null && prev !== group;
+                const labelId = `settings-group-${group}`;
+                return (
+                  <Fragment key={s}>
+                    {first && (
+                      <span
+                        aria-hidden
+                        id={labelId}
+                        className="settings-nav__group"
+                      >
+                        {t(`settings.group.${group}`)}
+                      </span>
+                    )}
+                    <TabsTrigger
+                      value={s}
+                      aria-describedby={first ? labelId : undefined}
+                      data-group-start={first ? '' : undefined}
+                    >
+                      {t(`settings.section.${s}`)}
+                    </TabsTrigger>
+                  </Fragment>
+                );
+              })}
             </TabsList>
           </nav>
           {SETTINGS_SECTIONS.map((s) => (
