@@ -230,8 +230,8 @@ pub(crate) fn parse_assign(s: &str) -> Result<(PathBuf, String), Failure> {
 
 /// Decides which progress events get a terminal line: phase starts and
 /// ends and every 25th file (the hash phase reports every file); for an
-/// extraction, its first and last event and each change of its staged
-/// entries, at most once a second.
+/// extraction, its first event, the one with every entry staged, and each
+/// other change of its staged entries at most once a second.
 #[derive(Default)]
 struct ProgressGate {
     /// The extraction last printed: item, staged entries, when.
@@ -242,23 +242,28 @@ impl ProgressGate {
     fn due(&self, p: OrganizeProgress, now: Instant) -> bool {
         let OrganizePhase::Extract {
             item,
-            bytes_done,
-            bytes_total,
             entries_done,
+            entries_total,
             ..
         } = p.phase
         else {
             return p.done == 0 || p.done == p.total || p.done.is_multiple_of(25);
         };
         let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
-        let edge = bytes_done == 0 || bytes_done >= bytes_total;
-        let changed = match *last {
+        // A new item is its first event; all entries staged is its last
+        // one (the core reports it twice: at the edge and after commit).
+        // Byte ticks never print a line of their own, and a count already
+        // printed is never printed again.
+        let due = match *last {
             Some((i, e, at)) => {
-                i != item || (e != entries_done && now.duration_since(at) >= Duration::from_secs(1))
+                i != item
+                    || (e != entries_done
+                        && (entries_done == entries_total
+                            || now.duration_since(at) >= Duration::from_secs(1)))
             }
             None => true,
         };
-        if edge || changed {
+        if due {
             *last = Some((item, entries_done, now));
             return true;
         }
@@ -1394,6 +1399,44 @@ mod tests {
         assert!(
             gate.due(x(100, 3), t0 + Duration::from_millis(1300)),
             "last event"
+        );
+    }
+
+    /// The core's real tail: the last chunk of the last entry (all bytes,
+    /// one entry short), the all-staged edge, then the post-commit report.
+    /// Only the all-staged line is new; the others repeat or skip the 1 s.
+    #[test]
+    fn extract_tail_prints_each_count_once() {
+        let gate = ProgressGate::default();
+        let t0 = Instant::now();
+        let x = |item, b, e| OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                item,
+                bytes_done: b,
+                bytes_total: 100,
+                entries_done: e,
+                entries_total: 3,
+            },
+            done: 0,
+            total: 2,
+        };
+        assert!(gate.due(x(1, 0, 0), t0), "first event");
+        assert!(gate.due(x(1, 60, 2), t0 + Duration::from_millis(1100)));
+        assert!(
+            !gate.due(x(1, 100, 2), t0 + Duration::from_millis(1150)),
+            "last chunk, same count, within a second"
+        );
+        assert!(
+            gate.due(x(1, 100, 3), t0 + Duration::from_millis(1160)),
+            "all staged"
+        );
+        assert!(
+            !gate.due(x(1, 100, 3), t0 + Duration::from_millis(1400)),
+            "post-commit report repeats the line"
+        );
+        assert!(
+            gate.due(x(2, 0, 0), t0 + Duration::from_millis(1500)),
+            "next item"
         );
     }
 
