@@ -180,6 +180,40 @@ export function DedupeCommon() {
 }
 
 /**
+ * The region order the `region` keeper rule reads (D1): Matching's list
+ * without the ROM's own region, read-only here, with a link to edit it.
+ */
+function RegionReadout() {
+  const t = useT();
+  const regions = useSettingsStore((s) => s.settings!.matching.regions);
+  const named = regions
+    .filter((r) => r !== 'rom')
+    .map((r) => t(`regions.${r}`));
+  return (
+    <div className="grid gap-1 pl-1">
+      <p className={hintText}>
+        {named.length === 0
+          ? t('settings.dedupe.regionsNone')
+          : t('settings.dedupe.regionsNow', { regions: named.join(', ') })}
+      </p>
+      <p className={hintText}>{t('settings.dedupe.regionsShared')}</p>
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto justify-self-start p-0"
+        onClick={() =>
+          useNavStore
+            .getState()
+            .openSettings('matching', { focus: 'setting-matching-regions' })
+        }
+      >
+        {t('settings.dedupe.regionsChange')}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * Settings › Duplicados, folded part (spec §5.3): what to look for, the
  * keeper rules in the order they are weighed, the format order per profile
  * and the systems left out; the plan reads these when it looks again.
@@ -294,24 +328,7 @@ export function DedupeAdvanced({
                       )
                     }
                   />
-                  <span className="min-w-0 flex-1 text-ui">
-                    {label}
-                    {r.rule === 'region' && (
-                      <>
-                        {' · '}
-                        <Button
-                          variant="link"
-                          size="sm"
-                          className="h-auto shrink whitespace-normal p-0 text-left align-baseline"
-                          onClick={() =>
-                            useNavStore.getState().setSection('matching')
-                          }
-                        >
-                          {t('settings.dedupe.regionOrder')}
-                        </Button>
-                      </>
-                    )}
-                  </span>
+                  <span className="min-w-0 flex-1 text-ui">{label}</span>
                   <SimpleTooltip content={up}>
                     <Button
                       variant="ghost"
@@ -335,6 +352,7 @@ export function DedupeAdvanced({
                     </Button>
                   </SimpleTooltip>
                 </div>
+                {r.rule === 'region' && <RegionReadout />}
               </li>
             );
           })}

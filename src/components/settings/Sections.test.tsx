@@ -3,10 +3,12 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
+import { translate } from '@/i18n/core';
 import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
+import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { resetLibraryStore } from '@/stores/libraryStore';
 import {
   resetNavStore,
@@ -616,6 +618,55 @@ describe('settings sections', () => {
         'What happens when organising is set in Organise.',
       ),
     ).toBeVisible();
+  });
+
+  it('duplicates: shows the Matching region order and links to it', async () => {
+    const panel = await open('duplicates');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    const names = DEFAULT_REGION_ORDER.filter((r) => r !== 'rom')
+      .map((r) => translate('en', `regions.${r}`))
+      .join(', ');
+    expect(names).toBe('World, USA, Europe, Japan');
+    expect(
+      within(panel).getByText(`Regions, in order: ${names}`),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText('It also decides which art is chosen.'),
+    ).toBeVisible();
+    expect(
+      within(panel).queryByRole('button', {
+        name: 'Uses the Matching region order',
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Change in Matching' }),
+    );
+    expect(useNavStore.getState().section).toBe('matching');
+    const list = await screen.findByRole('list', { name: 'Region order' });
+    expect(list).toHaveAttribute('id', 'setting-matching-regions');
+    await waitFor(() => expect(list).toHaveFocus());
+    expect((await saved()).matching.regions).toEqual([...DEFAULT_REGION_ORDER]);
+  });
+
+  it('duplicates: only the ROM region says the rule decides nothing', async () => {
+    const panel = await open('duplicates');
+    await act(() =>
+      useSettingsStore.getState().update({ matching: { regions: ['rom'] } }),
+    );
+    expect((await saved()).matching.regions).toEqual(['rom']);
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    expect(
+      within(panel).getByText(
+        "Only the ROM's region: this rule decides nothing.",
+      ),
+    ).toBeVisible();
+    expect(
+      within(panel).queryByText(/^Regions, in order:/),
+    ).not.toBeInTheDocument();
   });
 
   it('duplicates: Go to Organise lands on When organising', async () => {
