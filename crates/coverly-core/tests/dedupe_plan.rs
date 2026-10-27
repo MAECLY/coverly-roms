@@ -21,7 +21,7 @@ use coverly_core::dedupe::testing::{
 use coverly_core::dedupe::{
     default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, ArtSeen, DedupeEnv,
     DedupeError, DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, GroupAction, KeepReason,
-    Relation, ReportWhy, SavesSeen, TagSource,
+    PlayedSeen, Relation, ReportWhy, SavesSeen, TagSource,
 };
 use coverly_core::identify::dat::{DatGame, DatStore};
 use coverly_core::identify::names::Region;
@@ -1085,4 +1085,38 @@ fn facts_list_art_with_sizes() {
     );
     let without = member_at(g, &root.join("ROMS/GB/Tetris (1).gb"));
     assert!(without.facts.art.is_empty(), "{:?}", without.facts.art);
+}
+
+#[test]
+fn facts_carry_game_list_plays() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (Copy).gb", &tetris);
+    put(
+        root,
+        "ROMS/GB/gamelist.xml",
+        br#"<?xml version="1.0"?>
+<gameList>
+  <game><path>./Tetris.gb</path><playcount>4</playcount>
+    <lastplayed>20260102T101010</lastplayed></game>
+  <game><path>./Tetris (Copy).gb</path><favorite>true</favorite></game>
+</gameList>"#,
+    );
+    let mut fx = Fx::new();
+    fx.profile.gamelist = true;
+    let plan = fx.plan(&scan(root), &fx.opts());
+    let g = group_of(&plan, "gb");
+    let played = member_at(g, &root.join("ROMS/GB/Tetris.gb"));
+    assert_eq!(
+        played.facts.played,
+        Some(PlayedSeen {
+            count: 4,
+            last: Some("20260102T101010".into()),
+        })
+    );
+    // Listed in the game list but never played: no play fact.
+    let never = member_at(g, &root.join("ROMS/GB/Tetris (Copy).gb"));
+    assert_eq!(never.facts.played, None);
 }
