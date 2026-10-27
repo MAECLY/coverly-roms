@@ -13,8 +13,8 @@ export const ROUTE = 'M 86 50 Q 174 4 262 50';
 export const SLEEVE = { w: 12, h: 16 } as const;
 /** Label plate on the folder front (AP-2), as % of the frame for the HTML overlay. */
 export const PLATE = {
-  left: (274 / 360) * 100,
+  left: (266 / 360) * 100,
   top: (66 / 112) * 100,
-  width: (48 / 360) * 100,
+  width: (64 / 360) * 100,
 } as const;
 export const pct = (v: number, of: number) => `${(v / of) * 100}%`;

@@ -49,6 +49,12 @@
   color: var(--cr-manila-fg);
   background: var(--cr-manila);
 }
+/* On the Manila plate the icon takes the plate's ink: the resting
+ * text-secondary of .system-icon fails contrast on Manila in dark. */
+.ws-plate .system-icon,
+.ws-plate .system-mount {
+  color: inherit;
+}
 .ws-check {
   fill: none;
   stroke: var(--cr-slot-applied);
