@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
+import { AdvancedFold } from '@/components/settings/Field';
 import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
@@ -18,6 +19,8 @@ import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
+
+import { SECTION_COMPONENTS } from './SettingsScreen';
 
 let backend: MockBackend;
 let storage: MemoryStorage;
@@ -129,6 +132,69 @@ describe('Settings screen', () => {
     const tab = await screen.findByRole('tab', { name: 'Art' });
     await waitFor(() => expect(tab).toHaveFocus());
     expect(useNavStore.getState().focusSetting).toBeNull();
+  });
+
+  it('opens a closed advanced fold before landing inside it', async () => {
+    const original = SECTION_COMPONENTS.art;
+    SECTION_COMPONENTS.art = () => (
+      <AdvancedFold id="art-test-advanced" count={1} errorPaths={[]}>
+        <div data-setting-row="">
+          <label htmlFor="setting-test-folded">Folded</label>
+          <input id="setting-test-folded" />
+        </div>
+      </AdvancedFold>
+    );
+    try {
+      await start();
+      act(() =>
+        useNavStore
+          .getState()
+          .openSettings('art', { focus: 'setting-test-folded' }),
+      );
+      const input = await screen.findByLabelText('Folded');
+      await waitFor(() => expect(input).toHaveFocus());
+      expect(useNavStore.getState().openFolds).toEqual(['art-test-advanced']);
+      expect(
+        screen.getByRole('button', { name: 'Advanced options (1)' }),
+      ).toHaveAttribute('aria-expanded', 'true');
+      expect(input.closest('[data-setting-row]')).toHaveAttribute(
+        'data-arrived',
+        'true',
+      );
+      expect(useNavStore.getState().focusSetting).toBeNull();
+    } finally {
+      SECTION_COMPONENTS.art = original;
+    }
+  });
+
+  it('keeps the mark for its full time when the same setting is reached again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await start();
+      const land = () =>
+        act(() =>
+          useNavStore.getState().openSettings('library', {
+            focus: 'setting-library-include-hidden',
+          }),
+        );
+      land();
+      const hidden = await screen.findByRole('switch', {
+        name: 'Include hidden files',
+      });
+      await waitFor(() => expect(hidden).toHaveFocus());
+      const row = hidden.closest('[data-setting-row]');
+      act(() => vi.advanceTimersByTime(800));
+      land();
+      await waitFor(() =>
+        expect(useNavStore.getState().focusSetting).toBeNull(),
+      );
+      act(() => vi.advanceTimersByTime(800));
+      expect(row).toHaveAttribute('data-arrived', 'true');
+      act(() => vi.advanceTimersByTime(400));
+      expect(row).not.toHaveAttribute('data-arrived');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns focus to the library toolbar after Back', async () => {
