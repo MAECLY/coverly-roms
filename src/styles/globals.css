@@ -1985,14 +1985,15 @@ time {
     border-right: 0;
   }
 
-  /* One row that scrolls inside itself (D14): groups keep a wider gap. */
+  /* One row that scrolls inside itself (D14): groups keep a wider gap; a
+     thin scrollbar stays so a mouse wheel user can reach the last tabs. */
   .settings-nav [role='tablist'] {
     flex-direction: row;
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    scrollbar-width: thin;
   }
 
   .settings-nav__group {
