@@ -268,12 +268,19 @@ describe('ConflictGroup', () => {
       'Partida distinta: GB/Pokemon Red.sav',
       'Partida distinta: GB/Pokemon Red (1).sav',
     ]);
-    // Each save says the OS words and names its file in the sentence.
+    // Each save's link is named by its visible OS words (WCAG 2.5.3) and
+    // described by its save row, so the file is still announced.
     const open = screen.getAllByRole('button', {
-      name: /^Mostrar Pokemon Red.*\.sav en su carpeta$/,
+      name: 'Mostrar en la carpeta',
     });
     expect(open).toHaveLength(2);
-    expect(open[1]).toHaveTextContent('Mostrar en la carpeta');
+    expect(
+      screen.getByRole('button', {
+        name: 'Mostrar en la carpeta',
+        // jsdom drops the space between the label span and the path.
+        description: /^Partida distinta: ?GB\/Pokemon Red \(1\)\.sav$/,
+      }),
+    ).toBe(open[1]);
     await userEvent.click(open[1]!);
     expect(onReveal).toHaveBeenCalledWith('GB/Pokemon Red (1).sav');
     // Each copy reveals its own file too.

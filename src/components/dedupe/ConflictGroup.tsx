@@ -18,12 +18,7 @@ import type { DupGroupView } from '@/ipc/dedupeTypes';
 import { fileName, formatBytes } from '@/lib/dedupe';
 import { formatDate } from '@/lib/format';
 import { isRevealChord, isTyping } from '@/lib/keyboard';
-import {
-  revealCopyKey,
-  revealLabelKey,
-  revealOs,
-  revealShortcut,
-} from '@/lib/reveal';
+import { revealLabelKey, revealOs, revealShortcut } from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -123,14 +118,14 @@ export function ConflictGroup({
             </div>
           </div>
         ))}
-        {saves.map((s) => (
+        {saves.map((s, i) => (
           <div
             key={s.path}
             className="dup-row dup-conflict__save"
             data-reveal-path={s.path}
           >
             <span className="dup-row__pick" />
-            <span className="dup-row__name">
+            <span className="dup-row__name" id={`${uid}-save${i}`}>
               <SaveLabel
                 text={t('dedupe.conflicts.row', { path: MARK })}
                 path={s.path}
@@ -148,7 +143,8 @@ export function ConflictGroup({
                   variant="link"
                   size="sm"
                   className="dup-conflict__open"
-                  aria-label={t(revealCopyKey(), { name: fileName(s.path) })}
+                  // Named by its visible words; the save row says which file.
+                  aria-describedby={`${uid}-save${i}`}
                   aria-keyshortcuts={revealShortcut().aria}
                   onClick={() => onReveal(s.path)}
                 >
