@@ -538,24 +538,26 @@ describe('settings sections', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('library: the duplicates block shows and saves', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Duplicates' });
-    const version = within(group).getByRole('switch', {
+  it('duplicates: the duplicates tab shows and saves', async () => {
+    const panel = await open('duplicates');
+    await userEvent.click(
+      within(panel).getByRole('switch', { name: 'One ROM per game' }),
+    );
+    await userEvent.click(
+      within(panel).getByRole('radio', { name: 'Send to the Trash' }),
+    );
+    expect(
+      within(panel).getByRole('textbox', { name: 'Quarantine folder' }),
+    ).toHaveAttribute('placeholder', '<library>/_Duplicados');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    const version = within(panel).getByRole('switch', {
       name: 'Other versions',
     });
     expect(version).toBeChecked();
     await userEvent.click(version);
-    await userEvent.click(
-      within(group).getByRole('switch', { name: 'One ROM per game' }),
-    );
-    await userEvent.click(
-      within(group).getByRole('radio', { name: 'Send to the Trash' }),
-    );
-    expect(
-      within(group).getByRole('textbox', { name: 'Quarantine folder' }),
-    ).toHaveAttribute('placeholder', '<library>/_Duplicados');
-    const exclude = within(group).getByRole('textbox', {
+    const exclude = within(panel).getByRole('textbox', {
       name: 'Systems to leave out',
     });
     await userEvent.clear(exclude);
@@ -569,23 +571,90 @@ describe('settings sections', () => {
         exclude_systems: ['ports', 'msu'],
       }),
     );
-    // Region order is not repeated here: it links to Matching.
-    await userEvent.click(
-      within(group).getByRole('button', {
-        name: 'Uses the Matching region order',
-      }),
-    );
-    expect(useNavStore.getState().section).toBe('matching');
   });
 
-  it('library: settings_reorder_rules_announces', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Duplicates' });
+  it('duplicates: the common options show, the rest folded', async () => {
+    const panel = await open('duplicates');
+    expect(
+      within(panel).getByRole('radio', { name: 'Set aside in a folder' }),
+    ).toBeVisible();
+    expect(
+      within(panel).getByRole('switch', { name: 'One ROM per game' }),
+    ).toHaveAccessibleDescription('Keeps one version of each game.');
+    // Hidden fold content is out of the accessibility tree.
+    expect(
+      within(panel).queryByRole('switch', { name: 'Other versions' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Systems to leave out' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('group', { name: 'Duplicates' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('duplicates: the fold shows what applies when', async () => {
+    const panel = await open('duplicates');
+    const note = within(panel).getByText(
+      'The duplicates screen starts with these options; the ones below apply when you look again.',
+    );
+    expect(note).not.toBeVisible();
     await userEvent.click(
-      within(group).getByRole('button', { name: 'Move Has a cover up' }),
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    expect(note).toBeVisible();
+    expect(
+      within(panel).getByRole('list', { name: 'Which copy stays' }),
+    ).toHaveAttribute('id', 'setting-dedupe-keep-rules');
+    const order = within(panel).getByRole('group', {
+      name: 'Format order per profile',
+    });
+    expect(order).toHaveAttribute('id', 'setting-dedupe-container-order');
+    expect(order).toBeVisible();
+    expect(
+      within(panel).getByText(
+        'What happens when organising is set in Organise.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('duplicates: Go to Organise lands on When organising', async () => {
+    const panel = await open('duplicates');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Go to Organise' }),
+    );
+    expect(useNavStore.getState().section).toBe('organize');
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'When organising' }),
+      ).toHaveFocus(),
+    );
+  });
+
+  it('library: shows no duplicates control', async () => {
+    const panel = await open('library');
+    expect(
+      within(panel).queryByRole('switch', { name: 'One ROM per game' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Quarantine folder' }),
+    ).not.toBeInTheDocument();
+    expect(panel.querySelector('[name="dedupe-level-exact"]')).toBeNull();
+  });
+
+  it('duplicates: settings_reorder_rules_announces', async () => {
+    const panel = await open('duplicates');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Move Has a cover up' }),
     );
     expect(
-      within(group).getByText('Has a cover: position 8 of 10'),
+      within(panel).getByText('Has a cover: position 8 of 10'),
     ).toBeInTheDocument();
     await waitFor(async () =>
       expect(
@@ -593,7 +662,7 @@ describe('settings sections', () => {
       ).toEqual(['revision', 'cover', 'container']),
     );
     await userEvent.click(
-      within(group).getByRole('switch', { name: 'Use: Has a cover' }),
+      within(panel).getByRole('switch', { name: 'Use: Has a cover' }),
     );
     await waitFor(async () =>
       expect(
@@ -602,10 +671,9 @@ describe('settings sections', () => {
     );
   });
 
-  it('library: settings_rejects_quarantine_inside_a_system_folder', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Duplicates' });
-    const dir = within(group).getByRole('textbox', {
+  it('duplicates: settings_rejects_quarantine_inside_a_system_folder', async () => {
+    const panel = await open('duplicates');
+    const dir = within(panel).getByRole('textbox', {
       name: 'Quarantine folder',
     });
     await userEvent.type(dir, '/Volumes/SD/ROMS/GB/dup');

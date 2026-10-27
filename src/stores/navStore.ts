@@ -6,6 +6,7 @@ export type SettingsSection =
   | 'general'
   | 'library'
   | 'organize'
+  | 'duplicates'
   | 'art'
   | 'matching'
   | 'sources'
@@ -18,6 +19,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
   'library',
   'organize',
+  'duplicates',
   'art',
   'matching',
   'sources',

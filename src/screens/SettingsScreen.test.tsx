@@ -59,6 +59,7 @@ describe('Settings screen', () => {
       'General',
       'Library',
       'Organise',
+      'Duplicates',
       'Art',
       'Matching',
       'Sources',

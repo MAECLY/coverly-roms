@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
-import { getBackend } from '@/ipc/backend';
-import type { ProfileInfo } from '@/ipc/types';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { DedupeSettings } from './DedupeSettings';
 import {
   Field,
   sectionTitle,
@@ -18,6 +15,7 @@ import {
   useFieldError,
 } from './Field';
 import { ListSetting } from './ListSetting';
+import { useProfiles } from './useProfiles';
 
 export function LibrarySection() {
   const t = useT();
@@ -25,19 +23,9 @@ export function LibrarySection() {
   const update = useSettingsStore((s) => s.update);
   const recents = useLibraryStore((s) => s.recents);
   const forget = useLibraryStore((s) => s.forget);
-  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
+  const profiles = useProfiles();
   useEffect(() => {
-    let alive = true;
-    void getBackend()
-      .then((b) => b.listProfiles())
-      .then(
-        (p) => alive && setProfiles(p),
-        () => undefined,
-      );
     void useLibraryStore.getState().loadRecents();
-    return () => {
-      alive = false;
-    };
   }, []);
   // Until the list loads, or for a profile it no longer has, the stored id
   // still shows (not "Detect automatically").
@@ -119,7 +107,6 @@ export function LibrarySection() {
           void update({ library: { follow_symlinks: on } })
         }
       />
-      <DedupeSettings profiles={profiles} />
       <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
         <EmptyState
