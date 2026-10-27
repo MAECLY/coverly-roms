@@ -16,6 +16,7 @@ import {
 } from 'react';
 
 import { DupGroup } from '@/components/dedupe/DupGroup';
+import { ApplyProgress } from '@/components/organize/ApplyProgress';
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
@@ -36,7 +37,6 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
-import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { LocaleContext } from '@/i18n/core';
@@ -51,7 +51,6 @@ import {
 import type {
   OrganizeDedupeMode,
   OrganizePlan,
-  OrganizeProgressEvent,
   OrganizeRequest,
   ProfileInfo,
   SystemInfo,
@@ -71,55 +70,6 @@ import {
 } from '@/lib/organize';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore, type OrganizeRefresh } from '@/stores/organizeStore';
-
-/** Slots of the apply progress (same row as the library scan). */
-const SLOTS = 16;
-
-const baseName = (path: string) =>
-  path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
-
-/** The apply line: the game being extracted, or the files moved so far. */
-function applyingText(
-  t: TFunction,
-  plan: OrganizePlan | null,
-  progress: OrganizeProgressEvent | null,
-): string {
-  if (!progress) return t('organize.starting');
-  const counts = { done: progress.done, total: progress.total };
-  if (progress.phase === 'extract') {
-    const source = plan?.items.find((i) => i.id === progress.item)?.sources[0];
-    return t('organize.extracting', {
-      name: source ? baseName(source) : `#${progress.item}`,
-      ...counts,
-    });
-  }
-  return t(
-    !plan
-      ? 'organize.organizing'
-      : plan.mode === 'copy'
-        ? 'organize.copying'
-        : 'organize.applying',
-    counts,
-  );
-}
-
-/** The bar: bytes of the game being extracted (a disc can be gigabytes),
- * otherwise items. */
-function barOf(progress: OrganizeProgressEvent | null): {
-  max: number;
-  value: number | null;
-} {
-  if (!progress) return { max: 1, value: null };
-  if (progress.phase === 'extract')
-    return {
-      max: progress.bytes_total || 1,
-      value: Math.min(progress.bytes_done, progress.bytes_total),
-    };
-  return {
-    max: progress.total || 1,
-    value: Math.min(progress.done, progress.total),
-  };
-}
 
 /** Profiles and systems for the pickers, loaded once per screen. */
 function useCatalogues() {
@@ -443,26 +393,12 @@ export function OrganizeScreen() {
           </Alert>
         )}
         {applying && (
-          <div className="grid justify-items-start gap-2.5">
-            {/* A row of slots filling left to right (brand §2). */}
-            <Progress
-              slots={SLOTS}
-              {...barOf(progress)}
-              aria-label={t('organize.progressLabel')}
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <p role="status" className="m-0 text-ui tabular-nums">
-                {applyingText(t, plan, progress)}
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void useOrganizeStore.getState().cancel()}
-              >
-                {t('organize.cancel')}
-              </Button>
-            </div>
-          </div>
+          <ApplyProgress
+            plan={plan}
+            progress={progress}
+            systemName={systemName}
+            onCancel={() => void useOrganizeStore.getState().cancel()}
+          />
         )}
         {showResult && (
           <OrganizeResult

@@ -1130,7 +1130,6 @@
       "summaryOne": "Se extrae: 1 juego ({bytes})",
       "trashed": "El comprimido se ha enviado a la papelera"
     },
-    "extracting": "Extrayendo {name}: {done} de {total} archivos…",
     "note": {
       "archiveKeptLeftovers": "El comprimido se queda: tiene {count} archivos que no se extraen",
       "containerMismatch": "Es un archivo {actual} con extensión .{ext}",
@@ -1353,6 +1352,7 @@
     "applyOneWithTrash": "Organizar 1 archivo y enviar {extras} a la Papelera",
     "progress": {
       "extracting": "Extrayendo {name} en {folder}",
+      "extractingName": "Extrayendo {name}…",
       "checking": "Comprobando los archivos de {name}…",
       "game": "Juego {n} de {total}",
       "track": "Pista {n} de {total}",

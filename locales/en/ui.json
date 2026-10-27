@@ -1130,7 +1130,6 @@
       "summaryOne": "Extracting: 1 game ({bytes})",
       "trashed": "The archive was moved to the Trash"
     },
-    "extracting": "Extracting {name}: {done} of {total} files…",
     "note": {
       "archiveKeptLeftovers": "The archive stays: it has {count} files that are not extracted",
       "containerMismatch": "It is a {actual} archive named .{ext}",
@@ -1353,6 +1352,7 @@
     "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash",
     "progress": {
       "extracting": "Extracting {name} into {folder}",
+      "extractingName": "Extracting {name}…",
       "checking": "Checking the files of {name}…",
       "game": "Game {n} of {total}",
       "track": "Track {n} of {total}",
