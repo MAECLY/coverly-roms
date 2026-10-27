@@ -668,6 +668,9 @@ type OrganizeApi = Pick<
   library(path: string, generation: number): LibraryView | null;
   /** Dev and tests only: changes pile `path` on "disk" between scans. */
   organizeTouch(path: string, change: MockOrganizeTouch): void;
+  /** The piles, the kept plans' targets and the organised targets: what
+   * `revealPath` may show from the Organise proposal. */
+  knownFolders(): string[];
 };
 
 export function createMockOrganize(
@@ -1588,6 +1591,11 @@ export function createMockOrganize(
   return {
     isApplying: () => applying !== null,
     organizeTouch: touch,
+    knownFolders: () => [
+      ...PILES.map((p) => p.path),
+      ...[...plans.values()].flatMap((r) => [r.source, r.target]),
+      ...targets.keys(),
+    ],
     history: historyItems,
     library(path, generation) {
       const t = targets.get(path);

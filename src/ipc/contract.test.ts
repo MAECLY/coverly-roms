@@ -20,6 +20,10 @@ import {
   type DedupeReportView,
   type DedupeRequest,
   type DupGroupView,
+  type ArtSeenView,
+  type DumpFlagsView,
+  MOD_CLASSES,
+  type MemberFactsView,
   type MemberView,
   type TotalsView,
   type UnitRefView,
@@ -366,6 +370,23 @@ const MEMBER_KEYS = [
   'serials',
   'confidence',
 ] as const;
+const MEMBER_FACTS_KEYS = [
+  'tags_from',
+  'regions',
+  'languages',
+  'revision',
+  'class',
+  'flags',
+  'flags_from',
+  'modification',
+  'modification_from',
+  'other',
+  'saves',
+  'played',
+  'art',
+] as const;
+const DUMP_FLAGS_KEYS = ['verified', 'bad', 'overdump', 'alternate'] as const;
+const ART_SEEN_KEYS = ['media', 'path', 'size'] as const;
 const UNIT_KEYS = [
   'primary',
   'files',
@@ -657,12 +678,31 @@ const checks: [string, readonly string[], object][] = [
   ],
   [
     'MemberView',
-    // `gamelist` and `art_leaves` are left out when there are none.
+    // `gamelist`, `art_leaves` and `facts` are left out when there are none.
     MEMBER_KEYS satisfies AllKeys<
-      Omit<MemberView, 'gamelist' | 'art_leaves'>,
+      Omit<MemberView, 'gamelist' | 'art_leaves' | 'facts'>,
       typeof MEMBER_KEYS
     >,
     sample.dedupe_plan_view.groups[0]!.members[1]!,
+  ],
+  [
+    'MemberFactsView',
+    // The sample keeper carries every fact.
+    MEMBER_FACTS_KEYS satisfies AllKeys<
+      MemberFactsView,
+      typeof MEMBER_FACTS_KEYS
+    >,
+    sample.dedupe_plan_view.groups[0]!.members[0]!.facts!,
+  ],
+  [
+    'DumpFlagsView',
+    DUMP_FLAGS_KEYS satisfies AllKeys<DumpFlagsView, typeof DUMP_FLAGS_KEYS>,
+    sample.dedupe_plan_view.groups[0]!.members[0]!.facts!.flags,
+  ],
+  [
+    'ArtSeenView',
+    ART_SEEN_KEYS satisfies AllKeys<ArtSeenView, typeof ART_SEEN_KEYS>,
+    sample.dedupe_plan_view.groups[0]!.members[0]!.facts!.art[0]!,
   ],
   [
     'UnitRefView',
@@ -1034,6 +1074,19 @@ describe('duplicates contract', () => {
       detail: '4194304/1000',
     });
     for (const e of sample.dedupe_errors) expect(ERROR_CODES).toContain(e.code);
+
+    // Facts: a member without any is written without the key.
+    const [keeper, extra] = wire.groups[0]!.members;
+    expect('facts' in extra!).toBe(false);
+    const facts: MemberFactsView = keeper!.facts!;
+    expect(facts.tags_from).toBe('catalogue');
+    expect(facts.flags_from).toBe('file-name');
+    expect(facts.regions).toEqual(['usa']);
+    expect(facts.class).toBe('beta');
+    expect(MOD_CLASSES).toContain(facts.modification);
+    expect(facts.saves).toEqual({ count: 1, last_ns: 1700000050000000000 });
+    expect(facts.played).toEqual({ count: 4, last: '20260102T101010' });
+    expect(facts.art![0]!.media).toBe('cover');
   });
 
   it('organise set-aside items, in-library reasons and counts use the Rust spellings', () => {

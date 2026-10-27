@@ -15,6 +15,7 @@ import {
   type MockOptions,
 } from './mockBackend';
 import { MOCK_DEDUPE_EXPORT } from './mockDedupe';
+import { MOCK_DOWNLOADS } from './mockOrganize';
 
 const ROOT = MOCK_LIBRARIES[0].path;
 
@@ -364,6 +365,90 @@ describe('mock duplicates backend', () => {
     expect(JSON.parse(saved.text).root).toBe(ROOT);
     await b.revealPath(plan.quarantine);
     expect(b.revealedPaths).toEqual([plan.quarantine]);
+  });
+
+  it('serves a group cover and a copy art, and art-missing without one', async () => {
+    const b = backend();
+    const plan = await b.dedupePlan(ROOT);
+    const byTitle = (t: string) => plan.groups.find((g) => g.title === t)!;
+    const tetris = byTitle('Tetris');
+    const filler = byTitle('GB Game 01');
+    const cover = await b.dedupeArt(plan.plan_id, tetris.id, null, 'cover');
+    expect(cover.byteLength).toBeGreaterThan(0);
+    expect(new TextDecoder().decode(cover)).toContain('<svg');
+    // The Japanese box has its own art, in another hue.
+    const own = await b.dedupeArt(plan.plan_id, tetris.id, 1, 'cover');
+    expect(new TextDecoder().decode(own)).not.toBe(
+      new TextDecoder().decode(cover),
+    );
+    await expect(
+      b.dedupeArt(plan.plan_id, filler.id, null, 'cover'),
+    ).rejects.toMatchObject({ code: 'art-missing' });
+    await expect(
+      b.dedupeArt(plan.plan_id, tetris.id, null, 'screenshot'),
+    ).rejects.toMatchObject({ code: 'art-missing' });
+    await expect(
+      b.dedupeArt(plan.plan_id + 99, tetris.id, null, 'cover'),
+    ).rejects.toMatchObject({ code: 'art-missing' });
+    expect(b.artCalls).toEqual([
+      `${plan.plan_id}:${tetris.id}:g:cover`,
+      `${plan.plan_id}:${tetris.id}:1:cover`,
+      `${plan.plan_id}:${filler.id}:g:cover`,
+      `${plan.plan_id}:${tetris.id}:g:screenshot`,
+      `${plan.plan_id + 99}:${tetris.id}:g:cover`,
+    ]);
+  });
+
+  it('fixture facts reach the plan with paths under the library', async () => {
+    const b = backend();
+    const plan = await b.dedupePlan(ROOT);
+    const tetris = plan.groups.find((g) => g.title === 'Tetris')!;
+    const [world, japan] = tetris.members;
+    expect(world!.facts?.regions).toEqual(['world']);
+    expect(world!.facts?.revision).toBe('Rev 1');
+    expect(japan!.facts?.tags_from).toBe('file-name');
+    expect(world!.facts!.art![0]!.path).toBe(
+      `${ROOT}/ROMS/GB/Imgs/Tetris (World) (Rev 1).png`,
+    );
+    expect(japan!.facts!.art![0]!.size).not.toBe(world!.facts!.art![0]!.size);
+  });
+
+  it('reveals only inside a library, a plan or its quarantine', async () => {
+    const b = backend();
+    const sd = await b.dedupePlan('/Volumes/SD');
+    await b.revealPath('/Volumes/SD/ROMS/GB/x.gb');
+    await b.revealPath(sd.quarantine);
+    for (const outside of [
+      '/Volumes/SD2/x.gb',
+      '/etc/passwd',
+      '/Volumes/SD/ROMS/../../etc/passwd',
+      'Volumes/SD/ROMS/GB/x.gb',
+    ])
+      await expect(b.revealPath(outside)).rejects.toMatchObject({
+        code: 'outside-library',
+      });
+    // Windows roots split on either separator.
+    await b.dedupePlan('C:\\SD');
+    await b.revealPath('C:\\SD\\ROMS\\GB\\x.gb');
+    await expect(b.revealPath('C:\\SD2\\x.gb')).rejects.toMatchObject({
+      code: 'outside-library',
+    });
+    expect(b.revealedPaths).toEqual([
+      '/Volumes/SD/ROMS/GB/x.gb',
+      sd.quarantine,
+      'C:\\SD\\ROMS\\GB\\x.gb',
+    ]);
+  });
+
+  it('reveals the open library and the organise piles', async () => {
+    const b = backend();
+    await b.openLibrary(ROOT);
+    await b.revealPath(`${ROOT}/ROMS/GB/a.gb`);
+    await b.revealPath(`${MOCK_DOWNLOADS}/Tetris.gb`);
+    expect(b.revealedPaths).toEqual([
+      `${ROOT}/ROMS/GB/a.gb`,
+      `${MOCK_DOWNLOADS}/Tetris.gb`,
+    ]);
   });
 
   it('scenarios: an empty library, a failing plan', async () => {

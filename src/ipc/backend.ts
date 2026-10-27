@@ -28,6 +28,7 @@ import type {
   LibrarySettings,
   LibraryView,
   LinkId,
+  MediaView,
   Media,
   OrganizeDecision,
   OrganizeJobView,
@@ -199,6 +200,14 @@ export interface Backend {
   /** Shows `path` in Finder / Explorer: only inside the open library or a
    * duplicates plan's library or quarantine. */
   revealPath(path: string): Promise<void>;
+  /** A duplicate group's cover (`member` null) or a copy's own art;
+   * rejects `art-missing` when there is none. Offline only. */
+  dedupeArt(
+    planId: number,
+    group: number,
+    member: number | null,
+    media: MediaView,
+  ): Promise<ArrayBuffer>;
   onDedupeProgress(cb: (e: DedupeProgressEvent) => void): Promise<() => void>;
   onDedupeChanged(cb: (v: DedupeJobView) => void): Promise<() => void>;
 
@@ -284,6 +293,10 @@ type MockWindow = Window & {
   mockDedupeScenario?: (
     patch: Partial<import('./mock/mockDedupe').MockDedupeScenario>,
   ) => void;
+  /** Paths the duplicates screen asked to reveal (a copy). */
+  mockRevealedPaths?: () => string[];
+  /** `dedupeArt` calls as `plan:group:member|g:media` (a copy). */
+  mockDedupeArtCalls?: () => string[];
 };
 
 let current: Backend | null = null;
@@ -301,10 +314,13 @@ async function createBackend(): Promise<Backend> {
   // The duplicates screen's states from the console:
   // `mockDedupeScenario({ empty: true })`, `({ failPlan: 'volume-gone' })`,
   // `({ trashAvailable: false })`, `({ pauseAfter: 10 })`.
+  // What the E2E checks: `mockRevealedPaths()`, `mockDedupeArtCalls()`.
   if (typeof window !== 'undefined') {
     const w = window as MockWindow;
     w.mockOrganizeTouch = mock.organizeTouch;
     w.mockDedupeScenario = mock.dedupeScenario;
+    w.mockRevealedPaths = () => [...mock.revealedPaths];
+    w.mockDedupeArtCalls = () => [...mock.artCalls];
   }
   return mock;
 }

@@ -498,6 +498,8 @@ describe('Tauri backend', () => {
         case 'dedupe_cancel_apply':
         case 'reveal_path':
           return null;
+        case 'dedupe_art':
+          return PNG.buffer;
         default:
           return sample.dedupe_job;
       }
@@ -523,6 +525,9 @@ describe('Tauri backend', () => {
       'coverly-duplicates-plan.json',
     );
     await b.revealPath('/Volumes/SD/_Duplicados');
+    const art = await b.dedupeArt(5, 17, null, 'cover');
+    expect(new Uint8Array(art)).toEqual(PNG);
+    await b.dedupeArt(5, 17, 1, 'screenshot');
     expect(calls).toEqual([
       ['dedupe_plan', { root: '/Volumes/SD', opts }],
       ['dedupe_plan', { root: '/Volumes/SD', opts: null }],
@@ -542,6 +547,8 @@ describe('Tauri backend', () => {
       ['dedupe_resume', { job: 'j' }],
       ['dedupe_export_plan', { planId: 5 }],
       ['reveal_path', { path: '/Volumes/SD/_Duplicados' }],
+      ['dedupe_art', { planId: 5, group: 17, member: null, media: 'cover' }],
+      ['dedupe_art', { planId: 5, group: 17, member: 1, media: 'screenshot' }],
     ]);
 
     const seen: unknown[] = [];

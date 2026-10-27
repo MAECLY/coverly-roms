@@ -23,12 +23,14 @@ import {
   type DupGroupView,
   type JobHistoryItem,
   type KeepReasonView,
+  type MediaView,
   type MemberView,
   type OrganizeUndoReport,
   type OrganizeUndoView,
   type QuarantineChoiceView,
 } from '../types';
 import { dedupeFixture, dedupeTotals } from './dedupeFixture';
+import { labelSvg } from './svg';
 import type { MockExport } from './mockJobs';
 
 export const MOCK_DEDUPE_EXPORT = 'coverly-duplicates-plan.json';
@@ -58,6 +60,9 @@ export interface MockDedupeHost {
   tick(): Promise<void>;
   now: number;
   exports: MockExport[];
+  /** Folders `revealPath` may show besides the plans' libraries and
+   * quarantines: the open library, the organise piles and targets. */
+  revealRoots?(): string[];
 }
 
 type DedupeApi = Pick<
@@ -75,6 +80,7 @@ type DedupeApi = Pick<
   | 'dedupeResume'
   | 'dedupeExportPlan'
   | 'revealPath'
+  | 'dedupeArt'
   | 'onDedupeProgress'
   | 'onDedupeChanged'
 > & {
@@ -88,6 +94,8 @@ type DedupeApi = Pick<
   dedupeUndo(job: string, includeLater: boolean): Promise<OrganizeUndoView>;
   /** Paths passed to `revealPath`, for tests. */
   readonly revealedPaths: string[];
+  /** `dedupeArt` calls as `plan:group:member|g:media`, for tests. */
+  readonly artCalls: string[];
   /** Dev and tests only: what the next plans and applies do. */
   dedupeScenario(patch: Partial<MockDedupeScenario>): void;
 };
@@ -192,8 +200,47 @@ function absolute(g: DupGroupView, roms: string): DupGroupView {
       },
       travels: m.travels.map((t) => ({ ...t, from: abs(t.from) })),
       stays: m.stays.map((s) => ({ ...s, path: abs(s.path) })),
+      ...(m.facts?.art
+        ? {
+            facts: {
+              ...m.facts,
+              art: m.facts.art.map((a) => ({ ...a, path: abs(a.path) })),
+            },
+          }
+        : {}),
     })),
   };
+}
+
+/** The copy whose art is the group cover: the keeper, else the first
+ * copy with that media (the core's `group_cover_path`). */
+function coverMember(
+  g: DupGroupView,
+  media: MediaView,
+): MemberView | undefined {
+  const has = (m: MemberView) => m.facts?.art?.some((a) => a.media === media);
+  const keeper = g.members.find((m) => m.id === g.keeper);
+  return keeper && has(keeper) ? keeper : g.members.find(has);
+}
+
+/** A placeholder image per copy: another copy's own box gets another hue. */
+function dedupeArtSvg(g: DupGroupView, m: MemberView, media: MediaView) {
+  return labelSvg(g.title, media !== 'cover', (g.id * 47 + m.id * 120) % 360);
+}
+
+/** An absolute path's components, split on either separator; null for a
+ * relative path or one with `.` or `..`. */
+function components(path: string): string[] | null {
+  if (!/^([\\/]|[A-Za-z]:[\\/])/.test(path)) return null;
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.some((p) => p === '.' || p === '..') ? null : parts;
+}
+
+/** `path` is `root` or lies under it, compared by component. */
+function isUnder(path: string, root: string): boolean {
+  const p = components(path);
+  const r = components(root);
+  return !!p && !!r && r.length <= p.length && r.every((x, i) => x === p[i]);
 }
 
 /** `g` without the members in `away`, ids renumbered like a new scan. */
@@ -249,6 +296,7 @@ export function createMockDedupe(
   const away = new Map<string, Set<string>>();
   const journals: Journal[] = [];
   const revealedPaths: string[] = [];
+  const artCalls: string[] = [];
   let seq = 0;
   let last: DedupeJobView | null = null;
   let applying: { view: DedupeJobView; cancel: boolean } | null = null;
@@ -599,8 +647,18 @@ export function createMockDedupe(
     };
   }
 
+  /** Where `revealPath` may look: what Rust's `revealable` allows. */
+  function revealRoots(): string[] {
+    const own = [...plans.values()].flatMap((k) => [k.root, k.view.quarantine]);
+    // The current (or last) apply, like Rust's `known_folders`.
+    const job = applying?.view ?? last;
+    if (job) own.push(job.root, job.quarantine);
+    return [...own, ...(host.revealRoots?.() ?? [])];
+  }
+
   return {
     revealedPaths,
+    artCalls,
     isDedupeApplying: () => applying !== null,
     dedupeHistory: () => [...journals].reverse().map(historyItem),
     ownsDedupeJob: (job) => journals.some((j) => j.job === job),
@@ -758,7 +816,23 @@ export function createMockDedupe(
       });
       return MOCK_DEDUPE_EXPORT;
     },
+    async dedupeArt(planId, group, member, media) {
+      artCalls.push(`${planId}:${group}:${member ?? 'g'}:${media}`);
+      // Like Rust: an unknown plan, group or copy has no art either.
+      const g = plans.get(planId)?.view.groups.find((x) => x.id === group);
+      const m =
+        g &&
+        (member === null
+          ? coverMember(g, media)
+          : g.members.find((x) => x.id === member));
+      if (!g || !m?.facts?.art?.some((a) => a.media === media))
+        throw new BackendError('art-missing', media);
+      return new TextEncoder().encode(dedupeArtSvg(g, m, media))
+        .buffer as ArrayBuffer;
+    },
     async revealPath(path) {
+      if (!revealRoots().some((r) => isUnder(path, r)))
+        throw new BackendError('outside-library', path);
       revealedPaths.push(path);
     },
     onDedupeProgress: (cb) => listen(progress, cb),

@@ -237,6 +237,8 @@ export function createTauriBackend(): Backend {
     dedupeExportPlan: (planId) =>
       call<string | null>('dedupe_export_plan', { planId }),
     revealPath: (path) => call<void>('reveal_path', { path }),
+    dedupeArt: (planId, group, member, media) =>
+      call<ArrayBuffer>('dedupe_art', { planId, group, member, media }),
     onDedupeProgress: (cb) =>
       listen<DedupeProgressEvent>(DEDUPE_PROGRESS_EVENT, (e) => cb(e.payload)),
     onDedupeChanged: (cb) =>
