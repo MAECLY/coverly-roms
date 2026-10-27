@@ -34,18 +34,20 @@ Subcommands:
   updater-manifest --dir D --version V --base-url URL --output F
                    [--changelog CHANGELOG.md] [--pub-date DATE]
       Write latest.json for the update artifacts in D, each with the
-      signature in D/<file>.sig and the url <URL>/<file>. Platform keys:
-      darwin-aarch64 and darwin-x86_64 -> the universal .app.tar.gz;
-      windows-x86_64 -> the NSIS -setup.exe (the .msi only when there is no
-      NSIS installer, as tauri-action's updaterJsonPreferNsis);
-      linux-x86_64 / linux-aarch64 -> the .AppImage of that architecture;
-      plus a bundle-specific key for each (darwin-aarch64-app,
-      windows-x86_64-msi, windows-x86_64-nsis, linux-x86_64-appimage,
-      linux-x86_64-deb, ...),
+      signature in D/<file>.sig and the url <URL>/<file>. Every artifact
+      must carry its release name, Coverly-ROMs_<V>_<platform><kind>, and
+      the platform is what picks its keys (spec §4): darwin-aarch64 /
+      darwin-x86_64 -> the mac_arm / mac_intel .app.tar.gz;
+      windows-x86_64 / windows-aarch64 -> the windows_x64 / windows_arm
+      NSIS -setup.exe (the .msi only when there is no NSIS installer, as
+      tauri-action's updaterJsonPreferNsis); linux-x86_64 / linux-aarch64
+      -> the linux_x64 / linux_arm .AppImage; plus a bundle-specific key
+      for each (darwin-aarch64-app, windows-aarch64-msi,
+      windows-x86_64-nsis, linux-x86_64-appimage, linux-aarch64-deb, ...),
       which the updater prefers for the bundle a copy was installed from.
       The notes are CHANGELOG.md's `## [V]` section; pub_date is now (UTC)
       unless given. Fails (and writes nothing) on a missing .sig, two
-      artifacts for one key or a name without an architecture.
+      artifacts for one key or a name that is not a release name.
 
   list-artifacts --manifest F
       Print the file name of every update artifact the manifest points at,
@@ -60,7 +62,8 @@ Subcommands:
 
   add-cli --manifest F --dir D --version V --base-url URL
       Add a `cli-<os>-<arch>` entry for every file
-      `coverly-<V>-<os>-<arch>[.exe]` in D, with the signature in
+      `coverly_<V>_<platform>[.exe]` in D (the release name stage-builds
+      gives it; `.exe` on Windows only), with the signature in
       D/<file>.sig and the url <URL>/<file>. Creates the manifest when F does
       not exist. Fails on an unexpected file, a missing .sig or no binary.
 
@@ -228,12 +231,6 @@ def resign_manifest(manifest: dict, sigdir: str) -> list[str]:
     return errors
 
 
-CLI_FILE = re.compile(
-    r"coverly-(?P<v>[^-]+(?:-[0-9A-Za-z.-]+)?)-(?P<os>darwin|windows|linux)"
-    r"-(?P<arch>x86_64|aarch64)(?:\.exe)?"
-)
-
-
 def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list[str]:
     errors, added = [], 0
     platforms = manifest.setdefault("platforms", {})
@@ -241,7 +238,11 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
         if name.endswith(".sig"):
             continue
         m = CLI_FILE.fullmatch(name)
-        if not m or m.group("v") != version:
+        if not m or m.group("v") != version.lstrip("v"):
+            errors.append(f"unexpected file {name}")
+            continue
+        os_name, arch = RELEASE_PLATFORMS[m.group("suffix")]
+        if bool(m.group("exe")) != (os_name == "windows"):
             errors.append(f"unexpected file {name}")
             continue
         sig = os.path.join(directory, name + ".sig")
@@ -249,7 +250,7 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
             errors.append(f"{name} has no .sig")
             continue
         with open(sig, encoding="utf-8") as f:
-            platforms[f"cli-{m.group('os')}-{m.group('arch')}"] = {
+            platforms[f"cli-{os_name}-{arch}"] = {
                 "url": f"{base_url.rstrip('/')}/{urllib.parse.quote(name)}",
                 "signature": f.read().strip(),
             }
@@ -309,17 +310,18 @@ UPDATER_KINDS = (
     (".deb", "linux", "deb"),
 )
 
-# The architecture token Tauri puts in a bundle name, and the manifest
-# architectures it serves. A universal macOS app serves both.
-ARCH_TOKENS = {
-    "universal": ("aarch64", "x86_64"),
-    "aarch64": ("aarch64",),
-    "arm64": ("aarch64",),
-    "x86_64": ("x86_64",),
-    "x64": ("x86_64",),
-    "amd64": ("x86_64",),
-}
-ARCH_RE = re.compile(r"[_.-](universal|aarch64|arm64|x86_64|x64|amd64)(?=[_.-])")
+# A release name, read whole: the platform suffix is one of
+# RELEASE_PLATFORMS, never a token found somewhere in the name. The version
+# is not compared here: updater-manifest writes --version and
+# `check-manifest --signed-version` binds every signature to it (spec §5.1).
+_SUFFIXES = "|".join(re.escape(s) for s in RELEASE_PLATFORMS)
+APP_RELEASE = re.compile(
+    re.escape(APP_PREFIX) + r"_(?P<v>[0-9A-Za-z.-]+)_(?P<suffix>" + _SUFFIXES + r")"
+    r"(?P<kind>\.app\.tar\.gz|-setup\.exe|\.msi|\.AppImage|\.deb)"
+)
+CLI_FILE = re.compile(
+    re.escape(CLI_PREFIX) + r"_(?P<v>[0-9A-Za-z.-]+)_(?P<suffix>" + _SUFFIXES + r")(?P<exe>\.exe)?"
+)
 
 
 def updater_kind(name: str):
@@ -343,8 +345,9 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
     `darwin-aarch64-app`, …), which the updater tries first for the bundle a
     copy was installed from. The generic `<os>-<arch>` key goes to the only
     artifact of that platform, except on Windows, where the NSIS installer
-    wins over the MSI (tauri-action's `updaterJsonPreferNsis`). A universal
-    macOS app serves `darwin-aarch64` and `darwin-x86_64`.
+    wins over the MSI (tauri-action's `updaterJsonPreferNsis`). The
+    platform comes from the release name's suffix (`mac_arm` ->
+    `darwin-aarch64`, …); any other name is refused.
     """
     errors: list[str] = []
     specific: dict[str, str] = {}
@@ -355,16 +358,16 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
             errors.append(str(e))
             continue
         os_name, bundle = updater_kind(name)
-        tokens = ARCH_RE.findall(name)
-        if not tokens:
-            errors.append(f"{name}: no architecture in the file name")
+        m = APP_RELEASE.fullmatch(name)
+        if not m or RELEASE_PLATFORMS[m.group("suffix")][0] != os_name:
+            errors.append(f"{name}: not a release name")
             continue
-        for arch in ARCH_TOKENS[tokens[-1]]:
-            key = f"{os_name}-{arch}-{bundle}"
-            if key in specific:
-                errors.append(f"{key}: both {specific[key]} and {name}")
-                continue
-            specific[key] = name
+        arch = RELEASE_PLATFORMS[m.group("suffix")][1]
+        key = f"{os_name}-{arch}-{bundle}"
+        if key in specific:
+            errors.append(f"{key}: both {specific[key]} and {name}")
+            continue
+        specific[key] = name
     platforms: dict[str, str] = {}
     preference = {"darwin": ("app",), "linux": ("appimage",),
                   "windows": ("nsis", "msi")}
