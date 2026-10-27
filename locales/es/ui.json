@@ -35,6 +35,9 @@
       "openSorted": "Abrir como carpeta por sistema",
       "broadRoot": "Es una carpeta personal amplia; solo se proponen archivos con pinta de ROM.",
       "truncated": "Más de {count} archivos; se revisarán todos al organizar."
+    },
+    "progress": {
+      "folders": "Carpeta {done} de {total}"
     }
   },
   "settings": {
@@ -1347,7 +1350,34 @@
     "applyWithDedupe": "Organizar {count} archivos y apartar {extras}",
     "applyOneWithDedupe": "Organizar 1 archivo y apartar {extras}",
     "applyWithTrash": "Organizar {count} archivos y enviar {extras} a la Papelera",
-    "applyOneWithTrash": "Organizar 1 archivo y enviar {extras} a la Papelera"
+    "applyOneWithTrash": "Organizar 1 archivo y enviar {extras} a la Papelera",
+    "progress": {
+      "extracting": "Extrayendo {name} en {folder}",
+      "checking": "Comprobando los archivos de {name}…",
+      "game": "Juego {n} de {total}",
+      "track": "Pista {n} de {total}",
+      "file": "Archivo {n} de {total}",
+      "amount": "{done} de {total}",
+      "rate": "{rate}/s",
+      "leftMinutes": "Quedan unos {n} minutos",
+      "leftUnderMinute": "Queda menos de un minuto",
+      "leftOverHour": "Queda más de una hora",
+      "leftOverHours": "Quedan más de {n} horas",
+      "measuring": "Calculando el tiempo…",
+      "cancelling": "Cancelando: se deshace lo extraído de {name}…",
+      "cancellingButton": "Cancelando…",
+      "tracksLabel": "Pistas de {name}",
+      "filesLabel": "Archivos de {name}",
+      "showTracks": "Ver las {count} pistas",
+      "showFiles": "Ver los {count} archivos",
+      "waiting": "En espera",
+      "writing": "Escribiendo",
+      "crcChecked": "CRC comprobado",
+      "sizeChecked": "Tamaño y copia comprobados",
+      "cancelNote": "Si cancelas, se borra lo extraído de este juego y el comprimido queda como estaba. Los juegos ya extraídos se quedan.",
+      "stageLabel": "Extracción de {name} hacia la carpeta de {system}",
+      "movingLabel": "Moviendo a {folder}"
+    }
   },
   "ui": {
     "close": "Cerrar",
@@ -1357,5 +1387,8 @@
   },
   "systems": {
     "unknown": "Carpeta sin sistema reconocido"
+  },
+  "progress": {
+    "perMinute": "{n} por minuto"
   }
 }

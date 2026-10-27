@@ -35,6 +35,9 @@
       "openSorted": "Open as organised by system",
       "broadRoot": "This is a broad personal folder; only files that look like ROMs are proposed.",
       "truncated": "More than {count} files; all of them are checked when organising."
+    },
+    "progress": {
+      "folders": "Folder {done} of {total}"
     }
   },
   "settings": {
@@ -1347,7 +1350,34 @@
     "applyWithDedupe": "Organise {count} files and set aside {extras}",
     "applyOneWithDedupe": "Organise 1 file and set aside {extras}",
     "applyWithTrash": "Organise {count} files and send {extras} to the Trash",
-    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash"
+    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash",
+    "progress": {
+      "extracting": "Extracting {name} into {folder}",
+      "checking": "Checking the files of {name}…",
+      "game": "Game {n} of {total}",
+      "track": "Track {n} of {total}",
+      "file": "File {n} of {total}",
+      "amount": "{done} of {total}",
+      "rate": "{rate}/s",
+      "leftMinutes": "About {n} minutes left",
+      "leftUnderMinute": "Less than a minute left",
+      "leftOverHour": "More than an hour left",
+      "leftOverHours": "More than {n} hours left",
+      "measuring": "Working out the time…",
+      "cancelling": "Cancelling: undoing what was extracted of {name}…",
+      "cancellingButton": "Cancelling…",
+      "tracksLabel": "Tracks of {name}",
+      "filesLabel": "Files of {name}",
+      "showTracks": "Show the {count} tracks",
+      "showFiles": "Show the {count} files",
+      "waiting": "Waiting",
+      "writing": "Writing",
+      "crcChecked": "CRC checked",
+      "sizeChecked": "Size and copy checked",
+      "cancelNote": "If you cancel, what was extracted of this game is removed and the archive stays as it was. Games already extracted stay.",
+      "stageLabel": "Extraction of {name} into the {system} folder",
+      "movingLabel": "Moving into {folder}"
+    }
   },
   "ui": {
     "close": "Close",
@@ -1357,5 +1387,8 @@
   },
   "systems": {
     "unknown": "Folder with no known system"
+  },
+  "progress": {
+    "perMinute": "{n} per minute"
   }
 }

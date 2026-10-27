@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+
+import { translate } from '../i18n/core';
 import {
   etaKey,
   etaSeconds,
@@ -97,6 +99,17 @@ describe('rate', () => {
     for (let s = 0; s <= 4 * 3600; s += 1) {
       const { vars } = etaKey(s);
       if (vars) expect(vars.n).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('never renders a singular count in a plural wording', () => {
+    for (const locale of ['es', 'en'] as const) {
+      for (let s = 0; s <= 4 * 3600; s += 1) {
+        const { key, vars } = etaKey(s);
+        const text = translate(locale, key, vars);
+        expect(text).not.toBe(key);
+        expect(text).not.toMatch(/unos 1 |1 horas|about 1 minutes|1 hours/);
+      }
     }
   });
 
