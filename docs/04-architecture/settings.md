@@ -152,7 +152,8 @@ After the apply phase of a job on a profile with `gamelist = true` (Batocera/Knu
 ## The app side
 
 - `AppState::new(config_dir, base)` loads the settings once. Commands: `get_settings`, `update_settings` (emits `settings-changed`), `reset_settings`, `open_config_folder`, `open_logs_folder`, `open_link(LinkId)` (fixed ids: `repo`, `license`, `notices`, `trademarks`, `releases`, `issues`), `cache_usage`, `clear_cache`, profiles, credentials and search (see [desktop-app.md](./desktop-app.md#ipc-contract)). The webview never sends a folder or URL to open.
-- **Duplicates block** (Settings → Library, `DedupeSettings.tsx`): levels, 1G1R, action, quarantine folder, reorderable keeper rules, container order and exclusions; see [desktop-app.md](./desktop-app.md#duplicates).
+- **Duplicates tab** (Settings › Duplicates, `DuplicatesSection.tsx` over `DedupeSettings.tsx`): action, quarantine folder and 1G1R on top; levels, reorderable keeper rules, container order and exclusions under *Advanced options*; see [desktop-app.md](./desktop-app.md#duplicates). The Organise step (`dedupe.organize_step`) is shown in the Organise tab.
+- **Tabs are presentation only.** The screen groups its tabs (Library, Organise, Duplicates and Profiles under Collection, and so on), folds advanced options and offers a search, but `settings.json`, its groups, keys, defaults and validation are the same: a control keeps its settings path whichever tab shows it (see [desktop-app.md](./desktop-app.md#settings-screen)).
 - **File logger** (`logging.rs`): `<data dir>/logs/coverly.log`, one line per message (newlines escaped), rotated once at 1 MiB, level from `advanced.log_level` and changed live. It never logs credential values. The CLI keeps writing to stderr.
 
 ## The mock (browser)

@@ -1,8 +1,17 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
+import { AdvancedFold } from '@/components/settings/Field';
+import { foldCount, type SettingsFold } from '@/components/settings/registry';
 import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
@@ -14,14 +23,24 @@ import {
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import {
+  resetNavStore,
+  useNavStore,
+  type SettingsSection,
+} from '@/stores/navStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
+import { SECTION_COMPONENTS } from './SettingsScreen';
+
 let backend: MockBackend;
 let storage: MemoryStorage;
 let restore: () => void;
+
+/** The fold trigger's name: its count follows the registry. */
+const advanced = (fold: SettingsFold) =>
+  `Advanced options (${foldCount(fold)})`;
 
 async function start() {
   render(<Root />);
@@ -35,7 +54,7 @@ describe('Settings screen', () => {
     setBackend(backend);
     resetSettingsStore();
     resetLibraryStore();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
     restore = stubLayout(1280, 800);
   });
   afterEach(() => {
@@ -55,13 +74,15 @@ describe('Settings screen', () => {
     ).toEqual([
       'General',
       'Library',
+      'Organise',
+      'Duplicates',
+      'Profiles',
       'Art',
       'Matching',
       'Sources',
       'Network',
       'Safety',
       'Advanced',
-      'Profiles',
       'About',
     ]);
     expect(
@@ -80,6 +101,137 @@ describe('Settings screen', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toHaveFocus();
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+  });
+
+  it('lands on a setting and marks it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await start();
+      act(() =>
+        useNavStore
+          .getState()
+          .openSettings('library', { focus: 'setting-library-include-hidden' }),
+      );
+      const hidden = await screen.findByRole('switch', {
+        name: 'Include hidden files',
+      });
+      await waitFor(() => expect(hidden).toHaveFocus());
+      expect(
+        screen.getByRole('heading', { name: 'Settings' }),
+      ).not.toHaveFocus();
+      const row = hidden.closest('[data-setting-row]');
+      expect(row).toHaveAttribute('data-arrived', 'true');
+      expect(useNavStore.getState().focusSetting).toBeNull();
+      act(() => vi.advanceTimersByTime(1200));
+      expect(row).not.toHaveAttribute('data-arrived');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens the fold that holds the target', async () => {
+    await start();
+    act(() =>
+      useNavStore
+        .getState()
+        .openSettings('matching', { focus: 'setting-matching-regions' }),
+    );
+    const list = await screen.findByRole('list', { name: 'Region order' });
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(list).toHaveAttribute('id', 'setting-matching-regions');
+    expect(useNavStore.getState().focusSetting).toBeNull();
+  });
+
+  it('focuses the tab when the target is missing', async () => {
+    await start();
+    act(() =>
+      useNavStore.getState().openSettings('art', { focus: 'setting-nope' }),
+    );
+    const tab = await screen.findByRole('tab', { name: 'Art' });
+    await waitFor(() => expect(tab).toHaveFocus());
+    expect(useNavStore.getState().focusSetting).toBeNull();
+  });
+
+  it('lands on the ignored folders inside the closed library fold', async () => {
+    await start();
+    act(() =>
+      useNavStore
+        .getState()
+        .openSettings('library', { focus: 'setting-library-ignored-dirs' }),
+    );
+    const box = await screen.findByRole('textbox', { name: 'Ignored folders' });
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(useNavStore.getState().openFolds).toEqual(['library-advanced']);
+    expect(
+      screen.getByRole('button', { name: advanced('library-advanced') }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(box.closest('[data-setting-row]')).toHaveAttribute(
+      'data-arrived',
+      'true',
+    );
+  });
+
+  it('opens a closed advanced fold before landing inside it', async () => {
+    const original = SECTION_COMPONENTS.art;
+    SECTION_COMPONENTS.art = () => (
+      <AdvancedFold id="art-test-advanced" count={1} errorPaths={[]}>
+        <div data-setting-row="">
+          <label htmlFor="setting-test-folded">Folded</label>
+          <input id="setting-test-folded" />
+        </div>
+      </AdvancedFold>
+    );
+    try {
+      await start();
+      act(() =>
+        useNavStore
+          .getState()
+          .openSettings('art', { focus: 'setting-test-folded' }),
+      );
+      const input = await screen.findByLabelText('Folded');
+      await waitFor(() => expect(input).toHaveFocus());
+      expect(useNavStore.getState().openFolds).toEqual(['art-test-advanced']);
+      expect(
+        screen.getByRole('button', { name: 'Advanced options (1)' }),
+      ).toHaveAttribute('aria-expanded', 'true');
+      expect(input.closest('[data-setting-row]')).toHaveAttribute(
+        'data-arrived',
+        'true',
+      );
+      expect(useNavStore.getState().focusSetting).toBeNull();
+    } finally {
+      SECTION_COMPONENTS.art = original;
+    }
+  });
+
+  it('keeps the mark for its full time when the same setting is reached again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await start();
+      const land = () =>
+        act(() =>
+          useNavStore.getState().openSettings('library', {
+            focus: 'setting-library-include-hidden',
+          }),
+        );
+      land();
+      const hidden = await screen.findByRole('switch', {
+        name: 'Include hidden files',
+      });
+      await waitFor(() => expect(hidden).toHaveFocus());
+      const row = hidden.closest('[data-setting-row]');
+      act(() => vi.advanceTimersByTime(800));
+      land();
+      await waitFor(() =>
+        expect(useNavStore.getState().focusSetting).toBeNull(),
+      );
+      act(() => vi.advanceTimersByTime(800));
+      expect(row).toHaveAttribute('data-arrived', 'true');
+      act(() => vi.advanceTimersByTime(400));
+      expect(row).not.toHaveAttribute('data-arrived');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns focus to the library toolbar after Back', async () => {
@@ -101,10 +253,76 @@ describe('Settings screen', () => {
     expect(
       screen.getByRole('tabpanel', { name: 'Library' }),
     ).toBeInTheDocument();
-    await userEvent.keyboard('{ArrowUp}{ArrowUp}');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('tab', { name: 'Organise' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
     expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();
+    await userEvent.keyboard('{End}');
+    expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+  });
+
+  it('groups the tabs without leaving the tab list', async () => {
+    await start();
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const tabs = screen.getByRole('tablist', { name: 'Settings sections' });
+    expect(tabs).toHaveAttribute('aria-orientation', 'vertical');
+    expect(within(tabs).queryAllByRole('group')).toHaveLength(0);
+    const labels = tabs.querySelectorAll('.settings-nav__group');
+    expect([...labels].map((l) => l.textContent)).toEqual([
+      'Collection',
+      'Covers',
+      'App',
+    ]);
+    for (const l of labels) expect(l).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen.getByRole('tab', { name: 'Library' }),
+    ).toHaveAccessibleDescription('Collection');
+    expect(
+      screen.getByRole('tab', { name: 'Art' }),
+    ).toHaveAccessibleDescription('Covers');
+    expect(
+      screen.getByRole('tab', { name: 'Network' }),
+    ).toHaveAccessibleDescription('App');
+    expect(
+      screen.getByRole('tab', { name: 'Organise' }),
+    ).not.toHaveAccessibleDescription();
+    expect(
+      screen.getByRole('tab', { name: 'General' }),
+    ).not.toHaveAccessibleDescription();
+    // The group labels are not stops for the arrow keys.
+    await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }));
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('tab', { name: 'Art' })).toHaveFocus();
+  });
+
+  it('lays the tabs out in a row that answers left and right when narrow', async () => {
+    restore();
+    restore = stubLayout(375, 800);
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 40rem)',
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    try {
+      await start();
+      await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      const tabs = screen.getByRole('tablist', { name: 'Settings sections' });
+      expect(tabs).toHaveAttribute('aria-orientation', 'horizontal');
+      await userEvent.click(screen.getByRole('tab', { name: 'General' }));
+      await userEvent.keyboard('{ArrowRight}');
+      expect(screen.getByRole('tab', { name: 'Library' })).toHaveFocus();
+      await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+      expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('switches the theme for the whole app and keeps it after a reload', async () => {
@@ -157,6 +375,9 @@ describe('Settings screen', () => {
   it('edits the ignored folders and the default profile', async () => {
     await start();
     act(() => useNavStore.getState().openSettings('library'));
+    await userEvent.click(
+      await screen.findByRole('button', { name: advanced('library-advanced') }),
+    );
     const box = await screen.findByRole('textbox', { name: 'Ignored folders' });
     await userEvent.clear(box);
     await userEvent.type(box, 'bios{enter}Junk');
@@ -291,5 +512,243 @@ describe('Settings screen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Licence' }));
     await userEvent.click(screen.getByRole('button', { name: 'Source code' }));
     expect(backend.opened).toEqual(['link:license', 'link:repo']);
+  });
+
+  describe('search', () => {
+    /** Settings open on `section`, platform stubbed. */
+    async function openOn(
+      platform: string,
+      section: SettingsSection = 'general',
+    ) {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+      await start();
+      act(() => useNavStore.getState().openSettings(section));
+      await screen.findByRole('tabpanel', {
+        name:
+          { duplicates: 'Duplicates', sources: 'Sources' }[section as string] ??
+          'General',
+      });
+      return screen.getByRole('combobox', { name: 'Search settings' });
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it('names the shortcuts the search answers to (its key hint is hidden)', async () => {
+      expect(await openOn('MacIntel')).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Meta+F /',
+      );
+    });
+
+    it('names Ctrl+F as the search shortcut on Windows', async () => {
+      expect(await openOn('Win32')).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Control+F /',
+      );
+    });
+
+    it('focuses search with Cmd+F on macOS', async () => {
+      const search = await openOn('MacIntel');
+      screen.getByRole('tab', { name: 'General' }).focus();
+      await userEvent.keyboard('{Meta>}f{/Meta}');
+      expect(search).toHaveFocus();
+    });
+
+    it('leaves Ctrl+F alone on macOS', async () => {
+      await openOn('MacIntel', 'duplicates');
+      const dir = document.getElementById(
+        'setting-dedupe-quarantine-dir',
+      ) as HTMLInputElement;
+      dir.focus();
+      const notPrevented = fireEvent.keyDown(dir, {
+        key: 'f',
+        code: 'KeyF',
+        ctrlKey: true,
+      });
+      expect(notPrevented).toBe(true);
+      expect(dir).toHaveFocus();
+    });
+
+    it('focuses search with Ctrl+F on Windows, not with the Windows key', async () => {
+      const search = await openOn('Win32');
+      const tab = screen.getByRole('tab', { name: 'General' });
+      tab.focus();
+      await userEvent.keyboard('{Meta>}f{/Meta}');
+      expect(tab).toHaveFocus();
+      await userEvent.keyboard('{Control>}f{/Control}');
+      expect(search).toHaveFocus();
+    });
+
+    it('still focuses search with Shift+Cmd+F', async () => {
+      const search = await openOn('MacIntel');
+      screen.getByRole('tab', { name: 'General' }).focus();
+      await userEvent.keyboard('{Shift>}{Meta>}F{/Meta}{/Shift}');
+      expect(search).toHaveFocus();
+    });
+
+    it('focuses search with a slash outside a text field and types it inside one', async () => {
+      const search = await openOn('MacIntel', 'duplicates');
+      const dir = document.getElementById(
+        'setting-dedupe-quarantine-dir',
+      ) as HTMLInputElement;
+      await userEvent.click(dir);
+      await userEvent.keyboard('/');
+      expect(dir).toHaveFocus();
+      expect(dir.value).toContain('/');
+      screen.getByRole('tab', { name: 'Duplicates' }).focus();
+      await userEvent.keyboard('/');
+      expect(search).toHaveFocus();
+      expect(search).toHaveValue('');
+    });
+
+    it('types a slash inside a hidden API key instead of searching', async () => {
+      const search = await openOn('MacIntel', 'sources');
+      const key = (await screen.findByLabelText(
+        'SteamGridDB API key',
+      )) as HTMLInputElement;
+      expect(key).toHaveAttribute('type', 'password');
+      await userEvent.click(key);
+      await userEvent.keyboard('ab/cd');
+      expect(key).toHaveFocus();
+      expect(key.value).toBe('ab/cd');
+      expect(search).toHaveValue('');
+    });
+
+    it('lists one result for rar and lands on the external tools switch with Enter', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      const results = screen.getByRole('listbox');
+      expect(within(results).getAllByRole('option')).toHaveLength(1);
+      expect(
+        within(results).getByRole('option', {
+          name: /External programs for RAR/,
+        }),
+      ).toHaveTextContent('Organise › Advanced options');
+      expect(search).toHaveAttribute('aria-expanded', 'true');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        'settings-result-0',
+      );
+      await userEvent.keyboard('{Enter}');
+      const tools = await screen.findByRole('switch', {
+        name: 'External programs for RAR',
+      });
+      await waitFor(() => expect(tools).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('organize');
+      expect(useNavStore.getState().openFolds).toContain('organize-advanced');
+      expect(search).toHaveValue('');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('clears with Escape and then returns to the selected tab', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      await userEvent.keyboard('{Escape}');
+      expect(search).toHaveValue('');
+      expect(search).toHaveFocus();
+      expect(screen.getByRole('tabpanel', { name: 'General' })).toBeVisible();
+      await userEvent.keyboard('{Escape}');
+      expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();
+    });
+
+    it('clears with the clear button', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Clear search' }),
+      );
+      expect(search).toHaveValue('');
+      expect(search).toHaveFocus();
+    });
+
+    it('moves the active option with the arrow keys, wrapping', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'region');
+      const options = within(screen.getByRole('listbox')).getAllByRole(
+        'option',
+      );
+      expect(options.length).toBeGreaterThan(1);
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      await userEvent.keyboard('{ArrowDown}');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        'settings-result-1',
+      );
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
+      expect(options[0]).toHaveAttribute('aria-selected', 'false');
+      await userEvent.keyboard('{ArrowUp}{ArrowUp}');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        `settings-result-${options.length - 1}`,
+      );
+    });
+
+    it('announces the count once typing stops', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const search = await openOn('MacIntel');
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        await user.type(search, 'rar');
+        const live = screen.getByTestId('settings-search-count');
+        expect(live).toHaveAttribute('aria-live', 'polite');
+        expect(live).toHaveTextContent('');
+        act(() => vi.advanceTimersByTime(300));
+        expect(live).toHaveTextContent('1 setting');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says when nothing matches, with the query', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'zzz');
+      expect(
+        await screen.findByText('No setting matches “zzz”.'),
+      ).toBeInTheDocument();
+      expect(search).not.toHaveAttribute('aria-activedescendant');
+    });
+
+    it('finds Send to the Trash from papelera in English', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'papelera');
+      expect(
+        within(screen.getByRole('listbox')).getByRole('option', {
+          name: /Send to the Trash/,
+        }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the selected tab again when its tab is clicked during a search', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'General' }));
+      expect(search).toHaveValue('');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('tabpanel', { name: 'General' })).toBeVisible();
+    });
+
+    it('does not show the count of an earlier search while a new one settles', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const search = await openOn('MacIntel');
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        await user.type(search, 'rar');
+        act(() => vi.advanceTimersByTime(300));
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          '1 setting',
+        );
+        await user.keyboard('{Escape}');
+        await user.type(search, 'zzz');
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          '',
+        );
+        act(() => vi.advanceTimersByTime(300));
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          'No setting matches “zzz”.',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

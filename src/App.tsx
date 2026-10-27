@@ -34,10 +34,11 @@ export default function App() {
       off?.();
     };
   }, [ready]);
-  // Back from Settings: focus returns to the Settings button that opened it.
+  // Back from Settings: focus returns to the control that opened it, on
+  // whichever screen that was.
   const shown = useRef(screen);
   useEffect(() => {
-    if (shown.current === 'settings' && screen === 'main')
+    if (shown.current === 'settings' && screen !== 'settings')
       document.querySelector<HTMLElement>('[data-settings-opener]')?.focus();
     shown.current = screen;
   }, [screen]);

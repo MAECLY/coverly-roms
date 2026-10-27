@@ -25,7 +25,7 @@ import {
 } from '@/lib/viewPrefs';
 import { useFilterStore } from '@/stores/filterStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useViewStore } from '@/stores/viewStore';
@@ -54,7 +54,7 @@ describe('Library screen', () => {
   });
   afterEach(() => {
     restore();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
     setBackend(null);
   });
 

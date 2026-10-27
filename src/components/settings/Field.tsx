@@ -1,5 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import {
   FieldControl,
   FieldDescription,
@@ -11,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useT } from '@/i18n/useT';
 import type { FieldError, SettingsPatch } from '@/ipc/types';
+import { useNavStore } from '@/stores/navStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 type T = ReturnType<typeof useT>;
@@ -49,6 +57,8 @@ export function Field({
   id,
   label,
   hint,
+  more,
+  action,
   error,
   className,
   children,
@@ -56,16 +66,29 @@ export function Field({
   id: string;
   label: string;
   hint?: string;
+  /** Long help behind «Más información», after the hint (D7). */
+  more?: ReactNode;
+  /** A button on the control's row (e.g. «Elegir…»), wrapping below it
+   * on a narrow window. */
+  action?: ReactNode;
   error?: string | null;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <UiField id={id} className={className}>
+    <UiField id={id} className={className} data-setting-row="">
       <FieldLabel>{label}</FieldLabel>
-      <FieldControl>{children}</FieldControl>
+      {action ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <FieldControl>{children}</FieldControl>
+          {action}
+        </div>
+      ) : (
+        <FieldControl>{children}</FieldControl>
+      )}
       {hint && <FieldDescription>{hint}</FieldDescription>}
       <FieldErrorText>{error}</FieldErrorText>
+      {more && <MoreInfo id={id}>{more}</MoreInfo>}
     </UiField>
   );
 }
@@ -76,6 +99,7 @@ export function SwitchSetting({
   name,
   label,
   hint,
+  more,
   checked,
   disabled,
   onCheckedChange,
@@ -84,12 +108,19 @@ export function SwitchSetting({
   name: string;
   label: string;
   hint?: ReactNode;
+  /** Long help behind «Más información», after the hint (D7). */
+  more?: ReactNode;
   checked: boolean;
   disabled?: boolean;
   onCheckedChange?: (on: boolean) => void;
 }) {
   return (
-    <UiField id={id} orientation="horizontal" disabled={disabled ?? false}>
+    <UiField
+      id={id}
+      orientation="horizontal"
+      disabled={disabled ?? false}
+      data-setting-row=""
+    >
       <FieldControl>
         <Switch
           name={name}
@@ -99,7 +130,145 @@ export function SwitchSetting({
       </FieldControl>
       <FieldLabel className="font-normal">{label}</FieldLabel>
       {hint && <FieldDescription>{hint}</FieldDescription>}
+      {more && (
+        <div className="col-start-2">
+          <MoreInfo id={id}>{more}</MoreInfo>
+        </div>
+      )}
     </UiField>
+  );
+}
+
+const MARK = '\u0000';
+
+/** A translated line with one value in the data face (brand §5): `text`
+ * holds a `\u0000` where the value goes. */
+export function MonoIn({
+  text,
+  value,
+  className,
+}: {
+  text: string;
+  value: ReactNode;
+  /** Extra classes on the value span (e.g. wrapping long paths). */
+  className?: string;
+}) {
+  const [before = '', after = ''] = text.split(MARK);
+  return (
+    <>
+      {before}
+      <span className={className ? `font-mono ${className}` : 'font-mono'}>
+        {value}
+      </span>
+      {after}
+    </>
+  );
+}
+
+/** The long help behind a text toggle, after the short hint (D7): the
+ * control's aria-describedby keeps reading only the short one. */
+export function MoreInfo({
+  id,
+  children,
+}: {
+  id: string;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const panel = `${id}-more`;
+  return (
+    <div className="grid gap-1">
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto justify-self-start p-0"
+        aria-expanded={open}
+        aria-controls={panel}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {t(open ? 'settings.lessInfo' : 'settings.moreInfo')}
+      </Button>
+      <p id={panel} hidden={!open} className={hintText}>
+        {children}
+      </p>
+    </div>
+  );
+}
+
+/** «Opciones avanzadas»: closed by default, open for the session once
+ * opened (navStore.openFolds), content kept mounted so drafts and ids
+ * survive (D5). Opens itself when a field inside gets an error, and says
+ * so on the trigger while closed. */
+export function AdvancedFold({
+  id,
+  count,
+  errorPaths,
+  children,
+}: {
+  /** 'library-advanced' | 'organize-advanced' | 'duplicates-advanced' */
+  id: string;
+  /** Registry entries inside (shown in mono). */
+  count: number;
+  /** Settings paths whose errors (path or path.*) live inside. */
+  errorPaths: readonly string[];
+  children: ReactNode;
+}) {
+  const t = useT();
+  const open = useNavStore((s) => s.openFolds.includes(id));
+  const setFold = useNavStore((s) => s.setFold);
+  const hasError = useSettingsStore((s) =>
+    Object.keys(s.errors).some((k) =>
+      errorPaths.some((p) => k === p || k.startsWith(`${p}.`)),
+    ),
+  );
+  const had = useRef(false);
+  useEffect(() => {
+    if (hasError && !had.current) setFold(id, true);
+    had.current = hasError;
+  }, [hasError, id, setFold]);
+  const label = t('settings.advancedOptions');
+  const name = `${label} (${count})`;
+  const flagged = hasError && !open;
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={(o) => setFold(id, o)}
+      data-advanced-fold={id}
+      className="grid gap-4"
+    >
+      <CollapsibleTrigger asChild>
+        <Button
+          variant="ghost"
+          className="group justify-self-start px-1"
+          aria-label={
+            flagged ? t('settings.advancedHasErrors', { label: name }) : name
+          }
+        >
+          <ChevronRight
+            aria-hidden
+            className="transition-transform duration-fast ease-standard group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+          />
+          {label} <span className="font-mono">({count})</span>
+          {flagged && (
+            <span
+              data-fold-error=""
+              aria-hidden
+              className="size-1.5 rounded-full bg-cr-danger"
+            />
+          )}
+        </Button>
+      </CollapsibleTrigger>
+      {/* forceMount keeps Radix from hiding it: hide it ourselves, and keep
+          `grid` from overriding the hidden attribute. */}
+      <CollapsibleContent
+        forceMount
+        hidden={!open}
+        className="settings-fold__content grid gap-4 data-[state=closed]:hidden"
+      >
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
