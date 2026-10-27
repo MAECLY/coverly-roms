@@ -34,18 +34,20 @@ Subcommands:
   updater-manifest --dir D --version V --base-url URL --output F
                    [--changelog CHANGELOG.md] [--pub-date DATE]
       Write latest.json for the update artifacts in D, each with the
-      signature in D/<file>.sig and the url <URL>/<file>. Platform keys:
-      darwin-aarch64 and darwin-x86_64 -> the universal .app.tar.gz;
-      windows-x86_64 -> the NSIS -setup.exe (the .msi only when there is no
-      NSIS installer, as tauri-action's updaterJsonPreferNsis);
-      linux-x86_64 / linux-aarch64 -> the .AppImage of that architecture;
-      plus a bundle-specific key for each (darwin-aarch64-app,
-      windows-x86_64-msi, windows-x86_64-nsis, linux-x86_64-appimage,
-      linux-x86_64-deb, ...),
+      signature in D/<file>.sig and the url <URL>/<file>. Every artifact
+      must carry its release name, Coverly-ROMs_<V>_<platform><kind>, and
+      the platform is what picks its keys (spec §4): darwin-aarch64 /
+      darwin-x86_64 -> the mac_arm / mac_intel .app.tar.gz;
+      windows-x86_64 / windows-aarch64 -> the windows_x64 / windows_arm
+      NSIS -setup.exe (the .msi only when there is no NSIS installer, as
+      tauri-action's updaterJsonPreferNsis); linux-x86_64 / linux-aarch64
+      -> the linux_x64 / linux_arm .AppImage; plus a bundle-specific key
+      for each (darwin-aarch64-app, windows-aarch64-msi,
+      windows-x86_64-nsis, linux-x86_64-appimage, linux-aarch64-deb, ...),
       which the updater prefers for the bundle a copy was installed from.
       The notes are CHANGELOG.md's `## [V]` section; pub_date is now (UTC)
       unless given. Fails (and writes nothing) on a missing .sig, two
-      artifacts for one key or a name without an architecture.
+      artifacts for one key or a name that is not a release name.
 
   list-artifacts --manifest F
       Print the file name of every update artifact the manifest points at,
@@ -60,20 +62,25 @@ Subcommands:
 
   add-cli --manifest F --dir D --version V --base-url URL
       Add a `cli-<os>-<arch>` entry for every file
-      `coverly-<V>-<os>-<arch>[.exe]` in D, with the signature in
+      `coverly_<V>_<platform>[.exe]` in D (the release name stage-builds
+      gives it; `.exe` on Windows only), with the signature in
       D/<file>.sig and the url <URL>/<file>. Creates the manifest when F does
       not exist. Fails on an unexpected file, a missing .sig or no binary.
 
   stage-builds --from DL --bundles B --cli C --version V
       Check the build artifacts finalize downloaded (DL/<artifact>/<file>,
       never merged) and copy their files into B (app bundles) and C (CLI
-      binaries). DL must hold exactly the artifacts the app and cli jobs
-      upload, and each one exactly its own platform's files for version V
-      (the Windows .msi only for a stable V: WiX refuses a non-numeric
-      prerelease). Anything else (an extra artifact, another platform's
-      file, a .sig, a missing or second file of one kind) fails, and
-      nothing is copied: a build cannot slip a file into, or replace,
-      another platform's bundles.
+      binaries) under their release names: Coverly-ROMs_<V>_<platform><kind>
+      and coverly_<V>_<platform>[.exe], platform being one of mac_arm,
+      mac_intel, windows_x64, windows_arm, linux_x64, linux_arm. DL must
+      hold exactly the artifacts the app and cli jobs upload, and each one
+      exactly its own platform's files for version V (the Windows .msi only
+      for a stable V: WiX refuses a non-numeric prerelease). Anything else
+      (an extra artifact, another platform's file, a .sig, a symlink, a
+      missing or second file of one kind, a release name GitHub would
+      rewrite) fails, as does a B or C that is not empty (finalize uploads
+      both whole), and nothing is copied: a build cannot slip a file
+      into, or replace, another platform's bundles.
 
   pubkey --file crates/coverly-core/updater.pub
       Print the updater public key committed in the file (its first line that
@@ -225,12 +232,6 @@ def resign_manifest(manifest: dict, sigdir: str) -> list[str]:
     return errors
 
 
-CLI_FILE = re.compile(
-    r"coverly-(?P<v>[^-]+(?:-[0-9A-Za-z.-]+)?)-(?P<os>darwin|windows|linux)"
-    r"-(?P<arch>x86_64|aarch64)(?:\.exe)?"
-)
-
-
 def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list[str]:
     errors, added = [], 0
     platforms = manifest.setdefault("platforms", {})
@@ -238,7 +239,11 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
         if name.endswith(".sig"):
             continue
         m = CLI_FILE.fullmatch(name)
-        if not m or m.group("v") != version:
+        if not m or m.group("v") != version.lstrip("v"):
+            errors.append(f"unexpected file {name}")
+            continue
+        os_name, arch = RELEASE_PLATFORMS[m.group("suffix")]
+        if bool(m.group("exe")) != (os_name == "windows"):
             errors.append(f"unexpected file {name}")
             continue
         sig = os.path.join(directory, name + ".sig")
@@ -246,7 +251,7 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
             errors.append(f"{name} has no .sig")
             continue
         with open(sig, encoding="utf-8") as f:
-            platforms[f"cli-{m.group('os')}-{m.group('arch')}"] = {
+            platforms[f"cli-{os_name}-{arch}"] = {
                 "url": f"{base_url.rstrip('/')}/{urllib.parse.quote(name)}",
                 "signature": f.read().strip(),
             }
@@ -254,6 +259,44 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
     if added == 0:
         errors.append(f"no CLI binaries in {directory}")
     return errors
+
+
+# Release name suffix -> (os, arch) as the manifest keys spell them. The only
+# place a platform is listed; every other table derives from it (spec §4).
+RELEASE_PLATFORMS = {
+    "mac_arm": ("darwin", "aarch64"),
+    "mac_intel": ("darwin", "x86_64"),
+    "windows_x64": ("windows", "x86_64"),
+    "windows_arm": ("windows", "aarch64"),
+    "linux_x64": ("linux", "x86_64"),
+    "linux_arm": ("linux", "aarch64"),
+}
+
+# The architecture token Tauri writes into each bundle kind, per platform.
+# The macOS .app.tar.gz carries the token the app job's staging step appends
+# (matrix tauri_arch), the same one Tauri gives the .dmg.
+TAURI_TOKENS = {
+    ("darwin", "aarch64"): {".app.tar.gz": "aarch64", ".dmg": "aarch64"},
+    ("darwin", "x86_64"): {".app.tar.gz": "x64", ".dmg": "x64"},
+    ("windows", "x86_64"): {"-setup.exe": "x64", ".msi": "x64"},
+    ("windows", "aarch64"): {"-setup.exe": "arm64", ".msi": "arm64"},
+    ("linux", "x86_64"): {".AppImage": "amd64", ".deb": "amd64"},
+    ("linux", "aarch64"): {".AppImage": "aarch64", ".deb": "arm64"},
+}
+
+APP_PREFIX = "Coverly-ROMs"
+CLI_PREFIX = "coverly"
+CLI_KIND = "CLI binary"
+RELEASE_NAME = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def release_name(suffix: str, kind: str, version: str) -> str:
+    """The name a staged file is published under (spec §4)."""
+    v = version.lstrip("v")
+    if kind == CLI_KIND:
+        ext = ".exe" if RELEASE_PLATFORMS[suffix][0] == "windows" else ""
+        return f"{CLI_PREFIX}_{v}_{suffix}{ext}"
+    return f"{APP_PREFIX}_{v}_{suffix}{kind}"
 
 
 # Update artifacts the app's updater installs, by file name suffix:
@@ -268,17 +311,18 @@ UPDATER_KINDS = (
     (".deb", "linux", "deb"),
 )
 
-# The architecture token Tauri puts in a bundle name, and the manifest
-# architectures it serves. A universal macOS app serves both.
-ARCH_TOKENS = {
-    "universal": ("aarch64", "x86_64"),
-    "aarch64": ("aarch64",),
-    "arm64": ("aarch64",),
-    "x86_64": ("x86_64",),
-    "x64": ("x86_64",),
-    "amd64": ("x86_64",),
-}
-ARCH_RE = re.compile(r"[_.-](universal|aarch64|arm64|x86_64|x64|amd64)(?=[_.-])")
+# A release name, read whole: the platform suffix is one of
+# RELEASE_PLATFORMS, never a token found somewhere in the name. The version
+# is not compared here: updater-manifest writes --version and
+# `check-manifest --signed-version` binds every signature to it (spec §5.1).
+_SUFFIXES = "|".join(re.escape(s) for s in RELEASE_PLATFORMS)
+APP_RELEASE = re.compile(
+    re.escape(APP_PREFIX) + r"_(?P<v>[0-9A-Za-z.-]+)_(?P<suffix>" + _SUFFIXES + r")"
+    r"(?P<kind>\.app\.tar\.gz|-setup\.exe|\.msi|\.AppImage|\.deb)"
+)
+CLI_FILE = re.compile(
+    re.escape(CLI_PREFIX) + r"_(?P<v>[0-9A-Za-z.-]+)_(?P<suffix>" + _SUFFIXES + r")(?P<exe>\.exe)?"
+)
 
 
 def updater_kind(name: str):
@@ -302,8 +346,9 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
     `darwin-aarch64-app`, …), which the updater tries first for the bundle a
     copy was installed from. The generic `<os>-<arch>` key goes to the only
     artifact of that platform, except on Windows, where the NSIS installer
-    wins over the MSI (tauri-action's `updaterJsonPreferNsis`). A universal
-    macOS app serves `darwin-aarch64` and `darwin-x86_64`.
+    wins over the MSI (tauri-action's `updaterJsonPreferNsis`). The
+    platform comes from the release name's suffix (`mac_arm` ->
+    `darwin-aarch64`, …); any other name is refused.
     """
     errors: list[str] = []
     specific: dict[str, str] = {}
@@ -314,16 +359,16 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
             errors.append(str(e))
             continue
         os_name, bundle = updater_kind(name)
-        tokens = ARCH_RE.findall(name)
-        if not tokens:
-            errors.append(f"{name}: no architecture in the file name")
+        m = APP_RELEASE.fullmatch(name)
+        if not m or RELEASE_PLATFORMS[m.group("suffix")][0] != os_name:
+            errors.append(f"{name}: not a release name")
             continue
-        for arch in ARCH_TOKENS[tokens[-1]]:
-            key = f"{os_name}-{arch}-{bundle}"
-            if key in specific:
-                errors.append(f"{key}: both {specific[key]} and {name}")
-                continue
-            specific[key] = name
+        arch = RELEASE_PLATFORMS[m.group("suffix")][1]
+        key = f"{os_name}-{arch}-{bundle}"
+        if key in specific:
+            errors.append(f"{key}: both {specific[key]} and {name}")
+            continue
+        specific[key] = name
     platforms: dict[str, str] = {}
     preference = {"darwin": ("app",), "linux": ("appimage",),
                   "windows": ("nsis", "msi")}
@@ -341,38 +386,34 @@ def updater_platforms(names: list[str]) -> tuple[dict, list[str]]:
     return platforms, errors
 
 
-def build_artifacts(version: str) -> dict[str, tuple[str, dict[str, str]]]:
-    """artifact name -> (destination: "bundles" or "cli", {label: pattern}
-    of the files it must hold, each pattern matched by exactly one file)."""
-    v = re.escape(version.lstrip("v"))
+def build_artifacts(version: str) -> dict[str, tuple[str, str, dict[str, str]]]:
+    """artifact name -> (destination: "bundles" or "cli", release suffix,
+    {kind: pattern} of the files it must hold under Tauri's or Cargo's name,
+    each pattern matched by exactly one file)."""
+    plain = version.lstrip("v")
+    v = re.escape(plain)
+    stable = "-" not in plain
     app = r"[A-Za-z0-9._-]+_" + v + "_"
-    windows = {"-setup.exe": app + r"x64-setup\.exe"}
-    if "-" not in version.lstrip("v"):
-        windows[".msi"] = app + r"x64_[A-Za-z0-9-]+\.msi"
-    out = {
-        "app-macos-universal": ("bundles", {
-            ".app.tar.gz": app + r"universal\.app\.tar\.gz",
-            ".dmg": app + r"universal\.dmg"}),
-        "app-windows-x86_64": ("bundles", windows),
-        "app-linux-x86_64": ("bundles", {
-            ".AppImage": app + r"amd64\.AppImage",
-            ".deb": app + r"amd64\.deb"}),
-        "app-linux-aarch64": ("bundles", {
-            ".AppImage": app + r"aarch64\.AppImage",
-            ".deb": app + r"arm64\.deb"}),
-    }
-    for os_name, arch in (("darwin", "aarch64"), ("darwin", "x86_64"),
-                          ("windows", "x86_64"), ("linux", "x86_64"),
-                          ("linux", "aarch64")):
+    out: dict[str, tuple[str, str, dict[str, str]]] = {}
+    for suffix, (os_name, arch) in RELEASE_PLATFORMS.items():
+        patterns: dict[str, str] = {}
+        for kind, token in TAURI_TOKENS[(os_name, arch)].items():
+            if kind == ".msi":
+                # WiX refuses a non-numeric prerelease: no .msi on a beta.
+                if stable:
+                    patterns[kind] = app + re.escape(token) + r"_[A-Za-z0-9-]+\.msi"
+            else:
+                patterns[kind] = app + re.escape(token) + re.escape(kind)
+        out[f"app-{os_name}-{arch}"] = ("bundles", suffix, patterns)
         ext = ".exe" if os_name == "windows" else ""
         out[f"cli-{os_name}-{arch}"] = (
-            "cli", {"CLI binary": f"coverly-{v}-{os_name}-{arch}{re.escape(ext)}"})
+            "cli", suffix, {CLI_KIND: f"coverly-{v}-{os_name}-{arch}{re.escape(ext)}"})
     return out
 
 
 def stage_builds(source: str, bundles: str, cli: str, version: str) -> list[str]:
     """Check every downloaded build artifact, then copy all their files (or
-    none) into `bundles` and `cli`."""
+    none) into `bundles` and `cli`, each under its release name."""
     expected = build_artifacts(version)
     found = sorted(os.listdir(source))
     errors = [f"unexpected build artifact {name}" for name in found
@@ -380,28 +421,46 @@ def stage_builds(source: str, bundles: str, cli: str, version: str) -> list[str]
     errors += [f"build artifact {name} is missing" for name in expected
                if name not in found]
     copies: list[tuple[str, str]] = []
-    for artifact, (dest, patterns) in sorted(expected.items()):
+    targets: dict[str, str] = {}
+    for artifact, (dest, suffix, patterns) in sorted(expected.items()):
         folder = os.path.join(source, artifact)
         if not os.path.isdir(folder):
             continue
-        matched: dict[str, list[str]] = {label: [] for label in patterns}
+        matched: dict[str, list[str]] = {kind: [] for kind in patterns}
         for name in sorted(os.listdir(folder)):
             path = os.path.join(folder, name)
-            label = next((k for k, p in patterns.items() if re.fullmatch(p, name)), None)
-            if label is None or os.path.islink(path) or not os.path.isfile(path):
+            kind = next((k for k, p in patterns.items() if re.fullmatch(p, name)), None)
+            if kind is None or os.path.islink(path) or not os.path.isfile(path):
                 errors.append(f"{artifact}: unexpected file {name}")
                 continue
-            matched[label].append(name)
-            copies.append((path, os.path.join(bundles if dest == "bundles" else cli, name)))
-        for label, names in matched.items():
+            matched[kind].append(name)
+            new = release_name(suffix, kind, version)
+            try:
+                check_file_name(new)
+            except ManifestError as e:
+                errors.append(f"{artifact}: {e}")
+                continue
+            if not RELEASE_NAME.fullmatch(new):
+                errors.append(f"{artifact}: {new!r} has a character GitHub would rewrite")
+                continue
+            if new in targets:
+                errors.append(f"{artifact}: {name} and {targets[new]} would both be {new}")
+                continue
+            targets[new] = name
+            copies.append((path, os.path.join(bundles if dest == "bundles" else cli, new)))
+        for kind, names in matched.items():
             if not names:
-                errors.append(f"{artifact}: no {label} file for {version.lstrip('v')}")
+                errors.append(f"{artifact}: no {kind} file for {version.lstrip('v')}")
             elif len(names) > 1:
-                errors.append(f"{artifact}: more than one {label} file: {', '.join(names)}")
+                errors.append(f"{artifact}: more than one {kind} file: {', '.join(names)}")
     if errors:
         return errors
-    if any(os.path.exists(dst) for _src, dst in copies):
-        return [f"{bundles} or {cli} is not empty"]
+    # finalize uploads both folders whole, so they must hold nothing else:
+    # not a stray file, not a link (dangling or not) a copy would follow.
+    for folder in (bundles, cli):
+        if os.path.islink(folder) or (os.path.lexists(folder) and (
+                not os.path.isdir(folder) or os.listdir(folder))):
+            return [f"{folder} is not empty"]
     os.makedirs(bundles, exist_ok=True)
     os.makedirs(cli, exist_ok=True)
     for src, dst in copies:
