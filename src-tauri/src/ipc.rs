@@ -1026,16 +1026,16 @@ pub async fn dedupe_art(
 }
 
 /// Shows `path` (a copy, its quarantine folder) in Finder / Explorer / the
-/// file manager: only inside the open library or a duplicates plan's
-/// library or quarantine.
+/// file manager: only inside the open library, a duplicates plan's
+/// library or quarantine, or a kept Organise plan's pile or target. Off the
+/// main thread: the file manager call may block on a slow volume.
 #[tauri::command]
-pub fn reveal_path(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<(), IpcError> {
-    let path = state.revealable(Path::new(&path))?;
-    app.opener()
-        .reveal_item_in_dir(path)
-        .map_err(|e| IpcError::Io(e.to_string()))
+pub async fn reveal_path(app: AppHandle, path: String) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app.state::<AppState>().revealable(Path::new(&path))?;
+        app.opener()
+            .reveal_item_in_dir(path)
+            .map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
 }

@@ -2111,6 +2111,7 @@ impl AppState {
             return Err(IpcError::OutsideLibrary(shown));
         }
         let mut folders = self.dedupe.known_folders();
+        folders.extend(self.organize.known_folders());
         if let Some(s) = lock(&self.session).as_ref() {
             folders.push(s.root.clone());
             folders.push(s.root_canon.clone());
@@ -2380,6 +2381,146 @@ mod tests {
         assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Title), Some(None));
         st.dedupe.forget_all();
         assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover), None);
+    }
+
+    /// Keeps an Organise plan of the pile `source` into `target` and
+    /// returns its id.
+    fn keep_organize_plan(st: &AppState, source: &Path, target: &Path) -> u64 {
+        use coverly_core::organize::{Counts as OrganizeCounts, NameMode, Survey, TransferMode};
+        let plan = OrganizePlan {
+            source_root: source.to_path_buf(),
+            target_root: target.to_path_buf(),
+            roms_dir: target.join("ROMS"),
+            layout: "anbernic-stock".into(),
+            mode: TransferMode::Move,
+            names: NameMode::Keep,
+            items: Vec::new(),
+            counts: OrganizeCounts::default(),
+            sorted_folders: Vec::new(),
+            deep_folders: Vec::new(),
+            other_files: Vec::new(),
+            warnings: Vec::new(),
+            broad_root: false,
+            fat32: false,
+            move_allowed: true,
+            target_detected: None,
+            created_at: String::new(),
+            duplicates: Vec::new(),
+            set_aside_trash: false,
+        };
+        let id = st.organize.next_id();
+        st.organize.store(
+            id,
+            StoredPlan {
+                request: OrganizeRequest::default(),
+                source: source.to_path_buf(),
+                opts: OrganizeOptions::default(),
+                layout: builtin_profiles().remove(0),
+                online: false,
+                survey: Arc::new(Survey {
+                    source_root: source.to_path_buf(),
+                    target_root: target.to_path_buf(),
+                    broad_root: false,
+                    entries: Vec::new(),
+                    walked: Default::default(),
+                }),
+                plan,
+            },
+        );
+        id
+    }
+
+    fn is_outside(r: Result<PathBuf, IpcError>) -> bool {
+        matches!(r, Err(IpcError::OutsideLibrary(_)))
+    }
+
+    #[test]
+    fn revealable_accepts_an_organise_pile_path_while_kept() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let pile = tmp.path().join("Downloads");
+        let target = tmp.path().join("SD");
+        fs::create_dir_all(&pile).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        fs::write(pile.join("a.gb"), b"GB").unwrap();
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "no plan yet");
+
+        keep_organize_plan(&st, &pile, &target);
+        assert_eq!(
+            st.revealable(&pile.join("a.gb")).unwrap(),
+            pile.join("a.gb")
+        );
+        assert_eq!(
+            st.revealable(&target.join("ROMS").join("GB").join("a.gb"))
+                .unwrap(),
+            target,
+            "a target file not there yet shows its nearest folder"
+        );
+
+        st.organize.forget_all();
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "forgotten");
+
+        keep_organize_plan(&st, &pile, &target);
+        for _ in 0..crate::organize::KEPT_PLANS {
+            let other = tmp.path().join("Other");
+            fs::create_dir_all(&other).unwrap();
+            keep_organize_plan(&st, &other, &other);
+        }
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "evicted");
+    }
+
+    #[test]
+    fn revealable_refuses_a_sibling_prefix() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let sd = tmp.path().join("SD");
+        let sd2 = tmp.path().join("SD2");
+        fs::create_dir_all(&sd).unwrap();
+        fs::create_dir_all(&sd2).unwrap();
+        fs::write(sd2.join("x.gb"), b"GB").unwrap();
+        keep_organize_plan(&st, &sd, &sd);
+        keep_art_plan(&st, &sd, None);
+        assert!(st.revealable(&sd).is_ok());
+        assert!(is_outside(st.revealable(&sd2.join("x.gb"))));
+        assert!(is_outside(st.revealable(&sd2)));
+    }
+
+    #[test]
+    fn revealable_refuses_parent_components_and_relative_paths() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("SD");
+        fs::create_dir_all(root.join("ROMS")).unwrap();
+        keep_organize_plan(&st, &root, &root);
+        keep_art_plan(&st, &root, None);
+        let escape = root.join("ROMS").join("..").join("..").join("etc");
+        assert!(is_outside(st.revealable(&escape)));
+        let relative = PathBuf::from_iter(["ROMS", "x.gb"]);
+        assert!(is_outside(st.revealable(&relative)));
+    }
+
+    #[cfg(windows)]
+    mod windows_tests {
+        use super::*;
+
+        #[test]
+        fn revealable_matches_by_component() {
+            let dirs = tempfile::tempdir().unwrap();
+            let st = art_state(&dirs);
+            let tmp = tempfile::tempdir().unwrap();
+            let root = PathBuf::from_iter([tmp.path(), Path::new("Roms"), Path::new("SD")]);
+            let gb = root.join("GB");
+            fs::create_dir_all(&gb).unwrap();
+            fs::write(gb.join("x.gb"), b"GB").unwrap();
+            keep_organize_plan(&st, &root, &root);
+            assert_eq!(st.revealable(&gb.join("x.gb")).unwrap(), gb.join("x.gb"));
+            let sibling = PathBuf::from_iter([tmp.path(), Path::new("Roms"), Path::new("SD2")]);
+            fs::create_dir_all(&sibling).unwrap();
+            assert!(is_outside(st.revealable(&sibling)));
+        }
     }
 
     #[cfg(unix)]
