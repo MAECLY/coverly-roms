@@ -17,6 +17,12 @@ use crate::profiles::Media;
 use crate::sources::{ArtQuery, ArtSource, MatchKind};
 use crate::systems::System;
 
+/// How many exact variants (regions, revisions, betas) of one title the
+/// offline lookup checks against the art store. A fill search keeps fewer,
+/// so the image it downloaded may sort past them; fuzzy matching is off, so
+/// this only bounds the exact variants.
+const MAX_VARIANTS: usize = 64;
+
 fn group(plan: &DedupePlan, group: u64) -> Option<&DupGroup> {
     plan.groups.iter().find(|g| g.id == group)
 }
@@ -104,7 +110,7 @@ pub fn libretro_cached_url(
         by_name: true,
         fuzzy: false,
         min_score: 100,
-        max_candidates: 1,
+        max_candidates: MAX_VARIANTS,
         hash: None,
         size: 0,
         file_name: name,

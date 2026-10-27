@@ -287,3 +287,39 @@ fn offline_http_never_answers() {
     assert!(matches!(err, NetError::Offline(_)));
     assert!(!matches!(err, NetError::RateLimited { .. }));
 }
+
+#[test]
+fn libretro_cached_url_looks_past_many_regional_variants() {
+    // A title with more variants than a fill search keeps: the downloaded
+    // one sorts last and must still be found.
+    let tmp = tempfile::tempdir().unwrap();
+    let cache = Cache::in_memory().unwrap();
+    cache
+        .put_json("libretro-root-2", "root", &vec![GB.to_string()], None)
+        .unwrap();
+    let mut files: Vec<String> = ('A'..='L')
+        .map(|c| format!("Tetris (Beta {c}).png"))
+        .collect();
+    files.push(format!("{TETRIS}.png"));
+    files.push("Tetris (USA) (Virtual Console).png".to_string());
+    cache
+        .put_json(
+            "libretro-index-2",
+            &format!("{GB}/Named_Boxarts"),
+            &files,
+            None,
+        )
+        .unwrap();
+    let store = ArtStore::new(tmp.path(), &cache);
+    let vc = TETRIS_URL.replace(
+        "Tetris%20(World)%20(Rev%201)",
+        "Tetris%20(USA)%20(Virtual%20Console)",
+    );
+    store.put(&vc, b"png").unwrap();
+    let db = SystemDb::builtin();
+    let src = LibretroSource::new(&PanicHttp, &cache, LibretroConfig::default());
+    assert_eq!(
+        libretro_cached_url(&src, &store, db.get("gb").unwrap(), Media::Cover, TETRIS),
+        Some(vc)
+    );
+}
