@@ -1,4 +1,14 @@
-const TEXT_INPUTS = new Set(['text', 'search', 'number', 'date']);
+const TEXT_INPUTS = new Set([
+  'text',
+  'search',
+  'number',
+  'date',
+  // An API key field is a password field: a slash in it is a character.
+  'password',
+  'url',
+  'email',
+  'tel',
+]);
 
 /** Text entry, where a key is a character and not a screen shortcut. */
 export function isTyping(target: EventTarget | null): boolean {

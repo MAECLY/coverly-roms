@@ -524,7 +524,9 @@ describe('Settings screen', () => {
       await start();
       act(() => useNavStore.getState().openSettings(section));
       await screen.findByRole('tabpanel', {
-        name: section === 'duplicates' ? 'Duplicates' : 'General',
+        name:
+          { duplicates: 'Duplicates', sources: 'Sources' }[section as string] ??
+          'General',
       });
       return screen.getByRole('combobox', { name: 'Search settings' });
     }
