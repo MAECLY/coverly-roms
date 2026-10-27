@@ -119,6 +119,24 @@ describe('SetAsideScene', () => {
     );
   });
 
+  it('thaws after a refused stop: no frozen flight lingers, the count catches up', () => {
+    const { rerender, moving, count, container } = setup();
+    act(() => rerender({ done: 3 }));
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    act(() => rerender({ done: 3, stopped: true }));
+    expect(moving().length).toBeGreaterThan(0);
+    act(() => rerender({ done: 4, stopped: false }));
+    expect(count()).toBe('4');
+    expect(container.querySelector('svg')).not.toHaveAttribute('data-stopped');
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(moving()).toHaveLength(0);
+    expect(container.querySelector('.dup-scene__slot--missing')).toBeNull();
+  });
+
   it('does not move under reduced motion; the count still updates', () => {
     reduceMotion(true);
     const { rerender, moving, count } = setup();

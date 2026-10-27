@@ -57,6 +57,7 @@ export function SetAsideScene({
   const [queued, setQueued] = useState(0);
 
   const seen = useRef(done);
+  const frozen = useRef(false);
   const queue = useRef(0);
   const lastLift = useRef(Number.NEGATIVE_INFINITY);
   const nextId = useRef(0);
@@ -105,7 +106,19 @@ export function SetAsideScene({
   useEffect(() => {
     const delta = done - seen.current;
     seen.current = Math.max(seen.current, done);
-    if (stopped) return;
+    if (stopped) {
+      frozen.current = true;
+      return;
+    }
+    if (frozen.current) {
+      // A stop that did not hold: drop what froze mid-air, show the truth.
+      frozen.current = false;
+      setFlights([]);
+      setGap(false);
+      setQueued(0);
+      setCount(seen.current);
+      return;
+    }
     if (reduce) {
       setCount(seen.current);
       return;
