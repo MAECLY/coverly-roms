@@ -297,7 +297,14 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
                   size="sm"
                   onClick={() => {
                     setStopping(true);
-                    void useDedupeStore.getState().cancel();
+                    const store = useDedupeStore.getState();
+                    const before = store.error;
+                    void store.cancel().then(() => {
+                      // A refused cancel leaves the apply running: thaw.
+                      const after = useDedupeStore.getState();
+                      if (after.status === 'applying' && after.error !== before)
+                        setStopping(false);
+                    });
                   }}
                 >
                   {t('dedupe.cancel')}

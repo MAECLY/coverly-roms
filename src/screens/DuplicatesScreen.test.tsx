@@ -856,4 +856,25 @@ describe('DuplicatesScreen keys', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
     expect(scene).toHaveAttribute('data-stopped', 'true');
   });
+
+  it('the_set_aside_scene_keeps_moving_when_cancel_fails', async () => {
+    renderScreen();
+    await ready();
+    const p = plan();
+    vi.spyOn(b, 'dedupeCancelApply').mockRejectedValue(new Error('busy'));
+    act(() =>
+      useDedupeStore.setState({
+        status: 'applying',
+        progress: { plan_id: p.plan_id, phase: 'apply', done: 2, total: 40 },
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    // The apply goes on, so the drawing must not stay frozen.
+    await waitFor(() =>
+      expect(document.querySelector('svg.dup-scene')).not.toHaveAttribute(
+        'data-stopped',
+      ),
+    );
+    expect(useDedupeStore.getState().status).toBe('applying');
+  });
 });
