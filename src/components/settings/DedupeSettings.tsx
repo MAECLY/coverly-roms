@@ -140,8 +140,9 @@ export function DedupeCommon() {
           onBlur={() => dir !== null && void commitDir(dir)}
         />
       </Field>
+      {/* The panel is a flex column: keep the button its own width. */}
       <Button
-        className="justify-self-start"
+        className="self-start"
         onClick={async () => {
           setPickError(null);
           let picked: string | null;
