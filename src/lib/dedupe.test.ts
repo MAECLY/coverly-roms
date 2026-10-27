@@ -23,6 +23,7 @@ import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 
 import {
   badgeRelation,
+  coverArt,
   coverMedia,
   currentPath,
   deltaFor,
@@ -774,5 +775,22 @@ describe('ownArtDiffers', () => {
     expect(ownArtDiffers(withArt('/Imgs/b.png', 9_001), cover, 'title')).toBe(
       false,
     );
+  });
+});
+
+describe('coverArt', () => {
+  const a = { media: 'cover' as const, path: '/Imgs/a.png', size: 10 };
+  const b = { media: 'cover' as const, path: '/Imgs/b.png', size: 20 };
+  it('is_the_keepers_art_first', () => {
+    const g = group(
+      [member(1, '/a.gb', { art: [a] }), member(2, '/b.gb', { art: [b] })],
+      2,
+    );
+    expect(coverArt(g, 'cover')).toEqual(b);
+  });
+  it('falls_back_to_the_first_copy_with_that_media', () => {
+    const g = group([member(1, '/a.gb'), member(2, '/b.gb', { art: [b] })]);
+    expect(coverArt(g, 'cover')).toEqual(b);
+    expect(coverArt(g, 'title')).toBeNull();
   });
 });

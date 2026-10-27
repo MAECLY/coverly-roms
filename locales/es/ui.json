@@ -723,7 +723,10 @@
       "media": {
         "title": "Pantalla de título",
         "screenshot": "Captura"
-      }
+      },
+      "missing": "Sin portada",
+      "ownArt": "Esta copia tiene otra imagen",
+      "fromCache": "Portada de libretro-thumbnails ya descargada"
     },
     "copyNumber": "Copia {n}",
     "facts": {

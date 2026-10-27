@@ -58,6 +58,8 @@ export interface SystemSectionProps {
   onSkipSystem?: ((system: string) => void) | undefined;
   onResetSystem?: ((system: string) => void) | undefined;
   onReveal?: ((path: string) => void) | undefined;
+  /** The kept plan, for the groups' covers. */
+  planId?: number | undefined;
 }
 
 function sentence(t: TFunction, name: string, s: SystemSummary): string {
@@ -193,6 +195,7 @@ function Groups({
   onKeeperChange,
   onSkipChange,
   onReveal,
+  planId,
 }: GroupsProps) {
   const windowed = groups.length > WINDOW_ABOVE;
   const { listRef, range, measure, onFocusIndex } = useGroupWindow(
@@ -212,6 +215,9 @@ function Groups({
         skipped={skipped?.has(g.id) ?? false}
         onKeeperChange={onKeeperChange}
         onSkipChange={onSkipChange}
+        planId={planId}
+        // Only rows the window mounted render here, so each may ask.
+        artEnabled
       />
     );
   };

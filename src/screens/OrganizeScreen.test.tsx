@@ -917,6 +917,15 @@ describe('OrganizeScreen', () => {
       ).not.toBeInTheDocument();
     });
 
+    it('duplicate groups show no cover column in the proposal', async () => {
+      const { container } = renderScreen(MOCK_MIXED);
+      await ready();
+      // A small proposal starts open.
+      expect(container.querySelector('.dup-group')).not.toBeNull();
+      expect(container.querySelector('.dup-cover')).toBeNull();
+      expect(container.querySelector('.dup-own-art')).toBeNull();
+    });
+
     it('the_picker_starts_from_the_setting', async () => {
       await b.updateSettings({ dedupe: { organize_step: 'off' } });
       renderScreen(MOCK_MIXED);

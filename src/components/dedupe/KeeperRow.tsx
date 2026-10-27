@@ -24,6 +24,8 @@ export interface KeeperRowProps {
   copyNumber?: number | undefined;
   /** The rule chip, before the why line. */
   rule?: ReactNode;
+  /** The copy's own thumbnail, when its art differs from the cover. */
+  art?: ReactNode;
   idPrefix: string;
 }
 
@@ -54,6 +56,7 @@ export function KeeperRow({
   choiceDropped = false,
   copyNumber,
   rule,
+  art,
   idPrefix,
 }: KeeperRowProps) {
   const t = useT();
@@ -81,6 +84,7 @@ export function KeeperRow({
         {name}
       </span>
       <span className="dup-row__meta">
+        {art}
         <Badge variant="primary">{t('dedupe.keeper')}</Badge>
       </span>
       <div className="dup-row__facts">

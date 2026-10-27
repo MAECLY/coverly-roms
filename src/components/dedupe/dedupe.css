@@ -146,6 +146,7 @@
   grid-row: 1;
   grid-column: 3;
   display: inline-flex;
+  align-items: center;
   gap: 6px;
   justify-self: end;
 }
@@ -392,6 +393,184 @@
 @media (prefers-reduced-motion: reduce) {
   .dup-shelf::before {
     transition: none;
+  }
+}
+
+/* ---- Covers (spec D5, D6, §7.1) --------------------------------------- */
+
+/* The cover column spans shelf and tray: the eye goes cover → title →
+ * shelf → tray. Only groups of a kept dedupe plan have it (not Organise). */
+.dup-group[data-cover] {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+}
+
+.dup-group__main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dup-cover {
+  --dup-cover-w: 72px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: var(--dup-cover-w);
+  margin: 2px 0 0;
+}
+
+.dup-cover[data-size='compact'] {
+  --dup-cover-w: 48px;
+}
+
+.dup-cover__slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-cover__outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dup-cover__outline rect {
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+/* Loading: the outline draws itself in once around, like a pen. */
+.dup-cover[data-state='loading'] .dup-cover__outline rect {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: dup-cover-draw var(--cr-duration-slower) var(--cr-ease-ink)
+    forwards;
+}
+
+/* Missing (brand §2): 1.5 px dash 4 / gap 3, plus four photo-corners. */
+.dup-cover[data-state='missing'] .dup-cover__outline rect {
+  stroke-dasharray: 4 3;
+}
+
+.dup-cover__corners {
+  fill: var(--cr-slot-missing);
+}
+
+/* Filled: a real hairline edge (survives forced colours), image on top. */
+.dup-cover[data-state='ready'] .dup-cover__outline rect {
+  stroke: var(--cr-border);
+  stroke-width: var(--cr-border-width-hairline);
+}
+
+.dup-cover__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--cr-surface-sunken);
+  animation: dup-cover-fade var(--cr-duration-fast) var(--cr-ease-enter);
+}
+
+.dup-cover__missing {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.dup-cover__missing svg {
+  color: var(--cr-slot-missing);
+}
+
+.dup-cover__caption {
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.dup-group[data-skipped] .dup-cover,
+.dup-group[data-skipped] .dup-own-art {
+  opacity: 0.6;
+}
+
+/* A copy's own image: 32 px wide, 3:4, beside its name. */
+.dup-own-art {
+  display: block;
+  flex: none;
+  width: 32px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+}
+
+.dup-own-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: dup-cover-fade var(--cr-duration-fast) var(--cr-ease-enter);
+}
+
+@keyframes dup-cover-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dup-cover-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Under 640 px the cover drops above the title at 48×64. */
+@media (max-width: 639px) {
+  .dup-group[data-cover] {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .dup-cover {
+    --dup-cover-w: 48px;
+    justify-items: start;
+  }
+
+  /* The words carry the slot at 48 px; the icon would crowd them. */
+  .dup-cover__missing svg {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-cover__outline rect,
+  .dup-cover__img,
+  .dup-own-art img {
+    animation: none;
+  }
+
+  .dup-cover[data-state='loading'] .dup-cover__outline rect {
+    stroke-dashoffset: 0;
   }
 }
 

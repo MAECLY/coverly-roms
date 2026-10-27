@@ -18,6 +18,7 @@ import {
 } from 'react';
 
 import { RuleChip } from '@/components/dedupe/CopyFacts';
+import { GroupCover, OwnArtThumb } from '@/components/dedupe/GroupCover';
 import { KeeperRow } from '@/components/dedupe/KeeperRow';
 import { RelationBadge, TrayRow } from '@/components/dedupe/TrayRow';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ import { useT } from '@/i18n/useT';
 import type { DupGroupView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
+  coverMedia,
   fileName,
   reasonText,
   weakestExtra,
@@ -54,6 +56,11 @@ export interface DupGroupProps {
   reportOnly?: boolean;
   onKeeperChange?: ((groupId: number, keeper: number) => void) | undefined;
   onSkipChange?: ((groupId: number, skipped: boolean) => void) | undefined;
+  /** The kept dedupe plan, to ask for covers. Organise has none, so its
+   * groups show no cover column and no thumbnails (spec goal 6). */
+  planId?: number | undefined;
+  /** The row is mounted by the group window: only then do covers load. */
+  artEnabled?: boolean;
 }
 
 interface Pick {
@@ -70,6 +77,8 @@ export function DupGroup({
   reportOnly = false,
   onKeeperChange,
   onSkipChange,
+  planId,
+  artEnabled = true,
 }: DupGroupProps) {
   const t = useT();
   const uid = useId();
@@ -120,6 +129,17 @@ export function DupGroup({
   const copyNumber = (id: number) => ids.indexOf(id) + 1;
   const weakest = weakestExtra(members, keeperMember.id);
   const mixed = new Set(tray.map((m) => badgeRelation(m))).size > 1;
+  const coverIn = planId === undefined ? null : coverMedia(group).media;
+  const ownArt = (m: (typeof members)[number]) =>
+    planId !== undefined && coverIn ? (
+      <OwnArtThumb
+        planId={planId}
+        group={group}
+        member={m}
+        media={coverIn}
+        enabled={artEnabled}
+      />
+    ) : null;
 
   function radioOf(id: number): HTMLElement | null {
     return (
@@ -221,6 +241,7 @@ export function DupGroup({
           why={why}
           choiceDropped={group.choice_dropped && keeper === group.keeper}
           copyNumber={copyNumber(keeperMember.id)}
+          art={ownArt(keeperMember)}
           rule={
             <RuleChip
               reason={group.reason}
@@ -245,6 +266,7 @@ export function DupGroup({
               quarantine={quarantine}
               system={group.system}
               copyNumber={copyNumber(m.id)}
+              art={ownArt(m)}
               idPrefix={`${uid}-m${m.id}`}
             />
           ))}
@@ -257,21 +279,8 @@ export function DupGroup({
     '--dup-cap-duration': reduce ? '0ms' : 'var(--cr-duration-base)',
   } as CSSProperties;
 
-  return (
-    // The group only delegates keys from its own radios and checkbox
-    // (arrows, X); it is not itself focusable or clickable.
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-    <div
-      ref={rootRef}
-      role="group"
-      aria-labelledby={titleId}
-      className="dup-group"
-      data-dup-group={group.id}
-      data-skipped={skip ? '' : undefined}
-      style={style}
-      onKeyDownCapture={onKeyDownCapture}
-      onKeyDown={onKeyDown}
-    >
+  const content = (
+    <>
       <div className="dup-group__head">
         <h3 id={titleId} className="dup-group__title">
           {group.title}
@@ -331,6 +340,33 @@ export function DupGroup({
             )}
           </div>
         </div>
+      )}
+    </>
+  );
+
+  return (
+    // The group only delegates keys from its own radios and checkbox
+    // (arrows, X); it is not itself focusable or clickable.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <div
+      ref={rootRef}
+      role="group"
+      aria-labelledby={titleId}
+      className="dup-group"
+      data-dup-group={group.id}
+      data-skipped={skip ? '' : undefined}
+      data-cover={planId !== undefined ? '' : undefined}
+      style={style}
+      onKeyDownCapture={onKeyDownCapture}
+      onKeyDown={onKeyDown}
+    >
+      {planId !== undefined ? (
+        <>
+          <GroupCover planId={planId} group={group} enabled={artEnabled} />
+          <div className="dup-group__main">{content}</div>
+        </>
+      ) : (
+        content
       )}
     </div>
   );

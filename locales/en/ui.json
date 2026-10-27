@@ -723,7 +723,10 @@
       "media": {
         "title": "Title screen",
         "screenshot": "Screenshot"
-      }
+      },
+      "missing": "No cover",
+      "ownArt": "This copy has different art",
+      "fromCache": "Already downloaded from libretro-thumbnails"
     },
     "copyNumber": "Copy {n}",
     "facts": {

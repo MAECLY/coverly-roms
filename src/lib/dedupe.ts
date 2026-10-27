@@ -679,6 +679,21 @@ export function coverMedia(g: DupGroupView): {
   };
 }
 
+/**
+ * The art the group cover shows in `media`, as Rust resolves it (D4): the
+ * keeper's, else the first copy's that has it. Null when only the libretro
+ * cache could fill the slot.
+ */
+export function coverArt(
+  g: DupGroupView,
+  media: MediaView,
+): ArtSeenView | null {
+  const of = (m: MemberView | undefined) =>
+    m?.facts?.art?.find((a) => a.media === media);
+  const keeper = g.members.find((m) => m.id === g.keeper);
+  return of(keeper) ?? g.members.map(of).find((a) => a !== undefined) ?? null;
+}
+
 /** A copy shows its own thumbnail when its art in `media` differs from the cover's (D6, D7). */
 export function ownArtDiffers(
   m: MemberView,

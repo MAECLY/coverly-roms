@@ -540,6 +540,7 @@ function Proposal({
               groups={list}
               quarantine={plan.quarantine}
               profileName={profileName}
+              planId={plan.plan_id}
               skipped={skipped}
               onKeeperChange={(group, member) =>
                 void store().setKeeper(group, member)

@@ -5,6 +5,7 @@
  * keeper.
  */
 import { TriangleAlert } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
 import { CopyNumber } from '@/components/dedupe/KeeperRow';
@@ -71,6 +72,8 @@ export interface TrayRowProps {
   system: string;
   /** 1-based place in the group's stable order; shown up to 9. */
   copyNumber?: number | undefined;
+  /** The copy's own thumbnail, when its art differs from the cover. */
+  art?: ReactNode;
   idPrefix: string;
 }
 
@@ -93,6 +96,7 @@ export function TrayRow({
   quarantine,
   system,
   copyNumber,
+  art,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
@@ -147,6 +151,7 @@ export function TrayRow({
         {name}
       </span>
       <span className="dup-row__meta">
+        {art}
         {showRelation && <RelationBadge member={member} />}
       </span>
       <div className="dup-row__facts">
