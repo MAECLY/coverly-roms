@@ -116,7 +116,11 @@ export function extractView(
     game: plan && pos >= 0 ? { n: pos + 1, total: games.length } : null,
     entries: counted ? { done, total } : null,
     rows,
-    phase: counted && done >= total ? 'checking' : 'decoding',
+    // A single entry has no counter, but its edge still opens phase B.
+    phase:
+      total !== undefined && done !== undefined && total > 0 && done >= total
+        ? 'checking'
+        : 'decoding',
     bytes: {
       done: Math.min(e.bytes_done, e.bytes_total),
       total: e.bytes_total,

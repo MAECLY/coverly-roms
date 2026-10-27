@@ -188,6 +188,38 @@ describe('extractView noun and single entries', () => {
     expect(v.name).toBe('Game.tar.gz');
     expect(v.targetDir).toBe('/pile/ROMS/GBA');
   });
+
+  it('reads checking once the single entry is staged', () => {
+    const one = autoItem(5, 'Game.7z', 'psp', 'ROMS/PSP', {
+      transfer: {
+        kind: 'extract',
+        entries: [
+          {
+            index: 0,
+            name: 'Game.iso',
+            size: 1000,
+            crc32: 1,
+            target: 'ROMS/PSP/Game.iso',
+          },
+        ],
+        bytes: 1000,
+        archive_after: 'keep',
+        source: { kind: 'builtin' },
+        sheet_check: 'read',
+        m3u: null,
+      },
+    });
+    const plan = planOf([one]);
+    expect(
+      extractView(plan, ev(5, { entries_done: 0, entries_total: 1 })).phase,
+    ).toBe('decoding');
+    const v = extractView(
+      plan,
+      ev(5, { entries_done: 1, entries_total: 1, bytes_done: 1000 }),
+    );
+    expect(v.phase).toBe('checking');
+    expect(v.entries).toBeNull();
+  });
 });
 
 describe('extractView game counter', () => {
