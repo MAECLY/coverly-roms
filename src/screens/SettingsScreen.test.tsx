@@ -532,6 +532,20 @@ describe('Settings screen', () => {
     }
     afterEach(() => vi.restoreAllMocks());
 
+    it('names the shortcuts the search answers to (its key hint is hidden)', async () => {
+      expect(await openOn('MacIntel')).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Meta+F /',
+      );
+    });
+
+    it('names Ctrl+F as the search shortcut on Windows', async () => {
+      expect(await openOn('Win32')).toHaveAttribute(
+        'aria-keyshortcuts',
+        'Control+F /',
+      );
+    });
+
     it('focuses search with Cmd+F on macOS', async () => {
       const search = await openOn('MacIntel');
       screen.getByRole('tab', { name: 'General' }).focus();

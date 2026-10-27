@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { useT } from '@/i18n/useT';
-import { modKeyLabel } from '@/lib/keyboard';
+import { isMac, modKeyLabel } from '@/lib/keyboard';
 
 import { MonoIn } from './Field';
 import type { SettingEntry } from './registry';
@@ -67,6 +67,7 @@ export const SettingsSearchField = forwardRef<HTMLInputElement, FieldProps>(
           aria-expanded={query !== ''}
           aria-controls={RESULTS_ID}
           aria-autocomplete="list"
+          aria-keyshortcuts={isMac() ? 'Meta+F /' : 'Control+F /'}
           aria-activedescendant={n > 0 ? optionId(active) : undefined}
           placeholder={t('settings.search.placeholder')}
           value={query}
