@@ -3,14 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 
+import { ExtractStage, type ExtractStageProps } from './ExtractStage';
 import {
-  ExtractStage,
   FLY_CAP,
   initialStage,
   stageReducer,
-  type ExtractStageProps,
   type StageState,
-} from './ExtractStage';
+} from './stageQueue';
 
 const event = (item: number, done: number, instant = false) =>
   ({ type: 'event', item, done, instant }) as const;
