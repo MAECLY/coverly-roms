@@ -790,4 +790,50 @@ describe('DuplicatesScreen keys', () => {
     ])
       expect(within(legend).getByText(text)).toBeInTheDocument();
   });
+
+  it('the_apply_key_in_the_legend_says_what_the_button_does', async () => {
+    renderScreen();
+    await ready();
+    await userEvent.click(
+      screen.getByRole('radio', { name: 'Enviar a la Papelera' }),
+    );
+    const legend = screen.getByRole('list', { name: 'Atajos de teclado' });
+    expect(
+      within(legend).getByText('Enviar a la Papelera'),
+    ).toBeInTheDocument();
+    expect(within(legend).queryByText('Apartar')).toBeNull();
+  });
+
+  it('the_reveal_chord_works_in_a_conflict_too', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+    renderScreen();
+    await ready();
+    const g = plan().groups.find((x) => x.title === 'Pokemon Red')!;
+    const second = g.members[1]!;
+    const conflict = game('Pokemon Red');
+    const reveal = within(conflict).getAllByRole('button', {
+      name: /en Finder$/,
+    });
+    // Every copy's reveal button advertises the chord.
+    for (const r of reveal)
+      expect(r).toHaveAttribute('aria-keyshortcuts', 'Meta+Alt+R');
+    act(() => reveal[1]!.focus());
+    const passed = press({
+      key: '®',
+      code: 'KeyR',
+      metaKey: true,
+      altKey: true,
+    });
+    expect(passed).toBe(false);
+    await waitFor(() => expect(b.revealedPaths).toEqual([second.unit.primary]));
+    // Focus on the group itself: its first copy.
+    act(() => conflict.focus());
+    press({ key: '®', code: 'KeyR', metaKey: true, altKey: true });
+    await waitFor(() =>
+      expect(b.revealedPaths).toEqual([
+        second.unit.primary,
+        g.members[0]!.unit.primary,
+      ]),
+    );
+  });
 });

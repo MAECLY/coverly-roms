@@ -6,7 +6,7 @@
  * in Finder / Explorer / its folder, so you can decide by hand.
  */
 import { FolderSearch, TriangleAlert } from 'lucide-react';
-import { useContext, useId } from 'react';
+import { useContext, useId, type KeyboardEvent } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
 import { GroupHead, StateStamp } from '@/components/dedupe/DupGroup';
@@ -17,7 +17,13 @@ import { useT } from '@/i18n/useT';
 import type { DupGroupView } from '@/ipc/dedupeTypes';
 import { fileName, formatBytes } from '@/lib/dedupe';
 import { formatDate } from '@/lib/format';
-import { revealCopyKey, revealLabelKey } from '@/lib/reveal';
+import { isRevealChord, isTyping } from '@/lib/keyboard';
+import {
+  revealCopyKey,
+  revealLabelKey,
+  revealOs,
+  revealShortcut,
+} from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -54,10 +60,26 @@ export function ConflictGroup({
   const titleId = `${uid}-title`;
   const saves = group.action.kind === 'conflict' ? group.action.saves : [];
 
+  // ⌥⌘R / Shift+Alt+R shows the focused row's file (else the first copy),
+  // as in a normal group; on macOS it must never reach WebKit's reload.
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (isTyping(e.target) || !isRevealChord(e.nativeEvent, revealOs())) return;
+    e.preventDefault();
+    if (!onReveal) return;
+    const row = (e.target as HTMLElement).closest<HTMLElement>(
+      '[data-reveal-path]',
+    );
+    const path = row?.dataset.revealPath ?? group.members[0]?.unit.primary;
+    if (path) onReveal(path);
+  }
+
   return (
+    // The group only delegates the reveal chord from its own buttons.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       role="group"
       aria-labelledby={titleId}
+      onKeyDown={onKeyDown}
       className="dup-group dup-conflict"
       data-dup-group={group.id}
       data-conflict=""
@@ -83,7 +105,7 @@ export function ConflictGroup({
 
       <div className="dup-conflict__list">
         {group.members.map((m) => (
-          <div key={m.id} className="dup-row">
+          <div key={m.id} className="dup-row" data-reveal-path={m.unit.primary}>
             <span className="dup-row__pick" />
             <span className="dup-row__name">{fileName(m.unit.primary)}</span>
             <span className="dup-row__meta">
@@ -92,6 +114,7 @@ export function ConflictGroup({
                   path={m.unit.primary}
                   name={fileName(m.unit.primary)}
                   onReveal={onReveal}
+                  shortcut
                 />
               )}
             </span>
@@ -101,7 +124,11 @@ export function ConflictGroup({
           </div>
         ))}
         {saves.map((s) => (
-          <div key={s.path} className="dup-row dup-conflict__save">
+          <div
+            key={s.path}
+            className="dup-row dup-conflict__save"
+            data-reveal-path={s.path}
+          >
             <span className="dup-row__pick" />
             <span className="dup-row__name">
               <SaveLabel
@@ -122,6 +149,7 @@ export function ConflictGroup({
                   size="sm"
                   className="dup-conflict__open"
                   aria-label={t(revealCopyKey(), { name: fileName(s.path) })}
+                  aria-keyshortcuts={revealShortcut().aria}
                   onClick={() => onReveal(s.path)}
                 >
                   <FolderSearch aria-hidden />

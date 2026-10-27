@@ -262,7 +262,10 @@ export function DedupeOptions({
             <Kbd>{modKeyLabel()}</Kbd>
             <Kbd>{modKeyLabel() === '⌘' ? '↩' : 'Enter'}</Kbd>
           </KbdGroup>
-          {t('dedupe.keys.apply')}
+          {/* The same verb as the button it presses. */}
+          {action === 'trash'
+            ? t('dedupe.action.trash')
+            : t('dedupe.keys.apply')}
         </li>
       </ul>
 
