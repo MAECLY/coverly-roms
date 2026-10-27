@@ -375,6 +375,9 @@ export function OrganizeScreen() {
           section="organize"
           label={t('organize.settingsLink')}
           disabled={applying}
+          describedBy={
+            settingsChanged ? 'organize-settings-changed' : undefined
+          }
           onOpen={stampSettings}
         />
       </header>
@@ -457,7 +460,9 @@ export function OrganizeScreen() {
               </Button>
             }
           >
-            <p className="m-0">{t('organize.settingsChanged')}</p>
+            <p id="organize-settings-changed" className="m-0">
+              {t('organize.settingsChanged')}
+            </p>
           </Alert>
         )}
         {shown && !showResult && !applying && (

@@ -81,6 +81,9 @@ describe('Duplicates screen settings link', () => {
     expect(
       screen.getByRole('button', { name: 'Duplicates settings' }),
     ).toHaveFocus();
+    expect(
+      screen.getByRole('button', { name: 'Duplicates settings' }),
+    ).not.toHaveAttribute('aria-describedby');
     expect(screen.queryByText(CHANGED)).not.toBeInTheDocument();
   });
 
@@ -100,6 +103,11 @@ describe('Duplicates screen settings link', () => {
       .getByText(CHANGED)
       .closest<HTMLElement>('[role="status"]');
     expect(alert).not.toBeNull();
+    // The alert mounts with the screen, so no live region reads it: the
+    // link that gets focus back carries it as its description.
+    const back1 = screen.getByRole('button', { name: 'Duplicates settings' });
+    expect(back1).toHaveFocus();
+    expect(back1).toHaveAccessibleDescription(CHANGED);
     const plan = vi.spyOn(backend, 'dedupePlan');
     await userEvent.click(
       within(alert!).getByRole('button', { name: 'Look again' }),
@@ -244,6 +252,9 @@ describe('Organise screen settings link', () => {
       .getByText(ORG_CHANGED)
       .closest<HTMLElement>('[role="status"]');
     expect(alert).not.toBeNull();
+    const back1 = screen.getByRole('button', { name: 'Organise settings' });
+    expect(back1).toHaveFocus();
+    expect(back1).toHaveAccessibleDescription(ORG_CHANGED);
     const plan = vi.spyOn(backend, 'organizePlan');
     await userEvent.click(
       within(alert!).getByRole('button', { name: 'Scan again' }),

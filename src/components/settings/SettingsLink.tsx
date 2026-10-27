@@ -12,11 +12,16 @@ export function SettingsLink({
   section,
   label,
   disabled,
+  describedBy,
   onOpen,
 }: {
   section: SettingsSection;
   label: string;
   disabled?: boolean;
+  /** An alert the screen shows about its settings: focus comes back
+   * here from Settings, so the link reads it (it mounts with the screen,
+   * too early for a live region). */
+  describedBy?: string | undefined;
   /** Runs before Settings opens (the screen stamps its settings). */
   onOpen?: () => void;
 }) {
@@ -27,6 +32,7 @@ export function SettingsLink({
       className="ml-auto"
       data-settings-opener
       disabled={disabled ?? false}
+      aria-describedby={describedBy}
       onClick={() => {
         onOpen?.();
         useNavStore.getState().openSettings(section);

@@ -215,6 +215,9 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
             section="duplicates"
             label={t('dedupe.settingsLink')}
             disabled={applying}
+            describedBy={
+              settingsChanged ? 'dedupe-settings-changed' : undefined
+            }
             onOpen={stampSettings}
           />
         </header>
@@ -263,7 +266,9 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
                 </Button>
               }
             >
-              <p className="m-0">{t('dedupe.settingsChanged')}</p>
+              <p id="dedupe-settings-changed" className="m-0">
+                {t('dedupe.settingsChanged')}
+              </p>
             </Alert>
           )}
 
