@@ -69,13 +69,14 @@ Subcommands:
       never merged) and copy their files into B (app bundles) and C (CLI
       binaries) under their release names: Coverly-ROMs_<V>_<platform><kind>
       and coverly_<V>_<platform>[.exe], platform being one of mac_arm,
-      mac_intel, windows_x64, windows_arm, linux_x64, linux_arm. DL must hold exactly the artifacts the app and cli jobs
-      upload, and each one exactly its own platform's files for version V
-      (the Windows .msi only for a stable V: WiX refuses a non-numeric
-      prerelease). Anything else (an extra artifact, another platform's
-      file, a .sig, a missing or second file of one kind) fails, and
-      nothing is copied: a build cannot slip a file into, or replace,
-      another platform's bundles.
+      mac_intel, windows_x64, windows_arm, linux_x64, linux_arm. DL must
+      hold exactly the artifacts the app and cli jobs upload, and each one
+      exactly its own platform's files for version V (the Windows .msi only
+      for a stable V: WiX refuses a non-numeric prerelease). Anything else
+      (an extra artifact, another platform's file, a .sig, a symlink, a
+      missing or second file of one kind, a release name GitHub would
+      rewrite) fails, and nothing is copied: a build cannot slip a file
+      into, or replace, another platform's bundles.
 
   pubkey --file crates/coverly-core/updater.pub
       Print the updater public key committed in the file (its first line that
@@ -258,7 +259,6 @@ def add_cli(manifest: dict, directory: str, version: str, base_url: str) -> list
     return errors
 
 
-# Update artifacts the app's updater installs, by file name suffix:
 # Release name suffix -> (os, arch) as the manifest keys spell them. The only
 # place a platform is listed; every other table derives from it (spec §4).
 RELEASE_PLATFORMS = {
@@ -297,6 +297,7 @@ def release_name(suffix: str, kind: str, version: str) -> str:
     return f"{APP_PREFIX}_{v}_{suffix}{kind}"
 
 
+# Update artifacts the app's updater installs, by file name suffix:
 # (suffix, os, bundle). The .deb only serves its own bundle key (a copy
 # installed from it); the .dmg is only downloaded by people, so it is
 # uploaded and listed in SHA256SUMS but not in latest.json.
