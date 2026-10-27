@@ -224,7 +224,9 @@ export function DupGroup({
     runner && group.runner_up
       ? { name: fileName(runner.unit.primary), reason: group.runner_up[1] }
       : null;
-  const copyNumber = (id: number) => ids.indexOf(id) + 1;
+  // Numbers are the pick keys: none where nothing is picked (Organise).
+  const copyNumber = (id: number) =>
+    pickable ? ids.indexOf(id) + 1 : undefined;
   const weakest = weakestExtra(members, keeperMember.id);
   const mixed = new Set(tray.map((m) => badgeRelation(m))).size > 1;
   const reportsOnly = group.action.kind === 'report-only' || reportOnly;

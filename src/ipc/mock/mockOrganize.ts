@@ -73,6 +73,7 @@ import {
   type Transfer,
   type TransferMode,
 } from '../types';
+import type { MemberFactsView } from '../dedupeTypes';
 import { MOCK_DISC_ARCHIVES, type MockArchiveEntry } from './discFixture';
 import { FIXTURE_SYSTEMS } from './fixture';
 import type { MockExport } from './mockJobs';
@@ -146,6 +147,9 @@ interface PileFile {
   catalogue?: string;
   left?: LeftReason;
   archive?: ArchiveDef;
+  /** What Rust's `group_units` reads from its names when it is grouped
+   * as a duplicate (TS never parses file names). */
+  facts?: MemberFactsView;
 }
 
 interface PileDef {
@@ -217,6 +221,14 @@ function nameCrc(name: string): number {
   for (const c of name) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
   return h >>> 0;
 }
+
+/** Level 2 knows the game: region and revision come from its catalogue
+ * name, `Super Mario Land (World) (Rev 1)`. */
+const MARIO_FACTS: MemberFactsView = {
+  tags_from: 'catalogue',
+  regions: ['world'],
+  revision: 'Rev 1',
+};
 
 const PILES: readonly PileDef[] = [
   {
@@ -409,11 +421,13 @@ const PILES: readonly PileDef[] = [
         name: 'Super Mario Land (World).gb',
         size: 65_536,
         ...hash('gb', 'Super Mario Land (World) (Rev 1)', '2C27EC70'),
+        facts: MARIO_FACTS,
       },
       {
         name: 'Super Mario Land (World) (1).gb',
         size: 65_536,
         ...hash('gb', 'Super Mario Land (World) (Rev 1)', '2C27EC70'),
+        facts: MARIO_FACTS,
         left: { kind: 'duplicate', of: 'Super Mario Land (World).gb' },
       },
       {
@@ -1132,6 +1146,8 @@ export function createMockOrganize(
         mtime_ns: (host.now - age) * 1e9,
         in_library: false,
       });
+      const factsOf = (path: string) =>
+        allFiles(r.source).find((f) => f.name === path)?.facts;
       const member = (id: number, path: string, dest: string | null) => ({
         id,
         unit: unit(path, id === 0 ? 7_200 : 3_600),
@@ -1143,6 +1159,7 @@ export function createMockOrganize(
         catalogue_name: keeper.catalogue_name,
         serials: [],
         confidence: 1,
+        ...(factsOf(path) ? { facts: factsOf(path)! } : {}),
       });
       groups.push({
         id: nameCrc(`${r.source}/${of}`),

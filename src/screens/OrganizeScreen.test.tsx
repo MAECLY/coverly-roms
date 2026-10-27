@@ -926,6 +926,19 @@ describe('OrganizeScreen', () => {
       expect(container.querySelector('.dup-own-art')).toBeNull();
     });
 
+    it('duplicate groups show tags but no copy numbers in the proposal', async () => {
+      const { container } = renderScreen(MOCK_MIXED);
+      await ready();
+      const group = screen.getByRole('group', {
+        name: 'Super Mario Land (World) (Rev 1)',
+      });
+      // Numbers are pick keys; nothing is picked here.
+      expect(container.querySelector('.dup-row__num')).toBeNull();
+      // The catalogue name's region and revision, like Rust's group_units.
+      expect(within(group).getAllByText('WLD').length).toBeGreaterThan(0);
+      expect(within(group).getAllByText('Rev 1').length).toBeGreaterThan(0);
+    });
+
     it('a pile copy reveals its own file', async () => {
       renderScreen(MOCK_MIXED);
       await ready();
