@@ -30,8 +30,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
+import { WorkReadout } from '@/components/progress/WorkReadout';
 import { LocaleContext } from '@/i18n/core';
+import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -43,11 +44,18 @@ import type {
   LibraryView,
 } from '@/ipc/types';
 import { undoCounts } from '@/components/organize/undoCounts';
+import { useRate } from '@/hooks/useRate';
+import { etaKey, etaSeconds } from '@/lib/rate';
 import { isRunning, useJobStore } from '@/stores/jobStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useDedupeStore } from '@/stores/dedupeStore';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
+
+/** Covers done before a rate or a time left shows (spec §6.4, D12). */
+const RATE_MIN_DONE = 5;
+/** How long the run must last first: covers come in bursts, not a stream. */
+const RATE_MIN_SPAN_MS = 20_000;
 
 const TOTALS: readonly (keyof JobTotals)[] = [
   'filled',
@@ -112,6 +120,24 @@ export function JobsPanel({
   const running = isRunning(job);
   const jobId = job?.id ?? null;
   const state = job?.state ?? null;
+  const tr = useRichT();
+  const p = progress && job && progress.job === job.id ? progress : null;
+  const rate = useRate(running ? jobId : null, p?.done ?? null, {
+    minSpanMs: RATE_MIN_SPAN_MS,
+  });
+  const amount = p
+    ? {
+        phase: t(`jobs.phase.${p.phase}`),
+        done: n.format(Math.min(p.done + 1, p.total)),
+        total: n.format(p.total),
+      }
+    : null;
+  // The panel only shows this block while running, so a paused job has
+  // neither rate nor time left (its hook goes idle too).
+  const timed =
+    running && p !== null && p.done >= RATE_MIN_DONE && rate !== null;
+  const left = timed && p ? etaSeconds(p.total - p.done, rate) : null;
+  const eta = left === null ? null : etaKey(left);
   const finished =
     state === 'done' ||
     state === 'paused' ||
@@ -149,7 +175,6 @@ export function JobsPanel({
   }, [confirming]);
 
   const errors = finished && failed?.job === jobId ? failed.items : [];
-  const p = progress && job && progress.job === job.id ? progress : null;
   // Rust refuses while paused and only undoes fill journals of the open
   // library (an organise job is undone from its history row below, which
   // checks later jobs first).
@@ -268,20 +293,34 @@ export function JobsPanel({
               <p className="m-0">{t(`jobs.state.${job.state}`)}</p>
               {running && (
                 <div className="grid gap-2">
-                  <Progress
-                    max={p?.total || 1}
-                    value={Math.min(p?.done ?? 0, p?.total || 1)}
-                    aria-label={t('jobs.progressLabel')}
+                  <WorkReadout
+                    bar={{
+                      max: p?.total || 1,
+                      value: Math.min(p?.done ?? 0, p?.total || 1),
+                    }}
+                    label={t('jobs.progressLabel')}
+                    {...(amount
+                      ? {
+                          amount: tr('jobs.progress', amount, [
+                            'done',
+                            'total',
+                          ]),
+                          amountText: t('jobs.progress', amount),
+                        }
+                      : {})}
+                    {...(timed && p
+                      ? {
+                          rate: (
+                            <span>
+                              {tr('progress.perMinute', {
+                                n: n.format(Math.round(rate * 60)),
+                              })}
+                            </span>
+                          ),
+                          eta: eta ? <span>{t(eta.key, eta.vars)}</span> : null,
+                        }
+                      : {})}
                   />
-                  {p && (
-                    <p className="m-0 tabular-nums">
-                      {t('jobs.progress', {
-                        phase: t(`jobs.phase.${p.phase}`),
-                        done: n.format(Math.min(p.done + 1, p.total)),
-                        total: n.format(p.total),
-                      })}
-                    </p>
-                  )}
                   {p?.label ? (
                     <p className="hint mono truncate" title={p.label}>
                       {p.label}

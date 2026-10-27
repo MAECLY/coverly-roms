@@ -74,6 +74,28 @@ describe('rate', () => {
     expect(rateOf(s, 9200)).toBeCloseTo(10);
   });
 
+  it('waits for a longer run when asked (minSpanMs)', () => {
+    const pts: [number, number][] = [];
+    for (let t = 0; t <= 25_000; t += 1000) pts.push([t, t / 2000]);
+    const early = feed(pts.filter(([t]) => t <= 19_000));
+    expect(rateOf(early, 19_000)).toBeCloseTo(0.5);
+    expect(rateOf(early, 19_000, 20_000)).toBeNull();
+    const later = feed(pts);
+    // The 5 s window still sets the rate; the run's length only gates it.
+    expect(later.samples[0]!.t).toBeGreaterThan(0);
+    expect(rateOf(later, 25_000, 20_000)).toBeCloseTo(0.5);
+  });
+
+  it('counts the run across items for minSpanMs', () => {
+    let s = feed([
+      [0, 0],
+      [12_000, 12],
+    ]);
+    s = pushSample(s, 2, 0, 12_100);
+    s = pushSample(s, 2, 9, 21_000);
+    expect(rateOf(s, 21_000, 20_000)).toBeCloseTo(1, 0);
+  });
+
   it('falls back to measuring after a 10 s stall', () => {
     const s = feed([
       [0, 0],

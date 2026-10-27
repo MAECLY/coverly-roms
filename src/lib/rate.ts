@@ -19,6 +19,9 @@ export interface RateState {
   lastRate: number | null;
   /** When the value last grew. */
   movedAt: number | null;
+  /** The run's first sample; kept across items, so `minSpanMs` can ask for a
+   * run longer than the window. */
+  since: number | null;
 }
 
 export const initialRate = (): RateState => ({
@@ -26,6 +29,7 @@ export const initialRate = (): RateState => ({
   samples: [],
   lastRate: null,
   movedAt: null,
+  since: null,
 });
 
 function spanRate(samples: Sample[]): number | null {
@@ -44,7 +48,13 @@ export function pushSample(
 ): RateState {
   const prev = s.samples.at(-1);
   if (s.key !== key || !prev || v < prev.v) {
-    return { key, samples: [{ t, v }], lastRate: s.lastRate, movedAt: t };
+    return {
+      key,
+      samples: [{ t, v }],
+      lastRate: s.lastRate,
+      movedAt: t,
+      since: s.since ?? t,
+    };
   }
   const cutoff = t - WINDOW_MS;
   const kept = s.samples.filter((x) => x.t >= cutoff);
@@ -58,11 +68,18 @@ export function pushSample(
     // A stalled window measures 0; carry the last moving rate instead.
     lastRate: rate !== null && rate > 0 ? rate : s.lastRate,
     movedAt: v > prev.v ? t : s.movedAt,
+    since: s.since,
   };
 }
 
-/** Units per second, or null while measuring or stalled. */
-export function rateOf(s: RateState, now: number): number | null {
+/** Units per second, or null while measuring or stalled. `minSpanMs` asks
+ * for a run at least that long before any rate shows (the window stays 5 s). */
+export function rateOf(
+  s: RateState,
+  now: number,
+  minSpanMs: number = MIN_SPAN_MS,
+): number | null {
+  if (s.since === null || now - s.since < minSpanMs) return null;
   if (s.movedAt !== null && now - s.movedAt >= STALL_MS) return null;
   return spanRate(s.samples) ?? s.lastRate;
 }

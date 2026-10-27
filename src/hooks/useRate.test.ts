@@ -75,6 +75,23 @@ describe('useRate', () => {
     expect(result.current).toBeNull();
   });
 
+  it('waits for minSpanMs of run before reporting', () => {
+    const { result, rerender } = renderHook(
+      ({ v }: { v: number }) => useRate('job', v, { minSpanMs: 20_000 }),
+      { initialProps: { v: 0 } },
+    );
+    for (let i = 1; i <= 19; i++) {
+      tick(1000);
+      rerender({ v: i });
+    }
+    tick(500);
+    expect(result.current).toBeNull();
+    tick(500);
+    rerender({ v: 20 });
+    tick(500);
+    expect(result.current).toBeCloseTo(1, 5);
+  });
+
   it('is idle for a null key', () => {
     const { result } = renderHook(() => useRate(null, null));
     tick(3000);
