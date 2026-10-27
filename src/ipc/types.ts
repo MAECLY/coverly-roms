@@ -1042,6 +1042,10 @@ export type OrganizeProgressEvent = {
       item: number;
       bytes_done: number;
       bytes_total: number;
+      /** Entries staged so far, first in archive order (absent on an older wire). */
+      entries_done?: number;
+      /** The item's entries (the generated playlist is not one). */
+      entries_total?: number;
     }
 );
 

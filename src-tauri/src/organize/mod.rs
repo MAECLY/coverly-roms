@@ -406,14 +406,27 @@ impl Throttle {
             None => true,
             Some((phase, at)) => {
                 // An extraction's byte counts are progress, not a new phase;
-                // its start (a new item to name) and its end (the bar full)
-                // always go out.
-                let extract_edge = match p.phase {
-                    OrganizePhase::Extract {
-                        bytes_done,
-                        bytes_total,
-                        ..
-                    } => bytes_done == 0 || bytes_done >= bytes_total,
+                // its start (a new item to name), its end (the bar full) and
+                // each newly staged entry always go out.
+                let extract_edge = match (phase, p.phase) {
+                    (
+                        _,
+                        OrganizePhase::Extract {
+                            bytes_done,
+                            bytes_total,
+                            ..
+                        },
+                    ) if bytes_done == 0 || bytes_done >= bytes_total => true,
+                    // A ✓ is never hidden behind a long solid-block stall; the
+                    // core already coalesces these to ≤ 10/s.
+                    (
+                        OrganizePhase::Extract {
+                            entries_done: a, ..
+                        },
+                        OrganizePhase::Extract {
+                            entries_done: b, ..
+                        },
+                    ) => a != b,
                     _ => false,
                 };
                 std::mem::discriminant(&phase) != std::mem::discriminant(&p.phase)
@@ -548,6 +561,31 @@ mod tests {
         // Each item's start (its name shows up) and its end (the bar fills)
         // reach the webview; the steps in between are throttled.
         assert_eq!(got, vec![at(0, 0), at(0, 1000), at(1, 0), at(1, 1000)]);
+    }
+
+    #[test]
+    fn an_entry_change_goes_out_within_the_window() {
+        let sink = Arc::new(Sink(Mutex::new(Vec::new())));
+        let t = Throttle::new(2, sink.clone());
+        let at = |bytes_done, entries_done| OrganizePhase::Extract {
+            item: 0,
+            bytes_done,
+            bytes_total: 1000,
+            entries_done,
+            entries_total: 12,
+        };
+        let p = |phase| OrganizeProgress {
+            phase,
+            done: 0,
+            total: 1,
+        };
+        // All three inside one throttle window: the start goes out, the
+        // newly staged entry goes out, the byte-only step after it does not.
+        for phase in [at(0, 0), at(10, 1), at(11, 1)] {
+            t.progress(p(phase));
+        }
+        let got: Vec<_> = sink.0.lock().unwrap().iter().map(|e| e.phase).collect();
+        assert_eq!(got, vec![at(0, 0), at(10, 1)]);
     }
 
     /// Blocks inside `progress` for `done == 1` until released.
