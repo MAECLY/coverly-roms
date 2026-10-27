@@ -1075,6 +1075,121 @@ fn the_runbook_names_every_owner_step() {
     assert!(read("docs/adr/0011-release-pipeline-and-update-key.md").contains("updater.pub"));
 }
 
+/// The runbook, the READMEs and the architecture docs name the files
+/// `stage-builds` publishes (spec §4), never the old universal or Tauri ones.
+#[test]
+fn the_docs_use_the_release_names() {
+    let checks: [(&str, &[&str]); 7] = [
+        (
+            "RELEASING.md",
+            &[
+                "Coverly-ROMs_<version>_mac_arm.dmg",
+                "Coverly-ROMs_<version>_mac_intel.dmg",
+                "Coverly-ROMs_<version>_windows_arm-setup.exe",
+                "coverly_<version>_<platform>",
+                "windows-11-arm",
+                "windows-aarch64",
+                "cli-windows-aarch64",
+                "12 platform keys",
+                "not a release name",
+                "feat/release-names",
+                "clang is not installed",
+            ],
+        ),
+        (
+            "README.md",
+            &[
+                "Coverly-ROMs_<version>_mac_arm.dmg",
+                "Coverly-ROMs_<version>_mac_intel.dmg",
+                "Coverly-ROMs_<version>_windows_arm-setup.exe",
+                "coverly_<version>_<system>",
+                "xattr -d com.apple.quarantine coverly_<version>_mac_arm",
+                "Coverly-ROMs_<version>_linux_x64.deb",
+                "Windows 11 (ARM64)",
+                "\"Chip\" means Apple silicon",
+            ],
+        ),
+        (
+            "README.es.md",
+            &[
+                "Coverly-ROMs_<versión>_mac_arm.dmg",
+                "Coverly-ROMs_<versión>_mac_intel.dmg",
+                "Coverly-ROMs_<versión>_windows_arm-setup.exe",
+                "coverly_<versión>_<sistema>",
+                "xattr -d com.apple.quarantine coverly_<versión>_mac_arm",
+                "Coverly-ROMs_<versión>_linux_x64.deb",
+                "Windows 11 (ARM64)",
+                "«Chip» es Apple silicon",
+            ],
+        ),
+        (
+            "docs/07-build-and-release/ci-cd.md",
+            &[
+                "windows-11-arm",
+                "--target x86_64-apple-darwin",
+                "the same 6 targets",
+                "stage-builds",
+            ],
+        ),
+        (
+            "docs/04-architecture/updates.md",
+            &[
+                "six `<os>-<arch>` keys",
+                "six `cli-<os>-<arch>` keys",
+                "Coverly-ROMs_0.3.0_mac_arm.app.tar.gz",
+                "Coverly-ROMs_0.3.0_mac_intel.app.tar.gz",
+                "\"windows-aarch64\"",
+                "\"cli-windows-aarch64\"",
+                "coverly_0.3.0_windows_arm.exe",
+            ],
+        ),
+        (
+            "docs/adr/0011-release-pipeline-and-update-key.md",
+            &["## Amended 2026-10-26", "windows-aarch64", "stage-builds"],
+        ),
+        (
+            "CHANGELOG.md",
+            &["Coverly-ROMs_<version>_mac_arm.dmg", "Windows on ARM64"],
+        ),
+    ];
+    for (doc, needles) in checks {
+        let text = read(doc);
+        for needle in needles {
+            assert!(text.contains(needle), "{doc} lacks {needle}");
+        }
+    }
+    for doc in [
+        "RELEASING.md",
+        "README.md",
+        "README.es.md",
+        "docs/07-build-and-release/ci-cd.md",
+        "docs/04-architecture/updates.md",
+    ] {
+        let text = read(doc);
+        for old in [
+            "_universal",
+            "universal-apple-darwin",
+            "the same 5 targets",
+            "10 platform keys",
+            "five `",
+            "Coverly.ROMs_<",
+            "Coverly.ROMs_0.",
+        ] {
+            assert!(!text.contains(old), "{doc} still says {old}");
+        }
+    }
+    for doc in [
+        "README.md",
+        "README.es.md",
+        "docs/04-architecture/updates.md",
+    ] {
+        let text = read(doc);
+        for old in ["coverly-<", "coverly-0.", "_amd64", "_arm64.deb"] {
+            assert!(!text.contains(old), "{doc} still says {old}");
+        }
+    }
+}
+
 /// A failure the workflow log shows as an annotation: exit 1, `::error::`, no
 /// Python traceback.
 fn assert_clean_failure(out: &std::process::Output, what: &str) {
