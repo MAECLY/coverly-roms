@@ -180,14 +180,23 @@ describe('TrackList', () => {
     expect(button).toHaveAttribute('aria-expanded', 'true');
     expect(list).toBeVisible();
     expect(list!.children).toHaveLength(12);
+    // Open, the button offers what a press does next.
+    expect(button).toHaveAccessibleName('Ocultar las pistas');
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAccessibleName('Ver las 12 pistas');
   });
 
   it('says «Ver los 12 archivos» for files', () => {
     renderList({ collapsible: true, noun: 'file' });
     expect(
       screen.getByRole('button', { name: 'Ver los 12 archivos' }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ver los 12 archivos' }),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Ocultar los archivos' }),
     ).toBeInTheDocument();
   });
 

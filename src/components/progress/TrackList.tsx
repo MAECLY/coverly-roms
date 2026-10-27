@@ -173,12 +173,18 @@ export function TrackList({
             focusRing,
           )}
         >
-          {tr(
-            tracks
-              ? 'organize.progress.showTracks'
-              : 'organize.progress.showFiles',
-            { count },
-          )}
+          {opened
+            ? t(
+                tracks
+                  ? 'organize.progress.hideTracks'
+                  : 'organize.progress.hideFiles',
+              )
+            : tr(
+                tracks
+                  ? 'organize.progress.showTracks'
+                  : 'organize.progress.showFiles',
+                { count },
+              )}
         </button>
       )}
       <ol

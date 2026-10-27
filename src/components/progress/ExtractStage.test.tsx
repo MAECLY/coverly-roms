@@ -16,12 +16,28 @@ const event = (item: number, done: number, instant = false) =>
 
 describe('stageReducer', () => {
   it('takes the first event of an item as the baseline, with no replay', () => {
+    // A stage mounted mid-item (the job view's latest event) shows what is
+    // already done on the shelf at once, without flying it.
     expect(stageReducer(initialStage, event(5, 4))).toEqual({
       item: 5,
       seen: 4,
-      landed: 0,
+      landed: 4,
       flying: [],
     });
+  });
+
+  it('keeps every seen entry either landed or in flight', () => {
+    let s = stageReducer(initialStage, event(5, 4));
+    for (const a of [
+      event(5, 14),
+      { type: 'landed', id: 12 } as const,
+      event(5, 15),
+      { type: 'drain' } as const,
+      event(5, 16, true),
+    ]) {
+      s = stageReducer(s, a);
+      expect(s.landed + s.flying.length).toBe(s.seen);
+    }
   });
 
   it('flies at most the cap and lands the rest at once', () => {
@@ -29,7 +45,7 @@ describe('stageReducer', () => {
     const b = stageReducer(a, event(5, 14));
     expect(FLY_CAP).toBe(3);
     expect(b.flying).toHaveLength(3);
-    expect(b.landed).toBe(7);
+    expect(b.landed).toBe(11);
     expect(b.seen).toBe(14);
     // The newest entries are the ones that fly, staggered from 0.
     expect(b.flying.map((f) => f.id)).toEqual([11, 12, 13]);
@@ -42,12 +58,12 @@ describe('stageReducer', () => {
       event(5, 14),
     );
     const c = stageReducer(b, { type: 'landed', id: b.flying[0]!.id });
-    expect(c.landed).toBe(8);
+    expect(c.landed).toBe(12);
     expect(c.flying).toHaveLength(2);
     // A stale landing (already landed) changes nothing.
     expect(stageReducer(c, { type: 'landed', id: b.flying[0]!.id })).toBe(c);
     const d = stageReducer(c, { type: 'drain' });
-    expect(d.landed).toBe(10);
+    expect(d.landed).toBe(14);
     expect(d.flying).toEqual([]);
   });
 
@@ -55,7 +71,7 @@ describe('stageReducer', () => {
     const a = stageReducer(initialStage, event(5, 4));
     const b = stageReducer(a, event(5, 14, true));
     expect(b.flying).toEqual([]);
-    expect(b.landed).toBe(10);
+    expect(b.landed).toBe(14);
   });
 
   it('ignores an event that does not move forward', () => {

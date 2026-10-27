@@ -1369,6 +1369,8 @@
       "filesLabel": "Archivos de {name}",
       "showTracks": "Ver las {count} pistas",
       "showFiles": "Ver los {count} archivos",
+      "hideTracks": "Ocultar las pistas",
+      "hideFiles": "Ocultar los archivos",
       "waiting": "En espera",
       "writing": "Escribiendo",
       "crcChecked": "CRC comprobado",
