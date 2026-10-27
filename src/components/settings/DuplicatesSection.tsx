@@ -1,12 +1,7 @@
-import { DEDUPE_LEVELS } from '@/ipc/types';
-
 import { DedupeAdvanced, DedupeCommon } from './DedupeSettings';
 import { AdvancedFold } from './Field';
+import { foldCount } from './registry';
 import { useProfiles } from './useProfiles';
-
-/** Settings entries inside the fold: each level, the keeper rules, the
- * format order and the systems left out. */
-const ADVANCED_COUNT = DEDUPE_LEVELS.length + 3;
 
 /** Settings paths whose errors live inside the fold (it opens on them). */
 const ADVANCED_PATHS = [
@@ -27,7 +22,7 @@ export function DuplicatesSection() {
       <DedupeCommon />
       <AdvancedFold
         id="duplicates-advanced"
-        count={ADVANCED_COUNT}
+        count={foldCount('duplicates-advanced')}
         errorPaths={ADVANCED_PATHS}
       >
         <DedupeAdvanced profiles={profiles} />

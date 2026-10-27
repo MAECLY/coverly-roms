@@ -19,6 +19,7 @@ import {
   SwitchSetting,
   useFieldError,
 } from './Field';
+import { foldCount } from './registry';
 import { useProfiles } from './useProfiles';
 
 /** The i18n key of each duplicates step of Organise. */
@@ -170,7 +171,7 @@ export function OrganizeSection() {
       </Field>
       <AdvancedFold
         id="organize-advanced"
-        count={1}
+        count={foldCount('organize-advanced')}
         errorPaths={['organize.external_tools']}
       >
         <SwitchSetting

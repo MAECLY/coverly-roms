@@ -20,9 +20,14 @@ import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
 import { settingId } from './Field';
+import { foldCount, type SettingsFold } from './registry';
 
 let backend: MockBackend;
 let restore: () => void;
+
+/** The fold trigger's name: its count follows the registry. */
+const advanced = (fold: SettingsFold) =>
+  `Advanced options (${foldCount(fold)})`;
 
 async function open(section: SettingsSection) {
   render(<Root />);
@@ -519,7 +524,7 @@ describe('settings sections', () => {
     );
     expect(hint).not.toBeVisible();
     const fold = within(group).getByRole('button', {
-      name: 'Advanced options (1)',
+      name: advanced('organize-advanced'),
     });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(fold);
@@ -552,7 +557,9 @@ describe('settings sections', () => {
       within(panel).getByRole('textbox', { name: 'Quarantine folder' }),
     ).toHaveAttribute('placeholder', '<library>/_Duplicados');
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     const version = within(panel).getByRole('switch', {
       name: 'Other versions',
@@ -602,7 +609,9 @@ describe('settings sections', () => {
     );
     expect(note).not.toBeVisible();
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     expect(note).toBeVisible();
     expect(
@@ -623,7 +632,9 @@ describe('settings sections', () => {
   it('duplicates: shows the Matching region order and links to it', async () => {
     const panel = await open('duplicates');
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     const names = DEFAULT_REGION_ORDER.filter((r) => r !== 'rom')
       .map((r) => translate('en', `regions.${r}`))
@@ -662,7 +673,9 @@ describe('settings sections', () => {
     );
     expect((await saved()).matching.regions).toEqual(['rom']);
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     expect(
       within(panel).getByText(
@@ -682,7 +695,9 @@ describe('settings sections', () => {
   it('duplicates: Go to Organise lands on When organising', async () => {
     const panel = await open('duplicates');
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Go to Organise' }),
@@ -698,7 +713,7 @@ describe('settings sections', () => {
   it('duplicates: an error inside the fold opens it, one outside does not', async () => {
     const panel = await open('duplicates');
     const fold = within(panel).getByRole('button', {
-      name: 'Advanced options (6)',
+      name: advanced('duplicates-advanced'),
     });
     await act(() =>
       useSettingsStore.getState().update({ dedupe: { quarantine_dir: 'rel' } }),
@@ -719,7 +734,9 @@ describe('settings sections', () => {
   it('duplicates: the keeper rules and the format order read their short hint', async () => {
     const panel = await open('duplicates');
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     expect(
       within(panel).getByRole('list', { name: 'Which copy stays' }),
@@ -758,7 +775,7 @@ describe('settings sections', () => {
   it('library: the scan options show, the ignored lists folded, then the recents', async () => {
     const panel = await open('library');
     const fold = within(panel).getByRole('button', {
-      name: 'Advanced options (2)',
+      name: advanced('library-advanced'),
     });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     expect(
@@ -799,7 +816,7 @@ describe('settings sections', () => {
   it('library: the advanced fold opens on an ignored-folder error', async () => {
     const panel = await open('library');
     const fold = within(panel).getByRole('button', {
-      name: 'Advanced options (2)',
+      name: advanced('library-advanced'),
     });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     act(() =>
@@ -845,7 +862,9 @@ describe('settings sections', () => {
   it('duplicates: settings_reorder_rules_announces', async () => {
     const panel = await open('duplicates');
     await userEvent.click(
-      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+      within(panel).getByRole('button', {
+        name: advanced('duplicates-advanced'),
+      }),
     );
     await userEvent.click(
       within(panel).getByRole('button', { name: 'Move Has a cover up' }),
@@ -890,7 +909,9 @@ describe('settings sections', () => {
   it('organize: external_tools_toggle_saves_off', async () => {
     const group = await open('organize');
     await userEvent.click(
-      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+      within(group).getByRole('button', {
+        name: advanced('organize-advanced'),
+      }),
     );
     const tools = within(group).getByRole('switch', {
       name: 'External programs for RAR',
@@ -920,7 +941,9 @@ describe('settings sections', () => {
     setBackend(backend);
     const group = await open('organize');
     await userEvent.click(
-      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+      within(group).getByRole('button', {
+        name: advanced('organize-advanced'),
+      }),
     );
     const tools = within(group).getByRole('switch', {
       name: 'External programs for RAR',
@@ -943,7 +966,9 @@ describe('settings sections', () => {
   it('organize: no_tools_shows_install_hint', async () => {
     const group = await open('organize');
     await userEvent.click(
-      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+      within(group).getByRole('button', {
+        name: advanced('organize-advanced'),
+      }),
     );
     expect(
       within(group).getByRole('switch', { name: 'External programs for RAR' }),

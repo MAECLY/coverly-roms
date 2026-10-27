@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
 import { AdvancedFold } from '@/components/settings/Field';
+import { foldCount, type SettingsFold } from '@/components/settings/registry';
 import { setBackend } from '@/ipc/backend';
 import { BackendError } from '@/ipc/errors';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
@@ -25,6 +26,10 @@ import { SECTION_COMPONENTS } from './SettingsScreen';
 let backend: MockBackend;
 let storage: MemoryStorage;
 let restore: () => void;
+
+/** The fold trigger's name: its count follows the registry. */
+const advanced = (fold: SettingsFold) =>
+  `Advanced options (${foldCount(fold)})`;
 
 async function start() {
   render(<Root />);
@@ -147,7 +152,7 @@ describe('Settings screen', () => {
     await waitFor(() => expect(box).toHaveFocus());
     expect(useNavStore.getState().openFolds).toEqual(['library-advanced']);
     expect(
-      screen.getByRole('button', { name: 'Advanced options (2)' }),
+      screen.getByRole('button', { name: advanced('library-advanced') }),
     ).toHaveAttribute('aria-expanded', 'true');
     expect(box.closest('[data-setting-row]')).toHaveAttribute(
       'data-arrived',
@@ -360,7 +365,7 @@ describe('Settings screen', () => {
     await start();
     act(() => useNavStore.getState().openSettings('library'));
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Advanced options (2)' }),
+      await screen.findByRole('button', { name: advanced('library-advanced') }),
     );
     const box = await screen.findByRole('textbox', { name: 'Ignored folders' });
     await userEvent.clear(box);

@@ -311,6 +311,15 @@
         "cover": "Has a cover",
         "catalogue_name": "Named as in the catalogue"
       }
+    },
+    "keywords": {
+      "duplicates": "copies, duplicates",
+      "hidden": "dotfiles, dot",
+      "quarantine": "quarantine, set aside, cuarentena",
+      "rar": "unrar, 7-Zip, 7z, rar",
+      "region": "region, country, language",
+      "symlinks": "symlink, alias, shortcut",
+      "trash": "trash, bin, delete, papelera"
     }
   },
   "about": {

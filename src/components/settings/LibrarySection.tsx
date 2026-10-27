@@ -16,6 +16,7 @@ import {
   useFieldError,
 } from './Field';
 import { ListSetting } from './ListSetting';
+import { foldCount } from './registry';
 import { useProfiles } from './useProfiles';
 
 export function LibrarySection() {
@@ -93,7 +94,7 @@ export function LibrarySection() {
       />
       <AdvancedFold
         id="library-advanced"
-        count={2}
+        count={foldCount('library-advanced')}
         errorPaths={['library.ignored_dirs', 'library.ignored_exts']}
       >
         <ListSetting

@@ -311,6 +311,15 @@
         "cover": "Tiene portada",
         "catalogue_name": "Se llama como en el catálogo"
       }
+    },
+    "keywords": {
+      "duplicates": "copias, repetidos",
+      "hidden": "dotfiles, punto",
+      "quarantine": "cuarentena, apartados, quarantine",
+      "rar": "unrar, 7-Zip, 7z, rar",
+      "region": "región, país, idioma",
+      "symlinks": "symlink, alias, acceso directo",
+      "trash": "papelera, borrar, eliminar, trash"
     }
   },
   "about": {
