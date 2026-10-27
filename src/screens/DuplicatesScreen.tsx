@@ -20,6 +20,7 @@ import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { GroupNavList } from '@/components/dedupe/GroupNavList';
 import { dialogOpen } from '@/components/dedupe/groupNav';
+import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { useLaterJobs } from '@/components/organize/laterJobs';
@@ -159,6 +160,9 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
   }, [root]);
 
   const applying = status === 'applying';
+  // Cancel freezes the set-aside scene until the apply really stops.
+  const [stopping, setStopping] = useState(false);
+  if (stopping && !applying) setStopping(false);
   const canReplan = status === 'ready' || (status === 'error' && job === null);
   const replan = useCallback(() => void useDedupeStore.getState().replan(), []);
 
@@ -258,6 +262,16 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
 
           {applying && (
             <div className="grid justify-items-start gap-2.5">
+              <SetAsideScene
+                done={progress ? Math.min(progress.done, progress.total) : 0}
+                total={progress?.total ?? 0}
+                stopped={stopping}
+                folder={
+                  job?.trash
+                    ? t('dedupe.sceneTrash')
+                    : fileName(job?.quarantine || plan?.quarantine || '')
+                }
+              />
               <Progress
                 slots={SLOTS}
                 max={progress?.total || 1}
@@ -281,7 +295,10 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => void useDedupeStore.getState().cancel()}
+                  onClick={() => {
+                    setStopping(true);
+                    void useDedupeStore.getState().cancel();
+                  }}
                 >
                   {t('dedupe.cancel')}
                 </Button>

@@ -672,6 +672,7 @@
     "phaseDone": "hecho",
     "starting": "Empezando…",
     "applyingTrash": "Enviando {done} de {total} a la Papelera…",
+    "sceneTrash": "Papelera",
     "progressLabel": "Progreso",
     "cancel": "Cancelar",
     "replan": "Volver a buscar",

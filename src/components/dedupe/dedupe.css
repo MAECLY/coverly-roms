@@ -1128,6 +1128,162 @@
   white-space: nowrap;
 }
 
+/* ---- The set-aside scene while applying (spec D13) -------------------- */
+
+/* Drawn like the landing's hero: brand strokes on paper, a Buckram shelf
+   rule, a Manila tab. Lift 240 ms (slow, standard), then slide and drop
+   400 ms (slower, ink). Never spring, never a loop of its own. */
+.dup-scene {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  overflow: visible;
+}
+
+.dup-scene__rule {
+  stroke: var(--cr-primary);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-linecap: round;
+}
+
+.dup-scene__slot {
+  fill: var(--cr-surface-raised);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+/* The vacated place: the brand's dashed missing outline, for one beat. */
+.dup-scene__slot--missing {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 4 3;
+}
+
+/* After each lift the shelf closes up one step and a fresh slot arrives. */
+.dup-scene__shelf[data-closing='true'] {
+  animation: dup-scene-close var(--cr-duration-slow) var(--cr-ease-standard);
+}
+
+.dup-scene__shelf[data-closing='true'] .dup-scene__slot--fresh {
+  animation: dup-scene-fresh var(--cr-duration-slow) var(--cr-ease-enter);
+}
+
+.dup-scene__tab {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  transition: transform var(--cr-duration-slow) var(--cr-ease-standard);
+}
+
+.dup-scene__tab-paper {
+  fill: var(--cr-manila);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-linejoin: round;
+}
+
+/* Done: the tab folds shut. That is the whole celebration (spec §7.2). */
+.dup-scene[data-closed='true'] .dup-scene__tab {
+  transform: rotate(-4deg);
+}
+
+.dup-scene__name {
+  fill: var(--cr-manila-fg);
+  font-family: var(--cr-font-mono);
+  font-size: 8.5px;
+}
+
+.dup-scene__back,
+.dup-scene__front {
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+.dup-scene__back {
+  fill: var(--cr-surface-sunken);
+}
+
+.dup-scene__front {
+  fill: var(--cr-surface-raised);
+}
+
+.dup-scene__count {
+  fill: var(--cr-text);
+  font-family: var(--cr-font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-scene__flight {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dup-scene-fly
+    calc(var(--cr-duration-slow) + var(--cr-duration-slower)) forwards;
+}
+
+/* Cancel or pause: everything holds where it is. */
+.dup-scene[data-stopped='true'] .dup-scene__flight,
+.dup-scene[data-stopped='true'] .dup-scene__shelf,
+.dup-scene[data-stopped='true'] .dup-scene__slot--fresh {
+  animation-play-state: paused;
+}
+
+/* 240 / 640 = 37.5 %: the lift, then the ink drop into the folder. */
+@keyframes dup-scene-fly {
+  0% {
+    transform: translate(0, 0);
+    animation-timing-function: var(--cr-ease-standard);
+  }
+  37.5% {
+    transform: translate(0, -6px);
+    animation-timing-function: var(--cr-ease-ink);
+  }
+  /* Over the folder's lip, then down behind its front. */
+  70% {
+    transform: translate(58px, -14px) scale(0.9);
+    opacity: 1;
+    animation-timing-function: var(--cr-ease-ink);
+  }
+  100% {
+    transform: translate(76px, 4px) scale(0.75);
+    opacity: 0;
+  }
+}
+
+@keyframes dup-scene-close {
+  from {
+    transform: translateX(-40px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes dup-scene-fresh {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-scene__flight,
+  .dup-scene__shelf[data-closing='true'],
+  .dup-scene__shelf[data-closing='true'] .dup-scene__slot--fresh {
+    animation: none;
+  }
+
+  .dup-scene__flight {
+    display: none;
+  }
+
+  .dup-scene__tab {
+    transition: none;
+  }
+}
+
 /* ---- Forced colours (Windows High Contrast) ----------------------------- */
 
 /* Backgrounds drop out; the edges and the stamps' frames carry the state. */
@@ -1150,5 +1306,21 @@
 
   .dup-dim {
     opacity: 1;
+  }
+
+  .dup-scene__slot,
+  .dup-scene__tab-paper,
+  .dup-scene__back,
+  .dup-scene__front {
+    stroke: CanvasText;
+  }
+
+  .dup-scene__rule {
+    stroke: Highlight;
+  }
+
+  .dup-scene__name,
+  .dup-scene__count {
+    fill: CanvasText;
   }
 }

@@ -672,6 +672,7 @@
     "phaseDone": "done",
     "starting": "Starting…",
     "applyingTrash": "Sending {done} of {total} to the Trash…",
+    "sceneTrash": "Trash",
     "progressLabel": "Progress",
     "cancel": "Cancel",
     "replan": "Look again",

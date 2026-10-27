@@ -20,7 +20,7 @@ import {
   type MockOptions,
 } from '@/ipc/mock/mockBackend';
 import type { DedupePlanView, OrganizeUndoView } from '@/ipc/types';
-import { formatBytes } from '@/lib/dedupe';
+import { fileName, formatBytes } from '@/lib/dedupe';
 import { useDedupeStore, type DedupeLaunch } from '@/stores/dedupeStore';
 import { useNavStore } from '@/stores/navStore';
 
@@ -835,5 +835,25 @@ describe('DuplicatesScreen keys', () => {
         g.members[0]!.unit.primary,
       ]),
     );
+  });
+
+  it('the_set_aside_scene_is_decoration_beside_the_progress_text', async () => {
+    renderScreen();
+    await ready();
+    const p = plan();
+    vi.spyOn(b, 'dedupeCancelApply').mockResolvedValue(undefined);
+    act(() =>
+      useDedupeStore.setState({
+        status: 'applying',
+        progress: { plan_id: p.plan_id, phase: 'apply', done: 2, total: 40 },
+      }),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Apartando 2 de 40…');
+    const scene = document.querySelector('svg.dup-scene')!;
+    expect(scene).toHaveAttribute('aria-hidden', 'true');
+    expect(scene.textContent).toContain(fileName(p.quarantine));
+    expect(scene).not.toHaveAttribute('data-stopped');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(scene).toHaveAttribute('data-stopped', 'true');
   });
 });

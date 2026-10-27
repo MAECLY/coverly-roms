@@ -17,6 +17,7 @@ import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { DupGroup } from '@/components/dedupe/DupGroup';
+import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 
@@ -247,6 +248,54 @@ const SYSTEM_NAMES: Record<string, string> = {
   GBA: 'Game Boy Advance',
 };
 
+/** Plays an apply of `total` copies: one per 300 ms, or a burst. */
+function SetAsideSpecimen() {
+  const total = 24;
+  const [done, setDone] = useState(0);
+  const [running, setRunning] = useState<'slow' | 'burst' | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const [run, setRun] = useState(0);
+  useEffect(() => {
+    if (!running || stopped || done >= total) return;
+    const id = setTimeout(
+      () => setDone((d) => Math.min(total, d + (running === 'burst' ? 5 : 1))),
+      running === 'burst' ? 100 : 300,
+    );
+    return () => clearTimeout(id);
+  }, [running, stopped, done]);
+  const play = (mode: 'slow' | 'burst') => {
+    setStopped(false);
+    setDone(0);
+    setRunning(mode);
+    setRun((r) => r + 1);
+  };
+  return (
+    <div className="grid justify-items-start gap-3">
+      <SetAsideScene
+        key={run}
+        done={done}
+        total={total}
+        stopped={stopped}
+        folder="_Duplicados"
+      />
+      <p className="m-0 font-mono text-ui tabular-nums">
+        {done} / {total}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => play('slow')}>
+          Play
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => play('burst')}>
+          Burst
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setStopped(true)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function DedupeStatesSpecimen() {
   const [plan, setPlan] = useState<DedupePlanView | null>(null);
   useEffect(() => {
@@ -408,6 +457,10 @@ export function UiGallery() {
                 onBack={noop}
                 onFindCovers={noop}
               />
+            </Specimen>
+
+            <Specimen name="Duplicates: SetAsideScene">
+              <SetAsideSpecimen />
             </Specimen>
 
             <Specimen name="Duplicates: group states" wide>
