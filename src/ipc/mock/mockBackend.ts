@@ -20,6 +20,7 @@ import {
   createMockOrganize,
   ORGANIZE_SYSTEMS,
   readMockPick,
+  type MockExtractRate,
   type MockOrganizeTouch,
 } from './mockOrganize';
 import { createMockSettings } from './mockSettings';
@@ -31,6 +32,7 @@ import {
 import { escapeXml } from './svg';
 
 export { escapeXml } from './svg';
+export { readMockExtract } from './mockOrganize';
 export type { MockExport } from './mockJobs';
 export type { MockDedupeScenario } from './mockDedupe';
 export {
@@ -62,6 +64,9 @@ export interface MockOptions {
   /** The first organise apply of each job pauses (disk full) after this
    * many items; null = never (default). */
   organizePauseAfter?: number | null;
+  /** How fast the organise mock extracts: `'fast'` (default, tests) or
+   * MB/s (the browser passes `?mockExtract=`, default 25). */
+  extractRate?: MockExtractRate;
   /** What the updater answers (default: `?mockUpdate=`, then localStorage
    * `coverly.mock.update`, then `up-to-date`). */
   update?: MockUpdateScenario;
@@ -305,6 +310,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     {
       pauseAfter: opts.organizePauseAfter ?? null,
+      extractRate: opts.extractRate ?? 'fast',
       sortedLayout: MOCK_BUILTIN_PROFILES.find(
         (p) => p.profile.id === 'anbernic-stock',
       ),
