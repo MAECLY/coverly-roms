@@ -1855,10 +1855,13 @@ time {
   flex-direction: column;
 }
 
+/* Wraps on a narrow window: the screen's settings link drops below the
+   title instead of pushing the page wider than the window. */
 .settings-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
   padding: 0.75rem 1.5rem;
   border-bottom: 1px solid var(--cr-border);
   background: var(--cr-surface);
