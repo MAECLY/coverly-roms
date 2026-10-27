@@ -179,6 +179,9 @@ export function DedupeCommon() {
   );
 }
 
+const REGION_NOW_ID = 'dedupe-region-order';
+const REGION_SHARED_ID = 'dedupe-region-shared';
+
 /**
  * The region order the `region` keeper rule reads (D1): Matching's list
  * without the ROM's own region, read-only here, with a link to edit it.
@@ -191,12 +194,14 @@ function RegionReadout() {
     .map((r) => t(`regions.${r}`));
   return (
     <div className="grid gap-1 pl-1">
-      <p className={hintText}>
+      <p id={REGION_NOW_ID} className={hintText}>
         {named.length === 0
           ? t('settings.dedupe.regionsNone')
           : t('settings.dedupe.regionsNow', { regions: named.join(', ') })}
       </p>
-      <p className={hintText}>{t('settings.dedupe.regionsShared')}</p>
+      <p id={REGION_SHARED_ID} className={hintText}>
+        {t('settings.dedupe.regionsShared')}
+      </p>
       <Button
         variant="link"
         size="sm"
@@ -319,6 +324,11 @@ export function DedupeAdvanced({
                   <Switch
                     name={`dedupe-rule-${r.rule}`}
                     aria-label={t('settings.dedupe.use', { rule: label })}
+                    aria-describedby={
+                      r.rule === 'region'
+                        ? `${REGION_NOW_ID} ${REGION_SHARED_ID}`
+                        : undefined
+                    }
                     checked={r.on}
                     onCheckedChange={(on) =>
                       setRules(

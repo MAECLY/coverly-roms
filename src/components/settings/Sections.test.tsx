@@ -636,6 +636,11 @@ describe('settings sections', () => {
       within(panel).getByText('It also decides which art is chosen.'),
     ).toBeVisible();
     expect(
+      within(panel).getByRole('switch', { name: 'Use: Preferred region' }),
+    ).toHaveAccessibleDescription(
+      `Regions, in order: ${names} It also decides which art is chosen.`,
+    );
+    expect(
       within(panel).queryByRole('button', {
         name: 'Uses the Matching region order',
       }),
@@ -664,6 +669,11 @@ describe('settings sections', () => {
         "Only the ROM's region: this rule decides nothing.",
       ),
     ).toBeVisible();
+    expect(
+      within(panel).getByRole('switch', { name: 'Use: Preferred region' }),
+    ).toHaveAccessibleDescription(
+      "Only the ROM's region: this rule decides nothing. It also decides which art is chosen.",
+    );
     expect(
       within(panel).queryByText(/^Regions, in order:/),
     ).not.toBeInTheDocument();
