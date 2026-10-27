@@ -717,6 +717,21 @@ describe('Jobs panel readout', () => {
     expect(within(dialog).queryByText(/left|Working out/)).toBeNull();
   });
 
+  it('waits for 5 covers even after a long, slow run', async () => {
+    const dialog = await panel();
+    // One cover every 8 s: 4 covers in 32 s, a rate the hook can measure.
+    for (let s = 1; s <= 32; s++) {
+      act(() => {
+        now += 1000;
+        vi.advanceTimersByTime(1000);
+        useJobStore.setState({ progress: progressAt(Math.floor(s / 8)) });
+      });
+    }
+    expect(useJobStore.getState().progress?.done).toBe(4);
+    expect(within(dialog).queryAllByText(/per minute/)).toHaveLength(0);
+    expect(within(dialog).queryByText(/left|Working out/)).toBeNull();
+  });
+
   it('shows covers per minute and time left after 20 s', async () => {
     const dialog = await panel();
     cover(0, 18);
