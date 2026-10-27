@@ -1,15 +1,11 @@
-import { useEffect, useState } from 'react';
-
 import { NativeSelect } from '@/components/ui/select';
 import { useT } from '@/i18n/useT';
-import { getBackend } from '@/ipc/backend';
 import {
   ORGANIZE_DEDUPE_MODES,
   type FoundTool,
   type OrganizeDedupeMode,
   type OrganizeModeSetting,
   type OrganizeNameMode,
-  type ProfileInfo,
 } from '@/ipc/types';
 import { toolName } from '@/lib/organize';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -23,6 +19,7 @@ import {
   SwitchSetting,
   useFieldError,
 } from './Field';
+import { useProfiles } from './useProfiles';
 
 /** The i18n key of each duplicates step of Organise. */
 const STEP_LABEL: Record<OrganizeDedupeMode, string> = {
@@ -62,19 +59,7 @@ export function OrganizeSection() {
   const step = useSettingsStore((s) => s.settings!.dedupe.organize_step);
   const update = useSettingsStore((s) => s.update);
   const found = useSettingsStore((s) => s.externalToolsFound);
-  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
-  useEffect(() => {
-    let alive = true;
-    void getBackend()
-      .then((b) => b.listProfiles())
-      .then(
-        (p) => alive && setProfiles(p),
-        () => undefined,
-      );
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const profiles = useProfiles();
   // Until the list loads, or for a layout it no longer has, the stored id
   // still shows.
   const listed = profiles.some((p) => p.profile.id === org.default_layout);
