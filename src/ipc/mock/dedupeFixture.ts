@@ -188,7 +188,6 @@ function showcase(): DupGroupView[] {
             tags_from: 'catalogue',
             regions: ['world'],
             revision: 'Rev 1',
-            languages: [],
             art: [
               {
                 media: 'cover',

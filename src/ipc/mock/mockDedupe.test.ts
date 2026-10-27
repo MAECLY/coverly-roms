@@ -413,6 +413,25 @@ describe('mock duplicates backend', () => {
     expect(japan!.facts!.art![0]!.size).not.toBe(world!.facts!.art![0]!.size);
   });
 
+  it('fixture facts are wire-shaped: empty keys are left out like Rust', () => {
+    const empty: string[] = [];
+    for (const g of dedupeFixture().groups)
+      for (const m of g.members) {
+        if (!m.facts) continue;
+        const where = `${g.title}#${m.id}`;
+        if (Object.keys(m.facts).length === 0) empty.push(`${where}.facts`);
+        for (const [k, v] of Object.entries(m.facts)) {
+          if (Array.isArray(v) && v.length === 0) empty.push(`${where}.${k}`);
+          if (
+            k === 'flags' &&
+            !Object.values(v as Record<string, boolean>).some(Boolean)
+          )
+            empty.push(`${where}.${k}`);
+        }
+      }
+    expect(empty).toEqual([]);
+  });
+
   it('reveals only inside a library, a plan or its quarantine', async () => {
     const b = backend();
     const sd = await b.dedupePlan('/Volumes/SD');
