@@ -5,7 +5,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use coverly_core::dedupe::companions::{companions_for, ArtLeaves, CompanionCtx, GamelistEntry};
+use coverly_core::dedupe::companions::{
+    art_slots, companions_for, ArtLeaves, CompanionCtx, GamelistEntry,
+};
 use coverly_core::dedupe::group::RawGroup;
 use coverly_core::dedupe::units::Unit;
 use coverly_core::dedupe::{GroupAction, Relation, SharedStay, Travel, TravelKind, UnitKind};
@@ -474,4 +476,45 @@ fn a_companion_a_unit_outside_the_group_uses_stays() {
         assert!(travels.iter().all(|t| &t.from != kept), "{travels:?}");
     }
     assert!(out[1].3.is_empty(), "no art leaves: {:?}", out[1].3);
+}
+
+// --- Art slots ---
+
+#[test]
+fn art_slots_lists_present_slots_with_sizes() {
+    let lib = Lib::new();
+    let gb = lib.root.join("ROMS/GB");
+    let u = unit(0, "gb", &gb, &["Tetris.gb"], UnitKind::Single);
+    let art = write(&gb.join("Imgs/Tetris.png"), b"12345");
+    let p = profile("anbernic-stock");
+    let slots = art_slots(&u, &lib.ctx(&p));
+    assert_eq!(slots, vec![(Media::Cover, art, 5)]);
+}
+
+#[test]
+fn art_slots_skips_apple_double_and_missing() {
+    let lib = Lib::new();
+    let gb = lib.root.join("ROMS/GB");
+    let u = unit(0, "gb", &gb, &["Tetris.gb"], UnitKind::Single);
+    write(&gb.join("Imgs/._Tetris.png"), b"12345");
+    let p = profile("anbernic-stock");
+    assert!(art_slots(&u, &lib.ctx(&p)).is_empty());
+}
+
+#[cfg(unix)]
+mod unix_tests {
+    use super::*;
+
+    #[test]
+    fn art_slots_skips_symlinked_art() {
+        let lib = Lib::new();
+        let gb = lib.root.join("ROMS/GB");
+        let u = unit(0, "gb", &gb, &["Tetris.gb"], UnitKind::Single);
+        let outside = tempfile::tempdir().unwrap();
+        let target = write(&outside.path().join("Tetris.png"), b"12345");
+        fs::create_dir_all(gb.join("Imgs")).unwrap();
+        std::os::unix::fs::symlink(&target, gb.join("Imgs/Tetris.png")).unwrap();
+        let p = profile("anbernic-stock");
+        assert!(art_slots(&u, &lib.ctx(&p)).is_empty());
+    }
 }

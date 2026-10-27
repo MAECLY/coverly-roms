@@ -257,10 +257,22 @@ pub fn companions_with(
         .collect()
 }
 
-/// Whether `unit` has art in at least one of the profile's media slots
-/// (the `cover` rule).
-pub fn has_art(unit: &Unit, ctx: &CompanionCtx) -> bool {
-    !art_of(unit, ctx, &mut DirListings::default()).is_empty()
+/// The profile's art slots `unit` has, with each file's size (one
+/// `fs::metadata` per file found; `DirListings` keeps names only). Two media
+/// mapped to one file are listed once, under the first media in `Media::ALL`.
+/// A non-empty result is what the `cover` rule calls "has a cover".
+pub fn art_slots(unit: &Unit, ctx: &CompanionCtx) -> Vec<(Media, PathBuf, u64)> {
+    let mut seen = HashSet::new();
+    art_of(unit, ctx, &mut DirListings::default())
+        .into_iter()
+        .filter(|(_, p)| seen.insert(path_key(p)))
+        .filter_map(|(m, p)| {
+            fs::metadata(&p)
+                .ok()
+                .filter(|md| md.is_file())
+                .map(|md| (m, p, md.len()))
+        })
+        .collect()
 }
 
 fn empty() -> MemberCompanions {

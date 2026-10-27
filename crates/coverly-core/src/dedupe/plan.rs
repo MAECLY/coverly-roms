@@ -23,13 +23,13 @@ use crate::cache::{Cache, CacheError, StoredChoice};
 use crate::identify::dat::{dat_sources, DatStore};
 use crate::identify::hash::hash_stream;
 use crate::identify::names::{parse_tags, NameTags, Region};
-use crate::profiles::Profile;
+use crate::profiles::{Media, Profile};
 use crate::scan::LibraryScan;
 use crate::settings::{ContainerClass, Settings};
 use crate::systems::SystemDb;
 use crate::write::{name_key, on_removable_volume, same_volume};
 
-use super::companions::{companions_with, has_art, CompanionCtx, DirListings, MemberCompanions};
+use super::companions::{art_slots, companions_with, CompanionCtx, DirListings, MemberCompanions};
 use super::group::{build_groups, GroupOpts, RawGroup};
 use super::keeper::{
     choose, container_name, played_from_gamelist, region_order, remembered_pick_holds,
@@ -217,10 +217,18 @@ struct Base {
 struct UnitFacts {
     saves: Vec<SaveInfo>,
     played: Option<Played>,
-    has_cover: bool,
+    /// The art slots found, with each file's size.
+    art: Vec<(Media, PathBuf, u64)>,
     tags: NameTags,
     dat_name: Option<String>,
     headered_functional: Option<bool>,
+}
+
+impl UnitFacts {
+    /// The `cover` rule: art in at least one of the profile's media slots.
+    fn has_cover(&self) -> bool {
+        !self.art.is_empty()
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -737,7 +745,7 @@ impl Base {
         UnitFacts {
             saves: self.saves.saves_for(u, &serials),
             played,
-            has_cover: has_art(u, &self.companion_ctx()),
+            art: art_slots(u, &self.companion_ctx()),
             tags: self.l2[i]
                 .as_ref()
                 .map(|k| k.tags.clone())
@@ -808,7 +816,7 @@ impl Base {
                 played: f.played.clone(),
                 tags: Some(&f.tags),
                 dat_name: f.dat_name.as_deref(),
-                has_cover: f.has_cover,
+                has_cover: f.has_cover(),
                 relation: *relation,
                 headered_functional: f.headered_functional,
             })
