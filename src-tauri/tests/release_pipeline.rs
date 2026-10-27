@@ -603,7 +603,150 @@ fn the_windows_arm_jobs_check_their_toolchain_without_secrets() {
         job(&wf, "app").contains("NDP\\v3.5"),
         "WiX needs .NET 3.5 for the .msi"
     );
+    // Only a stable tag builds the .msi, so only it needs .NET 3.5.
+    assert!(job(&wf, "app").contains("NETFX: ${{ !contains(github.ref_name, '-') }}"));
+    assert!(job(&wf, "app").contains("$env:NETFX -eq 'true' -and"));
     assert!(!job(&wf, "cli").contains("NDP\\v3.5"));
+}
+
+/// The rows of a job's `matrix.include`, each as its `key: value` pairs in
+/// order (block rows `- name: …` and flow rows `- { … }` alike), quotes
+/// dropped.
+fn matrix_rows(job_text: &str) -> Vec<Vec<(String, String)>> {
+    let body: Vec<&str> = job_text
+        .lines()
+        .skip_while(|l| l.trim() != "include:")
+        .skip(1)
+        .take_while(|l| !l.trim_start().starts_with("runs-on:") && l.trim() != "steps:")
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect();
+    let text = body.join("\n");
+    text.split("\n          - ")
+        .map(|row| {
+            row.trim()
+                .trim_start_matches("- ")
+                .trim_matches(|c| c == '{' || c == '}' || char::is_whitespace(c))
+                .split(['\n', ','])
+                .map(str::trim)
+                .filter(|kv| !kv.is_empty() && *kv != "}")
+                .map(|kv| {
+                    let (k, v) = kv.split_once(':').unwrap_or_else(|| panic!("{kv}"));
+                    (
+                        k.trim().to_string(),
+                        v.trim().trim_matches('\'').to_string(),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn pick(row: &[(String, String)], keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .map(|k| {
+            row.iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| panic!("row without {k}: {row:?}"))
+        })
+        .collect()
+}
+
+#[test]
+fn every_build_runs_on_its_own_runner_and_names_its_artifact_for_stage_builds() {
+    let wf = read(".github/workflows/release.yml");
+    // slug (artifact app-<slug>), runner, rustup targets, tauri args and the
+    // token Tauri puts in that build's .dmg.
+    let app: Vec<Vec<String>> = matrix_rows(&job(&wf, "app"))
+        .iter()
+        .map(|r| pick(r, &["slug", "platform", "targets", "args", "tauri_arch"]))
+        .collect();
+    let row = |v: [&str; 5]| v.map(String::from).to_vec();
+    assert_eq!(
+        app,
+        [
+            row([
+                "darwin-aarch64",
+                "macos-latest",
+                "aarch64-apple-darwin",
+                "--target aarch64-apple-darwin",
+                "aarch64"
+            ]),
+            row([
+                "darwin-x86_64",
+                "macos-latest",
+                "x86_64-apple-darwin",
+                "--target x86_64-apple-darwin",
+                "x64"
+            ]),
+            row([
+                "windows-x86_64",
+                "windows-latest",
+                "x86_64-pc-windows-msvc",
+                "",
+                ""
+            ]),
+            row([
+                "windows-aarch64",
+                "windows-11-arm",
+                "aarch64-pc-windows-msvc",
+                "",
+                ""
+            ]),
+            row([
+                "linux-x86_64",
+                "ubuntu-22.04",
+                "x86_64-unknown-linux-gnu",
+                "",
+                ""
+            ]),
+            row([
+                "linux-aarch64",
+                "ubuntu-22.04-arm",
+                "aarch64-unknown-linux-gnu",
+                "",
+                ""
+            ]),
+        ]
+    );
+    // os-arch is the artifact (cli-<os>-<arch>) and the binary name that
+    // stage-builds checks against the target.
+    let cli: Vec<Vec<String>> = matrix_rows(&job(&wf, "cli"))
+        .iter()
+        .map(|r| pick(r, &["platform", "target", "os", "arch"]))
+        .collect();
+    let row = |v: [&str; 4]| v.map(String::from).to_vec();
+    assert_eq!(
+        cli,
+        [
+            row(["macos-latest", "aarch64-apple-darwin", "darwin", "aarch64"]),
+            row(["macos-latest", "x86_64-apple-darwin", "darwin", "x86_64"]),
+            row([
+                "windows-latest",
+                "x86_64-pc-windows-msvc",
+                "windows",
+                "x86_64"
+            ]),
+            row([
+                "windows-11-arm",
+                "aarch64-pc-windows-msvc",
+                "windows",
+                "aarch64"
+            ]),
+            row([
+                "ubuntu-22.04",
+                "x86_64-unknown-linux-gnu",
+                "linux",
+                "x86_64"
+            ]),
+            row([
+                "ubuntu-22.04-arm",
+                "aarch64-unknown-linux-gnu",
+                "linux",
+                "aarch64"
+            ]),
+        ]
+    );
 }
 
 #[test]
