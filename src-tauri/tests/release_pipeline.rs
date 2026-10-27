@@ -822,6 +822,76 @@ fn release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
     assert!(!notes.contains('!'), "brand voice: no exclamation marks");
 }
 
+/// Every app name in a language's section of the release notes, with its
+/// version placeholder replaced by `0.2.0`, read up to the closing backtick.
+fn app_names_in(section: &str, placeholder: &str) -> Vec<String> {
+    section
+        .match_indices("Coverly-ROMs_")
+        .map(|(at, _)| {
+            let rest = &section[at..];
+            let end = rest.find('`').unwrap_or(rest.len());
+            rest[..end].replace(placeholder, "0.2.0")
+        })
+        .collect()
+}
+
+#[test]
+fn release_notes_list_every_download_by_its_release_name_in_en_and_es() {
+    let notes = read(".github/release-notes.md");
+    let (en, es) = notes
+        .split_once("## Español")
+        .expect("an English and a Spanish section");
+    // The `.app.tar.gz` archives are for the updater only; people download
+    // the rest, so the table names each of them, in both languages.
+    let downloads: Vec<&str> = BUNDLES
+        .iter()
+        .copied()
+        .filter(|name| !name.ends_with(".app.tar.gz"))
+        .collect();
+    for (lang, section, placeholder, system) in [
+        ("en", en, "<version>", "<system>"),
+        ("es", es, "<versión>", "<sistema>"),
+    ] {
+        let listed = app_names_in(section, placeholder);
+        for name in &listed {
+            assert!(
+                downloads.contains(&name.as_str()),
+                "{lang}: not a name stage-builds publishes: {name}"
+            );
+        }
+        for name in &downloads {
+            assert!(
+                listed.iter().any(|l| l == name),
+                "{lang}: download missing from the table: {name}"
+            );
+        }
+        // The CLI row names the pattern and every platform suffix of §4.
+        assert!(
+            section.contains(&format!("`coverly_{placeholder}_{system}`")),
+            "{lang}: CLI name pattern"
+        );
+        for (suffix, os, _) in PLATFORMS {
+            let file = if os == "windows" {
+                format!("`{suffix}.exe`")
+            } else {
+                format!("`{suffix}`")
+            };
+            assert!(section.contains(&file), "{lang}: CLI platform {file}");
+        }
+        // A browser-downloaded CLI on either Mac is quarantined.
+        assert!(
+            section.contains(&format!(
+                "xattr -d com.apple.quarantine coverly_{placeholder}_mac_arm`"
+            )) && section.contains("`_mac_intel`"),
+            "{lang}: CLI quarantine line names both Mac builds"
+        );
+    }
+    // The draft job substitutes both placeholders, but each section keeps
+    // its own language's.
+    assert!(!en.contains("<versión>"), "en: uses <version>");
+    assert!(!es.contains("<version>"), "es: uses <versión>");
+}
+
 #[test]
 fn release_tools_build_and_check_a_signed_manifest() {
     if python().is_none() {
