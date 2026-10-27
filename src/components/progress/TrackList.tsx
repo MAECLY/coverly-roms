@@ -30,6 +30,8 @@ export interface TrackListProps {
 /** How long a user's own scroll of the list holds off the follow. */
 const USER_HOLD_MS = 5000;
 const NAME_MAX = 40;
+/** The end of a name (` (Track 18).bin`) never gives way to the column. */
+const TAIL = 15;
 
 interface RowProps {
   row: TrackRow;
@@ -44,6 +46,8 @@ interface RowProps {
 const Row = memo(
   function Row({ row, stateText, locale }: RowProps) {
     const done = row.state === 'done';
+    const shown = middleTruncate(row.name, NAME_MAX);
+    const cut = Math.max(0, shown.length - TAIL);
     return (
       <li
         data-index={row.index}
@@ -59,7 +63,12 @@ const Row = memo(
           className={cn('tl-mark', row.state === 'current' && 'ws-march')}
         />
         <span className="mono min-w-0 overflow-hidden whitespace-nowrap">
-          <bdi title={row.full}>{middleTruncate(row.name, NAME_MAX)}</bdi>
+          <bdi title={row.full} className="flex min-w-0">
+            <span className="tl-head truncate">{shown.slice(0, cut)}</span>
+            <span className="tl-tail shrink-0 whitespace-pre">
+              {shown.slice(cut)}
+            </span>
+          </bdi>
         </span>
         <span className="mono text-xs tabular-nums text-cr-text-secondary">
           {formatDecimalSize(row.size, locale)}

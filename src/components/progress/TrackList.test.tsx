@@ -120,6 +120,24 @@ describe('TrackList', () => {
     expect(long.textContent!.length).toBeLessThanOrEqual(40);
   });
 
+  it('keeps the end of a name visible when the column is narrower than the text', () => {
+    renderList();
+    const items = within(screen.getByRole('list')).getAllByRole('listitem');
+    items.forEach((li) => {
+      const head = li.querySelector('bdi > .tl-head');
+      const tail = li.querySelector('bdi > .tl-tail');
+      expect(head).toHaveClass('truncate');
+      expect(tail).toHaveClass('shrink-0');
+    });
+    const short = items[0]!.querySelector('bdi')!;
+    expect(short.querySelector('.tl-tail')!.textContent).toBe(
+      ' (Track 01).bin',
+    );
+    expect(short.textContent).toBe('Tetris Plus (Track 01).bin');
+    const long = items[6]!.querySelector('bdi')!;
+    expect(long.querySelector('.tl-tail')!.textContent).toBe(' (Track 18).bin');
+  });
+
   it('shows sizes in decimal units', () => {
     renderList();
     const items = within(screen.getByRole('list')).getAllByRole('listitem');
