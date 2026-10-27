@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { AboutSection } from '@/components/settings/AboutSection';
 import { AdvancedSection } from '@/components/settings/AdvancedSection';
 import { ArtSection } from '@/components/settings/ArtSection';
+import { DuplicatesSection } from '@/components/settings/DuplicatesSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
 import { OrganizeSection } from '@/components/settings/OrganizeSection';
@@ -35,6 +36,7 @@ export const SECTION_COMPONENTS: Record<
   general: GeneralSection,
   library: LibrarySection,
   organize: OrganizeSection,
+  duplicates: DuplicatesSection,
   art: ArtSection,
   matching: MatchingSection,
   sources: SourcesSection,
@@ -105,24 +107,33 @@ export function SettingsScreen() {
   useEffect(() => {
     if (!focusSetting) return;
     if (status !== 'ready' && section !== 'about' && status !== 'error') return;
-    const nav = useNavStore.getState();
-    const el = document.getElementById(focusSetting);
-    if (!el) {
+    const land = (): boolean => {
+      const nav = useNavStore.getState();
+      const el = document.getElementById(focusSetting);
+      if (!el) return false;
+      // Folded content is mounted but hidden (SP-3): open it, land next
+      // render.
+      const fold = el.closest<HTMLElement>('[data-advanced-fold]')?.dataset
+        .advancedFold;
+      if (fold && !nav.openFolds.includes(fold)) {
+        nav.setFold(fold, true);
+        return true;
+      }
+      arrive(el);
       nav.clearFocusSetting();
+      return true;
+    };
+    if (land()) return;
+    // A tab switch mounts its panel a render later (Radix Presence): look
+    // once more before landing on the tab instead.
+    const retry = window.setTimeout(() => {
+      if (land()) return;
+      useNavStore.getState().clearFocusSetting();
       document
         .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
         ?.focus();
-      return;
-    }
-    // Folded content is mounted but hidden (SP-3): open it, land next render.
-    const fold = el.closest<HTMLElement>('[data-advanced-fold]')?.dataset
-      .advancedFold;
-    if (fold && !nav.openFolds.includes(fold)) {
-      nav.setFold(fold, true);
-      return;
-    }
-    arrive(el);
-    nav.clearFocusSetting();
+    }, 0);
+    return () => window.clearTimeout(retry);
   }, [focusSetting, section, status, openFolds]);
 
   let body: React.JSX.Element;
