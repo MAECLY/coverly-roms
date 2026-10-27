@@ -19,7 +19,6 @@
     "notConnected": "No conectada",
     "forget": "Olvidar {name}",
     "roms": "{n} ROMs",
-    "scanning": "Escaneando {folder}… {done} de {total} carpetas",
     "scanningStart": "Leyendo la carpeta…",
     "romsFound": "{n} ROMs encontradas",
     "progressLabel": "Progreso del escaneo",
