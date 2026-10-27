@@ -1971,9 +1971,14 @@ time {
     box-shadow var(--cr-duration-slower) var(--cr-ease-standard);
 }
 
+/* The tint spreads past the row (no layout change) so the bar and tint
+   never touch its control; opaque so the bar shadow under it stays hidden. */
 [data-setting-row][data-arrived='true'] {
-  box-shadow: inset 3px 0 0 var(--cr-manila);
-  background-color: color-mix(in srgb, var(--cr-manila) 14%, transparent);
+  --setting-mark-tint: color-mix(in srgb, var(--cr-manila) 14%, var(--cr-bg));
+  box-shadow:
+    0 0 0 var(--cr-space-2) var(--setting-mark-tint),
+    -3px 0 0 var(--cr-space-2) var(--cr-manila);
+  background-color: var(--setting-mark-tint);
   transition: none;
 }
 
@@ -1986,8 +1991,14 @@ time {
 @media (forced-colors: active) {
   [data-setting-row][data-arrived='true'] {
     outline: 2px solid Highlight;
+    outline-offset: var(--cr-space-1);
     box-shadow: none;
     background-color: transparent;
+  }
+
+  /* The Buckram cap is a background colour, which forced colours erase. */
+  .settings-nav [role='tab'][data-state='active']::after {
+    background-color: Highlight;
   }
 }
 
