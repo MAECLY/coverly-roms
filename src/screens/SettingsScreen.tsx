@@ -43,6 +43,9 @@ export const SECTION_COMPONENTS: Record<
   about: AboutSection,
 };
 
+/** The pending unmark of each marked row: a second arrival restarts it. */
+const unmark = new WeakMap<HTMLElement, number>();
+
 /** Scroll a setting into view, focus it and mark its row once (spec §6.1). */
 function arrive(el: HTMLElement) {
   const row = el.closest<HTMLElement>('[data-setting-row]') ?? el;
@@ -55,7 +58,14 @@ function arrive(el: HTMLElement) {
   });
   el.focus({ preventScroll: true });
   row.dataset.arrived = 'true';
-  window.setTimeout(() => delete row.dataset.arrived, 1200);
+  window.clearTimeout(unmark.get(row));
+  unmark.set(
+    row,
+    window.setTimeout(() => {
+      delete row.dataset.arrived;
+      unmark.delete(row);
+    }, 1200),
+  );
 }
 
 export function SettingsScreen() {
