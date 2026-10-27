@@ -368,8 +368,9 @@ Comprueba el archivo con `SHA256SUMS` de la misma versión, por ejemplo
 > Marca el AppImage como ejecutable (`chmod +x`) si tu gestor de archivos no lo
 > ha hecho. El `.deb` depende de `libwebkit2gtk-4.1-0` y `libgtk-3-0`;
 > `sudo apt install ./Coverly-ROMs_<versión>_linux_x64.deb` (o
-> `_linux_arm.deb`) los instala. Los dos se compilan en Ubuntu 22.04 para x64 y ARM64, así que
-> necesitan glibc 2.35 o posterior (Ubuntu 22.04, Debian 12 o posteriores).
+> `_linux_arm.deb`) los instala. Los dos se compilan en Ubuntu 22.04 para x64
+> y ARM64, así que necesitan glibc 2.35 o posterior (Ubuntu 22.04, Debian 12 o
+> posteriores).
 >
 > </details>
 

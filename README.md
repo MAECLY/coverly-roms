@@ -340,8 +340,9 @@ Check the file against `SHA256SUMS` from the same release, for example
 > turning it off may not be reversible without reinstalling Windows.
 > Coverly ROMs needs Windows 10/11 (x64) or Windows 11 (ARM64). The
 > `-setup.exe` installs for your user without administrator rights; the `.msi`
-> installs for every user. Both use Microsoft Edge WebView2: Windows 11 has it, and on Windows 10 the
-> installer downloads it if it is missing (that needs internet).
+> installs for every user. Both use Microsoft Edge WebView2: Windows 11 has it,
+> and on Windows 10 the installer downloads it if it is missing (that needs
+> internet).
 >
 > </details>
 >
