@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { NativeSelect } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import type {
@@ -25,48 +24,7 @@ import {
   SwitchSetting,
   useFieldError,
 } from './Field';
-
-/** A list edited as text, committed on blur. */
-function ListSetting({
-  path,
-  label,
-  hint,
-  value,
-  split,
-  join,
-  toPatch,
-}: {
-  path: string;
-  label: string;
-  hint: string;
-  value: string[];
-  split(text: string): string[];
-  join(list: string[]): string;
-  toPatch(
-    list: string[],
-  ): Parameters<ReturnType<typeof useSettingsStore.getState>['update']>[0];
-}) {
-  const id = settingId(path);
-  const update = useSettingsStore((s) => s.update);
-  const error = useFieldError(path);
-  const [draft, setDraft] = useState<string | null>(null);
-  return (
-    <Field id={id} label={label} hint={hint} error={error}>
-      <Textarea
-        name={id}
-        mono
-        rows={4}
-        value={draft ?? join(value)}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={async () => {
-          if (draft === null) return;
-          const errors = await update(toPatch(split(draft)));
-          if (errors.length === 0) setDraft(null);
-        }}
-      />
-    </Field>
-  );
-}
+import { ListSetting } from './ListSetting';
 
 /** What was found, each tool as a mono readout (brand §5) inside the
  * translated line; or how to get one. */

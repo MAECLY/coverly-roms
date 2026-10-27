@@ -48,6 +48,10 @@
     "moved": "{name}: posición {position} de {total}",
     "reopen": "Vuelve a abrir la biblioteca para aplicar estos cambios.",
     "reopenNow": "Reabrir ahora",
+    "advancedOptions": "Opciones avanzadas",
+    "advancedHasErrors": "{label}, con errores",
+    "moreInfo": "Más información",
+    "lessInfo": "Menos información",
     "saved": "Guardado.",
     "notice": {
       "migrated": "Tu configuración de biblioteca anterior se ha pasado al nuevo archivo de configuración.",

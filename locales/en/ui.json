@@ -48,6 +48,10 @@
     "moved": "{name}: position {position} of {total}",
     "reopen": "Reopen the library to apply these changes.",
     "reopenNow": "Reopen now",
+    "advancedOptions": "Advanced options",
+    "advancedHasErrors": "{label}, with errors",
+    "moreInfo": "More information",
+    "lessInfo": "Less information",
     "saved": "Saved.",
     "notice": {
       "migrated": "Your earlier library settings were moved into the new settings file.",
