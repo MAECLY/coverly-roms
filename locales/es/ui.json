@@ -639,7 +639,11 @@
     "keys": {
       "label": "Atajos de teclado",
       "pick": "Elegir qué copia se queda",
-      "next": "Siguiente juego"
+      "next": "Siguiente juego",
+      "game": "Juego siguiente o anterior",
+      "number": "Quedarme con la copia n",
+      "reveal": "Mostrar la copia en la carpeta",
+      "apply": "Apartar"
     },
     "showMore": "Mostrar {count} más",
     "details": "Detalle ({count})",

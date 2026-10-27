@@ -14,6 +14,7 @@ import { useContext, useId, useState } from 'react';
 
 import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DupGroup } from '@/components/dedupe/DupGroup';
+import { useRegisterGroupList } from '@/components/dedupe/groupNav';
 import { useGroupWindow } from '@/components/dedupe/useGroupWindow';
 import { Button } from '@/components/ui/button';
 import {
@@ -205,10 +206,13 @@ function Groups({
   systemName,
 }: GroupsProps) {
   const windowed = groups.length > WINDOW_ABOVE;
-  const { listRef, range, measure, onFocusIndex } = useGroupWindow(
-    groups.length,
-    windowed,
-  );
+  const { listRef, range, measure, onFocusIndex, scrollToIndex } =
+    useGroupWindow(groups.length, windowed);
+  // J/K walk this system's groups in display order, mounted or not.
+  useRegisterGroupList(listRef, {
+    ids: groups.map((g) => g.id),
+    scrollToIndex,
+  });
 
   const item = (i: number) => {
     const g = groups[i]!;
@@ -234,7 +238,7 @@ function Groups({
 
   if (!windowed)
     return (
-      <div className="dup-system__groups">
+      <div ref={listRef} className="dup-system__groups">
         {groups.map((g, i) => (
           <div key={g.id} className="dup-system__slot">
             {item(i)}

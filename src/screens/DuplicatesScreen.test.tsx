@@ -1,4 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -580,5 +587,207 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Biblioteca' }));
     expect(useNavStore.getState().screen).toBe('main');
     expect(useDedupeStore.getState().status).toBe('idle');
+  });
+});
+
+describe('DuplicatesScreen keys', () => {
+  let b: MockBackend;
+  beforeEach(() => {
+    b = mock();
+    setBackend(b);
+    useDedupeStore.getState().reset();
+  });
+  afterEach(() => {
+    useDedupeStore.getState().reset();
+    useNavStore.getState().closeDuplicates();
+    vi.restoreAllMocks();
+    setBackend(null);
+  });
+
+  const MAC =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+  const game = (title: string) => screen.getByRole('group', { name: title });
+  const keeperRadio = (title: string) =>
+    within(game(title))
+      .getAllByRole('radio')
+      .find((r) => r.getAttribute('data-state') === 'checked')!;
+  const focusedGame = () =>
+    (document.activeElement as HTMLElement | null)
+      ?.closest('[data-dup-group]')
+      ?.querySelector('h3')?.textContent ?? null;
+  /** A key on whatever holds focus; `false` when it was prevented. */
+  const press = (init: KeyboardEventInit) =>
+    fireEvent.keyDown(document.activeElement ?? document.body, init);
+
+  it('j_and_k_move_between_games_across_open_systems', async () => {
+    renderScreen();
+    await ready();
+    // GB (open) holds a conflict and four games, GBA is closed, PS is open.
+    act(() => keeperRadio('GB Game 03').focus());
+    press({ key: 'j', code: 'KeyJ' });
+    expect(focusedGame()).toBe('GB Game 04');
+    expect(document.activeElement).toBe(keeperRadio('GB Game 04'));
+    // The closed Game Boy Advance section is skipped.
+    press({ key: 'j', code: 'KeyJ' });
+    expect(focusedGame()).toBe('Crash Bash');
+    press({ key: 'k', code: 'KeyK' });
+    expect(focusedGame()).toBe('GB Game 04');
+    // A non-Latin layout still has J and K.
+    press({ key: 'л', code: 'KeyK' });
+    expect(focusedGame()).toBe('GB Game 03');
+    // A conflict has no radio: the group itself takes focus.
+    press({ key: 'k', code: 'KeyK' });
+    press({ key: 'k', code: 'KeyK' });
+    press({ key: 'k', code: 'KeyK' });
+    expect(focusedGame()).toBe('Pokemon Red');
+    expect(document.activeElement).toBe(game('Pokemon Red'));
+    // Nothing before the first game.
+    press({ key: 'k', code: 'KeyK' });
+    expect(focusedGame()).toBe('Pokemon Red');
+  });
+
+  it('j_k_need_no_modifier_and_stay_in_the_list', async () => {
+    renderScreen();
+    await ready();
+    act(() => keeperRadio('GB Game 03').focus());
+    press({ key: 'J', code: 'KeyJ', shiftKey: true });
+    press({ key: 'j', code: 'KeyJ', metaKey: true });
+    expect(focusedGame()).toBe('GB Game 03');
+    // Outside the groups list (the action bar) J does nothing.
+    const apply = screen.getByRole('button', { name: 'Apartar 89 archivos' });
+    act(() => apply.focus());
+    press({ key: 'j', code: 'KeyJ' });
+    expect(document.activeElement).toBe(apply);
+  });
+
+  it('digits_keep_the_nth_copy_by_physical_key', async () => {
+    const spy = vi.spyOn(b, 'dedupeSetKeeper');
+    renderScreen();
+    await ready();
+    const g = plan().groups.find((x) => x.title === 'Crash Bash')!;
+    act(() => keeperRadio('Crash Bash').focus());
+    // AZERTY: Shift+é is the 2 key.
+    press({ key: '2', code: 'Digit2', shiftKey: true });
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(
+        expect.anything(),
+        g.id,
+        g.members[1]!.id,
+      ),
+    );
+    expect(keeperRadio('Crash Bash')).toHaveAttribute(
+      'value',
+      String(g.members[1]!.id),
+    );
+    // Every radio advertises its number.
+    const radios = within(game('Crash Bash')).getAllByRole('radio');
+    expect(
+      radios.map((r) => r.getAttribute('aria-keyshortcuts')).sort(),
+    ).toEqual(['1', '2', '3']);
+  });
+
+  it('digits_beyond_the_copies_and_zero_do_nothing', async () => {
+    const spy = vi.spyOn(b, 'dedupeSetKeeper');
+    renderScreen();
+    await ready();
+    act(() => keeperRadio('Ecco the Dolphin').focus());
+    press({ key: '9', code: 'Digit9' });
+    press({ key: '0', code: 'Digit0' });
+    press({ key: '3', code: 'Numpad3' });
+    press({ key: '2', code: 'Digit2', ctrlKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('keys_are_ignored_while_typing', async () => {
+    const spy = vi.spyOn(b, 'dedupeSetKeeper');
+    renderScreen();
+    await ready();
+    const input = document.createElement('input');
+    input.type = 'text';
+    game('Ecco the Dolphin').appendChild(input);
+    act(() => input.focus());
+    press({ key: '2', code: 'Digit2' });
+    press({ key: 'j', code: 'KeyJ' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    input.remove();
+  });
+
+  it('the_reveal_chord_shows_the_focused_copy_and_never_reloads', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+    const replans = vi.spyOn(b, 'dedupePlan');
+    renderScreen();
+    await ready();
+    const calls = replans.mock.calls.length;
+    const g = plan().groups.find((x) => x.title === 'Ecco the Dolphin')!;
+    const extra = g.members.find((m) => m.id !== g.keeper)!;
+    const row = game('Ecco the Dolphin').querySelector<HTMLElement>(
+      `[data-member="${extra.id}"]`,
+    )!;
+    act(() => within(row).getByRole('radio').focus());
+    // ⌥R types «®» on macOS: the chord is matched by code.
+    const passed = press({
+      key: '®',
+      code: 'KeyR',
+      metaKey: true,
+      altKey: true,
+    });
+    expect(passed).toBe(false);
+    await waitFor(() => expect(b.revealedPaths).toEqual([extra.unit.primary]));
+    expect(replans.mock.calls.length).toBe(calls);
+    // Reveal buttons advertise the chord.
+    expect(
+      within(row).getByRole('button', { name: /en Finder$/ }),
+    ).toHaveAttribute('aria-keyshortcuts', 'Meta+Alt+R');
+  });
+
+  it('cmd_enter_takes_the_apply_path_with_its_confirmation', async () => {
+    tweakPlans(b, (v) => {
+      v.totals = { ...v.totals, extras: 600 };
+    });
+    const apply = vi.spyOn(b, 'dedupeApply');
+    renderScreen();
+    await ready();
+    expect(
+      screen.getByRole('button', { name: 'Apartar 600 archivos' }),
+    ).toHaveAttribute('aria-keyshortcuts', 'Meta+Enter Control+Enter');
+    act(() => keeperRadio('Ecco the Dolphin').focus());
+    expect(press({ key: 'Enter', code: 'Enter', metaKey: true })).toBe(false);
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '¿Apartar 600 archivos?',
+    });
+    // Under the dialog the chord does nothing (its own buttons decide).
+    fireEvent.keyDown(dialog, { key: 'Enter', code: 'Enter', metaKey: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(apply).not.toHaveBeenCalled();
+    expect(useDedupeStore.getState().status).toBe('ready');
+  });
+
+  it('ctrl_enter_applies_directly_when_nothing_needs_asking_and_only_once', async () => {
+    const apply = vi.spyOn(b, 'dedupeApply');
+    renderScreen({ libraryBytes: 1e12 });
+    await ready();
+    act(() => keeperRadio('Ecco the Dolphin').focus());
+    press({ key: 'Enter', code: 'Enter', ctrlKey: true });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    // Applying: the proposal and its chord are gone.
+    fireEvent.keyDown(window, { key: 'Enter', code: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(useDedupeStore.getState().status).toBe('done'));
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('the legend lists the new keys', async () => {
+    renderScreen();
+    await ready();
+    const legend = screen.getByRole('list', { name: 'Atajos de teclado' });
+    for (const text of [
+      'Juego siguiente o anterior',
+      'Quedarme con la copia n',
+      'Mostrar la copia en la carpeta',
+      'Apartar',
+    ])
+      expect(within(legend).getByText(text)).toBeInTheDocument();
   });
 });

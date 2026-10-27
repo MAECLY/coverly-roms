@@ -61,6 +61,8 @@ export function ConflictGroup({
       className="dup-group dup-conflict"
       data-dup-group={group.id}
       data-conflict=""
+      // No radio here: J/K and «Ver el conflicto» focus the group itself.
+      tabIndex={-1}
       data-state="conflict"
     >
       <GroupHead

@@ -48,6 +48,7 @@ export function useGroupWindow(
   range: WindowRange;
   measure: (index: number, el: HTMLElement | null) => void;
   onFocusIndex: (index: number) => void;
+  scrollToIndex: (index: number) => void;
 } {
   const listRef = useRef<HTMLDivElement>(null);
   const [heights, setHeights] = useState<readonly number[]>([]);
@@ -138,6 +139,40 @@ export function useGroupWindow(
     [enabled, record],
   );
 
+  // Mount the row (as focus would) and bring its slot into view, nearest
+  // edge first, so J/K reach a group the window has not rendered yet.
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= count) return;
+      setFocusIndex(index);
+      const list = listRef.current;
+      if (!list) return;
+      let top = 0;
+      for (let i = 0; i < index; i++) top += heights[i] || ESTIMATED_GROUP_PX;
+      const bottom = top + (heights[index] || ESTIMATED_GROUP_PX);
+      const parent = scrollParent(list);
+      const listTop = list.getBoundingClientRect().top;
+      const [vTop, vBottom] = parent
+        ? [
+            parent.getBoundingClientRect().top,
+            parent.getBoundingClientRect().bottom,
+          ]
+        : [0, window.innerHeight];
+      // Where the slot is relative to the viewport's top edge.
+      const from = listTop + top - vTop;
+      const to = listTop + bottom - vTop;
+      const span = vBottom - vTop;
+      const delta = from < 0 ? from : to > span ? Math.min(from, to - span) : 0;
+      if (delta !== 0) {
+        const scroller =
+          parent ?? document.scrollingElement ?? document.documentElement;
+        scroller.scrollTop += delta;
+      }
+      update();
+    },
+    [count, heights, update],
+  );
+
   let indices: number[];
   if (!enabled) {
     indices = Array.from({ length: count }, (_, i) => i);
@@ -162,5 +197,6 @@ export function useGroupWindow(
     range: { indices, offsets, total },
     measure,
     onFocusIndex: setFocusIndex,
+    scrollToIndex,
   };
 }

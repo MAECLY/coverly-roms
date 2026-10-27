@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
+import { GroupNavList } from '@/components/dedupe/GroupNavList';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -177,6 +178,53 @@ describe('SystemSection', () => {
     );
     expect(Number(now?.dataset.dupGroup)).toBe(lastId + 1);
     expect(rendered().length).toBeLessThan(40);
+  });
+
+  it('j_and_k_reach_groups_the_window_has_not_mounted', async () => {
+    const plan = dedupeFixture();
+    const base = plan.groups.find((g) => g.title === 'GB Game 01')!;
+    const groups: DupGroupView[] = Array.from({ length: 250 }, (_, i) => ({
+      ...base,
+      id: 20_000 + i,
+      title: `Juego ${String(i).padStart(3, '0')}`,
+    }));
+    wrap(
+      <GroupNavList>
+        {section(plan, 'SMS', 'Master System', { defaultOpen: true })}
+        <SystemSection
+          system="GB"
+          name="Game Boy"
+          groups={groups}
+          quarantine={plan.quarantine}
+          defaultOpen
+        />
+        <button type="button">Después</button>
+      </GroupNavList>,
+    );
+    const mounted = (id: number) =>
+      document.querySelector<HTMLElement>(`[data-dup-group="${id}"]`);
+    const focusedId = () =>
+      Number(
+        (document.activeElement as HTMLElement).closest<HTMLElement>(
+          '[data-dup-group]',
+        )?.dataset.dupGroup,
+      );
+    expect(mounted(20_249)).toBeNull();
+    // K from below the sections goes to the last game, far outside the
+    // window: it mounts, then takes focus.
+    act(() => screen.getByRole('button', { name: 'Después' }).focus());
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    await vi.waitFor(() => expect(focusedId()).toBe(20_249));
+    expect(document.activeElement).toHaveAttribute('role', 'radio');
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    await vi.waitFor(() => expect(focusedId()).toBe(20_248));
+    // From the first game of the big system, K crosses into Master System.
+    const first = mounted(20_000) ?? null;
+    expect(first).not.toBeNull();
+    act(() => within(first!).getAllByRole('radio')[0]!.focus());
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    const sms = bySystem(plan, 'SMS');
+    expect(focusedId()).toBe(sms[sms.length - 1]!.id);
   });
 
   it('renders conflicts as conflict groups and offers the system menu', async () => {

@@ -639,7 +639,11 @@
     "keys": {
       "label": "Keyboard shortcuts",
       "pick": "Pick the copy that stays",
-      "next": "Next game"
+      "next": "Next game",
+      "game": "Next or previous game",
+      "number": "Keep copy n",
+      "reveal": "Show the copy in its folder",
+      "apply": "Set aside"
     },
     "showMore": "Show {count} more",
     "details": "Details ({count})",

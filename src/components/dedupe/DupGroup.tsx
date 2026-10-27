@@ -6,7 +6,8 @@
  * there, drops the old keeper into the tray and offers "Deshacer" for 10 s.
  *
  * Keys: arrows walk the copies in a stable order (and pick, as radios do),
- * Tab leaves the group, X toggles "No tocar este juego".
+ * 1–9 keep the n-th copy, Tab leaves the group, X toggles "No tocar este
+ * juego", ⌥⌘R / Shift+Alt+R shows the focused copy in the file manager.
  *
  * States (spec §7.1) sit on `data-state` and are never colour alone: a
  * stamp in the head says them, a left edge (a real border, so it survives
@@ -49,6 +50,8 @@ import {
   reportWhyText,
   weakestExtra,
 } from '@/lib/dedupe';
+import { digitOf, isRevealChord, isTyping } from '@/lib/keyboard';
+import { revealOs } from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -328,11 +331,45 @@ export function DupGroup({
     choose(ids[(at + step + ids.length) % ids.length]!);
   }
 
+  /** The copy whose row holds focus, else the keeper. */
+  function focusedMember() {
+    const row = (document.activeElement as HTMLElement | null)?.closest(
+      '[data-member]',
+    );
+    const id =
+      row && rootRef.current?.contains(row)
+        ? Number((row as HTMLElement).dataset.member)
+        : keeperMember.id;
+    return members.find((m) => m.id === id) ?? keeperMember;
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key !== 'x' && e.key !== 'X') return;
     const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    if (
+      isTyping(target) ||
+      target.closest('input, textarea, [contenteditable="true"]')
+    )
+      return;
+    // ⌥⌘R is WebKit's reload from origin: never let it through.
+    if (isRevealChord(e.nativeEvent, revealOs())) {
+      e.preventDefault();
+      if (!onReveal) return;
+      const m = focusedMember();
+      const path = currentPath(m, group.id, outcomes);
+      if (path !== null) onReveal(path);
+      return;
+    }
+    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
+    // 1–9 by physical key; Shift is allowed (AZERTY types digits with it).
+    const n = digitOf(e);
+    if (n !== null) {
+      const id = ids[n - 1];
+      if (id === undefined) return;
+      e.preventDefault();
+      choose(id);
+      return;
+    }
+    if (e.key !== 'x' && e.key !== 'X') return;
     e.preventDefault();
     setSkipped(!skip);
   }

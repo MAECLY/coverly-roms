@@ -708,3 +708,7 @@ export function ownArtDiffers(
     (own.media === cover.media && own.size === cover.size)
   );
 }
+
+/** `aria-keyshortcuts` of a copy's radio: its number, up to 9. */
+export const copyKey = (n: number | undefined) =>
+  n !== undefined && n >= 1 && n <= 9 ? String(n) : undefined;

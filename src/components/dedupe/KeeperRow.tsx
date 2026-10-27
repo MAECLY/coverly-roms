@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { RadioGroupItem } from '@/components/ui/radio-group';
 import { useT } from '@/i18n/useT';
 import type { MemberView } from '@/ipc/dedupeTypes';
-import { fileName } from '@/lib/dedupe';
+import { copyKey, fileName } from '@/lib/dedupe';
 
 export interface KeeperRowProps {
   member: MemberView;
@@ -76,7 +76,7 @@ export function KeeperRow({
       : null;
 
   return (
-    <div className="dup-row" data-keeper>
+    <div className="dup-row" data-keeper data-member={member.id}>
       <span className="dup-row__pick">
         <CopyNumber n={copyNumber} />
         {interactive && (
@@ -84,6 +84,7 @@ export function KeeperRow({
             value={String(member.id)}
             aria-labelledby={nameId}
             aria-describedby={whyId}
+            aria-keyshortcuts={copyKey(copyNumber)}
           />
         )}
       </span>
@@ -94,7 +95,7 @@ export function KeeperRow({
         {art}
         <Badge variant="primary">{t('dedupe.keeper')}</Badge>
         {onReveal && (
-          <RevealButton path={place} name={name} onReveal={onReveal} />
+          <RevealButton path={place} name={name} onReveal={onReveal} shortcut />
         )}
       </span>
       <div className="dup-row__facts">

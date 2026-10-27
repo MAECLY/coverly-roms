@@ -22,6 +22,8 @@ import {
   type DedupeViewOptions,
 } from '@/ipc/dedupeTypes';
 import { extrasFor, fileName, levelCounts } from '@/lib/dedupe';
+import { modKeyLabel } from '@/lib/keyboard';
+import { revealOs } from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -230,8 +232,37 @@ export function DedupeOptions({
           {t('dedupe.keys.next')}
         </li>
         <li>
+          <KbdGroup>
+            <Kbd>J</Kbd>
+            <Kbd>K</Kbd>
+          </KbdGroup>
+          {t('dedupe.keys.game')}
+        </li>
+        <li>
+          <Kbd>1–9</Kbd>
+          {t('dedupe.keys.number')}
+        </li>
+        <li>
           <Kbd>X</Kbd>
           {t('dedupe.skipGroup')}
+        </li>
+        <li>
+          <KbdGroup>
+            {(revealOs() === 'mac'
+              ? ['⌥', '⌘', 'R']
+              : ['Shift', 'Alt', 'R']
+            ).map((k) => (
+              <Kbd key={k}>{k}</Kbd>
+            ))}
+          </KbdGroup>
+          {t('dedupe.keys.reveal')}
+        </li>
+        <li>
+          <KbdGroup>
+            <Kbd>{modKeyLabel()}</Kbd>
+            <Kbd>{modKeyLabel() === '⌘' ? '↩' : 'Enter'}</Kbd>
+          </KbdGroup>
+          {t('dedupe.keys.apply')}
         </li>
       </ul>
 

@@ -17,6 +17,7 @@ import { useT } from '@/i18n/useT';
 import type { MemberView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
+  copyKey,
   destLabel,
   destOf,
   fileName,
@@ -136,7 +137,7 @@ export function TrayRow({
   const coverLeaves = member.art_leaves?.media.includes('cover') ?? false;
 
   return (
-    <div className="dup-row">
+    <div className="dup-row" data-member={member.id}>
       <span className="dup-row__pick">
         <CopyNumber n={copyNumber} />
         {pickable && (
@@ -146,6 +147,7 @@ export function TrayRow({
               value={String(member.id)}
               aria-labelledby={`${keepId} ${nameId}`}
               aria-describedby={destId}
+              aria-keyshortcuts={copyKey(copyNumber)}
             />
             <label
               id={keepId}
@@ -164,7 +166,7 @@ export function TrayRow({
         {art}
         {showRelation && <RelationBadge member={member} />}
         {onReveal && (
-          <RevealButton path={place} name={name} onReveal={onReveal} />
+          <RevealButton path={place} name={name} onReveal={onReveal} shortcut />
         )}
       </span>
       <div className="dup-row__facts">

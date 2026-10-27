@@ -18,6 +18,8 @@ import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
+import { GroupNavList } from '@/components/dedupe/GroupNavList';
+import { dialogOpen } from '@/components/dedupe/groupNav';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { useLaterJobs } from '@/components/organize/laterJobs';
@@ -447,6 +449,22 @@ function Proposal({
     if (ask) setConfirm(ask);
     else void store().apply();
   };
+  const canApply = extras > 0 && !busy;
+
+  // ⌘↩ / Ctrl+Enter takes the Apply button's path (and its confirmation).
+  // Never under a dialog, and only while the proposal is up.
+  useEffect(() => {
+    if (!canApply) return;
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey)) return;
+      if (ev.altKey || ev.shiftKey || ev.repeat) return;
+      if (store().status !== 'ready' || dialogOpen()) return;
+      ev.preventDefault();
+      onApply();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   const changeFolder = async () => {
     const path = await (await getBackend()).pickFolder();
     if (path) void store().setFolder(path);
@@ -534,7 +552,7 @@ function Proposal({
           className="rounded-lg border border-dashed border-cr-border-strong"
         />
       ) : (
-        <div className="grid gap-3">
+        <GroupNavList className="grid gap-3">
           {systems.map(([system, list]) => (
             <SystemSection
               key={`${system}:${epoch}`}
@@ -562,7 +580,7 @@ function Proposal({
             skipped={skipped}
             systemName={systemName}
           />
-        </div>
+        </GroupNavList>
       )}
 
       {/* The action bar sits on the page, ruled off like a shelf edge
@@ -573,8 +591,9 @@ function Proposal({
       >
         <Button
           variant="primary"
-          disabled={extras === 0 || busy}
+          disabled={!canApply}
           aria-describedby={extras === 0 ? 'dup-none-hint' : undefined}
+          aria-keyshortcuts="Meta+Enter Control+Enter"
           onClick={onApply}
         >
           {trash ? <Trash2 aria-hidden /> : <FolderInput aria-hidden />}
