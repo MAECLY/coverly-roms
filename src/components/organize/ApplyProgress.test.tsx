@@ -154,11 +154,23 @@ describe('ApplyProgress while extracting', () => {
     expect(screen.queryByText('Calculando el tiempo…')).not.toBeInTheDocument();
   });
 
-  it('says what cancelling means under the button', () => {
+  it('says what cancelling means under the button, and tells the button', () => {
     renderProgress(extract());
+    const note = screen.getByText(
+      /^Si cancelas, se borra lo extraído de este juego/,
+    );
+    expect(note).toBeInTheDocument();
     expect(
-      screen.getByText(/^Si cancelas, se borra lo extraído de este juego/),
-    ).toBeInTheDocument();
+      screen.getByRole('button', { name: 'Cancelar' }),
+    ).toHaveAccessibleDescription(note.textContent ?? '');
+  });
+
+  it('shows no amount for an archive with nothing to decode', () => {
+    renderProgress(extract({ bytes_done: 0, bytes_total: 0 }));
+    expect(queryByText('0 B de 0 B')).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute(
+      'aria-valuenow',
+    );
   });
 });
 
@@ -188,6 +200,26 @@ describe('ApplyProgress cancelling', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('Calculando el tiempo…')).not.toBeInTheDocument();
   });
+
+  it('offers Cancel again when the cancel request fails', async () => {
+    const onCancel = vi.fn(() => Promise.resolve(false));
+    renderProgress(extract(), PLAN, onCancel);
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    const again = await screen.findByRole('button', { name: 'Cancelar' });
+    expect(again).toBeEnabled();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Extrayendo Next Tetris, The.zip en /pile/ROMS/PS',
+    );
+  });
+
+  it('stays cancelling once the request went through', async () => {
+    const onCancel = vi.fn(() => Promise.resolve(true));
+    renderProgress(extract(), PLAN, onCancel);
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Cancelando…' })).toBeDisabled();
+  });
 });
 
 describe('ApplyProgress moving', () => {
@@ -209,6 +241,13 @@ describe('ApplyProgress moving', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '16');
     expect(screen.queryByText('Calculando el tiempo…')).not.toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
+  });
+
+  it('labels the stage plainly when a resumed job has no plan', () => {
+    renderProgress({ plan_id: 1, phase: 'apply', done: 4, total: 16 }, null);
+    expect(
+      screen.getByRole('img', { name: 'Progreso de la organización' }),
+    ).toBeInTheDocument();
   });
 
   it('starts with an open bar before the first event', () => {

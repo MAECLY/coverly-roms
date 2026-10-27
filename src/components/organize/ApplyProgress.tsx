@@ -1,4 +1,4 @@
-import { useContext, useMemo, useState, type ReactNode } from 'react';
+import { useContext, useId, useMemo, useState, type ReactNode } from 'react';
 
 import { ExtractStage } from '@/components/progress/ExtractStage';
 import { TrackList } from '@/components/progress/TrackList';
@@ -31,7 +31,9 @@ export interface ApplyProgressProps {
   plan: OrganizePlan | null;
   progress: OrganizeProgressEvent | null;
   systemName(id: string): string;
-  onCancel(): void;
+  /** Resolving to `false` means the request did not go through: Cancel is
+   * offered again. */
+  onCancel(): void | Promise<boolean | void>;
 }
 
 /**
@@ -51,6 +53,7 @@ export function ApplyProgress({
   const locale = useContext(LocaleContext);
   const [cancelling, setCancelling] = useState(false);
   const [cardRef, card] = useElementSize<HTMLDivElement>();
+  const noteId = useId();
 
   const event = progress?.phase === 'extract' ? progress : null;
   const view = useMemo(
@@ -101,8 +104,13 @@ export function ApplyProgress({
     readout = {
       bar: { value: total > 0 ? done : null, max: total || 1, slots: SLOTS },
       label: t('organize.progressLabel'),
-      amount: tr('organize.progress.amount', amount),
-      amountText: t('organize.progress.amount', amount),
+      // An archive with nothing to decode has no amount to read.
+      ...(total > 0
+        ? {
+            amount: tr('organize.progress.amount', amount),
+            amountText: t('organize.progress.amount', amount),
+          }
+        : {}),
       ...(rate !== null && !cancelling
         ? {
             rate: (
@@ -176,9 +184,11 @@ export function ApplyProgress({
     />
   ) : progress ? (
     <ExtractStage
-      label={t('organize.progress.movingLabel', {
-        folder: plan?.target_root ?? '',
-      })}
+      label={
+        plan
+          ? t('organize.progress.movingLabel', { folder: plan.target_root })
+          : t('organize.progressLabel')
+      }
       itemId={-1}
       systemId={null}
       entries={{ done: progress.done, total: progress.total }}
@@ -188,23 +198,32 @@ export function ApplyProgress({
     />
   ) : null;
 
+  const showNote = view !== null && !cancelling;
   const action = (
     <div className="grid justify-items-start gap-1">
       <Button
         variant="ghost"
         size="sm"
         disabled={cancelling}
+        {...(showNote ? { 'aria-describedby': noteId } : {})}
         onClick={() => {
           setCancelling(true);
-          onCancel();
+          void Promise.resolve(onCancel()).then(
+            (sent) => {
+              if (sent === false) setCancelling(false);
+            },
+            () => setCancelling(false),
+          );
         }}
       >
         {t(
           cancelling ? 'organize.progress.cancellingButton' : 'organize.cancel',
         )}
       </Button>
-      {view && !cancelling && (
-        <p className={hintText}>{t('organize.progress.cancelNote')}</p>
+      {showNote && (
+        <p id={noteId} className={hintText}>
+          {t('organize.progress.cancelNote')}
+        </p>
       )}
     </div>
   );

@@ -397,7 +397,7 @@ export function OrganizeScreen() {
             plan={plan}
             progress={progress}
             systemName={systemName}
-            onCancel={() => void useOrganizeStore.getState().cancel()}
+            onCancel={() => useOrganizeStore.getState().cancel()}
           />
         )}
         {showResult && (
