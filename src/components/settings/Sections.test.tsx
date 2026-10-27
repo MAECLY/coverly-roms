@@ -634,6 +634,42 @@ describe('settings sections', () => {
     );
   });
 
+  it('duplicates: an error inside the fold opens it, one outside does not', async () => {
+    const panel = await open('duplicates');
+    const fold = within(panel).getByRole('button', {
+      name: 'Advanced options (6)',
+    });
+    await act(() =>
+      useSettingsStore.getState().update({ dedupe: { quarantine_dir: 'rel' } }),
+    );
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await act(() =>
+      useSettingsStore
+        .getState()
+        .update({ dedupe: { exclude_systems: ['ports/msu'] } }),
+    );
+    await waitFor(() => expect(fold).toHaveAttribute('aria-expanded', 'true'));
+    expect(
+      within(panel).getByRole('textbox', { name: 'Systems to leave out' }),
+    ).toBeInvalid();
+    expect((await saved()).dedupe.exclude_systems).not.toContain('ports/msu');
+  });
+
+  it.each([
+    ['setting-dedupe-keep-rules', 'list', 'Which copy stays'],
+    ['setting-dedupe-container-order', 'group', 'Format order per profile'],
+  ] as const)(
+    'duplicates: a link to %s opens the fold and lands there',
+    async (focus, role, name) => {
+      await open('library');
+      act(() => useNavStore.getState().openSettings('duplicates', { focus }));
+      const target = await screen.findByRole(role, { name });
+      await waitFor(() => expect(target).toHaveFocus());
+      expect(useNavStore.getState().openFolds).toContain('duplicates-advanced');
+      expect(target).toHaveAttribute('data-arrived', 'true');
+    },
+  );
+
   it('library: shows no duplicates control', async () => {
     const panel = await open('library');
     expect(
