@@ -501,6 +501,50 @@ fn art_slots_skips_apple_double_and_missing() {
     assert!(art_slots(&u, &lib.ctx(&p)).is_empty());
 }
 
+/// `anbernic-stock` with extra slots: `(media, template)` added on top of
+/// its `Imgs/{stem}.png` cover.
+fn with_slots(extra: &[(Media, &str)]) -> Profile {
+    let mut p = profile("anbernic-stock");
+    let cover = p.slots[&Media::Cover].clone();
+    for &(media, template) in extra {
+        let mut slot = cover.clone();
+        slot.template = template.to_string();
+        p.slots.insert(media, slot);
+    }
+    p
+}
+
+#[test]
+fn art_slots_lists_every_slot_in_media_order_with_its_own_size() {
+    let lib = Lib::new();
+    let gb = lib.root.join("ROMS/GB");
+    let u = unit(0, "gb", &gb, &["Tetris.gb"], UnitKind::Single);
+    let title = write(&gb.join("Imgs/Tetris-title.png"), b"1234567");
+    let cover = write(&gb.join("Imgs/Tetris.png"), b"12345");
+    let p = with_slots(&[
+        (Media::Title, "{system_dir}/{rel_dir}/Imgs/{stem}-title.png"),
+        (
+            Media::Screenshot,
+            "{system_dir}/{rel_dir}/Imgs/{stem}-shot.png",
+        ),
+    ]);
+    let slots = art_slots(&u, &lib.ctx(&p));
+    assert_eq!(
+        slots,
+        vec![(Media::Cover, cover, 5), (Media::Title, title, 7)]
+    );
+}
+
+#[test]
+fn art_slots_lists_a_file_two_media_share_once_under_the_first() {
+    let lib = Lib::new();
+    let gb = lib.root.join("ROMS/GB");
+    let u = unit(0, "gb", &gb, &["Tetris.gb"], UnitKind::Single);
+    let art = write(&gb.join("Imgs/Tetris.png"), b"12345");
+    let p = with_slots(&[(Media::Title, "{system_dir}/{rel_dir}/Imgs/{stem}.png")]);
+    assert_eq!(art_slots(&u, &lib.ctx(&p)), vec![(Media::Cover, art, 5)]);
+}
+
 #[cfg(unix)]
 mod unix_tests {
     use super::*;
