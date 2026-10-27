@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Root } from '@/Root';
 import { setBackend } from '@/ipc/backend';
@@ -80,6 +80,55 @@ describe('Settings screen', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toHaveFocus();
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+  });
+
+  it('lands on a setting and marks it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await start();
+      act(() =>
+        useNavStore
+          .getState()
+          .openSettings('library', { focus: 'setting-library-include-hidden' }),
+      );
+      const hidden = await screen.findByRole('switch', {
+        name: 'Include hidden files',
+      });
+      await waitFor(() => expect(hidden).toHaveFocus());
+      expect(
+        screen.getByRole('heading', { name: 'Settings' }),
+      ).not.toHaveFocus();
+      const row = hidden.closest('[data-setting-row]');
+      expect(row).toHaveAttribute('data-arrived', 'true');
+      expect(useNavStore.getState().focusSetting).toBeNull();
+      act(() => vi.advanceTimersByTime(1200));
+      expect(row).not.toHaveAttribute('data-arrived');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens the fold that holds the target', async () => {
+    await start();
+    act(() =>
+      useNavStore
+        .getState()
+        .openSettings('matching', { focus: 'setting-matching-regions' }),
+    );
+    const list = await screen.findByRole('list', { name: 'Region order' });
+    await waitFor(() => expect(list).toHaveFocus());
+    expect(list).toHaveAttribute('id', 'setting-matching-regions');
+    expect(useNavStore.getState().focusSetting).toBeNull();
+  });
+
+  it('focuses the tab when the target is missing', async () => {
+    await start();
+    act(() =>
+      useNavStore.getState().openSettings('art', { focus: 'setting-nope' }),
+    );
+    const tab = await screen.findByRole('tab', { name: 'Art' });
+    await waitFor(() => expect(tab).toHaveFocus());
+    expect(useNavStore.getState().focusSetting).toBeNull();
   });
 
   it('returns focus to the library toolbar after Back', async () => {

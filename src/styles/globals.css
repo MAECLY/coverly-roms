@@ -1900,6 +1900,34 @@ time {
   gap: 1rem;
 }
 
+/* Arrival mark (spec §6.1): a manila bar and tint, once. */
+[data-setting-row] {
+  border-radius: var(--cr-radius-sm);
+  transition:
+    background-color var(--cr-duration-slower) var(--cr-ease-standard),
+    box-shadow var(--cr-duration-slower) var(--cr-ease-standard);
+}
+
+[data-setting-row][data-arrived='true'] {
+  box-shadow: inset 3px 0 0 var(--cr-manila);
+  background-color: color-mix(in srgb, var(--cr-manila) 14%, transparent);
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-setting-row] {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  [data-setting-row][data-arrived='true'] {
+    outline: 2px solid Highlight;
+    box-shadow: none;
+    background-color: transparent;
+  }
+}
+
 .settings-table {
   width: 100%;
   border-collapse: collapse;

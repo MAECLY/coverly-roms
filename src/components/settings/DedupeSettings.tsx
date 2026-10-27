@@ -127,7 +127,12 @@ export function DedupeSettings({
         {t('settings.dedupe.title')}
       </legend>
 
-      <div className="grid gap-2" role="group" aria-labelledby="dedupe-levels">
+      <div
+        className="grid gap-2"
+        role="group"
+        aria-labelledby="dedupe-levels"
+        data-setting-row=""
+      >
         <p id="dedupe-levels" className="m-0 text-ui font-medium text-cr-text">
           {t('settings.dedupe.levels')}
         </p>
@@ -159,7 +164,7 @@ export function DedupeSettings({
         }
       />
 
-      <fieldset className="m-0 border-0 p-0">
+      <fieldset className="m-0 border-0 p-0" data-setting-row="">
         <legend
           id="dedupe-action-legend"
           className="mb-1.5 p-0 text-ui font-medium text-cr-text"
@@ -267,6 +272,7 @@ export function DedupeSettings({
       </h3>
       <p className={hintText}>{t('settings.dedupe.rulesHint')}</p>
       <ol
+        data-setting-row=""
         className="m-0 grid list-decimal gap-1 pl-6 marker:text-caption marker:text-cr-text-secondary"
         aria-labelledby="dedupe-rules"
       >

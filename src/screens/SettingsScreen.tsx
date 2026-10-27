@@ -43,6 +43,21 @@ export const SECTION_COMPONENTS: Record<
   about: AboutSection,
 };
 
+/** Scroll a setting into view, focus it and mark its row once (spec §6.1). */
+function arrive(el: HTMLElement) {
+  const row = el.closest<HTMLElement>('[data-setting-row]') ?? el;
+  const reduce = window.matchMedia?.(
+    '(prefers-reduced-motion: reduce)',
+  ).matches;
+  row.scrollIntoView?.({
+    block: 'center',
+    behavior: reduce ? 'auto' : 'smooth',
+  });
+  el.focus({ preventScroll: true });
+  row.dataset.arrived = 'true';
+  window.setTimeout(() => delete row.dataset.arrived, 1200);
+}
+
 export function SettingsScreen() {
   const t = useT();
   const section = useNavStore((s) => s.section);
@@ -57,9 +72,14 @@ export function SettingsScreen() {
   const dismissReopen = useSettingsStore((s) => s.dismissReopen);
   const loadError = useSettingsStore((s) => s.error);
   const saveError = useSettingsStore((s) => s.saveError);
+  const focusSetting = useNavStore((s) => s.focusSetting);
+  const openFolds = useNavStore((s) => s.openFolds);
   const heading = useRef<HTMLHeadingElement>(null);
-  // The screen replaces the one that opened it: focus starts at its title.
-  useEffect(() => heading.current?.focus(), []);
+  // The screen replaces the one that opened it: focus starts at its title,
+  // unless it was opened to land on one setting.
+  useEffect(() => {
+    if (useNavStore.getState().focusSetting === null) heading.current?.focus();
+  }, []);
   useEffect(() => {
     // Root loads them at start; this covers a screen shown without it.
     if (useSettingsStore.getState().status === 'idle')
@@ -69,6 +89,29 @@ export function SettingsScreen() {
     s.status === 'ready' ? s.path : null,
   );
   const Panel = SECTION_COMPONENTS[section];
+  // Land on the setting it was opened for once its panel is on screen.
+  useEffect(() => {
+    if (!focusSetting) return;
+    if (status !== 'ready' && section !== 'about' && status !== 'error') return;
+    const nav = useNavStore.getState();
+    const el = document.getElementById(focusSetting);
+    if (!el) {
+      nav.clearFocusSetting();
+      document
+        .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.focus();
+      return;
+    }
+    // Folded content is mounted but hidden (SP-3): open it, land next render.
+    const fold = el.closest<HTMLElement>('[data-advanced-fold]')?.dataset
+      .advancedFold;
+    if (fold && !nav.openFolds.includes(fold)) {
+      nav.setFold(fold, true);
+      return;
+    }
+    arrive(el);
+    nav.clearFocusSetting();
+  }, [focusSetting, section, status, openFolds]);
 
   let body: React.JSX.Element;
   if (status === 'ready' || section === 'about') body = <Panel />;
