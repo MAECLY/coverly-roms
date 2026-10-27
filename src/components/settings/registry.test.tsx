@@ -87,6 +87,16 @@ describe('settings registry', () => {
     expect(missing).toEqual([]);
   });
 
+  it('every search keyword group is used by an entry', () => {
+    const used = new Set(SETTINGS_INDEX.map((e) => e.keywords));
+    const orphans = [en, es].flatMap((catalog) =>
+      Object.keys(catalog.settings.keywords)
+        .map((k) => `settings.keywords.${k}`)
+        .filter((k) => !used.has(k)),
+    );
+    expect(orphans).toEqual([]);
+  });
+
   it('counts the entries of each fold', () => {
     expect(foldCount('library-advanced')).toBe(2);
     expect(foldCount('organize-advanced')).toBe(1);
