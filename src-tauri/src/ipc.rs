@@ -1005,6 +1005,26 @@ pub async fn dedupe_export_plan(app: AppHandle, plan_id: u64) -> Result<Option<S
     .await
 }
 
+/// The bytes of a duplicate group's cover (`member: None`) or of one copy's
+/// own art, offline only; `art-missing` when there is none. The webview
+/// names ids only: the path comes from the kept plan and stays inside its
+/// library.
+#[tauri::command]
+pub async fn dedupe_art(
+    app: AppHandle,
+    plan_id: u64,
+    group: u64,
+    member: Option<usize>,
+    media: Media,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_art_bytes(plan_id, group, member, media)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
 /// Shows `path` (a copy, its quarantine folder) in Finder / Explorer / the
 /// file manager: only inside the open library or a duplicates plan's
 /// library or quarantine.

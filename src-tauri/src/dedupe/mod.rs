@@ -7,23 +7,26 @@
 
 pub mod view;
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::dedupe::art::{group_catalogue_name, group_cover_path, member_art_path};
 use coverly_core::dedupe::{
     DedupeApplyEnv, DedupeDecisions, DedupeError, DedupeItemStatus, DedupeOptions, DedupePlan,
     DedupeProgress, DedupeReport, DedupeSkip,
 };
 use coverly_core::jobs::ItemErrorKind;
 use coverly_core::organize::apply::ApplyError;
+use coverly_core::profiles::Media;
 use coverly_core::write::trash::TrashBackend;
 
 use crate::error::IpcError;
 use crate::jobs::OwnedManualWrite;
+use crate::library::art::media_name;
 use view::{DedupeEventPhase, DedupeJobState, DedupeJobView, DedupePlanView, DedupeProgressEvent};
 
 /// Plans kept for picks, regrouping, export and apply; older ones are
@@ -125,6 +128,21 @@ impl StoredDedupe {
 
 type Kept = Arc<Mutex<StoredDedupe>>;
 
+/// Where a duplicate group's cover or a copy's own art comes from (dedupe
+/// UI spec D4, D16), copied out of the kept plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArtSource {
+    /// An art file the plan recorded, to be read only inside `root`.
+    Library { root: PathBuf, path: PathBuf },
+    /// An already downloaded libretro-thumbnails image of the group's
+    /// catalogue name (`system` is the system id).
+    Libretro { system: String, name: String },
+}
+
+/// A resolved libretro URL per `(plan_id, group, media)`; `None` also
+/// remembers "nothing downloaded" (plan DP-2).
+type LibretroMemo = HashMap<(u64, u64, Media), Option<String>>;
+
 #[derive(Default)]
 struct Inner {
     next_id: u64,
@@ -134,6 +152,8 @@ struct Inner {
     running: Option<(u64, Arc<AtomicBool>)>,
     /// The current (or last) apply of this app session.
     apply: Option<Arc<ApplyJob>>,
+    /// Libretro covers already looked up for the kept plans.
+    libretro: LibretroMemo,
 }
 
 /// The plans of the duplicates screen, the one plan in progress and the
@@ -191,7 +211,9 @@ impl DedupeManager {
         let mut inner = lock(&self.inner);
         inner.plans.push_back((id, Arc::new(Mutex::new(plan))));
         while inner.plans.len() > KEPT_PLANS {
-            inner.plans.pop_front();
+            if let Some((old, _)) = inner.plans.pop_front() {
+                inner.libretro.retain(|(plan, _, _), _| *plan != old);
+            }
         }
         view
     }
@@ -235,9 +257,64 @@ impl DedupeManager {
         out
     }
 
+    /// Where the art of group `group` (`member: None`, the group cover) or
+    /// of one copy of it comes from in plan `plan_id`. The location is
+    /// copied out, so no file is read while the plan is locked. A copy's
+    /// own art is only what it recorded; the group cover falls back to the
+    /// catalogue name on libretro. An unknown plan is `NoDedupePlan`; an
+    /// unknown group or member, or no art at all, is `ArtMissing`.
+    pub fn art_source(
+        &self,
+        plan_id: u64,
+        group: u64,
+        member: Option<usize>,
+        media: Media,
+    ) -> Result<ArtSource, IpcError> {
+        let kept = self.get(plan_id)?;
+        let stored = lock(&kept);
+        let plan = &stored.plan;
+        let library = |path: &std::path::Path| ArtSource::Library {
+            root: stored.root.clone(),
+            path: path.to_path_buf(),
+        };
+        let found = match member {
+            Some(m) => member_art_path(plan, group, m, media).map(library),
+            None => group_cover_path(plan, group, media)
+                .map(library)
+                .or_else(|| {
+                    group_catalogue_name(plan, group).map(|(system, name)| ArtSource::Libretro {
+                        system: system.to_string(),
+                        name: name.to_string(),
+                    })
+                }),
+        };
+        found.ok_or_else(|| IpcError::ArtMissing(media_name(media)))
+    }
+
+    /// The libretro URL remembered for the cover of `group` in plan
+    /// `plan_id`: `None` when not looked up yet, `Some(None)` when nothing
+    /// was downloaded.
+    pub fn libretro_memo(&self, plan_id: u64, group: u64, media: Media) -> Option<Option<String>> {
+        lock(&self.inner)
+            .libretro
+            .get(&(plan_id, group, media))
+            .cloned()
+    }
+
+    /// Remembers the libretro lookup of `group`'s cover while plan
+    /// `plan_id` is kept.
+    pub fn remember_libretro(&self, plan_id: u64, group: u64, media: Media, url: Option<String>) {
+        let mut inner = lock(&self.inner);
+        if inner.plans.iter().any(|(id, _)| *id == plan_id) {
+            inner.libretro.insert((plan_id, group, media), url);
+        }
+    }
+
     /// Drops every kept plan (the library changed on disk).
     pub fn forget_all(&self) {
-        lock(&self.inner).plans.clear();
+        let mut inner = lock(&self.inner);
+        inner.plans.clear();
+        inner.libretro.clear();
     }
 
     /// The current (or last) apply.
