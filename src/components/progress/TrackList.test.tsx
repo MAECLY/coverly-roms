@@ -138,9 +138,12 @@ describe('TrackList', () => {
     const list = document.getElementById(button.getAttribute('aria-controls')!);
     expect(list?.tagName).toBe('OL');
     expect(list).not.toBeVisible();
+    // A closed list keeps no rows: each tick would repaint them for nothing.
+    expect(list!.children).toHaveLength(0);
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-expanded', 'true');
     expect(list).toBeVisible();
+    expect(list!.children).toHaveLength(12);
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });

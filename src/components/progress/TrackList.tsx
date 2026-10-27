@@ -187,9 +187,15 @@ export function TrackList({
           focusRing,
         )}
       >
-        {rows.map((r) => (
-          <Row key={r.index} row={r} stateText={stateText(r)} locale={locale} />
-        ))}
+        {open &&
+          rows.map((r) => (
+            <Row
+              key={r.index}
+              row={r}
+              stateText={stateText(r)}
+              locale={locale}
+            />
+          ))}
       </ol>
     </div>
   );
