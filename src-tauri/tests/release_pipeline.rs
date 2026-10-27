@@ -1460,21 +1460,54 @@ fn the_guard_checks_the_signing_key_without_reading_it() {
     }
 }
 
+/// Fixture files get a fixed mtime so a run on the Windows CI leg and one on
+/// macOS see the same tree.
+fn write_pinned(path: &Path, body: &[u8]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, body).unwrap();
+    let f = std::fs::File::options().write(true).open(path).unwrap();
+    f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000))
+        .unwrap();
+}
+
+/// (release suffix, os, arch): the six platforms of spec §4.
+const PLATFORMS: [(&str, &str, &str); 6] = [
+    ("mac_arm", "darwin", "aarch64"),
+    ("mac_intel", "darwin", "x86_64"),
+    ("windows_x64", "windows", "x86_64"),
+    ("windows_arm", "windows", "aarch64"),
+    ("linux_x64", "linux", "x86_64"),
+    ("linux_arm", "linux", "aarch64"),
+];
+
 /// Lays out what `actions/download-artifact` writes (one folder per build
-/// artifact) for version `v`, with or without the Windows `.msi`.
+/// artifact, Tauri's and Cargo's names) for version `v`, with or without the
+/// two Windows `.msi` files.
 fn downloaded_builds(root: &Path, v: &str, msi: bool) {
     let mut files: Vec<(String, String)> = vec![
         (
-            "app-macos-universal".into(),
-            format!("Coverly.ROMs_{v}_universal.app.tar.gz"),
+            "app-darwin-aarch64".into(),
+            format!("Coverly.ROMs_{v}_aarch64.app.tar.gz"),
         ),
         (
-            "app-macos-universal".into(),
-            format!("Coverly.ROMs_{v}_universal.dmg"),
+            "app-darwin-aarch64".into(),
+            format!("Coverly.ROMs_{v}_aarch64.dmg"),
+        ),
+        (
+            "app-darwin-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64.app.tar.gz"),
+        ),
+        (
+            "app-darwin-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64.dmg"),
         ),
         (
             "app-windows-x86_64".into(),
             format!("Coverly.ROMs_{v}_x64-setup.exe"),
+        ),
+        (
+            "app-windows-aarch64".into(),
+            format!("Coverly.ROMs_{v}_arm64-setup.exe"),
         ),
         (
             "app-linux-x86_64".into(),
@@ -1498,14 +1531,12 @@ fn downloaded_builds(root: &Path, v: &str, msi: bool) {
             "app-windows-x86_64".into(),
             format!("Coverly.ROMs_{v}_x64_en-US.msi"),
         ));
+        files.push((
+            "app-windows-aarch64".into(),
+            format!("Coverly.ROMs_{v}_arm64_en-US.msi"),
+        ));
     }
-    for (os, arch) in [
-        ("darwin", "aarch64"),
-        ("darwin", "x86_64"),
-        ("windows", "x86_64"),
-        ("linux", "x86_64"),
-        ("linux", "aarch64"),
-    ] {
+    for (_suffix, os, arch) in PLATFORMS {
         let ext = if os == "windows" { ".exe" } else { "" };
         files.push((
             format!("cli-{os}-{arch}"),
@@ -1513,10 +1544,31 @@ fn downloaded_builds(root: &Path, v: &str, msi: bool) {
         ));
     }
     for (artifact, name) in files {
-        let d = root.join(artifact);
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join(&name), &name).unwrap();
+        write_pinned(&root.join(&artifact).join(&name), name.as_bytes());
     }
+}
+
+/// Spec §4: the release names `stage-builds` must produce, sorted, as
+/// (bundles, cli).
+fn release_files(v: &str, msi: bool) -> (Vec<String>, Vec<String>) {
+    let mut bundles = Vec::new();
+    let mut cli = Vec::new();
+    for (suffix, os, _arch) in PLATFORMS {
+        let kinds: &[&str] = match os {
+            "darwin" => &[".app.tar.gz", ".dmg"],
+            "windows" if msi => &["-setup.exe", ".msi"],
+            "windows" => &["-setup.exe"],
+            _ => &[".AppImage", ".deb"],
+        };
+        for kind in kinds {
+            bundles.push(format!("Coverly-ROMs_{v}_{suffix}{kind}"));
+        }
+        let ext = if os == "windows" { ".exe" } else { "" };
+        cli.push(format!("coverly_{v}_{suffix}{ext}"));
+    }
+    bundles.sort();
+    cli.sort();
+    (bundles, cli)
 }
 
 fn stage_builds(root: &Path, version: &str) -> std::process::Output {
@@ -1545,6 +1597,45 @@ fn listing(dir: &Path) -> Vec<String> {
 }
 
 #[test]
+fn stage_builds_renames_every_platform() {
+    if python().is_none() {
+        return;
+    }
+    for (v, msi, n_bundles) in [("1.0.0", true, 12), ("1.0.0-beta.1", false, 10)] {
+        let dir = tempfile::tempdir().unwrap();
+        downloaded_builds(&dir.path().join("downloads"), v, msi);
+        let out = stage_builds(dir.path(), v);
+        assert!(
+            out.status.success(),
+            "{v}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let (bundles, cli) = release_files(v, msi);
+        assert_eq!(bundles.len(), n_bundles, "{v}");
+        assert_eq!(listing(&dir.path().join("bundles")), bundles, "{v}");
+        assert_eq!(listing(&dir.path().join("cli")), cli, "{v}");
+        // Content is copied byte for byte from the file it was renamed from.
+        let staged = std::fs::read(
+            dir.path()
+                .join("bundles")
+                .join(format!("Coverly-ROMs_{v}_windows_arm-setup.exe")),
+        )
+        .unwrap();
+        assert_eq!(
+            staged,
+            format!("Coverly.ROMs_{v}_arm64-setup.exe").as_bytes()
+        );
+        let staged = std::fs::read(
+            dir.path()
+                .join("cli")
+                .join(format!("coverly_{v}_mac_intel")),
+        )
+        .unwrap();
+        assert_eq!(staged, format!("coverly-{v}-darwin-x86_64").as_bytes());
+    }
+}
+
+#[test]
 fn release_tools_stage_each_build_only_from_its_own_artifact() {
     if python().is_none() {
         return;
@@ -1558,16 +1649,13 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(listing(&dir.path().join("bundles")).len(), 8);
+    assert_eq!(
+        listing(&dir.path().join("bundles")),
+        release_files("1.0.0", true).0
+    );
     assert_eq!(
         listing(&dir.path().join("cli")),
-        [
-            "coverly-1.0.0-darwin-aarch64",
-            "coverly-1.0.0-darwin-x86_64",
-            "coverly-1.0.0-linux-aarch64",
-            "coverly-1.0.0-linux-x86_64",
-            "coverly-1.0.0-windows-x86_64.exe",
-        ]
+        release_files("1.0.0", true).1
     );
 
     // A beta has no .msi (WiX), and stages fine without it.
@@ -1579,34 +1667,33 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(listing(&dir.path().join("bundles")).len(), 7);
+    assert_eq!(
+        listing(&dir.path().join("bundles")),
+        release_files("1.0.0-beta.1", false).0
+    );
 
     // Each tampering fails and stages nothing.
     type Tamper = fn(&Path);
-    let cases: [(&str, Tamper, &str); 7] = [
+    let cases: [(&str, Tamper, &str); 10] = [
         (
             "an extra artifact",
-            |d| {
-                std::fs::create_dir(d.join("app-zzz")).unwrap();
-                std::fs::write(d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), "evil").unwrap();
-            },
+            |d| write_pinned(&d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), b"evil"),
             "app-zzz",
         ),
         (
             "another platform's file in an artifact",
             |d| {
-                std::fs::write(
-                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_universal.app.tar.gz"),
-                    "evil",
+                write_pinned(
+                    &d.join("app-darwin-aarch64/Coverly.ROMs_1.0.0_x64.dmg"),
+                    b"evil",
                 )
-                .unwrap();
             },
-            "app-linux-x86_64",
+            "app-darwin-aarch64",
         ),
         (
             "a missing artifact",
-            |d| std::fs::remove_dir_all(d.join("cli-linux-aarch64")).unwrap(),
-            "cli-linux-aarch64",
+            |d| std::fs::remove_dir_all(d.join("app-windows-aarch64")).unwrap(),
+            "app-windows-aarch64",
         ),
         (
             "a missing file",
@@ -1630,13 +1717,12 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         (
             "a signature handed over",
             |d| {
-                std::fs::write(
-                    d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64-setup.exe.sig"),
-                    "x",
+                write_pinned(
+                    &d.join("app-windows-aarch64/Coverly.ROMs_1.0.0_arm64-setup.exe.sig"),
+                    b"x",
                 )
-                .unwrap()
             },
-            "app-windows-x86_64",
+            "app-windows-aarch64",
         ),
         (
             "a CLI of another version",
@@ -1648,6 +1734,43 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
                 .unwrap()
             },
             "cli-linux-x86_64",
+        ),
+        (
+            "the old universal artifact",
+            |d| {
+                write_pinned(
+                    &d.join("app-macos-universal/Coverly.ROMs_1.0.0_universal.dmg"),
+                    b"old",
+                )
+            },
+            "app-macos-universal",
+        ),
+        (
+            "two .msi locales",
+            |d| {
+                write_pinned(
+                    &d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64_es-ES.msi"),
+                    b"x",
+                )
+            },
+            "more than one .msi",
+        ),
+        (
+            "a symlink",
+            |d| {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(
+                    "/etc/hosts",
+                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.x.AppImage"),
+                )
+                .unwrap();
+                #[cfg(not(unix))]
+                write_pinned(
+                    &d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.x.AppImage"),
+                    b"x",
+                );
+            },
+            "app-linux-x86_64",
         ),
     ];
     for (what, tamper, names) in cases {
