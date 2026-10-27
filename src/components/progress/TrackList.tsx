@@ -12,7 +12,7 @@ import { SlotMark } from '@/components/ui/slot-mark';
 import { LocaleContext } from '@/i18n/core';
 import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
-import { middleTruncate, type TrackRow } from '@/lib/extractProgress';
+import type { TrackRow } from '@/lib/extractProgress';
 import { formatDecimalSize } from '@/lib/format';
 import { cn, focusRing } from '@/lib/utils';
 import './progress.css';
@@ -29,8 +29,8 @@ export interface TrackListProps {
 
 /** How long a user's own scroll of the list holds off the follow. */
 const USER_HOLD_MS = 5000;
-const NAME_MAX = 40;
-/** The end of a name (` (Track 18).bin`) never gives way to the column. */
+/** The end of a name (` (Track 18).bin`) never gives way to the column;
+ * the head before it takes the one ellipsis (middle truncation in CSS). */
 const TAIL = 15;
 
 interface RowProps {
@@ -46,8 +46,7 @@ interface RowProps {
 const Row = memo(
   function Row({ row, stateText, locale }: RowProps) {
     const done = row.state === 'done';
-    const shown = middleTruncate(row.name, NAME_MAX);
-    const cut = Math.max(0, shown.length - TAIL);
+    const cut = Math.max(0, row.name.length - TAIL);
     return (
       <li
         data-index={row.index}
@@ -64,9 +63,9 @@ const Row = memo(
         />
         <span className="mono min-w-0 overflow-hidden whitespace-nowrap">
           <bdi title={row.full} className="flex min-w-0">
-            <span className="tl-head truncate">{shown.slice(0, cut)}</span>
+            <span className="tl-head truncate">{row.name.slice(0, cut)}</span>
             <span className="tl-tail shrink-0 whitespace-pre">
-              {shown.slice(cut)}
+              {row.name.slice(cut)}
             </span>
           </bdi>
         </span>

@@ -114,10 +114,11 @@ describe('TrackList', () => {
       expect(bdi).not.toBeNull();
       expect(bdi).toHaveAttribute('title', BASE.rows[k]!.full);
     });
+    // One ellipsis, drawn by the browser on the head only where the column
+    // is too narrow; the text itself stays whole for readers.
     const long = items[6]!.querySelector('bdi')!;
-    expect(long.textContent).toContain('…');
-    expect(long.textContent!.endsWith('(Track 18).bin')).toBe(true);
-    expect(long.textContent!.length).toBeLessThanOrEqual(40);
+    expect(long.textContent).toBe(LONG);
+    expect(long.textContent).not.toContain('…');
   });
 
   it('keeps the end of a name visible when the column is narrower than the text', () => {
