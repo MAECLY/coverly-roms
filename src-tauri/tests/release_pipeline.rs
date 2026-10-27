@@ -1114,6 +1114,27 @@ fn updater_manifest_refuses_names_that_are_not_release_names() {
         );
         assert!(!latest.exists(), "{case}");
     }
+    // A prerelease name is a release name too: stage-builds gives a beta's
+    // files `Coverly-ROMs_<V>-beta.N_<platform><kind>`.
+    let beta = dir.path().join("beta");
+    std::fs::create_dir(&beta).unwrap();
+    let name = "Coverly-ROMs_0.3.0-beta.1_windows_arm-setup.exe";
+    write_pinned(&beta.join(name), name.as_bytes());
+    write_pinned(&beta.join(format!("{name}.sig")), b"c2ln");
+    let out = updater_manifest(&beta, &latest, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
+    let keys: Vec<&str> = m["platforms"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["windows-aarch64", "windows-aarch64-nsis"]);
 }
 
 #[test]
@@ -1121,7 +1142,7 @@ fn add_cli_reads_release_names() {
     if python().is_none() {
         return;
     }
-    let add = |dir: &Path, manifest: &Path| {
+    let add_version = |dir: &Path, manifest: &Path, version: &str| {
         tool(&[
             "add-cli",
             "--manifest",
@@ -1129,11 +1150,12 @@ fn add_cli_reads_release_names() {
             "--dir",
             dir.to_str().unwrap(),
             "--version",
-            "0.3.0",
+            version,
             "--base-url",
             "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0",
         ])
     };
+    let add = |dir: &Path, manifest: &Path| add_version(dir, manifest, "0.3.0");
     let root = tempfile::tempdir().unwrap();
     let good = root.path().join("good");
     for (suffix, os, _arch) in PLATFORMS {
@@ -1162,16 +1184,49 @@ fn add_cli_reads_release_names() {
     }
     for bad in [
         "coverly_0.3.0_linux_x64.exe",
+        "coverly_0.3.0_mac_arm.exe",
         "coverly_0.3.0_windows_x64",
+        "coverly_0.3.0_windows_arm",
         "coverly-0.3.0-linux-x86_64",
+        "coverly-0.3.0-windows-aarch64.exe",
         "coverly_0.2.9_linux_x64",
+        "coverly_0.3.0_mac_silicon",
+        "Coverly-ROMs_0.3.0_linux_x64.AppImage",
     ] {
         let d = root.path().join(bad);
         write_pinned(&d.join(bad), b"x");
         write_pinned(&d.join(format!("{bad}.sig")), b"c2ln");
         let m = root.path().join(format!("{bad}.json"));
-        assert_clean_failure(&add(&d, &m), bad);
+        let out = add(&d, &m);
+        assert_clean_failure(&out, bad);
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains(&format!("unexpected file {bad}")),
+            "{bad}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!m.exists(), "{bad}");
     }
+    // A beta's binary, with the tag's `v` on --version as the workflow may
+    // pass it, gets its key; the version must still match exactly.
+    let beta = root.path().join("beta");
+    let name = "coverly_0.3.0-beta.1_windows_arm.exe";
+    write_pinned(&beta.join(name), name.as_bytes());
+    write_pinned(&beta.join(format!("{name}.sig")), b"c2ln");
+    let m = root.path().join("beta.json");
+    let out = add_version(&beta, &m, "v0.3.0-beta.1");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&m).unwrap()).unwrap();
+    assert!(v["platforms"]["cli-windows-aarch64"]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with(&format!("/{name}")));
+    let m = root.path().join("beta-stable.json");
+    assert_clean_failure(&add_version(&beta, &m, "0.3.0"), "beta as stable");
+    assert!(!m.exists());
 }
 
 /// Runs release-channels.yml's script against a fake `gh` that serves
