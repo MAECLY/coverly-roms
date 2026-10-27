@@ -584,6 +584,19 @@ describe('Settings screen', () => {
       expect(search).toHaveValue('');
     });
 
+    it('types a slash inside a hidden API key instead of searching', async () => {
+      const search = await openOn('MacIntel', 'sources');
+      const key = (await screen.findByLabelText(
+        'SteamGridDB API key',
+      )) as HTMLInputElement;
+      expect(key).toHaveAttribute('type', 'password');
+      await userEvent.click(key);
+      await userEvent.keyboard('ab/cd');
+      expect(key).toHaveFocus();
+      expect(key.value).toBe('ab/cd');
+      expect(search).toHaveValue('');
+    });
+
     it('lists one result for rar and lands on the external tools switch with Enter', async () => {
       const search = await openOn('MacIntel');
       await userEvent.type(search, 'rar');
@@ -673,7 +686,7 @@ describe('Settings screen', () => {
       const search = await openOn('MacIntel');
       await userEvent.type(search, 'zzz');
       expect(
-        await screen.findByText('No setting matches "zzz".'),
+        await screen.findByText('No setting matches “zzz”.'),
       ).toBeInTheDocument();
       expect(search).not.toHaveAttribute('aria-activedescendant');
     });
@@ -715,7 +728,7 @@ describe('Settings screen', () => {
         );
         act(() => vi.advanceTimersByTime(300));
         expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
-          'No setting matches "zzz".',
+          'No setting matches “zzz”.',
         );
       } finally {
         vi.useRealTimers();

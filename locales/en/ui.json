@@ -59,7 +59,7 @@
       "clear": "Clear search",
       "countOne": "1 setting",
       "count": "{count} settings",
-      "none": "No setting matches \"{query}\".",
+      "none": "No setting matches “{query}”.",
       "where": "{section} › {fold}"
     },
     "notice": {
