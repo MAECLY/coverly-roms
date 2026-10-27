@@ -10,13 +10,15 @@ function Probe({
   k,
   vars,
   mono,
+  titles,
 }: {
   k: string;
   vars?: TranslateVars;
   mono?: readonly string[];
+  titles?: Readonly<Record<string, string>>;
 }) {
   const tr = useRichT();
-  return <p data-testid="probe">{tr(k, vars, mono)}</p>;
+  return <p data-testid="probe">{tr(k, vars, mono, titles)}</p>;
 }
 
 function renderEs(node: ReactNode) {
@@ -70,6 +72,21 @@ describe('useRichT', () => {
     expect(monoTexts(p)).toEqual(['Next Tetris, The.zip']);
     expect(p.querySelectorAll('bdi')).toHaveLength(2);
   });
+
+  it('puts a value title on its own element only', () => {
+    const { getByTestId } = renderEs(
+      <Probe
+        k="organize.progress.extracting"
+        vars={{ name: 'Tetris.zip', folder: 'PS…Game' }}
+        titles={{ folder: '/Volumes/SD/Roms/PS/Game' }}
+      />,
+    );
+    const p = getByTestId('probe');
+    const titled = p.querySelectorAll('[title]');
+    expect(titled).toHaveLength(1);
+    expect(titled[0]!.textContent).toBe('PS…Game');
+    expect(titled[0]!.getAttribute('title')).toBe('/Volumes/SD/Roms/PS/Game');
+  });
 });
 
 // Spec §7 (plus the plan's `movingLabel`): parity only proves es == en, so a
@@ -101,6 +118,7 @@ const PROGRESS_KEYS = [
     'cancelNote',
     'stageLabel',
     'movingLabel',
+    'extractingName',
   ].map((k) => `organize.progress.${k}`),
   'start.progress.folders',
   'progress.perMinute',
