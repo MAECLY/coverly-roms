@@ -6,6 +6,7 @@ import { AdvancedSection } from '@/components/settings/AdvancedSection';
 import { ArtSection } from '@/components/settings/ArtSection';
 import { GeneralSection } from '@/components/settings/GeneralSection';
 import { LibrarySection } from '@/components/settings/LibrarySection';
+import { OrganizeSection } from '@/components/settings/OrganizeSection';
 import { MatchingSection } from '@/components/settings/MatchingSection';
 import { NetworkSection } from '@/components/settings/NetworkSection';
 import { ProfilesSection } from '@/components/settings/ProfilesSection';
@@ -33,6 +34,7 @@ export const SECTION_COMPONENTS: Record<
 > = {
   general: GeneralSection,
   library: LibrarySection,
+  organize: OrganizeSection,
   art: ArtSection,
   matching: MatchingSection,
   sources: SourcesSection,

@@ -58,6 +58,7 @@ describe('Settings screen', () => {
     ).toEqual([
       'General',
       'Library',
+      'Organise',
       'Art',
       'Matching',
       'Sources',
@@ -216,7 +217,9 @@ describe('Settings screen', () => {
     expect(
       screen.getByRole('tabpanel', { name: 'Library' }),
     ).toBeInTheDocument();
-    await userEvent.keyboard('{ArrowUp}{ArrowUp}');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('tab', { name: 'Organise' })).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
     expect(screen.getByRole('tab', { name: 'About' })).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();

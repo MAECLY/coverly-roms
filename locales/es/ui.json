@@ -62,6 +62,7 @@
     "section": {
       "general": "General",
       "library": "Biblioteca",
+      "organize": "Organizar",
       "art": "Arte",
       "matching": "Coincidencias",
       "sources": "Fuentes",
@@ -237,7 +238,6 @@
       "externalTools": "Programas externos para RAR",
       "externalToolsFound": "Encontrado: {tools}",
       "externalToolsNone": "Ninguno. Instala unrar o 7-Zip para abrir RAR.",
-      "title": "Organizar",
       "defaultLayout": "Formato por defecto",
       "nestInRoms": "Poner las carpetas de sistema dentro de la carpeta de ROMs del formato",
       "mode": "Modo",

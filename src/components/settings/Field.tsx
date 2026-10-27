@@ -132,12 +132,23 @@ const MARK = '\u0000';
 
 /** A translated line with one value in the data face (brand §5): `text`
  * holds a `\u0000` where the value goes. */
-export function MonoIn({ text, value }: { text: string; value: ReactNode }) {
+export function MonoIn({
+  text,
+  value,
+  className,
+}: {
+  text: string;
+  value: ReactNode;
+  /** Extra classes on the value span (e.g. wrapping long paths). */
+  className?: string;
+}) {
   const [before = '', after = ''] = text.split(MARK);
   return (
     <>
       {before}
-      <span className="font-mono">{value}</span>
+      <span className={className ? `font-mono ${className}` : 'font-mono'}>
+        {value}
+      </span>
       {after}
     </>
   );

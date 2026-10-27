@@ -11,7 +11,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { NativeSelect } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useT } from '@/i18n/useT';
@@ -19,10 +18,8 @@ import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import {
   DEDUPE_LEVELS,
-  ORGANIZE_DEDUPE_MODES,
   type DedupeActionSetting,
   type DedupeLevel,
-  type OrganizeDedupeMode,
   type ProfileInfo,
   type RuleToggle,
 } from '@/ipc/types';
@@ -39,13 +36,6 @@ import {
   SwitchSetting,
 } from './Field';
 import { ReorderAnnouncer, useReorderAnnouncer } from './ReorderAnnouncer';
-
-/** The i18n key of each duplicates step of Organise. */
-const STEP_LABEL: Record<OrganizeDedupeMode, string> = {
-  'set-aside': 'organize.dedupe.quarantine',
-  report: 'organize.dedupe.report',
-  off: 'organize.dedupe.off',
-};
 
 const DEFAULT_QUARANTINE = '_Duplicados';
 
@@ -244,28 +234,6 @@ export function DedupeSettings({
           {t(errorKey(pickError.code), { detail: pickError.detail ?? '' })}
         </Alert>
       )}
-
-      <Field
-        id={settingId('dedupe.organize_step')}
-        label={t('settings.dedupe.organizeStep')}
-      >
-        <NativeSelect
-          name="dedupe-organize-step"
-          className="max-w-xs"
-          value={d.organize_step}
-          onChange={(e) =>
-            void update({
-              dedupe: { organize_step: e.target.value as OrganizeDedupeMode },
-            })
-          }
-        >
-          {ORGANIZE_DEDUPE_MODES.map((m) => (
-            <option key={m} value={m}>
-              {t(STEP_LABEL[m])}
-            </option>
-          ))}
-        </NativeSelect>
-      </Field>
 
       <h3 className={sectionTitle} id="dedupe-rules">
         {t('settings.dedupe.rules')}

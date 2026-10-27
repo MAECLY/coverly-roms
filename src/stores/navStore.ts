@@ -5,6 +5,7 @@ import type { TransferMode } from '@/ipc/types';
 export type SettingsSection =
   | 'general'
   | 'library'
+  | 'organize'
   | 'art'
   | 'matching'
   | 'sources'
@@ -16,6 +17,7 @@ export type SettingsSection =
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   'general',
   'library',
+  'organize',
   'art',
   'matching',
   'sources',

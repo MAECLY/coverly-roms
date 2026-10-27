@@ -442,9 +442,8 @@ describe('settings sections', () => {
     expect(await backend.cacheUsage()).toBe(0);
   });
 
-  it('library: the organise defaults show and save', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Organise' });
+  it('organize: the organise defaults show and save', async () => {
+    const group = await open('organize');
     const layout = within(group).getByRole('combobox', {
       name: 'Default layout',
     });
@@ -472,6 +471,10 @@ describe('settings sections', () => {
         name: 'Download game catalogues to identify ROMs by their contents',
       }),
     );
+    await userEvent.selectOptions(
+      within(group).getByRole('combobox', { name: 'When organising' }),
+      'report',
+    );
     expect(
       within(group).getByText(
         'Thresholds and lists are edited in Advanced (settings file).',
@@ -486,6 +489,19 @@ describe('settings sections', () => {
         download_dats: false,
       }),
     );
+    await waitFor(async () =>
+      expect((await saved()).dedupe.organize_step).toBe('report'),
+    );
+  });
+
+  it('library: shows no organise control', async () => {
+    const panel = await open('library');
+    expect(
+      within(panel).queryByRole('combobox', { name: 'Mode' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('combobox', { name: 'When organising' }),
+    ).not.toBeInTheDocument();
   });
 
   it('library: the duplicates block shows and saves', async () => {
@@ -502,10 +518,6 @@ describe('settings sections', () => {
     await userEvent.click(
       within(group).getByRole('radio', { name: 'Send to the Trash' }),
     );
-    await userEvent.selectOptions(
-      within(group).getByRole('combobox', { name: 'When organising' }),
-      'report',
-    );
     expect(
       within(group).getByRole('textbox', { name: 'Quarantine folder' }),
     ).toHaveAttribute('placeholder', '<library>/_Duplicados');
@@ -520,7 +532,6 @@ describe('settings sections', () => {
         levels: ['exact', 'format'],
         one_game_one_rom: true,
         action: 'trash',
-        organize_step: 'report',
         exclude_systems: ['ports', 'msu'],
       }),
     );
@@ -577,9 +588,11 @@ describe('settings sections', () => {
     );
   });
 
-  it('library: external_tools_toggle_saves_off', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Organise' });
+  it('organize: external_tools_toggle_saves_off', async () => {
+    const group = await open('organize');
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+    );
     const tools = within(group).getByRole('switch', {
       name: 'External programs for RAR',
     });
@@ -595,7 +608,7 @@ describe('settings sections', () => {
     );
   });
 
-  it('library: found_tools_listed_in_mono', async () => {
+  it('organize: found_tools_listed_in_mono', async () => {
     backend = createMockBackend({
       delayMs: 0,
       now: FIXTURE_NOW,
@@ -606,8 +619,10 @@ describe('settings sections', () => {
       ],
     });
     setBackend(backend);
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Organise' });
+    const group = await open('organize');
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+    );
     const tools = within(group).getByRole('switch', {
       name: 'External programs for RAR',
     });
@@ -626,9 +641,11 @@ describe('settings sections', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('library: no_tools_shows_install_hint', async () => {
-    await open('library');
-    const group = screen.getByRole('group', { name: 'Organise' });
+  it('organize: no_tools_shows_install_hint', async () => {
+    const group = await open('organize');
+    await userEvent.click(
+      within(group).getByRole('button', { name: 'Advanced options (1)' }),
+    );
     expect(
       within(group).getByRole('switch', { name: 'External programs for RAR' }),
     ).toHaveAccessibleDescription('None. Install unrar or 7-Zip to open RAR.');
