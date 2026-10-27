@@ -13,7 +13,7 @@ import {
 } from '@/ipc/mock/mockBackend';
 import { Root } from '@/Root';
 import { resetLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore } from '@/stores/settingsStore';
 
 let backend: MockBackend;
@@ -32,11 +32,10 @@ describe('Start screen', () => {
     setBackend(backend);
     resetLibraryStore();
     resetSettingsStore();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
   });
   afterEach(() => {
-    useNavStore.getState().closeSettings();
-    useNavStore.getState().closeOrganize();
+    resetNavStore();
     setBackend(null);
   });
 

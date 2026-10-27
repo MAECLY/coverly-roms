@@ -58,6 +58,9 @@ function renderScreen(launch?: DedupeLaunch) {
 const ready = () =>
   waitFor(() => expect(useDedupeStore.getState().status).toBe('ready'));
 const plan = () => useDedupeStore.getState().plan!;
+// The mock applies the 89 copies one tick at a time; a slow CI runner can
+// take past findBy's 1 s default to reach the result.
+const APPLY_WAIT = { timeout: 5000 };
 
 describe('DuplicatesScreen', () => {
   let b: MockBackend;
@@ -257,6 +260,8 @@ describe('DuplicatesScreen', () => {
     expect(
       await screen.findByText(
         '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
     expect(
@@ -270,7 +275,7 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Apartar 89 archivos' }),
     );
-    await screen.findByText(/89 archivos apartados/);
+    await screen.findByText(/89 archivos apartados/, {}, APPLY_WAIT);
     await userEvent.click(screen.getByRole('button', { name: 'Deshacer' }));
     const dialog = await screen.findByRole('alertdialog', {
       name: '¿Devolver 89 archivos a su sitio?',
@@ -323,7 +328,7 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Apartar 89 archivos' }),
     );
-    await screen.findByText(/89 archivos apartados/);
+    await screen.findByText(/89 archivos apartados/, {}, APPLY_WAIT);
     await userEvent.click(screen.getByRole('button', { name: 'Deshacer' }));
     const dialog = await screen.findByRole('alertdialog', {
       name: '¿Devolver 89 archivos a su sitio?',
@@ -425,6 +430,8 @@ describe('DuplicatesScreen', () => {
     expect(
       await screen.findByText(
         '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continuar' })).toBeNull();
@@ -446,6 +453,8 @@ describe('DuplicatesScreen', () => {
     expect(
       await screen.findByText(
         '89 archivos apartados en _Duplicados/. Deshacer está a un clic.',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(/Fuera de la biblioteca:/)).toBeInTheDocument();

@@ -1,204 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { NativeSelect } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n/useT';
-import { getBackend } from '@/ipc/backend';
-import type {
-  FoundTool,
-  OrganizeModeSetting,
-  OrganizeNameMode,
-  ProfileInfo,
-} from '@/ipc/types';
-import { toolName } from '@/lib/organize';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-import { DedupeSettings } from './DedupeSettings';
 import {
+  AdvancedFold,
   Field,
-  hintText,
   sectionTitle,
   settingId,
   SwitchSetting,
   useFieldError,
 } from './Field';
-
-/** A list edited as text, committed on blur. */
-function ListSetting({
-  path,
-  label,
-  hint,
-  value,
-  split,
-  join,
-  toPatch,
-}: {
-  path: string;
-  label: string;
-  hint: string;
-  value: string[];
-  split(text: string): string[];
-  join(list: string[]): string;
-  toPatch(
-    list: string[],
-  ): Parameters<ReturnType<typeof useSettingsStore.getState>['update']>[0];
-}) {
-  const id = settingId(path);
-  const update = useSettingsStore((s) => s.update);
-  const error = useFieldError(path);
-  const [draft, setDraft] = useState<string | null>(null);
-  return (
-    <Field id={id} label={label} hint={hint} error={error}>
-      <Textarea
-        name={id}
-        mono
-        rows={4}
-        value={draft ?? join(value)}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={async () => {
-          if (draft === null) return;
-          const errors = await update(toPatch(split(draft)));
-          if (errors.length === 0) setDraft(null);
-        }}
-      />
-    </Field>
-  );
-}
-
-/** What was found, each tool as a mono readout (brand §5) inside the
- * translated line; or how to get one. */
-function ExternalToolsHint({ found }: { found: FoundTool[] }) {
-  const t = useT();
-  if (found.length === 0)
-    return <>{t('settings.organize.externalToolsNone')}</>;
-  const MARK = '\u0000';
-  const [before = '', after = ''] = t('settings.organize.externalToolsFound', {
-    tools: MARK,
-  }).split(MARK);
-  const list = found
-    .map((f) => `${toolName(f.tool)} ${f.version} (${f.path})`)
-    .join(', ');
-  return (
-    <>
-      {before}
-      <span className="font-mono [overflow-wrap:anywhere]">{list}</span>
-      {after}
-    </>
-  );
-}
-
-/** Defaults of the organise screen (organise spec §12); thresholds and
- * lists stay in the settings file. */
-function OrganizeSettings({ profiles }: { profiles: ProfileInfo[] }) {
-  const t = useT();
-  const org = useSettingsStore((s) => s.settings!.organize);
-  const update = useSettingsStore((s) => s.update);
-  const found = useSettingsStore((s) => s.externalToolsFound);
-  const listed = profiles.some((p) => p.profile.id === org.default_layout);
-  return (
-    <fieldset className="m-0 grid min-w-0 gap-4 border-0 p-0">
-      <legend className={`${sectionTitle} mb-4 p-0`}>
-        {t('settings.organize.title')}
-      </legend>
-      <Field
-        id={settingId('organize.default_layout')}
-        label={t('settings.organize.defaultLayout')}
-        error={useFieldError('organize.default_layout')}
-      >
-        <NativeSelect
-          name="organize-default-layout"
-          className="max-w-xs"
-          value={org.default_layout}
-          onChange={(e) =>
-            void update({ organize: { default_layout: e.target.value } })
-          }
-        >
-          {!listed && (
-            <option value={org.default_layout}>{org.default_layout}</option>
-          )}
-          {profiles.map((p) => (
-            <option key={p.profile.id} value={p.profile.id}>
-              {p.profile.name}
-            </option>
-          ))}
-        </NativeSelect>
-      </Field>
-      <SwitchSetting
-        id={settingId('organize.nest_in_roms_root')}
-        name="organize-nest-in-roms-root"
-        label={t('settings.organize.nestInRoms')}
-        checked={org.nest_in_roms_root}
-        onCheckedChange={(on) =>
-          void update({ organize: { nest_in_roms_root: on } })
-        }
-      />
-      <Field
-        id={settingId('organize.mode')}
-        label={t('settings.organize.mode')}
-        error={useFieldError('organize.mode')}
-      >
-        <NativeSelect
-          name="organize-mode"
-          className="max-w-xs"
-          value={org.mode}
-          onChange={(e) =>
-            void update({
-              organize: { mode: e.target.value as OrganizeModeSetting },
-            })
-          }
-        >
-          <option value="auto">{t('settings.organize.modeAuto')}</option>
-          <option value="move">{t('settings.organize.modeMove')}</option>
-          <option value="copy">{t('settings.organize.modeCopy')}</option>
-        </NativeSelect>
-      </Field>
-      <Field
-        id={settingId('organize.names')}
-        label={t('settings.organize.names')}
-        error={useFieldError('organize.names')}
-      >
-        <NativeSelect
-          name="organize-names"
-          className="max-w-xs"
-          value={org.names}
-          onChange={(e) =>
-            void update({
-              organize: { names: e.target.value as OrganizeNameMode },
-            })
-          }
-        >
-          <option value="keep">{t('settings.organize.namesKeep')}</option>
-          <option value="catalogue">
-            {t('settings.organize.namesCatalogue')}
-          </option>
-        </NativeSelect>
-      </Field>
-      <SwitchSetting
-        id={settingId('organize.download_dats')}
-        name="organize-download-dats"
-        label={t('settings.organize.downloadDats')}
-        checked={org.download_dats}
-        onCheckedChange={(on) =>
-          void update({ organize: { download_dats: on } })
-        }
-      />
-      <SwitchSetting
-        id={settingId('organize.external_tools')}
-        name="organize-external-tools"
-        label={t('settings.organize.externalTools')}
-        hint={<ExternalToolsHint found={found} />}
-        checked={org.external_tools === 'auto'}
-        onCheckedChange={(on) =>
-          void update({ organize: { external_tools: on ? 'auto' : 'off' } })
-        }
-      />
-      <p className={hintText}>{t('settings.organize.advancedHint')}</p>
-    </fieldset>
-  );
-}
+import { ListSetting } from './ListSetting';
+import { foldCount } from './registry';
+import { useProfiles } from './useProfiles';
 
 export function LibrarySection() {
   const t = useT();
@@ -206,19 +25,9 @@ export function LibrarySection() {
   const update = useSettingsStore((s) => s.update);
   const recents = useLibraryStore((s) => s.recents);
   const forget = useLibraryStore((s) => s.forget);
-  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
+  const profiles = useProfiles();
   useEffect(() => {
-    let alive = true;
-    void getBackend()
-      .then((b) => b.listProfiles())
-      .then(
-        (p) => alive && setProfiles(p),
-        () => undefined,
-      );
     void useLibraryStore.getState().loadRecents();
-    return () => {
-      alive = false;
-    };
   }, []);
   // Until the list loads, or for a profile it no longer has, the stored id
   // still shows (not "Detect automatically").
@@ -263,24 +72,6 @@ export function LibrarySection() {
           ))}
         </NativeSelect>
       </Field>
-      <ListSetting
-        path="library.ignored_dirs"
-        label={t('settings.library.ignoredDirs')}
-        hint={t('settings.library.ignoredDirsHint')}
-        value={lib.ignored_dirs}
-        split={lines}
-        join={(l) => l.join('\n')}
-        toPatch={(l) => ({ library: { ignored_dirs: l } })}
-      />
-      <ListSetting
-        path="library.ignored_exts"
-        label={t('settings.library.ignoredExts')}
-        hint={t('settings.library.ignoredExtsHint')}
-        value={lib.ignored_exts}
-        split={commas}
-        join={(l) => l.join(', ')}
-        toPatch={(l) => ({ library: { ignored_exts: l } })}
-      />
       <SwitchSetting
         id={settingId('library.include_hidden')}
         name="include-hidden"
@@ -295,13 +86,37 @@ export function LibrarySection() {
         name="follow-symlinks"
         label={t('settings.library.followSymlinks')}
         hint={t('settings.library.followSymlinksHint')}
+        more={t('settings.library.followSymlinksDetails')}
         checked={lib.follow_symlinks}
         onCheckedChange={(on) =>
           void update({ library: { follow_symlinks: on } })
         }
       />
-      <OrganizeSettings profiles={profiles} />
-      <DedupeSettings profiles={profiles} />
+      <AdvancedFold
+        id="library-advanced"
+        count={foldCount('library-advanced')}
+        errorPaths={['library.ignored_dirs', 'library.ignored_exts']}
+      >
+        <ListSetting
+          path="library.ignored_dirs"
+          label={t('settings.library.ignoredDirs')}
+          hint={t('settings.library.ignoredDirsHint')}
+          value={lib.ignored_dirs}
+          split={lines}
+          join={(l) => l.join('\n')}
+          toPatch={(l) => ({ library: { ignored_dirs: l } })}
+        />
+        <ListSetting
+          path="library.ignored_exts"
+          label={t('settings.library.ignoredExts')}
+          hint={t('settings.library.ignoredExtsHint')}
+          more={t('settings.library.ignoredExtsDetails')}
+          value={lib.ignored_exts}
+          split={commas}
+          join={(l) => l.join(', ')}
+          toPatch={(l) => ({ library: { ignored_exts: l } })}
+        />
+      </AdvancedFold>
       <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
         <EmptyState

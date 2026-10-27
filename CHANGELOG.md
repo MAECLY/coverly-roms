@@ -18,6 +18,9 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   (`Coverly-ROMs_<version>_mac_arm.dmg`, `coverly_<version>_linux_x64`, …);
   macOS ships one download per chip instead of a universal one. Installed
   copies keep updating.
+- Settings: Organise and Duplicates have their own tabs; advanced options are
+  folded; search with ⌘F / Ctrl+F; the Duplicates and Organise screens link
+  to their settings and offer to look again after a change.
 
 ## [0.2.0] - 2026-10-25
 
