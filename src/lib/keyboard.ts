@@ -9,9 +9,14 @@ export function isTyping(target: EventTarget | null): boolean {
   );
 }
 
-/** Apple keyboards show ⌘ for the shortcut modifier; the rest, Ctrl. */
-export function modKeyLabel(): string {
+/** Apple platforms, where ⌘ is the shortcut modifier and Ctrl edits text. */
+export function isMac(): boolean {
   const nav = typeof navigator === 'undefined' ? null : navigator;
   const platform = nav?.platform || nav?.userAgent || '';
-  return /Mac|iPhone|iPad/i.test(platform) ? '⌘' : 'Ctrl';
+  return /Mac|iPhone|iPad/i.test(platform);
+}
+
+/** Apple keyboards show ⌘ for the shortcut modifier; the rest, Ctrl. */
+export function modKeyLabel(): string {
+  return isMac() ? '⌘' : 'Ctrl';
 }

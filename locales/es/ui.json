@@ -53,6 +53,15 @@
     "moreInfo": "Más información",
     "lessInfo": "Menos información",
     "saved": "Guardado.",
+    "search": {
+      "label": "Buscar en la configuración",
+      "placeholder": "Buscar…",
+      "clear": "Borrar la búsqueda",
+      "countOne": "1 ajuste",
+      "count": "{count} ajustes",
+      "none": "Ningún ajuste coincide con «{query}».",
+      "where": "{section} › {fold}"
+    },
     "notice": {
       "migrated": "Tu configuración de biblioteca anterior se ha pasado al nuevo archivo de configuración.",
       "reset-corrupt": "No se pudo leer el archivo de configuración, así que se usan los valores por defecto. El archivo anterior se ha guardado: {backup}",

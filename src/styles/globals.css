@@ -1909,6 +1909,60 @@ time {
   gap: 1rem;
 }
 
+/* Settings search (D8): the field tops the nav; results replace the panel
+   as plain rows, the active one sunken, no card. */
+.settings-search {
+  margin: 0 0.25rem 0.75rem;
+}
+
+.settings-results__count {
+  margin: 0 0 0.5rem;
+  min-height: 1.25rem;
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+.settings-results [role='listbox'] {
+  display: flex;
+  max-width: 40rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-results__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--cr-radius-sm);
+  cursor: pointer;
+}
+
+.settings-results__item[aria-selected='true'] {
+  background-color: var(--cr-surface-sunken);
+  box-shadow: inset 3px 0 0 var(--cr-border-strong);
+}
+
+.settings-results__label {
+  font-weight: 500;
+  color: var(--cr-text);
+}
+
+.settings-results__where {
+  font: var(--cr-type-app-caption);
+  color: var(--cr-text-secondary);
+}
+
+@media (forced-colors: active) {
+  .settings-results__item[aria-selected='true'] {
+    outline: 2px solid Highlight;
+    box-shadow: none;
+  }
+}
+
 /* Arrival mark (spec §6.1): a manila bar and tint, once. */
 [data-setting-row] {
   border-radius: var(--cr-radius-sm);
@@ -1998,6 +2052,10 @@ time {
 
   .settings-nav__group {
     display: none;
+  }
+
+  .settings-search {
+    margin: 0 0 0.5rem;
   }
 
   .settings-nav [data-group-start] {

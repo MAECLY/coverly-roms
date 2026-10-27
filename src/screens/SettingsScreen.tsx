@@ -1,5 +1,12 @@
 import { ArrowLeft } from 'lucide-react';
-import { Fragment, useEffect, useRef } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { AboutSection } from '@/components/settings/AboutSection';
 import { AdvancedSection } from '@/components/settings/AdvancedSection';
@@ -11,15 +18,24 @@ import { OrganizeSection } from '@/components/settings/OrganizeSection';
 import { MatchingSection } from '@/components/settings/MatchingSection';
 import { NetworkSection } from '@/components/settings/NetworkSection';
 import { ProfilesSection } from '@/components/settings/ProfilesSection';
+import type { SettingEntry } from '@/components/settings/registry';
 import { SafetySection } from '@/components/settings/SafetySection';
+import { searchSettings } from '@/components/settings/search';
+import {
+  SettingsResults,
+  SettingsSearchField,
+} from '@/components/settings/SettingsSearch';
 import { SourcesSection } from '@/components/settings/SourcesSection';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { errorKey } from '@/ipc/errors';
+import { isMac, isTyping } from '@/lib/keyboard';
 import { useLibraryStore } from '@/stores/libraryStore';
 import {
   SETTINGS_GROUPS,
@@ -27,6 +43,7 @@ import {
   useNavStore,
   type SettingsSection,
 } from '@/stores/navStore';
+import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 /** Each section's panel. */
@@ -91,6 +108,55 @@ export function SettingsScreen() {
   const focusSetting = useNavStore((s) => s.focusSetting);
   const openFolds = useNavStore((s) => s.openFolds);
   const heading = useRef<HTMLHeadingElement>(null);
+  const locale = useContext(LocaleContext);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [query, setQueryState] = useState('');
+  const [active, setActive] = useState(0);
+  const results = useMemo(() => searchSettings(query, locale), [query, locale]);
+  // The live count waits for typing to stop (spec §6.5).
+  const settled = useDebouncedValue(query, 300);
+  const settledResults = useMemo(
+    () => (settled === query ? results : searchSettings(settled, locale)),
+    [settled, query, results, locale],
+  );
+  function setQuery(q: string) {
+    setQueryState(q);
+    setActive(0);
+  }
+  function choose(entry: SettingEntry) {
+    setQuery('');
+    useNavStore.getState().openSettings(entry.section, { focus: entry.id });
+  }
+  function focusTab() {
+    tabList.current
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      ?.focus();
+  }
+  // ⌘F on macOS, Ctrl+F elsewhere, and `/` outside a text field focus the
+  // search (D9). Bubbling, like the library screen, so a dialog or a
+  // control that handled the key wins.
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      if (ev.defaultPrevented || ev.isComposing || ev.altKey) return;
+      if (
+        document.querySelector(
+          '[role="dialog"][data-state="open"],[role="alertdialog"][data-state="open"]',
+        )
+      )
+        return;
+      const f = ev.key.toLowerCase() === 'f' || ev.code === 'KeyF';
+      const find =
+        f && (isMac() ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey);
+      const slash =
+        ev.key === '/' && !ev.metaKey && !ev.ctrlKey && !isTyping(ev.target);
+      if (!find && !slash) return;
+      ev.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // Narrow windows show the tabs as one row: the arrow keys follow (D14).
   const narrow = useMediaQuery('(max-width: 40rem)');
   const tabList = useRef<HTMLDivElement>(null);
@@ -239,10 +305,23 @@ export function SettingsScreen() {
         <Tabs
           orientation={narrow ? 'horizontal' : 'vertical'}
           value={section}
-          onValueChange={(v) => setSection(v as SettingsSection)}
+          onValueChange={(v) => {
+            setQuery('');
+            setSection(v as SettingsSection);
+          }}
           className="settings-body gap-0 max-[40rem]:!flex-col"
         >
           <nav className="settings-nav">
+            <SettingsSearchField
+              ref={searchRef}
+              query={query}
+              results={results}
+              active={active}
+              onQuery={setQuery}
+              onActive={setActive}
+              onChoose={choose}
+              onLeave={focusTab}
+            />
             <TabsList ref={tabList} aria-label={t('settings.sections')}>
               {SETTINGS_SECTIONS.map((s, i) => {
                 const group = SETTINGS_GROUPS[s];
@@ -280,11 +359,24 @@ export function SettingsScreen() {
             <TabsContent
               key={s}
               value={s}
-              className="min-w-0 flex-1 overflow-y-auto px-6 pb-8 pt-5"
+              className={cn(
+                'min-w-0 flex-1 overflow-y-auto px-6 pb-8 pt-5',
+                query !== '' && 'hidden',
+              )}
             >
               {s === section && body}
             </TabsContent>
           ))}
+          {query !== '' && (
+            <SettingsResults
+              results={results}
+              active={active}
+              settled={settled}
+              settledCount={settledResults.length}
+              onActive={setActive}
+              onChoose={choose}
+            />
+          )}
         </Tabs>
       </main>
     </TooltipProvider>

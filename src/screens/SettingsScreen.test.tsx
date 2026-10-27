@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,7 +23,11 @@ import {
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
-import { resetNavStore, useNavStore } from '@/stores/navStore';
+import {
+  resetNavStore,
+  useNavStore,
+  type SettingsSection,
+} from '@/stores/navStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
@@ -501,5 +512,180 @@ describe('Settings screen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Licence' }));
     await userEvent.click(screen.getByRole('button', { name: 'Source code' }));
     expect(backend.opened).toEqual(['link:license', 'link:repo']);
+  });
+
+  describe('search', () => {
+    /** Settings open on `section`, platform stubbed. */
+    async function openOn(
+      platform: string,
+      section: SettingsSection = 'general',
+    ) {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+      await start();
+      act(() => useNavStore.getState().openSettings(section));
+      await screen.findByRole('tabpanel', {
+        name: section === 'duplicates' ? 'Duplicates' : 'General',
+      });
+      return screen.getByRole('combobox', { name: 'Search settings' });
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it('focuses search with Cmd+F on macOS', async () => {
+      const search = await openOn('MacIntel');
+      screen.getByRole('tab', { name: 'General' }).focus();
+      await userEvent.keyboard('{Meta>}f{/Meta}');
+      expect(search).toHaveFocus();
+    });
+
+    it('leaves Ctrl+F alone on macOS', async () => {
+      await openOn('MacIntel', 'duplicates');
+      const dir = document.getElementById(
+        'setting-dedupe-quarantine-dir',
+      ) as HTMLInputElement;
+      dir.focus();
+      const notPrevented = fireEvent.keyDown(dir, {
+        key: 'f',
+        code: 'KeyF',
+        ctrlKey: true,
+      });
+      expect(notPrevented).toBe(true);
+      expect(dir).toHaveFocus();
+    });
+
+    it('focuses search with Ctrl+F on Windows, not with the Windows key', async () => {
+      const search = await openOn('Win32');
+      const tab = screen.getByRole('tab', { name: 'General' });
+      tab.focus();
+      await userEvent.keyboard('{Meta>}f{/Meta}');
+      expect(tab).toHaveFocus();
+      await userEvent.keyboard('{Control>}f{/Control}');
+      expect(search).toHaveFocus();
+    });
+
+    it('still focuses search with Shift+Cmd+F', async () => {
+      const search = await openOn('MacIntel');
+      screen.getByRole('tab', { name: 'General' }).focus();
+      await userEvent.keyboard('{Shift>}{Meta>}F{/Meta}{/Shift}');
+      expect(search).toHaveFocus();
+    });
+
+    it('focuses search with a slash outside a text field and types it inside one', async () => {
+      const search = await openOn('MacIntel', 'duplicates');
+      const dir = document.getElementById(
+        'setting-dedupe-quarantine-dir',
+      ) as HTMLInputElement;
+      await userEvent.click(dir);
+      await userEvent.keyboard('/');
+      expect(dir).toHaveFocus();
+      expect(dir.value).toContain('/');
+      screen.getByRole('tab', { name: 'Duplicates' }).focus();
+      await userEvent.keyboard('/');
+      expect(search).toHaveFocus();
+      expect(search).toHaveValue('');
+    });
+
+    it('lists one result for rar and lands on the external tools switch with Enter', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      const results = screen.getByRole('listbox');
+      expect(within(results).getAllByRole('option')).toHaveLength(1);
+      expect(
+        within(results).getByRole('option', {
+          name: /External programs for RAR/,
+        }),
+      ).toHaveTextContent('Organise › Advanced options');
+      expect(search).toHaveAttribute('aria-expanded', 'true');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        'settings-result-0',
+      );
+      await userEvent.keyboard('{Enter}');
+      const tools = await screen.findByRole('switch', {
+        name: 'External programs for RAR',
+      });
+      await waitFor(() => expect(tools).toHaveFocus());
+      expect(useNavStore.getState().section).toBe('organize');
+      expect(useNavStore.getState().openFolds).toContain('organize-advanced');
+      expect(search).toHaveValue('');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('clears with Escape and then returns to the selected tab', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      await userEvent.keyboard('{Escape}');
+      expect(search).toHaveValue('');
+      expect(search).toHaveFocus();
+      expect(screen.getByRole('tabpanel', { name: 'General' })).toBeVisible();
+      await userEvent.keyboard('{Escape}');
+      expect(screen.getByRole('tab', { name: 'General' })).toHaveFocus();
+    });
+
+    it('clears with the clear button', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Clear search' }),
+      );
+      expect(search).toHaveValue('');
+      expect(search).toHaveFocus();
+    });
+
+    it('moves the active option with the arrow keys, wrapping', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'region');
+      const options = within(screen.getByRole('listbox')).getAllByRole(
+        'option',
+      );
+      expect(options.length).toBeGreaterThan(1);
+      expect(options[0]).toHaveAttribute('aria-selected', 'true');
+      await userEvent.keyboard('{ArrowDown}');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        'settings-result-1',
+      );
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
+      expect(options[0]).toHaveAttribute('aria-selected', 'false');
+      await userEvent.keyboard('{ArrowUp}{ArrowUp}');
+      expect(search).toHaveAttribute(
+        'aria-activedescendant',
+        `settings-result-${options.length - 1}`,
+      );
+    });
+
+    it('announces the count once typing stops', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const search = await openOn('MacIntel');
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        await user.type(search, 'rar');
+        const live = screen.getByTestId('settings-search-count');
+        expect(live).toHaveAttribute('aria-live', 'polite');
+        expect(live).toHaveTextContent('');
+        act(() => vi.advanceTimersByTime(300));
+        expect(live).toHaveTextContent('1 setting');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says when nothing matches, with the query', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'zzz');
+      expect(
+        await screen.findByText('No setting matches "zzz".'),
+      ).toBeInTheDocument();
+      expect(search).not.toHaveAttribute('aria-activedescendant');
+    });
+
+    it('finds Send to the Trash from papelera in English', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'papelera');
+      expect(
+        within(screen.getByRole('listbox')).getByRole('option', {
+          name: /Send to the Trash/,
+        }),
+      ).toBeInTheDocument();
+    });
   });
 });

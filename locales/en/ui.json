@@ -53,6 +53,15 @@
     "moreInfo": "More information",
     "lessInfo": "Less information",
     "saved": "Saved.",
+    "search": {
+      "label": "Search settings",
+      "placeholder": "Search…",
+      "clear": "Clear search",
+      "countOne": "1 setting",
+      "count": "{count} settings",
+      "none": "No setting matches \"{query}\".",
+      "where": "{section} › {fold}"
+    },
     "notice": {
       "migrated": "Your earlier library settings were moved into the new settings file.",
       "reset-corrupt": "The settings file could not be read, so the defaults are in use. The old file was kept: {backup}",
