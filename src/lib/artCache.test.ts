@@ -95,6 +95,9 @@ describe('art cache', () => {
     const key = dedupeArtKey(7, 3, null, 'cover');
     expect(key).toBe('dedupe:7:3:g:cover');
     expect(dedupeArtKey(7, 3, 2, 'title')).toBe('dedupe:7:3:2:title');
+    // A cover names its keeper; a copy's own art does not depend on it.
+    expect(dedupeArtKey(7, 3, null, 'cover', 1)).toBe('dedupe:7:3:g:cover:k1');
+    expect(dedupeArtKey(7, 3, 2, 'cover', 1)).toBe('dedupe:7:3:2:cover');
 
     const [a, b] = await Promise.all([
       loadUrl(key, fetch),

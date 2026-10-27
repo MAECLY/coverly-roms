@@ -34,7 +34,8 @@ function artMime(bytes: Uint8Array): string {
  * A duplicate group's cover (`member` null) or a copy's own art, through the
  * shared object-URL cache. A group without art is remembered as missing until
  * the cache is cleared, so scrolling never asks twice. `planId` undefined or
- * `enabled` false stays `loading` without a request.
+ * `enabled` false stays `loading` without a request. A cover passes the
+ * group's `keeper`, so a new keeper asks again.
  */
 export function useDedupeArt(
   planId: number | undefined,
@@ -42,10 +43,13 @@ export function useDedupeArt(
   member: number | null,
   media: MediaView,
   enabled: boolean,
+  keeper?: number,
 ): DedupeArtState {
   const active = enabled && planId !== undefined;
   const key =
-    planId === undefined ? '' : dedupeArtKey(planId, group, member, media);
+    planId === undefined
+      ? ''
+      : dedupeArtKey(planId, group, member, media, keeper);
   const cached = active ? peekArtUrl(key) : null;
   const missing = active && !cached && isMissingUrl(key);
   const [loaded, setLoaded] = useState<{

@@ -95,6 +95,36 @@ describe('GroupCover', () => {
     expect(art).not.toHaveBeenCalled();
   });
 
+  it('asks again when another keeper changes whose art is the cover', async () => {
+    // Rust resolves the cover keeper first (D4), under the same plan id.
+    const art = resolves();
+    const g = fixtureGroup('Tetris');
+    const other = g.members.find((m) => m.id !== g.keeper)!;
+    const { container, rerender } = renderIn(
+      <GroupCover planId={3} group={g} enabled />,
+    );
+    await waitFor(() =>
+      expect(container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:art-0',
+      ),
+    );
+    rerender(
+      <I18nProvider locale="es">
+        <TooltipProvider delayDuration={0}>
+          <GroupCover planId={3} group={{ ...g, keeper: other.id }} enabled />
+        </TooltipProvider>
+      </I18nProvider>,
+    );
+    await waitFor(() =>
+      expect(container.querySelector('img')).toHaveAttribute(
+        'src',
+        'blob:art-1',
+      ),
+    );
+    expect(art).toHaveBeenCalledTimes(2);
+  });
+
   it('names a title screen used as the cover', async () => {
     const art = resolves();
     const g = fixtureGroup('Ecco the Dolphin');

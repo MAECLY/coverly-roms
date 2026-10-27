@@ -74,7 +74,14 @@ export function GroupCover({
 }: GroupCoverProps) {
   const t = useT();
   const { media, caption } = coverMedia(group);
-  const art = useDedupeArt(planId, group.id, null, media, enabled);
+  const art = useDedupeArt(
+    planId,
+    group.id,
+    null,
+    media,
+    enabled,
+    group.keeper,
+  );
   // No copy has art in that media, yet bytes came: the libretro cache.
   const fromCache = art.status === 'ready' && coverArt(group, media) === null;
 

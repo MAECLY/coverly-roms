@@ -74,12 +74,20 @@ export function loadArtUrl(
   });
 }
 
+/**
+ * A dedupe image's cache key. A group cover (`member` null) also names the
+ * keeper it was resolved for: Rust looks keeper first (D4), so picking
+ * another keeper under the same plan id may change the bytes.
+ */
 export const dedupeArtKey = (
   plan: number,
   group: number,
   member: number | null,
   media: MediaView,
-) => `dedupe:${plan}:${group}:${member ?? 'g'}:${media}`;
+  keeper?: number,
+) =>
+  `dedupe:${plan}:${group}:${member ?? 'g'}:${media}` +
+  (member === null && keeper !== undefined ? `:k${keeper}` : '');
 
 /** Keys the backend answered `art-missing` for, so a scroll never re-asks. */
 const missing = new Set<string>();
