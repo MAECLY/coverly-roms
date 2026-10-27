@@ -222,3 +222,19 @@ fn modification_tag_detector_reads_decomposed_file_names() {
     assert!(has_modification_tag("Mother 3 Traduccio\u{301}n"));
     assert!(has_modification_tag("Mother 3 Traducción"));
 }
+
+#[test]
+fn a_hack_named_after_its_base_game_is_a_hack() {
+    // Real file names: `Pokemon Ultra Violet (1.22) LSA (Fire Red Hack)`,
+    // `Pokemon Jupiter - 6.04 (Ruby Hack)`.
+    for name in [
+        "Pokemon Ultra Violet (Fire Red Hack)",
+        "Pokemon Jupiter (Ruby Hack)",
+        "Super Mario Land (World) (Sound Restoration Hack)",
+    ] {
+        let tags = parse_tags(name);
+        assert_eq!(tags.modification, ModClass::Hack, "{name}");
+        assert!(tags.unknown_groups.is_empty(), "{name}");
+    }
+    assert_eq!(parse_tags("Hackers (USA)").modification, ModClass::Original);
+}

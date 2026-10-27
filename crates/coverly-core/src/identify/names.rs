@@ -639,9 +639,13 @@ fn goodtools_modification(g: &str) -> Option<ModClass> {
     }
 }
 
-/// `(Hack)`, `(Translated En)`, `(Unl)`, `(Pirate)`.
+/// `(Hack)`, `(Translated En)`, `(Unl)`, `(Pirate)`, and a hack named
+/// after its base game: `(Fire Red Hack)`, `(Sound Restoration Hack)`.
 fn word_modification(g: &str) -> Option<ModClass> {
     let lower = g.to_lowercase();
+    if matches!(lower.split_whitespace().last(), Some("hack" | "hacked")) {
+        return Some(ModClass::Hack);
+    }
     let first = lower.split_whitespace().next()?;
     match first {
         "hack" | "hacked" => Some(ModClass::Hack),
