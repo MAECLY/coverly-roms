@@ -253,7 +253,7 @@ export function AdvancedFold({
       <CollapsibleContent
         forceMount
         hidden={!open}
-        className="grid gap-4 data-[state=closed]:hidden"
+        className="settings-fold__content grid gap-4 data-[state=closed]:hidden"
       >
         {children}
       </CollapsibleContent>

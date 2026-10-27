@@ -59,6 +59,16 @@ describe('arrival mark', () => {
   });
 });
 
+describe('advanced fold content', () => {
+  it('pads out past the mark without moving its rows', () => {
+    // The mark reaches var(--cr-space-2) + 3px past a row; the fold content
+    // clips, so it gives var(--cr-space-3) on every side and takes it back.
+    const body = rule('.settings-fold__content');
+    expect(body).toMatch(/margin: calc\(-1 \* var\(--cr-space-3\)\);/);
+    expect(body).toMatch(/padding: var\(--cr-space-3\);/);
+  });
+});
+
 describe('settings tab list in forced colours', () => {
   it('keeps the selected tab bar as a system colour', () => {
     const forced = forcedRule(

@@ -1982,6 +1982,14 @@ time {
   transition: none;
 }
 
+/* The fold content clips (its open animation needs overflow hidden): pad it
+   out to the mark's reach (space-2 + 3px bar) and take the room back, so
+   the rows stay where they are and the mark is never cut. */
+.settings-fold__content {
+  margin: calc(-1 * var(--cr-space-3));
+  padding: var(--cr-space-3);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-setting-row] {
     transition: none;

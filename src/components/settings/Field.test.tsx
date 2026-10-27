@@ -85,6 +85,15 @@ describe('settings primitives', () => {
     expect(trigger.closest('[data-advanced-fold="t"]')).not.toBeNull();
   });
 
+  it('advanced_fold_leaves_room_for_the_arrival_mark', () => {
+    renderIn(<Fold />);
+    // The fold content clips (its open animation needs overflow hidden), so
+    // it carries the class that pads it out to the mark's reach.
+    const area = document.getElementById('setting-library-ignored-dirs');
+    const content = area!.closest('[data-setting-row]')!.parentElement!;
+    expect(content).toHaveClass('settings-fold__content');
+  });
+
   it('advanced_fold_keeps_a_draft_when_closed', async () => {
     const user = userEvent.setup();
     renderIn(<Fold />);
