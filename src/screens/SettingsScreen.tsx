@@ -30,7 +30,6 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
@@ -113,8 +112,14 @@ export function SettingsScreen() {
   const [query, setQueryState] = useState('');
   const [active, setActive] = useState(0);
   const results = useMemo(() => searchSettings(query, locale), [query, locale]);
-  // The live count waits for typing to stop (spec §6.5).
-  const settled = useDebouncedValue(query, 300);
+  // The live count waits for typing to stop (spec §6.5); a cleared field
+  // forgets it at once, so a new search never shows the last one's count.
+  const [settled, setSettled] = useState('');
+  useEffect(() => {
+    if (query === '') return;
+    const timer = window.setTimeout(() => setSettled(query), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
   const settledResults = useMemo(
     () => (settled === query ? results : searchSettings(settled, locale)),
     [settled, query, results, locale],
@@ -122,6 +127,7 @@ export function SettingsScreen() {
   function setQuery(q: string) {
     setQueryState(q);
     setActive(0);
+    if (q === '') setSettled('');
   }
   function choose(entry: SettingEntry) {
     setQuery('');
@@ -345,6 +351,9 @@ export function SettingsScreen() {
                     )}
                     <TabsTrigger
                       value={s}
+                      // The selected tab's own click leaves the results
+                      // for its panel (a change of tab clears them too).
+                      onClick={() => setQuery('')}
                       aria-describedby={first ? labelId : undefined}
                       data-group-start={first ? '' : undefined}
                     >

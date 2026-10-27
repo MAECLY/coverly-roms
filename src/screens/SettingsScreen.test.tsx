@@ -687,5 +687,39 @@ describe('Settings screen', () => {
         }),
       ).toBeInTheDocument();
     });
+
+    it('shows the selected tab again when its tab is clicked during a search', async () => {
+      const search = await openOn('MacIntel');
+      await userEvent.type(search, 'rar');
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('tab', { name: 'General' }));
+      expect(search).toHaveValue('');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(screen.getByRole('tabpanel', { name: 'General' })).toBeVisible();
+    });
+
+    it('does not show the count of an earlier search while a new one settles', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const search = await openOn('MacIntel');
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        await user.type(search, 'rar');
+        act(() => vi.advanceTimersByTime(300));
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          '1 setting',
+        );
+        await user.keyboard('{Escape}');
+        await user.type(search, 'zzz');
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          '',
+        );
+        act(() => vi.advanceTimersByTime(300));
+        expect(screen.getByTestId('settings-search-count')).toHaveTextContent(
+          'No setting matches "zzz".',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
