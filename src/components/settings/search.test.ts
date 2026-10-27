@@ -58,6 +58,30 @@ describe('searchSettings', () => {
     );
   });
 
+  it('ranks a match in the current language above the same match in another', () => {
+    // «Formato de salida» / "Output format" and «Orden de formatos por
+    // perfil» / "Format order per profile": each is a label prefix in one
+    // language only, so the UI language decides which comes first.
+    const output: SettingEntry = {
+      id: 'setting-output',
+      section: 'art',
+      label: 'settings.art.format',
+    };
+    const order: SettingEntry = {
+      id: 'setting-order',
+      section: 'duplicates',
+      label: 'settings.dedupe.containerOrder',
+    };
+    expect(searchSettings('format', 'es', [order, output])).toEqual([
+      output,
+      order,
+    ]);
+    expect(searchSettings('format', 'en', [output, order])).toEqual([
+      order,
+      output,
+    ]);
+  });
+
   it('finds the external tools by rar', () => {
     expect(searchSettings('rar', 'es').map((e) => e.id)).toEqual([
       'setting-organize-external-tools',
