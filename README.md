@@ -287,12 +287,20 @@ More detail: [docs/04-architecture/art-sources.md](docs/04-architecture/art-sour
 Download the file for your computer from the
 [latest release](https://github.com/MAECLY/coverly-roms/releases/latest):
 
-| System                                      | File                                                                                |
-| ------------------------------------------- | ----------------------------------------------------------------------------------- |
-| macOS 11 or newer (Apple silicon and Intel) | `Coverly.ROMs_<version>_universal.dmg`                                              |
-| Windows 10/11 (x64)                         | `Coverly.ROMs_<version>_x64-setup.exe` (recommended) or `.msi`                      |
-| Linux (x64, ARM64)                          | `.AppImage` or `.deb`                                                               |
-| Command line (`coverly`)                    | `coverly-<version>-<os>-<arch>` (`darwin`, `windows`, `linux`; `x86_64`, `aarch64`) |
+| System                                         | File                                                                                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS 11 or later, Apple silicon (M1 or newer) | `Coverly-ROMs_<version>_mac_arm.dmg`                                                                                                                                             |
+| macOS 11 or later, Intel                       | `Coverly-ROMs_<version>_mac_intel.dmg`                                                                                                                                           |
+| Windows 10/11 (x64)                            | `Coverly-ROMs_<version>_windows_x64-setup.exe` (recommended); stable releases also `Coverly-ROMs_<version>_windows_x64.msi`                                                      |
+| Windows 11 (ARM64)                             | `Coverly-ROMs_<version>_windows_arm-setup.exe` (recommended); stable releases also `Coverly-ROMs_<version>_windows_arm.msi`                                                      |
+| Linux x64                                      | `Coverly-ROMs_<version>_linux_x64.AppImage` or `Coverly-ROMs_<version>_linux_x64.deb`                                                                                            |
+| Linux ARM64                                    | `Coverly-ROMs_<version>_linux_arm.AppImage` or `Coverly-ROMs_<version>_linux_arm.deb`                                                                                            |
+| Command line                                   | `coverly_<version>_<system>` (`mac_arm`, `mac_intel`, `windows_x64.exe`, `windows_arm.exe`, `linux_x64`, `linux_arm`); once installed, `coverly update install` keeps it current |
+
+Not sure which Mac you have? Apple menu → About This Mac:
+"Chip" means Apple silicon, "Processor" means Intel. On a Windows ARM64 PC,
+install the ARM64 build; a copy of the x64 build installed earlier keeps
+working and updating as x64.
 
 Check the file against `SHA256SUMS` from the same release, for example
 `shasum -a 256 -c SHA256SUMS --ignore-missing` (macOS),
@@ -319,7 +327,7 @@ Check the file against `SHA256SUMS` from the same release, for example
 > Terminal you can also try to open it once, then go to **System Settings →
 > Privacy & Security**, scroll down and click **Open Anyway**. The `coverly`
 > binary for macOS is quarantined the same way when a browser downloads it:
-> `xattr -d com.apple.quarantine coverly-<version>-darwin-<arch>`.
+> `xattr -d com.apple.quarantine coverly_<version>_mac_arm` (or `_mac_intel`).
 >
 > </details>
 >
@@ -330,9 +338,9 @@ Check the file against `SHA256SUMS` from the same release, for example
 > with **Publisher: Unknown Publisher** instead, choose **Run**. With Smart App
 > Control turned on there is no **Run anyway**: it blocks unsigned apps, and
 > turning it off may not be reversible without reinstalling Windows.
-> Coverly ROMs needs Windows 10 or 11 on x64. The `-setup.exe` installs for your
-> user without administrator rights; the `.msi` installs for every user. Both
-> use Microsoft Edge WebView2: Windows 11 has it, and on Windows 10 the
+> Coverly ROMs needs Windows 10/11 (x64) or Windows 11 (ARM64). The
+> `-setup.exe` installs for your user without administrator rights; the `.msi`
+> installs for every user. Both use Microsoft Edge WebView2: Windows 11 has it, and on Windows 10 the
 > installer downloads it if it is missing (that needs internet).
 >
 > </details>
@@ -342,9 +350,9 @@ Check the file against `SHA256SUMS` from the same release, for example
 >
 > Mark the AppImage executable (`chmod +x`) if your file manager has not. The
 > `.deb` depends on `libwebkit2gtk-4.1-0` and `libgtk-3-0`;
-> `sudo apt install ./Coverly.ROMs_<version>_amd64.deb` (or `_arm64.deb`) pulls
-> them in. Both are built on Ubuntu 22.04 for x64 and ARM64, so they need glibc
-> 2.35 or newer (Ubuntu 22.04, Debian 12 or later).
+> `sudo apt install ./Coverly-ROMs_<version>_linux_x64.deb` (or
+> `_linux_arm.deb`) pulls them in. Both are built on Ubuntu 22.04 for x64 and
+> ARM64, so they need glibc 2.35 or newer (Ubuntu 22.04, Debian 12 or later).
 >
 > </details>
 
