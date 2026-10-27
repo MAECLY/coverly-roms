@@ -142,11 +142,24 @@
   .ws-tab {
     fill: Canvas;
   }
+  /* The tab sits on Canvas with no stroke of its own; outline it. */
+  .ws-tab {
+    stroke: CanvasText;
+    stroke-width: 0.7;
+  }
+  .ws-cap,
   .ws-sleeve.is-solid,
-  .ws-spine,
+  .ws-spine {
+    stroke: Highlight;
+  }
+  .ws-sleeve.is-solid,
+  .ws-spine {
+    fill: Highlight;
+  }
+  /* The tick stays an open stroke: a fill would paint the triangle under it. */
   .ws-check {
     stroke: Highlight;
-    fill: Highlight;
+    fill: none;
   }
   .ws-plate {
     forced-color-adjust: auto;
