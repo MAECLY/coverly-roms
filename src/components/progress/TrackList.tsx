@@ -46,7 +46,9 @@ interface RowProps {
 const Row = memo(
   function Row({ row, stateText, locale }: RowProps) {
     const done = row.state === 'done';
-    const cut = Math.max(0, row.name.length - TAIL);
+    // By code point, so an astral character never straddles the two spans.
+    const chars = Array.from(row.name);
+    const cut = Math.max(0, chars.length - TAIL);
     return (
       <li
         data-index={row.index}
@@ -63,9 +65,11 @@ const Row = memo(
         />
         <span className="mono min-w-0 overflow-hidden whitespace-nowrap">
           <bdi title={row.full} className="flex min-w-0">
-            <span className="tl-head truncate">{row.name.slice(0, cut)}</span>
+            <span className="tl-head truncate">
+              {chars.slice(0, cut).join('')}
+            </span>
             <span className="tl-tail shrink-0 whitespace-pre">
-              {row.name.slice(cut)}
+              {chars.slice(cut).join('')}
             </span>
           </bdi>
         </span>

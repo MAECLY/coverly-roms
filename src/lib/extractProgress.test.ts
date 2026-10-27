@@ -345,6 +345,17 @@ describe('middleTruncate', () => {
     expect(middleTruncate('Tetris.bin', 2).length).toBe(2);
   });
 
+  it('never cuts a character in half', () => {
+    const lone =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    const name = '🎮'.repeat(30);
+    for (let max = 2; max < 30; max++) {
+      const s = middleTruncate(name, max);
+      expect(s).not.toMatch(lone);
+      expect([...s].length).toBe(max);
+    }
+  });
+
   it('leaves short names alone', () => {
     expect(middleTruncate('Game.cue', 24)).toBe('Game.cue');
   });

@@ -73,10 +73,13 @@ export function targetDir(root: string, target: string): string {
 
 /** Shortens a name in the middle, keeping more of its end (track number, extension). */
 export function middleTruncate(name: string, max = 36): string {
-  if (name.length <= max) return name;
+  // By code point: a name from an archive may hold astral characters, and
+  // a cut between two UTF-16 units would draw two replacement glyphs.
+  const chars = Array.from(name);
+  if (chars.length <= max) return name;
   if (max < 2) return '…'.slice(0, Math.max(0, max));
   const tail = Math.ceil((max - 1) * 0.6);
-  return `${name.slice(0, max - 1 - tail)}…${name.slice(-tail)}`;
+  return `${chars.slice(0, max - 1 - tail).join('')}…${chars.slice(-tail).join('')}`;
 }
 
 export function extractView(

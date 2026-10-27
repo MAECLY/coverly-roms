@@ -139,6 +139,23 @@ describe('TrackList', () => {
     expect(long.querySelector('.tl-tail')!.textContent).toBe(' (Track 18).bin');
   });
 
+  it('never splits a character between the head and the tail of a name', () => {
+    // An astral character (two UTF-16 units) straddling the 15th code unit
+    // from the end: a code-unit split would leave a lone surrogate per span.
+    const name = 'Tetris Plus 🎮(Track 01).bin';
+    const rows = makeRows(0, 1).map((r) => ({ ...r, name, full: name }));
+    renderList({ rows });
+    const bdi = within(screen.getByRole('list'))
+      .getAllByRole('listitem')[0]!
+      .querySelector('bdi')!;
+    const lone =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const part of ['.tl-head', '.tl-tail']) {
+      expect(bdi.querySelector(part)!.textContent).not.toMatch(lone);
+    }
+    expect(bdi.textContent).toBe(name);
+  });
+
   it('shows sizes in decimal units', () => {
     renderList();
     const items = within(screen.getByRole('list')).getAllByRole('listitem');
