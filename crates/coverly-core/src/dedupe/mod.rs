@@ -16,6 +16,7 @@ use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 
 pub mod apply;
 pub mod archive;
+pub mod art;
 pub mod companions;
 pub mod disc;
 pub mod facts;
