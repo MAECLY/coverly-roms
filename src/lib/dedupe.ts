@@ -448,20 +448,29 @@ function discCount(unit: UnitRefView): number {
 
 /** `ZIP`, `7Z`, `CUE/BIN`, `GDI`, `CCD/IMG`, `CHD`, `PBP`, `ISO`, `M3U`, `GB`… (spec D8). */
 export function formatOf(unit: UnitRefView, t: Translate): string {
+  return formatItems(unit, t).join(' · ');
+}
+
+/**
+ * `formatOf` as separate inline items: a playlist is `['M3U', '3 discos']`,
+ * every other kind one item. The facts line renders each on its own,
+ * with gap spacing and no dots (spec §7.2).
+ */
+export function formatItems(unit: UnitRefView, t: Translate): string[] {
   const ext = extOf(unit.primary);
   switch (unit.kind) {
     case 'arcade':
-      return `${ext} (${t('dedupe.format.arcade')})`;
+      return [`${ext} (${t('dedupe.format.arcade')})`];
     case 'disc-set':
-      return ext === 'GDI' ? 'GDI' : ext === 'CCD' ? 'CCD/IMG' : 'CUE/BIN';
+      return [ext === 'GDI' ? 'GDI' : ext === 'CCD' ? 'CCD/IMG' : 'CUE/BIN'];
     case 'chd':
-      return 'CHD';
+      return ['CHD'];
     case 'multi-disc':
-      return `M3U · ${t('dedupe.format.discs', { count: discCount(unit) })}`;
+      return ['M3U', t('dedupe.format.discs', { count: discCount(unit) })];
     case 'zip':
     case 'image':
     case 'single':
-      return ext;
+      return [ext];
   }
 }
 

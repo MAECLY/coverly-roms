@@ -123,6 +123,29 @@ describe('CopyFacts', () => {
     expect(screen.queryByText(/Partida|Jugada|Sin partida/)).toBeNull();
   });
 
+  it('shows a playlist and its disc count as two items, with no dot', () => {
+    const base = copy('Crash Bash', 2);
+    const m: MemberView = {
+      ...base,
+      unit: {
+        ...base.unit,
+        kind: 'multi-disc',
+        primary: '/SD/ROMS/PS/FF7.m3u',
+        files: [
+          '/SD/ROMS/PS/FF7.m3u',
+          '/SD/ROMS/PS/FF7 1.chd',
+          '/SD/ROMS/PS/FF7 2.chd',
+        ],
+      },
+    };
+    const { container } = renderIn(<CopyFacts member={m} />);
+    const items = [...container.querySelectorAll('.dup-facts__item')].map(
+      (e) => e.textContent,
+    );
+    expect(items.slice(0, 2)).toEqual(['M3U', '2 discos']);
+    expect(container.textContent).not.toContain('·');
+  });
+
   it('says «Sin partida» only when asked', () => {
     const m = copy('Crash Bash', 2);
     const { unmount } = renderIn(<CopyFacts member={m} />);

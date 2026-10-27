@@ -18,7 +18,7 @@ import type {
 } from '@/ipc/dedupeTypes';
 import {
   formatBytes,
-  formatOf,
+  formatItems,
   newestMtime,
   ruleKey,
   tagChips,
@@ -101,9 +101,14 @@ export function CopyFacts({ member, showNoSave = false }: CopyFactsProps) {
     <div className="dup-facts">
       {chips.length > 0 && <Tags chips={chips} />}
       <span className="dup-facts__line">
-        <span className="dup-facts__item dup-mono">
-          {formatOf(member.unit, t)}
-        </span>
+        {formatItems(member.unit, t).map((item, i) => (
+          <span
+            key={item}
+            className={cn('dup-facts__item', i === 0 && 'dup-mono')}
+          >
+            {item}
+          </span>
+        ))}
         <span className="dup-facts__item dup-mono">
           {formatBytes(member.size, locale)}
         </span>

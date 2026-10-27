@@ -30,6 +30,7 @@ import {
   destOf,
   extrasFor,
   formatBytes,
+  formatItems,
   formatOf,
   levelCounts,
   newestMtime,
@@ -508,6 +509,10 @@ describe('formatOf', () => {
     });
     expect(formatOf(u, tr('es'))).toBe('M3U · 3 discos');
     expect(formatOf(u, tr('en'))).toBe('M3U · 3 discs');
+    expect(formatItems(u, tr('es'))).toEqual(['M3U', '3 discos']);
+    expect(formatItems(unit('/SD/ROMS/GB/Tetris.gb', 'single'), t)).toEqual([
+      'GB',
+    ]);
   });
 
   it('multi_disc_counts_discs_not_the_tracks_of_their_sheets', () => {
