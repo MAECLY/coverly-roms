@@ -471,8 +471,6 @@
       "row": "Different save: {path}",
       "badge": "Different saves",
       "note": "Nothing in this game will be touched. Look at the saves and decide by hand which copy you play.",
-      "openFolder": "Open folder",
-      "openFolderOf": "Open the folder of {path}",
       "alertOne": "1 game has copies with different saves. Nothing in it will be touched.",
       "show": "Show"
     },
@@ -609,7 +607,16 @@
     "freed": "Out of {folder}: {bytes}",
     "freedLibrary": "Out of the library: {bytes}",
     "sameVolumeNote": "The card is just as full until you empty {quarantine} or move it to your computer.",
-    "openFolder": "Open {folder}",
+    "revealCopy": {
+      "mac": "Reveal {name} in Finder",
+      "win": "Show {name} in Explorer",
+      "other": "Show {name} in its folder"
+    },
+    "revealFolder": {
+      "mac": "Reveal {folder} in Finder",
+      "win": "Show {folder} in Explorer",
+      "other": "Show {folder} in its folder"
+    },
     "partial": "Set aside: {done} · Left alone: {skipped}",
     "undo": {
       "title": "Put {count} files back?",

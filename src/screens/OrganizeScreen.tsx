@@ -833,6 +833,7 @@ function DuplicatesSection({
                 profileName={profileName}
                 pickable={false}
                 reportOnly={!leaves}
+                onReveal={(p) => void useOrganizeStore.getState().reveal(p)}
               />
             ))}
             {shown.length < groups.length && (

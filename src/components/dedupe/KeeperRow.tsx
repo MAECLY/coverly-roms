@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { RevealButton } from '@/components/dedupe/RevealButton';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroupItem } from '@/components/ui/radio-group';
 import { useT } from '@/i18n/useT';
@@ -26,6 +27,10 @@ export interface KeeperRowProps {
   rule?: ReactNode;
   /** The copy's own thumbnail, when its art differs from the cover. */
   art?: ReactNode;
+  /** Where the copy is now (DP-4); `null` once it went to the Trash. */
+  place?: string | null;
+  /** Show the copy in the file manager; without it, no reveal button. */
+  onReveal?: ((path: string) => void) | undefined;
   idPrefix: string;
 }
 
@@ -57,6 +62,8 @@ export function KeeperRow({
   copyNumber,
   rule,
   art,
+  place = member.unit.primary,
+  onReveal,
   idPrefix,
 }: KeeperRowProps) {
   const t = useT();
@@ -86,6 +93,9 @@ export function KeeperRow({
       <span className="dup-row__meta">
         {art}
         <Badge variant="primary">{t('dedupe.keeper')}</Badge>
+        {onReveal && (
+          <RevealButton path={place} name={name} onReveal={onReveal} />
+        )}
       </span>
       <div className="dup-row__facts">
         <CopyFacts member={member} />

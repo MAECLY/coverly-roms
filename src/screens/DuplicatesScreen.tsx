@@ -395,6 +395,9 @@ function Proposal({
   const epoch = useDedupeStore((s) => s.epoch);
   const busy = useDedupeStore((s) => s.busy);
   const exported = useDedupeStore((s) => s.exported);
+  // After an apply (and until undo), a copy set aside is revealed in the
+  // quarantine, one sent to the Trash not at all (DP-4).
+  const outcomes = useDedupeStore((s) => s.job?.report?.outcomes ?? null);
   const [confirm, setConfirm] = useState<ApplyConfirm | null>(null);
   const store = useDedupeStore.getState;
 
@@ -551,6 +554,7 @@ function Proposal({
               onSkipSystem={(s) => void store().skipSystem(s, true)}
               onResetSystem={(s) => void store().resetRules(s)}
               onReveal={(path) => void store().reveal(path)}
+              outcomes={outcomes}
             />
           ))}
           <UnchangedList

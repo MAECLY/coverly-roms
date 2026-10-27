@@ -926,6 +926,24 @@ describe('OrganizeScreen', () => {
       expect(container.querySelector('.dup-own-art')).toBeNull();
     });
 
+    it('a pile copy reveals its own file', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      const reveal = vi.spyOn(b, 'revealPath');
+      const group = screen.getByRole('group', {
+        name: 'Super Mario Land (World) (Rev 1)',
+      });
+      const button = within(group).getByRole('button', {
+        name: /^Show Super Mario Land \(World\) \(1\)\.gb in its folder$/,
+      });
+      await userEvent.click(button);
+      expect(reveal).toHaveBeenCalledTimes(1);
+      expect(reveal.mock.calls[0]![0]).toMatch(
+        /Super Mario Land \(World\) \(1\)\.gb$/,
+      );
+      await waitFor(() => expect(useOrganizeStore.getState().error).toBeNull());
+    });
+
     it('the_picker_starts_from_the_setting', async () => {
       await b.updateSettings({ dedupe: { organize_step: 'off' } });
       renderScreen(MOCK_MIXED);

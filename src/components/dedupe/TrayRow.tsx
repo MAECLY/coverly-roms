@@ -8,6 +8,7 @@ import { TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { RevealButton } from '@/components/dedupe/RevealButton';
 import { CopyNumber } from '@/components/dedupe/KeeperRow';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroupItem } from '@/components/ui/radio-group';
@@ -74,6 +75,10 @@ export interface TrayRowProps {
   copyNumber?: number | undefined;
   /** The copy's own thumbnail, when its art differs from the cover. */
   art?: ReactNode;
+  /** Where the copy is now (DP-4); `null` once it went to the Trash. */
+  place?: string | null;
+  /** Show the copy in the file manager; without it, no reveal button. */
+  onReveal?: ((path: string) => void) | undefined;
   idPrefix: string;
 }
 
@@ -97,6 +102,8 @@ export function TrayRow({
   system,
   copyNumber,
   art,
+  place = member.unit.primary,
+  onReveal,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
@@ -153,6 +160,9 @@ export function TrayRow({
       <span className="dup-row__meta">
         {art}
         {showRelation && <RelationBadge member={member} />}
+        {onReveal && (
+          <RevealButton path={place} name={name} onReveal={onReveal} />
+        )}
       </span>
       <div className="dup-row__facts">
         <CopyFacts member={member} />

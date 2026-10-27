@@ -2,13 +2,14 @@
  * A group whose copies carry different real saves (spec §8.3). Nothing in
  * it moves, so there is no shelf, no tray and no radio: the copies and
  * their saves are listed side by side (tags, format, size, dates and each
- * copy's own save; numbers in mono),
- * each save with "Abrir carpeta", so you can decide by hand.
+ * copy's own save; numbers in mono). Each copy and each save can be shown
+ * in Finder / Explorer / its folder, so you can decide by hand.
  */
-import { FolderOpen, TriangleAlert } from 'lucide-react';
+import { FolderSearch, TriangleAlert } from 'lucide-react';
 import { useContext, useId } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { RevealButton } from '@/components/dedupe/RevealButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LocaleContext } from '@/i18n/core';
@@ -16,6 +17,7 @@ import { useT } from '@/i18n/useT';
 import type { DupGroupView } from '@/ipc/dedupeTypes';
 import { fileName, formatBytes } from '@/lib/dedupe';
 import { formatDate } from '@/lib/format';
+import { revealCopyKey, revealLabelKey } from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -70,7 +72,15 @@ export function ConflictGroup({ group, onReveal }: ConflictGroupProps) {
           <div key={m.id} className="dup-row">
             <span className="dup-row__pick" />
             <span className="dup-row__name">{fileName(m.unit.primary)}</span>
-            <span className="dup-row__meta" />
+            <span className="dup-row__meta">
+              {onReveal && (
+                <RevealButton
+                  path={m.unit.primary}
+                  name={fileName(m.unit.primary)}
+                  onReveal={onReveal}
+                />
+              )}
+            </span>
             <div className="dup-row__facts">
               <CopyFacts member={m} showNoSave />
             </div>
@@ -97,13 +107,11 @@ export function ConflictGroup({ group, onReveal }: ConflictGroupProps) {
                   variant="link"
                   size="sm"
                   className="dup-conflict__open"
-                  aria-label={t('dedupe.conflicts.openFolderOf', {
-                    path: s.path,
-                  })}
+                  aria-label={t(revealCopyKey(), { name: fileName(s.path) })}
                   onClick={() => onReveal(s.path)}
                 >
-                  <FolderOpen aria-hidden />
-                  {t('dedupe.conflicts.openFolder')}
+                  <FolderSearch aria-hidden />
+                  {t(revealLabelKey())}
                 </Button>
               </p>
             )}

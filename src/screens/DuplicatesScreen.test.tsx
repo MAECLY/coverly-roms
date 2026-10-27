@@ -264,6 +264,41 @@ describe('DuplicatesScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('the result reveals the duplicates folder in the words of each OS', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    );
+    renderScreen();
+    await ready();
+    const quarantine = plan().quarantine;
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Apartar 89 archivos' }),
+    );
+    await screen.findByText(/89 archivos apartados/);
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Mostrar _Duplicados en el Explorador',
+      }),
+    );
+    await waitFor(() => expect(b.revealedPaths).toEqual([quarantine]));
+  });
+
+  it('a copy reveals its own file from the shelf', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+    );
+    renderScreen();
+    await ready();
+    const g = plan().groups.find((x) => x.title === 'Ecco the Dolphin')!;
+    const keeper = g.members.find((m) => m.id === g.keeper)!;
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Mostrar Ecco the Dolphin.sms en Finder',
+      }),
+    );
+    await waitFor(() => expect(b.revealedPaths).toEqual([keeper.unit.primary]));
+  });
+
   it('undo from the result puts the files back', async () => {
     renderScreen();
     await ready();

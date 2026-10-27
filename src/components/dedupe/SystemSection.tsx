@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
-import type { DupGroupView } from '@/ipc/dedupeTypes';
+import type { DedupeOutcomeView, DupGroupView } from '@/ipc/dedupeTypes';
 import {
   WINDOW_ABOVE,
   formatBytes,
@@ -58,6 +58,8 @@ export interface SystemSectionProps {
   onSkipSystem?: ((system: string) => void) | undefined;
   onResetSystem?: ((system: string) => void) | undefined;
   onReveal?: ((path: string) => void) | undefined;
+  /** The last apply's outcomes, so each copy is revealed where it is. */
+  outcomes?: DedupeOutcomeView[] | null | undefined;
   /** The kept plan, for the groups' covers. */
   planId?: number | undefined;
 }
@@ -195,6 +197,7 @@ function Groups({
   onKeeperChange,
   onSkipChange,
   onReveal,
+  outcomes,
   planId,
 }: GroupsProps) {
   const windowed = groups.length > WINDOW_ABOVE;
@@ -215,6 +218,8 @@ function Groups({
         skipped={skipped?.has(g.id) ?? false}
         onKeeperChange={onKeeperChange}
         onSkipChange={onSkipChange}
+        onReveal={onReveal}
+        outcomes={outcomes}
         planId={planId}
         // Only rows the window mounted render here, so each may ask.
         artEnabled

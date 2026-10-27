@@ -471,8 +471,6 @@
       "row": "Partida distinta: {path}",
       "badge": "Partidas distintas",
       "note": "No se tocará nada en este juego. Mira las partidas y decide a mano qué copia juegas.",
-      "openFolder": "Abrir carpeta",
-      "openFolderOf": "Abrir carpeta de {path}",
       "alertOne": "1 juego tiene copias con partidas distintas. No se tocará nada en él.",
       "show": "Ver"
     },
@@ -609,7 +607,16 @@
     "freed": "Fuera de {folder}: {bytes}",
     "freedLibrary": "Fuera de la biblioteca: {bytes}",
     "sameVolumeNote": "La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador.",
-    "openFolder": "Abrir {folder}",
+    "revealCopy": {
+      "mac": "Mostrar {name} en Finder",
+      "win": "Mostrar {name} en el Explorador",
+      "other": "Mostrar {name} en su carpeta"
+    },
+    "revealFolder": {
+      "mac": "Mostrar {folder} en Finder",
+      "win": "Mostrar {folder} en el Explorador",
+      "other": "Mostrar {folder} en la carpeta"
+    },
     "partial": "Apartados: {done} · Sin tocar: {skipped}",
     "undo": {
       "title": "¿Devolver {count} archivos a su sitio?",

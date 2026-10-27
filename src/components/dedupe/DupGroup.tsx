@@ -26,10 +26,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup } from '@/components/ui/radio-group';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useT } from '@/i18n/useT';
-import type { DupGroupView } from '@/ipc/dedupeTypes';
+import type { DedupeOutcomeView, DupGroupView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
   coverMedia,
+  currentPath,
   fileName,
   reasonText,
   weakestExtra,
@@ -61,6 +62,11 @@ export interface DupGroupProps {
   planId?: number | undefined;
   /** The row is mounted by the group window: only then do covers load. */
   artEnabled?: boolean;
+  /** Show a copy in the file manager (DP-3); without it, no reveal. */
+  onReveal?: ((path: string) => void) | undefined;
+  /** The last apply's outcomes: a copy set aside is revealed where it
+   * went, one sent to the Trash not at all (DP-4). */
+  outcomes?: DedupeOutcomeView[] | null | undefined;
 }
 
 interface Pick {
@@ -79,6 +85,8 @@ export function DupGroup({
   onSkipChange,
   planId,
   artEnabled = true,
+  onReveal,
+  outcomes = null,
 }: DupGroupProps) {
   const t = useT();
   const uid = useId();
@@ -242,6 +250,8 @@ export function DupGroup({
           choiceDropped={group.choice_dropped && keeper === group.keeper}
           copyNumber={copyNumber(keeperMember.id)}
           art={ownArt(keeperMember)}
+          place={currentPath(keeperMember, group.id, outcomes)}
+          onReveal={onReveal}
           rule={
             <RuleChip
               reason={group.reason}
@@ -267,6 +277,8 @@ export function DupGroup({
               system={group.system}
               copyNumber={copyNumber(m.id)}
               art={ownArt(m)}
+              place={currentPath(m, group.id, outcomes)}
+              onReveal={onReveal}
               idPrefix={`${uid}-m${m.id}`}
             />
           ))}

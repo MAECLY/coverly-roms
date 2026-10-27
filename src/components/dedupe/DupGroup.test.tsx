@@ -6,7 +6,11 @@ import { DupGroup } from '@/components/dedupe/DupGroup';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
-import type { DupGroupView, MemberView } from '@/ipc/dedupeTypes';
+import type {
+  DedupeOutcomeView,
+  DupGroupView,
+  MemberView,
+} from '@/ipc/dedupeTypes';
 import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 
 const QUARANTINE = '/Volumes/SD/_Duplicados';
@@ -66,6 +70,8 @@ interface Opts {
   locale?: Locale;
   onKeeperChange?: (group: number, keeper: number) => void;
   onSkipChange?: (group: number, skipped: boolean) => void;
+  onReveal?: (path: string) => void;
+  outcomes?: DedupeOutcomeView[] | null;
 }
 
 function renderGroup(group: DupGroupView, opts: Opts = {}) {
@@ -78,6 +84,8 @@ function renderGroup(group: DupGroupView, opts: Opts = {}) {
           profileName="Anbernic (stock)"
           onKeeperChange={opts.onKeeperChange}
           onSkipChange={opts.onSkipChange}
+          onReveal={opts.onReveal}
+          outcomes={opts.outcomes ?? null}
         />
       </TooltipProvider>
     </I18nProvider>,
@@ -455,5 +463,71 @@ describe('DupGroup', () => {
     const chip = screen.getByText('Volcado malo [b]').closest('.dup-tag');
     expect(chip).toHaveAttribute('data-tone', 'danger');
     expect(screen.getAllByText('SMS')).toHaveLength(2);
+  });
+  describe('reveal', () => {
+    const MAC =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+    const zelda = () =>
+      groupOf([
+        member(0, '/Volumes/SD/ROMS/GB/Zelda.gb'),
+        member(1, '/Volumes/SD/ROMS/GB/Zelda (1).gb'),
+      ]);
+
+    it('the keeper and the tray copy each reveal their own file', async () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+      const onReveal = vi.fn();
+      renderGroup(zelda(), { onReveal });
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda.gb en Finder' }),
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda (1).gb en Finder' }),
+      );
+      expect(onReveal.mock.calls).toEqual([
+        ['/Volumes/SD/ROMS/GB/Zelda.gb'],
+        ['/Volumes/SD/ROMS/GB/Zelda (1).gb'],
+      ]);
+    });
+
+    it('a copy set aside reveals where it went; one in the Trash has no button', async () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+      const onReveal = vi.fn();
+      const g = groupOf([
+        member(0, '/Volumes/SD/ROMS/GB/Zelda.gb'),
+        member(1, '/Volumes/SD/ROMS/GB/Zelda (1).gb'),
+        member(2, '/Volumes/SD/ROMS/GB/Zelda (2).gb'),
+      ]);
+      renderGroup(g, {
+        onReveal,
+        outcomes: [
+          {
+            group: 77,
+            member: 1,
+            files: [],
+            status: 'quarantined',
+            to: `${QUARANTINE}/GB/Zelda (1).gb`,
+          },
+          {
+            group: 77,
+            member: 2,
+            files: [],
+            status: 'trashed',
+            location: null,
+          },
+        ],
+      });
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda (1).gb en Finder' }),
+      );
+      expect(onReveal).toHaveBeenCalledWith(`${QUARANTINE}/GB/Zelda (1).gb`);
+      expect(
+        screen.queryByRole('button', { name: /Zelda \(2\)\.gb/ }),
+      ).toBeNull();
+    });
+
+    it('without onReveal (no backend to ask) the rows show no reveal button', () => {
+      renderGroup(zelda());
+      expect(document.querySelector('[data-reveal]')).toBeNull();
+    });
   });
 });

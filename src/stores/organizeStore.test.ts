@@ -506,6 +506,16 @@ describe('organise store', () => {
     });
   });
 
+  it('reveal shows a pile copy and says so when a path is outside every known folder', async () => {
+    await store().start(MOCK_DOWNLOADS);
+    await store().reveal(`${MOCK_DOWNLOADS}/Tetris.gb`);
+    expect(store().error).toBeNull();
+    expect(b.revealedPaths).toEqual([`${MOCK_DOWNLOADS}/Tetris.gb`]);
+    await store().reveal('/Volumes/Elsewhere/x.gb');
+    expect(store().error?.code).toBe('outside-library');
+    expect(store().status).toBe('ready');
+  });
+
   it('openOrganize keeps the launch options until it closes', () => {
     useNavStore.getState().openOrganize('/Volumes/SD', {
       layout: 'muos',

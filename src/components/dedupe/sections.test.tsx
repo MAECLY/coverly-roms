@@ -212,10 +212,24 @@ describe('ConflictGroup', () => {
       'Partida distinta: GB/Pokemon Red.sav',
       'Partida distinta: GB/Pokemon Red (1).sav',
     ]);
-    const open = screen.getAllByRole('button', { name: /^Abrir carpeta/ });
+    // Each save says the OS words and names its file in the sentence.
+    const open = screen.getAllByRole('button', {
+      name: /^Mostrar Pokemon Red.*\.sav en su carpeta$/,
+    });
     expect(open).toHaveLength(2);
+    expect(open[1]).toHaveTextContent('Mostrar en la carpeta');
     await userEvent.click(open[1]!);
     expect(onReveal).toHaveBeenCalledWith('GB/Pokemon Red (1).sav');
+    // Each copy reveals its own file too.
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Mostrar Pokemon Red (1).gb en su carpeta',
+      }),
+    );
+    expect(onReveal).toHaveBeenLastCalledWith(
+      g.members.find((m) => m.unit.primary.endsWith('Pokemon Red (1).gb'))!.unit
+        .primary,
+    );
     // Both copies are named, so you know which file each save belongs to.
     expect(screen.getByText('Pokemon Red (1).gb')).toBeInTheDocument();
   });
@@ -456,7 +470,9 @@ describe('DedupeResult', () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Abrir _Duplicados/' }),
+      screen.getByRole('button', {
+        name: 'Mostrar _Duplicados en la carpeta',
+      }),
     ).toBeInTheDocument();
   });
 
