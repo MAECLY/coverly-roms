@@ -48,7 +48,10 @@ function renderList(props: Partial<TrackListProps> = {}) {
   };
 }
 
+const scrollIntoView = Element.prototype.scrollIntoView;
+
 afterEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoView;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -187,6 +190,35 @@ describe('TrackList', () => {
     });
     update({ rows: makeRows(9) });
     expect(list.scrollTop).toBe(140);
+  });
+
+  it("shows the next game's names on rows whose index and state repeat", () => {
+    // Game 1 last seen mid-way; game 2 starts: row 11 stays «waiting».
+    const { update } = renderList({ rows: makeRows(10) });
+    const next = makeRows(0).map((r) => ({
+      ...r,
+      name: `Bust-A-Move (Track ${r.index + 1}).bin`,
+      full: `Bust-A-Move/Bust-A-Move (Track ${r.index + 1}).bin`,
+      size: 1_000_000,
+      checked: 'size' as const,
+    }));
+    update({ rows: next, name: 'Bust-A-Move.zip' });
+    const items = within(
+      screen.getByRole('list', { name: 'Pistas de Bust-A-Move.zip' }),
+    ).getAllByRole('listitem');
+    expect(items[11]!.querySelector('bdi')).toHaveAttribute(
+      'title',
+      'Bust-A-Move/Bust-A-Move (Track 12).bin',
+    );
+    expect(items[11]).toHaveTextContent('1 MB');
+  });
+
+  it('shows the list when it stops being collapsible while collapsed', () => {
+    const { update } = renderList({ collapsible: true });
+    expect(screen.getByRole('list', { hidden: true })).not.toBeVisible();
+    update({ collapsible: false });
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByRole('list')).toBeVisible();
   });
 
   it('re-renders only the rows whose state changed', () => {

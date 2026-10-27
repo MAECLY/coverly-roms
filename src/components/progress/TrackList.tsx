@@ -37,7 +37,10 @@ interface RowProps {
   locale: string;
 }
 
-/** Memoised by `(index, state)`: a tick re-renders the two rows it moves. */
+/**
+ * Memoised by the row's own fields: a tick re-renders the two rows it moves,
+ * and the next game's rows (same index, maybe the same state) still repaint.
+ */
 const Row = memo(
   function Row({ row, stateText, locale }: RowProps) {
     const done = row.state === 'done';
@@ -71,6 +74,10 @@ const Row = memo(
   (a, b) =>
     a.row.index === b.row.index &&
     a.row.state === b.row.state &&
+    a.row.full === b.row.full &&
+    a.row.name === b.row.name &&
+    a.row.size === b.row.size &&
+    a.row.checked === b.row.checked &&
     a.stateText === b.stateText &&
     a.locale === b.locale,
 );
@@ -92,7 +99,10 @@ export function TrackList({
   const tr = useRichT();
   const locale = useContext(LocaleContext);
   const id = useId();
-  const [open, setOpen] = useState(!collapsible);
+  const [opened, setOpen] = useState(false);
+  // Not collapsible (a wide window) always shows the list, even if it was
+  // collapsed while narrow.
+  const open = !collapsible || opened;
   const listRef = useRef<HTMLOListElement>(null);
   const userAt = useRef(Number.NEGATIVE_INFINITY);
   const current = rows.findIndex((r) => r.state === 'current');
