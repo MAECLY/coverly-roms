@@ -136,6 +136,25 @@ describe('Settings screen', () => {
     expect(useNavStore.getState().focusSetting).toBeNull();
   });
 
+  it('lands on the ignored folders inside the closed library fold', async () => {
+    await start();
+    act(() =>
+      useNavStore
+        .getState()
+        .openSettings('library', { focus: 'setting-library-ignored-dirs' }),
+    );
+    const box = await screen.findByRole('textbox', { name: 'Ignored folders' });
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(useNavStore.getState().openFolds).toEqual(['library-advanced']);
+    expect(
+      screen.getByRole('button', { name: 'Advanced options (2)' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    expect(box.closest('[data-setting-row]')).toHaveAttribute(
+      'data-arrived',
+      'true',
+    );
+  });
+
   it('opens a closed advanced fold before landing inside it', async () => {
     const original = SECTION_COMPONENTS.art;
     SECTION_COMPONENTS.art = () => (
