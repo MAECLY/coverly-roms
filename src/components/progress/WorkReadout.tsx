@@ -35,6 +35,28 @@ function boundBar(bar: WorkReadoutProps['bar']): WorkReadoutProps['bar'] {
 }
 
 /**
+ * Parts joined by «·» that wrap without a dot leading the next line: each
+ * part carries its own dot, and the row sits one dot to the left inside a
+ * clipping box, so whichever dot starts a line is cut off.
+ */
+function DotLine({ parts }: { parts: ReactNode[] }) {
+  return (
+    <p className="m-0 min-w-0 overflow-hidden">
+      <span className="-ml-4 flex flex-wrap">
+        {parts.map((x, i) => (
+          <span key={i}>
+            <span aria-hidden className="inline-block w-4 text-center">
+              ·
+            </span>
+            <span>{x}</span>
+          </span>
+        ))}
+      </span>
+    </p>
+  );
+}
+
+/**
  * The progress readout shared by every long job (spec §6.4): a slot bar,
  * then «amount · rate · time left» and the counters on one row that wraps,
  * then the action. The row is not a live region; the sentence above it is.
@@ -66,26 +88,8 @@ export function WorkReadout({
         aria-live="off"
         className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-dense tabular-nums text-cr-text-secondary"
       >
-        {left.length > 0 && (
-          <p className="m-0 flex flex-wrap gap-x-2">
-            {left.map((x, i) => (
-              <span key={i}>
-                {i > 0 && <span aria-hidden> · </span>}
-                {x}
-              </span>
-            ))}
-          </p>
-        )}
-        {counters.length > 0 && (
-          <p className="m-0 flex flex-wrap gap-x-2">
-            {counters.map((c, i) => (
-              <span key={i}>
-                {i > 0 && <span aria-hidden> · </span>}
-                {c}
-              </span>
-            ))}
-          </p>
-        )}
+        {left.length > 0 && <DotLine parts={left} />}
+        {counters.length > 0 && <DotLine parts={counters} />}
       </div>
       {action && <div>{action}</div>}
     </div>

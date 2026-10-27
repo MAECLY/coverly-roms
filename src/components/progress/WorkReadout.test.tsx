@@ -125,6 +125,27 @@ describe('WorkReadout', () => {
     });
   });
 
+  it('gives every part its own leading dot, clipped at the start of each line', () => {
+    // A wrapped line never starts with a stray «·» (390 px): each part
+    // carries its dot, and the line is shifted left by one dot's width
+    // inside a clipping box, so the dot that leads a line is cut off.
+    const { container } = renderEs({ eta: 'Quedan unos 12 s' });
+    const lines = container.querySelectorAll('[aria-live="off"] > p');
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line).toHaveClass('overflow-hidden');
+      const row = line.firstElementChild!;
+      expect(row).toHaveClass('-ml-4');
+      for (const part of row.children) {
+        const dot = part.firstElementChild!;
+        expect(dot).toHaveAttribute('aria-hidden');
+        expect(dot).toHaveTextContent(/^·$/);
+        expect(dot).toHaveClass('w-4');
+      }
+    }
+    expect(lines[0]!.firstElementChild!.children).toHaveLength(3);
+  });
+
   it('draws no empty amount line when only counters are given', () => {
     const { container } = renderEs({ counters: ['312 ROMs encontradas'] }, [
       'amount',
