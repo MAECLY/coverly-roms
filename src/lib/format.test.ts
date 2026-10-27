@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatDate, formatDecimalSize, formatSize } from './format';
+import {
+  formatDate,
+  formatDateTime,
+  formatDecimalSize,
+  formatRelative,
+  formatSize,
+} from './format';
 
 describe('format', () => {
   it('formats sizes in binary units per locale', () => {
@@ -24,5 +30,19 @@ describe('format', () => {
   it('formats dates per locale', () => {
     expect(formatDate(1_700_000_000, 'en')).toMatch(/2023/);
     expect(formatDate(1_700_000_000, 'es')).toMatch(/2023/);
+  });
+
+  it('formats a past moment in its largest whole unit', () => {
+    const now = 1_700_000_000_000;
+    const day = 86_400_000;
+    expect(formatRelative(now - 3 * day, 'es', now)).toBe('hace 3 días');
+    expect(formatRelative(now - day, 'es', now)).toBe('ayer');
+    expect(formatRelative(now - 3_600_000, 'en', now)).toBe('1 hour ago');
+    expect(formatRelative(now - 400 * day, 'en', now)).toBe('last year');
+    expect(formatRelative(now, 'en', now)).toBe('now');
+  });
+
+  it('adds the time to a date for tooltips', () => {
+    expect(formatDateTime(1_700_000_000, 'es')).toMatch(/2023.*\d{1,2}:\d{2}/);
   });
 });
