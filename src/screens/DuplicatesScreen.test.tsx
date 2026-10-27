@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -545,5 +545,82 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Biblioteca' }));
     expect(useNavStore.getState().screen).toBe('main');
     expect(useDedupeStore.getState().status).toBe('idle');
+  });
+});
+
+describe('DuplicatesScreen apply readout', () => {
+  let now = 0;
+  beforeEach(() => {
+    now = 0;
+    setBackend(mock());
+    useDedupeStore.getState().reset();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    useDedupeStore.getState().reset();
+    useNavStore.getState().closeDuplicates();
+    vi.restoreAllMocks();
+    setBackend(null);
+  });
+
+  const progressAt = (done: number) => ({
+    plan_id: 3,
+    phase: 'apply' as const,
+    done,
+    total: 200,
+  });
+
+  function applying() {
+    useNavStore.getState().openDuplicates(ROOT);
+    useDedupeStore.setState({
+      root: ROOT,
+      status: 'applying',
+      progress: progressAt(0),
+      job: {
+        job: null,
+        plan_id: 3,
+        state: 'applying',
+        progress: null,
+        report: null,
+        root: ROOT,
+        quarantine: `${ROOT}/_Duplicados`,
+        trash: false,
+        error: null,
+      },
+    });
+    render(
+      <I18nProvider locale="es">
+        <DuplicatesScreen />
+      </I18nProvider>,
+    );
+  }
+
+  /** One copy set aside every second for `seconds`. */
+  function tick(from: number, seconds: number) {
+    for (let s = 1; s <= seconds; s++) {
+      act(() => {
+        now += 1000;
+        vi.advanceTimersByTime(1000);
+        useDedupeStore.setState({ progress: progressAt(from + s) });
+      });
+    }
+  }
+
+  it('shows no time left before 5 copies', () => {
+    applying();
+    tick(0, 4);
+    expect(screen.queryByText(/^Queda|^Quedan|Calculando/)).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Apartando 4 de 200…');
+  });
+
+  it('shows a time left once 5 copies are aside and 2 s have passed', () => {
+    applying();
+    tick(0, 6);
+    expect(screen.getByText('Quedan unos 4 minutos')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Apartando 6 de 200…');
+    expect(screen.getByRole('progressbar', { name: /./ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeEnabled();
   });
 });
