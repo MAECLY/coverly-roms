@@ -140,6 +140,38 @@ mod tests {
     }
 
     #[test]
+    fn flags_union_with_catalogue_source_first() {
+        let f = tag_facts(Some("Tetris (World) [!]"), "Tetris (W) [b1]");
+        assert!(f.flags.verified);
+        assert!(f.flags.bad);
+        assert_eq!(f.flags_from, Some(TagSource::Catalogue));
+    }
+
+    #[test]
+    fn catalogue_modification_wins_over_file_name() {
+        let f = tag_facts(Some("Sonic (USA) (Hack)"), "Sonic (U) [T+Spa]");
+        assert_eq!(f.modification, Some(ModClass::Hack));
+        assert_eq!(f.modification_from, Some(TagSource::Catalogue));
+        assert!(f.other.is_empty());
+    }
+
+    #[test]
+    fn catalogue_hides_file_name_regions() {
+        let f = tag_facts(Some("Tetris"), "Tetris (J) (Rev 2)");
+        assert!(f.regions.is_empty());
+        assert_eq!(f.revision, None);
+        assert_eq!(f.tags_from, None);
+    }
+
+    #[test]
+    fn flags_only_has_no_tag_source() {
+        let f = tag_facts(None, "tetris [!]");
+        assert!(f.flags.verified);
+        assert_eq!(f.flags_from, Some(TagSource::FileName));
+        assert_eq!(f.tags_from, None);
+    }
+
+    #[test]
     fn nothing_known_is_empty() {
         assert_eq!(tag_facts(None, "tetris"), MemberFacts::default());
     }
