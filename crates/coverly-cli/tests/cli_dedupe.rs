@@ -275,6 +275,8 @@ fn json_report_has_member_facts() {
     let facts = &v["groups"][0]["members"][0]["facts"];
     assert!(facts.is_object(), "{text}");
     assert_eq!(facts["flags"]["verified"], true, "{text}");
+    // Wire spelling the app's types mirror: kebab-case region names.
+    assert_eq!(facts["regions"], serde_json::json!(["japan"]), "{text}");
 
     // The text report does not render facts.
     let table = stdout_of(&mut lib.cmd());
