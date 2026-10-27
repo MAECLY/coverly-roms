@@ -129,35 +129,35 @@ export function DedupeCommon() {
         hint={t('settings.dedupe.quarantineHint', { folder: name })}
         more={t('settings.dedupe.quarantineDetails')}
         error={errorOf('dedupe.quarantine_dir')}
+        action={
+          <Button
+            onClick={async () => {
+              setPickError(null);
+              let picked: string | null;
+              try {
+                picked = await (await getBackend()).pickFolder();
+              } catch (e) {
+                setPickError(toBackendError(e));
+                return;
+              }
+              if (picked) await commitDir(picked);
+            }}
+          >
+            <FolderOpen aria-hidden />
+            {t('settings.dedupe.choose')}
+          </Button>
+        }
       >
         <Input
           name={dirId}
           mono
-          className="max-w-md"
+          className="min-w-0 max-w-md flex-1 basis-60"
           placeholder={t('settings.dedupe.quarantineDefault', { name })}
           value={dir ?? d.quarantine_dir ?? ''}
           onChange={(e) => setDir(e.target.value)}
           onBlur={() => dir !== null && void commitDir(dir)}
         />
       </Field>
-      {/* The panel is a flex column: keep the button its own width. */}
-      <Button
-        className="self-start"
-        onClick={async () => {
-          setPickError(null);
-          let picked: string | null;
-          try {
-            picked = await (await getBackend()).pickFolder();
-          } catch (e) {
-            setPickError(toBackendError(e));
-            return;
-          }
-          if (picked) await commitDir(picked);
-        }}
-      >
-        <FolderOpen aria-hidden />
-        {t('settings.dedupe.choose')}
-      </Button>
       {pickError && (
         <Alert variant="danger">
           {t(errorKey(pickError.code), { detail: pickError.detail ?? '' })}

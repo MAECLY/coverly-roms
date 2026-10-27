@@ -58,6 +58,7 @@ export function Field({
   label,
   hint,
   more,
+  action,
   error,
   className,
   children,
@@ -67,6 +68,9 @@ export function Field({
   hint?: string;
   /** Long help behind «Más información», after the hint (D7). */
   more?: ReactNode;
+  /** A button on the control's row (e.g. «Elegir…»), wrapping below it
+   * on a narrow window. */
+  action?: ReactNode;
   error?: string | null;
   className?: string;
   children: ReactNode;
@@ -74,7 +78,14 @@ export function Field({
   return (
     <UiField id={id} className={className} data-setting-row="">
       <FieldLabel>{label}</FieldLabel>
-      <FieldControl>{children}</FieldControl>
+      {action ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <FieldControl>{children}</FieldControl>
+          {action}
+        </div>
+      ) : (
+        <FieldControl>{children}</FieldControl>
+      )}
       {hint && <FieldDescription>{hint}</FieldDescription>}
       <FieldErrorText>{error}</FieldErrorText>
       {more && <MoreInfo id={id}>{more}</MoreInfo>}

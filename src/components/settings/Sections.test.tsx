@@ -602,6 +602,25 @@ describe('settings sections', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('duplicates: choose sits beside the quarantine folder, before its help', async () => {
+    const panel = await open('duplicates');
+    const input = within(panel).getByRole('textbox', {
+      name: 'Quarantine folder',
+    });
+    const choose = within(panel).getByRole('button', { name: 'Choose…' });
+    const more = within(panel).getAllByRole('button', {
+      name: 'More information',
+    })[0]!;
+    // Same row as its field (spec layout), not after the hint and link.
+    expect(choose.parentElement).toBe(input.parentElement);
+    expect(
+      choose.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(input).toHaveAccessibleDescription(
+      'Empty: _Duplicados inside the library, on its own drive.',
+    );
+  });
+
   it('duplicates: the fold shows what applies when', async () => {
     const panel = await open('duplicates');
     const note = within(panel).getByText(
