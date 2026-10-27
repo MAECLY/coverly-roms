@@ -21,6 +21,7 @@ import { KeeperRow } from '@/components/dedupe/KeeperRow';
 import { RelationBadge, TrayRow } from '@/components/dedupe/TrayRow';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { RadioGroup } from '@/components/ui/radio-group';
 import { useT } from '@/i18n/useT';
 import type { DupGroupView } from '@/ipc/dedupeTypes';
@@ -35,22 +36,6 @@ import './dedupe.css';
 
 /** How long "Deshacer" stays after a pick. */
 export const UNDO_PICK_MS = 10_000;
-
-const REDUCE_MOTION = '(prefers-reduced-motion: reduce)';
-
-function useReducedMotion(): boolean {
-  const [reduce, setReduce] = useState(
-    () => window.matchMedia?.(REDUCE_MOTION).matches === true,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia?.(REDUCE_MOTION);
-    if (!mq) return;
-    const on = () => setReduce(mq.matches);
-    mq.addEventListener?.('change', on);
-    return () => mq.removeEventListener?.('change', on);
-  }, []);
-  return reduce;
-}
 
 export interface DupGroupProps {
   group: DupGroupView;

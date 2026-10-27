@@ -8,7 +8,9 @@ import {
   ART_CACHE_SIZE,
   artKey,
   clearArtCache,
+  dedupeArtKey,
   loadArtUrl,
+  loadUrl,
   peekArtUrl,
 } from './artCache';
 
@@ -79,5 +81,33 @@ describe('art cache', () => {
     await pending.catch(() => undefined);
     expect(peekArtUrl(artKey(1, 0, 'cover'))).toBeNull();
     expect(revoke).toHaveBeenCalledWith('blob:stale');
+  });
+
+  it('loads a generic key once and evicts it with the art LRU', async () => {
+    let n = 0;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(
+      () => `blob:${(n += 1)}`,
+    );
+    const revoke = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation(() => undefined);
+    const fetch = vi.fn(async () => new Blob(['x'], { type: 'image/png' }));
+    const key = dedupeArtKey(7, 3, null, 'cover');
+    expect(key).toBe('dedupe:7:3:g:cover');
+    expect(dedupeArtKey(7, 3, 2, 'title')).toBe('dedupe:7:3:2:title');
+
+    const [a, b] = await Promise.all([
+      loadUrl(key, fetch),
+      loadUrl(key, fetch),
+    ]);
+    expect(a).toBe(b);
+    expect(await loadUrl(key, fetch)).toBe(a);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(peekArtUrl(key)).toBe(a);
+
+    for (let i = 0; i < ART_CACHE_SIZE; i += 1)
+      await loadUrl(`other:${i}`, async () => new Blob(['y']));
+    expect(revoke).toHaveBeenCalledWith(a);
+    expect(peekArtUrl(key)).toBeNull();
   });
 });
