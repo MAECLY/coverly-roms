@@ -702,6 +702,8 @@
     "progressLabel": "Progreso",
     "cancel": "Cancelar",
     "replan": "Volver a buscar",
+    "settingsLink": "Ajustes de Duplicados",
+    "settingsChanged": "Los ajustes de duplicados han cambiado. Vuelve a buscar para aplicarlos.",
     "retry": "Volver a intentarlo",
     "nothingMoved": "No se ha movido nada.",
     "exportPlan": "Exportar informe",

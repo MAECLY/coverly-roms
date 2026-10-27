@@ -20,6 +20,7 @@ import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
+import { SettingsLink } from '@/components/settings/SettingsLink';
 import { useLaterJobs } from '@/components/organize/laterJobs';
 import { Alert } from '@/components/ui/alert';
 import {
@@ -54,6 +55,7 @@ import {
 } from '@/ipc/types';
 import { fileName, formatBytes, sortGroups } from '@/lib/dedupe';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
+import { dedupeStamp } from '@/lib/settingsStamp';
 import {
   applyConfirm,
   useDedupeStore,
@@ -62,6 +64,7 @@ import {
 } from '@/stores/dedupeStore';
 import { useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import '@/components/dedupe/dedupe.css';
 
@@ -145,6 +148,8 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
   const error = useDedupeStore((s) => s.error);
   const progress = useDedupeStore((s) => s.progress);
   const undone = useDedupeStore((s) => s.undone);
+  const stamp = useDedupeStore((s) => s.settingsStamp);
+  const settings = useSettingsStore((s) => s.settings);
   const { systemName, profileName } = useNames();
 
   useEffect(() => {
@@ -179,6 +184,17 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
     useNavStore.getState().closeDuplicates();
   };
 
+  /** Stamps what the plan reads before Settings opens (spec §8.6). */
+  const stampSettings = () => {
+    const s = useSettingsStore.getState().settings;
+    if (s) useDedupeStore.setState({ settingsStamp: dedupeStamp(s) });
+  };
+  const settingsChanged =
+    canReplan &&
+    stamp !== null &&
+    settings !== null &&
+    dedupeStamp(settings) !== stamp;
+
   const planFailed = status === 'error' && job === null && error !== null;
   const showResult = job !== null && (status === 'done' || status === 'error');
 
@@ -192,6 +208,12 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
             {t('dedupe.back')}
           </Button>
           <h1 className="dup-screen__title">{t('dedupe.title')}</h1>
+          <SettingsLink
+            section="duplicates"
+            label={t('dedupe.settingsLink')}
+            disabled={applying}
+            onOpen={stampSettings}
+          />
         </header>
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
           {root && (
@@ -228,6 +250,19 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
           )}
 
           {status === 'planning' && <Planning t={t} />}
+
+          {settingsChanged && (
+            <Alert
+              variant="info"
+              action={
+                <Button size="sm" variant="primary" onClick={replan}>
+                  {t('dedupe.replan')}
+                </Button>
+              }
+            >
+              <p className="m-0">{t('dedupe.settingsChanged')}</p>
+            </Alert>
+          )}
 
           {planFailed && (
             <Alert

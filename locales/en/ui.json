@@ -702,6 +702,8 @@
     "progressLabel": "Progress",
     "cancel": "Cancel",
     "replan": "Look again",
+    "settingsLink": "Duplicates settings",
+    "settingsChanged": "The duplicates settings changed. Look again to use them.",
     "retry": "Try again",
     "nothingMoved": "Nothing was moved.",
     "exportPlan": "Export report",
