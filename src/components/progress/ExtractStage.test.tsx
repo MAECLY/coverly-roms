@@ -201,9 +201,10 @@ describe('ExtractStage', () => {
     act(() => {
       vi.advanceTimersByTime(501);
     });
-    // 1501 ms after it left, the first sleeve has landed all the same.
+    // 1501 ms after it left, the first sleeve has landed all the same,
+    // beside the four already on the shelf when the stage mounted.
     expect(container.querySelectorAll('.ws-fly-x')).toHaveLength(2);
-    expect(container.querySelectorAll('.ws-spine')).toHaveLength(1);
+    expect(container.querySelectorAll('.ws-spine')).toHaveLength(5);
   });
 
   it('flies nothing under reduced motion', () => {

@@ -14,7 +14,7 @@ export interface Flight {
 }
 export interface StageState {
   item: number | null;
-  /** Entries already accounted for (landed or flying). */
+  /** Entries already accounted for: always `landed + flying.length`. */
   seen: number;
   landed: number;
   flying: Flight[];
@@ -38,12 +38,13 @@ export const initialStage: StageState = {
 };
 
 /** D10: data first; at most `cap` sleeves in flight, the rest land at once.
- * The first event of an item is its baseline: nothing already done replays. */
+ * The first event of an item is its baseline: what is already done stands
+ * on the shelf at once (a stage mounted mid-item) and nothing replays. */
 export function stageReducer(s: StageState, a: StageAction): StageState {
   switch (a.type) {
     case 'event': {
       if (a.item !== s.item)
-        return { item: a.item, seen: a.done, landed: 0, flying: [] };
+        return { item: a.item, seen: a.done, landed: a.done, flying: [] };
       if (a.done <= s.seen) return s;
       const fresh = Array.from(
         { length: a.done - s.seen },
