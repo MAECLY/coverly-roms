@@ -442,6 +442,13 @@ pub struct DumpFlags {
     pub alternate: bool,
 }
 
+impl DumpFlags {
+    /// No flag is set.
+    pub fn is_empty(&self) -> bool {
+        !(self.verified || self.bad || self.overdump || self.alternate)
+    }
+}
+
 /// Whether the program itself was modified. Not a dump quality: a hack or
 /// translation is a different product and stays in the title key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

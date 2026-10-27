@@ -797,8 +797,8 @@ fn rust_reads_the_shared_organise_requests() {
 /// goes to the quarantine with its save.
 fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
     use coverly_core::dedupe::{
-        DedupePlan, DupGroup, GroupAction, KeepReason, Member, Relation, Totals, Travel,
-        TravelKind, UnitKind, UnitRef,
+        DedupePlan, DupGroup, GroupAction, KeepReason, Member, MemberFacts, Relation, Totals,
+        Travel, TravelKind, UnitKind, UnitRef,
     };
     let member = |id: usize, path: &str, mtime_ns: i64, dest: Option<&str>| Member {
         id,
@@ -820,6 +820,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
         confidence: 1.0,
         gamelist: None,
         art_leaves: Default::default(),
+        facts: MemberFacts::default(),
     };
     let mut extra = member(
         1,

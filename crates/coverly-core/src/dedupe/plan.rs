@@ -43,7 +43,7 @@ use super::saves::{conflict, off_card, OffCard, SaveIndex, SaveInfo};
 use super::source::{CacheDats, DatHit, DatLookup, DiscProbe, EntryListing};
 use super::units::{units_from_scan, Exclusion, Unit, UnitKind, UnitOptions};
 use super::{
-    group_id, DedupeOptions, DedupePhase, DedupePlan, DupGroup, GroupAction, Member,
+    group_id, DedupeOptions, DedupePhase, DedupePlan, DupGroup, GroupAction, Member, MemberFacts,
     QuarantineChoice, ReportWhy, Totals, PLAN_VERSION,
 };
 
@@ -922,6 +922,7 @@ impl Base {
                     },
                     gamelist,
                     art_leaves,
+                    facts: MemberFacts::default(),
                 }
             })
             .collect();
