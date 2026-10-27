@@ -1254,4 +1254,33 @@ describe('mock organise: extract pacing', () => {
       lib.entries.some((e) => e.rel_path.startsWith(`ROMS/${item.folder}/`)),
     ).toBe(false);
   });
+
+  it('a_cancel_during_the_check_pause_rolls_the_item_back', async () => {
+    // Rust honours a cancel until phase C: one sent while the sheets and
+    // names are checked (after the last entry) leaves nothing of the game.
+    const b = backend({ delayMs: 1, extractRate: 2000 });
+    const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    let first: number | null = null;
+    await b.onOrganizeProgress((e) => {
+      if (e.phase !== 'extract') return;
+      first ??= e.item;
+      if (e.item === first && e.entries_done === e.entries_total)
+        void b.organizeCancelApply();
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('cancelled');
+    expect(view.report?.items.find((o) => o.item === first)).toEqual({
+      item: first,
+      status: 'skipped',
+      reason: 'cancelled',
+      targets: [],
+    });
+    const item = plan.items.find((i) => i.id === first)!;
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(
+      lib.entries.some((e) => e.rel_path.startsWith(`ROMS/${item.folder}/`)),
+    ).toBe(false);
+  });
 });

@@ -32,7 +32,8 @@
  * `extractRate` paces the bytes: `'fast'` (tests' default) jumps
  * `EXTRACT_CHUNK` bytes per tick, a rate in MB/s (the browser's default
  * 25, `?mockExtract=`) advances by elapsed time with a seeded ±20 %
- * jitter and pauses for phase B after the last entry. In move mode a verified archive goes to the
+ * jitter and pauses for phase B after the last entry (a cancel there
+ * still rolls the game back). In move mode a verified archive goes to the
  * Trash, except over `TRASH_MAX_BYTES` (the mock's Trash refuses it:
  * `extracted-kept`, the archive stays); undo deletes the extracted files
  * and brings trashed archives back.
@@ -1307,7 +1308,7 @@ export function createMockOrganize(
 
   /** Emits the extract progress of one item, entry by entry in archive
    * order, like Rust: bytes 0 and no entry first, `bytes_total` and every
-   * entry last. False when cancelled before its last entry. */
+   * entry last. False when cancelled before phase C (nothing placed). */
   async function extractItem(
     planId: number,
     id: number,
@@ -1368,8 +1369,14 @@ export function createMockOrganize(
       if (own.cancel) return false;
       send(bytes, k + 1);
     }
-    if (rate !== 'fast')
-      await new Promise((r) => setTimeout(r, CHECK_PAUSE_MS));
+    if (rate !== 'fast') {
+      // Phase B: like Rust, a cancel is still honoured (nothing renamed).
+      const until = performance.now() + CHECK_PAUSE_MS;
+      while (performance.now() < until) {
+        await host.tick();
+        if (own.cancel) return false;
+      }
+    }
     // `t.bytes` may exceed the entries' sum: the last event fills the bar.
     send(t.bytes, entriesTotal);
     return true;
