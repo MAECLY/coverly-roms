@@ -132,6 +132,72 @@ describe('settings primitives', () => {
     expect(document.querySelector('[data-fold-error]')).not.toBeNull();
   });
 
+  it('advanced_fold_opens_when_mounted_with_an_error_inside', () => {
+    useSettingsStore.setState({
+      errors: {
+        'library.ignored_dirs.0': {
+          field: 'library.ignored_dirs.0',
+          code: 'invalid',
+          min: null,
+          max: null,
+        },
+      },
+    });
+    renderIn(<Fold />);
+    expect(useNavStore.getState().openFolds).toContain('t');
+    expect(screen.getByRole('textbox')).toBeVisible();
+  });
+
+  it('advanced_fold_ignores_errors_outside_its_paths', () => {
+    useSettingsStore.setState({
+      errors: {
+        'library.ignored_dirs_extra': {
+          field: 'library.ignored_dirs_extra',
+          code: 'invalid',
+          min: null,
+          max: null,
+        },
+      },
+    });
+    renderIn(<Fold />);
+    expect(useNavStore.getState().openFolds).not.toContain('t');
+    expect(
+      screen.getByRole('button', { name: 'Advanced options (2)' }),
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(document.querySelector('[data-fold-error]')).toBeNull();
+  });
+
+  it('more_info_on_a_field_keeps_the_short_hint_as_description', async () => {
+    const user = userEvent.setup();
+    renderIn(
+      <ListSetting
+        path="library.ignored_dirs"
+        label="Ignored folders"
+        hint="One per line."
+        more="Folders named here are skipped at any depth."
+        value={[]}
+        split={lines}
+        join={(l) => l.join('\n')}
+        toPatch={(ignored_dirs) => ({ library: { ignored_dirs } })}
+      />,
+    );
+    const box = screen.getByRole('textbox', { name: 'Ignored folders' });
+    expect(box).toHaveAccessibleDescription('One per line.');
+    const more = screen.getByRole('button', { name: 'More information' });
+    expect(more).toHaveAttribute(
+      'aria-controls',
+      'setting-library-ignored-dirs-more',
+    );
+    expect(
+      screen.getByText('Folders named here are skipped at any depth.'),
+    ).not.toBeVisible();
+    await user.click(more);
+    expect(
+      screen.getByText('Folders named here are skipped at any depth.'),
+    ).toBeVisible();
+    expect(box).toHaveAccessibleDescription('One per line.');
+  });
+
   it('mono_in_puts_the_value_in_the_data_face', () => {
     renderIn(<MonoIn text={'Found: \u0000 here'} value="7z 24.08" />);
     expect(screen.getByText('7z 24.08')).toHaveClass('font-mono');
