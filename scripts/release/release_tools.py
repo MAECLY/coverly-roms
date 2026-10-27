@@ -78,7 +78,8 @@ Subcommands:
       for a stable V: WiX refuses a non-numeric prerelease). Anything else
       (an extra artifact, another platform's file, a .sig, a symlink, a
       missing or second file of one kind, a release name GitHub would
-      rewrite) fails, and nothing is copied: a build cannot slip a file
+      rewrite) fails, as does a B or C that is not empty (finalize uploads
+      both whole), and nothing is copied: a build cannot slip a file
       into, or replace, another platform's bundles.
 
   pubkey --file crates/coverly-core/updater.pub
@@ -454,8 +455,12 @@ def stage_builds(source: str, bundles: str, cli: str, version: str) -> list[str]
                 errors.append(f"{artifact}: more than one {kind} file: {', '.join(names)}")
     if errors:
         return errors
-    if any(os.path.exists(dst) for _src, dst in copies):
-        return [f"{bundles} or {cli} is not empty"]
+    # finalize uploads both folders whole, so they must hold nothing else:
+    # not a stray file, not a link (dangling or not) a copy would follow.
+    for folder in (bundles, cli):
+        if os.path.islink(folder) or (os.path.lexists(folder) and (
+                not os.path.isdir(folder) or os.listdir(folder))):
+            return [f"{folder} is not empty"]
     os.makedirs(bundles, exist_ok=True)
     os.makedirs(cli, exist_ok=True)
     for src, dst in copies:

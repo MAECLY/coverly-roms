@@ -2469,6 +2469,42 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
 }
 
 #[test]
+fn stage_builds_only_writes_into_empty_folders() {
+    if python().is_none() {
+        return;
+    }
+    // finalize uploads `bundles/*` and `cli/*` whole: a file already there
+    // (a stray one, or a link under a release name pointing elsewhere) would
+    // be uploaded, or written through, so stage-builds refuses to start.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0", true);
+    let bundles = dir.path().join("bundles");
+    write_pinned(&bundles.join("stray.txt"), b"stray");
+    let out = stage_builds(dir.path(), "1.0.0");
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("is not empty"), "{err}");
+    assert_eq!(listing(&bundles), ["stray.txt"]);
+    assert!(listing(&dir.path().join("cli")).is_empty());
+
+    #[cfg(unix)]
+    {
+        let dir = tempfile::tempdir().unwrap();
+        downloaded_builds(&dir.path().join("downloads"), "1.0.0", true);
+        let cli = dir.path().join("cli");
+        std::fs::create_dir_all(&cli).unwrap();
+        let outside = dir.path().join("outside");
+        std::os::unix::fs::symlink(&outside, cli.join("coverly_1.0.0_linux_x64")).unwrap();
+        let out = stage_builds(dir.path(), "1.0.0");
+        assert!(!out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("is not empty"), "{err}");
+        assert!(!outside.exists(), "a dangling link was written through");
+        assert!(listing(&dir.path().join("bundles")).is_empty());
+    }
+}
+
+#[test]
 fn finalize_downloads_every_build_separately_and_stages_them_by_name() {
     let finalize = job(&read(".github/workflows/release.yml"), "finalize");
     assert!(
