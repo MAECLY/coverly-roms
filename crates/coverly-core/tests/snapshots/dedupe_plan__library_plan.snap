@@ -64,11 +64,7 @@ expression: "normalised(&plan, root)"
                 "path": "[root]/ROMS/GB/Imgs/Tetris (1).png",
                 "size": 11
               }
-            ],
-            "other": [
-              "1"
-            ],
-            "tags_from": "file-name"
+            ]
           },
           "id": 2,
           "relation": "exact",
@@ -236,14 +232,10 @@ expression: "normalised(&plan, root)"
           "confidence": 1.0,
           "dest": null,
           "facts": {
-            "other": [
-              "1"
-            ],
             "saves": {
               "count": 1,
               "last_ns": 0
-            },
-            "tags_from": "file-name"
+            }
           },
           "id": 1,
           "relation": "exact",

@@ -27,10 +27,12 @@ pub fn tag_facts(catalogue: Option<&str>, stem: &str) -> MemberFacts {
     let langs = languages(shown_name);
     // Unknown groups minus language lists ("En,Fr,De" is already in `languages`).
     // Modification groups never land in `unknown_groups` (`parse_tags` keeps them
-    // apart), so a hack or translation tag is never repeated here.
+    // apart), so a hack or translation tag is never repeated here. A bare
+    // number (`Tetris (1)`) is a file manager's copy suffix, not a tag.
     let other: Vec<String> = shown
         .unknown_groups
         .iter()
+        .filter(|g| !g.bytes().all(|b| b.is_ascii_digit()))
         .filter(|g| languages(&format!("({g})")).is_empty())
         .cloned()
         .collect();
@@ -169,6 +171,16 @@ mod tests {
         assert!(f.flags.verified);
         assert_eq!(f.flags_from, Some(TagSource::FileName));
         assert_eq!(f.tags_from, None);
+    }
+
+    #[test]
+    fn copy_number_suffix_is_not_a_tag() {
+        // "Tetris (1).gb" is a browser or file manager copy, not a tag; a
+        // "1" chip would also read as the row's number (spec D12).
+        assert_eq!(tag_facts(None, "Tetris (1)"), MemberFacts::default());
+        let f = tag_facts(None, "Tetris (Russia) (2)");
+        assert_eq!(f.other, vec!["Russia".to_string()]);
+        assert_eq!(f.tags_from, Some(TagSource::FileName));
     }
 
     #[test]
