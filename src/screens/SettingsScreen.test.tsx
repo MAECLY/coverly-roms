@@ -14,7 +14,7 @@ import {
 import { DEFAULT_REGION_ORDER } from '@/lib/fill';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
@@ -35,7 +35,7 @@ describe('Settings screen', () => {
     setBackend(backend);
     resetSettingsStore();
     resetLibraryStore();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
     restore = stubLayout(1280, 800);
   });
   afterEach(() => {

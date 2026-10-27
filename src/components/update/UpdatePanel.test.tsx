@@ -11,7 +11,7 @@ import type { MockUpdateScenario } from '@/ipc/mock/mockUpdates';
 import type { JobView } from '@/ipc/types';
 import { useJobStore } from '@/stores/jobStore';
 import { resetLibraryStore } from '@/stores/libraryStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { resetSettingsStore } from '@/stores/settingsStore';
 import { resetUpdateStore } from '@/stores/updateStore';
 import { MemoryStorage } from '@/test/storage';
@@ -43,7 +43,7 @@ describe('updates UI', () => {
     resetSettingsStore();
     resetLibraryStore();
     useJobStore.getState().reset();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
   });
   afterEach(() => setBackend(null));
 
