@@ -8,6 +8,12 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Settings: Organise and Duplicates have their own tabs; advanced options are
+  folded; search with ⌘F / Ctrl+F; the Duplicates and Organise screens link
+  to their settings and offer to look again after a change.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

@@ -113,6 +113,9 @@ export function MatchingSection() {
         {t('settings.matching.regions')}
       </h2>
       <ol
+        id="setting-matching-regions"
+        tabIndex={-1}
+        data-setting-row=""
         className="m-0 grid list-decimal gap-1 pl-6 marker:text-caption marker:text-cr-text-secondary"
         aria-labelledby="settings-regions"
         aria-describedby={regionsError ? 'settings-regions-error' : undefined}

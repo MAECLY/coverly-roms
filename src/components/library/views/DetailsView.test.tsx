@@ -164,7 +164,9 @@ describe('DetailsView', () => {
       Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
       Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
     }
-  });
+    // 80 key presses re-render the large table; a slow CI runner needs more
+    // than the 5 s default.
+  }, 20_000);
 
   it('leaves Enter and arrows on a sort button to the button', () => {
     const onSort = vi.fn();

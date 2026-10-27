@@ -7,7 +7,7 @@ import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend } from '@/ipc/mock/mockBackend';
 import { resetSettingsStore } from '@/stores/settingsStore';
-import { useNavStore } from '@/stores/navStore';
+import { resetNavStore, useNavStore } from '@/stores/navStore';
 import { MemoryStorage } from '@/test/storage';
 
 describe('versions', () => {
@@ -20,7 +20,7 @@ describe('versions', () => {
       }),
     );
     resetSettingsStore();
-    useNavStore.getState().closeSettings();
+    resetNavStore();
   });
   afterEach(() => setBackend(null));
 

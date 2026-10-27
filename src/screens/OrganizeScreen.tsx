@@ -33,6 +33,7 @@ import {
   sectionTitle,
 } from '@/components/organize/styles';
 import { SystemGroups } from '@/components/organize/SystemGroups';
+import { SettingsLink } from '@/components/settings/SettingsLink';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -68,8 +69,10 @@ import {
   ROWS_PER_GROUP,
   type OrganizeDupGroup,
 } from '@/lib/organize';
+import { organizeStamp } from '@/lib/settingsStamp';
 import { useNavStore } from '@/stores/navStore';
 import { useOrganizeStore, type OrganizeRefresh } from '@/stores/organizeStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /** Profiles and systems for the pickers, loaded once per screen. */
 function useCatalogues() {
@@ -171,6 +174,8 @@ export function OrganizeScreen() {
   const locked = useOrganizeStore((s) => s.locked);
   const lastRefresh = useOrganizeStore((s) => s.lastRefresh);
   const refreshing = useOrganizeStore((s) => s.refreshing);
+  const stamp = useOrganizeStore((s) => s.settingsStamp);
+  const settings = useSettingsStore((s) => s.settings);
   const { profiles, systems, duplicates: defaultDuplicates } = useCatalogues();
   /** The change summary the user closed (the "New" marks stay). */
   const [dismissed, setDismissed] = useState<OrganizeRefresh | null>(null);
@@ -282,6 +287,21 @@ export function OrganizeScreen() {
   const canRefresh = proposing && request !== null;
   const planFailed = status === 'error' && job === null && error !== null;
 
+  /** Stamps what the plan falls back to before Settings opens (settings
+   * UI spec §8.6). The first stamp stays until a newer plan starts: a
+   * later visit must not take a change the plan on screen never used. */
+  const stampSettings = () => {
+    const s = useSettingsStore.getState().settings;
+    if (s && useOrganizeStore.getState().settingsStamp === null)
+      useOrganizeStore.setState({ settingsStamp: organizeStamp(s) });
+  };
+  const settingsChanged =
+    canRefresh &&
+    status === 'ready' &&
+    stamp !== null &&
+    settings !== null &&
+    organizeStamp(settings) !== stamp;
+
   // ⌘R / Ctrl+R scans again; the webview never reloads the page under it.
   useEffect(() => {
     if (!canRefresh) return;
@@ -312,6 +332,15 @@ export function OrganizeScreen() {
           {t('organize.back')}
         </Button>
         <h1>{t('organize.title')}</h1>
+        <SettingsLink
+          section="organize"
+          label={t('organize.settingsLink')}
+          disabled={applying}
+          describedBy={
+            settingsChanged ? 'organize-settings-changed' : undefined
+          }
+          onOpen={stampSettings}
+        />
       </header>
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
         {source && (
@@ -382,6 +411,20 @@ export function OrganizeScreen() {
               {t('organize.cancel')}
             </Button>
           </div>
+        )}
+        {settingsChanged && (
+          <Alert
+            variant="info"
+            action={
+              <Button size="sm" variant="primary" onClick={refresh}>
+                {t('organize.refresh.button')}
+              </Button>
+            }
+          >
+            <p id="organize-settings-changed" className="m-0">
+              {t('organize.settingsChanged')}
+            </p>
+          </Alert>
         )}
         {shown && !showResult && !applying && (
           <Alert

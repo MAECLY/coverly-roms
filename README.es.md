@@ -145,10 +145,13 @@ CC BY 4.0) o una etiqueta corta cuando no hay un dibujo neutro.
 antes de ejecutarlo. Los trabajos se pueden pausar, reanudar, cancelar y
 deshacer.
 
-**Configuración.** General, Biblioteca, Arte, Coincidencias, Fuentes, Red,
-Seguridad, Avanzado, Perfiles y Acerca de. Los perfiles de formato propios
-tienen vista previa de las rutas. Las claves de API se guardan en el llavero
-del sistema.
+**Configuración.** General, Biblioteca, Organizar, Duplicados, Perfiles, Arte,
+Coincidencias, Fuentes, Red, Seguridad, Avanzado y Acerca de, en tres grupos.
+Las opciones comunes van primero y el resto espera en _Opciones avanzadas_.
+Busca con ⌘F (Ctrl+F en Windows y Linux) y llega al ajuste. Las pantallas de
+Duplicados y Organizar abren su pestaña y vuelven con lo que habías elegido.
+Los perfiles de formato propios tienen vista previa de las rutas. Las claves de
+API se guardan en el llavero del sistema.
 
 **Además:** una herramienta de línea de comandos, `coverly`; interfaz en
 inglés y español; temas claro y oscuro; actualizaciones desde la app.
@@ -526,8 +529,8 @@ oficial de RAR no puede ir dentro de un programa libre: `unrar`, 7-Zip (`7zz` o
 7-Zip o WinRAR en sus carpetas habituales; en Linux, instala `unrar`, `7zip` o
 `libarchive-tools`. Si no hay ninguno, el RAR se queda donde está con el aviso
 «Para abrir archivos RAR instala unrar» y se organiza lo demás. Configuración →
-Organizar → _Programas externos para RAR_ muestra lo que ha encontrado y
-permite desactivarlos.
+Organizar → _Opciones avanzadas_ → _Programas externos para RAR_ muestra lo que
+ha encontrado y permite desactivarlos.
 
 Los juegos de disco se **extraen**, porque las consolas cargan el `.cue`/`.gdi`
 y las pistas, no el comprimido. Las ROMs de cartucho en zip o 7z se mueven tal

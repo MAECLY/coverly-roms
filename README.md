@@ -136,9 +136,12 @@ a short label where no neutral drawing exists.
 **Jobs you control.** The fill wizard shows the whole plan before it runs.
 Jobs can be paused, resumed, cancelled and undone.
 
-**Settings.** General, Library, Art, Matching, Sources, Network, Safety,
-Advanced, Profiles and About. Custom layout profiles have a live path preview.
-API keys are kept in the OS keychain.
+**Settings.** General, Library, Organise, Duplicates, Profiles, Art, Matching,
+Sources, Network, Safety, Advanced and About, in three groups. Common options
+come first and the rest wait under _Advanced options_. Search with ⌘F (Ctrl+F
+on Windows and Linux) and land on the setting. The Duplicates and Organise
+screens open their own tab and come back with your choices kept. Custom layout
+profiles have a live path preview. API keys are kept in the OS keychain.
 
 **Also:** a command-line tool, `coverly`; English and Spanish interface; light
 and dark themes; in-app updates.
@@ -502,8 +505,8 @@ or `bsdtar`, which macOS already includes (`/usr/bin/bsdtar`). On Windows,
 7-Zip or WinRAR in their usual folders are found; on Linux, install `unrar`,
 `7zip` or `libarchive-tools`. Without one, a RAR stays where it is with the note
 "To open RAR archives, install unrar" and the rest is organised. Settings →
-Organise → _External programs for RAR_ shows what was found and can turn them
-off.
+Organise → _Advanced options_ → _External programs for RAR_ shows what was
+found and can turn them off.
 
 Disc games are extracted, because handhelds load `.cue`/`.gdi` and tracks, not
 archives. Cartridge ROMs in a zip or 7z are moved as they are when the layout

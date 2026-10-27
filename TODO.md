@@ -79,12 +79,12 @@ Configuración › Biblioteca (`src/components/settings/LibrarySection.tsx` + `D
 
 Tareas:
 
-- [ ] Separar en pestañas propias: **Biblioteca** (solo escaneo y bibliotecas recientes), **Organizar** y **Duplicados**. Valorar si «Coincidencias» (regiones) absorbe el orden de regiones de duplicados para no tenerlo dos veces.
-- [ ] Dentro de cada pestaña, lo habitual arriba y lo avanzado plegado («Opciones avanzadas»): por ejemplo, en Duplicados dejar a la vista la acción y la carpeta, y plegar niveles, reglas, contenedores y exclusiones.
-- [ ] Revisar textos de ayuda: uno corto por opción y el detalle en un «Más información», en vez de párrafos largos.
-- [ ] Buscador de ajustes (⌘/Ctrl+F dentro de Configuración) y enlaces directos desde cada pantalla («Ajustes de Duplicados» desde la pantalla de duplicados, «Ajustes de Organizar» desde Organizar).
-- [ ] Preparar el sitio para lo que viene del roadmap (Biblioteca con colecciones, Dispositivos, Partidas, RetroAchievements): cada uno con su pestaña, no apilado en Biblioteca.
-- [ ] Mantener los tests de `Sections.test.tsx` y la paridad i18n; E2E de la navegación por pestañas con teclado.
+- [x] Separar en pestañas propias: **Biblioteca** (solo escaneo y bibliotecas recientes), **Organizar** y **Duplicados**. Valorar si «Coincidencias» (regiones) absorbe el orden de regiones de duplicados para no tenerlo dos veces.
+- [x] Dentro de cada pestaña, lo habitual arriba y lo avanzado plegado («Opciones avanzadas»): por ejemplo, en Duplicados dejar a la vista la acción y la carpeta, y plegar niveles, reglas, contenedores y exclusiones.
+- [x] Revisar textos de ayuda: uno corto por opción y el detalle en un «Más información», en vez de párrafos largos.
+- [x] Buscador de ajustes (⌘/Ctrl+F dentro de Configuración) y enlaces directos desde cada pantalla («Ajustes de Duplicados» desde la pantalla de duplicados, «Ajustes de Organizar» desde Organizar).
+- [x] Preparar el sitio para lo que viene del roadmap (Biblioteca con colecciones, Dispositivos, Partidas, RetroAchievements): cada uno con su pestaña, no apilado en Biblioteca.
+- [x] Mantener los tests de `Sections.test.tsx` y la paridad i18n; E2E de la navegación por pestañas con teclado.
 
 ## 2. Sistemas que faltan
 
