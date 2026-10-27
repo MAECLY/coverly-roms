@@ -56,6 +56,25 @@ describe('useRate', () => {
     expect(result.current).toBeCloseTo(50, 5);
   });
 
+  it('forgets the run when the key goes idle', () => {
+    const { result, rerender } = renderHook(
+      ({ k, v }: { k: string | null; v: number | null }) => useRate(k, v),
+      { initialProps: { k: 'job1' as string | null, v: 0 as number | null } },
+    );
+    tick(1000);
+    rerender({ k: 'job1', v: 50 });
+    tick(1000);
+    rerender({ k: 'job1', v: 100 });
+    tick(500);
+    expect(result.current).toBeCloseTo(50, 5);
+    rerender({ k: null, v: null });
+    expect(result.current).toBeNull();
+    // A later run measures afresh instead of showing the old job's rate.
+    rerender({ k: 'job2', v: 0 });
+    tick(500);
+    expect(result.current).toBeNull();
+  });
+
   it('is idle for a null key', () => {
     const { result } = renderHook(() => useRate(null, null));
     tick(3000);
