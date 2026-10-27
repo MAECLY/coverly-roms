@@ -268,8 +268,33 @@ fn only_draft_and_finalize_can_write_and_neither_builds_third_party_code() {
     assert!(finalize.contains("actions/download-artifact@") && finalize.contains("stage-builds"));
     assert!(finalize.contains("updater-manifest") && finalize.contains("add-cli"));
     assert!(finalize.contains("gh release upload"));
-    assert!(wf.contains("universal-apple-darwin"));
-    assert!(wf.contains("ubuntu-22.04-arm"));
+    assert!(
+        !wf.contains("universal-apple-darwin"),
+        "no universal build any more"
+    );
+    for needle in [
+        "--target aarch64-apple-darwin",
+        "--target x86_64-apple-darwin",
+        "platform: windows-11-arm",
+        "ubuntu-22.04-arm",
+    ] {
+        assert!(wf.contains(needle), "{needle}");
+    }
+    let app = job(&wf, "app");
+    assert_eq!(app.matches("slug: ").count(), 6, "six app builds");
+    for slug in [
+        "darwin-aarch64",
+        "darwin-x86_64",
+        "windows-x86_64",
+        "windows-aarch64",
+        "linux-x86_64",
+        "linux-aarch64",
+    ] {
+        assert!(app.contains(&format!("slug: {slug}\n")), "{slug}");
+    }
+    let cli = job(&wf, "cli");
+    assert_eq!(cli.matches("target: ").count(), 6, "six CLI builds");
+    assert!(cli.contains("target: aarch64-pc-windows-msvc"));
 }
 
 /// The `run: |` script of the step named `step` in `job_text`, dedented.
@@ -298,65 +323,118 @@ fn the_app_job_stages_bundles_that_finalize_can_map() {
     }
     let script = step_script(
         &job(&read(".github/workflows/release.yml"), "app"),
-        "Stage the bundles under their release names",
+        "Stage the bundles for finalize",
     );
-    let dir = tempfile::tempdir().unwrap();
-    let d = dir.path();
-    // What `tauri build` leaves on the four runners (merged here).
-    for (rel, body) in [
-        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz", "mac"),
-        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz.sig", "throwaway"),
-        ("target/universal-apple-darwin/release/bundle/macos/Coverly ROMs.app/Contents/Info.plist", "x"),
-        ("target/universal-apple-darwin/release/bundle/dmg/Coverly ROMs_0.2.0_universal.dmg", "dmg"),
-        ("target/release/bundle/nsis/Coverly ROMs_0.2.0_x64-setup.exe", "nsis"),
-        ("target/release/bundle/nsis/Coverly ROMs_0.2.0_x64-setup.exe.sig", "throwaway"),
-        ("target/release/bundle/msi/Coverly ROMs_0.2.0_x64_en-US.msi", "msi"),
-        ("target/release/bundle/appimage/Coverly ROMs_0.2.0_amd64.AppImage", "appimage"),
-        ("target/release/bundle/deb/Coverly ROMs_0.2.0_amd64.deb", "deb"),
-    ] {
-        let p = d.join(rel);
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, body).unwrap();
+    // What `tauri build` leaves on each runner, the artifact it becomes and
+    // the matrix tauri_arch.
+    type Runner<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)]);
+    let runners: [Runner; 3] = [
+        (
+            "app-darwin-aarch64",
+            "aarch64",
+            &[
+                ("target/aarch64-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz", "mac"),
+                ("target/aarch64-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz.sig", "throwaway"),
+                ("target/aarch64-apple-darwin/release/bundle/macos/Coverly ROMs.app/Contents/Info.plist", "x"),
+                ("target/aarch64-apple-darwin/release/bundle/dmg/Coverly ROMs_0.3.0_aarch64.dmg", "dmg"),
+            ],
+        ),
+        (
+            "app-darwin-x86_64",
+            "x64",
+            &[
+                ("target/x86_64-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz", "mac"),
+                ("target/x86_64-apple-darwin/release/bundle/dmg/Coverly ROMs_0.3.0_x64.dmg", "dmg"),
+            ],
+        ),
+        (
+            "app-windows-aarch64",
+            "",
+            &[
+                ("target/release/bundle/nsis/Coverly ROMs_0.3.0_arm64-setup.exe", "nsis"),
+                ("target/release/bundle/nsis/Coverly ROMs_0.3.0_arm64-setup.exe.sig", "throwaway"),
+                ("target/release/bundle/msi/Coverly ROMs_0.3.0_arm64_en-US.msi", "msi"),
+            ],
+        ),
+    ];
+    let root = tempfile::tempdir().unwrap();
+    // The rest of the release, as stage-builds expects it.
+    downloaded_builds(&root.path().join("downloads"), "0.3.0", true);
+    for (artifact, tauri_arch, files) in runners {
+        let d = root.path().join(artifact.replace("app-", "runner-"));
+        for (rel, body) in files {
+            // Component by component, never slash text (Windows CI leg).
+            let mut p = d.clone();
+            for part in rel.split('/') {
+                p.push(part);
+            }
+            write_pinned(&p, body.as_bytes());
+        }
+        let out = Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .current_dir(&d)
+            .env("GITHUB_REF_NAME", "v0.3.0")
+            .env("TAURI_ARCH", tauri_arch)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{artifact}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // The staged folder replaces that artifact's fixture.
+        let dl = root.path().join("downloads").join(artifact);
+        std::fs::remove_dir_all(&dl).unwrap();
+        std::fs::rename(d.join("staged"), &dl).unwrap();
     }
-    let out = Command::new("bash")
-        .arg("-c")
-        .arg(&script)
-        .current_dir(d)
-        .env("GITHUB_REF_NAME", "v0.2.0")
-        .output()
-        .unwrap();
+    assert_eq!(
+        listing(&root.path().join("downloads").join("app-darwin-x86_64")),
+        [
+            "Coverly.ROMs_0.3.0_x64.app.tar.gz",
+            "Coverly.ROMs_0.3.0_x64.dmg"
+        ],
+        "no throwaway .sig, no spaces, the macOS archive versioned with its arch"
+    );
+    let out = stage_builds(root.path(), "0.3.0");
     assert!(
         out.status.success(),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let mut staged: Vec<String> = std::fs::read_dir(d.join("staged"))
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    staged.sort();
     assert_eq!(
-        staged,
-        [
-            "Coverly.ROMs_0.2.0_amd64.AppImage",
-            "Coverly.ROMs_0.2.0_amd64.deb",
-            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
-            "Coverly.ROMs_0.2.0_universal.dmg",
-            "Coverly.ROMs_0.2.0_x64-setup.exe",
-            "Coverly.ROMs_0.2.0_x64_en-US.msi",
-        ],
-        "no throwaway .sig, no spaces, the macOS archive named with version and arch"
+        listing(&root.path().join("bundles")),
+        release_files("0.3.0", true).0
     );
-    assert_eq!(
-        updater_artifacts(&d.join("staged")),
-        [
-            "Coverly.ROMs_0.2.0_amd64.AppImage",
-            "Coverly.ROMs_0.2.0_amd64.deb",
-            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
-            "Coverly.ROMs_0.2.0_x64-setup.exe",
-            "Coverly.ROMs_0.2.0_x64_en-US.msi",
-        ]
+}
+
+#[test]
+fn the_app_job_refuses_a_macos_archive_without_tauri_arch() {
+    if !scripts_runnable() {
+        return;
+    }
+    let script = step_script(
+        &job(&read(".github/workflows/release.yml"), "app"),
+        "Stage the bundles for finalize",
     );
+    let dir = tempfile::tempdir().unwrap();
+    let mut p = dir.path().to_path_buf();
+    for part in
+        "target/aarch64-apple-darwin/release/bundle/macos/Coverly ROMs.app.tar.gz".split('/')
+    {
+        p.push(part);
+    }
+    write_pinned(&p, b"mac");
+    let out = Command::new("bash")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(dir.path())
+        .env("GITHUB_REF_NAME", "v0.3.0")
+        .env("TAURI_ARCH", "")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("no tauri_arch"));
 }
 
 #[test]
@@ -434,11 +512,13 @@ fn finalize_requires_every_platform_and_writes_sha256sums() {
         "darwin-aarch64",
         "darwin-x86_64",
         "windows-x86_64",
+        "windows-aarch64",
         "linux-x86_64",
         "linux-aarch64",
         "cli-darwin-aarch64",
         "cli-darwin-x86_64",
         "cli-windows-x86_64",
+        "cli-windows-aarch64",
         "cli-linux-x86_64",
         "cli-linux-aarch64",
     ] {
@@ -456,6 +536,217 @@ fn finalize_requires_every_platform_and_writes_sha256sums() {
     }
     assert!(finalize.contains("minisign -V"));
     assert!(finalize.contains("tampered"));
+}
+
+/// The `--require` keys of a workflow text, sorted.
+fn required_keys(text: &str) -> Vec<String> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let mut keys: Vec<String> = words
+        .windows(2)
+        .filter(|w| w[0] == "--require")
+        .map(|w| w[1].trim_end_matches('\\').to_string())
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn release_channels_require_the_same_keys_as_finalize() {
+    let finalize = required_keys(&job(&read(".github/workflows/release.yml"), "finalize"));
+    assert_eq!(finalize.len(), 12);
+    assert_eq!(
+        required_keys(&read(".github/workflows/release-channels.yml")),
+        finalize
+    );
+}
+
+#[test]
+fn the_windows_arm_jobs_check_their_toolchain_without_secrets() {
+    let wf = read(".github/workflows/release.yml");
+    for name in ["app", "cli"] {
+        let j = job(&wf, name);
+        let step: String = j
+            .lines()
+            .skip_while(|l| !l.contains("name: Windows ARM64 toolchain"))
+            .take_while(|l| !l.contains("name: Rust toolchain"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !step.is_empty(),
+            "{name}: no Windows ARM64 toolchain step before Rust toolchain"
+        );
+        assert!(
+            step.contains("if: matrix.platform == 'windows-11-arm'"),
+            "{name}"
+        );
+        assert!(
+            step.contains(
+                "static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe"
+            ),
+            "{name}"
+        );
+        assert!(
+            step.contains(".sha256") && step.contains("Get-FileHash"),
+            "{name}: rustup-init is checked"
+        );
+        assert!(
+            step.contains("::error::clang is not installed on this runner"),
+            "{name}"
+        );
+        assert!(
+            !step.contains("secrets."),
+            "{name}: the toolchain step sees no secret"
+        );
+        assert!(!step.contains("uses:"), "{name}: no third-party action");
+    }
+    assert!(
+        job(&wf, "app").contains("NDP\\v3.5"),
+        "WiX needs .NET 3.5 for the .msi"
+    );
+    // Only a stable tag builds the .msi, so only it needs .NET 3.5.
+    assert!(job(&wf, "app").contains("NETFX: ${{ !contains(github.ref_name, '-') }}"));
+    assert!(job(&wf, "app").contains("$env:NETFX -eq 'true' -and"));
+    assert!(!job(&wf, "cli").contains("NDP\\v3.5"));
+}
+
+/// The rows of a job's `matrix.include`, each as its `key: value` pairs in
+/// order (block rows `- name: …` and flow rows `- { … }` alike), quotes
+/// dropped.
+fn matrix_rows(job_text: &str) -> Vec<Vec<(String, String)>> {
+    let body: Vec<&str> = job_text
+        .lines()
+        .skip_while(|l| l.trim() != "include:")
+        .skip(1)
+        .take_while(|l| !l.trim_start().starts_with("runs-on:") && l.trim() != "steps:")
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect();
+    let text = body.join("\n");
+    text.split("\n          - ")
+        .map(|row| {
+            row.trim()
+                .trim_start_matches("- ")
+                .trim_matches(|c| c == '{' || c == '}' || char::is_whitespace(c))
+                .split(['\n', ','])
+                .map(str::trim)
+                .filter(|kv| !kv.is_empty() && *kv != "}")
+                .map(|kv| {
+                    let (k, v) = kv.split_once(':').unwrap_or_else(|| panic!("{kv}"));
+                    (
+                        k.trim().to_string(),
+                        v.trim().trim_matches('\'').to_string(),
+                    )
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn pick(row: &[(String, String)], keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .map(|k| {
+            row.iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| panic!("row without {k}: {row:?}"))
+        })
+        .collect()
+}
+
+#[test]
+fn every_build_runs_on_its_own_runner_and_names_its_artifact_for_stage_builds() {
+    let wf = read(".github/workflows/release.yml");
+    // slug (artifact app-<slug>), runner, rustup targets, tauri args and the
+    // token Tauri puts in that build's .dmg.
+    let app: Vec<Vec<String>> = matrix_rows(&job(&wf, "app"))
+        .iter()
+        .map(|r| pick(r, &["slug", "platform", "targets", "args", "tauri_arch"]))
+        .collect();
+    let row = |v: [&str; 5]| v.map(String::from).to_vec();
+    assert_eq!(
+        app,
+        [
+            row([
+                "darwin-aarch64",
+                "macos-latest",
+                "aarch64-apple-darwin",
+                "--target aarch64-apple-darwin",
+                "aarch64"
+            ]),
+            row([
+                "darwin-x86_64",
+                "macos-latest",
+                "x86_64-apple-darwin",
+                "--target x86_64-apple-darwin",
+                "x64"
+            ]),
+            row([
+                "windows-x86_64",
+                "windows-latest",
+                "x86_64-pc-windows-msvc",
+                "",
+                ""
+            ]),
+            row([
+                "windows-aarch64",
+                "windows-11-arm",
+                "aarch64-pc-windows-msvc",
+                "",
+                ""
+            ]),
+            row([
+                "linux-x86_64",
+                "ubuntu-22.04",
+                "x86_64-unknown-linux-gnu",
+                "",
+                ""
+            ]),
+            row([
+                "linux-aarch64",
+                "ubuntu-22.04-arm",
+                "aarch64-unknown-linux-gnu",
+                "",
+                ""
+            ]),
+        ]
+    );
+    // os-arch is the artifact (cli-<os>-<arch>) and the binary name that
+    // stage-builds checks against the target.
+    let cli: Vec<Vec<String>> = matrix_rows(&job(&wf, "cli"))
+        .iter()
+        .map(|r| pick(r, &["platform", "target", "os", "arch"]))
+        .collect();
+    let row = |v: [&str; 4]| v.map(String::from).to_vec();
+    assert_eq!(
+        cli,
+        [
+            row(["macos-latest", "aarch64-apple-darwin", "darwin", "aarch64"]),
+            row(["macos-latest", "x86_64-apple-darwin", "darwin", "x86_64"]),
+            row([
+                "windows-latest",
+                "x86_64-pc-windows-msvc",
+                "windows",
+                "x86_64"
+            ]),
+            row([
+                "windows-11-arm",
+                "aarch64-pc-windows-msvc",
+                "windows",
+                "aarch64"
+            ]),
+            row([
+                "ubuntu-22.04",
+                "x86_64-unknown-linux-gnu",
+                "linux",
+                "x86_64"
+            ]),
+            row([
+                "ubuntu-22.04-arm",
+                "aarch64-unknown-linux-gnu",
+                "linux",
+                "aarch64"
+            ]),
+        ]
+    );
 }
 
 #[test]
@@ -479,7 +770,7 @@ fn bundle_targets_and_macos_signing() {
     }
     assert_eq!(
         conf["bundle"]["macOS"]["signingIdentity"], "-",
-        "ad hoc: universal apps must run on Apple silicon"
+        "ad hoc: an unsigned arm64 app does not launch on Apple silicon"
     );
 }
 
@@ -500,14 +791,105 @@ fn release_notes_explain_gatekeeper_and_smartscreen_in_en_and_es() {
         "xattr -rd com.apple.quarantine \"/Applications/Coverly ROMs.app\"",
         "«Windows protegió su PC»",
         "libwebkit2gtk-4.1-0",
-        // GitHub's names for the uploaded files (release.yml stages them so).
-        "Coverly.ROMs_<version>_universal.dmg",
-        "Coverly.ROMs_<versión>_x64-setup.exe",
+        // The names stage-builds publishes (spec §4), in both languages.
+        "Coverly-ROMs_<version>_mac_arm.dmg",
+        "Coverly-ROMs_<version>_mac_intel.dmg",
+        "Coverly-ROMs_<version>_windows_x64-setup.exe",
+        "Coverly-ROMs_<version>_windows_arm-setup.exe",
+        "Coverly-ROMs_<version>_linux_arm.AppImage",
+        "Coverly-ROMs_<versión>_mac_arm.dmg",
+        "Coverly-ROMs_<versión>_windows_x64-setup.exe",
+        "Coverly-ROMs_<versión>_windows_arm-setup.exe",
+        "coverly_<version>_<system>",
+        "coverly_<versión>_<sistema>",
+        "Windows 11 (ARM64)",
+        "\"Chip\" means Apple silicon",
+        "«Chip» es Apple silicon",
+        "xattr -d com.apple.quarantine coverly_<version>_mac_arm",
     ] {
         assert!(notes.contains(needle), "{needle}");
     }
+    for old in [
+        "Coverly.ROMs_",
+        "_universal",
+        "_amd64",
+        "_x64_en-US",
+        "coverly-<",
+    ] {
+        assert!(!notes.contains(old), "old release name left: {old}");
+    }
     assert!(!notes.contains("Coverly ROMs_<"), "use the uploaded names");
     assert!(!notes.contains('!'), "brand voice: no exclamation marks");
+}
+
+/// Every app name in a language's section of the release notes, with its
+/// version placeholder replaced by `0.2.0`, read up to the closing backtick.
+fn app_names_in(section: &str, placeholder: &str) -> Vec<String> {
+    section
+        .match_indices("Coverly-ROMs_")
+        .map(|(at, _)| {
+            let rest = &section[at..];
+            let end = rest.find('`').unwrap_or(rest.len());
+            rest[..end].replace(placeholder, "0.2.0")
+        })
+        .collect()
+}
+
+#[test]
+fn release_notes_list_every_download_by_its_release_name_in_en_and_es() {
+    let notes = read(".github/release-notes.md");
+    let (en, es) = notes
+        .split_once("## Español")
+        .expect("an English and a Spanish section");
+    // The `.app.tar.gz` archives are for the updater only; people download
+    // the rest, so the table names each of them, in both languages.
+    let downloads: Vec<&str> = BUNDLES
+        .iter()
+        .copied()
+        .filter(|name| !name.ends_with(".app.tar.gz"))
+        .collect();
+    for (lang, section, placeholder, system) in [
+        ("en", en, "<version>", "<system>"),
+        ("es", es, "<versión>", "<sistema>"),
+    ] {
+        let listed = app_names_in(section, placeholder);
+        for name in &listed {
+            assert!(
+                downloads.contains(&name.as_str()),
+                "{lang}: not a name stage-builds publishes: {name}"
+            );
+        }
+        for name in &downloads {
+            assert!(
+                listed.iter().any(|l| l == name),
+                "{lang}: download missing from the table: {name}"
+            );
+        }
+        // The CLI row names the pattern and every platform suffix of §4.
+        assert!(
+            section.contains(&format!("`coverly_{placeholder}_{system}`")),
+            "{lang}: CLI name pattern"
+        );
+        for (suffix, os, _) in PLATFORMS {
+            let file = if os == "windows" {
+                format!("`{suffix}.exe`")
+            } else {
+                format!("`{suffix}`")
+            };
+            assert!(section.contains(&file), "{lang}: CLI platform {file}");
+        }
+        // A browser-downloaded CLI on either Mac is quarantined.
+        assert!(
+            section.contains(&format!(
+                "xattr -d com.apple.quarantine coverly_{placeholder}_mac_arm`"
+            )) && section.contains("`_mac_intel`"),
+            "{lang}: CLI quarantine line names both Mac builds"
+        );
+    }
+    // The draft job substitutes both placeholders, but each section keeps
+    // its own language's.
+    assert!(!en.contains("<versión>"), "en: uses <version>");
+    assert!(!es.contains("<version>"), "es: uses <versión>");
 }
 
 #[test]
@@ -556,8 +938,8 @@ fn release_tools_build_and_check_a_signed_manifest() {
     let cli = d.join("cli");
     std::fs::create_dir(&cli).unwrap();
     for (name, body) in [
-        ("coverly-0.2.0-darwin-aarch64", "a"),
-        ("coverly-0.2.0-windows-x86_64.exe", "w"),
+        ("coverly_0.2.0_mac_arm", "a"),
+        ("coverly_0.2.0_windows_x64.exe", "w"),
     ] {
         std::fs::write(cli.join(name), body).unwrap();
         std::fs::write(
@@ -584,7 +966,7 @@ fn release_tools_build_and_check_a_signed_manifest() {
     );
     let m: coverly_core::update::Manifest =
         serde_json::from_slice(&std::fs::read(d.join("latest.json")).unwrap()).unwrap();
-    assert_eq!(m.platforms["cli-windows-x86_64"].url, "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0/coverly-0.2.0-windows-x86_64.exe");
+    assert_eq!(m.platforms["cli-windows-x86_64"].url, "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0/coverly_0.2.0_windows_x64.exe");
     coverly_core::update::verify::verify_signed(
         b"a",
         &m.platforms["cli-darwin-aarch64"].signature,
@@ -691,6 +1073,121 @@ fn the_runbook_names_every_owner_step() {
         );
     }
     assert!(read("docs/adr/0011-release-pipeline-and-update-key.md").contains("updater.pub"));
+}
+
+/// The runbook, the READMEs and the architecture docs name the files
+/// `stage-builds` publishes (spec §4), never the old universal or Tauri ones.
+#[test]
+fn the_docs_use_the_release_names() {
+    let checks: [(&str, &[&str]); 7] = [
+        (
+            "RELEASING.md",
+            &[
+                "Coverly-ROMs_<version>_mac_arm.dmg",
+                "Coverly-ROMs_<version>_mac_intel.dmg",
+                "Coverly-ROMs_<version>_windows_arm-setup.exe",
+                "coverly_<version>_<platform>",
+                "windows-11-arm",
+                "windows-aarch64",
+                "cli-windows-aarch64",
+                "12 platform keys",
+                "not a release name",
+                "feat/release-names",
+                "clang is not installed",
+            ],
+        ),
+        (
+            "README.md",
+            &[
+                "Coverly-ROMs_<version>_mac_arm.dmg",
+                "Coverly-ROMs_<version>_mac_intel.dmg",
+                "Coverly-ROMs_<version>_windows_arm-setup.exe",
+                "coverly_<version>_<system>",
+                "xattr -d com.apple.quarantine coverly_<version>_mac_arm",
+                "Coverly-ROMs_<version>_linux_x64.deb",
+                "Windows 11 (ARM64)",
+                "\"Chip\" means Apple silicon",
+            ],
+        ),
+        (
+            "README.es.md",
+            &[
+                "Coverly-ROMs_<versión>_mac_arm.dmg",
+                "Coverly-ROMs_<versión>_mac_intel.dmg",
+                "Coverly-ROMs_<versión>_windows_arm-setup.exe",
+                "coverly_<versión>_<sistema>",
+                "xattr -d com.apple.quarantine coverly_<versión>_mac_arm",
+                "Coverly-ROMs_<versión>_linux_x64.deb",
+                "Windows 11 (ARM64)",
+                "«Chip» es Apple silicon",
+            ],
+        ),
+        (
+            "docs/07-build-and-release/ci-cd.md",
+            &[
+                "windows-11-arm",
+                "--target x86_64-apple-darwin",
+                "the same 6 targets",
+                "stage-builds",
+            ],
+        ),
+        (
+            "docs/04-architecture/updates.md",
+            &[
+                "six `<os>-<arch>` keys",
+                "six `cli-<os>-<arch>` keys",
+                "Coverly-ROMs_0.3.0_mac_arm.app.tar.gz",
+                "Coverly-ROMs_0.3.0_mac_intel.app.tar.gz",
+                "\"windows-aarch64\"",
+                "\"cli-windows-aarch64\"",
+                "coverly_0.3.0_windows_arm.exe",
+            ],
+        ),
+        (
+            "docs/adr/0011-release-pipeline-and-update-key.md",
+            &["## Amended 2026-10-26", "windows-aarch64", "stage-builds"],
+        ),
+        (
+            "CHANGELOG.md",
+            &["Coverly-ROMs_<version>_mac_arm.dmg", "Windows on ARM64"],
+        ),
+    ];
+    for (doc, needles) in checks {
+        let text = read(doc);
+        for needle in needles {
+            assert!(text.contains(needle), "{doc} lacks {needle}");
+        }
+    }
+    for doc in [
+        "RELEASING.md",
+        "README.md",
+        "README.es.md",
+        "docs/07-build-and-release/ci-cd.md",
+        "docs/04-architecture/updates.md",
+    ] {
+        let text = read(doc);
+        for old in [
+            "_universal",
+            "universal-apple-darwin",
+            "the same 5 targets",
+            "10 platform keys",
+            "five `",
+            "Coverly.ROMs_<",
+            "Coverly.ROMs_0.",
+        ] {
+            assert!(!text.contains(old), "{doc} still says {old}");
+        }
+    }
+    for doc in [
+        "README.md",
+        "README.es.md",
+        "docs/04-architecture/updates.md",
+    ] {
+        let text = read(doc);
+        for old in ["coverly-<", "coverly-0.", "_amd64", "_arm64.deb"] {
+            assert!(!text.contains(old), "{doc} still says {old}");
+        }
+    }
 }
 
 /// A failure the workflow log shows as an annotation: exit 1, `::error::`, no
@@ -805,16 +1302,20 @@ fn release_tools_read_a_key_file_with_a_bom() {
     assert_clean_failure(&tool(&["pubkey", "--file", f.to_str().unwrap()]), "UNSET");
 }
 
-/// The bundles the read-only `app` jobs hand to `finalize` (staged names).
-const BUNDLES: [&str; 8] = [
-    "Coverly.ROMs_0.2.0_universal.app.tar.gz",
-    "Coverly.ROMs_0.2.0_universal.dmg",
-    "Coverly.ROMs_0.2.0_x64-setup.exe",
-    "Coverly.ROMs_0.2.0_x64_en-US.msi",
-    "Coverly.ROMs_0.2.0_amd64.AppImage",
-    "Coverly.ROMs_0.2.0_amd64.deb",
-    "Coverly.ROMs_0.2.0_aarch64.AppImage",
-    "Coverly.ROMs_0.2.0_arm64.deb",
+/// What `stage-builds` leaves in `bundles/` for 0.2.0 (stable), spec §4.
+const BUNDLES: [&str; 12] = [
+    "Coverly-ROMs_0.2.0_mac_arm.app.tar.gz",
+    "Coverly-ROMs_0.2.0_mac_arm.dmg",
+    "Coverly-ROMs_0.2.0_mac_intel.app.tar.gz",
+    "Coverly-ROMs_0.2.0_mac_intel.dmg",
+    "Coverly-ROMs_0.2.0_windows_x64-setup.exe",
+    "Coverly-ROMs_0.2.0_windows_x64.msi",
+    "Coverly-ROMs_0.2.0_windows_arm-setup.exe",
+    "Coverly-ROMs_0.2.0_windows_arm.msi",
+    "Coverly-ROMs_0.2.0_linux_x64.AppImage",
+    "Coverly-ROMs_0.2.0_linux_x64.deb",
+    "Coverly-ROMs_0.2.0_linux_arm.AppImage",
+    "Coverly-ROMs_0.2.0_linux_arm.deb",
 ];
 
 fn write_bundles(dir: &Path, names: &[&str]) {
@@ -870,13 +1371,16 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
     assert_eq!(
         artifacts,
         [
-            "Coverly.ROMs_0.2.0_aarch64.AppImage",
-            "Coverly.ROMs_0.2.0_amd64.AppImage",
-            "Coverly.ROMs_0.2.0_amd64.deb",
-            "Coverly.ROMs_0.2.0_arm64.deb",
-            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
-            "Coverly.ROMs_0.2.0_x64-setup.exe",
-            "Coverly.ROMs_0.2.0_x64_en-US.msi",
+            "Coverly-ROMs_0.2.0_linux_arm.AppImage",
+            "Coverly-ROMs_0.2.0_linux_arm.deb",
+            "Coverly-ROMs_0.2.0_linux_x64.AppImage",
+            "Coverly-ROMs_0.2.0_linux_x64.deb",
+            "Coverly-ROMs_0.2.0_mac_arm.app.tar.gz",
+            "Coverly-ROMs_0.2.0_mac_intel.app.tar.gz",
+            "Coverly-ROMs_0.2.0_windows_arm-setup.exe",
+            "Coverly-ROMs_0.2.0_windows_arm.msi",
+            "Coverly-ROMs_0.2.0_windows_x64-setup.exe",
+            "Coverly-ROMs_0.2.0_windows_x64.msi",
         ]
     );
     // finalize signs each with the real key, bound to the version.
@@ -910,26 +1414,28 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
     assert_eq!(m.notes.as_deref(), Some("### Added\n\n- Updates."));
     assert_eq!(m.pub_date.as_deref(), Some("2026-10-16T00:00:00Z"));
     let file = |k: &str| m.platforms[k].url.rsplit('/').next().unwrap().to_string();
-    for (k, name) in [
-        ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
-        ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
-        (
-            "darwin-aarch64-app",
-            "Coverly.ROMs_0.2.0_universal.app.tar.gz",
-        ),
-        ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
-        ("windows-x86_64-nsis", "Coverly.ROMs_0.2.0_x64-setup.exe"),
-        ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
-        ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
-        ("linux-aarch64", "Coverly.ROMs_0.2.0_aarch64.AppImage"),
-        ("linux-x86_64-appimage", "Coverly.ROMs_0.2.0_amd64.AppImage"),
-        ("linux-x86_64-deb", "Coverly.ROMs_0.2.0_amd64.deb"),
-        ("linux-aarch64-deb", "Coverly.ROMs_0.2.0_arm64.deb"),
+    for (k, suffix) in [
+        ("darwin-aarch64", "mac_arm.app.tar.gz"),
+        ("darwin-aarch64-app", "mac_arm.app.tar.gz"),
+        ("darwin-x86_64", "mac_intel.app.tar.gz"),
+        ("darwin-x86_64-app", "mac_intel.app.tar.gz"),
+        ("windows-x86_64", "windows_x64-setup.exe"),
+        ("windows-x86_64-nsis", "windows_x64-setup.exe"),
+        ("windows-x86_64-msi", "windows_x64.msi"),
+        ("windows-aarch64", "windows_arm-setup.exe"),
+        ("windows-aarch64-nsis", "windows_arm-setup.exe"),
+        ("windows-aarch64-msi", "windows_arm.msi"),
+        ("linux-x86_64", "linux_x64.AppImage"),
+        ("linux-x86_64-appimage", "linux_x64.AppImage"),
+        ("linux-x86_64-deb", "linux_x64.deb"),
+        ("linux-aarch64", "linux_arm.AppImage"),
+        ("linux-aarch64-appimage", "linux_arm.AppImage"),
+        ("linux-aarch64-deb", "linux_arm.deb"),
     ] {
-        assert_eq!(file(k), name, "{k}");
+        assert_eq!(file(k), format!("Coverly-ROMs_0.2.0_{suffix}"), "{k}");
     }
     assert!(!m.platforms.values().any(|e| e.url.ends_with(".dmg")));
-    assert_eq!(m.platforms.len(), 13, "5 generic + 8 bundle-specific keys");
+    assert_eq!(m.platforms.len(), 16, "6 generic + 10 bundle-specific keys");
     // Each entry carries the real signature of its own file.
     for (k, e) in &m.platforms {
         let name = file(k);
@@ -941,18 +1447,12 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
         )
         .unwrap_or_else(|err| panic!("{k}: {err}"));
     }
-    // The CLI entries are added next to them and all ten keys are checked.
+    // The CLI entries are added next to them and all twelve keys are checked.
     let cli = dir.path().join("cli");
     std::fs::create_dir(&cli).unwrap();
-    for (os, arch) in [
-        ("darwin", "aarch64"),
-        ("darwin", "x86_64"),
-        ("windows", "x86_64"),
-        ("linux", "x86_64"),
-        ("linux", "aarch64"),
-    ] {
+    for (suffix, os, _arch) in PLATFORMS {
         let ext = if os == "windows" { ".exe" } else { "" };
-        let name = format!("coverly-0.2.0-{os}-{arch}{ext}");
+        let name = format!("coverly_0.2.0_{suffix}{ext}");
         std::fs::write(cli.join(&name), &name).unwrap();
         std::fs::write(
             cli.join(format!("{name}.sig")),
@@ -994,7 +1494,7 @@ fn release_tools_map_the_update_artifacts_to_platform_keys() {
             args.push(word[1].trim_end_matches('\\').to_string());
         }
     }
-    assert_eq!(args.len(), 7 + 20, "finalize requires the ten keys");
+    assert_eq!(args.len(), 7 + 24, "finalize requires the twelve keys");
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let ok = tool(&args);
     assert!(
@@ -1019,7 +1519,7 @@ fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles()
     // No NSIS installer: windows-x86_64 is the MSI.
     let msi_only = dir.path().join("msi");
     std::fs::create_dir(&msi_only).unwrap();
-    write_bundles(&msi_only, &["Coverly.ROMs_0.2.0_x64_en-US.msi"]);
+    write_bundles(&msi_only, &["Coverly-ROMs_0.2.0_windows_x64.msi"]);
     sign_all(&msi_only);
     assert!(updater_manifest(&msi_only, &latest, &[]).status.success());
     let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
@@ -1029,15 +1529,19 @@ fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles()
         .ends_with(".msi"));
     assert!(m["notes"].is_null());
     std::fs::remove_file(&latest).unwrap();
-    // A missing .sig, two AppImages for one architecture, a name without an
-    // architecture, or a CHANGELOG without the version: nothing is written.
+    // A missing .sig, two AppImages for one platform, a name that is not a
+    // release name, or a CHANGELOG without the version: nothing is written.
     let cases: [(&str, &[&str], bool); 3] = [
-        ("unsigned", &["Coverly.ROMs_0.2.0_amd64.AppImage"], false),
+        (
+            "unsigned",
+            &["Coverly-ROMs_0.2.0_linux_x64.AppImage"],
+            false,
+        ),
         (
             "twice",
             &[
-                "Coverly.ROMs_0.2.0_amd64.AppImage",
-                "Other_0.2.0_x86_64.AppImage",
+                "Coverly-ROMs_0.2.0_linux_x64.AppImage",
+                "Coverly-ROMs_0.2.1_linux_x64.AppImage",
             ],
             true,
         ),
@@ -1072,6 +1576,155 @@ fn release_tools_fall_back_to_the_msi_and_refuse_ambiguous_or_unsigned_bundles()
     );
 }
 
+#[test]
+fn updater_manifest_refuses_names_that_are_not_release_names() {
+    if python().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let latest = dir.path().join("latest.json");
+    for (case, name) in [
+        ("old tauri name", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+        ("old universal", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+        (
+            "suffix of another os",
+            "Coverly-ROMs_0.2.0_mac_arm-setup.exe",
+        ),
+        ("linux suffix on a msi", "Coverly-ROMs_0.2.0_linux_x64.msi"),
+        ("a space", "Coverly ROMs_0.2.0_linux_x64.AppImage"),
+        (
+            "unknown platform",
+            "Coverly-ROMs_0.2.0_mac_silicon.app.tar.gz",
+        ),
+    ] {
+        let d = dir.path().join(case.replace(' ', "-"));
+        std::fs::create_dir(&d).unwrap();
+        write_pinned(&d.join(name), name.as_bytes());
+        write_pinned(&d.join(format!("{name}.sig")), b"c2ln");
+        let out = updater_manifest(&d, &latest, &[]);
+        assert_clean_failure(&out, case);
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("not a release name"),
+            "{case}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!latest.exists(), "{case}");
+    }
+    // A prerelease name is a release name too: stage-builds gives a beta's
+    // files `Coverly-ROMs_<V>-beta.N_<platform><kind>`.
+    let beta = dir.path().join("beta");
+    std::fs::create_dir(&beta).unwrap();
+    let name = "Coverly-ROMs_0.3.0-beta.1_windows_arm-setup.exe";
+    write_pinned(&beta.join(name), name.as_bytes());
+    write_pinned(&beta.join(format!("{name}.sig")), b"c2ln");
+    let out = updater_manifest(&beta, &latest, &[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&latest).unwrap()).unwrap();
+    let keys: Vec<&str> = m["platforms"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["windows-aarch64", "windows-aarch64-nsis"]);
+}
+
+#[test]
+fn add_cli_reads_release_names() {
+    if python().is_none() {
+        return;
+    }
+    let add_version = |dir: &Path, manifest: &Path, version: &str| {
+        tool(&[
+            "add-cli",
+            "--manifest",
+            manifest.to_str().unwrap(),
+            "--dir",
+            dir.to_str().unwrap(),
+            "--version",
+            version,
+            "--base-url",
+            "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0",
+        ])
+    };
+    let add = |dir: &Path, manifest: &Path| add_version(dir, manifest, "0.3.0");
+    let root = tempfile::tempdir().unwrap();
+    let good = root.path().join("good");
+    for (suffix, os, _arch) in PLATFORMS {
+        let ext = if os == "windows" { ".exe" } else { "" };
+        let name = format!("coverly_0.3.0_{suffix}{ext}");
+        write_pinned(&good.join(&name), name.as_bytes());
+        write_pinned(&good.join(format!("{name}.sig")), b"c2ln");
+    }
+    let manifest = root.path().join("latest.json");
+    let out = add(&good, &manifest);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for (suffix, os, arch) in PLATFORMS {
+        let ext = if os == "windows" { ".exe" } else { "" };
+        assert!(
+            m["platforms"][format!("cli-{os}-{arch}")]["url"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!("/coverly_0.3.0_{suffix}{ext}")),
+            "{os}-{arch}"
+        );
+    }
+    for bad in [
+        "coverly_0.3.0_linux_x64.exe",
+        "coverly_0.3.0_mac_arm.exe",
+        "coverly_0.3.0_windows_x64",
+        "coverly_0.3.0_windows_arm",
+        "coverly-0.3.0-linux-x86_64",
+        "coverly-0.3.0-windows-aarch64.exe",
+        "coverly_0.2.9_linux_x64",
+        "coverly_0.3.0_mac_silicon",
+        "Coverly-ROMs_0.3.0_linux_x64.AppImage",
+    ] {
+        let d = root.path().join(bad);
+        write_pinned(&d.join(bad), b"x");
+        write_pinned(&d.join(format!("{bad}.sig")), b"c2ln");
+        let m = root.path().join(format!("{bad}.json"));
+        let out = add(&d, &m);
+        assert_clean_failure(&out, bad);
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains(&format!("unexpected file {bad}")),
+            "{bad}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(!m.exists(), "{bad}");
+    }
+    // A beta's binary, with the tag's `v` on --version as the workflow may
+    // pass it, gets its key; the version must still match exactly.
+    let beta = root.path().join("beta");
+    let name = "coverly_0.3.0-beta.1_windows_arm.exe";
+    write_pinned(&beta.join(name), name.as_bytes());
+    write_pinned(&beta.join(format!("{name}.sig")), b"c2ln");
+    let m = root.path().join("beta.json");
+    let out = add_version(&beta, &m, "v0.3.0-beta.1");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&m).unwrap()).unwrap();
+    assert!(v["platforms"]["cli-windows-aarch64"]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with(&format!("/{name}")));
+    let m = root.path().join("beta-stable.json");
+    assert_clean_failure(&add_version(&beta, &m, "0.3.0"), "beta as stable");
+    assert!(!m.exists());
+}
+
 /// Runs release-channels.yml's script against a fake `gh` that serves
 /// `<tag>.json` files from `releases` and logs what it is asked to do.
 fn run_beta_pointer(current: Option<&str>) -> (std::process::Output, String) {
@@ -1095,15 +1748,18 @@ fn run_beta_pointer(current: Option<&str>) -> (std::process::Output, String) {
     std::fs::create_dir(&releases).unwrap();
     let key = TestKey::generate();
     let mut platforms = serde_json::Map::new();
+    // Every key release-channels.yml requires (the same twelve as finalize).
     for k in [
         "darwin-aarch64",
         "darwin-x86_64",
         "windows-x86_64",
+        "windows-aarch64",
         "linux-x86_64",
         "linux-aarch64",
         "cli-darwin-aarch64",
         "cli-darwin-x86_64",
         "cli-windows-x86_64",
+        "cli-windows-aarch64",
         "cli-linux-x86_64",
         "cli-linux-aarch64",
     ] {
@@ -1368,9 +2024,9 @@ fn a_prerelease_builds_windows_without_the_msi() {
     );
     // Other platforms never get --bundles.
     assert_eq!(
-        app_build_args("macOS", "v1.0.0-beta.1", "--target universal-apple-darwin"),
+        app_build_args("macOS", "v1.0.0-beta.1", "--target aarch64-apple-darwin"),
         [
-            &["tauri", "build", "--target", "universal-apple-darwin"][..],
+            &["tauri", "build", "--target", "aarch64-apple-darwin"][..],
             &overlay[..]
         ]
         .concat()
@@ -1392,7 +2048,7 @@ fn finalize_checksums(tag: &str, bundles: &[&str]) -> std::process::Output {
     std::fs::create_dir(d.join("bundles")).unwrap();
     std::fs::create_dir(d.join("cli")).unwrap();
     write_bundles(&d.join("bundles"), bundles);
-    std::fs::write(d.join("cli/coverly-1.0.0-linux-x86_64"), "cli").unwrap();
+    std::fs::write(d.join("cli").join("coverly_1.0.0_linux_x64"), "cli").unwrap();
     std::fs::write(d.join("latest.json"), "{}").unwrap();
     let bin = fake_bin(&["gh"]);
     Command::new("bash")
@@ -1414,11 +2070,11 @@ fn finalize_requires_the_msi_only_for_a_stable_release() {
         return;
     }
     let no_msi = [
-        "Coverly.ROMs_1.0.0_universal.dmg",
-        "Coverly.ROMs_1.0.0_universal.app.tar.gz",
-        "Coverly.ROMs_1.0.0_x64-setup.exe",
-        "Coverly.ROMs_1.0.0_amd64.AppImage",
-        "Coverly.ROMs_1.0.0_amd64.deb",
+        "Coverly-ROMs_1.0.0_mac_arm.dmg",
+        "Coverly-ROMs_1.0.0_mac_arm.app.tar.gz",
+        "Coverly-ROMs_1.0.0_windows_x64-setup.exe",
+        "Coverly-ROMs_1.0.0_linux_x64.AppImage",
+        "Coverly-ROMs_1.0.0_linux_x64.deb",
     ];
     let beta = finalize_checksums("v1.0.0-beta.1", &no_msi);
     assert!(
@@ -1430,7 +2086,7 @@ fn finalize_requires_the_msi_only_for_a_stable_release() {
     assert!(!stable.status.success());
     assert!(String::from_utf8_lossy(&stable.stdout).contains("msi"));
     let mut with_msi = no_msi.to_vec();
-    with_msi.push("Coverly.ROMs_1.0.0_x64_en-US.msi");
+    with_msi.push("Coverly-ROMs_1.0.0_windows_x64.msi");
     let stable = finalize_checksums("v1.0.0", &with_msi);
     assert!(
         stable.status.success(),
@@ -1460,21 +2116,54 @@ fn the_guard_checks_the_signing_key_without_reading_it() {
     }
 }
 
+/// Fixture files get a fixed mtime so a run on the Windows CI leg and one on
+/// macOS see the same tree.
+fn write_pinned(path: &Path, body: &[u8]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, body).unwrap();
+    let f = std::fs::File::options().write(true).open(path).unwrap();
+    f.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000))
+        .unwrap();
+}
+
+/// (release suffix, os, arch): the six platforms of spec §4.
+const PLATFORMS: [(&str, &str, &str); 6] = [
+    ("mac_arm", "darwin", "aarch64"),
+    ("mac_intel", "darwin", "x86_64"),
+    ("windows_x64", "windows", "x86_64"),
+    ("windows_arm", "windows", "aarch64"),
+    ("linux_x64", "linux", "x86_64"),
+    ("linux_arm", "linux", "aarch64"),
+];
+
 /// Lays out what `actions/download-artifact` writes (one folder per build
-/// artifact) for version `v`, with or without the Windows `.msi`.
+/// artifact, Tauri's and Cargo's names) for version `v`, with or without the
+/// two Windows `.msi` files.
 fn downloaded_builds(root: &Path, v: &str, msi: bool) {
     let mut files: Vec<(String, String)> = vec![
         (
-            "app-macos-universal".into(),
-            format!("Coverly.ROMs_{v}_universal.app.tar.gz"),
+            "app-darwin-aarch64".into(),
+            format!("Coverly.ROMs_{v}_aarch64.app.tar.gz"),
         ),
         (
-            "app-macos-universal".into(),
-            format!("Coverly.ROMs_{v}_universal.dmg"),
+            "app-darwin-aarch64".into(),
+            format!("Coverly.ROMs_{v}_aarch64.dmg"),
+        ),
+        (
+            "app-darwin-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64.app.tar.gz"),
+        ),
+        (
+            "app-darwin-x86_64".into(),
+            format!("Coverly.ROMs_{v}_x64.dmg"),
         ),
         (
             "app-windows-x86_64".into(),
             format!("Coverly.ROMs_{v}_x64-setup.exe"),
+        ),
+        (
+            "app-windows-aarch64".into(),
+            format!("Coverly.ROMs_{v}_arm64-setup.exe"),
         ),
         (
             "app-linux-x86_64".into(),
@@ -1498,14 +2187,12 @@ fn downloaded_builds(root: &Path, v: &str, msi: bool) {
             "app-windows-x86_64".into(),
             format!("Coverly.ROMs_{v}_x64_en-US.msi"),
         ));
+        files.push((
+            "app-windows-aarch64".into(),
+            format!("Coverly.ROMs_{v}_arm64_en-US.msi"),
+        ));
     }
-    for (os, arch) in [
-        ("darwin", "aarch64"),
-        ("darwin", "x86_64"),
-        ("windows", "x86_64"),
-        ("linux", "x86_64"),
-        ("linux", "aarch64"),
-    ] {
+    for (_suffix, os, arch) in PLATFORMS {
         let ext = if os == "windows" { ".exe" } else { "" };
         files.push((
             format!("cli-{os}-{arch}"),
@@ -1513,10 +2200,31 @@ fn downloaded_builds(root: &Path, v: &str, msi: bool) {
         ));
     }
     for (artifact, name) in files {
-        let d = root.join(artifact);
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join(&name), &name).unwrap();
+        write_pinned(&root.join(&artifact).join(&name), name.as_bytes());
     }
+}
+
+/// Spec §4: the release names `stage-builds` must produce, sorted, as
+/// (bundles, cli).
+fn release_files(v: &str, msi: bool) -> (Vec<String>, Vec<String>) {
+    let mut bundles = Vec::new();
+    let mut cli = Vec::new();
+    for (suffix, os, _arch) in PLATFORMS {
+        let kinds: &[&str] = match os {
+            "darwin" => &[".app.tar.gz", ".dmg"],
+            "windows" if msi => &["-setup.exe", ".msi"],
+            "windows" => &["-setup.exe"],
+            _ => &[".AppImage", ".deb"],
+        };
+        for kind in kinds {
+            bundles.push(format!("Coverly-ROMs_{v}_{suffix}{kind}"));
+        }
+        let ext = if os == "windows" { ".exe" } else { "" };
+        cli.push(format!("coverly_{v}_{suffix}{ext}"));
+    }
+    bundles.sort();
+    cli.sort();
+    (bundles, cli)
 }
 
 fn stage_builds(root: &Path, version: &str) -> std::process::Output {
@@ -1545,6 +2253,45 @@ fn listing(dir: &Path) -> Vec<String> {
 }
 
 #[test]
+fn stage_builds_renames_every_platform() {
+    if python().is_none() {
+        return;
+    }
+    for (v, msi, n_bundles) in [("1.0.0", true, 12), ("1.0.0-beta.1", false, 10)] {
+        let dir = tempfile::tempdir().unwrap();
+        downloaded_builds(&dir.path().join("downloads"), v, msi);
+        let out = stage_builds(dir.path(), v);
+        assert!(
+            out.status.success(),
+            "{v}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let (bundles, cli) = release_files(v, msi);
+        assert_eq!(bundles.len(), n_bundles, "{v}");
+        assert_eq!(listing(&dir.path().join("bundles")), bundles, "{v}");
+        assert_eq!(listing(&dir.path().join("cli")), cli, "{v}");
+        // Content is copied byte for byte from the file it was renamed from.
+        let staged = std::fs::read(
+            dir.path()
+                .join("bundles")
+                .join(format!("Coverly-ROMs_{v}_windows_arm-setup.exe")),
+        )
+        .unwrap();
+        assert_eq!(
+            staged,
+            format!("Coverly.ROMs_{v}_arm64-setup.exe").as_bytes()
+        );
+        let staged = std::fs::read(
+            dir.path()
+                .join("cli")
+                .join(format!("coverly_{v}_mac_intel")),
+        )
+        .unwrap();
+        assert_eq!(staged, format!("coverly-{v}-darwin-x86_64").as_bytes());
+    }
+}
+
+#[test]
 fn release_tools_stage_each_build_only_from_its_own_artifact() {
     if python().is_none() {
         return;
@@ -1558,16 +2305,13 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(listing(&dir.path().join("bundles")).len(), 8);
+    assert_eq!(
+        listing(&dir.path().join("bundles")),
+        release_files("1.0.0", true).0
+    );
     assert_eq!(
         listing(&dir.path().join("cli")),
-        [
-            "coverly-1.0.0-darwin-aarch64",
-            "coverly-1.0.0-darwin-x86_64",
-            "coverly-1.0.0-linux-aarch64",
-            "coverly-1.0.0-linux-x86_64",
-            "coverly-1.0.0-windows-x86_64.exe",
-        ]
+        release_files("1.0.0", true).1
     );
 
     // A beta has no .msi (WiX), and stages fine without it.
@@ -1579,34 +2323,33 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(listing(&dir.path().join("bundles")).len(), 7);
+    assert_eq!(
+        listing(&dir.path().join("bundles")),
+        release_files("1.0.0-beta.1", false).0
+    );
 
     // Each tampering fails and stages nothing.
     type Tamper = fn(&Path);
-    let cases: [(&str, Tamper, &str); 7] = [
+    let cases: [(&str, Tamper, &str); 10] = [
         (
             "an extra artifact",
-            |d| {
-                std::fs::create_dir(d.join("app-zzz")).unwrap();
-                std::fs::write(d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), "evil").unwrap();
-            },
+            |d| write_pinned(&d.join("app-zzz/Coverly.ROMs_1.0.0_universal.dmg"), b"evil"),
             "app-zzz",
         ),
         (
             "another platform's file in an artifact",
             |d| {
-                std::fs::write(
-                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_universal.app.tar.gz"),
-                    "evil",
+                write_pinned(
+                    &d.join("app-darwin-aarch64/Coverly.ROMs_1.0.0_x64.dmg"),
+                    b"evil",
                 )
-                .unwrap();
             },
-            "app-linux-x86_64",
+            "app-darwin-aarch64",
         ),
         (
             "a missing artifact",
-            |d| std::fs::remove_dir_all(d.join("cli-linux-aarch64")).unwrap(),
-            "cli-linux-aarch64",
+            |d| std::fs::remove_dir_all(d.join("app-windows-aarch64")).unwrap(),
+            "app-windows-aarch64",
         ),
         (
             "a missing file",
@@ -1630,13 +2373,12 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         (
             "a signature handed over",
             |d| {
-                std::fs::write(
-                    d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64-setup.exe.sig"),
-                    "x",
+                write_pinned(
+                    &d.join("app-windows-aarch64/Coverly.ROMs_1.0.0_arm64-setup.exe.sig"),
+                    b"x",
                 )
-                .unwrap()
             },
-            "app-windows-x86_64",
+            "app-windows-aarch64",
         ),
         (
             "a CLI of another version",
@@ -1648,6 +2390,45 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
                 .unwrap()
             },
             "cli-linux-x86_64",
+        ),
+        (
+            "the old universal artifact",
+            |d| {
+                write_pinned(
+                    &d.join("app-macos-universal/Coverly.ROMs_1.0.0_universal.dmg"),
+                    b"old",
+                )
+            },
+            "app-macos-universal",
+        ),
+        (
+            "two .msi locales",
+            |d| {
+                write_pinned(
+                    &d.join("app-windows-x86_64/Coverly.ROMs_1.0.0_x64_es-ES.msi"),
+                    b"x",
+                )
+            },
+            "more than one .msi",
+        ),
+        (
+            "a symlink under a valid name",
+            |d| {
+                // The real AppImage is swapped for a link with the same
+                // name, so only the symlink check can refuse it.
+                let real = d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.AppImage");
+                // Outside the downloads folder, so the artifact list is
+                // unchanged and the link points at a regular file.
+                let outside = d.parent().unwrap().join("outside.AppImage");
+                std::fs::rename(&real, &outside).unwrap();
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&outside, &real).unwrap();
+                // Windows needs a privilege to create a symlink; a folder
+                // under the valid name is refused by the same branch.
+                #[cfg(not(unix))]
+                std::fs::create_dir(&real).unwrap();
+            },
+            "app-linux-x86_64: unexpected file Coverly.ROMs_1.0.0_amd64.AppImage",
         ),
     ];
     for (what, tamper, names) in cases {
@@ -1667,12 +2448,60 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         assert!(listing(&dir.path().join("cli")).is_empty(), "{what}");
     }
 
+    // A version GitHub would rewrite in an asset name (`+` becomes `.`)
+    // stages nothing: the url in latest.json would not match the asset.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0+build.1", true);
+    let out = stage_builds(dir.path(), "1.0.0+build.1");
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("GitHub would rewrite"), "{err}");
+    assert!(!err.contains("Traceback"), "{err}");
+    assert!(listing(&dir.path().join("bundles")).is_empty());
+    assert!(listing(&dir.path().join("cli")).is_empty());
+
     // A stable release must ship its .msi.
     let dir = tempfile::tempdir().unwrap();
     downloaded_builds(&dir.path().join("downloads"), "1.0.0", false);
     let out = stage_builds(dir.path(), "1.0.0");
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains(".msi"));
+}
+
+#[test]
+fn stage_builds_only_writes_into_empty_folders() {
+    if python().is_none() {
+        return;
+    }
+    // finalize uploads `bundles/*` and `cli/*` whole: a file already there
+    // (a stray one, or a link under a release name pointing elsewhere) would
+    // be uploaded, or written through, so stage-builds refuses to start.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0", true);
+    let bundles = dir.path().join("bundles");
+    write_pinned(&bundles.join("stray.txt"), b"stray");
+    let out = stage_builds(dir.path(), "1.0.0");
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("is not empty"), "{err}");
+    assert_eq!(listing(&bundles), ["stray.txt"]);
+    assert!(listing(&dir.path().join("cli")).is_empty());
+
+    #[cfg(unix)]
+    {
+        let dir = tempfile::tempdir().unwrap();
+        downloaded_builds(&dir.path().join("downloads"), "1.0.0", true);
+        let cli = dir.path().join("cli");
+        std::fs::create_dir_all(&cli).unwrap();
+        let outside = dir.path().join("outside");
+        std::os::unix::fs::symlink(&outside, cli.join("coverly_1.0.0_linux_x64")).unwrap();
+        let out = stage_builds(dir.path(), "1.0.0");
+        assert!(!out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("is not empty"), "{err}");
+        assert!(!outside.exists(), "a dangling link was written through");
+        assert!(listing(&dir.path().join("bundles")).is_empty());
+    }
 }
 
 #[test]
@@ -1706,4 +2535,442 @@ fn landing_redeploys_when_a_release_is_published() {
     assert!(wf.contains("curl -fsS -X POST \"$HOOK\""));
     assert!(!wf.contains("uses:"), "no third-party action");
     assert!(!wf.contains("continue-on-error") && !wf.contains("|| true"));
+}
+
+/// A complete stable manifest for `v`, built the way finalize builds it:
+/// stage-builds, real signatures from a test key, updater-manifest, add-cli,
+/// with every file announced under `base`.
+fn full_manifest(
+    root: &Path,
+    v: &str,
+    key: &coverly_core::update::testing::TestKey,
+    base: &str,
+) -> PathBuf {
+    downloaded_builds(&root.join("downloads"), v, true);
+    let out = stage_builds(root, v);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let sign_dir = |d: &Path| {
+        for name in listing(d) {
+            if name.ends_with(".dmg") {
+                continue;
+            }
+            let body = std::fs::read(d.join(&name)).unwrap();
+            write_pinned(
+                &d.join(format!("{name}.sig")),
+                key.sign(&body, &name, Some(v)).as_bytes(),
+            );
+        }
+    };
+    sign_dir(&root.join("bundles"));
+    sign_dir(&root.join("cli"));
+    let latest = root.join("latest.json");
+    let out = tool(&[
+        "updater-manifest",
+        "--dir",
+        root.join("bundles").to_str().unwrap(),
+        "--version",
+        v,
+        "--base-url",
+        base,
+        "--output",
+        latest.to_str().unwrap(),
+        "--pub-date",
+        "2026-11-01T00:00:00Z",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = tool(&[
+        "add-cli",
+        "--manifest",
+        latest.to_str().unwrap(),
+        "--dir",
+        root.join("cli").to_str().unwrap(),
+        "--version",
+        v,
+        "--base-url",
+        base,
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    latest
+}
+
+/// Every key of the `latest.json` that v0.2.0 published, with its file, as
+/// `gh release view v0.2.0` lists them. Installed 0.1.0/0.2.0 copies were
+/// served from these keys, so the new manifest must keep all of them.
+const V0_2_0_KEYS: [(&str, &str); 18] = [
+    ("cli-darwin-aarch64", "coverly-0.2.0-darwin-aarch64"),
+    ("cli-darwin-x86_64", "coverly-0.2.0-darwin-x86_64"),
+    ("cli-linux-aarch64", "coverly-0.2.0-linux-aarch64"),
+    ("cli-linux-x86_64", "coverly-0.2.0-linux-x86_64"),
+    ("cli-windows-x86_64", "coverly-0.2.0-windows-x86_64.exe"),
+    ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+    (
+        "darwin-aarch64-app",
+        "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+    ),
+    ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+    (
+        "darwin-x86_64-app",
+        "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+    ),
+    ("linux-aarch64", "Coverly.ROMs_0.2.0_aarch64.AppImage"),
+    (
+        "linux-aarch64-appimage",
+        "Coverly.ROMs_0.2.0_aarch64.AppImage",
+    ),
+    ("linux-aarch64-deb", "Coverly.ROMs_0.2.0_arm64.deb"),
+    ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+    ("linux-x86_64-appimage", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+    ("linux-x86_64-deb", "Coverly.ROMs_0.2.0_amd64.deb"),
+    ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+    ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
+    ("windows-x86_64-nsis", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+];
+
+/// What an updater does with a file: the bundle kind for the app, an
+/// executable or a bare binary for the CLI.
+fn update_kind(name: &str) -> &'static str {
+    [
+        ".app.tar.gz",
+        "-setup.exe",
+        ".msi",
+        ".AppImage",
+        ".deb",
+        ".exe",
+    ]
+    .into_iter()
+    .find(|k| name.ends_with(k))
+    .unwrap_or("binary")
+}
+
+/// Every key an installed copy asks for, with the file it must receive.
+/// The app: tauri-plugin-updater ~2.14 (the version 0.1.0 and 0.2.0 ship)
+/// looks up `{os}-{arch}-{installer}` first, then `{os}-{arch}`, arch being
+/// the running binary's (a universal 0.2.0 build reports the chip it runs
+/// on). The CLI: coverly_core::update::cli_platform_key(). The first 18 are
+/// exactly the keys v0.2.0 published (`V0_2_0_KEYS`);
+/// `the_shipped_updater_finds_and_verifies_every_app_update` drives the
+/// plugin itself through the app ones.
+const INSTALLED_KEYS: [(&str, &str); 22] = [
+    ("darwin-aarch64", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
+    ("darwin-aarch64-app", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
+    ("darwin-x86_64", "Coverly-ROMs_{v}_mac_intel.app.tar.gz"),
+    ("darwin-x86_64-app", "Coverly-ROMs_{v}_mac_intel.app.tar.gz"),
+    ("windows-x86_64", "Coverly-ROMs_{v}_windows_x64-setup.exe"),
+    (
+        "windows-x86_64-nsis",
+        "Coverly-ROMs_{v}_windows_x64-setup.exe",
+    ),
+    ("windows-x86_64-msi", "Coverly-ROMs_{v}_windows_x64.msi"),
+    ("linux-x86_64", "Coverly-ROMs_{v}_linux_x64.AppImage"),
+    (
+        "linux-x86_64-appimage",
+        "Coverly-ROMs_{v}_linux_x64.AppImage",
+    ),
+    ("linux-x86_64-deb", "Coverly-ROMs_{v}_linux_x64.deb"),
+    ("linux-aarch64", "Coverly-ROMs_{v}_linux_arm.AppImage"),
+    (
+        "linux-aarch64-appimage",
+        "Coverly-ROMs_{v}_linux_arm.AppImage",
+    ),
+    ("linux-aarch64-deb", "Coverly-ROMs_{v}_linux_arm.deb"),
+    ("cli-darwin-aarch64", "coverly_{v}_mac_arm"),
+    ("cli-darwin-x86_64", "coverly_{v}_mac_intel"),
+    ("cli-windows-x86_64", "coverly_{v}_windows_x64.exe"),
+    ("cli-linux-x86_64", "coverly_{v}_linux_x64"),
+    ("cli-linux-aarch64", "coverly_{v}_linux_arm"),
+    // New in this release (no installed copy asks yet; the next ones will).
+    ("windows-aarch64", "Coverly-ROMs_{v}_windows_arm-setup.exe"),
+    (
+        "windows-aarch64-nsis",
+        "Coverly-ROMs_{v}_windows_arm-setup.exe",
+    ),
+    ("windows-aarch64-msi", "Coverly-ROMs_{v}_windows_arm.msi"),
+    ("cli-windows-aarch64", "coverly_{v}_windows_arm.exe"),
+];
+
+#[test]
+fn installed_versions_find_their_update() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let v = "0.3.0";
+    let base = format!("https://github.com/MAECLY/coverly-roms/releases/download/v{v}");
+    let latest = full_manifest(dir.path(), v, &key, &base);
+    let bytes = std::fs::read(&latest).unwrap();
+    let m = coverly_core::update::parse_manifest(&bytes).expect("the CLI's parser reads it");
+    assert_eq!(m.version, v);
+    assert!(coverly_core::update::is_newer("0.2.0", &m.version));
+    assert!(coverly_core::update::is_newer("0.1.0", &m.version));
+    for (k, want) in INSTALLED_KEYS {
+        let entry = m
+            .platforms
+            .get(k)
+            .unwrap_or_else(|| panic!("no {k}: an installed copy would stop updating"));
+        let name = entry.url.rsplit('/').next().unwrap();
+        assert_eq!(name, want.replace("{v}", v), "{k}");
+        // The signature is the real one of that very file, bound to v.
+        let body = std::fs::read(
+            dir.path()
+                .join(if k.starts_with("cli-") {
+                    "cli"
+                } else {
+                    "bundles"
+                })
+                .join(name),
+        )
+        .unwrap();
+        coverly_core::update::verify::verify_signed(&body, &entry.signature, &key.public_b64(), v)
+            .unwrap_or_else(|e| panic!("{k}: {e}"));
+    }
+    // Every key v0.2.0 served is still there, with a file of the same kind.
+    for (k, was) in V0_2_0_KEYS {
+        assert!(
+            INSTALLED_KEYS.iter().any(|(i, _)| *i == k),
+            "{k} not listed"
+        );
+        let now = m.platforms[k].url.rsplit('/').next().unwrap();
+        assert_eq!(update_kind(now), update_kind(was), "{k}: {was} -> {now}");
+    }
+    // The CLI's own lookup, for every (os, arch) it can run on.
+    for (os, arch) in [
+        ("macos", "aarch64"),
+        ("macos", "x86_64"),
+        ("windows", "x86_64"),
+        ("windows", "aarch64"),
+        ("linux", "x86_64"),
+        ("linux", "aarch64"),
+    ] {
+        let k = coverly_core::update::cli_platform_key_for(os, arch).unwrap();
+        assert!(m.platforms.contains_key(&k), "{os}/{arch} -> {k}");
+    }
+    assert_eq!(
+        m.platforms.len(),
+        16 + 6,
+        "16 app keys + 6 CLI keys, nothing else"
+    );
+}
+
+#[test]
+fn recovery_tools_still_read_a_v0_2_0_manifest() {
+    if python().is_none() {
+        return;
+    }
+    // The manifest v0.2.0 published (old names), as list-artifacts and
+    // resign-manifest must keep reading it.
+    let old = V0_2_0_KEYS;
+    let dir = tempfile::tempdir().unwrap();
+    let base = "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0";
+    let platforms: serde_json::Map<String, serde_json::Value> = old
+        .iter()
+        .map(|(k, n)| {
+            (
+                (*k).to_string(),
+                serde_json::json!({"url": format!("{base}/{n}"), "signature": "b2xk"}),
+            )
+        })
+        .collect();
+    let manifest = dir.path().join("latest.json");
+    std::fs::write(
+        &manifest,
+        serde_json::json!({"version": "0.2.0", "platforms": platforms}).to_string(),
+    )
+    .unwrap();
+    let out = tool(&["list-artifacts", "--manifest", manifest.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listed: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(String::from)
+        .collect();
+    let mut want: Vec<String> = old.iter().map(|(_, n)| (*n).to_string()).collect();
+    want.sort();
+    want.dedup();
+    assert_eq!(want.len(), 12, "7 app files + 5 CLI binaries");
+    let mut got = listed.clone();
+    got.sort();
+    assert_eq!(got, want, "each file once");
+    let sigs = dir.path().join("sigs");
+    for name in &listed {
+        write_pinned(&sigs.join(format!("{name}.sig")), b"bmV3");
+    }
+    let out = tool(&[
+        "resign-manifest",
+        "--manifest",
+        manifest.to_str().unwrap(),
+        "--sigdir",
+        sigs.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for (k, _) in old {
+        assert_eq!(m["platforms"][k]["signature"], "bmV3", "{k}");
+    }
+}
+
+/// Serves `latest.json` and every staged file of `root` over loopback HTTP,
+/// the way GitHub serves a release to an installed copy. Returns the base URL.
+fn serve_release(root: PathBuf) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let root = root.clone();
+            std::thread::spawn(move || answer_release_request(stream, &root));
+        }
+    });
+    base
+}
+
+fn answer_release_request(mut stream: std::net::TcpStream, root: &Path) {
+    use std::io::{BufRead, Write};
+    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+    let mut request = String::new();
+    if reader.read_line(&mut request).is_err() {
+        return;
+    }
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).unwrap_or(0) <= 2 {
+            break;
+        }
+    }
+    let name = request
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("/")
+        .trim_start_matches('/');
+    let file = (!name.is_empty() && !name.contains(['/', '\\']) && !name.contains(".."))
+        .then(|| {
+            [root.to_path_buf(), root.join("bundles"), root.join("cli")]
+                .into_iter()
+                .map(|d| d.join(name))
+                .find(|p| p.is_file())
+        })
+        .flatten();
+    let (status, body) = match file {
+        Some(p) => ("200 OK", std::fs::read(p).unwrap()),
+        None => ("404 Not Found", Vec::new()),
+    };
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(&body);
+}
+
+/// A mock app that reports `installed` as its version, with the real
+/// `tauri-plugin-updater` (the ~2.14 that 0.1.0 and 0.2.0 ship).
+fn installed_app(installed: &str) -> tauri::App<tauri::test::MockRuntime> {
+    let mut ctx = tauri::test::mock_context(tauri::test::noop_assets());
+    ctx.package_info_mut().version = installed.parse().unwrap();
+    ctx.config_mut().plugins.0.insert(
+        "updater".into(),
+        serde_json::json!({ "pubkey": "unused", "endpoints": [] }),
+    );
+    tauri::test::mock_builder()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .build(ctx)
+        .expect("mock app")
+}
+
+/// The plugin itself (not a list of its keys) reads the new manifest, finds
+/// each app key, downloads the file and checks its signature, as an
+/// installed 0.1.0 or 0.2.0 copy does.
+#[test]
+fn the_shipped_updater_finds_and_verifies_every_app_update() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    use tauri_plugin_updater::UpdaterExt;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let v = "0.3.0";
+    let base = serve_release(dir.path().to_path_buf());
+    full_manifest(dir.path(), v, &key, &base);
+    let endpoint = tauri::Url::parse(&format!("{base}/latest.json")).unwrap();
+    let app_keys: Vec<(&str, String)> = INSTALLED_KEYS
+        .iter()
+        .filter(|(k, _)| !k.starts_with("cli-"))
+        .map(|(k, want)| (*k, want.replace("{v}", v)))
+        .collect();
+    assert_eq!(app_keys.len(), 16);
+    for installed in ["0.1.0", "0.2.0"] {
+        let app = installed_app(installed);
+        let check = |target: Option<&str>| {
+            let mut builder = app
+                .updater_builder()
+                .pubkey(key.public_b64())
+                .endpoints(vec![endpoint.clone()])
+                .unwrap();
+            if let Some(t) = target {
+                builder = builder.target(t);
+            }
+            tauri::async_runtime::block_on(builder.build().unwrap().check())
+                .unwrap_or_else(|e| panic!("{installed} on {target:?}: {e}"))
+        };
+        for (k, want) in &app_keys {
+            let update =
+                check(Some(k)).unwrap_or_else(|| panic!("{installed} on {k}: no update offered"));
+            assert_eq!(update.version, v);
+            let name = update
+                .download_url
+                .path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap();
+            assert_eq!(name, want, "{installed} on {k}");
+            // `download` refuses any byte whose signature does not verify.
+            let bytes = tauri::async_runtime::block_on(update.download(|_, _| {}, || {}))
+                .unwrap_or_else(|e| panic!("{installed} on {k}: {e}"));
+            assert_eq!(
+                bytes,
+                std::fs::read(dir.path().join("bundles").join(want)).unwrap()
+            );
+        }
+        // No target: the plugin's own `{os}-{arch}[-{installer}]` lookup here.
+        let os = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        let host = format!("{os}-{}", std::env::consts::ARCH);
+        if app_keys.iter().any(|(k, _)| *k == host) {
+            let update = check(None).expect("the host's own key");
+            let name = update
+                .download_url
+                .path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap();
+            assert!(
+                app_keys.iter().any(
+                    |(k, want)| (*k == host || k.starts_with(&format!("{host}-"))) && want == name
+                ),
+                "{installed} on {host}: {name}"
+            );
+        }
+    }
 }

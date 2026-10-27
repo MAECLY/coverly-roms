@@ -1,6 +1,6 @@
 # Updates
 
-> **TL;DR.** One `latest.json` per channel on GitHub Releases serves both the app (five `<os>-<arch>` keys) and the CLI (five `cli-<os>-<arch>` keys). Every artifact is signed with the project's minisign key, bound to its version. The only trusted public key lives in `crates/coverly-core/updater.pub` (`UNSET` until the owner commits it). The app drives `tauri-plugin-updater` from Rust; the webview only calls four commands. An update never interrupts a fill job, and with "check on start" off nothing is requested at startup. Decisions: [ADR-0008](../adr/0008-updater-public-releases.md) and [ADR-0011](../adr/0011-release-pipeline-and-update-key.md); release procedure: [RELEASING.md](../../RELEASING.md).
+> **TL;DR.** One `latest.json` per channel on GitHub Releases serves both the app (six `<os>-<arch>` keys) and the CLI (six `cli-<os>-<arch>` keys). Every artifact is signed with the project's minisign key, bound to its version. The only trusted public key lives in `crates/coverly-core/updater.pub` (`UNSET` until the owner commits it). The app drives `tauri-plugin-updater` from Rust; the webview only calls four commands. An update never interrupts a fill job, and with "check on start" off nothing is requested at startup. Decisions: [ADR-0008](../adr/0008-updater-public-releases.md) and [ADR-0011](../adr/0011-release-pipeline-and-update-key.md); release procedure: [RELEASING.md](../../RELEASING.md).
 
 ## Components
 
@@ -87,25 +87,27 @@ Rules the tests pin:
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.3.0",
   "notes": "### Added\n\n- …",
   "pub_date": "2026-11-02T10:00:00Z",
   "platforms": {
-    "darwin-aarch64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
-    "darwin-x86_64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_universal.app.tar.gz", "signature": "dW50cnVzdGVk…" },
-    "windows-x86_64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_x64-setup.exe", "signature": "dW50cnVzdGVk…" },
-    "linux-x86_64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_amd64.AppImage", "signature": "dW50cnVzdGVk…" },
-    "linux-aarch64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/Coverly.ROMs_0.1.0_aarch64.AppImage", "signature": "dW50cnVzdGVk…" },
-    "cli-darwin-aarch64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/coverly-0.1.0-darwin-aarch64", "signature": "dW50cnVzdGVk…" },
-    "cli-darwin-x86_64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/coverly-0.1.0-darwin-x86_64", "signature": "dW50cnVzdGVk…" },
-    "cli-windows-x86_64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/coverly-0.1.0-windows-x86_64.exe", "signature": "dW50cnVzdGVk…" },
-    "cli-linux-x86_64":    { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/coverly-0.1.0-linux-x86_64", "signature": "dW50cnVzdGVk…" },
-    "cli-linux-aarch64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.1.0/coverly-0.1.0-linux-aarch64", "signature": "dW50cnVzdGVk…" }
+    "darwin-aarch64":      { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_mac_arm.app.tar.gz", "signature": "dW50cnVzdGVk…" },
+    "darwin-x86_64":       { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_mac_intel.app.tar.gz", "signature": "dW50cnVzdGVk…" },
+    "windows-x86_64":      { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_windows_x64-setup.exe", "signature": "dW50cnVzdGVk…" },
+    "windows-aarch64":     { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_windows_arm-setup.exe", "signature": "dW50cnVzdGVk…" },
+    "linux-x86_64":        { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_linux_x64.AppImage", "signature": "dW50cnVzdGVk…" },
+    "linux-aarch64":       { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/Coverly-ROMs_0.3.0_linux_arm.AppImage", "signature": "dW50cnVzdGVk…" },
+    "cli-darwin-aarch64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_mac_arm", "signature": "dW50cnVzdGVk…" },
+    "cli-darwin-x86_64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_mac_intel", "signature": "dW50cnVzdGVk…" },
+    "cli-windows-x86_64":  { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_windows_x64.exe", "signature": "dW50cnVzdGVk…" },
+    "cli-windows-aarch64": { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_windows_arm.exe", "signature": "dW50cnVzdGVk…" },
+    "cli-linux-x86_64":    { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_linux_x64", "signature": "dW50cnVzdGVk…" },
+    "cli-linux-aarch64":   { "url": "https://github.com/MAECLY/coverly-roms/releases/download/v0.3.0/coverly_0.3.0_linux_arm", "signature": "dW50cnVzdGVk…" }
   }
 }
 ```
 
-`finalize` writes it with `release_tools.py updater-manifest` from the bundles the read-only `app` jobs handed over: `darwin-aarch64` and `darwin-x86_64` → the universal `.app.tar.gz`, `windows-x86_64` → the NSIS `-setup.exe` (the `.msi` only if there were no NSIS installer, tauri-action's `updaterJsonPreferNsis`), `linux-<arch>` → the `.AppImage`; it also writes bundle-specific keys (`darwin-aarch64-app`, `windows-x86_64-nsis`, `windows-x86_64-msi`, `linux-x86_64-appimage`, `linux-x86_64-deb`, …), which the updater tries first for the bundle a copy was installed from. Each `signature` is the base64 of a minisign signature file whose trusted comment carries `version:0.1.0` (`tauri signer sign --app-version`). The app reads `<os>-<arch>`; the CLI reads `cli-<os>-<arch>` (`cli_platform_key()`: `macos` → `darwin`; arch `x86_64` or `aarch64`, anything else has no key).
+`finalize` first runs `release_tools.py stage-builds`, which copies every file the read-only `app` and `cli` jobs handed over (Tauri's and Cargo's names) under its release name (`Coverly-ROMs_<version>_mac_arm.app.tar.gz`, `coverly_<version>_linux_x64`, …; the full table is §4 of the [release names spec](../superpowers/specs/2026-10-26-release-names.md)). Then `release_tools.py updater-manifest` reads the platform from each release name's suffix and writes: `darwin-aarch64` → `_mac_arm.app.tar.gz`, `darwin-x86_64` → `_mac_intel.app.tar.gz`, `windows-x86_64` → `_windows_x64-setup.exe` and `windows-aarch64` → `_windows_arm-setup.exe` (the NSIS installer; the `.msi` only if there were no NSIS installer, tauri-action's `updaterJsonPreferNsis`), `linux-<arch>` → the `.AppImage`; it also writes bundle-specific keys (`darwin-aarch64-app`, `windows-x86_64-nsis`, `windows-x86_64-msi`, `windows-aarch64-nsis`, `windows-aarch64-msi`, `linux-x86_64-appimage`, `linux-x86_64-deb`, …), which the updater tries first for the bundle a copy was installed from; `add-cli` adds the `cli-<os>-<arch>` keys from the `coverly_<version>_<platform>[.exe]` binaries. The keys never change with the file names: they are the Tauri platform keys installed copies already ask for, so a 0.1.0 or 0.2.0 install (universal on macOS) finds its update under the new names, an Apple silicon Mac getting the `mac_arm` archive and an Intel Mac the `mac_intel` one, and an x64 copy on a Windows ARM PC keeps receiving x64 updates (`src-tauri/tests/release_pipeline.rs` proves it with every key the updater and `cli_platform_key()` build). A file that is not a release name is refused (`not a release name`). Each `signature` is the base64 of a minisign signature file whose trusted comment carries `version:0.3.0` (`tauri signer sign --app-version`). The app reads `<os>-<arch>`; the CLI reads `cli-<os>-<arch>` (`cli_platform_key()`: `macos` → `darwin`; arch `x86_64` or `aarch64`, anything else has no key).
 
 | Channel | URL |
 |---|---|
