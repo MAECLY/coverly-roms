@@ -657,7 +657,7 @@ export const formatRate = (locale: string, perSecond: number) => formatDecimalSi
 **Files:** Create `src/lib/extractProgress.ts`, `src/lib/extractProgress.test.ts`.
 
 - [ ] **Step 1: Failing tests.** Build plans with the existing helpers in `src/test/organizeFixtures.ts` (or the mock's `MOCK_DOWNLOADS` plan through `createMockBackend({ delayMs: 0, storage: null })`). Cases (each an `it`):
-  - rows sorted by `index` when `transfer.entries` is shuffled; states for `entries_done` 0 → first row `current`, rest `waiting`; mid (4 of 12) → 4 `done`, row 5 `current`; all → all `done` and `phase: 'checking'` (when `bytes_done < bytes_total`), `phase: 'decoding'` otherwise mid-item.
+  - rows sorted by `index` when `transfer.entries` is shuffled; states for `entries_done` 0 → first row `current`, rest `waiting`; mid (4 of 12) → 4 `done`, row 5 `current`; all → all `done` and `phase: 'checking'` whatever the bytes (the all-staged edge of a zip whose entries are all wanted, and the mock's check pause, already carry `bytes_total`), `phase: 'decoding'` otherwise.
   - `noun: 'track'` when `item.disc` is set, `'file'` otherwise; a single-entry item → `entries: null`, `rows: []`.
   - game counter: 3 extract items among 40 with moves interleaved, one review item and one set-aside item excluded → the 2nd extract item reads `{ n: 2, total: 3 }`, also when it is the first event the view ever sees.
   - `plan === null` → `name: '#7'`, `systemId: null`, `game: null`, `rows: []`, `entries` from the event.
@@ -746,7 +746,7 @@ export function extractView(
     game: plan && pos >= 0 ? { n: pos + 1, total: games.length } : null,
     entries: counted ? { done, total } : null,
     rows,
-    phase: counted && done >= total && e.bytes_done < e.bytes_total ? 'checking' : 'decoding',
+    phase: counted && done >= total ? 'checking' : 'decoding',
     bytes: { done: Math.min(e.bytes_done, e.bytes_total), total: e.bytes_total },
   };
 }
