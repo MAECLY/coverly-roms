@@ -40,7 +40,7 @@ export function ScanProgressView({
     : null;
   const counters = progress
     ? [
-        t('start.romsFound', { n: n.format(progress.roms) }),
+        tr('start.romsFound', { n: n.format(progress.roms) }),
         ...(started && progress.folder
           ? [
               <span

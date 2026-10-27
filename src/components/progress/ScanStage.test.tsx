@@ -30,14 +30,49 @@ describe('ScanStage', () => {
     expect(screen.getByRole('img', { name: LABEL })).toBeInTheDocument();
   });
 
+  const offset = (container: HTMLElement) => {
+    const slide = container.querySelector<SVGGElement>('.ws-slide');
+    expect(slide).not.toBeNull();
+    const m = /^translateX\((-?[\d.]+)px\)$/.exec(slide!.style.transform);
+    expect(m).not.toBeNull();
+    return Number(m![1]);
+  };
+
   it('slides the folders under the reading line by the folders done', () => {
     const { container } = render(
       <ScanStage done={7} total={18} roms={0} label={LABEL} />,
     );
-    const slide = container.querySelector<SVGGElement>('.ws-slide');
-    expect(slide).not.toBeNull();
-    expect(slide!.style.transform).toBe('translateX(-48px)');
+    expect(offset(container)).toBe(-24 * 7);
     expect(container.querySelector('.ws-route')).not.toBeNull();
+  });
+
+  it('only ever slides forward, also past every fifth folder', () => {
+    const { container, rerender } = render(
+      <ScanStage done={0} total={18} roms={0} label={LABEL} />,
+    );
+    let last = offset(container);
+    for (let done = 1; done <= 12; done++) {
+      rerender(<ScanStage done={done} total={18} roms={0} label={LABEL} />);
+      const now = offset(container);
+      expect(now).toBeLessThan(last);
+      last = now;
+    }
+  });
+
+  it('keeps the folder glyphs it already drew while it slides', () => {
+    const { container, rerender } = render(
+      <ScanStage done={4} total={18} roms={0} label={LABEL} />,
+    );
+    const before = container.querySelectorAll('.ws-slide > g')[5];
+    rerender(<ScanStage done={5} total={18} roms={0} label={LABEL} />);
+    expect([...container.querySelectorAll('.ws-slide > g')]).toContain(before);
+  });
+
+  it('draws no folder beyond the total', () => {
+    const { container } = render(
+      <ScanStage done={2} total={3} roms={0} label={LABEL} />,
+    );
+    expect(container.querySelectorAll('.ws-slide > g')).toHaveLength(3);
   });
 
   it('renders the same DOM under reduced motion (motion lives in CSS)', () => {

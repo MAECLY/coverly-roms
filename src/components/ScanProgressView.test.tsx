@@ -20,7 +20,13 @@ describe('ScanProgressView', () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText('12.345 ROMs encontradas')).toBeInTheDocument();
+    const found = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'SPAN' && el.textContent === '12.345 ROMs encontradas',
+    );
+    expect(
+      [...found.querySelectorAll('.mono')].map((e) => e.textContent),
+    ).toEqual(['12.345']);
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '3');
     expect(bar).toHaveAttribute('aria-valuemax', '18');
@@ -67,7 +73,12 @@ describe('ScanProgressView', () => {
       (e) => e.textContent,
     );
     expect(mono).toEqual(['12', '40']);
-    expect(screen.getByText('312 ROMs encontradas')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'SPAN' && el.textContent === '312 ROMs encontradas',
+      ),
+    ).toBeInTheDocument();
     const folder = screen.getByText('Game Boy Advance');
     expect(folder.closest('.mono')).not.toBeNull();
     expect(folder.closest('[title]')).toHaveAttribute(
