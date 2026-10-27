@@ -234,6 +234,56 @@ fn json_matches_the_plan_schema() {
     assert_eq!(written.groups.len(), 2);
 }
 
+/// Facts flow through `DedupePlan` into the JSON report; the text report
+/// stays as it was (no tag or region words added to it).
+#[test]
+fn json_report_has_member_facts() {
+    use coverly_core::identify::names::Region;
+    let lib = Library {
+        dir: TempDir::new().unwrap(),
+        cache: TempDir::new().unwrap(),
+        data: TempDir::new().unwrap(),
+    };
+    let root = lib.root();
+    fs::create_dir_all(root.join("anbernic")).unwrap();
+    let tetris = rom_bytes(4, 32 * 1024);
+    for (n, rel) in ["ROMS/GB/Tetris (J) [!].gb", "ROMS/GB/Tetris (J) [!] (1).gb"]
+        .into_iter()
+        .enumerate()
+    {
+        put(root, rel, &tetris);
+        pin_mtime(&root.join(rel), n as u64);
+    }
+
+    let plan = json_plan(&lib, &[]);
+    assert_eq!(plan.groups.len(), 1, "{plan:?}");
+    let first = &plan.groups[0].members[0];
+    assert_eq!(
+        first.facts.regions,
+        vec![Region::Japan],
+        "{:?}",
+        first.facts
+    );
+    assert!(first.facts.flags.verified, "{:?}", first.facts);
+    for m in &plan.groups[0].members {
+        assert_eq!(m.facts.regions, vec![Region::Japan], "{:?}", m.facts);
+    }
+
+    // The raw JSON spells the facts out under each member.
+    let text = stdout_of(lib.cmd().args(["--report", "json"]));
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let facts = &v["groups"][0]["members"][0]["facts"];
+    assert!(facts.is_object(), "{text}");
+    assert_eq!(facts["flags"]["verified"], true, "{text}");
+
+    // The text report does not render facts.
+    let table = stdout_of(&mut lib.cmd());
+    assert!(table.contains("Tetris"), "{table}");
+    for word in ["Japan", "verified", "facts", "regions"] {
+        assert!(!table.contains(word), "{word} in the text report:\n{table}");
+    }
+}
+
 #[test]
 fn keep_path_overrides_the_keeper() {
     let lib = Library::new();
