@@ -1756,21 +1756,23 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
             "more than one .msi",
         ),
         (
-            "a symlink",
+            "a symlink under a valid name",
             |d| {
+                // The real AppImage is swapped for a link with the same
+                // name, so only the symlink check can refuse it.
+                let real = d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.AppImage");
+                // Outside the downloads folder, so the artifact list is
+                // unchanged and the link points at a regular file.
+                let outside = d.parent().unwrap().join("outside.AppImage");
+                std::fs::rename(&real, &outside).unwrap();
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(
-                    "/etc/hosts",
-                    d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.x.AppImage"),
-                )
-                .unwrap();
+                std::os::unix::fs::symlink(&outside, &real).unwrap();
+                // Windows needs a privilege to create a symlink; a folder
+                // under the valid name is refused by the same branch.
                 #[cfg(not(unix))]
-                write_pinned(
-                    &d.join("app-linux-x86_64/Coverly.ROMs_1.0.0_amd64.x.AppImage"),
-                    b"x",
-                );
+                std::fs::create_dir(&real).unwrap();
             },
-            "app-linux-x86_64",
+            "app-linux-x86_64: unexpected file Coverly.ROMs_1.0.0_amd64.AppImage",
         ),
     ];
     for (what, tamper, names) in cases {
@@ -1789,6 +1791,18 @@ fn release_tools_stage_each_build_only_from_its_own_artifact() {
         assert!(listing(&dir.path().join("bundles")).is_empty(), "{what}");
         assert!(listing(&dir.path().join("cli")).is_empty(), "{what}");
     }
+
+    // A version GitHub would rewrite in an asset name (`+` becomes `.`)
+    // stages nothing: the url in latest.json would not match the asset.
+    let dir = tempfile::tempdir().unwrap();
+    downloaded_builds(&dir.path().join("downloads"), "1.0.0+build.1", true);
+    let out = stage_builds(dir.path(), "1.0.0+build.1");
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("GitHub would rewrite"), "{err}");
+    assert!(!err.contains("Traceback"), "{err}");
+    assert!(listing(&dir.path().join("bundles")).is_empty());
+    assert!(listing(&dir.path().join("cli")).is_empty());
 
     // A stable release must ship its .msi.
     let dir = tempfile::tempdir().unwrap();
