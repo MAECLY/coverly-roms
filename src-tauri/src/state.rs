@@ -2100,7 +2100,9 @@ impl AppState {
 
     /// `path` when the file manager may show it: inside the open library,
     /// a kept duplicates plan's library or quarantine, or the last
-    /// duplicates job's; the nearest existing folder when it is gone.
+    /// duplicates job's, a kept Organise plan's pile or target, or the
+    /// current Organise apply's target; the nearest existing folder when
+    /// it is gone. Matched by path component, never by text prefix.
     pub fn revealable(&self, path: &Path) -> Result<PathBuf, IpcError> {
         let shown = path.display().to_string();
         if !path.is_absolute()
