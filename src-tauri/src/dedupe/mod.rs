@@ -645,6 +645,49 @@ mod tests {
         assert_eq!(end_state(&report), DedupeJobState::Paused);
     }
 
+    fn empty_stored() -> StoredDedupe {
+        StoredDedupe {
+            root: PathBuf::from("lib"),
+            opts: DedupeOptions::default(),
+            plan: DedupePlan::default(),
+            skipped_groups: Default::default(),
+            skipped_systems: Default::default(),
+            trash_available: false,
+        }
+    }
+
+    #[test]
+    fn libretro_memo_lives_only_as_long_as_its_plan() {
+        let m = DedupeManager::default();
+        let first = m.next_id();
+        m.store(first, empty_stored());
+        m.remember_libretro(first, 7, Media::Cover, Some("u".into()));
+        m.remember_libretro(first, 7, Media::Title, None);
+        assert_eq!(
+            m.libretro_memo(first, 7, Media::Cover),
+            Some(Some("u".into()))
+        );
+        assert_eq!(m.libretro_memo(first, 7, Media::Title), Some(None));
+
+        // A lookup for a plan that is not kept is not remembered.
+        m.remember_libretro(first + 100, 7, Media::Cover, Some("x".into()));
+        assert_eq!(m.libretro_memo(first + 100, 7, Media::Cover), None);
+
+        // Evicting the plan drops its memo; a newer plan's stays.
+        let mut last = first;
+        for _ in 0..KEPT_PLANS {
+            last = m.next_id();
+            m.store(last, empty_stored());
+        }
+        m.remember_libretro(last, 7, Media::Cover, Some("v".into()));
+        assert_eq!(m.libretro_memo(first, 7, Media::Cover), None);
+        assert_eq!(m.libretro_memo(first, 7, Media::Title), None);
+        assert_eq!(
+            m.libretro_memo(last, 7, Media::Cover),
+            Some(Some("v".into()))
+        );
+    }
+
     #[test]
     fn a_newer_plan_cancels_the_running_one() {
         let m = DedupeManager::default();
