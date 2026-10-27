@@ -1185,6 +1185,8 @@
     },
     "title": "Organise by system",
     "back": "Back",
+    "settingsLink": "Organise settings",
+    "settingsChanged": "The organise settings changed. Scan again to use them for what you have not chosen here.",
     "layout": "Layout",
     "confidence": {
       "label": "Confidence",

@@ -1185,6 +1185,8 @@
     },
     "title": "Organizar por sistema",
     "back": "Volver",
+    "settingsLink": "Ajustes de Organizar",
+    "settingsChanged": "Los ajustes de organizar han cambiado. Vuelve a analizar para aplicarlos a lo que no hayas elegido aquí.",
     "layout": "Formato",
     "confidence": {
       "label": "Confianza",

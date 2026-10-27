@@ -10,9 +10,11 @@ import {
   MOCK_LIBRARIES,
   type MockBackend,
 } from '@/ipc/mock/mockBackend';
+import { MOCK_MIXED } from '@/ipc/mock/mockOrganize';
 import { useDedupeStore } from '@/stores/dedupeStore';
 import { resetLibraryStore } from '@/stores/libraryStore';
 import { resetNavStore, useNavStore } from '@/stores/navStore';
+import { useOrganizeStore } from '@/stores/organizeStore';
 import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
@@ -148,6 +150,134 @@ describe('Duplicates screen settings link', () => {
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: 'Duplicates settings' }),
+      ).toBeDisabled(),
+    );
+  });
+});
+
+const ORG_CHANGED =
+  'The organise settings changed. Scan again to use them for what you have not chosen here.';
+
+describe('Organise screen settings link', () => {
+  beforeEach(() => {
+    backend = createMockBackend({
+      delayMs: 0,
+      now: FIXTURE_NOW,
+      storage: new MemoryStorage(),
+      pauseAfter: null,
+    });
+    setBackend(backend);
+    resetSettingsStore();
+    resetLibraryStore();
+    resetNavStore();
+    useOrganizeStore.getState().reset();
+    restore = stubLayout(1280, 800);
+  });
+  afterEach(() => {
+    useOrganizeStore.getState().reset();
+    restore();
+    vi.restoreAllMocks();
+    setBackend(null);
+  });
+
+  const organizeReady = () =>
+    waitFor(() => expect(useOrganizeStore.getState().status).toBe('ready'));
+
+  /** Opens Organise on the mixed pile and makes one decision. */
+  async function openOrganize() {
+    useNavStore.getState().openOrganize(MOCK_MIXED);
+    render(<Root />);
+    await waitFor(() =>
+      expect(useSettingsStore.getState().status).toBe('ready'),
+    );
+    await organizeReady();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'System for mystery.rom' }),
+      'gba',
+    );
+    await organizeReady();
+    expect(Object.keys(useOrganizeStore.getState().decisions)).toHaveLength(1);
+    return screen.getByRole('button', { name: 'Organise settings' });
+  }
+
+  async function toOrganizeSettings(link: HTMLElement) {
+    await userEvent.click(link);
+    const tabs = await screen.findByRole('tablist', {
+      name: 'Settings sections',
+    });
+    return within(tabs).getByRole('tab', { name: 'Organise' });
+  }
+
+  async function backToOrganize(saves: number) {
+    await waitFor(() => expect(useSettingsStore.getState().saved).toBe(saves));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByRole('heading', {
+      level: 1,
+      name: 'Organise by system',
+    });
+  }
+
+  it('opens the organise tab and comes back with the decisions', async () => {
+    const link = await openOrganize();
+    const { plan, decisions } = useOrganizeStore.getState();
+    const tab = await toOrganizeSettings(link);
+    expect(tab).toHaveAttribute('aria-selected', 'true');
+    await backToOrganize(0);
+    expect(useOrganizeStore.getState().plan).toBe(plan);
+    expect(useOrganizeStore.getState().decisions).toBe(decisions);
+    expect(useOrganizeStore.getState().status).toBe('ready');
+    expect(
+      screen.getByRole('button', { name: 'Organise settings' }),
+    ).toHaveFocus();
+    expect(screen.queryByText(ORG_CHANGED)).not.toBeInTheDocument();
+  });
+
+  it('a changed names setting shows the alert and Scan again keeps the decisions', async () => {
+    const link = await openOrganize();
+    await toOrganizeSettings(link);
+    const names = screen.getByRole('combobox', { name: 'Names' });
+    const other =
+      (names as HTMLSelectElement).value === 'keep' ? 'catalogue' : 'keep';
+    await userEvent.selectOptions(names, other);
+    await backToOrganize(1);
+    const alert = screen
+      .getByText(ORG_CHANGED)
+      .closest<HTMLElement>('[role="status"]');
+    expect(alert).not.toBeNull();
+    const plan = vi.spyOn(backend, 'organizePlan');
+    await userEvent.click(
+      within(alert!).getByRole('button', { name: 'Scan again' }),
+    );
+    expect(plan.mock.calls[0]![0]).toMatchObject({ rescan: true });
+    await organizeReady();
+    expect(screen.queryByText(ORG_CHANGED)).not.toBeInTheDocument();
+    expect(screen.getByText('Your choices kept: 1')).toBeInTheDocument();
+    expect(Object.keys(useOrganizeStore.getState().decisions)).toHaveLength(1);
+  });
+
+  it('keeps the organise alert after a second visit to Settings with no change', async () => {
+    const link = await openOrganize();
+    await toOrganizeSettings(link);
+    const names = screen.getByRole('combobox', { name: 'Names' });
+    const other =
+      (names as HTMLSelectElement).value === 'keep' ? 'catalogue' : 'keep';
+    await userEvent.selectOptions(names, other);
+    await backToOrganize(1);
+    expect(screen.getByText(ORG_CHANGED)).toBeInTheDocument();
+    await toOrganizeSettings(
+      screen.getByRole('button', { name: 'Organise settings' }),
+    );
+    await backToOrganize(1);
+    expect(screen.getByText(ORG_CHANGED)).toBeInTheDocument();
+  });
+
+  it('the organise link is disabled while applying', async () => {
+    const link = await openOrganize();
+    expect(link).toBeEnabled();
+    useOrganizeStore.setState({ status: 'applying' });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Organise settings' }),
       ).toBeDisabled(),
     );
   });

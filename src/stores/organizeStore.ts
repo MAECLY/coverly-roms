@@ -55,6 +55,9 @@ interface OrganizeState {
   lastRefresh: OrganizeRefresh | null;
   /** The plan in flight is a refresh (the button shows it is busy). */
   refreshing: boolean;
+  /** The plan-read settings when Settings was opened from this screen
+   * (`organizeStamp`); null when not stamped or once a new plan is shown. */
+  settingsStamp: string | null;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
   decide(
@@ -89,6 +92,7 @@ const initial = {
   locked: false,
   lastRefresh: null,
   refreshing: false,
+  settingsStamp: null as string | null,
 };
 
 /** Bumped by every plan request (and by cancel/reset): older answers are dropped. */
@@ -179,6 +183,10 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
     planning = null;
     shownWith = { request, decisions };
     set({
+      // Every plan reads the settings as they are now (scan again, an
+      // option, a decision). A cancelled one keeps the stamp of the plan
+      // still on screen.
+      settingsStamp: null,
       status: 'ready',
       planId: view.plan_id,
       plan: view.plan,
