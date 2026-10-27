@@ -1,0 +1,182 @@
+/* Progress stages: token roles only (no raw colours, no blend modes).
+ * Every keyframe and animation is opted in under no-preference, as the
+ * landing's site.css does; durations come from tokens, zeroed under reduce. */
+
+.ws-shelf {
+  stroke: var(--cr-border-strong);
+  stroke-width: 1;
+}
+/* The Buckram cap uses the slot-applied role, never a raw primitive. */
+.ws-cap {
+  stroke: var(--cr-slot-applied);
+  stroke-width: var(--cr-border-width-spine);
+}
+.ws-route {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-dasharray: 3 3;
+}
+.ws-box,
+.ws-lid {
+  fill: var(--cr-surface-raised);
+  stroke: var(--cr-border-strong);
+  stroke-width: 1.5;
+}
+.ws-sleeve {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-dasharray: 4 3;
+}
+.ws-sleeve.is-solid {
+  stroke: var(--cr-slot-filled);
+  stroke-dasharray: none;
+  fill: var(--cr-surface-raised);
+}
+.ws-spine {
+  fill: var(--cr-slot-applied);
+}
+.ws-folder {
+  fill: var(--cr-surface-sunken);
+  stroke: var(--cr-border-strong);
+  stroke-width: 0.7;
+}
+.ws-tab {
+  fill: var(--cr-manila);
+}
+.ws-plate {
+  color: var(--cr-manila-fg);
+  background: var(--cr-manila);
+}
+/* On the Manila plate the icon takes the plate's ink: the resting
+ * text-secondary of .system-icon fails contrast on Manila in dark. */
+.ws-plate .system-icon,
+.ws-plate .system-mount {
+  color: inherit;
+}
+.ws-check {
+  fill: none;
+  stroke: var(--cr-slot-applied);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.ws-lid {
+  transform-box: view-box;
+  transform-origin: 16px 54px;
+  transition: transform var(--cr-duration-slow) var(--cr-ease-ink) 120ms;
+}
+.ws-lid.is-open {
+  transform: rotate(-14deg);
+}
+
+/* Track list: the current row's slot dashes on a 7 px period, so the
+ * march's -14 offset loops without a jump. */
+.tl-mark.ws-march rect {
+  stroke-dasharray: 3.5 3.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tl-list {
+    scroll-behavior: smooth;
+  }
+  .ws-box-in {
+    animation: ws-box-in var(--cr-duration-slower) var(--cr-ease-enter) both;
+  }
+  .ws-march {
+    animation: ws-march 800ms var(--cr-ease-standard) infinite;
+  }
+  .ws-fly-x {
+    animation: ws-fly-x 640ms linear calc(var(--g, 0) * 140ms) both;
+  }
+  .ws-fly-y {
+    animation: ws-fly-y 640ms calc(var(--g, 0) * 140ms) both;
+  }
+  .ws-flash {
+    animation: ws-flash var(--cr-duration-base) var(--cr-ease-standard);
+  }
+  .ws-slide {
+    transition: transform var(--cr-duration-slow) var(--cr-ease-ink);
+  }
+
+  @keyframes ws-box-in {
+    from {
+      transform: translateX(-24px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @keyframes ws-march {
+    to {
+      stroke-dashoffset: -14;
+    }
+  }
+  @keyframes ws-fly-x {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(var(--dx));
+    }
+  }
+  @keyframes ws-fly-y {
+    0% {
+      transform: translateY(0);
+      animation-timing-function: var(--cr-ease-enter);
+    }
+    45% {
+      transform: translateY(var(--lift));
+      animation-timing-function: var(--cr-ease-exit);
+    }
+    100% {
+      transform: translateY(var(--drop));
+    }
+  }
+  @keyframes ws-flash {
+    50% {
+      fill: var(--cr-manila-text);
+    }
+  }
+}
+
+@media (forced-colors: active) {
+  .ws-shelf,
+  .ws-route,
+  .ws-box,
+  .ws-lid,
+  .ws-folder,
+  .ws-sleeve {
+    stroke: CanvasText;
+  }
+  .ws-box,
+  .ws-lid,
+  .ws-folder,
+  .ws-tab {
+    fill: Canvas;
+  }
+  /* The tab sits on Canvas with no stroke of its own; outline it. */
+  .ws-tab {
+    stroke: CanvasText;
+    stroke-width: 0.7;
+  }
+  .ws-cap,
+  .ws-sleeve.is-solid,
+  .ws-spine {
+    stroke: Highlight;
+  }
+  .ws-sleeve.is-solid,
+  .ws-spine {
+    fill: Highlight;
+  }
+  /* The tick stays an open stroke: a fill would paint the triangle under it. */
+  .ws-check {
+    stroke: Highlight;
+    fill: none;
+  }
+  .ws-plate {
+    forced-color-adjust: auto;
+  }
+}

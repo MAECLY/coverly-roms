@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use coverly_core::archive::testing::{
     sevenz, zip_crafted, zip_with, SevenZShape, ZipMethod, ZipSpec,
@@ -16,7 +16,8 @@ use coverly_core::archive::{
 };
 use coverly_core::organize::apply::set_free_space_override;
 use coverly_core::organize::extract::{
-    extract_to_temps, set_write_fault, ExtractError, ExtractRequest, Fault, PhaseA, CANCEL_EVERY,
+    extract_to_temps, set_write_fault, ExtractError, ExtractRequest, ExtractTick, Fault, PhaseA,
+    CANCEL_EVERY,
 };
 use coverly_core::organize::ExtractEntry;
 use coverly_core::progress::PauseKind;
@@ -394,7 +395,8 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     let cancel = Arc::new(AtomicBool::new(false));
     let cancelled_at = AtomicU64::new(0);
     let last = AtomicU64::new(0);
-    let progress = |bytes: u64| {
+    let progress = |t: ExtractTick| {
+        let bytes = t.bytes;
         last.store(bytes, Ordering::SeqCst);
         if bytes >= 1 << 20 && !cancel.swap(true, Ordering::SeqCst) {
             cancelled_at.store(bytes, Ordering::SeqCst);
@@ -422,6 +424,58 @@ fn cancel_inside_64mib_entry_returns_within_16mib() {
     );
     assert!(stopped < 64 << 20);
     assert_rolled_back(&env, &writer, &env.root.join("PS/Big"), &entries);
+}
+
+/// D2: at every tick, the staged entries are the first `entries_done` of
+/// the plan entries by archive index, whatever order the plan lists them.
+#[test]
+fn staged_entries_are_a_prefix_by_archive_index() {
+    let env = env();
+    let files: Vec<(String, Vec<u8>)> = (1..=5)
+        .map(|i| (format!("Game (Track {i}).bin"), vec![i as u8; 300_000 * i]))
+        .collect();
+    let refs: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(n, d)| (n.as_str(), d.as_slice()))
+        .collect();
+    let (archive, mut reader) = write_archive(
+        &env,
+        "Game.7z",
+        &sevenz(&refs, SevenZShape::solid_lzma2_sheets_last()),
+    );
+    let mut entries = plan_entries(reader.as_ref(), "PS/Game");
+    entries.reverse(); // the plan lists them out of archive order
+    let mut writer = env.writer();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ticks: Mutex<Vec<ExtractTick>> = Mutex::default();
+    let progress = |t: ExtractTick| ticks.lock().unwrap().push(t);
+    let done = extract_to_temps(
+        &mut writer,
+        reader.as_mut(),
+        &ExtractRequest {
+            item: 0,
+            archive: &archive,
+            entries: &entries,
+            cancel: &cancel,
+            progress: &progress,
+        },
+    )
+    .unwrap();
+    let ticks = ticks.into_inner().unwrap();
+    let staged: Vec<usize> = done.staged.iter().map(|s| s.entry.index).collect();
+    let mut by_index: Vec<usize> = entries.iter().map(|e| e.index).collect();
+    by_index.sort_unstable();
+    assert_eq!(staged, by_index, "staged in ascending archive index");
+    assert_eq!(ticks.first().unwrap().entries_done, 0);
+    assert_eq!(ticks.last().unwrap().entries_done, entries.len());
+    assert!(ticks
+        .windows(2)
+        .all(|w| w[0].entries_done <= w[1].entries_done));
+    assert!(ticks.windows(2).all(|w| w[0].bytes <= w[1].bytes));
+    // Every count from 1 to 5 is reported right after its entry is staged.
+    for k in 1..=entries.len() {
+        assert!(ticks.iter().any(|t| t.entries_done == k), "no tick for {k}");
+    }
 }
 
 /// A backend that streams entry 0, then decodes `skip` MiB it was not
@@ -508,7 +562,7 @@ fn cancel_reaches_the_decoder_between_wanted_entries() {
     let entries = plan_entries(&reader, "PS/Game");
     let mut writer = env.writer();
     let cancel = Arc::new(AtomicBool::new(false));
-    let progress = |_: u64| cancel.store(true, Ordering::SeqCst);
+    let progress = |_: ExtractTick| cancel.store(true, Ordering::SeqCst);
     let err = extract_to_temps(
         &mut writer,
         &mut reader,
@@ -1604,10 +1658,12 @@ mod apply_phases {
             .filter(|e| e.name.ends_with(".gba"))
             .collect();
         drop(reader);
+        // The playlist is not an entry: only the planned files count.
+        let n = entries.len();
         let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
         let mut plan = plan_of(&env, vec![item], TransferMode::Move);
         plan.items[0].id = 7;
-        let seen: Mutex<Vec<(u64, u64)>> = Mutex::default();
+        let seen: Mutex<Vec<(u64, u64, usize, usize)>> = Mutex::default();
         let items: Mutex<Vec<usize>> = Mutex::default();
         let trash = FakeTrash::new(trash_dir(&env));
         let report = apply_full(&env, &plan, &trash, Some(&[]), &|p| {
@@ -1615,9 +1671,13 @@ mod apply_phases {
                 item,
                 bytes_done,
                 bytes_total,
+                entries_done,
+                entries_total,
             } = p.phase
             {
-                seen.lock().unwrap().push((bytes_done, bytes_total));
+                seen.lock()
+                    .unwrap()
+                    .push((bytes_done, bytes_total, entries_done, entries_total));
                 items.lock().unwrap().push(item);
             }
         });
@@ -1629,10 +1689,61 @@ mod apply_phases {
         let seen = seen.into_inner().unwrap();
         let total = (save.len() + rom.len()) as u64;
         assert!(seen.len() >= 2, "{seen:?}");
-        assert!(seen.iter().all(|&(_, t)| t == total), "{seen:?}");
+        assert!(seen.iter().all(|e| e.1 == total), "{seen:?}");
+        assert!(seen.iter().all(|e| e.3 == n), "{seen:?}");
         assert_eq!(seen.first().unwrap().0, 0);
+        assert_eq!(seen.first().unwrap().2, 0);
         assert_eq!(seen.last().unwrap().0, total);
+        assert_eq!(seen.last().unwrap().2, n);
         assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "{seen:?}");
+        assert!(seen.windows(2).all(|w| w[0].2 <= w[1].2), "{seen:?}");
+        // The all-staged edge goes out at once, before the closing event.
+        let edge = seen.iter().position(|e| e.2 == n).unwrap();
+        assert!(
+            seen[edge].0 < total || edge < seen.len() - 1,
+            "no all-staged edge: {seen:?}"
+        );
+    }
+
+    /// R5: hundreds of tiny entries still reach the UI at most every
+    /// 100 ms (plus the first, the all-staged edge and the last).
+    #[test]
+    fn progress_coalesces_two_hundred_tiny_entries() {
+        let env = env();
+        let names: Vec<String> = (0..200)
+            .map(|i| format!("Game (Track {i:03}).bin"))
+            .collect();
+        let datas: Vec<Vec<u8>> = (0..200u32)
+            .map(|i| (0..1024u32).map(|j| ((i * 7 + j) % 251) as u8).collect())
+            .collect();
+        let specs: Vec<(&str, &[u8], ZipMethod)> = names
+            .iter()
+            .zip(&datas)
+            .map(|(n, d)| (n.as_str(), d.as_slice(), ZipMethod::Stored))
+            .collect();
+        let (archive, reader) = write_archive(&env, "Game.zip", &zip_with(&specs));
+        let entries = plan_entries(reader.as_ref(), "PS/Game");
+        drop(reader);
+        assert_eq!(entries.len(), 200);
+        let item = extract_item(&env, &archive, entries, ArchiveAfter::Keep);
+        let plan = plan_of(&env, vec![item], TransferMode::Move);
+        let seen: Mutex<Vec<usize>> = Mutex::default();
+        let trash = FakeTrash::new(trash_dir(&env));
+        let start = std::time::Instant::now();
+        let report = apply_full(&env, &plan, &trash, Some(&[]), &|p| {
+            if let OrganizePhase::Extract { entries_done, .. } = p.phase {
+                seen.lock().unwrap().push(entries_done);
+            }
+        });
+        let elapsed_ms = start.elapsed().as_millis() as usize;
+        assert_eq!(*status(&report), ItemStatus::Extracted, "{report:?}");
+        let seen = seen.into_inner().unwrap();
+        assert!(
+            seen.len() <= elapsed_ms / 100 + 3,
+            "{} events in {elapsed_ms} ms",
+            seen.len()
+        );
+        assert_eq!(seen.last(), Some(&200));
     }
 
     #[test]

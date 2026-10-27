@@ -228,6 +228,15 @@ describe('organise store', () => {
     expect(store().plan).toBeNull();
   });
 
+  it('cancel while applying says whether the request went through', async () => {
+    useOrganizeStore.setState({ status: 'applying' });
+    const cancel = vi.spyOn(b, 'organizeCancelApply').mockResolvedValue();
+    await expect(store().cancel()).resolves.toBe(true);
+    cancel.mockRejectedValueOnce(new Error('gone'));
+    await expect(store().cancel()).resolves.toBe(false);
+    expect(store().error).not.toBeNull();
+  });
+
   it('cancel while planning drops the answer', async () => {
     const cancel = vi.spyOn(b, 'organizeCancel');
     let asked = false;

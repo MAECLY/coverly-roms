@@ -22,6 +22,7 @@ import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { SettingsLink } from '@/components/settings/SettingsLink';
 import { useLaterJobs } from '@/components/organize/laterJobs';
+import { WorkReadout } from '@/components/progress/WorkReadout';
 import { Alert } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -39,6 +40,7 @@ import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
+import { useRate } from '@/hooks/useRate';
 import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
@@ -54,6 +56,7 @@ import {
   type SystemInfo,
 } from '@/ipc/types';
 import { fileName, formatBytes, sortGroups } from '@/lib/dedupe';
+import { etaKey, etaSeconds } from '@/lib/rate';
 import { isTyping, modKeyLabel } from '@/lib/keyboard';
 import { dedupeStamp } from '@/lib/settingsStamp';
 import {
@@ -70,6 +73,8 @@ import '@/components/dedupe/dedupe.css';
 
 /** Slots of the apply progress (same row as the library scan). */
 const SLOTS = 16;
+/** Copies set aside before a time left shows (spec §6.5, D11). */
+const RATE_MIN_DONE = 5;
 
 const PHASE_KEYS: Record<DedupePhaseView, string> = {
   listing: 'dedupe.phase.list',
@@ -162,6 +167,18 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
   }, [root]);
 
   const applying = status === 'applying';
+  // Time left by items once 5 copies are aside and a rate exists (D11),
+  // as the fill panel does; nothing before that.
+  const applyDone =
+    applying && progress?.phase === 'apply' ? progress.done : null;
+  const rate = useRate(applying ? (job?.plan_id ?? null) : null, applyDone);
+  const timed =
+    progress !== null &&
+    applyDone !== null &&
+    applyDone >= RATE_MIN_DONE &&
+    rate !== null;
+  const left = timed ? etaSeconds(progress.total - applyDone, rate) : null;
+  const eta = timed ? (left === null ? null : etaKey(left)) : undefined;
   const canReplan = status === 'ready' || (status === 'error' && job === null);
   const replan = useCallback(() => void useDedupeStore.getState().replan(), []);
 
@@ -299,34 +316,36 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
 
           {applying && (
             <div className="grid justify-items-start gap-2.5">
-              <Progress
-                slots={SLOTS}
-                max={progress?.total || 1}
-                value={
-                  progress ? Math.min(progress.done, progress.total) : null
+              <p role="status" className="m-0 text-ui tabular-nums">
+                {progress
+                  ? t(job?.trash ? 'dedupe.applyingTrash' : 'dedupe.applying', {
+                      done: progress.done,
+                      total: progress.total,
+                    })
+                  : t('dedupe.starting')}
+              </p>
+              <WorkReadout
+                bar={{
+                  slots: SLOTS,
+                  max: progress?.total || 1,
+                  value: progress
+                    ? Math.min(progress.done, progress.total)
+                    : null,
+                }}
+                label={t('dedupe.progressLabel')}
+                {...(eta !== undefined
+                  ? { eta: eta ? t(eta.key, eta.vars) : null }
+                  : {})}
+                action={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void useDedupeStore.getState().cancel()}
+                  >
+                    {t('dedupe.cancel')}
+                  </Button>
                 }
-                aria-label={t('dedupe.progressLabel')}
               />
-              <div className="flex flex-wrap items-center gap-3">
-                <p role="status" className="m-0 text-ui tabular-nums">
-                  {progress
-                    ? t(
-                        job?.trash ? 'dedupe.applyingTrash' : 'dedupe.applying',
-                        {
-                          done: progress.done,
-                          total: progress.total,
-                        },
-                      )
-                    : t('dedupe.starting')}
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void useDedupeStore.getState().cancel()}
-                >
-                  {t('dedupe.cancel')}
-                </Button>
-              </div>
             </div>
           )}
 

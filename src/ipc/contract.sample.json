@@ -1083,6 +1083,8 @@
     "bytes_done": 104857600,
     "bytes_total": 405749493,
     "done": 0,
+    "entries_done": 4,
+    "entries_total": 12,
     "item": 3,
     "phase": "extract",
     "plan_id": 3,

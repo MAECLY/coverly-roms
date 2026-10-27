@@ -27,8 +27,13 @@
  * Extraction: disc archives always extract (flat, or one folder per game
  * on `game-folder` layouts); cartridges extract only from a container the
  * profile does not take as it is (`organizeTouch` adds `.tar.gz` ones; a
- * `.rar` is left, no external tool is found in the mock). Progress is per
- * `EXTRACT_CHUNK` bytes. In move mode a verified archive goes to the
+ * `.rar` is left, no external tool is found in the mock). Entries are
+ * staged in archive order, each staged entry raising `entries_done`;
+ * `extractRate` paces the bytes: `'fast'` (tests' default) jumps
+ * `EXTRACT_CHUNK` bytes per tick, a rate in MB/s (the browser's default
+ * 25, `?mockExtract=`) advances by elapsed time with a seeded ±20 %
+ * jitter and pauses for phase B after the last entry (a cancel there
+ * still rolls the game back). In move mode a verified archive goes to the
  * Trash, except over `TRASH_MAX_BYTES` (the mock's Trash refuses it:
  * `extracted-kept`, the archive stays); undo deletes the extracted files
  * and brings trashed archives back.
@@ -112,8 +117,43 @@ export function readMockPick(): string | null {
 
 /** Items moved between two apply progress events. */
 const STEP = 4;
-/** Bytes decoded between two extract progress events. */
+/** Bytes decoded between two extract progress events in fast mode. */
 const EXTRACT_CHUNK = 128 * 1024 * 1024;
+
+/** Simulated extraction speed: `'fast'` (128 MB chunks per tick, one
+ * event per entry; tests) or megabytes per second (browser default 25). */
+export type MockExtractRate = 'fast' | number;
+/** The browser's default extraction speed, in MB/s. */
+export const MOCK_EXTRACT_SLOW = 25;
+/** Phase B (sheets, names) after the last entry, rate mode only. */
+const CHECK_PAUSE_MS = 600;
+
+/** `?mockExtract=fast|slow|<MB/s>`; anything else is the slow default. */
+export function readMockExtract(): MockExtractRate {
+  try {
+    const v = new URLSearchParams(window.location.search).get('mockExtract');
+    if (v === 'fast') return 'fast';
+    const n = Number(v);
+    return v && v !== 'slow' && Number.isFinite(n) && n > 0
+      ? n
+      : MOCK_EXTRACT_SLOW;
+  } catch {
+    /* no window */
+    return MOCK_EXTRACT_SLOW;
+  }
+}
+
+/** Seeded PRNG (mulberry32) scaled to a reproducible ±20 % jitter. */
+function jitter(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return 0.8 + 0.4 * (((t ^ (t >>> 14)) >>> 0) / 4294967296);
+  };
+}
 /** The mock's Trash refuses bigger archives (they stay: `extracted-kept`). */
 const TRASH_MAX_BYTES = 450_000_000;
 
@@ -591,6 +631,8 @@ export interface MockOrganizeOptions {
   /** The layout of the folders a pile already has sorted (`PileDef.sorted`);
    * absent: those piles open as loose piles. */
   sortedLayout?: ProfileInfo | undefined;
+  /** How fast extraction runs (default `'fast'`). */
+  extractRate?: MockExtractRate | undefined;
 }
 
 /** How `organizeTouch` changes a pile on "disk". */
@@ -1264,6 +1306,82 @@ export function createMockOrganize(
     };
   }
 
+  /** Emits the extract progress of one item, entry by entry in archive
+   * order, like Rust: bytes 0 and no entry first, `bytes_total` and every
+   * entry last. False when cancelled before phase C (nothing placed). */
+  async function extractItem(
+    planId: number,
+    id: number,
+    done: number,
+    total: number,
+    t: Extract<OrganizeItem['transfer'], { kind: 'extract' }>,
+    own: { cancel: boolean },
+  ): Promise<boolean> {
+    const rate = opts.extractRate ?? 'fast';
+    const entriesTotal = t.entries.length;
+    let sent = '';
+    const send = (bytes: number, entries: number) => {
+      const b = Math.min(Math.floor(bytes), t.bytes);
+      // An unchanged pair is not news (the last entry's end is the item's end).
+      if (`${b}/${entries}` === sent) return;
+      sent = `${b}/${entries}`;
+      emitProgress({
+        plan_id: planId,
+        phase: 'extract',
+        item: id,
+        done,
+        total,
+        bytes_done: b,
+        bytes_total: t.bytes,
+        entries_done: entries,
+        entries_total: entriesTotal,
+      });
+    };
+    send(0, 0);
+    const sorted = [...t.entries].sort((a, b) => a.index - b.index);
+    const rand = jitter(id + 1);
+    let bytes = 0;
+    for (const [k, entry] of sorted.entries()) {
+      const end = bytes + entry.size;
+      if (rate === 'fast') {
+        for (let b = bytes + EXTRACT_CHUNK; b < end; b += EXTRACT_CHUNK) {
+          await host.tick();
+          if (own.cancel) return false;
+          send(b, k);
+        }
+      } else {
+        // Paced by elapsed time, so a throttled tab keeps the speed.
+        let last = performance.now();
+        while (bytes < end) {
+          await host.tick();
+          if (own.cancel) return false;
+          const now = performance.now();
+          bytes = Math.min(
+            end,
+            bytes + ((rate * 1e6 * (now - last)) / 1000) * rand(),
+          );
+          last = now;
+          if (bytes < end) send(bytes, k);
+        }
+      }
+      bytes = end;
+      await host.tick();
+      if (own.cancel) return false;
+      send(bytes, k + 1);
+    }
+    if (rate !== 'fast') {
+      // Phase B: like Rust, a cancel is still honoured (nothing renamed).
+      const until = performance.now() + CHECK_PAUSE_MS;
+      while (performance.now() < until) {
+        await host.tick();
+        if (own.cancel) return false;
+      }
+    }
+    // `t.bytes` may exceed the entries' sum: the last event fills the bar.
+    send(t.bytes, entriesTotal);
+    return true;
+  }
+
   /** Moves or copies `work` into the target, STEP items per tick. */
   async function run(
     j: OrgJournal,
@@ -1299,28 +1417,13 @@ export function createMockOrganize(
           }
           const { item, file } = work[done]!;
           const t = item.transfer;
-          if (t.kind === 'extract') {
-            // Byte-based, like Rust: 0 first, `bytes_total` last.
-            const at = {
-              plan_id: planId,
-              phase: 'extract' as const,
-              item: item.id,
-              done,
-              total,
-              bytes_total: t.bytes,
-            };
-            emitProgress({ ...at, bytes_done: 0 });
-            for (let b = EXTRACT_CHUNK; b < t.bytes; b += EXTRACT_CHUNK) {
-              await host.tick();
-              // Cancelled mid-item: its temps are rolled back.
-              if (own.cancel) break;
-              emitProgress({ ...at, bytes_done: b });
-            }
-            if (own.cancel) {
-              state = 'cancelled';
-              break;
-            }
-            emitProgress({ ...at, bytes_done: t.bytes });
+          // Cancelled mid-item: its temps are rolled back.
+          if (
+            t.kind === 'extract' &&
+            !(await extractItem(planId, item.id, done, total, t, own))
+          ) {
+            state = 'cancelled';
+            break;
           }
           const placed = placedOf(j, item, file);
           j.placed.push(placed);

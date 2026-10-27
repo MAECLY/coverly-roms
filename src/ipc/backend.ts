@@ -294,8 +294,10 @@ async function createBackend(): Promise<Backend> {
     const { createTauriBackend } = await import('./tauriBackend');
     return createTauriBackend();
   }
-  const { createMockBackend } = await import('./mock/mockBackend');
-  const mock = createMockBackend();
+  const { createMockBackend, readMockExtract } =
+    await import('./mock/mockBackend');
+  // `?mockExtract=fast|slow|<MB/s>`: how fast organise extracts (default 25 MB/s).
+  const mock = createMockBackend({ extractRate: readMockExtract() });
   // The browser check changes a pile between scans from the console:
   // `mockOrganizeTouch('/Users/demo/Mixed', { add: 2, remove: 1 })`.
   // The duplicates screen's states from the console:

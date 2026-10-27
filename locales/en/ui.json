@@ -19,7 +19,6 @@
     "notConnected": "Not connected",
     "forget": "Forget {name}",
     "roms": "{n} ROMs",
-    "scanning": "Scanning {folder}… {done} of {total} folders",
     "scanningStart": "Reading the folder…",
     "romsFound": "{n} ROMs found",
     "progressLabel": "Scan progress",
@@ -35,6 +34,9 @@
       "openSorted": "Open as organised by system",
       "broadRoot": "This is a broad personal folder; only files that look like ROMs are proposed.",
       "truncated": "More than {count} files; all of them are checked when organising."
+    },
+    "progress": {
+      "folders": "Folder {done} of {total}"
     }
   },
   "settings": {
@@ -1167,7 +1169,6 @@
       "summaryOne": "Extracting: 1 game ({bytes})",
       "trashed": "The archive was moved to the Trash"
     },
-    "extracting": "Extracting {name}: {done} of {total} files…",
     "note": {
       "archiveKeptLeftovers": "The archive stays: it has {count} files that are not extracted",
       "containerMismatch": "It is a {actual} archive named .{ext}",
@@ -1389,7 +1390,37 @@
     "applyWithDedupe": "Organise {count} files and set aside {extras}",
     "applyOneWithDedupe": "Organise 1 file and set aside {extras}",
     "applyWithTrash": "Organise {count} files and send {extras} to the Trash",
-    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash"
+    "applyOneWithTrash": "Organise 1 file and send {extras} to the Trash",
+    "progress": {
+      "extracting": "Extracting {name} into {folder}",
+      "extractingName": "Extracting {name}…",
+      "checking": "Checking the files of {name}…",
+      "game": "Game {n} of {total}",
+      "track": "Track {n} of {total}",
+      "file": "File {n} of {total}",
+      "amount": "{done} of {total}",
+      "rate": "{rate}/s",
+      "leftMinutes": "About {n} minutes left",
+      "leftUnderMinute": "Less than a minute left",
+      "leftOverHour": "More than an hour left",
+      "leftOverHours": "More than {n} hours left",
+      "measuring": "Working out the time…",
+      "cancelling": "Cancelling: undoing what was extracted of {name}…",
+      "cancellingButton": "Cancelling…",
+      "tracksLabel": "Tracks of {name}",
+      "filesLabel": "Files of {name}",
+      "showTracks": "Show the {count} tracks",
+      "showFiles": "Show the {count} files",
+      "hideTracks": "Hide the tracks",
+      "hideFiles": "Hide the files",
+      "waiting": "Waiting",
+      "writing": "Writing",
+      "crcChecked": "CRC checked",
+      "sizeChecked": "Size and copy checked",
+      "cancelNote": "If you cancel, what was extracted of this game is removed and the archive stays as it was. Games already extracted stay.",
+      "stageLabel": "Extraction of {name} into the {system} folder",
+      "movingLabel": "Moving into {folder}"
+    }
   },
   "ui": {
     "close": "Close",
@@ -1399,5 +1430,8 @@
   },
   "systems": {
     "unknown": "Folder with no known system"
+  },
+  "progress": {
+    "perMinute": "{n} per minute"
   }
 }

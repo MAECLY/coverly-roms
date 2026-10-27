@@ -280,6 +280,8 @@ const EXTRACT_PROGRESS_KEYS = [
   'item',
   'bytes_done',
   'bytes_total',
+  'entries_done',
+  'entries_total',
 ] as const;
 const EXTRACT_TRANSFER_KEYS = [
   'kind',
@@ -933,7 +935,9 @@ describe('organise contract', () => {
         progress.item,
         progress.bytes_done,
         progress.bytes_total,
-      ]).toEqual([3, 104_857_600, 405_749_493]);
+        progress.entries_done,
+        progress.entries_total,
+      ]).toEqual([3, 104_857_600, 405_749_493, 4, 12]);
     }
     const report = sample.organize_report_extracted as OrganizeReportWire;
     expect(report.extracted).toBe(1);

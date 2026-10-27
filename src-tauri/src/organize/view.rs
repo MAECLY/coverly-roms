@@ -105,6 +105,12 @@ struct ProgressWire {
     bytes_done: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bytes_total: Option<u64>,
+    /// Entries of the item staged so far (`extract` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entries_done: Option<usize>,
+    /// The item's entries (`extract` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entries_total: Option<usize>,
 }
 
 /// [`OrganizePhase`] without its byte counts.
@@ -131,7 +137,12 @@ impl From<OrganizeProgressEvent> for ProgressWire {
                 item,
                 bytes_done,
                 bytes_total,
-            } => (PhaseName::Extract, Some((item, bytes_done, bytes_total))),
+                entries_done,
+                entries_total,
+            } => (
+                PhaseName::Extract,
+                Some((item, bytes_done, bytes_total, entries_done, entries_total)),
+            ),
         };
         ProgressWire {
             plan_id: e.plan_id,
@@ -141,6 +152,8 @@ impl From<OrganizeProgressEvent> for ProgressWire {
             item: extract.map(|x| x.0),
             bytes_done: extract.map(|x| x.1),
             bytes_total: extract.map(|x| x.2),
+            entries_done: extract.map(|x| x.3),
+            entries_total: extract.map(|x| x.4),
         }
     }
 }
@@ -232,6 +245,8 @@ mod tests {
                 item: 5,
                 bytes_done: 1024,
                 bytes_total: 405_749_493,
+                entries_done: 4,
+                entries_total: 12,
             },
             done: 1,
             total: 3,
@@ -246,7 +261,22 @@ mod tests {
                 "item": 5,
                 "bytes_done": 1024,
                 "bytes_total": 405_749_493u64,
+                "entries_done": 4,
+                "entries_total": 12,
             })
         );
+    }
+
+    #[test]
+    fn other_phases_carry_no_entry_counts() {
+        let e = OrganizeProgressEvent {
+            plan_id: 3,
+            phase: OrganizePhase::Apply,
+            done: 1,
+            total: 3,
+        };
+        let v = serde_json::to_value(e).unwrap();
+        assert!(v.get("entries_done").is_none(), "{v}");
+        assert!(v.get("entries_total").is_none(), "{v}");
     }
 }
