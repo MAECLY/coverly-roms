@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '@/i18n/I18nProvider';
 
@@ -92,5 +92,48 @@ describe('WorkReadout', () => {
     const { container } = renderEs({ counters: [] }, ['action']);
     expect(screen.queryByRole('button')).toBeNull();
     expect(container.querySelectorAll('[aria-live="off"] > p')).toHaveLength(1);
+  });
+
+  describe('bar bounds', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('keeps the bar full, not indeterminate, when the value overshoots', () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      renderEs({ bar: { value: 1300, max: 1200, slots: 16 } });
+      const bar = screen.getByRole('progressbar');
+      expect(bar).toHaveAttribute('aria-valuenow', '1200');
+      expect(bar).toHaveAttribute('aria-valuetext', AMOUNT);
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('reads a negative value as nothing done', () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      renderEs({ bar: { value: -5, max: 1200 } });
+      expect(screen.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuenow',
+        '0',
+      );
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('shows an indeterminate bar when there is nothing to count yet', () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      renderEs({ bar: { value: 0, max: 0, slots: 16 } });
+      const bar = screen.getByRole('progressbar');
+      expect(bar).not.toHaveAttribute('aria-valuenow');
+      expect(error).not.toHaveBeenCalled();
+    });
+  });
+
+  it('draws no empty amount line when only counters are given', () => {
+    const { container } = renderEs({ counters: ['312 ROMs encontradas'] }, [
+      'amount',
+      'amountText',
+      'rate',
+      'eta',
+    ]);
+    const ps = container.querySelectorAll('[aria-live="off"] > p');
+    expect(ps).toHaveLength(1);
+    expect(ps[0]).toHaveTextContent('312 ROMs encontradas');
   });
 });
