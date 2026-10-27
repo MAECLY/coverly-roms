@@ -19,13 +19,14 @@ use coverly_core::dedupe::testing::{
     self, disc_id, fingerprint, nes_header, CountingBytes, CountingListing, FakeDiscProbe,
 };
 use coverly_core::dedupe::{
-    default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, DedupeEnv, DedupeError,
-    DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, GroupAction, KeepReason, Relation,
-    ReportWhy,
+    default_quarantine, plan_dedupe, regroup, set_keeper, skip_group, ArtSeen, DedupeEnv,
+    DedupeError, DedupeOptions, DedupePhase, DedupePlan, DedupeProgress, GroupAction, KeepReason,
+    Relation, ReportWhy, SavesSeen, TagSource,
 };
 use coverly_core::identify::dat::{DatGame, DatStore};
+use coverly_core::identify::names::Region;
 use coverly_core::net::{Http, HttpRequest, HttpResponse, NetError};
-use coverly_core::profiles::Profile;
+use coverly_core::profiles::{Media, Profile};
 use coverly_core::scan::{scan_library, LibraryScan, ScanOptions};
 use coverly_core::settings::{DedupeLevel, Settings};
 use coverly_core::systems::SystemDb;
@@ -302,7 +303,9 @@ fn normalised(plan: &DedupePlan, root: &Path) -> serde_json::Value {
             }
             serde_json::Value::Object(map) => {
                 for (k, x) in map.iter_mut() {
-                    if k == "mtime_ns" {
+                    if k == "mtime_ns" || k == "last_ns" {
+                        // A save's time too (plan DP-5): never pinned on
+                        // every filesystem.
                         *x = serde_json::Value::from(0);
                     } else if k == "mtimes_ns" {
                         // Only whether a set is timed file by file.
@@ -979,4 +982,107 @@ fn ten_thousand_files_hash_only_colliders() {
     assert_eq!(plan.groups.len(), dups);
     assert!(fx.bytes.opens() <= 2 * dups, "{} opens", fx.bytes.opens());
     assert!(took.as_secs() < 10, "took {took:?}");
+}
+
+// --- Display facts on every copy (dedupe UI spec D2, D7, D10) ---
+
+#[test]
+fn facts_come_from_the_catalogue() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let fx = Fx::new();
+    gba_versions(root, Some(&fx.cache));
+    let mut opts = fx.opts();
+    opts.levels = vec![
+        DedupeLevel::Exact,
+        DedupeLevel::Version,
+        DedupeLevel::Format,
+    ];
+    opts.one_game_one_rom = true;
+    let plan = fx.plan(&scan(root), &opts);
+    let g = group_of(&plan, "gba");
+    let usa = member_at(g, &root.join("ROMS/GBA/Advance Wars (USA).gba"));
+    assert_eq!(usa.facts.regions, [Region::Usa]);
+    assert_eq!(usa.facts.tags_from, Some(TagSource::Catalogue));
+    let eur = member_at(g, &root.join("ROMS/GBA/Advance Wars (Europe).gba"));
+    assert_eq!(eur.facts.regions, [Region::Europe]);
+}
+
+#[test]
+fn facts_come_from_the_file_name_without_catalogue() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris (J) [!].gb", &tetris);
+    put(root, "ROMS/GB/Tetris (J) [!] (1).gb", &tetris);
+    let fx = Fx::new();
+    let plan = fx.plan(&scan(root), &fx.opts());
+    let g = group_of(&plan, "gb");
+    assert_eq!(g.members.len(), 2);
+    for m in &g.members {
+        assert_eq!(m.facts.regions, [Region::Japan], "{:?}", m.unit.primary);
+        assert!(m.facts.flags.verified);
+        assert_eq!(m.facts.tags_from, Some(TagSource::FileName));
+        assert_eq!(m.facts.flags_from, Some(TagSource::FileName));
+    }
+}
+
+#[test]
+fn facts_count_real_saves_only() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    let real = put(root, "ROMS/GB/Tetris.srm", &rom_bytes(10, 8192));
+    testing::pin_mtime(&real, 5_000);
+    put(root, "ROMS/GB/Tetris (1).srm", &[0xFF; 8192]);
+    let fx = Fx::new();
+    let plan = fx.plan(&scan(root), &fx.opts());
+    let g = group_of(&plan, "gb");
+    let pinned = i64::try_from(
+        fs::metadata(&real)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    )
+    .unwrap();
+    assert_eq!(pinned, 1_700_005_000 * 1_000_000_000);
+    let with = member_at(g, &root.join("ROMS/GB/Tetris.gb"));
+    assert_eq!(
+        with.facts.saves,
+        Some(SavesSeen {
+            count: 1,
+            last_ns: pinned
+        })
+    );
+    let blank = member_at(g, &root.join("ROMS/GB/Tetris (1).gb"));
+    assert_eq!(blank.facts.saves, None);
+}
+
+#[test]
+fn facts_list_art_with_sizes() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let tetris = rom_bytes(1, 32 * 1024);
+    put(root, "ROMS/GB/Tetris.gb", &tetris);
+    put(root, "ROMS/GB/Tetris (1).gb", &tetris);
+    put(root, "ROMS/GB/Imgs/Tetris.png", b"\x89PNG\r\n\x1a");
+    let fx = Fx::new();
+    let plan = fx.plan(&scan(root), &fx.opts());
+    let g = group_of(&plan, "gb");
+    let with = member_at(g, &root.join("ROMS/GB/Tetris.gb"));
+    assert_eq!(
+        with.facts.art,
+        [ArtSeen {
+            media: Media::Cover,
+            path: root.join("ROMS/GB/Imgs/Tetris.png"),
+            size: 7,
+        }]
+    );
+    let without = member_at(g, &root.join("ROMS/GB/Tetris (1).gb"));
+    assert!(without.facts.art.is_empty(), "{:?}", without.facts.art);
 }

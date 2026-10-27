@@ -43,8 +43,8 @@ use super::saves::{conflict, off_card, OffCard, SaveIndex, SaveInfo};
 use super::source::{CacheDats, DatHit, DatLookup, DiscProbe, EntryListing};
 use super::units::{units_from_scan, Exclusion, Unit, UnitKind, UnitOptions};
 use super::{
-    group_id, DedupeOptions, DedupePhase, DedupePlan, DupGroup, GroupAction, Member, MemberFacts,
-    QuarantineChoice, ReportWhy, Totals, PLAN_VERSION,
+    group_id, ArtSeen, DedupeOptions, DedupePhase, DedupePlan, DupGroup, GroupAction, Member,
+    MemberFacts, PlayedSeen, QuarantineChoice, ReportWhy, SavesSeen, Totals, PLAN_VERSION,
 };
 
 /// The quarantine folder's name until the app fixes one from its language
@@ -930,7 +930,7 @@ impl Base {
                     },
                     gamelist,
                     art_leaves,
-                    facts: MemberFacts::default(),
+                    facts: member_facts(&facts[m], &unit.stem),
                 }
             })
             .collect();
@@ -952,6 +952,40 @@ impl Base {
             choice_dropped,
         }
     }
+}
+
+/// What the screen shows about one copy (dedupe UI spec D2, D7, D10):
+/// its tags, its real saves, its game list plays and its art slots.
+/// Display only; the keeper rules read [`UnitFacts`] directly.
+fn member_facts(f: &UnitFacts, stem: &str) -> MemberFacts {
+    let mut mf = super::facts::tag_facts(f.dat_name.as_deref(), stem);
+    mf.saves = f
+        .saves
+        .iter()
+        .map(|s| s.mtime_ns)
+        .max()
+        .map(|last_ns| SavesSeen {
+            count: u32::try_from(f.saves.len()).unwrap_or(u32::MAX),
+            last_ns,
+        });
+    mf.played = f
+        .played
+        .as_ref()
+        .filter(|p| p.playcount > 0 || p.lastplayed.is_some())
+        .map(|p| PlayedSeen {
+            count: p.playcount,
+            last: p.lastplayed.clone(),
+        });
+    mf.art = f
+        .art
+        .iter()
+        .map(|(media, path, size)| ArtSeen {
+            media: *media,
+            path: path.clone(),
+            size: *size,
+        })
+        .collect();
+    mf
 }
 
 /// The key a pick is remembered by (spec §9.3): the content (the level 1
