@@ -49,19 +49,25 @@ function Tag({ chip }: { chip: TagChip }) {
  * The chips as one list. Where they were read from is a tooltip on the
  * list, so it is one tab stop, never one per chip.
  */
-function Tags({ chips }: { chips: TagChip[] }) {
+function Tags({ chips, dim }: { chips: TagChip[]; dim: boolean }) {
   const t = useT();
   const sources = [
     ...new Set(chips.flatMap((c) => (c.from ? [c.from] : []))),
   ].map((s) => t(SOURCE_KEYS[s]));
   const list = chips.map((c) => <Tag key={c.key} chip={c} />);
-  if (sources.length === 0) return <span className="dup-tags">{list}</span>;
+  const className = cn('dup-tags', dim && 'dup-dim');
+  if (sources.length === 0) return <span className={className}>{list}</span>;
   const label = sources.join(', ');
   return (
     <SimpleTooltip content={label}>
       {/* A focusable list so the tooltip reaches keyboard users. */}
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
-      <span role="group" aria-label={label} tabIndex={0} className="dup-tags">
+      <span
+        role="group"
+        aria-label={label}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        className={className}
+      >
         {list}
       </span>
     </SimpleTooltip>
@@ -72,10 +78,16 @@ export interface CopyFactsProps {
   member: MemberView;
   /** Conflicts say «Sin partida» when a copy has none. */
   showNoSave?: boolean;
+  /** A game left alone dims its chips (never its text). */
+  dim?: boolean;
 }
 
 /** Tag chips, then the facts line: format, size, modified date, save, played. */
-export function CopyFacts({ member, showNoSave = false }: CopyFactsProps) {
+export function CopyFacts({
+  member,
+  showNoSave = false,
+  dim = false,
+}: CopyFactsProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
   const facts = member.facts;
@@ -99,7 +111,7 @@ export function CopyFacts({ member, showNoSave = false }: CopyFactsProps) {
 
   return (
     <div className="dup-facts">
-      {chips.length > 0 && <Tags chips={chips} />}
+      {chips.length > 0 && <Tags chips={chips} dim={dim} />}
       <span className="dup-facts__line">
         {formatItems(member.unit, t).map((item, i) => (
           <span

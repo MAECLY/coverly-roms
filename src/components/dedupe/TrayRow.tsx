@@ -79,6 +79,8 @@ export interface TrayRowProps {
   place?: string | null;
   /** Show the copy in the file manager; without it, no reveal button. */
   onReveal?: ((path: string) => void) | undefined;
+  /** A game left alone dims the copy's chips (never its text). */
+  dim?: boolean;
   idPrefix: string;
 }
 
@@ -104,6 +106,7 @@ export function TrayRow({
   art,
   place = member.unit.primary,
   onReveal,
+  dim = false,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
@@ -165,7 +168,7 @@ export function TrayRow({
         )}
       </span>
       <div className="dup-row__facts">
-        <CopyFacts member={member} />
+        <CopyFacts member={member} dim={dim} />
       </div>
       {interactive ? (
         <p className="dup-row__detail">

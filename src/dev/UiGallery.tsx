@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { DupGroup } from '@/components/dedupe/DupGroup';
@@ -115,8 +116,10 @@ import {
 } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
+import { getBackend } from '@/ipc/backend';
 import type {
   DedupeActionSetting,
+  DedupePlanView,
   DedupeReportView,
   DedupeViewOptions,
   DupGroupView,
@@ -226,6 +229,73 @@ const DEDUPE_REPORT: DedupeReportView = (() => {
 })();
 
 const noop = () => undefined;
+
+/** Each state of a duplicate group (spec §7.1), on a plan the mock keeps,
+ * so covers load (or show the missing slot) as on the real screen. */
+const DEDUPE_STATES: { label: string; title: string; skipped?: boolean }[] = [
+  { label: 'act · no facts · missing cover', title: 'GB Game 01' },
+  { label: 'other version (format)', title: 'Crash Bash' },
+  { label: 'report-only · own thumbnail', title: 'Tetris' },
+  { label: 'skipped', title: 'Ecco the Dolphin', skipped: true },
+  { label: 'conflict', title: 'Pokemon Red' },
+];
+
+const SYSTEM_NAMES: Record<string, string> = {
+  GB: 'Game Boy',
+  PS: 'PlayStation',
+  SMS: 'Master System',
+  GBA: 'Game Boy Advance',
+};
+
+function DedupeStatesSpecimen() {
+  const [plan, setPlan] = useState<DedupePlanView | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void getBackend()
+      .then((b) => b.dedupePlan(DEDUPE.root))
+      .then(
+        (p) => alive && setPlan(p),
+        () => undefined,
+      );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const groups = plan?.groups ?? DEDUPE.groups;
+  return (
+    <div className="dup-system">
+      <div className="dup-system__body">
+        {DEDUPE_STATES.map(({ label, title, skipped }) => {
+          const g = groups.find((x) => x.title === title)!;
+          return (
+            <div key={label} className="dup-system__slot">
+              <p className="m-0 pt-3 font-mono text-caption text-cr-text-muted">
+                {label}
+              </p>
+              {g.action.kind === 'conflict' ? (
+                <ConflictGroup
+                  group={g}
+                  onReveal={noop}
+                  systemName={SYSTEM_NAMES[g.system]}
+                />
+              ) : (
+                <DupGroup
+                  group={g}
+                  quarantine={DEDUPE.quarantine}
+                  profileName="Anbernic (stock)"
+                  skipped={skipped ?? false}
+                  planId={plan?.plan_id}
+                  onReveal={noop}
+                  systemName={SYSTEM_NAMES[g.system]}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function DedupeOptionsSpecimen() {
   const [options, setOptions] = useState<DedupeViewOptions>({
@@ -338,6 +408,10 @@ export function UiGallery() {
                 onBack={noop}
                 onFindCovers={noop}
               />
+            </Specimen>
+
+            <Specimen name="Duplicates: group states" wide>
+              <DedupeStatesSpecimen />
             </Specimen>
 
             <Specimen name="Duplicates: DupGroup" wide>

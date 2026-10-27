@@ -743,6 +743,10 @@
       "noSave": "Sin partida",
       "played": "Jugada {count} veces",
       "playedOne": "Jugada 1 vez"
+    },
+    "state": {
+      "reportOnly": "Solo informe",
+      "skipped": "No se toca"
     }
   },
   "toolbar": {

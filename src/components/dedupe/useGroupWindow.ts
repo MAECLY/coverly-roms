@@ -17,8 +17,10 @@ import {
   type RefObject,
 } from 'react';
 
-/** Height of a group not measured yet (a keeper and one tray row). */
-export const ESTIMATED_GROUP_PX = 150;
+/** Height of a group not measured yet (a keeper and one tray row).
+ * Measured on a two-copy group with a cover in the UI gallery at 1280 px
+ * (`getBoundingClientRect`, 2026-10-27): 297–300 px, rounded up to 10 px. */
+export const ESTIMATED_GROUP_PX = 300;
 /** Rows this far beyond the viewport stay mounted. */
 const MARGIN_PX = 400;
 

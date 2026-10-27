@@ -84,6 +84,14 @@ describe('SystemSection', () => {
     );
   });
 
+  it("names the system under each game's title", () => {
+    const plan = dedupeFixture();
+    wrap(section(plan, 'PS', 'PlayStation', { defaultOpen: true }));
+    const subs = [...document.querySelectorAll('.dup-group__sub')];
+    expect(subs.length).toBeGreaterThan(0);
+    for (const sub of subs) expect(sub).toHaveTextContent('PlayStation');
+  });
+
   it('systems_with_conflicts_open_by_default', () => {
     const plan = dedupeFixture();
     wrap(
@@ -241,6 +249,21 @@ describe('ConflictGroup', () => {
     expect(screen.getAllByText(/^Partida: /)).toHaveLength(1);
     expect(screen.getByText('Sin partida')).toBeInTheDocument();
     expect(screen.getAllByText('GB')).toHaveLength(2);
+  });
+
+  it('is stamped «Partidas distintas» in the warning tone with a warning edge', () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    wrap(<ConflictGroup group={g} systemName="Game Boy" />);
+    const root = document.querySelector<HTMLElement>('.dup-group')!;
+    expect(root).toHaveAttribute('data-state', 'conflict');
+    const stamp = document.querySelector<HTMLElement>(
+      '.dup-group__head .dup-stamp',
+    )!;
+    expect(stamp).toHaveTextContent('Partidas distintas');
+    expect(stamp).toHaveAttribute('data-tone', 'warning');
+    expect(
+      document.querySelector('.dup-group__head .dup-group__sub'),
+    ).toHaveTextContent('Game Boy');
   });
 
   it('marks a translated copy in the warning tone', () => {

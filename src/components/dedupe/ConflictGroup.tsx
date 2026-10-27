@@ -9,8 +9,8 @@ import { FolderSearch, TriangleAlert } from 'lucide-react';
 import { useContext, useId } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { GroupHead, StateStamp } from '@/components/dedupe/DupGroup';
 import { RevealButton } from '@/components/dedupe/RevealButton';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
@@ -25,6 +25,8 @@ export interface ConflictGroupProps {
   group: DupGroupView;
   /** Show a save in its folder (the OS file manager). */
   onReveal?: ((path: string) => void) | undefined;
+  /** The system's display name, under the title with its icon. */
+  systemName?: string | undefined;
 }
 
 const MARK = '\u0000';
@@ -41,7 +43,11 @@ function SaveLabel({ text, path }: { text: string; path: string }) {
   );
 }
 
-export function ConflictGroup({ group, onReveal }: ConflictGroupProps) {
+export function ConflictGroup({
+  group,
+  onReveal,
+  systemName,
+}: ConflictGroupProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
   const uid = useId();
@@ -55,16 +61,22 @@ export function ConflictGroup({ group, onReveal }: ConflictGroupProps) {
       className="dup-group dup-conflict"
       data-dup-group={group.id}
       data-conflict=""
+      data-state="conflict"
     >
-      <div className="dup-group__head">
-        <h3 id={titleId} className="dup-group__title">
-          {group.title}
-        </h3>
-        <Badge variant="warning" className="dup-group__badge">
-          <TriangleAlert size={14} aria-hidden />
-          {t('dedupe.conflicts.badge')}
-        </Badge>
-      </div>
+      <GroupHead
+        titleId={titleId}
+        title={group.title}
+        system={group.system}
+        systemName={systemName}
+        serial={group.members.find((m) => m.serials[0])?.serials[0]}
+        stamps={
+          <StateStamp
+            icon={TriangleAlert}
+            text={t('dedupe.conflicts.badge')}
+            tone="warning"
+          />
+        }
+      />
       <p className="dup-conflict__note">{t('dedupe.conflicts.note')}</p>
 
       <div className="dup-conflict__list">

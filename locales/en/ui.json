@@ -743,6 +743,10 @@
       "noSave": "No save",
       "played": "Played {count} times",
       "playedOne": "Played once"
+    },
+    "state": {
+      "reportOnly": "Report only",
+      "skipped": "Left alone"
     }
   },
   "toolbar": {

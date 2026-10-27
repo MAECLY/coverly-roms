@@ -1,17 +1,22 @@
 /*
- * Duplicates: the shelf and the tray (spec §11.1, plan "UI design brief").
- * The copy that stays sits on the shelf, under the brand shelf rule (a
- * hairline with a 3px Buckram cap on the left). The copies that leave sit
- * in a recessed tray below it, each with its destination in mono. Every
+ * Duplicates: game → kept copy → set-aside copies (spec §7.1).
+ * The game heads the group in the box-label face. The copy that stays sits
+ * on the shelf: raised, under the brand shelf rule (a hairline with a 3px
+ * Buckram cap on the left). The copies that leave sit in a sunken tray
+ * below it, indented one step, each with its destination in mono. Every
  * copy carries its tags and facts (format, size, dates) under its name.
+ * Hierarchy comes from shelf vs tray surfaces, never from shadows.
  */
 
 .dup-group {
   --dup-size-col: 9ch;
   --dup-tray-inset: 24px;
+  /* The state edge eats into the left padding, so every group's content
+   * starts on the same line, edged or not. */
+  --dup-edge: 0px;
   display: grid;
   gap: 8px;
-  padding: 14px 0 16px;
+  padding: 14px 0 16px calc(12px - var(--dup-edge));
   color: var(--cr-text);
   font: var(--cr-type-app-base);
 }
@@ -20,20 +25,99 @@
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
 
+/* ---- States: a stamp in the head, an edge on the left ------------------ */
+
+/* Real borders, not shadows: they survive forced colours. */
+.dup-group[data-state='other'] {
+  --dup-edge: var(--cr-border-width-spine);
+  border-left: var(--dup-edge) solid var(--cr-info);
+}
+
+.dup-group[data-state='conflict'] {
+  --dup-edge: var(--cr-border-width-spine);
+  border-left: var(--dup-edge) solid var(--cr-warning);
+}
+
+/* The brand's missing-slot outline: nothing in this game will move. */
+.dup-group[data-state='report-only'],
+.dup-group[data-state='skipped'] {
+  --dup-edge: var(--cr-border-width-slot);
+  border-left: var(--dup-edge) dashed var(--cr-border-strong);
+}
+
+/* ---- The head: title block | stamps ------------------------------------ */
+
 .dup-group__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 12px;
   margin: 0;
 }
 
+.dup-group__titles {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The game is the object: Archivo condensed, the box-label face. */
 .dup-group__title {
   margin: 0;
-  font: var(--cr-type-app-label);
-  font-size: 14px;
-  font-weight: var(--cr-font-weight-semibold);
+  font-family: var(--cr-font-display);
+  font-size: 17px;
+  font-stretch: 75%;
+  font-weight: 700;
+  line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.dup-group__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-width: 0;
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-group__system {
+  color: var(--cr-text-secondary);
+}
+
+.dup-group__stamps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 1px;
+}
+
+/* Every stamp has a real border (also the filled warning one), so the
+ * word keeps a frame in forced colours. */
+.dup-stamp {
+  border: var(--cr-border-width-hairline) solid var(--cr-border-strong);
+}
+
+.dup-stamp[data-tone='warning'] {
+  border-color: var(--cr-warning);
+}
+
+.dup-stamp[tabindex] {
+  cursor: help;
+}
+
+.dup-stamp:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* A left-alone game dims its art and chips at 60 %, never its text, so
+ * tray text keeps its contrast (spec §7.1). */
+.dup-dim {
+  opacity: 0.6;
 }
 
 .dup-group__serial,
@@ -61,12 +145,15 @@
 
 /* ---- The shelf ------------------------------------------------------ */
 
+/* Raised: the one white surface in the group, framed by a hairline. */
 .dup-shelf {
   --dup-cap-shift: 0px;
   position: relative;
   /* Right padding matches the tray's, so sizes share one column. */
-  padding: 8px 12px 2px 14px;
-  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  padding: 8px 12px 4px 14px;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-radius: 0 var(--cr-radius-sm) var(--cr-radius-sm) 0;
+  background: var(--cr-surface-raised);
 }
 
 /* The cap is drawn apart from the row so it can slide from the row you
@@ -75,8 +162,8 @@
   content: '';
   position: absolute;
   top: -1px;
-  bottom: 0;
-  left: 0;
+  bottom: -1px;
+  left: -1px;
   width: var(--cr-border-width-spine);
   border-radius: 0 0 var(--cr-radius-sm) 0;
   background: var(--cr-primary);
@@ -91,20 +178,19 @@
 
 /* ---- The tray ------------------------------------------------------- */
 
+/* Sunken and indented one step: visibly lower than the shelf. Its text is
+ * secondary ink, a pair `pnpm tokens:check` holds at 4.5:1. */
 .dup-tray {
   display: grid;
-  margin: 2px 0 0 var(--dup-tray-inset);
+  margin: 0 0 0 var(--dup-tray-inset);
   padding: 4px 12px;
-  border-radius: var(--cr-radius-sm);
-  background: var(--cr-bg);
+  border-radius: 0 0 var(--cr-radius-sm) var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+  color: var(--cr-text-secondary);
 }
 
 .dup-tray > .dup-row + .dup-row {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
-}
-
-.dup-group[data-skipped] .dup-tray {
-  opacity: 0.6;
 }
 
 /* ---- Rows (shelf and tray share the grid) ---------------------------- */
@@ -507,11 +593,6 @@
   text-align: center;
 }
 
-.dup-group[data-skipped] .dup-cover,
-.dup-group[data-skipped] .dup-own-art {
-  opacity: 0.6;
-}
-
 /* A copy's own image: 32 px wide, 3:4, beside its name. */
 .dup-own-art {
   display: block;
@@ -544,11 +625,20 @@
   }
 }
 
-/* Under 640 px the cover drops above the title at 48×64. */
+/* Under 640 px the cover drops above the title at 48×64, and the stamps
+ * wrap under the title instead of squeezing it. */
 @media (max-width: 639px) {
   .dup-group[data-cover] {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 8px;
+  }
+
+  .dup-group__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dup-group__stamps {
+    justify-content: flex-start;
   }
 
   .dup-cover {
@@ -1036,4 +1126,29 @@
 .dup-bar__freed {
   margin-left: auto;
   white-space: nowrap;
+}
+
+/* ---- Forced colours (Windows High Contrast) ----------------------------- */
+
+/* Backgrounds drop out; the edges and the stamps' frames carry the state. */
+@media (forced-colors: active) {
+  .dup-group[data-state='other'],
+  .dup-group[data-state='conflict'],
+  .dup-group[data-state='report-only'],
+  .dup-group[data-state='skipped'] {
+    border-left-color: CanvasText;
+  }
+
+  .dup-stamp {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+
+  .dup-shelf::before {
+    background: Highlight;
+  }
+
+  .dup-dim {
+    opacity: 1;
+  }
 }

@@ -16,6 +16,7 @@ import { useDedupeArt } from '@/hooks/useDedupeArt';
 import { useT } from '@/i18n/useT';
 import type { DupGroupView, MediaView, MemberView } from '@/ipc/dedupeTypes';
 import { coverArt, coverMedia, ownArtDiffers } from '@/lib/dedupe';
+import { cn } from '@/lib/utils';
 
 import './dedupe.css';
 
@@ -64,6 +65,8 @@ export interface GroupCoverProps {
   enabled: boolean;
   /** `compact` is always 48×64; `head` is 72×96, 48×64 on narrow windows. */
   size?: 'head' | 'compact';
+  /** A game left alone dims its cover (spec §7.1, skipped). */
+  dim?: boolean;
 }
 
 export function GroupCover({
@@ -71,6 +74,7 @@ export function GroupCover({
   group,
   enabled,
   size = 'head',
+  dim = false,
 }: GroupCoverProps) {
   const t = useT();
   const { media, caption } = coverMedia(group);
@@ -86,7 +90,11 @@ export function GroupCover({
   const fromCache = art.status === 'ready' && coverArt(group, media) === null;
 
   return (
-    <div className="dup-cover" data-size={size} data-state={art.status}>
+    <div
+      className={cn('dup-cover', dim && 'dup-dim')}
+      data-size={size}
+      data-state={art.status}
+    >
       <div
         className="dup-cover__slot"
         title={fromCache ? t('dedupe.cover.fromCache') : undefined}
@@ -121,6 +129,8 @@ export interface OwnArtThumbProps {
   /** The cover's media: a copy's art in another media is not compared. */
   media: MediaView;
   enabled: boolean;
+  /** A game left alone dims the copy's image. */
+  dim?: boolean;
 }
 
 /**
@@ -134,6 +144,7 @@ export function OwnArtThumb({
   member,
   media,
   enabled,
+  dim = false,
 }: OwnArtThumbProps) {
   const t = useT();
   const differs = ownArtDiffers(member, coverArt(group, media), media);
@@ -147,7 +158,11 @@ export function OwnArtThumb({
   if (!differs || art.status === 'missing') return null;
   const label = t('dedupe.cover.ownArt');
   return (
-    <span className="dup-own-art" data-state={art.status} title={label}>
+    <span
+      className={cn('dup-own-art', dim && 'dup-dim')}
+      data-state={art.status}
+      title={label}
+    >
       {art.status === 'ready' && (
         <img src={art.url} alt={label} decoding="async" draggable={false} />
       )}

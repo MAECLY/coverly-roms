@@ -178,7 +178,7 @@ export function SystemSection({
       </div>
       {/* Radix unmounts closed content: a closed system has no rows. */}
       <CollapsibleContent className="dup-system__body">
-        <Groups groups={groups} {...row} />
+        <Groups groups={groups} systemName={name} {...row} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -187,7 +187,10 @@ export function SystemSection({
 type GroupsProps = Omit<
   SystemSectionProps,
   'system' | 'name' | 'defaultOpen' | 'onSkipSystem' | 'onResetSystem'
->;
+> & {
+  /** The system's display name, under each game's title. */
+  systemName: string;
+};
 
 function Groups({
   groups,
@@ -199,6 +202,7 @@ function Groups({
   onReveal,
   outcomes,
   planId,
+  systemName,
 }: GroupsProps) {
   const windowed = groups.length > WINDOW_ABOVE;
   const { listRef, range, measure, onFocusIndex } = useGroupWindow(
@@ -209,7 +213,7 @@ function Groups({
   const item = (i: number) => {
     const g = groups[i]!;
     return g.action.kind === 'conflict' ? (
-      <ConflictGroup group={g} onReveal={onReveal} />
+      <ConflictGroup group={g} onReveal={onReveal} systemName={systemName} />
     ) : (
       <DupGroup
         group={g}
@@ -221,6 +225,7 @@ function Groups({
         onReveal={onReveal}
         outcomes={outcomes}
         planId={planId}
+        systemName={systemName}
         // Only rows the window mounted render here, so each may ask.
         artEnabled
       />
