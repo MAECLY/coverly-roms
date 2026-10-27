@@ -70,7 +70,16 @@
   transform: rotate(-14deg);
 }
 
+/* Track list: the current row's slot dashes on a 7 px period, so the
+ * march's -14 offset loops without a jump. */
+.tl-mark.ws-march rect {
+  stroke-dasharray: 3.5 3.5;
+}
+
 @media (prefers-reduced-motion: no-preference) {
+  .tl-list {
+    scroll-behavior: smooth;
+  }
   .ws-box-in {
     animation: ws-box-in var(--cr-duration-slower) var(--cr-ease-enter) both;
   }
