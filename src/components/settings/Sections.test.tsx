@@ -17,6 +17,8 @@ import { resetSettingsStore, useSettingsStore } from '@/stores/settingsStore';
 import { stubLayout } from '@/test/layout';
 import { MemoryStorage } from '@/test/storage';
 
+import { settingId } from './Field';
+
 let backend: MockBackend;
 let restore: () => void;
 
@@ -475,11 +477,6 @@ describe('settings sections', () => {
       within(group).getByRole('combobox', { name: 'When organising' }),
       'report',
     );
-    expect(
-      within(group).getByText(
-        'Thresholds and lists are edited in Advanced (settings file).',
-      ),
-    ).toBeInTheDocument();
     await waitFor(async () =>
       expect((await saved()).organize).toMatchObject({
         default_layout: 'esde',
@@ -492,6 +489,43 @@ describe('settings sections', () => {
     await waitFor(async () =>
       expect((await saved()).dedupe.organize_step).toBe('report'),
     );
+  });
+
+  it('organize: the common options show in order, the RAR programs folded', async () => {
+    const group = await open('organize');
+    // Hidden fold content is out of the accessibility tree.
+    const controls = [
+      ...within(group).getAllByRole('combobox'),
+      ...within(group).getAllByRole('switch'),
+    ]
+      .sort((a, b) =>
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+          ? -1
+          : 1,
+      )
+      .map((c) => c.id);
+    expect(controls).toEqual([
+      settingId('organize.mode'),
+      settingId('organize.default_layout'),
+      settingId('organize.names'),
+      settingId('organize.nest_in_roms_root'),
+      settingId('organize.download_dats'),
+      settingId('dedupe.organize_step'),
+    ]);
+    const hint = within(group).getByText(
+      'Thresholds and lists are edited in Advanced (settings file).',
+    );
+    expect(hint).not.toBeVisible();
+    const fold = within(group).getByRole('button', {
+      name: 'Advanced options (1)',
+    });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(hint).toBeVisible();
+    expect(
+      within(group).getByRole('switch', { name: 'External programs for RAR' }),
+    ).toBeVisible();
   });
 
   it('library: shows no organise control', async () => {
