@@ -33,7 +33,9 @@ export interface ExtractView {
   /** Null for a single entry or an event without counts. */
   entries: { done: number; total: number } | null;
   rows: TrackRow[];
-  /** `checking` once every entry is staged but the item has not ended. */
+  /** `checking` once every entry is staged (phase B). The edge often
+   * carries `bytes_total` already (nothing else to decode), so bytes
+   * cannot tell it apart; the item's closing event reads the same. */
   phase: 'decoding' | 'checking';
   bytes: { done: number; total: number };
 }
@@ -72,6 +74,7 @@ export function targetDir(root: string, target: string): string {
 /** Shortens a name in the middle, keeping more of its end (track number, extension). */
 export function middleTruncate(name: string, max = 36): string {
   if (name.length <= max) return name;
+  if (max < 2) return '…'.slice(0, Math.max(0, max));
   const tail = Math.ceil((max - 1) * 0.6);
   return `${name.slice(0, max - 1 - tail)}…${name.slice(-tail)}`;
 }
@@ -113,10 +116,7 @@ export function extractView(
     game: plan && pos >= 0 ? { n: pos + 1, total: games.length } : null,
     entries: counted ? { done, total } : null,
     rows,
-    phase:
-      counted && done >= total && e.bytes_done < e.bytes_total
-        ? 'checking'
-        : 'decoding',
+    phase: counted && done >= total ? 'checking' : 'decoding',
     bytes: {
       done: Math.min(e.bytes_done, e.bytes_total),
       total: e.bytes_total,

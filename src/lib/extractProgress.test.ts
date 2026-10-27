@@ -10,6 +10,8 @@ import {
   planOf,
   reviewItem,
 } from '@/test/organizeFixtures';
+import { createMockBackend } from '@/ipc/mock/mockBackend';
+import { MOCK_DOWNLOADS } from '@/ipc/mock/mockOrganize';
 import {
   extractView,
   gameIndex,
@@ -82,13 +84,47 @@ describe('extractView rows', () => {
     expect(v.phase).toBe('checking');
   });
 
-  it('stays decoding when every entry is staged and the bytes are done', () => {
+  it('checks once every entry is staged even with the bytes all decoded', () => {
+    // A zip whose entries are all wanted decodes nothing else: the
+    // all-staged edge (phase B starts) already carries bytes_total.
     const v = extractView(
       plan,
       ev(7, { entries_done: 12, entries_total: 12, bytes_done: 1000 }),
     );
-    expect(v.phase).toBe('decoding');
+    expect(v.phase).toBe('checking');
     expect(v.bytes).toEqual({ done: 1000, total: 1000 });
+  });
+
+  it('reads checking during the mock check pause', async () => {
+    const b = createMockBackend({
+      delayMs: 1,
+      storage: null,
+      pauseAfter: null,
+      extractRate: 2000,
+    });
+    const { plan_id, plan: wire } = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+    });
+    let first: number | null = null;
+    const edges: ExtractEvent[] = [];
+    await b.onOrganizeProgress((e) => {
+      if (e.phase !== 'extract') return;
+      first ??= e.item;
+      if (e.item !== first) return;
+      if (e.entries_total! > 1 && e.entries_done === e.entries_total) {
+        edges.push(e);
+        void b.organizeCancelApply();
+      }
+    });
+    const ended = new Promise<void>((resolve) => {
+      void b.onOrganizeChanged((v) => {
+        if (v.state !== 'applying') resolve();
+      });
+    });
+    await b.organizeApply(plan_id, []);
+    await ended;
+    expect(edges.length).toBeGreaterThan(0);
+    expect(extractView(wire, edges[0]!).phase).toBe('checking');
   });
 
   it('marks entries without a CRC as size-checked', () => {
@@ -269,6 +305,12 @@ describe('middleTruncate', () => {
     expect(s).toContain('…');
     expect(s.endsWith('(Track 18).bin')).toBe(true);
     expect(s.length).toBe(24);
+  });
+
+  it('never exceeds a tiny limit', () => {
+    expect(middleTruncate('Tetris.bin', 1)).toBe('…');
+    expect(middleTruncate('Tetris.bin', 0)).toBe('');
+    expect(middleTruncate('Tetris.bin', 2).length).toBe(2);
   });
 
   it('leaves short names alone', () => {
