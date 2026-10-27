@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implemented in M7)
+Accepted (implemented in M7); amended 2026-10-26 (see the end)
 
 ## Date
 
@@ -53,3 +53,11 @@ The beta channel is a fixed prerelease tagged `channel-beta` whose `latest.json`
 
 - Until the owner commits the real key and makes the repository public, nothing can be released; the `guard` job says which step is missing.
 - Windows installers and macOS builds are still not signed with OS certificates (ADR-0008); the release notes and the README explain the warnings.
+
+## Amended 2026-10-26
+
+Release file names and Windows ARM64 ([spec](../superpowers/specs/2026-10-26-release-names.md)). The decisions above stand; three things change:
+
+- **Separate macOS builds (D2).** The macOS `app` job becomes two builds on `macos-latest`, `aarch64-apple-darwin` and `x86_64-apple-darwin` (Intel cross-compiled), instead of one universal DMG. `darwin-aarch64` and `darwin-x86_64` now point at their own `.app.tar.gz` (`…_mac_arm`, `…_mac_intel`) rather than the same universal one; an installed universal copy moves to the archive of the Mac it runs on.
+- **Windows ARM64 (D6).** A native `windows-11-arm` build for the app (NSIS, plus MSI on a stable tag) and the CLI, behind a step that checks rustup, `clang` and .NET Framework 3.5 and never sees a secret. `latest.json` gains `windows-aarch64`, `windows-aarch64-nsis`, `windows-aarch64-msi` and `cli-windows-aarch64`; `check-manifest` in `finalize` and `release-channels.yml` now requires 12 keys instead of ten.
+- **Release names chosen in `stage-builds`, manifest keys unchanged (D3/D4).** The build jobs keep handing over Tauri's and Cargo's names (`Coverly.ROMs_<V>_aarch64.dmg`, `coverly-<V>-linux-x86_64`, as v0.1.0 and v0.2.0 published them); `release_tools.py stage-builds` in `finalize` checks each artifact against its platform's patterns and copies every file under its release name (`Coverly-ROMs_<V>_mac_arm.dmg`, `coverly_<V>_windows_arm.exe`, …). `latest.json` keeps the Tauri platform keys and the `cli-<os>-<arch>` keys, so installed 0.1.0/0.2.0 copies keep updating; only the urls change. `updater-manifest` refuses a file that is not a release name; old manifests are still recovered with `list-artifacts`/`resign-manifest`, which do not read names.
