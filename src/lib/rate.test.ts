@@ -59,6 +59,19 @@ describe('rate', () => {
     expect(rateOf(s, 3300)).toBeCloseTo(10);
   });
 
+  it('does not carry a stalled zero rate into the next item', () => {
+    let s = feed([
+      [0, 0],
+      [3000, 30],
+      [3100, 31],
+      [9000, 31],
+      [9100, 31],
+    ]);
+    expect(rateOf(s, 9100)).toBe(0);
+    s = pushSample(s, 2, 0, 9200);
+    expect(rateOf(s, 9200)).toBeCloseTo(10);
+  });
+
   it('falls back to measuring after a 10 s stall', () => {
     const s = feed([
       [0, 0],
@@ -92,6 +105,8 @@ describe('rate', () => {
     expect(etaSeconds(100, 0)).toBeNull();
     expect(etaSeconds(100, 10)).toBe(10);
     expect(etaSeconds(-5, 10)).toBe(0);
+    expect(etaSeconds(Number.NaN, 10)).toBeNull();
+    expect(etaSeconds(100, Number.POSITIVE_INFINITY)).toBeNull();
   });
 
   it('formats decimal rates per locale', () => {

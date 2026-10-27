@@ -55,7 +55,8 @@ export function pushSample(
   return {
     key,
     samples,
-    lastRate: rate ?? s.lastRate,
+    // A stalled window measures 0; carry the last moving rate instead.
+    lastRate: rate !== null && rate > 0 ? rate : s.lastRate,
     movedAt: v > prev.v ? t : s.movedAt,
   };
 }
@@ -66,8 +67,11 @@ export function rateOf(s: RateState, now: number): number | null {
   return spanRate(s.samples) ?? s.lastRate;
 }
 
+/** Seconds left, or null when either side cannot give a finite estimate. */
 export const etaSeconds = (rest: number, rate: number | null): number | null =>
-  rate && rate > 0 ? Math.max(0, rest) / rate : null;
+  rate !== null && rate > 0 && Number.isFinite(rate) && Number.isFinite(rest)
+    ? Math.max(0, rest) / rate
+    : null;
 
 /** D5: one key per wording, never «unos 1 minuto». */
 export function etaKey(seconds: number): {
