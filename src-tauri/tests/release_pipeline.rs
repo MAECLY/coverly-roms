@@ -2003,8 +2003,14 @@ fn landing_redeploys_when_a_release_is_published() {
 }
 
 /// A complete stable manifest for `v`, built the way finalize builds it:
-/// stage-builds, real signatures from a test key, updater-manifest, add-cli.
-fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::TestKey) -> PathBuf {
+/// stage-builds, real signatures from a test key, updater-manifest, add-cli,
+/// with every file announced under `base`.
+fn full_manifest(
+    root: &Path,
+    v: &str,
+    key: &coverly_core::update::testing::TestKey,
+    base: &str,
+) -> PathBuf {
     downloaded_builds(&root.join("downloads"), v, true);
     let out = stage_builds(root, v);
     assert!(
@@ -2026,7 +2032,6 @@ fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::Test
     };
     sign_dir(&root.join("bundles"));
     sign_dir(&root.join("cli"));
-    let base = format!("https://github.com/MAECLY/coverly-roms/releases/download/v{v}");
     let latest = root.join("latest.json");
     let out = tool(&[
         "updater-manifest",
@@ -2035,7 +2040,7 @@ fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::Test
         "--version",
         v,
         "--base-url",
-        &base,
+        base,
         "--output",
         latest.to_str().unwrap(),
         "--pub-date",
@@ -2055,7 +2060,7 @@ fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::Test
         "--version",
         v,
         "--base-url",
-        &base,
+        base,
     ]);
     assert!(
         out.status.success(),
@@ -2065,12 +2070,63 @@ fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::Test
     latest
 }
 
+/// Every key of the `latest.json` that v0.2.0 published, with its file, as
+/// `gh release view v0.2.0` lists them. Installed 0.1.0/0.2.0 copies were
+/// served from these keys, so the new manifest must keep all of them.
+const V0_2_0_KEYS: [(&str, &str); 18] = [
+    ("cli-darwin-aarch64", "coverly-0.2.0-darwin-aarch64"),
+    ("cli-darwin-x86_64", "coverly-0.2.0-darwin-x86_64"),
+    ("cli-linux-aarch64", "coverly-0.2.0-linux-aarch64"),
+    ("cli-linux-x86_64", "coverly-0.2.0-linux-x86_64"),
+    ("cli-windows-x86_64", "coverly-0.2.0-windows-x86_64.exe"),
+    ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+    (
+        "darwin-aarch64-app",
+        "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+    ),
+    ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+    (
+        "darwin-x86_64-app",
+        "Coverly.ROMs_0.2.0_universal.app.tar.gz",
+    ),
+    ("linux-aarch64", "Coverly.ROMs_0.2.0_aarch64.AppImage"),
+    (
+        "linux-aarch64-appimage",
+        "Coverly.ROMs_0.2.0_aarch64.AppImage",
+    ),
+    ("linux-aarch64-deb", "Coverly.ROMs_0.2.0_arm64.deb"),
+    ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+    ("linux-x86_64-appimage", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+    ("linux-x86_64-deb", "Coverly.ROMs_0.2.0_amd64.deb"),
+    ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+    ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
+    ("windows-x86_64-nsis", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+];
+
+/// What an updater does with a file: the bundle kind for the app, an
+/// executable or a bare binary for the CLI.
+fn update_kind(name: &str) -> &'static str {
+    [
+        ".app.tar.gz",
+        "-setup.exe",
+        ".msi",
+        ".AppImage",
+        ".deb",
+        ".exe",
+    ]
+    .into_iter()
+    .find(|k| name.ends_with(k))
+    .unwrap_or("binary")
+}
+
 /// Every key an installed copy asks for, with the file it must receive.
 /// The app: tauri-plugin-updater ~2.14 (the version 0.1.0 and 0.2.0 ship)
 /// looks up `{os}-{arch}-{installer}` first, then `{os}-{arch}`, arch being
 /// the running binary's (a universal 0.2.0 build reports the chip it runs
-/// on). The CLI: coverly_core::update::cli_platform_key(). The plugin cannot
-/// be driven offline, so its keys are listed here.
+/// on). The CLI: coverly_core::update::cli_platform_key(). The first 18 are
+/// exactly the keys v0.2.0 published (`V0_2_0_KEYS`);
+/// `the_shipped_updater_finds_and_verifies_every_app_update` drives the
+/// plugin itself through the app ones.
 const INSTALLED_KEYS: [(&str, &str); 22] = [
     ("darwin-aarch64", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
     ("darwin-aarch64-app", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
@@ -2118,7 +2174,8 @@ fn installed_versions_find_their_update() {
     let key = TestKey::generate();
     let dir = tempfile::tempdir().unwrap();
     let v = "0.3.0";
-    let latest = full_manifest(dir.path(), v, &key);
+    let base = format!("https://github.com/MAECLY/coverly-roms/releases/download/v{v}");
+    let latest = full_manifest(dir.path(), v, &key, &base);
     let bytes = std::fs::read(&latest).unwrap();
     let m = coverly_core::update::parse_manifest(&bytes).expect("the CLI's parser reads it");
     assert_eq!(m.version, v);
@@ -2145,6 +2202,15 @@ fn installed_versions_find_their_update() {
         coverly_core::update::verify::verify_signed(&body, &entry.signature, &key.public_b64(), v)
             .unwrap_or_else(|e| panic!("{k}: {e}"));
     }
+    // Every key v0.2.0 served is still there, with a file of the same kind.
+    for (k, was) in V0_2_0_KEYS {
+        assert!(
+            INSTALLED_KEYS.iter().any(|(i, _)| *i == k),
+            "{k} not listed"
+        );
+        let now = m.platforms[k].url.rsplit('/').next().unwrap();
+        assert_eq!(update_kind(now), update_kind(was), "{k}: {was} -> {now}");
+    }
     // The CLI's own lookup, for every (os, arch) it can run on.
     for (os, arch) in [
         ("macos", "aarch64"),
@@ -2169,16 +2235,9 @@ fn recovery_tools_still_read_a_v0_2_0_manifest() {
     if python().is_none() {
         return;
     }
-    // The shape v0.2.0 published (old names), as list-artifacts and
+    // The manifest v0.2.0 published (old names), as list-artifacts and
     // resign-manifest must keep reading it.
-    let old = [
-        ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
-        ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
-        ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
-        ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
-        ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
-        ("cli-linux-aarch64", "coverly-0.2.0-linux-aarch64"),
-    ];
+    let old = V0_2_0_KEYS;
     let dir = tempfile::tempdir().unwrap();
     let base = "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0";
     let platforms: serde_json::Map<String, serde_json::Value> = old
@@ -2206,7 +2265,13 @@ fn recovery_tools_still_read_a_v0_2_0_manifest() {
         .lines()
         .map(String::from)
         .collect();
-    assert_eq!(listed.len(), 5, "each file once: {listed:?}");
+    let mut want: Vec<String> = old.iter().map(|(_, n)| (*n).to_string()).collect();
+    want.sort();
+    want.dedup();
+    assert_eq!(want.len(), 12, "7 app files + 5 CLI binaries");
+    let mut got = listed.clone();
+    got.sort();
+    assert_eq!(got, want, "each file once");
     let sigs = dir.path().join("sigs");
     for name in &listed {
         write_pinned(&sigs.join(format!("{name}.sig")), b"bmV3");
@@ -2226,5 +2291,151 @@ fn recovery_tools_still_read_a_v0_2_0_manifest() {
     let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     for (k, _) in old {
         assert_eq!(m["platforms"][k]["signature"], "bmV3", "{k}");
+    }
+}
+
+/// Serves `latest.json` and every staged file of `root` over loopback HTTP,
+/// the way GitHub serves a release to an installed copy. Returns the base URL.
+fn serve_release(root: PathBuf) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let root = root.clone();
+            std::thread::spawn(move || answer_release_request(stream, &root));
+        }
+    });
+    base
+}
+
+fn answer_release_request(mut stream: std::net::TcpStream, root: &Path) {
+    use std::io::{BufRead, Write};
+    let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+    let mut request = String::new();
+    if reader.read_line(&mut request).is_err() {
+        return;
+    }
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).unwrap_or(0) <= 2 {
+            break;
+        }
+    }
+    let name = request
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("/")
+        .trim_start_matches('/');
+    let file = (!name.is_empty() && !name.contains(['/', '\\']) && !name.contains(".."))
+        .then(|| {
+            [root.to_path_buf(), root.join("bundles"), root.join("cli")]
+                .into_iter()
+                .map(|d| d.join(name))
+                .find(|p| p.is_file())
+        })
+        .flatten();
+    let (status, body) = match file {
+        Some(p) => ("200 OK", std::fs::read(p).unwrap()),
+        None => ("404 Not Found", Vec::new()),
+    };
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(&body);
+}
+
+/// A mock app that reports `installed` as its version, with the real
+/// `tauri-plugin-updater` (the ~2.14 that 0.1.0 and 0.2.0 ship).
+fn installed_app(installed: &str) -> tauri::App<tauri::test::MockRuntime> {
+    let mut ctx = tauri::test::mock_context(tauri::test::noop_assets());
+    ctx.package_info_mut().version = installed.parse().unwrap();
+    ctx.config_mut().plugins.0.insert(
+        "updater".into(),
+        serde_json::json!({ "pubkey": "unused", "endpoints": [] }),
+    );
+    tauri::test::mock_builder()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .build(ctx)
+        .expect("mock app")
+}
+
+/// The plugin itself (not a list of its keys) reads the new manifest, finds
+/// each app key, downloads the file and checks its signature, as an
+/// installed 0.1.0 or 0.2.0 copy does.
+#[test]
+fn the_shipped_updater_finds_and_verifies_every_app_update() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    use tauri_plugin_updater::UpdaterExt;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let v = "0.3.0";
+    let base = serve_release(dir.path().to_path_buf());
+    full_manifest(dir.path(), v, &key, &base);
+    let endpoint = tauri::Url::parse(&format!("{base}/latest.json")).unwrap();
+    let app_keys: Vec<(&str, String)> = INSTALLED_KEYS
+        .iter()
+        .filter(|(k, _)| !k.starts_with("cli-"))
+        .map(|(k, want)| (*k, want.replace("{v}", v)))
+        .collect();
+    assert_eq!(app_keys.len(), 16);
+    for installed in ["0.1.0", "0.2.0"] {
+        let app = installed_app(installed);
+        let check = |target: Option<&str>| {
+            let mut builder = app
+                .updater_builder()
+                .pubkey(key.public_b64())
+                .endpoints(vec![endpoint.clone()])
+                .unwrap();
+            if let Some(t) = target {
+                builder = builder.target(t);
+            }
+            tauri::async_runtime::block_on(builder.build().unwrap().check())
+                .unwrap_or_else(|e| panic!("{installed} on {target:?}: {e}"))
+        };
+        for (k, want) in &app_keys {
+            let update =
+                check(Some(k)).unwrap_or_else(|| panic!("{installed} on {k}: no update offered"));
+            assert_eq!(update.version, v);
+            let name = update
+                .download_url
+                .path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap();
+            assert_eq!(name, want, "{installed} on {k}");
+            // `download` refuses any byte whose signature does not verify.
+            let bytes = tauri::async_runtime::block_on(update.download(|_, _| {}, || {}))
+                .unwrap_or_else(|e| panic!("{installed} on {k}: {e}"));
+            assert_eq!(
+                bytes,
+                std::fs::read(dir.path().join("bundles").join(want)).unwrap()
+            );
+        }
+        // No target: the plugin's own `{os}-{arch}[-{installer}]` lookup here.
+        let os = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        let host = format!("{os}-{}", std::env::consts::ARCH);
+        if app_keys.iter().any(|(k, _)| *k == host) {
+            let update = check(None).expect("the host's own key");
+            let name = update
+                .download_url
+                .path_segments()
+                .unwrap()
+                .next_back()
+                .unwrap();
+            assert!(
+                app_keys.iter().any(
+                    |(k, want)| (*k == host || k.starts_with(&format!("{host}-"))) && want == name
+                ),
+                "{installed} on {host}: {name}"
+            );
+        }
     }
 }
