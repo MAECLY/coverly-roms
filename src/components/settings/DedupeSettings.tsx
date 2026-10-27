@@ -261,7 +261,9 @@ export function DedupeAdvanced({
         <h3 className={sectionTitle} id="dedupe-rules">
           {t('settings.dedupe.rules')}
         </h3>
-        <p className={hintText}>{t('settings.dedupe.rulesHint')}</p>
+        <p id="dedupe-rules-hint" className={hintText}>
+          {t('settings.dedupe.rulesHint')}
+        </p>
         <MoreInfo id={rulesId}>{t('settings.dedupe.rulesDetails')}</MoreInfo>
         {/* The list is the landing target (SP-1): the first row's own
             buttons would be an arbitrary place to land. */}
@@ -271,6 +273,7 @@ export function DedupeAdvanced({
           data-setting-row=""
           className="m-0 grid list-decimal gap-1 pl-6 marker:text-caption marker:text-cr-text-secondary"
           aria-labelledby="dedupe-rules"
+          aria-describedby="dedupe-rules-hint"
         >
           {d.keep_rules.map((r, i) => {
             const label = ruleName(r.rule);
@@ -350,13 +353,16 @@ export function DedupeAdvanced({
         id="setting-dedupe-container-order"
         tabIndex={-1}
         aria-labelledby="dedupe-container-order"
+        aria-describedby="dedupe-container-order-hint"
         data-setting-row=""
         className="grid gap-3"
       >
         <h3 className={sectionTitle} id="dedupe-container-order">
           {t('settings.dedupe.containerOrder')}
         </h3>
-        <p className={hintText}>{t('settings.dedupe.containerOrderHint')}</p>
+        <p id="dedupe-container-order-hint" className={hintText}>
+          {t('settings.dedupe.containerOrderHint')}
+        </p>
         {orderRows.map(({ profile, kind, list }) => {
           const key = `${profile}/${kind}`;
           const path = `dedupe.container_order.${profile}`;

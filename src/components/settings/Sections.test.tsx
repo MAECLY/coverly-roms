@@ -655,6 +655,19 @@ describe('settings sections', () => {
     expect((await saved()).dedupe.exclude_systems).not.toContain('ports/msu');
   });
 
+  it('duplicates: the keeper rules and the format order read their short hint', async () => {
+    const panel = await open('duplicates');
+    await userEvent.click(
+      within(panel).getByRole('button', { name: 'Advanced options (6)' }),
+    );
+    expect(
+      within(panel).getByRole('list', { name: 'Which copy stays' }),
+    ).toHaveAccessibleDescription('Use the arrows to reorder them.');
+    expect(
+      within(panel).getByRole('group', { name: 'Format order per profile' }),
+    ).toHaveAccessibleDescription('Comma-separated, preferred first.');
+  });
+
   it.each([
     ['setting-dedupe-keep-rules', 'list', 'Which copy stays'],
     ['setting-dedupe-container-order', 'group', 'Format order per profile'],
