@@ -8,6 +8,7 @@ import { useLibraryStore } from '@/stores/libraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 import {
+  AdvancedFold,
   Field,
   sectionTitle,
   settingId,
@@ -70,24 +71,6 @@ export function LibrarySection() {
           ))}
         </NativeSelect>
       </Field>
-      <ListSetting
-        path="library.ignored_dirs"
-        label={t('settings.library.ignoredDirs')}
-        hint={t('settings.library.ignoredDirsHint')}
-        value={lib.ignored_dirs}
-        split={lines}
-        join={(l) => l.join('\n')}
-        toPatch={(l) => ({ library: { ignored_dirs: l } })}
-      />
-      <ListSetting
-        path="library.ignored_exts"
-        label={t('settings.library.ignoredExts')}
-        hint={t('settings.library.ignoredExtsHint')}
-        value={lib.ignored_exts}
-        split={commas}
-        join={(l) => l.join(', ')}
-        toPatch={(l) => ({ library: { ignored_exts: l } })}
-      />
       <SwitchSetting
         id={settingId('library.include_hidden')}
         name="include-hidden"
@@ -102,11 +85,37 @@ export function LibrarySection() {
         name="follow-symlinks"
         label={t('settings.library.followSymlinks')}
         hint={t('settings.library.followSymlinksHint')}
+        more={t('settings.library.followSymlinksDetails')}
         checked={lib.follow_symlinks}
         onCheckedChange={(on) =>
           void update({ library: { follow_symlinks: on } })
         }
       />
+      <AdvancedFold
+        id="library-advanced"
+        count={2}
+        errorPaths={['library.ignored_dirs', 'library.ignored_exts']}
+      >
+        <ListSetting
+          path="library.ignored_dirs"
+          label={t('settings.library.ignoredDirs')}
+          hint={t('settings.library.ignoredDirsHint')}
+          value={lib.ignored_dirs}
+          split={lines}
+          join={(l) => l.join('\n')}
+          toPatch={(l) => ({ library: { ignored_dirs: l } })}
+        />
+        <ListSetting
+          path="library.ignored_exts"
+          label={t('settings.library.ignoredExts')}
+          hint={t('settings.library.ignoredExtsHint')}
+          more={t('settings.library.ignoredExtsDetails')}
+          value={lib.ignored_exts}
+          split={commas}
+          join={(l) => l.join(', ')}
+          toPatch={(l) => ({ library: { ignored_exts: l } })}
+        />
+      </AdvancedFold>
       <h2 className={sectionTitle}>{t('settings.library.recent')}</h2>
       {recents.length === 0 ? (
         <EmptyState

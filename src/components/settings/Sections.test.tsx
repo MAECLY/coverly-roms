@@ -694,6 +694,93 @@ describe('settings sections', () => {
     expect(panel.querySelector('[name="dedupe-level-exact"]')).toBeNull();
   });
 
+  it('library: the scan options show, the ignored lists folded, then the recents', async () => {
+    const panel = await open('library');
+    const fold = within(panel).getByRole('button', {
+      name: 'Advanced options (2)',
+    });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Ignored folders' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole('textbox', { name: 'Ignored extensions' }),
+    ).not.toBeInTheDocument();
+    const order = [
+      within(panel).getByRole('combobox', { name: 'Default layout profile' }),
+      within(panel).getByRole('switch', { name: 'Include hidden files' }),
+      within(panel).getByRole('switch', { name: 'Follow symbolic links' }),
+      fold,
+      within(panel).getByRole('heading', { name: 'Recent libraries' }),
+    ];
+    order.reduce((prev, next) => {
+      expect(
+        prev.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      return next;
+    });
+    await userEvent.click(fold);
+    expect(
+      within(panel).getByRole('textbox', { name: 'Ignored extensions' }),
+    ).toHaveAccessibleDescription('Comma-separated, without dots.');
+    const [, extsMore] = within(panel).getAllByRole('button', {
+      name: 'More information',
+    });
+    if (!extsMore) throw new Error('no second More information toggle');
+    await userEvent.click(extsMore);
+    expect(
+      within(panel).getByText(
+        'Files with these extensions are never taken as ROMs.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('library: the advanced fold opens on an ignored-folder error', async () => {
+    const panel = await open('library');
+    const fold = within(panel).getByRole('button', {
+      name: 'Advanced options (2)',
+    });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    act(() =>
+      useSettingsStore.setState({
+        errors: {
+          'library.ignored_dirs': {
+            field: 'library.ignored_dirs',
+            code: 'invalid',
+            min: null,
+            max: null,
+          },
+        },
+      }),
+    );
+    await waitFor(() => expect(fold).toHaveAttribute('aria-expanded', 'true'));
+    expect(useNavStore.getState().openFolds).toContain('library-advanced');
+    expect(
+      within(panel).getByRole('textbox', { name: 'Ignored folders' }),
+    ).toBeInvalid();
+  });
+
+  it('library: follow symlinks has a short hint and more information', async () => {
+    const panel = await open('library');
+    const sw = within(panel).getByRole('switch', {
+      name: 'Follow symbolic links',
+    });
+    expect(sw).toHaveAccessibleDescription(
+      'Linked folders are read as if they were inside.',
+    );
+    const [more] = within(panel).getAllByRole('button', {
+      name: 'More information',
+    });
+    if (!more) throw new Error('no More information toggle');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    const details =
+      'Art is never written outside the library folder: ROMs in a linked folder that points elsewhere are listed, but their art is skipped with an error.';
+    expect(within(panel).getByText(details)).not.toBeVisible();
+    await userEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(within(panel).getByText(details)).toBeVisible();
+  });
+
   it('duplicates: settings_reorder_rules_announces', async () => {
     const panel = await open('duplicates');
     await userEvent.click(

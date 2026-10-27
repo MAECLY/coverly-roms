@@ -276,6 +276,9 @@ describe('Settings screen', () => {
   it('edits the ignored folders and the default profile', async () => {
     await start();
     act(() => useNavStore.getState().openSettings('library'));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Advanced options (2)' }),
+    );
     const box = await screen.findByRole('textbox', { name: 'Ignored folders' });
     await userEvent.clear(box);
     await userEvent.type(box, 'bios{enter}Junk');
