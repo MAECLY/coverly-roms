@@ -2001,3 +2001,230 @@ fn landing_redeploys_when_a_release_is_published() {
     assert!(!wf.contains("uses:"), "no third-party action");
     assert!(!wf.contains("continue-on-error") && !wf.contains("|| true"));
 }
+
+/// A complete stable manifest for `v`, built the way finalize builds it:
+/// stage-builds, real signatures from a test key, updater-manifest, add-cli.
+fn full_manifest(root: &Path, v: &str, key: &coverly_core::update::testing::TestKey) -> PathBuf {
+    downloaded_builds(&root.join("downloads"), v, true);
+    let out = stage_builds(root, v);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let sign_dir = |d: &Path| {
+        for name in listing(d) {
+            if name.ends_with(".dmg") {
+                continue;
+            }
+            let body = std::fs::read(d.join(&name)).unwrap();
+            write_pinned(
+                &d.join(format!("{name}.sig")),
+                key.sign(&body, &name, Some(v)).as_bytes(),
+            );
+        }
+    };
+    sign_dir(&root.join("bundles"));
+    sign_dir(&root.join("cli"));
+    let base = format!("https://github.com/MAECLY/coverly-roms/releases/download/v{v}");
+    let latest = root.join("latest.json");
+    let out = tool(&[
+        "updater-manifest",
+        "--dir",
+        root.join("bundles").to_str().unwrap(),
+        "--version",
+        v,
+        "--base-url",
+        &base,
+        "--output",
+        latest.to_str().unwrap(),
+        "--pub-date",
+        "2026-11-01T00:00:00Z",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = tool(&[
+        "add-cli",
+        "--manifest",
+        latest.to_str().unwrap(),
+        "--dir",
+        root.join("cli").to_str().unwrap(),
+        "--version",
+        v,
+        "--base-url",
+        &base,
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    latest
+}
+
+/// Every key an installed copy asks for, with the file it must receive.
+/// The app: tauri-plugin-updater ~2.14 (the version 0.1.0 and 0.2.0 ship)
+/// looks up `{os}-{arch}-{installer}` first, then `{os}-{arch}`, arch being
+/// the running binary's (a universal 0.2.0 build reports the chip it runs
+/// on). The CLI: coverly_core::update::cli_platform_key(). The plugin cannot
+/// be driven offline, so its keys are listed here.
+const INSTALLED_KEYS: [(&str, &str); 22] = [
+    ("darwin-aarch64", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
+    ("darwin-aarch64-app", "Coverly-ROMs_{v}_mac_arm.app.tar.gz"),
+    ("darwin-x86_64", "Coverly-ROMs_{v}_mac_intel.app.tar.gz"),
+    ("darwin-x86_64-app", "Coverly-ROMs_{v}_mac_intel.app.tar.gz"),
+    ("windows-x86_64", "Coverly-ROMs_{v}_windows_x64-setup.exe"),
+    (
+        "windows-x86_64-nsis",
+        "Coverly-ROMs_{v}_windows_x64-setup.exe",
+    ),
+    ("windows-x86_64-msi", "Coverly-ROMs_{v}_windows_x64.msi"),
+    ("linux-x86_64", "Coverly-ROMs_{v}_linux_x64.AppImage"),
+    (
+        "linux-x86_64-appimage",
+        "Coverly-ROMs_{v}_linux_x64.AppImage",
+    ),
+    ("linux-x86_64-deb", "Coverly-ROMs_{v}_linux_x64.deb"),
+    ("linux-aarch64", "Coverly-ROMs_{v}_linux_arm.AppImage"),
+    (
+        "linux-aarch64-appimage",
+        "Coverly-ROMs_{v}_linux_arm.AppImage",
+    ),
+    ("linux-aarch64-deb", "Coverly-ROMs_{v}_linux_arm.deb"),
+    ("cli-darwin-aarch64", "coverly_{v}_mac_arm"),
+    ("cli-darwin-x86_64", "coverly_{v}_mac_intel"),
+    ("cli-windows-x86_64", "coverly_{v}_windows_x64.exe"),
+    ("cli-linux-x86_64", "coverly_{v}_linux_x64"),
+    ("cli-linux-aarch64", "coverly_{v}_linux_arm"),
+    // New in this release (no installed copy asks yet; the next ones will).
+    ("windows-aarch64", "Coverly-ROMs_{v}_windows_arm-setup.exe"),
+    (
+        "windows-aarch64-nsis",
+        "Coverly-ROMs_{v}_windows_arm-setup.exe",
+    ),
+    ("windows-aarch64-msi", "Coverly-ROMs_{v}_windows_arm.msi"),
+    ("cli-windows-aarch64", "coverly_{v}_windows_arm.exe"),
+];
+
+#[test]
+fn installed_versions_find_their_update() {
+    if python().is_none() {
+        return;
+    }
+    use coverly_core::update::testing::TestKey;
+    let key = TestKey::generate();
+    let dir = tempfile::tempdir().unwrap();
+    let v = "0.3.0";
+    let latest = full_manifest(dir.path(), v, &key);
+    let bytes = std::fs::read(&latest).unwrap();
+    let m = coverly_core::update::parse_manifest(&bytes).expect("the CLI's parser reads it");
+    assert_eq!(m.version, v);
+    assert!(coverly_core::update::is_newer("0.2.0", &m.version));
+    assert!(coverly_core::update::is_newer("0.1.0", &m.version));
+    for (k, want) in INSTALLED_KEYS {
+        let entry = m
+            .platforms
+            .get(k)
+            .unwrap_or_else(|| panic!("no {k}: an installed copy would stop updating"));
+        let name = entry.url.rsplit('/').next().unwrap();
+        assert_eq!(name, want.replace("{v}", v), "{k}");
+        // The signature is the real one of that very file, bound to v.
+        let body = std::fs::read(
+            dir.path()
+                .join(if k.starts_with("cli-") {
+                    "cli"
+                } else {
+                    "bundles"
+                })
+                .join(name),
+        )
+        .unwrap();
+        coverly_core::update::verify::verify_signed(&body, &entry.signature, &key.public_b64(), v)
+            .unwrap_or_else(|e| panic!("{k}: {e}"));
+    }
+    // The CLI's own lookup, for every (os, arch) it can run on.
+    for (os, arch) in [
+        ("macos", "aarch64"),
+        ("macos", "x86_64"),
+        ("windows", "x86_64"),
+        ("windows", "aarch64"),
+        ("linux", "x86_64"),
+        ("linux", "aarch64"),
+    ] {
+        let k = coverly_core::update::cli_platform_key_for(os, arch).unwrap();
+        assert!(m.platforms.contains_key(&k), "{os}/{arch} -> {k}");
+    }
+    assert_eq!(
+        m.platforms.len(),
+        16 + 6,
+        "16 app keys + 6 CLI keys, nothing else"
+    );
+}
+
+#[test]
+fn recovery_tools_still_read_a_v0_2_0_manifest() {
+    if python().is_none() {
+        return;
+    }
+    // The shape v0.2.0 published (old names), as list-artifacts and
+    // resign-manifest must keep reading it.
+    let old = [
+        ("darwin-aarch64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+        ("darwin-x86_64", "Coverly.ROMs_0.2.0_universal.app.tar.gz"),
+        ("windows-x86_64", "Coverly.ROMs_0.2.0_x64-setup.exe"),
+        ("windows-x86_64-msi", "Coverly.ROMs_0.2.0_x64_en-US.msi"),
+        ("linux-x86_64", "Coverly.ROMs_0.2.0_amd64.AppImage"),
+        ("cli-linux-aarch64", "coverly-0.2.0-linux-aarch64"),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let base = "https://github.com/MAECLY/coverly-roms/releases/download/v0.2.0";
+    let platforms: serde_json::Map<String, serde_json::Value> = old
+        .iter()
+        .map(|(k, n)| {
+            (
+                (*k).to_string(),
+                serde_json::json!({"url": format!("{base}/{n}"), "signature": "b2xk"}),
+            )
+        })
+        .collect();
+    let manifest = dir.path().join("latest.json");
+    std::fs::write(
+        &manifest,
+        serde_json::json!({"version": "0.2.0", "platforms": platforms}).to_string(),
+    )
+    .unwrap();
+    let out = tool(&["list-artifacts", "--manifest", manifest.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listed: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(String::from)
+        .collect();
+    assert_eq!(listed.len(), 5, "each file once: {listed:?}");
+    let sigs = dir.path().join("sigs");
+    for name in &listed {
+        write_pinned(&sigs.join(format!("{name}.sig")), b"bmV3");
+    }
+    let out = tool(&[
+        "resign-manifest",
+        "--manifest",
+        manifest.to_str().unwrap(),
+        "--sigdir",
+        sigs.to_str().unwrap(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for (k, _) in old {
+        assert_eq!(m["platforms"][k]["signature"], "bmV3", "{k}");
+    }
+}
