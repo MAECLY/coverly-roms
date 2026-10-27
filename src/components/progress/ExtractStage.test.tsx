@@ -170,6 +170,27 @@ describe('ExtractStage', () => {
     expect(container.querySelectorAll('.ws-fly-x')).toHaveLength(0);
   });
 
+  it('keeps the safety timer of the oldest sleeve while events keep coming', () => {
+    vi.useFakeTimers();
+    stubReducedMotion(false);
+    const { container, update } = renderStage();
+    update({ entries: { done: 5, total: 40 } });
+    expect(container.querySelectorAll('.ws-fly-x')).toHaveLength(1);
+    // Two more sleeves take off before the first one's timer is due.
+    for (const done of [6, 7]) {
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      update({ entries: { done, total: 40 } });
+    }
+    act(() => {
+      vi.advanceTimersByTime(501);
+    });
+    // 1501 ms after it left, the first sleeve has landed all the same.
+    expect(container.querySelectorAll('.ws-fly-x')).toHaveLength(2);
+    expect(container.querySelectorAll('.ws-spine')).toHaveLength(1);
+  });
+
   it('flies nothing under reduced motion', () => {
     stubReducedMotion(true);
     const { container, update } = renderStage();

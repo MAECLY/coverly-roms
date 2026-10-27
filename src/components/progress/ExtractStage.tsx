@@ -75,7 +75,11 @@ export function stageReducer(s: StageState, a: StageAction): StageState {
         ...s,
         seen: a.done,
         landed: s.landed + fresh.length - fly.length,
-        flying: [...s.flying, ...fly.map((id, i) => ({ id, g: i }))],
+        // Same array when nothing new flies, so the safety timer keeps running.
+        flying:
+          fly.length === 0
+            ? s.flying
+            : [...s.flying, ...fly.map((id, i) => ({ id, g: i }))],
       };
     }
     case 'landed':
@@ -152,15 +156,17 @@ export function ExtractStage({
     return () => document.removeEventListener('visibilitychange', onHide);
   }, []);
 
+  // Keyed on the oldest flight alone: later sleeves taking off must not
+  // restart its timer, or a steady stream of events would keep it aloft.
+  const oldestId = s.flying[0]?.id;
   useEffect(() => {
-    const oldest = s.flying[0];
-    if (!oldest) return;
+    if (oldestId === undefined) return;
     const id = window.setTimeout(
-      () => dispatch({ type: 'landed', id: oldest.id }),
+      () => dispatch({ type: 'landed', id: oldestId }),
       SAFETY_MS,
     );
     return () => window.clearTimeout(id);
-  }, [s.flying]);
+  }, [oldestId]);
 
   const open = phase === 'decoding' && !cancelling;
   const waiting = entries
