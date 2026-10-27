@@ -17,6 +17,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 
+import { RuleChip } from '@/components/dedupe/CopyFacts';
 import { KeeperRow } from '@/components/dedupe/KeeperRow';
 import { RelationBadge, TrayRow } from '@/components/dedupe/TrayRow';
 import { Button } from '@/components/ui/button';
@@ -108,6 +109,15 @@ export function DupGroup({
         ? // Nothing to pick here: no "pick another if you prefer".
           t('dedupe.why.tieSettled')
         : reasonText(t, group.reason, profileName ? { profileName } : {});
+  const userPicked = keeper !== group.keeper;
+  const runner = group.runner_up
+    ? group.members.find((m) => m.id === group.runner_up![0])
+    : undefined;
+  const runnerUp =
+    runner && group.runner_up
+      ? { name: fileName(runner.unit.primary), reason: group.runner_up[1] }
+      : null;
+  const copyNumber = (id: number) => ids.indexOf(id) + 1;
   const weakest = weakestExtra(members, keeperMember.id);
   const mixed = new Set(tray.map((m) => badgeRelation(m))).size > 1;
 
@@ -210,6 +220,14 @@ export function DupGroup({
           interactive={picks}
           why={why}
           choiceDropped={group.choice_dropped && keeper === group.keeper}
+          copyNumber={copyNumber(keeperMember.id)}
+          rule={
+            <RuleChip
+              reason={group.reason}
+              userPicked={userPicked}
+              runnerUp={runnerUp}
+            />
+          }
           idPrefix={`${uid}-m${keeperMember.id}`}
         />
       </div>
@@ -226,6 +244,7 @@ export function DupGroup({
               showRelation={mixed}
               quarantine={quarantine}
               system={group.system}
+              copyNumber={copyNumber(m.id)}
               idPrefix={`${uid}-m${m.id}`}
             />
           ))}

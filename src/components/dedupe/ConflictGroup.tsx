@@ -1,12 +1,14 @@
 /**
  * A group whose copies carry different real saves (spec §8.3). Nothing in
  * it moves, so there is no shelf, no tray and no radio: the copies and
- * their saves are listed side by side (size and modified date in mono),
+ * their saves are listed side by side (tags, format, size, dates and each
+ * copy's own save; numbers in mono),
  * each save with "Abrir carpeta", so you can decide by hand.
  */
 import { FolderOpen, TriangleAlert } from 'lucide-react';
 import { useContext, useId } from 'react';
 
+import { CopyFacts } from '@/components/dedupe/CopyFacts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LocaleContext } from '@/i18n/core';
@@ -69,7 +71,9 @@ export function ConflictGroup({ group, onReveal }: ConflictGroupProps) {
             <span className="dup-row__pick" />
             <span className="dup-row__name">{fileName(m.unit.primary)}</span>
             <span className="dup-row__meta" />
-            <span className="dup-row__size">{formatBytes(m.size, locale)}</span>
+            <div className="dup-row__facts">
+              <CopyFacts member={m} showNoSave />
+            </div>
           </div>
         ))}
         {saves.map((s) => (

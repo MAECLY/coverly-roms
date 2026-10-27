@@ -724,6 +724,15 @@
         "title": "Pantalla de título",
         "screenshot": "Captura"
       }
+    },
+    "copyNumber": "Copia {n}",
+    "facts": {
+      "modified": "Modificado el {date}",
+      "save": "Partida: {when}",
+      "saves": "{count} partidas, la última {when}",
+      "noSave": "Sin partida",
+      "played": "Jugada {count} veces",
+      "playedOne": "Jugada 1 vez"
     }
   },
   "toolbar": {

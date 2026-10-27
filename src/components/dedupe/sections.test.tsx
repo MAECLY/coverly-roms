@@ -219,6 +219,24 @@ describe('ConflictGroup', () => {
     // Both copies are named, so you know which file each save belongs to.
     expect(screen.getByText('Pokemon Red (1).gb')).toBeInTheDocument();
   });
+
+  it("shows each copy's facts, its save and «Sin partida» when it has none", () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    const { facts: _facts, ...bare } = g.members[1]!;
+    wrap(<ConflictGroup group={{ ...g, members: [g.members[0]!, bare] }} />);
+    expect(screen.getAllByText(/^Partida: /)).toHaveLength(1);
+    expect(screen.getByText('Sin partida')).toBeInTheDocument();
+    expect(screen.getAllByText('GB')).toHaveLength(2);
+  });
+
+  it('marks a translated copy in the warning tone', () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    wrap(<ConflictGroup group={g} />);
+    expect(screen.getByText('Traducción').closest('.dup-tag')).toHaveAttribute(
+      'data-tone',
+      'warning',
+    );
+  });
 });
 
 describe('DedupeOptions', () => {

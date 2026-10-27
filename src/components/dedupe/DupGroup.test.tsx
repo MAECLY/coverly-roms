@@ -395,4 +395,65 @@ describe('DupGroup', () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it('shows the rule chip on the keeper, the runner-up in its tooltip and «Tu elección» after a pick', async () => {
+    const tetris = fixtureGroup('Tetris');
+    renderGroup({ ...tetris, action: { kind: 'act' } });
+    const chip = screen.getByText('Región');
+    act(() => chip.closest<HTMLElement>('[tabindex]')!.focus());
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Si no, ganaría Tetris (Japan).gb por región',
+    );
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: 'Quedarme con esta Tetris (Japan).gb',
+      }),
+    );
+    expect(screen.getByText('Tu elección')).toBeInTheDocument();
+    expect(screen.queryByText('Región')).toBeNull();
+  });
+
+  it('shows the rule chip on a report-only keeper too', () => {
+    renderGroup(fixtureGroup('Tetris'));
+    expect(screen.getByText('Región')).toBeInTheDocument();
+    expect(screen.getByText('WLD')).toBeInTheDocument();
+    expect(screen.getByText('JPN')).toBeInTheDocument();
+  });
+
+  it('numbers the copies in their stable order, whoever stays', () => {
+    renderGroup(fixtureGroup('Crash Bash'));
+    const nums = () =>
+      [...document.querySelectorAll('.dup-row__num')].map((n) => [
+        n.textContent,
+        n.closest('.dup-row')!.querySelector('.dup-row__name')!.textContent,
+      ]);
+    expect(nums()).toEqual([
+      ['1', 'Crash Bash.PBP'],
+      ['2', 'Crash Bash.bin'],
+      ['3', 'Crash Bash 1.bin'],
+    ]);
+    expect(document.querySelector('.dup-row__num')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(document.querySelector('.dup-row__num')).toHaveAttribute(
+      'title',
+      'Copia 1',
+    );
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Quedarme con esta Crash Bash.bin' }),
+    );
+    expect(nums()).toEqual([
+      ['2', 'Crash Bash.bin'],
+      ['1', 'Crash Bash.PBP'],
+      ['3', 'Crash Bash 1.bin'],
+    ]);
+  });
+
+  it("shows each copy's facts in the tray too", () => {
+    renderGroup(fixtureGroup('Ecco the Dolphin'));
+    const chip = screen.getByText('Volcado malo [b]').closest('.dup-tag');
+    expect(chip).toHaveAttribute('data-tone', 'danger');
+    expect(screen.getAllByText('SMS')).toHaveLength(2);
+  });
 });

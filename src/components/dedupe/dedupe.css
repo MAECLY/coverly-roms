@@ -2,8 +2,8 @@
  * Duplicates: the shelf and the tray (spec §11.1, plan "UI design brief").
  * The copy that stays sits on the shelf, under the brand shelf rule (a
  * hairline with a 3px Buckram cap on the left). The copies that leave sit
- * in a recessed tray below it, each with its destination in mono. Sizes
- * are the last column, a fixed 9ch, so the bytes line up down the page.
+ * in a recessed tray below it, each with its destination in mono. Every
+ * copy carries its tags and facts (format, size, dates) under its name.
  */
 
 .dup-group {
@@ -111,7 +111,9 @@
 
 .dup-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
+  /* A copy's size lives in its facts; only a conflict's save rows keep a
+   * size column. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
   column-gap: 10px;
   row-gap: 2px;
@@ -192,6 +194,126 @@
   align-self: center;
 }
 
+/* ---- Copy number, tags, facts and the rule (spec D3, D8–D11) ---------- */
+
+/* The key that keeps the copy (1–9): a quiet label-maker digit. */
+.dup-row__num {
+  min-width: 1ch;
+  color: var(--cr-text-muted);
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: default;
+}
+
+.dup-row__facts {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.dup-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-tags:focus-visible,
+.dup-rule:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* One neutral outlined chip in mono; colour only where it changes the
+ * decision (spec §7.2). Real borders, so they survive forced colours. */
+.dup-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border: var(--cr-border-width-hairline) solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-mono);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dup-tag[data-tone='danger'] {
+  border-color: var(--cr-danger);
+  background: var(--cr-danger-bg);
+  color: var(--cr-danger);
+}
+
+.dup-tag[data-tone='warning'] {
+  border-color: var(--cr-warning);
+  background: var(--cr-warning-bg);
+  color: var(--cr-warning);
+}
+
+.dup-facts__line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+}
+
+.dup-facts__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.dup-facts__item svg {
+  flex: none;
+  color: var(--cr-text-muted);
+}
+
+.dup-facts__line > .dup-facts__item:first-child {
+  color: var(--cr-text);
+}
+
+.dup-facts__none {
+  color: var(--cr-text-muted);
+}
+
+.dup-row__rule {
+  align-items: center;
+}
+
+/* The shelf's label: Buckram outline; Manila only for your own pick. */
+.dup-rule {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: var(--cr-border-width-hairline) solid var(--cr-primary);
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-primary);
+  font: var(--cr-type-app-caption);
+  font-weight: var(--cr-font-weight-semibold);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dup-rule--tip {
+  cursor: help;
+}
+
+.dup-rule[data-user] {
+  border-color: var(--cr-manila);
+  background: var(--cr-manila);
+  color: var(--cr-manila-fg);
+}
+
 /* ---- Under the group ------------------------------------------------ */
 
 .dup-group__foot {
@@ -231,6 +353,10 @@
   }
 
   .dup-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dup-conflict__save {
     grid-template-columns: auto minmax(0, 1fr) var(--dup-size-col);
   }
 
@@ -387,6 +513,10 @@
 
 .dup-conflict__list > .dup-row + .dup-row {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+}
+
+.dup-conflict__save {
+  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
 }
 
 .dup-conflict__save .dup-row__name {

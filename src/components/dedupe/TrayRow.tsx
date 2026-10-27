@@ -1,23 +1,23 @@
 /**
  * A copy in the tray: "Quedarme con esta" (a radio with a visible label, so
- * it never reads as "mark for removal"), its name and size, where it goes,
- * what travels with it, what stays behind and what that costs the keeper.
+ * it never reads as "mark for removal"), its name, tags and facts, where
+ * it goes, what travels with it, what stays behind and what that costs the
+ * keeper.
  */
 import { TriangleAlert } from 'lucide-react';
-import { useContext } from 'react';
 
+import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { CopyNumber } from '@/components/dedupe/KeeperRow';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroupItem } from '@/components/ui/radio-group';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useT } from '@/i18n/useT';
-import { LocaleContext } from '@/i18n/core';
 import type { MemberView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
   destLabel,
   destOf,
   fileName,
-  formatBytes,
   relationMeta,
 } from '@/lib/dedupe';
 
@@ -69,6 +69,8 @@ export interface TrayRowProps {
   quarantine: string;
   /** The group's system, for a former keeper's destination fallback. */
   system: string;
+  /** 1-based place in the group's stable order; shown up to 9. */
+  copyNumber?: number | undefined;
   idPrefix: string;
 }
 
@@ -90,10 +92,10 @@ export function TrayRow({
   showRelation,
   quarantine,
   system,
+  copyNumber,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
-  const locale = useContext(LocaleContext);
   const name = fileName(member.unit.primary);
   const keepId = `${idPrefix}-keep`;
   const nameId = `${idPrefix}-name`;
@@ -122,6 +124,7 @@ export function TrayRow({
   return (
     <div className="dup-row">
       <span className="dup-row__pick">
+        <CopyNumber n={copyNumber} />
         {pickable && (
           <>
             <RadioGroupItem
@@ -146,7 +149,9 @@ export function TrayRow({
       <span className="dup-row__meta">
         {showRelation && <RelationBadge member={member} />}
       </span>
-      <span className="dup-row__size">{formatBytes(member.size, locale)}</span>
+      <div className="dup-row__facts">
+        <CopyFacts member={member} />
+      </div>
       {interactive ? (
         <p className="dup-row__detail">
           <span id={destId} className="dup-row__dest">
