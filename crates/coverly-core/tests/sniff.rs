@@ -347,6 +347,41 @@ fn sega_cd_32x_and_pico_never_come_out_as_mega_drive() {
 }
 
 #[test]
+fn pico_console_field_variants() {
+    // The 16-byte console field at 0x100 is matched as the cores match it:
+    // Genesis Plus GX (`strstr(consoletype, "SEGA PICO")`, core/loadrom.c
+    // at f27655b5) and PicoDrive (`strstr(buff, " PICO ")`, pico/media.c at
+    // 26ecb2b6), not only as a prefix.
+    for field in [
+        &b"SEGA PICO       "[..],
+        b" SEGA PICO      ",
+        b"SEGATOYS PICO   ",
+    ] {
+        let mut b = fx::pico();
+        b[0x100..0x110].copy_from_slice(field);
+        let s = run(&b, "md");
+        assert_eq!(
+            best(&s),
+            Some(("pico".into(), 0.95)),
+            "{}",
+            String::from_utf8_lossy(field)
+        );
+        assert!(s.hits.iter().all(|h| h.system != "megadrive"));
+    }
+    // `PICO` outside the console field, or glued to other letters, is not
+    // a Pico: a Mega Drive cart stays Mega Drive.
+    let mut md = fx::pico();
+    md[0x100..0x110].copy_from_slice(b"SEGA MEGA DRIVE ");
+    md[0x120..0x12A].copy_from_slice(b"SEGA PICO ");
+    assert_eq!(best(&run(&md, "md")).unwrap().0, "megadrive");
+    let mut glued = fx::pico();
+    glued[0x100..0x110].copy_from_slice(b"SEGA PICOLAND   ");
+    assert_eq!(best(&run(&glued, "md")).unwrap().0, "pico");
+    glued[0x100..0x110].copy_from_slice(b"SEGA EPICO      ");
+    assert_eq!(best(&run(&glued, "md")).unwrap().0, "megadrive");
+}
+
+#[test]
 fn master_system_and_game_gear() {
     // TMR SEGA at any of the three offsets → SMS family.
     for offset in [0x7FF0usize, 0x3FF0, 0x1FF0] {

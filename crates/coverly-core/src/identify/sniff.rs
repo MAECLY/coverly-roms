@@ -644,6 +644,14 @@ fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
     true
 }
 
+/// Whether the 16-byte console field at 0x100 names the Pico, matched as
+/// the cores match it: Genesis Plus GX looks for `SEGA PICO` anywhere in
+/// it (`core/loadrom.c` at f27655b5), PicoDrive for ` PICO `
+/// (`pico/media.c` at 26ecb2b6).
+fn pico_console_field(head: &[u8]) -> bool {
+    at(head, 0x100, 16).is_some_and(|f| contains(f, b"SEGA PICO") || contains(f, b" PICO "))
+}
+
 /// GBA fixed byte 0x96 and header complement: `Some(true)` when the
 /// Nintendo logo opens at 0x04 as well.
 fn gba_signature(head: &[u8]) -> Option<bool> {
@@ -668,7 +676,7 @@ fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
         s.hit("sega32x", 0.95, "SEGA 32X");
         return true;
     }
-    if starts(head, 0x100, b"SEGA PICO") {
+    if pico_console_field(head) {
         s.hit("pico", 0.95, "SEGA PICO");
         return true;
     }
