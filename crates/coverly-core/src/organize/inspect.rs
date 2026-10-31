@@ -514,7 +514,9 @@ pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"
 
 /// Header evidence of a game package read through the archive layer
 /// (spec §8.1, D25): an `.rpk` whose zip holds `layout.xml` (a MAME
-/// cartridge package) is a TI-99/4A cartridge, and a gzip `.uef` whose
+/// cartridge package) is a TI-99/4A cartridge, an `.arduboy` whose zip
+/// holds `info.json` at its root (the Arduboy package manifest) is an
+/// Arduboy game, and a gzip `.uef` whose
 /// decoded head opens with `UEF File!` is a BBC Micro tape. Never runs a
 /// tool, charges the plan head budget and writes nothing; any archive
 /// problem simply names no system.
@@ -533,6 +535,13 @@ fn package_hits(path: &Path, ext: &str, limits: &Limits) -> Vec<Evidence> {
                 .any(|e| entry_name(e).eq_ignore_ascii_case("layout.xml")) =>
         {
             header("ti99", 0.90, "RPK layout.xml")
+        }
+        "arduboy"
+            if entries
+                .iter()
+                .any(|e| entry_name(e).eq_ignore_ascii_case("info.json")) =>
+        {
+            header("arduboy", 0.90, "Arduboy info.json")
         }
         "uef" if matches!(reader.format(), Format::Single(_)) && entries.len() == 1 => {
             let mut budget = Budget::plan_head(limits);

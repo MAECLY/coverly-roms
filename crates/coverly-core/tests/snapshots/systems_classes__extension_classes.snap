@@ -177,6 +177,16 @@ expression: rows
   },
   {
     "accepting": [
+      "arduboy"
+    ],
+    "class": "Unique",
+    "ext": "arduboy",
+    "strong": [
+      "arduboy"
+    ]
+  },
+  {
+    "accepting": [
       "a800",
       "atarixe"
     ],
@@ -886,6 +896,15 @@ expression: rows
   },
   {
     "accepting": [
+      "arduboy",
+      "uzebox"
+    ],
+    "class": "Unknown",
+    "ext": "hex",
+    "strong": []
+  },
+  {
+    "accepting": [
       "psx"
     ],
     "class": "Generic",
@@ -1226,6 +1245,16 @@ expression: rows
     "ext": "nib",
     "strong": [
       "apple2"
+    ]
+  },
+  {
+    "accepting": [
+      "lowresnx"
+    ],
+    "class": "Unique",
+    "ext": "nx",
+    "strong": [
+      "lowresnx"
     ]
   },
   {
@@ -1641,6 +1670,16 @@ expression: rows
   },
   {
     "accepting": [
+      "tic80"
+    ],
+    "class": "Unique",
+    "ext": "tic",
+    "strong": [
+      "tic80"
+    ]
+  },
+  {
+    "accepting": [
       "zxspectrum"
     ],
     "class": "Unique",
@@ -1702,6 +1741,26 @@ expression: rows
   },
   {
     "accepting": [
+      "uzebox"
+    ],
+    "class": "Unique",
+    "ext": "uze",
+    "strong": [
+      "uzebox"
+    ]
+  },
+  {
+    "accepting": [
+      "vircon32"
+    ],
+    "class": "Unique",
+    "ext": "v32",
+    "strong": [
+      "vircon32"
+    ]
+  },
+  {
+    "accepting": [
       "n64"
     ],
     "class": "Unique",
@@ -1739,6 +1798,14 @@ expression: rows
     "strong": [
       "vectrex"
     ]
+  },
+  {
+    "accepting": [
+      "wasm4"
+    ],
+    "class": "Unknown",
+    "ext": "wasm",
+    "strong": []
   },
   {
     "accepting": [

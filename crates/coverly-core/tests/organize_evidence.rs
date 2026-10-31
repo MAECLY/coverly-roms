@@ -1548,3 +1548,39 @@ fn a_prg_load_address_never_lifts_a_weak_owner() {
         );
     }
 }
+
+#[test]
+fn loose_wasm_hex_lua_are_unknown() {
+    // D4: `.wasm`, `.hex` and `.lua` are everyday developer files. On a
+    // desktop pile they never name a system; inside `WASM4/` the scan
+    // lists a `.wasm` under WASM-4.
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes) in [
+        ("game.wasm", fx::wasm()),
+        ("firmware.hex", b":00000001FF\r\n".to_vec()),
+        ("main.lua", b"function love.draw() end\n".to_vec()),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(id.combined.system, None, "{name}: {:?}", id.combined);
+        assert!(id.combined.alternatives.is_empty(), "{name}");
+    }
+    let lib = tempfile::tempdir().unwrap();
+    common::write(lib.path(), "roms/WASM4/game.wasm", "\0asm");
+    common::write(lib.path(), "roms/WASM4/notes.lua", "-- notes");
+    let scan = coverly_core::scan::scan_library(
+        lib.path(),
+        &common::profile("esde"),
+        &SystemDb::builtin(),
+        &coverly_core::scan::ScanOptions::default(),
+    );
+    let s = scan
+        .systems
+        .iter()
+        .find(|s| s.folder_name == "WASM4")
+        .unwrap();
+    assert_eq!(s.system_id.as_deref(), Some("wasm4"));
+    let stems: Vec<&str> = s.roms.iter().map(|r| r.stem.as_str()).collect();
+    assert_eq!(stems, ["game"]);
+}

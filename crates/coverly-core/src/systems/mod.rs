@@ -707,8 +707,14 @@ mod tests {
             assert!(ids.insert(s.id.clone()), "duplicate id {}", s.id);
             assert!(!s.name.is_empty(), "{} has no name", s.id);
             assert!(!s.aliases.is_empty(), "{} has no aliases", s.id);
-            assert!(!s.extensions.is_empty(), "{} has no extensions", s.id);
-            for ext in &s.extensions {
+            // WASM-4 lists only a weak `.wasm` (D4): its folder still
+            // accepts exactly that.
+            assert!(
+                !s.extensions.is_empty() || !s.weak_extensions.is_empty(),
+                "{} has no extensions",
+                s.id
+            );
+            for ext in s.extensions.iter().chain(&s.weak_extensions) {
                 assert_eq!(ext, &ext.to_lowercase(), "{}: {ext} not lowercase", s.id);
                 assert!(!ext.starts_with('.'), "{}: {ext} has a dot", s.id);
             }
@@ -1010,9 +1016,9 @@ mod tests {
         assert_eq!(db.get("SNES").map(|s| s.id.as_str()), Some("snes"));
 
         let db = SystemDb::builtin()
-            .with_overrides("[[system]]\nid = \"TIC80\"\nname = \"TIC-80\"\n")
+            .with_overrides("[[system]]\nid = \"ZZ80\"\nname = \"ZZ-80\"\n")
             .unwrap();
-        assert_eq!(db.all().last().unwrap().id, "tic80");
+        assert_eq!(db.all().last().unwrap().id, "zz80");
     }
 
     #[test]

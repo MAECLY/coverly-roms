@@ -1009,3 +1009,68 @@ extensions = ["woz", "2mg", "nib", "dsk", "zip", "7z"]
 weak_extensions = ["do", "po"]
 dats = ["metadat/tosec/Apple - II.dat"]
 screenscraper = 86
+
+# Fantasy consoles (spec §7, D4, D25, D26). `.wasm` and `.hex` are weak:
+# everyday developer files, never a system on their own. An `.arduboy` is
+# a zip package (`info.json` beside the `.hex`), moved as one raw file.
+# A `.uze` opens with `UZEBOX`, a `.v32` with `V32-CART`; TIC-80, WASM-4
+# and LowRes NX carry no header of their own (folder + hash only).
+[[system]]
+id = "tic80"
+name = "TIC-80"
+family = "engine"
+aliases = ["TIC", "tic80"]
+extensions = ["tic"]
+libretro = "TIC-80"
+dats = ["dat/TIC-80.dat"]
+screenscraper = 222
+
+[[system]]
+id = "wasm4"
+name = "WASM-4"
+family = "engine"
+aliases = ["WASM4"]
+weak_extensions = ["wasm"]
+libretro = "WASM-4"
+dats = ["dat/WASM-4.dat"]
+screenscraper = 262
+
+[[system]]
+id = "arduboy"
+name = "Arduboy"
+family = "handheld"
+aliases = ["ARDUBOY"]
+extensions = ["arduboy", "zip", "7z"]
+weak_extensions = ["hex"]
+libretro = "Arduboy Inc - Arduboy"
+screenscraper = 263
+
+[[system]]
+id = "uzebox"
+name = "Uzebox"
+family = "console"
+aliases = ["UZEBOX"]
+extensions = ["uze", "zip", "7z"]
+weak_extensions = ["hex"]
+dats = ["dat/Uzebox.dat"]
+screenscraper = 216
+
+[[system]]
+id = "lowresnx"
+name = "LowRes NX"
+family = "engine"
+aliases = ["LOWRESNX"]
+extensions = ["nx"]
+libretro = "LowRes NX"
+dats = ["dat/LowRes NX.dat"]
+screenscraper = 244
+
+[[system]]
+id = "vircon32"
+name = "Vircon32"
+family = "engine"
+aliases = ["VIRCON32"]
+extensions = ["v32"]
+libretro = "Vircon32"
+dats = ["dat/Vircon32.dat"]
+screenscraper = 272

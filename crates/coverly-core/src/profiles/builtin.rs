@@ -359,6 +359,56 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         [Some("msxturbor"), Some("msxturbor"), None, None, None],
     ),
     ("apple2", [Some("apple2"), Some("apple2"), None, None, None]),
+    // Fantasy consoles (Task 11). Onion's `TIC` package is TIC-80; its
+    // `extlist` names Thomson extensions (spec §6.1 note), kept as found.
+    (
+        "tic80",
+        [
+            Some("tic80"),
+            Some("tic80"),
+            Some("tic80"),
+            Some("TIC"),
+            None,
+        ],
+    ),
+    (
+        "wasm4",
+        [Some("wasm4"), Some("wasm4"), Some("wasm4"), None, None],
+    ),
+    (
+        "arduboy",
+        [
+            Some("arduboy"),
+            Some("arduboy"),
+            Some("arduboy"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "uzebox",
+        [Some("uzebox"), Some("uzebox"), Some("uzebox"), None, None],
+    ),
+    (
+        "lowresnx",
+        [
+            Some("lowresnx"),
+            Some("lowresnx"),
+            Some("lowresnx"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "vircon32",
+        [
+            Some("vircon32"),
+            Some("vircon32"),
+            Some("vircon32"),
+            None,
+            None,
+        ],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

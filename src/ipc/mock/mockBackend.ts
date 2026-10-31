@@ -188,6 +188,15 @@ const COMPUTERS_III = {
   msx2: 'msx2',
   msxturbor: 'msxturbor',
 };
+/** Fantasy consoles (Task 11) named alike on ES-DE, Batocera and muOS. */
+const FANTASY = {
+  arduboy: 'arduboy',
+  lowresnx: 'lowresnx',
+  tic80: 'tic80',
+  uzebox: 'uzebox',
+  vircon32: 'vircon32',
+  wasm4: 'wasm4',
+};
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -202,6 +211,7 @@ const ONION_FOLDERS = {
   supervision: 'SUPERVISION',
   amstradcpc: 'CPC',
   zxspectrum: 'ZXS',
+  tic80: 'TIC',
 };
 const MINUI_FOLDERS = {
   amstradcpc: 'CPC',
@@ -240,6 +250,7 @@ const MUOS_FOLDERS = {
   msx2: 'msx2',
   pet: 'pet',
   plus4: 'plus4',
+  ...FANTASY,
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -268,6 +279,7 @@ const ESDE_FOLDERS = {
   ...COMPUTERS_III,
   atarixe: 'atarixe',
   plus4: 'plus4',
+  ...FANTASY,
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -299,6 +311,7 @@ const BATOCERA_FOLDERS = {
   c128: 'c128',
   pet: 'pet',
   plus4: 'cplus4',
+  ...FANTASY,
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

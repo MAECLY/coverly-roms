@@ -1856,3 +1856,31 @@ fn gzip_uef_is_bbc_micro_raw() {
     std::fs::write(&p, fx::uef()).unwrap();
     assert_eq!(header_hits(&inspect(&p)), [("bbcmicro".to_string(), 0.95)]);
 }
+
+#[test]
+fn arduboy_package_is_raw() {
+    // D25 / spec §8.1: an `.arduboy` package (a zip holding `info.json`
+    // beside its `.hex`) is one raw Arduboy item, never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg = tmp.path().join("Arduventure.arduboy");
+    zip_file(
+        &pkg,
+        &[
+            ("info.json", b"{\"title\":\"Arduventure\"}", true),
+            ("Arduventure.hex", b":00000001FF\n", true),
+        ],
+    );
+    let i = inspect(&pkg);
+    assert_eq!(i.container, Container::Raw);
+    assert!(i.entries.is_empty(), "nothing listed");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("arduboy".to_string(), 0.90)]);
+    // Without `info.json` the package names no system.
+    let bare = tmp.path().join("Bare.arduboy");
+    zip_file(&bare, &[("game.hex", b":00000001FF\n", true)]);
+    assert!(header_hits(&inspect(&bare)).is_empty());
+    // An `info.json` in a sub-folder is not the package's manifest.
+    let nested = tmp.path().join("Nested.arduboy");
+    zip_file(&nested, &[("sub/info.json", b"{}", true)]);
+    assert!(header_hits(&inspect(&nested)).is_empty());
+}

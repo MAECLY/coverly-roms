@@ -15,8 +15,9 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 11] = [
+pub const DECISIVE: [&str; 13] = [
     "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
+    "uzebox", "vircon32",
 ];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
@@ -635,6 +636,9 @@ fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
         s.hit("vectrex", 0.95, "g GCE");
         return true;
     }
+    if fantasy_consoles(head, s) {
+        return true;
+    }
     let magic = at(head, 0, 2);
     match ext {
         "abs" if magic == Some(&[0x60, 0x1B][..]) => s.hit("jaguar", 0.50, "DRI ABS"),
@@ -642,6 +646,27 @@ fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
         _ => return false,
     }
     true
+}
+
+/// Fantasy consoles with a header (spec §8.1):
+/// - Uzebox: a `.uze` opens with the 6-byte marker `UZEBOX`, which
+///   `packrom` writes and the bootloader checks (Uzebox
+///   `tools/packrom/packrom.cpp` at 2fc77093).
+/// - Vircon32: a cartridge opens with `V32-CART`; a BIOS with `V32-BIOS`
+///   is not a game (vircon32-libretro `VirconDefinitions/FileFormats.hpp`
+///   at 8b4ff35e).
+///
+/// WASM-4's `\0asm` only proves WebAssembly, so it names nothing.
+fn fantasy_consoles(head: &[u8], s: &mut Sniff) -> bool {
+    if starts(head, 0, b"UZEBOX") {
+        s.hit("uzebox", 0.95, "UZEBOX");
+        return true;
+    }
+    if starts(head, 0, b"V32-CART") {
+        s.hit("vircon32", 0.95, "V32-CART");
+        return true;
+    }
+    false
 }
 
 /// Tape and disk images of home computers (spec §8.1). TZX (format 1.20:
@@ -1303,6 +1328,37 @@ pub mod fixtures {
         b[8..10].copy_from_slice(&64u16.to_le_bytes());
         b[10..12].copy_from_slice(&1u16.to_le_bytes());
         b[12] = 1;
+        b
+    }
+
+    /// An Uzebox `.uze` ROM: the 512-byte header `packrom` writes, marker
+    /// `UZEBOX`, header version 1, target 0 (ATmega644), program size,
+    /// year, then the name and the program.
+    pub fn uzebox() -> Vec<u8> {
+        let mut b = zeros(512 + 4096);
+        b[..6].copy_from_slice(b"UZEBOX");
+        b[6] = 1;
+        b[8..12].copy_from_slice(&4096u32.to_le_bytes());
+        b[12..14].copy_from_slice(&2008u16.to_le_bytes());
+        b[14..18].copy_from_slice(b"Game");
+        b
+    }
+
+    /// A Vircon32 cartridge: `V32-CART`, then the version and revision
+    /// words and the title.
+    pub fn vircon32() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"V32-CART");
+        b[8..12].copy_from_slice(&1u32.to_le_bytes());
+        b[16..20].copy_from_slice(b"Game");
+        b
+    }
+
+    /// A WebAssembly module (`\0asm`, version 1): a WASM-4 cart, or any
+    /// other `.wasm` file.
+    pub fn wasm() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..8].copy_from_slice(b"\0asm\x01\0\0\0");
         b
     }
 

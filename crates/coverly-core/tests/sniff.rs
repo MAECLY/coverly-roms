@@ -996,3 +996,39 @@ fn prg_load_address_is_a_tiebreak_only() {
     }
     assert!(run(&fx::prg([0x00, 0xC0]), "prg").hits.is_empty());
 }
+
+#[test]
+fn uzebox_header() {
+    // Uzebox `tools/packrom/packrom.cpp` (2fc77093): the `.uze` header
+    // opens with the 6-byte marker `UZEBOX`, which the bootloader checks.
+    assert_eq!(
+        best(&run(&fx::uzebox(), "uze")),
+        Some(("uzebox".into(), 0.95))
+    );
+    let mut near = fx::uzebox();
+    near[5] = b'Y';
+    assert!(run(&near, "uze").hits.is_empty());
+    assert!(coverly_core::identify::sniff::DECISIVE.contains(&"uzebox"));
+}
+
+#[test]
+fn vircon32_header() {
+    // vircon32-libretro `VirconDefinitions/FileFormats.hpp` (8b4ff35e):
+    // a cartridge opens with `V32-CART` (a BIOS with `V32-BIOS`).
+    assert_eq!(
+        best(&run(&fx::vircon32(), "v32")),
+        Some(("vircon32".into(), 0.95))
+    );
+    let mut bios = fx::vircon32();
+    bios[4..8].copy_from_slice(b"BIOS");
+    assert!(run(&bios, "v32").hits.is_empty());
+    assert!(coverly_core::identify::sniff::DECISIVE.contains(&"vircon32"));
+}
+
+#[test]
+fn wasm_magic_proves_nothing() {
+    // `\0asm` only proves WebAssembly (spec §8.1): no system.
+    let s = run(&fx::wasm(), "wasm");
+    assert!(s.hits.is_empty(), "{:?}", s.hits);
+    assert_eq!(s.not_a_rom, None);
+}

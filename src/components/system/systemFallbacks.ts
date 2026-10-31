@@ -65,6 +65,13 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   msx2: 'MSX2',
   msxturbor: 'TR',
   apple2: 'APL2',
+  // Fantasy consoles (plan Task 11), same interim Slot mount (spec §9.2).
+  tic80: 'TIC',
+  wasm4: 'W4',
+  arduboy: 'ARDU',
+  uzebox: 'UZE',
+  lowresnx: 'LRNX',
+  vircon32: 'V32',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

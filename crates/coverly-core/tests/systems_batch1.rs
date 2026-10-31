@@ -71,6 +71,13 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("msx2", Family::Computer, false),
     ("msxturbor", Family::Computer, false),
     ("apple2", Family::Computer, false),
+    // Fantasy consoles (Task 11).
+    ("tic80", Family::Engine, false),
+    ("wasm4", Family::Engine, false),
+    ("arduboy", Family::Handheld, false),
+    ("uzebox", Family::Console, false),
+    ("lowresnx", Family::Engine, false),
+    ("vircon32", Family::Engine, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -155,6 +162,15 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("esde", "msxturbor", "msxturbor", None),
     ("batocera", "apple2", "apple2", None),
     ("onion", "apple2", "APPLE2", Some(false)),
+    // Fantasy consoles (Task 11).
+    ("onion", "tic80", "TIC", None),
+    ("esde", "wasm4", "wasm4", None),
+    ("minui", "tic80", "TIC", Some(false)),
+    ("batocera", "arduboy", "arduboy", None),
+    ("muos", "uzebox", "uzebox", None),
+    ("esde", "lowresnx", "lowresnx", None),
+    ("batocera", "vircon32", "vircon32", None),
+    ("onion", "vircon32", "VIRCON32", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -211,6 +227,10 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     ("apple2", "woz", || fx::woz(1), Some("apple2")),
     ("apple2", "2mg", fx::two_img, Some("apple2")),
     ("plus4", "prg", || fx::prg([0x01, 0x10]), Some("plus4")),
+    // Fantasy consoles (Task 11). `\0asm` only proves WebAssembly.
+    ("uzebox", "uze", fx::uzebox, Some("uzebox")),
+    ("vircon32", "v32", fx::vircon32, Some("vircon32")),
+    ("wasm4", "wasm", fx::wasm, None),
 ];
 
 fn research(name: &str) -> String {
@@ -667,4 +687,74 @@ fn computers_iii_extension_classes() {
         assert_eq!(owners(ext), ["apple2"], "{ext}");
     }
     assert_eq!(db.extension_class("do"), ExtClass::Unknown);
+}
+
+#[test]
+fn fantasy_consoles_catalogues() {
+    let db = SystemDb::builtin();
+    let dats = |id: &str| coverly_core::identify::dat::dat_sources(db.get(id).unwrap());
+    assert_eq!(dats("tic80"), ["dat/TIC-80.dat"]);
+    assert_eq!(dats("wasm4"), ["dat/WASM-4.dat"]);
+    assert_eq!(
+        dats("arduboy"),
+        ["metadat/no-intro/Arduboy Inc - Arduboy.dat"]
+    );
+    assert_eq!(dats("uzebox"), ["dat/Uzebox.dat"]);
+    assert_eq!(dats("lowresnx"), ["dat/LowRes NX.dat"]);
+    assert_eq!(dats("vircon32"), ["dat/Vircon32.dat"]);
+    for (id, libretro, ss) in [
+        ("tic80", Some("TIC-80"), 222),
+        ("wasm4", Some("WASM-4"), 262),
+        ("arduboy", Some("Arduboy Inc - Arduboy"), 263),
+        ("uzebox", None, 216),
+        ("lowresnx", Some("LowRes NX"), 244),
+        ("vircon32", Some("Vircon32"), 272),
+    ] {
+        let s = db.get(id).unwrap();
+        assert_eq!(
+            (s.libretro.as_deref(), s.screenscraper),
+            (libretro, Some(ss)),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn fantasy_consoles_extension_classes() {
+    // D4: `.wasm` and `.hex` are weak only (`.hex` in two systems), so
+    // neither is a class; `.tic`, `.uze`, `.nx`, `.v32`, `.arduboy` are
+    // their system's own.
+    use coverly_core::systems::ExtClass;
+    let db = SystemDb::builtin();
+    for ext in ["wasm", "hex"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unknown, "{ext}");
+    }
+    for (ext, owner) in [
+        ("tic", "tic80"),
+        ("uze", "uzebox"),
+        ("nx", "lowresnx"),
+        ("v32", "vircon32"),
+        ("arduboy", "arduboy"),
+    ] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
+        let owners: Vec<String> = db
+            .systems_for_extension(ext)
+            .into_iter()
+            .map(|s| s.id.clone())
+            .collect();
+        assert_eq!(owners, [owner], "{ext}");
+    }
+    for id in ["arduboy", "uzebox"] {
+        assert!(db.get(id).unwrap().accepts_extension("hex"), "{id}");
+    }
+    assert!(db.get("wasm4").unwrap().accepts_extension("wasm"));
+    // `TIC` is TIC-80's folder everywhere; the Thomson keeps its own.
+    assert_eq!(
+        db.resolve_folder("TIC").map(|s| s.id.as_str()),
+        Some("tic80")
+    );
+    assert_eq!(
+        db.resolve_folder("thomson").map(|s| s.id.as_str()),
+        Some("thomson")
+    );
 }
