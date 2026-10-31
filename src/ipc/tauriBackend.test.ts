@@ -74,6 +74,13 @@ describe('Tauri backend', () => {
     ).rejects.toMatchObject({ code: 'art-unreadable' });
   });
 
+  it('refuses duplicates art that is not an image', async () => {
+    mockIPC(() => new TextEncoder().encode('<svg onload="x()"/>').buffer);
+    await expect(
+      createTauriBackend().dedupeArt(1, 2, null, 'cover'),
+    ).rejects.toMatchObject({ code: 'art-unreadable' });
+  });
+
   it('maps command errors to BackendError', async () => {
     mockIPC(() => Promise.reject({ code: 'not-found', detail: '/x' }));
     const err = await createTauriBackend()

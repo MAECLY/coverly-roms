@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { getBackend } from '@/ipc/backend';
 import type { MediaView } from '@/ipc/dedupeTypes';
-import { toBackendError } from '@/ipc/errors';
+import { BackendError, toBackendError } from '@/ipc/errors';
 import { sniffImageMime } from '@/ipc/sniff';
 import {
   dedupeArtKey,
@@ -20,14 +20,17 @@ export type DedupeArtState =
 const LOADING: DedupeArtState = { status: 'loading' };
 const MISSING: DedupeArtState = { status: 'missing' };
 
-/** Real art is sniffed; the browser mock serves SVG, which the sniffer refuses. */
-function artMime(bytes: Uint8Array): string {
+/**
+ * Real art is sniffed and anything else refused; only the browser mock's own
+ * art may be SVG, which the sniffer refuses (library files are untrusted).
+ */
+function artMime(bytes: Uint8Array, mock: boolean): string {
   const sniffed = sniffImageMime(bytes);
   if (sniffed) return sniffed;
   const head = new TextDecoder().decode(bytes.subarray(0, 64)).trimStart();
-  return head.startsWith('<svg') || head.startsWith('<?xml')
-    ? 'image/svg+xml'
-    : 'application/octet-stream';
+  if (mock && (head.startsWith('<svg') || head.startsWith('<?xml')))
+    return 'image/svg+xml';
+  throw new BackendError('art-unreadable');
 }
 
 /**
@@ -66,7 +69,9 @@ export function useDedupeArt(
       const bytes = new Uint8Array(
         await backend.dedupeArt(planId, group, member, media),
       );
-      return new Blob([bytes], { type: artMime(bytes) });
+      return new Blob([bytes], {
+        type: artMime(bytes, backend.kind === 'mock'),
+      });
     }).then(
       (url) => alive && setLoaded({ key, url }),
       (e: unknown) => {

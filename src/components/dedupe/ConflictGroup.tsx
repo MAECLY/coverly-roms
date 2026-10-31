@@ -10,6 +10,7 @@ import { useContext, useId, type KeyboardEvent } from 'react';
 
 import { CopyFacts } from '@/components/dedupe/CopyFacts';
 import { GroupHead, StateStamp } from '@/components/dedupe/DupGroup';
+import { GroupCover } from '@/components/dedupe/GroupCover';
 import { RevealButton } from '@/components/dedupe/RevealButton';
 import { Button } from '@/components/ui/button';
 import { LocaleContext } from '@/i18n/core';
@@ -28,6 +29,11 @@ export interface ConflictGroupProps {
   onReveal?: ((path: string) => void) | undefined;
   /** The system's display name, under the title with its icon. */
   systemName?: string | undefined;
+  /** The kept dedupe plan, to ask for the game's cover; without it (no
+   * plan) the group has no cover column. */
+  planId?: number | undefined;
+  /** The row is mounted by the group window: only then does the cover load. */
+  artEnabled?: boolean;
 }
 
 const MARK = '\u0000';
@@ -48,6 +54,8 @@ export function ConflictGroup({
   group,
   onReveal,
   systemName,
+  planId,
+  artEnabled = true,
 }: ConflictGroupProps) {
   const t = useT();
   const locale = useContext(LocaleContext);
@@ -81,80 +89,92 @@ export function ConflictGroup({
       // No radio here: J/K and «Ver el conflicto» focus the group itself.
       tabIndex={-1}
       data-state="conflict"
+      data-cover={planId !== undefined ? '' : undefined}
     >
-      <GroupHead
-        titleId={titleId}
-        title={group.title}
-        system={group.system}
-        systemName={systemName}
-        serial={group.members.find((m) => m.serials[0])?.serials[0]}
-        stamps={
-          <StateStamp
-            icon={TriangleAlert}
-            text={t('dedupe.conflicts.badge')}
-            tone="warning"
-          />
-        }
-      />
-      <p className="dup-conflict__note">{t('dedupe.conflicts.note')}</p>
+      {planId !== undefined && (
+        <GroupCover planId={planId} group={group} enabled={artEnabled} />
+      )}
+      <div className={planId !== undefined ? 'dup-group__main' : 'contents'}>
+        <GroupHead
+          titleId={titleId}
+          title={group.title}
+          system={group.system}
+          systemName={systemName}
+          serial={group.members.find((m) => m.serials[0])?.serials[0]}
+          stamps={
+            <StateStamp
+              icon={TriangleAlert}
+              text={t('dedupe.conflicts.badge')}
+              tone="warning"
+            />
+          }
+        />
+        <p className="dup-conflict__note">{t('dedupe.conflicts.note')}</p>
 
-      <div className="dup-conflict__list">
-        {group.members.map((m) => (
-          <div key={m.id} className="dup-row" data-reveal-path={m.unit.primary}>
-            <span className="dup-row__pick" />
-            <span className="dup-row__name">{fileName(m.unit.primary)}</span>
-            <span className="dup-row__meta">
-              {onReveal && (
-                <RevealButton
-                  path={m.unit.primary}
-                  name={fileName(m.unit.primary)}
-                  onReveal={onReveal}
-                  shortcut
-                />
-              )}
-            </span>
-            <div className="dup-row__facts">
-              <CopyFacts member={m} showNoSave />
-            </div>
-          </div>
-        ))}
-        {saves.map((s, i) => (
-          <div
-            key={s.path}
-            className="dup-row dup-conflict__save"
-            data-reveal-path={s.path}
-          >
-            <span className="dup-row__pick" />
-            <span className="dup-row__name" id={`${uid}-save${i}`}>
-              <SaveLabel
-                text={t('dedupe.conflicts.row', { path: MARK })}
-                path={s.path}
-              />
-            </span>
-            <span className="dup-row__meta">
-              <span className="dup-mono dup-conflict__date">
-                {formatDate(Math.floor(s.mtime_ns / 1e9), locale)}
+        <div className="dup-conflict__list">
+          {group.members.map((m) => (
+            <div
+              key={m.id}
+              className="dup-row"
+              data-reveal-path={m.unit.primary}
+            >
+              <span className="dup-row__pick" />
+              <span className="dup-row__name">{fileName(m.unit.primary)}</span>
+              <span className="dup-row__meta">
+                {onReveal && (
+                  <RevealButton
+                    path={m.unit.primary}
+                    name={fileName(m.unit.primary)}
+                    onReveal={onReveal}
+                    shortcut
+                  />
+                )}
               </span>
-            </span>
-            <span className="dup-row__size">{formatBytes(s.size, locale)}</span>
-            {onReveal && (
-              <p className="dup-row__detail">
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="dup-conflict__open"
-                  // Named by its visible words; the save row says which file.
-                  aria-describedby={`${uid}-save${i}`}
-                  aria-keyshortcuts={revealShortcut().aria}
-                  onClick={() => onReveal(s.path)}
-                >
-                  <FolderSearch aria-hidden />
-                  {t(revealLabelKey())}
-                </Button>
-              </p>
-            )}
-          </div>
-        ))}
+              <div className="dup-row__facts">
+                <CopyFacts member={m} showNoSave />
+              </div>
+            </div>
+          ))}
+          {saves.map((s, i) => (
+            <div
+              key={s.path}
+              className="dup-row dup-conflict__save"
+              data-reveal-path={s.path}
+            >
+              <span className="dup-row__pick" />
+              <span className="dup-row__name" id={`${uid}-save${i}`}>
+                <SaveLabel
+                  text={t('dedupe.conflicts.row', { path: MARK })}
+                  path={s.path}
+                />
+              </span>
+              <span className="dup-row__meta">
+                <span className="dup-mono dup-conflict__date">
+                  {formatDate(Math.floor(s.mtime_ns / 1e9), locale)}
+                </span>
+              </span>
+              <span className="dup-row__size">
+                {formatBytes(s.size, locale)}
+              </span>
+              {onReveal && (
+                <p className="dup-row__detail">
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="dup-conflict__open"
+                    // Named by its visible words; the save row says which file.
+                    aria-describedby={`${uid}-save${i}`}
+                    aria-keyshortcuts={revealShortcut().aria}
+                    onClick={() => onReveal(s.path)}
+                  >
+                    <FolderSearch aria-hidden />
+                    {t(revealLabelKey())}
+                  </Button>
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

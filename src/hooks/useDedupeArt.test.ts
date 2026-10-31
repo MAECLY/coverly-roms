@@ -52,6 +52,20 @@ describe('useDedupeArt', () => {
     expect(blobs[0]?.type).toBe('image/svg+xml');
   });
 
+  it('never renders SVG from the app backend', async () => {
+    const svg = new TextEncoder().encode('<svg xmlns="x"></svg>');
+    const dedupeArt = vi.fn(async () => svg.buffer as ArrayBuffer);
+    setBackend({
+      ...createMockBackend({ delayMs: 0 }),
+      kind: 'tauri',
+      dedupeArt,
+    });
+    const created = vi.spyOn(URL, 'createObjectURL');
+    const { result } = renderHook(() => useDedupeArt(1, 2, 3, 'cover', true));
+    await waitFor(() => expect(result.current).toEqual({ status: 'missing' }));
+    expect(created).not.toHaveBeenCalled();
+  });
+
   it('remembers a missing image and never asks again', async () => {
     const dedupeArt = vi.fn(async () => {
       throw new BackendError('art-missing', 'cover');

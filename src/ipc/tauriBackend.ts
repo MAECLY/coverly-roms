@@ -237,8 +237,10 @@ export function createTauriBackend(): Backend {
     dedupeExportPlan: (planId) =>
       call<string | null>('dedupe_export_plan', { planId }),
     revealPath: (path) => call<void>('reveal_path', { path }),
-    dedupeArt: (planId, group, member, media) =>
-      call<ArrayBuffer>('dedupe_art', { planId, group, member, media }),
+    // Library files are untrusted: only sniffed PNG/JPEG/WebP/GIF, never SVG.
+    dedupeArt: async (planId, group, member, media) =>
+      (await image('dedupe_art', { planId, group, member, media })).bytes
+        .buffer as ArrayBuffer,
     onDedupeProgress: (cb) =>
       listen<DedupeProgressEvent>(DEDUPE_PROGRESS_EVENT, (e) => cb(e.payload)),
     onDedupeChanged: (cb) =>
