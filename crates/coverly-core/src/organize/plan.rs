@@ -684,6 +684,15 @@ pub enum OrganizePhase {
         /// generated playlist is not one).
         entries_total: usize,
     },
+    /// Copying the files of folder item `item` (a game that is a folder,
+    /// spec D25): `bytes_done` of its `bytes_total` (the item's `size`).
+    /// The first event of an item has `bytes_done == 0` and the last
+    /// `bytes_done == bytes_total`; a move by one rename sends none.
+    Folder {
+        item: usize,
+        bytes_done: u64,
+        bytes_total: u64,
+    },
 }
 
 /// Planning progress: `done` of `total` in `phase`.

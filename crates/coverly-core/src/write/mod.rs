@@ -13,7 +13,7 @@
 //! `<job>.undone.jsonl` after undo) and backups
 //! `backups/<job>/<path relative to the library root>`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
@@ -40,7 +40,7 @@ pub(crate) use transfer::mtime_ns;
 #[cfg(feature = "test-util")]
 #[doc(hidden)]
 pub use transfer::set_copy_fault;
-pub use transfer::{Collision, CopyFault, CopyStage, MoveOutcome};
+pub use transfer::{Collision, CopyFault, CopyStage, DirOutcome, MoveOutcome};
 pub(crate) use undo_organize::file_matches_fp;
 
 /// What to do when the target (or a case-insensitive twin) already exists.
@@ -314,6 +314,13 @@ enum Op {
     },
     /// The job created the folder `target`.
     DirCreated,
+    /// The folder `target` came from the folder `from` (absolute, inside
+    /// the source root) by one rename on its volume (spec D25). Journaled
+    /// before the rename with `fp` = the fingerprint of its tree; a
+    /// folder copied across volumes is journaled per file instead.
+    DirMoved {
+        from: PathBuf,
+    },
     /// A manual-override entry keyed by `from` was rekeyed to `to`.
     OverrideMoved {
         from: PathBuf,
@@ -425,6 +432,12 @@ pub struct Writer {
     /// Changes this run made to the library (done, journaled or not).
     changes: usize,
     resumed: bool,
+    /// Earlier runs' per-file copies (moves via copy and copies), by
+    /// target: the source and, once finished, the target's fingerprint. A
+    /// resumed folder copy skips what they finished (resume only).
+    prior_copies: HashMap<PathBuf, (PathBuf, Option<Fingerprint>)>,
+    /// Folders earlier runs of the job created (resume only).
+    prior_dirs: HashSet<PathBuf>,
 }
 
 impl Writer {
@@ -470,6 +483,8 @@ impl Writer {
             extract_temps: HashSet::new(),
             changes: 0,
             resumed: false,
+            prior_copies: HashMap::new(),
+            prior_dirs: HashSet::new(),
         };
         let header = Line::Header {
             job: writer.job.clone(),
@@ -541,6 +556,7 @@ impl Writer {
             .chain([u32::try_from(entries.len()).unwrap_or(u32::MAX)])
             .max()
             .unwrap_or(0);
+        let (prior_copies, prior_dirs) = prior_copies(&entries);
         Ok(Writer {
             root: root.to_path_buf(),
             source_root: source_root.unwrap_or_else(|| root.to_path_buf()),
@@ -553,6 +569,8 @@ impl Writer {
             extract_temps,
             changes: 0,
             resumed: true,
+            prior_copies,
+            prior_dirs,
         })
     }
 
@@ -1036,6 +1054,46 @@ impl Writer {
     }
 }
 
+/// The per-file copies and the folders a journal records: what a resumed
+/// folder copy carries on from. A finished line wins over an intent.
+#[allow(clippy::type_complexity)]
+fn prior_copies(
+    entries: &[Line],
+) -> (
+    HashMap<PathBuf, (PathBuf, Option<Fingerprint>)>,
+    HashSet<PathBuf>,
+) {
+    let mut copies: HashMap<PathBuf, (PathBuf, Option<Fingerprint>)> = HashMap::new();
+    let mut dirs = HashSet::new();
+    for line in entries {
+        let Line::Entry { target, op, fp, .. } = line else {
+            continue;
+        };
+        let from = match op {
+            Op::Moved {
+                from,
+                via: Via::Copy,
+            }
+            | Op::Copied { from } => from,
+            Op::DirCreated => {
+                dirs.insert(target.clone());
+                continue;
+            }
+            _ => continue,
+        };
+        let slot = copies
+            .entry(target.clone())
+            .or_insert_with(|| (from.clone(), None));
+        if slot.0 != *from {
+            *slot = (from.clone(), None);
+        }
+        if fp.is_some() {
+            slot.1 = *fp;
+        }
+    }
+    (copies, dirs)
+}
+
 /// Whether `name` is a temp file name of job `job`:
 /// `.coverly-<job>-<digits>.tmp`, with no path separator.
 pub(crate) fn is_job_temp(job: &str, name: &str) -> bool {
@@ -1446,6 +1504,9 @@ pub fn job_transfers(data_dir: &Path, job: &str) -> Result<Vec<TransferRecord>, 
         };
         let (from, copied, extracted) = match op {
             Op::Moved { from, .. } => (from, false, None),
+            // Journaled with its fingerprint before the rename, like a
+            // file renamed: done once the source is gone.
+            Op::DirMoved { from } => (from, false, None),
             Op::Copied { from } => (from, true, None),
             Op::Extracted {
                 from,
@@ -1657,6 +1718,7 @@ fn undo_journal(
         matches!(
             op,
             Op::Moved { .. }
+                | Op::DirMoved { .. }
                 | Op::Copied { .. }
                 | Op::ArchiveTrash { .. }
                 | Op::ArchiveTrashed { .. }
@@ -1765,6 +1827,7 @@ fn undo_journal(
                 Op::Moved { .. }
                 | Op::Copied { .. }
                 | Op::DirCreated
+                | Op::DirMoved { .. }
                 | Op::OverrideMoved { .. }
                 | Op::Extracted { .. }
                 | Op::RolledBack { .. }

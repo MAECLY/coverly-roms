@@ -442,6 +442,15 @@ impl Throttle {
                             entries_done: b, ..
                         },
                     ) => a != b,
+                    // A folder copy's first and last byte counts.
+                    (
+                        _,
+                        OrganizePhase::Folder {
+                            bytes_done,
+                            bytes_total,
+                            ..
+                        },
+                    ) => bytes_done == 0 || bytes_done >= bytes_total,
                     _ => false,
                 };
                 std::mem::discriminant(&phase) != std::mem::discriminant(&p.phase)

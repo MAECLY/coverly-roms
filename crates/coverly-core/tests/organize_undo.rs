@@ -695,3 +695,84 @@ fn dedupe_job_undo_moves_files_back() {
     assert!(!root.join("_Duplicados").exists());
     assert_eq!(report.dirs_removed.len(), 2);
 }
+
+/// `<src>/Zelda/d/a.bin`.
+fn game_folder(src: &Path) -> PathBuf {
+    let game = src.join("Zelda");
+    fs::create_dir_all(game.join("d")).unwrap();
+    fs::write(game.join("d").join("a.bin"), b"A").unwrap();
+    game
+}
+
+#[test]
+fn move_dir_with_skip_leaves_a_taken_name_alone() {
+    let (_tmp, src, root, data) = setup();
+    let game = game_folder(&src);
+    let taken = root.join("GB").join("zelda");
+    fs::create_dir_all(&taken).unwrap();
+    let mut w = organise_job(&root, &data, &src);
+    let out = w
+        .move_dir(
+            &game,
+            &root.join("GB").join("Zelda"),
+            Collision::Skip,
+            None,
+            &mut |_| {},
+        )
+        .unwrap();
+    assert_eq!(
+        out,
+        DirOutcome::SkippedExists {
+            existing: taken.clone()
+        }
+    );
+    assert!(game.join("d").join("a.bin").is_file());
+    assert_eq!(fs::read_dir(&taken).unwrap().count(), 0);
+    w.discard().unwrap();
+}
+
+#[test]
+fn a_folder_never_goes_inside_itself() {
+    let (_tmp, src, _root, data) = setup();
+    let game = game_folder(&src);
+    // The library inside the game folder: a copy would never end.
+    let mut w = organise_job(&game, &data, &src);
+    let err = w
+        .copy_dir(
+            &game,
+            &game.join("GB").join("Zelda"),
+            Collision::Rename,
+            None,
+            &mut |_| {},
+        )
+        .unwrap_err();
+    assert!(matches!(err, WriteError::Io(_)), "{err:?}");
+    assert!(!game.join("GB").exists());
+    w.discard().unwrap();
+}
+
+#[test]
+fn undo_of_a_folder_copy_keeps_files_changed_since() {
+    let (_tmp, src, root, data) = setup();
+    let game = game_folder(&src);
+    fs::write(game.join("b.bin"), b"B").unwrap();
+    let to = root.join("GB").join("Zelda");
+    let mut w = organise_job(&root, &data, &src);
+    let out = w
+        .copy_dir(&game, &to, Collision::Rename, Some(0), &mut |_| {})
+        .unwrap();
+    assert_eq!(
+        out,
+        DirOutcome::Copied {
+            to: to.clone(),
+            renamed: false
+        }
+    );
+    let job = w.finish().unwrap();
+    fs::write(to.join("b.bin"), b"CHANGED").unwrap();
+    let report = undo_job(&data, &job).unwrap();
+    assert_eq!(report.removed, [to.join("d").join("a.bin")]);
+    assert_eq!(report.skipped_modified, [to.join("b.bin")]);
+    assert_eq!(fs::read(to.join("b.bin")).unwrap(), b"CHANGED");
+    assert!(game.join("d").join("a.bin").is_file());
+}

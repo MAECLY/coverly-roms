@@ -240,6 +240,15 @@ struct ProgressGate {
 
 impl ProgressGate {
     fn due(&self, p: OrganizeProgress, now: Instant) -> bool {
+        if let OrganizePhase::Folder {
+            bytes_done,
+            bytes_total,
+            ..
+        } = p.phase
+        {
+            // A folder copy prints its start and its end only.
+            return bytes_done == 0 || bytes_done >= bytes_total;
+        }
         let OrganizePhase::Extract {
             item,
             entries_done,
@@ -292,6 +301,17 @@ fn progress_text(p: OrganizeProgress) -> Option<String> {
         OrganizePhase::Dats => "catalogues",
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
+        OrganizePhase::Folder {
+            bytes_done,
+            bytes_total,
+            ..
+        } => {
+            return Some(format!(
+                "copy folder item {}/{} bytes {bytes_done}/{bytes_total}",
+                p.done + 1,
+                p.total
+            ));
+        }
         OrganizePhase::Extract {
             entries_done,
             entries_total,
@@ -1386,6 +1406,28 @@ mod tests {
         assert!(!due(at(OrganizePhase::Hash, 7, 500)));
         assert!(due(at(OrganizePhase::Hash, 25, 500)));
         assert!(due(at(OrganizePhase::Hash, 500, 500)));
+    }
+
+    #[test]
+    fn a_folder_copy_prints_its_start_and_end_only() {
+        let gate = ProgressGate::default();
+        let folder = |bytes_done| OrganizeProgress {
+            phase: OrganizePhase::Folder {
+                item: 2,
+                bytes_done,
+                bytes_total: 900,
+            },
+            done: 1,
+            total: 4,
+        };
+        let now = Instant::now();
+        assert!(gate.due(folder(0), now));
+        assert!(!gate.due(folder(450), now));
+        assert!(gate.due(folder(900), now));
+        assert_eq!(
+            progress_text(folder(450)).as_deref(),
+            Some("copy folder item 2/4 bytes 450/900")
+        );
     }
 
     #[test]
