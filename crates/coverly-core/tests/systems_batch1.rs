@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use coverly_core::cache::Cache;
 use coverly_core::identify::names::parse_name;
-use coverly_core::identify::sniff::{sniff, SliceAt};
+use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt};
 use coverly_core::net::testing::{MockResponse, MockServer};
 use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
 use coverly_core::profiles::naming::system_folder;
@@ -29,6 +29,15 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("cdtv", Family::Console, true),
     ("jaguarcd", Family::Console, true),
     ("fmtowns", Family::Computer, true),
+    // Early consoles (Task 5).
+    ("colecovision", Family::Console, false),
+    ("intellivision", Family::Console, false),
+    ("vectrex", Family::Console, false),
+    ("odyssey2", Family::Console, false),
+    ("channelf", Family::Console, false),
+    ("arcadia", Family::Console, false),
+    ("scv", Family::Console, false),
+    ("jaguar", Family::Console, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -40,11 +49,38 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("esde", "cdi", "cdimono1", None),
     ("muos", "3do", "3do", None),
     ("minui", "pcfx", "PCFX", Some(false)),
+    // Early consoles (Task 5).
+    ("esde", "jaguar", "atarijaguar", None),
+    ("onion", "colecovision", "COLECO", None),
+    ("minui", "colecovision", "COLECO", None),
+    ("onion", "channelf", "FAIRCHILD", None),
+    ("onion", "odyssey2", "ODYSSEY", None),
+    ("batocera", "odyssey2", "odyssey2", None),
+    ("muos", "scv", "scv", None),
+    ("onion", "arcadia", "ARCADIA", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
 /// (id, ext, head builder, expected system or None): header rules (§8.1).
-const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[];
+const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
+    // Early consoles (Task 5).
+    ("vectrex", "vec", fx::vectrex, Some("vectrex")),
+    (
+        "colecovision",
+        "col",
+        || fx::colecovision(false),
+        Some("colecovision"),
+    ),
+    (
+        "colecovision",
+        "rom",
+        || fx::colecovision(true),
+        Some("colecovision"),
+    ),
+    ("jaguar", "abs", fx::jaguar_abs, Some("jaguar")),
+    ("jaguar", "cof", fx::jaguar_cof, Some("jaguar")),
+    ("jaguar", "j64", fx::jaguar_abs, None),
+];
 
 fn research(name: &str) -> String {
     std::fs::read_to_string(
@@ -207,6 +243,42 @@ fn cdi_folder_is_scoped_but_cdimono1_is_global() {
         assert_eq!(
             id(db.resolve_folder_in(Some(&p), "cdi")),
             Some("cdi".into()),
+            "{}",
+            p.id
+        );
+    }
+}
+
+#[test]
+fn knulli_and_esde_odyssey2_aliases_are_global() {
+    // D7 / §6.1 notes: Knulli's `o2em` and ES-DE's `videopac` scan as
+    // Odyssey² with no profile.
+    let db = SystemDb::builtin();
+    for name in ["o2em", "videopac", "odyssey2", "ODYSSEY"] {
+        assert_eq!(
+            db.resolve_folder(name).map(|s| s.id.as_str()),
+            Some("odyssey2"),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn arcadia_folder_is_scoped_but_arcadia2001_is_global() {
+    // D22: `arcadia` is an everyday word, so only a profile resolves it.
+    let db = SystemDb::builtin();
+    for name in ["arcadia", "ARCADIA"] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    assert_eq!(
+        db.resolve_folder("arcadia2001").map(|s| s.id.as_str()),
+        Some("arcadia")
+    );
+    for p in builtin_profiles() {
+        assert_eq!(
+            db.resolve_folder_in(Some(&p), "arcadia")
+                .map(|s| s.id.as_str()),
+            Some("arcadia"),
             "{}",
             p.id
         );

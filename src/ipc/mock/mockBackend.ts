@@ -118,9 +118,15 @@ export function mockArtSvg(e: EntryView, media: Media): string {
   );
 }
 
-const handheld = (id: string, name: string, romsRoot: string): ProfileInfo => ({
+const handheld = (
+  id: string,
+  name: string,
+  romsRoot: string,
+  folderNames?: Record<string, string>,
+): ProfileInfo => ({
   profile: {
     id,
+    ...(folderNames && { folder_names: folderNames }),
     name,
     roms_root: romsRoot,
     art_dirs: ['Imgs'],
@@ -148,7 +154,29 @@ const png = (template: string) => ({
 
 /** `SYSTEM_FOLDERS` of `profiles/builtin.rs`: the folder each frontend
  * names for the systems of batch 1 (spec §6.1); Absent cells are left out. */
-const MUOS_FOLDERS = { '3do': '3do', cdi: 'cdi', pcfx: 'pcfx' };
+const EARLY_CONSOLES = {
+  channelf: 'channelf',
+  colecovision: 'colecovision',
+  intellivision: 'intellivision',
+  odyssey2: 'odyssey2',
+  scv: 'scv',
+  vectrex: 'vectrex',
+};
+const ONION_FOLDERS = {
+  channelf: 'FAIRCHILD',
+  colecovision: 'COLECO',
+  intellivision: 'INTELLIVISION',
+  odyssey2: 'ODYSSEY',
+  vectrex: 'VECTREX',
+};
+const MINUI_FOLDERS = { colecovision: 'COLECO' };
+const MUOS_FOLDERS = {
+  '3do': '3do',
+  cdi: 'cdi',
+  pcfx: 'pcfx',
+  ...EARLY_CONSOLES,
+  jaguar: 'jaguar',
+};
 const ESDE_FOLDERS = {
   '3do': '3do',
   amigacd32: 'amigacd32',
@@ -158,6 +186,9 @@ const ESDE_FOLDERS = {
   jaguarcd: 'atarijaguarcd',
   pcfx: 'pcfx',
   ps2: 'ps2',
+  ...EARLY_CONSOLES,
+  arcadia: 'arcadia',
+  jaguar: 'atarijaguar',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -168,14 +199,17 @@ const BATOCERA_FOLDERS = {
   jaguarcd: 'jaguarcd',
   pcfx: 'pcfx',
   ps2: 'ps2',
+  ...EARLY_CONSOLES,
+  arcadia: 'arcadia',
+  jaguar: 'jaguar',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
  * them (pinned to the Rust ones by the contract sample). */
 export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   handheld('anbernic-stock', 'Anbernic stock', 'ROMS'),
-  handheld('garlicos', 'GarlicOS', 'Roms'),
-  handheld('onion', 'Onion OS', 'Roms'),
+  handheld('garlicos', 'GarlicOS', 'Roms', ONION_FOLDERS),
+  handheld('onion', 'Onion OS', 'Roms', ONION_FOLDERS),
   {
     profile: {
       id: 'muos',
@@ -200,6 +234,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       id: 'minui',
       accepts_containers: ['zip'],
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+      folder_names: MINUI_FOLDERS,
       name: 'MinUI / NextUI',
       roms_root: 'Roms',
       art_dirs: ['.media', '.res'],

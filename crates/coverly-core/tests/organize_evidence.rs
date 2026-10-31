@@ -1128,3 +1128,29 @@ fn ps2_cso_contradicts_psp() {
     assert_eq!(id.combined.system.as_deref(), Some("ps2"));
     assert_eq!(id.combined.verdict, Verdict::Auto);
 }
+
+#[test]
+fn loose_bin_of_an_early_console_is_never_auto() {
+    // Task 5: `.bin` and `.rom` are Generic, so a loose cart with no header
+    // never moves on its own; `.col` is ColecoVision's alone.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut seed = 0x1234_5678u32;
+    let body: Vec<u8> = (0..16 * 1024)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8 | 1
+        })
+        .collect();
+    for name in ["Game.bin", "Game.rom", "Game.col"] {
+        std::fs::write(tmp.path().join(name), &body).unwrap();
+    }
+    let bin = identify(&tmp.path().join("Game.bin"), &FakeCatalogue::empty());
+    assert_ne!(bin.combined.verdict, Verdict::Auto, "{:?}", bin.combined);
+    let rom = identify(&tmp.path().join("Game.rom"), &FakeCatalogue::empty());
+    assert_eq!(rom.combined.system, None, "{:?}", rom.combined);
+    let col = identify(&tmp.path().join("Game.col"), &FakeCatalogue::empty());
+    assert_eq!(
+        (col.combined.system.as_deref(), col.combined.verdict),
+        (Some("colecovision"), Verdict::Auto)
+    );
+}

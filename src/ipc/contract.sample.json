@@ -532,6 +532,13 @@
     {
       "profile": {
         "id": "garlicos",
+        "folder_names": {
+          "channelf": "FAIRCHILD",
+          "colecovision": "COLECO",
+          "intellivision": "INTELLIVISION",
+          "odyssey2": "ODYSSEY",
+          "vectrex": "VECTREX"
+        },
         "name": "GarlicOS",
         "roms_root": "Roms",
         "art_dirs": ["Imgs"],
@@ -552,6 +559,13 @@
     {
       "profile": {
         "id": "onion",
+        "folder_names": {
+          "channelf": "FAIRCHILD",
+          "colecovision": "COLECO",
+          "intellivision": "INTELLIVISION",
+          "odyssey2": "ODYSSEY",
+          "vectrex": "VECTREX"
+        },
         "name": "Onion OS",
         "roms_root": "Roms",
         "art_dirs": ["Imgs"],
@@ -575,7 +589,14 @@
         "folder_names": {
           "3do": "3do",
           "cdi": "cdi",
-          "pcfx": "pcfx"
+          "channelf": "channelf",
+          "colecovision": "colecovision",
+          "intellivision": "intellivision",
+          "jaguar": "jaguar",
+          "odyssey2": "odyssey2",
+          "pcfx": "pcfx",
+          "scv": "scv",
+          "vectrex": "vectrex"
         },
         "name": "muOS",
         "roms_root": "ROMS",
@@ -605,6 +626,9 @@
         "id": "minui",
         "accepts_containers": ["zip"],
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
+        "folder_names": {
+          "colecovision": "COLECO"
+        },
         "name": "MinUI / NextUI",
         "roms_root": "Roms",
         "art_dirs": [".media", ".res"],
@@ -628,12 +652,20 @@
         "folder_names": {
           "3do": "3do",
           "amigacd32": "amigacd32",
+          "arcadia": "arcadia",
           "cdi": "cdimono1",
           "cdtv": "cdtv",
+          "channelf": "channelf",
+          "colecovision": "colecovision",
           "fmtowns": "fmtowns",
+          "intellivision": "intellivision",
+          "jaguar": "atarijaguar",
           "jaguarcd": "atarijaguarcd",
+          "odyssey2": "odyssey2",
           "pcfx": "pcfx",
-          "ps2": "ps2"
+          "ps2": "ps2",
+          "scv": "scv",
+          "vectrex": "vectrex"
         },
         "name": "ES-DE",
         "roms_root": "ROMs",
@@ -671,12 +703,20 @@
         "folder_names": {
           "3do": "3do",
           "amigacd32": "amigacd32",
+          "arcadia": "arcadia",
           "cdi": "cdi",
           "cdtv": "amigacdtv",
+          "channelf": "channelf",
+          "colecovision": "colecovision",
           "fmtowns": "fmtowns",
+          "intellivision": "intellivision",
+          "jaguar": "jaguar",
           "jaguarcd": "jaguarcd",
+          "odyssey2": "odyssey2",
           "pcfx": "pcfx",
-          "ps2": "ps2"
+          "ps2": "ps2",
+          "scv": "scv",
+          "vectrex": "vectrex"
         },
         "name": "Batocera / Knulli / EmulationStation",
         "roms_root": "roms",

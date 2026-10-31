@@ -114,6 +114,72 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "fmtowns",
         [Some("fmtowns"), Some("fmtowns"), None, None, None],
     ),
+    // Early consoles (Task 5).
+    (
+        "colecovision",
+        [
+            Some("colecovision"),
+            Some("colecovision"),
+            Some("colecovision"),
+            Some("COLECO"),
+            Some("COLECO"),
+        ],
+    ),
+    (
+        "intellivision",
+        [
+            Some("intellivision"),
+            Some("intellivision"),
+            Some("intellivision"),
+            Some("INTELLIVISION"),
+            None,
+        ],
+    ),
+    (
+        "vectrex",
+        [
+            Some("vectrex"),
+            Some("vectrex"),
+            Some("vectrex"),
+            Some("VECTREX"),
+            None,
+        ],
+    ),
+    (
+        "odyssey2",
+        [
+            Some("odyssey2"),
+            Some("odyssey2"),
+            Some("odyssey2"),
+            Some("ODYSSEY"),
+            None,
+        ],
+    ),
+    (
+        "channelf",
+        [
+            Some("channelf"),
+            Some("channelf"),
+            Some("channelf"),
+            Some("FAIRCHILD"),
+            None,
+        ],
+    ),
+    (
+        "arcadia",
+        [Some("arcadia"), Some("arcadia"), None, None, None],
+    ),
+    ("scv", [Some("scv"), Some("scv"), Some("scv"), None, None]),
+    (
+        "jaguar",
+        [
+            Some("atarijaguar"),
+            Some("jaguar"),
+            Some("jaguar"),
+            None,
+            None,
+        ],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

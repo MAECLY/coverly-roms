@@ -681,3 +681,54 @@ fn a_ps2_volume_inside_a_cso_is_ps2() {
     let umd = run(&dt::cso_of(&fx::psp_iso()), "cso");
     assert_eq!(best(&umd), Some(("psp".into(), 0.85)));
 }
+
+#[test]
+fn vectrex_gce_header() {
+    // The Executive ROM only boots a cartridge that opens with its
+    // `g GCE` copyright line (spec §8.1).
+    for ext in ["vec", "bin", "gam"] {
+        let s = run(&fx::vectrex(), ext);
+        assert_eq!(best(&s), Some(("vectrex".into(), 0.95)), ".{ext}");
+    }
+    // The same cartridge without the magic says nothing.
+    let mut bare = fx::vectrex();
+    bare[..5].copy_from_slice(&[0; 5]);
+    assert!(run(&bare, "vec").hits.is_empty());
+}
+
+#[test]
+fn colecovision_test_bytes_are_weak() {
+    // 16 bits: they support a folder or extension, never Auto alone.
+    for swapped in [false, true] {
+        for ext in ["col", "rom", "bin"] {
+            let s = run(&fx::colecovision(swapped), ext);
+            assert_eq!(
+                best(&s),
+                Some(("colecovision".into(), 0.60)),
+                "swapped={swapped} .{ext}"
+            );
+        }
+    }
+    // Under any other extension the two bytes mean nothing.
+    assert!(run(&fx::colecovision(false), "sms").hits.is_empty());
+}
+
+#[test]
+fn jaguar_abs_and_cof() {
+    assert_eq!(
+        best(&run(&fx::jaguar_abs(), "abs")),
+        Some(("jaguar".into(), 0.50))
+    );
+    assert_eq!(
+        best(&run(&fx::jaguar_cof(), "cof")),
+        Some(("jaguar".into(), 0.50))
+    );
+    // Each magic only under its own extension.
+    assert!(run(&fx::jaguar_abs(), "cof").hits.is_empty());
+    assert!(run(&fx::jaguar_cof(), "bin").hits.is_empty());
+}
+
+#[test]
+fn vectrex_is_decisive() {
+    assert!(coverly_core::identify::sniff::DECISIVE.contains(&"vectrex"));
+}

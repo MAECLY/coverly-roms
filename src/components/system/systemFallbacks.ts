@@ -23,6 +23,15 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   cdtv: 'CDTV',
   jaguarcd: 'JGCD',
   fmtowns: 'FMT',
+  // Early consoles (plan Task 5), same interim Slot mount.
+  colecovision: 'CV',
+  intellivision: 'INTV',
+  vectrex: 'VEC',
+  odyssey2: 'O2',
+  channelf: 'CHF',
+  arcadia: 'ARC',
+  scv: 'SCV',
+  jaguar: 'JAG',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

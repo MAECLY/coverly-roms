@@ -15,7 +15,9 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 8] = ["gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x"];
+pub const DECISIVE: [&str; 9] = [
+    "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex",
+];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
@@ -554,6 +556,9 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
+    if early_consoles(head, ext, s) {
+        return;
+    }
     // A GBA header carrying its logo too (48 bits) outranks the SNES
     // header, which real GBA code at 0x7FC0 can mimic.
     if gba_signature(head) == Some(true) {
@@ -600,7 +605,36 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     // those and matches it by chance keeps its own system.
     if gba_signature(head) == Some(false) {
         s.hit("gba", 0.95, "fixed 0x96");
+        return;
     }
+    // ColecoVision BIOS test bytes (`AA 55` shows the title screen, `55 AA`
+    // skips it): 16 bits, so they only support a folder or `.col`, and only
+    // under the extensions a Coleco cart is dumped with.
+    if matches!(ext, "col" | "rom" | "bin")
+        && matches!(at(head, 0, 2), Some([0xAA, 0x55] | [0x55, 0xAA]))
+    {
+        s.hit("colecovision", 0.60, "AA55");
+    }
+}
+
+/// Early consoles with a magic of their own (spec §8.1). The Vectrex
+/// Executive ROM boots a cartridge only when it opens with the `g GCE`
+/// copyright line (libretro-vecx `bios/system.bin` holds the line it
+/// expects at 0x1101, `g GCE 1982` + `0x80`). Jaguar developer programs
+/// carry the DRI `.abs` (`60 1B`) or COFF (`01 50`) magic: two bytes,
+/// weight 0.50, only under their own extension.
+fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if starts(head, 0, b"g GCE") {
+        s.hit("vectrex", 0.95, "g GCE");
+        return true;
+    }
+    let magic = at(head, 0, 2);
+    match ext {
+        "abs" if magic == Some(&[0x60, 0x1B][..]) => s.hit("jaguar", 0.50, "DRI ABS"),
+        "cof" if magic == Some(&[0x01, 0x50][..]) => s.hit("jaguar", 0.50, "COFF"),
+        _ => return false,
+    }
+    true
 }
 
 /// GBA fixed byte 0x96 and header complement: `Some(true)` when the
@@ -925,6 +959,40 @@ pub mod fixtures {
     pub fn pico() -> Vec<u8> {
         let mut b = zeros(128 * 1024);
         b[0x100..0x109].copy_from_slice(b"SEGA PICO");
+        b
+    }
+
+    /// A Vectrex cartridge: the `g GCE 1982` copyright line at 0, closed by
+    /// `0x80`, as the Executive ROM expects it.
+    pub fn vectrex() -> Vec<u8> {
+        let mut b = zeros(8 * 1024);
+        b[..11].copy_from_slice(b"g GCE 1982\x80");
+        b
+    }
+
+    /// A ColecoVision cartridge opening with the BIOS test bytes (`AA 55`,
+    /// or `55 AA` when `swapped`, the variant that skips the title screen).
+    pub fn colecovision(swapped: bool) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        b[..2].copy_from_slice(if swapped {
+            &[0x55, 0xAA]
+        } else {
+            &[0xAA, 0x55]
+        });
+        b
+    }
+
+    /// A Jaguar DRI `.abs` program (magic `60 1B`).
+    pub fn jaguar_abs() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..2].copy_from_slice(&[0x60, 0x1B]);
+        b
+    }
+
+    /// A Jaguar COFF `.cof` program (magic `01 50`).
+    pub fn jaguar_cof() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..2].copy_from_slice(&[0x01, 0x50]);
         b
     }
 

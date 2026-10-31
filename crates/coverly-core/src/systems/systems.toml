@@ -625,3 +625,86 @@ aliases = ["FMTOWNS", "fm-towns"]
 extensions = ["cue", "bin", "chd", "iso", "d88"]
 multi_file = true
 screenscraper = 253
+
+# Early consoles (systems batch 1, Task 5). `.bin` and `.rom` stay Generic:
+# a loose cart moves only by folder, header or DAT hash.
+
+[[system]]
+id = "colecovision"
+name = "ColecoVision"
+family = "console"
+aliases = ["COLECO", "colecovision"]
+extensions = ["col", "rom", "bin", "zip", "7z"]
+libretro = "Coleco - ColecoVision"
+screenscraper = 48
+
+[[system]]
+id = "intellivision"
+name = "Mattel Intellivision"
+family = "console"
+aliases = ["INTELLIVISION", "intv"]
+extensions = ["int", "bin", "rom", "zip", "7z"]
+libretro = "Mattel - Intellivision"
+dats = ["metadat/no-intro/Mattel - Intellivision.dat", "metadat/homebrew/Mattel - Intellivision.dat"]
+screenscraper = 115
+
+[[system]]
+id = "vectrex"
+name = "GCE Vectrex"
+family = "console"
+aliases = ["VECTREX", "gcevectrex"]
+extensions = ["vec", "bin", "zip", "7z"]
+weak_extensions = ["gam"]
+libretro = "GCE - Vectrex"
+dats = ["metadat/no-intro/GCE - Vectrex.dat", "metadat/homebrew/GCE - Vectrex.dat"]
+screenscraper = 102
+
+[[system]]
+id = "odyssey2"
+name = "Magnavox Odyssey² / Videopac"
+family = "console"
+# `o2em` is Knulli's folder (D7); `videopac` is ES-DE's G7000 folder.
+aliases = ["ODYSSEY", "odyssey2", "videopac", "o2em"]
+extensions = ["bin", "zip", "7z"]
+libretro = "Magnavox - Odyssey2"
+screenscraper = 104
+
+[[system]]
+id = "channelf"
+name = "Fairchild Channel F"
+family = "console"
+aliases = ["FAIRCHILD", "channelf"]
+extensions = ["chf", "bin", "zip", "7z"]
+libretro = "Fairchild - Channel F"
+screenscraper = 80
+
+[[system]]
+id = "arcadia"
+name = "Emerson Arcadia 2001"
+family = "console"
+# `arcadia` is an everyday word (D22): resolved only under a profile.
+aliases = ["ARCADIA", "arcadia2001"]
+scoped_aliases = ["arcadia"]
+extensions = ["bin", "zip", "7z"]
+libretro = "Emerson - Arcadia 2001"
+screenscraper = 94
+
+[[system]]
+id = "scv"
+name = "Epoch Super Cassette Vision"
+family = "console"
+aliases = ["SCV", "supercassettevision"]
+extensions = ["bin", "rom", "zip", "7z"]
+weak_extensions = ["0"]
+libretro = "Epoch - Super Cassette Vision"
+screenscraper = 67
+
+[[system]]
+id = "jaguar"
+name = "Atari Jaguar"
+family = "console"
+aliases = ["JAGUAR", "atarijaguar"]
+extensions = ["j64", "jag", "rom", "bin", "zip", "7z"]
+weak_extensions = ["abs", "cof"]
+libretro = "Atari - Jaguar"
+screenscraper = 27

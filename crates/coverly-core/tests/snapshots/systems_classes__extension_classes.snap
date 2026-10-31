@@ -5,6 +5,14 @@ expression: rows
 [
   {
     "accepting": [
+      "scv"
+    ],
+    "class": "Unknown",
+    "ext": "0",
+    "strong": []
+  },
+  {
+    "accepting": [
       "vic20"
     ],
     "class": "Unique",
@@ -101,6 +109,14 @@ expression: rows
   },
   {
     "accepting": [
+      "jaguar"
+    ],
+    "class": "Unknown",
+    "ext": "abs",
+    "strong": []
+  },
+  {
+    "accepting": [
       "amiga"
     ],
     "class": "Unique",
@@ -183,7 +199,15 @@ expression: rows
       "amigacd32",
       "cdtv",
       "jaguarcd",
-      "fmtowns"
+      "fmtowns",
+      "colecovision",
+      "intellivision",
+      "vectrex",
+      "odyssey2",
+      "channelf",
+      "arcadia",
+      "scv",
+      "jaguar"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -200,7 +224,15 @@ expression: rows
       "amigacd32",
       "cdtv",
       "jaguarcd",
-      "fmtowns"
+      "fmtowns",
+      "colecovision",
+      "intellivision",
+      "vectrex",
+      "odyssey2",
+      "channelf",
+      "arcadia",
+      "scv",
+      "jaguar"
     ]
   },
   {
@@ -300,6 +332,34 @@ expression: rows
       "cdtv",
       "jaguarcd",
       "fmtowns"
+    ]
+  },
+  {
+    "accepting": [
+      "channelf"
+    ],
+    "class": "Unique",
+    "ext": "chf",
+    "strong": [
+      "channelf"
+    ]
+  },
+  {
+    "accepting": [
+      "jaguar"
+    ],
+    "class": "Unknown",
+    "ext": "cof",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "colecovision"
+    ],
+    "class": "Unique",
+    "ext": "col",
+    "strong": [
+      "colecovision"
     ]
   },
   {
@@ -531,6 +591,14 @@ expression: rows
   },
   {
     "accepting": [
+      "vectrex"
+    ],
+    "class": "Unknown",
+    "ext": "gam",
+    "strong": []
+  },
+  {
+    "accepting": [
       "gb",
       "gbc"
     ],
@@ -623,6 +691,16 @@ expression: rows
   },
   {
     "accepting": [
+      "intellivision"
+    ],
+    "class": "Unique",
+    "ext": "int",
+    "strong": [
+      "intellivision"
+    ]
+  },
+  {
+    "accepting": [
       "amiga",
       "atarist"
     ],
@@ -665,6 +743,26 @@ expression: rows
       "amigacd32",
       "cdtv",
       "fmtowns"
+    ]
+  },
+  {
+    "accepting": [
+      "jaguar"
+    ],
+    "class": "Unique",
+    "ext": "j64",
+    "strong": [
+      "jaguar"
+    ]
+  },
+  {
+    "accepting": [
+      "jaguar"
+    ],
+    "class": "Unique",
+    "ext": "jag",
+    "strong": [
+      "jaguar"
     ]
   },
   {
@@ -953,12 +1051,20 @@ expression: rows
   },
   {
     "accepting": [
-      "msx"
+      "msx",
+      "colecovision",
+      "intellivision",
+      "scv",
+      "jaguar"
     ],
     "class": "Generic",
     "ext": "rom",
     "strong": [
-      "msx"
+      "msx",
+      "colecovision",
+      "intellivision",
+      "scv",
+      "jaguar"
     ]
   },
   {
@@ -1153,6 +1259,16 @@ expression: rows
     "ext": "vboy",
     "strong": [
       "virtualboy"
+    ]
+  },
+  {
+    "accepting": [
+      "vectrex"
+    ],
+    "class": "Unique",
+    "ext": "vec",
+    "strong": [
+      "vectrex"
     ]
   },
   {
