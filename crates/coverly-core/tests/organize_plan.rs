@@ -243,12 +243,10 @@ fn redact(plan: &OrganizePlan) -> serde_json::Value {
     }
     value["created_at"] = serde_json::Value::String("<created_at>".into());
     value["fat32"] = serde_json::Value::Bool(false);
+    // One snapshot for every OS: every path uses `/` like on Unix.
+    forward_slashes(&mut value);
     if let Some(items) = value["items"].as_array_mut() {
         for item in items {
-            // One snapshot for every OS: targets use `/` like on Unix.
-            if let Some(target) = item["target"].as_str().map(|s| s.replace('\\', "/")) {
-                item["target"] = serde_json::Value::String(target);
-            }
             if let Some(fps) = item["fps"].as_array_mut() {
                 for fp in fps {
                     fp["mtime_ns"] = serde_json::Value::from(0);
@@ -257,6 +255,43 @@ fn redact(plan: &OrganizePlan) -> serde_json::Value {
         }
     }
     value
+}
+
+/// Rewrites `\` as `/` in every string of `value`. No plan string other
+/// than a path holds a backslash, so this touches paths only.
+fn forward_slashes(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(s) if s.contains('\\') => *s = s.replace('\\', "/"),
+        serde_json::Value::Array(values) => values.iter_mut().for_each(forward_slashes),
+        serde_json::Value::Object(map) => map.values_mut().for_each(forward_slashes),
+        _ => {}
+    }
+}
+
+#[test]
+fn redacted_plans_write_every_path_with_forward_slashes() {
+    // Windows serialises `PathBuf` with `\`: companions, other files and
+    // set members below a folder must snapshot like on Unix.
+    let mut value = serde_json::json!({
+        "items": [{
+            "target": "ROMs\\mame\\sfiii.zip",
+            "sources": ["sfiii.zip"],
+            "companions": [{ "source": "sfiii\\sfiii.chd", "target": "ROMs\\mame\\sfiii\\sfiii.chd" }],
+            "set_targets": ["ROMs\\psx\\Game\\Game (Track 2).bin"],
+            "reason": { "kind": "already-present", "at": "ROMs\\psx\\a.chd" }
+        }],
+        "other_files": ["Cave Story\\data\\Stage\\0.pxm"],
+        "sorted_folders": [["GBA\\Hacks", "gba"]]
+    });
+    forward_slashes(&mut value);
+    let text = value.to_string();
+    assert!(!text.contains('\\'), "{text}");
+    assert_eq!(
+        value["items"][0]["companions"][0]["source"],
+        "sfiii/sfiii.chd"
+    );
+    assert_eq!(value["other_files"][0], "Cave Story/data/Stage/0.pxm");
+    assert_eq!(value["sorted_folders"][0][0], "GBA/Hacks");
 }
 
 #[test]
