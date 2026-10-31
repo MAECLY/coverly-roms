@@ -53,9 +53,14 @@ fn named_folders_resolve_back_and_absent_ones_are_marked() {
 }
 
 #[test]
-fn first_aliases_are_windows_safe() {
+fn every_alias_is_a_windows_safe_folder_name() {
+    // Not only the first: any alias (scoped ones included) is accepted as
+    // a user folder override or a custom layout's folder, and becomes one
+    // path component under the ROMs root.
     for s in SystemDb::builtin().all() {
-        assert!(windows_safe(&s.aliases[0]), "{}", s.id);
+        for a in s.aliases.iter().chain(&s.scoped_aliases) {
+            assert!(windows_safe(a), "{}: {a:?}", s.id);
+        }
     }
 }
 
