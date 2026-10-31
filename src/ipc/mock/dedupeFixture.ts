@@ -255,7 +255,7 @@ function showcase(): DupGroupView[] {
             {
               path: 'GB/Pokemon Red (1).sav',
               size: 32 * KB,
-              mtime_ns: MTIME + 1,
+              mtime_ns: MTIME + DAY_NS,
               sha1: '2222222222222222222222222222222222222222',
               keyed_by: 'stem',
             },

@@ -432,6 +432,17 @@ describe('mock duplicates backend', () => {
     expect(empty).toEqual([]);
   });
 
+  it('a conflict copy and its save agree on when it was saved', () => {
+    // The screen shows both side by side: «Partida: hace …» on the copy
+    // and the save's own date below; one save, one date.
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    if (g.action.kind !== 'conflict') throw new Error('not a conflict');
+    const saves = g.action.saves;
+    expect(g.members.map((m) => m.facts?.saves?.last_ns)).toEqual(
+      saves.map((s) => s.mtime_ns),
+    );
+  });
+
   it('reveals only inside a library, a plan or its quarantine', async () => {
     const b = backend();
     const sd = await b.dedupePlan('/Volumes/SD');
