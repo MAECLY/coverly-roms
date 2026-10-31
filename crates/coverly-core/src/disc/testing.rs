@@ -267,11 +267,14 @@ pub fn psx_track_with(raw: bool, boot: &str, licence: Option<&str>) -> Vec<u8> {
 /// A PlayStation 2 DVD image head: `PLAYSTATION` PVD and a `SYSTEM.CNF`
 /// that boots `SLUS_200.62` through `BOOT2`.
 pub fn ps2_iso() -> Vec<u8> {
+    ps2_iso_booting("SLUS_200.62")
+}
+
+/// [`ps2_iso`] whose `BOOT2` line names `boot` (`SCES_517.19` style).
+pub fn ps2_iso_booting(boot: &str) -> Vec<u8> {
+    let cnf = format!("BOOT2 = cdrom0:\\{boot};1\r\nVER = 1.00\r\nVMODE = NTSC\r\n");
     IsoBuilder::new("PLAYSTATION")
-        .file(
-            "SYSTEM.CNF;1",
-            b"BOOT2 = cdrom0:\\SLUS_200.62;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n",
-        )
+        .file("SYSTEM.CNF;1", cnf.as_bytes())
         .build()
 }
 

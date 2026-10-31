@@ -1,0 +1,521 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: redact(&p)
+---
+{
+  "broad_root": false,
+  "counts": {
+    "auto": 7,
+    "bytes": 1337588,
+    "deep_folders": 0,
+    "junk": 0,
+    "left": 2,
+    "other_files": 2,
+    "review": 1,
+    "roms": 8,
+    "systems": 8
+  },
+  "created_at": "<created_at>",
+  "deep_folders": [],
+  "fat32": false,
+  "items": [
+    {
+      "action": "review",
+      "alternatives": [
+        [
+          "zxspectrum",
+          0.5299999713897705
+        ],
+        [
+          "apple2",
+          0.5
+        ],
+        [
+          "coco",
+          0.5
+        ],
+        [
+          "dragon",
+          0.5
+        ],
+        [
+          "msx",
+          0.5
+        ],
+        [
+          "msx2",
+          0.5
+        ],
+        [
+          "msxturbor",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.5299999713897705,
+      "disc": null,
+      "folder": "CPC",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 16384
+        }
+      ],
+      "id": 0,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "amstradcpc"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 16384,
+      "sources": [
+        "Arkanoid (1987).dsk"
+      ],
+      "system_id": "amstradcpc",
+      "target": "Roms/CPC/Arkanoid (1987).dsk",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "CPC DSK",
+          "kind": "header",
+          "system": "amstradcpc",
+          "weight": 0.5
+        },
+        {
+          "detail": "dsk",
+          "kind": "extension",
+          "system": "amstradcpc",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "PRBOOM",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 4096
+        }
+      ],
+      "id": 1,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "PRBOOM",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 4096,
+      "sources": [
+        "DOOM.WAD"
+      ],
+      "system_id": "doom",
+      "target": "Roms/PRBOOM/DOOM.WAD",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "IWAD",
+          "kind": "header",
+          "system": "doom",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "wad",
+          "kind": "extension",
+          "system": "doom",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 128
+        }
+      ],
+      "id": 2,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "folder": "PRBOOM",
+        "kind": "folder-game",
+        "system": "doom"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 128,
+      "sources": [
+        "Freedoom Phase 1"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "PS2",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 49152
+        }
+      ],
+      "id": 3,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "PS2",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 49152,
+      "sources": [
+        "Gran Turismo 4 (Europe).iso"
+      ],
+      "system_id": "ps2",
+      "target": "Roms/PS2/Gran Turismo 4 (Europe).iso",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "SYSTEM.CNF BOOT2",
+          "kind": "header",
+          "system": "ps2",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9299999475479126,
+      "disc": null,
+      "folder": "ZXS",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 2048
+        }
+      ],
+      "id": 4,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 2048,
+      "sources": [
+        "Manic Miner (1983)(Bug-Byte).tzx"
+      ],
+      "system_id": "zxspectrum",
+      "target": "Roms/ZXS/Manic Miner (1983)(Bug-Byte).tzx",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "TZX",
+          "kind": "header",
+          "system": "zxspectrum",
+          "weight": 0.8999999761581421
+        },
+        {
+          "detail": "tzx",
+          "kind": "extension",
+          "system": "zxspectrum",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.8500000238418579,
+      "disc": null,
+      "folder": "ATARIST",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 737280
+        }
+      ],
+      "id": 5,
+      "kind": "file",
+      "method": "extension",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 737280,
+      "sources": [
+        "Prince of Persia.st"
+      ],
+      "system_id": "atarist",
+      "target": "Roms/ATARIST/Prince of Persia.st",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "st",
+          "kind": "extension",
+          "system": "atarist",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "atarist",
+          0.6000000238418579
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "disc": null,
+      "folder": "SUFAMI",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 524288
+        }
+      ],
+      "id": 6,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "ext": "st",
+          "kind": "extension-contradicted"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 524288,
+      "sources": [
+        "Sailor Moon (Japan).st"
+      ],
+      "system_id": "sufami",
+      "target": "Roms/SUFAMI/Sailor Moon (Japan).st",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "BANDAI SFC-ADX",
+          "kind": "header",
+          "system": "sufami",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "st~",
+          "kind": "extension",
+          "system": "sufami",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.8500000238418579,
+      "disc": null,
+      "folder": "JAGUAR",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 4096
+        }
+      ],
+      "id": 7,
+      "kind": "file",
+      "method": "extension",
+      "notes": [
+        {
+          "folder": "JAGUAR",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 4096,
+      "sources": [
+        "Tempest 2000 (World).j64"
+      ],
+      "system_id": "jaguar",
+      "target": "Roms/JAGUAR/Tempest 2000 (World).j64",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "j64",
+          "kind": "extension",
+          "system": "jaguar",
+          "weight": 0.8500000238418579
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 512
+        }
+      ],
+      "id": 8,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "unknown"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 512,
+      "sources": [
+        "game.bin"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "cps1",
+          0.9900000095367432
+        ],
+        [
+          "cps2",
+          0.9900000095367432
+        ],
+        [
+          "cps3",
+          0.9900000095367432
+        ],
+        [
+          "neogeo",
+          0.9900000095367432
+        ]
+      ],
+      "catalogue_name": "sfiii",
+      "companions": [
+        {
+          "source": "sfiii/sfiii.chd",
+          "target": "Roms/MAME/sfiii/sfiii.chd"
+        }
+      ],
+      "confidence": 1.0,
+      "disc": null,
+      "folder": "MAME",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 244
+        }
+      ],
+      "id": 9,
+      "kind": "archive",
+      "method": "hash",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 244,
+      "sources": [
+        "sfiii.zip"
+      ],
+      "system_id": "mame",
+      "target": "Roms/MAME/sfiii.zip",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sfiii",
+          "kind": "hash",
+          "system": "mame",
+          "weight": 1.0
+        }
+      ]
+    }
+  ],
+  "layout": "onion",
+  "mode": "move",
+  "move_allowed": true,
+  "names": "keep",
+  "other_files": [
+    "Cave Story/Doukutsu.exe",
+    "Cave Story/data/Stage/0.pxm"
+  ],
+  "roms_dir": "<roms_dir>",
+  "sorted_folders": [],
+  "source_root": "<source_root>",
+  "target_detected": null,
+  "target_root": "<target_root>",
+  "warnings": [
+    {
+      "kind": "catalogue-missing",
+      "system": "amstradcpc"
+    }
+  ]
+}

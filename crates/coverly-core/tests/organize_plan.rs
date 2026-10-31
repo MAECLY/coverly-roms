@@ -3200,3 +3200,91 @@ fn chd_folder_of_a_set_already_in_the_library_is_already_present() {
         Some(LeftReason::AlreadyPresent { at: chd_at })
     );
 }
+
+/// Every file below `dir`, depth first.
+fn files_below(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_below(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// The retro pile of spec §9.3 (synthetic bytes, real names), every
+/// mtime pinned in the past.
+fn retro_pile(world: &World, dir: &Path) {
+    use coverly_core::disc::testing as dt;
+    put(
+        &dir.join("Gran Turismo 4 (Europe).iso"),
+        &dt::ps2_iso_booting("SCES_517.19"),
+    );
+    put(&dir.join("Tempest 2000 (World).j64"), &fx::zeros(4096));
+    put(&dir.join("Manic Miner (1983)(Bug-Byte).tzx"), &fx::tzx());
+    put(&dir.join("Arkanoid (1987).dsk"), &fx::cpc_dsk(false));
+    put(&dir.join("Sailor Moon (Japan).st"), &fx::sufami(false));
+    put(&dir.join("Prince of Persia.st"), &fx::zeros(737_280));
+    put(&dir.join("DOOM.WAD"), &fx::wad(b"IWAD"));
+    put(
+        &dir.join("Freedoom Phase 1").join("freedoom1.wad"),
+        &fx::wad(b"IWAD"),
+    );
+    put(
+        &dir.join("Freedoom Phase 1").join("README.txt"),
+        b"Freedoom\n",
+    );
+    put(&dir.join("Cave Story").join("Doukutsu.exe"), b"MZ\x90\x00");
+    put(
+        &dir.join("Cave Story")
+            .join("data")
+            .join("Stage")
+            .join("0.pxm"),
+        &[1u8; 64],
+    );
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(world, "sfiii", &roms);
+    common::roms::zip_file(
+        &dir.join("sfiii.zip"),
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    put(&dir.join("sfiii").join("sfiii.chd"), b"MComprHD synthetic");
+    put(&dir.join("game.bin"), &[3u8; 512]);
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+}
+
+#[test]
+fn systems_batch_1_pile_plans() {
+    // Spec §9.3 / §14.1: the retro pile of systems batch 1 under the three
+    // layouts whose folder stories differ most (Named, Named with scoped
+    // aliases, Absent with the `NoFolderOnDevice` note).
+    for layout in ["esde", "batocera", "onion"] {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        retro_pile(&world, s.path());
+        let p = plan(
+            &world,
+            s.path(),
+            OrganizeOptions {
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..defaults(layout)
+            },
+        );
+        insta::assert_json_snapshot!(format!("systems_batch_1__{layout}"), redact(&p));
+    }
+    // A loose image carries no `DiscId` (only archived disc sets do, as for
+    // PS1): the PS2 serial of the pile is the sniff's.
+    let bytes = coverly_core::disc::testing::ps2_iso_booting("SCES_517.19");
+    let s = coverly_core::identify::sniff::sniff(
+        &mut coverly_core::identify::sniff::SliceAt(&bytes),
+        bytes.len() as u64,
+        "iso",
+    );
+    assert_eq!(s.serial.as_deref(), Some("SCES-51719"));
+}
