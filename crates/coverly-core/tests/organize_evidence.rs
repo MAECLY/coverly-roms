@@ -1154,3 +1154,39 @@ fn loose_bin_of_an_early_console_is_never_auto() {
         (Some("colecovision"), Verdict::Auto)
     );
 }
+
+#[test]
+fn a_vec_without_the_gce_line_is_not_auto() {
+    // Vectrex is DECISIVE: a `.vec` whose bytes lack `g GCE` is
+    // contradicted (0.60, review); with the line it moves on its own.
+    let tmp = tempfile::tempdir().unwrap();
+    let good = coverly_core::identify::sniff::fixtures::vectrex();
+    let mut bare = good.clone();
+    bare[..5].copy_from_slice(b"xxxxx");
+    std::fs::write(tmp.path().join("Good.vec"), &good).unwrap();
+    std::fs::write(tmp.path().join("Bare.vec"), &bare).unwrap();
+    let g = identify(&tmp.path().join("Good.vec"), &FakeCatalogue::empty());
+    assert_eq!(
+        (g.combined.system.as_deref(), g.combined.verdict),
+        (Some("vectrex"), Verdict::Auto)
+    );
+    let b = identify(&tmp.path().join("Bare.vec"), &FakeCatalogue::empty());
+    assert_ne!(b.combined.verdict, Verdict::Auto, "{:?}", b.combined);
+}
+
+#[test]
+fn a_coleco_bin_with_test_bytes_is_only_a_candidate() {
+    // `AA 55` is 16 bits (0.60): a loose `.bin` carrying it is never Auto,
+    // but a `.col` with it still is.
+    let tmp = tempfile::tempdir().unwrap();
+    let cart = coverly_core::identify::sniff::fixtures::colecovision(false);
+    std::fs::write(tmp.path().join("Game.bin"), &cart).unwrap();
+    std::fs::write(tmp.path().join("Game.col"), &cart).unwrap();
+    let bin = identify(&tmp.path().join("Game.bin"), &FakeCatalogue::empty());
+    assert_ne!(bin.combined.verdict, Verdict::Auto, "{:?}", bin.combined);
+    let col = identify(&tmp.path().join("Game.col"), &FakeCatalogue::empty());
+    assert_eq!(
+        (col.combined.system.as_deref(), col.combined.verdict),
+        (Some("colecovision"), Verdict::Auto)
+    );
+}
