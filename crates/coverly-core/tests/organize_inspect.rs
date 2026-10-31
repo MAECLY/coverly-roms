@@ -1728,6 +1728,30 @@ mod discs {
     }
 
     #[test]
+    fn a_cdi_disc_is_known_by_its_label_whatever_its_cue_mode() {
+        // `CDI/2352` is the cue mode of a CD-i data track (cdrdao, CDRWIN);
+        // Redump writes `MODE2/2352`. Both reach the disc label.
+        for mode in ["MODE2/2352", "CDI/2352"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let cue = format!(
+                "FILE \"Game.bin\" BINARY\r\n  TRACK 01 {mode}\r\n    INDEX 01 00:00:00\r\n"
+            );
+            let p = write(
+                tmp.path(),
+                "Game.7z",
+                sevenz(
+                    &[
+                        ("Game.cue", cue.as_bytes()),
+                        ("Game.bin", &dt::cdi_track(1)),
+                    ],
+                    SevenZShape::non_solid_lzma(),
+                ),
+            );
+            assert_eq!(known(&inspect(&p)), ("cdi".into(), vec![]), "{mode}");
+        }
+    }
+
+    #[test]
     fn cartridge_disks_with_an_m3u_stay_cartridges() {
         // An m3u alone (floppy playlists) does not make a disc archive.
         let tmp = tempfile::tempdir().unwrap();

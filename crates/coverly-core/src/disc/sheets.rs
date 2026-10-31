@@ -46,11 +46,11 @@ pub enum TrackMode {
     Audio,
     /// `MODE1/…` in a cue.
     Mode1,
-    /// `MODE2/…` in a cue.
+    /// `MODE2/…` (or `CDI/…`, a CD-i Mode 2 track) in a cue.
     Mode2,
     /// A data track whose mode the sheet does not state (type 4 in a gdi).
     Data,
-    /// Anything else (`CDG`, `CDI/2352`, unknown gdi types).
+    /// Anything else (`CDG`, unknown gdi types).
     Other,
 }
 
@@ -277,7 +277,8 @@ fn cue_mode(word: &str) -> Option<(TrackMode, Option<u16>)> {
     let mode = match name.to_ascii_uppercase().as_str() {
         "AUDIO" => TrackMode::Audio,
         "MODE1" => TrackMode::Mode1,
-        "MODE2" => TrackMode::Mode2,
+        // `CDI/2336`, `CDI/2352`: a CD-i Mode 2 track (CDRWIN cue).
+        "MODE2" | "CDI" => TrackMode::Mode2,
         _ => TrackMode::Other,
     };
     let size = size.or(match name.to_ascii_uppercase().as_str() {
@@ -774,6 +775,16 @@ mod tests {
         FILE \"T (Track 03).bin\" BINARY\r\n  TRACK 03 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
         FILE \"T (Track 04).bin\" BINARY\r\n  TRACK 04 AUDIO\r\n    INDEX 01 00:02:00\r\n\
         FILE \"T (Track 05).bin\" BINARY\r\n  TRACK 05 MODE1/2352\r\n    INDEX 01 00:03:00\r\n";
+
+    #[test]
+    fn cue_cdi_mode_is_a_mode2_data_track() {
+        // `CDI/2336` and `CDI/2352` are CD-i Mode 2 tracks (CDRWIN cue).
+        for mode in ["CDI/2352", "cdi/2336"] {
+            let sheet = cue(&format!("FILE a.bin BINARY\n TRACK 01 {mode}\n"));
+            assert_eq!(sheet.tracks[0].mode, TrackMode::Mode2, "{mode}");
+            assert_eq!(primary_track(&sheet), Some(0), "{mode}");
+        }
+    }
 
     #[test]
     fn cue_sessions_mark_their_tracks() {
