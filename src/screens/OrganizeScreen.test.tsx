@@ -712,6 +712,8 @@ describe('OrganizeScreen', () => {
     expect(
       await screen.findByText(
         'Paused: the SD card is full, read-only or was removed. Fix it and resume.',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Disk full')).toBeInTheDocument();

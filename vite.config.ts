@@ -39,6 +39,9 @@ export default defineConfig(async () => ({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // An apply driven through the UI may wait up to APPLY_WAIT (5 s) for its
+    // result; the per-test budget must outlast it on a slow CI runner.
+    testTimeout: 20_000,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: [...configDefaults.exclude, 'target/**', 'src-tauri/**'],
     coverage: {

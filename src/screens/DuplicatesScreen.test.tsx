@@ -286,7 +286,7 @@ describe('DuplicatesScreen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Apartar 89 archivos' }),
     );
-    await screen.findByText(/89 archivos apartados/);
+    await screen.findByText(/89 archivos apartados/, {}, APPLY_WAIT);
     await userEvent.click(
       screen.getByRole('button', {
         name: 'Mostrar _Duplicados en el Explorador',
