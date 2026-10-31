@@ -156,12 +156,17 @@ pub(crate) fn extension(path: &Path) -> String {
 ///
 /// A system with an extension list (strong or weak) accepts exactly those,
 /// even one that is also ignored (`md` is a Mega Drive ROM, not Markdown).
-/// A system with both lists empty accepts any extension that is not ignored.
+/// A system with both lists empty accepts any extension that is not
+/// ignored, except an engine: a data-folder port (Cave Story, Wolfenstein
+/// 3D…, spec D15) is a game folder whose files are not games, so none is.
 pub(crate) fn is_rom_extension(ext: &str, system: &System, opts: &ScanOptions) -> bool {
     if ext.is_empty() {
         return false;
     }
     if system.extensions.is_empty() && system.weak_extensions.is_empty() {
+        if system.family == crate::systems::Family::Engine {
+            return false;
+        }
         !opts
             .ignored_exts
             .iter()
@@ -249,6 +254,18 @@ mod tests {
         assert!(is_rom_extension("whatever", &any, &opts));
         assert!(!is_rom_extension("txt", &any, &opts));
         assert!(!is_rom_extension("png", &any, &opts));
+    }
+
+    #[test]
+    fn an_engine_with_no_extension_accepts_no_file() {
+        // A data-folder port (D15): its folder holds game data, not games.
+        let opts = ScanOptions::default();
+        let mut port = system(&[]);
+        port.family = crate::systems::Family::Engine;
+        assert!(!is_rom_extension("exe", &port, &opts));
+        assert!(!is_rom_extension("pxm", &port, &opts));
+        // A user system with no list still accepts any extension.
+        assert!(is_rom_extension("pxm", &system(&[]), &opts));
     }
 
     #[test]
