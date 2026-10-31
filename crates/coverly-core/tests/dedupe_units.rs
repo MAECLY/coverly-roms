@@ -1051,3 +1051,29 @@ fn names_never_group_over_seven_zip_twins() {
     );
     assert_ne!(gk(&a), gk(&c));
 }
+
+#[test]
+fn folder_game_dirs_are_out_of_scope() {
+    // D15: folders named by a folder-game system (`prboom`, `scummvm`,
+    // `solarus`, `lutro`) hold games that are folders: like `PORTS/`, no
+    // file in them is a unit.
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let rom = rom_bytes(3, 2048);
+    let mut wad = rom.clone();
+    wad[..4].copy_from_slice(b"IWAD");
+    put(root, "ROMS/prboom/freedoom/freedoom1.wad", &wad);
+    put(root, "ROMS/prboom/freedoom/freedoom1 (copy).wad", &wad);
+    put(root, "ROMS/scummvm/Monkey/monkey.scummvm", b"monkey\n");
+    put(root, "ROMS/scummvm/Monkey2/monkey.scummvm", b"monkey\n");
+    let keep = put(root, "ROMS/GB/Tetris.gb", &rom);
+    let set = units_of(root);
+    assert_eq!(primaries(&set), vec![keep]);
+    for folder in ["prboom", "scummvm"] {
+        assert_eq!(
+            excluded_as(&set, &root.join("ROMS").join(folder)),
+            Some(Exclusion::Folder),
+            "{folder}"
+        );
+    }
+}

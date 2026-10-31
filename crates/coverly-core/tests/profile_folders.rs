@@ -370,3 +370,52 @@ fn computers_iii_folders_and_hosts() {
         Some("pet")
     );
 }
+
+#[test]
+fn port_folders_are_scoped_but_prboom_is_global() {
+    // D22: `doom`, `quake`, `flashback`, `solarus` are everyday words a
+    // pile folder may carry, so they resolve only under a profile;
+    // `prboom` is distinctive and global.
+    let db = SystemDb::builtin();
+    for name in [
+        "doom",
+        "quake",
+        "QUAKE",
+        "flashback",
+        "Solarus",
+        "lutro",
+        "mrboom",
+        "xrick",
+    ] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    for (name, want) in [
+        ("prboom", "doom"),
+        ("PRBOOM", "doom"),
+        ("tyrquake", "quake"),
+        ("cavestory", "cavestory"),
+        ("ecwolf", "wolf3d"),
+        ("wolfenstein3d", "wolf3d"),
+        ("reminiscence", "flashback"),
+        ("DINOTHAWR", "dinothawr"),
+        ("rickdangerous", "xrick"),
+    ] {
+        assert_eq!(id(db.resolve_folder(name)), Some(want.into()), "{name}");
+    }
+    let batocera = builtin("batocera");
+    for (name, want) in [
+        ("doom", "doom"),
+        ("quake", "quake"),
+        ("flashback", "flashback"),
+        ("solarus", "solarus"),
+        ("mrboom", "mrboom"),
+        ("xrick", "xrick"),
+    ] {
+        assert_eq!(
+            id(db.resolve_folder_in(Some(&batocera), name)),
+            Some(want.into()),
+            "{name}"
+        );
+    }
+}

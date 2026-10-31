@@ -220,6 +220,7 @@ const MINUI_FOLDERS = {
   plus4: 'PLUS4',
   colecovision: 'COLECO',
   sg1000: 'SG1000',
+  doom: 'PRBOOM',
 };
 /** D23 hosts: a sub-system kept in its parent's folder. */
 const ANBERNIC_STOCK_HOSTS = {
@@ -251,6 +252,10 @@ const MUOS_FOLDERS = {
   pet: 'pet',
   plus4: 'plus4',
   ...FANTASY,
+  cavestory: 'cavestory',
+  doom: 'doom',
+  quake: 'quake',
+  wolf3d: 'wolfenstein3d',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -280,6 +285,10 @@ const ESDE_FOLDERS = {
   atarixe: 'atarixe',
   plus4: 'plus4',
   ...FANTASY,
+  doom: 'doom',
+  lutro: 'lutro',
+  quake: 'quake',
+  solarus: 'solarus',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -312,6 +321,15 @@ const BATOCERA_FOLDERS = {
   pet: 'pet',
   plus4: 'cplus4',
   ...FANTASY,
+  cavestory: 'cavestory',
+  doom: 'prboom',
+  flashback: 'reminiscence',
+  lutro: 'lutro',
+  mrboom: 'mrboom',
+  quake: 'quake',
+  solarus: 'solarus',
+  wolf3d: 'ecwolf',
+  xrick: 'xrick',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

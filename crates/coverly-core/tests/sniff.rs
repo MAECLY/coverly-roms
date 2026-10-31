@@ -1032,3 +1032,26 @@ fn wasm_magic_proves_nothing() {
     assert!(s.hits.is_empty(), "{:?}", s.hits);
     assert_eq!(s.not_a_rom, None);
 }
+
+#[test]
+fn wad_magic() {
+    // Doom WADs open with `IWAD` (a game) or `PWAD` (a patch or mod),
+    // then the lump count and the directory offset (spec D15).
+    for magic in [b"IWAD", b"PWAD"] {
+        assert_eq!(
+            best(&run(&fx::wad(magic), "wad")),
+            Some(("doom".into(), 0.95)),
+            "{}",
+            String::from_utf8_lossy(magic)
+        );
+    }
+    assert!(run(&fx::wad(b"XWAD"), "wad").hits.is_empty());
+    assert!(coverly_core::identify::sniff::DECISIVE.contains(&"doom"));
+}
+
+#[test]
+fn pak_alone_is_not_quake() {
+    // OpenBOR uses the same `PACK` magic as Quake: it names nothing.
+    let s = run(&fx::pack(), "pak");
+    assert!(s.hits.iter().all(|h| h.system != "quake"), "{:?}", s.hits);
+}

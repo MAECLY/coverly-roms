@@ -72,6 +72,17 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   uzebox: 'UZE',
   lowresnx: 'LRNX',
   vircon32: 'V32',
+  // Ports and engines (plan Task 12), same interim Slot mount (spec §9.2).
+  doom: 'DOOM',
+  quake: 'QUAK',
+  cavestory: 'CAVE',
+  wolf3d: 'W3D',
+  mrboom: 'BOOM',
+  dinothawr: 'DINO',
+  lutro: 'LUTR',
+  solarus: 'SOLR',
+  flashback: 'FLBK',
+  xrick: 'RICK',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

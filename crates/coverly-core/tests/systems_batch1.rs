@@ -78,6 +78,17 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("uzebox", Family::Console, false),
     ("lowresnx", Family::Engine, false),
     ("vircon32", Family::Engine, false),
+    // Ports and engines (Task 12).
+    ("doom", Family::Engine, false),
+    ("quake", Family::Engine, false),
+    ("cavestory", Family::Engine, false),
+    ("wolf3d", Family::Engine, false),
+    ("mrboom", Family::Engine, false),
+    ("dinothawr", Family::Engine, false),
+    ("lutro", Family::Engine, false),
+    ("solarus", Family::Engine, false),
+    ("flashback", Family::Engine, false),
+    ("xrick", Family::Engine, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -171,6 +182,13 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("esde", "lowresnx", "lowresnx", None),
     ("batocera", "vircon32", "vircon32", None),
     ("onion", "vircon32", "VIRCON32", Some(false)),
+    // Ports and engines (Task 12).
+    ("batocera", "doom", "prboom", None),
+    ("minui", "doom", "PRBOOM", None),
+    ("batocera", "wolf3d", "ecwolf", None),
+    ("muos", "wolf3d", "wolfenstein3d", None),
+    ("batocera", "flashback", "reminiscence", None),
+    ("esde", "dinothawr", "dinothawr", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -231,6 +249,10 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     ("uzebox", "uze", fx::uzebox, Some("uzebox")),
     ("vircon32", "v32", fx::vircon32, Some("vircon32")),
     ("wasm4", "wasm", fx::wasm, None),
+    // Ports and engines (Task 12). `PACK` is OpenBOR's magic too.
+    ("doom", "wad", || fx::wad(b"IWAD"), Some("doom")),
+    ("doom", "wad", || fx::wad(b"PWAD"), Some("doom")),
+    ("quake", "pak", fx::pack, None),
 ];
 
 fn research(name: &str) -> String {
@@ -757,4 +779,88 @@ fn fantasy_consoles_extension_classes() {
         db.resolve_folder("thomson").map(|s| s.id.as_str()),
         Some("thomson")
     );
+}
+
+#[test]
+fn ports_and_engines_catalogues() {
+    // Spec §7: libretro-database `dat/` DATs and ScreenScraper ids (Doom
+    // and Quake share 135, PC ports; Solarus has neither a thumbnail
+    // folder nor a DAT).
+    let db = SystemDb::builtin();
+    for (id, libretro, dat, ss) in [
+        ("doom", Some("DOOM"), Some("dat/DOOM.dat"), Some(135)),
+        ("quake", Some("Quake"), Some("dat/Quake.dat"), Some(135)),
+        (
+            "cavestory",
+            Some("Cave Story"),
+            Some("dat/Cave Story.dat"),
+            None,
+        ),
+        (
+            "wolf3d",
+            Some("Wolfenstein 3D"),
+            Some("dat/Wolfenstein 3D.dat"),
+            None,
+        ),
+        ("mrboom", Some("MrBoom"), Some("dat/MrBoom.dat"), None),
+        (
+            "dinothawr",
+            Some("Dinothawr"),
+            Some("dat/Dinothawr.dat"),
+            None,
+        ),
+        ("lutro", Some("Lutro"), Some("dat/Lutro.dat"), Some(206)),
+        ("solarus", None, None, Some(223)),
+        (
+            "flashback",
+            Some("Flashback"),
+            Some("dat/Flashback.dat"),
+            None,
+        ),
+        (
+            "xrick",
+            Some("Rick Dangerous"),
+            Some("dat/Rick Dangerous.dat"),
+            None,
+        ),
+    ] {
+        let s = db.get(id).unwrap();
+        assert_eq!(s.libretro.as_deref(), libretro, "{id}");
+        assert_eq!(s.screenscraper, ss, "{id}");
+        let dats: Vec<String> = coverly_core::identify::dat::dat_sources(s);
+        assert_eq!(
+            dats,
+            dat.map(String::from).into_iter().collect::<Vec<_>>(),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn ports_and_engines_extension_classes() {
+    // D15/D4: `.wad`, `.lutro`, `.solarus` are unique; `.pak` stays
+    // OpenBOR's (weak for Quake), `.game` and `.lua` are weak only.
+    use coverly_core::systems::ExtClass;
+    let db = SystemDb::builtin();
+    for (ext, owner) in [("wad", "doom"), ("lutro", "lutro"), ("solarus", "solarus")] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
+        assert_eq!(
+            db.systems_for_extension(ext)
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            [owner],
+            "{ext}"
+        );
+    }
+    assert_eq!(
+        db.systems_for_extension("pak")
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect::<Vec<_>>(),
+        ["openbor"]
+    );
+    for ext in ["game", "lua"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unknown, "{ext}");
+    }
 }

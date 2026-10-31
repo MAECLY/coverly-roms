@@ -2953,3 +2953,55 @@ fn an_arduboy_package_moves_as_one_raw_file() {
         .filter(|i| file_name(&i.sources[0]) == "firmware.hex")
         .all(OrganizeItem::is_left));
 }
+
+#[test]
+fn a_folder_game_is_one_left_item_with_the_layout_folder() {
+    // D15: `Freedoom Phase 1/` holding an IWAD is one item left in place,
+    // naming the layout's Doom folder (the user's name when one is set);
+    // a loose `DOOM.WAD` moves on its own.
+    let dir = TempDir::new().unwrap();
+    let mut wad = fx::wad(b"IWAD");
+    put(&dir.path().join("Freedoom Phase 1/freedoom1.wad"), &wad);
+    put(
+        &dir.path().join("Freedoom Phase 1/README.txt"),
+        b"Freedoom\n",
+    );
+    wad[100] = 7;
+    put(&dir.path().join("DOOM.WAD"), &wad);
+    let world = World::new();
+    let plan_for = |names: BTreeMap<String, String>| {
+        plan(
+            &world,
+            dir.path(),
+            OrganizeOptions {
+                offline: true,
+                folder_names: names,
+                ..defaults("batocera")
+            },
+        )
+    };
+    let p = plan_for(BTreeMap::new());
+    assert_eq!(
+        left_reason(&p, "Freedoom Phase 1"),
+        Some(LeftReason::FolderGame {
+            system: "doom".into(),
+            folder: "prboom".into(),
+        })
+    );
+    assert!(p
+        .items
+        .iter()
+        .all(|i| file_name(&i.sources[0]) != "README.txt"
+            && file_name(&i.sources[0]) != "freedoom1.wad"));
+    let loose = by_name(&p, "DOOM.WAD").target.clone().unwrap();
+    assert_eq!(loose, Path::new("roms").join("prboom").join("DOOM.WAD"));
+
+    let p = plan_for(BTreeMap::from([("doom".to_string(), "doom".to_string())]));
+    assert_eq!(
+        left_reason(&p, "Freedoom Phase 1"),
+        Some(LeftReason::FolderGame {
+            system: "doom".into(),
+            folder: "doom".into(),
+        })
+    );
+}

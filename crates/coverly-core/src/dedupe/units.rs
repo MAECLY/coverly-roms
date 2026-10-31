@@ -22,6 +22,7 @@ use crate::identify::dat::DatGame;
 use crate::identify::sniff::{sniff, ContainerMagic, NotARom, SliceAt};
 use crate::organize::evidence::Facts;
 use crate::organize::inspect::{ArchiveIssue, Container};
+use crate::organize::walk::FOLDER_GAME_SYSTEMS;
 use crate::profiles::Profile;
 use crate::scan::classify::{extension, is_bios_name, is_partial_download, is_skipped_entry};
 use crate::scan::{LibraryScan, RomEntry, ScanOptions};
@@ -252,7 +253,7 @@ pub fn units_from_scan(
     let mut drafts = Vec::new();
     let mut link_targets = HashSet::new();
     for sys in &scan.systems {
-        if opts.out_of_scope(&sys.folder_name) {
+        if opts.out_of_scope(&sys.folder_name) || is_folder_game_dir(db, sys) {
             excluded.push((sys.dir.clone(), Exclusion::Folder));
             continue;
         }
@@ -426,6 +427,21 @@ fn common_checks(path: &Path, opts: Option<&UnitOptions>) -> Result<(), Option<E
         return Err(Some(Exclusion::Quarantine));
     }
     Ok(())
+}
+
+/// Whether a scanned system folder holds folder games (spec D15): it
+/// belongs to one of [`FOLDER_GAME_SYSTEMS`], or its name is one of their
+/// aliases. Like `ports`, nothing in it is a unit.
+fn is_folder_game_dir(db: &SystemDb, sys: &crate::scan::SystemScan) -> bool {
+    FOLDER_GAME_SYSTEMS
+        .iter()
+        .filter_map(|id| db.get(id))
+        .any(|s| {
+            sys.system_id.as_deref() == Some(s.id.as_str())
+                || s.aliases
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case(&sys.folder_name))
+        })
 }
 
 /// Whether `name` (with `ext`, lowercase) is a BIOS by name.

@@ -409,6 +409,39 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
             None,
         ],
     ),
+    // Ports and engines (Task 12). Onion and GarlicOS ship none of them;
+    // NextUI has only the PrBoom pak.
+    (
+        "doom",
+        [
+            Some("doom"),
+            Some("prboom"),
+            Some("doom"),
+            None,
+            Some("PRBOOM"),
+        ],
+    ),
+    (
+        "quake",
+        [Some("quake"), Some("quake"), Some("quake"), None, None],
+    ),
+    (
+        "cavestory",
+        [None, Some("cavestory"), Some("cavestory"), None, None],
+    ),
+    (
+        "wolf3d",
+        [None, Some("ecwolf"), Some("wolfenstein3d"), None, None],
+    ),
+    ("mrboom", [None, Some("mrboom"), None, None, None]),
+    ("dinothawr", [None, None, None, None, None]),
+    ("lutro", [Some("lutro"), Some("lutro"), None, None, None]),
+    (
+        "solarus",
+        [Some("solarus"), Some("solarus"), None, None, None],
+    ),
+    ("flashback", [None, Some("reminiscence"), None, None, None]),
+    ("xrick", [None, Some("xrick"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

@@ -1626,3 +1626,31 @@ fn fantasy_console_carts_move_only_with_their_signature() {
         }
     }
 }
+
+#[test]
+fn wad_without_magic_is_not_auto() {
+    // D15: doom is DECISIVE, so a `.wad` without `IWAD`/`PWAD` (a WiiWare
+    // WAD one day) is contradicted (0.60, `wad!`) and never moves alone;
+    // with the magic it does.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut bare = fx::wad(b"IWAD");
+    bare[..4].copy_from_slice(b"\0\0\0\x20");
+    let s = sniff(&mut SliceAt(&bare), bare.len() as u64, "wad");
+    let ev = extension_evidence(&SystemDb::builtin(), "wad", &s);
+    let doom = ev.iter().find(|e| e.system == "doom").unwrap();
+    assert_eq!((doom.weight, doom.detail.as_str()), (0.60, "wad!"));
+    let p = tmp.path().join("Bare.wad");
+    std::fs::write(&p, &bare).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+
+    let p = tmp.path().join("DOOM.WAD");
+    std::fs::write(&p, fx::wad(b"IWAD")).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("doom"), Verdict::Auto),
+        "{:?}",
+        id.combined
+    );
+}

@@ -1074,3 +1074,102 @@ extensions = ["v32"]
 libretro = "Vircon32"
 dats = ["dat/Vircon32.dat"]
 screenscraper = 272
+
+# Ports and engines (systems batch 1, Task 12; spec §7, D15). A game is a
+# folder: claimed by its folder alias, by `IWAD`/`PWAD` (Doom) and by the
+# `.solarus`/`.lutro` packages. `doom`, `quake`, `flashback`, `solarus`,
+# `lutro`, `mrboom` and `xrick` are everyday words: scoped (D22).
+[[system]]
+id = "doom"
+name = "Doom (PrBoom)"
+family = "engine"
+aliases = ["PRBOOM", "doom"]
+scoped_aliases = ["doom"]
+extensions = ["wad"]
+libretro = "DOOM"
+dats = ["dat/DOOM.dat"]
+screenscraper = 135
+
+[[system]]
+id = "quake"
+name = "Quake"
+family = "engine"
+aliases = ["QUAKE", "tyrquake"]
+scoped_aliases = ["quake"]
+weak_extensions = ["pak"]
+libretro = "Quake"
+dats = ["dat/Quake.dat"]
+screenscraper = 135
+
+[[system]]
+id = "cavestory"
+name = "Cave Story (NXEngine)"
+family = "engine"
+aliases = ["CAVESTORY", "nxengine"]
+libretro = "Cave Story"
+dats = ["dat/Cave Story.dat"]
+
+[[system]]
+id = "wolf3d"
+name = "Wolfenstein 3D (ECWolf)"
+family = "engine"
+aliases = ["ECWOLF", "wolf3d", "wolfenstein3d"]
+libretro = "Wolfenstein 3D"
+dats = ["dat/Wolfenstein 3D.dat"]
+
+[[system]]
+id = "mrboom"
+name = "Mr. Boom"
+family = "engine"
+aliases = ["MRBOOM"]
+scoped_aliases = ["mrboom"]
+libretro = "MrBoom"
+dats = ["dat/MrBoom.dat"]
+
+[[system]]
+id = "dinothawr"
+name = "Dinothawr"
+family = "engine"
+aliases = ["DINOTHAWR"]
+weak_extensions = ["game"]
+libretro = "Dinothawr"
+dats = ["dat/Dinothawr.dat"]
+
+[[system]]
+id = "lutro"
+name = "Lutro"
+family = "engine"
+aliases = ["LUTRO"]
+scoped_aliases = ["lutro"]
+extensions = ["lutro"]
+weak_extensions = ["lua"]
+libretro = "Lutro"
+dats = ["dat/Lutro.dat"]
+screenscraper = 206
+
+[[system]]
+id = "solarus"
+name = "Solarus"
+family = "engine"
+aliases = ["SOLARUS"]
+scoped_aliases = ["solarus"]
+extensions = ["solarus"]
+screenscraper = 223
+
+[[system]]
+id = "flashback"
+name = "Flashback (REminiscence)"
+family = "engine"
+aliases = ["REMINISCENCE", "flashback"]
+scoped_aliases = ["flashback"]
+libretro = "Flashback"
+dats = ["dat/Flashback.dat"]
+
+[[system]]
+id = "xrick"
+name = "Rick Dangerous (XRick)"
+family = "engine"
+aliases = ["XRICK", "rickdangerous"]
+scoped_aliases = ["xrick"]
+libretro = "Rick Dangerous"
+dats = ["dat/Rick Dangerous.dat"]

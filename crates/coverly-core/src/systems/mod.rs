@@ -708,9 +708,13 @@ mod tests {
             assert!(!s.name.is_empty(), "{} has no name", s.id);
             assert!(!s.aliases.is_empty(), "{} has no aliases", s.id);
             // WASM-4 lists only a weak `.wasm` (D4): its folder still
-            // accepts exactly that.
+            // accepts exactly that. Data-folder ports (Cave Story,
+            // Wolfenstein 3D, Mr. Boom, Flashback, Rick Dangerous) list
+            // none: they are claimed by folder alias or DAT only (D15).
             assert!(
-                !s.extensions.is_empty() || !s.weak_extensions.is_empty(),
+                !s.extensions.is_empty()
+                    || !s.weak_extensions.is_empty()
+                    || s.family == Family::Engine,
                 "{} has no extensions",
                 s.id
             );

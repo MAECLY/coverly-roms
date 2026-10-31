@@ -790,6 +790,14 @@ expression: rows
   },
   {
     "accepting": [
+      "dinothawr"
+    ],
+    "class": "Unknown",
+    "ext": "game",
+    "strong": []
+  },
+  {
+    "accepting": [
       "gb",
       "gbc"
     ],
@@ -1027,6 +1035,24 @@ expression: rows
     "ext": "lnx",
     "strong": [
       "lynx"
+    ]
+  },
+  {
+    "accepting": [
+      "lutro"
+    ],
+    "class": "Unknown",
+    "ext": "lua",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "lutro"
+    ],
+    "class": "Unique",
+    "ext": "lutro",
+    "strong": [
+      "lutro"
     ]
   },
   {
@@ -1307,7 +1333,8 @@ expression: rows
   },
   {
     "accepting": [
-      "openbor"
+      "openbor",
+      "quake"
     ],
     "class": "Unique",
     "ext": "pak",
@@ -1541,6 +1568,16 @@ expression: rows
     "strong": [
       "zxspectrum",
       "amstradcpc"
+    ]
+  },
+  {
+    "accepting": [
+      "solarus"
+    ],
+    "class": "Unique",
+    "ext": "solarus",
+    "strong": [
+      "solarus"
     ]
   },
   {
@@ -1797,6 +1834,16 @@ expression: rows
     "ext": "vec",
     "strong": [
       "vectrex"
+    ]
+  },
+  {
+    "accepting": [
+      "doom"
+    ],
+    "class": "Unique",
+    "ext": "wad",
+    "strong": [
+      "doom"
     ]
   },
   {

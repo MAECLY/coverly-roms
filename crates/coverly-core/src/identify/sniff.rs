@@ -15,9 +15,9 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 13] = [
+pub const DECISIVE: [&str; 14] = [
     "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
-    "uzebox", "vircon32",
+    "uzebox", "vircon32", "doom",
 ];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
@@ -557,7 +557,7 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
-    if early_consoles(head, ext, s) || computer_media(head, ext, s) {
+    if early_consoles(head, ext, s) || engines(head, s) || computer_media(head, ext, s) {
         return;
     }
     // A GBA header carrying its logo too (48 bits) outranks the SNES
@@ -667,6 +667,23 @@ fn fantasy_consoles(head: &[u8], s: &mut Sniff) -> bool {
         return true;
     }
     false
+}
+
+/// Engine data with a header (spec D15): a Doom WAD opens with `IWAD` (a
+/// game) or `PWAD` (a patch or mod), then the lump count and directory
+/// offset. Quake's `PACK` is OpenBOR's magic too, so it names nothing.
+fn engines(head: &[u8], s: &mut Sniff) -> bool {
+    if is_doom_wad(head) {
+        s.hit("doom", 0.95, if head[0] == b'I' { "IWAD" } else { "PWAD" });
+        return true;
+    }
+    false
+}
+
+/// Whether `head` opens like a Doom WAD (`IWAD`/`PWAD`): the proof a
+/// folder game gives in the organise walk (D15).
+pub fn is_doom_wad(head: &[u8]) -> bool {
+    head.starts_with(b"IWAD") || head.starts_with(b"PWAD")
 }
 
 /// Tape and disk images of home computers (spec §8.1). TZX (format 1.20:
@@ -1359,6 +1376,27 @@ pub mod fixtures {
     pub fn wasm() -> Vec<u8> {
         let mut b = zeros(1024);
         b[..8].copy_from_slice(b"\0asm\x01\0\0\0");
+        b
+    }
+
+    /// A Doom WAD: `magic` (`IWAD` or `PWAD`), the lump count and the
+    /// directory offset (little-endian), then zeros.
+    pub fn wad(magic: &[u8; 4]) -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(magic);
+        b[4..8].copy_from_slice(&1u32.to_le_bytes());
+        b[8..12].copy_from_slice(&4080u32.to_le_bytes());
+        b[4080..4084].copy_from_slice(&12u32.to_le_bytes());
+        b[4088..4096].copy_from_slice(b"PLAYPAL\0");
+        b
+    }
+
+    /// A Quake/OpenBOR `PACK` archive: magic, directory offset and size.
+    pub fn pack() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"PACK");
+        b[4..8].copy_from_slice(&4032u32.to_le_bytes());
+        b[8..12].copy_from_slice(&64u32.to_le_bytes());
         b
     }
 

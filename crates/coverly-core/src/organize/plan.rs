@@ -184,6 +184,13 @@ pub enum LeftReason {
     AlreadySorted {
         folder: String,
     },
+    /// A game that is a folder (Doom WAD, Solarus, Lutro, ScummVM): left
+    /// as one item; move the whole folder to `folder`, the system's folder
+    /// under the target layout (spec D15).
+    FolderGame {
+        system: String,
+        folder: String,
+    },
     /// Symlinks, junctions and other reparse points are never followed.
     Symlink,
     /// A disc set whose listed files are missing.
@@ -989,6 +996,17 @@ pub fn survey(
         },
     )
     .map_err(|e| OrganizeError::Unreadable(source_abs.clone(), e.to_string()))?;
+    // The walk names a folder game's target without the user's folder
+    // names; the survey knows them.
+    for (_, reason) in &mut walked.left {
+        if let LeftReason::FolderGame { system, folder } = reason {
+            if let Some(s) = env.db.get(system) {
+                *folder =
+                    crate::profiles::naming::system_folder(&profile, s, env.db, &opts.folder_names)
+                        .folder;
+            }
+        }
+    }
     progress(OrganizeProgress {
         phase: OrganizePhase::Walk,
         done: walked.candidates.len(),
