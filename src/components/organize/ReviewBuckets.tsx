@@ -123,7 +123,7 @@ function Bucket({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
         {/* Dashed: these files have no shelf yet. */}
         <SlotMark state="missing" size={16} />
-        <div className="grid min-w-0 flex-1 gap-0.5">
+        <div className="grid min-w-0 flex-1 basis-64 gap-0.5">
           <p
             id={id}
             className="m-0 flex flex-wrap items-center gap-2 text-ui font-medium"
