@@ -764,6 +764,35 @@ fn another_leftover_keeps_the_source_folder() {
     assert!(!pile.path().join("Zelda").join("GAME.PROBE").exists());
 }
 
+/// Like [`a_file_appears`], with the new file's AppleDouble sidecar (its
+/// Finder metadata on a FAT card).
+fn a_file_and_its_sidecar_appear(stage: CopyStage, path: &Path) -> Option<io::Error> {
+    if stage == CopyStage::Delete && path.ends_with("a.bin") {
+        fs::write(path.with_file_name("._new.sav"), b"META").unwrap();
+    }
+    a_file_appears(stage, path)
+}
+
+#[test]
+fn a_kept_source_folder_keeps_the_sidecars_of_what_stays() {
+    let _g = ProbeGuard::new();
+    let _f = FaultGuard;
+    let (world, pile, target) = setup();
+    put_tree(pile.path(), ZELDA);
+    let p = plan(&world, pile.path(), target.path(), "esde");
+    let item = only_folder(&p);
+    let data = TempDir::new().unwrap();
+    set_copy_fault(Some(a_file_and_its_sidecar_appear));
+    let report = apply(&p, data.path());
+    set_copy_fault(None);
+    assert_eq!(status(&report, item.id), &ItemStatus::CopiedNotRemoved);
+    let d = pile.path().join("Zelda").join("d");
+    assert_eq!(fs::read(d.join("new.sav")).unwrap(), b"NEW");
+    // The folder stays, so its litter is not cleaned: the sidecar of the
+    // file that stays is that file's metadata.
+    assert_eq!(fs::read(d.join("._new.sav")).unwrap(), b"META");
+}
+
 #[test]
 fn copy_mode_keeps_the_source() {
     let _g = ProbeGuard::new();

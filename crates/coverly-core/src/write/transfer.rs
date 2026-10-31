@@ -955,16 +955,24 @@ fn roll_back_tree(top: &Path, tree: &Tree, copied: &[(PathBuf, Fingerprint)]) {
     }
 }
 
-/// Deletes the junk files directly in `dir`, best effort.
+/// Deletes the junk files directly in `dir` when nothing else is in it,
+/// best effort: a folder that stays keeps its litter, since an
+/// AppleDouble `._x` there is the metadata of a file `x` that stays.
 fn remove_junk_in(dir: &Path) {
     let Ok(read) = fs::read_dir(dir) else {
         return;
     };
+    let mut junk = Vec::new();
     for entry in read.flatten() {
-        let junk = entry.file_name().to_str().is_some_and(is_junk_name);
-        if junk && entry.file_type().is_ok_and(|t| t.is_file()) {
-            let _ = fs::remove_file(entry.path());
+        let is_junk = entry.file_name().to_str().is_some_and(is_junk_name)
+            && entry.file_type().is_ok_and(|t| t.is_file());
+        if !is_junk {
+            return;
         }
+        junk.push(entry.path());
+    }
+    for path in junk {
+        let _ = fs::remove_file(path);
     }
 }
 
