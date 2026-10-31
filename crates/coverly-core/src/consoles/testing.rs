@@ -26,7 +26,21 @@ impl SparseAt {
     }
 
     /// Puts `bytes` at `offset` (a later part wins where two overlap).
+    ///
+    /// Reads lay parts out by offset, not by insertion, so the bytes an
+    /// older part shares with this one are overwritten here too.
     pub fn put(&mut self, offset: u64, bytes: &[u8]) -> &mut Self {
+        let end = offset.saturating_add(bytes.len() as u64);
+        for (&start, old) in self.parts.iter_mut() {
+            let old_end = start.saturating_add(old.len() as u64);
+            if start >= end || old_end <= offset {
+                continue;
+            }
+            let from = start.max(offset);
+            let to = old_end.min(end);
+            old[(from - start) as usize..(to - start) as usize]
+                .copy_from_slice(&bytes[(from - offset) as usize..(to - offset) as usize]);
+        }
         self.parts.insert(offset, bytes.to_vec());
         self
     }

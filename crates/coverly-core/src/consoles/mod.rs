@@ -463,6 +463,17 @@ mod tests {
     }
 
     #[test]
+    fn sparse_later_put_wins_where_parts_overlap() {
+        // A field patched into a header block, at a lower and at a higher
+        // offset than the block: the later `put` wins either way.
+        let mut src = SparseAt::new(16);
+        src.put(4, b"BBBB").put(2, b"aaa").put(7, b"cc");
+        let mut buf = [0u8; 10];
+        assert_eq!(src.read_at(0, &mut buf).unwrap(), 10);
+        assert_eq!(&buf, b"\0\0aaaBBcc\0");
+    }
+
+    #[test]
     fn range_log_records_reads() {
         let mut src = SparseAt::new(32);
         src.put(8, b"xy");
