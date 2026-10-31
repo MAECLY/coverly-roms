@@ -2077,7 +2077,7 @@ impl AppState {
             }
         };
         let store = ArtStore::new(&self.base.cache_dir, &cache);
-        let url = match self.dedupe.libretro_memo(plan_id, group, media) {
+        let url = match self.dedupe.libretro_memo(plan_id, group, media, name) {
             Some(url) => url,
             None => {
                 let cfg = LibretroConfig {
@@ -2091,7 +2091,7 @@ impl AppState {
                     .get(system)
                     .and_then(|s| libretro_cached_url(&src, &store, s, media, name));
                 self.dedupe
-                    .remember_libretro(plan_id, group, media, url.clone());
+                    .remember_libretro(plan_id, group, media, name, url.clone());
                 url
             }
         };
@@ -2352,13 +2352,13 @@ mod tests {
         }
         let lib = tempfile::tempdir().unwrap();
         let id = keep_art_plan(&st, lib.path(), None);
-        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover), None);
+        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS), None);
         assert_eq!(
             st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
             b"PNGL"
         );
         assert_eq!(
-            st.dedupe.libretro_memo(id, 7, Media::Cover),
+            st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS),
             Some(Some(TETRIS_URL.to_string()))
         );
         assert_eq!(
@@ -2380,9 +2380,66 @@ mod tests {
             None,
             Media::Title
         )));
-        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Title), Some(None));
+        assert_eq!(
+            st.dedupe.libretro_memo(id, 7, Media::Title, TETRIS),
+            Some(None)
+        );
         st.dedupe.forget_all();
-        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover), None);
+        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS), None);
+    }
+
+    #[test]
+    fn dedupe_art_libretro_follows_a_new_keeper_name() {
+        const JAPAN: &str = "Tetris (Japan)";
+        const JAPAN_URL: &str = "https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy/Named_Boxarts/Tetris%20(Japan).png";
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        {
+            let cache = st.cache().unwrap();
+            cache
+                .put_json(
+                    "libretro-root-2",
+                    "root",
+                    &vec!["Nintendo - Game Boy".to_string()],
+                    None,
+                )
+                .unwrap();
+            cache
+                .put_json(
+                    "libretro-index-2",
+                    "Nintendo - Game Boy/Named_Boxarts",
+                    &vec![format!("{TETRIS}.png"), format!("{JAPAN}.png")],
+                    None,
+                )
+                .unwrap();
+            let store = coverly_core::jobs::ArtStore::new(&dirs.path().join("cache"), &cache);
+            store.put(TETRIS_URL, b"WORLD").unwrap();
+            store.put(JAPAN_URL, b"JAPAN").unwrap();
+        }
+        let lib = tempfile::tempdir().unwrap();
+        let id = keep_art_plan(&st, lib.path(), None);
+        st.dedupe
+            .edit(id, |s| {
+                s.plan.groups[0].members[1].catalogue_name = Some(JAPAN.into());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"WORLD"
+        );
+        // Another keeper (a pick or other rules), same plan id and group.
+        st.dedupe
+            .edit(id, |s| {
+                s.plan.groups[0].keeper = 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"JAPAN",
+            "the cover follows the new keeper's catalogue name"
+        );
     }
 
     /// Keeps an Organise plan of the pile `source` into `target` and

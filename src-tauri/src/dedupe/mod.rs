@@ -139,9 +139,10 @@ pub enum ArtSource {
     Libretro { system: String, name: String },
 }
 
-/// A resolved libretro URL per `(plan_id, group, media)`; `None` also
-/// remembers "nothing downloaded" (plan DP-2).
-type LibretroMemo = HashMap<(u64, u64, Media), Option<String>>;
+/// A resolved libretro URL per `(plan_id, group, media, catalogue name)`;
+/// `None` also remembers "nothing downloaded" (plan DP-2). The name is in
+/// the key: another keeper (a pick, other rules) may name another region.
+type LibretroMemo = HashMap<(u64, u64, Media, String), Option<String>>;
 
 #[derive(Default)]
 struct Inner {
@@ -212,7 +213,7 @@ impl DedupeManager {
         inner.plans.push_back((id, Arc::new(Mutex::new(plan))));
         while inner.plans.len() > KEPT_PLANS {
             if let Some((old, _)) = inner.plans.pop_front() {
-                inner.libretro.retain(|(plan, _, _), _| *plan != old);
+                inner.libretro.retain(|(plan, _, _, _), _| *plan != old);
             }
         }
         view
@@ -292,21 +293,36 @@ impl DedupeManager {
     }
 
     /// The libretro URL remembered for the cover of `group` in plan
-    /// `plan_id`: `None` when not looked up yet, `Some(None)` when nothing
-    /// was downloaded.
-    pub fn libretro_memo(&self, plan_id: u64, group: u64, media: Media) -> Option<Option<String>> {
+    /// `plan_id` under the catalogue name `name`: `None` when not looked up
+    /// yet, `Some(None)` when nothing was downloaded.
+    pub fn libretro_memo(
+        &self,
+        plan_id: u64,
+        group: u64,
+        media: Media,
+        name: &str,
+    ) -> Option<Option<String>> {
         lock(&self.inner)
             .libretro
-            .get(&(plan_id, group, media))
+            .get(&(plan_id, group, media, name.to_string()))
             .cloned()
     }
 
-    /// Remembers the libretro lookup of `group`'s cover while plan
-    /// `plan_id` is kept.
-    pub fn remember_libretro(&self, plan_id: u64, group: u64, media: Media, url: Option<String>) {
+    /// Remembers the libretro lookup of `group`'s cover under the
+    /// catalogue name `name` while plan `plan_id` is kept.
+    pub fn remember_libretro(
+        &self,
+        plan_id: u64,
+        group: u64,
+        media: Media,
+        name: &str,
+        url: Option<String>,
+    ) {
         let mut inner = lock(&self.inner);
         if inner.plans.iter().any(|(id, _)| *id == plan_id) {
-            inner.libretro.insert((plan_id, group, media), url);
+            inner
+                .libretro
+                .insert((plan_id, group, media, name.to_string()), url);
         }
     }
 
@@ -661,17 +677,17 @@ mod tests {
         let m = DedupeManager::default();
         let first = m.next_id();
         m.store(first, empty_stored());
-        m.remember_libretro(first, 7, Media::Cover, Some("u".into()));
-        m.remember_libretro(first, 7, Media::Title, None);
+        m.remember_libretro(first, 7, Media::Cover, "n", Some("u".into()));
+        m.remember_libretro(first, 7, Media::Title, "n", None);
         assert_eq!(
-            m.libretro_memo(first, 7, Media::Cover),
+            m.libretro_memo(first, 7, Media::Cover, "n"),
             Some(Some("u".into()))
         );
-        assert_eq!(m.libretro_memo(first, 7, Media::Title), Some(None));
+        assert_eq!(m.libretro_memo(first, 7, Media::Title, "n"), Some(None));
 
         // A lookup for a plan that is not kept is not remembered.
-        m.remember_libretro(first + 100, 7, Media::Cover, Some("x".into()));
-        assert_eq!(m.libretro_memo(first + 100, 7, Media::Cover), None);
+        m.remember_libretro(first + 100, 7, Media::Cover, "n", Some("x".into()));
+        assert_eq!(m.libretro_memo(first + 100, 7, Media::Cover, "n"), None);
 
         // Evicting the plan drops its memo; a newer plan's stays.
         let mut last = first;
@@ -679,11 +695,11 @@ mod tests {
             last = m.next_id();
             m.store(last, empty_stored());
         }
-        m.remember_libretro(last, 7, Media::Cover, Some("v".into()));
-        assert_eq!(m.libretro_memo(first, 7, Media::Cover), None);
-        assert_eq!(m.libretro_memo(first, 7, Media::Title), None);
+        m.remember_libretro(last, 7, Media::Cover, "n", Some("v".into()));
+        assert_eq!(m.libretro_memo(first, 7, Media::Cover, "n"), None);
+        assert_eq!(m.libretro_memo(first, 7, Media::Title, "n"), None);
         assert_eq!(
-            m.libretro_memo(last, 7, Media::Cover),
+            m.libretro_memo(last, 7, Media::Cover, "n"),
             Some(Some("v".into()))
         );
     }
