@@ -2573,12 +2573,12 @@ fn count(items: &[OrganizeItem], walked: &Walked) -> Counts {
     counts
 }
 
-/// Same length and same bytes (CRC32 of both, streamed).
 /// MAME CHD folders (spec D16): the `.chd` files of `<set>/` follow
 /// `<set>.zip` into `<arcade folder>/<set>/` when the zip moves in as an
 /// arcade set under its own name. Otherwise, or when a CHD cannot land
 /// (already there, a different file there, too big for FAT32), the CHD is
-/// returned to be left with its reason.
+/// returned to be left with its reason: a set already present in the
+/// library reports each CHD already present beside it when it is.
 fn attach_chd_folders(
     items: &mut [OrganizeItem],
     chd_folders: &[(PathBuf, Vec<PathBuf>)],
@@ -2602,7 +2602,22 @@ fn attach_chd_folders(
                     .is_some_and(|s| s.arcade)
         });
         let Some(set) = set else {
-            left.extend(chds.iter().map(|c| (c.clone(), LeftReason::Unknown)));
+            let present = items.iter().find_map(|i| match &i.action {
+                OrganizeAction::Left {
+                    reason: LeftReason::AlreadyPresent { at },
+                } if i.sources.len() == 1 && i.sources[0] == zip_rel => Some(at.clone()),
+                _ => None,
+            });
+            left.extend(chds.iter().map(|c| {
+                let reason = present
+                    .as_deref()
+                    .and_then(|at| Some(at.parent()?.join(at.file_stem()?).join(c.file_name()?)))
+                    .filter(|to| same_bytes(&target_root.join(to), c))
+                    .map_or(LeftReason::Unknown, |to| LeftReason::AlreadyPresent {
+                        at: to,
+                    });
+                (c.clone(), reason)
+            }));
             continue;
         };
         let target = set.target.clone().expect("checked above");
@@ -2637,6 +2652,7 @@ fn attach_chd_folders(
     left
 }
 
+/// Same length and same bytes (CRC32 of both, streamed).
 fn same_bytes(a: &Path, b: &Path) -> bool {
     let (Ok(ma), Ok(mb)) = (fs::metadata(a), fs::metadata(b)) else {
         return false;

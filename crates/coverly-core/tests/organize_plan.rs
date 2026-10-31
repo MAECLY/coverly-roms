@@ -3158,3 +3158,45 @@ fn chd_folder_beside_a_set_that_stays_is_left() {
     assert_eq!(left_reason(&p, "disc.chd"), Some(LeftReason::Unknown));
     assert!(by_name(&p, "mystery.zip").companions.is_empty());
 }
+
+#[test]
+fn chd_folder_of_a_set_already_in_the_library_is_already_present() {
+    // A second run (or a copy run) finds `<arcade>/sfiii.zip` and its
+    // `sfiii/sfiii.chd` already there: both are reported already present,
+    // the CHD never as unknown.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(&world, "sfiii", &roms);
+    let zip_path = s.path().join("sfiii.zip");
+    common::roms::zip_file(
+        &zip_path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&zip_path, 1);
+    let chd = s.path().join("sfiii").join("sfiii.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+    let opts = || OrganizeOptions {
+        offline: true,
+        target: Some(t.path().to_path_buf()),
+        ..defaults("batocera")
+    };
+    let first = plan(&world, s.path(), opts());
+    let item = by_name(&first, "sfiii.zip");
+    let zip_at = item.target.clone().unwrap();
+    let chd_at = item.companions[0].target.clone();
+    fs::create_dir_all(t.path().join(&chd_at).parent().unwrap()).unwrap();
+    fs::copy(&zip_path, t.path().join(&zip_at)).unwrap();
+    fs::copy(&chd, t.path().join(&chd_at)).unwrap();
+
+    let again = plan(&world, s.path(), opts());
+    assert_eq!(
+        left_reason(&again, "sfiii.zip"),
+        Some(LeftReason::AlreadyPresent { at: zip_at })
+    );
+    assert_eq!(
+        left_reason(&again, "sfiii.chd"),
+        Some(LeftReason::AlreadyPresent { at: chd_at })
+    );
+}
