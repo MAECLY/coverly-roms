@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import type { LeftReason, OrganizeItem } from '@/ipc/types';
+import type { LeftReason, OrganizeItem, SystemInfo } from '@/ipc/types';
 import { autoItem } from '@/test/organizeFixtures';
 
 const unknown = (id: number): OrganizeItem =>
@@ -23,12 +23,30 @@ const left = (id: number, name: string, reason: LeftReason): OrganizeItem =>
     reason,
   }) as OrganizeItem;
 
-function show(items: OrganizeItem[], extra: { onRescan?: () => void } = {}) {
+/** One system of each family (names as in `systems.toml`), unsorted. */
+const SYSTEMS: SystemInfo[] = [
+  { id: 'wasm4', name: 'WASM-4', family: 'engine' },
+  { id: 'zxspectrum', name: 'Sinclair ZX Spectrum', family: 'computer' },
+  { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
+  { id: 'mame', name: 'MAME', family: 'arcade' },
+  { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
+  { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
+  { id: 'amstradcpc', name: 'Amstrad CPC', family: 'computer' },
+  { id: 'doom', name: 'Doom (PrBoom)', family: 'engine' },
+];
+
+function show(
+  items: OrganizeItem[],
+  extra: {
+    onRescan?: () => void;
+    onDecide?: (ids: number[], c: unknown) => void;
+  } = {},
+) {
   return render(
     <I18nProvider locale="es">
       <LeftInPlace
         items={items}
-        systems={[]}
+        systems={SYSTEMS}
         otherFiles={0}
         deepFolders={0}
         onDecide={vi.fn()}
@@ -39,6 +57,59 @@ function show(items: OrganizeItem[], extra: { onRescan?: () => void } = {}) {
 }
 
 describe('LeftInPlace', () => {
+  it('groups the system picker by family, placeholder first and outside any group', async () => {
+    const onDecide = vi.fn();
+    show([unknown(0)], { onDecide });
+    const select = screen.getByRole('combobox', {
+      name: 'Sistema para File 000.bin',
+    });
+    const groups = [...select.querySelectorAll('optgroup')];
+    expect(groups.map((g) => g.label)).toEqual([
+      'Consolas',
+      'Portátiles',
+      'Ordenadores',
+      'Recreativas',
+      'Motores y consolas de fantasía',
+    ]);
+    // Sorted by name inside a group; no icon, no count in the labels.
+    expect(
+      [...groups[0]!.querySelectorAll('option')].map((o) => o.textContent),
+    ).toEqual(['Atari Jaguar', 'Sony PlayStation 2']);
+    expect(
+      [...groups[2]!.querySelectorAll('option')].map((o) => o.textContent),
+    ).toEqual(['Amstrad CPC', 'Sinclair ZX Spectrum']);
+    const first = select.querySelector('option')!;
+    expect(first.textContent).toBe('Elige un sistema…');
+    expect(first.parentElement).toBe(select);
+    expect(first).toBeDisabled();
+    expect(select).toHaveValue('');
+    // jsdom has no native type-ahead (checked in the browser); a choice
+    // from inside a group decides the file.
+    await userEvent.selectOptions(select, 'zxspectrum');
+    expect(onDecide).toHaveBeenCalledWith([0], { system: 'zxspectrum' });
+  });
+
+  it('a folder game names its system and the folder, in mono', () => {
+    show([
+      left(0, 'Freedoom Phase 1', {
+        kind: 'folder-game',
+        system: 'doom',
+        folder: 'prboom',
+      }),
+    ]);
+    const line = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        (el.textContent ?? '').startsWith('Juego de Doom (PrBoom)'),
+    );
+    expect(line).toHaveTextContent(
+      'Juego de Doom (PrBoom) en su propia carpeta: muévela entera a prboom',
+    );
+    expect(within(line).getByText('prboom').closest('.mono')).not.toBeNull();
+    // A folder game is not an unknown file: no system picker.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
   it('tool_hint_and_rescan_button', async () => {
     const onRescan = vi.fn();
     show(

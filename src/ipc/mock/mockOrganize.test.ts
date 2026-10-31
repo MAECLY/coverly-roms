@@ -17,6 +17,7 @@ import {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
   MOCK_PICK_KEY,
+  MOCK_RETRO,
   MOCK_SAMPLE,
   readMockExtract,
   readMockPick,
@@ -689,6 +690,8 @@ describe('mock folder pick', () => {
     expect(readMockPick()).toBe(MOCK_DOWNLOADS);
     window.history.replaceState(null, '', '/?mockPick=mixed');
     expect(readMockPick()).toBe(MOCK_MIXED);
+    window.history.replaceState(null, '', '/?mockPick=retro');
+    expect(readMockPick()).toBe(MOCK_RETRO);
     window.history.replaceState(null, '', '/?mockPick=relative/path');
     expect(readMockPick()).toBeNull();
     window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
@@ -1289,5 +1292,98 @@ describe('mock organise: extract pacing', () => {
     expect(
       lib.entries.some((e) => e.rel_path.startsWith(`ROMS/${item.folder}/`)),
     ).toBe(false);
+  });
+});
+
+describe('mock organise: the systems batch 1 retro pile', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+
+  it('plans the spec 9.3 pile like the Rust snapshot on Onion', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_RETRO,
+      layout: 'onion',
+    });
+    const verdicts = Object.fromEntries(
+      plan.items.map((i) => [i.sources[0], [i.action, i.system_id, i.folder]]),
+    );
+    expect(verdicts).toEqual({
+      'Arkanoid (1987).dsk': ['review', 'amstradcpc', 'CPC'],
+      'DOOM.WAD': ['auto', 'doom', 'PRBOOM'],
+      'Freedoom Phase 1': ['left', null, null],
+      'Gran Turismo 4 (Europe).iso': ['auto', 'ps2', 'PS2'],
+      'Manic Miner (1983)(Bug-Byte).tzx': ['auto', 'zxspectrum', 'ZXS'],
+      'Prince of Persia.st': ['auto', 'atarist', 'ATARIST'],
+      'Sailor Moon (Japan).st': ['auto', 'sufami', 'SUFAMI'],
+      'Tempest 2000 (World).j64': ['auto', 'jaguar', 'JAGUAR'],
+      'game.bin': ['left', null, null],
+      'sfiii.zip': ['auto', 'mame', 'MAME'],
+    });
+    expect(plan.counts).toMatchObject({
+      auto: 7,
+      review: 1,
+      left: 2,
+      other_files: 2,
+    });
+    expect(plan.other_files).toEqual([
+      'Cave Story/Doukutsu.exe',
+      'Cave Story/data/Stage/0.pxm',
+    ]);
+    const freedoom = by(plan.items, 'Freedoom Phase 1');
+    expect(freedoom.action === 'left' && freedoom.reason).toEqual({
+      kind: 'folder-game',
+      system: 'doom',
+      folder: 'PRBOOM',
+    });
+    const arkanoid = by(plan.items, 'Arkanoid (1987).dsk');
+    expect(arkanoid.alternatives.map(([s]) => s).slice(0, 1)).toEqual([
+      'zxspectrum',
+    ]);
+    const sailor = by(plan.items, 'Sailor Moon (Japan).st');
+    expect(sailor.why.map((e) => e.detail)).toEqual(['BANDAI SFC-ADX', 'st~']);
+    expect(sailor.notes).toEqual([
+      { kind: 'extension-contradicted', ext: 'st' },
+    ]);
+    expect(by(plan.items, 'sfiii.zip').companions).toEqual([
+      { source: 'sfiii/sfiii.chd', target: 'Roms/MAME/sfiii/sfiii.chd' },
+    ]);
+    // Onion has no folder for PS2, Jaguar or PrBoom (spec 6.1).
+    const noFolder = plan.items
+      .filter((i) => i.notes.some((n) => n.kind === 'no-folder-on-device'))
+      .map((i) => i.system_id)
+      .sort();
+    expect(noFolder).toEqual(['doom', 'jaguar', 'ps2']);
+  });
+
+  it('names the folders of each layout and drops the Onion notes elsewhere', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_RETRO,
+      layout: 'batocera',
+    });
+    const freedoom = by(plan.items, 'Freedoom Phase 1');
+    expect(freedoom.action === 'left' && freedoom.reason).toEqual({
+      kind: 'folder-game',
+      system: 'doom',
+      folder: 'prboom',
+    });
+    expect(by(plan.items, 'Tempest 2000 (World).j64').folder).toBe('jaguar');
+    expect(
+      plan.items.some((i) =>
+        i.notes.some((n) => n.kind === 'no-folder-on-device'),
+      ),
+    ).toBe(false);
+  });
+
+  it('lists the new systems with their family for the grouped picker', async () => {
+    const systems = await backend().listSystems();
+    for (const [id, family] of [
+      ['ps2', 'console'],
+      ['zxspectrum', 'computer'],
+      ['wasm4', 'engine'],
+      ['doom', 'engine'],
+      ['mame', 'arcade'],
+    ] as const)
+      expect(systems.find((s) => s.id === id)?.family, id).toBe(family);
+    expect(new Set(systems.map((s) => s.id)).size).toBe(systems.length);
   });
 });

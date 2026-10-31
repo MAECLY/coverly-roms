@@ -1,12 +1,15 @@
 import { RotateCw } from 'lucide-react';
-import { useState } from 'react';
+import { useContext, useMemo, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NativeSelect } from '@/components/ui/select';
+import { LocaleContext } from '@/i18n/core';
+import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
-import type { OrganizeItem, SystemInfo } from '@/ipc/types';
+import type { LeftReason, OrganizeItem, SystemInfo } from '@/ipc/types';
 import { ROWS_PER_GROUP, leftReasonText } from '@/lib/organize';
+import { systemOptionGroups } from '@/lib/systems';
 
 import { NewBadge, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
@@ -53,7 +56,29 @@ export function LeftInPlace({
   onRescan,
 }: Props) {
   const t = useT();
+  const tr = useRichT();
+  const locale = useContext(LocaleContext);
   const [visible, setVisible] = useState(ROWS_PER_GROUP);
+  // Every system, grouped by family and sorted in the user's language
+  // (spec §9.1): the list is long, so it reads as five short ones.
+  const groups = useMemo(
+    () => systemOptionGroups(systems, t, locale),
+    [systems, t, locale],
+  );
+  const names = useMemo(
+    () => new Map(systems.map((s) => [s.id, s.name])),
+    [systems],
+  );
+  const systemName = (id: string) => names.get(id) ?? id;
+  /** The reason line; a folder game sets its folder in mono, like a path. */
+  const reasonText = (reason: LeftReason): ReactNode =>
+    reason.kind === 'folder-game'
+      ? tr(
+          'organize.left.folderGame',
+          { system: systemName(reason.system), folder: reason.folder },
+          ['folder'],
+        )
+      : leftReasonText(t, reason, systemName);
   const rest = Math.max(0, items.length - visible);
   if (items.length === 0 && otherFiles === 0 && deepFolders === 0) return null;
   return (
@@ -92,13 +117,17 @@ export function LeftInPlace({
                               onDecide([item.id], { system: e.target.value });
                           }}
                         >
-                          <option value="">
+                          <option value="" disabled>
                             {t('organize.review.choose')}
                           </option>
-                          {systems.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name}
-                            </option>
+                          {groups.map((g) => (
+                            <optgroup key={g.family} label={g.label}>
+                              {g.systems.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                         </NativeSelect>
                       )}
@@ -106,9 +135,7 @@ export function LeftInPlace({
                   {item.action === 'left' &&
                     (onRescan && needsTool(item) ? (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <p className={hintText}>
-                          {leftReasonText(t, item.reason)}
-                        </p>
+                        <p className={hintText}>{reasonText(item.reason)}</p>
                         <Button
                           variant="outline"
                           size="sm"
@@ -121,9 +148,7 @@ export function LeftInPlace({
                         </Button>
                       </div>
                     ) : (
-                      <p className={hintText}>
-                        {leftReasonText(t, item.reason)}
-                      </p>
+                      <p className={hintText}>{reasonText(item.reason)}</p>
                     ))}
                 </li>
               );

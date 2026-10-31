@@ -771,6 +771,10 @@ export type LeftReason =
   | { kind: 'duplicate'; of: string }
   | { kind: 'already-present'; at: string }
   | { kind: 'already-sorted'; folder: string }
+  /** A game that is a folder (Doom WAD, Solarus, Lutro, ScummVM): left as
+   * one item; `folder` is the system's folder under the target layout
+   * (spec D15). */
+  | { kind: 'folder-game'; system: string; folder: string }
   /** The game is already in the library (duplicates step). */
   | InLibraryReason
   | { kind: 'symlink' }

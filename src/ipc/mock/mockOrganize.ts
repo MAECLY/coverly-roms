@@ -20,8 +20,14 @@
  *   real pile) a `.tar.gz` cartridge that is extracted.
  * - `MOCK_MIXED` has 4 sure ROMs (one with a name that is markup), 2 for
  *   review, 1 unknown, 1 duplicate and 2 partial downloads.
+ * - `MOCK_RETRO` is the systems batch 1 pile of spec §9.3, with the
+ *   verdicts of the core's plan snapshots (`organize_plan__systems_batch_1__*`):
+ *   PS2, Jaguar, ZX Spectrum, Sufami Turbo against Atari ST on `.st`, a
+ *   `.dsk` for review, Doom loose and as a folder game, a Cave Story folder
+ *   left as other files, a MAME set with its CHD folder and an unknown
+ *   `.bin`.
  *
- * Only these two folders exist for organising; any other source is
+ * Only these piles exist for organising; any other source is
  * `not-found`. Targets are not checked.
  *
  * Extraction: disc archives always extract (flat, or one folder per game
@@ -88,21 +94,25 @@ import { MOCK_SAMPLE_SORTED, type MockSortedFolder } from './sampleFixture';
 export const MOCK_DOWNLOADS = '/Users/demo/Downloads/roms';
 export const MOCK_MIXED = '/Users/demo/Mixed';
 export const MOCK_SAMPLE = '/Users/demo/ROMs-Downloaded';
+export const MOCK_RETRO = '/Users/demo/Retro';
 export const MOCK_PLAN_EXPORT = 'coverly-organize-plan.json';
 export const MOCK_PICK_KEY = 'coverly.mock.pick';
 
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
- * reachable from the start screen: `?mockPick=downloads|loose|mixed|<absolute
- * path>` (or localStorage `coverly.mock.pick`). `downloads` is the owner's
- * pile as it is now (`MOCK_SAMPLE`), `loose` the same pile before any of it
- * was sorted (`MOCK_DOWNLOADS`). Null: the first fixture library, as before.
+ * reachable from the start screen:
+ * `?mockPick=downloads|loose|mixed|retro|<absolute path>` (or localStorage
+ * `coverly.mock.pick`). `downloads` is the owner's pile as it is now
+ * (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
+ * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`).
+ * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
   const resolve = (v: string | null): string | null => {
     if (v === 'downloads') return MOCK_SAMPLE;
     if (v === 'loose') return MOCK_DOWNLOADS;
     if (v === 'mixed') return MOCK_MIXED;
+    if (v === 'retro') return MOCK_RETRO;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -183,8 +193,16 @@ interface PileFile {
   method?: IdLevel;
   confidence?: number;
   detail?: string;
-  /** Other systems: the item goes to review. */
+  /** Other systems: the item goes to review (unless `sure`). */
   alternatives?: [string, number][];
+  /** Auto despite its runner-ups (they stay listed as alternatives). */
+  sure?: boolean;
+  /** Every clue, when there is more than the one `method`/`detail` says. */
+  why?: Evidence[];
+  /** Notes the core adds whatever the layout. */
+  notes?: ItemNote[];
+  /** Files that travel with it, relative to the pile (a MAME CHD folder). */
+  companions?: string[];
   catalogue?: string;
   left?: LeftReason;
   archive?: ArchiveDef;
@@ -199,6 +217,8 @@ interface PileDef {
   junk: string[];
   /** System folders already sorted there (opens as a library). */
   sorted?: readonly MockSortedFolder[];
+  /** Files no rule claims, listed but never moved (`other_files`). */
+  otherFiles?: string[];
 }
 
 const hash = (
@@ -226,6 +246,12 @@ const GBA_HEADER: Partial<PileFile> = {
   confidence: 0.98,
 };
 const SFC_HEADER = header('snes', 'LoROM header, checksum ok');
+const ev = (
+  kind: IdLevel,
+  system: string,
+  weight: number,
+  detail: string,
+): Evidence => ({ kind, system, weight, detail });
 const PARTIAL: LeftReason = { kind: 'partial-download' };
 
 /** A disc archive of `discFixture.ts` as a pile file. */
@@ -509,6 +535,115 @@ const PILES: readonly PileDef[] = [
       { name: 'Kirby (USA).gbc.part', size: 12_288, left: PARTIAL },
     ],
   },
+  {
+    // Spec §9.3, as the core plans it (Task 14 snapshots).
+    path: MOCK_RETRO,
+    junk: [],
+    otherFiles: ['Cave Story/Doukutsu.exe', 'Cave Story/data/Stage/0.pxm'],
+    files: [
+      {
+        // CPC magic, but `.dsk` is shared: review, CPC first.
+        name: 'Arkanoid (1987).dsk',
+        size: 16_384,
+        system: 'amstradcpc',
+        method: 'header',
+        confidence: 0.53,
+        why: [
+          ev('header', 'amstradcpc', 0.5, 'CPC DSK'),
+          ev('extension', 'amstradcpc', 0.5, 'dsk'),
+        ],
+        alternatives: [
+          ['zxspectrum', 0.53],
+          ['apple2', 0.5],
+          ['coco', 0.5],
+          ['dragon', 0.5],
+          ['msx', 0.5],
+          ['msx2', 0.5],
+          ['msxturbor', 0.5],
+        ],
+      },
+      {
+        name: 'DOOM.WAD',
+        size: 4_096,
+        system: 'doom',
+        method: 'header',
+        confidence: 0.98,
+        why: [
+          ev('header', 'doom', 0.95, 'IWAD'),
+          ev('extension', 'doom', 0.85, 'wad'),
+        ],
+      },
+      {
+        // `freedoom1.wad` (IWAD) and a README: one folder game.
+        name: 'Freedoom Phase 1',
+        size: 128,
+        left: { kind: 'folder-game', system: 'doom', folder: '' },
+      },
+      {
+        name: 'Gran Turismo 4 (Europe).iso',
+        size: 49_152,
+        ...header('ps2', 'SYSTEM.CNF BOOT2'),
+        confidence: 0.95,
+      },
+      {
+        name: 'Manic Miner (1983)(Bug-Byte).tzx',
+        size: 2_048,
+        system: 'zxspectrum',
+        method: 'header',
+        confidence: 0.93,
+        why: [
+          ev('header', 'zxspectrum', 0.9, 'TZX'),
+          ev('extension', 'zxspectrum', 0.85, 'tzx'),
+        ],
+      },
+      {
+        name: 'Prince of Persia.st',
+        size: 737_280,
+        system: 'atarist',
+        method: 'extension',
+        confidence: 0.85,
+        detail: 'st',
+      },
+      {
+        // The Sufami magic proves the weak owner; Atari ST is contradicted.
+        name: 'Sailor Moon (Japan).st',
+        size: 524_288,
+        system: 'sufami',
+        method: 'header',
+        confidence: 0.98,
+        why: [
+          ev('header', 'sufami', 0.95, 'BANDAI SFC-ADX'),
+          ev('extension', 'sufami', 0.5, 'st~'),
+        ],
+        alternatives: [['atarist', 0.6]],
+        sure: true,
+        notes: [{ kind: 'extension-contradicted', ext: 'st' }],
+      },
+      {
+        name: 'Tempest 2000 (World).j64',
+        size: 4_096,
+        system: 'jaguar',
+        method: 'extension',
+        confidence: 0.85,
+        detail: 'j64',
+      },
+      { name: 'game.bin', size: 512, left: { kind: 'unknown' } },
+      {
+        name: 'sfiii.zip',
+        size: 244,
+        ...hash('mame', 'sfiii', ''),
+        detail: 'sfiii',
+        alternatives: [
+          ['cps1', 0.99],
+          ['cps2', 0.99],
+          ['cps3', 0.99],
+          ['neogeo', 0.99],
+        ],
+        sure: true,
+        companions: ['sfiii/sfiii.chd'],
+      },
+    ],
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -530,7 +665,62 @@ export const ORGANIZE_SYSTEMS: readonly {
   family: SystemFamily;
 }[] = [
   { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
+  // The retro pile (spec §9.3): its systems and the review's runner-ups.
+  { id: 'jaguar', name: 'Atari Jaguar', folder: 'JAGUAR', family: 'console' },
+  {
+    id: 'sufami',
+    name: 'Bandai Sufami Turbo',
+    folder: 'SUFAMI',
+    family: 'console',
+  },
+  { id: 'apple2', name: 'Apple II', folder: 'APPLE2', family: 'computer' },
+  { id: 'amstradcpc', name: 'Amstrad CPC', folder: 'CPC', family: 'computer' },
+  { id: 'atarist', name: 'Atari ST', folder: 'ATARIST', family: 'computer' },
+  {
+    id: 'coco',
+    name: 'Tandy TRS-80 Color Computer',
+    folder: 'COCO',
+    family: 'computer',
+  },
+  { id: 'dragon', name: 'Dragon 32/64', folder: 'DRAGON', family: 'computer' },
+  { id: 'msx', name: 'MSX', folder: 'MSX', family: 'computer' },
+  { id: 'msx2', name: 'MSX2', folder: 'MSX2', family: 'computer' },
+  {
+    id: 'msxturbor',
+    name: 'MSX turbo R',
+    folder: 'MSXTURBOR',
+    family: 'computer',
+  },
+  { id: 'cps1', name: 'Capcom Play System', folder: 'CPS1', family: 'arcade' },
+  {
+    id: 'cps2',
+    name: 'Capcom Play System II',
+    folder: 'CPS2',
+    family: 'arcade',
+  },
+  {
+    id: 'cps3',
+    name: 'Capcom Play System III',
+    folder: 'CPS3',
+    family: 'arcade',
+  },
+  { id: 'doom', name: 'Doom (PrBoom)', folder: 'PRBOOM', family: 'engine' },
 ];
+
+/**
+ * Layouts with no folder for a system of the retro pile (spec §6.1,
+ * `SYSTEM_FOLDERS` of `profiles/builtin.rs`): the core still makes the
+ * folder and notes it (`no-folder-on-device`). Anbernic stock has none for
+ * any batch 1 system (D11); GarlicOS reads the Onion column (D9).
+ */
+const ABSENT_ON: Readonly<Record<string, readonly string[]>> = {
+  ps2: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  jaguar: ['anbernic-stock', 'garlicos', 'onion', 'minui'],
+  doom: ['anbernic-stock', 'garlicos', 'onion'],
+  sufami: ['anbernic-stock', 'minui'],
+  zxspectrum: ['anbernic-stock', 'minui'],
+  amstradcpc: ['anbernic-stock'],
+};
 const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
   [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
 );
@@ -885,16 +1075,18 @@ export function createMockOrganize(
     const identified =
       file.system !== undefined && file.left?.kind !== 'partial-download';
     const why: Evidence[] =
-      identified && file.method
-        ? [
-            {
-              kind: file.method,
-              system: file.system!,
-              weight: file.confidence ?? 0,
-              detail: file.detail ?? '',
-            },
-          ]
-        : [];
+      identified && file.why
+        ? file.why.map((e) => ({ ...e }))
+        : identified && file.method
+          ? [
+              {
+                kind: file.method,
+                system: file.system!,
+                weight: file.confidence ?? 0,
+                detail: file.detail ?? '',
+              },
+            ]
+          : [];
     const common = {
       id,
       sources: [file.name],
@@ -912,7 +1104,7 @@ export function createMockOrganize(
         ? file.alternatives.map(([s, w]) => [s, w] as [string, number])
         : [],
       rename: null,
-      notes: [],
+      notes: file.notes ? file.notes.map((n) => ({ ...n })) : [],
       companions: [],
       catalogue_name: file.catalogue ?? null,
       transfer: { kind: 'as-is' } as const,
@@ -924,7 +1116,7 @@ export function createMockOrganize(
         action: 'left',
         reason: { ...file.left },
       } as OrganizeItem;
-    if (file.alternatives) return { ...common, action: 'review' };
+    if (file.alternatives && !file.sure) return { ...common, action: 'review' };
     return { ...common, action: 'auto' };
   }
 
@@ -1086,9 +1278,19 @@ export function createMockOrganize(
         : [],
     );
     for (const [i, item] of items.entries()) {
+      if (item.action === 'left' && item.reason.kind === 'folder-game') {
+        // Move the whole folder to the system's folder of this layout.
+        items[i] = {
+          ...item,
+          reason: { ...item.reason, folder: folderFor(r, item.reason.system) },
+        };
+        continue;
+      }
       if (item.action === 'left' || item.system_id === null) continue;
       const folder = folderFor(r, item.system_id);
       const dir = join(r.romsRel, folder);
+      if (ABSENT_ON[item.system_id]?.includes(r.layout.profile.id))
+        item.notes = [...item.notes, { kind: 'no-folder-on-device', folder }];
       if (item.action === 'review') {
         items[i] = { ...item, folder };
         continue;
@@ -1135,7 +1337,17 @@ export function createMockOrganize(
         rename = { kind: 'collision', name };
       }
       taken.add(join(dir, name).toLowerCase());
-      items[i] = { ...item, folder, target: join(dir, name), rename };
+      const companions = (files[i]!.companions ?? []).map((c) => ({
+        source: c,
+        target: join(dir, c),
+      }));
+      items[i] = {
+        ...item,
+        folder,
+        target: join(dir, name),
+        rename,
+        companions,
+      };
     }
     return { items, files };
   }
@@ -1277,7 +1489,7 @@ export function createMockOrganize(
         review: items.filter((i) => i.action === 'review').length,
         left: items.filter((i) => i.action === 'left').length,
         junk: pile(r.source).junk.length,
-        other_files: 0,
+        other_files: pile(r.source).otherFiles?.length ?? 0,
         deep_folders: 0,
         bytes: moving.reduce((n, i) => n + i.size, 0),
         set_aside: items.filter((i) => i.action === 'set-aside').length,
@@ -1286,7 +1498,7 @@ export function createMockOrganize(
       },
       sorted_folders: sortedFolders,
       deep_folders: [],
-      other_files: [],
+      other_files: [...(pile(r.source).otherFiles ?? [])],
       warnings,
       broad_root: false,
       fat32: false,

@@ -183,12 +183,28 @@ describe('OrganizeScreen', () => {
     const names = within(select)
       .getAllByRole('option')
       .map((o) => o.textContent);
-    // A prompt, then every system by name.
+    // A prompt, then every system, grouped by family and by name inside.
     expect(names[0]).toBe('Choose a system…');
-    expect(names.slice(1)).toEqual(
-      [...names.slice(1)].sort((x, y) =>
-        x!.localeCompare(y!, 'en', { sensitivity: 'base' }),
-      ),
+    const groups = [...select.querySelectorAll('optgroup')];
+    expect(groups.map((g) => g.label)).toEqual([
+      'Consoles',
+      'Handhelds',
+      'Computers',
+      'Arcade',
+      'Engines and fantasy consoles',
+    ]);
+    for (const g of groups) {
+      const inGroup = [...g.querySelectorAll('option')].map(
+        (o) => o.textContent!,
+      );
+      expect(inGroup).toEqual(
+        [...inGroup].sort((x, y) =>
+          x.localeCompare(y, 'en', { sensitivity: 'base' }),
+        ),
+      );
+    }
+    expect(groups.flatMap((g) => [...g.children]).length).toBe(
+      names.length - 1,
     );
     await userEvent.selectOptions(select, 'gb');
     expect(

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import en from '../../locales/en/ui.json';
 import es from '../../locales/es/ui.json';
+import { translate, type TranslateVars } from '@/i18n/core';
 import type {
   DiscId,
   OrganizeReport,
@@ -94,6 +95,7 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'duplicate', of: 'Tetris Attack.zip' },
   { kind: 'already-present', at: 'ROMS/GBA/x.zip' },
   { kind: 'already-sorted', folder: 'GBA' },
+  { kind: 'folder-game', system: 'doom', folder: 'prboom' },
   { kind: 'symlink' },
   { kind: 'set-incomplete', missing: ['a.bin', 'b.bin'] },
   { kind: 'set-outside-folder' },
@@ -189,6 +191,38 @@ describe('organise plan helpers', () => {
     ).toBe('organize.left.setIncomplete{"missing":"a, b"}');
   });
 
+  it('a folder game names the system and its folder', () => {
+    const names: Record<string, string> = { doom: 'Doom (PrBoom)' };
+    const reason: LeftReason = {
+      kind: 'folder-game',
+      system: 'doom',
+      folder: 'prboom',
+    };
+    const es_ = (key: string, vars?: TranslateVars) =>
+      translate('es', key, vars);
+    const en_ = (key: string, vars?: TranslateVars) =>
+      translate('en', key, vars);
+    expect(leftReasonText(es_, reason, (id) => names[id] ?? id)).toBe(
+      'Juego de Doom (PrBoom) en su propia carpeta: muévela entera a prboom',
+    );
+    expect(leftReasonText(en_, reason, (id) => names[id] ?? id)).toBe(
+      'Doom (PrBoom) game in its own folder: move the whole folder to prboom',
+    );
+    // Without a name lookup the id still reads.
+    expect(leftReasonKey(reason).vars).toEqual({
+      system: 'doom',
+      folder: 'prboom',
+    });
+    expect(
+      translate('es', 'organize.why.extensionWeak', {
+        ext: 'st',
+        system: 'Bandai Sufami Turbo',
+      }),
+    ).toBe(
+      'Extensión .st: cuenta para Bandai Sufami Turbo solo dentro de su carpeta o con su cabecera',
+    );
+  });
+
   it('confidence labels', () => {
     expect(confidenceKey(1)).toBe('organize.confidence.high');
     expect(confidenceKey(0.97)).toBe('organize.confidence.high');
@@ -234,6 +268,11 @@ describe('organise plan helpers', () => {
       key: 'organize.why.extensionContradicted',
       vars: { ext: 'gba', system: 'Game Boy Advance' },
     });
+    // A weak extension backs a header or hash; it never decides alone.
+    expect(whyKey({ ...ev('extension', 'st~'), weight: 0.5 }, name)).toEqual({
+      key: 'organize.why.extensionWeak',
+      vars: { ext: 'st', system: 'Game Boy Advance' },
+    });
     expect(whyKey(ev('name', 'Tetris Worlds'), name)).toEqual({
       key: 'organize.why.name',
       vars: { name: 'Tetris Worlds', system: 'Game Boy Advance' },
@@ -248,6 +287,7 @@ describe('organise plan helpers', () => {
       'extension',
       'extensionShared',
       'extensionContradicted',
+      'extensionWeak',
       'name',
       'online',
       'user',
@@ -349,6 +389,11 @@ function discItem(id: number, patch: Partial<OrganizeItem> = {}) {
 }
 
 const NEW_REASONS: [LeftReason, string, Record<string, string | number>][] = [
+  [
+    { kind: 'folder-game', system: 'doom', folder: 'prboom' },
+    'organize.left.folderGame',
+    { system: 'doom', folder: 'prboom' },
+  ],
   [
     { kind: 'unsupported-archive', format: 'rar', need: 'unrar' },
     'organize.left.unsupportedArchiveTool',

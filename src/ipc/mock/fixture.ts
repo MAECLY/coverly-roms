@@ -151,6 +151,15 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     weight: 7,
   },
   {
+    // Batch 1: a RetroArch silhouette (PS2) beside a Slot mount (WASM-4).
+    folder: 'PS2',
+    id: 'ps2',
+    family: 'console',
+    name: 'Sony PlayStation 2',
+    exts: ['iso', 'chd'],
+    weight: 1,
+  },
+  {
     folder: 'PSP',
     id: 'psp',
     family: 'handheld',
@@ -175,11 +184,27 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     weight: 3,
   },
   {
+    folder: 'WASM4',
+    id: 'wasm4',
+    family: 'engine',
+    name: 'WASM-4',
+    exts: ['wasm'],
+    weight: 1,
+  },
+  {
     folder: 'WS',
     id: 'wonderswan',
     family: 'handheld',
     name: 'WonderSwan',
     exts: ['ws'],
+    weight: 1,
+  },
+  {
+    folder: 'ZXS',
+    id: 'zxspectrum',
+    family: 'computer',
+    name: 'Sinclair ZX Spectrum',
+    exts: ['tzx', 'z80'],
     weight: 1,
   },
 ];
