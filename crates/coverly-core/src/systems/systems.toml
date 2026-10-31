@@ -777,3 +777,33 @@ extensions = ["zip", "7z"]
 weak_extensions = ["st", "sfc", "smc"]
 libretro = "Nintendo - Sufami Turbo"
 screenscraper = 108
+
+# Handhelds (systems batch 1, Task 7). None has a header (spec §8.1):
+# folder or DAT hash only; `.bin` stays Generic.
+
+[[system]]
+id = "supervision"
+name = "Watara Supervision"
+family = "handheld"
+aliases = ["SUPERVISION"]
+extensions = ["sv", "bin", "zip", "7z"]
+libretro = "Watara - Supervision"
+screenscraper = 207
+
+[[system]]
+id = "gamecom"
+name = "Tiger Game.com"
+family = "handheld"
+aliases = ["GAMECOM"]
+extensions = ["tgc", "bin", "zip", "7z"]
+libretro = "Tiger - Game.com"
+screenscraper = 121
+
+[[system]]
+id = "megaduck"
+name = "Mega Duck / Cougar Boy"
+family = "handheld"
+aliases = ["MEGADUCK", "cougarboy"]
+# No libretro-thumbnails folder and no DAT: covers from ScreenScraper only.
+extensions = ["bin", "zip", "7z"]
+screenscraper = 90

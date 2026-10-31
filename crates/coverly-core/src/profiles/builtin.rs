@@ -235,6 +235,31 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
             None,
         ],
     ),
+    // Handhelds (Task 7).
+    (
+        "supervision",
+        [
+            Some("supervision"),
+            Some("supervision"),
+            Some("supervision"),
+            Some("SUPERVISION"),
+            None,
+        ],
+    ),
+    (
+        "gamecom",
+        [Some("gamecom"), Some("gamecom"), None, None, None],
+    ),
+    (
+        "megaduck",
+        [
+            Some("megaduck"),
+            Some("megaduck"),
+            Some("megaduck"),
+            Some("MEGADUCK"),
+            None,
+        ],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

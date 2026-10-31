@@ -45,6 +45,10 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("n64dd", Family::Console, false),
     ("satellaview", Family::Console, false),
     ("sufami", Family::Console, false),
+    // Handhelds (Task 7).
+    ("supervision", Family::Handheld, false),
+    ("gamecom", Family::Handheld, false),
+    ("megaduck", Family::Handheld, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -78,6 +82,13 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("minui", "supergrafx", "SGFX", Some(false)),
     ("onion", "sufami", "SUFAMI", None),
     ("esde", "n64dd", "n64dd", None),
+    // Handhelds (Task 7).
+    ("onion", "megaduck", "MEGADUCK", None),
+    ("onion", "supervision", "SUPERVISION", None),
+    ("muos", "gamecom", "gamecom", Some(false)),
+    ("esde", "gamecom", "gamecom", None),
+    ("batocera", "megaduck", "megaduck", None),
+    ("minui", "megaduck", "MEGADUCK", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -325,4 +336,27 @@ fn famicom_and_fc_stay_nes() {
         );
     }
     assert!(db.get("famicom").is_none());
+}
+
+#[test]
+fn mega_duck_covers_come_from_screenscraper_only() {
+    // §7 / §11 step 6: no libretro-thumbnails folder and no DAT, so the
+    // only cover source is ScreenScraper (system 90).
+    let db = SystemDb::builtin();
+    let duck = db.get("megaduck").unwrap();
+    assert_eq!(duck.libretro, None);
+    assert!(coverly_core::identify::dat::dat_sources(duck).is_empty());
+    assert_eq!(duck.screenscraper, Some(90));
+    for (id, ss) in [("supervision", 207), ("gamecom", 121)] {
+        let s = db.get(id).unwrap();
+        assert_eq!(s.screenscraper, Some(ss), "{id}");
+        assert_eq!(
+            coverly_core::identify::dat::dat_sources(s),
+            [format!(
+                "metadat/no-intro/{}.dat",
+                s.libretro.as_ref().unwrap()
+            )],
+            "{id}"
+        );
+    }
 }

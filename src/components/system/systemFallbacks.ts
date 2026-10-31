@@ -39,6 +39,10 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   n64dd: '64DD',
   satellaview: 'BSX',
   sufami: 'ST',
+  // Handhelds (plan Task 7), same interim Slot mount.
+  supervision: 'SV',
+  gamecom: 'GCOM',
+  megaduck: 'DUCK',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

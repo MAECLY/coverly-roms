@@ -171,6 +171,9 @@ const ADD_ONS = {
   sufami: 'sufami',
   supergrafx: 'supergrafx',
 };
+/** Handhelds (Task 7) named alike on ES-DE, Batocera and muOS (muOS has
+ * no Game.com folder). */
+const HANDHELDS = { megaduck: 'megaduck', supervision: 'supervision' };
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -181,6 +184,8 @@ const ONION_FOLDERS = {
   sg1000: 'SEGASGONE',
   sufami: 'SUFAMI',
   supergrafx: 'SGFX',
+  megaduck: 'MEGADUCK',
+  supervision: 'SUPERVISION',
 };
 const MINUI_FOLDERS = { colecovision: 'COLECO', sg1000: 'SG1000' };
 /** D23 hosts: a sub-system kept in its parent's folder. */
@@ -195,6 +200,7 @@ const MUOS_FOLDERS = {
   ...ADD_ONS,
   pico: 'segapico',
   sg1000: 'sg1000',
+  ...HANDHELDS,
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -210,6 +216,8 @@ const ESDE_FOLDERS = {
   jaguar: 'atarijaguar',
   ...ADD_ONS,
   sg1000: 'sg-1000',
+  ...HANDHELDS,
+  gamecom: 'gamecom',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -226,6 +234,8 @@ const BATOCERA_FOLDERS = {
   ...ADD_ONS,
   pico: 'pico',
   sg1000: 'sg1000',
+  ...HANDHELDS,
+  gamecom: 'gamecom',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

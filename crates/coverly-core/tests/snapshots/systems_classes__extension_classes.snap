@@ -209,7 +209,10 @@ expression: rows
       "scv",
       "jaguar",
       "sg1000",
-      "pico"
+      "pico",
+      "supervision",
+      "gamecom",
+      "megaduck"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -236,7 +239,10 @@ expression: rows
       "scv",
       "jaguar",
       "sg1000",
-      "pico"
+      "pico",
+      "supervision",
+      "gamecom",
+      "megaduck"
     ]
   },
   {
@@ -1202,6 +1208,16 @@ expression: rows
   },
   {
     "accepting": [
+      "supervision"
+    ],
+    "class": "Unique",
+    "ext": "sv",
+    "strong": [
+      "supervision"
+    ]
+  },
+  {
+    "accepting": [
       "scummvm"
     ],
     "class": "Unique",
@@ -1242,6 +1258,16 @@ expression: rows
     "strong": [
       "c64",
       "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "gamecom"
+    ],
+    "class": "Unique",
+    "ext": "tgc",
+    "strong": [
+      "gamecom"
     ]
   },
   {

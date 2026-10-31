@@ -11,7 +11,7 @@ import { SYSTEM_ICONS } from './systemIcons.generated';
 const IDS = [...toml.matchAll(/^id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!);
 
 describe('system icon data', () => {
-  it('reads the 76 systems', () => expect(IDS).toHaveLength(76));
+  it('reads the 79 systems', () => expect(IDS).toHaveLength(79));
   it('every systems.toml id resolves to an icon or an abbreviation, not both', () => {
     for (const id of IDS) {
       const has = Number(id in SYSTEM_ICONS) + Number(id in FALLBACK_ABBR);

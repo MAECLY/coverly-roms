@@ -1274,3 +1274,44 @@ fn sgx_now_supergrafx() {
         (Some("supergrafx"), Verdict::Auto)
     );
 }
+
+#[test]
+fn mega_duck_bin_needs_its_folder() {
+    // Task 7: Mega Duck has no header and only `.bin`, which is Generic, so
+    // a loose cart is never assigned; inside `MEGADUCK/` (a sorted folder,
+    // never walked) the scan lists it under megaduck.
+    use coverly_core::scan::{scan_library, ScanOptions};
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Suleiman Treasure (Unknown).bin");
+    std::fs::write(&p, opaque(32 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system, None, "{:?}", id.combined);
+    assert_ne!(id.combined.verdict, Verdict::Auto);
+
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.resolve_folder("MEGADUCK").map(|s| s.id.as_str()),
+        Some("megaduck")
+    );
+    let card = tmp.path().join("card");
+    let rom = card
+        .join("Roms")
+        .join("MEGADUCK")
+        .join("Suleiman Treasure (Unknown).bin");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    std::fs::write(&rom, opaque(32 * 1024)).unwrap();
+    let scan = scan_library(
+        &card,
+        &common::profile("onion"),
+        &db,
+        &ScanOptions::default(),
+    );
+    let duck = scan
+        .systems
+        .iter()
+        .find(|s| s.folder_name == "MEGADUCK")
+        .unwrap();
+    assert_eq!(duck.system_id.as_deref(), Some("megaduck"));
+    let stems: Vec<&str> = duck.roms.iter().map(|r| r.stem.as_str()).collect();
+    assert_eq!(stems, ["Suleiman Treasure (Unknown)"]);
+}
