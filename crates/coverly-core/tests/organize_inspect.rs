@@ -1690,3 +1690,35 @@ mod discs {
         assert!(i.payloads.iter().any(|p| p.ext == "adf"));
     }
 }
+
+#[test]
+fn package_exts_are_raw_items() {
+    // D25: zip-based game packages are one raw file, never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let arduboy = tmp.path().join("Game.arduboy");
+    zip_file(
+        &arduboy,
+        &[
+            ("info.json", b"{\"title\":\"Game\"}", true),
+            ("game.hex", b":00000001FF\n", true),
+        ],
+    );
+    let rpk = tmp.path().join("Game.rpk");
+    zip_file(
+        &rpk,
+        &[
+            ("layout.xml", b"<romset></romset>", true),
+            ("game.bin", &[0x55u8; 64], false),
+        ],
+    );
+    for (p, ext) in [(&arduboy, "arduboy"), (&rpk, "rpk")] {
+        let i = inspect(p);
+        assert_eq!(i.container, Container::Raw, "{ext}");
+        assert_eq!(i.issue, None, "{ext}");
+        assert!(i.entries.is_empty(), "{ext}: nothing listed");
+        assert_eq!(i.payloads.len(), 1, "{ext}");
+        assert_eq!(i.payloads[0].ext, ext);
+        assert!(i.disc_set.is_none());
+    }
+    assert!(coverly_core::organize::inspect::PACKAGE_EXTS.contains(&"uef"));
+}

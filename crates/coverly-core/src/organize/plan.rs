@@ -1469,7 +1469,8 @@ fn identify_one(
 /// lack the entry indices, the discs and the tool an extraction needs, so
 /// they are read again; facts of version 4 call a patch-only archive an
 /// unknown system.
-const FACTS_VERSION: u32 = 5;
+/// 6: PS2, 3DO and Pico verdicts became systems (systems batch 1).
+const FACTS_VERSION: u32 = 6;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]

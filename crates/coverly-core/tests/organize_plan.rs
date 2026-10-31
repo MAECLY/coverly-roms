@@ -2855,3 +2855,52 @@ fn the_duplicates_step_follows_the_region_order_of_the_settings() {
     let opts = OrganizeOptions::from_settings(&settings, None);
     assert_eq!(opts.regions, settings.matching.regions);
 }
+
+/// The memoised facts row of `path`, by its size and mtime.
+fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
+    let meta = fs::metadata(path).unwrap();
+    let mtime = FileTime::from_last_modification_time(&meta);
+    let ns = mtime.unix_seconds() * 1_000_000_000 + i64::from(mtime.nanoseconds());
+    let json = world.cache.organize_facts(path, meta.len(), ns).unwrap()?;
+    Some(serde_json::from_str(&json).unwrap())
+}
+
+#[test]
+fn facts_of_version_5_are_read_again() {
+    // D27: version 5 facts call PS2, 3DO and Pico `Unsupported`.
+    let dir = TempDir::new().unwrap();
+    let rom = dir.path().join("Game.gba");
+    put(&rom, &fx::gba());
+    pin_mtime(&rom, 7);
+    let world = World::new();
+    let opts = OrganizeOptions {
+        offline: true,
+        ..defaults("anbernic-stock")
+    };
+    plan(&world, dir.path(), opts.clone());
+    let mut stored = stored_facts(&world, &rom).expect("facts memoised");
+    assert_eq!(stored["v"], 6);
+
+    // A version 5 row with a stale verdict is not trusted.
+    stored["v"] = 5.into();
+    stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
+    let meta = fs::metadata(&rom).unwrap();
+    let mtime = FileTime::from_last_modification_time(&meta);
+    let ns = mtime.unix_seconds() * 1_000_000_000 + i64::from(mtime.nanoseconds());
+    world
+        .cache
+        .put_organize_facts(&rom, meta.len(), ns, &stored.to_string())
+        .unwrap();
+    let again = plan(&world, dir.path(), opts);
+    let item = again
+        .items
+        .iter()
+        .find(|i| i.system_id.as_deref() == Some("gba"));
+    assert!(item.is_some(), "the header is read again");
+    let stored = stored_facts(&world, &rom).unwrap();
+    assert_eq!(stored["v"], 6);
+    assert_eq!(
+        stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
+        "gba"
+    );
+}

@@ -191,9 +191,18 @@ fn has_content_support(system: &str, evs: &[&Evidence], content_read: bool) -> b
     })
 }
 
+/// Header evidence at or above this weight for a system that lists the
+/// extension as weak contradicts the extension's strong owner (spec D24).
+const WEAK_OWNER_PROOF: f32 = 0.95;
+
+/// Weight of a weak extension that agrees with another signal (`ext~`).
+const WEAK_SUPPORT: f32 = 0.50;
+
 /// Extension evidence for `ext`: 0.85 when one system lists it, 0.50 when
 /// several do, and 0.60 (detail suffixed `!`) when the extension is unique
-/// to a system with a decisive signature that the sniffed bytes lack.
+/// to a system with a decisive signature that the sniffed bytes lack, or
+/// when a ≥ 0.95 header proves another system that lists `ext` as weak
+/// (spec D24). Weak owners add nothing here: see [`weak_extension_support`].
 pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Evidence> {
     let class = db.extension_class(ext);
     let weight = match class {
@@ -206,10 +215,18 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
     db.systems_for_extension(&ext)
         .into_iter()
         .map(|s| {
-            let contradicted = class == ExtClass::Unique
+            let lacks_signature = class == ExtClass::Unique
                 && read_enough
                 && DECISIVE.contains(&s.id.as_str())
                 && !sniff.hits.iter().any(|h| h.system == s.id);
+            let weak_owner_proven = sniff.hits.iter().any(|h| {
+                h.weight + EPS >= WEAK_OWNER_PROOF
+                    && h.system != s.id
+                    && db
+                        .get(&h.system)
+                        .is_some_and(|w| w.weak_extensions.contains(&ext))
+            });
+            let contradicted = lacks_signature || weak_owner_proven;
             let w = if contradicted { 0.60 } else { weight };
             let detail = if contradicted {
                 format!("{ext}!")
@@ -219,6 +236,36 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
             Evidence::new(IdLevel::Extension, &s.id, w, detail)
         })
         .collect()
+}
+
+/// Weak-extension support (spec D3, D4): a system that lists `ext` as
+/// weak gains 0.50 (detail `ext~`) only when a header, a DAT hit or a user
+/// choice already names it. A weak extension alone never assigns a system.
+pub fn weak_extension_support(db: &SystemDb, ext: &str, evidence: &mut Vec<Evidence>) {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    if ext.is_empty() {
+        return;
+    }
+    let detail = format!("{ext}~");
+    for s in db.systems_accepting(&ext) {
+        if !s.weak_extensions.contains(&ext) {
+            continue;
+        }
+        let named = evidence.iter().any(|e| {
+            e.system == s.id && matches!(e.kind, IdLevel::Header | IdLevel::Hash | IdLevel::User)
+        });
+        let known = evidence
+            .iter()
+            .any(|e| e.kind == IdLevel::Extension && e.system == s.id && e.detail == detail);
+        if named && !known {
+            evidence.push(Evidence::new(
+                IdLevel::Extension,
+                &s.id,
+                WEAK_SUPPORT,
+                detail.clone(),
+            ));
+        }
+    }
 }
 
 /// DATs one plan may download on demand; the rest of the missing
@@ -1044,7 +1091,14 @@ pub fn identify_candidate(
             }
         }
     }
-    // 10. Combine.
+    // 10. Combine. A weak extension supports a system that a header, a
+    // DAT hit or a user choice already names.
+    let mut weak_exts: Vec<&str> = insp.payloads.iter().map(|p| p.ext.as_str()).collect();
+    weak_exts.sort_unstable();
+    weak_exts.dedup();
+    for ext in weak_exts {
+        weak_extension_support(env.db, ext, &mut evidence);
+    }
     let mut seen = HashSet::new();
     evidence.retain(|e| seen.insert((e.kind, e.system.clone(), e.detail.clone())));
     let mut combined = decide(&evidence, &excluded);

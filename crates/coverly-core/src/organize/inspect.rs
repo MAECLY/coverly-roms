@@ -415,7 +415,7 @@ pub fn inspect_file_with(
             }
         }
         Container::Raw => {
-            if let Some(m) = magic {
+            if let Some(m) = magic.filter(|_| !PACKAGE_EXTS.contains(&ext.as_str())) {
                 // Recognised, never opened (cab, arj, lzh, compress, ECM).
                 out.issue = Some(ArchiveIssue::Unsupported {
                     format: Some(unopened_name(m).to_string()),
@@ -501,10 +501,20 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Zip-based game packages (Arduboy, MAME/TI-99 cartridge packages,
+/// Solarus quests, Lutro games) and gzip BBC Micro tapes (spec D25): the
+/// item is one raw file whatever its magic, moved as-is and never
+/// extracted. A header check that needs the inner files reads them
+/// through the archive reader on the same bytes.
+pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"];
+
 /// Magic first (a 7z named `.zip` is a 7z; a zip named `.bin` is a zip),
 /// the extension only when the bytes carry no magic (archives spec §3.2
 /// rule 1): an HTML page named `.zip` is judged as a zip that is not one.
 fn container_for(ext: &str, magic: Option<ContainerMagic>) -> Container {
+    if PACKAGE_EXTS.contains(&ext) {
+        return Container::Raw;
+    }
     magic
         .or_else(|| by_extension(ext))
         .map_or(Container::Raw, Container::of_magic)
@@ -1686,6 +1696,9 @@ mod tests {
         assert_eq!(container_for("gba", None), Container::Raw);
         // Recognised, never opened: raw, reported unsupported.
         assert_eq!(container_for("bin", Some(M::Ecm)), Container::Raw);
+        // Game packages are raw whatever their magic (spec D25).
+        assert_eq!(container_for("arduboy", Some(M::Zip)), Container::Raw);
+        assert_eq!(container_for("uef", Some(M::Gzip)), Container::Raw);
     }
 
     #[test]

@@ -18,9 +18,12 @@ pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 pub const DECISIVE: [&str; 8] = ["gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x"];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
-/// listings, cue sheets and playlists. Only a web page is "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 10] = [
-    "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd",
+/// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
+/// sources, Lua games and `.game` files (spec D26). Only a web page is
+/// "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 14] = [
+    "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
+    "game",
 ];
 
 /// Bounded reads at given offsets.

@@ -641,3 +641,22 @@ fn disc_rows_carry_serials() {
     fx::drop_system_cnf(&mut iso);
     assert_eq!(run(&iso, "iso").serial, None);
 }
+
+#[test]
+fn text_native_game_files_are_not_text_roms() {
+    // D26: Intel HEX (Arduboy), LowRes NX source, Lua and `.game` files
+    // are text by nature.
+    let hex = b":100000000C9435000C945D000C945D000C945D0024\n";
+    assert_eq!(run(hex, "hex").not_a_rom, None);
+    let nx = b"PRINT \"HELLO\"\nWAIT VBL\nGOTO 1\n";
+    assert_eq!(run(nx, "nx").not_a_rom, None);
+    assert_eq!(run(b"function love.load()\nend\n", "lua").not_a_rom, None);
+    assert_eq!(run(b"[game]\nname=Test\n", "game").not_a_rom, None);
+    // The same bytes under a ROM extension are still text.
+    assert_eq!(run(hex, "gba").not_a_rom, Some(NotARom::Text));
+    // An HTML error page is never a game file.
+    assert_eq!(
+        run(&fx::html_page(), "hex").not_a_rom,
+        Some(NotARom::WebPage)
+    );
+}

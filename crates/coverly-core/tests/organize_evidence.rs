@@ -1,7 +1,7 @@
 mod common;
 
 use coverly_core::identify::evidence::{Evidence, IdLevel::*};
-use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt};
+use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt, Sniff};
 use coverly_core::organize::evidence::{
     combine, extension_evidence, CombineInput, Thresholds, Verdict,
 };
@@ -1035,4 +1035,79 @@ fn the_missing_catalogue_note_does_not_depend_on_the_order_of_files() {
         raw_after.notes.is_empty(),
         "the raw file never needed the DAT"
     );
+}
+
+#[test]
+fn weak_extension_alone_is_never_evidence() {
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"zzq\"]\n")
+        .unwrap();
+    let ev = extension_evidence(
+        &db,
+        "zzq",
+        &Sniff {
+            read: 4096,
+            ..Sniff::default()
+        },
+    );
+    assert!(ev.is_empty());
+}
+
+#[test]
+fn weak_owner_header_contradicts_the_strong_extension() {
+    // D24: `.st` is atarist's; a ≥ 0.95 header for a system that lists
+    // `st` as weak drops atarist's claim to 0.60 with detail `st!`.
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"st\"]\n")
+        .unwrap();
+    let mut sniff = Sniff {
+        read: 4096,
+        ..Sniff::default()
+    };
+    sniff
+        .hits
+        .push(Evidence::new(Header, "zz", 0.95, "ZZ MAGIC"));
+    let ev = extension_evidence(&db, "st", &sniff);
+    let st = ev.iter().find(|e| e.system == "atarist").unwrap();
+    assert_eq!((st.weight, st.detail.as_str()), (0.60, "st!"));
+    assert!(
+        ev.iter().all(|e| e.system != "zz"),
+        "the weak owner adds nothing here"
+    );
+
+    // A weaker header, or one for a system that does not list `st`, does not.
+    let mut weak = sniff.clone();
+    weak.hits[0].weight = 0.90;
+    let st = extension_evidence(&db, "st", &weak);
+    assert_eq!((st[0].weight, st[0].detail.as_str()), (0.85, "st"));
+    let mut other = sniff.clone();
+    other.hits[0].system = "gba".into();
+    let st = extension_evidence(&db, "st", &other);
+    assert_eq!((st[0].weight, st[0].detail.as_str()), (0.85, "st"));
+}
+
+#[test]
+fn weak_extension_supports_a_header() {
+    use coverly_core::organize::evidence::weak_extension_support;
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"zzq\"]\n")
+        .unwrap();
+    // Nothing names `zz`: the weak extension adds nothing.
+    let mut alone = vec![ev(Name, "zz", 0.80)];
+    weak_extension_support(&db, "zzq", &mut alone);
+    assert_eq!(alone.len(), 1);
+    // A header names it: `zzq~` at 0.50, once.
+    let mut with_header = vec![Evidence::new(Header, "zz", 0.95, "ZZ MAGIC")];
+    weak_extension_support(&db, "ZZQ", &mut with_header);
+    weak_extension_support(&db, "zzq", &mut with_header);
+    assert_eq!(with_header.len(), 2);
+    let e = &with_header[1];
+    assert_eq!(
+        (e.kind, e.system.as_str(), e.weight, e.detail.as_str()),
+        (Extension, "zz", 0.50, "zzq~")
+    );
+    // A strong extension is never weak support.
+    let mut gba = vec![Evidence::new(Header, "gba", 0.95, "logo")];
+    weak_extension_support(&db, "gba", &mut gba);
+    assert_eq!(gba.len(), 1);
 }
