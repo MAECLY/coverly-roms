@@ -743,10 +743,13 @@ describe('OrganizeScreen', () => {
     expect(
       await screen.findByText(
         'Moved: 10 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 1',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(useOrganizeStore.getState().status).toBe('done'),
+    await waitFor(
+      () => expect(useOrganizeStore.getState().status).toBe('done'),
+      APPLY_WAIT,
     );
     expect(
       screen.queryByRole('button', { name: 'Resume' }),
