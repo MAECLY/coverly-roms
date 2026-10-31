@@ -33,9 +33,9 @@ pub mod trash;
 mod undo_organize;
 use noclobber::is_cross_device;
 pub(crate) use noclobber::rename_noclobber_indexed;
+pub use noclobber::{rename_dir_noclobber, rename_noclobber, same_volume};
 #[doc(hidden)]
-pub use noclobber::rename_noclobber_using;
-pub use noclobber::{rename_noclobber, same_volume};
+pub use noclobber::{rename_dir_noclobber_using, rename_noclobber_using};
 pub(crate) use transfer::mtime_ns;
 #[cfg(feature = "test-util")]
 #[doc(hidden)]
