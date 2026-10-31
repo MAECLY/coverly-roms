@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use super::model::{ProxyChoice, Settings, CONTAINER_CLASS_KEYS, KNOWN_SOURCES};
 use crate::matching::parse_region_order;
-use crate::profiles::builtin_profiles;
 use crate::profiles::naming::validate_folder_override;
+use crate::profiles::{builtin_profiles, Profile};
 use crate::systems::SystemDb;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -271,13 +271,12 @@ impl Settings {
                 let ok = is_system(system_id)
                     && match profile {
                         Some(p) => validate_folder_override(&db, p, system_id, folder).is_ok(),
-                        // A custom layout's host folders are not known
-                        // here: the folder must at least name a system.
+                        // A custom layout's host folders and own
+                        // folders are not known here: the folder must
+                        // at least name a system under some layout.
                         // `system_folder` ignores an override that does
-                        // not resolve back when planning (global
-                        // aliases: the layout's own folders are not
-                        // known here either).
-                        None => db.resolve_folder(folder.trim()).is_some(),
+                        // not resolve back when planning.
+                        None => names_a_system(&db, &builtins, folder.trim()),
                     };
                 if !ok {
                     out.push(FieldError::new(
@@ -337,10 +336,7 @@ impl Settings {
                     builtins
                         .iter()
                         .any(|p| !p.roms_root.is_empty() && p.roms_root.eq_ignore_ascii_case(name))
-                        || builtins
-                            .iter()
-                            .any(|p| db.resolve_folder_in(Some(p), name).is_some())
-                        || db.resolve_folder(name).is_some()
+                        || names_a_system(&db, &builtins, name)
                 });
                 if inside {
                     out.push(FieldError::new("dedupe.quarantine_dir", Invalid));
@@ -395,6 +391,17 @@ impl Settings {
     }
 }
 
+/// Whether `name` is a system folder under some layout: a global alias,
+/// a profile-scoped alias (D22) or a built-in's own folder (D6). A
+/// scoped alias resolves under any profile, so the first built-in covers
+/// it; every built-in is checked for its `Named` folders.
+fn names_a_system(db: &SystemDb, builtins: &[Profile], name: &str) -> bool {
+    db.resolve_folder(name).is_some()
+        || builtins
+            .iter()
+            .any(|p| db.resolve_folder_in(Some(p), name).is_some())
+}
+
 /// Leading components that name a mount point and its label
 /// (`/Volumes/<label>`, `/mnt/<label>`, `/media/<user>/<label>`,
 /// `/run/media/<user>/<label>`): a card called `ROMS` is not a ROMs folder.
@@ -411,4 +418,40 @@ fn mount_label_len<S: AsRef<str>>(names: &[S]) -> usize {
 
 fn has_repeat<T: PartialEq>(items: &[T]) -> bool {
     (1..items.len()).any(|i| items[..i].contains(&items[i]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profiles::ProfileFolder;
+
+    fn db_with_scoped() -> SystemDb {
+        SystemDb::builtin()
+            .with_overrides(
+                "[[system]]\nid = \"zzbox\"\nname = \"ZZ Box\"\naliases = [\"zzbox\", \"dragon\"]\nextensions = [\"zzb\"]\nscoped_aliases = [\"dragon\"]\n",
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_scoped_alias_names_a_system_for_a_layout() {
+        // A custom layout's override `DRAGON` resolves under that layout
+        // (D22): settings validation must not drop it.
+        let db = db_with_scoped();
+        let builtins = builtin_profiles();
+        assert!(names_a_system(&db, &builtins, "DRAGON"));
+        assert!(names_a_system(&db, &builtins, "snes"));
+        assert!(!names_a_system(&db, &builtins, "Downloads"));
+    }
+
+    #[test]
+    fn a_builtin_named_folder_names_a_system() {
+        let db = SystemDb::builtin();
+        let mut builtins = builtin_profiles();
+        assert!(!names_a_system(&db, &builtins, "zzfolder"));
+        builtins[0]
+            .folders
+            .insert("snes".into(), ProfileFolder::Named("zzfolder".into()));
+        assert!(names_a_system(&db, &builtins, "zzfolder"));
+    }
 }
