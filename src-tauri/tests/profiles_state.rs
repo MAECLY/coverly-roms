@@ -41,6 +41,7 @@ fn mine(id: &str, template: &str) -> ProfileFile {
         disc_layout: Default::default(),
         accepts_containers: coverly_core::profiles::default_accepts_containers(),
         container_overrides: coverly_core::profiles::default_container_overrides(),
+        folder_game_suffix: Default::default(),
     }
 }
 

@@ -35,6 +35,7 @@ fn sample() -> ProfileFile {
         disc_layout: DiscLayout::default(),
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
+        folder_game_suffix: BTreeMap::new(),
     }
 }
 
@@ -96,6 +97,51 @@ fn ids_names_and_folders_are_checked() {
     let mut p = sample();
     p.art_dirs = vec!["a/b".into()];
     assert!(has(&p, "art_dirs", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn folder_game_suffixes_load_round_trip_and_are_checked() {
+    // A file from before the field loads with none and writes none.
+    let old = sample().to_toml();
+    assert!(!old.contains("folder_game_suffix"));
+    let back = ProfileFile::parse_toml(&old).unwrap();
+    assert!(back.folder_game_suffix.is_empty());
+    assert!(back.to_profile().folder_game_suffix.is_empty());
+
+    let mut p = sample();
+    p.folder_game_suffix.insert("psx".into(), ".psx".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let back = ProfileFile::parse_toml(&p.to_toml()).unwrap();
+    assert_eq!(back.folder_game_suffix, p.folder_game_suffix);
+    let profile = back.to_profile();
+    assert_eq!(
+        profile.folder_game_suffix.get("psx").map(String::as_str),
+        Some(".psx")
+    );
+    assert_eq!(
+        ProfileFile::from_profile(&profile).folder_game_suffix,
+        p.folder_game_suffix
+    );
+
+    for (system, suffix) in [
+        ("nope", ".psx"),
+        ("psx", "psx"),
+        ("psx", "."),
+        ("psx", ".p/x"),
+        ("psx", ".p x"),
+        ("psx", ".abcdefghijklmnopq"),
+    ] {
+        let mut p = sample();
+        p.folder_game_suffix.insert(system.into(), suffix.into());
+        assert!(
+            has(
+                &p,
+                &format!("folder_game_suffix.{system}"),
+                FieldErrorCode::Invalid
+            ),
+            "{system} {suffix}"
+        );
+    }
 }
 
 #[test]

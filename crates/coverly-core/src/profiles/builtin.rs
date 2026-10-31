@@ -689,6 +689,7 @@ fn profile(
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
         folders: BTreeMap::new(),
+        folder_game_suffix: BTreeMap::new(),
     }
 }
 

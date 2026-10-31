@@ -195,6 +195,10 @@ pub struct Profile {
     /// before the global aliases (spec D5, D6). Systems not listed use the
     /// naming rule as before.
     pub folders: BTreeMap<String, ProfileFolder>,
+    /// Suffix a folder game of a system must end in on this layout
+    /// (system id → suffix with its dot: `ps3` → `.ps3` on ES-DE and
+    /// Batocera, systems batch 2 D13). Empty elsewhere.
+    pub folder_game_suffix: BTreeMap<String, String>,
 }
 
 impl Profile {
