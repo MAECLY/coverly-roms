@@ -1,5 +1,5 @@
 import { Archive, ChevronRight, Folder } from 'lucide-react';
-import { useContext, useId, useState } from 'react';
+import { useContext, useId, useMemo, useState } from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ import {
   whyKey,
   type SystemGroup,
 } from '@/lib/organize';
+import { systemOptionGroups } from '@/lib/systems';
 
 import { ExtractDetail } from './ExtractDetail';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
@@ -176,6 +177,11 @@ function Row({
   const changeable =
     item.method === 'user' && !!onDecide && !!systems && !!item.system_id;
   const fresh = isNew?.(item) ?? false;
+  const locale = useContext(LocaleContext);
+  const pickerGroups = useMemo(
+    () => (changeable ? systemOptionGroups(systems ?? [], t, locale) : []),
+    [changeable, systems, t, locale],
+  );
   const serials = item.disc?.serials.join(', ') ?? '';
   const notes = rowNotes(t, item, layoutName, systemName);
   return (
@@ -215,10 +221,15 @@ function Row({
               onDecide([item.id], v === LEAVE ? 'leave' : { system: v });
             }}
           >
-            {systems.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
+            {/* Every system, so grouped by family like LeftInPlace (D18). */}
+            {pickerGroups.map((g) => (
+              <optgroup key={g.family} label={g.label}>
+                {g.systems.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
             <option value={LEAVE}>{t('organize.review.leave')}</option>
           </NativeSelect>

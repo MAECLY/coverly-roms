@@ -215,6 +215,49 @@ describe('SystemGroups — a system the user chose', () => {
   });
 });
 
+describe('SystemGroups — the full picker of a chosen system', () => {
+  it('groups every system by family, sorted, with leave last', () => {
+    const systems: SystemInfo[] = [
+      { id: 'zxspectrum', name: 'ZX Spectrum', family: 'computer' },
+      { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
+      { id: 'gb', name: 'Game Boy', family: 'handheld' },
+      { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
+    ];
+    const items = [
+      autoItem(0, 'mystery.rom', 'gb', 'ROMS/GB', {
+        method: 'user',
+        why: [{ kind: 'user', system: 'gb', weight: 1, detail: '' }],
+      }),
+    ];
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Anbernic (stock)"
+          systemName={systemName}
+          systems={systems}
+          onDecide={() => {}}
+        />
+      </I18nProvider>,
+    );
+    const select = screen.getByRole('combobox');
+    const groups = [...select.querySelectorAll('optgroup')];
+    expect(groups.map((g) => g.label)).toEqual([
+      'Consolas',
+      'Portátiles',
+      'Ordenadores',
+    ]);
+    expect(
+      [...groups[0]!.querySelectorAll('option')].map((o) => o.textContent),
+    ).toEqual(['Atari Jaguar', 'Sony PlayStation 2']);
+    // «Dejar» stays the last option, outside every group.
+    const last = select.lastElementChild!;
+    expect(last.tagName).toBe('OPTION');
+    expect(last).toHaveValue('__leave__');
+    expect(select).toHaveValue('gb');
+  });
+});
+
 describe('SystemGroups — actions and discs', () => {
   it('extract_badge_has_icon_and_word', () => {
     renderGroups([discItem(0)]);
