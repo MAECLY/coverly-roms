@@ -324,6 +324,7 @@ pub fn assign_targets_with_extracts(
             }
             _ => match item.kind {
                 ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
+                ItemKind::Folder => plan_folder(item, dir, layout, index),
                 ItemKind::File | ItemKind::Archive => {
                     let original = file_name(&item.sources[0]);
                     let stem = split_name(&original).0.to_string();
@@ -391,6 +392,10 @@ fn match_companions(
         let (Some(_), Some(primary)) = (&dirs[pos], item.sources.first()) else {
             continue;
         };
+        // A folder game takes no companion: its files travel inside it.
+        if item.kind == ItemKind::Folder {
+            continue;
+        }
         let stem = split_name(&file_name(primary)).0.to_string();
         by_stem
             .entry((parent(primary), name_key(&stem)))
@@ -527,6 +532,11 @@ pub(crate) fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {
 }
 
 fn too_big_for_fat(item: &OrganizeItem) -> bool {
+    // A folder game is judged per contained file by the planner (D27):
+    // its total does not matter.
+    if item.kind == ItemKind::Folder {
+        return false;
+    }
     // An extracted file is judged by its own declared size, not the
     // archive's (archives spec §8.4).
     if let Transfer::Extract { entries, .. } = &item.transfer {
@@ -804,6 +814,77 @@ fn compose(
         }
         cut = true;
     }
+}
+
+/// A folder game keeps its folder name, plus the layout's suffix for its
+/// system when the name lacks it (systems batch 2 D13, any ASCII case),
+/// FAT-safe. A name taken on disk or by an earlier item gets the next
+/// free ` (n)`, inserted before the suffix (`Game (2).ps3`): a folder is
+/// never merged into another, nor taken for «already present».
+fn plan_folder(
+    item: &mut OrganizeItem,
+    dir: &Path,
+    layout: &TargetLayout,
+    index: &mut DirIndex,
+) -> Planned {
+    let original = file_name(&item.sources[0]);
+    let safe = safe_file_name(&original).unwrap_or_else(|_| original.clone());
+    let suffix = item
+        .system_id
+        .as_deref()
+        .and_then(|s| layout.profile.folder_game_suffix.get(s))
+        .filter(|s| !s.is_empty());
+    let (stem, suffix, appended) = match suffix {
+        Some(suffix) => match strip_suffix_ignoring_case(&safe, suffix) {
+            Some(stem) => (stem.to_string(), safe[stem.len()..].to_string(), false),
+            None => (safe.clone(), suffix.clone(), true),
+        },
+        None => (safe.clone(), String::new(), false),
+    };
+    let wanted = format!("{stem}{suffix}");
+    let name = (1u32..)
+        .map(|n| {
+            if n == 1 {
+                wanted.clone()
+            } else {
+                format!("{stem} ({n}){suffix}")
+            }
+        })
+        .find(|name| !index.taken(dir, name))
+        .expect("a folder holds finitely many names");
+    let rename = if name != wanted {
+        Some(RenameReason::Collision {
+            name: wanted.clone(),
+        })
+    } else if safe != original {
+        Some(RenameReason::SafeName { from: original })
+    } else {
+        None
+    };
+    item.notes
+        .retain(|n| !matches!(n, ItemNote::FolderSuffix { .. }));
+    if appended {
+        item.notes.push(ItemNote::FolderSuffix {
+            name: name.clone(),
+            layout: layout.profile.name.clone(),
+        });
+    }
+    Planned::Placed(Placed {
+        target: dir.join(&name),
+        set_targets: Vec::new(),
+        rename,
+        companions: Vec::new(),
+        claims: vec![(dir.to_path_buf(), name)],
+        entry_targets: Vec::new(),
+        m3u: None,
+    })
+}
+
+/// `name` without `suffix` at its end (ASCII case-insensitive), when the
+/// rest is not empty.
+fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
+    let cut = name.len().checked_sub(suffix.len()).filter(|&c| c > 0)?;
+    (name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(suffix)).then(|| &name[..cut])
 }
 
 /// A disc set keeps its member names and layout; any collision leaves the
@@ -1214,6 +1295,43 @@ fn file_crc32(path: &Path) -> Option<u32> {
 #[cfg(feature = "test-util")]
 thread_local! {
     static FAT32: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    static WINDOWS_PATHS: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook: makes [`windows_paths`] on the calling thread answer
+/// `on`. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_windows_paths_override(on: Option<bool>) {
+    WINDOWS_PATHS.with(|c| c.set(on));
+}
+
+/// Whether planned paths must fit Windows' 259 UTF-16 units: on Windows.
+pub fn windows_paths() -> bool {
+    #[cfg(feature = "test-util")]
+    if let Some(on) = WINDOWS_PATHS.with(std::cell::Cell::get) {
+        return on;
+    }
+    cfg!(windows)
+}
+
+/// Why a folder game placed at `target` (absolute) cannot be written
+/// whole (spec D27): a member over 4 GiB on FAT32 (`fat32`), or, with
+/// `windows_paths`, a member path past 259 UTF-16 units once below it.
+pub fn folder_gate(
+    target: &Path,
+    tree: &crate::organize::walk::TreeSummary,
+    fat32: bool,
+    windows_paths: bool,
+) -> Option<LeftReason> {
+    if fat32 && tree.largest_file >= FAT32_LIMIT {
+        return Some(LeftReason::TooBigForFat);
+    }
+    let units = target.to_string_lossy().encode_utf16().count();
+    if windows_paths && units + 1 + tree.longest_rel_utf16 > WINDOWS_MAX_PATH {
+        return Some(LeftReason::PathTooLong);
+    }
+    None
 }
 
 /// Test hook: makes [`file_system_is_fat32`] on the calling thread answer

@@ -369,6 +369,90 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
     None
 }
 
+/// The names the walk already listed for one directory (spec D12): every
+/// entry, files and folders, AppleDouble twins and OS junk left out.
+pub struct DirListing<'a> {
+    pub dir: &'a Path,
+    pub names: &'a [String],
+}
+
+/// A folder probe (spec D12): looks only at `names`, may
+/// `symlink_metadata` named sub-paths, may `read_dir` one named child
+/// (at most 256 entries) and read one probe file (at most
+/// [`MAX_META_FILE`]) through [`Budgeted`].
+pub type DirProbe = fn(&DirListing) -> Option<FolderMatch>;
+
+/// What a folder probe proved: the game and its probe file.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FolderMatch {
+    pub id: ConsoleId,
+    /// The probe file, relative to the folder.
+    pub probe: PathBuf,
+}
+
+/// Two probes matched one folder and named different systems: it is not
+/// a real game, so it goes to review.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirConflict {
+    /// Every system named, in probe order, each once.
+    pub systems: Vec<String>,
+}
+
+/// The built-in folder probes, in the fixed order of spec D12. The
+/// systems add theirs as they land (Wii U, Switch, PS3, Vita, Xbox, Xbox
+/// 360); empty until then.
+const DIR_PROBES: &[DirProbe] = &[];
+
+#[cfg(any(test, feature = "test-util"))]
+thread_local! {
+    static EXTRA_PROBES: std::cell::RefCell<Vec<DirProbe>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Test hook (plan P-7): `Some(p)` makes `p` the only extra probe on the
+/// calling thread, after the built-in ones; `None` clears the extras.
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-util"))]
+pub fn set_extra_probe(p: Option<DirProbe>) {
+    EXTRA_PROBES.with(|c| *c.borrow_mut() = p.into_iter().collect());
+}
+
+/// Test hook: adds one more extra probe on the calling thread.
+#[doc(hidden)]
+#[cfg(any(test, feature = "test-util"))]
+pub fn add_extra_probe(p: DirProbe) {
+    EXTRA_PROBES.with(|c| c.borrow_mut().push(p));
+}
+
+fn probes() -> Vec<DirProbe> {
+    #[allow(unused_mut)]
+    let mut all: Vec<DirProbe> = DIR_PROBES.to_vec();
+    #[cfg(any(test, feature = "test-util"))]
+    EXTRA_PROBES.with(|c| all.extend(c.borrow().iter().copied()));
+    all
+}
+
+/// Whether `listing` is a folder game (spec D12): the probes run in
+/// their fixed order and the first match wins; a later match naming
+/// another system makes it a [`DirConflict`] (review).
+pub fn identify_dir(listing: &DirListing) -> Result<Option<FolderMatch>, DirConflict> {
+    let mut first: Option<FolderMatch> = None;
+    let mut systems: Vec<String> = Vec::new();
+    for probe in probes() {
+        let Some(found) = probe(listing) else {
+            continue;
+        };
+        if !systems.contains(&found.id.system) {
+            systems.push(found.id.system.clone());
+        }
+        first.get_or_insert(found);
+    }
+    if systems.len() > 1 {
+        return Err(DirConflict { systems });
+    }
+    Ok(first)
+}
+
 /// The high 32 bits of a title id.
 fn high(title_id: u64) -> u32 {
     (title_id >> 32) as u32
@@ -568,6 +652,54 @@ mod tests {
         let mut src = SparseAt::new(0x8000);
         let mut b = Budgeted::new(&mut src, 0x8000);
         assert_eq!(identify(&mut b, "iso", "Game.iso"), None);
+    }
+
+    fn probe_gb(l: &DirListing) -> Option<FolderMatch> {
+        l.names.iter().any(|n| n == "A").then(|| FolderMatch {
+            id: ConsoleId::proven("gb", "a"),
+            probe: PathBuf::from("A"),
+        })
+    }
+
+    fn probe_gb_too(l: &DirListing) -> Option<FolderMatch> {
+        l.names.iter().any(|n| n == "B").then(|| FolderMatch {
+            id: ConsoleId::proven("gb", "b"),
+            probe: PathBuf::from("B"),
+        })
+    }
+
+    fn probe_gba(l: &DirListing) -> Option<FolderMatch> {
+        l.names.iter().any(|n| n == "B").then(|| FolderMatch {
+            id: ConsoleId::proven("gba", "b"),
+            probe: PathBuf::from("B"),
+        })
+    }
+
+    #[test]
+    fn identify_dir_first_match_wins_and_systems_conflict() {
+        let dir = Path::new("x");
+        let names = ["A".to_string(), "B".to_string()];
+        let listing = DirListing { dir, names: &names };
+        set_extra_probe(None);
+        assert_eq!(identify_dir(&listing), Ok(None));
+        set_extra_probe(Some(probe_gb));
+        add_extra_probe(probe_gb_too);
+        let found = identify_dir(&listing).unwrap().unwrap();
+        assert_eq!((found.id.detail.as_str(), found.probe), ("a", "A".into()));
+        add_extra_probe(probe_gba);
+        assert_eq!(
+            identify_dir(&listing),
+            Err(DirConflict {
+                systems: vec!["gb".into(), "gba".into()]
+            })
+        );
+        let only_a = ["A".to_string()];
+        let listing = DirListing {
+            dir,
+            names: &only_a,
+        };
+        assert_eq!(identify_dir(&listing).unwrap().unwrap().id.system, "gb");
+        set_extra_probe(None);
     }
 
     #[test]

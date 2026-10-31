@@ -29,6 +29,7 @@ use crate::organize::plan::{
     OrganizePhase, OrganizePlan, OrganizeProgress, Transfer, TransferMode, SPACE_RESERVE,
 };
 use crate::organize::target::DirIndex;
+use crate::organize::walk::{tree_summary, OsMetaProbe, WalkOptions};
 use crate::progress::PauseKind;
 use crate::write::trash::TrashBackend;
 use crate::write::{
@@ -1143,6 +1144,12 @@ impl<'a> Run<'a> {
                 }
                 Err(e) => return Some(self.on_error(&WriteError::Io(e))),
             };
+            if item.kind == ItemKind::Folder {
+                if !self.same_tree(item, &path, &meta) {
+                    return Some(skipped(SkipReason::ChangedSincePlan));
+                }
+                continue;
+            }
             let same = meta.file_type().is_file()
                 && item
                     .fps
@@ -1153,6 +1160,29 @@ impl<'a> Run<'a> {
             }
         }
         None
+    }
+
+    /// A folder game is still the tree the plan measured: a real folder
+    /// (not a link) whose total bytes and newest mtime match (D25).
+    fn same_tree(&self, item: &OrganizeItem, path: &Path, meta: &fs::Metadata) -> bool {
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return false;
+        }
+        let opts = WalkOptions {
+            skip_dirs: Vec::new(),
+            roms_root: None,
+            art_dirs: &[],
+            ignored_dirs: &[],
+            now: std::time::SystemTime::now(),
+            recent: Duration::ZERO,
+            probe: &OsMetaProbe,
+            max_depth: 0,
+            profile: None,
+        };
+        let tree = tree_summary(path, &opts);
+        item.fps
+            .first()
+            .is_some_and(|fp| fp.size == tree.bytes && fp.mtime_ns == tree.newest_mtime_ns)
     }
 
     fn transfer(
@@ -1211,6 +1241,11 @@ impl<'a> Run<'a> {
         }
         if matches!(item.transfer, Transfer::Extract { .. }) {
             return self.apply_extract(item, &[]);
+        }
+        // Moving a folder game needs the directory transfer of D25, which
+        // is not there yet: such an item is never treated as a file.
+        if item.kind == ItemKind::Folder {
+            return skipped(SkipReason::NotDecided);
         }
         let Some(target) = &item.target else {
             return skipped(SkipReason::NotDecided);

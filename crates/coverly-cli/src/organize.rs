@@ -21,10 +21,10 @@ use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
     apply_organize, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv, ApplyError,
-    Choice, Decision, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode, OrganizeAction,
-    OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase, OrganizePlan,
-    OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason, SkipReason, Survey,
-    Transfer, TransferMode,
+    Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode,
+    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
+    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
+    SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -886,8 +886,16 @@ fn candidates_text(item: &OrganizeItem) -> String {
 
 /// The first source and, for sets, how many files travel with it.
 fn source_label(item: &OrganizeItem) -> String {
-    let first = item.sources.first().map(|p| slash(p)).unwrap_or_default();
-    match item.sources.len() {
+    source_label_of(&item.sources, item.kind)
+}
+
+/// `Zelda/ (folder)` for a folder game, `Game.cue (+2 files)` for a set.
+fn source_label_of(sources: &[PathBuf], kind: ItemKind) -> String {
+    let first = sources.first().map(|p| slash(p)).unwrap_or_default();
+    if kind == ItemKind::Folder {
+        return format!("{first}/ (folder)");
+    }
+    match sources.len() {
         0 | 1 => first,
         n => format!("{first} (+{} files)", n - 1),
     }
@@ -1321,6 +1329,25 @@ mod tests {
         }
         let path = PathBuf::from("ROMS").join(forged);
         assert!(!slash(&path).contains('\n'), "{:?}", slash(&path));
+    }
+
+    #[test]
+    fn folder_games_read_as_folders() {
+        assert_eq!(
+            source_label_of(&[PathBuf::from("Zelda")], ItemKind::Folder),
+            "Zelda/ (folder)"
+        );
+        assert_eq!(
+            source_label_of(
+                &[PathBuf::from("a.cue"), PathBuf::from("a.bin")],
+                ItemKind::Set
+            ),
+            "a.cue (+1 files)"
+        );
+        assert_eq!(
+            source_label_of(&[PathBuf::from("a.gb")], ItemKind::File),
+            "a.gb"
+        );
     }
 
     #[test]

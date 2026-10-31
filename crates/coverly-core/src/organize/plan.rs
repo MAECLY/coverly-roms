@@ -32,6 +32,7 @@ use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
 use crate::organize::apply::{cluster_size, user_available};
+use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
     Verdict, MAX_DAT_DOWNLOADS,
@@ -42,10 +43,11 @@ use crate::organize::inspect::{
 };
 use crate::organize::target::{
     assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
-    file_system_is_fat32, limit_fat_folders, DirIndex, ExtractShape, TargetLayout,
+    file_system_is_fat32, folder_gate, limit_fat_folders, windows_paths, DirIndex, ExtractShape,
+    TargetLayout,
 };
 use crate::organize::walk::{
-    is_broad_root, walk, MetaProbe, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
+    is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
 };
 use crate::profiles::{detect, Profile};
 use crate::scan::classify::{
@@ -86,6 +88,10 @@ pub enum ItemKind {
     Archive,
     /// Several files that travel together (`.cue` + `.bin`, `.m3u`, `.gdi`).
     Set,
+    /// A game that is a folder (systems batch 2 D12): moved whole, its
+    /// `size` the metadata sum of its files and its one fingerprint the
+    /// tree's total bytes and newest mtime (D25, D27).
+    Folder,
 }
 
 /// Why a file stays where it is.
@@ -824,6 +830,9 @@ pub struct SurveyEntry {
     /// What the ladder read (identified entries): the duplicates step
     /// builds its units from it without reading the file again.
     pub facts: Option<Facts>,
+    /// A folder game's tree (systems batch 2 D27): the target gates
+    /// (FAT32 member size, Windows path length) read it.
+    pub tree: Option<TreeSummary>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -1078,11 +1087,21 @@ pub fn survey(
                 identification: None,
                 inspection: None,
                 facts: None,
+                tree: None,
             },
             candidate: None,
             set_sniff: None,
         });
     }
+    entries.extend(
+        folder_entries(&mut walked, opts.thresholds)
+            .into_iter()
+            .map(|entry| Pending {
+                entry,
+                candidate: None,
+                set_sniff: None,
+            }),
+    );
     entries.sort_by(|a, b| a.entry.sources[0].cmp(&b.entry.sources[0]));
 
     // 3. The identification ladder on a few workers.
@@ -1114,8 +1133,9 @@ pub fn survey(
         arcade_order: &arcade_order,
         online: if opts.offline { None } else { env.online },
     };
+    // Folder games come identified by their probe (plan P-3).
     let todo: Vec<usize> = (0..entries.len())
-        .filter(|&i| entries[i].entry.left.is_none())
+        .filter(|&i| entries[i].entry.left.is_none() && entries[i].entry.kind != ItemKind::Folder)
         .collect();
     let workers = if crate::write::on_removable_volume(&source_abs) {
         SLOW_VOLUME_WORKERS
@@ -1240,6 +1260,89 @@ pub fn survey(
     })
 }
 
+/// One entry per folder game of the walk (systems batch 2 D12, D27),
+/// identified already by its probe: Auto or Review by its confidence, or
+/// left by the first gate its tree fails (a symlink, a partial download,
+/// a recent file, a cloud placeholder, in that order). A tree past the
+/// caps stays in review. Folders two probes claimed for different
+/// systems go to review with both systems as alternatives.
+fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntry> {
+    let entry = |path: PathBuf, tree: TreeSummary, combined: Combined| {
+        let left = if tree.symlink {
+            Some(LeftReason::Symlink)
+        } else if tree.partial {
+            Some(LeftReason::PartialDownload)
+        } else if tree.recent {
+            Some(LeftReason::RecentlyModified)
+        } else if tree.cloud_only {
+            Some(LeftReason::CloudOnly)
+        } else {
+            None
+        };
+        let fp = SourceFp {
+            size: tree.bytes,
+            mtime_ns: tree.newest_mtime_ns,
+        };
+        SurveyEntry {
+            sources: vec![path],
+            kind: ItemKind::Folder,
+            size: tree.bytes,
+            fps: vec![fp],
+            left,
+            identification: Some(Identification {
+                combined,
+                left: None,
+                catalogue_name: None,
+                content_key: None,
+                rom_count: 1,
+                notes: Vec::new(),
+                disc: None,
+            }),
+            inspection: None,
+            facts: None,
+            tree: Some(tree),
+        }
+    };
+    let mut out = Vec::new();
+    for game in std::mem::take(&mut walked.folder_games) {
+        let id = &game.id;
+        let verdict = if !game.tree.truncated && id.confidence >= thresholds.auto {
+            Verdict::Auto
+        } else {
+            Verdict::Review
+        };
+        let combined = Combined {
+            verdict,
+            system: Some(id.system.clone()),
+            confidence: id.confidence,
+            method: Some(IdLevel::Header),
+            why: vec![Evidence::new(
+                IdLevel::Header,
+                &id.system,
+                id.confidence,
+                id.detail.clone(),
+            )],
+            alternatives: Vec::new(),
+        };
+        out.push(entry(game.path, game.tree, combined));
+    }
+    for (path, systems, tree) in std::mem::take(&mut walked.folder_conflicts) {
+        let combined = Combined {
+            verdict: Verdict::Review,
+            system: None,
+            confidence: 0.0,
+            method: Some(IdLevel::Header),
+            why: Vec::new(),
+            alternatives: systems
+                .into_iter()
+                .map(|s| (s, thresholds.review))
+                .collect(),
+        };
+        out.push(entry(path, tree, combined));
+    }
+    out
+}
+
 /// Turns every multi-volume set into one Left entry holding all its parts
 /// (archives spec §3.2 rule 6): the entry of the set's first part found
 /// (in volume order) takes the others' files, which never become items,
@@ -1323,6 +1426,7 @@ fn build_entries(
             identification: None,
             inspection: None,
             facts: None,
+            tree: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -1840,12 +1944,21 @@ pub fn plan_from_survey(
         profile,
         overrides: opts.folder_names.clone(),
         fat32,
-        windows_paths: cfg!(windows),
+        windows_paths: windows_paths(),
         names: opts.names,
         companion_exts: opts.companion_exts.clone(),
     };
+    // A FAT32 member too big is known before any name is claimed (D27).
+    if fat32 {
+        for item in items.iter_mut().filter(|i| i.moves_in()) {
+            let tree = survey.entries.get(item.id).and_then(|e| e.tree.as_ref());
+            if tree.is_some_and(|t| folder_gate(Path::new(""), t, true, false).is_some()) {
+                item.leave(LeftReason::TooBigForFat);
+            }
+        }
+    }
     let same_content = |existing: &Path, item: &OrganizeItem| -> bool {
-        item.kind != ItemKind::Set
+        !matches!(item.kind, ItemKind::Set | ItemKind::Folder)
             && item
                 .sources
                 .first()
@@ -1861,6 +1974,20 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    // A folder game's deepest member must fit below its target (D27).
+    for item in items.iter_mut().filter(|i| i.moves_in()) {
+        let (Some(target), Some(tree)) = (
+            item.target.as_ref(),
+            survey.entries.get(item.id).and_then(|e| e.tree.as_ref()),
+        ) else {
+            continue;
+        };
+        if let Some(reason) =
+            folder_gate(&target_root.join(target), tree, false, layout.windows_paths)
+        {
+            item.leave(reason);
+        }
+    }
     left_companions.extend(attach_chd_folders(
         &mut items,
         &survey.walked.chd_folders,
