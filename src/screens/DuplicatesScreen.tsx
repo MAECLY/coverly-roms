@@ -670,6 +670,11 @@ function Proposal({
             groups={groups}
             skipped={skipped}
             systemName={systemName}
+            quarantine={plan.quarantine}
+            profileName={profileName}
+            planId={plan.plan_id}
+            onReveal={(path) => void store().reveal(path)}
+            outcomes={outcomes}
           />
         </GroupNavList>
       )}

@@ -311,6 +311,25 @@ describe('DuplicatesScreen', () => {
     await waitFor(() => expect(b.revealedPaths).toEqual([keeper.unit.primary]));
   });
 
+  it('a report-only copy under «Sin cambios» reveals its own file', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+    );
+    renderScreen();
+    await ready();
+    const g = plan().groups.find((x) => x.title === 'Tetris')!;
+    const japan = g.members.find((m) => m.id !== g.keeper)!;
+    await userEvent.click(screen.getByText(/^Sin cambios \(\d+\)$/));
+    const tetris = screen.getByRole('group', { name: 'Tetris' });
+    expect(tetris).toHaveAttribute('data-cover');
+    await userEvent.click(
+      within(tetris).getByRole('button', {
+        name: 'Mostrar Tetris (Japan).gb en Finder',
+      }),
+    );
+    await waitFor(() => expect(b.revealedPaths).toEqual([japan.unit.primary]));
+  });
+
   it('a refused reveal says the file is outside the library, not an image', async () => {
     renderScreen();
     await ready();

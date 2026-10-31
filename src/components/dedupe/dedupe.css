@@ -957,6 +957,9 @@
   padding: 6px 0;
 }
 
+.dup-unchanged__group + .dup-unchanged__row,
+.dup-unchanged__row + .dup-unchanged__group,
+.dup-unchanged__group + .dup-unchanged__group,
 .dup-unchanged__row + .dup-unchanged__row {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }

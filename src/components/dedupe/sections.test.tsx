@@ -446,15 +446,51 @@ describe('UnchangedList', () => {
     const trigger = screen.getByRole('button', { name: /^Sin cambios \(38\)/ });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(trigger);
+    // The trigger names the reasons; each report-only game stamps its own
+    // (the reason in the stamp's tooltip, spec §7.1).
+    expect(trigger).toHaveTextContent('Otras versiones, solo informe');
     const tetris = screen.getByText('Tetris').closest('li')!;
-    expect(
-      within(tetris).getByText('Otras versiones, solo informe'),
-    ).toBeInTheDocument();
+    expect(within(tetris).getByText('Solo informe')).toBeInTheDocument();
     expect(within(tetris).getByText('Game Boy')).toBeInTheDocument();
     const sms = screen.getByText('SMS Game 01').closest('li')!;
     expect(within(sms).getByText('Has pedido no tocarlo')).toBeInTheDocument();
     // Conflicts have their own block.
     expect(screen.queryByText('Pokemon Red')).toBeNull();
+  });
+
+  it('a report-only game shows every copy with its tags, its cover slot and reveal', async () => {
+    const plan = dedupeFixture();
+    const onReveal = vi.fn();
+    wrap(
+      <UnchangedList
+        groups={plan.groups}
+        quarantine={plan.quarantine}
+        planId={plan.plan_id}
+        onReveal={onReveal}
+        systemName={(id) => (id === 'GB' ? 'Game Boy' : id)}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Sin cambios \(37\)/ }),
+    );
+    // Region is what tells two versions of a game apart (spec goal 2):
+    // both copies, both regions, nothing to pick and a «Solo informe» stamp.
+    const tetris = screen.getByRole('group', { name: 'Tetris' });
+    expect(tetris).toHaveAttribute('data-state', 'report-only');
+    expect(within(tetris).getByText('Solo informe')).toBeInTheDocument();
+    expect(within(tetris).getByText('WLD')).toBeInTheDocument();
+    expect(within(tetris).getByText('JPN')).toBeInTheDocument();
+    expect(within(tetris).getByText('Tetris (Japan).gb')).toBeInTheDocument();
+    expect(within(tetris).queryByRole('radio')).toBeNull();
+    expect(tetris.querySelector('.dup-row__num')).toBeNull();
+    expect(tetris).toHaveAttribute('data-cover');
+    // Report-only copies can be shown in the file manager too (goal 1).
+    await userEvent.click(
+      within(tetris).getByRole('button', {
+        name: /^Mostrar Tetris \(Japan\)\.gb en /,
+      }),
+    );
+    expect(onReveal).toHaveBeenCalledWith('GB/Tetris (Japan).gb');
   });
 });
 
