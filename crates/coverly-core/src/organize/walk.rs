@@ -321,7 +321,8 @@ fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftR
 }
 
 /// Takes out of `candidates` the `.chd` files of every `<set>/` folder
-/// that sits beside a `<set>.zip` candidate (any case) and directly holds
+/// that sits beside a `<set>.zip` candidate (any case, a set name per
+/// [`is_set_name`]) and directly holds
 /// only `.chd` files (junk aside, no sub-folder): MAME's CHD-per-game
 /// layout (spec D16). Returns each set with its CHDs, sorted.
 fn take_chd_folders(candidates: &mut Vec<WalkCandidate>) -> Vec<(PathBuf, Vec<PathBuf>)> {
@@ -330,6 +331,7 @@ fn take_chd_folders(candidates: &mut Vec<WalkCandidate>) -> Vec<(PathBuf, Vec<Pa
         .filter(|c| c.ext == "zip")
         .filter_map(|c| {
             let stem = c.path.file_stem()?.to_string_lossy().to_lowercase();
+            is_set_name(&stem).then_some(())?;
             Some(((c.path.parent()?.to_path_buf(), stem), c.path.clone()))
         })
         .collect();
@@ -364,6 +366,13 @@ fn take_chd_folders(candidates: &mut Vec<WalkCandidate>) -> Vec<(PathBuf, Vec<Pa
             (zip, chds)
         })
         .collect()
+}
+
+/// Whether `stem` can be a MAME set name (`sfiii`, `kof98_2`): ASCII
+/// letters, digits and `_` only. A console game unpacked beside its zip
+/// (`Final Fantasy VII (USA)/`) is never one, so its CHDs stay candidates.
+fn is_set_name(stem: &str) -> bool {
+    !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Whether `dir` directly holds `.chd` files and nothing else but OS junk.

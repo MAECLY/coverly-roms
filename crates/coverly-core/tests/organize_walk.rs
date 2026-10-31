@@ -618,3 +618,33 @@ fn mame_chd_folder_is_kept_with_its_set() {
     );
     assert_eq!(names, ["kof.chd", "kof.zip", "lone.chd", "sfiii.zip"]);
 }
+
+#[test]
+fn a_console_game_folder_of_chds_beside_its_zip_is_walked() {
+    // D16 is MAME's layout: a set name has no spaces or brackets. A
+    // multi-disc console game unpacked beside its zip keeps its CHDs as
+    // candidates, or they would be left unknown when the zip is not an
+    // arcade set.
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Final Fantasy VII (USA).zip", b"PK\x03\x04");
+    put(
+        tmp.path(),
+        "Final Fantasy VII (USA)/Final Fantasy VII (USA) (Disc 1).chd",
+        b"MComprHD",
+    );
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.chd_folders.is_empty(), "{:?}", w.chd_folders);
+    let names = file_names(
+        &w.candidates
+            .iter()
+            .map(|c| c.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        names,
+        [
+            "Final Fantasy VII (USA) (Disc 1).chd",
+            "Final Fantasy VII (USA).zip"
+        ]
+    );
+}
