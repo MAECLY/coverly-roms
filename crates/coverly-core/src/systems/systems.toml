@@ -291,7 +291,7 @@ screenscraper = 20
 id = "msx"
 name = "MSX"
 family = "computer"
-aliases = ["MSX", "msx1", "msx2"]
+aliases = ["MSX", "msx1"]
 extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip", "7z"]
 libretro = "Microsoft - MSX"
 screenscraper = 113
@@ -936,3 +936,76 @@ extensions = ["t88", "cmt", "d88", "zip", "7z"]
 libretro = "NEC - PC-88"
 dats = ["metadat/tosec/NEC - PC-88.dat"]
 screenscraper = 221
+
+# Computers III (plan Task 10). `atarixe` comes after `a800` so the shared
+# `Atari - 8-bit Family.dat` keeps mapping to `a800` (spec §8.3): an Atari
+# XE game is claimed by its folder, never by a hash. The Commodore and
+# Atari formats are weak (D3): their old owners keep them.
+[[system]]
+id = "plus4"
+name = "Commodore Plus/4"
+family = "computer"
+aliases = ["PLUS4", "cplus4", "commodoreplus4"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "t64", "tap", "crt"]
+libretro = "Commodore - Plus-4"
+screenscraper = 99
+
+[[system]]
+id = "pet"
+name = "Commodore PET"
+family = "computer"
+aliases = ["PET", "commodorepet"]
+scoped_aliases = ["pet"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "t64", "tap"]
+libretro = "Commodore - PET"
+dats = ["metadat/tosec/Commodore - PET.dat"]
+
+[[system]]
+id = "c128"
+name = "Commodore 128"
+family = "computer"
+aliases = ["C128", "commodore128"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "d71", "d81", "t64", "tap", "crt"]
+
+[[system]]
+id = "atarixe"
+name = "Atari XE / XEGS"
+family = "computer"
+aliases = ["ATARIXE", "xegs"]
+extensions = ["zip", "7z"]
+weak_extensions = ["atr", "xex", "xfd", "car", "rom", "bin"]
+libretro = "Atari - 8-bit"
+dats = ["metadat/no-intro/Atari - 8-bit Family.dat"]
+screenscraper = 43
+
+[[system]]
+id = "msx2"
+name = "MSX2"
+family = "computer"
+aliases = ["MSX2"]
+extensions = ["rom", "dsk", "cas", "zip", "7z"]
+weak_extensions = ["mx2"]
+libretro = "Microsoft - MSX2"
+screenscraper = 116
+
+[[system]]
+id = "msxturbor"
+name = "MSX turbo R"
+family = "computer"
+aliases = ["MSXTURBOR", "turbor"]
+scoped_aliases = ["turbor"]
+extensions = ["rom", "dsk", "zip", "7z"]
+screenscraper = 118
+
+[[system]]
+id = "apple2"
+name = "Apple II"
+family = "computer"
+aliases = ["APPLE2", "appleii"]
+extensions = ["woz", "2mg", "nib", "dsk", "zip", "7z"]
+weak_extensions = ["do", "po"]
+dats = ["metadat/tosec/Apple - II.dat"]
+screenscraper = 86

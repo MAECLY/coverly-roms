@@ -17,14 +17,24 @@ const DEFAULT_ARCADE: [&str; 2] = ["fbneo", "mame"];
 /// Systems the Anbernic family keeps in another system's folder.
 const ANBERNIC_HOSTS: [(&str, &str); 2] = [("ngpc", "ngp"), ("wonderswancolor", "wonderswan")];
 /// D23: sub-systems the stock card has only the parent's folder for
-/// (`PCE`, `SFC` are in [`ANBERNIC_FOLDERS`]), so their games keep the
-/// destination they had before the batch.
-const ANBERNIC_STOCK_HOSTS: [(&str, &str); 2] =
-    [("supergrafx", "pcengine"), ("satellaview", "snes")];
+/// (`PCE`, `SFC`, `MSX`, `A800` are in [`ANBERNIC_FOLDERS`]), so their
+/// games keep the destination they had before the batch.
+const ANBERNIC_STOCK_HOSTS: [(&str, &str); 4] = [
+    ("supergrafx", "pcengine"),
+    ("satellaview", "snes"),
+    ("msx2", "msx"),
+    ("atarixe", "a800"),
+];
+/// D23 on GarlicOS and Onion: Onion ships an `MSX` package and no `MSX2`
+/// (OnionUI/Onion 07505ea5, `Emu/MSX/config.json`, blueMSX, extlist
+/// `rom|mx1|mx2|dsk|cas|zip|7z|m3u`: every MSX2 extension).
+const ONION_HOSTS: [(&str, &str); 1] = [("msx2", "msx")];
 /// D23 on MinUI / NextUI: only a parent whose NextUI pak runs the
 /// sub-system (`SFC.pak` is Snes9x, which loads BS-X carts; `PCE.pak` is
-/// Beetle PCE Fast, which has no SuperGrafx, so SuperGrafx stays Absent).
-const MINUI_HOSTS: [(&str, &str); 1] = [("satellaview", "snes")];
+/// Beetle PCE Fast, which has no SuperGrafx, so SuperGrafx stays Absent;
+/// `MSX.pak` is blueMSX, which runs MSX2). NextUI has no Atari 8-bit pak,
+/// so Atari XE stays Absent.
+const MINUI_HOSTS: [(&str, &str); 2] = [("satellaview", "snes"), ("msx2", "msx")];
 /// Arcade order of the Anbernic family (its card has one folder each).
 const ANBERNIC_ARCADE: [&str; 6] = ["fbneo", "mame", "cps1", "cps2", "cps3", "neogeo"];
 /// Folder names of the stock Anbernic card (reference `~/Documents/ROMS`).
@@ -322,6 +332,33 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         "pc88",
         [Some("pc88"), Some("pc88"), Some("pc8000"), None, None],
     ),
+    // Computers III (Task 10). MinUI is NextUI's `PLUS4`, `PET`, `C128`
+    // paks (LoveRetro/NextUI 5291344b, skeleton/EXTRAS/Emus).
+    (
+        "plus4",
+        [
+            Some("plus4"),
+            Some("cplus4"),
+            Some("plus4"),
+            None,
+            Some("PLUS4"),
+        ],
+    ),
+    ("pet", [None, Some("pet"), Some("pet"), None, Some("PET")]),
+    (
+        "c128",
+        [None, Some("c128"), Some("c128"), None, Some("C128")],
+    ),
+    ("atarixe", [Some("atarixe"), Some("xegs"), None, None, None]),
+    (
+        "msx2",
+        [Some("msx2"), Some("msx2"), Some("msx2"), None, None],
+    ),
+    (
+        "msxturbor",
+        [Some("msxturbor"), Some("msxturbor"), None, None, None],
+    ),
+    ("apple2", [Some("apple2"), Some("apple2"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
@@ -377,8 +414,16 @@ pub fn builtin_profiles() -> Vec<Profile> {
             p.host_folders.extend(hosts(&ANBERNIC_STOCK_HOSTS));
             p
         },
-        imgs_profile("garlicos", "GarlicOS", "Roms", Some(ONION)),
-        imgs_profile("onion", "Onion OS", "Roms", Some(ONION)),
+        {
+            let mut p = imgs_profile("garlicos", "GarlicOS", "Roms", Some(ONION));
+            p.host_folders.extend(hosts(&ONION_HOSTS));
+            p
+        },
+        {
+            let mut p = imgs_profile("onion", "Onion OS", "Roms", Some(ONION));
+            p.host_folders.extend(hosts(&ONION_HOSTS));
+            p
+        },
         Profile {
             folders: folders(Some(MUOS)),
             ..profile(

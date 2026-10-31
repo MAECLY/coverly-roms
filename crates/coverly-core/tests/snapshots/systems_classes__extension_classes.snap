@@ -43,6 +43,16 @@ expression: rows
   },
   {
     "accepting": [
+      "apple2"
+    ],
+    "class": "Unique",
+    "ext": "2mg",
+    "strong": [
+      "apple2"
+    ]
+  },
+  {
+    "accepting": [
       "sega32x"
     ],
     "class": "Unique",
@@ -167,7 +177,8 @@ expression: rows
   },
   {
     "accepting": [
-      "a800"
+      "a800",
+      "atarixe"
     ],
     "class": "Unique",
     "ext": "atr",
@@ -243,7 +254,8 @@ expression: rows
       "supervision",
       "gamecom",
       "megaduck",
-      "ti99"
+      "ti99",
+      "atarixe"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -290,7 +302,8 @@ expression: rows
   },
   {
     "accepting": [
-      "a800"
+      "a800",
+      "atarixe"
     ],
     "class": "Unique",
     "ext": "car",
@@ -303,7 +316,8 @@ expression: rows
       "a800",
       "msx",
       "dragon",
-      "coco"
+      "coco",
+      "msx2"
     ],
     "class": "Shared",
     "ext": "cas",
@@ -311,7 +325,8 @@ expression: rows
       "a800",
       "msx",
       "dragon",
-      "coco"
+      "coco",
+      "msx2"
     ]
   },
   {
@@ -476,7 +491,9 @@ expression: rows
   {
     "accepting": [
       "c64",
-      "vic20"
+      "vic20",
+      "plus4",
+      "c128"
     ],
     "class": "Shared",
     "ext": "crt",
@@ -549,7 +566,10 @@ expression: rows
   {
     "accepting": [
       "c64",
-      "vic20"
+      "vic20",
+      "plus4",
+      "pet",
+      "c128"
     ],
     "class": "Shared",
     "ext": "d64",
@@ -560,7 +580,8 @@ expression: rows
   },
   {
     "accepting": [
-      "c64"
+      "c64",
+      "c128"
     ],
     "class": "Unique",
     "ext": "d71",
@@ -570,7 +591,8 @@ expression: rows
   },
   {
     "accepting": [
-      "c64"
+      "c64",
+      "c128"
     ],
     "class": "Unique",
     "ext": "d81",
@@ -618,6 +640,14 @@ expression: rows
   },
   {
     "accepting": [
+      "apple2"
+    ],
+    "class": "Unknown",
+    "ext": "do",
+    "strong": []
+  },
+  {
+    "accepting": [
       "dos"
     ],
     "class": "Unique",
@@ -642,7 +672,10 @@ expression: rows
       "zxspectrum",
       "amstradcpc",
       "dragon",
-      "coco"
+      "coco",
+      "msx2",
+      "msxturbor",
+      "apple2"
     ],
     "class": "Shared",
     "ext": "dsk",
@@ -651,7 +684,10 @@ expression: rows
       "zxspectrum",
       "amstradcpc",
       "dragon",
-      "coco"
+      "coco",
+      "msx2",
+      "msxturbor",
+      "apple2"
     ]
   },
   {
@@ -1091,7 +1127,8 @@ expression: rows
   },
   {
     "accepting": [
-      "msx"
+      "msx",
+      "msx2"
     ],
     "class": "Unique",
     "ext": "mx2",
@@ -1179,6 +1216,16 @@ expression: rows
     "ext": "nhd",
     "strong": [
       "pc98"
+    ]
+  },
+  {
+    "accepting": [
+      "apple2"
+    ],
+    "class": "Unique",
+    "ext": "nib",
+    "strong": [
+      "apple2"
     ]
   },
   {
@@ -1274,8 +1321,19 @@ expression: rows
   },
   {
     "accepting": [
+      "apple2"
+    ],
+    "class": "Unknown",
+    "ext": "po",
+    "strong": []
+  },
+  {
+    "accepting": [
       "c64",
-      "vic20"
+      "vic20",
+      "plus4",
+      "pet",
+      "c128"
     ],
     "class": "Shared",
     "ext": "prg",
@@ -1291,7 +1349,10 @@ expression: rows
       "intellivision",
       "scv",
       "jaguar",
-      "thomson"
+      "thomson",
+      "atarixe",
+      "msx2",
+      "msxturbor"
     ],
     "class": "Generic",
     "ext": "rom",
@@ -1301,7 +1362,9 @@ expression: rows
       "intellivision",
       "scv",
       "jaguar",
-      "thomson"
+      "thomson",
+      "msx2",
+      "msxturbor"
     ]
   },
   {
@@ -1525,7 +1588,10 @@ expression: rows
   {
     "accepting": [
       "c64",
-      "vic20"
+      "vic20",
+      "plus4",
+      "pet",
+      "c128"
     ],
     "class": "Shared",
     "ext": "t64",
@@ -1549,7 +1615,10 @@ expression: rows
       "c64",
       "vic20",
       "zxspectrum",
-      "x1"
+      "x1",
+      "plus4",
+      "pet",
+      "c128"
     ],
     "class": "Shared",
     "ext": "tap",
@@ -1673,6 +1742,16 @@ expression: rows
   },
   {
     "accepting": [
+      "apple2"
+    ],
+    "class": "Unique",
+    "ext": "woz",
+    "strong": [
+      "apple2"
+    ]
+  },
+  {
+    "accepting": [
       "wonderswan"
     ],
     "class": "Unique",
@@ -1705,7 +1784,8 @@ expression: rows
   },
   {
     "accepting": [
-      "a800"
+      "a800",
+      "atarixe"
     ],
     "class": "Unique",
     "ext": "xex",
@@ -1715,7 +1795,8 @@ expression: rows
   },
   {
     "accepting": [
-      "a800"
+      "a800",
+      "atarixe"
     ],
     "class": "Unique",
     "ext": "xfd",

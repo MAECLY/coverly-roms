@@ -950,3 +950,49 @@ fn hdf_rdb_in_a_later_block() {
     assert!(run(&fx::amiga_rdb_at(16), "hdf").hits.is_empty());
     assert!(run(&fx::amiga_rdb_at(1), "img").hits.is_empty());
 }
+
+#[test]
+fn woz_and_2img() {
+    // Applesauce WOZ reference: `WOZ1`/`WOZ2`, then `FF 0A 0D 0A`. The
+    // 2IMG spec: `2IMG`, a creator tag, then the 64-byte header size.
+    for version in [1u8, 2] {
+        assert_eq!(
+            best(&run(&fx::woz(version), "woz")),
+            Some(("apple2".into(), 0.95)),
+            "WOZ{version}"
+        );
+    }
+    assert_eq!(
+        best(&run(&fx::two_img(), "2mg")),
+        Some(("apple2".into(), 0.95))
+    );
+    // A line-ending conversion broke the magic: not a WOZ any more.
+    let mut mangled = fx::woz(2);
+    mangled[5] = 0x0D;
+    assert!(run(&mangled, "woz").hits.is_empty());
+    let mut short = fx::two_img();
+    short[8] = 0x20;
+    assert!(run(&short, "2mg").hits.is_empty());
+}
+
+#[test]
+fn prg_load_address_is_a_tiebreak_only() {
+    // Commodore BASIC start per machine: Plus/4 $1001, C128 $1C01, PET
+    // $0401, C64 $0801. Two bytes only: below the 0.50 review line.
+    for (lo_hi, want) in [
+        ([0x01, 0x10], "plus4"),
+        ([0x01, 0x1C], "c128"),
+        ([0x01, 0x04], "pet"),
+        ([0x01, 0x08], "c64"),
+    ] {
+        let bytes = fx::prg(lo_hi);
+        assert_eq!(
+            best(&run(&bytes, "prg")),
+            Some((want.into(), 0.40)),
+            "{want}"
+        );
+        // Only under `.prg`.
+        assert!(run(&bytes, "bin").hits.is_empty(), "{want}");
+    }
+    assert!(run(&fx::prg([0x00, 0xC0]), "prg").hits.is_empty());
+}

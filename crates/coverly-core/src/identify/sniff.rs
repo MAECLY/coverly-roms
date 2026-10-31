@@ -676,7 +676,45 @@ fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
         s.hit("bbcmicro", 0.95, "UEF");
         return true;
     }
-    shared_disks(head, ext, s)
+    apple2_disks(head, s) || commodore_prg(head, ext, s) || shared_disks(head, ext, s)
+}
+
+/// Apple II disk containers (spec §8.1):
+/// - WOZ (Applesauce WOZ 1.0 and 2.0 references): `WOZ1` or `WOZ2`, then
+///   `FF 0A 0D 0A`, which a 7-bit or line-ending conversion would break.
+/// - 2IMG (the 2IMG format spec): `2IMG`, a 4-byte creator tag, then the
+///   header size, 64 (`40 00`).
+fn apple2_disks(head: &[u8], s: &mut Sniff) -> bool {
+    let woz = (starts(head, 0, b"WOZ1") || starts(head, 0, b"WOZ2"))
+        && starts(head, 4, &[0xFF, 0x0A, 0x0D, 0x0A]);
+    if woz {
+        s.hit("apple2", 0.95, "WOZ");
+        return true;
+    }
+    if starts(head, 0, b"2IMG") && starts(head, 8, &[0x40, 0x00]) {
+        s.hit("apple2", 0.95, "2IMG");
+        return true;
+    }
+    false
+}
+
+/// A Commodore `.prg` opens with its little-endian load address, the
+/// machine's BASIC start: `$1001` Plus/4, `$1C01` C128, `$0401` PET,
+/// `$0801` C64 (each machine's memory map). Two bytes, so 0.40: below the
+/// review line, a tie-break between the folder's candidates only.
+fn commodore_prg(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if ext != "prg" {
+        return false;
+    }
+    let system = match at(head, 0, 2) {
+        Some([0x01, 0x10]) => "plus4",
+        Some([0x01, 0x1C]) => "c128",
+        Some([0x01, 0x04]) => "pet",
+        Some([0x01, 0x08]) => "c64",
+        _ => return false,
+    };
+    s.hit(system, 0.40, "PRG load address");
+    true
 }
 
 /// Hard and floppy disk images under `.nhd`, `.hdf`, `.fdi` and `.dim`
@@ -1244,6 +1282,37 @@ pub mod fixtures {
         b[6] = 1;
         b[8] = 79;
         b[9] = 1;
+        b
+    }
+
+    /// An Apple II WOZ disk (`version` 1 or 2): `WOZn`, `FF 0A 0D 0A`, a
+    /// zero CRC, then the `INFO` chunk id.
+    pub fn woz(version: u8) -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(&[b'W', b'O', b'Z', b'0' + version]);
+        b[4..8].copy_from_slice(&[0xFF, 0x0A, 0x0D, 0x0A]);
+        b[12..16].copy_from_slice(b"INFO");
+        b
+    }
+
+    /// An Apple II 2IMG disk: `2IMG`, creator `CTKG`, header size 64,
+    /// version 1, ProDOS order.
+    pub fn two_img() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"2IMGCTKG");
+        b[8..10].copy_from_slice(&64u16.to_le_bytes());
+        b[10..12].copy_from_slice(&1u16.to_le_bytes());
+        b[12] = 1;
+        b
+    }
+
+    /// A Commodore `.prg`: the little-endian load address, then a BASIC
+    /// line link.
+    pub fn prg(load: [u8; 2]) -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..2].copy_from_slice(&load);
+        b[2] = 0x0B;
+        b[3] = load[1];
         b
     }
 

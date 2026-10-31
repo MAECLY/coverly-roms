@@ -182,6 +182,12 @@ const COMPUTERS_I = {
 };
 /** Computers II (Task 9) named alike on ES-DE, Batocera and muOS. */
 const COMPUTERS_II = { pc98: 'pc98', x1: 'x1', x68000: 'x68000' };
+/** Computers III (Task 10) named alike on ES-DE and Batocera. */
+const COMPUTERS_III = {
+  apple2: 'apple2',
+  msx2: 'msx2',
+  msxturbor: 'msxturbor',
+};
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -199,12 +205,21 @@ const ONION_FOLDERS = {
 };
 const MINUI_FOLDERS = {
   amstradcpc: 'CPC',
+  c128: 'C128',
+  pet: 'PET',
+  plus4: 'PLUS4',
   colecovision: 'COLECO',
   sg1000: 'SG1000',
 };
 /** D23 hosts: a sub-system kept in its parent's folder. */
-const ANBERNIC_STOCK_HOSTS = { satellaview: 'snes', supergrafx: 'pcengine' };
-const MINUI_HOSTS = { satellaview: 'snes' };
+const ANBERNIC_STOCK_HOSTS = {
+  atarixe: 'a800',
+  msx2: 'msx',
+  satellaview: 'snes',
+  supergrafx: 'pcengine',
+};
+const ONION_HOSTS = { msx2: 'msx' };
+const MINUI_HOSTS = { msx2: 'msx', satellaview: 'snes' };
 const MUOS_FOLDERS = {
   '3do': '3do',
   cdi: 'cdi',
@@ -221,6 +236,10 @@ const MUOS_FOLDERS = {
   zxspectrum: 'spectrum',
   ...COMPUTERS_II,
   pc88: 'pc8000',
+  c128: 'c128',
+  msx2: 'msx2',
+  pet: 'pet',
+  plus4: 'plus4',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -246,6 +265,9 @@ const ESDE_FOLDERS = {
   zxspectrum: 'zxspectrum',
   ...COMPUTERS_II,
   pc88: 'pc88',
+  ...COMPUTERS_III,
+  atarixe: 'atarixe',
+  plus4: 'plus4',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -272,6 +294,11 @@ const BATOCERA_FOLDERS = {
   zxspectrum: 'zxspectrum',
   ...COMPUTERS_II,
   pc88: 'pc88',
+  ...COMPUTERS_III,
+  atarixe: 'xegs',
+  c128: 'c128',
+  pet: 'pet',
+  plus4: 'cplus4',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
@@ -284,8 +311,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     undefined,
     ANBERNIC_STOCK_HOSTS,
   ),
-  handheld('garlicos', 'GarlicOS', 'Roms', ONION_FOLDERS),
-  handheld('onion', 'Onion OS', 'Roms', ONION_FOLDERS),
+  handheld('garlicos', 'GarlicOS', 'Roms', ONION_FOLDERS, ONION_HOSTS),
+  handheld('onion', 'Onion OS', 'Roms', ONION_FOLDERS, ONION_HOSTS),
   {
     profile: {
       id: 'muos',

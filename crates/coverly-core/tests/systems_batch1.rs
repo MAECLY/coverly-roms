@@ -63,6 +63,14 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("x1", Family::Computer, false),
     ("pc98", Family::Computer, false),
     ("pc88", Family::Computer, false),
+    // Computers III (Task 10).
+    ("plus4", Family::Computer, false),
+    ("pet", Family::Computer, false),
+    ("c128", Family::Computer, false),
+    ("atarixe", Family::Computer, false),
+    ("msx2", Family::Computer, false),
+    ("msxturbor", Family::Computer, false),
+    ("apple2", Family::Computer, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -132,6 +140,21 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("muos", "pc98", "pc98", None),
     ("onion", "x68000", "X68000", Some(false)),
     ("minui", "pc98", "PC98", Some(false)),
+    // Computers III (Task 10); the D23 hosts are in `profile_folders.rs`.
+    ("batocera", "atarixe", "xegs", None),
+    ("esde", "atarixe", "atarixe", None),
+    ("batocera", "plus4", "cplus4", None),
+    ("esde", "plus4", "plus4", None),
+    ("muos", "pet", "pet", None),
+    ("minui", "plus4", "PLUS4", None),
+    ("minui", "pet", "PET", None),
+    ("minui", "c128", "C128", None),
+    ("esde", "c128", "c128", Some(false)),
+    ("batocera", "msx2", "msx2", None),
+    ("muos", "msxturbor", "msxturbor", Some(false)),
+    ("esde", "msxturbor", "msxturbor", None),
+    ("batocera", "apple2", "apple2", None),
+    ("onion", "apple2", "APPLE2", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -182,6 +205,12 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     ("amiga", "hdf", fx::amiga_dos, Some("amiga")),
     ("amiga", "fdi", fx::fdi2, Some("amiga")),
     ("atarist", "dim", fx::st_dim, Some("atarist")),
+    // Computers III (Task 10). The `.prg` load address is a 0.40
+    // tie-break only.
+    ("apple2", "woz", || fx::woz(2), Some("apple2")),
+    ("apple2", "woz", || fx::woz(1), Some("apple2")),
+    ("apple2", "2mg", fx::two_img, Some("apple2")),
+    ("plus4", "prg", || fx::prg([0x01, 0x10]), Some("plus4")),
 ];
 
 fn research(name: &str) -> String {
@@ -544,4 +573,98 @@ fn hdf_fdi_dim_d88_2hd_hdm_are_shared() {
         assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
     }
     assert_eq!(db.extension_class("2d"), ExtClass::Unknown);
+}
+
+#[test]
+fn msx1_still_msx_and_msx2_moves() {
+    // D6: the `msx2` alias moves from `msx` to the new system; `msx1`
+    // (ES-DE's and Batocera's MSX folder) and `MSX` stay MSX.
+    let db = SystemDb::builtin();
+    for (name, want) in [
+        ("msx1", "msx"),
+        ("MSX", "msx"),
+        ("MSX2", "msx2"),
+        ("msx2", "msx2"),
+        ("msxturbor", "msxturbor"),
+        ("xegs", "atarixe"),
+        ("A800", "a800"),
+        ("cplus4", "plus4"),
+        ("c128", "c128"),
+        ("appleii", "apple2"),
+    ] {
+        assert_eq!(
+            db.resolve_folder(name).map(|s| s.id.as_str()),
+            Some(want),
+            "{name}"
+        );
+    }
+    // `turbor` is scoped (D22).
+    assert!(db.resolve_folder("turbor").is_none());
+}
+
+#[test]
+fn computers_iii_catalogues() {
+    let db = SystemDb::builtin();
+    let dats = |id: &str| coverly_core::identify::dat::dat_sources(db.get(id).unwrap());
+    assert_eq!(dats("plus4"), ["metadat/no-intro/Commodore - Plus-4.dat"]);
+    assert_eq!(dats("pet"), ["metadat/tosec/Commodore - PET.dat"]);
+    assert_eq!(dats("msx2"), ["metadat/no-intro/Microsoft - MSX2.dat"]);
+    assert_eq!(dats("apple2"), ["metadat/tosec/Apple - II.dat"]);
+    assert!(dats("c128").is_empty());
+    assert!(dats("msxturbor").is_empty());
+    for (id, libretro, ss) in [
+        ("plus4", Some("Commodore - Plus-4"), Some(99)),
+        ("pet", Some("Commodore - PET"), None),
+        ("c128", None, None),
+        ("atarixe", Some("Atari - 8-bit"), Some(43)),
+        ("msx2", Some("Microsoft - MSX2"), Some(116)),
+        ("msxturbor", None, Some(118)),
+        ("apple2", None, Some(86)),
+    ] {
+        let s = db.get(id).unwrap();
+        assert_eq!(
+            (s.libretro.as_deref(), s.screenscraper),
+            (libretro, ss),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn computers_iii_extension_classes() {
+    // D3: `.dsk` stays Shared and gains msx2, msxturbor, apple2; the
+    // Commodore and Atari formats stay their old owner's (weak only).
+    use coverly_core::systems::ExtClass;
+    let db = SystemDb::builtin();
+    let owners = |ext: &str| {
+        let mut v: Vec<String> = db
+            .systems_for_extension(ext)
+            .into_iter()
+            .map(|s| s.id.clone())
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(db.extension_class("dsk"), ExtClass::Shared);
+    for id in ["msx2", "msxturbor", "apple2"] {
+        assert!(owners("dsk").contains(&id.to_string()), "{id}");
+    }
+    for ext in ["prg", "d64", "t64", "crt"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Shared, "{ext}");
+        assert_eq!(owners(ext), ["c64", "vic20"], "{ext}");
+    }
+    for (ext, owner) in [
+        ("d71", "c64"),
+        ("d81", "c64"),
+        ("atr", "a800"),
+        ("xex", "a800"),
+        ("mx2", "msx"),
+    ] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
+        assert_eq!(owners(ext), [owner], "{ext}");
+    }
+    for ext in ["woz", "2mg", "nib"] {
+        assert_eq!(owners(ext), ["apple2"], "{ext}");
+    }
+    assert_eq!(db.extension_class("do"), ExtClass::Unknown);
 }

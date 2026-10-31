@@ -312,3 +312,61 @@ fn scoped_aliases_need_a_profile() {
     }
     assert_eq!(detect(other.path()).len(), 1);
 }
+
+#[test]
+fn computers_iii_folders_and_hosts() {
+    // §6.1 and D23: MSX2 and Atari XE keep the parent's folder where the
+    // device has only that one (Anbernic `MSX`/`A800`, Onion's `MSX`
+    // package, NextUI's `MSX.pak`); their own folder elsewhere.
+    let db = SystemDb::builtin();
+    let none = BTreeMap::new();
+    let target = |profile: &str, id: &str| {
+        let c = system_folder(&builtin(profile), db.get(id).unwrap(), &db, &none);
+        (c.folder, c.host, c.on_device)
+    };
+    // Only Anbernic stock lists its card's folders, so only it can say
+    // the host folder is on the device.
+    for (profile, id, folder, host, on_device) in [
+        ("anbernic-stock", "msx2", "MSX", "msx", Some(true)),
+        ("anbernic-stock", "atarixe", "A800", "a800", Some(true)),
+        ("onion", "msx2", "MSX", "msx", None),
+        ("garlicos", "msx2", "MSX", "msx", None),
+        ("minui", "msx2", "MSX", "msx", None),
+    ] {
+        assert_eq!(
+            target(profile, id),
+            (folder.to_string(), Some(host.to_string()), on_device),
+            "{profile} {id}"
+        );
+    }
+    for (profile, id, folder) in [
+        ("batocera", "atarixe", "xegs"),
+        ("esde", "atarixe", "atarixe"),
+        ("batocera", "plus4", "cplus4"),
+        ("minui", "plus4", "PLUS4"),
+        ("minui", "pet", "PET"),
+        ("minui", "c128", "C128"),
+        ("esde", "msx2", "msx2"),
+    ] {
+        let (f, host, _) = target(profile, id);
+        assert_eq!((f.as_str(), host), (folder, None), "{profile} {id}");
+    }
+    // NextUI has no Atari 8-bit pak, and MSX turbo R never gets a host.
+    for (profile, id) in [
+        ("minui", "atarixe"),
+        ("anbernic-stock", "msxturbor"),
+        ("onion", "msxturbor"),
+    ] {
+        let (_, host, on_device) = target(profile, id);
+        assert_eq!((host, on_device), (None, Some(false)), "{profile} {id}");
+    }
+    // `pet` and its first alias are scoped (D22).
+    for name in ["pet", "PET"] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    assert_eq!(
+        db.resolve_folder_in(Some(&builtin("batocera")), "pet")
+            .map(|s| s.id.as_str()),
+        Some("pet")
+    );
+}

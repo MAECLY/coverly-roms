@@ -547,3 +547,21 @@ fn parses_trimmed_tosec_and_dat_folder() {
     assert_eq!(dat[2].roms.len(), 2);
     assert_eq!(dat[2].roms[1].crc32.as_deref(), Some("FDB97531"));
 }
+
+#[test]
+fn a800_keeps_its_dat() {
+    // §8.3: `atarixe` lists only `a800`'s DAT and comes after it, so the
+    // DAT maps to `a800` and a hash never names `atarixe`.
+    let db = coverly_core::systems::SystemDb::builtin();
+    let dat = "metadat/no-intro/Atari - 8-bit Family.dat";
+    assert_eq!(db.system_for_dat(dat).map(|s| s.id.as_str()), Some("a800"));
+    let xe = coverly_core::identify::dat::dat_sources(db.get("atarixe").unwrap());
+    assert_eq!(xe, [dat]);
+    for d in &xe {
+        assert_ne!(
+            db.system_for_dat(d).map(|s| s.id.as_str()),
+            Some("atarixe"),
+            "{d}"
+        );
+    }
+}

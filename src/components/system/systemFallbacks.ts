@@ -57,6 +57,14 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   x1: 'X1',
   pc98: 'PC98',
   pc88: 'PC88',
+  // Computers III (plan Task 10), same interim Slot mount.
+  plus4: 'PLS4',
+  pet: 'PET',
+  c128: 'C128',
+  atarixe: 'XE',
+  msx2: 'MSX2',
+  msxturbor: 'TR',
+  apple2: 'APL2',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */
