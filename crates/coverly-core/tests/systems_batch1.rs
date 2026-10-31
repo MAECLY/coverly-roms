@@ -191,3 +191,24 @@ fn cover_lookup_finds_batch_systems() {
         system.id
     );
 }
+
+#[test]
+fn cdi_folder_is_scoped_but_cdimono1_is_global() {
+    // D22: `cdi` (and so its first alias `CDI`) is scoped, so a `cdi/`
+    // folder of DiscJuggler images in Downloads is still organised; under a
+    // profile, and as `cdimono1`, the folder is CD-i's.
+    let db = SystemDb::builtin();
+    for name in ["cdi", "CDI"] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    assert_eq!(id(db.resolve_folder("cdimono1")), Some("cdi".into()));
+    for p in builtin_profiles() {
+        assert_eq!(
+            id(db.resolve_folder_in(Some(&p), "cdi")),
+            Some("cdi".into()),
+            "{}",
+            p.id
+        );
+    }
+}
