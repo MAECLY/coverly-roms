@@ -1,6 +1,6 @@
 # Coverly ROMs — Missing systems, batch 1: retro without new formats (Design Spec)
 
-> Status: **Draft, self-reviewed (§17), adversarially reviewed against the code (§18)** · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Status: **Implemented on `feat/systems-batch-1`** (self-reviewed §17, adversarially reviewed against the code §18) · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
 > Roadmap item: `TODO.md` §2 «Sistemas que faltan», **Tanda 1 only**. Tanda 2 (GameCube, Wii, 3DS…) and Tanda 3 (PS4, PS5, Xbox One/Series) are separate later runs and are not started here.
 > Branch: `feat/systems-batch-1`. `docs/TRACKER.md` and `TODO.md` are updated on `main` after merge, not on this branch.
 > Builds on: [`2026-10-23-organize-archives-and-discs.md`](2026-10-23-organize-archives-and-discs.md) (disc sets, layouts, containers), [`2026-10-18-system-icons-and-views.md`](2026-10-18-system-icons-and-views.md) (SystemIcon, Slot mount), [`docs/02-research/layouts.md`](../../02-research/layouts.md) (profile evidence), brand [`docs/08-brand/brand.md`](../../08-brand/brand.md).
