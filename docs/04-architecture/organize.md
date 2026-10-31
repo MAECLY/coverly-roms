@@ -58,7 +58,7 @@ Identification runs on `std::thread::scope` workers with an atomic work index (O
 | `not-a-rom` | the first 512 bytes are text; `web-page` when it opens like HTML/XML/JSON |
 | `damaged-archive`, `unsupported-archive` (with the `format` and the program it `need`s), `multi-game-archive`, `encrypted-archive`, `archive-needs-memory`, `archive-too-big`, `multi-volume-archive`, `unsafe-archive-entry`, `nested-archive`, `repack-arcade` | see [Archives](#archives) |
 | `set-unsafe-name`, `path-too-long`, `folder-full`, `unsafe-target` | extraction targets (see [Extract](#extract-disc-games-and-unloadable-containers)) |
-| `unsupported-system` | a signature of a system Coverly does not organise (Sega Pico, PlayStation 2) |
+| `unsupported-system` | a signature of a system Coverly does not organise; no rule produces it since systems batch 1 (PlayStation 2, 3DO and Sega Pico are organised), it stays for saved plans |
 | `unknown` | ROM-like, but nothing reached the review threshold (still assignable) |
 | `in-library` | the same game is already in the library (`path`, `relation`), with the duplicates step set to *report* (see [Sets and companions](#sets-and-companions)) |
 | `already-present` | already in the target folder |
@@ -146,18 +146,22 @@ Discovery takes absolute `PATH` entries that are neither the current directory n
 
 ## Disc identification (`crates/coverly-core/src/disc/`)
 
-`DiscReader::identify_with(src, image_len, fetch)` over a `SectorSource` (a loose image `FileSource`, or a decoded archive window `WindowSource`); the sector layout (2048, raw 2352 Mode 1/2, 2336) is detected from the sync pattern. Every read is bounded (PVD at LBA 16, root directory ≤ 64 records and 8 sectors, `SYSTEM.CNF` ≤ 4 KiB, IP.BIN = the track's first 32 KiB). Order: 3DO → Sega IP.BIN → PC Engine CD → PlayStation → PSP → Neo Geo CD.
+`DiscReader::identify_with(src, image_len, fetch)` over a `SectorSource` (a loose image `FileSource`, or a decoded archive window `WindowSource`); the sector layout (2048, raw 2352 Mode 1/2, 2336) is detected from the sync pattern. Every read is bounded (PVD at LBA 16, root directory ≤ 64 records and 8 sectors, `SYSTEM.CNF` ≤ 4 KiB, IP.BIN = the track's first 32 KiB). Order: 3DO → Sega IP.BIN → PC-FX → PC Engine CD → CD-i → PlayStation → PSP → Amiga CD32 / CDTV → Neo Geo CD. Jaguar CD is read from the first track of session 2 of a disc set (`organize::inspect`).
 
 | System | Signature | Serial | Confidence |
 |---|---|---|---|
 | PlayStation (`psx`) | PVD `PLAYSTATION` + root `SYSTEM.CNF` `BOOT = cdrom:\SLUS_008.62;1`; the Sony licence text in raw sector 4 is extra evidence only | from `BOOT`, `SLUS_008.62` → `SLUS-00862` | 0.95 with `BOOT`, 0.80 PVD only |
-| PlayStation 2 | `SYSTEM.CNF` `BOOT2`, or a PlayStation volume larger than a CD | — | `unsupported-system` |
+| PlayStation 2 (`ps2`) | `SYSTEM.CNF` `BOOT2`, or a PlayStation volume larger than a CD | from `BOOT2`, `SLUS_200.62` → `SLUS-20062` | 0.95 with `BOOT2`, 0.80 by size |
 | Sega Saturn (`saturn`) | IP.BIN `SEGA SEGASATURN` | product at 0x20 (`T-5704H`) | 0.95 |
 | Dreamcast (`dreamcast`) | IP.BIN `SEGA SEGAKATANA` on track 03 (the high-density area); a low-density track 01 never identifies | product at 0x40, `T40214N` → `T-40214N` | 0.95 |
 | Sega CD (`segacd`) | `SEGADISCSYSTEM` | `GM …` at 0x180 | 0.95, never `megadrive` |
 | PC Engine CD (`pcenginecd`) | `PC Engine CD-ROM SYSTEM` at 0x20 of sector 1 | — | 0.90 |
 | Neo Geo CD (`neocd`) | `IPL.TXT` in the root, no `SYSTEM.CNF`, no Sega/NEC signature | — | 0.85 |
-| 3DO | Opera volume header | — | `unsupported-system` |
+| 3DO (`3do`) | Opera volume header | — | 0.90 |
+| PC-FX (`pcfx`) | `PC-FX:Hu_CD-ROM` in sector 0 (wins over the PC Engine CD text some discs also carry) | — | 0.95 |
+| CD-i (`cdi`) | CD-i disc label at sector 16 | — | 0.90 |
+| Amiga CD32 / CDTV (`amigacd32`, `cdtv`) | PVD system id `CDTV`, `CD32` or `COMM`, then the `CD32.TM` block at sector 21 (CRC-32 `E56C340F`) → CD32, or `CDTV.TM` in the root → CDTV | — | 0.90 |
+| Jaguar CD (`jaguarcd`) | `ATARI APPROVED DATA HEADER ATRI ` (or byte-swapped) in the head of session 2's first track | — | 0.95 |
 | PSP (`psp`) | `PSP GAME` / `CISO` | `UMD_DATA.BIN` | 0.85 |
 
 When `SYSTEM.CNF` lies past the 4 MiB window (the real case: LBA 2089, after a 4 MiB `PSX.BSE`), the reader asks `fetch` for exactly that file's extent, charged to the same 64 MiB budget, and finishes at 0.95. `DiscIdentity::to_dedupe_id()` gives dedupe's `DiscId` (serials, disc number, `VolumeFingerprint` = PVD size and dates + SHA-1 of `SYSTEM.CNF` or IP.BIN); serial normalisation lives in `disc::serial`.

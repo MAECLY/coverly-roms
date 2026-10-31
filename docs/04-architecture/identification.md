@@ -108,7 +108,7 @@ Order: text first, then containers, then disc images, then cartridges, most spec
 | — (container) | `PK\x03\x04` / `PK\x05\x06` zip, `37 7A BC AF 27 1C` 7z, `MComprHD` CHD, `Rar!\x1A\x07` RAR | — |
 | `saturn` / `dreamcast` | `SEGA SEGASATURN` / `SEGA SEGAKATANA` at 0 or 0x10 | 0.90 |
 | `psp` | `CISO` with an uncompressed size ≤ 1.8 GB; or ISO 9660 `CD001` at sector 16 with `PSP GAME` as system or volume id | 0.85 |
-| `psx` / *(PS2)* | `CD001` + `PLAYSTATION` system id (2048- or raw 2352-byte sectors), then `SYSTEM.CNF` from the root directory: `BOOT2` → PS2 (unsupported), `BOOT` → psx 0.95; not found → psx 0.80, or PS2 when the image is larger than any CD | 0.80–0.95 |
+| `psx` / `ps2` | `CD001` + `PLAYSTATION` system id (2048- or raw 2352-byte sectors), then `SYSTEM.CNF` from the root directory: `BOOT2` → ps2 0.95 (serial from the `BOOT2` file name, `SCES_517.19` → `SCES-51719`), `BOOT` → psx 0.95; not found → psx 0.80, or ps2 0.80 when the image is larger than any CD | 0.80–0.95 |
 | `nds` | logo CRC16 `0xCF56` at 0x15C **and** header CRC16 at 0x15E over 0x000–0x15D | 0.95 |
 | `gb` / `gbc` | logo prefix `CE ED 66 66 CC 0D 00 0B` at 0x104 **and** header checksum at 0x14D; CGB flag 0x143: `0xC0` → gbc 0.95 and **`gb` vetoed**, `0x80` (dual mode) → gbc 0.85, otherwise gb 0.95 | 0.85–0.95 |
 | `fds` | `FDS\x1A` at 0, or `\x01*NINTENDO-HVC*` at 0 or 16 | 0.95 |
@@ -117,7 +117,7 @@ Order: text first, then containers, then disc images, then cartridges, most spec
 | `lynx` / `a7800` | `LYNX` at 0 / `ATARI7800` at 1 | 0.95 |
 | `segacd` | `SEGADISCSYSTEM` at 0 or 0x10 | 0.95 |
 | `sega32x` | `SEGA 32X` at 0x100, or `SEGA` at 0x100/0x101 and `MARS` in the first 0x400 bytes | 0.95 |
-| *(Sega Pico)* | `SEGA PICO` at 0x100 | unsupported |
+| `pico` | `SEGA PICO` (or ` PICO `) in the 16 bytes at 0x100 | 0.95 |
 | `megadrive` | `SEGA` at 0x100 or 0x101; interleaved SMD when `len % 16384 == 512`, `AA BB` at 8–9 **and** the first block deinterleaves to `SEGA` | 0.90 |
 | `mastersystem` / `gamegear` | `TMR SEGA` at 0x7FF0, 0x3FF0 or 0x1FF0: `.sms` / `.gg` → that system 0.90; otherwise the region nibble picks one at 0.70 and the other gets 0.60 | 0.60–0.90 |
 | `gba` | fixed byte `0x96` at 0xB2 **and** header complement at 0xBD; with the logo prefix `24 FF AE 51` at 0x04 it is checked before SNES, without it last | 0.95 |
