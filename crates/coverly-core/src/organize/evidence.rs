@@ -197,6 +197,10 @@ const WEAK_OWNER_PROOF: f32 = 0.95;
 
 /// Weight of a weak extension that agrees with another signal (`ext~`).
 const WEAK_SUPPORT: f32 = 0.50;
+/// A header names a weak owner only from the review line up: a tie-break
+/// hit under it (the 0.40 `.prg` load address, spec §8) never lifts a
+/// weak owner over the extension's strong owners (D24).
+const WEAK_NAMING_HEADER: f32 = 0.50;
 
 /// Extension evidence for `ext`: 0.85 when one system lists it, 0.50 when
 /// several do, and 0.60 (detail suffixed `!`) when the extension is unique
@@ -246,8 +250,8 @@ fn weak_owner_proven(db: &SystemDb, ext: &str, owner: &str, hits: &[Evidence]) -
 }
 
 /// Weak-extension support (spec D3, D4): a system that lists `ext` as
-/// weak gains 0.50 (detail `ext~`) only when a header, a DAT hit or a user
-/// choice already names it. A weak extension alone never assigns a system.
+/// weak gains 0.50 (detail `ext~`) only when a header of at least 0.50, a
+/// DAT hit or a user choice already names it. A weak extension alone never assigns a system.
 pub fn weak_extension_support(db: &SystemDb, ext: &str, evidence: &mut Vec<Evidence>) {
     let ext = ext.trim_start_matches('.').to_ascii_lowercase();
     if ext.is_empty() {
@@ -259,7 +263,12 @@ pub fn weak_extension_support(db: &SystemDb, ext: &str, evidence: &mut Vec<Evide
             continue;
         }
         let named = evidence.iter().any(|e| {
-            e.system == s.id && matches!(e.kind, IdLevel::Header | IdLevel::Hash | IdLevel::User)
+            e.system == s.id
+                && match e.kind {
+                    IdLevel::Header => e.weight + EPS >= WEAK_NAMING_HEADER,
+                    IdLevel::Hash | IdLevel::User => true,
+                    IdLevel::Extension | IdLevel::Name | IdLevel::Online => false,
+                }
         });
         let known = evidence
             .iter()

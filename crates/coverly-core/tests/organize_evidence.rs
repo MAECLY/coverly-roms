@@ -1521,3 +1521,30 @@ fn loose_amiga_and_st_disks_stay_automatic() {
         assert_eq!(listed, owners, "{ext}");
     }
 }
+
+#[test]
+fn a_prg_load_address_never_lifts_a_weak_owner() {
+    // Spec §8: the `.prg` load address is a 0.40 tie-break inside a shared
+    // folder only. Loose, a Plus/4 `$1001` is also an unexpanded VIC-20
+    // and a PET `$0401` a VIC-20 with 3K: the strong owners (c64, vic20)
+    // keep their tie and the weak owner gains no `prg~` support (D24: a
+    // weak owner wins only with a ≥ 0.95 header).
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, load, weak) in [
+        ("Plus.prg", [0x01, 0x10], "plus4"),
+        ("Pet.prg", [0x01, 0x04], "pet"),
+        ("C128.prg", [0x01, 0x1C], "c128"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, fx::prg(load)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        let c = &id.combined;
+        assert_ne!(c.system.as_deref(), Some(weak), "{name}: {c:?}");
+        assert_ne!(c.verdict, Verdict::Auto, "{name}: {c:?}");
+        // The weak owner stays under the review line: a candidate only.
+        assert!(
+            c.alternatives.iter().all(|(s, w)| s != weak || *w < 0.50),
+            "{name}: {c:?}"
+        );
+    }
+}
