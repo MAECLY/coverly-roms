@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DupGroup } from '@/components/dedupe/DupGroup';
 import { GroupCover, OwnArtThumb } from '@/components/dedupe/GroupCover';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -215,5 +216,28 @@ describe('DupGroup covers', () => {
     resolves();
     const { container } = renderGroup(fixtureGroup('Ecco the Dolphin'), 3);
     expect(container.querySelector('.dup-own-art')).toBeNull();
+  });
+});
+
+describe('ConflictGroup covers', () => {
+  it('shows the game cover beside a conflict, as any other group', async () => {
+    const art = resolves();
+    const g = fixtureGroup('Pokemon Red');
+    const { container } = renderIn(<ConflictGroup group={g} planId={3} />);
+    const group = container.querySelector('[data-conflict]')!;
+    expect(group).toHaveAttribute('data-cover', '');
+    expect(group.querySelector('.dup-cover')).not.toBeNull();
+    await waitFor(() =>
+      expect(art).toHaveBeenCalledWith(3, g.id, null, 'cover'),
+    );
+  });
+
+  it('has no cover column without a plan', () => {
+    const art = resolves();
+    const { container } = renderIn(
+      <ConflictGroup group={fixtureGroup('Pokemon Red')} />,
+    );
+    expect(container.querySelector('.dup-cover')).toBeNull();
+    expect(art).not.toHaveBeenCalled();
   });
 });

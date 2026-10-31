@@ -66,6 +66,14 @@ describe('SystemSection', () => {
     expect(trigger).toHaveAccessibleDescription('7,4 MB');
   });
 
+  it('a conflict has the cover column of a kept plan, like its neighbours', () => {
+    const plan = dedupeFixture();
+    wrap(section(plan, 'GB', 'Game Boy', { defaultOpen: true, planId: 7 }));
+    const conflict = document.querySelector('[data-conflict]')!;
+    expect(conflict).toHaveAttribute('data-cover', '');
+    expect(conflict.querySelector('.dup-cover')).not.toBeNull();
+  });
+
   it('a game you asked to leave alone drops out of the system sentence and bytes', () => {
     const plan = dedupeFixture();
     const groups = bySystem(plan, 'SMS');

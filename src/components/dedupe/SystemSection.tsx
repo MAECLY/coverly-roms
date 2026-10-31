@@ -217,7 +217,14 @@ function Groups({
   const item = (i: number) => {
     const g = groups[i]!;
     return g.action.kind === 'conflict' ? (
-      <ConflictGroup group={g} onReveal={onReveal} systemName={systemName} />
+      <ConflictGroup
+        group={g}
+        onReveal={onReveal}
+        systemName={systemName}
+        planId={planId}
+        // Only rows the window mounted render here, so each may ask.
+        artEnabled
+      />
     ) : (
       <DupGroup
         group={g}
