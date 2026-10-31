@@ -799,9 +799,10 @@ fn rust_reads_the_shared_organise_requests() {
 /// goes to the quarantine with its save.
 fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
     use coverly_core::dedupe::{
-        DedupePlan, DupGroup, GroupAction, KeepReason, Member, Relation, Totals, Travel,
-        TravelKind, UnitKind, UnitRef,
+        ArtSeen, DedupePlan, DupGroup, GroupAction, KeepReason, Member, MemberFacts, PlayedSeen,
+        Relation, SavesSeen, TagSource, Totals, Travel, TravelKind, UnitKind, UnitRef,
     };
+    use coverly_core::identify::names::{DumpFlags, ModClass, ReleaseClass};
     let member = |id: usize, path: &str, mtime_ns: i64, dest: Option<&str>| Member {
         id,
         unit: UnitRef {
@@ -822,6 +823,43 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
         confidence: 1.0,
         gamelist: None,
         art_leaves: Default::default(),
+        facts: MemberFacts::default(),
+    };
+    // The keeper carries every fact, so the sample pins each key's
+    // spelling; the extra has none and is written without `facts`.
+    let mut keeper = member(
+        0,
+        "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba",
+        1_700_000_000_000_000_000,
+        None,
+    );
+    keeper.facts = MemberFacts {
+        tags_from: Some(TagSource::Catalogue),
+        regions: vec![Region::Usa],
+        languages: vec!["en".into()],
+        revision: Some("Rev 1".into()),
+        class: Some(ReleaseClass::Beta),
+        flags: DumpFlags {
+            verified: true,
+            ..DumpFlags::default()
+        },
+        flags_from: Some(TagSource::FileName),
+        modification: Some(ModClass::Translation),
+        modification_from: Some(TagSource::FileName),
+        other: vec!["Virtual Console".into()],
+        saves: Some(SavesSeen {
+            count: 1,
+            last_ns: 1_700_000_050_000_000_000,
+        }),
+        played: Some(PlayedSeen {
+            count: 4,
+            last: Some("20260102T101010".into()),
+        }),
+        art: vec![ArtSeen {
+            media: Media::Cover,
+            path: "/Volumes/SD/ROMS/GBA/Imgs/Tetris Worlds (USA).png".into(),
+            size: 12_288,
+        }],
     };
     let mut extra = member(
         1,
@@ -849,15 +887,7 @@ fn dedupe_plan_sample() -> coverly_core::dedupe::DedupePlan {
                 name: "Tetris Worlds (USA)".into(),
             },
             runner_up: Some((1, KeepReason::Tie)),
-            members: vec![
-                member(
-                    0,
-                    "/Volumes/SD/ROMS/GBA/Tetris Worlds (USA).gba",
-                    1_700_000_000_000_000_000,
-                    None,
-                ),
-                extra,
-            ],
+            members: vec![keeper, extra],
             action: GroupAction::Act,
             tie: false,
             choice_dropped: false,

@@ -97,6 +97,8 @@ export interface MockBackend extends Backend {
   organizeTouch(path: string, change: MockOrganizeTouch): void;
   /** Paths passed to `revealPath`, for tests. */
   readonly revealedPaths: string[];
+  /** `dedupeArt` calls as `plan:group:member|g:media`, for tests. */
+  readonly artCalls: string[];
   /** What the next duplicates plans and applies do (dev, tests). */
   dedupeScenario(patch: Partial<MockDedupeScenario>): void;
 }
@@ -323,6 +325,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       tick: () => new Promise<void>((r) => setTimeout(r, delayMs)),
       now,
       exports: jobs.exports,
+      revealRoots: () => [
+        ...(current ? [current.root] : []),
+        ...organize.knownFolders(),
+      ],
     },
     {
       trashAvailable: opts.dedupeTrashAvailable ?? true,

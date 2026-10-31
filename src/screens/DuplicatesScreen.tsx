@@ -18,6 +18,9 @@ import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
+import { GroupNavList } from '@/components/dedupe/GroupNavList';
+import { dialogOpen } from '@/components/dedupe/groupNav';
+import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { SettingsLink } from '@/components/settings/SettingsLink';
@@ -167,6 +170,11 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
   }, [root]);
 
   const applying = status === 'applying';
+  // Until the job's own view arrives, the plan says where copies go.
+  const toTrash = job ? job.trash : (plan?.trash ?? false);
+  // Cancel freezes the set-aside scene until the apply really stops.
+  const [stopping, setStopping] = useState(false);
+  if (stopping && !applying) setStopping(false);
   // Time left by items once 5 copies are aside and a rate exists (D11),
   // as the fill panel does; nothing before that.
   const applyDone =
@@ -316,9 +324,19 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
 
           {applying && (
             <div className="grid justify-items-start gap-2.5">
+              <SetAsideScene
+                done={progress ? Math.min(progress.done, progress.total) : 0}
+                total={progress?.total ?? 0}
+                stopped={stopping}
+                folder={
+                  toTrash
+                    ? t('dedupe.sceneTrash')
+                    : fileName(job?.quarantine || plan?.quarantine || '')
+                }
+              />
               <p role="status" className="m-0 text-ui tabular-nums">
                 {progress
-                  ? t(job?.trash ? 'dedupe.applyingTrash' : 'dedupe.applying', {
+                  ? t(toTrash ? 'dedupe.applyingTrash' : 'dedupe.applying', {
                       done: progress.done,
                       total: progress.total,
                     })
@@ -340,7 +358,20 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => void useDedupeStore.getState().cancel()}
+                    onClick={() => {
+                      setStopping(true);
+                      const store = useDedupeStore.getState();
+                      const before = store.error;
+                      void store.cancel().then(() => {
+                        // A refused cancel leaves the apply running: thaw.
+                        const after = useDedupeStore.getState();
+                        if (
+                          after.status === 'applying' &&
+                          after.error !== before
+                        )
+                          setStopping(false);
+                      });
+                    }}
                   >
                     {t('dedupe.cancel')}
                   </Button>
@@ -457,6 +488,9 @@ function Proposal({
   const epoch = useDedupeStore((s) => s.epoch);
   const busy = useDedupeStore((s) => s.busy);
   const exported = useDedupeStore((s) => s.exported);
+  // After an apply (and until undo), a copy set aside is revealed in the
+  // quarantine, one sent to the Trash not at all (DP-4).
+  const outcomes = useDedupeStore((s) => s.job?.report?.outcomes ?? null);
   const [confirm, setConfirm] = useState<ApplyConfirm | null>(null);
   const store = useDedupeStore.getState;
 
@@ -506,6 +540,22 @@ function Proposal({
     if (ask) setConfirm(ask);
     else void store().apply();
   };
+  const canApply = extras > 0 && !busy;
+
+  // ⌘↩ / Ctrl+Enter takes the Apply button's path (and its confirmation).
+  // Never under a dialog, and only while the proposal is up.
+  useEffect(() => {
+    if (!canApply) return;
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key !== 'Enter' || !(ev.metaKey || ev.ctrlKey)) return;
+      if (ev.altKey || ev.shiftKey || ev.repeat) return;
+      if (store().status !== 'ready' || dialogOpen()) return;
+      ev.preventDefault();
+      onApply();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   const changeFolder = async () => {
     const path = await (await getBackend()).pickFolder();
     if (path) void store().setFolder(path);
@@ -593,7 +643,7 @@ function Proposal({
           className="rounded-lg border border-dashed border-cr-border-strong"
         />
       ) : (
-        <div className="grid gap-3">
+        <GroupNavList className="grid gap-3">
           {systems.map(([system, list]) => (
             <SystemSection
               key={`${system}:${epoch}`}
@@ -602,6 +652,7 @@ function Proposal({
               groups={list}
               quarantine={plan.quarantine}
               profileName={profileName}
+              planId={plan.plan_id}
               skipped={skipped}
               onKeeperChange={(group, member) =>
                 void store().setKeeper(group, member)
@@ -612,14 +663,20 @@ function Proposal({
               onSkipSystem={(s) => void store().skipSystem(s, true)}
               onResetSystem={(s) => void store().resetRules(s)}
               onReveal={(path) => void store().reveal(path)}
+              outcomes={outcomes}
             />
           ))}
           <UnchangedList
             groups={groups}
             skipped={skipped}
             systemName={systemName}
+            quarantine={plan.quarantine}
+            profileName={profileName}
+            planId={plan.plan_id}
+            onReveal={(path) => void store().reveal(path)}
+            outcomes={outcomes}
           />
-        </div>
+        </GroupNavList>
       )}
 
       {/* The action bar sits on the page, ruled off like a shelf edge
@@ -630,8 +687,9 @@ function Proposal({
       >
         <Button
           variant="primary"
-          disabled={extras === 0 || busy}
+          disabled={!canApply}
           aria-describedby={extras === 0 ? 'dup-none-hint' : undefined}
+          aria-keyshortcuts="Meta+Enter Control+Enter"
           onClick={onApply}
         >
           {trash ? <Trash2 aria-hidden /> : <FolderInput aria-hidden />}

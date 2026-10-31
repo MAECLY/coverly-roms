@@ -117,6 +117,7 @@ pub fn run() {
             ipc::dedupe_apply,
             ipc::dedupe_cancel_apply,
             ipc::dedupe_job,
+            ipc::dedupe_art,
             ipc::dedupe_resume,
             ipc::dedupe_export_plan,
             ipc::reveal_path,

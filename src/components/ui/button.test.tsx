@@ -56,4 +56,13 @@ describe('Button', () => {
     );
     expect(buttonVariants({})).toContain('focus-visible:outline-ring');
   });
+
+  it('filled buttons keep an edge in forced colours', () => {
+    // Forced colours repaint fills with Canvas: without a border a filled
+    // button reads as plain text.
+    for (const variant of ['primary', 'secondary', 'destructive'] as const)
+      expect(buttonVariants({ variant })).toContain(
+        'forced-colors:border-[ButtonText]',
+      );
+  });
 });

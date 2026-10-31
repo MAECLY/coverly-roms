@@ -11,6 +11,9 @@
  *   one-ROM-per-game is off (report only).
  * - GB "Pokemon Red": two exact copies with different saves (conflict).
  *
+ * Copy facts (tags, saves, art) sit on the showcase groups and on "Disc
+ * Game 01" (five regions); every other filler has none (missing cover).
+ *
  * Fillers bring it to the spec's numbers: 89 extra copies across 88 games
  * that act (4 of them other formats), and 37 other versions report-only.
  * Names and bytes are synthetic.
@@ -19,6 +22,7 @@ import type {
   DedupePlanView,
   DupGroupView,
   KeepReasonView,
+  MemberFactsView,
   MemberView,
   RelationView,
   TotalsView,
@@ -31,6 +35,7 @@ const QUARANTINE = `${ROOT}/_Duplicados`;
 const KB = 1024;
 const MB = 1024 * KB;
 const MTIME = 1_700_000_000_000_000_000;
+const DAY_NS = 86_400_000_000_000;
 
 interface MemberSpec {
   path: string;
@@ -43,6 +48,8 @@ interface MemberSpec {
   stays?: { path: string; with: number }[];
   catalogue?: string;
   serials?: string[];
+  /** Art paths are relative to the ROMs folder, like `path`. */
+  facts?: MemberFactsView;
 }
 
 function member(id: number, spec: MemberSpec, keeper: boolean): MemberView {
@@ -63,6 +70,7 @@ function member(id: number, spec: MemberSpec, keeper: boolean): MemberView {
     catalogue_name: spec.catalogue ?? null,
     serials: spec.serials ?? [],
     confidence: spec.confidence ?? 1,
+    ...(spec.facts ? { facts: spec.facts } : {}),
   };
 }
 
@@ -96,10 +104,31 @@ const pad = (n: number) => String(n).padStart(2, '0');
 function showcase(): DupGroupView[] {
   return [
     group('SMS', 'Ecco the Dolphin', { kind: 'has-cover' }, [
-      { path: 'SMS/Ecco the Dolphin.sms', size: 512 * KB },
+      {
+        path: 'SMS/Ecco the Dolphin.sms',
+        size: 512 * KB,
+        facts: {
+          art: [
+            {
+              media: 'cover',
+              path: 'SMS/Imgs/Ecco the Dolphin.png',
+              size: 48_211,
+            },
+          ],
+        },
+      },
       {
         path: 'SMS/Adventures of Dolphins.sms',
         size: 512 * KB,
+        facts: {
+          flags: {
+            verified: false,
+            bad: true,
+            overdump: false,
+            alternate: false,
+          },
+          flags_from: 'file-name',
+        },
         travels: [
           {
             from: 'SMS/Imgs/Adventures of Dolphins.png',
@@ -123,6 +152,10 @@ function showcase(): DupGroupView[] {
           size: Math.round(79.6 * MB),
           kind: 'image',
           serials: ['SCUS-94570'],
+          facts: {
+            saves: { count: 1, last_ns: MTIME - 3 * DAY_NS },
+            played: { count: 4, last: '20260102T101010' },
+          },
         },
         {
           path: 'PS/Crash Bash.bin',
@@ -151,12 +184,36 @@ function showcase(): DupGroupView[] {
           path: 'GB/Tetris (World) (Rev 1).gb',
           size: 32 * KB,
           catalogue: 'Tetris (World) (Rev 1)',
+          facts: {
+            tags_from: 'catalogue',
+            regions: ['world'],
+            revision: 'Rev 1',
+            art: [
+              {
+                media: 'cover',
+                path: 'GB/Imgs/Tetris (World) (Rev 1).png',
+                size: 12_288,
+              },
+            ],
+          },
         },
         {
           path: 'GB/Tetris (Japan).gb',
           size: 32 * KB,
           relation: 'version',
           catalogue: 'Tetris (Japan)',
+          // Its own box (another size): the screen shows its thumbnail.
+          facts: {
+            tags_from: 'file-name',
+            regions: ['japan'],
+            art: [
+              {
+                media: 'cover',
+                path: 'GB/Imgs/Tetris (Japan).png',
+                size: 9_001,
+              },
+            ],
+          },
         },
       ],
       {
@@ -169,8 +226,20 @@ function showcase(): DupGroupView[] {
       'Pokemon Red',
       { kind: 'has-save', path: 'GB/Pokemon Red.sav' },
       [
-        { path: 'GB/Pokemon Red.gb', size: 1 * MB },
-        { path: 'GB/Pokemon Red (1).gb', size: 1 * MB },
+        {
+          path: 'GB/Pokemon Red.gb',
+          size: 1 * MB,
+          facts: { saves: { count: 1, last_ns: MTIME } },
+        },
+        {
+          path: 'GB/Pokemon Red (1).gb',
+          size: 1 * MB,
+          facts: {
+            saves: { count: 1, last_ns: MTIME + DAY_NS },
+            modification: 'translation',
+            modification_from: 'file-name',
+          },
+        },
       ],
       {
         action: {
@@ -186,7 +255,7 @@ function showcase(): DupGroupView[] {
             {
               path: 'GB/Pokemon Red (1).sav',
               size: 32 * KB,
-              mtime_ns: MTIME + 1,
+              mtime_ns: MTIME + DAY_NS,
               sha1: '2222222222222222222222222222222222222222',
               keyed_by: 'stem',
             },
@@ -196,6 +265,13 @@ function showcase(): DupGroupView[] {
     ),
   ];
 }
+
+/** One keeper sold in many regions: its region chips overflow. */
+const manyRegions = (): MemberFactsView => ({
+  tags_from: 'file-name',
+  regions: ['usa', 'europe', 'japan', 'brazil', 'korea'],
+  other: ['Virtual Console'],
+});
 
 function fillers(): DupGroupView[] {
   const out: DupGroupView[] = [];
@@ -211,7 +287,12 @@ function fillers(): DupGroupView[] {
           profile: 'anbernic-stock',
         },
         [
-          { path: `PS/Disc Game ${pad(i)}.chd`, size: 300 * MB, kind: 'chd' },
+          {
+            path: `PS/Disc Game ${pad(i)}.chd`,
+            size: 300 * MB,
+            kind: 'chd',
+            ...(i === 1 ? { facts: manyRegions() } : {}),
+          },
           {
             path: `PS/Disc Game ${pad(i)}.pbp`,
             size: 320 * MB,

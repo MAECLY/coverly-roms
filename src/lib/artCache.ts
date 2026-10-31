@@ -4,6 +4,7 @@
  * per image at a time, failures never cached.
  */
 import { getBackend } from '@/ipc/backend';
+import type { MediaView } from '@/ipc/dedupeTypes';
 import { MEDIA, type Media } from '@/ipc/types';
 
 export const ART_CACHE_SIZE = 400;
@@ -36,23 +37,18 @@ function evict(): void {
   }
 }
 
-export function loadArtUrl(
-  generation: number,
-  id: number,
-  media: Media,
+/** One object URL per `key`, through the same LRU and revoke-on-evict as art. */
+export function loadUrl(
+  key: string,
+  fetch: () => Promise<Blob>,
 ): Promise<string> {
-  const key = artKey(generation, id, media);
   const hit = peekArtUrl(key);
   if (hit) return Promise.resolve(hit);
   const pending = inflight.get(key);
   if (pending) return pending;
   const started = epoch;
   const request = (async () => {
-    const backend = await getBackend();
-    const image = await backend.readArt(generation, id, media);
-    const url = URL.createObjectURL(
-      new Blob([image.bytes], { type: image.mime }),
-    );
+    const url = URL.createObjectURL(await fetch());
     if (started !== epoch) {
       URL.revokeObjectURL(url);
       throw new Error('art cache cleared while loading');
@@ -67,11 +63,49 @@ export function loadArtUrl(
   return request;
 }
 
+export function loadArtUrl(
+  generation: number,
+  id: number,
+  media: Media,
+): Promise<string> {
+  return loadUrl(artKey(generation, id, media), async () => {
+    const image = await (await getBackend()).readArt(generation, id, media);
+    return new Blob([image.bytes], { type: image.mime });
+  });
+}
+
+/**
+ * A dedupe image's cache key. A group cover (`member` null) also names the
+ * keeper it was resolved for: Rust looks keeper first (D4), so picking
+ * another keeper under the same plan id may change the bytes.
+ */
+export const dedupeArtKey = (
+  plan: number,
+  group: number,
+  member: number | null,
+  media: MediaView,
+  keeper?: number,
+) =>
+  `dedupe:${plan}:${group}:${member ?? 'g'}:${media}` +
+  (member === null && keeper !== undefined ? `:k${keeper}` : '');
+
+/** Keys the backend answered `art-missing` for, so a scroll never re-asks. */
+const missing = new Set<string>();
+
+export function markMissingUrl(key: string): void {
+  missing.add(key);
+}
+
+export function isMissingUrl(key: string): boolean {
+  return missing.has(key);
+}
+
 export function clearArtCache(): void {
   epoch += 1;
   for (const url of urls.values()) URL.revokeObjectURL(url);
   urls.clear();
   inflight.clear();
+  missing.clear();
 }
 
 /** Forgets (and revokes) the images of `ids`: their art was rewritten. */

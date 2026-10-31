@@ -712,6 +712,8 @@ describe('OrganizeScreen', () => {
     expect(
       await screen.findByText(
         'Paused: the SD card is full, read-only or was removed. Fix it and resume.',
+        {},
+        APPLY_WAIT,
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Disk full')).toBeInTheDocument();
@@ -980,6 +982,46 @@ describe('OrganizeScreen', () => {
       expect(
         screen.queryByRole('heading', { name: 'Duplicates' }),
       ).not.toBeInTheDocument();
+    });
+
+    it('duplicate groups show no cover column in the proposal', async () => {
+      const { container } = renderScreen(MOCK_MIXED);
+      await ready();
+      // A small proposal starts open.
+      expect(container.querySelector('.dup-group')).not.toBeNull();
+      expect(container.querySelector('.dup-cover')).toBeNull();
+      expect(container.querySelector('.dup-own-art')).toBeNull();
+    });
+
+    it('duplicate groups show tags but no copy numbers in the proposal', async () => {
+      const { container } = renderScreen(MOCK_MIXED);
+      await ready();
+      const group = screen.getByRole('group', {
+        name: 'Super Mario Land (World) (Rev 1)',
+      });
+      // Numbers are pick keys; nothing is picked here.
+      expect(container.querySelector('.dup-row__num')).toBeNull();
+      // The catalogue name's region and revision, like Rust's group_units.
+      expect(within(group).getAllByText('WLD').length).toBeGreaterThan(0);
+      expect(within(group).getAllByText('Rev 1').length).toBeGreaterThan(0);
+    });
+
+    it('a pile copy reveals its own file', async () => {
+      renderScreen(MOCK_MIXED);
+      await ready();
+      const reveal = vi.spyOn(b, 'revealPath');
+      const group = screen.getByRole('group', {
+        name: 'Super Mario Land (World) (Rev 1)',
+      });
+      const button = within(group).getByRole('button', {
+        name: /^Show Super Mario Land \(World\) \(1\)\.gb in its folder$/,
+      });
+      await userEvent.click(button);
+      expect(reveal).toHaveBeenCalledTimes(1);
+      expect(reveal.mock.calls[0]![0]).toMatch(
+        /Super Mario Land \(World\) \(1\)\.gb$/,
+      );
+      await waitFor(() => expect(useOrganizeStore.getState().error).toBeNull());
     });
 
     it('the_picker_starts_from_the_setting', async () => {

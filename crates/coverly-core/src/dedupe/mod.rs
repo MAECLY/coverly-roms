@@ -10,12 +10,16 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
+use crate::identify::names::{DumpFlags, ModClass, Region, ReleaseClass};
+use crate::profiles::Media;
 use crate::settings::{DedupeLevel, DedupeSettings, RuleToggle};
 
 pub mod apply;
 pub mod archive;
+pub mod art;
 pub mod companions;
 pub mod disc;
+pub mod facts;
 pub mod group;
 pub mod keeper;
 pub mod keys;
@@ -169,6 +173,88 @@ pub struct Member {
     /// Art slots this copy takes away while the keeper has none there.
     #[serde(default, skip_serializing_if = "ArtLeaves::is_empty")]
     pub art_leaves: ArtLeaves,
+    /// What the screen shows about the copy (spec D2, D7, D10, D14).
+    /// Absent in plans written before it; never read by the keeper rules.
+    #[serde(default, skip_serializing_if = "MemberFacts::is_empty")]
+    pub facts: MemberFacts,
+}
+
+/// Where a copy's tags were read from (spec D2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TagSource {
+    /// The catalogue game name.
+    Catalogue,
+    /// The file name.
+    FileName,
+}
+
+/// Saves seen beside a copy (spec D10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavesSeen {
+    pub count: u32,
+    /// Modification time of the newest one.
+    pub last_ns: i64,
+}
+
+/// Times a copy was played according to its game list (spec D10).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayedSeen {
+    pub count: u32,
+    /// The game list's `lastplayed`, as written there.
+    #[serde(default)]
+    pub last: Option<String>,
+}
+
+/// One art slot a copy has, with its size (spec D7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtSeen {
+    pub media: Media,
+    pub path: PathBuf,
+    pub size: u64,
+}
+
+/// What the screen shows about a copy (spec D2, D7, D10, D14). Display
+/// only: the keeper rules never read it. Enums plus data; the UI and the
+/// CLI render them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemberFacts {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags_from: Option<TagSource>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<Region>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub languages: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// `None` = retail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class: Option<ReleaseClass>,
+    #[serde(skip_serializing_if = "DumpFlags::is_empty")]
+    pub flags: DumpFlags,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags_from: Option<TagSource>,
+    /// `None` = original.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modification: Option<ModClass>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modification_from: Option<TagSource>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub other: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saves: Option<SavesSeen>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub played: Option<PlayedSeen>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub art: Vec<ArtSeen>,
+}
+
+impl MemberFacts {
+    /// Nothing is known: the member is written without the key.
+    pub fn is_empty(&self) -> bool {
+        *self == MemberFacts::default()
+    }
 }
 
 /// Copies of one game inside one system.
@@ -371,8 +457,6 @@ pub fn group_id<S: AsRef<str>>(system: &str, keys: &[S]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identify::names::Region;
-    use crate::profiles::Media;
 
     fn member(id: usize, relation: Relation) -> Member {
         Member {
@@ -410,7 +494,95 @@ mod tests {
             confidence: 0.97,
             gamelist: None,
             art_leaves: ArtLeaves::default(),
+            facts: MemberFacts::default(),
         }
+    }
+
+    #[test]
+    fn member_without_facts_reads_back() {
+        // A member as plans, journals and exports wrote it before facts.
+        let json = r#"{
+            "id": 1,
+            "unit": {
+                "primary": "PS/Crash Bash 1.cue",
+                "files": ["PS/Crash Bash 1.cue", "PS/Crash Bash 1.bin"],
+                "kind": "disc-set",
+                "mtime_ns": 1700000000000000000,
+                "in_library": true
+            },
+            "relation": "exact",
+            "size": 536870912,
+            "travels": [{"from": "PS/Imgs/Crash Bash 1.png", "kind": {"kind": "art", "media": "cover"}}],
+            "stays": [{"path": "PS/Crash Bash.srm", "with": 0}],
+            "dest": "/Volumes/SD/_Duplicados/PS/Crash Bash 1.cue",
+            "catalogue_name": "Crash Bash (USA)",
+            "serials": ["SCUS-94570"],
+            "confidence": 0.97
+        }"#;
+        let m: Member = serde_json::from_str(json).unwrap();
+        assert!(m.facts.is_empty());
+        assert_eq!(m.id, 1);
+    }
+
+    #[test]
+    fn empty_facts_are_not_written() {
+        let v = serde_json::to_value(member(0, Relation::Exact)).unwrap();
+        assert!(v.get("facts").is_none(), "{v}");
+    }
+
+    #[test]
+    fn facts_serialise_snake_case_with_kebab_values() {
+        let mut m = member(0, Relation::Exact);
+        m.facts.regions = vec![Region::HongKong];
+        m.facts.class = Some(ReleaseClass::Proto);
+        m.facts.modification = Some(ModClass::Translation);
+        m.facts.modification_from = Some(TagSource::FileName);
+        m.facts.flags.bad = true;
+        m.facts.art = vec![ArtSeen {
+            media: Media::Cover,
+            path: PathBuf::from("/r/Imgs/a.png"),
+            size: 3,
+        }];
+        let v = serde_json::to_value(&m).unwrap();
+        let path = serde_json::to_value(PathBuf::from("/r/Imgs/a.png")).unwrap();
+        let expected = serde_json::json!({
+            "regions": ["hong-kong"],
+            "class": "proto",
+            "flags": {"verified": false, "bad": true, "overdump": false, "alternate": false},
+            "modification": "translation",
+            "modification_from": "file-name",
+            "art": [{"media": "cover", "path": path, "size": 3}],
+        });
+        assert_eq!(v["facts"], expected);
+        let back: Member = serde_json::from_value(v).unwrap();
+        assert_eq!(back, m);
+        assert!(!back.facts.is_empty());
+    }
+
+    #[test]
+    fn unset_facts_fields_are_not_written() {
+        let mut m = member(0, Relation::Exact);
+        m.facts.regions = vec![Region::Usa];
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["facts"], serde_json::json!({"regions": ["usa"]}));
+        assert!(DumpFlags::default().is_empty());
+        let flagged = DumpFlags {
+            alternate: true,
+            ..DumpFlags::default()
+        };
+        assert!(!flagged.is_empty());
+        // A partial facts object, as a later writer may emit, reads back.
+        let back: MemberFacts =
+            serde_json::from_value(serde_json::json!({"saves": {"count": 2, "last_ns": 5}}))
+                .unwrap();
+        assert_eq!(
+            back.saves,
+            Some(SavesSeen {
+                count: 2,
+                last_ns: 5
+            })
+        );
+        assert!(back.regions.is_empty() && back.flags.is_empty());
     }
 
     fn sample_plan() -> DedupePlan {

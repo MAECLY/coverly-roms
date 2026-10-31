@@ -1,7 +1,7 @@
 /**
  * What an apply did (spec §11.3 "Done"): the count and where the files
  * went, the bytes that left ROMS/ (and, on the same card, that the card is
- * just as full), open the quarantine, undo (asks first) and back to the
+ * just as full), show the quarantine in the file manager, undo (asks first) and back to the
  * library. Anything left alone turns the alert to warning with each file
  * and its reason, then "No se ha movido nada más.". Covers that left with
  * a copy offer "Buscar portadas para {n} juegos".
@@ -9,7 +9,7 @@
 import {
   ArrowLeft,
   ChevronRight,
-  FolderOpen,
+  FolderSearch,
   Image,
   Undo2,
 } from 'lucide-react';
@@ -42,6 +42,7 @@ import type {
   DedupeReportView,
 } from '@/ipc/dedupeTypes';
 import { fileName, formatBytes } from '@/lib/dedupe';
+import { revealFolderKey } from '@/lib/reveal';
 
 import './dedupe.css';
 
@@ -184,8 +185,10 @@ export function DedupeResult({
       <div className="dup-result__actions">
         {!trash && (
           <Button variant="primary" onClick={onOpenFolder}>
-            <FolderOpen aria-hidden />
-            {t('dedupe.openFolder', { folder })}
+            <FolderSearch aria-hidden />
+            {t(revealFolderKey(), {
+              folder: fileName(plan?.quarantine ?? quarantine ?? ''),
+            })}
           </Button>
         )}
         {moved > 0 && (

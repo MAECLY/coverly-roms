@@ -442,6 +442,13 @@ pub struct DumpFlags {
     pub alternate: bool,
 }
 
+impl DumpFlags {
+    /// No flag is set.
+    pub fn is_empty(&self) -> bool {
+        !(self.verified || self.bad || self.overdump || self.alternate)
+    }
+}
+
 /// Whether the program itself was modified. Not a dump quality: a hack or
 /// translation is a different product and stays in the title key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -632,9 +639,13 @@ fn goodtools_modification(g: &str) -> Option<ModClass> {
     }
 }
 
-/// `(Hack)`, `(Translated En)`, `(Unl)`, `(Pirate)`.
+/// `(Hack)`, `(Translated En)`, `(Unl)`, `(Pirate)`, and a hack named
+/// after its base game: `(Fire Red Hack)`, `(Sound Restoration Hack)`.
 fn word_modification(g: &str) -> Option<ModClass> {
     let lower = g.to_lowercase();
+    if matches!(lower.split_whitespace().last(), Some("hack" | "hacked")) {
+        return Some(ModClass::Hack);
+    }
     let first = lower.split_whitespace().next()?;
     match first {
         "hack" | "hacked" => Some(ModClass::Hack),

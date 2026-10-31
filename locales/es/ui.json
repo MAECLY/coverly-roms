@@ -416,7 +416,7 @@
     "superseded": "Mientras tanto se abrió otra biblioteca.",
     "unknown-entry": "Esta ROM ya no está en la biblioteca.",
     "art-missing": "No hay imagen para esta ROM.",
-    "outside-library": "Esta imagen está fuera de la biblioteca y no se ha abierto.",
+    "outside-library": "Este archivo está fuera de la biblioteca y no se ha abierto.",
     "art-too-large": "Esta imagen es demasiado grande para mostrarla.",
     "io": "Algo ha fallado: {detail}",
     "settings": "No se han podido guardar los ajustes: {detail}",
@@ -511,8 +511,6 @@
       "row": "Partida distinta: {path}",
       "badge": "Partidas distintas",
       "note": "No se tocará nada en este juego. Mira las partidas y decide a mano qué copia juegas.",
-      "openFolder": "Abrir carpeta",
-      "openFolderOf": "Abrir carpeta de {path}",
       "alertOne": "1 juego tiene copias con partidas distintas. No se tocará nada en él.",
       "show": "Ver"
     },
@@ -649,7 +647,16 @@
     "freed": "Fuera de {folder}: {bytes}",
     "freedLibrary": "Fuera de la biblioteca: {bytes}",
     "sameVolumeNote": "La tarjeta sigue igual de llena hasta que vacíes {quarantine} o lo muevas a tu ordenador.",
-    "openFolder": "Abrir {folder}",
+    "revealCopy": {
+      "mac": "Mostrar {name} en Finder",
+      "win": "Mostrar {name} en el Explorador",
+      "other": "Mostrar {name} en su carpeta"
+    },
+    "revealFolder": {
+      "mac": "Mostrar {folder} en Finder",
+      "win": "Mostrar {folder} en el Explorador",
+      "other": "Mostrar {folder} en la carpeta"
+    },
     "partial": "Apartados: {done} · Sin tocar: {skipped}",
     "undo": {
       "title": "¿Devolver {count} archivos a su sitio?",
@@ -672,7 +679,11 @@
     "keys": {
       "label": "Atajos de teclado",
       "pick": "Elegir qué copia se queda",
-      "next": "Siguiente juego"
+      "next": "Siguiente juego",
+      "game": "Juego siguiente o anterior",
+      "number": "Quedarme con la copia n",
+      "reveal": "Mostrar la copia en la carpeta",
+      "apply": "Apartar"
     },
     "showMore": "Mostrar {count} más",
     "details": "Detalle ({count})",
@@ -701,6 +712,7 @@
     "phaseDone": "hecho",
     "starting": "Empezando…",
     "applyingTrash": "Enviando {done} de {total} a la Papelera…",
+    "sceneTrash": "Papelera",
     "progressLabel": "Progreso",
     "cancel": "Cancelar",
     "replan": "Volver a buscar",
@@ -717,7 +729,72 @@
     "undone": "{count} archivos devueltos a su sitio.",
     "undoneOne": "1 archivo devuelto a su sitio.",
     "resume": "Continuar",
-    "paused": "Se ha parado: {reason}. Lo que falta puede continuar."
+    "paused": "Se ha parado: {reason}. Lo que falta puede continuar.",
+    "format": {
+      "arcade": "arcade",
+      "discs": "{count} discos"
+    },
+    "tags": {
+      "from": {
+        "catalogue": "Del nombre del catálogo",
+        "fileName": "Del nombre del archivo"
+      },
+      "verified": "Verificada [!]",
+      "bad": "Volcado malo [b]",
+      "overdump": "Sobrevolcado [o]",
+      "alternate": "Alternativa [a]",
+      "hack": "Hack",
+      "translation": "Traducción",
+      "trainer": "Trainer",
+      "fixed": "Corregida",
+      "pirate": "Pirata",
+      "unlicensed": "Sin licencia",
+      "class": {
+        "beta": "Beta",
+        "proto": "Prototipo",
+        "demo": "Demo",
+        "sample": "Muestra"
+      },
+      "languages": "Idiomas: {list}",
+      "more": "+{count}"
+    },
+    "rule": {
+      "userChoice": "Tu elección",
+      "hasSave": "Partida",
+      "played": "Jugada",
+      "inLibrary": "Ya en la biblioteca",
+      "verified": "Verificada",
+      "retail": "Comercial",
+      "region": "Región",
+      "revision": "Revisión",
+      "container": "Formato",
+      "hasCover": "Portada",
+      "catalogueName": "Nombre del catálogo",
+      "tie": "Empate",
+      "runnerUp": "Si no, ganaría {name} por {rule}"
+    },
+    "cover": {
+      "media": {
+        "title": "Pantalla de título",
+        "screenshot": "Captura"
+      },
+      "missing": "Sin portada",
+      "ownArt": "Esta copia tiene otra imagen",
+      "fromCache": "Portada de libretro-thumbnails ya descargada"
+    },
+    "copyNumber": "Copia {n}",
+    "facts": {
+      "modified": "Modificado el {date}",
+      "save": "Partida: {when}",
+      "saves": "{count} partidas, la última {when}",
+      "noSave": "Sin partida",
+      "played": "Jugada {count} veces",
+      "playedOne": "Jugada 1 vez"
+    },
+    "state": {
+      "reportOnly": "Solo informe",
+      "skipped": "No se toca"
+    }
   },
   "toolbar": {
     "search": "Buscar por nombre",

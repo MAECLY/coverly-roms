@@ -1134,6 +1134,32 @@
             "catalogue_name": "Tetris Worlds (USA)",
             "confidence": 1.0,
             "dest": null,
+            "facts": {
+              "art": [
+                {
+                  "media": "cover",
+                  "path": "/Volumes/SD/ROMS/GBA/Imgs/Tetris Worlds (USA).png",
+                  "size": 12288
+                }
+              ],
+              "class": "beta",
+              "flags": {
+                "alternate": false,
+                "bad": false,
+                "overdump": false,
+                "verified": true
+              },
+              "flags_from": "file-name",
+              "languages": ["en"],
+              "modification": "translation",
+              "modification_from": "file-name",
+              "other": ["Virtual Console"],
+              "played": { "count": 4, "last": "20260102T101010" },
+              "regions": ["usa"],
+              "revision": "Rev 1",
+              "saves": { "count": 1, "last_ns": 1700000050000000000 },
+              "tags_from": "catalogue"
+            },
             "id": 0,
             "relation": "exact",
             "serials": [],

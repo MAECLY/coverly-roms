@@ -1,17 +1,22 @@
 /*
- * Duplicates: the shelf and the tray (spec §11.1, plan "UI design brief").
- * The copy that stays sits on the shelf, under the brand shelf rule (a
- * hairline with a 3px Buckram cap on the left). The copies that leave sit
- * in a recessed tray below it, each with its destination in mono. Sizes
- * are the last column, a fixed 9ch, so the bytes line up down the page.
+ * Duplicates: game → kept copy → set-aside copies (spec §7.1).
+ * The game heads the group in the box-label face. The copy that stays sits
+ * on the shelf: raised, under the brand shelf rule (a hairline with a 3px
+ * Buckram cap on the left). The copies that leave sit in a sunken tray
+ * below it, indented one step, each with its destination in mono. Every
+ * copy carries its tags and facts (format, size, dates) under its name.
+ * Hierarchy comes from shelf vs tray surfaces, never from shadows.
  */
 
 .dup-group {
   --dup-size-col: 9ch;
   --dup-tray-inset: 24px;
+  /* The state edge eats into the left padding, so every group's content
+   * starts on the same line, edged or not. */
+  --dup-edge: 0px;
   display: grid;
   gap: 8px;
-  padding: 14px 0 16px;
+  padding: 14px 0 16px calc(12px - var(--dup-edge));
   color: var(--cr-text);
   font: var(--cr-type-app-base);
 }
@@ -20,20 +25,99 @@
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
 
+/* ---- States: a stamp in the head, an edge on the left ------------------ */
+
+/* Real borders, not shadows: they survive forced colours. */
+.dup-group[data-state='other'] {
+  --dup-edge: var(--cr-border-width-spine);
+  border-left: var(--dup-edge) solid var(--cr-info);
+}
+
+.dup-group[data-state='conflict'] {
+  --dup-edge: var(--cr-border-width-spine);
+  border-left: var(--dup-edge) solid var(--cr-warning);
+}
+
+/* The brand's missing-slot outline: nothing in this game will move. */
+.dup-group[data-state='report-only'],
+.dup-group[data-state='skipped'] {
+  --dup-edge: var(--cr-border-width-slot);
+  border-left: var(--dup-edge) dashed var(--cr-border-strong);
+}
+
+/* ---- The head: title block | stamps ------------------------------------ */
+
 .dup-group__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 12px;
   margin: 0;
 }
 
+.dup-group__titles {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The game is the object: Archivo condensed, the box-label face. */
 .dup-group__title {
   margin: 0;
-  font: var(--cr-type-app-label);
-  font-size: 14px;
-  font-weight: var(--cr-font-weight-semibold);
+  font-family: var(--cr-font-display);
+  font-size: 17px;
+  font-stretch: 75%;
+  font-weight: 700;
+  line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.dup-group__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-width: 0;
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-group__system {
+  color: var(--cr-text-secondary);
+}
+
+.dup-group__stamps {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 1px;
+}
+
+/* Every stamp has a real border (also the filled warning one), so the
+ * word keeps a frame in forced colours. */
+.dup-stamp {
+  border: var(--cr-border-width-hairline) solid var(--cr-border-strong);
+}
+
+.dup-stamp[data-tone='warning'] {
+  border-color: var(--cr-warning);
+}
+
+.dup-stamp[tabindex] {
+  cursor: help;
+}
+
+.dup-stamp:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* A left-alone game dims its art and chips at 60 %, never its text, so
+ * tray text keeps its contrast (spec §7.1). */
+.dup-dim {
+  opacity: 0.6;
 }
 
 .dup-group__serial,
@@ -61,12 +145,15 @@
 
 /* ---- The shelf ------------------------------------------------------ */
 
+/* Raised: the one white surface in the group, framed by a hairline. */
 .dup-shelf {
   --dup-cap-shift: 0px;
   position: relative;
   /* Right padding matches the tray's, so sizes share one column. */
-  padding: 8px 12px 2px 14px;
-  border-top: var(--cr-border-width-hairline) solid var(--cr-border);
+  padding: 8px 12px 4px 14px;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-radius: 0 var(--cr-radius-sm) var(--cr-radius-sm) 0;
+  background: var(--cr-surface-raised);
 }
 
 /* The cap is drawn apart from the row so it can slide from the row you
@@ -75,8 +162,8 @@
   content: '';
   position: absolute;
   top: -1px;
-  bottom: 0;
-  left: 0;
+  bottom: -1px;
+  left: -1px;
   width: var(--cr-border-width-spine);
   border-radius: 0 0 var(--cr-radius-sm) 0;
   background: var(--cr-primary);
@@ -91,27 +178,28 @@
 
 /* ---- The tray ------------------------------------------------------- */
 
+/* Sunken and indented one step: visibly lower than the shelf. Its text is
+ * secondary ink, a pair `pnpm tokens:check` holds at 4.5:1. */
 .dup-tray {
   display: grid;
-  margin: 2px 0 0 var(--dup-tray-inset);
+  margin: 0 0 0 var(--dup-tray-inset);
   padding: 4px 12px;
-  border-radius: var(--cr-radius-sm);
-  background: var(--cr-bg);
+  border-radius: 0 0 var(--cr-radius-sm) var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+  color: var(--cr-text-secondary);
 }
 
 .dup-tray > .dup-row + .dup-row {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
 
-.dup-group[data-skipped] .dup-tray {
-  opacity: 0.6;
-}
-
 /* ---- Rows (shelf and tray share the grid) ---------------------------- */
 
 .dup-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
+  /* A copy's size lives in its facts; only a conflict's save rows keep a
+   * size column. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
   column-gap: 10px;
   row-gap: 2px;
@@ -144,6 +232,7 @@
   grid-row: 1;
   grid-column: 3;
   display: inline-flex;
+  align-items: center;
   gap: 6px;
   justify-self: end;
 }
@@ -192,6 +281,126 @@
   align-self: center;
 }
 
+/* ---- Copy number, tags, facts and the rule (spec D3, D8–D11) ---------- */
+
+/* The key that keeps the copy (1–9): a quiet label-maker digit. */
+.dup-row__num {
+  min-width: 1ch;
+  color: var(--cr-text-muted);
+  font: var(--cr-type-app-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: default;
+}
+
+.dup-row__facts {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.dup-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
+.dup-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-tags:focus-visible,
+.dup-rule:focus-visible {
+  outline: var(--cr-border-width-focus) solid var(--cr-primary);
+  outline-offset: 2px;
+}
+
+/* One neutral outlined chip in mono; colour only where it changes the
+ * decision (spec §7.2). Real borders, so they survive forced colours. */
+.dup-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border: var(--cr-border-width-hairline) solid var(--cr-border-strong);
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-mono);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dup-tag[data-tone='danger'] {
+  border-color: var(--cr-danger);
+  background: var(--cr-danger-bg);
+  color: var(--cr-danger);
+}
+
+.dup-tag[data-tone='warning'] {
+  border-color: var(--cr-warning);
+  background: var(--cr-warning-bg);
+  color: var(--cr-warning);
+}
+
+.dup-facts__line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+}
+
+.dup-facts__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.dup-facts__item svg {
+  flex: none;
+  color: var(--cr-text-muted);
+}
+
+.dup-facts__line > .dup-facts__item:first-child {
+  color: var(--cr-text);
+}
+
+.dup-facts__none {
+  color: var(--cr-text-muted);
+}
+
+.dup-row__rule {
+  align-items: center;
+}
+
+/* The shelf's label: Buckram outline; Manila only for your own pick. */
+.dup-rule {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: var(--cr-border-width-hairline) solid var(--cr-primary);
+  border-radius: var(--cr-radius-sm);
+  color: var(--cr-primary);
+  font: var(--cr-type-app-caption);
+  font-weight: var(--cr-font-weight-semibold);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dup-rule--tip {
+  cursor: help;
+}
+
+.dup-rule[data-user] {
+  border-color: var(--cr-manila);
+  background: var(--cr-manila);
+  color: var(--cr-manila-fg);
+}
+
 /* ---- Under the group ------------------------------------------------ */
 
 .dup-group__foot {
@@ -231,6 +440,10 @@
   }
 
   .dup-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dup-conflict__save {
     grid-template-columns: auto minmax(0, 1fr) var(--dup-size-col);
   }
 
@@ -266,6 +479,188 @@
 @media (prefers-reduced-motion: reduce) {
   .dup-shelf::before {
     transition: none;
+  }
+}
+
+/* ---- Covers (spec D5, D6, §7.1) --------------------------------------- */
+
+/* The cover column spans shelf and tray: the eye goes cover → title →
+ * shelf → tray. Only groups of a kept dedupe plan have it (not Organise). */
+.dup-group[data-cover] {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 16px;
+  align-items: start;
+}
+
+.dup-group__main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dup-cover {
+  --dup-cover-w: 72px;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: var(--dup-cover-w);
+  margin: 2px 0 0;
+}
+
+.dup-cover[data-size='compact'] {
+  --dup-cover-w: 48px;
+}
+
+.dup-cover__slot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--cr-radius-sm);
+}
+
+.dup-cover__outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dup-cover__outline rect {
+  stroke: var(--cr-slot-missing);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+/* Loading: the outline draws itself in once around, like a pen. */
+.dup-cover[data-state='loading'] .dup-cover__outline rect {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: dup-cover-draw var(--cr-duration-slower) var(--cr-ease-ink)
+    forwards;
+}
+
+/* Missing (brand §2): 1.5 px dash 4 / gap 3, plus four photo-corners. */
+.dup-cover[data-state='missing'] .dup-cover__outline rect {
+  stroke-dasharray: 4 3;
+}
+
+.dup-cover__corners {
+  fill: var(--cr-slot-missing);
+}
+
+/* Filled: a real hairline edge (survives forced colours), image on top. */
+.dup-cover[data-state='ready'] .dup-cover__outline rect {
+  stroke: var(--cr-border);
+  stroke-width: var(--cr-border-width-hairline);
+}
+
+.dup-cover__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--cr-surface-sunken);
+  animation: dup-cover-fade var(--cr-duration-fast) var(--cr-ease-enter);
+}
+
+.dup-cover__missing {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.dup-cover__missing svg {
+  color: var(--cr-slot-missing);
+}
+
+.dup-cover__caption {
+  margin: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* A copy's own image: 32 px wide, 3:4, beside its name. */
+.dup-own-art {
+  display: block;
+  flex: none;
+  width: 32px;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: var(--cr-border-width-hairline) solid var(--cr-border);
+  border-radius: var(--cr-radius-sm);
+  background: var(--cr-surface-sunken);
+}
+
+.dup-own-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: dup-cover-fade var(--cr-duration-fast) var(--cr-ease-enter);
+}
+
+@keyframes dup-cover-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes dup-cover-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Under 640 px the cover drops above the title at 48×64, and the stamps
+ * wrap under the title instead of squeezing it. */
+@media (max-width: 639px) {
+  .dup-group[data-cover] {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .dup-group__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dup-group__stamps {
+    justify-content: flex-start;
+  }
+
+  .dup-cover {
+    --dup-cover-w: 48px;
+    justify-items: start;
+  }
+
+  /* The words carry the slot at 48 px; the icon would crowd them. */
+  .dup-cover__missing svg {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-cover__outline rect,
+  .dup-cover__img,
+  .dup-own-art img {
+    animation: none;
+  }
+
+  .dup-cover[data-state='loading'] .dup-cover__outline rect {
+    stroke-dashoffset: 0;
   }
 }
 
@@ -389,8 +784,34 @@
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
 
+.dup-conflict__save {
+  grid-template-columns: auto minmax(0, 1fr) auto var(--dup-size-col);
+}
+
 .dup-conflict__save .dup-row__name {
   color: var(--cr-text-secondary);
+}
+
+/* Phone widths: a save's absolute path takes the whole row (beside a size
+ * column it broke every few letters); its date and size share the line
+ * under it, date at the start, size at the end. After the base rule, so
+ * it wins on source order. */
+@media (max-width: 599px) {
+  .dup-conflict__save {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dup-conflict__save .dup-row__meta {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .dup-conflict__save .dup-row__size {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: end;
+  }
 }
 
 .dup-conflict__date {
@@ -558,6 +979,9 @@
   padding: 6px 0;
 }
 
+.dup-unchanged__group + .dup-unchanged__row,
+.dup-unchanged__row + .dup-unchanged__group,
+.dup-unchanged__group + .dup-unchanged__group,
 .dup-unchanged__row + .dup-unchanged__row {
   border-top: var(--cr-border-width-hairline) solid var(--cr-border);
 }
@@ -727,4 +1151,201 @@
 .dup-bar__freed {
   margin-left: auto;
   white-space: nowrap;
+}
+
+/* ---- The set-aside scene while applying (spec D13) -------------------- */
+
+/* Drawn like the landing's hero: brand strokes on paper, a Buckram shelf
+   rule, a Manila tab. Lift 240 ms (slow, standard), then slide and drop
+   400 ms (slower, ink). Never spring, never a loop of its own. */
+.dup-scene {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  overflow: visible;
+}
+
+.dup-scene__rule {
+  stroke: var(--cr-primary);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-linecap: round;
+}
+
+.dup-scene__slot {
+  fill: var(--cr-surface-raised);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+/* The vacated place: the brand's dashed missing outline, for one beat. */
+.dup-scene__slot--missing {
+  fill: none;
+  stroke: var(--cr-slot-missing);
+  stroke-dasharray: 4 3;
+}
+
+/* After each lift the shelf closes up one step and a fresh slot arrives. */
+.dup-scene__shelf[data-closing='true'] {
+  animation: dup-scene-close var(--cr-duration-slow) var(--cr-ease-standard);
+}
+
+.dup-scene__shelf[data-closing='true'] .dup-scene__slot--fresh {
+  animation: dup-scene-fresh var(--cr-duration-slow) var(--cr-ease-enter);
+}
+
+.dup-scene__tab {
+  transform-box: fill-box;
+  transform-origin: 0% 100%;
+  transition: transform var(--cr-duration-slow) var(--cr-ease-standard);
+}
+
+.dup-scene__tab-paper {
+  fill: var(--cr-manila);
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+  stroke-linejoin: round;
+}
+
+/* Done: the tab folds shut. That is the whole celebration (spec §7.2). */
+.dup-scene[data-closed='true'] .dup-scene__tab {
+  transform: rotate(-4deg);
+}
+
+.dup-scene__name {
+  fill: var(--cr-manila-fg);
+  font-family: var(--cr-font-mono);
+  font-size: 8.5px;
+}
+
+.dup-scene__back,
+.dup-scene__front {
+  stroke: var(--cr-border-strong);
+  stroke-width: var(--cr-border-width-slot);
+}
+
+.dup-scene__back {
+  fill: var(--cr-surface-sunken);
+}
+
+.dup-scene__front {
+  fill: var(--cr-surface-raised);
+}
+
+.dup-scene__count {
+  fill: var(--cr-text);
+  font-family: var(--cr-font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dup-scene__flight {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dup-scene-fly
+    calc(var(--cr-duration-slow) + var(--cr-duration-slower)) forwards;
+}
+
+/* Cancel or pause: everything holds where it is. */
+.dup-scene[data-stopped='true'] .dup-scene__flight,
+.dup-scene[data-stopped='true'] .dup-scene__shelf,
+.dup-scene[data-stopped='true'] .dup-scene__slot--fresh {
+  animation-play-state: paused;
+}
+
+/* 240 / 640 = 37.5 %: the lift, then the ink drop into the folder. */
+@keyframes dup-scene-fly {
+  0% {
+    transform: translate(0, 0);
+    animation-timing-function: var(--cr-ease-standard);
+  }
+  37.5% {
+    transform: translate(0, -6px);
+    animation-timing-function: var(--cr-ease-ink);
+  }
+  /* Over the folder's lip, then down behind its front. */
+  70% {
+    transform: translate(58px, -14px) scale(0.9);
+    opacity: 1;
+    animation-timing-function: var(--cr-ease-ink);
+  }
+  100% {
+    transform: translate(76px, 4px) scale(0.75);
+    opacity: 0;
+  }
+}
+
+@keyframes dup-scene-close {
+  from {
+    transform: translateX(-40px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes dup-scene-fresh {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dup-scene__flight,
+  .dup-scene__shelf[data-closing='true'],
+  .dup-scene__shelf[data-closing='true'] .dup-scene__slot--fresh {
+    animation: none;
+  }
+
+  .dup-scene__flight {
+    display: none;
+  }
+
+  .dup-scene__tab {
+    transition: none;
+  }
+}
+
+/* ---- Forced colours (Windows High Contrast) ----------------------------- */
+
+/* Backgrounds drop out; the edges and the stamps' frames carry the state. */
+@media (forced-colors: active) {
+  .dup-group[data-state='other'],
+  .dup-group[data-state='conflict'],
+  .dup-group[data-state='report-only'],
+  .dup-group[data-state='skipped'] {
+    border-left-color: CanvasText;
+  }
+
+  .dup-stamp {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+
+  .dup-shelf::before {
+    background: Highlight;
+  }
+
+  .dup-dim {
+    opacity: 1;
+  }
+
+  .dup-scene__slot,
+  .dup-scene__tab-paper,
+  .dup-scene__back,
+  .dup-scene__front {
+    stroke: CanvasText;
+  }
+
+  .dup-scene__rule {
+    stroke: Highlight;
+  }
+
+  .dup-scene__name,
+  .dup-scene__count {
+    fill: CanvasText;
+  }
 }

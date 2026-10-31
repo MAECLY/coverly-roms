@@ -218,6 +218,62 @@ export interface GamelistEntryView {
   path: string;
 }
 
+/* ---- Copy facts: mirror of coverly_core::dedupe::MemberFacts ----------
+ * Display only: the keeper rules never read them. Every key is left out
+ * when empty, and a member without any fact has no `facts` key. */
+
+/** Where a copy's tags were read from. */
+export type TagSourceView = 'catalogue' | 'file-name';
+
+/** Whether the program itself was modified (`original` is never sent). */
+export const MOD_CLASSES = [
+  'original',
+  'hack',
+  'trainer',
+  'translation',
+  'fixed',
+  'pirate',
+  'unlicensed',
+] as const;
+export type ModClassView = (typeof MOD_CLASSES)[number];
+
+/** GoodTools / No-Intro dump flags: `[!] [b] [o] [a]`. */
+export interface DumpFlagsView {
+  verified: boolean;
+  bad: boolean;
+  overdump: boolean;
+  alternate: boolean;
+}
+
+/** One art slot a copy has, with its size in bytes. */
+export interface ArtSeenView {
+  media: MediaView;
+  path: string;
+  size: number;
+}
+
+export interface MemberFactsView {
+  tags_from?: TagSourceView;
+  regions?: RegionId[];
+  /** Lowercase codes in the name's order (`en`, `fr`). */
+  languages?: string[];
+  revision?: string;
+  /** Absent = retail. */
+  class?: ReleaseClassView;
+  flags?: DumpFlagsView;
+  flags_from?: TagSourceView;
+  /** Absent = original. */
+  modification?: ModClassView;
+  modification_from?: TagSourceView;
+  /** Unknown name groups (`Virtual Console`). */
+  other?: string[];
+  /** Saves beside the copy; `last_ns` is the newest one's mtime. */
+  saves?: { count: number; last_ns: number };
+  /** From its game list; `last` as written there. */
+  played?: { count: number; last: string | null };
+  art?: ArtSeenView[];
+}
+
 export interface MemberView {
   id: number;
   unit: UnitRefView;
@@ -233,6 +289,7 @@ export interface MemberView {
   confidence: number;
   gamelist?: GamelistEntryView;
   art_leaves?: { media: MediaView[] };
+  facts?: MemberFactsView;
 }
 
 export interface DupGroupView {

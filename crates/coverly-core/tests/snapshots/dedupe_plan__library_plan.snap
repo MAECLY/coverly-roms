@@ -57,6 +57,15 @@ expression: "normalised(&plan, root)"
           "catalogue_name": null,
           "confidence": 1.0,
           "dest": null,
+          "facts": {
+            "art": [
+              {
+                "media": "cover",
+                "path": "[root]/ROMS/GB/Imgs/Tetris (1).png",
+                "size": 11
+              }
+            ]
+          },
           "id": 2,
           "relation": "exact",
           "serials": [],
@@ -102,6 +111,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": "Advance Wars (Europe)",
           "confidence": 0.9,
           "dest": null,
+          "facts": {
+            "regions": [
+              "europe"
+            ],
+            "tags_from": "catalogue"
+          },
           "id": 0,
           "relation": "version",
           "serials": [],
@@ -122,6 +137,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": "Advance Wars (USA)",
           "confidence": 1.0,
           "dest": null,
+          "facts": {
+            "regions": [
+              "usa"
+            ],
+            "tags_from": "catalogue"
+          },
           "id": 1,
           "relation": "exact",
           "serials": [],
@@ -184,6 +205,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": null,
           "confidence": 1.0,
           "dest": null,
+          "facts": {
+            "saves": {
+              "count": 1,
+              "last_ns": 0
+            }
+          },
           "id": 0,
           "relation": "exact",
           "serials": [],
@@ -204,6 +231,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": null,
           "confidence": 1.0,
           "dest": null,
+          "facts": {
+            "saves": {
+              "count": 1,
+              "last_ns": 0
+            }
+          },
           "id": 1,
           "relation": "exact",
           "serials": [],
@@ -276,6 +309,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": null,
           "confidence": 1.0,
           "dest": null,
+          "facts": {
+            "other": [
+              "alt"
+            ],
+            "tags_from": "file-name"
+          },
           "id": 1,
           "relation": "exact",
           "serials": [],
@@ -415,6 +454,12 @@ expression: "normalised(&plan, root)"
           "catalogue_name": null,
           "confidence": 1.0,
           "dest": "[root]/_Duplicados/SFC/Mario (h).smc",
+          "facts": {
+            "other": [
+              "h"
+            ],
+            "tags_from": "file-name"
+          },
           "id": 1,
           "relation": "exact",
           "serials": [],

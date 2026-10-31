@@ -1005,17 +1005,37 @@ pub async fn dedupe_export_plan(app: AppHandle, plan_id: u64) -> Result<Option<S
     .await
 }
 
-/// Shows `path` (a copy, its quarantine folder) in Finder / Explorer / the
-/// file manager: only inside the open library or a duplicates plan's
-/// library or quarantine.
+/// The bytes of a duplicate group's cover (`member: None`) or of one copy's
+/// own art, offline only; `art-missing` when there is none. The webview
+/// names ids only: the path comes from the kept plan and stays inside its
+/// library.
 #[tauri::command]
-pub fn reveal_path(
+pub async fn dedupe_art(
     app: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<(), IpcError> {
-    let path = state.revealable(Path::new(&path))?;
-    app.opener()
-        .reveal_item_in_dir(path)
-        .map_err(|e| IpcError::Io(e.to_string()))
+    plan_id: u64,
+    group: u64,
+    member: Option<usize>,
+    media: Media,
+) -> Result<tauri::ipc::Response, IpcError> {
+    blocking(move || {
+        app.state::<AppState>()
+            .dedupe_art_bytes(plan_id, group, member, media)
+            .map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+/// Shows `path` (a copy, its quarantine folder) in Finder / Explorer / the
+/// file manager: only inside the open library, a duplicates plan's
+/// library or quarantine, or a kept Organise plan's pile or target. Off the
+/// main thread: the file manager call may block on a slow volume.
+#[tauri::command]
+pub async fn reveal_path(app: AppHandle, path: String) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = app.state::<AppState>().revealable(Path::new(&path))?;
+        app.opener()
+            .reveal_item_in_dir(path)
+            .map_err(|e| IpcError::Io(e.to_string()))
+    })
+    .await
 }

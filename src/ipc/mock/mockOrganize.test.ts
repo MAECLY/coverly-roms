@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import type {
   OrganizeItem,
@@ -1218,6 +1218,13 @@ describe('mock organise: extract pacing', () => {
   });
 
   it('a_rate_run_paces_by_elapsed_time_and_cancels_mid_item', async () => {
+    // A fake clock: 1 ms between reads, so the bytes per tick do not depend
+    // on how slow the runner is (a real 8 MB entry could end in one tick).
+    let clock = 0;
+    const now = vi
+      .spyOn(performance, 'now')
+      .mockImplementation(() => (clock += 1));
+    onTestFinished(() => now.mockRestore());
     const b = backend({ delayMs: 1, extractRate: 2000 });
     const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
     const events: OrganizeProgressEvent[] = [];

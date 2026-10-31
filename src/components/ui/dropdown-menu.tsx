@@ -86,7 +86,7 @@ export const DropdownMenuRadioItem = forwardRef<
   >
     <span className="absolute left-2 inline-flex size-4 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <span className="block size-2 rounded-full bg-primary" />
+        <span className="block size-2 rounded-full bg-primary forced-colors:bg-[CanvasText] forced-colors:forced-color-adjust-none" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}

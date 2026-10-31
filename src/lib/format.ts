@@ -44,3 +44,35 @@ export function formatDate(mtime: number, locale: string): string {
     new Date(mtime * 1000),
   );
 }
+
+/** Date and time, for a tooltip: `14 nov 2023, 22:13`. */
+export function formatDateTime(mtime: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(mtime * 1000));
+}
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 86_400_000],
+  ['month', 30 * 86_400_000],
+  ['week', 7 * 86_400_000],
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+  ['second', 1_000],
+];
+
+/** `hace 3 días`, `ayer`, `1 hour ago`: `ms` against `now`, in the largest whole unit. */
+export function formatRelative(
+  ms: number,
+  locale: string,
+  now: number = Date.now(),
+): string {
+  const diff = ms - now;
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  for (const [unit, size] of RELATIVE_UNITS)
+    if (Math.abs(diff) >= size)
+      return rtf.format(Math.round(diff / size), unit);
+  return rtf.format(0, 'second');
+}

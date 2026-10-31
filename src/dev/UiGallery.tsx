@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
 import { DupGroup } from '@/components/dedupe/DupGroup';
+import { SetAsideScene } from '@/components/dedupe/SetAsideScene';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 
@@ -115,8 +117,10 @@ import {
 } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
+import { getBackend } from '@/ipc/backend';
 import type {
   DedupeActionSetting,
+  DedupePlanView,
   DedupeReportView,
   DedupeViewOptions,
   DupGroupView,
@@ -226,6 +230,121 @@ const DEDUPE_REPORT: DedupeReportView = (() => {
 })();
 
 const noop = () => undefined;
+
+/** Each state of a duplicate group (spec §7.1), on a plan the mock keeps,
+ * so covers load (or show the missing slot) as on the real screen. */
+const DEDUPE_STATES: { label: string; title: string; skipped?: boolean }[] = [
+  { label: 'act · no facts · missing cover', title: 'GB Game 01' },
+  { label: 'other version (format)', title: 'Crash Bash' },
+  { label: 'report-only · own thumbnail', title: 'Tetris' },
+  { label: 'skipped', title: 'Ecco the Dolphin', skipped: true },
+  { label: 'conflict', title: 'Pokemon Red' },
+];
+
+const SYSTEM_NAMES: Record<string, string> = {
+  GB: 'Game Boy',
+  PS: 'PlayStation',
+  SMS: 'Master System',
+  GBA: 'Game Boy Advance',
+};
+
+/** Plays an apply of `total` copies: one per 300 ms, or a burst. */
+function SetAsideSpecimen() {
+  const total = 24;
+  const [done, setDone] = useState(0);
+  const [running, setRunning] = useState<'slow' | 'burst' | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const [run, setRun] = useState(0);
+  useEffect(() => {
+    if (!running || stopped || done >= total) return;
+    const id = setTimeout(
+      () => setDone((d) => Math.min(total, d + (running === 'burst' ? 5 : 1))),
+      running === 'burst' ? 100 : 300,
+    );
+    return () => clearTimeout(id);
+  }, [running, stopped, done]);
+  const play = (mode: 'slow' | 'burst') => {
+    setStopped(false);
+    setDone(0);
+    setRunning(mode);
+    setRun((r) => r + 1);
+  };
+  return (
+    <div className="grid justify-items-start gap-3">
+      <SetAsideScene
+        key={run}
+        done={done}
+        total={total}
+        stopped={stopped}
+        folder="_Duplicados"
+      />
+      <p className="m-0 font-mono text-ui tabular-nums">
+        {done} / {total}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => play('slow')}>
+          Play
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => play('burst')}>
+          Burst
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setStopped(true)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DedupeStatesSpecimen() {
+  const [plan, setPlan] = useState<DedupePlanView | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void getBackend()
+      .then((b) => b.dedupePlan(DEDUPE.root))
+      .then(
+        (p) => alive && setPlan(p),
+        () => undefined,
+      );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const groups = plan?.groups ?? DEDUPE.groups;
+  return (
+    <div className="dup-system">
+      <div className="dup-system__body">
+        {DEDUPE_STATES.map(({ label, title, skipped }) => {
+          const g = groups.find((x) => x.title === title)!;
+          return (
+            <div key={label} className="dup-system__slot">
+              <p className="m-0 pt-3 font-mono text-caption text-cr-text-muted">
+                {label}
+              </p>
+              {g.action.kind === 'conflict' ? (
+                <ConflictGroup
+                  group={g}
+                  onReveal={noop}
+                  systemName={SYSTEM_NAMES[g.system]}
+                />
+              ) : (
+                <DupGroup
+                  group={g}
+                  quarantine={DEDUPE.quarantine}
+                  profileName="Anbernic (stock)"
+                  skipped={skipped ?? false}
+                  planId={plan?.plan_id}
+                  onReveal={noop}
+                  systemName={SYSTEM_NAMES[g.system]}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function DedupeOptionsSpecimen() {
   const [options, setOptions] = useState<DedupeViewOptions>({
@@ -338,6 +457,14 @@ export function UiGallery() {
                 onBack={noop}
                 onFindCovers={noop}
               />
+            </Specimen>
+
+            <Specimen name="Duplicates: SetAsideScene">
+              <SetAsideSpecimen />
+            </Specimen>
+
+            <Specimen name="Duplicates: group states" wide>
+              <DedupeStatesSpecimen />
             </Specimen>
 
             <Specimen name="Duplicates: DupGroup" wide>

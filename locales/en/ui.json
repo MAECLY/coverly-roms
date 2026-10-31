@@ -416,7 +416,7 @@
     "superseded": "Another library was opened meanwhile.",
     "unknown-entry": "This ROM is no longer in the library.",
     "art-missing": "There is no image for this ROM.",
-    "outside-library": "This image is outside the library and was not opened.",
+    "outside-library": "This file is outside the library and was not opened.",
     "art-too-large": "This image is too large to show.",
     "io": "Something went wrong: {detail}",
     "settings": "The settings could not be saved: {detail}",
@@ -511,8 +511,6 @@
       "row": "Different save: {path}",
       "badge": "Different saves",
       "note": "Nothing in this game will be touched. Look at the saves and decide by hand which copy you play.",
-      "openFolder": "Open folder",
-      "openFolderOf": "Open the folder of {path}",
       "alertOne": "1 game has copies with different saves. Nothing in it will be touched.",
       "show": "Show"
     },
@@ -649,7 +647,16 @@
     "freed": "Out of {folder}: {bytes}",
     "freedLibrary": "Out of the library: {bytes}",
     "sameVolumeNote": "The card is just as full until you empty {quarantine} or move it to your computer.",
-    "openFolder": "Open {folder}",
+    "revealCopy": {
+      "mac": "Reveal {name} in Finder",
+      "win": "Show {name} in Explorer",
+      "other": "Show {name} in its folder"
+    },
+    "revealFolder": {
+      "mac": "Reveal {folder} in Finder",
+      "win": "Show {folder} in Explorer",
+      "other": "Show {folder} in its folder"
+    },
     "partial": "Set aside: {done} · Left alone: {skipped}",
     "undo": {
       "title": "Put {count} files back?",
@@ -672,7 +679,11 @@
     "keys": {
       "label": "Keyboard shortcuts",
       "pick": "Pick the copy that stays",
-      "next": "Next game"
+      "next": "Next game",
+      "game": "Next or previous game",
+      "number": "Keep copy n",
+      "reveal": "Show the copy in its folder",
+      "apply": "Set aside"
     },
     "showMore": "Show {count} more",
     "details": "Details ({count})",
@@ -701,6 +712,7 @@
     "phaseDone": "done",
     "starting": "Starting…",
     "applyingTrash": "Sending {done} of {total} to the Trash…",
+    "sceneTrash": "Trash",
     "progressLabel": "Progress",
     "cancel": "Cancel",
     "replan": "Look again",
@@ -717,7 +729,72 @@
     "undone": "Put back {count} files.",
     "undoneOne": "Put back 1 file.",
     "resume": "Resume",
-    "paused": "Stopped: {reason}. The rest can resume."
+    "paused": "Stopped: {reason}. The rest can resume.",
+    "format": {
+      "arcade": "arcade",
+      "discs": "{count} discs"
+    },
+    "tags": {
+      "from": {
+        "catalogue": "From the catalogue name",
+        "fileName": "From the file name"
+      },
+      "verified": "Verified [!]",
+      "bad": "Bad dump [b]",
+      "overdump": "Overdump [o]",
+      "alternate": "Alternate [a]",
+      "hack": "Hack",
+      "translation": "Translation",
+      "trainer": "Trainer",
+      "fixed": "Fixed",
+      "pirate": "Pirate",
+      "unlicensed": "Unlicensed",
+      "class": {
+        "beta": "Beta",
+        "proto": "Prototype",
+        "demo": "Demo",
+        "sample": "Sample"
+      },
+      "languages": "Languages: {list}",
+      "more": "+{count}"
+    },
+    "rule": {
+      "userChoice": "Your pick",
+      "hasSave": "Save",
+      "played": "Played",
+      "inLibrary": "Already in library",
+      "verified": "Verified",
+      "retail": "Retail",
+      "region": "Region",
+      "revision": "Revision",
+      "container": "Format",
+      "hasCover": "Cover",
+      "catalogueName": "Catalogue name",
+      "tie": "Tie",
+      "runnerUp": "Otherwise {name} would win on {rule}"
+    },
+    "cover": {
+      "media": {
+        "title": "Title screen",
+        "screenshot": "Screenshot"
+      },
+      "missing": "No cover",
+      "ownArt": "This copy has different art",
+      "fromCache": "Already downloaded from libretro-thumbnails"
+    },
+    "copyNumber": "Copy {n}",
+    "facts": {
+      "modified": "Modified on {date}",
+      "save": "Save: {when}",
+      "saves": "{count} saves, latest {when}",
+      "noSave": "No save",
+      "played": "Played {count} times",
+      "playedOne": "Played once"
+    },
+    "state": {
+      "reportOnly": "Report only",
+      "skipped": "Left alone"
+    }
   },
   "toolbar": {
     "search": "Search by name",

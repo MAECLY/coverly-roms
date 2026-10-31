@@ -11,6 +11,7 @@ import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
 import type { EntryView, LibraryView, Media } from '@/ipc/types';
 import { formatDate, formatSize } from '@/lib/format';
+import { revealLabelKey } from '@/lib/reveal';
 import {
   identityKey,
   useIdentityStore,
@@ -19,13 +20,6 @@ import {
 
 import { ArtWorkspace } from './ArtWorkspace';
 import { Tip } from './Tip';
-
-function revealLabel(): string {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
-  if (/Mac/i.test(ua)) return 'drawer.revealMac';
-  if (/Windows/i.test(ua)) return 'drawer.revealWin';
-  return 'drawer.revealOther';
-}
 
 function IdentityBlock({
   state,
@@ -160,12 +154,12 @@ export function DetailDrawer({
         <h2 id="drawer-title" className="drawer-title" title={entry.name}>
           {entry.name}
         </h2>
-        <Tip content={t(revealLabel())}>
+        <Tip content={t(revealLabelKey())}>
           <Button
             variant="ghost"
             size="icon-sm"
             className="text-cr-text-secondary hover:text-cr-text"
-            aria-label={t(revealLabel())}
+            aria-label={t(revealLabelKey())}
             onClick={() => void reveal()}
           >
             <FolderOpen aria-hidden />

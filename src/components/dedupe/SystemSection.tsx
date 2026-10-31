@@ -14,6 +14,7 @@ import { useContext, useId, useState } from 'react';
 
 import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DupGroup } from '@/components/dedupe/DupGroup';
+import { useRegisterGroupList } from '@/components/dedupe/groupNav';
 import { useGroupWindow } from '@/components/dedupe/useGroupWindow';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,7 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { LocaleContext } from '@/i18n/core';
 import { useT, type TFunction } from '@/i18n/useT';
-import type { DupGroupView } from '@/ipc/dedupeTypes';
+import type { DedupeOutcomeView, DupGroupView } from '@/ipc/dedupeTypes';
 import {
   WINDOW_ABOVE,
   formatBytes,
@@ -58,6 +59,10 @@ export interface SystemSectionProps {
   onSkipSystem?: ((system: string) => void) | undefined;
   onResetSystem?: ((system: string) => void) | undefined;
   onReveal?: ((path: string) => void) | undefined;
+  /** The last apply's outcomes, so each copy is revealed where it is. */
+  outcomes?: DedupeOutcomeView[] | null | undefined;
+  /** The kept plan, for the groups' covers. */
+  planId?: number | undefined;
 }
 
 function sentence(t: TFunction, name: string, s: SystemSummary): string {
@@ -174,7 +179,7 @@ export function SystemSection({
       </div>
       {/* Radix unmounts closed content: a closed system has no rows. */}
       <CollapsibleContent className="dup-system__body">
-        <Groups groups={groups} {...row} />
+        <Groups groups={groups} systemName={name} {...row} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -183,7 +188,10 @@ export function SystemSection({
 type GroupsProps = Omit<
   SystemSectionProps,
   'system' | 'name' | 'defaultOpen' | 'onSkipSystem' | 'onResetSystem'
->;
+> & {
+  /** The system's display name, under each game's title. */
+  systemName: string;
+};
 
 function Groups({
   groups,
@@ -193,17 +201,30 @@ function Groups({
   onKeeperChange,
   onSkipChange,
   onReveal,
+  outcomes,
+  planId,
+  systemName,
 }: GroupsProps) {
   const windowed = groups.length > WINDOW_ABOVE;
-  const { listRef, range, measure, onFocusIndex } = useGroupWindow(
-    groups.length,
-    windowed,
-  );
+  const { listRef, range, measure, onFocusIndex, scrollToIndex } =
+    useGroupWindow(groups.length, windowed);
+  // J/K walk this system's groups in display order, mounted or not.
+  useRegisterGroupList(listRef, {
+    ids: groups.map((g) => g.id),
+    scrollToIndex,
+  });
 
   const item = (i: number) => {
     const g = groups[i]!;
     return g.action.kind === 'conflict' ? (
-      <ConflictGroup group={g} onReveal={onReveal} />
+      <ConflictGroup
+        group={g}
+        onReveal={onReveal}
+        systemName={systemName}
+        planId={planId}
+        // Only rows the window mounted render here, so each may ask.
+        artEnabled
+      />
     ) : (
       <DupGroup
         group={g}
@@ -212,13 +233,19 @@ function Groups({
         skipped={skipped?.has(g.id) ?? false}
         onKeeperChange={onKeeperChange}
         onSkipChange={onSkipChange}
+        onReveal={onReveal}
+        outcomes={outcomes}
+        planId={planId}
+        systemName={systemName}
+        // Only rows the window mounted render here, so each may ask.
+        artEnabled
       />
     );
   };
 
   if (!windowed)
     return (
-      <div className="dup-system__groups">
+      <div ref={listRef} className="dup-system__groups">
         {groups.map((g, i) => (
           <div key={g.id} className="dup-system__slot">
             {item(i)}

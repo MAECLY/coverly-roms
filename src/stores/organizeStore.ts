@@ -76,6 +76,9 @@ interface OrganizeState {
   resumeJob(job: string, source: string): Promise<void>;
   undoJob(includeLater?: boolean): Promise<void>;
   openResult(): Promise<void>;
+  /** Show a pile or library copy in the file manager; a refusal
+   * (`outside-library`, `not-found`) lands in `error`, the status stays. */
+  reveal(path: string): Promise<void>;
   reset(): void;
 }
 
@@ -479,6 +482,13 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         set({ undo: await b.organizeUndo(job, includeLater) });
       } catch (e) {
         // `later-jobs` keeps the list of newer jobs in `detail`.
+        set({ error: toBackendError(e) });
+      }
+    },
+    async reveal(path) {
+      try {
+        await (await getBackend()).revealPath(path);
+      } catch (e) {
         set({ error: toBackendError(e) });
       }
     },

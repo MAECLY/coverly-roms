@@ -79,7 +79,12 @@ use coverly_core::scan::scan_library;
 use coverly_core::write::trash::{OsTrash, TrashBackend};
 
 use crate::dedupe::view::{DedupeJobView, DedupePlanView, DedupeRequest};
-use crate::dedupe::{DedupeEvents, DedupeManager, StoredDedupe, Throttle as DedupeThrottle};
+use crate::dedupe::{
+    ArtSource as DedupeArt, DedupeEvents, DedupeManager, StoredDedupe, Throttle as DedupeThrottle,
+};
+use coverly_core::dedupe::art::{libretro_cached_url, OfflineHttp};
+use coverly_core::jobs::ArtStore;
+use coverly_core::sources::libretro::{LibretroConfig, LibretroSource, INDEX_TTL_SECS};
 
 pub struct AppState {
     latest: AtomicU64,
@@ -194,6 +199,36 @@ fn read_capped(file: &Path) -> Result<Vec<u8>, IpcError> {
         return Err(IpcError::ArtTooLarge(bytes.len() as u64));
     }
     Ok(bytes)
+}
+
+/// The art file `path` a duplicates plan recorded, when its canonical path
+/// stays inside `root`'s (a symlink out of the library is refused) and it
+/// is a file of at most [`MAX_ART_BYTES`]. Every failure is `None`.
+fn read_plan_art(root: &Path, path: &Path) -> Option<Vec<u8>> {
+    let (canon_root, canon) = match (fs::canonicalize(root), fs::canonicalize(path)) {
+        (Ok(r), Ok(p)) => (r, p),
+        _ => {
+            log::debug!("duplicates art: {} is unreadable", path.display());
+            return None;
+        }
+    };
+    if !canon.starts_with(&canon_root) {
+        log::warn!(
+            "duplicates art: {} is outside the library, not served",
+            path.display()
+        );
+        return None;
+    }
+    let meta = fs::metadata(&canon).ok()?;
+    if !meta.is_file() || meta.len() > MAX_ART_BYTES {
+        log::debug!("duplicates art: {} is not a servable file", path.display());
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    File::open(&canon)
+        .and_then(|f| f.take(MAX_ART_BYTES + 1).read_to_end(&mut bytes))
+        .ok()?;
+    (bytes.len() as u64 <= MAX_ART_BYTES).then_some(bytes)
 }
 
 /// Refuses a job data folder inside the library (backups would become
@@ -1997,9 +2032,77 @@ impl AppState {
         })
     }
 
+    /// The bytes of group `group`'s cover (`member: None`) or of one copy's
+    /// own art in plan `plan_id` (dedupe UI spec D4, D16). Offline only: a
+    /// recorded art file, read only when its canonical path stays inside
+    /// the plan root's and it is at most [`MAX_ART_BYTES`], else an
+    /// already downloaded libretro-thumbnails image of the catalogue name.
+    /// Anything else, an unknown id included, is `ArtMissing`.
+    pub fn dedupe_art_bytes(
+        &self,
+        plan_id: u64,
+        group: u64,
+        member: Option<usize>,
+        media: Media,
+    ) -> Result<Vec<u8>, IpcError> {
+        let missing = || IpcError::ArtMissing(media_name(media));
+        let source = match self.dedupe.art_source(plan_id, group, member, media) {
+            Err(IpcError::NoDedupePlan) => return Err(missing()),
+            other => other?,
+        };
+        let bytes = match source {
+            DedupeArt::Library { root, path } => read_plan_art(&root, &path),
+            DedupeArt::Libretro { system, name } => {
+                self.libretro_cover(plan_id, group, media, &system, &name)
+            }
+        };
+        bytes.ok_or_else(missing)
+    }
+
+    /// The libretro cover of `name` already in the art store, through the
+    /// plan's memo; never reaches the network.
+    fn libretro_cover(
+        &self,
+        plan_id: u64,
+        group: u64,
+        media: Media,
+        system: &str,
+        name: &str,
+    ) -> Option<Vec<u8>> {
+        let cache = match self.cache() {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("duplicates art: no cache: {e:?}");
+                return None;
+            }
+        };
+        let store = ArtStore::new(&self.base.cache_dir, &cache);
+        let url = match self.dedupe.libretro_memo(plan_id, group, media, name) {
+            Some(url) => url,
+            None => {
+                let cfg = LibretroConfig {
+                    base: self.base.endpoints.libretro.clone(),
+                    raw_base: self.base.endpoints.libretro_raw.clone(),
+                    ttl_secs: INDEX_TTL_SECS,
+                };
+                let src = LibretroSource::new(&OfflineHttp, &cache, cfg);
+                let db = SystemDb::builtin();
+                let url = db
+                    .get(system)
+                    .and_then(|s| libretro_cached_url(&src, &store, s, media, name));
+                self.dedupe
+                    .remember_libretro(plan_id, group, media, name, url.clone());
+                url
+            }
+        };
+        url.and_then(|u| store.get(&u))
+    }
+
     /// `path` when the file manager may show it: inside the open library,
     /// a kept duplicates plan's library or quarantine, or the last
-    /// duplicates job's; the nearest existing folder when it is gone.
+    /// duplicates job's, a kept Organise plan's pile or target, or the
+    /// current Organise apply's target; the nearest existing folder when
+    /// it is gone. Matched by path component, never by text prefix.
     pub fn revealable(&self, path: &Path) -> Result<PathBuf, IpcError> {
         let shown = path.display().to_string();
         if !path.is_absolute()
@@ -2010,6 +2113,7 @@ impl AppState {
             return Err(IpcError::OutsideLibrary(shown));
         }
         let mut folders = self.dedupe.known_folders();
+        folders.extend(self.organize.known_folders());
         if let Some(s) = lock(&self.session).as_ref() {
             folders.push(s.root.clone());
             folders.push(s.root_canon.clone());
@@ -2041,5 +2145,470 @@ mod tests {
             serde_json::json!({ "code": "volume-gone", "detail": "/sd gone" })
         );
         assert_eq!(item_error(ItemErrorKind::Io, "x"), IpcError::Io("x".into()));
+    }
+
+    use coverly_core::dedupe::{
+        ArtSeen, DedupePlan, DupGroup, GroupAction, KeepReason, Member, MemberFacts, Relation,
+        UnitKind, UnitRef,
+    };
+    use tempfile::TempDir;
+
+    const TETRIS: &str = "Tetris (World) (Rev 1)";
+    const TETRIS_URL: &str = "https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy/Named_Boxarts/Tetris%20(World)%20(Rev%201).png";
+
+    /// An app state over temp config and cache folders.
+    fn art_state(dirs: &TempDir) -> AppState {
+        let base = FillConfig::new(dirs.path().join("cache"), dirs.path().join("data"));
+        AppState::new(dirs.path().join("config"), base)
+    }
+
+    fn art_member(id: usize, primary: PathBuf, art: Option<PathBuf>) -> Member {
+        Member {
+            id,
+            unit: UnitRef {
+                files: vec![primary.clone()],
+                primary,
+                kind: UnitKind::Single,
+                mtime_ns: 0,
+                in_library: true,
+                mtimes_ns: Vec::new(),
+            },
+            relation: Relation::Exact,
+            size: 32,
+            travels: Vec::new(),
+            stays: Vec::new(),
+            dest: None,
+            catalogue_name: None,
+            serials: Vec::new(),
+            confidence: 1.0,
+            gamelist: None,
+            art_leaves: Default::default(),
+            facts: MemberFacts {
+                art: art
+                    .into_iter()
+                    .map(|path| ArtSeen {
+                        media: Media::Cover,
+                        path,
+                        size: 4,
+                    })
+                    .collect(),
+                ..MemberFacts::default()
+            },
+        }
+    }
+
+    /// Keeps a plan of group 7 (keeper 0 without art, member 1 with
+    /// `art`) over `root`, and returns its id.
+    fn keep_art_plan(st: &AppState, root: &Path, art: Option<PathBuf>) -> u64 {
+        let gb = root.join("ROMS").join("GB");
+        let mut keeper = art_member(0, gb.join("Tetris.gb"), None);
+        keeper.catalogue_name = Some(TETRIS.into());
+        let plan = DedupePlan {
+            root: root.to_path_buf(),
+            quarantine: root.join("_Duplicados"),
+            groups: vec![DupGroup {
+                id: 7,
+                system: "gb".into(),
+                title: "Tetris".into(),
+                keeper: 0,
+                reason: KeepReason::InLibrary,
+                runner_up: None,
+                members: vec![keeper, art_member(1, gb.join("Tetris (1).gb"), art)],
+                action: GroupAction::Act,
+                tie: false,
+                choice_dropped: false,
+            }],
+            ..DedupePlan::default()
+        };
+        let id = st.dedupe.next_id();
+        st.dedupe.store(
+            id,
+            StoredDedupe {
+                root: root.to_path_buf(),
+                opts: DedupeOptions::default(),
+                plan,
+                skipped_groups: Default::default(),
+                skipped_systems: Default::default(),
+                trash_available: false,
+            },
+        );
+        id
+    }
+
+    fn library_with_art(bytes: &[u8]) -> (TempDir, PathBuf) {
+        let lib = tempfile::tempdir().unwrap();
+        let imgs = lib.path().join("ROMS").join("GB").join("Imgs");
+        fs::create_dir_all(&imgs).unwrap();
+        let art = imgs.join("a.png");
+        fs::write(&art, bytes).unwrap();
+        (lib, art)
+    }
+
+    fn is_art_missing(r: Result<Vec<u8>, IpcError>) -> bool {
+        matches!(r, Err(IpcError::ArtMissing(_)))
+    }
+
+    #[test]
+    fn dedupe_art_returns_member_art_bytes() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let (lib, art) = library_with_art(b"PNG1");
+        let id = keep_art_plan(&st, lib.path(), Some(art));
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, Some(1), Media::Cover).unwrap(),
+            b"PNG1"
+        );
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"PNG1",
+            "the group cover falls back to the first member with art"
+        );
+    }
+
+    #[test]
+    fn dedupe_art_missing_cases_are_art_missing() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let (lib, art) = library_with_art(b"PNG1");
+        let id = keep_art_plan(&st, lib.path(), Some(art.clone()));
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id + 9, 7, None, Media::Cover)),
+            "unknown plan"
+        );
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 8, None, Media::Cover)),
+            "unknown group"
+        );
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 7, Some(5), Media::Cover)),
+            "unknown member"
+        );
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 7, Some(0), Media::Cover)),
+            "no art"
+        );
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 7, Some(1), Media::Title)),
+            "other media"
+        );
+
+        File::create(&art)
+            .unwrap()
+            .set_len(MAX_ART_BYTES + 1)
+            .unwrap();
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 7, Some(1), Media::Cover)),
+            "too large"
+        );
+
+        fs::remove_file(&art).unwrap();
+        assert!(
+            is_art_missing(st.dedupe_art_bytes(id, 7, Some(1), Media::Cover)),
+            "deleted"
+        );
+    }
+
+    #[test]
+    fn dedupe_art_refuses_art_recorded_outside_the_root() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let (lib, _) = library_with_art(b"PNG1");
+        let (other, outside) = library_with_art(b"SECRET");
+        let id = keep_art_plan(&st, lib.path(), Some(outside));
+        assert!(is_art_missing(st.dedupe_art_bytes(
+            id,
+            7,
+            Some(1),
+            Media::Cover
+        )));
+        drop(other);
+    }
+
+    #[test]
+    fn dedupe_art_libretro_fallback_reads_the_store() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        {
+            let cache = st.cache().unwrap();
+            cache
+                .put_json(
+                    "libretro-root-2",
+                    "root",
+                    &vec!["Nintendo - Game Boy".to_string()],
+                    None,
+                )
+                .unwrap();
+            cache
+                .put_json(
+                    "libretro-index-2",
+                    "Nintendo - Game Boy/Named_Boxarts",
+                    &vec![format!("{TETRIS}.png")],
+                    None,
+                )
+                .unwrap();
+            coverly_core::jobs::ArtStore::new(&dirs.path().join("cache"), &cache)
+                .put(TETRIS_URL, b"PNGL")
+                .unwrap();
+        }
+        let lib = tempfile::tempdir().unwrap();
+        let id = keep_art_plan(&st, lib.path(), None);
+        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS), None);
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"PNGL"
+        );
+        assert_eq!(
+            st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS),
+            Some(Some(TETRIS_URL.to_string()))
+        );
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"PNGL",
+            "the memo serves the second call"
+        );
+        // A copy's own art never falls back to libretro.
+        assert!(is_art_missing(st.dedupe_art_bytes(
+            id,
+            7,
+            Some(0),
+            Media::Cover
+        )));
+        // Nothing downloaded for that media: remembered as none.
+        assert!(is_art_missing(st.dedupe_art_bytes(
+            id,
+            7,
+            None,
+            Media::Title
+        )));
+        assert_eq!(
+            st.dedupe.libretro_memo(id, 7, Media::Title, TETRIS),
+            Some(None)
+        );
+        st.dedupe.forget_all();
+        assert_eq!(st.dedupe.libretro_memo(id, 7, Media::Cover, TETRIS), None);
+    }
+
+    #[test]
+    fn dedupe_art_libretro_follows_a_new_keeper_name() {
+        const JAPAN: &str = "Tetris (Japan)";
+        const JAPAN_URL: &str = "https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy/Named_Boxarts/Tetris%20(Japan).png";
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        {
+            let cache = st.cache().unwrap();
+            cache
+                .put_json(
+                    "libretro-root-2",
+                    "root",
+                    &vec!["Nintendo - Game Boy".to_string()],
+                    None,
+                )
+                .unwrap();
+            cache
+                .put_json(
+                    "libretro-index-2",
+                    "Nintendo - Game Boy/Named_Boxarts",
+                    &vec![format!("{TETRIS}.png"), format!("{JAPAN}.png")],
+                    None,
+                )
+                .unwrap();
+            let store = coverly_core::jobs::ArtStore::new(&dirs.path().join("cache"), &cache);
+            store.put(TETRIS_URL, b"WORLD").unwrap();
+            store.put(JAPAN_URL, b"JAPAN").unwrap();
+        }
+        let lib = tempfile::tempdir().unwrap();
+        let id = keep_art_plan(&st, lib.path(), None);
+        st.dedupe
+            .edit(id, |s| {
+                s.plan.groups[0].members[1].catalogue_name = Some(JAPAN.into());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"WORLD"
+        );
+        // Another keeper (a pick or other rules), same plan id and group.
+        st.dedupe
+            .edit(id, |s| {
+                s.plan.groups[0].keeper = 1;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            st.dedupe_art_bytes(id, 7, None, Media::Cover).unwrap(),
+            b"JAPAN",
+            "the cover follows the new keeper's catalogue name"
+        );
+    }
+
+    /// Keeps an Organise plan of the pile `source` into `target` and
+    /// returns its id.
+    fn keep_organize_plan(st: &AppState, source: &Path, target: &Path) -> u64 {
+        use coverly_core::organize::{Counts as OrganizeCounts, NameMode, Survey, TransferMode};
+        let plan = OrganizePlan {
+            source_root: source.to_path_buf(),
+            target_root: target.to_path_buf(),
+            roms_dir: target.join("ROMS"),
+            layout: "anbernic-stock".into(),
+            mode: TransferMode::Move,
+            names: NameMode::Keep,
+            items: Vec::new(),
+            counts: OrganizeCounts::default(),
+            sorted_folders: Vec::new(),
+            deep_folders: Vec::new(),
+            other_files: Vec::new(),
+            warnings: Vec::new(),
+            broad_root: false,
+            fat32: false,
+            move_allowed: true,
+            target_detected: None,
+            created_at: String::new(),
+            duplicates: Vec::new(),
+            set_aside_trash: false,
+        };
+        let id = st.organize.next_id();
+        st.organize.store(
+            id,
+            StoredPlan {
+                request: OrganizeRequest::default(),
+                source: source.to_path_buf(),
+                opts: OrganizeOptions::default(),
+                layout: builtin_profiles().remove(0),
+                online: false,
+                survey: Arc::new(Survey {
+                    source_root: source.to_path_buf(),
+                    target_root: target.to_path_buf(),
+                    broad_root: false,
+                    entries: Vec::new(),
+                    walked: Default::default(),
+                }),
+                plan,
+            },
+        );
+        id
+    }
+
+    fn is_outside(r: Result<PathBuf, IpcError>) -> bool {
+        matches!(r, Err(IpcError::OutsideLibrary(_)))
+    }
+
+    #[test]
+    fn revealable_accepts_an_organise_pile_path_while_kept() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let pile = tmp.path().join("Downloads");
+        let target = tmp.path().join("SD");
+        fs::create_dir_all(&pile).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        fs::write(pile.join("a.gb"), b"GB").unwrap();
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "no plan yet");
+
+        keep_organize_plan(&st, &pile, &target);
+        assert_eq!(
+            st.revealable(&pile.join("a.gb")).unwrap(),
+            pile.join("a.gb")
+        );
+        assert_eq!(
+            st.revealable(&target.join("ROMS").join("GB").join("a.gb"))
+                .unwrap(),
+            target,
+            "a target file not there yet shows its nearest folder"
+        );
+
+        st.organize.forget_all();
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "forgotten");
+
+        keep_organize_plan(&st, &pile, &target);
+        for _ in 0..crate::organize::KEPT_PLANS {
+            let other = tmp.path().join("Other");
+            fs::create_dir_all(&other).unwrap();
+            keep_organize_plan(&st, &other, &other);
+        }
+        assert!(is_outside(st.revealable(&pile.join("a.gb"))), "evicted");
+    }
+
+    #[test]
+    fn revealable_refuses_a_sibling_prefix() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let sd = tmp.path().join("SD");
+        let sd2 = tmp.path().join("SD2");
+        fs::create_dir_all(&sd).unwrap();
+        fs::create_dir_all(&sd2).unwrap();
+        fs::write(sd2.join("x.gb"), b"GB").unwrap();
+        keep_organize_plan(&st, &sd, &sd);
+        keep_art_plan(&st, &sd, None);
+        assert!(st.revealable(&sd).is_ok());
+        assert!(is_outside(st.revealable(&sd2.join("x.gb"))));
+        assert!(is_outside(st.revealable(&sd2)));
+    }
+
+    #[test]
+    fn revealable_refuses_parent_components_and_relative_paths() {
+        let dirs = tempfile::tempdir().unwrap();
+        let st = art_state(&dirs);
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("SD");
+        fs::create_dir_all(root.join("ROMS")).unwrap();
+        keep_organize_plan(&st, &root, &root);
+        keep_art_plan(&st, &root, None);
+        let escape = root.join("ROMS").join("..").join("..").join("etc");
+        assert!(is_outside(st.revealable(&escape)));
+        let relative = PathBuf::from_iter(["ROMS", "x.gb"]);
+        assert!(is_outside(st.revealable(&relative)));
+    }
+
+    #[cfg(windows)]
+    mod windows_tests {
+        use super::*;
+
+        #[test]
+        fn revealable_matches_by_component() {
+            let dirs = tempfile::tempdir().unwrap();
+            let st = art_state(&dirs);
+            let tmp = tempfile::tempdir().unwrap();
+            let root = PathBuf::from_iter([tmp.path(), Path::new("Roms"), Path::new("SD")]);
+            let gb = root.join("GB");
+            fs::create_dir_all(&gb).unwrap();
+            fs::write(gb.join("x.gb"), b"GB").unwrap();
+            keep_organize_plan(&st, &root, &root);
+            assert_eq!(st.revealable(&gb.join("x.gb")).unwrap(), gb.join("x.gb"));
+            let sibling = PathBuf::from_iter([tmp.path(), Path::new("Roms"), Path::new("SD2")]);
+            fs::create_dir_all(&sibling).unwrap();
+            assert!(is_outside(st.revealable(&sibling)));
+        }
+    }
+
+    #[cfg(unix)]
+    mod unix_tests {
+        use super::*;
+
+        #[test]
+        fn dedupe_art_refuses_a_symlink_out_of_the_root() {
+            let dirs = tempfile::tempdir().unwrap();
+            let st = art_state(&dirs);
+            let (lib, art) = library_with_art(b"PNG1");
+            let other = tempfile::tempdir().unwrap();
+            let secret = other.path().join("secret.png");
+            fs::write(&secret, b"SECRET").unwrap();
+            fs::remove_file(&art).unwrap();
+            std::os::unix::fs::symlink(&secret, &art).unwrap();
+            let id = keep_art_plan(&st, lib.path(), Some(art));
+            assert!(is_art_missing(st.dedupe_art_bytes(
+                id,
+                7,
+                Some(1),
+                Media::Cover
+            )));
+            assert!(is_art_missing(st.dedupe_art_bytes(
+                id,
+                7,
+                None,
+                Media::Cover
+            )));
+        }
     }
 }

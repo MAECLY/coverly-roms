@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConflictGroup } from '@/components/dedupe/ConflictGroup';
 import { DedupeOptions } from '@/components/dedupe/DedupeOptions';
 import { DedupeResult } from '@/components/dedupe/DedupeResult';
+import { GroupNavList } from '@/components/dedupe/GroupNavList';
 import { SystemSection } from '@/components/dedupe/SystemSection';
 import { UnchangedList } from '@/components/dedupe/UnchangedList';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -65,6 +66,14 @@ describe('SystemSection', () => {
     expect(trigger).toHaveAccessibleDescription('7,4 MB');
   });
 
+  it('a conflict has the cover column of a kept plan, like its neighbours', () => {
+    const plan = dedupeFixture();
+    wrap(section(plan, 'GB', 'Game Boy', { defaultOpen: true, planId: 7 }));
+    const conflict = document.querySelector('[data-conflict]')!;
+    expect(conflict).toHaveAttribute('data-cover', '');
+    expect(conflict.querySelector('.dup-cover')).not.toBeNull();
+  });
+
   it('a game you asked to leave alone drops out of the system sentence and bytes', () => {
     const plan = dedupeFixture();
     const groups = bySystem(plan, 'SMS');
@@ -82,6 +91,14 @@ describe('SystemSection', () => {
     expect(document.querySelector('.dup-system__size')).not.toHaveTextContent(
       '7,4 MB',
     );
+  });
+
+  it("names the system under each game's title", () => {
+    const plan = dedupeFixture();
+    wrap(section(plan, 'PS', 'PlayStation', { defaultOpen: true }));
+    const subs = [...document.querySelectorAll('.dup-group__sub')];
+    expect(subs.length).toBeGreaterThan(0);
+    for (const sub of subs) expect(sub).toHaveTextContent('PlayStation');
   });
 
   it('systems_with_conflicts_open_by_default', () => {
@@ -171,6 +188,53 @@ describe('SystemSection', () => {
     expect(rendered().length).toBeLessThan(40);
   });
 
+  it('j_and_k_reach_groups_the_window_has_not_mounted', async () => {
+    const plan = dedupeFixture();
+    const base = plan.groups.find((g) => g.title === 'GB Game 01')!;
+    const groups: DupGroupView[] = Array.from({ length: 250 }, (_, i) => ({
+      ...base,
+      id: 20_000 + i,
+      title: `Juego ${String(i).padStart(3, '0')}`,
+    }));
+    wrap(
+      <GroupNavList>
+        {section(plan, 'SMS', 'Master System', { defaultOpen: true })}
+        <SystemSection
+          system="GB"
+          name="Game Boy"
+          groups={groups}
+          quarantine={plan.quarantine}
+          defaultOpen
+        />
+        <button type="button">Después</button>
+      </GroupNavList>,
+    );
+    const mounted = (id: number) =>
+      document.querySelector<HTMLElement>(`[data-dup-group="${id}"]`);
+    const focusedId = () =>
+      Number(
+        (document.activeElement as HTMLElement).closest<HTMLElement>(
+          '[data-dup-group]',
+        )?.dataset.dupGroup,
+      );
+    expect(mounted(20_249)).toBeNull();
+    // K from below the sections goes to the last game, far outside the
+    // window: it mounts, then takes focus.
+    act(() => screen.getByRole('button', { name: 'Después' }).focus());
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    await vi.waitFor(() => expect(focusedId()).toBe(20_249));
+    expect(document.activeElement).toHaveAttribute('role', 'radio');
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    await vi.waitFor(() => expect(focusedId()).toBe(20_248));
+    // From the first game of the big system, K crosses into Master System.
+    const first = mounted(20_000) ?? null;
+    expect(first).not.toBeNull();
+    act(() => within(first!).getAllByRole('radio')[0]!.focus());
+    fireEvent.keyDown(document.activeElement!, { key: 'k', code: 'KeyK' });
+    const sms = bySystem(plan, 'SMS');
+    expect(focusedId()).toBe(sms[sms.length - 1]!.id);
+  });
+
   it('renders conflicts as conflict groups and offers the system menu', async () => {
     const plan = dedupeFixture();
     const onSkipSystem = vi.fn();
@@ -212,12 +276,66 @@ describe('ConflictGroup', () => {
       'Partida distinta: GB/Pokemon Red.sav',
       'Partida distinta: GB/Pokemon Red (1).sav',
     ]);
-    const open = screen.getAllByRole('button', { name: /^Abrir carpeta/ });
+    // Each save's link is named by its visible OS words (WCAG 2.5.3) and
+    // described by its save row, so the file is still announced.
+    const open = screen.getAllByRole('button', {
+      name: 'Mostrar en la carpeta',
+    });
     expect(open).toHaveLength(2);
+    expect(
+      screen.getByRole('button', {
+        name: 'Mostrar en la carpeta',
+        // jsdom drops the space between the label span and the path.
+        description: /^Partida distinta: ?GB\/Pokemon Red \(1\)\.sav$/,
+      }),
+    ).toBe(open[1]);
     await userEvent.click(open[1]!);
     expect(onReveal).toHaveBeenCalledWith('GB/Pokemon Red (1).sav');
+    // Each copy reveals its own file too.
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Mostrar Pokemon Red (1).gb en su carpeta',
+      }),
+    );
+    expect(onReveal).toHaveBeenLastCalledWith(
+      g.members.find((m) => m.unit.primary.endsWith('Pokemon Red (1).gb'))!.unit
+        .primary,
+    );
     // Both copies are named, so you know which file each save belongs to.
     expect(screen.getByText('Pokemon Red (1).gb')).toBeInTheDocument();
+  });
+
+  it("shows each copy's facts, its save and «Sin partida» when it has none", () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    const { facts: _facts, ...bare } = g.members[1]!;
+    wrap(<ConflictGroup group={{ ...g, members: [g.members[0]!, bare] }} />);
+    expect(screen.getAllByText(/^Partida: /)).toHaveLength(1);
+    expect(screen.getByText('Sin partida')).toBeInTheDocument();
+    expect(screen.getAllByText('GB')).toHaveLength(2);
+  });
+
+  it('is stamped «Partidas distintas» in the warning tone with a warning edge', () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    wrap(<ConflictGroup group={g} systemName="Game Boy" />);
+    const root = document.querySelector<HTMLElement>('.dup-group')!;
+    expect(root).toHaveAttribute('data-state', 'conflict');
+    const stamp = document.querySelector<HTMLElement>(
+      '.dup-group__head .dup-stamp',
+    )!;
+    expect(stamp).toHaveTextContent('Partidas distintas');
+    expect(stamp).toHaveAttribute('data-tone', 'warning');
+    expect(
+      document.querySelector('.dup-group__head .dup-group__sub'),
+    ).toHaveTextContent('Game Boy');
+  });
+
+  it('marks a translated copy in the warning tone', () => {
+    const g = dedupeFixture().groups.find((x) => x.title === 'Pokemon Red')!;
+    wrap(<ConflictGroup group={g} />);
+    expect(screen.getByText('Traducción').closest('.dup-tag')).toHaveAttribute(
+      'data-tone',
+      'warning',
+    );
   });
 });
 
@@ -336,15 +454,51 @@ describe('UnchangedList', () => {
     const trigger = screen.getByRole('button', { name: /^Sin cambios \(38\)/ });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await userEvent.click(trigger);
+    // The trigger names the reasons; each report-only game stamps its own
+    // (the reason in the stamp's tooltip, spec §7.1).
+    expect(trigger).toHaveTextContent('Otras versiones, solo informe');
     const tetris = screen.getByText('Tetris').closest('li')!;
-    expect(
-      within(tetris).getByText('Otras versiones, solo informe'),
-    ).toBeInTheDocument();
+    expect(within(tetris).getByText('Solo informe')).toBeInTheDocument();
     expect(within(tetris).getByText('Game Boy')).toBeInTheDocument();
     const sms = screen.getByText('SMS Game 01').closest('li')!;
     expect(within(sms).getByText('Has pedido no tocarlo')).toBeInTheDocument();
     // Conflicts have their own block.
     expect(screen.queryByText('Pokemon Red')).toBeNull();
+  });
+
+  it('a report-only game shows every copy with its tags, its cover slot and reveal', async () => {
+    const plan = dedupeFixture();
+    const onReveal = vi.fn();
+    wrap(
+      <UnchangedList
+        groups={plan.groups}
+        quarantine={plan.quarantine}
+        planId={plan.plan_id}
+        onReveal={onReveal}
+        systemName={(id) => (id === 'GB' ? 'Game Boy' : id)}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Sin cambios \(37\)/ }),
+    );
+    // Region is what tells two versions of a game apart (spec goal 2):
+    // both copies, both regions, nothing to pick and a «Solo informe» stamp.
+    const tetris = screen.getByRole('group', { name: 'Tetris' });
+    expect(tetris).toHaveAttribute('data-state', 'report-only');
+    expect(within(tetris).getByText('Solo informe')).toBeInTheDocument();
+    expect(within(tetris).getByText('WLD')).toBeInTheDocument();
+    expect(within(tetris).getByText('JPN')).toBeInTheDocument();
+    expect(within(tetris).getByText('Tetris (Japan).gb')).toBeInTheDocument();
+    expect(within(tetris).queryByRole('radio')).toBeNull();
+    expect(tetris.querySelector('.dup-row__num')).toBeNull();
+    expect(tetris).toHaveAttribute('data-cover');
+    // Report-only copies can be shown in the file manager too (goal 1).
+    await userEvent.click(
+      within(tetris).getByRole('button', {
+        name: /^Mostrar Tetris \(Japan\)\.gb en /,
+      }),
+    );
+    expect(onReveal).toHaveBeenCalledWith('GB/Tetris (Japan).gb');
   });
 });
 
@@ -438,7 +592,9 @@ describe('DedupeResult', () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Abrir _Duplicados/' }),
+      screen.getByRole('button', {
+        name: 'Mostrar _Duplicados en la carpeta',
+      }),
     ).toBeInTheDocument();
   });
 

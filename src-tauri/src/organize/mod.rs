@@ -164,6 +164,21 @@ impl OrganizeManager {
             .map(|(_, p)| Arc::clone(&p.survey))
     }
 
+    /// The kept plans' pile and target, and the current apply's target
+    /// (what `reveal_path` may show from the Organise proposal).
+    pub fn known_folders(&self) -> Vec<PathBuf> {
+        let inner = self.lock();
+        let mut out = Vec::new();
+        for (_, p) in &inner.plans {
+            out.push(p.source.clone());
+            out.push(p.plan.target_root.clone());
+        }
+        if let Some(job) = &inner.apply {
+            out.push(PathBuf::from(&job.target_root));
+        }
+        out
+    }
+
     /// Drops every kept plan (e.g. after the pile changed on disk).
     pub fn forget_all(&self) {
         self.lock().plans.clear();

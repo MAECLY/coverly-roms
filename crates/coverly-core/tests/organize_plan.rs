@@ -2504,6 +2504,25 @@ mod duplicates {
     }
 
     #[test]
+    fn organise_groups_carry_facts() {
+        let (_tmp, pile, card) = pile_and_card();
+        let rom = fx::gb_tagged(0x00, 7);
+        put(&card.join("ROMS/GB/Tetris (World).gb"), &rom);
+        put(&pile.join("tetris copy.gb"), &rom);
+        let world = World::new();
+        let plan = plan(&world, &pile, into(&card, OrganizeDedupeMode::SetAside));
+
+        let group = &plan.duplicates[0];
+        let keeper = &group.members[group.keeper];
+        assert!(keeper.unit.in_library);
+        assert!(keeper.facts.tags_from.is_some(), "{:?}", keeper.facts);
+        assert_eq!(
+            keeper.facts.regions,
+            [coverly_core::identify::names::Region::World]
+        );
+    }
+
+    #[test]
     fn pile_7z_equal_to_a_library_zip_is_in_library() {
         let (_tmp, pile, card) = pile_and_card();
         let rom = fx::gb_tagged(0x00, 9);

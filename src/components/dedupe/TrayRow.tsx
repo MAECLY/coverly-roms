@@ -1,23 +1,26 @@
 /**
  * A copy in the tray: "Quedarme con esta" (a radio with a visible label, so
- * it never reads as "mark for removal"), its name and size, where it goes,
- * what travels with it, what stays behind and what that costs the keeper.
+ * it never reads as "mark for removal"), its name, tags and facts, where
+ * it goes, what travels with it, what stays behind and what that costs the
+ * keeper.
  */
 import { TriangleAlert } from 'lucide-react';
-import { useContext } from 'react';
+import type { ReactNode } from 'react';
 
+import { CopyFacts } from '@/components/dedupe/CopyFacts';
+import { RevealButton } from '@/components/dedupe/RevealButton';
+import { CopyNumber } from '@/components/dedupe/KeeperRow';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroupItem } from '@/components/ui/radio-group';
 import { SimpleTooltip } from '@/components/ui/tooltip';
 import { useT } from '@/i18n/useT';
-import { LocaleContext } from '@/i18n/core';
 import type { MemberView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
+  copyKey,
   destLabel,
   destOf,
   fileName,
-  formatBytes,
   relationMeta,
 } from '@/lib/dedupe';
 
@@ -69,6 +72,16 @@ export interface TrayRowProps {
   quarantine: string;
   /** The group's system, for a former keeper's destination fallback. */
   system: string;
+  /** 1-based place in the group's stable order; shown up to 9. */
+  copyNumber?: number | undefined;
+  /** The copy's own thumbnail, when its art differs from the cover. */
+  art?: ReactNode;
+  /** Where the copy is now (DP-4); `null` once it went to the Trash. */
+  place?: string | null;
+  /** Show the copy in the file manager; without it, no reveal button. */
+  onReveal?: ((path: string) => void) | undefined;
+  /** A game left alone dims the copy's chips (never its text). */
+  dim?: boolean;
   idPrefix: string;
 }
 
@@ -90,10 +103,14 @@ export function TrayRow({
   showRelation,
   quarantine,
   system,
+  copyNumber,
+  art,
+  place = member.unit.primary,
+  onReveal,
+  dim = false,
   idPrefix,
 }: TrayRowProps) {
   const t = useT();
-  const locale = useContext(LocaleContext);
   const name = fileName(member.unit.primary);
   const keepId = `${idPrefix}-keep`;
   const nameId = `${idPrefix}-name`;
@@ -120,8 +137,9 @@ export function TrayRow({
   const coverLeaves = member.art_leaves?.media.includes('cover') ?? false;
 
   return (
-    <div className="dup-row">
+    <div className="dup-row" data-member={member.id}>
       <span className="dup-row__pick">
+        <CopyNumber n={copyNumber} />
         {pickable && (
           <>
             <RadioGroupItem
@@ -129,6 +147,7 @@ export function TrayRow({
               value={String(member.id)}
               aria-labelledby={`${keepId} ${nameId}`}
               aria-describedby={destId}
+              aria-keyshortcuts={copyKey(copyNumber)}
             />
             <label
               id={keepId}
@@ -144,9 +163,15 @@ export function TrayRow({
         {name}
       </span>
       <span className="dup-row__meta">
+        {art}
         {showRelation && <RelationBadge member={member} />}
+        {onReveal && (
+          <RevealButton path={place} name={name} onReveal={onReveal} shortcut />
+        )}
       </span>
-      <span className="dup-row__size">{formatBytes(member.size, locale)}</span>
+      <div className="dup-row__facts">
+        <CopyFacts member={member} dim={dim} />
+      </div>
       {interactive ? (
         <p className="dup-row__detail">
           <span id={destId} className="dup-row__dest">

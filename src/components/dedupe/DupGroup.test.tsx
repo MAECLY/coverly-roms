@@ -6,7 +6,11 @@ import { DupGroup } from '@/components/dedupe/DupGroup';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import type { Locale } from '@/i18n/core';
-import type { DupGroupView, MemberView } from '@/ipc/dedupeTypes';
+import type {
+  DedupeOutcomeView,
+  DupGroupView,
+  MemberView,
+} from '@/ipc/dedupeTypes';
 import { dedupeFixture } from '@/ipc/mock/dedupeFixture';
 
 const QUARANTINE = '/Volumes/SD/_Duplicados';
@@ -66,6 +70,11 @@ interface Opts {
   locale?: Locale;
   onKeeperChange?: (group: number, keeper: number) => void;
   onSkipChange?: (group: number, skipped: boolean) => void;
+  onReveal?: (path: string) => void;
+  outcomes?: DedupeOutcomeView[] | null;
+  planId?: number;
+  artEnabled?: boolean;
+  systemName?: string;
 }
 
 function renderGroup(group: DupGroupView, opts: Opts = {}) {
@@ -78,6 +87,11 @@ function renderGroup(group: DupGroupView, opts: Opts = {}) {
           profileName="Anbernic (stock)"
           onKeeperChange={opts.onKeeperChange}
           onSkipChange={opts.onSkipChange}
+          onReveal={opts.onReveal}
+          outcomes={opts.outcomes ?? null}
+          planId={opts.planId}
+          artEnabled={opts.artEnabled ?? true}
+          systemName={opts.systemName}
         />
       </TooltipProvider>
     </I18nProvider>,
@@ -394,5 +408,216 @@ describe('DupGroup', () => {
         "The catalogue calls it Legend of Zelda, The - Link's Awakening (USA)",
       ),
     ).toBeInTheDocument();
+  });
+
+  it('shows the rule chip on the keeper, the runner-up in its tooltip and «Tu elección» after a pick', async () => {
+    const tetris = fixtureGroup('Tetris');
+    renderGroup({ ...tetris, action: { kind: 'act' } });
+    const chip = screen.getByText('Región');
+    act(() => chip.closest<HTMLElement>('[tabindex]')!.focus());
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Si no, ganaría Tetris (Japan).gb por región',
+    );
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: 'Quedarme con esta Tetris (Japan).gb',
+      }),
+    );
+    expect(screen.getByText('Tu elección')).toBeInTheDocument();
+    expect(screen.queryByText('Región')).toBeNull();
+  });
+
+  it('shows the rule chip on a report-only keeper too', () => {
+    renderGroup(fixtureGroup('Tetris'));
+    expect(screen.getByText('Región')).toBeInTheDocument();
+    expect(screen.getByText('WLD')).toBeInTheDocument();
+    expect(screen.getByText('JPN')).toBeInTheDocument();
+  });
+
+  it('numbers the copies in their stable order, whoever stays', () => {
+    renderGroup(fixtureGroup('Crash Bash'));
+    const nums = () =>
+      [...document.querySelectorAll('.dup-row__num')].map((n) => [
+        n.textContent,
+        n.closest('.dup-row')!.querySelector('.dup-row__name')!.textContent,
+      ]);
+    expect(nums()).toEqual([
+      ['1', 'Crash Bash.PBP'],
+      ['2', 'Crash Bash.bin'],
+      ['3', 'Crash Bash 1.bin'],
+    ]);
+    expect(document.querySelector('.dup-row__num')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    expect(document.querySelector('.dup-row__num')).toHaveAttribute(
+      'title',
+      'Copia 1',
+    );
+    fireEvent.click(
+      screen.getByRole('radio', { name: 'Quedarme con esta Crash Bash.bin' }),
+    );
+    expect(nums()).toEqual([
+      ['2', 'Crash Bash.bin'],
+      ['1', 'Crash Bash.PBP'],
+      ['3', 'Crash Bash 1.bin'],
+    ]);
+  });
+
+  it("shows each copy's facts in the tray too", () => {
+    renderGroup(fixtureGroup('Ecco the Dolphin'));
+    const chip = screen.getByText('Volcado malo [b]').closest('.dup-tag');
+    expect(chip).toHaveAttribute('data-tone', 'danger');
+    expect(screen.getAllByText('SMS')).toHaveLength(2);
+  });
+  describe('reveal', () => {
+    const MAC =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+    const zelda = () =>
+      groupOf([
+        member(0, '/Volumes/SD/ROMS/GB/Zelda.gb'),
+        member(1, '/Volumes/SD/ROMS/GB/Zelda (1).gb'),
+      ]);
+
+    it('the keeper and the tray copy each reveal their own file', async () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+      const onReveal = vi.fn();
+      renderGroup(zelda(), { onReveal });
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda.gb en Finder' }),
+      );
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda (1).gb en Finder' }),
+      );
+      expect(onReveal.mock.calls).toEqual([
+        ['/Volumes/SD/ROMS/GB/Zelda.gb'],
+        ['/Volumes/SD/ROMS/GB/Zelda (1).gb'],
+      ]);
+    });
+
+    it('a copy set aside reveals where it went; one in the Trash has no button', async () => {
+      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(MAC);
+      const onReveal = vi.fn();
+      const g = groupOf([
+        member(0, '/Volumes/SD/ROMS/GB/Zelda.gb'),
+        member(1, '/Volumes/SD/ROMS/GB/Zelda (1).gb'),
+        member(2, '/Volumes/SD/ROMS/GB/Zelda (2).gb'),
+      ]);
+      renderGroup(g, {
+        onReveal,
+        outcomes: [
+          {
+            group: 77,
+            member: 1,
+            files: [],
+            status: 'quarantined',
+            to: `${QUARANTINE}/GB/Zelda (1).gb`,
+          },
+          {
+            group: 77,
+            member: 2,
+            files: [],
+            status: 'trashed',
+            location: null,
+          },
+        ],
+      });
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Mostrar Zelda (1).gb en Finder' }),
+      );
+      expect(onReveal).toHaveBeenCalledWith(`${QUARANTINE}/GB/Zelda (1).gb`);
+      expect(
+        screen.queryByRole('button', { name: /Zelda \(2\)\.gb/ }),
+      ).toBeNull();
+    });
+
+    it('without onReveal (no backend to ask) the rows show no reveal button', () => {
+      renderGroup(zelda());
+      expect(document.querySelector('[data-reveal]')).toBeNull();
+    });
+  });
+
+  describe('hierarchy and states', () => {
+    function root(): HTMLElement {
+      return document.querySelector<HTMLElement>('.dup-group')!;
+    }
+
+    it('heads the game with its title, system and serial under it', () => {
+      renderGroup(fixtureGroup('Crash Bash'), { systemName: 'PlayStation' });
+      const head = document.querySelector<HTMLElement>('.dup-group__head')!;
+      expect(
+        within(head).getByRole('heading', { level: 3, name: 'Crash Bash' }),
+      ).toBeInTheDocument();
+      const sub = head.querySelector<HTMLElement>('.dup-group__sub')!;
+      expect(sub).toHaveTextContent('PlayStation');
+      expect(sub.querySelector('[data-system-icon]')).not.toBeNull();
+      expect(within(sub).getByText('SCUS-94570')).toHaveClass(
+        'dup-group__serial',
+      );
+    });
+
+    it('a group of exact copies that acts has no stamp', () => {
+      renderGroup(
+        groupOf([member(0, 'GB/Zelda.gb'), member(1, 'GB/Zelda (1).gb')]),
+      );
+      expect(root()).toHaveAttribute('data-state', 'act');
+      expect(document.querySelector('.dup-stamp')).toBeNull();
+      expect(screen.queryByText('Copia exacta')).toBeNull();
+    });
+
+    it('another format or version is stamped with its relation', () => {
+      renderGroup(fixtureGroup('Crash Bash'));
+      expect(root()).toHaveAttribute('data-state', 'other');
+      const stamp = document.querySelector<HTMLElement>(
+        '.dup-group__head .dup-stamp',
+      )!;
+      expect(stamp).toHaveTextContent('Otro formato');
+    });
+
+    it('a report-only group says «Solo informe» and why in its tooltip', async () => {
+      renderGroup(fixtureGroup('Tetris'));
+      expect(root()).toHaveAttribute('data-state', 'report-only');
+      const stamp = screen
+        .getByText('Solo informe')
+        .closest<HTMLElement>('.dup-stamp')!;
+      expect(stamp).not.toBeNull();
+      act(() => stamp.focus());
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(
+        'Otras versiones, solo informe',
+      );
+    });
+
+    it('X stamps the game «No se toca» and dims art and chips, never text', async () => {
+      const user = userEvent.setup();
+      renderGroup(fixtureGroup('Ecco the Dolphin'), {
+        planId: 1,
+        artEnabled: false,
+      });
+      expect(root()).toHaveAttribute('data-state', 'act');
+      expect(screen.queryByText('No se toca')).toBeNull();
+      screen.getByRole('radio', { name: 'Ecco the Dolphin.sms' }).focus();
+      await user.keyboard('x');
+      expect(root()).toHaveAttribute('data-state', 'skipped');
+      expect(
+        screen.getByText('No se toca').closest('.dup-stamp'),
+      ).not.toBeNull();
+      expect(document.querySelector('.dup-cover')).toHaveClass('dup-dim');
+      const tray = document.querySelector<HTMLElement>('.dup-tray')!;
+      expect(tray).not.toHaveClass('dup-dim');
+      expect(tray.querySelector('.dup-tags')).toHaveClass('dup-dim');
+      for (const name of document.querySelectorAll('.dup-row__name'))
+        expect(name.closest('.dup-dim')).toBeNull();
+      for (const facts of document.querySelectorAll('.dup-facts__line'))
+        expect(facts.closest('.dup-dim')).toBeNull();
+      // The keeper on the shelf stays as it was.
+      expect(
+        document
+          .querySelector('.dup-shelf .dup-tags')
+          ?.classList.contains('dup-dim') ?? false,
+      ).toBe(false);
+      await user.keyboard('x');
+      expect(root()).toHaveAttribute('data-state', 'act');
+      expect(document.querySelector('.dup-dim')).toBeNull();
+    });
   });
 });

@@ -1,12 +1,22 @@
 /**
- * One duplicate group: the title line, the shelf (the copy that stays) and
- * the tray (the copies that leave). The group is one radio group: exactly
+ * One duplicate group: the head (cover, title, system and serial, state
+ * stamp), the shelf (the copy that stays, raised under the Buckram cap)
+ * and the tray (the copies that leave, sunken and indented). The group is one radio group: exactly
  * one copy stays. Picking another moves it to the shelf, slides the cap
  * there, drops the old keeper into the tray and offers "Deshacer" for 10 s.
  *
  * Keys: arrows walk the copies in a stable order (and pick, as radios do),
- * Tab leaves the group, X toggles "No tocar este juego".
+ * 1–9 keep the n-th copy, Tab leaves the group, X toggles "No tocar este
+ * juego", ⌥⌘R / Shift+Alt+R shows the focused copy in the file manager.
+ *
+ * States (spec §7.1) sit on `data-state` and are never colour alone: a
+ * stamp in the head says them, a left edge (a real border, so it survives
+ * forced colours) repeats them. `act` has neither; `other` keeps the
+ * relation badge with an info edge; `report-only` says «Solo informe» with
+ * the reason in a tooltip and a dashed edge; `skipped` says «No se toca»,
+ * dashed, and dims the art and chips (never the text).
  */
+import { CircleSlash, Eye, type LucideIcon } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -15,41 +25,107 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 
+import { RuleChip } from '@/components/dedupe/CopyFacts';
+import { GroupCover, OwnArtThumb } from '@/components/dedupe/GroupCover';
 import { KeeperRow } from '@/components/dedupe/KeeperRow';
 import { RelationBadge, TrayRow } from '@/components/dedupe/TrayRow';
+import { SystemLabel } from '@/components/system/SystemLabel';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup } from '@/components/ui/radio-group';
+import { SimpleTooltip } from '@/components/ui/tooltip';
+import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useT } from '@/i18n/useT';
-import type { DupGroupView } from '@/ipc/dedupeTypes';
+import type { DedupeOutcomeView, DupGroupView } from '@/ipc/dedupeTypes';
 import {
   badgeRelation,
+  coverMedia,
+  currentPath,
   fileName,
   reasonText,
+  reportWhyText,
   weakestExtra,
 } from '@/lib/dedupe';
+import { digitOf, isRevealChord, isTyping } from '@/lib/keyboard';
+import { revealOs } from '@/lib/reveal';
 
 import './dedupe.css';
 
 /** How long "Deshacer" stays after a pick. */
 export const UNDO_PICK_MS = 10_000;
 
-const REDUCE_MOTION = '(prefers-reduced-motion: reduce)';
+/** What a group will do, at a glance (spec §7.1). */
+export type GroupState = 'act' | 'other' | 'report-only' | 'skipped';
 
-function useReducedMotion(): boolean {
-  const [reduce, setReduce] = useState(
-    () => window.matchMedia?.(REDUCE_MOTION).matches === true,
+/** A word and an icon in the head; `tip` makes it a tab stop. */
+export function StateStamp({
+  icon: Icon,
+  text,
+  tone = 'neutral',
+  tip,
+}: {
+  icon: LucideIcon;
+  text: string;
+  tone?: 'neutral' | 'warning';
+  tip?: string | undefined;
+}) {
+  const badge = (
+    <Badge
+      variant={tone === 'warning' ? 'warning' : 'outline'}
+      className="dup-stamp"
+      data-tone={tone}
+      tabIndex={tip ? 0 : undefined}
+    >
+      <Icon size={14} aria-hidden />
+      {text}
+    </Badge>
   );
-  useEffect(() => {
-    const mq = window.matchMedia?.(REDUCE_MOTION);
-    if (!mq) return;
-    const on = () => setReduce(mq.matches);
-    mq.addEventListener?.('change', on);
-    return () => mq.removeEventListener?.('change', on);
-  }, []);
-  return reduce;
+  return tip ? <SimpleTooltip content={tip}>{badge}</SimpleTooltip> : badge;
+}
+
+/** The game: title in the box-label face, its system and serial under it,
+ * the stamps on the right. Shared with the conflict group. */
+export function GroupHead({
+  titleId,
+  title,
+  system,
+  systemName,
+  serial,
+  stamps,
+}: {
+  titleId: string;
+  title: string;
+  system: string;
+  systemName?: string | undefined;
+  serial?: string | undefined;
+  stamps?: ReactNode;
+}) {
+  return (
+    <div className="dup-group__head">
+      <div className="dup-group__titles">
+        <h3 id={titleId} className="dup-group__title">
+          {title}
+        </h3>
+        {(systemName || serial) && (
+          <p className="dup-group__sub">
+            {systemName && (
+              <SystemLabel
+                systemId={system}
+                name={systemName}
+                className="dup-group__system"
+              />
+            )}
+            {serial && <span className="dup-group__serial">{serial}</span>}
+          </p>
+        )}
+      </div>
+      {stamps && <div className="dup-group__stamps">{stamps}</div>}
+    </div>
+  );
 }
 
 export interface DupGroupProps {
@@ -68,6 +144,18 @@ export interface DupGroupProps {
   reportOnly?: boolean;
   onKeeperChange?: ((groupId: number, keeper: number) => void) | undefined;
   onSkipChange?: ((groupId: number, skipped: boolean) => void) | undefined;
+  /** The kept dedupe plan, to ask for covers. Organise has none, so its
+   * groups show no cover column and no thumbnails (spec goal 6). */
+  planId?: number | undefined;
+  /** The row is mounted by the group window: only then do covers load. */
+  artEnabled?: boolean;
+  /** Show a copy in the file manager (DP-3); without it, no reveal. */
+  onReveal?: ((path: string) => void) | undefined;
+  /** The last apply's outcomes: a copy set aside is revealed where it
+   * went, one sent to the Trash not at all (DP-4). */
+  outcomes?: DedupeOutcomeView[] | null | undefined;
+  /** The system's display name, under the title with its icon. */
+  systemName?: string | undefined;
 }
 
 interface Pick {
@@ -84,6 +172,11 @@ export function DupGroup({
   reportOnly = false,
   onKeeperChange,
   onSkipChange,
+  planId,
+  artEnabled = true,
+  onReveal,
+  outcomes = null,
+  systemName,
 }: DupGroupProps) {
   const t = useT();
   const uid = useId();
@@ -123,8 +216,41 @@ export function DupGroup({
         ? // Nothing to pick here: no "pick another if you prefer".
           t('dedupe.why.tieSettled')
         : reasonText(t, group.reason, profileName ? { profileName } : {});
+  const userPicked = keeper !== group.keeper;
+  const runner = group.runner_up
+    ? group.members.find((m) => m.id === group.runner_up![0])
+    : undefined;
+  const runnerUp =
+    runner && group.runner_up
+      ? { name: fileName(runner.unit.primary), reason: group.runner_up[1] }
+      : null;
+  // Numbers are the pick keys: none where nothing is picked (Organise).
+  const copyNumber = (id: number) =>
+    pickable ? ids.indexOf(id) + 1 : undefined;
   const weakest = weakestExtra(members, keeperMember.id);
   const mixed = new Set(tray.map((m) => badgeRelation(m))).size > 1;
+  const reportsOnly = group.action.kind === 'report-only' || reportOnly;
+  const skipping = picks && skip;
+  const weakRelation = weakest ? badgeRelation(weakest) : 'exact';
+  const state: GroupState = reportsOnly
+    ? 'report-only'
+    : skipping
+      ? 'skipped'
+      : weakest && weakest.relation !== 'exact'
+        ? 'other'
+        : 'act';
+  const coverIn = planId === undefined ? null : coverMedia(group).media;
+  const ownArt = (m: (typeof members)[number], dim = false) =>
+    planId !== undefined && coverIn ? (
+      <OwnArtThumb
+        planId={planId}
+        group={group}
+        member={m}
+        media={coverIn}
+        enabled={artEnabled}
+        dim={dim}
+      />
+    ) : null;
 
   function radioOf(id: number): HTMLElement | null {
     return (
@@ -207,11 +333,45 @@ export function DupGroup({
     choose(ids[(at + step + ids.length) % ids.length]!);
   }
 
+  /** The copy whose row holds focus, else the keeper. */
+  function focusedMember() {
+    const row = (document.activeElement as HTMLElement | null)?.closest(
+      '[data-member]',
+    );
+    const id =
+      row && rootRef.current?.contains(row)
+        ? Number((row as HTMLElement).dataset.member)
+        : keeperMember.id;
+    return members.find((m) => m.id === id) ?? keeperMember;
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key !== 'x' && e.key !== 'X') return;
     const target = e.target as HTMLElement;
-    if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    if (
+      isTyping(target) ||
+      target.closest('input, textarea, [contenteditable="true"]')
+    )
+      return;
+    // ⌥⌘R is WebKit's reload from origin: never let it through.
+    if (isRevealChord(e.nativeEvent, revealOs())) {
+      e.preventDefault();
+      if (!onReveal) return;
+      const m = focusedMember();
+      const path = currentPath(m, group.id, outcomes);
+      if (path !== null) onReveal(path);
+      return;
+    }
+    if (!picks || e.altKey || e.ctrlKey || e.metaKey) return;
+    // 1–9 by physical key; Shift is allowed (AZERTY types digits with it).
+    const n = digitOf(e);
+    if (n !== null) {
+      const id = ids[n - 1];
+      if (id === undefined) return;
+      e.preventDefault();
+      choose(id);
+      return;
+    }
+    if (e.key !== 'x' && e.key !== 'X') return;
     e.preventDefault();
     setSkipped(!skip);
   }
@@ -225,6 +385,17 @@ export function DupGroup({
           interactive={picks}
           why={why}
           choiceDropped={group.choice_dropped && keeper === group.keeper}
+          copyNumber={copyNumber(keeperMember.id)}
+          art={ownArt(keeperMember)}
+          place={currentPath(keeperMember, group.id, outcomes)}
+          onReveal={onReveal}
+          rule={
+            <RuleChip
+              reason={group.reason}
+              userPicked={userPicked}
+              runnerUp={runnerUp}
+            />
+          }
           idPrefix={`${uid}-m${keeperMember.id}`}
         />
       </div>
@@ -241,6 +412,11 @@ export function DupGroup({
               showRelation={mixed}
               quarantine={quarantine}
               system={group.system}
+              copyNumber={copyNumber(m.id)}
+              art={ownArt(m, skipping)}
+              place={currentPath(m, group.id, outcomes)}
+              onReveal={onReveal}
+              dim={skipping}
               idPrefix={`${uid}-m${m.id}`}
             />
           ))}
@@ -253,36 +429,45 @@ export function DupGroup({
     '--dup-cap-duration': reduce ? '0ms' : 'var(--cr-duration-base)',
   } as CSSProperties;
 
-  return (
-    // The group only delegates keys from its own radios and checkbox
-    // (arrows, X); it is not itself focusable or clickable.
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-    <div
-      ref={rootRef}
-      role="group"
-      aria-labelledby={titleId}
-      className="dup-group"
-      data-dup-group={group.id}
-      data-skipped={skip ? '' : undefined}
-      style={style}
-      onKeyDownCapture={onKeyDownCapture}
-      onKeyDown={onKeyDown}
-    >
-      <div className="dup-group__head">
-        <h3 id={titleId} className="dup-group__title">
-          {group.title}
-        </h3>
-        {keeperMember.serials[0] && (
-          <span className="dup-group__serial">{keeperMember.serials[0]}</span>
-        )}
-        {weakest && (
-          <RelationBadge
-            member={weakest}
-            focusable
-            className="dup-group__badge"
-          />
-        )}
-      </div>
+  const content = (
+    <>
+      <GroupHead
+        titleId={titleId}
+        title={group.title}
+        system={group.system}
+        systemName={systemName}
+        serial={keeperMember.serials[0]}
+        stamps={
+          (weakRelation !== 'exact' || state !== 'act') && (
+            <>
+              {weakest && weakRelation !== 'exact' && (
+                <RelationBadge
+                  member={weakest}
+                  focusable
+                  className="dup-group__badge dup-stamp"
+                />
+              )}
+              {state === 'report-only' && (
+                <StateStamp
+                  icon={Eye}
+                  text={t('dedupe.state.reportOnly')}
+                  tip={
+                    group.action.kind === 'report-only'
+                      ? reportWhyText(t, group.action.why)
+                      : undefined
+                  }
+                />
+              )}
+              {state === 'skipped' && (
+                <StateStamp
+                  icon={CircleSlash}
+                  text={t('dedupe.state.skipped')}
+                />
+              )}
+            </>
+          )
+        }
+      />
 
       {picks ? (
         <RadioGroup
@@ -327,6 +512,39 @@ export function DupGroup({
             )}
           </div>
         </div>
+      )}
+    </>
+  );
+
+  return (
+    // The group only delegates keys from its own radios and checkbox
+    // (arrows, X); it is not itself focusable or clickable.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    <div
+      ref={rootRef}
+      role="group"
+      aria-labelledby={titleId}
+      className="dup-group"
+      data-dup-group={group.id}
+      data-state={state}
+      data-skipped={skip ? '' : undefined}
+      data-cover={planId !== undefined ? '' : undefined}
+      style={style}
+      onKeyDownCapture={onKeyDownCapture}
+      onKeyDown={onKeyDown}
+    >
+      {planId !== undefined ? (
+        <>
+          <GroupCover
+            planId={planId}
+            group={group}
+            enabled={artEnabled}
+            dim={skipping}
+          />
+          <div className="dup-group__main">{content}</div>
+        </>
+      ) : (
+        content
       )}
     </div>
   );
