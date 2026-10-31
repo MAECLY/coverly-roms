@@ -1,0 +1,1140 @@
+---
+source: crates/coverly-core/tests/systems_classes.rs
+expression: rows
+---
+[
+  {
+    "accepting": [
+      "vic20"
+    ],
+    "class": "Unique",
+    "ext": "20",
+    "strong": [
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "sega32x"
+    ],
+    "class": "Unique",
+    "ext": "32x",
+    "strong": [
+      "sega32x"
+    ]
+  },
+  {
+    "accepting": [
+      "vic20"
+    ],
+    "class": "Unique",
+    "ext": "40",
+    "strong": [
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "vic20"
+    ],
+    "class": "Unique",
+    "ext": "60",
+    "strong": [
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "megadrive"
+    ],
+    "class": "Unique",
+    "ext": "68k",
+    "strong": [
+      "megadrive"
+    ]
+  },
+  {
+    "accepting": [],
+    "class": "Container",
+    "ext": "7z",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "vic20"
+    ],
+    "class": "Unique",
+    "ext": "a0",
+    "strong": [
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "a2600"
+    ],
+    "class": "Unique",
+    "ext": "a26",
+    "strong": [
+      "a2600"
+    ]
+  },
+  {
+    "accepting": [
+      "a5200"
+    ],
+    "class": "Unique",
+    "ext": "a52",
+    "strong": [
+      "a5200"
+    ]
+  },
+  {
+    "accepting": [
+      "a7800"
+    ],
+    "class": "Unique",
+    "ext": "a78",
+    "strong": [
+      "a7800"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "adf",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "adz",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "atr",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "atx",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "vic20"
+    ],
+    "class": "Unique",
+    "ext": "b0",
+    "strong": [
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "bas",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "dos"
+    ],
+    "class": "Unknown",
+    "ext": "bat",
+    "strong": [
+      "dos"
+    ]
+  },
+  {
+    "accepting": [
+      "a2600",
+      "a5200",
+      "a7800",
+      "megadrive",
+      "psx"
+    ],
+    "class": "Generic",
+    "ext": "bin",
+    "strong": [
+      "a2600",
+      "a5200",
+      "a7800",
+      "megadrive",
+      "psx"
+    ]
+  },
+  {
+    "accepting": [
+      "snes"
+    ],
+    "class": "Unique",
+    "ext": "bs",
+    "strong": [
+      "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "car",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "a800",
+      "msx"
+    ],
+    "class": "Shared",
+    "ext": "cas",
+    "strong": [
+      "a800",
+      "msx"
+    ]
+  },
+  {
+    "accepting": [
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ],
+    "class": "Shared",
+    "ext": "ccd",
+    "strong": [
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "dreamcast"
+    ],
+    "class": "Unique",
+    "ext": "cdi",
+    "strong": [
+      "dreamcast"
+    ]
+  },
+  {
+    "accepting": [
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcengine",
+      "pcenginecd",
+      "psx",
+      "psp",
+      "saturn"
+    ],
+    "class": "Generic",
+    "ext": "chd",
+    "strong": [
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcengine",
+      "pcenginecd",
+      "psx",
+      "psp",
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "a800",
+      "dos"
+    ],
+    "class": "Shared",
+    "ext": "com",
+    "strong": [
+      "a800",
+      "dos"
+    ]
+  },
+  {
+    "accepting": [
+      "dos"
+    ],
+    "class": "Unknown",
+    "ext": "conf",
+    "strong": [
+      "dos"
+    ]
+  },
+  {
+    "accepting": [
+      "c64",
+      "vic20"
+    ],
+    "class": "Shared",
+    "ext": "crt",
+    "strong": [
+      "c64",
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "psp"
+    ],
+    "class": "Unique",
+    "ext": "cso",
+    "strong": [
+      "psp"
+    ]
+  },
+  {
+    "accepting": [
+      "dos",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcengine",
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ],
+    "class": "Shared",
+    "ext": "cue",
+    "strong": [
+      "dos",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcengine",
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "c64",
+      "vic20"
+    ],
+    "class": "Shared",
+    "ext": "d64",
+    "strong": [
+      "c64",
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "c64"
+    ],
+    "class": "Unique",
+    "ext": "d71",
+    "strong": [
+      "c64"
+    ]
+  },
+  {
+    "accepting": [
+      "c64"
+    ],
+    "class": "Unique",
+    "ext": "d81",
+    "strong": [
+      "c64"
+    ]
+  },
+  {
+    "accepting": [
+      "atarist"
+    ],
+    "class": "Unique",
+    "ext": "dim",
+    "strong": [
+      "atarist"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "dms",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "dos"
+    ],
+    "class": "Unique",
+    "ext": "dosz",
+    "strong": [
+      "dos"
+    ]
+  },
+  {
+    "accepting": [
+      "msx"
+    ],
+    "class": "Unique",
+    "ext": "dsk",
+    "strong": [
+      "msx"
+    ]
+  },
+  {
+    "accepting": [
+      "easyrpg"
+    ],
+    "class": "Unique",
+    "ext": "easyrpg",
+    "strong": [
+      "easyrpg"
+    ]
+  },
+  {
+    "accepting": [
+      "dos"
+    ],
+    "class": "Unknown",
+    "ext": "exe",
+    "strong": [
+      "dos"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "fdi",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "fds"
+    ],
+    "class": "Unique",
+    "ext": "fds",
+    "strong": [
+      "fds"
+    ]
+  },
+  {
+    "accepting": [
+      "snes"
+    ],
+    "class": "Unique",
+    "ext": "fig",
+    "strong": [
+      "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "c64"
+    ],
+    "class": "Unique",
+    "ext": "g64",
+    "strong": [
+      "c64"
+    ]
+  },
+  {
+    "accepting": [
+      "gb",
+      "gbc"
+    ],
+    "class": "Shared",
+    "ext": "gb",
+    "strong": [
+      "gb",
+      "gbc"
+    ]
+  },
+  {
+    "accepting": [
+      "gba"
+    ],
+    "class": "Unique",
+    "ext": "gba",
+    "strong": [
+      "gba"
+    ]
+  },
+  {
+    "accepting": [
+      "gbc"
+    ],
+    "class": "Unique",
+    "ext": "gbc",
+    "strong": [
+      "gbc"
+    ]
+  },
+  {
+    "accepting": [
+      "dreamcast"
+    ],
+    "class": "Unique",
+    "ext": "gdi",
+    "strong": [
+      "dreamcast"
+    ]
+  },
+  {
+    "accepting": [
+      "megadrive"
+    ],
+    "class": "Unique",
+    "ext": "gen",
+    "strong": [
+      "megadrive"
+    ]
+  },
+  {
+    "accepting": [
+      "gamegear"
+    ],
+    "class": "Unique",
+    "ext": "gg",
+    "strong": [
+      "gamegear"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "hdf",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "hdz",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "psx"
+    ],
+    "class": "Generic",
+    "ext": "img",
+    "strong": [
+      "psx"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga",
+      "atarist"
+    ],
+    "class": "Shared",
+    "ext": "ipf",
+    "strong": [
+      "amiga",
+      "atarist"
+    ]
+  },
+  {
+    "accepting": [
+      "dos",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "psx",
+      "psp",
+      "saturn"
+    ],
+    "class": "Generic",
+    "ext": "iso",
+    "strong": [
+      "dos",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "psx",
+      "psp",
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "lha",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "lynx"
+    ],
+    "class": "Unique",
+    "ext": "lnx",
+    "strong": [
+      "lynx"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "lzh",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga",
+      "atarist",
+      "c64",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ],
+    "class": "Shared",
+    "ext": "m3u",
+    "strong": [
+      "amiga",
+      "atarist",
+      "c64",
+      "dreamcast",
+      "segacd",
+      "neocd",
+      "pcenginecd",
+      "psx",
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "megadrive"
+    ],
+    "class": "Unique",
+    "ext": "md",
+    "strong": [
+      "megadrive"
+    ]
+  },
+  {
+    "accepting": [
+      "saturn"
+    ],
+    "class": "Unique",
+    "ext": "mds",
+    "strong": [
+      "saturn"
+    ]
+  },
+  {
+    "accepting": [
+      "gw"
+    ],
+    "class": "Unique",
+    "ext": "mgw",
+    "strong": [
+      "gw"
+    ]
+  },
+  {
+    "accepting": [
+      "pokemini"
+    ],
+    "class": "Unique",
+    "ext": "min",
+    "strong": [
+      "pokemini"
+    ]
+  },
+  {
+    "accepting": [
+      "atarist"
+    ],
+    "class": "Unique",
+    "ext": "msa",
+    "strong": [
+      "atarist"
+    ]
+  },
+  {
+    "accepting": [
+      "msx"
+    ],
+    "class": "Unique",
+    "ext": "mx1",
+    "strong": [
+      "msx"
+    ]
+  },
+  {
+    "accepting": [
+      "msx"
+    ],
+    "class": "Unique",
+    "ext": "mx2",
+    "strong": [
+      "msx"
+    ]
+  },
+  {
+    "accepting": [
+      "n64"
+    ],
+    "class": "Unique",
+    "ext": "n64",
+    "strong": [
+      "n64"
+    ]
+  },
+  {
+    "accepting": [
+      "nds"
+    ],
+    "class": "Unique",
+    "ext": "nds",
+    "strong": [
+      "nds"
+    ]
+  },
+  {
+    "accepting": [
+      "nes"
+    ],
+    "class": "Unique",
+    "ext": "nes",
+    "strong": [
+      "nes"
+    ]
+  },
+  {
+    "accepting": [
+      "ngp",
+      "ngpc"
+    ],
+    "class": "Shared",
+    "ext": "ngc",
+    "strong": [
+      "ngp",
+      "ngpc"
+    ]
+  },
+  {
+    "accepting": [
+      "ngp"
+    ],
+    "class": "Unique",
+    "ext": "ngp",
+    "strong": [
+      "ngp"
+    ]
+  },
+  {
+    "accepting": [
+      "ngpc"
+    ],
+    "class": "Unique",
+    "ext": "ngpc",
+    "strong": [
+      "ngpc"
+    ]
+  },
+  {
+    "accepting": [
+      "lynx"
+    ],
+    "class": "Unique",
+    "ext": "o",
+    "strong": [
+      "lynx"
+    ]
+  },
+  {
+    "accepting": [
+      "ons"
+    ],
+    "class": "Unique",
+    "ext": "ons",
+    "strong": [
+      "ons"
+    ]
+  },
+  {
+    "accepting": [
+      "c64"
+    ],
+    "class": "Unique",
+    "ext": "p00",
+    "strong": [
+      "c64"
+    ]
+  },
+  {
+    "accepting": [
+      "pico8"
+    ],
+    "class": "Unique",
+    "ext": "p8",
+    "strong": [
+      "pico8"
+    ]
+  },
+  {
+    "accepting": [
+      "openbor"
+    ],
+    "class": "Unique",
+    "ext": "pak",
+    "strong": [
+      "openbor"
+    ]
+  },
+  {
+    "accepting": [
+      "psx",
+      "psp"
+    ],
+    "class": "Shared",
+    "ext": "pbp",
+    "strong": [
+      "psx",
+      "psp"
+    ]
+  },
+  {
+    "accepting": [
+      "pcengine"
+    ],
+    "class": "Unique",
+    "ext": "pce",
+    "strong": [
+      "pcengine"
+    ]
+  },
+  {
+    "accepting": [
+      "pico8"
+    ],
+    "class": "Unknown",
+    "ext": "png",
+    "strong": [
+      "pico8"
+    ]
+  },
+  {
+    "accepting": [
+      "c64",
+      "vic20"
+    ],
+    "class": "Shared",
+    "ext": "prg",
+    "strong": [
+      "c64",
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "msx"
+    ],
+    "class": "Generic",
+    "ext": "rom",
+    "strong": [
+      "msx"
+    ]
+  },
+  {
+    "accepting": [
+      "scummvm"
+    ],
+    "class": "Unique",
+    "ext": "scummvm",
+    "strong": [
+      "scummvm"
+    ]
+  },
+  {
+    "accepting": [
+      "snes"
+    ],
+    "class": "Unique",
+    "ext": "sfc",
+    "strong": [
+      "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "megadrive"
+    ],
+    "class": "Unique",
+    "ext": "sgd",
+    "strong": [
+      "megadrive"
+    ]
+  },
+  {
+    "accepting": [
+      "pcengine"
+    ],
+    "class": "Unique",
+    "ext": "sgx",
+    "strong": [
+      "pcengine"
+    ]
+  },
+  {
+    "accepting": [
+      "snes"
+    ],
+    "class": "Unique",
+    "ext": "smc",
+    "strong": [
+      "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "megadrive"
+    ],
+    "class": "Unique",
+    "ext": "smd",
+    "strong": [
+      "megadrive"
+    ]
+  },
+  {
+    "accepting": [
+      "mastersystem"
+    ],
+    "class": "Unique",
+    "ext": "sms",
+    "strong": [
+      "mastersystem"
+    ]
+  },
+  {
+    "accepting": [
+      "atarist"
+    ],
+    "class": "Unique",
+    "ext": "st",
+    "strong": [
+      "atarist"
+    ]
+  },
+  {
+    "accepting": [
+      "atarist"
+    ],
+    "class": "Unique",
+    "ext": "stx",
+    "strong": [
+      "atarist"
+    ]
+  },
+  {
+    "accepting": [
+      "scummvm"
+    ],
+    "class": "Unique",
+    "ext": "svm",
+    "strong": [
+      "scummvm"
+    ]
+  },
+  {
+    "accepting": [
+      "snes"
+    ],
+    "class": "Unique",
+    "ext": "swc",
+    "strong": [
+      "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "c64",
+      "vic20"
+    ],
+    "class": "Shared",
+    "ext": "t64",
+    "strong": [
+      "c64",
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "c64",
+      "vic20"
+    ],
+    "class": "Shared",
+    "ext": "tap",
+    "strong": [
+      "c64",
+      "vic20"
+    ]
+  },
+  {
+    "accepting": [
+      "amiga"
+    ],
+    "class": "Unique",
+    "ext": "uae",
+    "strong": [
+      "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "nes"
+    ],
+    "class": "Unique",
+    "ext": "unf",
+    "strong": [
+      "nes"
+    ]
+  },
+  {
+    "accepting": [
+      "nes"
+    ],
+    "class": "Unique",
+    "ext": "unif",
+    "strong": [
+      "nes"
+    ]
+  },
+  {
+    "accepting": [
+      "n64"
+    ],
+    "class": "Unique",
+    "ext": "v64",
+    "strong": [
+      "n64"
+    ]
+  },
+  {
+    "accepting": [
+      "virtualboy"
+    ],
+    "class": "Unique",
+    "ext": "vb",
+    "strong": [
+      "virtualboy"
+    ]
+  },
+  {
+    "accepting": [
+      "virtualboy"
+    ],
+    "class": "Unique",
+    "ext": "vboy",
+    "strong": [
+      "virtualboy"
+    ]
+  },
+  {
+    "accepting": [
+      "wonderswan"
+    ],
+    "class": "Unique",
+    "ext": "ws",
+    "strong": [
+      "wonderswan"
+    ]
+  },
+  {
+    "accepting": [
+      "wonderswan",
+      "wonderswancolor"
+    ],
+    "class": "Shared",
+    "ext": "wsc",
+    "strong": [
+      "wonderswan",
+      "wonderswancolor"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "xex",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "a800"
+    ],
+    "class": "Unique",
+    "ext": "xfd",
+    "strong": [
+      "a800"
+    ]
+  },
+  {
+    "accepting": [
+      "n64"
+    ],
+    "class": "Unique",
+    "ext": "z64",
+    "strong": [
+      "n64"
+    ]
+  },
+  {
+    "accepting": [],
+    "class": "Container",
+    "ext": "zip",
+    "strong": []
+  }
+]

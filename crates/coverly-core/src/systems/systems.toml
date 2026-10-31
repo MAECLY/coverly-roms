@@ -18,12 +18,20 @@
 #               metadat/redump/<libretro>.dat for disc systems)
 #   screenscraper  ScreenScraper system id (systemesListe.php); absent = the
 #               system is not available on ScreenScraper
+#   family      console (default), handheld, computer, arcade or engine;
+#               groups systems in pickers (arcade = true defaults to arcade)
+#   weak_extensions  extensions accepted inside the system's folder or with
+#               its header or hash, never evidence by themselves (they do not
+#               count for the extension class)
+#   scoped_aliases  aliases (a subset of aliases) that resolve only under a
+#               profile that names them, never as a global folder name
 #
 # Users can extend or override entries by id with a file in the same format.
 
 [[system]]
 id = "a2600"
 name = "Atari 2600"
+family = "console"
 aliases = ["A2600", "atari2600", "2600"]
 extensions = ["a26", "bin", "zip", "7z"]
 libretro = "Atari - 2600"
@@ -32,6 +40,7 @@ screenscraper = 26
 [[system]]
 id = "a5200"
 name = "Atari 5200"
+family = "console"
 aliases = ["A5200", "atari5200", "5200"]
 extensions = ["a52", "bin", "zip", "7z"]
 libretro = "Atari - 5200"
@@ -40,6 +49,7 @@ screenscraper = 40
 [[system]]
 id = "a7800"
 name = "Atari 7800"
+family = "console"
 aliases = ["A7800", "atari7800", "7800"]
 extensions = ["a78", "bin", "zip", "7z"]
 libretro = "Atari - 7800"
@@ -49,6 +59,7 @@ screenscraper = 41
 [[system]]
 id = "a800"
 name = "Atari 8-bit"
+family = "computer"
 aliases = ["A800", "atari800", "atari8bit"]
 extensions = ["atr", "atx", "xex", "xfd", "cas", "car", "com", "bas", "zip", "7z"]
 libretro = "Atari - 8-bit"
@@ -58,6 +69,7 @@ screenscraper = 43
 [[system]]
 id = "amiga"
 name = "Commodore Amiga"
+family = "computer"
 aliases = ["AMIGA"]
 extensions = ["adf", "adz", "dms", "fdi", "ipf", "hdf", "hdz", "lha", "lzh", "uae", "m3u", "zip", "7z"]
 libretro = "Commodore - Amiga"
@@ -66,6 +78,7 @@ screenscraper = 64
 [[system]]
 id = "atarist"
 name = "Atari ST"
+family = "computer"
 aliases = ["ATARIST", "atari st"]
 extensions = ["st", "msa", "stx", "dim", "ipf", "m3u", "zip", "7z"]
 libretro = "Atari - ST"
@@ -74,6 +87,7 @@ screenscraper = 42
 [[system]]
 id = "atomiswave"
 name = "Atomiswave"
+family = "arcade"
 aliases = ["ATOMISWAVE", "awave"]
 extensions = ["zip", "7z"]
 libretro = "Atomiswave"
@@ -82,6 +96,7 @@ arcade = true
 [[system]]
 id = "c64"
 name = "Commodore 64"
+family = "computer"
 aliases = ["C64", "commodore64"]
 extensions = ["d64", "d71", "d81", "g64", "t64", "tap", "prg", "p00", "crt", "m3u", "zip", "7z"]
 libretro = "Commodore - 64"
@@ -90,6 +105,7 @@ screenscraper = 66
 [[system]]
 id = "cps1"
 name = "Capcom Play System"
+family = "arcade"
 aliases = ["CPS1"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -100,6 +116,7 @@ screenscraper = 6
 [[system]]
 id = "cps2"
 name = "Capcom Play System II"
+family = "arcade"
 aliases = ["CPS2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -110,6 +127,7 @@ screenscraper = 7
 [[system]]
 id = "cps3"
 name = "Capcom Play System III"
+family = "arcade"
 aliases = ["CPS3"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -120,6 +138,7 @@ screenscraper = 8
 [[system]]
 id = "dos"
 name = "DOS"
+family = "computer"
 aliases = ["DOS", "msdos"]
 extensions = ["zip", "dosz", "exe", "com", "bat", "conf", "iso", "cue"]
 libretro = "DOS"
@@ -127,6 +146,7 @@ libretro = "DOS"
 [[system]]
 id = "dreamcast"
 name = "Sega Dreamcast"
+family = "console"
 aliases = ["DREAMCAST", "dc"]
 extensions = ["cdi", "gdi", "chd", "cue", "m3u", "iso"]
 libretro = "Sega - Dreamcast"
@@ -136,6 +156,7 @@ screenscraper = 23
 [[system]]
 id = "easyrpg"
 name = "EasyRPG"
+family = "engine"
 aliases = ["EASYRPG", "rpgmaker"]
 extensions = ["easyrpg", "zip"]
 libretro = "RPG Maker"
@@ -143,6 +164,7 @@ libretro = "RPG Maker"
 [[system]]
 id = "fbneo"
 name = "FinalBurn Neo"
+family = "arcade"
 aliases = ["FBNEO", "fba", "fbalpha", "finalburn"]
 extensions = ["zip", "7z"]
 libretro = "FBNeo - Arcade Games"
@@ -152,6 +174,7 @@ dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat"]
 [[system]]
 id = "nes"
 name = "Nintendo Entertainment System"
+family = "console"
 aliases = ["FC", "NES", "famicom"]
 extensions = ["nes", "unf", "unif", "zip", "7z"]
 libretro = "Nintendo - Nintendo Entertainment System"
@@ -161,6 +184,7 @@ screenscraper = 3
 [[system]]
 id = "fds"
 name = "Famicom Disk System"
+family = "console"
 aliases = ["FDS", "famicomdisk"]
 extensions = ["fds", "zip", "7z"]
 libretro = "Nintendo - Family Computer Disk System"
@@ -170,6 +194,7 @@ screenscraper = 106
 [[system]]
 id = "gb"
 name = "Game Boy"
+family = "handheld"
 aliases = ["GB", "gameboy"]
 extensions = ["gb", "zip", "7z"]
 libretro = "Nintendo - Game Boy"
@@ -178,6 +203,7 @@ screenscraper = 9
 [[system]]
 id = "gba"
 name = "Game Boy Advance"
+family = "handheld"
 aliases = ["GBA", "gameboyadvance"]
 extensions = ["gba", "zip", "7z"]
 libretro = "Nintendo - Game Boy Advance"
@@ -186,6 +212,7 @@ screenscraper = 12
 [[system]]
 id = "gbc"
 name = "Game Boy Color"
+family = "handheld"
 aliases = ["GBC", "gameboycolor"]
 extensions = ["gbc", "gb", "zip", "7z"]
 libretro = "Nintendo - Game Boy Color"
@@ -194,6 +221,7 @@ screenscraper = 10
 [[system]]
 id = "gamegear"
 name = "Sega Game Gear"
+family = "handheld"
 aliases = ["GG", "gamegear"]
 extensions = ["gg", "zip", "7z"]
 libretro = "Sega - Game Gear"
@@ -203,6 +231,7 @@ screenscraper = 21
 [[system]]
 id = "gw"
 name = "Game & Watch"
+family = "handheld"
 aliases = ["GW", "gameandwatch"]
 extensions = ["mgw", "zip", "7z"]
 libretro = "Handheld Electronic Game"
@@ -211,6 +240,7 @@ dats = ["dat/Handheld Electronic Game.dat"]
 [[system]]
 id = "hbmame"
 name = "HBMAME"
+family = "arcade"
 aliases = ["HBMAME"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -220,6 +250,7 @@ dats = ["dat/HBMAME.dat"]
 [[system]]
 id = "lynx"
 name = "Atari Lynx"
+family = "handheld"
 aliases = ["LYNX", "atarilynx"]
 extensions = ["lnx", "o", "zip", "7z"]
 libretro = "Atari - Lynx"
@@ -229,6 +260,7 @@ screenscraper = 28
 [[system]]
 id = "mame"
 name = "MAME"
+family = "arcade"
 aliases = ["MAME", "arcade", "mame2003", "mame2003plus", "mame2010"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -239,6 +271,7 @@ screenscraper = 75
 [[system]]
 id = "megadrive"
 name = "Sega Mega Drive / Genesis"
+family = "console"
 aliases = ["MD", "megadrive", "genesis", "Mega Drive"]
 extensions = ["md", "gen", "smd", "bin", "68k", "sgd", "zip", "7z"]
 libretro = "Sega - Mega Drive - Genesis"
@@ -247,6 +280,7 @@ screenscraper = 1
 [[system]]
 id = "segacd"
 name = "Sega CD / Mega-CD"
+family = "console"
 aliases = ["MDCD", "segacd", "megacd", "Mega CD"]
 extensions = ["cue", "chd", "iso", "m3u"]
 libretro = "Sega - Mega-CD - Sega CD"
@@ -256,6 +290,7 @@ screenscraper = 20
 [[system]]
 id = "msx"
 name = "MSX"
+family = "computer"
 aliases = ["MSX", "msx1", "msx2"]
 extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip", "7z"]
 libretro = "Microsoft - MSX"
@@ -264,6 +299,7 @@ screenscraper = 113
 [[system]]
 id = "n64"
 name = "Nintendo 64"
+family = "console"
 aliases = ["N64", "nintendo64"]
 extensions = ["n64", "v64", "z64", "zip", "7z"]
 libretro = "Nintendo - Nintendo 64"
@@ -273,6 +309,7 @@ screenscraper = 14
 [[system]]
 id = "naomi"
 name = "Sega NAOMI"
+family = "arcade"
 aliases = ["NAOMI"]
 extensions = ["zip", "7z"]
 libretro = "Sega - Naomi"
@@ -281,6 +318,7 @@ arcade = true
 [[system]]
 id = "nds"
 name = "Nintendo DS"
+family = "handheld"
 aliases = ["NDS", "nintendods"]
 extensions = ["nds", "zip", "7z"]
 libretro = "Nintendo - Nintendo DS"
@@ -289,6 +327,7 @@ screenscraper = 15
 [[system]]
 id = "neocd"
 name = "Neo Geo CD"
+family = "console"
 aliases = ["NEOCD", "neogeocd"]
 extensions = ["cue", "chd", "iso", "m3u"]
 libretro = "SNK - Neo Geo CD"
@@ -298,6 +337,7 @@ screenscraper = 70
 [[system]]
 id = "neogeo"
 name = "Neo Geo"
+family = "arcade"
 aliases = ["NEOGEO", "Neo Geo"]
 extensions = ["zip", "7z"]
 libretro = "SNK - Neo Geo"
@@ -308,6 +348,7 @@ screenscraper = 142
 [[system]]
 id = "ngp"
 name = "Neo Geo Pocket"
+family = "handheld"
 aliases = ["NGP", "neogeopocket"]
 # Like WS: Color games (.ngc) in NGP have art under "SNK - Neo Geo Pocket Color".
 extensions = ["ngp", "ngc", "zip", "7z"]
@@ -317,6 +358,7 @@ screenscraper = 25
 [[system]]
 id = "ngpc"
 name = "Neo Geo Pocket Color"
+family = "handheld"
 aliases = ["NGPC", "neogeopocketcolor"]
 extensions = ["ngc", "ngpc", "zip", "7z"]
 libretro = "SNK - Neo Geo Pocket Color"
@@ -325,18 +367,21 @@ screenscraper = 82
 [[system]]
 id = "ons"
 name = "ONScripter"
+family = "engine"
 aliases = ["ONS", "onscripter"]
 extensions = ["ons", "zip"]
 
 [[system]]
 id = "openbor"
 name = "OpenBOR"
+family = "engine"
 aliases = ["OPENBOR"]
 extensions = ["pak"]
 
 [[system]]
 id = "pcengine"
 name = "PC Engine / TurboGrafx-16"
+family = "console"
 aliases = ["PCE", "pcengine", "tg16", "turbografx16", "PC Engine"]
 # Anbernic stock also keeps CD images (chd, cue) in PCE.
 extensions = ["pce", "sgx", "chd", "cue", "zip", "7z"]
@@ -346,6 +391,7 @@ screenscraper = 31
 [[system]]
 id = "pcenginecd"
 name = "PC Engine CD / TurboGrafx-CD"
+family = "console"
 aliases = ["PCECD", "pcenginecd", "tgcd", "turbografxcd"]
 extensions = ["cue", "chd", "ccd", "m3u"]
 libretro = "NEC - PC Engine CD - TurboGrafx-CD"
@@ -355,6 +401,7 @@ screenscraper = 114
 [[system]]
 id = "pgm2"
 name = "IGS PGM2"
+family = "arcade"
 aliases = ["PGM2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -363,6 +410,7 @@ arcade = true
 [[system]]
 id = "pico8"
 name = "PICO-8"
+family = "engine"
 aliases = ["PICO", "pico8", "pico-8"]
 # .p8.png carts: png is also in the scanner's default ignored_exts.
 # Open point for Task 7: system.extensions must win over ignored_exts here.
@@ -371,6 +419,7 @@ extensions = ["p8", "png"]
 [[system]]
 id = "pokemini"
 name = "Pokemon Mini"
+family = "handheld"
 aliases = ["POKE", "pokemini"]
 extensions = ["min", "zip", "7z"]
 libretro = "Nintendo - Pokemon Mini"
@@ -378,6 +427,7 @@ libretro = "Nintendo - Pokemon Mini"
 [[system]]
 id = "psx"
 name = "Sony PlayStation"
+family = "console"
 aliases = ["PS", "psx", "ps1", "playstation"]
 extensions = ["cue", "bin", "chd", "pbp", "m3u", "iso", "img", "ccd"]
 libretro = "Sony - PlayStation"
@@ -387,6 +437,7 @@ screenscraper = 57
 [[system]]
 id = "psp"
 name = "Sony PSP"
+family = "handheld"
 aliases = ["PSP"]
 extensions = ["iso", "cso", "pbp", "chd"]
 libretro = "Sony - PlayStation Portable"
@@ -395,6 +446,7 @@ screenscraper = 61
 [[system]]
 id = "saturn"
 name = "Sega Saturn"
+family = "console"
 aliases = ["SATURN", "segasaturn"]
 extensions = ["cue", "chd", "iso", "ccd", "m3u", "mds"]
 libretro = "Sega - Saturn"
@@ -404,6 +456,7 @@ screenscraper = 22
 [[system]]
 id = "scummvm"
 name = "ScummVM"
+family = "engine"
 aliases = ["SCUMMVM", "scumm"]
 extensions = ["scummvm", "svm"]
 libretro = "ScummVM"
@@ -411,6 +464,7 @@ libretro = "ScummVM"
 [[system]]
 id = "sega32x"
 name = "Sega 32X"
+family = "console"
 aliases = ["SEGA32X", "32x", "sega32"]
 extensions = ["32x", "zip", "7z"]
 libretro = "Sega - 32X"
@@ -419,6 +473,7 @@ screenscraper = 19
 [[system]]
 id = "snes"
 name = "Super Nintendo"
+family = "console"
 aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
 extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
 libretro = "Nintendo - Super Nintendo Entertainment System"
@@ -428,6 +483,7 @@ screenscraper = 4
 [[system]]
 id = "mastersystem"
 name = "Sega Master System"
+family = "console"
 aliases = ["SMS", "mastersystem", "Master System"]
 extensions = ["sms", "zip", "7z"]
 libretro = "Sega - Master System - Mark III"
@@ -437,6 +493,7 @@ screenscraper = 2
 [[system]]
 id = "varcade"
 name = "Arcade (various)"
+family = "arcade"
 aliases = ["VARCADE"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -445,6 +502,7 @@ arcade = true
 [[system]]
 id = "virtualboy"
 name = "Virtual Boy"
+family = "handheld"
 aliases = ["VB", "virtualboy"]
 extensions = ["vb", "vboy", "zip", "7z"]
 libretro = "Nintendo - Virtual Boy"
@@ -453,6 +511,7 @@ screenscraper = 11
 [[system]]
 id = "vic20"
 name = "Commodore VIC-20"
+family = "computer"
 aliases = ["VIC20", "vic-20"]
 extensions = ["20", "40", "60", "a0", "b0", "d64", "prg", "crt", "tap", "t64", "zip", "7z"]
 libretro = "Commodore - VIC-20"
@@ -460,6 +519,7 @@ libretro = "Commodore - VIC-20"
 [[system]]
 id = "wonderswan"
 name = "WonderSwan"
+family = "handheld"
 aliases = ["WS", "wonderswan"]
 # Anbernic stock keeps mono and Color games together in WS, so wsc is accepted.
 # Art for .wsc files lives under "Bandai - WonderSwan Color", not this playlist:
@@ -471,6 +531,7 @@ screenscraper = 45
 [[system]]
 id = "wonderswancolor"
 name = "WonderSwan Color"
+family = "handheld"
 aliases = ["WSC", "wonderswancolor"]
 extensions = ["wsc", "zip", "7z"]
 libretro = "Bandai - WonderSwan Color"

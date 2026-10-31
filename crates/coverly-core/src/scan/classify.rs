@@ -167,7 +167,7 @@ pub(crate) fn is_rom_extension(ext: &str, system: &System, opts: &ScanOptions) -
             .iter()
             .any(|e| e.eq_ignore_ascii_case(ext))
     } else {
-        system.extensions.iter().any(|e| e == ext)
+        system.accepts_extension(ext)
     }
 }
 
@@ -187,6 +187,9 @@ mod tests {
             header: crate::identify::hash::HeaderRule::Plain,
             dats: Vec::new(),
             screenscraper: None,
+            family: crate::systems::Family::Console,
+            weak_extensions: Vec::new(),
+            scoped_aliases: Vec::new(),
         }
     }
 
