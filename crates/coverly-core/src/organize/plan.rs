@@ -985,6 +985,7 @@ pub fn survey(
             recent: Duration::from_secs(opts.recent_secs),
             probe: env.probe,
             max_depth: MAX_DEPTH,
+            profile: Some(&profile),
         },
     )
     .map_err(|e| OrganizeError::Unreadable(source_abs.clone(), e.to_string()))?;
@@ -2061,7 +2062,14 @@ fn duplicates_step(
     let groups = group_units(units, &opts.dedupe, &genv).unwrap_or_default();
 
     // Settle the pile extras.
-    let quarantine = pile_quarantine(src, target_root, roms_dir, &opts.quarantine_name, env.db);
+    let quarantine = pile_quarantine(
+        src,
+        target_root,
+        roms_dir,
+        &opts.quarantine_name,
+        env.db,
+        profile,
+    );
     let mut out = DupStep::default();
     for g in groups {
         if g.members.iter().all(|m| m.unit.in_library) {
@@ -2141,12 +2149,13 @@ fn pile_quarantine(
     roms_dir: &Path,
     name: &str,
     db: &SystemDb,
+    profile: &Profile,
 ) -> PathBuf {
     let in_system_folder = src.strip_prefix(roms_dir).ok().is_some_and(|rel| {
         rel.components().next().is_some_and(|c| match c {
-            std::path::Component::Normal(folder) => {
-                db.resolve_folder(&folder.to_string_lossy()).is_some()
-            }
+            std::path::Component::Normal(folder) => db
+                .resolve_folder_in(Some(profile), &folder.to_string_lossy())
+                .is_some(),
             _ => false,
         })
     });
@@ -2662,8 +2671,14 @@ pub fn count_library_loose_roms(root: &Path, roms_root: &str, db: &SystemDb) -> 
 
 /// A quick look at `path` by names and metadata only (no file is read):
 /// what the start screen needs to offer organising. Stops after
-/// [`PROBE_LIMIT`] entries.
-pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Result<FolderProbe> {
+/// [`PROBE_LIMIT`] entries. `profile` is the layout the pile would go to,
+/// when known: its own folder names count as sorted.
+pub fn probe_folder(
+    path: &Path,
+    db: &SystemDb,
+    profile: Option<&Profile>,
+    probe: &dyn MetaProbe,
+) -> io::Result<FolderProbe> {
     fs::read_dir(path)?;
     let mut out = FolderProbe {
         writable: dir_writable(path),
@@ -2692,7 +2707,7 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
                 partial_dirs += 1;
                 return false;
             }
-            match db.resolve_folder(&name) {
+            match db.resolve_folder_in(profile, &name) {
                 Some(_) => {
                     sorted.insert(name.into_owned());
                     false

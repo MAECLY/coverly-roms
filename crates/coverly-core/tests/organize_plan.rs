@@ -767,7 +767,7 @@ fn probe_counts_names_only() {
         b"half a zip",
     );
     put(&dir.path().join("GBA/a.gba"), &fx::gba());
-    let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
+    let probe = probe_folder(dir.path(), &SystemDb::builtin(), None, &NoCloud).unwrap();
     assert_eq!(probe.rom_like, 17);
     assert_eq!(probe.partial_downloads, 1);
     assert_eq!(probe.cloud_only, 0);
@@ -989,7 +989,7 @@ fn probe_skips_ignored_folders() {
     put(&dir.path().join("bios/scph1001.bin"), &[1u8; 512]);
     put(&dir.path().join("saves/x.gba"), &fx::gba());
     put(&dir.path().join("Game.gba"), &fx::gba());
-    let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
+    let probe = probe_folder(dir.path(), &SystemDb::builtin(), None, &NoCloud).unwrap();
     assert_eq!(probe.rom_like, 1);
 }
 

@@ -98,6 +98,17 @@ pub fn default_container_overrides() -> BTreeMap<String, Vec<ContainerKind>> {
         .collect()
 }
 
+/// A built-in frontend's folder for one system (systems batch 1, spec D5
+/// and §6.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProfileFolder {
+    /// The frontend's folder for the system (spec §6.1).
+    Named(String),
+    /// The frontend has no folder for it: organise uses the naming rule
+    /// and marks the folder as not on the device (D5).
+    Absent,
+}
+
 /// A kind of game art.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -180,9 +191,25 @@ pub struct Profile {
     /// Per-system replacements of `accepts_containers` (system id →
     /// containers; empty = always extract).
     pub container_overrides: BTreeMap<String, Vec<ContainerKind>>,
+    /// Per-system folders of this frontend (system id → folder), checked
+    /// before the global aliases (spec D5, D6). Systems not listed use the
+    /// naming rule as before.
+    pub folders: BTreeMap<String, ProfileFolder>,
 }
 
 impl Profile {
+    /// The system id whose `Named` folder is `name` (case-insensitive).
+    pub fn folder_owner(&self, name: &str) -> Option<&str> {
+        let key = name.trim().to_lowercase();
+        if key.is_empty() {
+            return None;
+        }
+        self.folders.iter().find_map(|(id, f)| match f {
+            ProfileFolder::Named(n) if n.to_lowercase() == key => Some(id.as_str()),
+            _ => None,
+        })
+    }
+
     /// The slot for `media`, if this layout can store it.
     pub fn slot(&self, media: Media) -> Option<&MediaSlot> {
         self.slots.get(&media)

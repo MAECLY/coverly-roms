@@ -14,6 +14,7 @@ use walkdir::WalkDir;
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
 use crate::organize::inspect::names_an_archive;
+use crate::profiles::Profile;
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
     is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
@@ -101,6 +102,9 @@ pub struct WalkOptions<'a> {
     pub probe: &'a dyn MetaProbe,
     /// [`MAX_DEPTH`] in practice.
     pub max_depth: usize,
+    /// The target layout: its own folder names count as sorted too
+    /// ([`SystemDb::resolve_folder_in`]); `None` = global aliases only.
+    pub profile: Option<&'a Profile>,
 }
 
 /// Walks `source` without following links or crossing volumes and sorts
@@ -158,7 +162,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if roms_root_key.as_deref() == Some(key.as_str()) {
                 return true;
             }
-            match db.resolve_folder(&name) {
+            match db.resolve_folder_in(opts.profile, &name) {
                 Some(system) => {
                     sorted.push((entry.path().to_path_buf(), system.id.clone()));
                     false

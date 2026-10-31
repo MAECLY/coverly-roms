@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::identify::hash::HeaderRule;
+use crate::profiles::Profile;
 
 /// The embedded built-in database.
 const BUILTIN_TOML: &str = include_str!("systems.toml");
@@ -361,6 +362,25 @@ impl SystemDb {
                 .iter()
                 .any(|a| a.to_lowercase() == key && !s.is_scoped_alias(a))
         })
+    }
+
+    /// Like [`SystemDb::resolve_folder`] under `profile`: its `Named`
+    /// folders first, then every alias, scoped ones included. `None` (no
+    /// layout known: profile detection) is the global lookup.
+    pub fn resolve_folder_in(&self, profile: Option<&Profile>, name: &str) -> Option<&System> {
+        let Some(profile) = profile else {
+            return self.resolve_folder(name);
+        };
+        if name.is_empty() {
+            return None;
+        }
+        if let Some(s) = profile.folder_owner(name).and_then(|id| self.get(id)) {
+            return Some(s);
+        }
+        let key = name.to_lowercase();
+        self.systems
+            .iter()
+            .find(|s| s.aliases.iter().any(|a| a.to_lowercase() == key))
     }
 
     /// Checks the invariants of the built-in database; `Err` lists every

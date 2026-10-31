@@ -547,3 +547,61 @@ fn container_override_on_disc_system_is_invalid() {
         .iter()
         .any(|(f, _)| f == "container_overrides.psx"));
 }
+
+#[test]
+fn clone_copies_named_folders() {
+    use coverly_core::profiles::ProfileFolder;
+    for b in builtin_profiles() {
+        let mut file = ProfileFile::from_profile(&b);
+        let named: BTreeMap<String, String> = b
+            .folders
+            .iter()
+            .filter_map(|(id, f)| match f {
+                ProfileFolder::Named(n) => Some((id.clone(), n.clone())),
+                ProfileFolder::Absent => None,
+            })
+            .collect();
+        assert_eq!(file.folder_names, named, "{}", b.id);
+        file.id = format!("copy-of-{}", b.id);
+        assert!(errors(&file).is_empty(), "{}: {:?}", b.id, errors(&file));
+        let copy = file.to_profile();
+        assert!(
+            copy.folders
+                .values()
+                .all(|f| matches!(f, ProfileFolder::Named(_))),
+            "{}",
+            b.id
+        );
+        let copied: BTreeMap<String, String> = copy
+            .folders
+            .iter()
+            .filter_map(|(id, f)| match f {
+                ProfileFolder::Named(n) => Some((id.clone(), n.clone())),
+                ProfileFolder::Absent => None,
+            })
+            .collect();
+        assert_eq!(copied, named, "{}", b.id);
+        assert_eq!(ProfileFile::parse_toml(&file.to_toml()).unwrap(), file);
+    }
+}
+
+#[test]
+fn custom_folder_names_resolve_under_the_custom_profile() {
+    use coverly_core::profiles::naming::system_folder;
+    let mut p = sample();
+    p.folder_names.insert("snes".into(), "supernintendo".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let profile = p.to_profile();
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.resolve_folder_in(Some(&profile), "SuperNintendo")
+            .map(|s| s.id.as_str()),
+        Some("snes")
+    );
+    let choice = system_folder(&profile, db.get("snes").unwrap(), &db, &BTreeMap::new());
+    assert_eq!(choice.folder, "supernintendo");
+    // Another system's folder is still refused: the file's own table does
+    // not vouch for itself.
+    p.folder_names.insert("snes".into(), "GBA".into());
+    assert!(has(&p, "folder_names.snes", FieldErrorCode::Invalid));
+}

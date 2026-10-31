@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::{
     default_accepts_containers, default_container_overrides, DiscLayout, FolderNaming, ImageFormat,
-    Media, MediaSlot, Profile,
+    Media, MediaSlot, Profile, ProfileFolder,
 };
 use crate::archive::ContainerKind;
 
@@ -77,6 +77,35 @@ const ANBERNIC_FOLDERS: [&str; 55] = [
     "WS",
 ];
 
+/// Columns of [`SYSTEM_FOLDERS`].
+const ESDE: usize = 0;
+const BATOCERA: usize = 1;
+const MUOS: usize = 2;
+const ONION: usize = 3;
+const MINUI: usize = 4;
+
+/// Spec §6.1: each Tanda 1 system's folder per frontend (`None` = the
+/// frontend has none: [`ProfileFolder::Absent`]), columns `[esde,
+/// batocera, muos, onion, minui]`. GarlicOS reads the Onion column (D9);
+/// Anbernic stock is Absent for every row (D11); RetroArch keeps `Id` and
+/// has no entries. Pre-batch systems are not listed (no behaviour change).
+const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[];
+
+/// The folder table of one frontend column; `None` (Anbernic stock) marks
+/// every listed system Absent.
+fn folders(column: Option<usize>) -> BTreeMap<String, ProfileFolder> {
+    SYSTEM_FOLDERS
+        .iter()
+        .map(|(id, cells)| {
+            let folder = match column.and_then(|c| cells[c]) {
+                Some(name) => ProfileFolder::Named(name.to_string()),
+                None => ProfileFolder::Absent,
+            };
+            (id.to_string(), folder)
+        })
+        .collect()
+}
+
 /// Flat disc folders without `.m3u` (Onion and spruceOS hide `.bin`, R1-1).
 const FLAT: DiscLayout = DiscLayout::Flat {
     m3u_for_multi: false,
@@ -102,29 +131,33 @@ pub fn builtin_profiles() -> Vec<Profile> {
     vec![
         Profile {
             known_folders: strings(&ANBERNIC_FOLDERS),
-            ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS")
+            ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS", None)
         },
-        imgs_profile("garlicos", "GarlicOS", "Roms"),
-        imgs_profile("onion", "Onion OS", "Roms"),
-        profile(
-            "muos",
-            "muOS",
-            "ROMS",
-            &[],
-            false,
-            &[
-                (
-                    Media::Cover,
-                    "{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png",
-                ),
-                (
-                    Media::Screenshot,
-                    "{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png",
-                ),
-            ],
-            None,
-        ),
+        imgs_profile("garlicos", "GarlicOS", "Roms", Some(ONION)),
+        imgs_profile("onion", "Onion OS", "Roms", Some(ONION)),
         Profile {
+            folders: folders(Some(MUOS)),
+            ..profile(
+                "muos",
+                "muOS",
+                "ROMS",
+                &[],
+                false,
+                &[
+                    (
+                        Media::Cover,
+                        "{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png",
+                    ),
+                    (
+                        Media::Screenshot,
+                        "{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png",
+                    ),
+                ],
+                None,
+            )
+        },
+        Profile {
+            folders: folders(Some(MINUI)),
             system_folder: FolderNaming::FirstAlias,
             disc_layout: GAME_FOLDER,
             // MinUI's launcher unpacks `.zip` only (R1-12).
@@ -140,6 +173,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
             )
         },
         Profile {
+            folders: folders(Some(ESDE)),
             disc_layout: GAME_FOLDER,
             ..profile(
                 "esde",
@@ -165,6 +199,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
             )
         },
         Profile {
+            folders: folders(Some(BATOCERA)),
             gamelist: true,
             disc_layout: FLAT_M3U,
             ..profile(
@@ -217,8 +252,10 @@ pub fn builtin_profiles() -> Vec<Profile> {
 /// subfolders, capital `I` (Onion's folder is case sensitive). Folders are
 /// named like the Anbernic card (`GBA`, `SFC`…), colour handhelds share
 /// their host's folder.
-fn imgs_profile(id: &str, name: &str, roms_root: &str) -> Profile {
+/// `column` is the frontend's [`SYSTEM_FOLDERS`] column.
+fn imgs_profile(id: &str, name: &str, roms_root: &str, column: Option<usize>) -> Profile {
     Profile {
+        folders: folders(column),
         system_folder: FolderNaming::FirstAlias,
         host_folders: ANBERNIC_HOSTS
             .iter()
@@ -273,6 +310,7 @@ fn profile(
         disc_layout: FLAT,
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
+        folders: BTreeMap::new(),
     }
 }
 

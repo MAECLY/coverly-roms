@@ -43,6 +43,7 @@ fn run(root: &Path, probe: &dyn MetaProbe) -> Walked {
         recent: Duration::from_secs(60),
         probe,
         max_depth: 4,
+        profile: None,
     };
     walk(root, &SystemDb::builtin(), &opts).unwrap()
 }
@@ -170,6 +171,7 @@ fn skip_dirs_and_roms_root() {
         recent: Duration::from_secs(60),
         probe: &NoCloud,
         max_depth: 4,
+        profile: None,
     };
     let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
     let names: Vec<_> = w
@@ -199,6 +201,7 @@ fn an_unreadable_source_is_an_error() {
         recent: Duration::from_secs(60),
         probe: &NoCloud,
         max_depth: 4,
+        profile: None,
     };
     assert!(walk(&tmp.path().join("missing"), &SystemDb::builtin(), &opts).is_err());
 }
@@ -232,6 +235,7 @@ fn opts_with<'a>(
         recent: Duration::from_secs(60),
         probe,
         max_depth: 4,
+        profile: None,
     }
 }
 
@@ -303,4 +307,41 @@ fn only_real_state_slots_are_companions() {
     let w = run(tmp.path(), &NoCloud);
     assert_eq!(w.companions.len(), 1, "{:?}", w.companions);
     assert_eq!(w.other_files.len(), 1, "{:?}", w.other_files);
+}
+
+#[test]
+fn a_folder_the_target_layout_names_counts_as_sorted() {
+    use coverly_core::profiles::{builtin_profiles, ProfileFolder};
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "SuperFam/Zelda (USA).sfc", b"x");
+    let mut p = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "esde")
+        .unwrap();
+    p.folders
+        .insert("snes".into(), ProfileFolder::Named("SuperFam".into()));
+    let ignored: [String; 0] = [];
+    let opts = WalkOptions {
+        skip_dirs: vec![],
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &ignored,
+        now: SystemTime::now(),
+        recent: Duration::from_secs(60),
+        probe: &NoCloud,
+        max_depth: 4,
+        profile: Some(&p),
+    };
+    let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
+    assert!(w.candidates.is_empty());
+    assert_eq!(w.sorted_folders.len(), 1);
+    assert_eq!(
+        w.sorted_folders[0].0.file_name().unwrap(),
+        std::ffi::OsStr::new("SuperFam")
+    );
+    assert_eq!(w.sorted_folders[0].1, "snes");
+    // Without the layout it is a pile folder to organise.
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.sorted_folders.is_empty());
+    assert_eq!(w.candidates.len(), 1);
 }

@@ -274,7 +274,9 @@ impl Settings {
                         // A custom layout's host folders are not known
                         // here: the folder must at least name a system.
                         // `system_folder` ignores an override that does
-                        // not resolve back when planning.
+                        // not resolve back when planning (global
+                        // aliases: the layout's own folders are not
+                        // known here either).
                         None => db.resolve_folder(folder.trim()).is_some(),
                     };
                 if !ok {
@@ -335,6 +337,9 @@ impl Settings {
                     builtins
                         .iter()
                         .any(|p| !p.roms_root.is_empty() && p.roms_root.eq_ignore_ascii_case(name))
+                        || builtins
+                            .iter()
+                            .any(|p| db.resolve_folder_in(Some(p), name).is_some())
                         || db.resolve_folder(name).is_some()
                 });
                 if inside {

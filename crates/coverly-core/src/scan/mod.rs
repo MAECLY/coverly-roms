@@ -245,7 +245,7 @@ fn scan_filtered(
         roms: 0,
     });
     for (index, (folder_name, dir)) in dirs.into_iter().enumerate() {
-        let system = systems.resolve_folder(&folder_name);
+        let system = systems.resolve_folder_in(Some(profile), &folder_name);
         let wanted = |s: &System| only.is_none_or(|ids| ids.contains(&s.id));
         let roms = system
             .filter(|s| wanted(s))
