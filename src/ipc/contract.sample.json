@@ -572,6 +572,11 @@
     {
       "profile": {
         "id": "muos",
+        "folder_names": {
+          "3do": "3do",
+          "cdi": "cdi",
+          "pcfx": "pcfx"
+        },
         "name": "muOS",
         "roms_root": "ROMS",
         "art_dirs": [],
@@ -620,6 +625,16 @@
       "profile": {
         "id": "esde",
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
+        "folder_names": {
+          "3do": "3do",
+          "amigacd32": "amigacd32",
+          "cdi": "cdimono1",
+          "cdtv": "cdtv",
+          "fmtowns": "fmtowns",
+          "jaguarcd": "atarijaguarcd",
+          "pcfx": "pcfx",
+          "ps2": "ps2"
+        },
         "name": "ES-DE",
         "roms_root": "ROMs",
         "art_dirs": [],
@@ -653,6 +668,16 @@
       "profile": {
         "id": "batocera",
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
+        "folder_names": {
+          "3do": "3do",
+          "amigacd32": "amigacd32",
+          "cdi": "cdi",
+          "cdtv": "amigacdtv",
+          "fmtowns": "fmtowns",
+          "jaguarcd": "jaguarcd",
+          "pcfx": "pcfx",
+          "ps2": "ps2"
+        },
         "name": "Batocera / Knulli / EmulationStation",
         "roms_root": "roms",
         "art_dirs": ["images", "videos", "manuals", "magazines"],

@@ -175,7 +175,15 @@ expression: rows
       "a5200",
       "a7800",
       "megadrive",
-      "psx"
+      "psx",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -184,7 +192,15 @@ expression: rows
       "a5200",
       "a7800",
       "megadrive",
-      "psx"
+      "psx",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ]
   },
   {
@@ -223,19 +239,22 @@ expression: rows
     "accepting": [
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "pcfx"
     ],
     "class": "Shared",
     "ext": "ccd",
     "strong": [
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "pcfx"
     ]
   },
   {
     "accepting": [
-      "dreamcast"
+      "dreamcast",
+      "jaguarcd"
     ],
     "class": "Unique",
     "ext": "cdi",
@@ -252,7 +271,15 @@ expression: rows
       "pcenginecd",
       "psx",
       "psp",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ],
     "class": "Generic",
     "ext": "chd",
@@ -264,7 +291,15 @@ expression: rows
       "pcenginecd",
       "psx",
       "psp",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ]
   },
   {
@@ -303,7 +338,8 @@ expression: rows
   },
   {
     "accepting": [
-      "psp"
+      "psp",
+      "ps2"
     ],
     "class": "Unique",
     "ext": "cso",
@@ -320,7 +356,15 @@ expression: rows
       "pcengine",
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ],
     "class": "Shared",
     "ext": "cue",
@@ -332,7 +376,15 @@ expression: rows
       "pcengine",
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "pcfx",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "jaguarcd",
+      "fmtowns"
     ]
   },
   {
@@ -365,6 +417,16 @@ expression: rows
     "ext": "d81",
     "strong": [
       "c64"
+    ]
+  },
+  {
+    "accepting": [
+      "fmtowns"
+    ],
+    "class": "Unique",
+    "ext": "d88",
+    "strong": [
+      "fmtowns"
     ]
   },
   {
@@ -579,7 +641,13 @@ expression: rows
       "neocd",
       "psx",
       "psp",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "fmtowns"
     ],
     "class": "Generic",
     "ext": "iso",
@@ -590,7 +658,13 @@ expression: rows
       "neocd",
       "psx",
       "psp",
-      "saturn"
+      "saturn",
+      "ps2",
+      "3do",
+      "cdi",
+      "amigacd32",
+      "cdtv",
+      "fmtowns"
     ]
   },
   {
@@ -633,7 +707,8 @@ expression: rows
       "neocd",
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "ps2"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -646,7 +721,8 @@ expression: rows
       "neocd",
       "pcenginecd",
       "psx",
-      "saturn"
+      "saturn",
+      "ps2"
     ]
   },
   {
@@ -1136,5 +1212,15 @@ expression: rows
     "class": "Container",
     "ext": "zip",
     "strong": []
+  },
+  {
+    "accepting": [
+      "ps2"
+    ],
+    "class": "Unique",
+    "ext": "zso",
+    "strong": [
+      "ps2"
+    ]
   }
 ]

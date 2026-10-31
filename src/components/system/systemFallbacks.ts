@@ -13,6 +13,16 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   pico8: 'P8',
   atomiswave: 'AW',
   naomi: 'NAO',
+  // Systems batch 1, disc family: the Slot mount until the RetroArch
+  // silhouettes of spec §9.2 are generated (plan Task 15 removes these).
+  ps2: 'PS2',
+  '3do': '3DO',
+  pcfx: 'PCFX',
+  cdi: 'CDI',
+  amigacd32: 'CD32',
+  cdtv: 'CDTV',
+  jaguarcd: 'JGCD',
+  fmtowns: 'FMT',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

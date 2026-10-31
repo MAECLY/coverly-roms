@@ -397,6 +397,124 @@ pub fn opera_3do(raw: bool) -> Vec<u8> {
     }
 }
 
+/// A raw Mode 1 track (no ISO 9660 volume) whose user sectors are zero
+/// but for `sectors` (sector number, offset, bytes).
+fn raw_mode1_track(sectors: &[(usize, usize, &[u8])]) -> Vec<u8> {
+    let mut user = vec![[0u8; USER_BYTES]; MIN_SECTORS as usize];
+    for &(n, at, bytes) in sectors {
+        user[n][at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    store(&user, true, true)
+}
+
+/// A PC-FX data track (raw Mode 1): `PC-FX:Hu_CD-ROM` at byte 0 of sector
+/// 0, a title in sector 1, and, when `pce_text`, the PC Engine CD boot
+/// text at 0x20 of sector 1 as well (some PC-FX discs carry both).
+pub fn pcfx_track(pce_text: bool) -> Vec<u8> {
+    let mut sectors: Vec<(usize, usize, &[u8])> =
+        vec![(0, 0, b"PC-FX:Hu_CD-ROM "), (1, 0, b"SYNTHETIC PC-FX GAME")];
+    if pce_text {
+        sectors.push((1, 0x20, b"PC Engine CD-ROM SYSTEM"));
+    }
+    raw_mode1_track(&sectors)
+}
+
+/// A CD-i track 1 (raw Mode 2 Form 1): the Green Book disc label at
+/// sector 16 (record type `record_type`, `CD-I `, version 1, system id
+/// `CD-RTOS`), no ISO 9660 volume.
+pub fn cdi_track(record_type: u8) -> Vec<u8> {
+    let mut user = vec![[0u8; USER_BYTES]; MIN_SECTORS as usize];
+    let label = &mut user[16];
+    label[0] = record_type;
+    label[1..6].copy_from_slice(b"CD-I ");
+    label[6] = 1;
+    label[8..40].fill(b' ');
+    label[8..15].copy_from_slice(b"CD-RTOS");
+    label[40..72].fill(b' ');
+    label[40..49].copy_from_slice(b"SYNTHDISC");
+    let end = &mut user[17];
+    end[0] = 255;
+    end[1..6].copy_from_slice(b"CD-I ");
+    end[6] = 1;
+    store(&user, true, false)
+}
+
+/// The Amiga CD trademark an [`amiga_cd`] image carries.
+#[derive(Clone, Copy, Debug)]
+pub enum AmigaTm {
+    /// A `CD32.TM;1` file right after the root (LBA 21) whose block has
+    /// the CRC-32 WinUAE checks; its bytes are synthetic.
+    Cd32Block,
+    /// A `CDTV.TM;1` file in the root directory.
+    CdtvFile,
+    /// No trademark.
+    None,
+}
+
+/// An Amiga CD track 01 (2048-byte sectors): an ISO 9660 volume with
+/// system id `system_id` and the trademark `tm`.
+pub fn amiga_cd(system_id: &str, tm: AmigaTm) -> Vec<u8> {
+    let b = IsoBuilder::new(system_id);
+    let b = match tm {
+        AmigaTm::Cd32Block => {
+            let mut block = vec![0u8; USER_BYTES];
+            block[..24].copy_from_slice(b"SYNTHETIC TRADEMARK DATA");
+            forge_crc32(&mut block, super::signatures::CD32_TM_CRC);
+            b.file("CD32.TM;1", &block)
+        }
+        AmigaTm::CdtvFile => b.file("CDTV.TM;1", b"SYNTHETIC TRADEMARK DATA"),
+        AmigaTm::None => b,
+    };
+    b.file("GAME.EXE;1", &[0x00, 0x00, 0x03, 0xF3]).build()
+}
+
+/// Sets the last four bytes of `bytes` so its CRC-32 is `target`.
+fn forge_crc32(bytes: &mut [u8], target: u32) {
+    let table: Vec<u32> = (0..256u32)
+        .map(|n| {
+            (0..8).fold(n, |c, _| {
+                if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                }
+            })
+        })
+        .collect();
+    let n = bytes.len() - 4;
+    // The register after the prefix, then walked back from the target.
+    let state = !crc32fast::hash(&bytes[..n]);
+    let mut reg = !target;
+    for _ in 0..4 {
+        let i = (0..256)
+            .find(|&i| table[i] >> 24 == reg >> 24)
+            .expect("a CRC table row");
+        reg = ((reg ^ table[i]) << 8) | i as u32;
+    }
+    bytes[n..].copy_from_slice(&(reg ^ state).to_le_bytes());
+    debug_assert_eq!(crc32fast::hash(bytes), target);
+}
+
+/// The first raw sector of a Jaguar CD's session-2 boot track (an audio
+/// track): two bytes, 64 bytes of `ATRI`, the 32-byte header, a load
+/// address and a size, big-endian; every 16-bit word swapped when
+/// `byteswapped` (as many rips store it).
+pub fn jaguar_cd_session2(byteswapped: bool) -> Vec<u8> {
+    let mut s = vec![0u8; 2352];
+    for k in 0..16 {
+        s[2 + 4 * k..6 + 4 * k].copy_from_slice(b"ATRI");
+    }
+    s[66..98].copy_from_slice(b"ATARI APPROVED DATA HEADER ATRI ");
+    s[98..102].copy_from_slice(&0x0000_4000u32.to_be_bytes());
+    s[102..106].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+    if byteswapped {
+        for pair in s.as_chunks_mut::<2>().0 {
+            pair.swap(0, 1);
+        }
+    }
+    s
+}
+
 /// Raw deflate of `bytes` (what PBP and CSO blocks store).
 fn deflate_raw(bytes: &[u8]) -> Vec<u8> {
     use std::io::Write;

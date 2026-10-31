@@ -31,8 +31,8 @@ use crate::dedupe::source::DiscId;
 use crate::disc::sheets::MAX_SHEET_BYTES;
 use crate::disc::source::MAX_WINDOW;
 use crate::disc::{
-    infer_redump_set, parse_sheet, primary_track, DiscIdentity, DiscReader, DiscSystem, Sheet,
-    SheetKind, WindowSource,
+    first_of_session, infer_redump_set, parse_sheet, primary_track, signatures, DiscIdentity,
+    DiscReader, DiscSystem, Sheet, SheetKind, WindowSource,
 };
 use crate::identify::sniff::{
     sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
@@ -892,6 +892,9 @@ struct Disc {
     /// A `.cue` whose set was inferred: its track 01 of a GD-ROM is only
     /// the low-density area.
     deferred_cue: bool,
+    /// The first track of session 2 of a multi-session cue (a Jaguar CD's
+    /// boot track), when the sheet was read.
+    session2: Option<usize>,
     /// Title key without disc tags (`final game (usa)`).
     title: String,
     /// `N` of a `(Disc N)` tag.
@@ -1125,6 +1128,7 @@ fn sheet_disc(
         check: SheetCheck::Read,
         known: true,
         deferred_cue: false,
+        session2: None,
         title,
         number,
     };
@@ -1149,6 +1153,8 @@ fn sheet_disc(
             };
             disc.primary =
                 primary_track(&sheet).and_then(|t| found.get(sheet.tracks[t].file).copied());
+            disc.session2 =
+                first_of_session(&sheet, 2).and_then(|t| found.get(sheet.tracks[t].file).copied());
             let mut tracks = found;
             let mut seen = HashSet::new();
             tracks.retain(|i| seen.insert(*i));
@@ -1380,6 +1386,7 @@ fn disc_set(
             check: SheetCheck::Read,
             known: true,
             deferred_cue: false,
+            session2: None,
             title,
             number,
         });
@@ -1469,6 +1476,13 @@ fn disc_set(
             primary = Some(first.tracks[2]);
             out.payloads.clear();
             identity = identify_track(reader, entries, &files[first.tracks[2]], budget, out)?;
+        }
+    }
+    // A Jaguar CD keeps its boot header in session 2, in a track the
+    // sheet calls audio (spec §8.2).
+    if identity.is_none() {
+        if let Some(s2) = first.session2 {
+            identity = jaguar_cd(reader, entries, &files[s2], budget, out)?;
         }
     }
     let names = |v: &[usize]| v.iter().map(|&i| files[i].name.clone()).collect::<Vec<_>>();
@@ -1586,6 +1600,37 @@ fn identify_track(
         return Ok(None);
     }
     Ok(found.ok().flatten().map(DiscFound::of))
+}
+
+/// Raw sectors of a session-2 track read for the Jaguar CD header: its
+/// first sector and a two-second pregap before it.
+const JAGUAR_HEAD: u64 = 152 * 2352;
+
+/// The Jaguar CD verdict of the first track of session 2: its head (at
+/// most [`JAGUAR_HEAD`] bytes, when the budget reaches it) carries the
+/// boot header. `None` otherwise: folder and name decide.
+fn jaguar_cd(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    track: &Listed,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Option<DiscFound>, ArchiveError> {
+    let entry = &entries[track.at];
+    let want = JAGUAR_HEAD.min(entry.size);
+    if entry.encrypted || !reachable(entries, track.at, want, budget) {
+        return Ok(None);
+    }
+    let Small::Bytes(bytes) = read_small(reader, entry.index, want, budget, out)? else {
+        return Ok(None);
+    };
+    Ok(signatures::is_jaguar_cd(&bytes).then(|| {
+        DiscFound::of(crate::disc::signature(
+            "jaguarcd",
+            0.95,
+            "ATARI APPROVED DATA HEADER",
+        ))
+    }))
 }
 
 /// A reader that hashes what passes through it and keeps the first error

@@ -146,6 +146,30 @@ const png = (template: string) => ({
   max_height: null,
 });
 
+/** `SYSTEM_FOLDERS` of `profiles/builtin.rs`: the folder each frontend
+ * names for the systems of batch 1 (spec §6.1); Absent cells are left out. */
+const MUOS_FOLDERS = { '3do': '3do', cdi: 'cdi', pcfx: 'pcfx' };
+const ESDE_FOLDERS = {
+  '3do': '3do',
+  amigacd32: 'amigacd32',
+  cdi: 'cdimono1',
+  cdtv: 'cdtv',
+  fmtowns: 'fmtowns',
+  jaguarcd: 'atarijaguarcd',
+  pcfx: 'pcfx',
+  ps2: 'ps2',
+};
+const BATOCERA_FOLDERS = {
+  '3do': '3do',
+  amigacd32: 'amigacd32',
+  cdi: 'cdi',
+  cdtv: 'amigacdtv',
+  fmtowns: 'fmtowns',
+  jaguarcd: 'jaguarcd',
+  pcfx: 'pcfx',
+  ps2: 'ps2',
+};
+
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
  * them (pinned to the Rust ones by the contract sample). */
 export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
@@ -155,6 +179,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'muos',
+      folder_names: MUOS_FOLDERS,
       name: 'muOS',
       roms_root: 'ROMS',
       art_dirs: [],
@@ -188,6 +213,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     profile: {
       id: 'esde',
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+      folder_names: ESDE_FOLDERS,
       name: 'ES-DE',
       roms_root: 'ROMs',
       art_dirs: [],
@@ -212,6 +238,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     profile: {
       id: 'batocera',
       disc_layout: { kind: 'flat', m3u_for_multi: true },
+      folder_names: BATOCERA_FOLDERS,
       name: 'Batocera / Knulli / EmulationStation',
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],

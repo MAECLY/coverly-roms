@@ -78,6 +78,19 @@ pub struct TrackInfo {
     /// gdi. The Dreamcast IP.BIN is in the first HD data track.
     #[serde(default)]
     pub high_density: bool,
+    /// The cue session holding the track: 1, or the number of the last
+    /// `REM SESSION nn` line before it (Redump multi-session cues). A
+    /// gdi has one session.
+    #[serde(default = "first_session", skip_serializing_if = "is_first_session")]
+    pub session: u8,
+}
+
+fn first_session() -> u8 {
+    1
+}
+
+fn is_first_session(n: &u8) -> bool {
+    *n == 1
 }
 
 /// A parsed sheet.
@@ -143,9 +156,14 @@ fn cue_sheet(text: &str) -> Result<Sheet, SheetError> {
     let mut files: Vec<String> = Vec::new();
     let mut tracks = Vec::new();
     let mut high_density = false;
+    let mut session = 1;
     for (line, l) in numbered_lines(text) {
         if let Some(area) = density_marker(l) {
             high_density = area;
+            continue;
+        }
+        if let Some(n) = session_marker(l) {
+            session = n;
             continue;
         }
         // A FILE line, exactly as the loose-set parser reads it.
@@ -179,6 +197,7 @@ fn cue_sheet(text: &str) -> Result<Sheet, SheetError> {
             file,
             lba: None,
             high_density,
+            session,
         });
     }
     Ok(Sheet {
@@ -219,6 +238,23 @@ fn density_marker(line: &str) -> Option<bool> {
     } else {
         None
     }
+}
+
+/// `n` of a `REM SESSION nn` line (any case), 1–99; else `None`.
+fn session_marker(line: &str) -> Option<u8> {
+    let mut words = line.split_whitespace();
+    if !words.next()?.eq_ignore_ascii_case("REM") || !words.next()?.eq_ignore_ascii_case("SESSION")
+    {
+        return None;
+    }
+    let n = track_number(words.next()?)?;
+    words.next().is_none().then_some(n)
+}
+
+/// Index into [`Sheet::tracks`] of the first track of session `n` of a
+/// multi-session cue; `None` when no `REM SESSION` line names `n`.
+pub fn first_of_session(sheet: &Sheet, n: u8) -> Option<usize> {
+    sheet.tracks.iter().position(|t| t.session == n)
 }
 
 /// A track number 1–99.
@@ -290,6 +326,7 @@ fn gdi_sheet(text: &str) -> Result<Sheet, SheetError> {
             file: tracks.len(),
             lba: Some(lba),
             high_density: lba >= HD_AREA_LBA,
+            session: 1,
         });
     }
     let files = parse_gdi(text);
@@ -737,6 +774,27 @@ mod tests {
         FILE \"T (Track 03).bin\" BINARY\r\n  TRACK 03 MODE1/2352\r\n    INDEX 01 00:00:00\r\n\
         FILE \"T (Track 04).bin\" BINARY\r\n  TRACK 04 AUDIO\r\n    INDEX 01 00:02:00\r\n\
         FILE \"T (Track 05).bin\" BINARY\r\n  TRACK 05 MODE1/2352\r\n    INDEX 01 00:03:00\r\n";
+
+    #[test]
+    fn cue_sessions_mark_their_tracks() {
+        // A Redump Jaguar CD cue: the boot track opens session 2.
+        let sheet = cue("REM SESSION 01\nFILE a.bin BINARY\n TRACK 01 AUDIO\n\
+                         FILE b.bin BINARY\n TRACK 02 AUDIO\n\
+                         rem session 02\nFILE c.bin BINARY\n TRACK 03 AUDIO\n");
+        let sessions: Vec<_> = sheet.tracks.iter().map(|t| t.session).collect();
+        assert_eq!(sessions, [1, 1, 2]);
+        assert_eq!(first_of_session(&sheet, 2), Some(2));
+        assert_eq!(primary_track(&sheet), None, "every track is audio");
+        // One session: no track of session 2; malformed markers are ignored.
+        let one = cue("REM SESSION\nREM SESSION 2 X\nFILE a.bin BINARY\n TRACK 01 MODE1/2352\n");
+        assert_eq!(one.tracks[0].session, 1);
+        assert_eq!(first_of_session(&one, 2), None);
+        // Session 1 is not written out, so older facts read the same.
+        let json = serde_json::to_value(&one.tracks[0]).unwrap();
+        assert!(json.get("session").is_none());
+        let back: TrackInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(back.session, 1);
+    }
 
     #[test]
     fn cue_dreamcast_primary_is_the_high_density_data_track() {

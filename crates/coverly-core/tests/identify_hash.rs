@@ -441,3 +441,18 @@ fn n64_byte_order_is_only_normalised_for_the_n64_rule() {
     .unwrap();
     assert_eq!(copier.payload_sha1, Some(sha1_hex(&v)));
 }
+
+#[test]
+fn zso_is_name_only() {
+    // ZISO (LZ4 blocks) has no reader: hashing the compressed bytes would
+    // match nothing in the Redump DAT (spec D14).
+    let dir = TempDir::new().unwrap();
+    for ext in ["zso", "ZSO"] {
+        let p = file(&dir, &format!("game.{ext}"), CHECK);
+        assert_eq!(
+            hash_rom(&p, ext, HeaderRule::Plain, DEFAULT_HASH_MAX_BYTES).unwrap(),
+            HashOutcome::NameOnly,
+            "{ext}"
+        );
+    }
+}

@@ -543,8 +543,16 @@ fn playstation_by_system_cnf() {
         let ps1 = run(&fx::psx_iso(raw, false), if raw { "bin" } else { "iso" });
         assert_eq!(best(&ps1), Some(("psx".into(), 0.95)), "raw={raw}");
         let ps2 = run(&fx::psx_iso(raw, true), "iso");
-        assert!(ps2.hits.is_empty(), "PS2 is never psx");
-        assert_eq!(ps2.unsupported.as_deref(), Some("PlayStation 2"));
+        assert!(
+            ps2.hits.iter().all(|h| h.system != "psx"),
+            "PS2 is never psx"
+        );
+        assert!(ps2
+            .hits
+            .iter()
+            .any(|h| h.system == "ps2" && h.weight >= 0.95 && h.detail == "SYSTEM.CNF BOOT2"));
+        assert!(ps2.unsupported.is_none());
+        assert_eq!(ps2.serial.as_deref(), Some("SLUS-20001"));
     }
 }
 
@@ -603,8 +611,8 @@ fn playstation_disc_larger_than_a_cd_is_ps2() {
     let mut iso = fx::psx_iso(false, false);
     fx::drop_system_cnf(&mut iso);
     let s = sniff(&mut SliceAt(&iso), 4 * 1024 * 1024 * 1024, "iso");
-    assert!(s.hits.is_empty(), "{:?}", s.hits);
-    assert_eq!(s.unsupported.as_deref(), Some("PlayStation 2"));
+    assert_eq!(best(&s), Some(("ps2".into(), 0.80)), "{:?}", s.hits);
+    assert!(s.unsupported.is_none());
 }
 
 #[test]
@@ -659,4 +667,17 @@ fn text_native_game_files_are_not_text_roms() {
         run(&fx::html_page(), "hex").not_a_rom,
         Some(NotARom::WebPage)
     );
+}
+
+#[test]
+fn a_ps2_volume_inside_a_cso_is_ps2() {
+    use coverly_core::disc::testing as dt;
+    // The CISO reader reaches the PVD: BOOT2 says PS2, never PSP.
+    let s = run(&dt::cso_of(&dt::ps2_iso()), "cso");
+    assert_eq!(best(&s), Some(("ps2".into(), 0.95)), "{:?}", s.hits);
+    assert!(s.hits.iter().all(|h| h.system != "psp"));
+    assert_eq!(s.serial.as_deref(), Some("SLUS-20062"));
+    // A compressed UMD stays PSP.
+    let umd = run(&dt::cso_of(&fx::psp_iso()), "cso");
+    assert_eq!(best(&umd), Some(("psp".into(), 0.85)));
 }

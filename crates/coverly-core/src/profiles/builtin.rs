@@ -89,7 +89,32 @@ const MINUI: usize = 4;
 /// batocera, muos, onion, minui]`. GarlicOS reads the Onion column (D9);
 /// Anbernic stock is Absent for every row (D11); RetroArch keeps `Id` and
 /// has no entries. Pre-batch systems are not listed (no behaviour change).
-const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[];
+const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
+    // Disc family (Task 4).
+    ("ps2", [Some("ps2"), Some("ps2"), None, None, None]),
+    ("3do", [Some("3do"), Some("3do"), Some("3do"), None, None]),
+    (
+        "pcfx",
+        [Some("pcfx"), Some("pcfx"), Some("pcfx"), None, None],
+    ),
+    (
+        "cdi",
+        [Some("cdimono1"), Some("cdi"), Some("cdi"), None, None],
+    ),
+    (
+        "amigacd32",
+        [Some("amigacd32"), Some("amigacd32"), None, None, None],
+    ),
+    ("cdtv", [Some("cdtv"), Some("amigacdtv"), None, None, None]),
+    (
+        "jaguarcd",
+        [Some("atarijaguarcd"), Some("jaguarcd"), None, None, None],
+    ),
+    (
+        "fmtowns",
+        [Some("fmtowns"), Some("fmtowns"), None, None, None],
+    ),
+];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
 /// every listed system Absent.

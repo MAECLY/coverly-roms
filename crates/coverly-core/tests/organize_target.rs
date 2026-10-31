@@ -834,3 +834,29 @@ mod extract {
         assert_eq!(left(&items[0]), Some(&LeftReason::CollisionSet));
     }
 }
+
+#[test]
+fn ps2_archive_is_extracted_never_moved_as_is() {
+    // PCSX2 and AetherSX2 read no zip/7z: a disc system never takes an
+    // archive as it is, on any built-in (spec D13).
+    use coverly_core::archive::ContainerKind;
+    use coverly_core::profiles::builtin_profiles;
+    let db = coverly_core::systems::SystemDb::builtin();
+    for id in [
+        "ps2",
+        "3do",
+        "pcfx",
+        "cdi",
+        "amigacd32",
+        "cdtv",
+        "jaguarcd",
+        "fmtowns",
+    ] {
+        let system = db.get(id).unwrap();
+        for p in builtin_profiles() {
+            for kind in [ContainerKind::Zip, ContainerKind::SevenZip] {
+                assert!(!p.accepts_as_is(system, kind), "{} {id} {kind:?}", p.id);
+            }
+        }
+    }
+}

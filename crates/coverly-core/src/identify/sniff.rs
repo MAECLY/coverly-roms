@@ -334,7 +334,13 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         }
     }
     if starts(head, 0, b"CISO") {
-        // PCSX2 reads CSO too: only an image a UMD can hold is a PSP game.
+        // PCSX2 reads CSO too: a PS2 volume inside says so (spec §12).
+        if let Some((system, weight, detail, serial)) = cso_playstation(src, len) {
+            s.hit(system, weight, detail);
+            s.serial = serial;
+            return;
+        }
+        // Otherwise only an image a UMD can hold is a PSP game.
         let size = at(head, 8, 8).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
         if size.is_some_and(|n| n <= UMD_MAX) {
             s.hit("psp", 0.85, "CSO");
@@ -367,14 +373,65 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
                 .and_then(crate::disc::serial::boot_file_serial);
         }
         match cnf {
-            Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
+            Some(text) if text.contains("BOOT2") => s.hit("ps2", 0.95, "SYSTEM.CNF BOOT2"),
             Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
             // No CD holds this much: a PS2 DVD whose SYSTEM.CNF was not found.
-            _ if len > CD_MAX => s.unsupported = Some("PlayStation 2".into()),
+            _ if len > CD_MAX => s.hit("ps2", 0.80, "PLAYSTATION > CD"),
             _ => s.hit("psx", 0.80, "PLAYSTATION"),
         }
         return;
     }
+}
+
+/// A [`ReadAt`] as a `Read + Seek` stream for the disc readers.
+struct AtCursor<'a> {
+    src: &'a mut dyn ReadAt,
+    pos: u64,
+    len: u64,
+}
+
+impl io::Read for AtCursor<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.src.read_at(self.pos, buf)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl io::Seek for AtCursor<'_> {
+    fn seek(&mut self, to: io::SeekFrom) -> io::Result<u64> {
+        let pos = match to {
+            io::SeekFrom::Start(n) => Some(n),
+            io::SeekFrom::End(d) => self.len.checked_add_signed(d),
+            io::SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        };
+        self.pos = pos.ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        Ok(self.pos)
+    }
+}
+
+/// The PS2 verdict of a CISO image whose volume says `PLAYSTATION` and
+/// boots through `BOOT2` (or is larger than a CD): system, weight, detail
+/// and serial. `None` for anything else, a read error included: the CSO
+/// rule then decides as before. Inflates at most
+/// [`crate::disc::MAX_INFLATED`] bytes.
+fn cso_playstation(
+    src: &mut dyn ReadAt,
+    len: u64,
+) -> Option<(&'static str, f32, &'static str, Option<String>)> {
+    let cursor = AtCursor { src, pos: 0, len };
+    let mut cso = crate::disc::Cso::open(cursor).ok()??;
+    let total = cso.image_len();
+    let disc = crate::disc::identify_playstation(&mut cso, Some(total)).ok()??;
+    if disc.system != crate::disc::DiscSystem::Known("ps2") {
+        return None;
+    }
+    let (weight, detail) = if disc.confidence >= 0.95 {
+        (0.95, "SYSTEM.CNF BOOT2")
+    } else {
+        (0.80, "PLAYSTATION > CD")
+    };
+    Some(("ps2", weight, detail, disc.serial))
 }
 
 /// The product number of a Sega boot header at 0 or 0x10 of `head`.

@@ -536,3 +536,92 @@ aliases = ["WSC", "wonderswancolor"]
 extensions = ["wsc", "zip", "7z"]
 libretro = "Bandai - WonderSwan Color"
 screenscraper = 46
+
+# Batch 1: disc systems (spec §7). Discs are never taken as-is from an
+# archive (`multi_file`), so `zip`/`7z` are not listed.
+
+[[system]]
+id = "ps2"
+name = "Sony PlayStation 2"
+family = "console"
+aliases = ["PS2", "playstation2"]
+# `.zso` has no reader (D14): extension and name only. `.cso` stays psp's;
+# a PS2 volume read through the CISO reader contradicts it (D24).
+extensions = ["zso", "iso", "chd", "cue", "bin", "m3u"]
+weak_extensions = ["cso"]
+libretro = "Sony - PlayStation 2"
+multi_file = true
+screenscraper = 58
+
+[[system]]
+id = "3do"
+name = "3DO Interactive Multiplayer"
+family = "console"
+aliases = ["3DO", "3d0"]
+extensions = ["iso", "cue", "bin", "chd"]
+libretro = "The 3DO Company - 3DO"
+multi_file = true
+screenscraper = 29
+
+[[system]]
+id = "pcfx"
+name = "NEC PC-FX"
+family = "console"
+aliases = ["PCFX", "pc-fx"]
+extensions = ["cue", "bin", "chd", "ccd"]
+libretro = "NEC - PC-FX"
+multi_file = true
+screenscraper = 72
+
+[[system]]
+id = "cdi"
+name = "Philips CD-i"
+family = "console"
+aliases = ["CDI", "cdimono1", "cd-i"]
+scoped_aliases = ["cdi"]
+extensions = ["chd", "cue", "bin", "iso"]
+libretro = "Philips - CD-i"
+multi_file = true
+screenscraper = 133
+
+[[system]]
+id = "amigacd32"
+name = "Commodore Amiga CD32"
+family = "console"
+aliases = ["CD32", "amigacd32"]
+extensions = ["cue", "bin", "iso", "chd"]
+libretro = "Commodore - CD32"
+multi_file = true
+screenscraper = 130
+
+[[system]]
+id = "cdtv"
+name = "Commodore CDTV"
+family = "console"
+aliases = ["CDTV", "amigacdtv"]
+extensions = ["cue", "bin", "iso", "chd"]
+libretro = "Commodore - CDTV"
+multi_file = true
+screenscraper = 129
+
+[[system]]
+id = "jaguarcd"
+name = "Atari Jaguar CD"
+family = "console"
+aliases = ["JAGUARCD", "atarijaguarcd"]
+# `.cdi` is Dreamcast's (DiscJuggler): weak here, never alone (§12).
+extensions = ["cue", "bin", "chd"]
+weak_extensions = ["cdi"]
+multi_file = true
+dats = ["metadat/redump/Atari - Jaguar CD.dat"]
+screenscraper = 171
+
+[[system]]
+id = "fmtowns"
+name = "Fujitsu FM Towns"
+family = "computer"
+aliases = ["FMTOWNS", "fm-towns"]
+# No disc signature and no DAT (§8.2): folder and name only.
+extensions = ["cue", "bin", "chd", "iso", "d88"]
+multi_file = true
+screenscraper = 253

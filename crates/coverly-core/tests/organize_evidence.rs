@@ -1111,3 +1111,20 @@ fn weak_extension_supports_a_header() {
     weak_extension_support(&db, "gba", &mut gba);
     assert_eq!(gba.len(), 1);
 }
+
+#[test]
+fn ps2_cso_contradicts_psp() {
+    // Spec §12: a PS2 volume read through the CISO reader proves `ps2`,
+    // which lists `cso` as weak, so psp's strong `.cso` is contradicted.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.cso");
+    let bytes = coverly_core::disc::testing::cso_of(&coverly_core::disc::testing::ps2_iso());
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "cso");
+    let ev = extension_evidence(&SystemDb::builtin(), "cso", &s);
+    let psp = ev.iter().find(|e| e.system == "psp").unwrap();
+    assert_eq!((psp.weight, psp.detail.as_str()), (0.60, "cso!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps2"));
+    assert_eq!(id.combined.verdict, Verdict::Auto);
+}

@@ -320,7 +320,7 @@ const LICENCE: &[u8] = b"LICENSED BY SONY COMPUTER ENTERTAINMENT";
 /// A disc whose primary volume says `PLAYSTATION`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayStationDisc {
-    /// `Known("psx")`, or `Unsupported("PlayStation 2")` (no `ps2` system).
+    /// `Known("psx")` or `Known("ps2")`.
     pub system: DiscSystem,
     /// Normalised serial from the boot file name (`SLUS-00862`).
     pub serial: Option<String>,
@@ -388,7 +388,7 @@ pub fn identify_playstation_with(
         .map(parse_system_cnf)
         .unwrap_or_default();
     let licence = has_licence(src)?;
-    const PS2: DiscSystem = DiscSystem::Unsupported("PlayStation 2");
+    const PS2: DiscSystem = DiscSystem::Known("ps2");
     const PSX: DiscSystem = DiscSystem::Known("psx");
     let dvd = image_len.is_some_and(|n| n > CD_MAX_BYTES) || pvd.space_size > CD_MAX_SECTORS;
     let (system, mut serial, confidence, detail) = if let Some(boot2) = &cnf.boot2 {

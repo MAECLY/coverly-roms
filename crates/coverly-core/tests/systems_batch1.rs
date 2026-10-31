@@ -19,9 +19,28 @@ use coverly_core::sources::{ArtQuery, ArtSource, MatchKind};
 use coverly_core::systems::{Family, SystemDb};
 
 /// (id, family, multi_file)
-const SYSTEMS: &[(&str, Family, bool)] = &[];
+const SYSTEMS: &[(&str, Family, bool)] = &[
+    // Disc family (Task 4).
+    ("ps2", Family::Console, true),
+    ("3do", Family::Console, true),
+    ("pcfx", Family::Console, true),
+    ("cdi", Family::Console, true),
+    ("amigacd32", Family::Console, true),
+    ("cdtv", Family::Console, true),
+    ("jaguarcd", Family::Console, true),
+    ("fmtowns", Family::Computer, true),
+];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
-const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[];
+const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
+    // Disc family (Task 4).
+    ("esde", "ps2", "ps2", None),
+    ("onion", "ps2", "PS2", Some(false)),
+    ("anbernic-stock", "ps2", "PS2", Some(false)),
+    ("batocera", "cdtv", "amigacdtv", None),
+    ("esde", "cdi", "cdimono1", None),
+    ("muos", "3do", "3do", None),
+    ("minui", "pcfx", "PCFX", Some(false)),
+];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
 /// (id, ext, head builder, expected system or None): header rules (§8.1).
