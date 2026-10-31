@@ -696,7 +696,9 @@ fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
 fn shared_disks(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
     match ext {
         "nhd" if starts(head, 0, b"T98HDDIMAGE.R0\0") => s.hit("pc98", 0.95, "T98 NHD"),
-        "hdf" if starts(head, 0, b"RDSK") => s.hit("amiga", 0.90, "RDB"),
+        "hdf" if starts(head, 0, b"RDSK") || amiga_rdb_block(head) => {
+            s.hit("amiga", 0.90, "RDB");
+        }
         "hdf" if starts(head, 0, b"DOS") && head.get(3).is_some_and(|f| *f <= 7) => {
             s.hit("amiga", 0.90, "DOS boot block");
         }
@@ -714,6 +716,30 @@ fn shared_disks(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
         _ => return false,
     }
     true
+}
+
+/// An Amiga Rigid Disk Block in blocks 1–15: AmigaOS `hardblocks.h` lets
+/// it sit in any of the first 16 (RDB_LOCATION_LIMIT) 512-byte blocks, and
+/// WinUAE `filesys.cpp` (`rdb_mount`) scans them, accepting `RDSK` whose
+/// first SummedLongs big-endian longs sum to zero. Block 0 needs only the
+/// id (spec §8.1); later blocks also need the checksum.
+fn amiga_rdb_block(head: &[u8]) -> bool {
+    (1..16).any(|block| {
+        let Some(b) = at(head, block * 512, 512) else {
+            return false;
+        };
+        if &b[..4] != b"RDSK" {
+            return false;
+        }
+        let summed = u32::from_be_bytes([b[4], b[5], b[6], b[7]]) as usize;
+        (2..=128).contains(&summed)
+            && b[..summed * 4]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .fold(0u32, |sum, l| sum.wrapping_add(u32::from_be_bytes(*l)))
+                == 0
+    })
 }
 
 /// Opening bytes of an uncompressed UEF tape.
@@ -1159,6 +1185,23 @@ pub mod fixtures {
         let mut b = zeros(4096);
         b[..4].copy_from_slice(b"RDSK");
         b[4..8].copy_from_slice(&64u32.to_be_bytes());
+        b
+    }
+
+    /// An Amiga hard disk whose Rigid Disk Block sits in `block` (its
+    /// SummedLongs 64 and a checksum that makes them sum to zero).
+    pub fn amiga_rdb_at(block: usize) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        let o = block * 512;
+        b[o..o + 4].copy_from_slice(b"RDSK");
+        b[o + 4..o + 8].copy_from_slice(&64u32.to_be_bytes());
+        b[o + 0x10..o + 0x14].copy_from_slice(&7u32.to_be_bytes());
+        let sum = b[o..o + 256]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .fold(0u32, |s, l| s.wrapping_add(u32::from_be_bytes(*l)));
+        b[o + 8..o + 12].copy_from_slice(&0u32.wrapping_sub(sum).to_be_bytes());
         b
     }
 

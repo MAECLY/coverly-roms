@@ -1486,6 +1486,7 @@ fn loose_amiga_and_st_disks_stay_automatic() {
     for (name, bytes, want) in [
         ("Workbench.hdf", fx::amiga_rdb(), "amiga"),
         ("Game.hdf", fx::amiga_dos(), "amiga"),
+        ("Partitioned.hdf", fx::amiga_rdb_at(1), "amiga"),
         ("Game.fdi", fx::fdi2(), "amiga"),
         ("Game.dim", fx::st_dim(), "atarist"),
         ("Human68k.hdf", fx::x68k_scsi(), "x68000"),

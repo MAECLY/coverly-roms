@@ -928,3 +928,25 @@ fn dim_atari_st() {
     assert!(run(&near, "dim").hits.is_empty());
     assert!(run(&fx::st_dim(), "st").hits.is_empty());
 }
+
+#[test]
+fn hdf_rdb_in_a_later_block() {
+    // AmigaOS `devices/hardblocks.h`: the Rigid Disk Block may sit in any of
+    // the first RDB_LOCATION_LIMIT (16) blocks, and WinUAE `filesys.cpp`
+    // `rdb_mount` scans them, accepting a block whose longs sum to zero.
+    for block in [1usize, 15] {
+        let bytes = fx::amiga_rdb_at(block);
+        assert_eq!(
+            best(&run(&bytes, "hdf")),
+            Some(("amiga".into(), 0.90)),
+            "block {block}"
+        );
+        // A bad checksum outside block 0 is not an RDB.
+        let mut bad = bytes.clone();
+        bad[block * 512 + 8] ^= 1;
+        assert!(run(&bad, "hdf").hits.is_empty(), "block {block}");
+    }
+    // Past the limit it says nothing.
+    assert!(run(&fx::amiga_rdb_at(16), "hdf").hits.is_empty());
+    assert!(run(&fx::amiga_rdb_at(1), "img").hits.is_empty());
+}
