@@ -879,6 +879,27 @@ describe('DuplicatesScreen keys', () => {
     expect(scene).toHaveAttribute('data-stopped', 'true');
   });
 
+  it('a_trash_apply_says_trash_before_its_job_is_known', async () => {
+    renderScreen();
+    await ready();
+    const p = plan();
+    // The plan chose the Trash; the job's own view has not arrived yet.
+    act(() =>
+      useDedupeStore.setState({
+        plan: { ...p, trash: true },
+        job: null,
+        status: 'applying',
+        progress: { plan_id: p.plan_id, phase: 'apply', done: 0, total: 40 },
+      }),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Enviando 0 de 40 a la Papelera…',
+    );
+    const scene = document.querySelector('svg.dup-scene')!;
+    expect(scene.textContent).toContain('Papelera');
+    expect(scene.textContent).not.toContain(fileName(p.quarantine));
+  });
+
   it('the_set_aside_scene_keeps_moving_when_cancel_fails', async () => {
     renderScreen();
     await ready();

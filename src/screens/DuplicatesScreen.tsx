@@ -170,6 +170,8 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
   }, [root]);
 
   const applying = status === 'applying';
+  // Until the job's own view arrives, the plan says where copies go.
+  const toTrash = job ? job.trash : (plan?.trash ?? false);
   // Cancel freezes the set-aside scene until the apply really stops.
   const [stopping, setStopping] = useState(false);
   if (stopping && !applying) setStopping(false);
@@ -327,14 +329,14 @@ export function DuplicatesScreen({ launch }: DuplicatesScreenProps) {
                 total={progress?.total ?? 0}
                 stopped={stopping}
                 folder={
-                  job?.trash
+                  toTrash
                     ? t('dedupe.sceneTrash')
                     : fileName(job?.quarantine || plan?.quarantine || '')
                 }
               />
               <p role="status" className="m-0 text-ui tabular-nums">
                 {progress
-                  ? t(job?.trash ? 'dedupe.applyingTrash' : 'dedupe.applying', {
+                  ? t(toTrash ? 'dedupe.applyingTrash' : 'dedupe.applying', {
                       done: progress.done,
                       total: progress.total,
                     })
