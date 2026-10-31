@@ -26,11 +26,13 @@ export const buttonVariants = cva(
           'bg-primary text-primary-foreground shadow-[inset_0_-1px_0_rgb(0_0_0/0.18)]',
           'hover:bg-cr-primary-hover active:shadow-none',
           'disabled:bg-cr-surface-sunken disabled:text-cr-text-disabled disabled:shadow-none',
+          'forced-colors:border forced-colors:border-[ButtonText]',
         ],
         secondary: [
           'bg-cr-surface-sunken text-cr-text',
           'hover:bg-cr-hover active:bg-cr-active',
           'disabled:bg-cr-surface-sunken disabled:text-cr-text-disabled',
+          'forced-colors:border forced-colors:border-[ButtonText]',
         ],
         outline: [
           'border border-cr-border bg-cr-surface text-cr-text',
@@ -46,6 +48,7 @@ export const buttonVariants = cva(
           'bg-destructive text-destructive-foreground shadow-[inset_0_-1px_0_rgb(0_0_0/0.18)]',
           'hover:bg-destructive/90 active:shadow-none',
           'disabled:bg-cr-surface-sunken disabled:text-cr-text-disabled disabled:shadow-none',
+          'forced-colors:border forced-colors:border-[ButtonText]',
         ],
         link: [
           'h-auto rounded-sm px-0 text-primary underline decoration-primary/40 underline-offset-[3px]',
