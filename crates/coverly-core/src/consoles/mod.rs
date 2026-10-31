@@ -303,9 +303,10 @@ pub fn is_key_material(name: &str) -> bool {
 }
 
 /// Opens a ROM candidate for reading. Key material is refused by name
-/// before the open (D4): the walk and the scan already leave it out, so a
-/// refusal here is a bug (a debug assertion) and `PermissionDenied`
-/// otherwise. Under `test-util`, every path is recorded while an open log
+/// before the open (D4) with `PermissionDenied`. The walk and the scan
+/// already leave it out, but a `.cue`, `.gdi` or `.m3u` is user data and
+/// may name one as its track, so a refusal is an ordinary error, never a
+/// panic. Under `test-util`, every path is recorded while an open log
 /// runs ([`start_open_log`]).
 pub fn open_rom(path: &Path) -> io::Result<File> {
     let name = path
@@ -313,7 +314,6 @@ pub fn open_rom(path: &Path) -> io::Result<File> {
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
     if is_key_material(&name) {
-        debug_assert!(false, "key material reached a reader: {}", path.display());
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "key material is never opened",
