@@ -89,6 +89,10 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("esde", "gamecom", "gamecom", None),
     ("batocera", "megaduck", "megaduck", None),
     ("minui", "megaduck", "MEGADUCK", Some(false)),
+    ("onion", "gamecom", "GAMECOM", Some(false)),
+    ("garlicos", "supervision", "SUPERVISION", None),
+    ("anbernic-stock", "megaduck", "MEGADUCK", Some(false)),
+    ("retroarch", "gamecom", "gamecom", None),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;

@@ -1315,3 +1315,55 @@ fn mega_duck_bin_needs_its_folder() {
     let stems: Vec<&str> = duck.roms.iter().map(|r| r.stem.as_str()).collect();
     assert_eq!(stems, ["Suleiman Treasure (Unknown)"]);
 }
+
+#[test]
+fn supervision_and_gamecom_unique_extensions_are_enough() {
+    // Task 7: `.sv` and `.tgc` are Unique and neither system has a header,
+    // so the extension alone decides (same rule as other headerless
+    // systems with a unique extension).
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, want) in [
+        ("Crystball (Europe).sv", "supervision"),
+        ("Lights Out (USA).tgc", "gamecom"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, opaque(64 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.verdict, id.combined.system.as_deref()),
+            (Verdict::Auto, Some(want)),
+            "{name}: {:?}",
+            id.combined
+        );
+    }
+}
+
+#[test]
+fn a_loose_handheld_bin_is_found_by_its_dat_hash() {
+    // Task 7: a Supervision or Game.com cart dumped as `.bin` (Generic, no
+    // header) is assigned only by its no-intro DAT hash.
+    let tmp = tempfile::tempdir().unwrap();
+    for (id_want, stem, seed) in [
+        ("supervision", "Crystball (Europe)", 0x11u8),
+        ("gamecom", "Lights Out (USA)", 0x22u8),
+    ] {
+        let rom: Vec<u8> = opaque(32 * 1024).iter().map(|b| b ^ seed).collect();
+        let crc = format!("{:08X}", crc32fast::hash(&rom));
+        let p = tmp.path().join(format!("{stem}.bin"));
+        std::fs::write(&p, &rom).unwrap();
+        let none = identify(&p, &FakeCatalogue::empty());
+        assert_ne!(none.combined.verdict, Verdict::Auto, "{id_want}");
+        let cat = FakeCatalogue {
+            rows: vec![(id_want, crc, rom.len() as u64, stem)],
+            stems: vec![],
+        };
+        let id = identify(&p, &cat);
+        assert_eq!(
+            (id.combined.verdict, id.combined.system.as_deref()),
+            (Verdict::Auto, Some(id_want)),
+            "{:?}",
+            id.combined
+        );
+        assert_eq!(id.combined.method, Some(Hash));
+    }
+}
