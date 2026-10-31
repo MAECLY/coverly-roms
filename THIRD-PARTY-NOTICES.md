@@ -59,12 +59,17 @@ are not included. The licence grants no trademark rights; see `TRADEMARKS.md`.
 `src/assets/system-icons/README.md` maps each file to its source file and
 records its trademark audit.
 
-The 41 files, named by system id: `a2600`, `a5200`, `a7800`, `a800`, `amiga`,
-`atarist`, `c64`, `dreamcast`, `fbneo`, `fds`, `gamegear`, `gb`, `gba`, `gbc`,
-`gw`, `lynx`, `mastersystem`, `megadrive`, `msx`, `n64`, `nds`, `neocd`,
-`neogeo`, `nes`, `ngp`, `ngpc`, `pcengine`, `pcenginecd`, `pgm2`, `pokemini`,
-`psp`, `psx`, `saturn`, `sega32x`, `segacd`, `snes`, `varcade`, `vic20`,
-`virtualboy`, `wonderswan`, `wonderswancolor`.
+The 77 files, named by system id: `3do`, `a2600`, `a5200`, `a7800`, `a800`,
+`amiga`, `amigacd32`, `apple2`, `arcadia`, `arduboy`, `atarist`, `atarixe`,
+`bbcmicro`, `c64`, `cdi`, `colecovision`, `dreamcast`, `fbneo`, `fds`,
+`fmtowns`, `gamecom`, `gamegear`, `gb`, `gba`, `gbc`, `gw`, `jaguar`,
+`jaguarcd`, `lynx`, `mastersystem`, `megadrive`, `megaduck`, `msx`, `msx2`,
+`n64`, `n64dd`, `nds`, `neocd`, `neogeo`, `nes`, `ngp`, `ngpc`, `odyssey2`,
+`pc88`, `pc98`, `pcengine`, `pcenginecd`, `pcfx`, `pet`, `pgm2`, `pico`,
+`plus4`, `pokemini`, `ps2`, `psp`, `psx`, `satellaview`, `saturn`, `scv`,
+`sega32x`, `segacd`, `sg1000`, `snes`, `sufami`, `supergrafx`, `supervision`,
+`thomson`, `ti99`, `varcade`, `vic20`, `virtualboy`, `wonderswan`,
+`wonderswancolor`, `x1`, `x68000`, `zx81`, `zxspectrum`.
 
 ## Interface icons
 

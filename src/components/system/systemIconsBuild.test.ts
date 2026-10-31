@@ -111,9 +111,9 @@ describe('assertClean', () => {
 });
 
 describe('SYSTEM_ICON_SOURCES', () => {
-  it('maps 41 ids, each audited', () => {
+  it('maps 77 ids, each audited', () => {
     const entries = Object.entries(SYSTEM_ICON_SOURCES);
-    expect(entries).toHaveLength(41);
+    expect(entries).toHaveLength(77);
     for (const [id, s] of entries) {
       expect(s.file, id).toMatch(/\.svg$/);
       expect(s.audit.trim(), id).not.toBe('');

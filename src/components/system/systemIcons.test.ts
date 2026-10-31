@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import monochrome from '../../../crates/coverly-core/tests/fixtures/research/retroarch-assets-monochrome.txt?raw';
 import toml from '../../../crates/coverly-core/src/systems/systems.toml?raw';
 import { SYSTEM_ICON_SOURCES } from '../../../scripts/icons/systemIconsLib.mjs';
 import {
@@ -44,6 +45,18 @@ describe('system icon data', () => {
       expect(icon.viewBox, id).toMatch(/^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$/);
       expect(icon.aspect, id).toBeGreaterThanOrEqual(0.5);
       expect(icon.aspect, id).toBeLessThanOrEqual(2.5);
+    }
+  });
+  it('every source entry names a known system and a file of the pinned set', () => {
+    const pinned = new Set(
+      monochrome
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
+    );
+    for (const [id, s] of Object.entries(SYSTEM_ICON_SOURCES)) {
+      expect(IDS, id).toContain(id);
+      expect(pinned.has(`src/xmb/monochrome/${s.file}`), s.file).toBe(true);
     }
   });
   it('every source entry is audited', () => {
