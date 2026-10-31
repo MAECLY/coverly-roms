@@ -160,6 +160,7 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
         || fx::cpc_dsk(true),
         Some("amstradcpc"),
     ),
+    ("amstradcpc", "sna", fx::cpc_sna, Some("amstradcpc")),
     ("bbcmicro", "uef", fx::uef, Some("bbcmicro")),
 ];
 

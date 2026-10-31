@@ -854,3 +854,18 @@ fn uef_magic() {
     near[9] = b'?';
     assert!(run(&near, "uef").hits.is_empty());
 }
+
+#[test]
+fn cpc_sna_magic() {
+    // A CPCEMU snapshot opens with `MV - SNA`; a Spectrum `.sna` has no
+    // magic (a 27-byte register dump), so the header decides `.sna`.
+    assert_eq!(
+        best(&run(&fx::cpc_sna(), "sna")),
+        Some(("amstradcpc".into(), 0.90))
+    );
+    // Only under `.sna`.
+    assert!(run(&fx::cpc_sna(), "bin").hits.is_empty());
+    let mut near = fx::cpc_sna();
+    near[7] = b'X';
+    assert!(run(&near, "sna").hits.is_empty());
+}

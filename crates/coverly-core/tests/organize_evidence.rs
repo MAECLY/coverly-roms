@@ -1430,12 +1430,14 @@ fn loose_tap_stays_review() {
 
 #[test]
 fn tzx_and_uef_with_their_magic_are_auto() {
-    // Task 8: a header ≥ 0.85 plus the unique extension.
+    // Task 8: a header ≥ 0.85 plus an extension the system owns (`.sna`
+    // is Shared: the CPCEMU snapshot magic decides it).
     let tmp = tempfile::tempdir().unwrap();
     for (name, bytes, want) in [
         ("Manic Miner (1983)(Bug-Byte).tzx", fx::tzx(), "zxspectrum"),
         ("Roland in Time (1985)(Amsoft).cdt", fx::tzx(), "amstradcpc"),
         ("Elite (1984)(Acornsoft).uef", fx::uef(), "bbcmicro"),
+        ("Gryzor (1987)(Ocean).sna", fx::cpc_sna(), "amstradcpc"),
     ] {
         let p = tmp.path().join(name);
         std::fs::write(&p, &bytes).unwrap();
@@ -1458,4 +1460,19 @@ fn zx81_p_and_thomson_fd_are_weak() {
         let id = identify(&p, &FakeCatalogue::empty());
         assert_eq!(id.combined.system, None, "{name}: {:?}", id.combined);
     }
+}
+
+#[test]
+fn loose_sna_without_magic_stays_review() {
+    // A Spectrum snapshot has no magic: `.sna` (zxspectrum, amstradcpc)
+    // alone never assigns a system.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Jet Set Willy.sna");
+    std::fs::write(&p, opaque(49_179)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    listed.sort_unstable();
+    assert_eq!(listed, ["amstradcpc", "zxspectrum"]);
 }

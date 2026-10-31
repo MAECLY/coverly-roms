@@ -649,7 +649,8 @@ fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
 /// under `.cdt`. A CPCEMU disk (`MV - CPC…` or `EXTENDED CPC DSK File`)
 /// opens CPC and Spectrum +3 disks alike, so it names both at 0.50 (a
 /// review), the CPC first. UEF (`UEF File!` + NUL) is the BBC Micro's
-/// tape format; a gzip UEF is read through the archive layer
+/// tape format; a CPCEMU snapshot (`MV - SNA`) decides a `.sna`; a gzip
+/// UEF is read through the archive layer
 /// (`organize::inspect`).
 fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
     if starts(head, 0, b"ZXTape!\x1A") {
@@ -664,6 +665,11 @@ fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
     if ext == "dsk" && (starts(head, 0, b"MV - CPC") || starts(head, 0, b"EXTENDED CPC DSK File")) {
         s.hit("amstradcpc", 0.50, "CPC DSK");
         s.hit("zxspectrum", 0.50, "CPC DSK");
+        return true;
+    }
+    // A CPCEMU snapshot (`MV - SNA`); a Spectrum `.sna` carries no magic.
+    if ext == "sna" && starts(head, 0, b"MV - SNA") {
+        s.hit("amstradcpc", 0.90, "CPC SNA");
         return true;
     }
     if starts(head, 0, UEF_MAGIC) {
@@ -1078,6 +1084,16 @@ pub mod fixtures {
         b[..line.len()].copy_from_slice(line);
         b[0x30] = 40;
         b[0x31] = 1;
+        b
+    }
+
+    /// A CPCEMU snapshot (Amstrad CPC `.sna`): `MV - SNA`, then the
+    /// register block, version 3 at 0x10, 64 KB of memory.
+    pub fn cpc_sna() -> Vec<u8> {
+        let mut b = zeros(0x100 + 64 * 1024);
+        b[..8].copy_from_slice(b"MV - SNA");
+        b[0x10] = 3;
+        b[0x6B] = 64;
         b
     }
 

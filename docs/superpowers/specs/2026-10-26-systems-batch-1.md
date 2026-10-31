@@ -324,6 +324,7 @@ The DAT paths and sizes were listed from the GitHub tree at `2c93952f`; the larg
 | colecovision | `AA 55` or `55 AA` at 0x00 | 0.60 (16 bits: supports a folder/extension, never auto alone) | ColecoVision BIOS test bytes |
 | zxspectrum | `ZXTape!\x1A` at 0x00 with `.tzx`; `.cdt` with the same magic → amstradcpc | 0.90 | TZX format spec |
 | amstradcpc / zxspectrum | `MV - CPC` or `EXTENDED CPC DSK File` at 0x00 (`.dsk`): CPC **or** Spectrum +3 | 0.50 each (review) | CPCEMU DSK spec |
+| amstradcpc | `MV - SNA` at 0x00 (`.sna`); a Spectrum `.sna` has no magic, so without it `.sna` stays a review | 0.90 | CPCEMU snapshot format |
 | apple2 | `WOZ1`/`WOZ2` at 0x00; `2IMG` at 0x00 | 0.95 | WOZ and 2IMG specs |
 | bbcmicro | `UEF File!` at 0x00 | 0.95 | UEF spec |
 | pc98 | `T98HDDIMAGE.R0` at 0x00 (`.nhd`) | 0.95 | T98-Next HDD format |
