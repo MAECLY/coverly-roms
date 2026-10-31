@@ -792,6 +792,28 @@
   color: var(--cr-text-secondary);
 }
 
+/* Phone widths: a save's absolute path takes the whole row (beside a size
+ * column it broke every few letters); its date and size share the line
+ * under it, date at the start, size at the end. After the base rule, so
+ * it wins on source order. */
+@media (max-width: 599px) {
+  .dup-conflict__save {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dup-conflict__save .dup-row__meta {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .dup-conflict__save .dup-row__size {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
 .dup-conflict__date {
   color: var(--cr-text-secondary);
   white-space: nowrap;
