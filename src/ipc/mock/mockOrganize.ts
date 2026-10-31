@@ -74,6 +74,7 @@ import {
   type DedupeSettings,
   type DupGroupView,
   type OrganizeDedupeMode,
+  type SystemFamily,
   type SystemView,
   type Transfer,
   type TransferMode,
@@ -526,7 +527,10 @@ export const ORGANIZE_SYSTEMS: readonly {
   id: string;
   name: string;
   folder: string;
-}[] = [{ id: 'saturn', name: 'Sega Saturn', folder: 'SATURN' }];
+  family: SystemFamily;
+}[] = [
+  { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
+];
 const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
   [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
 );

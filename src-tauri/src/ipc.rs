@@ -81,6 +81,9 @@ pub fn app_info() -> AppInfo {
 pub struct SystemInfo {
     pub id: String,
     pub name: String,
+    /// `console`, `handheld`, `computer`, `arcade` or `engine`: the
+    /// picker group (spec §9.1).
+    pub family: String,
 }
 
 /// The built-in systems, by display name (case-insensitive).
@@ -92,6 +95,7 @@ pub fn list_systems() -> Vec<SystemInfo> {
         .map(|s| SystemInfo {
             id: s.id.clone(),
             name: s.name.clone(),
+            family: s.family.as_str().into(),
         })
         .collect();
     systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));

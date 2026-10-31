@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import type { TransferMode } from '@/ipc/types';
+import type { SystemInfo, TransferMode } from '@/ipc/types';
 import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
@@ -164,9 +164,9 @@ describe('SystemGroups', () => {
 });
 
 describe('SystemGroups — a system the user chose', () => {
-  const SYSTEMS = [
-    { id: 'gb', name: 'Game Boy' },
-    { id: 'gba', name: 'Game Boy Advance' },
+  const SYSTEMS: SystemInfo[] = [
+    { id: 'gb', name: 'Game Boy', family: 'handheld' },
+    { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
   ];
 
   function renderChosen(onDecide: (ids: number[], c: unknown) => void) {

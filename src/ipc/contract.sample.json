@@ -1569,6 +1569,11 @@
     "set_aside": 1,
     "systems": 1
   },
+  "organize_folder_game_reason": {
+    "folder": "prboom",
+    "kind": "folder-game",
+    "system": "doom"
+  },
   "organize_in_library_reason": {
     "kind": "in-library",
     "path": "ROMS/GB/Tetris (World) (Rev 1).gb",
@@ -1643,5 +1648,16 @@
         "weight": 1.0
       }
     ]
-  }
+  },
+  "system_infos": [
+    { "id": "ps2", "name": "Sony PlayStation 2", "family": "console" },
+    { "id": "gba", "name": "Game Boy Advance", "family": "handheld" },
+    {
+      "id": "zxspectrum",
+      "name": "Sinclair ZX Spectrum",
+      "family": "computer"
+    },
+    { "id": "mame", "name": "MAME", "family": "arcade" },
+    { "id": "wasm4", "name": "WASM-4", "family": "engine" }
+  ]
 }

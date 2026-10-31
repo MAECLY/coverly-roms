@@ -160,7 +160,7 @@ describe('LeftInPlace', () => {
       <I18nProvider locale="en">
         <LeftInPlace
           items={Array.from({ length: 450 }, (_, i) => unknown(i))}
-          systems={[{ id: 'gb', name: 'Game Boy' }]}
+          systems={[{ id: 'gb', name: 'Game Boy', family: 'handheld' }]}
           otherFiles={0}
           deepFolders={0}
           onDecide={vi.fn()}

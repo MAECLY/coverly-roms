@@ -69,6 +69,7 @@ import {
   type ProfileView,
   type RecentLibrary,
   type ScanProgress,
+  type SystemInfo,
   type SystemView,
   type UndoView,
   type UpdateCheck,
@@ -1117,5 +1118,23 @@ describe('duplicates contract', () => {
     ]);
     expect(report.set_aside).toBe(2);
     expect(report.extracted).toBeUndefined();
+  });
+
+  it('every SystemInfo names its family and a folder game names its folder', () => {
+    const systems = sample.system_infos as SystemInfo[];
+    expect(systems.map((s) => s.family)).toEqual([
+      'console',
+      'handheld',
+      'computer',
+      'arcade',
+      'engine',
+    ]);
+    for (const s of systems) expect(s.family).toBeTruthy();
+    const reason = sample.organize_folder_game_reason as LeftReason;
+    expect(reason).toEqual({
+      kind: 'folder-game',
+      system: 'doom',
+      folder: 'prboom',
+    });
   });
 });

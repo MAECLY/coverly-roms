@@ -637,10 +637,15 @@ export type ContainerKind =
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
 export type FolderNaming = 'first-alias' | 'id';
 
+/** `systems::Family`: the kind of machine, which groups the pickers. */
+export type SystemFamily =
+  'console' | 'handheld' | 'computer' | 'arcade' | 'engine';
+
 /** One system Coverly knows (`list_systems`), sorted by name. */
 export interface SystemInfo {
   id: string;
   name: string;
+  family: SystemFamily;
 }
 
 export interface ProfileInfo {
