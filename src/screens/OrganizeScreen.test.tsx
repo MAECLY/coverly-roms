@@ -64,8 +64,9 @@ const textOf = (text: string) =>
 /** What a whole apply of `MOCK_DOWNLOADS` reports. */
 const RESULT = 'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3';
 /** A whole apply through the mock: about a hundred progress events, each
- * repainting the stage, the readout and the track list. */
-const APPLY_WAIT = { timeout: 5000 };
+ * repainting the stage, the readout and the track list. A shared CI runner
+ * takes over 5 s for it; the test timeout is 20 s. */
+const APPLY_WAIT = { timeout: 15_000 };
 
 const ready = () =>
   waitFor(() => expect(useOrganizeStore.getState().status).toBe('ready'));
