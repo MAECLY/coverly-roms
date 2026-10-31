@@ -1494,7 +1494,8 @@ fn identify_one(
 /// lack the entry indices, the discs and the tool an extraction needs, so
 /// they are read again; facts of version 4 call a patch-only archive an
 /// unknown system.
-/// 6: PS2, 3DO and Pico verdicts became systems (systems batch 1).
+/// 6: PS2, 3DO and Pico verdicts became systems, and a loose 3DO, PC-FX,
+/// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
 const FACTS_VERSION: u32 = 6;
 
 /// Facts as memoised, with their version.

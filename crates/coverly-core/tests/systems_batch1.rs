@@ -363,6 +363,48 @@ fn header_rules() {
     }
 }
 
+/// A loose disc image (`.iso`, or a cue set's `.bin` track) of this
+/// batch's disc systems is told by the same disc signatures an archived
+/// set goes through; a loose PC Engine CD or Neo Geo CD, and any other
+/// extension, keep their earlier result (no hit).
+#[test]
+fn loose_disc_images_are_told_by_their_signature() {
+    use coverly_core::disc::testing::{self as dt, AmigaTm};
+    let cases: Vec<(&str, Vec<u8>, &str, Option<&str>)> = vec![
+        ("3do iso", dt::opera_3do(false), "iso", Some("3do")),
+        ("3do raw bin", dt::opera_3do(true), "bin", Some("3do")),
+        ("pcfx bin", dt::pcfx_track(true), "bin", Some("pcfx")),
+        ("cdi bin", dt::cdi_track(1), "bin", Some("cdi")),
+        (
+            "cd32 iso",
+            dt::amiga_cd("CDTV", AmigaTm::Cd32Block),
+            "iso",
+            Some("amigacd32"),
+        ),
+        (
+            "cdtv iso",
+            dt::amiga_cd("CDTV", AmigaTm::CdtvFile),
+            "iso",
+            Some("cdtv"),
+        ),
+        (
+            "amiga cd without a mark",
+            dt::amiga_cd("CDTV", AmigaTm::None),
+            "iso",
+            None,
+        ),
+        ("pce cd bin", dt::pce_cd_track(), "bin", None),
+        ("neocd iso", dt::neocd_iso(), "iso", None),
+        ("3do under .md", dt::opera_3do(false), "md", None),
+        ("ps2 iso", dt::ps2_iso(), "iso", Some("ps2")),
+    ];
+    for (label, bytes, ext, want) in cases {
+        let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, ext);
+        let got: Vec<&str> = s.hits.iter().map(|h| h.system.as_str()).collect();
+        assert_eq!(got, want.into_iter().collect::<Vec<_>>(), "{label}");
+    }
+}
+
 #[test]
 fn cover_lookup_finds_batch_systems() {
     let db = SystemDb::builtin();

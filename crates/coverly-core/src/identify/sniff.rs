@@ -247,7 +247,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         return s;
     }
     // Disc images first (sector 16), then cartridges, most specific first.
-    discs(src, &head, len, &mut s);
+    discs(src, &head, len, &ext, &mut s);
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);
     }
@@ -325,7 +325,7 @@ impl IsoLayout {
 /// Disc images: Saturn and Dreamcast by their boot sector magic, PSP by
 /// `CISO` or the `PSP GAME` volume id, PlayStation by the ISO 9660 system
 /// id, then `SYSTEM.CNF` to tell PS1 (`BOOT`) from PS2 (`BOOT2`).
-fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
+fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
     for (magic, system, detail) in [
         (&b"SEGA SEGASATURN"[..], "saturn", "SEGA SEGASATURN"),
         (&b"SEGA SEGAKATANA"[..], "dreamcast", "SEGA SEGAKATANA"),
@@ -364,7 +364,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
             return;
         }
         if &pvd[8..19] != b"PLAYSTATION" {
-            return; // another ISO 9660 disc: nothing to say
+            break; // another ISO 9660 disc: the disc reader below decides
         }
         let cnf = system_cnf(src, head, layout, &pvd, len);
         if let Some(text) = &cnf {
@@ -383,6 +383,78 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
             _ => s.hit("psx", 0.80, "PLAYSTATION"),
         }
         return;
+    }
+    loose_disc(src, head, len, ext, s);
+}
+
+/// Systems a loose disc image (an `.iso`, or the first track of a cue
+/// set) is told by through [`crate::disc::DiscReader`]'s signatures, the
+/// rules archived disc sets already go through (systems batch 1, spec
+/// §8.2). Only this batch's systems: a loose PC Engine CD or Neo Geo CD
+/// keeps its earlier result.
+const LOOSE_DISC_SYSTEMS: [&str; 5] = ["3do", "pcfx", "cdi", "amigacd32", "cdtv"];
+
+/// Extensions a loose disc image or track is stored under.
+const LOOSE_DISC_EXTS: [&str; 3] = ["iso", "bin", "img"];
+
+/// Runs the disc reader over a loose image the rules above said nothing
+/// about, and records its verdict for the [`LOOSE_DISC_SYSTEMS`].
+fn loose_disc(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
+    if !LOOSE_DISC_EXTS.contains(&ext) {
+        return;
+    }
+    let first = &head[..head.len().min(crate::disc::source::DETECT_BYTES)];
+    let layout = crate::disc::source::detect_layout(first);
+    let mut disc = ReadAtSectors {
+        src,
+        head,
+        len,
+        layout,
+    };
+    let Some(found) = crate::disc::DiscReader::identify(&mut disc) else {
+        return;
+    };
+    if let crate::disc::DiscSystem::Known(system) = found.system {
+        if LOOSE_DISC_SYSTEMS.contains(&system) {
+            s.hit(system, found.confidence, found.detail);
+        }
+    }
+}
+
+/// A [`crate::disc::source::SectorSource`] over a [`ReadAt`], served from
+/// the already-read `head` where it reaches.
+struct ReadAtSectors<'a> {
+    src: &'a mut dyn ReadAt,
+    head: &'a [u8],
+    len: u64,
+    layout: crate::disc::source::SectorLayout,
+}
+
+impl crate::disc::source::SectorSource for ReadAtSectors<'_> {
+    fn layout(&self) -> crate::disc::source::SectorLayout {
+        self.layout
+    }
+
+    fn read_user(
+        &mut self,
+        lba: u32,
+        out: &mut [u8; crate::disc::source::USER_BYTES],
+    ) -> io::Result<bool> {
+        let offset =
+            u64::from(lba) * self.layout.sector_size() as u64 + self.layout.user_offset() as u64;
+        match read_block(self.src, self.head, offset, out.len(), self.len) {
+            Some(bytes) => {
+                out.copy_from_slice(&bytes);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn raw_sector(&mut self, n: u32) -> io::Result<Option<Vec<u8>>> {
+        let size = self.layout.sector_size();
+        let offset = u64::from(n) * size as u64;
+        Ok(read_block(self.src, self.head, offset, size, self.len))
     }
 }
 
