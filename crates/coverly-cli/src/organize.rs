@@ -714,6 +714,8 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::WebPage => "not a ROM (web page)".into(),
             NotARom::Text => "not a ROM (text)".into(),
             NotARom::Patch => "not a ROM (a patch: apply it to the original ROM)".into(),
+            NotARom::Installer => "not a ROM (installer)".into(),
+            NotARom::Model3d => "not a ROM (3D model)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -772,6 +774,10 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::TooBigForFat => "larger than 4 GiB on a FAT32 target".into(),
         LeftReason::Unreadable => "cannot be read".into(),
         LeftReason::CollisionSet => "a file of the game is taken at the target".into(),
+        LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
+        LeftReason::EmulatorData { folder } => {
+            format!("inside an emulator's data folder ({folder}): left as it is")
+        }
     }
 }
 
@@ -826,6 +832,17 @@ fn note_text(n: &ItemNote) -> Option<String> {
         }
         ItemNote::SheetNotReadYet => "the .cue sheet is checked while extracting".into(),
         ItemNote::MultiRomExtract { count } => format!("contains {count} ROMs"),
+        ItemNote::Update { of } => format!("update for {of}"),
+        ItemNote::Dlc { of } => format!("downloadable content for {of}"),
+        ItemNote::EncryptedContent { emulator } => {
+            format!("encrypted copy: {emulator} only opens decrypted copies")
+        }
+        ItemNote::InstallFirst { emulator } => {
+            format!("{emulator} installs it; it does not open from the folder")
+        }
+        ItemNote::FolderSuffix { name, layout } => {
+            format!("renamed to {name} so {layout} shows it")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -1551,5 +1568,75 @@ mod tests {
     #[test]
     fn slash_joins_with_forward_slashes() {
         assert_eq!(slash(Path::new("ROMS").join("GBA").as_path()), "ROMS/GBA");
+    }
+    #[test]
+    fn left_text_new_reasons() {
+        let cases = [
+            (
+                LeftReason::KeyMaterial,
+                "key or licence file: never read or moved",
+            ),
+            (
+                LeftReason::EmulatorData {
+                    folder: "ux0".into(),
+                },
+                "inside an emulator's data folder (ux0): left as it is",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::Installer,
+                },
+                "not a ROM (installer)",
+            ),
+            (
+                LeftReason::NotARom {
+                    what: NotARom::Model3d,
+                },
+                "not a ROM (3D model)",
+            ),
+        ];
+        for (reason, text) in cases {
+            assert_eq!(left_text(&reason), text);
+        }
+    }
+
+    #[test]
+    fn note_text_new_notes() {
+        let cases = [
+            (
+                ItemNote::Update {
+                    of: "Mario Kart 8".into(),
+                },
+                "update for Mario Kart 8",
+            ),
+            (
+                ItemNote::Dlc {
+                    of: "0100152000022000".into(),
+                },
+                "downloadable content for 0100152000022000",
+            ),
+            (
+                ItemNote::EncryptedContent {
+                    emulator: "Azahar".into(),
+                },
+                "encrypted copy: Azahar only opens decrypted copies",
+            ),
+            (
+                ItemNote::InstallFirst {
+                    emulator: "RPCS3".into(),
+                },
+                "RPCS3 installs it; it does not open from the folder",
+            ),
+            (
+                ItemNote::FolderSuffix {
+                    name: "Game.ps3".into(),
+                    layout: "ES-DE".into(),
+                },
+                "renamed to Game.ps3 so ES-DE shows it",
+            ),
+        ];
+        for (note, text) in cases {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
     }
 }

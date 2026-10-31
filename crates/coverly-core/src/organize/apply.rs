@@ -947,7 +947,7 @@ fn split(path: &Path) -> Option<(&Path, &str)> {
 
 /// CRC-32 of a file; `None` when it cannot be read.
 fn crc_of(path: &Path) -> Option<u32> {
-    let mut file = File::open(path).ok()?;
+    let mut file = crate::consoles::open_rom(path).ok()?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {

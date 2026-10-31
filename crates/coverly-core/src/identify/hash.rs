@@ -201,7 +201,7 @@ pub fn hash_rom_mode(
     if NAME_ONLY_EXTS.contains(&ext.as_str()) {
         return Ok(HashOutcome::NameOnly);
     }
-    let mut file = File::open(path)?;
+    let mut file = crate::consoles::open_rom(path)?;
     let size = file.metadata()?.len();
     if ext == "zip" {
         if let Some((mut outcome, index)) = zip_outcome(&mut file) {

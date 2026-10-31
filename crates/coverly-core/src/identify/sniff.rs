@@ -122,6 +122,10 @@ pub enum NotARom {
     /// An archive holding only a ROM patch (`.ips`, `.bps`…): it needs
     /// the original ROM and does not play on its own.
     Patch,
+    /// A macOS installer package (`xar!` named `.pkg`, systems batch 2 D7).
+    Installer,
+    /// An Autodesk 3D Studio model (main chunk `4D 4D` named `.3ds`).
+    Model3d,
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -238,6 +242,10 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
     if n == 0 {
         return s;
     }
+    if let Some(kind) = not_a_console_file(&head, &ext) {
+        s.not_a_rom = Some(kind);
+        return s;
+    }
     if let Some(kind) = text_kind(&head) {
         // `[`/`{` also open INI files and configs: under a text-native
         // extension only markup (an HTML error page) is not a game.
@@ -256,6 +264,24 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         cartridges(src, &head, len, &ext, &mut s);
     }
     s
+}
+
+/// Files that share an extension with a console format and are told
+/// apart by two cheap magics (systems batch 2 D7): every macOS installer
+/// is a `xar!` archive named `.pkg`, and a 3D Studio model opens with the
+/// main chunk `4D 4D`. A `.3ds` carrying `NCSD` or `NCCH` at 0x100 is a
+/// 3DS image whatever its first bytes.
+fn not_a_console_file(head: &[u8], ext: &str) -> Option<NotARom> {
+    match ext {
+        "pkg" if head.starts_with(b"xar!") => Some(NotARom::Installer),
+        "3ds"
+            if head.starts_with(&[0x4D, 0x4D])
+                && !matches!(head.get(0x100..0x104), Some(b"NCSD" | b"NCCH")) =>
+        {
+            Some(NotARom::Model3d)
+        }
+        _ => None,
+    }
 }
 
 /// Printable text (no NUL/control bytes but tab/CR/LF in the first 512

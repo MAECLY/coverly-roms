@@ -108,7 +108,7 @@ impl TarReader<File> {
         outer: Option<Compressor>,
         limits: &Limits,
     ) -> Result<Self, ArchiveError> {
-        let file = File::open(path).map_err(ArchiveError::Io)?;
+        let file = crate::consoles::open_rom(path).map_err(ArchiveError::Io)?;
         Self::new(file, outer, limits)
     }
 }

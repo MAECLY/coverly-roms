@@ -401,7 +401,7 @@ pub fn inspect_file_with(
     tools: Option<&ToolsOnDemand>,
 ) -> io::Result<Inspection> {
     let ext = extension(path);
-    let mut file = File::open(path)?;
+    let mut file = crate::consoles::open_rom(path)?;
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_prefix(&mut file, &mut head)?;
     head.truncate(n);
@@ -465,7 +465,7 @@ pub fn inspect_file_with(
 
 /// Header magic of the first data track of a cue/gdi set.
 pub fn inspect_set_primary(track: &Path) -> io::Result<Sniff> {
-    let file = File::open(track)?;
+    let file = crate::consoles::open_rom(track)?;
     let len = file.metadata()?.len();
     Ok(sniff(&mut FileAt(file), len, &extension(track)))
 }

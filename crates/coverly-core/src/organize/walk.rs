@@ -2,7 +2,9 @@
 //! candidates, which stay where they are and why, which folders are
 //! already sorted by system and which are too deep to look into. Reads
 //! names and metadata only, plus the first 4 bytes of a `.wad` directly
-//! in a folder (the folder-game proof, spec D15).
+//! in a folder (the folder-game proof, spec D15). Key and licence files
+//! are left by name before anything opens them, and emulator data trees
+//! are left whole (systems batch 2 D4, §12).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -14,6 +16,7 @@ use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
+use crate::consoles::is_key_material;
 use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
 use crate::profiles::naming::system_folder;
@@ -132,6 +135,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     let mut out = Walked::default();
     let mut sorted: Vec<(PathBuf, String)> = Vec::new();
     let mut folder_games: Vec<(PathBuf, LeftReason)> = Vec::new();
+    let mut emulator_data: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
@@ -177,6 +181,15 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if roms_root_key.as_deref() == Some(key.as_str()) {
                 return true;
             }
+            if is_emulator_data_root(entry.path(), &name) {
+                emulator_data.push((
+                    entry.path().to_path_buf(),
+                    LeftReason::EmulatorData {
+                        folder: name.into_owned(),
+                    },
+                ));
+                return false;
+            }
             if let Some(system) = db.resolve_folder_in(opts.profile, &name) {
                 sorted.push((entry.path().to_path_buf(), system.id.clone()));
                 return false;
@@ -220,6 +233,11 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             out.junk += 1;
             continue;
         }
+        // By name, before the size, the siblings or a byte (D4).
+        if is_key_material(&name) {
+            out.left.push((path.to_path_buf(), LeftReason::KeyMaterial));
+            continue;
+        }
         if is_partial_download(&name)
             || meta.len() == 0
             || has_partial_sibling(&mut siblings, path, &name)
@@ -261,6 +279,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     out.left
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
     out.left.extend(folder_games);
+    out.left.extend(emulator_data);
     out.left.extend(
         partial_dirs
             .into_iter()
@@ -290,7 +309,8 @@ fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftR
             !(is_hidden(name)
                 || is_appledouble(name)
                 || is_junk_file(name)
-                || is_zone_identifier(name))
+                || is_zone_identifier(name)
+                || is_key_material(name))
         })
         .collect();
     files.sort();
@@ -318,6 +338,25 @@ fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftR
         system: system.id.clone(),
         folder,
     })
+}
+
+/// Names of the folders that hold an emulator's own installed data
+/// (systems batch 2 §12): Vita3K `ux0`, RPCS3 `dev_hdd0`, Cemu `mlc01`,
+/// Ryujinx/yuzu `nand`. Azahar's `sdmc` counts only with its
+/// `Nintendo 3DS` child, the name being common elsewhere.
+const EMULATOR_DATA_ROOTS: [&str; 4] = ["ux0", "dev_hdd0", "mlc01", "nand"];
+
+/// Whether the folder `dir` named `name` is an emulator's data root: its
+/// files are installed titles, saves and licences that break if moved.
+fn is_emulator_data_root(dir: &Path, name: &str) -> bool {
+    if EMULATOR_DATA_ROOTS
+        .iter()
+        .any(|root| name.eq_ignore_ascii_case(root))
+    {
+        return true;
+    }
+    name.eq_ignore_ascii_case("sdmc")
+        && fs::symlink_metadata(dir.join("Nintendo 3DS")).is_ok_and(|m| m.is_dir())
 }
 
 /// Takes out of `candidates` the `.chd` files of every `<set>/` folder
@@ -408,7 +447,7 @@ fn starts_like_a_wad(path: &Path, probe: &dyn MetaProbe) -> bool {
         return false;
     }
     let mut head = [0u8; 4];
-    fs::File::open(path)
+    crate::consoles::open_rom(path)
         .and_then(|mut f| io::Read::read_exact(&mut f, &mut head))
         .is_ok()
         && is_doom_wad(&head)

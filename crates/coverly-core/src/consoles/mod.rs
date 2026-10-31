@@ -13,8 +13,9 @@
 //! the kind (base, update, DLC, demo), and where an embedded icon is
 //! ([`ArtLocator`], never the bytes).
 
+use std::fs::File;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -299,6 +300,61 @@ pub fn is_key_material(name: &str) -> bool {
         Some((stem, ext)) => !stem.is_empty() && KEY_EXTS.contains(&ext),
         None => false,
     }
+}
+
+/// Opens a ROM candidate for reading. Key material is refused by name
+/// before the open (D4): the walk and the scan already leave it out, so a
+/// refusal here is a bug (a debug assertion) and `PermissionDenied`
+/// otherwise. Under `test-util`, every path is recorded while an open log
+/// runs ([`start_open_log`]).
+pub fn open_rom(path: &Path) -> io::Result<File> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if is_key_material(&name) {
+        debug_assert!(false, "key material reached a reader: {}", path.display());
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "key material is never opened",
+        ));
+    }
+    #[cfg(feature = "test-util")]
+    open_log::record(path);
+    File::open(path)
+}
+
+/// Every path [`open_rom`] opened, across threads (rayon workers too).
+#[cfg(feature = "test-util")]
+mod open_log {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, PoisonError};
+
+    pub(super) static LOG: Mutex<Option<Vec<PathBuf>>> = Mutex::new(None);
+
+    pub(super) fn record(path: &Path) {
+        if let Some(log) = LOG.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            log.push(path.to_path_buf());
+        }
+    }
+}
+
+/// Starts (or restarts, empty) the process-wide log of [`open_rom`].
+#[cfg(feature = "test-util")]
+pub fn start_open_log() {
+    *open_log::LOG
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Vec::new());
+}
+
+/// Stops the log and returns every path opened since [`start_open_log`].
+#[cfg(feature = "test-util")]
+pub fn take_open_log() -> Vec<PathBuf> {
+    open_log::LOG
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        .unwrap_or_default()
 }
 
 /// Every file reader of the batch, in a fixed order; `None` = not a

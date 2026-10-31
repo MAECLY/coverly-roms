@@ -10,7 +10,7 @@
 //! No name ever joins two units; a name may only exclude one.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, Metadata};
+use std::fs::{self, Metadata};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -693,7 +693,7 @@ fn probe_magic(
     ext: &str,
 ) -> Result<(crate::identify::sniff::Sniff, Vec<u8>), Option<Exclusion>> {
     let mut head = Vec::with_capacity(MAGIC_PROBE);
-    File::open(path)
+    crate::consoles::open_rom(path)
         .and_then(|f| f.take(MAGIC_PROBE as u64).read_to_end(&mut head))
         .map_err(|_| Some(Exclusion::Unreadable))?;
     let sniffed = sniff(&mut SliceAt(&head), head.len() as u64, ext);

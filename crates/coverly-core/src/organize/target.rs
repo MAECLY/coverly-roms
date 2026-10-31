@@ -1198,7 +1198,7 @@ fn same_as_entry(existing: &Path, entry: &ExtractEntry) -> bool {
 
 fn file_crc32(path: &Path) -> Option<u32> {
     use std::io::Read;
-    let mut file = fs::File::open(path).ok()?;
+    let mut file = crate::consoles::open_rom(path).ok()?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {

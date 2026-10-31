@@ -12,7 +12,6 @@
 //! first need outside the library and the quarantine: a zip never starts
 //! a discovery. Read-only.
 
-use std::fs::File;
 use std::io::{self, Read};
 use std::ops::Range;
 use std::path::Path;
@@ -186,7 +185,7 @@ impl ArchiveEntryListing {
 /// external tool may open (the `may_need_tool` rule of organise).
 fn may_need_tool(path: &Path) -> bool {
     let mut magic = [0u8; 6];
-    let read = File::open(path).and_then(|mut f| f.read_exact(&mut magic));
+    let read = crate::consoles::open_rom(path).and_then(|mut f| f.read_exact(&mut magic));
     read.is_ok() && (magic == *b"7z\xBC\xAF\x27\x1C" || magic == *b"Rar!\x1A\x07")
 }
 

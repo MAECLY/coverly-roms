@@ -315,6 +315,11 @@ fn scan_system(
         ) {
             continue;
         }
+        // Key and licence files are never library entries, so fill and
+        // dedupe never read them (systems batch 2 D4).
+        if crate::consoles::is_key_material(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
         if is_rom_extension(&extension(entry.path()), system, opts) {
             candidates.push(entry.into_path());
         }

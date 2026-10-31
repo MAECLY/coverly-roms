@@ -1055,3 +1055,28 @@ fn pak_alone_is_not_quake() {
     let s = run(&fx::pack(), "pak");
     assert!(s.hits.iter().all(|h| h.system != "quake"), "{:?}", s.hits);
 }
+
+#[test]
+fn xar_pkg_is_an_installer() {
+    // Batch 2 D7: every macOS installer is a `xar!` archive named `.pkg`.
+    let mut bytes = b"xar!\0\x1c\0\x01".to_vec();
+    bytes.resize(4096, 0);
+    let s = run(&bytes, "pkg");
+    assert_eq!(s.not_a_rom, Some(NotARom::Installer));
+    assert!(s.hits.is_empty());
+    assert_ne!(run(&bytes, "bin").not_a_rom, Some(NotARom::Installer));
+}
+
+#[test]
+fn autodesk_3ds_is_a_model() {
+    // Batch 2 D7: a 3D Studio file opens with the main chunk `4D 4D`.
+    let mut bytes = vec![0x4D, 0x4D, 0x10, 0, 0, 0, 0x02, 0x00];
+    bytes.resize(4096, 0);
+    let s = run(&bytes, "3ds");
+    assert_eq!(s.not_a_rom, Some(NotARom::Model3d));
+    assert!(s.hits.is_empty());
+    assert_ne!(run(&bytes, "dat").not_a_rom, Some(NotARom::Model3d));
+    // A 3DS image (NCSD at 0x100) is never a model, whatever its first bytes.
+    bytes[0x100..0x104].copy_from_slice(b"NCSD");
+    assert_ne!(run(&bytes, "3ds").not_a_rom, Some(NotARom::Model3d));
+}

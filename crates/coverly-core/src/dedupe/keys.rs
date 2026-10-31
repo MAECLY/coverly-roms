@@ -18,7 +18,6 @@
 //! veto a level 3 match ([`FormatKey::modified`]).
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -164,7 +163,7 @@ pub struct DiskBytes;
 
 impl FileBytes for DiskBytes {
     fn open(&self, path: &Path) -> io::Result<Box<dyn Read + Send>> {
-        Ok(Box::new(File::open(path)?))
+        Ok(Box::new(crate::consoles::open_rom(path)?))
     }
 }
 
@@ -1505,7 +1504,7 @@ fn patch_set(patches: &[PathBuf]) -> Vec<String> {
     let mut out: Vec<String> = patches
         .iter()
         .map(|p| {
-            File::open(p)
+            crate::consoles::open_rom(p)
                 .and_then(|f| {
                     let len = f.metadata()?.len();
                     hash_stream(f, len, HeaderRule::Plain)

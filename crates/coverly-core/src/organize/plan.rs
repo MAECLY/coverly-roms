@@ -208,6 +208,15 @@ pub enum LeftReason {
     Unreadable,
     /// One file of a set collides at the target: the whole set stays.
     CollisionSet,
+    /// A console key or licence file (systems batch 2 D4): never read,
+    /// never moved.
+    KeyMaterial,
+    /// Inside an emulator's own data tree (`ux0`, `dev_hdd0`, `mlc01`,
+    /// `sdmc/Nintendo 3DS`, `nand`): moving it breaks the install.
+    /// `folder` is the root's name as on disk.
+    EmulatorData {
+        folder: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -281,6 +290,19 @@ pub enum ItemNote {
     SheetNotReadYet,
     /// Several ROMs of one system are extracted from one archive.
     MultiRomExtract { count: usize },
+    /// An update of `of` (its title, or its title id when the base is not
+    /// in the plan).
+    Update { of: String },
+    /// Downloadable content of `of` (as for [`ItemNote::Update`]).
+    Dlc { of: String },
+    /// The header says the content is encrypted; `emulator` only opens
+    /// decrypted copies (a fact about the emulator, systems batch 2 D4).
+    EncryptedContent { emulator: String },
+    /// A package the emulator installs (PS3/Vita PKG).
+    InstallFirst { emulator: String },
+    /// The folder is renamed to `name` so `layout` shows it (systems
+    /// batch 2 D13).
+    FolderSuffix { name: String, layout: String },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -1515,7 +1537,9 @@ fn identify_one(
 /// unknown system.
 /// 6: PS2, 3DO and Pico verdicts became systems, and a loose 3DO, PC-FX,
 /// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
-const FACTS_VERSION: u32 = 6;
+/// 7: Tanda 2 console ids on `Sniff.console`, and macOS installers and 3D
+/// Studio models are no ROMs (systems batch 2 D23, D7).
+const FACTS_VERSION: u32 = 7;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -2689,7 +2713,7 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
 
 fn file_crc(path: &Path) -> Option<u32> {
     use std::io::Read;
-    let mut file = fs::File::open(path).ok()?;
+    let mut file = crate::consoles::open_rom(path).ok()?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
