@@ -100,54 +100,54 @@ Hoy `crates/coverly-core/src/systems/systems.toml` define 54 sistemas. Faltan lo
 
 Cartuchos, cintas y discos que ya entran en los lectores actuales.
 
-- [ ] PlayStation 2 (`ps2`). El disco ya se detecta (`BOOT2` en `SYSTEM.CNF`, volumen `PLAYSTATION` mayor que un CD) y hoy sale como `Unsupported("PlayStation 2")`. Formatos: ISO, CHD, CSO, ZSO. Redump.
-- [ ] 3DO (`3do`). El disco ya se detecta y hoy sale como `Unsupported("3DO")`. Formatos: ISO, CUE/BIN, CHD.
-- [ ] Atari Jaguar y Jaguar CD (`jaguar`, `jaguarcd`). Formatos: `.j64`, `.jag`, `.rom`, `.abs`, `.cof`, CUE/BIN y CDI para el CD.
-- [ ] ColecoVision (`colecovision`). Formatos: `.col`, `.rom`.
-- [ ] Intellivision (`intellivision`). Formatos: `.int`, `.bin`, `.rom`.
-- [ ] Vectrex (`vectrex`). Formatos: `.vec`, `.gam`, `.bin`.
-- [ ] Magnavox Odyssey² / Videopac (`odyssey2`). Formato: `.bin`.
-- [ ] Fairchild Channel F (`channelf`). Formatos: `.bin`, `.chf`.
-- [ ] Emerson Arcadia 2001 (`arcadia`). Formato: `.bin`.
-- [ ] Watara Supervision (`supervision`). Formatos: `.sv`, `.bin`.
-- [ ] Sega SG-1000 / SC-3000 (`sg1000`). Formatos: `.sg`, `.sc`.
-- [ ] Sega Pico (`pico`). Formato: `.md`.
-- [ ] PC Engine SuperGrafx (`supergrafx`). Formatos: `.sgx`, `.pce`.
-- [ ] NEC PC-FX (`pcfx`). Formatos: CUE/BIN, CHD.
-- [ ] Philips CD-i (`cdi`). Formatos: CHD, CUE/BIN.
-- [ ] Amiga CD32 y CDTV (`amigacd32`, `cdtv`). Formatos: CUE/BIN, ISO, CHD.
-- [ ] Nintendo 64DD (`n64dd`). Formato: `.ndd`.
-- [ ] Satellaview y Sufami Turbo (`satellaview`, `sufami`). Formatos: `.bs`, `.st`.
-- [ ] Nintendo Famicom/NES en variantes de catálogo: comprobar si hacen falta entradas aparte para Famicom (BS-X, Disk Writer) o basta con alias.
-- [ ] Tiger Game.com (`gamecom`). Formatos: `.tgc`, `.bin`.
-- [ ] Mega Duck / Cougar Boy (`megaduck`). Formato: `.bin`.
-- [ ] Epoch Super Cassette Vision (`scv`). Formatos: `.bin`, `.0`.
-- [ ] Ordenadores:
-  - [ ] ZX Spectrum (`zxspectrum`). Formatos: `.tzx`, `.tap`, `.z80`, `.sna`, `.dsk`, `.scl`, `.trd`.
-  - [ ] ZX81 (`zx81`). Formatos: `.p`, `.81`.
-  - [ ] Amstrad CPC (`amstradcpc`). Formatos: `.dsk`, `.cdt`, `.sna`.
-  - [ ] Sharp X68000 (`x68000`). Formatos: `.dim`, `.xdf`, `.hdm`, `.hdf`, `.2hd`, `.m3u`.
-  - [ ] Sharp X1 (`x1`). Formatos: `.2d`, `.2hd`, `.dx1`, `.tap`.
-  - [ ] NEC PC-98 (`pc98`). Formatos: `.d88`, `.fdi`, `.hdi`, `.nhd`.
-  - [ ] NEC PC-88 (`pc88`). Formatos: `.d88`, `.t88`.
-  - [ ] FM Towns (`fmtowns`). Formatos: CUE/BIN, CHD, `.d88`.
-  - [ ] MSX2 y MSX turboR, si los perfiles los separan de `msx`.
-  - [ ] Apple II (`apple2`). Formatos: `.dsk`, `.do`, `.po`, `.nib`, `.woz`, `.2mg`.
-  - [ ] BBC Micro (`bbcmicro`). Formatos: `.ssd`, `.dsd`, `.uef`.
-  - [ ] Commodore Plus/4, PET y C128 (`plus4`, `pet`, `c128`). Formatos: `.prg`, `.d64`, `.t64`, `.tap`, `.crt`.
-  - [ ] Atari XE / XEGS, si los perfiles los separan de `a800`.
-  - [ ] TI-99/4A (`ti99`). Formatos: `.rpk`, `.ctg`, `.bin`.
-  - [ ] Thomson MO/TO (`thomson`). Formatos: `.fd`, `.k7`, `.m7`, `.rom`.
-  - [ ] Dragon 32/64 y TRS-80 CoCo (`dragon`, `coco`). Formatos: `.cas`, `.dsk`, `.ccc`.
-- [ ] Consolas de fantasía y homebrew:
-  - [ ] TIC-80 (`tic80`). Formato: `.tic`.
-  - [ ] WASM-4 (`wasm4`). Formato: `.wasm`.
-  - [ ] Arduboy (`arduboy`). Formatos: `.hex`, `.arduboy`.
-  - [ ] Uzebox (`uzebox`). Formatos: `.uze`, `.hex`.
-  - [ ] LowRes NX (`lowresnx`). Formato: `.nx`.
-  - [ ] Vircon32 (`vircon32`). Formato: `.v32`.
-- [ ] Ports y motores: PrBoom/Doom (`.wad`), Quake (`.pak`), Cave Story (NXEngine), Wolfenstein 3D (ECWolf), Mr. Boom, Dinothawr, Lutro, Solarus, Flashback (REminiscence), Rick Dangerous (XRick). Necesitan reglas de «juego = carpeta» como ScummVM.
-- [ ] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego.
+- [x] PlayStation 2 (`ps2`). El disco ya se detecta (`BOOT2` en `SYSTEM.CNF`, volumen `PLAYSTATION` mayor que un CD) y hoy sale como `Unsupported("PlayStation 2")`. Formatos: ISO, CHD, CSO, ZSO. Redump.
+- [x] 3DO (`3do`). El disco ya se detecta y hoy sale como `Unsupported("3DO")`. Formatos: ISO, CUE/BIN, CHD.
+- [x] Atari Jaguar y Jaguar CD (`jaguar`, `jaguarcd`). Formatos: `.j64`, `.jag`, `.rom`, `.abs`, `.cof`, CUE/BIN y CDI para el CD.
+- [x] ColecoVision (`colecovision`). Formatos: `.col`, `.rom`.
+- [x] Intellivision (`intellivision`). Formatos: `.int`, `.bin`, `.rom`.
+- [x] Vectrex (`vectrex`). Formatos: `.vec`, `.gam`, `.bin`.
+- [x] Magnavox Odyssey² / Videopac (`odyssey2`). Formato: `.bin`.
+- [x] Fairchild Channel F (`channelf`). Formatos: `.bin`, `.chf`.
+- [x] Emerson Arcadia 2001 (`arcadia`). Formato: `.bin`.
+- [x] Watara Supervision (`supervision`). Formatos: `.sv`, `.bin`.
+- [x] Sega SG-1000 / SC-3000 (`sg1000`). Formatos: `.sg`, `.sc`.
+- [x] Sega Pico (`pico`). Formato: `.md`.
+- [x] PC Engine SuperGrafx (`supergrafx`). Formatos: `.sgx`, `.pce`.
+- [x] NEC PC-FX (`pcfx`). Formatos: CUE/BIN, CHD.
+- [x] Philips CD-i (`cdi`). Formatos: CHD, CUE/BIN.
+- [x] Amiga CD32 y CDTV (`amigacd32`, `cdtv`). Formatos: CUE/BIN, ISO, CHD.
+- [x] Nintendo 64DD (`n64dd`). Formato: `.ndd`.
+- [x] Satellaview y Sufami Turbo (`satellaview`, `sufami`). Formatos: `.bs`, `.st`.
+- [x] Nintendo Famicom/NES en variantes de catálogo: comprobar si hacen falta entradas aparte para Famicom (BS-X, Disk Writer) o basta con alias.
+- [x] Tiger Game.com (`gamecom`). Formatos: `.tgc`, `.bin`.
+- [x] Mega Duck / Cougar Boy (`megaduck`). Formato: `.bin`.
+- [x] Epoch Super Cassette Vision (`scv`). Formatos: `.bin`, `.0`.
+- [x] Ordenadores:
+  - [x] ZX Spectrum (`zxspectrum`). Formatos: `.tzx`, `.tap`, `.z80`, `.sna`, `.dsk`, `.scl`, `.trd`.
+  - [x] ZX81 (`zx81`). Formatos: `.p`, `.81`.
+  - [x] Amstrad CPC (`amstradcpc`). Formatos: `.dsk`, `.cdt`, `.sna`.
+  - [x] Sharp X68000 (`x68000`). Formatos: `.dim`, `.xdf`, `.hdm`, `.hdf`, `.2hd`, `.m3u`.
+  - [x] Sharp X1 (`x1`). Formatos: `.2d`, `.2hd`, `.dx1`, `.tap`.
+  - [x] NEC PC-98 (`pc98`). Formatos: `.d88`, `.fdi`, `.hdi`, `.nhd`.
+  - [x] NEC PC-88 (`pc88`). Formatos: `.d88`, `.t88`.
+  - [x] FM Towns (`fmtowns`). Formatos: CUE/BIN, CHD, `.d88`.
+  - [x] MSX2 y MSX turboR, si los perfiles los separan de `msx`.
+  - [x] Apple II (`apple2`). Formatos: `.dsk`, `.do`, `.po`, `.nib`, `.woz`, `.2mg`.
+  - [x] BBC Micro (`bbcmicro`). Formatos: `.ssd`, `.dsd`, `.uef`.
+  - [x] Commodore Plus/4, PET y C128 (`plus4`, `pet`, `c128`). Formatos: `.prg`, `.d64`, `.t64`, `.tap`, `.crt`.
+  - [x] Atari XE / XEGS, si los perfiles los separan de `a800`.
+  - [x] TI-99/4A (`ti99`). Formatos: `.rpk`, `.ctg`, `.bin`.
+  - [x] Thomson MO/TO (`thomson`). Formatos: `.fd`, `.k7`, `.m7`, `.rom`.
+  - [x] Dragon 32/64 y TRS-80 CoCo (`dragon`, `coco`). Formatos: `.cas`, `.dsk`, `.ccc`.
+- [x] Consolas de fantasía y homebrew:
+  - [x] TIC-80 (`tic80`). Formato: `.tic`.
+  - [x] WASM-4 (`wasm4`). Formato: `.wasm`.
+  - [x] Arduboy (`arduboy`). Formatos: `.hex`, `.arduboy`.
+  - [x] Uzebox (`uzebox`). Formatos: `.uze`, `.hex`.
+  - [x] LowRes NX (`lowresnx`). Formato: `.nx`.
+  - [x] Vircon32 (`vircon32`). Formato: `.v32`.
+- [x] Ports y motores: PrBoom/Doom (`.wad`), Quake (`.pak`), Cave Story (NXEngine), Wolfenstein 3D (ECWolf), Mr. Boom, Dinothawr, Lutro, Solarus, Flashback (REminiscence), Rick Dangerous (XRick). Necesitan reglas de «juego = carpeta» como ScummVM.
+- [ ] Arcade adicional: Model 2, Model 3, Naomi 2, Triforce, Sega System 16/18/24/32, Taito Type X, Konami, Cave, CHD de MAME por juego. Hecho en el PR #32: Model 2, Model 3, Naomi 2, Triforce y CHD de MAME por juego; System 16/18/24/32 y Konami siguen en `mame`/`fbneo`. Pendiente de decisión: Taito Type X y Cave (`cave3rd`).
 
 ### Tanda 2: discos grandes y portátiles con formato propio
 
