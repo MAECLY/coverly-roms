@@ -134,7 +134,8 @@ impl Unit {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum Exclusion {
-    /// Under `PORTS/`, `BIOS/`, `APPS/`, an art or a save folder.
+    /// Under `PORTS/`, `BIOS/`, `APPS/`, an art or a save folder, or the
+    /// system folder of a folder-game system (`prboom/`, `scummvm/`, D15).
     Folder,
     /// A BIOS or firmware file: each core asks for its own name.
     Bios,
