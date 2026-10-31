@@ -63,11 +63,11 @@ Ejemplos: `Coverly-ROMs_0.3.0_mac_arm.dmg`, `Coverly-ROMs_0.3.0_windows_x64-setu
 
 La pantalla «estante y bandeja» da la información, pero se queda simple. Mejoras:
 
-- [ ] **Mostrar en Finder / Explorador / gestor de archivos** para cada copia (la que se queda y las que se apartan) y para la carpeta `_Duplicados/` tras aplicar. En Tauri, `tauri-plugin-opener` (`revealItemInDir`) cubre macOS, Windows y Linux; texto según el sistema: «Mostrar en Finder», «Mostrar en el Explorador», «Mostrar en la carpeta».
-- [ ] **Etiqueta de región** en cada copia (USA, Europe, Japan, World…, con su bandera o código), sacada del nombre del catálogo o de las etiquetas del nombre del archivo (`NameTags`). Cuando las copias son el mismo juego, la región es lo que más ayuda a decidir; también revisión (`Rev 1`), idioma (`En,Fr,De`) y marcas de volcado (`[!]`, `[b]`, hack, traducción) como etiquetas.
-- [ ] **Portadas**: hoy la pantalla no muestra ninguna. Enseñar la portada de cada grupo (y de cada copia si tiene la suya), reutilizando las de la biblioteca y las de libretro-thumbnails; con hueco de portada claro cuando falte.
-- [ ] Más detalle por copia: tamaño, formato (zip, 7z, CHD, CUE/BIN), fecha de modificación, si tiene partida guardada y de cuándo, y por qué regla se eligió la que se queda.
-- [ ] Repaso visual con el skill de diseño: jerarquía entre el juego, la copia que se queda y las apartadas; estados (conflicto, solo informado, otra versión) más visibles; atajos de teclado para elegir copia y aplicar; animación al apartar en la línea de la landing.
+- [x] **Mostrar en Finder / Explorador / gestor de archivos** para cada copia (la que se queda y las que se apartan) y para la carpeta `_Duplicados/` tras aplicar. En Tauri, `tauri-plugin-opener` (`revealItemInDir`) cubre macOS, Windows y Linux; texto según el sistema: «Mostrar en Finder», «Mostrar en el Explorador», «Mostrar en la carpeta».
+- [x] **Etiqueta de región** en cada copia (USA, Europe, Japan, World…, con su bandera o código), sacada del nombre del catálogo o de las etiquetas del nombre del archivo (`NameTags`). Cuando las copias son el mismo juego, la región es lo que más ayuda a decidir; también revisión (`Rev 1`), idioma (`En,Fr,De`) y marcas de volcado (`[!]`, `[b]`, hack, traducción) como etiquetas.
+- [x] **Portadas**: hoy la pantalla no muestra ninguna. Enseñar la portada de cada grupo (y de cada copia si tiene la suya), reutilizando las de la biblioteca y las de libretro-thumbnails; con hueco de portada claro cuando falte.
+- [x] Más detalle por copia: tamaño, formato (zip, 7z, CHD, CUE/BIN), fecha de modificación, si tiene partida guardada y de cuándo, y por qué regla se eligió la que se queda.
+- [x] Repaso visual con el skill de diseño: jerarquía entre el juego, la copia que se queda y las apartadas; estados (conflicto, solo informado, otra versión) más visibles; atajos de teclado para elegir copia y aplicar; animación al apartar en la línea de la landing.
 
 ## 1.6. Reordenar los ajustes de Biblioteca
 
