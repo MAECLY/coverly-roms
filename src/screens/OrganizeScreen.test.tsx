@@ -52,6 +52,21 @@ function renderScreen(source: string) {
   );
 }
 
+/** The innermost element whose whole text is `text` (numbers sit in mono spans). */
+const textOf = (text: string) =>
+  screen.getByText(
+    (_, el) =>
+      el !== null &&
+      el.textContent === text &&
+      Array.from(el.children).every((c) => c.textContent !== text),
+  );
+
+/** What a whole apply of `MOCK_DOWNLOADS` reports. */
+const RESULT = 'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3';
+/** A whole apply through the mock: about a hundred progress events, each
+ * repainting the stage, the readout and the track list. */
+const APPLY_WAIT = { timeout: 5000 };
+
 const ready = () =>
   waitFor(() => expect(useOrganizeStore.getState().status).toBe('ready'));
 
@@ -445,30 +460,41 @@ describe('OrganizeScreen', () => {
     expect(screen.queryByText(/^Extracting: /)).not.toBeInTheDocument();
   });
 
-  it('progress_shows_extracting_name_and_counts', async () => {
+  it('progress_shows_game_and_track_counters', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await ready();
     const s = useOrganizeStore.getState();
-    const disc = s.plan!.items.find(
-      (i) => i.sources[0] === 'Next Tetris, The.zip',
-    )!;
+    const games = s.plan!.items.filter(
+      (i) =>
+        i.action === 'auto' &&
+        i.target !== null &&
+        i.transfer.kind === 'extract',
+    );
+    expect(games).toHaveLength(3);
+    const second = games[1]!;
     act(() =>
       useOrganizeStore.setState({
         status: 'applying',
         progress: {
           plan_id: s.planId!,
           phase: 'extract',
-          item: disc.id,
+          item: second.id,
           done: 5,
           total: 19,
           bytes_done: 300,
           bytes_total: 1200,
+          entries_done: 4,
+          entries_total: 12,
         },
       }),
     );
+    const name = second.sources[0]!;
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Extracting Next Tetris, The.zip: 5 of 19 files…',
+      `Extracting ${name} into `,
     );
+    expect(textOf('Game 2 of 3')).toBeInTheDocument();
+    expect(textOf('Track 5 of 12')).toBeInTheDocument();
+    expect(screen.queryByText(/of \d+ files…/)).not.toBeInTheDocument();
     // The bar follows the bytes of the game being extracted.
     const bar = screen.getByRole('progressbar', {
       name: 'Organising progress',
@@ -477,19 +503,66 @@ describe('OrganizeScreen', () => {
     expect(bar).toHaveAttribute('aria-valuemax', '1200');
   });
 
+  it('cancelling an extraction says so and waits for the job', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await ready();
+    const s = useOrganizeStore.getState();
+    const game = s.plan!.items.find((i) => i.transfer.kind === 'extract')!;
+    const cancel = vi.spyOn(b, 'organizeCancelApply').mockResolvedValue();
+    act(() =>
+      useOrganizeStore.setState({
+        status: 'applying',
+        progress: {
+          plan_id: s.planId!,
+          phase: 'extract',
+          item: game.id,
+          done: 1,
+          total: 19,
+          bytes_done: 300,
+          bytes_total: 1200,
+          entries_done: 1,
+          entries_total: 12,
+        },
+      }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Cancelling…' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      `Cancelling: undoing what was extracted of ${game.sources[0]!}…`,
+    );
+  });
+
   it('follows extract progress events while applying', async () => {
     renderScreen(MOCK_DOWNLOADS);
     await userEvent.click(
       await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     expect(
-      await screen.findByText(/^Extracting .+\.zip: \d+ of 19 files…$/),
-    ).toBeInTheDocument();
-    expect(
       await screen.findByText(
-        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
+        (_, el) =>
+          el !== null &&
+          /^Game \d of 3$/.test(el.textContent ?? '') &&
+          Array.from(el.children).every(
+            (c) => !/^Game /.test(c.textContent ?? ''),
+          ),
       ),
     ).toBeInTheDocument();
+    expect(await screen.findByText(RESULT, {}, APPLY_WAIT)).toBeInTheDocument();
+  });
+
+  it('hands keyboard focus to the result once the progress block goes', async () => {
+    renderScreen(MOCK_DOWNLOADS);
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Organise 19 files' }),
+    );
+    expect(await screen.findByText(RESULT, {}, APPLY_WAIT)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Result' })).toHaveFocus(),
+    );
   });
 
   it('a RAR without its tool says what to install and scans again', async () => {
@@ -542,11 +615,7 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
-    expect(
-      await screen.findByText(
-        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(RESULT, {}, APPLY_WAIT)).toBeInTheDocument();
     expect(
       screen.queryByText('This is a proposal. Nothing has moved yet.'),
     ).not.toBeInTheDocument();
@@ -567,7 +636,7 @@ describe('OrganizeScreen', () => {
       await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Open library' }),
+      await screen.findByRole('button', { name: 'Open library' }, APPLY_WAIT),
     );
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
@@ -582,7 +651,7 @@ describe('OrganizeScreen', () => {
       await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Undo 19 files' }),
+      await screen.findByRole('button', { name: 'Undo 19 files' }, APPLY_WAIT),
     );
     await confirmUndo();
     expect(
@@ -604,7 +673,7 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Organise 19 files' }),
     );
-    await screen.findByRole('button', { name: 'Undo 19 files' });
+    await screen.findByRole('button', { name: 'Undo 19 files' }, APPLY_WAIT);
     const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
     await b.setEntryArtFromFile(lib.generation, 0, 'cover');
     await userEvent.click(
@@ -689,9 +758,7 @@ describe('OrganizeScreen', () => {
     await userEvent.click(
       screen.getByRole('button', { name: 'Organise 19 files' }),
     );
-    await screen.findByText(
-      'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
-    );
+    await screen.findByText(RESULT, {}, APPLY_WAIT);
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith(MOCK_DOWNLOADS, 'anbernic-stock'),
@@ -865,9 +932,7 @@ describe('OrganizeScreen', () => {
       await userEvent.click(
         await screen.findByRole('button', { name: 'Organise 19 files' }),
       );
-      await screen.findByText(
-        'Moved: 16 · Copied: 0 · Skipped: 0 · Errors: 0 · Extracted: 3',
-      );
+      await screen.findByText(RESULT, {}, APPLY_WAIT);
       expect(
         screen.queryByRole('button', { name: 'Scan again' }),
       ).not.toBeInTheDocument();

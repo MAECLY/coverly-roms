@@ -1993,4 +1993,61 @@ mod reads {
         want.sort();
         assert_eq!(got, want);
     }
+
+    /// D2: the real 7-Zip hands the wanted entries of a solid archive out
+    /// in ascending archive index, whatever order they are asked in (skips
+    /// without one). Phase A's staged count relies on it.
+    #[test]
+    fn real_seven_zip_streams_in_ascending_index() {
+        use coverly_core::archive::external::discover;
+        let tmp = tempfile::tempdir().expect("tmp");
+        let tools = discover(&[tmp.path()]);
+        let Some(seven) = tools.iter().find(|t| t.tool == Tool::SevenZip) else {
+            eprintln!("skipped: no 7-Zip found");
+            return;
+        };
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(&src).expect("src");
+        let files: [(&str, &[u8]); 4] = [
+            ("Game (Track 1).bin", b"track one bytes"),
+            ("Game (Track 2).bin", b"track two bytes"),
+            ("Game (Track 3).bin", b"track three bytes"),
+            ("Game.cue", b"FILE \"Game (Track 1).bin\" BINARY"),
+        ];
+        for (name, data) in files {
+            std::fs::write(src.join(name), data).expect("file");
+        }
+        let archive = tmp.path().join("t.7z");
+        let made = std::process::Command::new(&seven.path)
+            .args(["a", "-bd", "-bso0", "-ms=on", "--"])
+            .arg(&archive)
+            .args(files.iter().map(|(n, _)| *n))
+            .current_dir(&src)
+            .status()
+            .expect("7-Zip runs");
+        assert!(made.success(), "7-Zip made the archive");
+        let mut r = ToolReader::open(&tools, &archive, Format::SevenZip, &Limits::default())
+            .expect("listing");
+        let wanted: Vec<usize> = [3, 0, 2, 1]
+            .iter()
+            .map(|&k| index_of(&r, files[k].0))
+            .collect();
+        let mut budget = Budget::apply();
+        let mut seen = Vec::new();
+        r.stream_entries(
+            &wanted,
+            &mut budget,
+            &mut |e: &Entry, data: &mut dyn Read| {
+                std::io::copy(data, &mut std::io::sink()).map_err(ArchiveError::from)?;
+                seen.push(e.index);
+                Ok(())
+            },
+        )
+        .expect("one pass");
+        assert_eq!(seen.len(), wanted.len(), "every wanted entry streamed");
+        assert!(
+            seen.windows(2).all(|w| w[0] < w[1]),
+            "streamed in ascending index: {seen:?}"
+        );
+    }
 }

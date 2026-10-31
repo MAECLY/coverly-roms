@@ -18,6 +18,7 @@ import {
   MOCK_MIXED,
   MOCK_PICK_KEY,
   MOCK_SAMPLE,
+  readMockExtract,
   readMockPick,
 } from './mockOrganize';
 
@@ -1161,5 +1162,125 @@ describe('mock organise: archives and disc games', () => {
         again.plan.items.find((i) => i.sources[0] === c.name),
       ).toMatchObject({ action: 'auto', transfer: { kind: 'extract' } });
     }
+  });
+});
+
+describe('mock organise: extract pacing', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  const extractEvents = (events: OrganizeProgressEvent[]) => {
+    const byItem = new Map<
+      number,
+      Extract<OrganizeProgressEvent, { phase: 'extract' }>[]
+    >();
+    for (const e of events)
+      if (e.phase === 'extract')
+        byItem.set(e.item, [...(byItem.get(e.item) ?? []), e]);
+    return byItem;
+  };
+
+  it('emits_monotone_entries_done_ending_at_entries_total', async () => {
+    const b = backend();
+    const events: OrganizeProgressEvent[] = [];
+    await b.onOrganizeProgress((e) => events.push(e));
+    const view = await applied(b);
+    expect(view.state).toBe('done');
+    const byItem = extractEvents(events);
+    expect(byItem.size).toBe(3);
+    for (const list of byItem.values()) {
+      const total = list[0]!.entries_total!;
+      expect(total).toBeGreaterThan(1);
+      expect(list.every((e) => e.entries_total === total)).toBe(true);
+      const counts = list.map((e) => e.entries_done!);
+      expect(counts[0]).toBe(0);
+      expect(list[0]!.bytes_done).toBe(0);
+      expect(counts.at(-1)).toBe(total);
+      expect(list.at(-1)!.bytes_done).toBe(list.at(-1)!.bytes_total);
+      expect(counts.every((c, i) => i === 0 || c >= counts[i - 1]!)).toBe(true);
+      // Fast mode: one event per entry.
+      for (let k = 1; k <= total; k += 1) expect(counts).toContain(k);
+    }
+  });
+
+  it.each([
+    ['', 25],
+    ['?mockExtract=slow', 25],
+    ['?mockExtract=fast', 'fast'],
+    ['?mockExtract=80', 80],
+    ['?mockExtract=-3', 25],
+    ['?mockExtract=0', 25],
+    ['?mockExtract=abc', 25],
+  ])('reads_mock_extract %s', (search, want) => {
+    window.history.replaceState(null, '', `/${search}`);
+    expect(readMockExtract()).toEqual(want);
+  });
+
+  it('a_rate_run_paces_by_elapsed_time_and_cancels_mid_item', async () => {
+    const b = backend({ delayMs: 1, extractRate: 2000 });
+    const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    const events: OrganizeProgressEvent[] = [];
+    let first: number | null = null;
+    await b.onOrganizeProgress((e) => {
+      events.push(e);
+      if (e.phase !== 'extract') return;
+      first ??= e.item;
+      // Cancelled once the first game's first track is staged.
+      if (e.item === first && e.entries_done === 1)
+        void b.organizeCancelApply();
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('cancelled');
+    const mine = extractEvents(events).get(first!)!;
+    // Bytes move inside an entry before its ✓ (chunks paced by time).
+    expect(mine.some((e) => e.entries_done === 0 && e.bytes_done > 0)).toBe(
+      true,
+    );
+    expect(Math.max(...mine.map((e) => e.entries_done!))).toBeLessThan(
+      mine[0]!.entries_total!,
+    );
+    expect(view.report?.items.find((o) => o.item === first)).toEqual({
+      item: first,
+      status: 'skipped',
+      reason: 'cancelled',
+      targets: [],
+    });
+    const item = plan.items.find((i) => i.id === first)!;
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(
+      lib.entries.some((e) => e.rel_path.startsWith(`ROMS/${item.folder}/`)),
+    ).toBe(false);
+  });
+
+  it('a_cancel_during_the_check_pause_rolls_the_item_back', async () => {
+    // Rust honours a cancel until phase C: one sent while the sheets and
+    // names are checked (after the last entry) leaves nothing of the game.
+    const b = backend({ delayMs: 1, extractRate: 2000 });
+    const { plan_id, plan } = await b.organizePlan({ source: MOCK_DOWNLOADS });
+    let first: number | null = null;
+    await b.onOrganizeProgress((e) => {
+      if (e.phase !== 'extract') return;
+      first ??= e.item;
+      if (e.item === first && e.entries_done === e.entries_total)
+        void b.organizeCancelApply();
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('cancelled');
+    expect(view.report?.items.find((o) => o.item === first)).toEqual({
+      item: first,
+      status: 'skipped',
+      reason: 'cancelled',
+      targets: [],
+    });
+    const item = plan.items.find((i) => i.id === first)!;
+    const lib = await b.openLibrary(MOCK_DOWNLOADS, 'anbernic-stock');
+    expect(
+      lib.entries.some((e) => e.rel_path.startsWith(`ROMS/${item.folder}/`)),
+    ).toBe(false);
   });
 });

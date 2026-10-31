@@ -68,7 +68,8 @@ interface OrganizeState {
    * by file. No-op while a plan runs or once an apply started. */
   refresh(): Promise<void>;
   apply(): Promise<void>;
-  cancel(): Promise<void>;
+  /** False when the backend refused or failed the cancel request. */
+  cancel(): Promise<boolean>;
   resume(): Promise<void>;
   /** Resumes an interrupted job of the history (no plan on screen);
    * `source` is the folder the screen shows for it (the journal root). */
@@ -444,19 +445,22 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         } else {
           set({ status: 'idle', progress: null, refreshing: false });
         }
-        if (id === null) return;
+        if (id === null) return true;
         try {
           await (await getBackend()).organizeCancel(id);
         } catch (e) {
           set({ error: toBackendError(e) });
+          return false;
         }
       } else if (status === 'applying') {
         try {
           await (await getBackend()).organizeCancelApply();
         } catch (e) {
           set({ error: toBackendError(e) });
+          return false;
         }
       }
+      return true;
     },
     async resume() {
       const job = get().job?.job;

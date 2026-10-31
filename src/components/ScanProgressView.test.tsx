@@ -20,10 +20,74 @@ describe('ScanProgressView', () => {
         />
       </I18nProvider>,
     );
-    expect(screen.getByText('12.345 ROMs encontradas')).toBeInTheDocument();
+    const found = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'SPAN' && el.textContent === '12.345 ROMs encontradas',
+    );
+    expect(
+      [...found.querySelectorAll('.mono')].map((e) => e.textContent),
+    ).toEqual(['12.345']);
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '3');
     expect(bar).toHaveAttribute('aria-valuemax', '18');
+  });
+
+  it('announces only the sentence, not every tick (AP-3)', () => {
+    render(
+      <I18nProvider locale="es">
+        <ScanProgressView
+          path="/mock/Fixture SD (12k)"
+          progress={{
+            generation: 1,
+            done: 12,
+            total: 40,
+            folder: 'Game Boy Advance',
+            roms: 312,
+          }}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('status').textContent).toBe('Leyendo la carpeta…');
+  });
+
+  it('reads out the folder count in mono, the ROMs found and the folder', () => {
+    render(
+      <I18nProvider locale="es">
+        <ScanProgressView
+          path="/mock/Fixture SD (12k)"
+          progress={{
+            generation: 1,
+            done: 12,
+            total: 40,
+            folder: 'Game Boy Advance',
+            roms: 312,
+          }}
+        />
+      </I18nProvider>,
+    );
+    const amount = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'SPAN' && el.textContent === 'Carpeta 12 de 40',
+    );
+    const mono = [...amount.querySelectorAll('.mono')].map(
+      (e) => e.textContent,
+    );
+    expect(mono).toEqual(['12', '40']);
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'SPAN' && el.textContent === '312 ROMs encontradas',
+      ),
+    ).toBeInTheDocument();
+    const folder = screen.getByText('Game Boy Advance');
+    expect(folder.closest('.mono')).not.toBeNull();
+    expect(folder.closest('[title]')).toHaveAttribute(
+      'title',
+      'Game Boy Advance',
+    );
+    expect(
+      screen.getByRole('img', { name: 'Progreso del escaneo' }),
+    ).toBeInTheDocument();
   });
 
   it('is indeterminate until the first folder reports', () => {
@@ -35,5 +99,6 @@ describe('ScanProgressView', () => {
     expect(screen.getByRole('progressbar')).not.toHaveAttribute(
       'aria-valuenow',
     );
+    expect(screen.getByRole('status').textContent).toBe('Reading the folder…');
   });
 });

@@ -30,6 +30,11 @@ describe('locales', () => {
       expect(vars(value(en, key)), key).toEqual(vars(value(es, key)));
   });
 
+  it('drops the old extraction line with its misleading file count', () => {
+    for (const catalog of [en, es])
+      expect(flatten(catalog)).not.toContain('organize.extracting');
+  });
+
   it('never puts a capitalised art name mid-sentence in Spanish', () => {
     const p = es.profiles;
     for (const v of [p.slot, p.template, p.max_width, p.max_height])

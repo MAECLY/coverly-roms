@@ -7,7 +7,8 @@ use std::fmt::Write as _;
 use std::io::{self, IsTerminal};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::time::SystemTime;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant, SystemTime};
 
 use clap::{Args, ValueEnum};
 use coverly_core::archive::{FoundTool, Tool};
@@ -227,10 +228,47 @@ pub(crate) fn parse_assign(s: &str) -> Result<(PathBuf, String), Failure> {
     Ok((PathBuf::from(file), system))
 }
 
-/// Whether a progress event is worth a line: phase starts, ends and
-/// every 25th file (the hash phase reports every file).
-fn progress_due(p: OrganizeProgress) -> bool {
-    p.done == 0 || p.done == p.total || p.done.is_multiple_of(25)
+/// Decides which progress events get a terminal line: phase starts and
+/// ends and every 25th file (the hash phase reports every file); for an
+/// extraction, its first event, the one with every entry staged, and each
+/// other change of its staged entries at most once a second.
+#[derive(Default)]
+struct ProgressGate {
+    /// The extraction last printed: item, staged entries, when.
+    last: Mutex<Option<(usize, usize, Instant)>>,
+}
+
+impl ProgressGate {
+    fn due(&self, p: OrganizeProgress, now: Instant) -> bool {
+        let OrganizePhase::Extract {
+            item,
+            entries_done,
+            entries_total,
+            ..
+        } = p.phase
+        else {
+            return p.done == 0 || p.done == p.total || p.done.is_multiple_of(25);
+        };
+        let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        // A new item is its first event; all entries staged is its last
+        // one (the core reports it twice: at the edge and after commit).
+        // Byte ticks never print a line of their own, and a count already
+        // printed is never printed again.
+        let due = match *last {
+            Some((i, e, at)) => {
+                i != item
+                    || (e != entries_done
+                        && (entries_done == entries_total
+                            || now.duration_since(at) >= Duration::from_secs(1)))
+            }
+            None => true,
+        };
+        if due {
+            *last = Some((item, entries_done, now));
+            return true;
+        }
+        false
+    }
 }
 
 /// ScreenScraper is asked by CRC only when this build has it, the user
@@ -245,21 +283,32 @@ fn online_wanted(s: &Settings, keys: &SourceKeys, offline: bool) -> bool {
             .any(|e| e.id == "screenscraper" && e.enabled)
 }
 
-/// Prints `identify 40/631` lines to stderr, only when it is a terminal.
-fn progress_line(p: OrganizeProgress) {
+/// `identify 40/631`, or `extract item 19/40 files 4/12` (plan item, then
+/// the item's staged entries).
+fn progress_text(p: OrganizeProgress) -> Option<String> {
     let phase = match p.phase {
         OrganizePhase::Walk => "walk",
         OrganizePhase::Identify => "identify",
         OrganizePhase::Dats => "catalogues",
         OrganizePhase::Hash => "hash",
         OrganizePhase::Apply => "apply",
-        OrganizePhase::Extract { .. } => "extract",
+        OrganizePhase::Extract {
+            entries_done,
+            entries_total,
+            ..
+        } => {
+            return Some(format!(
+                "extract item {}/{} files {entries_done}/{entries_total}",
+                p.done + 1,
+                p.total
+            ));
+        }
     };
-    if p.total == 0 {
-        eprintln!("{phase}");
+    Some(if p.total == 0 {
+        phase.to_string()
     } else {
-        eprintln!("{phase} {}/{}", p.done, p.total);
-    }
+        format!("{phase} {}/{}", p.done, p.total)
+    })
 }
 
 pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
@@ -322,9 +371,13 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         fail("cannot find the app cache/data folders; pass --cache-dir and --data-dir")
     })?;
     let tty = io::stderr().is_terminal();
+    // Lines go to stderr, only when it is a terminal.
+    let gate = ProgressGate::default();
     let progress = move |p: OrganizeProgress| {
-        if tty && progress_due(p) {
-            progress_line(p);
+        if tty && gate.due(p, Instant::now()) {
+            if let Some(line) = progress_text(p) {
+                eprintln!("{line}");
+            }
         }
     };
     let cancel = AtomicBool::new(false);
@@ -1276,11 +1329,115 @@ mod tests {
     #[test]
     fn progress_is_printed_sparingly() {
         let at = |phase, done, total| OrganizeProgress { phase, done, total };
-        assert!(progress_due(at(OrganizePhase::Walk, 0, 0)));
-        assert!(progress_due(at(OrganizePhase::Hash, 0, 500)));
-        assert!(!progress_due(at(OrganizePhase::Hash, 7, 500)));
-        assert!(progress_due(at(OrganizePhase::Hash, 25, 500)));
-        assert!(progress_due(at(OrganizePhase::Hash, 500, 500)));
+        let due = |p| ProgressGate::default().due(p, Instant::now());
+        assert!(due(at(OrganizePhase::Walk, 0, 0)));
+        assert!(due(at(OrganizePhase::Hash, 0, 500)));
+        assert!(!due(at(OrganizePhase::Hash, 7, 500)));
+        assert!(due(at(OrganizePhase::Hash, 25, 500)));
+        assert!(due(at(OrganizePhase::Hash, 500, 500)));
+    }
+
+    #[test]
+    fn progress_text_names_the_item_and_its_files() {
+        let p = OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                item: 3,
+                bytes_done: 5,
+                bytes_total: 10,
+                entries_done: 4,
+                entries_total: 12,
+            },
+            done: 18,
+            total: 40,
+        };
+        assert_eq!(
+            progress_text(p).as_deref(),
+            Some("extract item 19/40 files 4/12")
+        );
+        let walk = OrganizeProgress {
+            phase: OrganizePhase::Walk,
+            done: 0,
+            total: 0,
+        };
+        assert_eq!(progress_text(walk).as_deref(), Some("walk"));
+        let hash = OrganizeProgress {
+            phase: OrganizePhase::Hash,
+            done: 40,
+            total: 631,
+        };
+        assert_eq!(progress_text(hash).as_deref(), Some("hash 40/631"));
+    }
+
+    #[test]
+    fn extract_lines_follow_entries_not_bytes() {
+        let gate = ProgressGate::default();
+        let t0 = Instant::now();
+        let x = |b, e| OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                item: 1,
+                bytes_done: b,
+                bytes_total: 100,
+                entries_done: e,
+                entries_total: 3,
+            },
+            done: 0,
+            total: 1,
+        };
+        assert!(gate.due(x(0, 0), t0), "first event");
+        assert!(
+            !gate.due(x(10, 0), t0 + Duration::from_millis(100)),
+            "byte tick"
+        );
+        assert!(
+            gate.due(x(20, 1), t0 + Duration::from_millis(1100)),
+            "entry change"
+        );
+        assert!(
+            !gate.due(x(30, 2), t0 + Duration::from_millis(1200)),
+            "within a second"
+        );
+        assert!(
+            gate.due(x(100, 3), t0 + Duration::from_millis(1300)),
+            "last event"
+        );
+    }
+
+    /// The core's real tail: the last chunk of the last entry (all bytes,
+    /// one entry short), the all-staged edge, then the post-commit report.
+    /// Only the all-staged line is new; the others repeat or skip the 1 s.
+    #[test]
+    fn extract_tail_prints_each_count_once() {
+        let gate = ProgressGate::default();
+        let t0 = Instant::now();
+        let x = |item, b, e| OrganizeProgress {
+            phase: OrganizePhase::Extract {
+                item,
+                bytes_done: b,
+                bytes_total: 100,
+                entries_done: e,
+                entries_total: 3,
+            },
+            done: 0,
+            total: 2,
+        };
+        assert!(gate.due(x(1, 0, 0), t0), "first event");
+        assert!(gate.due(x(1, 60, 2), t0 + Duration::from_millis(1100)));
+        assert!(
+            !gate.due(x(1, 100, 2), t0 + Duration::from_millis(1150)),
+            "last chunk, same count, within a second"
+        );
+        assert!(
+            gate.due(x(1, 100, 3), t0 + Duration::from_millis(1160)),
+            "all staged"
+        );
+        assert!(
+            !gate.due(x(1, 100, 3), t0 + Duration::from_millis(1400)),
+            "post-commit report repeats the line"
+        );
+        assert!(
+            gate.due(x(2, 0, 0), t0 + Duration::from_millis(1500)),
+            "next item"
+        );
     }
 
     #[test]

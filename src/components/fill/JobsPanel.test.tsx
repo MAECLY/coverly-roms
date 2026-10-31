@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '@/App';
+import { JobsPanel } from '@/components/fill/JobsPanel';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { setBackend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
@@ -19,7 +20,7 @@ import { resetLibraryStore, useLibraryStore } from '@/stores/libraryStore';
 import { useNavStore } from '@/stores/navStore';
 import { useDedupeStore } from '@/stores/dedupeStore';
 import { useOrganizeStore } from '@/stores/organizeStore';
-import type { ItemErrorKind } from '@/ipc/types';
+import type { ItemErrorKind, JobView } from '@/ipc/types';
 import { stubLayout } from '@/test/layout';
 
 import en from '../../../locales/en/ui.json';
@@ -635,6 +636,150 @@ describe('Jobs panel', () => {
       within(dialog).getByRole('button', {
         name: 'Deshacer el último trabajo',
       }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Jobs panel readout', () => {
+  let now = 0;
+  beforeEach(() => {
+    now = 0;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    setBackend(null);
+  });
+
+  const JOB: JobView = {
+    id: 7,
+    generation: 1,
+    state: 'applying',
+    progress: null,
+    paused: null,
+    plan: null,
+    decided: 0,
+    skipped: 0,
+    journal: null,
+    result: null,
+    error: null,
+  };
+
+  async function panel(locale: 'en' | 'es' = 'en') {
+    setBackend(
+      createMockBackend({ delayMs: 0, now: FIXTURE_NOW, pauseAfter: null }),
+    );
+    resetLibraryStore();
+    useJobStore.getState().reset();
+    await useLibraryStore.getState().open(MOCK_LIBRARIES[1].path);
+    const view = useLibraryStore.getState().view!;
+    act(() => useJobStore.setState({ job: JOB, progress: progressAt(0) }));
+    render(
+      <I18nProvider locale={locale}>
+        <JobsPanel view={view} onClose={() => {}} />
+      </I18nProvider>,
+    );
+    return screen.findByRole('dialog');
+  }
+
+  const progressAt = (done: number) => ({
+    job: JOB.id,
+    phase: 'apply' as const,
+    done,
+    total: 120,
+    label: 'Snes/Chrono Trigger (USA).sfc',
+  });
+
+  /** Elements whose whole text is `text` (numbers sit in their own span). */
+  const textIs = (text: string) => (_: string, el: Element | null) =>
+    el?.textContent === text;
+
+  /** One cover every 2 s for `seconds`, the clock and the timers together. */
+  function cover(from: number, seconds: number) {
+    for (let s = 1; s <= seconds; s++) {
+      act(() => {
+        now += 1000;
+        vi.advanceTimersByTime(1000);
+        useJobStore.setState({
+          progress: progressAt(from + Math.floor(s / 2)),
+        });
+      });
+    }
+  }
+
+  it('shows no rate or time left before 5 covers', async () => {
+    const dialog = await panel();
+    cover(0, 4);
+    expect(useJobStore.getState().progress?.done).toBe(2);
+    expect(within(dialog).queryAllByText(/per minute/)).toHaveLength(0);
+    expect(within(dialog).queryByText(/left|Working out/)).toBeNull();
+  });
+
+  it('waits for 5 covers even after a long, slow run', async () => {
+    const dialog = await panel();
+    // One cover every 8 s: 4 covers in 32 s, a rate the hook can measure.
+    for (let s = 1; s <= 32; s++) {
+      act(() => {
+        now += 1000;
+        vi.advanceTimersByTime(1000);
+        useJobStore.setState({ progress: progressAt(Math.floor(s / 8)) });
+      });
+    }
+    expect(useJobStore.getState().progress?.done).toBe(4);
+    expect(within(dialog).queryAllByText(/per minute/)).toHaveLength(0);
+    expect(within(dialog).queryByText(/left|Working out/)).toBeNull();
+  });
+
+  it('shows covers per minute and time left after 20 s', async () => {
+    const dialog = await panel();
+    cover(0, 18);
+    // 9 covers, but under 20 s of run: still nothing.
+    expect(within(dialog).queryAllByText(/per minute/)).toHaveLength(0);
+    cover(9, 42);
+    expect(useJobStore.getState().progress?.done).toBe(30);
+    expect(
+      within(dialog).getAllByText(textIs('30 per minute'))[0],
+    ).toBeInTheDocument();
+    // 90 covers left at 30 a minute.
+    expect(
+      within(dialog).getByText('About 3 minutes left'),
+    ).toBeInTheDocument();
+    const label = within(dialog).getByText('Snes/Chrono Trigger (USA).sfc');
+    expect(label).toHaveClass('mono');
+    expect(within(dialog).getByRole('progressbar')).toHaveAttribute(
+      'aria-valuetext',
+      'Writing art: 31 of 120',
+    );
+  });
+
+  it('hides the rate and the time left while paused', async () => {
+    const dialog = await panel();
+    cover(0, 60);
+    expect(
+      within(dialog).getAllByText(textIs('30 per minute'))[0],
+    ).toBeInTheDocument();
+    act(() =>
+      useJobStore.setState({
+        job: {
+          ...JOB,
+          state: 'paused',
+          paused: { phase: 'apply', kind: 'rate-limit', detail: 'thegamesdb' },
+        },
+      }),
+    );
+    expect(within(dialog).queryAllByText(/per minute/)).toHaveLength(0);
+    expect(within(dialog).queryByText(/left$/)).toBeNull();
+  });
+
+  it('speaks Spanish with the numbers in mono', async () => {
+    const dialog = await panel('es');
+    cover(0, 60);
+    const rate = within(dialog).getAllByText(textIs('30 por minuto'))[0]!;
+    expect(within(rate).getByText('30').closest('.mono')).not.toBeNull();
+    expect(
+      within(dialog).getByText('Quedan unos 3 minutos'),
     ).toBeInTheDocument();
   });
 });

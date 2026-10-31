@@ -99,10 +99,22 @@ pub struct ExtractRequest<'a> {
     /// decodes bytes this item does not want (a solid block's other
     /// entries) or waits for decoder memory.
     pub cancel: &'a Arc<AtomicBool>,
-    /// Called with the bytes decoded for this item so far: the entries
-    /// written to temps plus every entry the decoder had to go through
-    /// to reach them (the rest of a solid block), out of [`decode_total`].
-    pub progress: &'a dyn Fn(u64),
+    /// Called as phase A goes: with every chunk decoded, and once right
+    /// after each entry is staged. See [`ExtractTick`].
+    pub progress: &'a dyn Fn(ExtractTick),
+}
+
+/// What phase A has done for one item so far.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExtractTick {
+    /// Bytes decoded for this item: the entries written to temps plus
+    /// every entry the decoder had to go through to reach them (the rest
+    /// of a solid block), out of [`decode_total`].
+    pub bytes: u64,
+    /// Entries staged: written, re-read and CRC-equal (adopted ones
+    /// included). Always the first `entries_done` plan entries by archive
+    /// index, since every backend streams the wanted entries ascending.
+    pub entries_done: usize,
 }
 
 /// One entry decoded to its temp and verified.
@@ -1097,7 +1109,10 @@ impl Run<'_, '_> {
                 k.extend_from_slice(&buf[..n]);
             }
             in_entry += n as u64;
-            (self.req.progress)(before.saturating_add(in_entry));
+            (self.req.progress)(ExtractTick {
+                bytes: before.saturating_add(in_entry),
+                entries_done: self.staged.len(),
+            });
             since_check += n as u64;
             if since_check >= CANCEL_EVERY {
                 since_check = 0;
@@ -1132,6 +1147,10 @@ impl Run<'_, '_> {
             crc32,
             bytes: kept,
             adopted: false,
+        });
+        (self.req.progress)(ExtractTick {
+            bytes: before.saturating_add(in_entry),
+            entries_done: self.staged.len(),
         });
         Ok(())
     }
@@ -1178,7 +1197,10 @@ impl Run<'_, '_> {
                 k.extend_from_slice(&buf[..n]);
             }
             in_entry += n as u64;
-            (self.req.progress)(before.saturating_add(in_entry));
+            (self.req.progress)(ExtractTick {
+                bytes: before.saturating_add(in_entry),
+                entries_done: self.staged.len(),
+            });
             since_check += n as u64;
             if since_check >= CANCEL_EVERY {
                 since_check = 0;
@@ -1217,6 +1239,10 @@ impl Run<'_, '_> {
             crc32,
             bytes: kept,
             adopted: true,
+        });
+        (self.req.progress)(ExtractTick {
+            bytes: before.saturating_add(in_entry),
+            entries_done: self.staged.len(),
         });
         Ok(())
     }

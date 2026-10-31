@@ -152,7 +152,13 @@ export function OrganizeResult({
       aria-labelledby="organize-result-title"
       className="flex flex-col gap-3"
     >
-      <h2 id="organize-result-title" className={sectionTitle}>
+      <h2
+        id="organize-result-title"
+        // Focusable from script only: the screen hands focus here when the
+        // progress block it replaces held it.
+        tabIndex={-1}
+        className={`${sectionTitle} outline-none`}
+      >
         {t(paused ? 'organize.pausedTitle' : 'organize.resultTitle')}
       </h2>
       {report &&
