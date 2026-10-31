@@ -1584,3 +1584,45 @@ fn loose_wasm_hex_lua_are_unknown() {
     let stems: Vec<&str> = s.roms.iter().map(|r| r.stem.as_str()).collect();
     assert_eq!(stems, ["game"]);
 }
+
+#[test]
+fn fantasy_console_carts_move_only_with_their_signature() {
+    // Uzebox and Vircon32 are DECISIVE: a `.uze` without `UZEBOX` or a
+    // `.v32` without `V32-CART` is contradicted and never moves on its
+    // own; with the marker it does. `.tic` and `.nx` (LowRes NX source,
+    // text, D26) have no header and move on their unique extension.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut bare_uze = fx::uzebox();
+    bare_uze[..6].copy_from_slice(b"xxxxxx");
+    let mut bare_v32 = fx::vircon32();
+    bare_v32[..8].copy_from_slice(b"xxxxxxxx");
+    let mut tic = vec![0u8; 1024];
+    tic[0] = 0x05; // a TIC-80 code chunk
+    let nx = b"PRINT \"HELLO\"\nGOTO 1\n".repeat(32);
+    for (name, bytes, want) in [
+        ("Game.uze", fx::uzebox(), Some("uzebox")),
+        ("Bare.uze", bare_uze, None),
+        ("Game.v32", fx::vircon32(), Some("vircon32")),
+        ("Bare.v32", bare_v32, None),
+        ("Game.tic", tic, Some("tic80")),
+        ("Game.nx", nx, Some("lowresnx")),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        match want {
+            Some(sys) => assert_eq!(
+                (id.combined.system.as_deref(), id.combined.verdict),
+                (Some(sys), Verdict::Auto),
+                "{name}: {:?}",
+                id.combined
+            ),
+            None => assert_ne!(
+                id.combined.verdict,
+                Verdict::Auto,
+                "{name}: {:?}",
+                id.combined
+            ),
+        }
+    }
+}

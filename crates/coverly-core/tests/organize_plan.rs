@@ -2904,3 +2904,52 @@ fn facts_of_version_5_are_read_again() {
         "gba"
     );
 }
+
+#[test]
+fn an_arduboy_package_moves_as_one_raw_file() {
+    // D25: an `.arduboy` is a zip holding `info.json` beside its `.hex`;
+    // it moves as-is into the Arduboy folder, never extracted. A loose
+    // Intel HEX beside it never moves (D4).
+    use coverly_core::organize::Transfer;
+    let dir = TempDir::new().unwrap();
+    let pkg = dir.path().join("Arduventure.arduboy");
+    common::roms::zip_file(
+        &pkg,
+        &[
+            ("info.json", b"{\"title\":\"Arduventure\"}", true),
+            ("Arduventure.hex", b":00000001FF\n", true),
+        ],
+    );
+    filetime::set_file_mtime(&pkg, hour_ago()).unwrap();
+    put(&dir.path().join("firmware.hex"), b":00000001FF\r\n");
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("batocera")
+        },
+    );
+    let item = by_name(&plan, "Arduventure.arduboy");
+    assert_eq!(item.system_id.as_deref(), Some("arduboy"));
+    assert_eq!(item.action, OrganizeAction::Auto, "{:?}", item.why);
+    assert_eq!(item.transfer, Transfer::AsIs);
+    assert_eq!(item.sources.len(), 1);
+    let target: Vec<String> = item
+        .target
+        .as_ref()
+        .unwrap()
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        target.iter().rev().take(2).collect::<Vec<_>>(),
+        [&"Arduventure.arduboy".to_string(), &"arduboy".to_string()]
+    );
+    assert!(plan
+        .items
+        .iter()
+        .filter(|i| file_name(&i.sources[0]) == "firmware.hex")
+        .all(OrganizeItem::is_left));
+}
