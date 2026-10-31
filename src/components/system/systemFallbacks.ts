@@ -32,6 +32,13 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   arcadia: 'ARC',
   scv: 'SCV',
   jaguar: 'JAG',
+  // Sega, NEC and Nintendo add-ons (plan Task 6), same interim Slot mount.
+  sg1000: 'SG1K',
+  pico: 'PICO',
+  supergrafx: 'SGX',
+  n64dd: '64DD',
+  satellaview: 'BSX',
+  sufami: 'ST',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

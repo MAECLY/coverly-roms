@@ -516,7 +516,12 @@
         "roms_root": "ROMS",
         "art_dirs": ["Imgs"],
         "gamelist": false,
-        "host_folders": { "ngpc": "ngp", "wonderswancolor": "wonderswan" },
+        "host_folders": {
+          "ngpc": "ngp",
+          "satellaview": "snes",
+          "supergrafx": "pcengine",
+          "wonderswancolor": "wonderswan"
+        },
         "slots": {
           "cover": {
             "template": "{system_dir}/{rel_dir}/Imgs/{stem}.png",
@@ -537,6 +542,10 @@
           "colecovision": "COLECO",
           "intellivision": "INTELLIVISION",
           "odyssey2": "ODYSSEY",
+          "satellaview": "SATELLAVIEW",
+          "sg1000": "SEGASGONE",
+          "sufami": "SUFAMI",
+          "supergrafx": "SGFX",
           "vectrex": "VECTREX"
         },
         "name": "GarlicOS",
@@ -564,6 +573,10 @@
           "colecovision": "COLECO",
           "intellivision": "INTELLIVISION",
           "odyssey2": "ODYSSEY",
+          "satellaview": "SATELLAVIEW",
+          "sg1000": "SEGASGONE",
+          "sufami": "SUFAMI",
+          "supergrafx": "SGFX",
           "vectrex": "VECTREX"
         },
         "name": "Onion OS",
@@ -593,9 +606,15 @@
           "colecovision": "colecovision",
           "intellivision": "intellivision",
           "jaguar": "jaguar",
+          "n64dd": "n64dd",
           "odyssey2": "odyssey2",
           "pcfx": "pcfx",
+          "pico": "segapico",
+          "satellaview": "satellaview",
           "scv": "scv",
+          "sg1000": "sg1000",
+          "sufami": "sufami",
+          "supergrafx": "supergrafx",
           "vectrex": "vectrex"
         },
         "name": "muOS",
@@ -627,12 +646,14 @@
         "accepts_containers": ["zip"],
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
         "folder_names": {
-          "colecovision": "COLECO"
+          "colecovision": "COLECO",
+          "sg1000": "SG1000"
         },
         "name": "MinUI / NextUI",
         "roms_root": "Roms",
         "art_dirs": [".media", ".res"],
         "gamelist": false,
+        "host_folders": { "satellaview": "snes" },
         "slots": {
           "cover": {
             "template": "{system_dir}/{rel_dir}/.media/{stem}.png",
@@ -661,10 +682,15 @@
           "intellivision": "intellivision",
           "jaguar": "atarijaguar",
           "jaguarcd": "atarijaguarcd",
+          "n64dd": "n64dd",
           "odyssey2": "odyssey2",
           "pcfx": "pcfx",
           "ps2": "ps2",
+          "satellaview": "satellaview",
           "scv": "scv",
+          "sg1000": "sg-1000",
+          "sufami": "sufami",
+          "supergrafx": "supergrafx",
           "vectrex": "vectrex"
         },
         "name": "ES-DE",
@@ -712,10 +738,16 @@
           "intellivision": "intellivision",
           "jaguar": "jaguar",
           "jaguarcd": "jaguarcd",
+          "n64dd": "n64dd",
           "odyssey2": "odyssey2",
           "pcfx": "pcfx",
+          "pico": "pico",
           "ps2": "ps2",
+          "satellaview": "satellaview",
           "scv": "scv",
+          "sg1000": "sg1000",
+          "sufami": "sufami",
+          "supergrafx": "supergrafx",
           "vectrex": "vectrex"
         },
         "name": "Batocera / Knulli / EmulationStation",

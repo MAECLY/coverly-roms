@@ -683,14 +683,18 @@ fn a_web_page_and_a_collection_are_left() {
 }
 
 #[test]
-fn an_unsupported_system_is_left_with_its_name() {
+fn a_zipped_pico_cart_is_no_longer_left_unsupported() {
+    // Sega Pico was the last cart `Unsupported` verdict (spec §8.1): its
+    // zip is now organised as Sega Pico.
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path().join("Pico Game.zip");
     zip_file(&p, &[("Pico Game.md", &fx::pico(), true)]);
-    assert!(matches!(
-        identify(&p, &FakeCatalogue::empty()).left,
-        Some(LeftReason::UnsupportedSystem { .. })
-    ));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.left, None);
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("pico"), Verdict::Auto)
+    );
 }
 
 #[test]
@@ -1188,5 +1192,85 @@ fn a_coleco_bin_with_test_bytes_is_only_a_candidate() {
     assert_eq!(
         (col.combined.system.as_deref(), col.combined.verdict),
         (Some("colecovision"), Verdict::Auto)
+    );
+}
+
+/// Pseudo-random bytes with no header any rule reads.
+fn opaque(len: usize) -> Vec<u8> {
+    let mut seed = 0x0bad_5eedu32;
+    (0..len)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8 | 1
+        })
+        .collect()
+}
+
+#[test]
+fn pico_md_beats_megadrive() {
+    // D24: `SEGA PICO` proves pico, which lists `md` as weak, so the Mega
+    // Drive's strong `.md` is contradicted.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.md");
+    let bytes = fx::pico();
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "md");
+    let ev = extension_evidence(&SystemDb::builtin(), "md", &s);
+    let md = ev.iter().find(|e| e.system == "megadrive").unwrap();
+    assert_eq!((md.weight, md.detail.as_str()), (0.60, "md!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("pico"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn sufami_st_beats_atarist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Sailor Moon (Japan).st");
+    let bytes = fx::sufami(false);
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "st");
+    let ev = extension_evidence(&SystemDb::builtin(), "st", &s);
+    let st = ev.iter().find(|e| e.system == "atarist").unwrap();
+    assert_eq!((st.weight, st.detail.as_str()), (0.60, "st!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("sufami"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn plain_st_stays_atarist() {
+    // Without the magic a `.st` is an Atari ST disk, as before the batch.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Prince of Persia.st");
+    std::fs::write(&p, opaque(720 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("atarist"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn sgx_now_supergrafx() {
+    // D3: `.sgx` is SuperGrafx's own format; PC Engine keeps it as weak.
+    let empty = Sniff::default();
+    let ev = extension_evidence(&SystemDb::builtin(), "sgx", &empty);
+    assert_eq!(ev.len(), 1, "{ev:?}");
+    assert_eq!(
+        (ev[0].system.as_str(), ev[0].weight, ev[0].detail.as_str()),
+        ("supergrafx", 0.85, "sgx")
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Daimakaimura (Japan).sgx");
+    std::fs::write(&p, opaque(512 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("supergrafx"), Verdict::Auto)
     );
 }

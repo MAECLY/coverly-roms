@@ -207,7 +207,9 @@ expression: rows
       "channelf",
       "arcadia",
       "scv",
-      "jaguar"
+      "jaguar",
+      "sg1000",
+      "pico"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -232,17 +234,20 @@ expression: rows
       "channelf",
       "arcadia",
       "scv",
-      "jaguar"
+      "jaguar",
+      "sg1000",
+      "pico"
     ]
   },
   {
     "accepting": [
-      "snes"
+      "snes",
+      "satellaview"
     ],
     "class": "Unique",
     "ext": "bs",
     "strong": [
-      "snes"
+      "satellaview"
     ]
   },
   {
@@ -825,7 +830,8 @@ expression: rows
   },
   {
     "accepting": [
-      "megadrive"
+      "megadrive",
+      "pico"
     ],
     "class": "Unique",
     "ext": "md",
@@ -901,6 +907,16 @@ expression: rows
     "ext": "n64",
     "strong": [
       "n64"
+    ]
+  },
+  {
+    "accepting": [
+      "n64dd"
+    ],
+    "class": "Unique",
+    "ext": "ndd",
+    "strong": [
+      "n64dd"
     ]
   },
   {
@@ -1019,7 +1035,8 @@ expression: rows
   },
   {
     "accepting": [
-      "pcengine"
+      "pcengine",
+      "supergrafx"
     ],
     "class": "Unique",
     "ext": "pce",
@@ -1069,6 +1086,16 @@ expression: rows
   },
   {
     "accepting": [
+      "sg1000"
+    ],
+    "class": "Unique",
+    "ext": "sc",
+    "strong": [
+      "sg1000"
+    ]
+  },
+  {
+    "accepting": [
       "scummvm"
     ],
     "class": "Unique",
@@ -1079,12 +1106,24 @@ expression: rows
   },
   {
     "accepting": [
-      "snes"
+      "snes",
+      "satellaview",
+      "sufami"
     ],
     "class": "Unique",
     "ext": "sfc",
     "strong": [
       "snes"
+    ]
+  },
+  {
+    "accepting": [
+      "sg1000"
+    ],
+    "class": "Unique",
+    "ext": "sg",
+    "strong": [
+      "sg1000"
     ]
   },
   {
@@ -1099,17 +1138,20 @@ expression: rows
   },
   {
     "accepting": [
-      "pcengine"
+      "pcengine",
+      "supergrafx"
     ],
     "class": "Unique",
     "ext": "sgx",
     "strong": [
-      "pcengine"
+      "supergrafx"
     ]
   },
   {
     "accepting": [
-      "snes"
+      "snes",
+      "satellaview",
+      "sufami"
     ],
     "class": "Unique",
     "ext": "smc",
@@ -1139,7 +1181,8 @@ expression: rows
   },
   {
     "accepting": [
-      "atarist"
+      "atarist",
+      "sufami"
     ],
     "class": "Unique",
     "ext": "st",

@@ -167,3 +167,69 @@ fn scoped_aliases_resolve_only_under_a_profile() {
     );
     assert!(db.resolve_folder_in(Some(&p), "").is_none());
 }
+
+fn builtin(id: &str) -> coverly_core::profiles::Profile {
+    builtin_profiles().into_iter().find(|p| p.id == id).unwrap()
+}
+
+#[test]
+fn anbernic_hosts_keep_old_destinations() {
+    // D23: the stock card has `PCE` and `SFC` only, so a SuperGrafx or
+    // Satellaview game lands where it did before the batch.
+    let db = SystemDb::builtin();
+    let p = builtin("anbernic-stock");
+    let none = BTreeMap::new();
+    for (id, host, folder) in [
+        ("supergrafx", "pcengine", "PCE"),
+        ("satellaview", "snes", "SFC"),
+    ] {
+        let c = system_folder(&p, db.get(id).unwrap(), &db, &none);
+        assert_eq!(
+            (c.folder.as_str(), c.host.as_deref(), c.on_device),
+            (folder, Some(host), Some(true)),
+            "{id}"
+        );
+    }
+    // Sufami Turbo never gets a host (no evidence the SFC core runs it).
+    let c = system_folder(&p, db.get("sufami").unwrap(), &db, &none);
+    assert_eq!((c.host, c.on_device), (None, Some(false)));
+    // Onion has its own SGFX and SATELLAVIEW folders: no host there.
+    let onion = builtin("onion");
+    let c = system_folder(&onion, db.get("supergrafx").unwrap(), &db, &none);
+    assert_eq!((c.folder.as_str(), c.host), ("SGFX", None));
+}
+
+#[test]
+fn pico_is_sega_pico_only_on_batocera() {
+    use coverly_core::profiles::custom::{validate_profile, ProfileFile};
+    // D6: `pico` is Sega Pico on Batocera/Knulli, PICO-8 elsewhere and
+    // with no profile.
+    let db = SystemDb::builtin();
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    let batocera = builtin("batocera");
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&batocera), "pico")),
+        Some("pico".into())
+    );
+    for other in ["onion", "anbernic-stock", "muos"] {
+        assert_eq!(
+            id(db.resolve_folder_in(Some(&builtin(other)), "PICO")),
+            Some("pico8".into()),
+            "{other}"
+        );
+    }
+    assert_eq!(id(db.resolve_folder("pico")), Some("pico8".into()));
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&builtin("muos")), "segapico")),
+        Some("pico".into())
+    );
+    // A custom Batocera clone keeps `pico` as Sega Pico's folder.
+    let mut file = ProfileFile::from_profile(&batocera);
+    file.id = "my-batocera".into();
+    assert_eq!(
+        file.folder_names.get("pico").map(String::as_str),
+        Some("pico")
+    );
+    let ids: Vec<String> = builtin_profiles().into_iter().map(|p| p.id).collect();
+    assert!(validate_profile(&file, &ids).is_empty());
+}

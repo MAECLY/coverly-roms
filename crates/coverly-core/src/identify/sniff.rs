@@ -15,8 +15,8 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 9] = [
-    "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex",
+pub const DECISIVE: [&str; 11] = [
+    "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
 ];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
@@ -565,6 +565,13 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         s.hit("gba", 0.95, "fixed 0x96, logo");
         return;
     }
+    // Snes9x `is_SufamiTurbo_Cart` (memmap.cpp): a cart opens with
+    // `BANDAI SFC-ADX`; the base unit's BIOS also does, with
+    // `SFC-ADX BACKUP` after it. Checked before the SNES header.
+    if starts(head, 0, b"BANDAI SFC-ADX") && !starts(head, 0x10, b"SFC-ADX BACKUP") {
+        s.hit("sufami", 0.95, "BANDAI SFC-ADX");
+        return;
+    }
     if let Some(weight) = snes_header(src, head, len) {
         let detail = if weight >= 0.95 {
             "internal header"
@@ -647,7 +654,7 @@ fn gba_signature(head: &[u8]) -> Option<bool> {
 
 /// The Sega family, most specific first (spec §6.3): Sega CD, 32X and Pico
 /// also carry `SEGA` at 0x100, so they are checked before Mega Drive.
-/// Returns whether a signature matched (a hit or the Pico veto).
+/// Returns whether a signature matched.
 fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
     if starts(head, 0, b"SEGADISCSYSTEM") || starts(head, 0x10, b"SEGADISCSYSTEM") {
         s.hit("segacd", 0.95, "SEGADISCSYSTEM");
@@ -662,7 +669,7 @@ fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
         return true;
     }
     if starts(head, 0x100, b"SEGA PICO") {
-        s.unsupported = Some("Sega Pico".into());
+        s.hit("pico", 0.95, "SEGA PICO");
         return true;
     }
     if sega_at_100 {
@@ -959,6 +966,20 @@ pub mod fixtures {
     pub fn pico() -> Vec<u8> {
         let mut b = zeros(128 * 1024);
         b[0x100..0x109].copy_from_slice(b"SEGA PICO");
+        b
+    }
+
+    /// A Sufami Turbo cartridge (`bios`: the base unit's own ROM, whose
+    /// second line reads `SFC-ADX BACKUP`).
+    pub fn sufami(bios: bool) -> Vec<u8> {
+        let mut b = zeros(if bios { 256 } else { 512 } * 1024);
+        b[..14].copy_from_slice(b"BANDAI SFC-ADX");
+        let line: &[u8; 14] = if bios {
+            b"SFC-ADX BACKUP"
+        } else {
+            b"SYNTH SUFAMI  "
+        };
+        b[0x10..0x1E].copy_from_slice(line);
         b
     }
 

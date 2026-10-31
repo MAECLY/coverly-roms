@@ -16,6 +16,15 @@ const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
 const DEFAULT_ARCADE: [&str; 2] = ["fbneo", "mame"];
 /// Systems the Anbernic family keeps in another system's folder.
 const ANBERNIC_HOSTS: [(&str, &str); 2] = [("ngpc", "ngp"), ("wonderswancolor", "wonderswan")];
+/// D23: sub-systems the stock card has only the parent's folder for
+/// (`PCE`, `SFC` are in [`ANBERNIC_FOLDERS`]), so their games keep the
+/// destination they had before the batch.
+const ANBERNIC_STOCK_HOSTS: [(&str, &str); 2] =
+    [("supergrafx", "pcengine"), ("satellaview", "snes")];
+/// D23 on MinUI / NextUI: only a parent whose NextUI pak runs the
+/// sub-system (`SFC.pak` is Snes9x, which loads BS-X carts; `PCE.pak` is
+/// Beetle PCE Fast, which has no SuperGrafx, so SuperGrafx stays Absent).
+const MINUI_HOSTS: [(&str, &str); 1] = [("satellaview", "snes")];
 /// Arcade order of the Anbernic family (its card has one folder each).
 const ANBERNIC_ARCADE: [&str; 6] = ["fbneo", "mame", "cps1", "cps2", "cps3", "neogeo"];
 /// Folder names of the stock Anbernic card (reference `~/Documents/ROMS`).
@@ -180,6 +189,52 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
             None,
         ],
     ),
+    // Sega, NEC and Nintendo add-ons (Task 6).
+    (
+        "sg1000",
+        [
+            Some("sg-1000"),
+            Some("sg1000"),
+            Some("sg1000"),
+            Some("SEGASGONE"),
+            Some("SG1000"),
+        ],
+    ),
+    ("pico", [None, Some("pico"), Some("segapico"), None, None]),
+    (
+        "supergrafx",
+        [
+            Some("supergrafx"),
+            Some("supergrafx"),
+            Some("supergrafx"),
+            Some("SGFX"),
+            None,
+        ],
+    ),
+    (
+        "n64dd",
+        [Some("n64dd"), Some("n64dd"), Some("n64dd"), None, None],
+    ),
+    (
+        "satellaview",
+        [
+            Some("satellaview"),
+            Some("satellaview"),
+            Some("satellaview"),
+            Some("SATELLAVIEW"),
+            None,
+        ],
+    ),
+    (
+        "sufami",
+        [
+            Some("sufami"),
+            Some("sufami"),
+            Some("sufami"),
+            Some("SUFAMI"),
+            None,
+        ],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
@@ -210,6 +265,13 @@ const GAME_FOLDER: DiscLayout = DiscLayout::GameFolder {
     m3u_for_multi: true,
 };
 
+fn hosts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|&(s, h)| (s.to_string(), h.to_string()))
+        .collect()
+}
+
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -220,9 +282,13 @@ fn strings(items: &[&str]) -> Vec<String> {
 /// `docs/02-research/layouts.md`); their templates are editable defaults.
 pub fn builtin_profiles() -> Vec<Profile> {
     vec![
-        Profile {
-            known_folders: strings(&ANBERNIC_FOLDERS),
-            ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS", None)
+        {
+            let mut p = Profile {
+                known_folders: strings(&ANBERNIC_FOLDERS),
+                ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS", None)
+            };
+            p.host_folders.extend(hosts(&ANBERNIC_STOCK_HOSTS));
+            p
         },
         imgs_profile("garlicos", "GarlicOS", "Roms", Some(ONION)),
         imgs_profile("onion", "Onion OS", "Roms", Some(ONION)),
@@ -249,6 +315,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
         },
         Profile {
             folders: folders(Some(MINUI)),
+            host_folders: hosts(&MINUI_HOSTS),
             system_folder: FolderNaming::FirstAlias,
             disc_layout: GAME_FOLDER,
             // MinUI's launcher unpacks `.zip` only (R1-12).
@@ -348,10 +415,7 @@ fn imgs_profile(id: &str, name: &str, roms_root: &str, column: Option<usize>) ->
     Profile {
         folders: folders(column),
         system_folder: FolderNaming::FirstAlias,
-        host_folders: ANBERNIC_HOSTS
-            .iter()
-            .map(|&(s, h)| (s.to_string(), h.to_string()))
-            .collect(),
+        host_folders: hosts(&ANBERNIC_HOSTS),
         arcade_order: strings(&ANBERNIC_ARCADE),
         ..profile(
             id,

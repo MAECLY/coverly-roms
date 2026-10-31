@@ -123,6 +123,7 @@ const handheld = (
   name: string,
   romsRoot: string,
   folderNames?: Record<string, string>,
+  hosts: Record<string, string> = {},
 ): ProfileInfo => ({
   profile: {
     id,
@@ -131,7 +132,7 @@ const handheld = (
     roms_root: romsRoot,
     art_dirs: ['Imgs'],
     gamelist: false,
-    host_folders: { ngpc: 'ngp', wonderswancolor: 'wonderswan' },
+    host_folders: { ngpc: 'ngp', ...hosts, wonderswancolor: 'wonderswan' },
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
@@ -162,20 +163,38 @@ const EARLY_CONSOLES = {
   scv: 'scv',
   vectrex: 'vectrex',
 };
+/** Sega, NEC and Nintendo add-ons (Task 6) named alike on ES-DE,
+ * Batocera and muOS. */
+const ADD_ONS = {
+  n64dd: 'n64dd',
+  satellaview: 'satellaview',
+  sufami: 'sufami',
+  supergrafx: 'supergrafx',
+};
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
   intellivision: 'INTELLIVISION',
   odyssey2: 'ODYSSEY',
   vectrex: 'VECTREX',
+  satellaview: 'SATELLAVIEW',
+  sg1000: 'SEGASGONE',
+  sufami: 'SUFAMI',
+  supergrafx: 'SGFX',
 };
-const MINUI_FOLDERS = { colecovision: 'COLECO' };
+const MINUI_FOLDERS = { colecovision: 'COLECO', sg1000: 'SG1000' };
+/** D23 hosts: a sub-system kept in its parent's folder. */
+const ANBERNIC_STOCK_HOSTS = { satellaview: 'snes', supergrafx: 'pcengine' };
+const MINUI_HOSTS = { satellaview: 'snes' };
 const MUOS_FOLDERS = {
   '3do': '3do',
   cdi: 'cdi',
   pcfx: 'pcfx',
   ...EARLY_CONSOLES,
   jaguar: 'jaguar',
+  ...ADD_ONS,
+  pico: 'segapico',
+  sg1000: 'sg1000',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -189,6 +208,8 @@ const ESDE_FOLDERS = {
   ...EARLY_CONSOLES,
   arcadia: 'arcadia',
   jaguar: 'atarijaguar',
+  ...ADD_ONS,
+  sg1000: 'sg-1000',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -202,12 +223,21 @@ const BATOCERA_FOLDERS = {
   ...EARLY_CONSOLES,
   arcadia: 'arcadia',
   jaguar: 'jaguar',
+  ...ADD_ONS,
+  pico: 'pico',
+  sg1000: 'sg1000',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
  * them (pinned to the Rust ones by the contract sample). */
 export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
-  handheld('anbernic-stock', 'Anbernic stock', 'ROMS'),
+  handheld(
+    'anbernic-stock',
+    'Anbernic stock',
+    'ROMS',
+    undefined,
+    ANBERNIC_STOCK_HOSTS,
+  ),
   handheld('garlicos', 'GarlicOS', 'Roms', ONION_FOLDERS),
   handheld('onion', 'Onion OS', 'Roms', ONION_FOLDERS),
   {
@@ -235,6 +265,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       accepts_containers: ['zip'],
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       folder_names: MINUI_FOLDERS,
+      host_folders: MINUI_HOSTS,
       name: 'MinUI / NextUI',
       roms_root: 'Roms',
       art_dirs: ['.media', '.res'],

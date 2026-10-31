@@ -336,9 +336,14 @@ fn sega_cd_32x_and_pico_never_come_out_as_mega_drive() {
         best(&run(&fx::sega32x(), "32x")),
         Some(("sega32x".into(), 0.95))
     );
+    // A Pico cart is Sega Pico now (spec §8.1), never Mega Drive.
     let pico = run(&fx::pico(), "md");
-    assert!(pico.hits.is_empty());
-    assert_eq!(pico.unsupported.as_deref(), Some("Sega Pico"));
+    assert!(pico
+        .hits
+        .iter()
+        .any(|h| h.system == "pico" && h.weight >= 0.95));
+    assert!(pico.hits.iter().all(|h| h.system != "megadrive"));
+    assert_eq!(pico.unsupported, None);
 }
 
 #[test]
@@ -731,4 +736,32 @@ fn jaguar_abs_and_cof() {
 #[test]
 fn vectrex_is_decisive() {
     assert!(coverly_core::identify::sniff::DECISIVE.contains(&"vectrex"));
+}
+
+#[test]
+fn sufami_magic() {
+    // Snes9x `is_SufamiTurbo_Cart`: `BANDAI SFC-ADX` at 0, and not the
+    // `SFC-ADX BACKUP` line of the BIOS at 0x10.
+    for ext in ["st", "sfc", "smc", "bin"] {
+        assert_eq!(
+            best(&run(&fx::sufami(false), ext)),
+            Some(("sufami".into(), 0.95)),
+            ".{ext}"
+        );
+    }
+    let bios = run(&fx::sufami(true), "st");
+    assert!(bios.hits.iter().all(|h| h.system != "sufami"));
+    let mut near = fx::sufami(false);
+    near[0] = b'b';
+    assert!(run(&near, "st").hits.iter().all(|h| h.system != "sufami"));
+}
+
+#[test]
+fn pico_and_sufami_are_decisive() {
+    for id in ["pico", "sufami"] {
+        assert!(
+            coverly_core::identify::sniff::DECISIVE.contains(&id),
+            "{id}"
+        );
+    }
 }

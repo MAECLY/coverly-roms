@@ -1174,7 +1174,7 @@ mod tests {
             .iter()
             .map(|s| s.id.as_str())
             .collect();
-        assert_eq!(ids, ["atarist", "zz"]);
+        assert_eq!(ids, ["atarist", "sufami", "zz"]);
         assert_eq!(db.systems_for_extension("st").len(), 1);
     }
 

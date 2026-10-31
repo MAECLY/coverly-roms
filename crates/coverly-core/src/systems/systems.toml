@@ -384,7 +384,9 @@ name = "PC Engine / TurboGrafx-16"
 family = "console"
 aliases = ["PCE", "pcengine", "tg16", "turbografx16", "PC Engine"]
 # Anbernic stock also keeps CD images (chd, cue) in PCE.
-extensions = ["pce", "sgx", "chd", "cue", "zip", "7z"]
+extensions = ["pce", "chd", "cue", "zip", "7z"]
+# `.sgx` is SuperGrafx's own format (D3); the PCE folder still accepts it.
+weak_extensions = ["sgx"]
 libretro = "NEC - PC Engine - TurboGrafx 16"
 screenscraper = 31
 
@@ -475,7 +477,9 @@ id = "snes"
 name = "Super Nintendo"
 family = "console"
 aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
-extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
+extensions = ["sfc", "smc", "fig", "swc", "zip", "7z"]
+# `.bs` is Satellaview's own format (D3); the SFC folder still accepts it.
+weak_extensions = ["bs"]
 libretro = "Nintendo - Super Nintendo Entertainment System"
 header = "snes-copier"
 screenscraper = 4
@@ -708,3 +712,68 @@ extensions = ["j64", "jag", "rom", "bin", "zip", "7z"]
 weak_extensions = ["abs", "cof"]
 libretro = "Atari - Jaguar"
 screenscraper = 27
+
+# Sega, NEC and Nintendo add-ons (systems batch 1, Task 6).
+
+[[system]]
+id = "sg1000"
+name = "Sega SG-1000 / SC-3000"
+family = "console"
+aliases = ["SEGASGONE", "sg1000", "sg-1000", "sc3000"]
+extensions = ["sg", "sc", "bin", "zip", "7z"]
+libretro = "Sega - SG-1000"
+screenscraper = 109
+
+[[system]]
+id = "pico"
+name = "Sega Pico"
+family = "console"
+# `pico` is PICO-8's global alias; Batocera's `pico` folder is Sega Pico
+# only under that profile (D6).
+aliases = ["SEGAPICO"]
+extensions = ["bin", "zip", "7z"]
+# `.md` is the Mega Drive's; a `SEGA PICO` header proves a Pico cart (D24).
+weak_extensions = ["md"]
+libretro = "Sega - PICO"
+screenscraper = 250
+
+[[system]]
+id = "supergrafx"
+name = "PC Engine SuperGrafx"
+family = "console"
+aliases = ["SGFX", "supergrafx"]
+extensions = ["sgx", "zip", "7z"]
+weak_extensions = ["pce"]
+libretro = "NEC - PC Engine SuperGrafx"
+screenscraper = 105
+
+[[system]]
+id = "n64dd"
+name = "Nintendo 64DD"
+family = "console"
+aliases = ["N64DD", "64dd"]
+extensions = ["ndd", "zip", "7z"]
+libretro = "Nintendo - Nintendo 64DD"
+screenscraper = 122
+
+[[system]]
+id = "satellaview"
+name = "Nintendo Satellaview"
+family = "console"
+# BS-X is the Satellaview (D17): no separate Famicom entry.
+aliases = ["SATELLAVIEW", "bsx", "bs-x"]
+extensions = ["bs", "zip", "7z"]
+weak_extensions = ["sfc", "smc"]
+libretro = "Nintendo - Satellaview"
+screenscraper = 107
+
+[[system]]
+id = "sufami"
+name = "Bandai Sufami Turbo"
+family = "console"
+aliases = ["SUFAMI", "sufamiturbo"]
+extensions = ["zip", "7z"]
+# `.st` is the Atari ST's; the `BANDAI SFC-ADX` header proves a cart.
+weak_extensions = ["st", "sfc", "smc"]
+libretro = "Nintendo - Sufami Turbo"
+screenscraper = 108

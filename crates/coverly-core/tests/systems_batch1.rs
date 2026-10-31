@@ -38,6 +38,13 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("arcadia", Family::Console, false),
     ("scv", Family::Console, false),
     ("jaguar", Family::Console, false),
+    // Sega, NEC and Nintendo add-ons (Task 6).
+    ("sg1000", Family::Console, false),
+    ("pico", Family::Console, false),
+    ("supergrafx", Family::Console, false),
+    ("n64dd", Family::Console, false),
+    ("satellaview", Family::Console, false),
+    ("sufami", Family::Console, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -58,6 +65,19 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("batocera", "odyssey2", "odyssey2", None),
     ("muos", "scv", "scv", None),
     ("onion", "arcadia", "ARCADIA", Some(false)),
+    // Sega, NEC and Nintendo add-ons (Task 6).
+    ("esde", "sg1000", "sg-1000", None),
+    ("onion", "sg1000", "SEGASGONE", None),
+    ("minui", "sg1000", "SG1000", None),
+    ("batocera", "pico", "pico", None),
+    ("muos", "pico", "segapico", None),
+    ("esde", "pico", "SEGAPICO", Some(false)),
+    ("onion", "supergrafx", "SGFX", None),
+    ("anbernic-stock", "supergrafx", "PCE", Some(true)),
+    ("minui", "satellaview", "SFC", None),
+    ("minui", "supergrafx", "SGFX", Some(false)),
+    ("onion", "sufami", "SUFAMI", None),
+    ("esde", "n64dd", "n64dd", None),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -80,6 +100,9 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     ("jaguar", "abs", fx::jaguar_abs, Some("jaguar")),
     ("jaguar", "cof", fx::jaguar_cof, Some("jaguar")),
     ("jaguar", "j64", fx::jaguar_abs, None),
+    // Sega, NEC and Nintendo add-ons (Task 6).
+    ("pico", "md", fx::pico, Some("pico")),
+    ("sufami", "st", || fx::sufami(false), Some("sufami")),
 ];
 
 fn research(name: &str) -> String {
@@ -283,4 +306,23 @@ fn arcadia_folder_is_scoped_but_arcadia2001_is_global() {
             p.id
         );
     }
+}
+
+#[test]
+fn famicom_and_fc_stay_nes() {
+    // D17: Famicom variants are aliases, not entries; BS-X is Satellaview.
+    let db = SystemDb::builtin();
+    for (name, want) in [
+        ("famicom", "nes"),
+        ("FC", "nes"),
+        ("bsx", "satellaview"),
+        ("bs-x", "satellaview"),
+    ] {
+        assert_eq!(
+            db.resolve_folder(name).map(|s| s.id.as_str()),
+            Some(want),
+            "{name}"
+        );
+    }
+    assert!(db.get("famicom").is_none());
 }
