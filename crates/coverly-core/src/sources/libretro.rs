@@ -344,8 +344,14 @@ impl<'a> LibretroSource<'a> {
     }
 
     /// Every match in one server folder: canonical name, then the file
-    /// name, then fuzzy when nothing exact was found. Unsorted.
-    fn matches(&self, server: &str, q: &ArtQuery) -> Result<Vec<Candidate>, SourceError> {
+    /// name, then (when `fuzzy` and nothing exact was found) fuzzy.
+    /// Unsorted.
+    fn matches(
+        &self,
+        server: &str,
+        q: &ArtQuery,
+        fuzzy: bool,
+    ) -> Result<Vec<Candidate>, SourceError> {
         let index = self.index(server, q.media)?;
         let mut out: Vec<Candidate> = Vec::new();
         let mut taken = vec![false; index.entries.len()];
@@ -381,7 +387,7 @@ impl<'a> LibretroSource<'a> {
                 }
             }
             // 4. fuzzy, only when nothing exact was found.
-            if out.is_empty() && q.fuzzy && !q.rom.key.is_empty() {
+            if out.is_empty() && fuzzy && q.fuzzy && !q.rom.key.is_empty() {
                 let mut scored: Vec<(u8, usize)> = index
                     .entries
                     .iter()
@@ -470,14 +476,31 @@ impl ArtSource for LibretroSource<'_> {
 
     fn candidates(&self, q: &ArtQuery) -> Result<Vec<Candidate>, SourceError> {
         let server = self.server_system(q.system)?;
-        let mut out = self.matches(&server, q)?;
-        // Extra folders (spec D9), in order, only while nothing was found.
-        for also in &q.system.libretro_also {
-            if !out.is_empty() {
-                break;
+        let mut out = self.matches(&server, q, q.system.libretro_also.is_empty())?;
+        if out.is_empty() && !q.system.libretro_also.is_empty() {
+            // Extra folders (spec D9): every folder by exact name first, in
+            // order, so a near title in the primary never hides the exact
+            // cover in an extra folder; fuzzy only when none had it, again
+            // primary first. Folders missing from the live root are skipped.
+            let mut folders = vec![server];
+            for also in &q.system.libretro_also {
+                if let Some(s) = self.server_folder(also)? {
+                    folders.push(s);
+                }
             }
-            if let Some(server) = self.server_folder(also)? {
-                out = self.matches(&server, q)?;
+            for server in folders.iter().skip(1) {
+                out = self.matches(server, q, false)?;
+                if !out.is_empty() {
+                    break;
+                }
+            }
+            if out.is_empty() {
+                for server in &folders {
+                    out = self.matches(server, q, true)?;
+                    if !out.is_empty() {
+                        break;
+                    }
+                }
             }
         }
         sort_candidates(&mut out);
@@ -622,6 +645,47 @@ mod tests {
         missing.serve_libretro_index(DS, "Named_Boxarts", &["Other Game (USA).png"]);
         let (found, has) = lookup(&missing, "Foo (USA)");
         assert!(found.iter().all(|c| c.kind == MatchKind::Fuzzy) && !has);
+
+        // A near title in the primary must not hide the exact cover in the
+        // extra folder (spec §9: every folder by name before any fuzzy).
+        let near = MockServer::start();
+        near.serve_libretro_root(&[DS, DSI]);
+        near.serve_libretro_index(DS, "Named_Boxarts", &["Puzzle Quest Galaxy (USA).png"]);
+        near.serve_libretro_index(DSI, "Named_Boxarts", &["Puzzle Quest Galaxie (USA).png"]);
+        let (found, has) = lookup(&near, "Puzzle Quest Galaxie (USA)");
+        assert!(has);
+        assert_eq!(
+            found.first().map(|c| c.kind),
+            Some(MatchKind::NameExact),
+            "{found:?}"
+        );
+        assert!(
+            found[0]
+                .url
+                .contains(&format!("/{}/Named_Boxarts/", encode_segment(DSI))),
+            "{}",
+            found[0].url
+        );
+
+        // Only near titles anywhere: the primary's fuzzy hit still answers.
+        let fuzzy = MockServer::start();
+        fuzzy.serve_libretro_root(&[DS, DSI]);
+        fuzzy.serve_libretro_index(DS, "Named_Boxarts", &["Puzzle Quest Galaxy (USA).png"]);
+        fuzzy.serve_libretro_index(DSI, "Named_Boxarts", &["Unrelated Thing (USA).png"]);
+        let (found, has) = lookup(&fuzzy, "Puzzle Quest Galaxie (USA)");
+        assert!(!has);
+        assert_eq!(
+            found.first().map(|c| c.kind),
+            Some(MatchKind::Fuzzy),
+            "{found:?}"
+        );
+        assert!(
+            found[0]
+                .url
+                .contains(&format!("/{}/Named_Boxarts/", encode_segment(DS))),
+            "{}",
+            found[0].url
+        );
     }
 
     #[test]
