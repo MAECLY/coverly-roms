@@ -7,6 +7,9 @@
 #   extensions  ROM extensions, lowercase, without the dot
 #   libretro    playlist folder name exactly as on https://thumbnails.libretro.com/
 #               (live server root listing, not the GitHub umbrella repo names)
+#   libretro_also  extra libretro-thumbnails folders tried, in order, after
+#               libretro for cover lookup only (e.g. a digital-only catalogue);
+#               {libretro} in templates keeps the primary; needs libretro
 #   arcade      ROM set short names instead of game titles
 #   multi_file  disc system: cue/bin, m3u, gdi, chd
 #   header      header rule for content hashing: plain (default), nes, fds,

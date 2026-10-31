@@ -332,6 +332,80 @@ impl<'a> LibretroSource<'a> {
         Ok(index)
     }
 
+    /// The live root's spelling of a folder name (any case), or `None`
+    /// when the server does not list it.
+    fn server_folder(&self, name: &str) -> Result<Option<String>, SourceError> {
+        let wanted = name.to_lowercase();
+        Ok(self
+            .root()?
+            .iter()
+            .find(|s| s.to_lowercase() == wanted)
+            .cloned())
+    }
+
+    /// Every match in one server folder: canonical name, then the file
+    /// name, then fuzzy when nothing exact was found. Unsorted.
+    fn matches(&self, server: &str, q: &ArtQuery) -> Result<Vec<Candidate>, SourceError> {
+        let index = self.index(server, q.media)?;
+        let mut out: Vec<Candidate> = Vec::new();
+        let mut taken = vec![false; index.entries.len()];
+        let mut push = |i: usize, kind: MatchKind, score: u8, out: &mut Vec<Candidate>| {
+            if !taken[i] {
+                taken[i] = true;
+                out.push(self.candidate(server, q.media, &index.entries[i], kind, score));
+            }
+        };
+        // 1. canonical (DAT / arcade) name, then its other regions.
+        if let Some(canon) = q.canonical {
+            let key = libretro_key(&sanitise_libretro(canon));
+            if let Some(&i) = index.by_key.get(&key) {
+                push(i, MatchKind::Canonical, 100, &mut out);
+            }
+            let title = parse_name(canon, false).key;
+            for (i, e) in index.entries.iter().enumerate() {
+                if !title.is_empty() && e.parsed.key == title {
+                    push(i, MatchKind::TitleExact, 95, &mut out);
+                }
+            }
+        }
+        if q.by_name {
+            // 2. the ROM file name as is.
+            let key = libretro_key(&sanitise_libretro(q.stem));
+            if let Some(&i) = index.by_key.get(&key) {
+                push(i, MatchKind::NameExact, 100, &mut out);
+            }
+            // 3. same title, any region.
+            for (i, e) in index.entries.iter().enumerate() {
+                if !q.rom.key.is_empty() && e.parsed.key == q.rom.key {
+                    push(i, MatchKind::TitleExact, 95, &mut out);
+                }
+            }
+            // 4. fuzzy, only when nothing exact was found.
+            if out.is_empty() && q.fuzzy && !q.rom.key.is_empty() {
+                let mut scored: Vec<(u8, usize)> = index
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| compatible(q.rom, &e.parsed))
+                    .map(|(i, e)| {
+                        let full = score(&q.rom.key, &e.parsed.key);
+                        let short = score(&q.rom.short_key, &e.parsed.short_key).saturating_sub(10);
+                        (full.max(short), i)
+                    })
+                    .filter(|(s, _)| *s >= q.min_score)
+                    .collect();
+                scored.sort_by(|a, b| {
+                    b.0.cmp(&a.0)
+                        .then_with(|| index.entries[a.1].file.cmp(&index.entries[b.1].file))
+                });
+                for (s, i) in scored.into_iter().take(q.max_candidates) {
+                    push(i, MatchKind::Fuzzy, s.min(94), &mut out);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn candidate(
         &self,
         server: &str,
@@ -396,61 +470,14 @@ impl ArtSource for LibretroSource<'_> {
 
     fn candidates(&self, q: &ArtQuery) -> Result<Vec<Candidate>, SourceError> {
         let server = self.server_system(q.system)?;
-        let index = self.index(&server, q.media)?;
-        let mut out: Vec<Candidate> = Vec::new();
-        let mut taken = vec![false; index.entries.len()];
-        let mut push = |i: usize, kind: MatchKind, score: u8, out: &mut Vec<Candidate>| {
-            if !taken[i] {
-                taken[i] = true;
-                out.push(self.candidate(&server, q.media, &index.entries[i], kind, score));
+        let mut out = self.matches(&server, q)?;
+        // Extra folders (spec D9), in order, only while nothing was found.
+        for also in &q.system.libretro_also {
+            if !out.is_empty() {
+                break;
             }
-        };
-        // 1. canonical (DAT / arcade) name, then its other regions.
-        if let Some(canon) = q.canonical {
-            let key = libretro_key(&sanitise_libretro(canon));
-            if let Some(&i) = index.by_key.get(&key) {
-                push(i, MatchKind::Canonical, 100, &mut out);
-            }
-            let title = parse_name(canon, false).key;
-            for (i, e) in index.entries.iter().enumerate() {
-                if !title.is_empty() && e.parsed.key == title {
-                    push(i, MatchKind::TitleExact, 95, &mut out);
-                }
-            }
-        }
-        if q.by_name {
-            // 2. the ROM file name as is.
-            let key = libretro_key(&sanitise_libretro(q.stem));
-            if let Some(&i) = index.by_key.get(&key) {
-                push(i, MatchKind::NameExact, 100, &mut out);
-            }
-            // 3. same title, any region.
-            for (i, e) in index.entries.iter().enumerate() {
-                if !q.rom.key.is_empty() && e.parsed.key == q.rom.key {
-                    push(i, MatchKind::TitleExact, 95, &mut out);
-                }
-            }
-            // 4. fuzzy, only when nothing exact was found.
-            if out.is_empty() && q.fuzzy && !q.rom.key.is_empty() {
-                let mut scored: Vec<(u8, usize)> = index
-                    .entries
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, e)| compatible(q.rom, &e.parsed))
-                    .map(|(i, e)| {
-                        let full = score(&q.rom.key, &e.parsed.key);
-                        let short = score(&q.rom.short_key, &e.parsed.short_key).saturating_sub(10);
-                        (full.max(short), i)
-                    })
-                    .filter(|(s, _)| *s >= q.min_score)
-                    .collect();
-                scored.sort_by(|a, b| {
-                    b.0.cmp(&a.0)
-                        .then_with(|| index.entries[a.1].file.cmp(&index.entries[b.1].file))
-                });
-                for (s, i) in scored.into_iter().take(q.max_candidates) {
-                    push(i, MatchKind::Fuzzy, s.min(94), &mut out);
-                }
+            if let Some(server) = self.server_folder(also)? {
+                out = self.matches(&server, q)?;
             }
         }
         sort_candidates(&mut out);
@@ -459,11 +486,19 @@ impl ArtSource for LibretroSource<'_> {
     }
 
     fn has_name(&self, system: &System, media: Media, name: &str) -> Result<bool, SourceError> {
+        let key = libretro_key(name);
         let server = self.server_system(system)?;
-        Ok(self
-            .index(&server, media)?
-            .by_key
-            .contains_key(&libretro_key(name)))
+        if self.index(&server, media)?.by_key.contains_key(&key) {
+            return Ok(true);
+        }
+        for also in &system.libretro_also {
+            if let Some(server) = self.server_folder(also)? {
+                if self.index(&server, media)?.by_key.contains_key(&key) {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     fn fetch(&self, c: &Candidate) -> Result<Vec<u8>, SourceError> {
@@ -486,6 +521,108 @@ impl ArtSource for LibretroSource<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The DSiWare case (spec D9): `nds` keeps its primary folder and
+    /// tries the DSi folder only when the primary has nothing.
+    #[test]
+    fn libretro_also_folder_is_tried_after_the_primary() {
+        use crate::identify::names::parse_name;
+        use crate::net::testing::MockServer;
+        use crate::net::{NetConfig, PoliteHttp, UreqHttp};
+        use crate::systems::SystemDb;
+
+        const DS: &str = "Nintendo - Nintendo DS";
+        const DSI: &str = "Nintendo - Nintendo DSi";
+        let db = SystemDb::builtin()
+            .with_overrides(&format!(
+                "[[system]]\nid = \"nds\"\nlibretro = \"{DS}\"\nlibretro_also = [\"{DSI}\"]\n"
+            ))
+            .unwrap();
+        let nds = db.get("nds").unwrap();
+        let cfg = NetConfig {
+            retries: 0,
+            ..NetConfig::default()
+        };
+        let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+        let lookup = |server: &MockServer, stem: &str| {
+            let cache = Cache::in_memory().unwrap();
+            let src = LibretroSource::new(
+                &http,
+                &cache,
+                LibretroConfig {
+                    base: server.base(),
+                    raw_base: server.url("/raw"),
+                    ..LibretroConfig::default()
+                },
+            );
+            let rom = parse_name(stem, false);
+            let found = src
+                .candidates(&ArtQuery {
+                    system: nds,
+                    media: Media::Cover,
+                    canonical: None,
+                    rom: &rom,
+                    stem,
+                    by_name: true,
+                    fuzzy: true,
+                    min_score: 65,
+                    max_candidates: 5,
+                    hash: None,
+                    size: 0,
+                    file_name: stem,
+                })
+                .unwrap();
+            let has = src.has_name(nds, Media::Cover, stem).unwrap();
+            (found, has)
+        };
+
+        // Only the extra folder has it: one candidate under that folder.
+        let only_also = MockServer::start();
+        only_also.serve_libretro_root(&[DS, DSI]);
+        only_also.serve_libretro_index(DS, "Named_Boxarts", &["Other Game (USA).png"]);
+        only_also.serve_libretro_index(DSI, "Named_Boxarts", &["Foo (USA).png"]);
+        let (found, has) = lookup(&only_also, "Foo (USA)");
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].kind, MatchKind::NameExact);
+        assert!(
+            found[0]
+                .url
+                .contains(&format!("/{}/Named_Boxarts/", encode_segment(DSI))),
+            "{}",
+            found[0].url
+        );
+        assert!(has, "has_name looks in the extra folder too");
+
+        // Both have it: the primary wins and the extra folder is not asked.
+        let both = MockServer::start();
+        both.serve_libretro_root(&[DS, DSI]);
+        both.serve_libretro_index(DS, "Named_Boxarts", &["Foo (USA).png"]);
+        both.serve_libretro_index(DSI, "Named_Boxarts", &["Foo (USA).png"]);
+        let (found, has) = lookup(&both, "Foo (USA)");
+        assert!(has);
+        assert!(!found.is_empty());
+        assert!(
+            found.iter().all(|c| c
+                .url
+                .contains(&format!("/{}/Named_Boxarts/", encode_segment(DS)))),
+            "{found:?}"
+        );
+        let dsi_dir = format!("/{}/", encode_segment(DSI));
+        assert!(
+            both.requests()
+                .iter()
+                .all(|r| !r.path.starts_with(&dsi_dir)),
+            "the extra folder is not listed when the primary answers"
+        );
+
+        // Neither has it, and an extra folder missing from the live root
+        // is skipped instead of failing the lookup.
+        let missing = MockServer::start();
+        missing.serve_libretro_root(&[DS]);
+        missing.serve_libretro_index(DS, "Named_Boxarts", &["Other Game (USA).png"]);
+        let (found, has) = lookup(&missing, "Foo (USA)");
+        assert!(found.iter().all(|c| c.kind == MatchKind::Fuzzy) && !has);
+    }
 
     #[test]
     fn key_display_strips_only_a_png_extension() {
