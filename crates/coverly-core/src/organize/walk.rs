@@ -193,7 +193,7 @@ pub fn tree_summary(dir: &Path, opts: &WalkOptions) -> TreeSummary {
                 out.longest_rel_utf16 = out.longest_rel_utf16.max(units);
             }
             if meta.is_dir() {
-                if depth + 1 >= TREE_MAX_DEPTH {
+                if depth + 1 > TREE_MAX_DEPTH {
                     out.truncated = true;
                 } else {
                     stack.push((path, depth + 1));
@@ -848,11 +848,17 @@ mod tests {
         fs::write(root.join(".DS_Store"), b"junk").unwrap();
         let probe = OsMetaProbe;
         let t = tree_summary(&root, &tree_opts(&probe));
-        // `d0/…/d15` is the 16th level below the folder: not entered.
-        assert!(t.truncated);
-        assert_eq!((t.files, t.bytes, t.largest_file), (1, 3, 3));
+        // `d0/…/d15` is the 16th level below the folder: still entered.
+        assert!(!t.truncated);
+        assert_eq!((t.files, t.bytes, t.largest_file), (2, 10, 7));
         assert!(!t.partial && !t.recent && !t.symlink && !t.cloud_only);
         assert!(t.longest_rel_utf16 >= "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9".len());
+
+        // A 17th level is past the cap: not entered, the counts a floor.
+        fs::create_dir(deep.join("d16")).unwrap();
+        let t = tree_summary(&root, &tree_opts(&probe));
+        assert!(t.truncated);
+        assert_eq!(t.files, 2);
 
         fs::remove_dir_all(root.join("d0").join("d1")).unwrap();
         let t = tree_summary(&root, &tree_opts(&probe));
