@@ -101,10 +101,10 @@ impl System {
     }
 
     /// Whether `name` is one of this system's profile-scoped aliases.
+    /// Any case: compared lowercased, like [`SystemDb::resolve_folder`].
     pub fn is_scoped_alias(&self, name: &str) -> bool {
-        self.scoped_aliases
-            .iter()
-            .any(|a| a.eq_ignore_ascii_case(name))
+        let key = name.trim().to_lowercase();
+        self.scoped_aliases.contains(&key)
     }
 }
 
@@ -379,7 +379,7 @@ impl SystemDb {
                 }
             }
             for scoped in &s.scoped_aliases {
-                if !s.aliases.iter().any(|a| a.eq_ignore_ascii_case(scoped)) {
+                if !s.aliases.iter().any(|a| a.to_lowercase() == *scoped) {
                     errors.push(format!(
                         "{}: scoped alias {scoped} is not one of its aliases",
                         s.id
@@ -1203,5 +1203,43 @@ mod tests {
             Some("zz")
         );
         assert!(db.resolve_folder("DRAGON").is_none());
+    }
+
+    #[test]
+    fn scoped_aliases_match_any_case_not_only_ascii() {
+        // Aliases resolve with Unicode lowercasing, so the scoped check
+        // must too, or a non-ASCII scoped alias leaks into global lookup.
+        let db = SystemDb::builtin()
+            .with_overrides(
+                r#"
+                [[system]]
+                id = "zz"
+                name = "ZZ"
+                aliases = ["ZZBOX", "Ödyssey"]
+                scoped_aliases = ["ÖDYSSEY"]
+                "#,
+            )
+            .unwrap();
+        assert!(db.get("zz").unwrap().is_scoped_alias("ödyssey"));
+        assert!(db.resolve_folder("ödyssey").is_none());
+        assert!(db.resolve_folder("Ödyssey").is_none());
+    }
+
+    #[test]
+    fn builtin_file_names_a_known_family_for_every_entry() {
+        // The merge ignores an unknown family (user files stay lenient),
+        // so the built-in file is checked on its raw text.
+        let file: RawFile = toml::from_str(BUILTIN_TOML).unwrap();
+        for raw in &file.system {
+            let family = raw.family.as_deref();
+            assert!(
+                family.and_then(Family::parse).is_some(),
+                "{}: family {family:?} is missing or unknown",
+                raw.id
+            );
+            if raw.arcade == Some(true) {
+                assert_eq!(family, Some("arcade"), "{}", raw.id);
+            }
+        }
     }
 }

@@ -154,14 +154,14 @@ pub(crate) fn extension(path: &Path) -> String {
 
 /// Whether a file with extension `ext` (lowercase) is a ROM of `system`.
 ///
-/// A system with an extension list accepts exactly those, even one that is
-/// also ignored (`md` is a Mega Drive ROM, not Markdown). A system with an
-/// empty list accepts any extension that is not ignored.
+/// A system with an extension list (strong or weak) accepts exactly those,
+/// even one that is also ignored (`md` is a Mega Drive ROM, not Markdown).
+/// A system with both lists empty accepts any extension that is not ignored.
 pub(crate) fn is_rom_extension(ext: &str, system: &System, opts: &ScanOptions) -> bool {
     if ext.is_empty() {
         return false;
     }
-    if system.extensions.is_empty() {
+    if system.extensions.is_empty() && system.weak_extensions.is_empty() {
         !opts
             .ignored_exts
             .iter()
@@ -249,6 +249,19 @@ mod tests {
         assert!(is_rom_extension("whatever", &any, &opts));
         assert!(!is_rom_extension("txt", &any, &opts));
         assert!(!is_rom_extension("png", &any, &opts));
+    }
+
+    #[test]
+    fn weak_only_system_accepts_just_its_weak_extensions() {
+        // A system with no strong extension but weak ones (plus4, pet…)
+        // is not an "any extension" system: its folder holds only those.
+        let opts = ScanOptions::default();
+        let mut plus4 = system(&[]);
+        plus4.weak_extensions = vec!["prg".into(), "d64".into()];
+        assert!(is_rom_extension("prg", &plus4, &opts));
+        assert!(is_rom_extension("d64", &plus4, &opts));
+        assert!(!is_rom_extension("whatever", &plus4, &opts));
+        assert!(!is_rom_extension("exe", &plus4, &opts));
     }
 
     #[test]
