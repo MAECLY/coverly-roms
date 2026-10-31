@@ -1,6 +1,6 @@
 # Coverly ROMs — Missing systems, batch 1: retro without new formats (Design Spec)
 
-> Status: **Draft, self-reviewed (§14)** · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Status: **Draft, self-reviewed (§17), adversarially reviewed against the code (§18)** · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
 > Roadmap item: `TODO.md` §2 «Sistemas que faltan», **Tanda 1 only**. Tanda 2 (GameCube, Wii, 3DS…) and Tanda 3 (PS4, PS5, Xbox One/Series) are separate later runs and are not started here.
 > Branch: `feat/systems-batch-1`. `docs/TRACKER.md` and `TODO.md` are updated on `main` after merge, not on this branch.
 > Builds on: [`2026-10-23-organize-archives-and-discs.md`](2026-10-23-organize-archives-and-discs.md) (disc sets, layouts, containers), [`2026-10-18-system-icons-and-views.md`](2026-10-18-system-icons-and-views.md) (SystemIcon, Slot mount), [`docs/02-research/layouts.md`](../../02-research/layouts.md) (profile evidence), brand [`docs/08-brand/brand.md`](../../08-brand/brand.md).
@@ -71,14 +71,19 @@ Workflow brief additions: research first and record the sources here; never gues
 | System DB | `systems/systems.toml`, `systems/mod.rs` `System` | `id`, `name`, `aliases` (global, case-insensitive, **first match in file order wins** in `resolve_folder`), `extensions`, `libretro`, `arcade`, `multi_file`, `header`, `dats` (repo-relative paths; default derived as `metadat/no-intro/<libretro>.dat` or `metadat/redump/<libretro>.dat` when `multi_file`), `screenscraper`. |
 | Extension class | `systems/mod.rs` `extension_class` | `Container` (zip, 7z), `Generic` (bin, iso, img, rom, dat, chd), `Unique` (one system lists it), `Shared` (several do), `Unknown` (incl. everyday png/exe/bat/conf). |
 | Evidence | `organize/evidence.rs` | Unique extension = 0.85 (auto threshold 0.85, needs content support), Shared = 0.50 (review), Generic = nothing. `DECISIVE` systems (from `identify/sniff.rs`) lose a unique-extension claim to 0.60 when the bytes lack their signature. |
-| Header sniff | `identify/sniff.rs` | Discs: Saturn, Dreamcast, PSP, PlayStation (`BOOT2` → `unsupported = "PlayStation 2"`, a `PLAYSTATION` volume over `CD_MAX` → same). Carts: GB/GBC/GBA/N64/NDS/Lynx/7800/NES/SNES/Mega Drive family; `SEGA PICO` at 0x100 → `unsupported = "Sega Pico"`. |
+| Header sniff | `identify/sniff.rs` | Discs: Saturn, Dreamcast, PSP, PlayStation (`BOOT2` → `unsupported = "PlayStation 2"`, a `PLAYSTATION` volume over `CD_MAX` → same). The PS2 serial is **already** parsed from `BOOT2` (`s.serial = boot_file_serial(boot2)`); only the verdict is missing. Carts: GB/GBC/GBA/N64/NDS/Lynx/7800/NES/SNES/Mega Drive family; `SEGA PICO` at 0x100 → `unsupported = "Sega Pico"` (checked before the Mega Drive `SEGA` rule). `DECISIVE` = `gb gbc gba nds n64 nes fds sega32x`. `TEXT_NATIVE_EXTS` (`p8 scummvm svm conf bat bas cue m3u gdi ccd`) are the only extensions whose text content is not `NotARom { text }`. |
+| Containers | `organize/inspect.rs` `container_for` | **Magic first**: any file whose bytes start with a zip/gzip/7z magic is inspected as an archive whatever its extension. |
+| Memoised facts | `organize/plan.rs` `FACTS_VERSION = 5`, `cache` `organize_ids` (`path + size + mtime → facts`), `organize_choices` (`crc32 + size → system_id`) | Facts hold the sniff and disc verdicts (`FoundSystem::Unsupported { "PlayStation 2" }`); a row of another version is read again. |
+| Templates | `profiles/template.rs` | `{system_id}` renders the **Coverly id**, not the folder name; ES-DE (`downloaded_media/{system_id}`) and muOS (`catalogue/{system_id}`) use it. |
+| DAT download | `identify/dat.rs` `DATABASE_BASE` | Fetched from libretro-database **`master`**, not a pinned commit; `MAX_DAT_DOWNLOADS = 4` per plan. |
 | Disc layer | `disc/mod.rs`, `disc/signatures.rs`, `disc/iso9660.rs` | Opera header (3DO) → `DiscSystem::Unsupported("3DO")`; PS2 → `Unsupported("PlayStation 2")`. Sheets (`cue`, `gdi`, `ccd`, `m3u`), CHD, CSO, PBP readers. |
 | Hashing | `identify/hash.rs` | Files over `DEFAULT_HASH_MAX_BYTES` (64 MiB) are not hashed; `cue gdi m3u ccd chd 7z pbp cso rvz` are identified by name only. DATs are clrmamepro text, ≤ `MAX_DAT_BYTES` (64 MiB), serials parsed (`identify/dat.rs`). |
-| Profiles | `profiles/builtin.rs`, `profiles/naming.rs` | 8 built-ins: `anbernic-stock`, `garlicos`, `onion` (Imgs family, `FolderNaming::FirstAlias`), `muos`, `minui` (FirstAlias), `esde`, `batocera` (Batocera/Knulli/ES), `retroarch` (`FolderNaming::Id`). Only Anbernic has `known_folders` (→ `ItemNote::NoFolderOnDevice`). `host_folders` maps a system into another's folder. `disc_layout` and `container_overrides` are per profile. No per-system folder table exists; ES-DE and Batocera names that differ from the id cannot be expressed. |
-| Folder resolution | `resolve_folder` callers: `scan/mod.rs:248` (has the profile), `organize/walk.rs:161`, `organize/plan.rs:2148, 2695`, `settings/validate.rs`, CLI `dedupe.rs:206` | Global only. |
-| Folder games | `dedupe/units.rs` `OUT_OF_SCOPE_DIRS` (`ports bios apps saves states`); ScummVM | ScummVM is claimed by its folder alias and by its launcher extensions (`.scummvm`, `.svm`); organise never splits a game folder, dedupe skips `PORTS/`. That is the «ScummVM-style rule» this batch reuses. |
+| Profiles | `profiles/builtin.rs`, `profiles/mod.rs`, `profiles/naming.rs`, `profiles/custom.rs` | 8 built-ins: `anbernic-stock`, `garlicos`, `onion` (Imgs family, `FolderNaming::FirstAlias`, `host_folders` `ngpc → ngp`, `wonderswancolor → wonderswan`), `muos` (`Id`), `minui` (FirstAlias), `esde`, `batocera` (Batocera/Knulli/ES), `retroarch` (all three `Id`). Only Anbernic has `known_folders` (→ `ItemNote::NoFolderOnDevice`). `disc_layout` and `container_overrides` are per profile; `NO_ARCHIVE_SYSTEMS = ["psp"]` lives in `profiles/mod.rs`, and `Profile::accepts_as_is` already refuses every archive for `multi_file` systems. A built-in has no per-system folder table; a **custom** profile file already has `folder_names: BTreeMap<id, folder>` (merged under the user's `settings.organize.folder_names[profile]` by the planner and validated with `validate_folder_override`); cloning a built-in writes it empty. Unknown fields in a profile file are ignored (no `deny_unknown_fields`). |
+| Folder resolution | `resolve_folder` callers: `scan/mod.rs:248` (has the profile), `organize/walk.rs:161` (every folder of a pile at any depth: a match is «already sorted» and **not walked**), `organize/plan.rs:2148` (quarantine), `:2695` (probe), `profiles/naming.rs:68, 91` (`default_name`, `validate_folder_override`), `profiles/custom.rs:418` (preview), `profiles/fit.rs:35` and `profiles/detect.rs:90` (profile detection, **no profile by definition**), `settings/validate.rs:278, 338`, CLI `dedupe.rs:206` | Global only. |
+| Folder games | `dedupe/units.rs` `OUT_OF_SCOPE_DIRS` (`ports bios apps saves states`); ScummVM | ScummVM is claimed by its folder alias and by its launcher extensions (`.scummvm`, `.svm`, text-native). That is all the «ScummVM-style rule» is today: there is **no** organise rule against splitting a game folder (a loose `.scummvm` moves alone) and dedupe skips `ports`, not `scummvm`. D15's folder-game rule is new code, not reuse. |
+| User systems file | `SystemDb::with_overrides` | Merges by id: the user's aliases win (removed from every other system), extensions are appended, `name` only required for new ids. |
 | Icons | `scripts/icons/systemIconsLib.mjs` (`COMMIT d9f96905…`, `SYSTEM_ICON_SOURCES`), `pnpm system-icons`, `src/components/system/SystemIcon.tsx`, `systemFallbacks.ts` (`FALLBACK_ABBR`, `WORDMARK_IDS`), `THIRD-PARTY-NOTICES.md` (41 files listed) | Silhouette when mapped, otherwise the Slot mount with an abbreviation (≤ 4 chars). |
-| UI | `LeftInPlace.tsx`, `ReviewBuckets.tsx` (`NativeSelect` with every system), `SystemInfo { id, name }` | A flat list of 54 names today; 118 after this batch. |
+| UI | `LeftInPlace.tsx` (`NativeSelect` with every system), `ReviewBuckets.tsx` (`NativeSelect` with the **bucket's candidate systems** only, plus «Dejar»), `SystemInfo { id, name }` from `src-tauri/src/ipc.rs` `list_systems` (built-in systems only) | LeftInPlace: a flat list of 54 names today; 118 after this batch. Review: 2–8 candidates, unchanged in size. |
 
 ## 4. Decisions
 
@@ -90,23 +95,29 @@ Open questions and the default chosen. Each can be overturned by the owner witho
 | D2 | Ids | **The owner's ids where given.** Ports (no id given): `doom`, `quake`, `cavestory`, `wolf3d`, `mrboom`, `dinothawr`, `lutro`, `solarus`, `flashback`, `xrick`. Arcade: `model2`, `model3`, `naomi2`, `triforce`. Computers split by the owner's «si los perfiles los separan»: `msx2`, `msxturbor`, `atarixe` (ES-DE and Batocera both separate them, §6). | Ids are stable keys for overrides and settings; frontend spellings go in the per-profile tables (D5), so the id never has to bend to one frontend. |
 | D3 | Extensions an existing system already owns (`.st` atarist, `.md` megadrive, `.pce`/`.sgx` pcengine, `.cdi` dreamcast, `.cso` psp, `.pak` openbor, `.atr/.xex/.xfd/.car` a800, `.mx2` msx, `.d64/.prg…` c64) | New field **`weak_extensions`** in `systems.toml`: accepted inside the system's folder and as a candidate once a header or a DAT hash names the system, but **never counted by `extension_class`**. The listed existing owner keeps its class. Deliberate class changes (Unique → Shared because the ambiguity is real) are only: `.dsk` (msx → msx, zxspectrum, amstradcpc, apple2, dragon, coco, msx2, msxturbor), `.dim` (atarist, x68000), `.hdf` (amiga, x68000), `.fdi` (amiga, pc98), `.sgx` moves from `pcengine` to `supergrafx` and `.bs` from `snes` to `satellaview` (each is that system's own format; the Anbernic `PCE` and `SFC` folders still accept them through `weak_extensions` of `pcengine` and `snes`). | A Sufami cart has a 14-byte magic, a Pico cart `SEGA PICO`: their header is the proof, not the extension. Turning `.st` Shared would send every Atari ST disk to review. The four real collisions follow the brief («never by extension alone»). A snapshot test (§14.1) pins every pre-batch extension's class with exactly this diff. |
 | D4 | Extensions that say little even when unique (`.wasm`, `.hex`, `.p`, `.0`, `.fd`, `.do`, `.po`, `.2d`, `.abs`, `.cof`, `.gam`, `.lua`, `.game`) | Listed as **`weak_extensions`** of their system too. | `.wasm`, `.hex`, `.lua` are everyday developer files; `.p`, `.0`, `.fd`, `.do`, `.po` are too short to mean anything. Inside `ZX81/` a `.p` file is a ZX81 tape; on the desktop it is not. |
-| D5 | Where per-profile folder names live | New `Profile.folders: BTreeMap<String, ProfileFolder>` with `ProfileFolder::Named(String)` or `ProfileFolder::Absent`, filled in `builtin.rs` for **every Tanda 1 system on every built-in profile** (except `retroarch`, which keeps `Id`). Order in `system_folder`: user override → `Named` → `host_folders` → naming rule. `Absent` keeps the naming rule's folder and sets `on_device = Some(false)`, so organise adds the existing `NoFolderOnDevice` note («Onion OS no tiene carpeta para Atari Jaguar; se crea JAGUAR.»). Existing systems are not added to the tables: no behaviour change for them. | Matches the brief («leave that profile without it») without inventing names, and reuses the note and copy that Anbernic stock already uses. Moving the item anyway, with the note, keeps one rule for «device lacks the folder»; leaving it in place would be a second, inconsistent rule. |
-| D6 | A folder name two systems want (`pico` = Sega Pico on Batocera/Knulli, PICO-8 on Anbernic/Onion/muOS; `msx2`) | **Profile-scoped resolution**: `SystemDb::resolve_folder_in(profile: Option<&Profile>, name)` checks the profile's `Named` folders first, then global aliases. Every caller that knows the layout passes it (scan, organise walk and plan, settings validation, CLI). `pico` stays a global alias of `pico8`; Sega Pico's global aliases are `SEGAPICO`, `segapico`. `msx2` **moves** from `msx` to the new `msx2` system (libretro has a separate `Microsoft - MSX2` DAT and thumbnails; ES-DE, Batocera and muOS all have an `msx2` folder). | Without a profile there is no way to know which `pico` is meant; the current owner keeps it. A test asserts that every `Named` folder resolves back to its system under its profile, and that global aliases stay unique. |
+| D5 | Where per-profile folder names live | New `Profile.folders: BTreeMap<String, ProfileFolder>` with `ProfileFolder::Named(String)` or `ProfileFolder::Absent`, filled in `builtin.rs` for **every Tanda 1 system on every built-in profile** (except `retroarch`, which keeps `Id`). Order in `system_folder`: user override → `Named` → `host_folders` → naming rule. `Absent` keeps the naming rule's folder and sets `on_device = Some(false)`, so organise adds the existing `NoFolderOnDevice` note («Onion OS no tiene carpeta para Atari Jaguar; se crea JAGUAR.»). Existing systems are not added to the tables: no behaviour change for them. **Custom profiles reuse the existing `ProfileFile.folder_names`** (no new file field): cloning a built-in copies its `Named` entries there; `Absent` is not persisted (a custom profile has no `known_folders`, so `on_device` stays `None`). A custom profile cloned before this batch has an empty map and keeps rule-based names; the profile editor offers «Actualizar carpetas desde {built-in}» only if the owner asks (§13). | Matches the brief («leave that profile without it») without inventing names, and reuses the note and copy that Anbernic stock already uses. Moving the item anyway, with the note, keeps one rule for «device lacks the folder»; leaving it in place would be a second, inconsistent rule. |
+| D6 | A folder name two systems want (`pico` = Sega Pico on Batocera/Knulli, PICO-8 on Anbernic/Onion/muOS; `msx2`) | **Profile-scoped resolution**: `SystemDb::resolve_folder_in(profile: Option<&Profile>, name)` checks the profile's `Named` folders (for a custom profile: its `folder_names`) first, then global aliases. Every caller that knows the layout passes it (scan, organise walk, quarantine and probe, `default_name`, `validate_folder_override` and so custom-profile validation and settings validation, the custom-profile preview, CLI). `detect.rs` and `fit.rs` have no profile and stay global. `pico` stays a global alias of `pico8`; Sega Pico's global aliases are `SEGAPICO`, `segapico`. `msx2` **moves** from `msx` to the new `msx2` system (libretro has a separate `Microsoft - MSX2` DAT and thumbnails; ES-DE, Batocera and muOS all have an `msx2` folder). | Without a profile there is no way to know which `pico` is meant; the current owner keeps it. A test asserts that every `Named` folder resolves back to its system under its profile, and that global aliases stay unique. |
 | D7 | Batocera vs Knulli (one built-in, «Batocera / Knulli / EmulationStation») | **Batocera's names are written**; Knulli's different names are added as **global aliases** so a Knulli card scans: `o2em` (odyssey2), `bbc` (bbcmicro), `tyrquake` (quake). Where Knulli has no folder (`sc3000`, `dragon64`) nothing changes: the shared profile follows Batocera. A separate Knulli profile is out of scope (§13). | Knulli is a Batocera fork; 9 of the batch's folders differ. Scanning both is free; writing one set keeps the profile single. |
 | D8 | First alias (used by the Imgs family and MinUI as their default name) | Onion's folder when Onion has one (`COLECO`, `FAIRCHILD`, `ODYSSEY`, `SGFX`, `SEGASGONE`, `ZXS`, `TIC`, `CPC`…), else NextUI's tag (`C128`, `PET`, `PLUS4`, `PRBOOM`), else the upper-case id (`PS2`, `JAGUAR`…). | Onion is the only sourced folder list of the Imgs family (`layouts.md` row 3, R1-10); the tables (D5) still mark the profiles that lack the system. |
 | D9 | GarlicOS folders | **Same table as Onion** (closed source, FAQ 404). | Same inference as `layouts.md` R1-10, which already uses Onion's lists for GarlicOS. |
 | D10 | MinUI vs NextUI | The `minui` profile is «MinUI / NextUI»; NextUI tags are used (`COLECO`, `CPC`, `C128`, `PET`, `PLUS4`, `PRBOOM`, `SG1000`). Base MinUI has none of the batch's systems; the note says so on organise. | NextUI ships those paks at the pinned commit; MinUI base does not. |
-| D11 | Anbernic stock | `Absent` for every Tanda 1 system. | `ANBERNIC_FOLDERS` mirrors the owner's card (55 folders), and none of the batch is there. |
+| D11 | Anbernic stock | `Absent` for every Tanda 1 system, except the D23 hosts (`supergrafx → PCE`, `satellaview → SFC`, `msx2 → MSX`, `atarixe → A800`), which keep today's destinations. | `ANBERNIC_FOLDERS` mirrors the owner's card (55 folders), and none of the batch is there. |
 | D12 | muOS | muOS resolves a ROM folder by the `friendly` names of each core manifest (`share/info/manifest/core/**.json`); the table uses those names (`spectrum` for ZX Spectrum, `segapico`, `pc8000`, `wolfenstein3d`…). Systems muOS folds into another catalogue (`n64dd` → «Nintendo N64», `satellaview`/`sufami` → «Nintendo SNES - SFC», `msx2` → «Microsoft MSX») keep their own folder (muOS accepts it). | muOS has no fixed folder list; its auto-assign reads these names. The cover path keeps today's `{system_id}` rule (see §13: the catalogue name is a separate, pre-existing question). |
-| D13 | Disc layout for new disc systems | `multi_file = true` for `ps2`, `3do`, `jaguarcd`, `pcfx`, `cdi`, `amigacd32`, `cdtv`, `fmtowns`; each profile's existing `disc_layout` applies (Flat on the Imgs family/muOS, GameFolder + `.m3u` on MinUI and ES-DE, Flat + `.m3u` on Batocera and RetroArch). **`ps2` joins `NO_ARCHIVE_SYSTEMS`** (no zip/7z taken as-is on any profile). | Disc systems already never take an archive as-is when they hold a sheet. PCSX2/AetherSX2 read no zip/7z (ES-DE lists only `.gz`), like PPSSPP for `psp` (R1-20). |
-| D14 | PS2 / 3DO identification | PS2: serial from `SYSTEM.CNF` `BOOT2 = cdrom0:\SLUS_200.62;1` → `SLUS-20062`, matched against the Redump DAT's serial field, then the name. 3DO: Opera header, then the name (no serial on 3DO discs). Neither is hashed above 64 MiB (unchanged default). | Same ladder as PS1; hashing a 4 GB DVD is the user's choice (`hash max bytes`). |
-| D15 | Ports / engines | **ScummVM-style**: claimed by their folder alias, and by a launcher/data extension only where the format proves it (`.wad` with `IWAD`/`PWAD`, `.solarus`, `.lutro`). A loose game folder outside a system folder is **left in place** with the new left reason `folderGame`; organise never splits it and dedupe skips it (each port id is added to the folder-game list beside `ports`). | The brief. Cave Story, Wolfenstein 3D, Mr. Boom, Flashback and Rick Dangerous ship as data folders with no launcher Coverly could trust. |
+| D13 | Disc layout for new disc systems | `multi_file = true` for `ps2`, `3do`, `jaguarcd`, `pcfx`, `cdi`, `amigacd32`, `cdtv`, `fmtowns`; each profile's existing `disc_layout` applies (Flat on the Imgs family/muOS, GameFolder + `.m3u` on MinUI and ES-DE, Flat + `.m3u` on Batocera and RetroArch). **`NO_ARCHIVE_SYSTEMS` is not changed**: `Profile::accepts_as_is` already returns `false` for every `multi_file` system, so `ps2` never takes a zip/7z as-is. Adding it would change `default_container_overrides()`, which `ProfileFile` uses as its serde default and skip-if-equal test, for no behaviour gain. | PCSX2/AetherSX2 read no zip/7z (ES-DE lists only `.gz`), like PPSSPP for `psp` (R1-20); `multi_file` already gives that. |
+| D14 | PS2 / 3DO identification | PS2: serial from `SYSTEM.CNF` `BOOT2 = cdrom0:\SLUS_200.62;1` → `SLUS-20062` (already parsed by `sniff.rs` and `disc/iso9660.rs`; this batch only turns the `Unsupported` verdict into `ps2`), matched against the Redump DAT's serial field, then the name. `.zso` (ZISO, LZ4 blocks) has **no reader** today and Tanda 1 adds none: `zso` is a strong unique extension of `ps2` and joins `NAME_ONLY_EXTS` in `identify/hash.rs` (hashing the compressed bytes matches nothing). 3DO: Opera header, then the name (no serial on 3DO discs). Neither is hashed above 64 MiB (unchanged default). | Same ladder as PS1; hashing a 4 GB DVD is the user's choice (`hash max bytes`). |
+| D15 | Ports / engines | **ScummVM-style**: claimed by their folder alias, and by a launcher/data extension only where the format proves it (`.wad` with `IWAD`/`PWAD`: `doom` joins `DECISIVE`, so a `.wad` without the magic, such as a future WiiWare WAD, drops to 0.60 and is never Auto; `.solarus`, `.lutro` per D25). New rule (there is none today, §3): a pile folder that is **not** a system folder but directly holds a file proven for a folder-game system (`IWAD`/`PWAD`, `.solarus`, `.lutro`, `.scummvm`/`.svm`) is **left in place as one item** with the new left reason `FolderGame { system }`; its other files are not organised one by one. A folder whose name is a folder-game alias is «already sorted», as today. Dedupe treats folders named by a folder-game system's aliases (and `scummvm`) like `ports`. | The brief. Cave Story, Wolfenstein 3D, Mr. Boom, Flashback and Rick Dangerous ship as data folders with no launcher Coverly could trust: by folder alias or DAT only; loose, their files stay `unknown` (no content rule is invented). |
 | D16 | Extra arcade | New systems `model2`, `model3`, `naomi2`, `triforce` (folders on ES-DE and Batocera). **System 16/18/24/32, Konami, Cave: no new systems**: no frontend has a folder for them; their sets are in the MAME/FBNeo DATs and already go to `mame`/`fbneo`. Model 2/3 sets found loose also go to `mame` (MAME runs them; the libretro MAME DAT has no driver field to tell them apart); inside a `model2/` folder they stay. **MAME CHD per game**: a `<set>/` folder holding `.chd` beside `<set>.zip` becomes a companion of the set and moves with it. | Avoids empty systems; keeps one place per set. |
 | D17 | Famicom variants | **Aliases only, no new entries.** `famicom` and `fc` already resolve to `nes` (ES-DE's separate `famicom` folder scans as NES); BS-X is the Satellaview (new system); Disk Writer games are FDS images. libretro has one NES DAT and thumbnail set. | One DAT and one cover set per system. |
 | D18 | Which systems appear by default | All systems are always available in pickers; lists are **grouped by family** (§9.1). Shelves and counts only show systems that have games. | The owner's open question; no hiding, so a user is never unable to pick the right system. |
 | D19 | Icon licences | Only RetroArch Assets XMB Monochrome (CC BY 4.0, already attributed), at the **same pinned commit** `d9f969054dc7fbb6fa89519036d2b971e0855b51` (it is also `master` on 2026-10-31, 849 files). No other icon source. Systems without a neutral silhouette use the Slot mount. | No new licence to review; the decision the owner left open is avoided. |
 | D20 | Game logos in the icon set (`DOOM`, `Quake`, `Cave Story`, `Rick Dangerous`, `Flashback`, `TIC-80`, `Uzebox`, `Arduboy`, `MrBoom`, `Dinothawr`, `Lutro`) | Audited on the contact sheet like the first 41: a logo or wordmark goes to `WORDMARK_IDS` and uses the Slot mount; a neutral device or pictogram is used. | `TRADEMARKS.md` rule already applied to CPS, MAME, DOS, ScummVM. |
-| D21 | `family` for grouping | New `family` field on every system (existing ones too): `console`, `handheld`, `computer`, `arcade`, `engine`. Sent in `SystemInfo`. | Needed for the grouped picker (D18); data, not UI logic. |
+| D21 | `family` for grouping | New `family` field on every system (existing ones too): `console`, `handheld`, `computer`, `arcade`, `engine`. Sent in `SystemInfo`. When a user systems file omits it for a new id, the default is `arcade` if `arcade = true`, else `console`. | Needed for the grouped picker (D18); data, not UI logic. |
+| D22 | Aliases that are everyday words or game titles (`doom`, `quake`, `flashback`, `solarus`, `lutro`, `xrick`, `mrboom`, `dragon`, `dragon32`, `dragon64`, `pet`, `coco`, `moto`, `theodore`, `x1`, `bbc`, `arcadia`, `cdi`, `turbor`) | New `scoped_aliases` list in `systems.toml`: resolved by `resolve_folder_in(Some(_), …)` (any profile) but **not** by profile-less `resolve_folder`, so `detect.rs`/`fit.rs` never call `~/Games` with `Doom/` and `Quake/` an organised library. The list is compared case-insensitively, so first aliases (D8) such as `DRAGON`, `PET`, `X1`, `QUAKE`, `ARCADIA`, `CDI`, `SOLARUS`, `LUTRO`, `XRICK`, `MRBOOM` are scoped too; `default_name` and `validate_folder_override` resolve under the profile, so they still name and accept those folders. | The organise walk skips every folder that resolves (§3): a `Dragon/` or `PET/` folder in Downloads would silently stop being organised, and detection would flip. Distinctive names (`zxspectrum`, `amstradcpc`, `colecovision`…) stay global. |
+| D23 | A new sub-system on a profile that has only its parent's folder (`supergrafx` → PCE, `satellaview`/`sufami` → SFC, `msx2`/`msxturbor` → MSX, `atarixe` → A800) | A `host_folders` entry only where the system is `Absent` (§6.1) **and** the parent's folder is sourced on that profile: anbernic-stock (`PCE`, `SFC`, `MSX`, `A800` are in `ANBERNIC_FOLDERS`): `supergrafx → pcengine`, `satellaview → snes`, `msx2 → msx`, `atarixe → a800`; garlicos and onion (Onion ships an `MSX` package, no `MSX2`): `msx2 → msx`; minui: only for parents whose NextUI pak exists at the pinned commit (checked in the task, listed in the PR), else `Absent`. Profiles with the system's own folder (§6.1) use it. `sufami`, `msxturbor` never get a host (no evidence the parent core runs them). | Today a loose `.sgx` goes to `PCE/` and a `.bs` to `SFC/` (strong extensions of `pcengine` and `snes`); moving them into a new `SGFX/`/`SATELLAVIEW/` folder the device does not show would be a regression for installed users. A host keeps the old destination. Owner may revert (§13). |
+| D24 | A header proves a system whose extension another system owns (`.md` + `SEGA PICO`, `.st` + Sufami magic, `.pce` + nothing, `.cso` + PS2 volume, `.cdi` + Jaguar CD header) | In `extension_evidence`, when the sniff or disc verdict names system X with weight ≥ 0.95 and X lists `ext` in `weak_extensions`, the strong owner's extension evidence is **contradicted** (0.60, detail `ext!`, existing copy `why.extensionContradicted`). | Without it the verdict rests on a 0.95 vs 0.85 lead that passes `MARGIN = 0.10` only through `EPS`; with it the lead is 0.35 and the existing «la cabecera no coincide» line explains the move. |
+| D25 | Zip-based game packages (`.arduboy`, `.rpk`, `.solarus`, `.lutro`) and gzip `.uef` | Listed in a new `PACKAGE_EXTS` beside the container rules: magic-first inspection still reads them (to check `info.json`, `layout.xml`, `main.lua`, `UEF File!`), but the item is a **raw file**: never extracted, never «several games», moved as-is on every profile. | `container_for` is magic first (§3): without this an `.arduboy` would be treated as an archive and its `.hex` extracted, breaking the game. |
+| D26 | Text game files (`.hex` Intel HEX, `.nx` LowRes NX source, `.lua`, `.game`) | Added to `TEXT_NATIVE_EXTS`. | Otherwise the sniff marks them `NotARom { text }` and they are left as «No es una ROM (texto)». |
+| D27 | Facts and choices memoised before the upgrade | `FACTS_VERSION` 5 → 6 (facts of version 5 call PS2, 3DO and Pico discs/carts `Unsupported` and lack the new sniff hits), so they are read again lazily. `organize_choices` (user picks by `crc32 + size`) are kept: a remembered `msx` or `pcengine` pick still wins over the new systems, as a user choice should. `HASH_OUTCOME_VERSION` is unchanged (hash shape untouched). | Without the bump an installed user's PS2 ISO stays «Sistema no compatible» until its mtime changes. |
 
 ## 5. Architecture and files touched
 
@@ -114,25 +125,27 @@ Open questions and the default chosen. Each can be overturned by the owner witho
 
 | File | Change |
 |---|---|
-| `systems/systems.toml` | ≈ 70 entries (§7), `family` on all, `weak_extensions`, `msx2` alias moved, `sgx` moved, Knulli aliases. Header comment documents both new fields. |
-| `systems/mod.rs` | `System { family: Family, weak_extensions: Vec<String> }` (serde defaults: `console`, empty); validation: a weak extension may not also be in `extensions`; `extension_class` ignores `weak_extensions`; `systems_for_extension` keeps returning only strong owners; new `systems_accepting(ext)` (strong + weak) for folder and header paths; `resolve_folder_in(profile, name)`. |
-| `profiles/mod.rs`, `profiles/naming.rs` | `Profile.folders`, `ProfileFolder`; `system_folder` order (D5); `validate_folder_override` accepts a `Named` folder of the profile. |
-| `profiles/builtin.rs` | Per-profile tables (§6.1) as `const` arrays of `(id, Option<&str>)`, converted once. `NO_ARCHIVE_SYSTEMS` gains `ps2`. |
-| `profiles/custom.rs` | `folders` copied when a built-in is cloned; optional in the profile file (`#[serde(default, skip_serializing_if = BTreeMap::is_empty)]`); validated like `host_folders`. |
-| `scan/mod.rs`, `organize/walk.rs`, `organize/plan.rs`, `settings/validate.rs`, `coverly-cli/src/dedupe.rs` | Call `resolve_folder_in` with the active profile. |
-| `identify/sniff.rs` | New hits (§8.1); `PlayStation 2` and `Sega Pico` become hits (`ps2` 0.95 with `BOOT2`, 0.80 for a large `PLAYSTATION` volume without it; `pico` 0.95); `DECISIVE` gains `vectrex`, `pico`, `sufami`, `uzebox`, `vircon32`. |
+| `systems/systems.toml` | ≈ 70 entries (§7), `family` on all, `weak_extensions`, `scoped_aliases` (D22), `msx2` alias moved, `sgx` moved, Knulli aliases. Header comment documents the three new fields. |
+| `systems/mod.rs` | `System { family: Family, weak_extensions: Vec<String>, scoped_aliases: Vec<String> }` (serde defaults per D21, empty); validation of the **built-in** file: a weak extension may not also be in `extensions`. A **user systems file is never rejected for the new fields**: an extension the user lists as strong is removed from that system's `weak_extensions` (the user wins, like aliases), an unknown `family` falls back to D21's default with a warning, and the user's aliases also remove matching `scoped_aliases` elsewhere; `extension_class` ignores `weak_extensions`; `systems_for_extension` keeps returning only strong owners; new `systems_accepting(ext)` (strong + weak) for folder and header paths; `resolve_folder_in(profile, name)`. |
+| `profiles/mod.rs`, `profiles/naming.rs` | `Profile.folders`, `ProfileFolder`; `system_folder` order (D5); `default_name` and `validate_folder_override` resolve with `resolve_folder_in(Some(profile))`. |
+| `profiles/builtin.rs` | Per-profile tables (§6.1) as `const` arrays of `(id, Option<&str>)`, converted once; D23 hosts for anbernic-stock and minui. `NO_ARCHIVE_SYSTEMS` (in `profiles/mod.rs`) is **not** changed (D13). |
+| `profiles/custom.rs` | No new file field: cloning a built-in fills the existing `folder_names` from its `Named` entries (D5); `folder_names` doubles as the custom profile's scoped table in `resolve_folder_in`; `preview_paths` resolves under the profile. |
+| `scan/mod.rs`, `organize/walk.rs`, `organize/plan.rs` (quarantine, probe), `settings/validate.rs`, `coverly-cli/src/dedupe.rs` | Call `resolve_folder_in` with the active profile. `profiles/detect.rs` and `profiles/fit.rs` keep the profile-less `resolve_folder` (D22). |
+| `identify/sniff.rs` | New hits (§8.1); `PlayStation 2` and `Sega Pico` become hits (`ps2` 0.95 with `BOOT2`, 0.80 for a large `PLAYSTATION` volume without it; `pico` 0.95); `DECISIVE` gains `vectrex`, `pico`, `sufami`, `uzebox`, `vircon32`, `doom`; `TEXT_NATIVE_EXTS` gains `hex`, `nx`, `lua`, `game` (D26). |
+| `identify/hash.rs` | `NAME_ONLY_EXTS` gains `zso` (D14). |
+| `organize/inspect.rs` | `PACKAGE_EXTS` (D25): zip/gzip packages are raw items. |
 | `disc/mod.rs`, `disc/signatures.rs`, `disc/iso9660.rs` | `DiscSystem::Known("ps2" / "3do" / "pcfx" / "cdi" / "amigacd32" / "cdtv" / "jaguarcd")`; PS2 serial from `BOOT2`; new signatures (§8.2). `Unsupported(...)` stays for any future system. |
-| `organize/evidence.rs` | Weak-extension evidence: 0.50 inside a non-system folder **only** when another signal agrees; detail `ext~` («weak»). |
-| `organize/target.rs`, `organize/plan.rs` | `LeftReason::FolderGame { system }`; MAME CHD companion (D16). |
+| `organize/evidence.rs` | Weak-extension evidence: 0.50 inside a non-system folder **only** when another signal agrees; detail `ext~` («weak»). Strong owner contradicted by a weak owner's ≥ 0.95 header (D24). |
+| `organize/plan.rs`, `organize/walk.rs`, `organize/target.rs` | `LeftReason::FolderGame { system }` (the enum lives in `plan.rs`); folder-game detection in the walk (D15); MAME CHD companion (D16); `FACTS_VERSION` 5 → 6 (D27). |
 | `dedupe/units.rs` | Folder-game systems (`scummvm` plus D15's ports) treated like `ports`. |
-| `src-tauri/src/…` (system list command) | `SystemInfo` gains `family`. |
+| `src-tauri/src/ipc.rs` (`list_systems`) | `SystemInfo` gains `family`. |
 
 ### 5.2 Front end
 
 | File | Change |
 |---|---|
 | `src/ipc/types.ts`, `contract.sample.json`, `contract.test.ts` | `SystemInfo.family: 'console' \| 'handheld' \| 'computer' \| 'arcade' \| 'engine'`; `LeftReason` `folder-game`. |
-| `src/components/organize/LeftInPlace.tsx`, `ReviewBuckets.tsx` | System options grouped with `<optgroup>` by family (§9.1), names sorted with `Intl.Collator(locale)`. One shared helper `systemOptionGroups(systems, t)` in `src/lib/systems.ts`. |
+| `src/components/organize/LeftInPlace.tsx` | The full system list grouped with `<optgroup>` by family (§9.1), names sorted with `Intl.Collator(locale)`. Helper `systemOptionGroups(systems, t)` in `src/lib/systems.ts`. `ReviewBuckets.tsx` lists only a bucket's 2–8 candidates and stays a flat list in its current order; «Dejar» stays the last option. |
 | `src/lib/organize.ts` | Copy for `folder-game` and the weak-extension reason. |
 | `src/components/system/systemFallbacks.ts` | `FALLBACK_ABBR` and `WORDMARK_IDS` for the batch (§9). |
 | `scripts/icons/systemIconsLib.mjs` | New `SYSTEM_ICON_SOURCES` rows; regenerate with `pnpm system-icons` (writes `src/assets/system-icons/*`, `systemIcons.generated.ts`, README, contact sheet). |
@@ -216,11 +229,13 @@ Legend: a name = `Named`; `—` = `Absent` (no folder in that frontend at the pi
 Notes on the table:
 - Onion's `TIC` package lists `tic|fd|sap|k7|m7|rom` (Thomson extensions); the folder name is still `TIC`. Recorded as found, not «fixed».
 - muOS `odyssey2` and `videopac` both map to «Magnavox Odyssey - VideoPac»; ES-DE's separate `videopac` (G7000) folder becomes a global alias of `odyssey2` (same games). Videopac+ (G7400, `videopacplus`) is not part of the ask (§13).
-- Every `Named` folder is also a global alias of its system unless it collides (`pico`, D6).
+- Every `Named` folder is also an alias of its system unless it collides (`pico`, D6); everyday words and game titles are `scoped_aliases`, never global (D22).
+- Onion extension lists differ from §7 in places (its `SUFAMI` package lists `smc|zip|7z` only, so a `.st` cart moved there is not shown by Onion; its `SATELLAVIEW` lists `bs|sfc|smc|swc|fig|st`). Each system task compares the Onion `extlist` with §7 and lists every mismatch in the PR; Coverly never renames a file to fit (§13).
+- Batocera has a separate `gx4000` folder (Amstrad GX4000 `.cpr` carts) and ES-DE a separate `to8` and `gx4000`; `to8` is a global alias of `thomson`, `gx4000` is not part of the ask (§13).
 
 ### 6.2 Disc layout per profile
 
-No per-system override: D13. ES-DE, MinUI → `PS2/<stem>/<stem>.cue` style folders for CUE/BIN sets; a single `.iso`/`.chd` moves as a file. FAT32 cards: a PS2 ISO over 4 GiB is left with the existing `TooBigForFat` reason.
+No per-system override: D13. ES-DE (`ps2/<stem>/<stem>.cue`) and MinUI (`PS2/…`, `Absent`, with the note) get a folder per CUE/BIN set; a single `.iso`/`.chd` moves as a file. FAT32 cards: a PS2 ISO over 4 GiB is left with the existing `TooBigForFat` reason.
 
 ## 7. System entries (research result)
 
@@ -293,7 +308,7 @@ No per-system override: D13. ES-DE, MinUI → `PS2/<stem>/<stem>.cue` style fold
 | naomi2 | Sega NAOMI 2 | NAOMI2 | zip, 7z, chd | — | Sega - Naomi 2 | metadat/redump/Sega - Naomi 2.dat, metadat/mame/MAME.dat | — | A |
 | triforce | Namco Sega Nintendo Triforce | TRIFORCE | — | iso | — | — | — | A |
 
-Changes to existing entries: `msx` loses alias `msx2`; `pcengine` moves `sgx` and `snes` moves `bs` to their `weak_extensions` (D3); `nes` gains nothing (D17); all 54 gain `family`. `arcade = true` on the four arcade rows. Systems without any strong extension (`plus4`, `pet`, `c128`, `atarixe`, `quake`, ports without a launcher, `triforce`) are claimed by folder, header or hash only, which is the point.
+Changes to existing entries: `msx` loses alias `msx2` (it keeps `msx1`, ES-DE's and Batocera's MSX folder); `pcengine` moves `sgx` and `snes` moves `bs` to their `weak_extensions` (D3); `nes` gains nothing (D17); all 54 gain `family`. `arcade = true` on the four arcade rows. Systems without any strong extension (`plus4`, `pet`, `c128`, `atarixe`, `quake`, ports without a launcher, `triforce`) are claimed by folder, header or hash only, which is the point.
 
 The DAT paths and sizes were listed from the GitHub tree at `2c93952f`; the largest new one is `metadat/tosec/Sinclair - ZX Spectrum.dat` (17.9 MB, under `MAX_DAT_BYTES`). TOSEC and `dat/` files are clrmamepro text like the rest; a parse test on a trimmed copy of each new DAT family (`tosec`, `dat/`, `homebrew`) is part of §14.1.
 
@@ -319,8 +334,11 @@ The DAT paths and sizes were listed from the GitHub tree at `2c93952f`; the larg
 | jaguar | DRI `.abs` magic `60 1B`, COFF magic `01 50` | 0.50 (supports folder) | Jaguar SDK formats |
 | ti99 / arduboy | zip with `layout.xml` (`.rpk`) / `info.json` (`.arduboy`) | 0.90 | read through the archive layer, no new reader |
 | plus4 / c128 / pet | `.prg` load address `01 10` / `01 1C` / `01 04` (C64 `01 08`) | 0.40 (tie-break inside a shared folder only) | Commodore memory maps |
+| amiga / x68000 (`.hdf`) | `RDSK` at 0 or `DOS` + flag byte at 0 → amiga; `X68SCSI1` at 0 → x68000 | 0.90 each | Amiga RDB; X68000 SCSI HD image; verify |
+| amiga / pc98 (`.fdi`) | `Formatted Disk Image file` at 0 → amiga; else pc98 only by folder/hash | 0.90 | FDI 2.0 spec; verify |
+| atarist / x68000 (`.dim`) | Atari ST FastCopy `42 42` at 0 → atarist | 0.85 | FastCopy DIM; verify |
 
-Anything marked «verify» is checked against a real dump or the emulator source during its task; a rule that cannot be verified is dropped (the system keeps folder + hash), and the drop is listed in the PR.
+The last three rows exist so the D3 class changes (`.hdf`, `.fdi`, `.dim` become Shared) do not send an installed Amiga or Atari ST user's loose disks to review when the bytes say which machine they are for. Anything marked «verify» is checked against a real dump or the emulator source during its task; a rule that cannot be verified is dropped (the system keeps folder + hash), and the drop is listed in the PR.
 
 No header (folder + hash only): intellivision, odyssey2, channelf, arcadia, supervision, sg1000, supergrafx, n64dd, satellaview, gamecom, megaduck, scv, zx81, x68000, x1, pc88, msx2, msxturbor, atarixe, thomson, dragon, coco, tic80, wasm4 (the `\0asm` magic only proves WebAssembly), lowresnx.
 
@@ -328,7 +346,7 @@ No header (folder + hash only): intellivision, odyssey2, channelf, arcadia, supe
 
 | System | Rule | Source |
 |---|---|---|
-| ps2 | Existing: `SYSTEM.CNF` with `BOOT2`, or a `PLAYSTATION` PVD larger than a CD. New: serial from the `BOOT2` path (`cdrom0:\SLUS_200.62;1` → `SLUS-20062`, `normalise_serial`). CSO/ZSO: the decompressed first blocks go through the same check. | rcheevos `rc_hash_ps2` (`BOOT2`, `cdrom0:`) |
+| ps2 | Existing: `SYSTEM.CNF` with `BOOT2`, or a `PLAYSTATION` PVD larger than a CD, and the serial from the `BOOT2` path (`cdrom0:\SLUS_200.62;1` → `SLUS-20062`). New: the verdict is `Known("ps2")`. CSO: the existing CISO reader feeds the same check. ZSO: no reader (D14), extension and name only. | rcheevos `rc_hash_ps2` (`BOOT2`, `cdrom0:`) |
 | 3do | Existing Opera volume header at sector 0 of track 1. | rcheevos `rc_hash_3do` |
 | pcfx | `PC-FX:Hu_CD-ROM` at byte 0 of sector 0 of a data track; checked **before** the PC Engine CD text (some PC-FX discs also carry it). | rcheevos `rc_hash_pcfx_cd`; Beetle SuperGrafx `pce.cpp` |
 | jaguarcd | `ATARI APPROVED DATA HEADER ATRI ` (or its byte-swapped form) in the first sector of the first data track of session 2; a CUE without `REM SESSION 02` cannot be checked → folder/name only. | rcheevos `rc_hash_jaguar_cd` |
@@ -338,7 +356,7 @@ No header (folder + hash only): intellivision, odyssey2, channelf, arcadia, supe
 
 ### 8.3 Hash and name
 
-Every row with a DAT in §7 is hashed (files ≤ 64 MiB) and name-matched. `dat_sources` keeps its rule; explicit `dats` cover the TOSEC, homebrew and `dat/` files. `system_for_dat` picks the system with the fewest DAT sources and keeps database order on a tie: `mame`, `model2` and `model3` each list only `MAME.dat`, so the entries for `model2` and `model3` are placed **after** `mame` in `systems.toml` and `MAME.dat` keeps mapping to `mame` (D16). `naomi2` lists two DATs, so it never wins `MAME.dat`. A test pins both.
+Every row with a DAT in §7 is hashed (files ≤ 64 MiB) and name-matched. `dat_sources` keeps its rule; explicit `dats` cover the TOSEC, homebrew and `dat/` files. `system_for_dat` picks the system with the fewest DAT sources and keeps database order on a tie: `mame`, `model2` and `model3` each list only `MAME.dat`, so the entries for `model2` and `model3` are placed **after** `mame` in `systems.toml` and `MAME.dat` keeps mapping to `mame` (D16). `naomi2` lists two DATs, so it never wins `MAME.dat`. The same tie applies to `atarixe`, whose only DAT is `a800`'s `Atari - 8-bit Family.dat`: `atarixe` is placed after `a800` and is **never identified by hash**, only by its folder (stated in the PR). A test pins all three. The batch adds 4 DAT-heavy computer systems (ZX Spectrum lists 3 DATs, 17.9 MB TOSEC): a mixed pile can exceed `MAX_DAT_DOWNLOADS = 4`; the existing «catálogos no consultados» report covers it, nothing new. Runtime downloads come from `master` (§3), so the pinned-tree test catches typos, not later renames upstream; a later 404 follows the existing TTL path.
 
 ## 9. UX and UI design
 
@@ -348,7 +366,7 @@ The visible change is small: more systems, grouped pickers, and icons. No new sc
 
 - **Colour**: existing semantic tokens only (`--cr-text`, `--cr-text-secondary`, `--cr-border`, `--cr-manila` for the Slot mount's label tape). No new hex values; `pnpm tokens:check` stays green.
 - **Type**: Atkinson Hyperlegible Next for names and group labels (`type.app.label` for `<optgroup>` where the platform renders it; native otherwise); Atkinson Mono for the abbreviation inside the Slot mount (unchanged). No Archivo in this batch (nothing ≥ 24px changes).
-- **Layout**: the review row keeps `filename · [Elige un sistema…]`. The native select's options become:
+- **Layout**: only the «Se quedan donde están» picker (`LeftInPlace`), which lists every system, changes. The review rows keep their short candidate list. The full list's options become:
 
   ```
   Elige un sistema…
@@ -366,7 +384,7 @@ The visible change is small: more systems, grouped pickers, and icons. No new sc
 - **Motion**: none added.
 - **Principle**: the system's identity is its name plus its silhouette; when no neutral silhouette exists the Slot mount with a short label is the brand's honest fallback, not a made-up drawing.
 
-Review against generic defaults: the obvious default would be a searchable combobox with icons per option. Rejected: a native `<select>` is what the screen uses today, is keyboard- and screen-reader-native on all three OSes, and grouping solves the length problem (118 options in 5 groups). A custom combobox is a separate item if the owner wants it (§13). Group labels are plain sentence-case words, no all-caps eyebrows, no counts in the label.
+Review against generic defaults: the obvious default would be a searchable combobox with icons per option. Rejected: a native `<select>` is what the screen uses today, is keyboard- and screen-reader-native on all three webviews (WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux all render `<optgroup>` natively and VoiceOver/Narrator/Orca announce the group), type-ahead still jumps by name across groups, and grouping solves the length problem (118 options in 5 groups). The placeholder option stays outside any group and disabled; no option text relies on the icon (none is rendered inside `<option>`). A custom combobox is a separate item if the owner wants it (§13). Group labels are plain sentence-case words, no all-caps eyebrows, no counts in the label.
 
 ### 9.2 Icons
 
@@ -415,7 +433,7 @@ Slot-mount fallbacks (`FALLBACK_ABBR`, ≤ 4 chars): `msxturbor TR`, `c128 C128`
 
 ### 9.3 Mock
 
-`?mockPick=retro` (beside `downloads|loose|mixed`): a pile with `Gran Turismo 4 (Europe).iso` (PS2, `BOOT2` serial `SCES-51719`), `Tempest 2000 (World).j64`, `Manic Miner (1983)(Bug-Byte).tzx`, `Arkanoid (1987).dsk` (CPC magic → review: Amstrad CPC or ZX Spectrum), `Sailor Moon (Japan).st` with the Sufami magic, `Prince of Persia.st` without it (Atari ST), `doom/DOOM.WAD`, `Cave Story/` (a loose folder game → left, `folderGame`), `sfiii.zip` beside `sfiii/` holding a `.chd` (one item with its CHD companion), `game.bin` (generic → left, unknown). Shelves fixture gains `PS2`, `ZXS`, `WASM4` so a silhouette and a Slot mount render side by side.
+`?mockPick=retro` (beside `downloads|loose|mixed`): a pile with `Gran Turismo 4 (Europe).iso` (PS2, `BOOT2` serial `SCES-51719`), `Tempest 2000 (World).j64`, `Manic Miner (1983)(Bug-Byte).tzx`, `Arkanoid (1987).dsk` (CPC magic → review: Amstrad CPC or ZX Spectrum), `Sailor Moon (Japan).st` with the Sufami magic, `Prince of Persia.st` without it (Atari ST), `DOOM.WAD` loose (`IWAD` → doom), `Freedoom Phase 1/` holding `freedoom1.wad` (`IWAD`) and `README.txt` (one item left, `folderGame`), `Cave Story/` with `Doukutsu.exe` and `data/` (no rule: its files are left `unknown`, D15), `sfiii.zip` beside `sfiii/` holding a `.chd` (one item with its CHD companion), `game.bin` (generic → left, unknown). Shelves fixture gains `PS2`, `ZXS`, `WASM4` so a silhouette and a Slot mount render side by side.
 
 ## 10. Copy (es / en)
 
@@ -429,18 +447,18 @@ Spanish: sentence case, no exclamation marks, exact counts, numbers set in mono 
 | `systems.family.arcade` | Recreativas | Arcade |
 | `systems.family.engine` | Motores y consolas de fantasía | Engines and fantasy consoles |
 | `organize.why.extensionWeak` | Extensión .{ext}: cuenta para {system} solo dentro de su carpeta o con su cabecera | .{ext} counts for {system} only inside its folder or with its header |
-| `organize.left.folderGame` | Juego en carpeta de {system}: muévela entera a la carpeta {folder} | Folder game for {system}: move the whole folder to {folder} |
+| `organize.left.folderGame` | Juego de {system} en su propia carpeta: muévela entera a {folder} | {system} game in its own folder: move the whole folder to {folder} |
 
-Existing keys reused unchanged: `organize.noFolderOnDevice` («{layout} no tiene carpeta para {system}; se crea {folder}.»), `organize.why.disc`, `why.header`, `why.hash`, `why.extensionShared`. `organize.unsupportedSystem` stays for user systems; PS2, 3DO and Pico no longer produce it. The parity test covers the new keys.
+`<optgroup label>` uses the `systems.family.*` keys; nothing else is needed. Existing keys reused unchanged: `organize.noFolderOnDevice` («{layout} no tiene carpeta para {system}; se crea {folder}.»), `organize.why.disc`, `organize.why.header`, `organize.why.hash`, `organize.why.extensionShared`, `organize.why.extensionContradicted` (D24). `organize.left.unsupportedSystem` stays for future systems; PS2, 3DO and Pico no longer produce it. `{folder}` in `folderGame` is the folder name in mono like other paths. Other workflows edit `locales/*.json` in parallel: add keys in their sorted place and resolve merge conflicts key by key, never by taking one side. The parity test covers the new keys.
 
 ## 11. Data flow
 
-1. **Load**: `SystemDb` parses `family` and `weak_extensions`; validation rejects a weak extension that is also strong, an unknown family, and an alias that two systems claim globally.
+1. **Load**: `SystemDb` parses `family`, `weak_extensions` and `scoped_aliases`; validation of the built-in file rejects a weak extension that is also strong, an unknown family, and an alias that two systems claim; a user systems file is merged leniently (§5.1) and never fails on the new fields.
 2. **Scan** (`scan_library_with_progress(root, profile, …)`): each top folder → `resolve_folder_in(Some(profile), name)` → system; files filtered by `systems_accepting` (strong + weak) for that system.
-3. **Organise walk**: folders that resolve (profile-scoped) are skipped as already sorted; a loose folder whose name or content matches a folder-game system → `LeftReason::FolderGame`.
-4. **Evidence**: sniff hits (§8) + extension evidence (strong only) + DAT hash/serial + name. Weak extensions add evidence only when a folder or header already names the system.
-5. **Target**: `system_folder(profile, system, db, overrides)` → override, `Named`, host, rule; `Absent` → note. Disc systems follow the profile's `disc_layout`; `ps2` never takes an archive as-is.
-6. **Covers**: libretro playlist name (§7) → thumbnails; absent → ScreenScraper when `screenscraper` is set and the user enabled it; otherwise none.
+3. **Organise walk**: folders that resolve (profile-scoped, scoped aliases included) are skipped as already sorted; a pile folder directly holding a proven folder-game file (D15) → one item, `LeftReason::FolderGame`.
+4. **Evidence**: sniff hits (§8) + extension evidence (strong only, contradicted per D24) + DAT hash/serial + name. Weak extensions add evidence only when a folder or header already names the system. Zip/gzip packages (D25) are raw items.
+5. **Target**: `system_folder(profile, system, db, overrides)` → override, `Named`, host (incl. D23), rule; `Absent` → note. Disc systems follow the profile's `disc_layout`; `ps2` never takes an archive as-is (`multi_file`).
+6. **Covers**: libretro playlist name (§7) → thumbnails; absent → ScreenScraper when `screenscraper` is set and the user enabled it; otherwise none. Where they are written follows the profile template unchanged: on ES-DE and muOS that is `{system_id}` (§13 owner ask).
 7. **UI**: `listSystems()` → `SystemInfo { id, name, family }` → grouped options; plan items show `SystemIcon`.
 
 ## 12. Edge cases and failure modes
@@ -457,57 +475,76 @@ Existing keys reused unchanged: `organize.noFolderOnDevice` («{layout} no tiene
 | Folder `msx2` on an existing library | Now MSX2 (was MSX). Covers come from `Microsoft - MSX2`. A user override for `msx` naming `msx2` fails validation and is reported in settings (existing behaviour for invalid overrides). |
 | User override naming an `Absent` profile folder | Allowed if it resolves back (existing rule); the note disappears because the user chose the name. |
 | PS2 ISO over 4 GiB on FAT32 | Left, `TooBigForFat` (existing). |
-| PS2 CSO/ZSO first blocks unreadable | No header hit; extension `zso` (strong) still says ps2; `cso` (weak) stays psp unless the header says ps2. |
+| PS2 `.zso` | No reader: extension `zso` (strong, unique) says ps2, name-only for the DAT. |
+| PS2 `.cso` | The CISO reader reaches the PVD: `BOOT2` → ps2 and psp's extension is contradicted (D24); otherwise psp as today. |
 | Jaguar CD single-session CUE | Folder or name only; never auto by `.cdi`. |
 | DAT missing on the server (404) | Remembered for the TTL (existing); identification falls back to header/name. A new DAT path that 404s at review time is a bug: test (§14.1) asserts every path exists in the pinned tree listing committed as a fixture. |
 | Two systems with the same libretro folder (`model2`, `model3`, `mame`, `pgm2` → `MAME`) | Allowed today (pgm2); cover lookup works for each. |
-| A custom profile cloned before this batch | Has no `folders`; behaves like today (rule-based names). Re-cloning picks the tables up. |
+| A custom profile cloned before this batch | Its `folder_names` lacks the new systems; behaves like today (rule-based names, e.g. `jaguar` instead of ES-DE's `atarijaguar`). Re-cloning picks the tables up. Listed in the release notes. |
+| A user systems file that already defines a new id (`tic80`, `ps2`…) | Merged by id as today: the user's aliases win and their extensions are appended; a user strong extension removes the built-in weak one (§5.1). A user file defining the same machine under another id (`spectrum` with alias `ZXS`) keeps that alias; the built-in `zxspectrum` loses it, as today's alias rule says. |
+| A remembered pick (`organize_choices`) for `msx`, `pcengine`, `snes` on a file now identified as `msx2`, `supergrafx`, `satellaview` | The user's pick wins (D27); nothing is silently re-filed. |
+| An existing `MSX2/` folder on RetroArch, ES-DE or muOS | Now `msx2`: art paths with `{libretro}`/`{system_id}` move from `Microsoft - MSX`/`msx` to `Microsoft - MSX2`/`msx2`, so the art-gap count rises once and a fill re-downloads covers there. Old files are not deleted. Dedupe no longer pairs an MSX2 copy with an MSX copy. Release notes say so. |
+| Loose `.hdf`, `.fdi`, `.dim` (now Shared, D3) | Amiga / Atari ST bytes keep them automatic through the §8.1 rows; without a recognised header they go to review (previously automatic). Release notes say so. |
+| Folder named `Doom`, `Dragon`, `PET` in a pile | Resolves only with a profile (D22): with the target profile it is «already sorted» like any system folder; profile detection never counts it. |
+| `.arduboy`, `.rpk`, `.solarus`, `.lutro`, gzip `.uef` | Raw items, moved as-is, never extracted (D25). |
+| `.hex`, `.nx`, `.lua`, `.game` | Text-native (D26): never «No es una ROM (texto)». Loose `.hex`/`.lua` stay unknown (weak only). |
+| Older Coverly reads a plan, job or profile written by this one | Profile files: the new data is in existing fields, nothing breaks. Plans and job records holding `FolderGame` or a new system id are only read by the version that wrote them (downgrade is unsupported, as for earlier `LeftReason` additions). |
+| Facts memoised by the previous version | `FACTS_VERSION` 6 (D27): read again lazily. |
 | An old settings file | No new keys; nothing to migrate. |
-| Windows paths | Fixture paths compared by component; fixture mtimes pinned. |
+| Windows paths | Fixture paths compared by component; fixture mtimes pinned. No new folder name is a Windows reserved name (`CON`, `AUX`, `NUL`, `COM1`…) or ends in a dot or space; a test asserts it for every `Named` folder and first alias. `sg-1000`, `fm-towns`, `pc-fx` are valid on FAT32, exFAT, NTFS, APFS and ext4. |
+| Case-only differences (`PICO` on Anbernic vs `pico` on Batocera) | Resolution is case-insensitive as today; on a case-sensitive Linux card the folder Coverly creates uses the table's exact spelling. |
+| Extensions with digits only (`.0`, `.81`) | `Path::extension` returns them on all three OSes; `.0` is weak (D4), so a `foo.0` log file in Downloads is never claimed. |
 
 ## 13. Blocked, deferred and out of scope
 
 Needs an owner decision (implemented around; listed in the PR):
 - **Taito Type X**: Windows executables per game, no DAT, no libretro thumbnails, no ScreenScraper id found; only ES-DE has a `type-x` folder. Catalogue-only like Tanda 3? Owner to decide.
 - **Cave CV1000 (`cave3rd`)**: a Batocera-only folder; MAME sets today. New system or stay in `mame`?
-- **ScreenScraper ids for C128, PET, NAOMI 2 and Triforce**: not found in ES-DE's or Skyscraper's maps; `systemesListe.php` needs developer credentials (`docs/02-research/screenscraper-api.md`). Left absent until checked with credentials.
+- **ScreenScraper ids for C128, PET, NAOMI 2 and Triforce**: not found in ES-DE's or Skyscraper's maps; `systemesListe.php` needs developer credentials (`docs/02-research/screenscraper-api.md`). Left absent until checked with credentials. `doom` and `quake` use 135 (PC DOS), as ES-DE does; owner may prefer none.
+- **ES-DE media folder name.** ES-DE reads `downloaded_media/<ES-DE system name>/`, but the built-in template writes `downloaded_media/{system_id}/` (§3). For this batch's systems whose ES-DE folder differs from the id (`jaguar`→`atarijaguar`, `jaguarcd`→`atarijaguarcd`, `cdi`→`cdimono1`, `sg1000`→`sg-1000`, `thomson`→`moto`, `dragon`→`dragon32`) ES-DE will **not** show the covers Coverly writes; the same is already true today for existing systems such as `a2600` (`atari2600`). Fix proposed: a `{system_folder}` template token (the ROM folder's name) used by the ES-DE template. It moves where art is written for installed ES-DE users whose folder ≠ id (art-gap counts change once), so it is **not** done in this batch without the owner's yes. Same question for muOS `catalogue/{system_id}` (below).
+- **Behaviour changes for installed users** (implemented, to be confirmed): D3's `.hdf`/`.fdi`/`.dim` class change (mitigated by §8.1 headers), `msx2` leaving `msx` (§12), D23's hosts keeping `.sgx`/`.bs`/MSX2/XE on the parent folder on Anbernic stock and MinUI. The owner may prefer the new folders with the «no tiene carpeta» note instead of D23.
+- **Onion extension lists** that omit a §7 extension (`SUFAMI` has no `.st`, §6.1 notes): accept that the device hides those files, or exclude Onion from those systems? Default: move them, list them in the PR.
+- **Refreshing old custom profiles** with the new folder tables (an «actualizar carpetas» action in the profile editor): not built; owner to decide.
 
 Observed, pre-existing, not changed here:
 - The muOS cover path uses `{system_id}` as the catalogue folder, while muOS catalogues are named like «Atari Jaguar» (manifest `catalogue`). New systems follow the existing rule for consistency; fixing the catalogue name is its own item.
 - MinUI/NextUI folders are «Display Name (TAG)»; the profile writes the bare tag. Unchanged.
 
-Out of scope: Videopac+ (G7400), Knulli as its own profile, a searchable system combobox, Tanda 2 and 3.
+Out of scope: Videopac+ (G7400), Amstrad GX4000, Knulli as its own profile, a searchable system combobox, a ZSO reader, Tanda 2 and 3.
 
 ## 14. Test plan
 
 ### 14.1 Rust (`cargo test --workspace`)
 
-- `systems`: every new entry loads; families valid; weak/strong disjoint; global aliases unique; **extension-class snapshot** (`insta`) for every pre-batch extension, whose diff from `main` is exactly D3's list; `.sgx` → supergrafx; `msx2` alias → msx2.
-- `profiles`: for every built-in × every Tanda 1 system, `system_folder` returns the §6.1 name or the rule name with `on_device = Some(false)`; every `Named` folder resolves back through `resolve_folder_in(Some(profile))`; `pico` resolves to pico8 without a profile and to Sega Pico on batocera; custom profile round-trip with `folders`.
-- `sniff` (`tests/sniff.rs`): one positive and one negative fixture per §8.1 rule (synthetic byte heads, no copyrighted data); Pico and PS2 become hits.
+- `systems`: every new entry loads; families valid; weak/strong disjoint; global and scoped aliases unique; **extension-class snapshot** (`insta`) for every pre-batch extension, whose diff from `main` is exactly D3's list; `.sgx` → supergrafx; `msx2` alias → msx2; `msx1` still → msx; no scoped alias resolves through profile-less `resolve_folder` (D22); a user systems file that lists a built-in weak extension as strong, or an unknown `family`, loads (§5.1); no `Named` folder or first alias is a Windows reserved name.
+- `profiles`: for every built-in × every Tanda 1 system, `system_folder` returns the §6.1 name or the rule name with `on_device = Some(false)`; every `Named` folder resolves back through `resolve_folder_in(Some(profile))`; `pico` resolves to pico8 without a profile and to Sega Pico on batocera; cloning a built-in fills `folder_names` with its `Named` entries and the file round-trips; a custom Batocera clone's `folder_names.pico = "pico"` validates (scoped) instead of failing as «folder of PICO-8»; D23 hosts give `PCE`/`SFC`/`MSX`/`A800` on anbernic-stock; `default_container_overrides()` is unchanged (D13).
+- `sniff` (`tests/sniff.rs`): one positive and one negative fixture per §8.1 rule (synthetic byte heads, no copyrighted data); Pico and PS2 become hits (the existing assertions on `unsupported = "PlayStation 2"`/`"Sega Pico"` in `tests/sniff.rs`, `tests/disc_identify.rs` and `tests/organize_inspect.rs` are rewritten, not deleted); a `.hex` and an `.nx` text file are not `NotARom` (D26); a `.wad` without `IWAD`/`PWAD` scores 0.60 (D15).
 - `disc_identify`: PS2 head (existing `disc/testing.rs` builder) → `Known("ps2")` with serial; 3DO → `Known("3do")`; PC-FX before PC Engine CD; CD-i, CD32, CDTV, Jaguar CD builders.
 - `dat`: parse trimmed fixtures of a TOSEC, a `dat/` and a homebrew DAT; a committed listing of libretro-database paths at `2c93952f` contains every `dats` path and derived path.
 - `organize_target`: per family, a ROM lands in the right folder on esde, batocera, muos, onion and minui, with the `NoFolderOnDevice` note where `Absent`; ps2 archive is extracted, never moved as-is.
 - `organize_plan` snapshots: new `organize_plan__systems_batch_1__{esde,batocera,onion}.snap` over the §9.3 pile (built under `target/` with `cp -RXp`, pinned mtimes, removed afterwards).
-- `organize_walk`: a loose `Cave Story/` folder → `FolderGame`; `sfiii.zip` + `sfiii/*.chd` move together.
-- `dedupe_units`: port folders are out of scope like `PORTS/`.
+- `organize_walk`: `Freedoom Phase 1/` → one `FolderGame` item; `Cave Story/` → its files `unknown`; a `Dragon/` folder in a pile is «already sorted» with a profile and not counted by `detect` (D22); `sfiii.zip` + `sfiii/*.chd` move together.
+- `organize_evidence`: `.md` + `SEGA PICO` → pico Auto with megadrive contradicted (D24); `.st` + Sufami magic → sufami Auto; `.hdf` with `RDSK` → amiga Auto; `.arduboy` (zip) is one raw item, never extracted (D25).
+- `organize_plan` facts: a row stored with `FACTS_VERSION` 5 holding `Unsupported { "PlayStation 2" }` is re-read and becomes `ps2` (D27); a remembered `msx` pick for an MSX2 DAT hit stays `msx`.
+- `dedupe_units`: folders named by a folder-game alias are out of scope like `PORTS/`.
+- Existing snapshots that change (`list_systems` in `src-tauri/src/lib.rs`, any plan snapshot whose candidates include `.dsk`, `.sgx`, `.bs`, `.hdf`, `.fdi`, `.dim`): each diff is reviewed and explained in the commit, never accepted wholesale.
 - `libretro` (cover lookup): for every system with `libretro`, the thumbnail URL is built from the exact §7 name (committed copy of the live root listing; a test asserts each name is in it).
 
 ### 14.2 Vitest (`pnpm check-all`)
 
 - `systemOptionGroups`: fixed group order, locale sorting (es: «Ámbar» before «Bravo»), empty groups dropped.
-- `LeftInPlace` / `ReviewBuckets`: options inside `<optgroup label="Consolas">` etc.
+- `LeftInPlace`: options inside `<optgroup label="Consolas">` etc., placeholder outside any group; `ReviewBuckets` unchanged (flat candidates, «Dejar» last).
 - `SystemIcon`: a new silhouette (`ps2`) renders an `svg`; `wasm4` renders the mount with `W4`; `systemIcons.test.ts` passes on the regenerated module.
-- `organize.ts` copy for `folder-game` and `extension-weak`; i18n parity.
+- `organize.ts` copy for `folder-game` and `extension-weak`; i18n parity; Spanish copy check (sentence case, no «!»).
 - Contract test with `family`.
 
 ### 14.3 E2E (Chrome DevTools MCP, isolated context `systems-batch-1`, dev server on port 1465)
 
 1. `?mockPick=retro` → organise offer → plan: PS2 group with its silhouette, «Disco de Sony PlayStation 2 … (SCES-51719)» in the why line; ZX Spectrum and Jaguar groups; `Sailor Moon` under Sufami Turbo, `Prince of Persia` under Atari ST.
-2. Review: `Arkanoid (1987).dsk` → select shows groups; keyboard-only: Tab to the select, arrow to «Amstrad CPC» in «Ordenadores», apply.
-3. Left in place: `Cave Story` with the folder-game line; `game.bin` unknown.
+2. Review: `Arkanoid (1987).dsk` → its candidate select lists Amstrad CPC and ZX Spectrum first; keyboard-only: Tab to the select, arrows to «Amstrad CPC», apply.
+3. Left in place: `Freedoom Phase 1` with the folder-game line; `Cave Story` files and `game.bin` unknown; the «elige un sistema» picker there shows the five groups; keyboard-only: Tab, type «zx», the ZX Spectrum option in «Ordenadores» is selected; the accessibility tree (`take_snapshot`) shows the group labels.
 4. Switch profile to Onion: the PS2 item shows «Onion OS no tiene carpeta para Sony PlayStation 2; se crea PS2.»
-5. Library shelves: `PS2` silhouette and `WASM4` mount, light and dark (`data-theme`), screenshots attached to the PR.
+5. Library shelves: `PS2` silhouette and `WASM4` mount, light and dark (`data-theme`), with `prefers-reduced-motion: reduce` emulated (nothing new animates), at 1280 px and the narrowest supported window; screenshots attached to the PR.
 Fallback: Playwright MCP, then `playwright-core` + Chrome for Testing in the scratchpad.
 
 ### 14.4 Gates
@@ -516,14 +553,14 @@ Fallback: Playwright MCP, then `playwright-core` + Chrome for Testing in the scr
 
 ## 15. Tasks (one reviewable commit series each)
 
-1. Core model: `family`, `weak_extensions`, `Profile.folders`, `resolve_folder_in`, custom-profile serde, extension-class snapshot (no new systems yet).
-2. Disc family: ps2, 3do, pcfx, cdi, amigacd32, cdtv, jaguarcd, fmtowns (+ `NO_ARCHIVE_SYSTEMS`).
+1. Core model: `family`, `weak_extensions`, `scoped_aliases`, lenient user-file merge, `Profile.folders`, `resolve_folder_in` at every caller of §3, custom-profile `folder_names` on clone, D24 contradiction, D25 packages, D26 text-native, `FACTS_VERSION` 6, extension-class snapshot (no new systems yet).
+2. Disc family: ps2, 3do, pcfx, cdi, amigacd32, cdtv, jaguarcd, fmtowns (`zso` in `NAME_ONLY_EXTS`; no `NO_ARCHIVE_SYSTEMS` change).
 3. Early consoles: colecovision, intellivision, vectrex, odyssey2, channelf, arcadia, scv, jaguar.
 4. Sega / NEC / Nintendo add-ons: sg1000, pico, supergrafx, n64dd, satellaview, sufami; Famicom check (D17).
 5. Handhelds: supervision, gamecom, megaduck.
 6. Computers I: zxspectrum, zx81, amstradcpc, bbcmicro, thomson, dragon, coco, ti99.
 7. Computers II: x68000, x1, pc98, pc88.
-8. Computers III: plus4, pet, c128, atarixe, msx2, msxturbor, apple2.
+8. Computers III: plus4, pet, c128, atarixe, msx2, msxturbor, apple2; D23 hosts; `.hdf`/`.fdi`/`.dim` headers (§8.1) land with the D3 class change, in the same commit.
 9. Fantasy consoles: tic80, wasm4, arduboy, uzebox, lowresnx, vircon32.
 10. Ports and engines + folder-game rule.
 11. Extra arcade + MAME CHD companions.
@@ -531,7 +568,7 @@ Fallback: Playwright MCP, then `playwright-core` + Chrome for Testing in the scr
 13. UI: `SystemInfo.family`, grouped pickers, copy, mock pile.
 14. E2E pass, PR with the blocked list (§13).
 
-Each system task adds its §7 rows, its §6.1 table rows, its §8 rules and its tests together.
+Each system task adds its §7 rows, its §6.1 table rows, its §8 rules, its Onion `extlist` check (§6.1 notes) and its tests together, and is pushed right after its commit. Other workflows change `locales/*.json`, `src/components/*` and `TODO.md` in parallel: merge `origin/main` before tasks 12–14 and resolve conflicts by hand.
 
 ## 16. Sources (fetched 2026-10-31)
 
@@ -556,3 +593,32 @@ Each system task adds its §7 rows, its §6.1 table rows, its §8 rules and its 
 - Contradictions checked: D3 vs §7 (every weak extension is a strong extension of an existing or a sibling system, or a D4 short extension); D5 vs D11 (Anbernic `Absent` and `known_folders` both yield `on_device = Some(false)`; same note); D6 vs §6.1 (`pico` is the only scoped collision; `msx2` is moved, not scoped); D13 vs §6.2 (no per-system disc layout); D16 vs §7 (model2/model3 list `MAME.dat` but loose sets stay in `mame`: §8.3 explains the tie order).
 - Counts: 54 existing + 64 new = 118 systems (§7 and §6.1 both have 64 rows); `FALLBACK_ABBR` entries ≤ 4 characters.
 - Brief rules: no folder guessed (each `Named` cell traces to §16); ambiguous extensions never auto-assigned by extension; ports follow ScummVM; blocked items listed (§13) without blocking the batch.
+
+## 18. Adversarial review (2026-10-31)
+
+Checked against `TODO.md` §2 and the code at `b984478`. Re-verified live: every libretro-thumbnails name of §7 is in the 127-folder root listing; every DAT path of §7 exists at `2c93952f` with the stated sizes; every icon file of §9.2 exists at `d9f96905` (no `WASM-4`, `LowRes NX`, `Vircon32`, `Solarus`, `Wolfenstein 3D`, `Commodore - 128`, `Sega - Naomi 2`, matching the Slot-mount list); ES-DE and Batocera folder names of §6.1 match the pinned `es_systems` files. Fixed in this pass:
+
+| Finding | Where fixed |
+|---|---|
+| `NO_ARCHIVE_SYSTEMS` is in `profiles/mod.rs`, and `multi_file` already blocks archives as-is; adding `ps2` would only change the custom-profile serde default. | §3, D13, §5.1, §15 |
+| Custom profiles already have `folder_names`; a second `folders` field duplicated it. | §3, D5, §5.1 |
+| Six `resolve_folder` callers were missing (naming, custom preview, fit, detect, quarantine, probe); `detect`/`fit` have no profile. | §3, D6, §5.1 |
+| The walk skips every folder that resolves: aliases like `doom`, `dragon`, `pet`, `x1` would hide Downloads folders and flip profile detection. | D22, §12 |
+| No «ScummVM never split» rule exists; the `Cave Story/` mock had no rule that could make it `FolderGame`. | §3, D15, §9.3, §14 |
+| `.wad` unique and not `DECISIVE` → any `.wad` Auto to doom. | D15, §5.1 |
+| Weak-owner header wins only by `EPS` over the strong extension (0.95 vs 0.85, `MARGIN` 0.10). | D24 |
+| Magic-first containers would extract `.arduboy`/`.rpk`/`.solarus`/`.lutro` and decompress `.uef`. | D25 |
+| `.hex`/`.nx`/`.lua`/`.game` are text → `NotARom`. | D26 |
+| Memoised facts (`FACTS_VERSION` 5) keep PS2/3DO/Pico `Unsupported` after upgrade. | D27 |
+| ZSO has no reader (LZ4 CISO); «decompressed first blocks» was a new format. | D14, §8.2, §12 |
+| PS2 serial from `BOOT2` already exists. | §3, D14, §8.2 |
+| `.sgx`/`.bs` would move from `PCE`/`SFC` to folders Anbernic stock does not show. | D23, D11 |
+| `.hdf`/`.fdi`/`.dim` becoming Shared sends Amiga/ST disks to review. | §8.1, §12, §13 |
+| `atarixe` shares `a800`'s only DAT: never wins a hash. | §8.3 |
+| `ReviewBuckets` lists candidates, not every system; only `LeftInPlace` needs groups. | §3, §5.2, §9.1, §14 |
+| User systems files could fail to load on the new validation. | §5.1, §11, §12, §14 |
+| ES-DE writes media under the Coverly id, not the ES-DE system name: six new systems' covers would not show. | §13 owner ask |
+| Onion `SUFAMI` lists `.smc` only. | §6.1, §13 |
+| Locale key was `organize.unsupportedSystem`; real key is `organize.left.unsupportedSystem`. | §10 |
+| Windows reserved names, case-sensitive cards, digit-only extensions, downgrade, MSX2 art relocation not covered. | §12, §14 |
+| a11y: `<optgroup>` support per webview, type-ahead, placeholder; reduced motion and dark mode in E2E. | §9.1, §14.3 |
