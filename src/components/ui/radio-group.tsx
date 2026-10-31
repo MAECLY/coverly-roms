@@ -40,7 +40,7 @@ export const RadioGroupItem = forwardRef<
     )}
     {...props}
   >
-    <RadioGroupPrimitive.Indicator className="size-2 rounded-full bg-primary" />
+    <RadioGroupPrimitive.Indicator className="size-2 rounded-full bg-primary forced-colors:bg-[CanvasText] forced-colors:forced-color-adjust-none" />
   </RadioGroupPrimitive.Item>
 ));
 RadioGroupItem.displayName = 'RadioGroupItem';

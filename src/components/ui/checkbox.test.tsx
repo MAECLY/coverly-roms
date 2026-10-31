@@ -65,6 +65,21 @@ describe('RadioGroup', () => {
   });
 });
 
+describe('RadioGroup in forced colours', () => {
+  it('draws the chosen dot in a system colour forced colours keep', () => {
+    render(
+      <RadioGroup defaultValue="a" aria-label="Copia">
+        <RadioGroupItem value="a" aria-label="A" />
+      </RadioGroup>,
+    );
+    // A background-only dot vanishes when forced colours paint backgrounds
+    // with Canvas: it opts out and paints itself CanvasText.
+    const dot = screen.getByRole('radio', { name: 'A' }).firstElementChild!;
+    expect(dot.className).toContain('forced-colors:forced-color-adjust-none');
+    expect(dot.className).toContain('forced-colors:bg-[CanvasText]');
+  });
+});
+
 describe('Switch', () => {
   it('is role="switch" and toggles with Space', async () => {
     render(<Switch aria-label="Check for updates" />);
