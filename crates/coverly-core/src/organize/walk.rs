@@ -92,6 +92,11 @@ pub struct Walked {
     pub companions: Vec<PathBuf>,
     /// Not ROM-like (plan O-D7): counted, listed on demand.
     pub other_files: Vec<PathBuf>,
+    /// MAME CHD folders (spec D16): a `<set>.zip` candidate and the `.chd`
+    /// files of the `<set>/` folder beside it, which holds nothing else.
+    /// The CHDs are not candidates; the planner attaches them to the set
+    /// when it moves as an arcade set and leaves them otherwise.
+    pub chd_folders: Vec<(PathBuf, Vec<PathBuf>)>,
     /// OS metadata, AppleDouble twins, hidden files, copied ADS streams.
     pub junk: usize,
 }
@@ -263,6 +268,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     );
     out.sorted_folders = sorted;
     out.candidates.sort_by(|a, b| a.path.cmp(&b.path));
+    out.chd_folders = take_chd_folders(&mut out.candidates);
     out.left.sort_by(|a, b| a.0.cmp(&b.0));
     out.sorted_folders.sort();
     out.deep_folders.sort();
@@ -312,6 +318,75 @@ fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftR
         system: system.id.clone(),
         folder,
     })
+}
+
+/// Takes out of `candidates` the `.chd` files of every `<set>/` folder
+/// that sits beside a `<set>.zip` candidate (any case) and directly holds
+/// only `.chd` files (junk aside, no sub-folder): MAME's CHD-per-game
+/// layout (spec D16). Returns each set with its CHDs, sorted.
+fn take_chd_folders(candidates: &mut Vec<WalkCandidate>) -> Vec<(PathBuf, Vec<PathBuf>)> {
+    let zips: HashMap<(PathBuf, String), PathBuf> = candidates
+        .iter()
+        .filter(|c| c.ext == "zip")
+        .filter_map(|c| {
+            let stem = c.path.file_stem()?.to_string_lossy().to_lowercase();
+            Some(((c.path.parent()?.to_path_buf(), stem), c.path.clone()))
+        })
+        .collect();
+    if zips.is_empty() {
+        return Vec::new();
+    }
+    let mut sets: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    let mut checked: HashMap<PathBuf, bool> = HashMap::new();
+    for c in candidates.iter().filter(|c| c.ext == "chd") {
+        let Some(folder) = c.path.parent() else {
+            continue;
+        };
+        let (Some(beside), Some(name)) = (folder.parent(), folder.file_name()) else {
+            continue;
+        };
+        let key = (beside.to_path_buf(), name.to_string_lossy().to_lowercase());
+        let Some(zip) = zips.get(&key) else {
+            continue;
+        };
+        let only_chds = *checked
+            .entry(folder.to_path_buf())
+            .or_insert_with(|| holds_only_chds(folder));
+        if only_chds {
+            sets.entry(zip.clone()).or_default().push(c.path.clone());
+        }
+    }
+    let taken: HashSet<&PathBuf> = sets.values().flatten().collect();
+    candidates.retain(|c| !taken.contains(&c.path));
+    sets.into_iter()
+        .map(|(zip, mut chds)| {
+            chds.sort();
+            (zip, chds)
+        })
+        .collect()
+}
+
+/// Whether `dir` directly holds `.chd` files and nothing else but OS junk.
+fn holds_only_chds(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let mut any = false;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if is_hidden(&name)
+            || is_appledouble(&name)
+            || is_junk_file(&name)
+            || is_zone_identifier(&name)
+        {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|t| t.is_file()) || extension(Path::new(&name)) != "chd" {
+            return false;
+        }
+        any = true;
+    }
+    any
 }
 
 /// Whether the local file at `path` opens with `IWAD`/`PWAD`; a cloud

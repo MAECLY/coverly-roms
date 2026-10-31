@@ -591,3 +591,30 @@ fn a_folder_game_alias_folder_stays_already_sorted() {
     ids.sort();
     assert_eq!(ids, ["doom", "scummvm"]);
 }
+
+#[test]
+fn mame_chd_folder_is_kept_with_its_set() {
+    // D16: `sfiii/` holding only `.chd` beside `sfiii.zip` is the set's
+    // CHD folder: its files are not candidates of their own. A folder
+    // with anything else, or with no set beside it, is walked as usual.
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "sfiii.zip", b"PK\x03\x04");
+    let chd = put(tmp.path(), "sfiii/sfiii.chd", b"MComprHD");
+    put(tmp.path(), "sfiii/.DS_Store", b"\0\0\0\x01Bud1");
+    put(tmp.path(), "kof.zip", b"PK\x03\x04");
+    put(tmp.path(), "kof/kof.chd", b"MComprHD");
+    put(tmp.path(), "kof/readme.txt", b"hello");
+    put(tmp.path(), "lone/lone.chd", b"MComprHD");
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(
+        w.chd_folders,
+        [(tmp.path().join("sfiii.zip"), vec![chd.clone()])]
+    );
+    let names = file_names(
+        &w.candidates
+            .iter()
+            .map(|c| c.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(names, ["kof.chd", "kof.zip", "lone.chd", "sfiii.zip"]);
+}

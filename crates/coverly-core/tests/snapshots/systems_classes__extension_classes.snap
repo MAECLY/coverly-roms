@@ -405,7 +405,8 @@ expression: rows
       "amigacd32",
       "cdtv",
       "jaguarcd",
-      "fmtowns"
+      "fmtowns",
+      "naomi2"
     ],
     "class": "Generic",
     "ext": "chd",
@@ -425,7 +426,8 @@ expression: rows
       "amigacd32",
       "cdtv",
       "jaguarcd",
-      "fmtowns"
+      "fmtowns",
+      "naomi2"
     ]
   },
   {
@@ -957,7 +959,8 @@ expression: rows
       "cdi",
       "amigacd32",
       "cdtv",
-      "fmtowns"
+      "fmtowns",
+      "triforce"
     ],
     "class": "Generic",
     "ext": "iso",

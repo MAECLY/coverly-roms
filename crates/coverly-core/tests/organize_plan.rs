@@ -3005,3 +3005,156 @@ fn a_folder_game_is_one_left_item_with_the_layout_folder() {
         })
     );
 }
+
+/// A MAME DAT in the cache listing `set` with one ROM per `(name, bytes)`.
+fn cache_mame_set(world: &World, set: &str, roms: &[(&str, &[u8])]) {
+    let rows: Vec<coverly_core::cache::DatRow> = roms
+        .iter()
+        .map(|(name, bytes)| coverly_core::cache::DatRow {
+            game: set.into(),
+            rom_name: (*name).into(),
+            size: Some(bytes.len() as u64),
+            crc32: Some(format!("{:08X}", crc32fast::hash(bytes))),
+            md5: None,
+            sha1: None,
+            serial: None,
+        })
+        .collect();
+    world
+        .cache
+        .replace_dat("metadat/mame/MAME.dat", &rows)
+        .unwrap();
+}
+
+#[test]
+fn loose_model2_set_goes_to_mame() {
+    // D16: MAME runs Model 2 and the libretro MAME DAT has no driver
+    // field, so a loose Model 2 set confirmed by the MAME DAT goes to
+    // `mame`, never to `model2`.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let roms: [(&str, &[u8]); 2] = [("epr-16722a.12", b"daytona one"), ("mpr-16528.10", b"two")];
+    cache_mame_set(&world, "daytona", &roms);
+    let path = s.path().join("daytona.zip");
+    common::roms::zip_file(
+        &path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&path, 1);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let item = by_name(&p, "daytona.zip");
+    assert_eq!(item.system_id.as_deref(), Some("mame"));
+    assert_eq!(item.action, OrganizeAction::Auto);
+    assert_eq!(item.method, Some(IdLevel::Hash));
+    // Inside a `model2/` folder a set is already sorted and stays.
+    put(&s.path().join("model2").join("vf2.zip"), b"PK\x05\x06");
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    assert!(p
+        .items
+        .iter()
+        .all(|i| file_name(&i.sources[0]) != "vf2.zip"));
+}
+
+#[test]
+fn mame_chd_folder_moves_with_its_set() {
+    // D16: a `<set>/` folder holding only `.chd` beside `<set>.zip` is a
+    // companion of the set: one item, and both land in the arcade folder.
+    use coverly_core::organize::{apply_organize, ApplyEnv};
+    use coverly_core::write::trash::FakeTrash;
+    let world = World::new();
+    let (s, t, data) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(&world, "sfiii", &roms);
+    let zip_path = s.path().join("sfiii.zip");
+    common::roms::zip_file(
+        &zip_path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&zip_path, 1);
+    let chd = s.path().join("sfiii").join("sfiii.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("batocera")
+        },
+    );
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    let item = by_name(&p, "sfiii.zip");
+    assert_eq!(
+        (item.system_id.as_deref(), &item.action),
+        (Some("mame"), &OrganizeAction::Auto)
+    );
+    let target = item.target.clone().unwrap();
+    let folder = target.parent().unwrap().to_path_buf();
+    assert_eq!(folder.file_name().unwrap(), "mame");
+    assert_eq!(item.companions.len(), 1);
+    let comp = &item.companions[0];
+    assert_eq!(comp.source, Path::new("sfiii").join("sfiii.chd"));
+    assert_eq!(comp.target, folder.join("sfiii").join("sfiii.chd"));
+
+    let env = ApplyEnv {
+        data_dir: data.path(),
+        progress: &|_| {},
+        cancel: &AtomicBool::new(false),
+        trash: &FakeTrash::unavailable("no-trash"),
+        tools: Some(&[]),
+    };
+    let report = apply_organize(&p, &env).unwrap();
+    assert_eq!((report.moved, report.failed), (1, 0), "{report:?}");
+    let arcade = t.path().join(&folder);
+    assert_eq!(
+        fs::read(arcade.join("sfiii").join("sfiii.chd")).unwrap(),
+        b"MComprHD synthetic"
+    );
+    assert!(arcade.join("sfiii.zip").is_file());
+    assert!(!chd.exists() && !zip_path.exists());
+}
+
+#[test]
+fn chd_folder_beside_a_set_that_stays_is_left() {
+    // Without an arcade set to follow, the CHDs are left where they are.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    common::roms::zip_file(&s.path().join("mystery.zip"), &[("a.bin", b"aa", true)]);
+    pin_mtime(&s.path().join("mystery.zip"), 1);
+    let chd = s.path().join("mystery").join("disc.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("batocera")
+        },
+    );
+    assert_eq!(left_reason(&p, "disc.chd"), Some(LeftReason::Unknown));
+    assert!(by_name(&p, "mystery.zip").companions.is_empty());
+}

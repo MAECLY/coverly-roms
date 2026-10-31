@@ -442,6 +442,14 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
     ),
     ("flashback", [None, Some("reminiscence"), None, None, None]),
     ("xrick", [None, Some("xrick"), None, None, None]),
+    // Extra arcade (Task 13): ES-DE and Batocera only (D16).
+    ("model2", [Some("model2"), Some("model2"), None, None, None]),
+    ("model3", [Some("model3"), Some("model3"), None, None, None]),
+    ("naomi2", [Some("naomi2"), Some("naomi2"), None, None, None]),
+    (
+        "triforce",
+        [Some("triforce"), Some("triforce"), None, None, None],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

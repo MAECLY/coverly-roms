@@ -565,3 +565,40 @@ fn a800_keeps_its_dat() {
         );
     }
 }
+
+#[test]
+fn mame_dat_still_maps_to_mame() {
+    // §8.3 / D16: `model2` and `model3` list only `MAME.dat` and come after
+    // `mame`, so the tie keeps the DAT with `mame` and a hash never names
+    // them; a Model 2/3 set found loose goes to `mame`.
+    let db = SystemDb::builtin();
+    let dat = "metadat/mame/MAME.dat";
+    for id in ["model2", "model3"] {
+        assert_eq!(dat_sources(db.get(id).unwrap()), [dat], "{id}");
+    }
+    assert_eq!(db.system_for_dat(dat).map(|s| s.id.as_str()), Some("mame"));
+}
+
+#[test]
+fn naomi2_never_wins_mame_dat() {
+    // `naomi2` lists two DATs, so the fewest-sources rule never picks it
+    // for `MAME.dat`; its Redump DAT is its own.
+    let db = SystemDb::builtin();
+    let naomi2 = dat_sources(db.get("naomi2").unwrap());
+    assert_eq!(
+        naomi2,
+        ["metadat/redump/Sega - Naomi 2.dat", "metadat/mame/MAME.dat"]
+    );
+    assert_ne!(
+        db.system_for_dat("metadat/mame/MAME.dat")
+            .map(|s| s.id.as_str()),
+        Some("naomi2")
+    );
+    assert_eq!(
+        db.system_for_dat("metadat/redump/Sega - Naomi 2.dat")
+            .map(|s| s.id.as_str()),
+        Some("naomi2")
+    );
+    // Triforce has no DAT: its folder claims it.
+    assert!(dat_sources(db.get("triforce").unwrap()).is_empty());
+}

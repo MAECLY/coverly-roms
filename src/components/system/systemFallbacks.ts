@@ -83,6 +83,11 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   solarus: 'SOLR',
   flashback: 'FLBK',
   xrick: 'RICK',
+  // Extra arcade (plan Task 13): no XMB silhouette (spec §9.2).
+  model2: 'MDL2',
+  model3: 'MDL3',
+  naomi2: 'NAO2',
+  triforce: 'TRI',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

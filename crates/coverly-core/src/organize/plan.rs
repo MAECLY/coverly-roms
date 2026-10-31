@@ -1800,7 +1800,7 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let left_companions = assign_targets_with_extracts(
+    let mut left_companions = assign_targets_with_extracts(
         &mut items,
         &shapes,
         &layout,
@@ -1810,6 +1810,14 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    left_companions.extend(attach_chd_folders(
+        &mut items,
+        &survey.walked.chd_folders,
+        src,
+        &target_root,
+        env.db,
+        fat32,
+    ));
     if fat32 {
         limit_fat_folders(&mut items, &target_root);
     }
@@ -2566,6 +2574,69 @@ fn count(items: &[OrganizeItem], walked: &Walked) -> Counts {
 }
 
 /// Same length and same bytes (CRC32 of both, streamed).
+/// MAME CHD folders (spec D16): the `.chd` files of `<set>/` follow
+/// `<set>.zip` into `<arcade folder>/<set>/` when the zip moves in as an
+/// arcade set under its own name. Otherwise, or when a CHD cannot land
+/// (already there, a different file there, too big for FAT32), the CHD is
+/// returned to be left with its reason.
+fn attach_chd_folders(
+    items: &mut [OrganizeItem],
+    chd_folders: &[(PathBuf, Vec<PathBuf>)],
+    src: &Path,
+    target_root: &Path,
+    db: &SystemDb,
+    fat32: bool,
+) -> Vec<(PathBuf, LeftReason)> {
+    let mut left = Vec::new();
+    for (zip, chds) in chd_folders {
+        let zip_rel = rel(src, zip);
+        let set = items.iter_mut().find(|i| {
+            i.moves_in()
+                && i.sources.len() == 1
+                && i.sources[0] == zip_rel
+                && i.rename.is_none()
+                && i.target.is_some()
+                && i.system_id
+                    .as_deref()
+                    .and_then(|s| db.get(s))
+                    .is_some_and(|s| s.arcade)
+        });
+        let Some(set) = set else {
+            left.extend(chds.iter().map(|c| (c.clone(), LeftReason::Unknown)));
+            continue;
+        };
+        let target = set.target.clone().expect("checked above");
+        let (Some(folder), Some(stem)) = (target.parent(), target.file_stem()) else {
+            left.extend(chds.iter().map(|c| (c.clone(), LeftReason::Unknown)));
+            continue;
+        };
+        let dir = folder.join(stem);
+        for chd in chds {
+            let Some(name) = chd.file_name() else {
+                continue;
+            };
+            let to = dir.join(name);
+            let at = target_root.join(&to);
+            if fat32 && fs::metadata(chd).is_ok_and(|m| m.len() >= 4 << 30) {
+                left.push((chd.clone(), LeftReason::TooBigForFat));
+            } else if fs::symlink_metadata(&at).is_ok() {
+                let reason = if same_bytes(&at, chd) {
+                    LeftReason::AlreadyPresent { at: to }
+                } else {
+                    LeftReason::CollisionSet
+                };
+                left.push((chd.clone(), reason));
+            } else {
+                set.companions.push(Companion {
+                    source: rel(src, chd),
+                    target: to,
+                });
+            }
+        }
+    }
+    left
+}
+
 fn same_bytes(a: &Path, b: &Path) -> bool {
     let (Ok(ma), Ok(mb)) = (fs::metadata(a), fs::metadata(b)) else {
         return false;

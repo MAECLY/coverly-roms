@@ -1173,3 +1173,50 @@ aliases = ["XRICK", "rickdangerous"]
 scoped_aliases = ["xrick"]
 libretro = "Rick Dangerous"
 dats = ["dat/Rick Dangerous.dat"]
+
+# Extra arcade (systems batch 1, Task 13; spec §7, §8.3, D16). Model 2 and
+# Model 3 are MAME sets: they list only `MAME.dat` and come after `mame`,
+# so the DAT keeps mapping to `mame` and a loose set goes there; inside a
+# `model2/`/`model3/` folder a set stays. NAOMI 2 lists two DATs and never
+# wins `MAME.dat`. Triforce discs are `.iso` (Generic): folder only.
+# System 16/18/24/32, Konami and Cave get no system (D16).
+
+[[system]]
+id = "model2"
+name = "Sega Model 2"
+family = "arcade"
+aliases = ["MODEL2"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+dats = ["metadat/mame/MAME.dat"]
+screenscraper = 75
+
+[[system]]
+id = "model3"
+name = "Sega Model 3"
+family = "arcade"
+aliases = ["MODEL3"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+dats = ["metadat/mame/MAME.dat"]
+screenscraper = 75
+
+[[system]]
+id = "naomi2"
+name = "Sega NAOMI 2"
+family = "arcade"
+aliases = ["NAOMI2"]
+extensions = ["zip", "7z", "chd"]
+libretro = "Sega - Naomi 2"
+arcade = true
+dats = ["metadat/redump/Sega - Naomi 2.dat", "metadat/mame/MAME.dat"]
+
+[[system]]
+id = "triforce"
+name = "Namco Sega Nintendo Triforce"
+family = "arcade"
+aliases = ["TRIFORCE"]
+weak_extensions = ["iso"]
+arcade = true

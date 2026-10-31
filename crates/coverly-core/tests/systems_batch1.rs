@@ -89,6 +89,11 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("solarus", Family::Engine, false),
     ("flashback", Family::Engine, false),
     ("xrick", Family::Engine, false),
+    // Extra arcade (Task 13).
+    ("model2", Family::Arcade, false),
+    ("model3", Family::Arcade, false),
+    ("naomi2", Family::Arcade, false),
+    ("triforce", Family::Arcade, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -189,6 +194,13 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("muos", "wolf3d", "wolfenstein3d", None),
     ("batocera", "flashback", "reminiscence", None),
     ("esde", "dinothawr", "dinothawr", Some(false)),
+    // Extra arcade (Task 13).
+    ("esde", "model2", "model2", None),
+    ("batocera", "triforce", "triforce", None),
+    ("onion", "naomi2", "NAOMI2", Some(false)),
+    ("esde", "model3", "model3", None),
+    ("batocera", "naomi2", "naomi2", None),
+    ("muos", "model2", "model2", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -862,5 +874,88 @@ fn ports_and_engines_extension_classes() {
     );
     for ext in ["game", "lua"] {
         assert_eq!(db.extension_class(ext), ExtClass::Unknown, "{ext}");
+    }
+}
+
+#[test]
+fn extra_arcade_catalogues() {
+    // Spec §7 / D16: Model 2 and Model 3 are MAME sets, so they share the
+    // MAME thumbnail folder and DAT; NAOMI 2 has its own folder and Redump
+    // DAT; Triforce has neither (folder only). Every row is arcade.
+    let db = SystemDb::builtin();
+    for (id, libretro, ss) in [
+        ("model2", Some("MAME"), Some(75)),
+        ("model3", Some("MAME"), Some(75)),
+        ("naomi2", Some("Sega - Naomi 2"), None),
+        ("triforce", None, None),
+    ] {
+        let s = db.get(id).unwrap();
+        assert!(s.arcade, "{id}");
+        assert_eq!(
+            (s.libretro.as_deref(), s.screenscraper),
+            (libretro, ss),
+            "{id}"
+        );
+    }
+    // `.iso` stays Generic: Triforce only accepts it inside its folder.
+    use coverly_core::systems::ExtClass;
+    assert_eq!(db.extension_class("iso"), ExtClass::Generic);
+    assert!(db.get("triforce").unwrap().accepts_extension("iso"));
+    // No new system for System 16/18/24/32, Konami or Cave (D16).
+    for id in [
+        "system16", "system18", "system24", "system32", "konami", "cave",
+    ] {
+        assert!(db.get(id).is_none(), "{id}");
+    }
+}
+
+#[test]
+fn model2_and_model3_covers_use_the_mame_folder() {
+    // §12: two systems with the same libretro folder look covers up there.
+    let db = SystemDb::builtin();
+    let server = MockServer::start();
+    server.mock("/", MockResponse::ok(research("thumbnails-root.html")));
+    server.serve_libretro_index("MAME", "Named_Boxarts", &["Daytona USA (Japan).png"]);
+    let cfg = NetConfig {
+        retries: 0,
+        ..NetConfig::default()
+    };
+    let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+    let cache = Cache::in_memory().unwrap();
+    let src = LibretroSource::new(
+        &http,
+        &cache,
+        LibretroConfig {
+            base: server.base(),
+            raw_base: server.url("/raw"),
+            ..LibretroConfig::default()
+        },
+    );
+    for id in ["model2", "model3"] {
+        let system = db.get(id).unwrap();
+        assert_eq!(src.server_system(system).unwrap(), "MAME", "{id}");
+        let stem = "Daytona USA (Japan)";
+        let rom = parse_name(stem, false);
+        let c = src
+            .candidates(&ArtQuery {
+                system,
+                media: Media::Cover,
+                canonical: None,
+                rom: &rom,
+                stem,
+                by_name: true,
+                fuzzy: true,
+                min_score: 65,
+                max_candidates: 5,
+                hash: None,
+                size: 0,
+                file_name: stem,
+            })
+            .unwrap();
+        assert_eq!(
+            (c[0].kind, c[0].name.as_str()),
+            (MatchKind::NameExact, stem),
+            "{id}"
+        );
     }
 }

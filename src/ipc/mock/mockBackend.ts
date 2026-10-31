@@ -197,6 +197,13 @@ const FANTASY = {
   vircon32: 'vircon32',
   wasm4: 'wasm4',
 };
+/** Extra arcade (plan Task 13): ES-DE and Batocera only (spec D16). */
+const EXTRA_ARCADE = {
+  model2: 'model2',
+  model3: 'model3',
+  naomi2: 'naomi2',
+  triforce: 'triforce',
+};
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -289,6 +296,7 @@ const ESDE_FOLDERS = {
   lutro: 'lutro',
   quake: 'quake',
   solarus: 'solarus',
+  ...EXTRA_ARCADE,
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -330,6 +338,7 @@ const BATOCERA_FOLDERS = {
   solarus: 'solarus',
   wolf3d: 'ecwolf',
   xrick: 'xrick',
+  ...EXTRA_ARCADE,
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
