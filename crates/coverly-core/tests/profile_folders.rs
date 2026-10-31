@@ -274,6 +274,25 @@ fn scoped_aliases_need_a_profile() {
     ] {
         assert_eq!(id(db.resolve_folder(name)), Some(want.into()), "{name}");
     }
+    // Computers II (Task 9): `x1` is scoped, `X1` (its first alias) too.
+    for name in ["x1", "X1"] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    let esde = builtin("esde");
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&esde), "x1")),
+        Some("x1".into())
+    );
+    for (name, want) in [
+        ("x68000", "x68000"),
+        ("x68k", "x68000"),
+        ("pc98", "pc98"),
+        ("pc9800", "pc98"),
+        ("pc88", "pc88"),
+        ("pc8000", "pc88"),
+    ] {
+        assert_eq!(id(db.resolve_folder(name)), Some(want.into()), "{name}");
+    }
     let tmp = tempfile::tempdir().unwrap();
     for dir in ["Dragon", "coco"] {
         let d = tmp.path().join(dir);

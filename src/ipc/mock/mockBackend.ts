@@ -180,6 +180,8 @@ const COMPUTERS_I = {
   coco: 'coco',
   zx81: 'zx81',
 };
+/** Computers II (Task 9) named alike on ES-DE, Batocera and muOS. */
+const COMPUTERS_II = { pc98: 'pc98', x1: 'x1', x68000: 'x68000' };
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -217,6 +219,8 @@ const MUOS_FOLDERS = {
   dragon: 'dragon',
   thomson: 'thomson',
   zxspectrum: 'spectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc8000',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -240,6 +244,8 @@ const ESDE_FOLDERS = {
   thomson: 'moto',
   ti99: 'ti99',
   zxspectrum: 'zxspectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc88',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -264,6 +270,8 @@ const BATOCERA_FOLDERS = {
   thomson: 'thomson',
   ti99: 'ti99',
   zxspectrum: 'zxspectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc88',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

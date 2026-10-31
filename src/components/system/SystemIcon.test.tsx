@@ -77,10 +77,10 @@ describe('SystemIcon', () => {
     expect(container.querySelectorAll('.system-mount__corner')).toHaveLength(4);
   });
   it('uses the first four letters of a user-defined id', () => {
-    const { container } = render(<SystemIcon systemId="x68000" size={16} />);
+    const { container } = render(<SystemIcon systemId="pc6001" size={16} />);
     expect(
-      container.querySelector('[data-system-icon="x68000"]'),
-    ).toHaveTextContent('X680');
+      container.querySelector('[data-system-icon="pc6001"]'),
+    ).toHaveTextContent('PC60');
   });
   it('names a titled mount as an image', () => {
     render(<SystemIcon systemId="mame" size={20} title="Arcade (MAME)" />);

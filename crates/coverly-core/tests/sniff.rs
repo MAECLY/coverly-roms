@@ -869,3 +869,62 @@ fn cpc_sna_magic() {
     near[7] = b'X';
     assert!(run(&near, "sna").hits.is_empty());
 }
+
+#[test]
+fn nhd_magic() {
+    // T98-Next NHD: `T98HDDIMAGE.R0` + NUL at 0 (Neko Project II kai
+    // `fdd/sxsihdd.c`, DOSBox-X `bios_disk.cpp`).
+    assert_eq!(best(&run(&fx::nhd(), "nhd")), Some(("pc98".into(), 0.95)));
+    let mut near = fx::nhd();
+    near[13] = b'1';
+    assert!(run(&near, "nhd").hits.is_empty());
+}
+
+#[test]
+fn hdf_amiga_or_x68000() {
+    // Amiga RDB (`RDSK` block id), an Amiga partition hardfile (`DOS` +
+    // a flag byte 0–7) and an X68000 SCSI disk (`X68SCSI1`, NetBSD/x68k
+    // `disksubr.c`), all under `.hdf` only.
+    assert_eq!(
+        best(&run(&fx::amiga_rdb(), "hdf")),
+        Some(("amiga".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::amiga_dos(), "hdf")),
+        Some(("amiga".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::x68k_scsi(), "hdf")),
+        Some(("x68000".into(), 0.90))
+    );
+    let mut flag = fx::amiga_dos();
+    flag[3] = 8;
+    assert!(run(&flag, "hdf").hits.is_empty());
+    // Keyed by extension: the same bytes under another one say nothing.
+    for bytes in [fx::amiga_rdb(), fx::amiga_dos(), fx::x68k_scsi()] {
+        assert!(run(&bytes, "img").hits.is_empty());
+    }
+}
+
+#[test]
+fn fdi_amiga() {
+    // FDI 2.0 (Disk2FDI): `Formatted Disk Image file` at 0 (WinUAE
+    // `disk.cpp`). A PC-98 Anex86 `.fdi` has no magic.
+    assert_eq!(best(&run(&fx::fdi2(), "fdi")), Some(("amiga".into(), 0.90)));
+    assert!(run(&fx::fdi2(), "bin").hits.is_empty());
+    assert!(run(&fx::zeros(4096), "fdi").hits.is_empty());
+}
+
+#[test]
+fn dim_atari_st() {
+    // FastCopy DIM: `42 42` at 0, byte 3 and byte 0x0A zero (Hatari
+    // `src/floppies/dim.c`).
+    assert_eq!(
+        best(&run(&fx::st_dim(), "dim")),
+        Some(("atarist".into(), 0.85))
+    );
+    let mut near = fx::st_dim();
+    near[0x0A] = 1;
+    assert!(run(&near, "dim").hits.is_empty());
+    assert!(run(&fx::st_dim(), "st").hits.is_empty());
+}

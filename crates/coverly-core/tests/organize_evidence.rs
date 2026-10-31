@@ -1476,3 +1476,47 @@ fn loose_sna_without_magic_stays_review() {
     listed.sort_unstable();
     assert_eq!(listed, ["amstradcpc", "zxspectrum"]);
 }
+
+#[test]
+fn loose_amiga_and_st_disks_stay_automatic() {
+    // P-2 / D3: `.hdf`, `.fdi` and `.dim` turn Shared when x68000 and pc98
+    // list them; the bytes that name Amiga or Atari ST keep those loose
+    // disks Auto. Without a recognised header they go to review.
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes, want) in [
+        ("Workbench.hdf", fx::amiga_rdb(), "amiga"),
+        ("Game.hdf", fx::amiga_dos(), "amiga"),
+        ("Game.fdi", fx::fdi2(), "amiga"),
+        ("Game.dim", fx::st_dim(), "atarist"),
+        ("Human68k.hdf", fx::x68k_scsi(), "x68000"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.system.as_deref(), id.combined.verdict),
+            (Some(want), Verdict::Auto),
+            "{name}: {:?}",
+            id.combined
+        );
+    }
+    for (ext, owners) in [
+        ("hdf", ["amiga", "x68000"]),
+        ("fdi", ["amiga", "pc98"]),
+        ("dim", ["atarist", "x68000"]),
+    ] {
+        let p = tmp.path().join(format!("Unknown Disk.{ext}"));
+        std::fs::write(&p, opaque(720 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            id.combined.verdict,
+            Verdict::Review,
+            "{ext}: {:?}",
+            id.combined
+        );
+        let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+        listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+        listed.sort_unstable();
+        assert_eq!(listed, owners, "{ext}");
+    }
+}

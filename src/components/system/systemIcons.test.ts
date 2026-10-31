@@ -11,7 +11,7 @@ import { SYSTEM_ICONS } from './systemIcons.generated';
 const IDS = [...toml.matchAll(/^id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!);
 
 describe('system icon data', () => {
-  it('reads the 87 systems', () => expect(IDS).toHaveLength(87));
+  it('reads the 91 systems', () => expect(IDS).toHaveLength(91));
   it('every systems.toml id resolves to an icon or an abbreviation, not both', () => {
     for (const id of IDS) {
       const has = Number(id in SYSTEM_ICONS) + Number(id in FALLBACK_ABBR);
@@ -58,7 +58,7 @@ describe('system icon data', () => {
     expect(new Set(Object.values(FALLBACK_ABBR)).size).toBe(
       Object.keys(FALLBACK_ABBR).length,
     );
-    expect(abbreviationFor('x68000')).toBe('X680');
+    expect(abbreviationFor('pc6001')).toBe('PC60');
     expect(abbreviationFor('cps2')).toBe('CPS2');
     expect(abbreviationFor('my-pc_98')).toBe('MYPC');
     expect(abbreviationFor('---')).toBe('?');

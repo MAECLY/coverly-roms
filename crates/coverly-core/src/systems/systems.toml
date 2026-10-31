@@ -894,3 +894,45 @@ aliases = ["TI99", "ti994a"]
 # `.rpk` is a zip package kept whole (D25); `.bin` stays Generic.
 extensions = ["rpk", "ctg", "bin", "zip", "7z"]
 screenscraper = 205
+
+[[system]]
+id = "x68000"
+name = "Sharp X68000"
+family = "computer"
+aliases = ["X68000", "x68k"]
+extensions = ["xdf", "dim", "hdf", "hdm", "2hd", "m3u", "zip", "7z"]
+libretro = "Sharp - X68000"
+dats = ["metadat/no-intro/Sharp - X68000.dat", "metadat/tosec/Sharp - X68000.dat"]
+screenscraper = 79
+
+[[system]]
+id = "x1"
+name = "Sharp X1"
+family = "computer"
+aliases = ["X1"]
+scoped_aliases = ["x1"]
+extensions = ["dx1", "2hd", "tap", "d88", "zip", "7z"]
+weak_extensions = ["2d"]
+libretro = "Sharp - X1"
+dats = ["metadat/no-intro/Sharp - X1.dat", "metadat/tosec/Sharp - X1.dat"]
+screenscraper = 220
+
+[[system]]
+id = "pc98"
+name = "NEC PC-98"
+family = "computer"
+aliases = ["PC98", "pc9800"]
+extensions = ["hdi", "nhd", "d88", "fdi", "hdm", "m3u", "zip", "7z"]
+libretro = "NEC - PC-98"
+dats = ["metadat/tosec/NEC - PC-98.dat", "metadat/redump/NEC - PC-98.dat"]
+screenscraper = 208
+
+[[system]]
+id = "pc88"
+name = "NEC PC-88"
+family = "computer"
+aliases = ["PC88", "pc8800", "pc8000"]
+extensions = ["t88", "cmt", "d88", "zip", "7z"]
+libretro = "NEC - PC-88"
+dats = ["metadat/tosec/NEC - PC-88.dat"]
+screenscraper = 221

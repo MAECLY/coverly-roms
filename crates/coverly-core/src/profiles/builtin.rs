@@ -308,6 +308,20 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
         [Some("coco"), Some("coco"), Some("coco"), None, None],
     ),
     ("ti99", [Some("ti99"), Some("ti99"), None, None, None]),
+    // Computers II (Task 9).
+    (
+        "x68000",
+        [Some("x68000"), Some("x68000"), Some("x68000"), None, None],
+    ),
+    ("x1", [Some("x1"), Some("x1"), Some("x1"), None, None]),
+    (
+        "pc98",
+        [Some("pc98"), Some("pc98"), Some("pc98"), None, None],
+    ),
+    (
+        "pc88",
+        [Some("pc88"), Some("pc88"), Some("pc8000"), None, None],
+    ),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

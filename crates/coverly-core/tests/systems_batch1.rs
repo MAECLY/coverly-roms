@@ -58,6 +58,11 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("dragon", Family::Computer, false),
     ("coco", Family::Computer, false),
     ("ti99", Family::Computer, false),
+    // Computers II (Task 9).
+    ("x68000", Family::Computer, false),
+    ("x1", Family::Computer, false),
+    ("pc98", Family::Computer, false),
+    ("pc88", Family::Computer, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -119,6 +124,14 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("muos", "ti99", "ti99", Some(false)),
     ("muos", "coco", "coco", None),
     ("anbernic-stock", "amstradcpc", "CPC", Some(false)),
+    // Computers II (Task 9).
+    ("muos", "pc88", "pc8000", None),
+    ("esde", "pc88", "pc88", None),
+    ("esde", "x68000", "x68000", None),
+    ("batocera", "x1", "x1", None),
+    ("muos", "pc98", "pc98", None),
+    ("onion", "x68000", "X68000", Some(false)),
+    ("minui", "pc98", "PC98", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -162,6 +175,13 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     ),
     ("amstradcpc", "sna", fx::cpc_sna, Some("amstradcpc")),
     ("bbcmicro", "uef", fx::uef, Some("bbcmicro")),
+    // Computers II (Task 9) and the `.hdf`/`.fdi`/`.dim` rules (P-2).
+    ("pc98", "nhd", fx::nhd, Some("pc98")),
+    ("x68000", "hdf", fx::x68k_scsi, Some("x68000")),
+    ("amiga", "hdf", fx::amiga_rdb, Some("amiga")),
+    ("amiga", "hdf", fx::amiga_dos, Some("amiga")),
+    ("amiga", "fdi", fx::fdi2, Some("amiga")),
+    ("atarist", "dim", fx::st_dim, Some("atarist")),
 ];
 
 fn research(name: &str) -> String {
@@ -470,4 +490,58 @@ fn dsk_tap_sna_ccc_cas_are_shared() {
     for ext in ["tzx", "cdt", "uef", "ssd", "rpk", "k7", "81"] {
         assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
     }
+}
+
+#[test]
+fn computers_ii_catalogues() {
+    // Spec §7: libretro-thumbnails folders, DATs and ScreenScraper ids.
+    let db = SystemDb::builtin();
+    let dats = |id: &str| coverly_core::identify::dat::dat_sources(db.get(id).unwrap());
+    assert_eq!(
+        dats("x68000"),
+        [
+            "metadat/no-intro/Sharp - X68000.dat",
+            "metadat/tosec/Sharp - X68000.dat",
+        ]
+    );
+    assert_eq!(
+        dats("x1"),
+        [
+            "metadat/no-intro/Sharp - X1.dat",
+            "metadat/tosec/Sharp - X1.dat"
+        ]
+    );
+    assert_eq!(
+        dats("pc98"),
+        [
+            "metadat/tosec/NEC - PC-98.dat",
+            "metadat/redump/NEC - PC-98.dat"
+        ]
+    );
+    assert_eq!(dats("pc88"), ["metadat/tosec/NEC - PC-88.dat"]);
+    for (id, libretro, ss) in [
+        ("x68000", "Sharp - X68000", 79),
+        ("x1", "Sharp - X1", 220),
+        ("pc98", "NEC - PC-98", 208),
+        ("pc88", "NEC - PC-88", 221),
+    ] {
+        let s = db.get(id).unwrap();
+        assert_eq!(s.libretro.as_deref(), Some(libretro), "{id}");
+        assert_eq!(s.screenscraper, Some(ss), "{id}");
+    }
+}
+
+#[test]
+fn hdf_fdi_dim_d88_2hd_hdm_are_shared() {
+    // D3: `.hdf`, `.fdi`, `.dim` turn Shared on purpose; `.d88`, `.2hd`,
+    // `.hdm` are new and Shared. `.2d` is a weak X1 extension.
+    use coverly_core::systems::ExtClass;
+    let db = SystemDb::builtin();
+    for ext in ["hdf", "fdi", "dim", "d88", "2hd", "hdm"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Shared, "{ext}");
+    }
+    for ext in ["xdf", "dx1", "hdi", "nhd", "t88", "cmt"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
+    }
+    assert_eq!(db.extension_class("2d"), ExtClass::Unknown);
 }

@@ -676,7 +676,44 @@ fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
         s.hit("bbcmicro", 0.95, "UEF");
         return true;
     }
-    false
+    shared_disks(head, ext, s)
+}
+
+/// Hard and floppy disk images under `.nhd`, `.hdf`, `.fdi` and `.dim`
+/// (spec §8.1, plan P-2), each keyed by its extension. `.hdf`, `.fdi` and
+/// `.dim` are Shared (D3), so these bytes are what keeps a loose Amiga or
+/// Atari ST disk automatic:
+/// - `T98HDDIMAGE.R0` + NUL: a T98-Next PC-98 hard disk (Neko Project II
+///   kai `fdd/sxsihdd.c`, DOSBox-X `bios_disk.cpp`).
+/// - `RDSK` (Rigid Disk Block) or `DOS` + flag 0–7 (a partition's boot
+///   block): an Amiga hardfile (WinUAE `hardfile.cpp`). `X68SCSI1`: an
+///   X68000 SCSI disk (NetBSD/x68k `disksubr.c`).
+/// - `Formatted Disk Image file`: FDI 2.0, written by Disk2FDI for Amiga
+///   disks (WinUAE `disk.cpp`); a PC-98 Anex86 `.fdi` has no magic.
+/// - FastCopy DIM: `42 42` at 0 with bytes 3 and 0x0A zero, as Hatari
+///   checks it (`src/floppies/dim.c`); an X68000 DIM opens with its media
+///   type byte instead.
+fn shared_disks(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    match ext {
+        "nhd" if starts(head, 0, b"T98HDDIMAGE.R0\0") => s.hit("pc98", 0.95, "T98 NHD"),
+        "hdf" if starts(head, 0, b"RDSK") => s.hit("amiga", 0.90, "RDB"),
+        "hdf" if starts(head, 0, b"DOS") && head.get(3).is_some_and(|f| *f <= 7) => {
+            s.hit("amiga", 0.90, "DOS boot block");
+        }
+        "hdf" if starts(head, 0, b"X68SCSI1") => s.hit("x68000", 0.90, "X68SCSI1"),
+        "fdi" if starts(head, 0, b"Formatted Disk Image file") => {
+            s.hit("amiga", 0.90, "FDI 2.0");
+        }
+        "dim"
+            if starts(head, 0, &[0x42, 0x42])
+                && head.get(3) == Some(&0)
+                && head.get(0x0A) == Some(&0) =>
+        {
+            s.hit("atarist", 0.85, "FastCopy DIM");
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Opening bytes of an uncompressed UEF tape.
@@ -1104,6 +1141,66 @@ pub mod fixtures {
         b[..12].copy_from_slice(b"UEF File!\0\x0A\x00");
         b[12] = 0x00;
         b[13] = 0x01;
+        b
+    }
+
+    /// A T98-Next hard disk (PC-98 `.nhd`): `T98HDDIMAGE.R0` + NUL, then
+    /// the 512-byte header size at 0x110.
+    pub fn nhd() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..15].copy_from_slice(b"T98HDDIMAGE.R0\0");
+        b[0x110..0x114].copy_from_slice(&512u32.to_le_bytes());
+        b
+    }
+
+    /// An Amiga hard disk with a Rigid Disk Block: `RDSK`, the block size
+    /// in longs (64) at 4.
+    pub fn amiga_rdb() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"RDSK");
+        b[4..8].copy_from_slice(&64u32.to_be_bytes());
+        b
+    }
+
+    /// An Amiga partition hardfile: `DOS` + flag 1 (FFS) opens its boot
+    /// block.
+    pub fn amiga_dos() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"DOS\x01");
+        b
+    }
+
+    /// An X68000 SCSI hard disk: `X68SCSI1` opens block 0.
+    pub fn x68k_scsi() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"X68SCSI1");
+        b[8..10].copy_from_slice(&512u16.to_be_bytes());
+        b
+    }
+
+    /// An FDI 2.0 disk (Disk2FDI): the signature line, a creator, the
+    /// comment field, EOF (0x1A) and version 2.0.
+    pub fn fdi2() -> Vec<u8> {
+        let mut b = zeros(4096);
+        let line = b"Formatted Disk Image file\r\n";
+        b[..line.len()].copy_from_slice(line);
+        b[27..57].fill(b' ');
+        b[57..59].copy_from_slice(b"\r\n");
+        b[59..139].fill(b' ');
+        b[139] = 0x1A;
+        b[140] = 2;
+        b[141] = 0;
+        b
+    }
+
+    /// An Atari ST FastCopy DIM: `42 42` at 0, then the geometry block.
+    pub fn st_dim() -> Vec<u8> {
+        let mut b = zeros(32 + 720 * 1024);
+        b[0] = 0x42;
+        b[1] = 0x42;
+        b[6] = 1;
+        b[8] = 79;
+        b[9] = 1;
         b
     }
 

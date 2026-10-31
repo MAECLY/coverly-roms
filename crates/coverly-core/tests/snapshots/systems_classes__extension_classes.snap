@@ -23,6 +23,26 @@ expression: rows
   },
   {
     "accepting": [
+      "x1"
+    ],
+    "class": "Unknown",
+    "ext": "2d",
+    "strong": []
+  },
+  {
+    "accepting": [
+      "x68000",
+      "x1"
+    ],
+    "class": "Shared",
+    "ext": "2hd",
+    "strong": [
+      "x68000",
+      "x1"
+    ]
+  },
+  {
+    "accepting": [
       "sega32x"
     ],
     "class": "Unique",
@@ -395,6 +415,16 @@ expression: rows
   },
   {
     "accepting": [
+      "pc88"
+    ],
+    "class": "Unique",
+    "ext": "cmt",
+    "strong": [
+      "pc88"
+    ]
+  },
+  {
+    "accepting": [
       "jaguar"
     ],
     "class": "Unknown",
@@ -550,22 +580,30 @@ expression: rows
   },
   {
     "accepting": [
-      "fmtowns"
+      "fmtowns",
+      "x1",
+      "pc98",
+      "pc88"
     ],
-    "class": "Unique",
+    "class": "Shared",
     "ext": "d88",
     "strong": [
-      "fmtowns"
+      "fmtowns",
+      "x1",
+      "pc98",
+      "pc88"
     ]
   },
   {
     "accepting": [
-      "atarist"
+      "atarist",
+      "x68000"
     ],
-    "class": "Unique",
+    "class": "Shared",
     "ext": "dim",
     "strong": [
-      "atarist"
+      "atarist",
+      "x68000"
     ]
   },
   {
@@ -618,6 +656,16 @@ expression: rows
   },
   {
     "accepting": [
+      "x1"
+    ],
+    "class": "Unique",
+    "ext": "dx1",
+    "strong": [
+      "x1"
+    ]
+  },
+  {
+    "accepting": [
       "easyrpg"
     ],
     "class": "Unique",
@@ -646,12 +694,14 @@ expression: rows
   },
   {
     "accepting": [
-      "amiga"
+      "amiga",
+      "pc98"
     ],
-    "class": "Unique",
+    "class": "Shared",
     "ext": "fdi",
     "strong": [
-      "amiga"
+      "amiga",
+      "pc98"
     ]
   },
   {
@@ -756,12 +806,36 @@ expression: rows
   },
   {
     "accepting": [
-      "amiga"
+      "amiga",
+      "x68000"
     ],
-    "class": "Unique",
+    "class": "Shared",
     "ext": "hdf",
     "strong": [
-      "amiga"
+      "amiga",
+      "x68000"
+    ]
+  },
+  {
+    "accepting": [
+      "pc98"
+    ],
+    "class": "Unique",
+    "ext": "hdi",
+    "strong": [
+      "pc98"
+    ]
+  },
+  {
+    "accepting": [
+      "x68000",
+      "pc98"
+    ],
+    "class": "Shared",
+    "ext": "hdm",
+    "strong": [
+      "x68000",
+      "pc98"
     ]
   },
   {
@@ -922,7 +996,9 @@ expression: rows
       "psx",
       "saturn",
       "ps2",
-      "amstradcpc"
+      "amstradcpc",
+      "x68000",
+      "pc98"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -937,7 +1013,9 @@ expression: rows
       "psx",
       "saturn",
       "ps2",
-      "amstradcpc"
+      "amstradcpc",
+      "x68000",
+      "pc98"
     ]
   },
   {
@@ -1091,6 +1169,16 @@ expression: rows
     "ext": "ngpc",
     "strong": [
       "ngpc"
+    ]
+  },
+  {
+    "accepting": [
+      "pc98"
+    ],
+    "class": "Unique",
+    "ext": "nhd",
+    "strong": [
+      "pc98"
     ]
   },
   {
@@ -1448,16 +1536,28 @@ expression: rows
   },
   {
     "accepting": [
+      "pc88"
+    ],
+    "class": "Unique",
+    "ext": "t88",
+    "strong": [
+      "pc88"
+    ]
+  },
+  {
+    "accepting": [
       "c64",
       "vic20",
-      "zxspectrum"
+      "zxspectrum",
+      "x1"
     ],
     "class": "Shared",
     "ext": "tap",
     "strong": [
       "c64",
       "vic20",
-      "zxspectrum"
+      "zxspectrum",
+      "x1"
     ]
   },
   {
@@ -1591,6 +1691,16 @@ expression: rows
     "strong": [
       "wonderswan",
       "wonderswancolor"
+    ]
+  },
+  {
+    "accepting": [
+      "x68000"
+    ],
+    "class": "Unique",
+    "ext": "xdf",
+    "strong": [
+      "x68000"
     ]
   },
   {
