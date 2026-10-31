@@ -617,7 +617,9 @@ const PILES: readonly PileDef[] = [
         ],
         alternatives: [['atarist', 0.6]],
         sure: true,
-        notes: [{ kind: 'extension-contradicted', ext: 'st' }],
+        notes: [
+          { kind: 'extension-contradicted', ext: 'st', system: 'atarist' },
+        ],
       },
       {
         name: 'Tempest 2000 (World).j64',

@@ -254,7 +254,14 @@ pub enum ItemNote {
     /// The target folder does not exist on the chosen device layout.
     NoFolderOnDevice { folder: String },
     /// The extension says one system, the contents do not look like it.
-    ExtensionContradicted { ext: String },
+    /// `system` is the extension's owner: the item's own system when its
+    /// header is missing, another one when a weak owner's header won
+    /// (spec D24). Absent in plans written before it.
+    ExtensionContradicted {
+        ext: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system: Option<String>,
+    },
     /// The system's DAT could not be consulted (offline, cap, none).
     CatalogueMissing { system: String },
     /// An archive entry is encrypted: its header was not read.

@@ -332,7 +332,8 @@ expression: redact(&p)
       "notes": [
         {
           "ext": "st",
-          "kind": "extension-contradicted"
+          "kind": "extension-contradicted",
+          "system": "atarist"
         }
       ],
       "rename": null,

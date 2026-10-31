@@ -790,7 +790,9 @@ export type LeftReason =
 export type ItemNote =
   | { kind: 'multi-rom-zip'; count: number }
   | { kind: 'no-folder-on-device'; folder: string }
-  | { kind: 'extension-contradicted'; ext: string }
+  /** `system`: the extension's owner, whose header is missing or lost to
+   * another system's (spec D24); absent in plans made before it. */
+  | { kind: 'extension-contradicted'; ext: string; system?: string }
   | { kind: 'catalogue-missing'; system: string }
   | { kind: 'encrypted' }
   /** The magic says another container than the extension (`actual`: `7z`). */

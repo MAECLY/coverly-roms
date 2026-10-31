@@ -1173,6 +1173,7 @@ pub fn identify_candidate(
             if let Some(ext) = e.detail.strip_suffix('!') {
                 let note = ItemNote::ExtensionContradicted {
                     ext: ext.to_string(),
+                    system: Some(e.system.clone()),
                 };
                 if !id.notes.contains(&note) {
                     id.notes.push(note);

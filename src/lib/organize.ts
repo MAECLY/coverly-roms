@@ -429,7 +429,7 @@ export function itemNotes(
   if (item.rename) lines.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
   for (const n of item.notes) {
-    const line = noteText(t, n, system, layoutName, item);
+    const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) lines.push(line);
   }
   return lines;
@@ -461,7 +461,7 @@ export function rowNotes(
   if (item.rename) inline.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
   for (const n of item.notes) {
-    const line = noteText(t, n, system, layoutName, item);
+    const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) (DETAIL_NOTES.has(n.kind) ? detail : inline).push(line);
   }
   return { inline, detail };
@@ -485,6 +485,7 @@ function noteText(
   system: string,
   layout: string,
   item: OrganizeItem,
+  systemName: (id: string) => string,
 ): string | null {
   switch (n.kind) {
     case 'multi-rom-zip':
@@ -496,9 +497,11 @@ function noteText(
         folder: n.folder,
       });
     case 'extension-contradicted':
+      // The extension's owner: under D24 a header proved another system
+      // (`.st` with the Sufami magic contradicts Atari ST).
       return t('organize.why.extensionContradicted', {
         ext: n.ext.replace(/^\./, ''),
-        system,
+        system: n.system ? systemName(n.system) : system,
       });
     case 'catalogue-missing':
       return t('organize.noCatalogue', {

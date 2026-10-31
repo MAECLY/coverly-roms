@@ -803,7 +803,7 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::NoFolderOnDevice { folder } => {
             format!("the device has no {folder} folder yet")
         }
-        ItemNote::ExtensionContradicted { ext } => {
+        ItemNote::ExtensionContradicted { ext, .. } => {
             format!(
                 "the .{} extension says otherwise",
                 ext.trim_start_matches('.')

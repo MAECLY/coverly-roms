@@ -817,9 +817,10 @@ fn a_contradicted_extension_is_noted() {
     zip_file(&p, &[("Hack.gba", &fx::zeros(64 * 1024), true)]);
     let id = identify(&p, &FakeCatalogue::empty());
     assert_eq!(id.combined.verdict, Verdict::Review);
-    assert!(id
-        .notes
-        .contains(&ItemNote::ExtensionContradicted { ext: "gba".into() }));
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "gba".into(),
+        system: Some("gba".into()),
+    }));
 }
 
 #[test]
@@ -1239,6 +1240,14 @@ fn sufami_st_beats_atarist() {
     assert_eq!(
         (id.combined.system.as_deref(), id.combined.verdict),
         (Some("sufami"), Verdict::Auto)
+    );
+    // The note names the extension's owner, not the proven system (D24).
+    assert_eq!(
+        id.notes,
+        vec![ItemNote::ExtensionContradicted {
+            ext: "st".into(),
+            system: Some("atarist".into()),
+        }]
     );
 }
 

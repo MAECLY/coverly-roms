@@ -1342,7 +1342,7 @@ describe('mock organise: the systems batch 1 retro pile', () => {
     const sailor = by(plan.items, 'Sailor Moon (Japan).st');
     expect(sailor.why.map((e) => e.detail)).toEqual(['BANDAI SFC-ADX', 'st~']);
     expect(sailor.notes).toEqual([
-      { kind: 'extension-contradicted', ext: 'st' },
+      { kind: 'extension-contradicted', ext: 'st', system: 'atarist' },
     ]);
     expect(by(plan.items, 'sfiii.zip').companions).toEqual([
       { source: 'sfiii/sfiii.chd', target: 'Roms/MAME/sfiii/sfiii.chd' },

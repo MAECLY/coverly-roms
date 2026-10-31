@@ -317,6 +317,26 @@ describe('organise row helpers', () => {
     ).toBe('ROMS\\GBA');
   });
 
+  it('a contradicted extension names its owner, not the proven system (D24)', () => {
+    // `.st` + the Sufami magic: the item is Sufami, the extension Atari ST's.
+    const names: Record<string, string> = {
+      sufami: 'Bandai Sufami Turbo',
+      atarist: 'Atari ST',
+    };
+    const item = autoItem(0, 'Sailor Moon (Japan).st', 'sufami', 'SUFAMI', {
+      method: 'header',
+      notes: [{ kind: 'extension-contradicted', ext: 'st', system: 'atarist' }],
+    });
+    expect(
+      itemNotes(
+        (key, vars) => translate('es', key, vars),
+        item,
+        'Onion OS',
+        (id) => names[id] ?? id,
+      ),
+    ).toEqual(['Extensión .st de Atari ST, pero la cabecera no coincide']);
+  });
+
   it('itemNotes explains renames and notes with names, not ids', () => {
     const item = autoItem(0, 'a.gba', 'gba', 'ROMS/GBA', {
       method: 'header',
