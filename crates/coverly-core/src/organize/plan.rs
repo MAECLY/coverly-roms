@@ -943,6 +943,24 @@ fn fp_of(path: &Path) -> SourceFp {
     )
 }
 
+/// [`fp_of`] for a left-in-place path. A folder game (`Freedoom Phase 1/`,
+/// a ScummVM game) counts the bytes of the files below it: a directory's
+/// own length is a filesystem detail (128 on APFS, 4096 on ext4).
+fn left_fp_of(path: &Path) -> SourceFp {
+    let mut fp = fp_of(path);
+    if fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) {
+        fp.size = WalkDir::new(path)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum();
+    }
+    fp
+}
+
 /// Walks, groups disc sets and identifies every candidate of `source`.
 pub fn survey(
     source: &Path,
@@ -1027,10 +1045,11 @@ pub fn survey(
     let candidates = std::mem::take(&mut walked.candidates);
     let mut entries = build_entries(&source_abs, candidates, &mut walked);
     for (path, reason) in std::mem::take(&mut walked.left) {
+        let fp = left_fp_of(&path);
         entries.push(Pending {
             entry: SurveyEntry {
-                fps: vec![fp_of(&path)],
-                size: fs::symlink_metadata(&path).map_or(0, |m| m.len()),
+                fps: vec![fp],
+                size: fp.size,
                 sources: vec![path],
                 kind: ItemKind::File,
                 left: Some(reason),

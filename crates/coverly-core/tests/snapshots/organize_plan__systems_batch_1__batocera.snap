@@ -152,7 +152,7 @@ expression: redact(&p)
       "fps": [
         {
           "mtime_ns": 0,
-          "size": 128
+          "size": 4105
         }
       ],
       "id": 2,
@@ -166,7 +166,7 @@ expression: redact(&p)
       },
       "rename": null,
       "set_targets": [],
-      "size": 128,
+      "size": 4105,
       "sources": [
         "Freedoom Phase 1"
       ],
