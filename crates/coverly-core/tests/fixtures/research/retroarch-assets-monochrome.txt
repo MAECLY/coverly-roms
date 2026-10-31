@@ -1,0 +1,849 @@
+src/xmb/monochrome/1292 Advanced Programmable Video System-content.svg
+src/xmb/monochrome/1292 Advanced Programmable Video System.svg
+src/xmb/monochrome/2048-content.svg
+src/xmb/monochrome/2048.svg
+src/xmb/monochrome/ACT - Apricot PC Xi-content.svg
+src/xmb/monochrome/ACT - Apricot PC Xi.svg
+src/xmb/monochrome/APF - Imagination Machine-content.svg
+src/xmb/monochrome/APF - Imagination Machine.svg
+src/xmb/monochrome/APF - MP-1000-content.svg
+src/xmb/monochrome/APF - MP-1000.svg
+src/xmb/monochrome/Acorn - Archimedes-content.svg
+src/xmb/monochrome/Acorn - Archimedes.svg
+src/xmb/monochrome/Acorn - Atom-content.svg
+src/xmb/monochrome/Acorn - Atom.svg
+src/xmb/monochrome/Acorn - BBC Micro-content.svg
+src/xmb/monochrome/Acorn - BBC Micro.svg
+src/xmb/monochrome/Acorn - Risc PC-content.svg
+src/xmb/monochrome/Acorn - Risc PC.svg
+src/xmb/monochrome/Acorn RISC OS - Flash Media-content.svg
+src/xmb/monochrome/Acorn RISC OS - Flash Media.svg
+src/xmb/monochrome/Amazon - Fire TV-content.svg
+src/xmb/monochrome/Amazon - Fire TV.svg
+src/xmb/monochrome/Amazon - Luna-content.svg
+src/xmb/monochrome/Amazon - Luna.svg
+src/xmb/monochrome/Amstrad - CPC-content.svg
+src/xmb/monochrome/Amstrad - CPC.svg
+src/xmb/monochrome/Amstrad - GX4000-content.svg
+src/xmb/monochrome/Amstrad - GX4000.svg
+src/xmb/monochrome/Analogue - Analogue Pocket-content.svg
+src/xmb/monochrome/Analogue - Analogue Pocket.svg
+src/xmb/monochrome/Apple - I-content.svg
+src/xmb/monochrome/Apple - I.svg
+src/xmb/monochrome/Apple - II Plus-content.svg
+src/xmb/monochrome/Apple - II Plus.svg
+src/xmb/monochrome/Apple - II-content.svg
+src/xmb/monochrome/Apple - II.svg
+src/xmb/monochrome/Apple - IIGS-content.svg
+src/xmb/monochrome/Apple - IIGS.svg
+src/xmb/monochrome/Apple - IIe-content.svg
+src/xmb/monochrome/Apple - IIe.svg
+src/xmb/monochrome/Apple - Macintosh (BETA)-content.svg
+src/xmb/monochrome/Apple - Macintosh (BETA).svg
+src/xmb/monochrome/Apple - Macintosh-content.svg
+src/xmb/monochrome/Apple - Macintosh.svg
+src/xmb/monochrome/Apple-Bandai - Pippin-content.svg
+src/xmb/monochrome/Apple-Bandai - Pippin.svg
+src/xmb/monochrome/Arduboy Inc - Arduboy-content.svg
+src/xmb/monochrome/Arduboy Inc - Arduboy.svg
+src/xmb/monochrome/Atari - 2600-content.svg
+src/xmb/monochrome/Atari - 2600.svg
+src/xmb/monochrome/Atari - 5200-content.svg
+src/xmb/monochrome/Atari - 5200.svg
+src/xmb/monochrome/Atari - 7800-content.svg
+src/xmb/monochrome/Atari - 7800.svg
+src/xmb/monochrome/Atari - 8-bit Family-content.svg
+src/xmb/monochrome/Atari - 8-bit Family.svg
+src/xmb/monochrome/Atari - Jaguar CD-content.svg
+src/xmb/monochrome/Atari - Jaguar CD.svg
+src/xmb/monochrome/Atari - Jaguar-content.svg
+src/xmb/monochrome/Atari - Jaguar.svg
+src/xmb/monochrome/Atari - Lynx-content.svg
+src/xmb/monochrome/Atari - Lynx.svg
+src/xmb/monochrome/Atari - Pong-content.svg
+src/xmb/monochrome/Atari - Pong.svg
+src/xmb/monochrome/Atari - ST (Tapes)-content.svg
+src/xmb/monochrome/Atari - ST (Tapes).svg
+src/xmb/monochrome/Atari - ST-content.svg
+src/xmb/monochrome/Atari - ST.svg
+src/xmb/monochrome/Atari - VCS-content.svg
+src/xmb/monochrome/Atari - VCS.svg
+src/xmb/monochrome/Atari - XEGS controller.svg
+src/xmb/monochrome/Atari - XEGS-content.svg
+src/xmb/monochrome/Atari - XEGS.svg
+src/xmb/monochrome/BBC - Bridge Companion-content.svg
+src/xmb/monochrome/BBC - Bridge Companion.svg
+src/xmb/monochrome/Bally - Astrocade (Tapes)-content.svg
+src/xmb/monochrome/Bally - Astrocade (Tapes).svg
+src/xmb/monochrome/Bally - Astrocade-content.svg
+src/xmb/monochrome/Bally - Astrocade.svg
+src/xmb/monochrome/Bandai - Design Master Denshi Mangajuku-content.svg
+src/xmb/monochrome/Bandai - Design Master Denshi Mangajuku.svg
+src/xmb/monochrome/Bandai - Gundam RX-78-content.svg
+src/xmb/monochrome/Bandai - Gundam RX-78.svg
+src/xmb/monochrome/Bandai - Playdia-content.svg
+src/xmb/monochrome/Bandai - Playdia.svg
+src/xmb/monochrome/Bandai - Super Vision 8000-content.svg
+src/xmb/monochrome/Bandai - Super Vision 8000.svg
+src/xmb/monochrome/Bandai - Terebikko-content.svg
+src/xmb/monochrome/Bandai - Terebikko.svg
+src/xmb/monochrome/Bandai - WonderSwan Color-content.svg
+src/xmb/monochrome/Bandai - WonderSwan Color.svg
+src/xmb/monochrome/Bandai - WonderSwan-content.svg
+src/xmb/monochrome/Bandai - WonderSwan.svg
+src/xmb/monochrome/Benesse - Pocket Challenge V2-content.svg
+src/xmb/monochrome/Benesse - Pocket Challenge V2.svg
+src/xmb/monochrome/Benesse - Pocket Challenge W-content.svg
+src/xmb/monochrome/Benesse - Pocket Challenge W.svg
+src/xmb/monochrome/Bit Corporation - Gamate-content.svg
+src/xmb/monochrome/Bit Corporation - Gamate.svg
+src/xmb/monochrome/CHIP-8-content.svg
+src/xmb/monochrome/CHIP-8.svg
+src/xmb/monochrome/Cannonball-content.svg
+src/xmb/monochrome/Cannonball.svg
+src/xmb/monochrome/Capcom - CP System I-content.svg
+src/xmb/monochrome/Capcom - CP System I.svg
+src/xmb/monochrome/Capcom - CP System II-content.svg
+src/xmb/monochrome/Capcom - CP System II.svg
+src/xmb/monochrome/Capcom - CP System III-content.svg
+src/xmb/monochrome/Capcom - CP System III.svg
+src/xmb/monochrome/Casio - Loopy-content.svg
+src/xmb/monochrome/Casio - Loopy.svg
+src/xmb/monochrome/Casio - PV-1000-content.svg
+src/xmb/monochrome/Casio - PV-1000.svg
+src/xmb/monochrome/Cave Story-content.svg
+src/xmb/monochrome/Cave Story.svg
+src/xmb/monochrome/ChaiLove-content.svg
+src/xmb/monochrome/ChaiLove.svg
+src/xmb/monochrome/Coleco - ColecoVision ADAM-content.svg
+src/xmb/monochrome/Coleco - ColecoVision ADAM.svg
+src/xmb/monochrome/Coleco - ColecoVision-content.svg
+src/xmb/monochrome/Coleco - ColecoVision.svg
+src/xmb/monochrome/Commodore - 64 (PP)-content.svg
+src/xmb/monochrome/Commodore - 64 (PP).svg
+src/xmb/monochrome/Commodore - 64 (Tapes)-content.svg
+src/xmb/monochrome/Commodore - 64 (Tapes).svg
+src/xmb/monochrome/Commodore - 64-content.svg
+src/xmb/monochrome/Commodore - 64.svg
+src/xmb/monochrome/Commodore - Amiga-content.svg
+src/xmb/monochrome/Commodore - Amiga.svg
+src/xmb/monochrome/Commodore - CD32-content.svg
+src/xmb/monochrome/Commodore - CD32.svg
+src/xmb/monochrome/Commodore - CDTV-content.svg
+src/xmb/monochrome/Commodore - CDTV.svg
+src/xmb/monochrome/Commodore - PET-content.svg
+src/xmb/monochrome/Commodore - PET.svg
+src/xmb/monochrome/Commodore - Plus-4-content.svg
+src/xmb/monochrome/Commodore - Plus-4.svg
+src/xmb/monochrome/Commodore - VIC-20-content.svg
+src/xmb/monochrome/Commodore - VIC-20.svg
+src/xmb/monochrome/Connor - VideoSmarts-content.svg
+src/xmb/monochrome/Connor - VideoSmarts.svg
+src/xmb/monochrome/DICE-content.svg
+src/xmb/monochrome/DICE.svg
+src/xmb/monochrome/DOOM-content.svg
+src/xmb/monochrome/DOOM.svg
+src/xmb/monochrome/DOS-content.svg
+src/xmb/monochrome/DOS.svg
+src/xmb/monochrome/Dinothawr-content.svg
+src/xmb/monochrome/Dinothawr.svg
+src/xmb/monochrome/Dungeon Crawl Stone Soup-content.svg
+src/xmb/monochrome/Dungeon Crawl Stone Soup.svg
+src/xmb/monochrome/Emerson - Arcadia 2001-content.svg
+src/xmb/monochrome/Emerson - Arcadia 2001.svg
+src/xmb/monochrome/Entex - Adventure Vision-content.svg
+src/xmb/monochrome/Entex - Adventure Vision.svg
+src/xmb/monochrome/Entex - Select-A-Game-content.svg
+src/xmb/monochrome/Entex - Select-A-Game.svg
+src/xmb/monochrome/Epoch - Cassette Vision-content.svg
+src/xmb/monochrome/Epoch - Cassette Vision.svg
+src/xmb/monochrome/Epoch - Game Pocket Computer-content.svg
+src/xmb/monochrome/Epoch - Game Pocket Computer.svg
+src/xmb/monochrome/Epoch - Super Cassette Vision-content.svg
+src/xmb/monochrome/Epoch - Super Cassette Vision.svg
+src/xmb/monochrome/Epoch - TV Tennis Electrotennis-content.svg
+src/xmb/monochrome/Epoch - TV Tennis Electrotennis.svg
+src/xmb/monochrome/FBNeo - Arcade Games-content.svg
+src/xmb/monochrome/FBNeo - Arcade Games.svg
+src/xmb/monochrome/FFmpeg-content.svg
+src/xmb/monochrome/FFmpeg.svg
+src/xmb/monochrome/Fairchild - Channel F-content.svg
+src/xmb/monochrome/Fairchild - Channel F.svg
+src/xmb/monochrome/Flashback-content.svg
+src/xmb/monochrome/Flashback.svg
+src/xmb/monochrome/Fujitsu - FM Towns-content.svg
+src/xmb/monochrome/Fujitsu - FM Towns.svg
+src/xmb/monochrome/Fujitsu - FM-7-content.svg
+src/xmb/monochrome/Fujitsu - FM-7.svg
+src/xmb/monochrome/Fujitsu - FMR50-content.svg
+src/xmb/monochrome/Fujitsu - FMR50.svg
+src/xmb/monochrome/Fukutake Publishing - StudyBox-content.svg
+src/xmb/monochrome/Fukutake Publishing - StudyBox.svg
+src/xmb/monochrome/Funtech - Super Acan-content.svg
+src/xmb/monochrome/Funtech - Super Acan.svg
+src/xmb/monochrome/GCE - Vectrex-content.svg
+src/xmb/monochrome/GCE - Vectrex.svg
+src/xmb/monochrome/GamePark - GP2X (Digital)-content.svg
+src/xmb/monochrome/GamePark - GP2X (Digital).svg
+src/xmb/monochrome/GamePark - GP2X-content.svg
+src/xmb/monochrome/GamePark - GP2X.svg
+src/xmb/monochrome/GamePark - GP32-content.svg
+src/xmb/monochrome/GamePark - GP32.svg
+src/xmb/monochrome/Google - Android (Amazon Appstore)-content.svg
+src/xmb/monochrome/Google - Android (Amazon Appstore).svg
+src/xmb/monochrome/Google - Android (Misc)-content.svg
+src/xmb/monochrome/Google - Android (Misc).svg
+src/xmb/monochrome/Google - Android (Samsung Galaxy Apps)-content.svg
+src/xmb/monochrome/Google - Android (Samsung Galaxy Apps).svg
+src/xmb/monochrome/Handheld Electronic Game-content.svg
+src/xmb/monochrome/Handheld Electronic Game.svg
+src/xmb/monochrome/Hartung - Game Master-content.svg
+src/xmb/monochrome/Hartung - Game Master.svg
+src/xmb/monochrome/Hitachi - S1-content.svg
+src/xmb/monochrome/Hitachi - S1.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Desura)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Desura).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Groupees)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Groupees).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (JAST USA)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (JAST USA).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Misc) (Adult)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Misc) (Adult).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Misc)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Misc).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Steam) (Hentai)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Steam) (Hentai).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Unknown)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Unknown).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Updates and DLC)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Digital) (Updates and DLC).svg
+src/xmb/monochrome/IBM - PC and Compatibles (Flash Media)-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles (Flash Media).svg
+src/xmb/monochrome/IBM - PC and Compatibles-content.svg
+src/xmb/monochrome/IBM - PC and Compatibles.svg
+src/xmb/monochrome/Interton - VC 4000-content.svg
+src/xmb/monochrome/Interton - VC 4000.svg
+src/xmb/monochrome/Jump 'n Bump-content.svg
+src/xmb/monochrome/Jump 'n Bump.svg
+src/xmb/monochrome/Konami - Picno-content.svg
+src/xmb/monochrome/Konami - Picno.svg
+src/xmb/monochrome/LeapFrog - LeapPad-content.svg
+src/xmb/monochrome/LeapFrog - LeapPad.svg
+src/xmb/monochrome/LeapFrog - Leapster Learning Game System-content.svg
+src/xmb/monochrome/LeapFrog - Leapster Learning Game System.svg
+src/xmb/monochrome/LeapFrog - My First LeapPad-content.svg
+src/xmb/monochrome/LeapFrog - My First LeapPad.svg
+src/xmb/monochrome/Libretro - Pad.svg
+src/xmb/monochrome/Lutro-content.svg
+src/xmb/monochrome/Lutro.svg
+src/xmb/monochrome/Luxor - ABC 800-content.svg
+src/xmb/monochrome/Luxor - ABC 800.svg
+src/xmb/monochrome/MAME 2000-content.svg
+src/xmb/monochrome/MAME 2000.svg
+src/xmb/monochrome/MAME 2003-Plus-content.svg
+src/xmb/monochrome/MAME 2003-Plus.svg
+src/xmb/monochrome/MAME 2003-content.svg
+src/xmb/monochrome/MAME 2003.svg
+src/xmb/monochrome/MAME 2010-content.svg
+src/xmb/monochrome/MAME 2010.svg
+src/xmb/monochrome/MAME 2015-content.svg
+src/xmb/monochrome/MAME 2015.svg
+src/xmb/monochrome/MAME 2016-content.svg
+src/xmb/monochrome/MAME 2016.svg
+src/xmb/monochrome/MAME-content.svg
+src/xmb/monochrome/MAME.svg
+src/xmb/monochrome/Magnavox - Odyssey-content.svg
+src/xmb/monochrome/Magnavox - Odyssey.svg
+src/xmb/monochrome/Magnavox - Odyssey2-content.svg
+src/xmb/monochrome/Magnavox - Odyssey2.svg
+src/xmb/monochrome/Mattel - Intellivision-content.svg
+src/xmb/monochrome/Mattel - Intellivision.svg
+src/xmb/monochrome/Microsoft - MSX-content.svg
+src/xmb/monochrome/Microsoft - MSX.svg
+src/xmb/monochrome/Microsoft - MSX2-content.svg
+src/xmb/monochrome/Microsoft - MSX2.svg
+src/xmb/monochrome/Microsoft - Xbox (Development Kit Hard Drives)-content.svg
+src/xmb/monochrome/Microsoft - Xbox (Development Kit Hard Drives).svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Development Kit Hard Drives)-content.svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Development Kit Hard Drives).svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Digital) (CDN)-content.svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Digital) (CDN).svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Digital)-content.svg
+src/xmb/monochrome/Microsoft - Xbox 360 (Digital).svg
+src/xmb/monochrome/Microsoft - Xbox 360-content.svg
+src/xmb/monochrome/Microsoft - Xbox 360.svg
+src/xmb/monochrome/Microsoft - Xbox One (Digital)-content.svg
+src/xmb/monochrome/Microsoft - Xbox One (Digital).svg
+src/xmb/monochrome/Microsoft - Xbox One-content.svg
+src/xmb/monochrome/Microsoft - Xbox One.svg
+src/xmb/monochrome/Microsoft - Xbox-content.svg
+src/xmb/monochrome/Microsoft - Xbox.svg
+src/xmb/monochrome/Milton-Bradley - Omni-content.svg
+src/xmb/monochrome/Milton-Bradley - Omni.svg
+src/xmb/monochrome/Minecraft-content.svg
+src/xmb/monochrome/Minecraft.svg
+src/xmb/monochrome/Mobile - J2ME-content.svg
+src/xmb/monochrome/Mobile - J2ME.svg
+src/xmb/monochrome/Mobile - Palm OS (Digital)-content.svg
+src/xmb/monochrome/Mobile - Palm OS (Digital).svg
+src/xmb/monochrome/Mobile - Palm OS-content.svg
+src/xmb/monochrome/Mobile - Palm OS.svg
+src/xmb/monochrome/Mobile - Pocket PC (Digital)-content.svg
+src/xmb/monochrome/Mobile - Pocket PC (Digital).svg
+src/xmb/monochrome/Mobile - Pocket PC-content.svg
+src/xmb/monochrome/Mobile - Pocket PC.svg
+src/xmb/monochrome/Mobile - Symbian-content.svg
+src/xmb/monochrome/Mobile - Symbian.svg
+src/xmb/monochrome/MrBoom-content.svg
+src/xmb/monochrome/MrBoom.svg
+src/xmb/monochrome/NEC - PC Engine - TurboGrafx 16-content.svg
+src/xmb/monochrome/NEC - PC Engine - TurboGrafx 16.svg
+src/xmb/monochrome/NEC - PC Engine CD - TurboGrafx-CD-content.svg
+src/xmb/monochrome/NEC - PC Engine CD - TurboGrafx-CD.svg
+src/xmb/monochrome/NEC - PC Engine SuperGrafx-content.svg
+src/xmb/monochrome/NEC - PC Engine SuperGrafx.svg
+src/xmb/monochrome/NEC - PC-8001 - PC-8801-content.svg
+src/xmb/monochrome/NEC - PC-8001 - PC-8801.svg
+src/xmb/monochrome/NEC - PC-88-content.svg
+src/xmb/monochrome/NEC - PC-88.svg
+src/xmb/monochrome/NEC - PC-98-content.svg
+src/xmb/monochrome/NEC - PC-98.svg
+src/xmb/monochrome/NEC - PC-FX-content.svg
+src/xmb/monochrome/NEC - PC-FX.svg
+src/xmb/monochrome/Namco, Sega, Nintendo - TriForce (Cartridges)-content.svg
+src/xmb/monochrome/Namco, Sega, Nintendo - TriForce (Cartridges).svg
+src/xmb/monochrome/Nichibutsu - My Vision-content.svg
+src/xmb/monochrome/Nichibutsu - My Vision.svg
+src/xmb/monochrome/Nintendo - Family BASIC (Cartridge).svg
+src/xmb/monochrome/Nintendo - Family BASIC (Tapes).svg
+src/xmb/monochrome/Nintendo - Family BASIC.svg
+src/xmb/monochrome/Nintendo - Family Computer Disk System-content.svg
+src/xmb/monochrome/Nintendo - Family Computer Disk System.svg
+src/xmb/monochrome/Nintendo - Family Computer Network System-content.svg
+src/xmb/monochrome/Nintendo - Family Computer Network System.svg
+src/xmb/monochrome/Nintendo - Game & Watch-content.svg
+src/xmb/monochrome/Nintendo - Game & Watch.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Multiboot)-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Multiboot).svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Play-Yan)-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Play-Yan).svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Video)-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (Video).svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (e-Reader)-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance (e-Reader).svg
+src/xmb/monochrome/Nintendo - Game Boy Advance-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Advance.svg
+src/xmb/monochrome/Nintendo - Game Boy Color-content.svg
+src/xmb/monochrome/Nintendo - Game Boy Color.svg
+src/xmb/monochrome/Nintendo - Game Boy-content.svg
+src/xmb/monochrome/Nintendo - Game Boy.svg
+src/xmb/monochrome/Nintendo - GameCube-content.svg
+src/xmb/monochrome/Nintendo - GameCube.svg
+src/xmb/monochrome/Nintendo - Kiosk Video Compact Flash-content.svg
+src/xmb/monochrome/Nintendo - Kiosk Video Compact Flash.svg
+src/xmb/monochrome/Nintendo - Misc-content.svg
+src/xmb/monochrome/Nintendo - Misc.svg
+src/xmb/monochrome/Nintendo - New Nintendo 3DS (Digital) (Deprecated)-content.svg
+src/xmb/monochrome/Nintendo - New Nintendo 3DS (Digital) (Deprecated).svg
+src/xmb/monochrome/Nintendo - New Nintendo 3DS-content.svg
+src/xmb/monochrome/Nintendo - New Nintendo 3DS.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (AR Cards)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (AR Cards).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (DLC)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (DLC).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (CDN)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (CDN).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Deprecated)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Deprecated).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Dev ROMs)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Dev ROMs).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Pre-Install)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital) (Pre-Install).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS (Digital).svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 3DS.svg
+src/xmb/monochrome/Nintendo - Nintendo 64 (Mario no Photopi SmartMedia)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 64 (Mario no Photopi SmartMedia).svg
+src/xmb/monochrome/Nintendo - Nintendo 64-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 64.svg
+src/xmb/monochrome/Nintendo - Nintendo 64DD-content.svg
+src/xmb/monochrome/Nintendo - Nintendo 64DD.svg
+src/xmb/monochrome/Nintendo - Nintendo DS (Download Play) (BETA)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DS (Download Play) (BETA).svg
+src/xmb/monochrome/Nintendo - Nintendo DS (Download Play)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DS (Download Play).svg
+src/xmb/monochrome/Nintendo - Nintendo DS-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DS.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (DLC)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (DLC).svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (Digital) (CDN)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (Digital) (CDN).svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (Digital)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi (Digital).svg
+src/xmb/monochrome/Nintendo - Nintendo DSi Decrypted-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi Decrypted.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi-content.svg
+src/xmb/monochrome/Nintendo - Nintendo DSi.svg
+src/xmb/monochrome/Nintendo - Nintendo Entertainment System-content.svg
+src/xmb/monochrome/Nintendo - Nintendo Entertainment System.svg
+src/xmb/monochrome/Nintendo - Nintendo GameCube (NPDP Carts)-content.svg
+src/xmb/monochrome/Nintendo - Nintendo GameCube (NPDP Carts).svg
+src/xmb/monochrome/Nintendo - Pokemon Mini-content.svg
+src/xmb/monochrome/Nintendo - Pokemon Mini.svg
+src/xmb/monochrome/Nintendo - Satellaview-content.svg
+src/xmb/monochrome/Nintendo - Satellaview.svg
+src/xmb/monochrome/Nintendo - Sufami Turbo-content.svg
+src/xmb/monochrome/Nintendo - Sufami Turbo.svg
+src/xmb/monochrome/Nintendo - Super Nintendo Entertainment System-content.svg
+src/xmb/monochrome/Nintendo - Super Nintendo Entertainment System.svg
+src/xmb/monochrome/Nintendo - Switch-content.svg
+src/xmb/monochrome/Nintendo - Switch.svg
+src/xmb/monochrome/Nintendo - Virtual Boy-content.svg
+src/xmb/monochrome/Nintendo - Virtual Boy.svg
+src/xmb/monochrome/Nintendo - Wallpapers-content.svg
+src/xmb/monochrome/Nintendo - Wallpapers.svg
+src/xmb/monochrome/Nintendo - Wii (Digital) (CDN)-content.svg
+src/xmb/monochrome/Nintendo - Wii (Digital) (CDN).svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN) (Dev)-content.svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN) (Dev).svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN) (Lotcheck)-content.svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN) (Lotcheck).svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN)-content.svg
+src/xmb/monochrome/Nintendo - Wii U (Digital) (CDN).svg
+src/xmb/monochrome/Nintendo - Wii U-content.svg
+src/xmb/monochrome/Nintendo - Wii U.svg
+src/xmb/monochrome/Nintendo - Wii-content.svg
+src/xmb/monochrome/Nintendo - Wii.svg
+src/xmb/monochrome/Nintendo - amiibo-content.svg
+src/xmb/monochrome/Nintendo - amiibo.svg
+src/xmb/monochrome/Nintendo - e-Reader-content.svg
+src/xmb/monochrome/Nintendo - e-Reader.svg
+src/xmb/monochrome/Nokia - N-Gage (WIP)-content.svg
+src/xmb/monochrome/Nokia - N-Gage (WIP).svg
+src/xmb/monochrome/Nokia - N-Gage 2.0-content.svg
+src/xmb/monochrome/Nokia - N-Gage 2.0.svg
+src/xmb/monochrome/Nokia - N-Gage-content.svg
+src/xmb/monochrome/Nokia - N-Gage.svg
+src/xmb/monochrome/Non-Redump - Apple - Macintosh (Discs) (Non-Game)-content.svg
+src/xmb/monochrome/Non-Redump - Apple - Macintosh (Discs) (Non-Game).svg
+src/xmb/monochrome/Non-Redump - Apple-Bandai - Pippin-content.svg
+src/xmb/monochrome/Non-Redump - Apple-Bandai - Pippin.svg
+src/xmb/monochrome/Non-Redump - Atari - Atari Jaguar CD-content.svg
+src/xmb/monochrome/Non-Redump - Atari - Atari Jaguar CD.svg
+src/xmb/monochrome/Non-Redump - Audio CD-content.svg
+src/xmb/monochrome/Non-Redump - Audio CD.svg
+src/xmb/monochrome/Non-Redump - BD-Video-content.svg
+src/xmb/monochrome/Non-Redump - BD-Video.svg
+src/xmb/monochrome/Non-Redump - DVD-Video-content.svg
+src/xmb/monochrome/Non-Redump - DVD-Video.svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs) (Adult)-content.svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs) (Adult).svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs) (Non-Game)-content.svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs) (Non-Game).svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs)-content.svg
+src/xmb/monochrome/Non-Redump - IBM - PC Compatible (Discs).svg
+src/xmb/monochrome/Non-Redump - Konami - Python 2-content.svg
+src/xmb/monochrome/Non-Redump - Konami - Python 2.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Microsoft Xbox 360-content.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Microsoft Xbox 360.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Microsoft Xbox-content.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Microsoft Xbox.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Pocket PC-content.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Pocket PC.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Xbox One-content.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Xbox One.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Xbox Series X-content.svg
+src/xmb/monochrome/Non-Redump - Microsoft - Xbox Series X.svg
+src/xmb/monochrome/Non-Redump - NEC - PC Engine CD + TurboGrafx CD-content.svg
+src/xmb/monochrome/Non-Redump - NEC - PC Engine CD + TurboGrafx CD.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Nintendo GameCube-content.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Nintendo GameCube.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Wii U-content.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Wii U.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Wii-content.svg
+src/xmb/monochrome/Non-Redump - Nintendo - Wii.svg
+src/xmb/monochrome/Non-Redump - Panasonic - 3DO Interactive Multiplayer-content.svg
+src/xmb/monochrome/Non-Redump - Panasonic - 3DO Interactive Multiplayer.svg
+src/xmb/monochrome/Non-Redump - Philips - CD-i-content.svg
+src/xmb/monochrome/Non-Redump - Philips - CD-i.svg
+src/xmb/monochrome/Non-Redump - Sega - ALLS-content.svg
+src/xmb/monochrome/Non-Redump - Sega - ALLS.svg
+src/xmb/monochrome/Non-Redump - Sega - Dreamcast-content.svg
+src/xmb/monochrome/Non-Redump - Sega - Dreamcast.svg
+src/xmb/monochrome/Non-Redump - Sega - Sega Mega CD + Sega CD-content.svg
+src/xmb/monochrome/Non-Redump - Sega - Sega Mega CD + Sega CD.svg
+src/xmb/monochrome/Non-Redump - Sega - Sega Saturn-content.svg
+src/xmb/monochrome/Non-Redump - Sega - Sega Saturn.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation 2-content.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation 2.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation 3-content.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation 3.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation Portable-content.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation Portable.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation-content.svg
+src/xmb/monochrome/Non-Redump - Sony - PlayStation.svg
+src/xmb/monochrome/Non-Redump - Sony Electronic Book-content.svg
+src/xmb/monochrome/Non-Redump - Sony Electronic Book.svg
+src/xmb/monochrome/Non-Redump - Super Audio CD-content.svg
+src/xmb/monochrome/Non-Redump - Super Audio CD.svg
+src/xmb/monochrome/Non-Redump - ZAPiT Games - Game Wave Family Entertainment System-content.svg
+src/xmb/monochrome/Non-Redump - ZAPiT Games - Game Wave Family Entertainment System.svg
+src/xmb/monochrome/Ouya - Ouya-content.svg
+src/xmb/monochrome/Ouya - Ouya.svg
+src/xmb/monochrome/Philips - Videopac+-content.svg
+src/xmb/monochrome/Philips - Videopac+.svg
+src/xmb/monochrome/Quake II-content.svg
+src/xmb/monochrome/Quake II.svg
+src/xmb/monochrome/Quake III-content.svg
+src/xmb/monochrome/Quake III.svg
+src/xmb/monochrome/Quake-content.svg
+src/xmb/monochrome/Quake.svg
+src/xmb/monochrome/RCA - Studio II-content.svg
+src/xmb/monochrome/RCA - Studio II.svg
+src/xmb/monochrome/RPG Maker-content.svg
+src/xmb/monochrome/RPG Maker.svg
+src/xmb/monochrome/Rick Dangerous-content.svg
+src/xmb/monochrome/Rick Dangerous.svg
+src/xmb/monochrome/SNK - Neo Geo CD-content.svg
+src/xmb/monochrome/SNK - Neo Geo CD.svg
+src/xmb/monochrome/SNK - Neo Geo Pocket Color-content.svg
+src/xmb/monochrome/SNK - Neo Geo Pocket Color.svg
+src/xmb/monochrome/SNK - Neo Geo Pocket-content.svg
+src/xmb/monochrome/SNK - Neo Geo Pocket.svg
+src/xmb/monochrome/SNK - Neo Geo-content.svg
+src/xmb/monochrome/SNK - Neo Geo.svg
+src/xmb/monochrome/Sanyo - MBC-550-content.svg
+src/xmb/monochrome/Sanyo - MBC-550.svg
+src/xmb/monochrome/ScummVM-content.svg
+src/xmb/monochrome/ScummVM.svg
+src/xmb/monochrome/Sega - 32X-content.svg
+src/xmb/monochrome/Sega - 32X.svg
+src/xmb/monochrome/Sega - Beena-content.svg
+src/xmb/monochrome/Sega - Beena.svg
+src/xmb/monochrome/Sega - Dreamcast (Visual Memory Unit)-content.svg
+src/xmb/monochrome/Sega - Dreamcast (Visual Memory Unit).svg
+src/xmb/monochrome/Sega - Dreamcast-content.svg
+src/xmb/monochrome/Sega - Dreamcast.svg
+src/xmb/monochrome/Sega - Game Gear-content.svg
+src/xmb/monochrome/Sega - Game Gear.svg
+src/xmb/monochrome/Sega - Master System - Mark III-content.svg
+src/xmb/monochrome/Sega - Master System - Mark III.svg
+src/xmb/monochrome/Sega - Mega Drive - Genesis-content.svg
+src/xmb/monochrome/Sega - Mega Drive - Genesis.svg
+src/xmb/monochrome/Sega - Mega-CD - Sega CD-content.svg
+src/xmb/monochrome/Sega - Mega-CD - Sega CD.svg
+src/xmb/monochrome/Sega - PICO-content.svg
+src/xmb/monochrome/Sega - PICO.svg
+src/xmb/monochrome/Sega - SG-1000-content.svg
+src/xmb/monochrome/Sega - SG-1000.svg
+src/xmb/monochrome/Sega - Saturn-content.svg
+src/xmb/monochrome/Sega - Saturn.svg
+src/xmb/monochrome/Seta - Aleck64-content.svg
+src/xmb/monochrome/Seta - Aleck64.svg
+src/xmb/monochrome/Sharp - MZ-2200-content.svg
+src/xmb/monochrome/Sharp - MZ-2200.svg
+src/xmb/monochrome/Sharp - MZ-700-content.svg
+src/xmb/monochrome/Sharp - MZ-700.svg
+src/xmb/monochrome/Sharp - X1-content.svg
+src/xmb/monochrome/Sharp - X1.svg
+src/xmb/monochrome/Sharp - X68000-content.svg
+src/xmb/monochrome/Sharp - X68000.svg
+src/xmb/monochrome/Sinclair - ZX 81-content.svg
+src/xmb/monochrome/Sinclair - ZX 81.svg
+src/xmb/monochrome/Sinclair - ZX Spectrum +3-content.svg
+src/xmb/monochrome/Sinclair - ZX Spectrum +3.svg
+src/xmb/monochrome/Sinclair - ZX Spectrum-content.svg
+src/xmb/monochrome/Sinclair - ZX Spectrum.svg
+src/xmb/monochrome/Sony - PlayStation (PS one Classics) (PSN)-content.svg
+src/xmb/monochrome/Sony - PlayStation (PS one Classics) (PSN).svg
+src/xmb/monochrome/Sony - PlayStation (PocketStation)-content.svg
+src/xmb/monochrome/Sony - PlayStation (PocketStation).svg
+src/xmb/monochrome/Sony - PlayStation 2-content.svg
+src/xmb/monochrome/Sony - PlayStation 2.svg
+src/xmb/monochrome/Sony - PlayStation 3 (DLC)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (DLC).svg
+src/xmb/monochrome/Sony - PlayStation 3 (Development Kit Hard Drives) (Decrypted)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (Development Kit Hard Drives) (Decrypted).svg
+src/xmb/monochrome/Sony - PlayStation 3 (Downloadable)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (Downloadable).svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN) (Content)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN) (Content).svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN) (Updates)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN) (Updates).svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN)-content.svg
+src/xmb/monochrome/Sony - PlayStation 3 (PSN).svg
+src/xmb/monochrome/Sony - PlayStation 3-content.svg
+src/xmb/monochrome/Sony - PlayStation 3.svg
+src/xmb/monochrome/Sony - PlayStation 4-content.svg
+src/xmb/monochrome/Sony - PlayStation 4.svg
+src/xmb/monochrome/Sony - PlayStation Mobile (PSN)-content.svg
+src/xmb/monochrome/Sony - PlayStation Mobile (PSN).svg
+src/xmb/monochrome/Sony - PlayStation Portable (DLC)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (DLC).svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSN) (Encrypted)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSN) (Encrypted).svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSN)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSN).svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSX2PSP)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (PSX2PSP).svg
+src/xmb/monochrome/Sony - PlayStation Portable (UMD Music)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (UMD Music).svg
+src/xmb/monochrome/Sony - PlayStation Portable (UMD Video)-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable (UMD Video).svg
+src/xmb/monochrome/Sony - PlayStation Portable-content.svg
+src/xmb/monochrome/Sony - PlayStation Portable.svg
+src/xmb/monochrome/Sony - PlayStation Vita (PSN) (Content)-content.svg
+src/xmb/monochrome/Sony - PlayStation Vita (PSN) (Content).svg
+src/xmb/monochrome/Sony - PlayStation Vita (PSN) (Updates)-content.svg
+src/xmb/monochrome/Sony - PlayStation Vita (PSN) (Updates).svg
+src/xmb/monochrome/Sony - PlayStation Vita-content.svg
+src/xmb/monochrome/Sony - PlayStation Vita.svg
+src/xmb/monochrome/Sony - PlayStation-content.svg
+src/xmb/monochrome/Sony - PlayStation.svg
+src/xmb/monochrome/Source Code - Apple - I-content.svg
+src/xmb/monochrome/Source Code - Apple - I.svg
+src/xmb/monochrome/Source Code - Apple - II-content.svg
+src/xmb/monochrome/Source Code - Apple - II.svg
+src/xmb/monochrome/Source Code - Apple - IIGS-content.svg
+src/xmb/monochrome/Source Code - Apple - IIGS.svg
+src/xmb/monochrome/Source Code - Atari - 8-bit Family-content.svg
+src/xmb/monochrome/Source Code - Atari - 8-bit Family.svg
+src/xmb/monochrome/Source Code - IBM - PC and Compatibles-content.svg
+src/xmb/monochrome/Source Code - IBM - PC and Compatibles.svg
+src/xmb/monochrome/Source Code - Microsoft - Xbox 360-content.svg
+src/xmb/monochrome/Source Code - Microsoft - Xbox 360.svg
+src/xmb/monochrome/Source Code - Mobile - Palm OS-content.svg
+src/xmb/monochrome/Source Code - Mobile - Palm OS.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy Advance-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy Advance.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy Color-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy Color.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Game Boy.svg
+src/xmb/monochrome/Source Code - Nintendo - GameCube-content.svg
+src/xmb/monochrome/Source Code - Nintendo - GameCube.svg
+src/xmb/monochrome/Source Code - Nintendo - Nintendo DS-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Nintendo DS.svg
+src/xmb/monochrome/Source Code - Nintendo - Nintendo Entertainment System-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Nintendo Entertainment System.svg
+src/xmb/monochrome/Source Code - Nintendo - Super Nintendo Entertainment System-content.svg
+src/xmb/monochrome/Source Code - Nintendo - Super Nintendo Entertainment System.svg
+src/xmb/monochrome/Source Code - Panasonic - 3DO Interactive Multiplayer-content.svg
+src/xmb/monochrome/Source Code - Panasonic - 3DO Interactive Multiplayer.svg
+src/xmb/monochrome/Source Code - Sega - DreamCast-content.svg
+src/xmb/monochrome/Source Code - Sega - DreamCast.svg
+src/xmb/monochrome/Source Code - VM Labs - NUON-content.svg
+src/xmb/monochrome/Source Code - VM Labs - NUON.svg
+src/xmb/monochrome/Source Code - Various-content.svg
+src/xmb/monochrome/Source Code - Various.svg
+src/xmb/monochrome/Spectravideo - SVI-318 - SVI-328-content.svg
+src/xmb/monochrome/Spectravideo - SVI-318 - SVI-328.svg
+src/xmb/monochrome/TIC-80-content.svg
+src/xmb/monochrome/TIC-80.svg
+src/xmb/monochrome/Tangerine Computer Systems - Oric-content.svg
+src/xmb/monochrome/Tangerine Computer Systems - Oric.svg
+src/xmb/monochrome/TeleNova - Compis-content.svg
+src/xmb/monochrome/TeleNova - Compis.svg
+src/xmb/monochrome/Texas Instruments - TI-99-4A-content.svg
+src/xmb/monochrome/Texas Instruments - TI-99-4A.svg
+src/xmb/monochrome/The 3DO Company - 3DO-content.svg
+src/xmb/monochrome/The 3DO Company - 3DO.svg
+src/xmb/monochrome/Thomson - MOTO-content.svg
+src/xmb/monochrome/Thomson - MOTO.svg
+src/xmb/monochrome/Tiger - Game.com-content.svg
+src/xmb/monochrome/Tiger - Game.com.svg
+src/xmb/monochrome/Tomb Raider-content.svg
+src/xmb/monochrome/Tomb Raider.svg
+src/xmb/monochrome/Toshiba - Pasopia-content.svg
+src/xmb/monochrome/Toshiba - Pasopia.svg
+src/xmb/monochrome/Toshiba - Visicom-content.svg
+src/xmb/monochrome/Toshiba - Visicom.svg
+src/xmb/monochrome/Unofficial - Microsoft - Xbox 360 (Title Updates)-content.svg
+src/xmb/monochrome/Unofficial - Microsoft - Xbox 360 (Title Updates).svg
+src/xmb/monochrome/Unofficial - Nintendo - Nintendo 3DS (Digital) (Updates and DLC)-content.svg
+src/xmb/monochrome/Unofficial - Nintendo - Nintendo 3DS (Digital) (Updates and DLC).svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii (Digital) (Deprecated)-content.svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii (Digital) (Deprecated).svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii (Digital) (Split DLC) (Deprecated)-content.svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii (Digital) (Split DLC) (Deprecated).svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii U (Digital) (Deprecated)-content.svg
+src/xmb/monochrome/Unofficial - Nintendo - Wii U (Digital) (Deprecated).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation 3 (PSN) (Decrypted)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation 3 (PSN) (Decrypted).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation 4 (PSN)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation 4 (PSN).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (PSN) (Decrypted)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (PSN) (Decrypted).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (PSX2PSP)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (PSX2PSP).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (UMD Music)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (UMD Music).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (UMD Video)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable (UMD Video).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Portable.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Vita (PSN) (Decrypted)-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Vita (PSN) (Decrypted).svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Vita-content.svg
+src/xmb/monochrome/Unofficial - Sony - PlayStation Vita.svg
+src/xmb/monochrome/Unofficial - Video Game Documents-content.svg
+src/xmb/monochrome/Unofficial - Video Game Documents.svg
+src/xmb/monochrome/Unofficial - Video Game Guide Scans-content.svg
+src/xmb/monochrome/Unofficial - Video Game Guide Scans.svg
+src/xmb/monochrome/Unofficial - Video Game Magazine Scans-content.svg
+src/xmb/monochrome/Unofficial - Video Game Magazine Scans.svg
+src/xmb/monochrome/Unofficial - Video Game Manual Scans-content.svg
+src/xmb/monochrome/Unofficial - Video Game Manual Scans.svg
+src/xmb/monochrome/Unofficial - Video Game Scans-content.svg
+src/xmb/monochrome/Unofficial - Video Game Scans.svg
+src/xmb/monochrome/Uzebox-content.svg
+src/xmb/monochrome/Uzebox.svg
+src/xmb/monochrome/VM Labs - NUON (Digital)-content.svg
+src/xmb/monochrome/VM Labs - NUON (Digital).svg
+src/xmb/monochrome/VM Labs - NUON-content.svg
+src/xmb/monochrome/VM Labs - NUON.svg
+src/xmb/monochrome/VTech - CreatiVision-content.svg
+src/xmb/monochrome/VTech - CreatiVision.svg
+src/xmb/monochrome/VTech - Mobigo-content.svg
+src/xmb/monochrome/VTech - Mobigo.svg
+src/xmb/monochrome/VTech - V.Smile-content.svg
+src/xmb/monochrome/VTech - V.Smile.svg
+src/xmb/monochrome/Watara - Supervision-content.svg
+src/xmb/monochrome/Watara - Supervision.svg
+src/xmb/monochrome/Welback - Mega Duck-content.svg
+src/xmb/monochrome/Welback - Mega Duck.svg
+src/xmb/monochrome/Yamaha - Copera-content.svg
+src/xmb/monochrome/Yamaha - Copera.svg
+src/xmb/monochrome/Zeebo - Zeebo-content.svg
+src/xmb/monochrome/Zeebo - Zeebo.svg
+src/xmb/monochrome/achievement-list.svg
+src/xmb/monochrome/add-favorite.svg
+src/xmb/monochrome/add.svg
+src/xmb/monochrome/arrow.svg
+src/xmb/monochrome/battery-20.svg
+src/xmb/monochrome/battery-40.svg
+src/xmb/monochrome/battery-60.svg
+src/xmb/monochrome/battery-80.svg
+src/xmb/monochrome/battery-charging.svg
+src/xmb/monochrome/battery-full.svg
+src/xmb/monochrome/bg.svg
+src/xmb/monochrome/bluetooth.svg
+src/xmb/monochrome/clock.svg
+src/xmb/monochrome/close.svg
+src/xmb/monochrome/core-cheat-options.svg
+src/xmb/monochrome/core-disk-options.svg
+src/xmb/monochrome/core-infos.svg
+src/xmb/monochrome/core-input-remapping-options.svg
+src/xmb/monochrome/core-options.svg
+src/xmb/monochrome/core-shader-options.svg
+src/xmb/monochrome/core.svg
+src/xmb/monochrome/cursor.svg
+src/xmb/monochrome/database.svg
+src/xmb/monochrome/default-content.svg
+src/xmb/monochrome/default.svg
+src/xmb/monochrome/dialog-slice.svg
+src/xmb/monochrome/export.sh
+src/xmb/monochrome/export_ozone.sh
+src/xmb/monochrome/favorites-content.svg
+src/xmb/monochrome/favorites.svg
+src/xmb/monochrome/favourites-content.svg
+src/xmb/monochrome/file.svg
+src/xmb/monochrome/folder.svg
+src/xmb/monochrome/history.svg
+src/xmb/monochrome/iQue - iQue-content.svg
+src/xmb/monochrome/iQue - iQue.svg
+src/xmb/monochrome/image.svg
+src/xmb/monochrome/images.svg
+src/xmb/monochrome/input_ADC.svg
+src/xmb/monochrome/input_BIND_ALL.svg
+src/xmb/monochrome/input_BTN-D.svg
+src/xmb/monochrome/input_BTN-L.svg
+src/xmb/monochrome/input_BTN-R.svg
+src/xmb/monochrome/input_BTN-U.svg
+src/xmb/monochrome/input_DPAD-D.svg
+src/xmb/monochrome/input_DPAD-L.svg
+src/xmb/monochrome/input_DPAD-R.svg
+src/xmb/monochrome/input_DPAD-U.svg
+src/xmb/monochrome/input_LB.svg
+src/xmb/monochrome/input_LGUN.svg
+src/xmb/monochrome/input_LT.svg
+src/xmb/monochrome/input_MOUSE.svg
+src/xmb/monochrome/input_RB.svg
+src/xmb/monochrome/input_RT.svg
+src/xmb/monochrome/input_SELECT.svg
+src/xmb/monochrome/input_START.svg
+src/xmb/monochrome/input_STCK-D.svg
+src/xmb/monochrome/input_STCK-L.svg
+src/xmb/monochrome/input_STCK-P.svg
+src/xmb/monochrome/input_STCK-R.svg
+src/xmb/monochrome/input_STCK-U.svg
+src/xmb/monochrome/input_TURBO.svg
+src/xmb/monochrome/key-hover.svg
+src/xmb/monochrome/key.svg
+src/xmb/monochrome/lakka.svg
+src/xmb/monochrome/loadstate.svg
+src/xmb/monochrome/menu_achievements.svg
+src/xmb/monochrome/menu_add.svg
+src/xmb/monochrome/menu_apply_cog.svg
+src/xmb/monochrome/menu_apply_toggle.svg
+src/xmb/monochrome/menu_audio.svg
+src/xmb/monochrome/menu_brightness.svg
+src/xmb/monochrome/menu_check.svg
+src/xmb/monochrome/menu_drivers.svg
+src/xmb/monochrome/menu_exit.svg
+src/xmb/monochrome/menu_frameskip.svg
+src/xmb/monochrome/menu_help.svg
+src/xmb/monochrome/menu_hourglass.svg
+src/xmb/monochrome/menu_info.svg
+src/xmb/monochrome/menu_latency.svg
+src/xmb/monochrome/menu_log.svg
+src/xmb/monochrome/menu_mixer.svg
+src/xmb/monochrome/menu_network.svg
+src/xmb/monochrome/menu_notifications.svg
+src/xmb/monochrome/menu_osd.svg
+src/xmb/monochrome/menu_overlay.svg
+src/xmb/monochrome/menu_override.svg
+src/xmb/monochrome/menu_pause.svg
+src/xmb/monochrome/menu_playlist.svg
+src/xmb/monochrome/menu_power.svg
+src/xmb/monochrome/menu_privacy.svg
+src/xmb/monochrome/menu_quickmenu.svg
+src/xmb/monochrome/menu_record.svg
+src/xmb/monochrome/menu_rewind.svg
+src/xmb/monochrome/menu_room.svg
+src/xmb/monochrome/menu_room_lan.svg
+src/xmb/monochrome/menu_room_relay.svg
+src/xmb/monochrome/menu_saving.svg
+src/xmb/monochrome/menu_shutdown.svg
+src/xmb/monochrome/menu_stream.svg
+src/xmb/monochrome/menu_ui.svg
+src/xmb/monochrome/menu_updater.svg
+src/xmb/monochrome/menu_user.svg
+src/xmb/monochrome/menu_video.svg
+src/xmb/monochrome/menu_volume_max.svg
+src/xmb/monochrome/menu_volume_med.svg
+src/xmb/monochrome/menu_volume_min.svg
+src/xmb/monochrome/menu_volume_mute.svg
+src/xmb/monochrome/movie.svg
+src/xmb/monochrome/movies.svg
+src/xmb/monochrome/music.svg
+src/xmb/monochrome/musics.svg
+src/xmb/monochrome/netplay.svg
+src/xmb/monochrome/off.svg
+src/xmb/monochrome/on.svg
+src/xmb/monochrome/on_alt.svg
+src/xmb/monochrome/pointer.svg
+src/xmb/monochrome/reload.svg
+src/xmb/monochrome/rename.svg
+src/xmb/monochrome/resume.svg
+src/xmb/monochrome/retroarch.svg
+src/xmb/monochrome/run.svg
+src/xmb/monochrome/savestate.svg
+src/xmb/monochrome/screenshot.svg
+src/xmb/monochrome/setting.svg
+src/xmb/monochrome/settings.svg
+src/xmb/monochrome/subsetting.svg
+src/xmb/monochrome/undo.svg
+src/xmb/monochrome/wifi.svg
+src/xmb/monochrome/zip.svg
