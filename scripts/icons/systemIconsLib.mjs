@@ -820,6 +820,10 @@ theme that are a maker's logo or wordmark (CP System, MAME, DOS, ScummVM,
 RPG Maker, Uzebox, TIC-80, Lutro) or game title art (DOOM, Quake, Cave Story,
 MrBoom, Dinothawr, Flashback, Rick Dangerous) are not vendored; those systems
 use the abbreviation fallback.
+The neutral drawings for Vectrex, CDTV and Amstrad CPC (wider than 2.5:1) and
+for Channel F and Intellivision (narrower than 1:2) are not vendored either:
+they are unreadable in a box 1.5× the row height, so those systems use the
+abbreviation fallback too.
 The CC licence grants no trademark rights. See \`TRADEMARKS.md\`.
 
 ## Audit
