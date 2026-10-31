@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::naming::validate_folder_override;
 use super::{
     builtin_profiles, render, DiscLayout, FolderNaming, ImageFormat, Media, MediaSlot, Profile,
-    TemplateVars,
+    ProfileFolder, TemplateVars,
 };
 pub use super::{default_accepts_containers, default_container_overrides};
 use crate::archive::ContainerKind;
@@ -145,7 +145,16 @@ impl ProfileFile {
                 })
                 .collect(),
             system_folder: p.system_folder,
-            folder_names: BTreeMap::new(),
+            // A clone keeps the frontend's own folders (spec D5); Absent
+            // is not persisted (a custom layout lists no device folders).
+            folder_names: p
+                .folders
+                .iter()
+                .filter_map(|(id, f)| match f {
+                    ProfileFolder::Named(n) => Some((id.clone(), n.clone())),
+                    ProfileFolder::Absent => None,
+                })
+                .collect(),
             host_folders: p.host_folders.clone(),
             disc_layout: p.disc_layout,
             accepts_containers: p.accepts_containers.clone(),
@@ -187,8 +196,6 @@ impl ProfileFile {
             fixed_format: false,
             gamelist: self.gamelist,
             slots,
-            // Custom `folder_names` are merged under the user settings map
-            // by the planner.
             system_folder: self.system_folder,
             host_folders: self.host_folders.clone(),
             arcade_order: vec!["fbneo".to_string(), "mame".to_string()],
@@ -196,6 +203,13 @@ impl ProfileFile {
             disc_layout: self.disc_layout,
             accepts_containers: self.accepts_containers.clone(),
             container_overrides: self.container_overrides.clone(),
+            // `folder_names` doubles as the layout's own folder table, so
+            // scan and organise resolve them under it (spec D6).
+            folders: self
+                .folder_names
+                .iter()
+                .map(|(id, f)| (id.clone(), ProfileFolder::Named(f.trim().to_string())))
+                .collect(),
         }
     }
 
@@ -394,8 +408,19 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
     }
     if !p.folder_names.is_empty() {
         let profile = p.to_profile();
+        // The file's own table would vouch for itself: a name must also
+        // be an alias of the system (scoped ones included) or a built-in
+        // frontend's folder for it.
+        let mut bare = profile.clone();
+        bare.folders.clear();
+        let builtins = builtin_profiles();
         for (system_id, folder) in &p.folder_names {
-            if validate_folder_override(&db, &profile, system_id, folder).is_err() {
+            let vouched = validate_folder_override(&db, &bare, system_id, folder).is_ok()
+                || builtins.iter().any(|b| {
+                    b.folder_owner(folder) == Some(system_id.as_str())
+                        && validate_folder_override(&db, b, system_id, folder).is_ok()
+                });
+            if !vouched || validate_folder_override(&db, &profile, system_id, folder).is_err() {
                 out.push(FieldError::new(
                     format!("folder_names.{system_id}"),
                     Invalid,
@@ -415,7 +440,8 @@ pub fn preview_paths(
 ) -> BTreeMap<String, String> {
     let root = Path::new("/__library__");
     let system_dir = root.join(&p.roms_root).join(ex.system_folder.trim());
-    let system = systems.resolve_folder(ex.system_folder.trim());
+    let layout = p.to_profile();
+    let system = systems.resolve_folder_in(Some(&layout), ex.system_folder.trim());
     let stem = Path::new(ex.file_name.trim())
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())

@@ -15,12 +15,18 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 8] = ["gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x"];
+pub const DECISIVE: [&str; 14] = [
+    "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
+    "uzebox", "vircon32", "doom",
+];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC
-/// listings, cue sheets and playlists. Only a web page is "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 10] = [
-    "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd",
+/// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
+/// sources, Lua games and `.game` files (spec D26). Only a web page is
+/// "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 14] = [
+    "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
+    "game",
 ];
 
 /// Bounded reads at given offsets.
@@ -241,7 +247,7 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
         return s;
     }
     // Disc images first (sector 16), then cartridges, most specific first.
-    discs(src, &head, len, &mut s);
+    discs(src, &head, len, &ext, &mut s);
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);
     }
@@ -319,7 +325,7 @@ impl IsoLayout {
 /// Disc images: Saturn and Dreamcast by their boot sector magic, PSP by
 /// `CISO` or the `PSP GAME` volume id, PlayStation by the ISO 9660 system
 /// id, then `SYSTEM.CNF` to tell PS1 (`BOOT`) from PS2 (`BOOT2`).
-fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
+fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
     for (magic, system, detail) in [
         (&b"SEGA SEGASATURN"[..], "saturn", "SEGA SEGASATURN"),
         (&b"SEGA SEGAKATANA"[..], "dreamcast", "SEGA SEGAKATANA"),
@@ -331,7 +337,13 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
         }
     }
     if starts(head, 0, b"CISO") {
-        // PCSX2 reads CSO too: only an image a UMD can hold is a PSP game.
+        // PCSX2 reads CSO too: a PS2 volume inside says so (spec §12).
+        if let Some((system, weight, detail, serial)) = cso_playstation(src, len) {
+            s.hit(system, weight, detail);
+            s.serial = serial;
+            return;
+        }
+        // Otherwise only an image a UMD can hold is a PSP game.
         let size = at(head, 8, 8).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
         if size.is_some_and(|n| n <= UMD_MAX) {
             s.hit("psp", 0.85, "CSO");
@@ -352,7 +364,7 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
             return;
         }
         if &pvd[8..19] != b"PLAYSTATION" {
-            return; // another ISO 9660 disc: nothing to say
+            break; // another ISO 9660 disc: the disc reader below decides
         }
         let cnf = system_cnf(src, head, layout, &pvd, len);
         if let Some(text) = &cnf {
@@ -364,14 +376,137 @@ fn discs(src: &mut dyn ReadAt, head: &[u8], len: u64, s: &mut Sniff) {
                 .and_then(crate::disc::serial::boot_file_serial);
         }
         match cnf {
-            Some(text) if text.contains("BOOT2") => s.unsupported = Some("PlayStation 2".into()),
+            Some(text) if text.contains("BOOT2") => s.hit("ps2", 0.95, "SYSTEM.CNF BOOT2"),
             Some(text) if text.contains("BOOT") => s.hit("psx", 0.95, "SYSTEM.CNF BOOT"),
             // No CD holds this much: a PS2 DVD whose SYSTEM.CNF was not found.
-            _ if len > CD_MAX => s.unsupported = Some("PlayStation 2".into()),
+            _ if len > CD_MAX => s.hit("ps2", 0.80, "PLAYSTATION > CD"),
             _ => s.hit("psx", 0.80, "PLAYSTATION"),
         }
         return;
     }
+    loose_disc(src, head, len, ext, s);
+}
+
+/// Systems a loose disc image (an `.iso`, or the first track of a cue
+/// set) is told by through [`crate::disc::DiscReader`]'s signatures, the
+/// rules archived disc sets already go through (systems batch 1, spec
+/// §8.2). Only this batch's systems: a loose PC Engine CD or Neo Geo CD
+/// keeps its earlier result.
+const LOOSE_DISC_SYSTEMS: [&str; 5] = ["3do", "pcfx", "cdi", "amigacd32", "cdtv"];
+
+/// Extensions a loose disc image or track is stored under.
+const LOOSE_DISC_EXTS: [&str; 3] = ["iso", "bin", "img"];
+
+/// Runs the disc reader over a loose image the rules above said nothing
+/// about, and records its verdict for the [`LOOSE_DISC_SYSTEMS`].
+fn loose_disc(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sniff) {
+    if !LOOSE_DISC_EXTS.contains(&ext) {
+        return;
+    }
+    let first = &head[..head.len().min(crate::disc::source::DETECT_BYTES)];
+    let layout = crate::disc::source::detect_layout(first);
+    let mut disc = ReadAtSectors {
+        src,
+        head,
+        len,
+        layout,
+    };
+    let Some(found) = crate::disc::DiscReader::identify(&mut disc) else {
+        return;
+    };
+    if let crate::disc::DiscSystem::Known(system) = found.system {
+        if LOOSE_DISC_SYSTEMS.contains(&system) {
+            s.hit(system, found.confidence, found.detail);
+        }
+    }
+}
+
+/// A [`crate::disc::source::SectorSource`] over a [`ReadAt`], served from
+/// the already-read `head` where it reaches.
+struct ReadAtSectors<'a> {
+    src: &'a mut dyn ReadAt,
+    head: &'a [u8],
+    len: u64,
+    layout: crate::disc::source::SectorLayout,
+}
+
+impl crate::disc::source::SectorSource for ReadAtSectors<'_> {
+    fn layout(&self) -> crate::disc::source::SectorLayout {
+        self.layout
+    }
+
+    fn read_user(
+        &mut self,
+        lba: u32,
+        out: &mut [u8; crate::disc::source::USER_BYTES],
+    ) -> io::Result<bool> {
+        let offset =
+            u64::from(lba) * self.layout.sector_size() as u64 + self.layout.user_offset() as u64;
+        match read_block(self.src, self.head, offset, out.len(), self.len) {
+            Some(bytes) => {
+                out.copy_from_slice(&bytes);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn raw_sector(&mut self, n: u32) -> io::Result<Option<Vec<u8>>> {
+        let size = self.layout.sector_size();
+        let offset = u64::from(n) * size as u64;
+        Ok(read_block(self.src, self.head, offset, size, self.len))
+    }
+}
+
+/// A [`ReadAt`] as a `Read + Seek` stream for the disc readers.
+struct AtCursor<'a> {
+    src: &'a mut dyn ReadAt,
+    pos: u64,
+    len: u64,
+}
+
+impl io::Read for AtCursor<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.src.read_at(self.pos, buf)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl io::Seek for AtCursor<'_> {
+    fn seek(&mut self, to: io::SeekFrom) -> io::Result<u64> {
+        let pos = match to {
+            io::SeekFrom::Start(n) => Some(n),
+            io::SeekFrom::End(d) => self.len.checked_add_signed(d),
+            io::SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        };
+        self.pos = pos.ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        Ok(self.pos)
+    }
+}
+
+/// The PS2 verdict of a CISO image whose volume says `PLAYSTATION` and
+/// boots through `BOOT2` (or is larger than a CD): system, weight, detail
+/// and serial. `None` for anything else, a read error included: the CSO
+/// rule then decides as before. Inflates at most
+/// [`crate::disc::MAX_INFLATED`] bytes.
+fn cso_playstation(
+    src: &mut dyn ReadAt,
+    len: u64,
+) -> Option<(&'static str, f32, &'static str, Option<String>)> {
+    let cursor = AtCursor { src, pos: 0, len };
+    let mut cso = crate::disc::Cso::open(cursor).ok()??;
+    let total = cso.image_len();
+    let disc = crate::disc::identify_playstation(&mut cso, Some(total)).ok()??;
+    if disc.system != crate::disc::DiscSystem::Known("ps2") {
+        return None;
+    }
+    let (weight, detail) = if disc.confidence >= 0.95 {
+        (0.95, "SYSTEM.CNF BOOT2")
+    } else {
+        (0.80, "PLAYSTATION > CD")
+    };
+    Some(("ps2", weight, detail, disc.serial))
 }
 
 /// The product number of a Sega boot header at 0 or 0x10 of `head`.
@@ -494,10 +629,20 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
+    if early_consoles(head, ext, s) || engines(head, s) || computer_media(head, ext, s) {
+        return;
+    }
     // A GBA header carrying its logo too (48 bits) outranks the SNES
     // header, which real GBA code at 0x7FC0 can mimic.
     if gba_signature(head) == Some(true) {
         s.hit("gba", 0.95, "fixed 0x96, logo");
+        return;
+    }
+    // Snes9x `is_SufamiTurbo_Cart` (memmap.cpp): a cart opens with
+    // `BANDAI SFC-ADX`; the base unit's BIOS also does, with
+    // `SFC-ADX BACKUP` after it. Checked before the SNES header.
+    if starts(head, 0, b"BANDAI SFC-ADX") && !starts(head, 0x10, b"SFC-ADX BACKUP") {
+        s.hit("sufami", 0.95, "BANDAI SFC-ADX");
         return;
     }
     if let Some(weight) = snes_header(src, head, len) {
@@ -540,7 +685,224 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     // those and matches it by chance keeps its own system.
     if gba_signature(head) == Some(false) {
         s.hit("gba", 0.95, "fixed 0x96");
+        return;
     }
+    // ColecoVision BIOS test bytes (`AA 55` shows the title screen, `55 AA`
+    // skips it): 16 bits, so they only support a folder or `.col`, and only
+    // under the extensions a Coleco cart is dumped with.
+    if matches!(ext, "col" | "rom" | "bin")
+        && matches!(at(head, 0, 2), Some([0xAA, 0x55] | [0x55, 0xAA]))
+    {
+        s.hit("colecovision", 0.60, "AA55");
+    }
+}
+
+/// Early consoles with a magic of their own (spec §8.1). The Vectrex
+/// Executive ROM boots a cartridge only when it opens with the `g GCE`
+/// copyright line (libretro-vecx `bios/system.bin` holds the line it
+/// expects at 0x1101, `g GCE 1982` + `0x80`). Jaguar developer programs
+/// carry the DRI `.abs` (`60 1B`) or COFF (`01 50`) magic: two bytes,
+/// weight 0.50, only under their own extension.
+fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if starts(head, 0, b"g GCE") {
+        s.hit("vectrex", 0.95, "g GCE");
+        return true;
+    }
+    if fantasy_consoles(head, s) {
+        return true;
+    }
+    let magic = at(head, 0, 2);
+    match ext {
+        "abs" if magic == Some(&[0x60, 0x1B][..]) => s.hit("jaguar", 0.50, "DRI ABS"),
+        "cof" if magic == Some(&[0x01, 0x50][..]) => s.hit("jaguar", 0.50, "COFF"),
+        _ => return false,
+    }
+    true
+}
+
+/// Fantasy consoles with a header (spec §8.1):
+/// - Uzebox: a `.uze` opens with the 6-byte marker `UZEBOX`, which
+///   `packrom` writes and the bootloader checks (Uzebox
+///   `tools/packrom/packrom.cpp` at 2fc77093).
+/// - Vircon32: a cartridge opens with `V32-CART`; a BIOS with `V32-BIOS`
+///   is not a game (vircon32-libretro `VirconDefinitions/FileFormats.hpp`
+///   at 8b4ff35e).
+///
+/// WASM-4's `\0asm` only proves WebAssembly, so it names nothing.
+fn fantasy_consoles(head: &[u8], s: &mut Sniff) -> bool {
+    if starts(head, 0, b"UZEBOX") {
+        s.hit("uzebox", 0.95, "UZEBOX");
+        return true;
+    }
+    if starts(head, 0, b"V32-CART") {
+        s.hit("vircon32", 0.95, "V32-CART");
+        return true;
+    }
+    false
+}
+
+/// Engine data with a header (spec D15): a Doom WAD opens with `IWAD` (a
+/// game) or `PWAD` (a patch or mod), then the lump count and directory
+/// offset. Quake's `PACK` is OpenBOR's magic too, so it names nothing.
+fn engines(head: &[u8], s: &mut Sniff) -> bool {
+    if is_doom_wad(head) {
+        s.hit("doom", 0.95, if head[0] == b'I' { "IWAD" } else { "PWAD" });
+        return true;
+    }
+    false
+}
+
+/// Whether `head` opens like a Doom WAD (`IWAD`/`PWAD`): the proof a
+/// folder game gives in the organise walk (D15).
+pub fn is_doom_wad(head: &[u8]) -> bool {
+    head.starts_with(b"IWAD") || head.starts_with(b"PWAD")
+}
+
+/// Tape and disk images of home computers (spec §8.1). TZX (format 1.20:
+/// `ZXTape!` + `0x1A`) is the Spectrum's tape format and also the CPC's
+/// under `.cdt`. A CPCEMU disk (`MV - CPC…` or `EXTENDED CPC DSK File`)
+/// opens CPC and Spectrum +3 disks alike, so it names both at 0.50 (a
+/// review), the CPC first. UEF (`UEF File!` + NUL) is the BBC Micro's
+/// tape format; a CPCEMU snapshot (`MV - SNA`) decides a `.sna`; a gzip
+/// UEF is read through the archive layer
+/// (`organize::inspect`).
+fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if starts(head, 0, b"ZXTape!\x1A") {
+        let system = if ext == "cdt" {
+            "amstradcpc"
+        } else {
+            "zxspectrum"
+        };
+        s.hit(system, 0.90, "TZX");
+        return true;
+    }
+    if ext == "dsk" && (starts(head, 0, b"MV - CPC") || starts(head, 0, b"EXTENDED CPC DSK File")) {
+        s.hit("amstradcpc", 0.50, "CPC DSK");
+        s.hit("zxspectrum", 0.50, "CPC DSK");
+        return true;
+    }
+    // A CPCEMU snapshot (`MV - SNA`); a Spectrum `.sna` carries no magic.
+    if ext == "sna" && starts(head, 0, b"MV - SNA") {
+        s.hit("amstradcpc", 0.90, "CPC SNA");
+        return true;
+    }
+    if starts(head, 0, UEF_MAGIC) {
+        s.hit("bbcmicro", 0.95, "UEF");
+        return true;
+    }
+    apple2_disks(head, s) || commodore_prg(head, ext, s) || shared_disks(head, ext, s)
+}
+
+/// Apple II disk containers (spec §8.1):
+/// - WOZ (Applesauce WOZ 1.0 and 2.0 references): `WOZ1` or `WOZ2`, then
+///   `FF 0A 0D 0A`, which a 7-bit or line-ending conversion would break.
+/// - 2IMG (the 2IMG format spec): `2IMG`, a 4-byte creator tag, then the
+///   header size, 64 (`40 00`).
+fn apple2_disks(head: &[u8], s: &mut Sniff) -> bool {
+    let woz = (starts(head, 0, b"WOZ1") || starts(head, 0, b"WOZ2"))
+        && starts(head, 4, &[0xFF, 0x0A, 0x0D, 0x0A]);
+    if woz {
+        s.hit("apple2", 0.95, "WOZ");
+        return true;
+    }
+    if starts(head, 0, b"2IMG") && starts(head, 8, &[0x40, 0x00]) {
+        s.hit("apple2", 0.95, "2IMG");
+        return true;
+    }
+    false
+}
+
+/// A Commodore `.prg` opens with its little-endian load address, the
+/// machine's BASIC start: `$1001` Plus/4, `$1C01` C128, `$0401` PET,
+/// `$0801` C64 (each machine's memory map). Two bytes, so 0.40: below the
+/// review line, a tie-break between the folder's candidates only.
+fn commodore_prg(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if ext != "prg" {
+        return false;
+    }
+    let system = match at(head, 0, 2) {
+        Some([0x01, 0x10]) => "plus4",
+        Some([0x01, 0x1C]) => "c128",
+        Some([0x01, 0x04]) => "pet",
+        Some([0x01, 0x08]) => "c64",
+        _ => return false,
+    };
+    s.hit(system, 0.40, "PRG load address");
+    true
+}
+
+/// Hard and floppy disk images under `.nhd`, `.hdf`, `.fdi` and `.dim`
+/// (spec §8.1, plan P-2), each keyed by its extension. `.hdf`, `.fdi` and
+/// `.dim` are Shared (D3), so these bytes are what keeps a loose Amiga or
+/// Atari ST disk automatic:
+/// - `T98HDDIMAGE.R0` + NUL: a T98-Next PC-98 hard disk (Neko Project II
+///   kai `fdd/sxsihdd.c`, DOSBox-X `bios_disk.cpp`).
+/// - `RDSK` (Rigid Disk Block) or `DOS` + flag 0–7 (a partition's boot
+///   block): an Amiga hardfile (WinUAE `hardfile.cpp`). `X68SCSI1`: an
+///   X68000 SCSI disk (NetBSD/x68k `disksubr.c`).
+/// - `Formatted Disk Image file`: FDI 2.0, written by Disk2FDI for Amiga
+///   disks (WinUAE `disk.cpp`); a PC-98 Anex86 `.fdi` has no magic.
+/// - FastCopy DIM: `42 42` at 0 with bytes 3 and 0x0A zero, as Hatari
+///   checks it (`src/floppies/dim.c`); an X68000 DIM opens with its media
+///   type byte instead.
+fn shared_disks(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    match ext {
+        "nhd" if starts(head, 0, b"T98HDDIMAGE.R0\0") => s.hit("pc98", 0.95, "T98 NHD"),
+        "hdf" if starts(head, 0, b"RDSK") || amiga_rdb_block(head) => {
+            s.hit("amiga", 0.90, "RDB");
+        }
+        "hdf" if starts(head, 0, b"DOS") && head.get(3).is_some_and(|f| *f <= 7) => {
+            s.hit("amiga", 0.90, "DOS boot block");
+        }
+        "hdf" if starts(head, 0, b"X68SCSI1") => s.hit("x68000", 0.90, "X68SCSI1"),
+        "fdi" if starts(head, 0, b"Formatted Disk Image file") => {
+            s.hit("amiga", 0.90, "FDI 2.0");
+        }
+        "dim"
+            if starts(head, 0, &[0x42, 0x42])
+                && head.get(3) == Some(&0)
+                && head.get(0x0A) == Some(&0) =>
+        {
+            s.hit("atarist", 0.85, "FastCopy DIM");
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// An Amiga Rigid Disk Block in blocks 1–15: AmigaOS `hardblocks.h` lets
+/// it sit in any of the first 16 (RDB_LOCATION_LIMIT) 512-byte blocks, and
+/// WinUAE `filesys.cpp` (`rdb_mount`) scans them, accepting `RDSK` whose
+/// first SummedLongs big-endian longs sum to zero. Block 0 needs only the
+/// id (spec §8.1); later blocks also need the checksum.
+fn amiga_rdb_block(head: &[u8]) -> bool {
+    (1..16).any(|block| {
+        let Some(b) = at(head, block * 512, 512) else {
+            return false;
+        };
+        if &b[..4] != b"RDSK" {
+            return false;
+        }
+        let summed = u32::from_be_bytes([b[4], b[5], b[6], b[7]]) as usize;
+        (2..=128).contains(&summed)
+            && b[..summed * 4]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .fold(0u32, |sum, l| sum.wrapping_add(u32::from_be_bytes(*l)))
+                == 0
+    })
+}
+
+/// Opening bytes of an uncompressed UEF tape.
+pub const UEF_MAGIC: &[u8] = b"UEF File!\0";
+
+/// Whether the 16-byte console field at 0x100 names the Pico, matched as
+/// the cores match it: Genesis Plus GX looks for `SEGA PICO` anywhere in
+/// it (`core/loadrom.c` at f27655b5), PicoDrive for ` PICO `
+/// (`pico/media.c` at 26ecb2b6).
+fn pico_console_field(head: &[u8]) -> bool {
+    at(head, 0x100, 16).is_some_and(|f| contains(f, b"SEGA PICO") || contains(f, b" PICO "))
 }
 
 /// GBA fixed byte 0x96 and header complement: `Some(true)` when the
@@ -553,7 +915,7 @@ fn gba_signature(head: &[u8]) -> Option<bool> {
 
 /// The Sega family, most specific first (spec §6.3): Sega CD, 32X and Pico
 /// also carry `SEGA` at 0x100, so they are checked before Mega Drive.
-/// Returns whether a signature matched (a hit or the Pico veto).
+/// Returns whether a signature matched.
 fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
     if starts(head, 0, b"SEGADISCSYSTEM") || starts(head, 0x10, b"SEGADISCSYSTEM") {
         s.hit("segacd", 0.95, "SEGADISCSYSTEM");
@@ -567,8 +929,8 @@ fn sega(head: &[u8], len: u64, ext: &str, s: &mut Sniff) -> bool {
         s.hit("sega32x", 0.95, "SEGA 32X");
         return true;
     }
-    if starts(head, 0x100, b"SEGA PICO") {
-        s.unsupported = Some("Sega Pico".into());
+    if pico_console_field(head) {
+        s.hit("pico", 0.95, "SEGA PICO");
         return true;
     }
     if sega_at_100 {
@@ -865,6 +1227,258 @@ pub mod fixtures {
     pub fn pico() -> Vec<u8> {
         let mut b = zeros(128 * 1024);
         b[0x100..0x109].copy_from_slice(b"SEGA PICO");
+        b
+    }
+
+    /// A Sufami Turbo cartridge (`bios`: the base unit's own ROM, whose
+    /// second line reads `SFC-ADX BACKUP`).
+    pub fn sufami(bios: bool) -> Vec<u8> {
+        let mut b = zeros(if bios { 256 } else { 512 } * 1024);
+        b[..14].copy_from_slice(b"BANDAI SFC-ADX");
+        let line: &[u8; 14] = if bios {
+            b"SFC-ADX BACKUP"
+        } else {
+            b"SYNTH SUFAMI  "
+        };
+        b[0x10..0x1E].copy_from_slice(line);
+        b
+    }
+
+    /// A Vectrex cartridge: the `g GCE 1982` copyright line at 0, closed by
+    /// `0x80`, as the Executive ROM expects it.
+    pub fn vectrex() -> Vec<u8> {
+        let mut b = zeros(8 * 1024);
+        b[..11].copy_from_slice(b"g GCE 1982\x80");
+        b
+    }
+
+    /// A ColecoVision cartridge opening with the BIOS test bytes (`AA 55`,
+    /// or `55 AA` when `swapped`, the variant that skips the title screen).
+    pub fn colecovision(swapped: bool) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        b[..2].copy_from_slice(if swapped {
+            &[0x55, 0xAA]
+        } else {
+            &[0xAA, 0x55]
+        });
+        b
+    }
+
+    /// A Jaguar DRI `.abs` program (magic `60 1B`).
+    pub fn jaguar_abs() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..2].copy_from_slice(&[0x60, 0x1B]);
+        b
+    }
+
+    /// A Jaguar COFF `.cof` program (magic `01 50`).
+    pub fn jaguar_cof() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..2].copy_from_slice(&[0x01, 0x50]);
+        b
+    }
+
+    /// A TZX tape (ZX Spectrum `.tzx`, Amstrad CPC `.cdt`): `ZXTape!`,
+    /// `0x1A`, version 1.20, then one standard-speed data block (ID 0x10).
+    pub fn tzx() -> Vec<u8> {
+        let mut b = zeros(2048);
+        b[..10].copy_from_slice(b"ZXTape!\x1A\x01\x14");
+        b[10] = 0x10;
+        b
+    }
+
+    /// A CPCEMU disk image: the standard `MV - CPCEMU Disk-File` header or
+    /// the `EXTENDED CPC DSK File` one, 40 tracks, one side.
+    pub fn cpc_dsk(extended: bool) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        let line: &[u8] = if extended {
+            b"EXTENDED CPC DSK File\r\nDisk-Info\r\n"
+        } else {
+            b"MV - CPCEMU Disk-File\r\nDisk-Info\r\n"
+        };
+        b[..line.len()].copy_from_slice(line);
+        b[0x30] = 40;
+        b[0x31] = 1;
+        b
+    }
+
+    /// A CPCEMU snapshot (Amstrad CPC `.sna`): `MV - SNA`, then the
+    /// register block, version 3 at 0x10, 64 KB of memory.
+    pub fn cpc_sna() -> Vec<u8> {
+        let mut b = zeros(0x100 + 64 * 1024);
+        b[..8].copy_from_slice(b"MV - SNA");
+        b[0x10] = 3;
+        b[0x6B] = 64;
+        b
+    }
+
+    /// A BBC Micro UEF tape: `UEF File!`, NUL, version 0.10, then one
+    /// chunk header.
+    pub fn uef() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..12].copy_from_slice(b"UEF File!\0\x0A\x00");
+        b[12] = 0x00;
+        b[13] = 0x01;
+        b
+    }
+
+    /// A T98-Next hard disk (PC-98 `.nhd`): `T98HDDIMAGE.R0` + NUL, then
+    /// the 512-byte header size at 0x110.
+    pub fn nhd() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..15].copy_from_slice(b"T98HDDIMAGE.R0\0");
+        b[0x110..0x114].copy_from_slice(&512u32.to_le_bytes());
+        b
+    }
+
+    /// An Amiga hard disk with a Rigid Disk Block: `RDSK`, the block size
+    /// in longs (64) at 4.
+    pub fn amiga_rdb() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"RDSK");
+        b[4..8].copy_from_slice(&64u32.to_be_bytes());
+        b
+    }
+
+    /// An Amiga hard disk whose Rigid Disk Block sits in `block` (its
+    /// SummedLongs 64 and a checksum that makes them sum to zero).
+    pub fn amiga_rdb_at(block: usize) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        let o = block * 512;
+        b[o..o + 4].copy_from_slice(b"RDSK");
+        b[o + 4..o + 8].copy_from_slice(&64u32.to_be_bytes());
+        b[o + 0x10..o + 0x14].copy_from_slice(&7u32.to_be_bytes());
+        let sum = b[o..o + 256]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .fold(0u32, |s, l| s.wrapping_add(u32::from_be_bytes(*l)));
+        b[o + 8..o + 12].copy_from_slice(&0u32.wrapping_sub(sum).to_be_bytes());
+        b
+    }
+
+    /// An Amiga partition hardfile: `DOS` + flag 1 (FFS) opens its boot
+    /// block.
+    pub fn amiga_dos() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"DOS\x01");
+        b
+    }
+
+    /// An X68000 SCSI hard disk: `X68SCSI1` opens block 0.
+    pub fn x68k_scsi() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"X68SCSI1");
+        b[8..10].copy_from_slice(&512u16.to_be_bytes());
+        b
+    }
+
+    /// An FDI 2.0 disk (Disk2FDI): the signature line, a creator, the
+    /// comment field, EOF (0x1A) and version 2.0.
+    pub fn fdi2() -> Vec<u8> {
+        let mut b = zeros(4096);
+        let line = b"Formatted Disk Image file\r\n";
+        b[..line.len()].copy_from_slice(line);
+        b[27..57].fill(b' ');
+        b[57..59].copy_from_slice(b"\r\n");
+        b[59..139].fill(b' ');
+        b[139] = 0x1A;
+        b[140] = 2;
+        b[141] = 0;
+        b
+    }
+
+    /// An Atari ST FastCopy DIM: `42 42` at 0, then the geometry block.
+    pub fn st_dim() -> Vec<u8> {
+        let mut b = zeros(32 + 720 * 1024);
+        b[0] = 0x42;
+        b[1] = 0x42;
+        b[6] = 1;
+        b[8] = 79;
+        b[9] = 1;
+        b
+    }
+
+    /// An Apple II WOZ disk (`version` 1 or 2): `WOZn`, `FF 0A 0D 0A`, a
+    /// zero CRC, then the `INFO` chunk id.
+    pub fn woz(version: u8) -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(&[b'W', b'O', b'Z', b'0' + version]);
+        b[4..8].copy_from_slice(&[0xFF, 0x0A, 0x0D, 0x0A]);
+        b[12..16].copy_from_slice(b"INFO");
+        b
+    }
+
+    /// An Apple II 2IMG disk: `2IMG`, creator `CTKG`, header size 64,
+    /// version 1, ProDOS order.
+    pub fn two_img() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"2IMGCTKG");
+        b[8..10].copy_from_slice(&64u16.to_le_bytes());
+        b[10..12].copy_from_slice(&1u16.to_le_bytes());
+        b[12] = 1;
+        b
+    }
+
+    /// An Uzebox `.uze` ROM: the 512-byte header `packrom` writes, marker
+    /// `UZEBOX`, header version 1, target 0 (ATmega644), program size,
+    /// year, then the name and the program.
+    pub fn uzebox() -> Vec<u8> {
+        let mut b = zeros(512 + 4096);
+        b[..6].copy_from_slice(b"UZEBOX");
+        b[6] = 1;
+        b[8..12].copy_from_slice(&4096u32.to_le_bytes());
+        b[12..14].copy_from_slice(&2008u16.to_le_bytes());
+        b[14..18].copy_from_slice(b"Game");
+        b
+    }
+
+    /// A Vircon32 cartridge: `V32-CART`, then the version and revision
+    /// words and the title.
+    pub fn vircon32() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..8].copy_from_slice(b"V32-CART");
+        b[8..12].copy_from_slice(&1u32.to_le_bytes());
+        b[16..20].copy_from_slice(b"Game");
+        b
+    }
+
+    /// A WebAssembly module (`\0asm`, version 1): a WASM-4 cart, or any
+    /// other `.wasm` file.
+    pub fn wasm() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..8].copy_from_slice(b"\0asm\x01\0\0\0");
+        b
+    }
+
+    /// A Doom WAD: `magic` (`IWAD` or `PWAD`), the lump count and the
+    /// directory offset (little-endian), then zeros.
+    pub fn wad(magic: &[u8; 4]) -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(magic);
+        b[4..8].copy_from_slice(&1u32.to_le_bytes());
+        b[8..12].copy_from_slice(&4080u32.to_le_bytes());
+        b[4080..4084].copy_from_slice(&12u32.to_le_bytes());
+        b[4088..4096].copy_from_slice(b"PLAYPAL\0");
+        b
+    }
+
+    /// A Quake/OpenBOR `PACK` archive: magic, directory offset and size.
+    pub fn pack() -> Vec<u8> {
+        let mut b = zeros(4096);
+        b[..4].copy_from_slice(b"PACK");
+        b[4..8].copy_from_slice(&4032u32.to_le_bytes());
+        b[8..12].copy_from_slice(&64u32.to_le_bytes());
+        b
+    }
+
+    /// A Commodore `.prg`: the little-endian load address, then a BASIC
+    /// line link.
+    pub fn prg(load: [u8; 2]) -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..2].copy_from_slice(&load);
+        b[2] = 0x0B;
+        b[3] = load[1];
         b
     }
 

@@ -34,6 +34,7 @@ use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::apply::ApplyError;
 use coverly_core::paths::AppDirs;
+use coverly_core::profiles::Profile;
 use coverly_core::scan::scan_library;
 use coverly_core::settings::{DedupeLevel, ExternalTools, KeepRule, RuleToggle};
 use coverly_core::systems::SystemDb;
@@ -194,7 +195,11 @@ fn keep_rules(names: &[String]) -> Result<Vec<RuleToggle>, Failure> {
 }
 
 /// `--system`: system ids, or folder names the system list knows.
-fn system_ids(names: &[String], db: &SystemDb) -> Result<Option<Vec<String>>, Failure> {
+fn system_ids(
+    names: &[String],
+    db: &SystemDb,
+    profile: &Profile,
+) -> Result<Option<Vec<String>>, Failure> {
     if names.is_empty() {
         return Ok(None);
     }
@@ -203,7 +208,7 @@ fn system_ids(names: &[String], db: &SystemDb) -> Result<Option<Vec<String>>, Fa
         let lower = name.to_ascii_lowercase();
         let id = db
             .get(&lower)
-            .or_else(|| db.resolve_folder(name))
+            .or_else(|| db.resolve_folder_in(Some(profile), name))
             .map(|s| s.id.clone())
             .ok_or_else(|| {
                 Failure::usage(format!(
@@ -352,7 +357,6 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     if !args.keep_rules.is_empty() {
         opts.rules = keep_rules(&args.keep_rules)?;
     }
-    opts.systems = system_ids(&args.system, &db)?;
     opts.offline = args.offline;
     opts.reset_choices = args.reset_choices;
     if args.trash {
@@ -366,6 +370,7 @@ pub fn run(args: &DedupeArgs) -> Result<(), Failure> {
     let mut chosen = choose_profile(&root, args.profile.as_deref(), &cli)?;
     chosen.profile = s.art_profile(&chosen.profile);
     let profile = &chosen.profile;
+    opts.systems = system_ids(&args.system, &db, profile)?;
     opts.forced_keepers = args
         .keep
         .iter()

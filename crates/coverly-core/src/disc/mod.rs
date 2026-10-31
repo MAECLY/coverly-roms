@@ -32,8 +32,8 @@ pub use pbp::{Pbp, PbpDisc};
 pub use sega::{parse_ip_bin, IpBin, SegaSystem};
 pub use serial::normalise_serial;
 pub use sheets::{
-    infer_redump_set, parse_sheet, primary_track, Sheet, SheetError, SheetKind, TrackInfo,
-    TrackMode,
+    first_of_session, infer_redump_set, parse_sheet, primary_track, Sheet, SheetError, SheetKind,
+    TrackInfo, TrackMode,
 };
 pub use source::{detect_layout, FileSource, SectorLayout, SectorSource, WindowSource};
 
@@ -49,8 +49,9 @@ pub enum DiscSystem {
     /// A system of `systems.toml`, by id (`psx`, `saturn`, `dreamcast`…).
     Known(&'static str),
     /// A system Coverly recognises but has no folder for yet, by display
-    /// name (`PlayStation 2`, `3DO`): the item is left with
-    /// `UnsupportedSystem`.
+    /// name: the item is left with `UnsupportedSystem`. No disc rule
+    /// returns it since PS2 and 3DO became systems (systems batch 1); it
+    /// stays for future ones.
     Unsupported(&'static str),
 }
 
@@ -103,10 +104,14 @@ pub type FetchStored<'a> = &'a mut dyn FnMut(Range<u64>) -> io::Result<Option<Ve
 /// high-density area) for Dreamcast, the first data track for PC Engine
 /// CD, the image itself for an ISO.
 ///
-/// Checks run on fixed sectors first (Opera, Sega `IP.BIN`, PC Engine CD
-/// at sector 1), then on the ISO 9660 volume (PlayStation, PSP, Neo Geo
-/// CD), so a Sega or NEC disc never reads as Neo Geo CD and a Sega CD never
-/// as a Mega Drive cartridge.
+/// Checks run on fixed sectors first (Opera, Sega `IP.BIN`, PC-FX at
+/// sector 0, PC Engine CD at sector 1, the CD-i disc label at sector 16),
+/// then on the ISO 9660 volume (PlayStation, PSP, Amiga CD32 / CDTV, Neo
+/// Geo CD), so a Sega or NEC disc never reads as Neo Geo CD, a PC-FX disc
+/// never as PC Engine CD and a Sega CD never as a Mega Drive cartridge.
+/// The Jaguar CD boot track is in session 2, which a single track does
+/// not show: `organize::inspect` checks it with
+/// [`signatures::is_jaguar_cd`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DiscReader;
 
@@ -131,30 +136,25 @@ impl DiscReader {
         let mut sector0 = [0u8; USER_BYTES];
         if src.read_user(0, &mut sector0)? {
             if signatures::is_opera(&sector0) {
-                return Ok(Some(DiscIdentity {
-                    system: DiscSystem::Unsupported("3DO"),
-                    serials: Vec::new(),
-                    disc_no: None,
-                    volume: None,
-                    source: DiscIdSource::Signature,
-                    confidence: 0.90,
-                    detail: "Opera volume header".to_owned(),
-                }));
+                return Ok(Some(signature("3do", 0.90, "Opera volume header")));
             }
             if let Some(ip) = sega::parse_ip_bin(&sector0) {
                 return sega_identity(src, ip).map(Some);
             }
+            // Some PC-FX discs also carry the PC Engine CD text.
+            if signatures::is_pcfx(&sector0) {
+                return Ok(Some(signature("pcfx", 0.95, "PC-FX:Hu_CD-ROM")));
+            }
         }
         if signatures::is_pce_cd(src)? {
-            return Ok(Some(DiscIdentity {
-                system: DiscSystem::Known("pcenginecd"),
-                serials: Vec::new(),
-                disc_no: None,
-                volume: None,
-                source: DiscIdSource::Signature,
-                confidence: 0.90,
-                detail: "PC Engine CD-ROM SYSTEM".to_owned(),
-            }));
+            return Ok(Some(signature(
+                "pcenginecd",
+                0.90,
+                "PC Engine CD-ROM SYSTEM",
+            )));
+        }
+        if signatures::is_cdi(src)? {
+            return Ok(Some(signature("cdi", 0.90, "CD-I disc label")));
         }
         if let Some(ps) = playstation(src, image_len, fetch)? {
             return Ok(Some(ps));
@@ -179,6 +179,14 @@ impl DiscReader {
                 detail: "PSP GAME".to_owned(),
             }));
         }
+        if let Some(id) = signatures::amiga_cd(src, &pvd)? {
+            let detail = if id == "amigacd32" {
+                "CD32.TM"
+            } else {
+                "CDTV.TM"
+            };
+            return Ok(Some(signature(id, 0.90, detail)));
+        }
         if signatures::is_neocd(src, &pvd)? {
             return Ok(Some(DiscIdentity {
                 system: DiscSystem::Known("neocd"),
@@ -191,6 +199,19 @@ impl DiscReader {
             }));
         }
         Ok(None)
+    }
+}
+
+/// A verdict from a signature alone: no serial, disc number or volume.
+pub(crate) fn signature(id: &'static str, confidence: f32, detail: &str) -> DiscIdentity {
+    DiscIdentity {
+        system: DiscSystem::Known(id),
+        serials: Vec::new(),
+        disc_no: None,
+        volume: None,
+        source: DiscIdSource::Signature,
+        confidence,
+        detail: detail.to_owned(),
     }
 }
 

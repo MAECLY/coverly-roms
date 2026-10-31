@@ -16,7 +16,9 @@ use sha1::Sha1;
 /// Files larger than this are not hashed by default (spec §9 "max file size to hash").
 pub const DEFAULT_HASH_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Formats identified by name: multi-file sets, compressed discs, 7z (deferred).
-const NAME_ONLY_EXTS: [&str; 9] = ["cue", "gdi", "m3u", "ccd", "chd", "7z", "pbp", "cso", "rvz"];
+const NAME_ONLY_EXTS: [&str; 10] = [
+    "cue", "gdi", "m3u", "ccd", "chd", "7z", "pbp", "cso", "rvz", "zso",
+];
 const CHUNK: usize = 64 * 1024;
 /// A zip with more entries than this is not a single ROM; do not walk it.
 const MAX_ZIP_ENTRIES: usize = 4096;

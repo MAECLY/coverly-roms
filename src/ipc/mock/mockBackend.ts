@@ -118,14 +118,21 @@ export function mockArtSvg(e: EntryView, media: Media): string {
   );
 }
 
-const handheld = (id: string, name: string, romsRoot: string): ProfileInfo => ({
+const handheld = (
+  id: string,
+  name: string,
+  romsRoot: string,
+  folderNames?: Record<string, string>,
+  hosts: Record<string, string> = {},
+): ProfileInfo => ({
   profile: {
     id,
+    ...(folderNames && { folder_names: folderNames }),
     name,
     roms_root: romsRoot,
     art_dirs: ['Imgs'],
     gamelist: false,
-    host_folders: { ngpc: 'ngp', wonderswancolor: 'wonderswan' },
+    host_folders: { ngpc: 'ngp', ...hosts, wonderswancolor: 'wonderswan' },
     slots: {
       cover: {
         template: '{system_dir}/{rel_dir}/Imgs/{stem}.png',
@@ -146,15 +153,210 @@ const png = (template: string) => ({
   max_height: null,
 });
 
+/** `SYSTEM_FOLDERS` of `profiles/builtin.rs`: the folder each frontend
+ * names for the systems of batch 1 (spec §6.1); Absent cells are left out. */
+const EARLY_CONSOLES = {
+  channelf: 'channelf',
+  colecovision: 'colecovision',
+  intellivision: 'intellivision',
+  odyssey2: 'odyssey2',
+  scv: 'scv',
+  vectrex: 'vectrex',
+};
+/** Sega, NEC and Nintendo add-ons (Task 6) named alike on ES-DE,
+ * Batocera and muOS. */
+const ADD_ONS = {
+  n64dd: 'n64dd',
+  satellaview: 'satellaview',
+  sufami: 'sufami',
+  supergrafx: 'supergrafx',
+};
+/** Handhelds (Task 7) named alike on ES-DE, Batocera and muOS (muOS has
+ * no Game.com folder). */
+const HANDHELDS = { megaduck: 'megaduck', supervision: 'supervision' };
+/** Computers I (Task 8) named alike on ES-DE, Batocera and muOS. */
+const COMPUTERS_I = {
+  amstradcpc: 'amstradcpc',
+  coco: 'coco',
+  zx81: 'zx81',
+};
+/** Computers II (Task 9) named alike on ES-DE, Batocera and muOS. */
+const COMPUTERS_II = { pc98: 'pc98', x1: 'x1', x68000: 'x68000' };
+/** Computers III (Task 10) named alike on ES-DE and Batocera. */
+const COMPUTERS_III = {
+  apple2: 'apple2',
+  msx2: 'msx2',
+  msxturbor: 'msxturbor',
+};
+/** Fantasy consoles (Task 11) named alike on ES-DE, Batocera and muOS. */
+const FANTASY = {
+  arduboy: 'arduboy',
+  lowresnx: 'lowresnx',
+  tic80: 'tic80',
+  uzebox: 'uzebox',
+  vircon32: 'vircon32',
+  wasm4: 'wasm4',
+};
+/** Extra arcade (plan Task 13): ES-DE and Batocera only (spec D16). */
+const EXTRA_ARCADE = {
+  model2: 'model2',
+  model3: 'model3',
+  naomi2: 'naomi2',
+  triforce: 'triforce',
+};
+const ONION_FOLDERS = {
+  channelf: 'FAIRCHILD',
+  colecovision: 'COLECO',
+  intellivision: 'INTELLIVISION',
+  odyssey2: 'ODYSSEY',
+  vectrex: 'VECTREX',
+  satellaview: 'SATELLAVIEW',
+  sg1000: 'SEGASGONE',
+  sufami: 'SUFAMI',
+  supergrafx: 'SGFX',
+  megaduck: 'MEGADUCK',
+  supervision: 'SUPERVISION',
+  amstradcpc: 'CPC',
+  zxspectrum: 'ZXS',
+  tic80: 'TIC',
+};
+const MINUI_FOLDERS = {
+  amstradcpc: 'CPC',
+  c128: 'C128',
+  pet: 'PET',
+  plus4: 'PLUS4',
+  colecovision: 'COLECO',
+  sg1000: 'SG1000',
+  doom: 'PRBOOM',
+};
+/** D23 hosts: a sub-system kept in its parent's folder. */
+const ANBERNIC_STOCK_HOSTS = {
+  atarixe: 'a800',
+  msx2: 'msx',
+  satellaview: 'snes',
+  supergrafx: 'pcengine',
+};
+const ONION_HOSTS = { msx2: 'msx' };
+const MINUI_HOSTS = { msx2: 'msx', satellaview: 'snes' };
+const MUOS_FOLDERS = {
+  '3do': '3do',
+  cdi: 'cdi',
+  pcfx: 'pcfx',
+  ...EARLY_CONSOLES,
+  jaguar: 'jaguar',
+  ...ADD_ONS,
+  pico: 'segapico',
+  sg1000: 'sg1000',
+  ...HANDHELDS,
+  ...COMPUTERS_I,
+  dragon: 'dragon',
+  thomson: 'thomson',
+  zxspectrum: 'spectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc8000',
+  c128: 'c128',
+  msx2: 'msx2',
+  pet: 'pet',
+  plus4: 'plus4',
+  ...FANTASY,
+  cavestory: 'cavestory',
+  doom: 'doom',
+  quake: 'quake',
+  wolf3d: 'wolfenstein3d',
+};
+const ESDE_FOLDERS = {
+  '3do': '3do',
+  amigacd32: 'amigacd32',
+  cdi: 'cdimono1',
+  cdtv: 'cdtv',
+  fmtowns: 'fmtowns',
+  jaguarcd: 'atarijaguarcd',
+  pcfx: 'pcfx',
+  ps2: 'ps2',
+  ...EARLY_CONSOLES,
+  arcadia: 'arcadia',
+  jaguar: 'atarijaguar',
+  ...ADD_ONS,
+  sg1000: 'sg-1000',
+  ...HANDHELDS,
+  gamecom: 'gamecom',
+  ...COMPUTERS_I,
+  bbcmicro: 'bbcmicro',
+  dragon: 'dragon32',
+  thomson: 'moto',
+  ti99: 'ti99',
+  zxspectrum: 'zxspectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc88',
+  ...COMPUTERS_III,
+  atarixe: 'atarixe',
+  plus4: 'plus4',
+  ...FANTASY,
+  doom: 'doom',
+  lutro: 'lutro',
+  quake: 'quake',
+  solarus: 'solarus',
+  ...EXTRA_ARCADE,
+};
+const BATOCERA_FOLDERS = {
+  '3do': '3do',
+  amigacd32: 'amigacd32',
+  cdi: 'cdi',
+  cdtv: 'amigacdtv',
+  fmtowns: 'fmtowns',
+  jaguarcd: 'jaguarcd',
+  pcfx: 'pcfx',
+  ps2: 'ps2',
+  ...EARLY_CONSOLES,
+  arcadia: 'arcadia',
+  jaguar: 'jaguar',
+  ...ADD_ONS,
+  pico: 'pico',
+  sg1000: 'sg1000',
+  ...HANDHELDS,
+  gamecom: 'gamecom',
+  ...COMPUTERS_I,
+  bbcmicro: 'bbcmicro',
+  dragon: 'dragon64',
+  thomson: 'thomson',
+  ti99: 'ti99',
+  zxspectrum: 'zxspectrum',
+  ...COMPUTERS_II,
+  pc88: 'pc88',
+  ...COMPUTERS_III,
+  atarixe: 'xegs',
+  c128: 'c128',
+  pet: 'pet',
+  plus4: 'cplus4',
+  ...FANTASY,
+  cavestory: 'cavestory',
+  doom: 'prboom',
+  flashback: 'reminiscence',
+  lutro: 'lutro',
+  mrboom: 'mrboom',
+  quake: 'quake',
+  solarus: 'solarus',
+  wolf3d: 'ecwolf',
+  xrick: 'xrick',
+  ...EXTRA_ARCADE,
+};
+
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
  * them (pinned to the Rust ones by the contract sample). */
 export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
-  handheld('anbernic-stock', 'Anbernic stock', 'ROMS'),
-  handheld('garlicos', 'GarlicOS', 'Roms'),
-  handheld('onion', 'Onion OS', 'Roms'),
+  handheld(
+    'anbernic-stock',
+    'Anbernic stock',
+    'ROMS',
+    undefined,
+    ANBERNIC_STOCK_HOSTS,
+  ),
+  handheld('garlicos', 'GarlicOS', 'Roms', ONION_FOLDERS, ONION_HOSTS),
+  handheld('onion', 'Onion OS', 'Roms', ONION_FOLDERS, ONION_HOSTS),
   {
     profile: {
       id: 'muos',
+      folder_names: MUOS_FOLDERS,
       name: 'muOS',
       roms_root: 'ROMS',
       art_dirs: [],
@@ -175,6 +377,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
       id: 'minui',
       accepts_containers: ['zip'],
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+      folder_names: MINUI_FOLDERS,
+      host_folders: MINUI_HOSTS,
       name: 'MinUI / NextUI',
       roms_root: 'Roms',
       art_dirs: ['.media', '.res'],
@@ -188,6 +392,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     profile: {
       id: 'esde',
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
+      folder_names: ESDE_FOLDERS,
       name: 'ES-DE',
       roms_root: 'ROMs',
       art_dirs: [],
@@ -212,6 +417,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
     profile: {
       id: 'batocera',
       disc_layout: { kind: 'flat', m3u_for_multi: true },
+      folder_names: BATOCERA_FOLDERS,
       name: 'Batocera / Knulli / EmulationStation',
       roms_root: 'roms',
       art_dirs: ['images', 'videos', 'manuals', 'magazines'],
@@ -394,7 +600,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       Promise.resolve(
         // Like Rust, the whole catalogue: the organise piles' systems too.
         [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS]
-          .map(({ id, name }) => ({ id, name }))
+          .map(({ id, name, family }) => ({ id, name, family }))
           .sort((a, b) =>
             a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
           ),

@@ -484,3 +484,121 @@ fn a_serial_list_keeps_its_first_real_serial() {
     let games = parse_clrmamepro(dat).unwrap();
     assert_eq!(games[0].roms[0].serial.as_deref(), Some("SLUS-01161"));
 }
+
+fn fixture_dat(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/dat")
+            .join(name),
+    )
+    .unwrap()
+}
+
+#[test]
+fn parses_trimmed_tosec_and_dat_folder() {
+    // Systems batch 1 (spec §14.1): a `metadat/tosec/` file and a `dat/`
+    // file, trimmed from the structure of the files at 2c93952f (invented
+    // games and checksums).
+    let tosec = parse_clrmamepro(&fixture_dat("tosec-sample.dat")).unwrap();
+    let rows: Vec<(&str, &str, Option<u64>, Option<&str>)> = tosec
+        .iter()
+        .flat_map(|g| {
+            g.roms.iter().map(move |r| {
+                (
+                    g.name.as_str(),
+                    r.rom_name.as_str(),
+                    r.size,
+                    r.crc32.as_deref(),
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                "Test Orbit",
+                "Test Orbit (1986)(Coverly Test Soft).dsk",
+                Some(194_816),
+                Some("1A2B3C4D")
+            ),
+            (
+                "Test Orbit",
+                "Test Orbit (1986)(Coverly Test Soft)[a].dsk",
+                Some(194_816),
+                Some("5E6F7A8B")
+            ),
+            (
+                "Sample Tape Run",
+                "Sample Tape Run (1985)(Coverly Test Soft).cdt",
+                Some(40_210),
+                Some("9C8D7E6F")
+            ),
+        ]
+    );
+    let dat = parse_clrmamepro(&fixture_dat("dat-sample.dat")).unwrap();
+    assert_eq!(dat.len(), 3);
+    assert_eq!(dat[0].name, "Test Maze (1981)(Coverly Test Soft)");
+    assert_eq!(dat[0].roms[0].crc32.as_deref(), Some("2468ACE0"));
+    // The clean-cpc-db `dat/` file at 2c93952f writes some CRCs without
+    // their leading zero (`611E83F`): padded to eight digits so they match.
+    assert_eq!(dat[1].roms[0].crc32.as_deref(), Some("07A1B2C3"));
+    // A two-sided game lists one rom per side.
+    assert_eq!(dat[2].roms.len(), 2);
+    assert_eq!(dat[2].roms[1].crc32.as_deref(), Some("FDB97531"));
+}
+
+#[test]
+fn a800_keeps_its_dat() {
+    // §8.3: `atarixe` lists only `a800`'s DAT and comes after it, so the
+    // DAT maps to `a800` and a hash never names `atarixe`.
+    let db = coverly_core::systems::SystemDb::builtin();
+    let dat = "metadat/no-intro/Atari - 8-bit Family.dat";
+    assert_eq!(db.system_for_dat(dat).map(|s| s.id.as_str()), Some("a800"));
+    let xe = coverly_core::identify::dat::dat_sources(db.get("atarixe").unwrap());
+    assert_eq!(xe, [dat]);
+    for d in &xe {
+        assert_ne!(
+            db.system_for_dat(d).map(|s| s.id.as_str()),
+            Some("atarixe"),
+            "{d}"
+        );
+    }
+}
+
+#[test]
+fn mame_dat_still_maps_to_mame() {
+    // §8.3 / D16: `model2` and `model3` list only `MAME.dat` and come after
+    // `mame`, so the tie keeps the DAT with `mame` and a hash never names
+    // them; a Model 2/3 set found loose goes to `mame`.
+    let db = SystemDb::builtin();
+    let dat = "metadat/mame/MAME.dat";
+    for id in ["model2", "model3"] {
+        assert_eq!(dat_sources(db.get(id).unwrap()), [dat], "{id}");
+    }
+    assert_eq!(db.system_for_dat(dat).map(|s| s.id.as_str()), Some("mame"));
+}
+
+#[test]
+fn naomi2_never_wins_mame_dat() {
+    // `naomi2` lists two DATs, so the fewest-sources rule never picks it
+    // for `MAME.dat`; its Redump DAT is its own.
+    let db = SystemDb::builtin();
+    let naomi2 = dat_sources(db.get("naomi2").unwrap());
+    assert_eq!(
+        naomi2,
+        ["metadat/redump/Sega - Naomi 2.dat", "metadat/mame/MAME.dat"]
+    );
+    assert_ne!(
+        db.system_for_dat("metadat/mame/MAME.dat")
+            .map(|s| s.id.as_str()),
+        Some("naomi2")
+    );
+    assert_eq!(
+        db.system_for_dat("metadat/redump/Sega - Naomi 2.dat")
+            .map(|s| s.id.as_str()),
+        Some("naomi2")
+    );
+    // Triforce has no DAT: its folder claims it.
+    assert!(dat_sources(db.get("triforce").unwrap()).is_empty());
+}

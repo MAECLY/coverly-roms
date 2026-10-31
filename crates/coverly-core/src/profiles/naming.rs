@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{FolderNaming, Profile};
+use super::{FolderNaming, Profile, ProfileFolder};
 use crate::systems::{System, SystemDb};
 
 /// The folder a system's ROMs go to under a layout.
@@ -28,23 +28,43 @@ pub fn system_folder(
     db: &SystemDb,
     overrides: &BTreeMap<String, String>,
 ) -> FolderChoice {
-    let host = profile
-        .host_folders
-        .get(&system.id)
-        .and_then(|h| db.get(h))
-        .filter(|h| h.id != system.id);
+    // Order (spec D5, plan P-3): user override → the frontend's own folder
+    // → the host's folder → the naming rule.
+    let own = profile.folders.get(&system.id);
+    let host = match own {
+        Some(ProfileFolder::Named(_)) => None,
+        _ => profile
+            .host_folders
+            .get(&system.id)
+            .and_then(|h| db.get(h))
+            .filter(|h| h.id != system.id),
+    };
     let owner = host.unwrap_or(system);
-    let folder = overrides
+    let user = overrides
         .get(&system.id)
         .map(|f| f.trim().to_string())
-        .filter(|f| validate_folder_override(db, profile, &system.id, f).is_ok())
-        .unwrap_or_else(|| default_name(profile.system_folder, owner, db));
-    let on_device = (!profile.known_folders.is_empty()).then(|| {
-        profile
-            .known_folders
-            .iter()
-            .any(|k| k.eq_ignore_ascii_case(&folder))
-    });
+        .filter(|f| validate_folder_override(db, profile, &system.id, f).is_ok());
+    let folder = user
+        .clone()
+        .or_else(|| match own {
+            Some(ProfileFolder::Named(n)) => Some(n.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| default_name(profile, owner, db));
+    let on_device = if !profile.known_folders.is_empty() {
+        Some(
+            profile
+                .known_folders
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(&folder)),
+        )
+    } else if matches!(own, Some(ProfileFolder::Absent)) && host.is_none() && user.is_none() {
+        // The frontend has no folder for it (D5). A name the user chose
+        // gets no «no folder on device» note (spec §12).
+        Some(false)
+    } else {
+        None
+    };
     FolderChoice {
         folder,
         host: host.map(|h| h.id.clone()),
@@ -55,17 +75,17 @@ pub fn system_folder(
 /// `Id` falls back to the first alias when the id itself is not an alias
 /// of the system (the folder must resolve back, or the scan would not see
 /// it).
-fn default_name(rule: FolderNaming, system: &System, db: &SystemDb) -> String {
+fn default_name(profile: &Profile, system: &System, db: &SystemDb) -> String {
     let first = system
         .aliases
         .first()
         .cloned()
         .unwrap_or_else(|| system.id.clone());
-    match rule {
+    match profile.system_folder {
         FolderNaming::FirstAlias => first,
         FolderNaming::Id => {
             let resolves = db
-                .resolve_folder(&system.id)
+                .resolve_folder_in(Some(profile), &system.id)
                 .is_some_and(|s| s.id == system.id);
             if resolves {
                 system.id.clone()
@@ -77,18 +97,23 @@ fn default_name(rule: FolderNaming, system: &System, db: &SystemDb) -> String {
 }
 
 /// A user folder name for `system_id` must resolve back to that system or
-/// to its host under `profile`.
+/// to its host under `profile` (resolved with the profile's own folders,
+/// [`SystemDb::resolve_folder_in`]). A system the profile names a folder
+/// for has no host there.
 pub fn validate_folder_override(
     db: &SystemDb,
     profile: &Profile,
     system_id: &str,
     folder: &str,
 ) -> Result<(), String> {
-    let wanted = profile
-        .host_folders
-        .get(system_id)
-        .map_or(system_id, String::as_str);
-    match db.resolve_folder(folder.trim()) {
+    let wanted = match profile.folders.get(system_id) {
+        Some(ProfileFolder::Named(_)) => system_id,
+        _ => profile
+            .host_folders
+            .get(system_id)
+            .map_or(system_id, String::as_str),
+    };
+    match db.resolve_folder_in(Some(profile), folder.trim()) {
         Some(s) if s.id == wanted => Ok(()),
         Some(s) => Err(format!("`{folder}` is the folder of {} ({})", s.name, s.id)),
         None => Err(format!("`{folder}` is not a known system folder name")),

@@ -247,3 +247,40 @@ fn partial_downloads_are_not_roms() {
     let scan = scan(tmp.path(), "anbernic-stock");
     assert_eq!(stems(system(&scan, "GBA")), ["Done"]);
 }
+
+#[test]
+fn a_profile_named_folder_is_scanned_as_its_system() {
+    use coverly_core::profiles::ProfileFolder;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    touch(root, "roms/SuperFam/Zelda (USA).sfc");
+    let mut p = profile("batocera");
+    p.folders
+        .insert("snes".into(), ProfileFolder::Named("SuperFam".into()));
+    let named = scan_library(root, &p, &SystemDb::builtin(), &ScanOptions::default());
+    let s = system(&named, "SuperFam");
+    assert_eq!(s.system_id.as_deref(), Some("snes"));
+    assert_eq!(stems(s), ["Zelda (USA)"]);
+    // Without the table the folder is unknown.
+    let plain = scan(root, "batocera");
+    assert_eq!(system(&plain, "SuperFam").system_id, None);
+}
+
+#[test]
+fn a_data_folder_port_lists_no_file_as_a_game() {
+    // D15: Cave Story, Wolfenstein 3D, Mr. Boom, Flashback and Rick
+    // Dangerous are game folders claimed by their folder alias only. Their
+    // data files are not games: listing each one would fill the library
+    // with hundreds of entries and hand them to dedupe.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    touch(root, "roms/cavestory/Cave Story/Doukutsu.exe");
+    touch(root, "roms/cavestory/Cave Story/data/Stage/Cave.pxm");
+    touch(root, "roms/cavestory/Cave Story/data/Org/access.org");
+    touch(root, "roms/snes/Zelda (USA).sfc");
+    let scan = scan(root, "batocera");
+    let cave = system(&scan, "cavestory");
+    assert_eq!(cave.system_id.as_deref(), Some("cavestory"));
+    assert!(cave.roms.is_empty(), "{:?}", stems(cave));
+    assert_eq!(stems(system(&scan, "snes")), ["Zelda (USA)"]);
+}

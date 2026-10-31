@@ -58,7 +58,11 @@ fn every_profile_and_system_folder_resolves_back() {
     for p in builtin_profiles() {
         for s in db.all() {
             let choice = system_folder(&p, s, &db, &BTreeMap::new());
-            let back = db.resolve_folder(&choice.folder).map(|r| r.id.clone());
+            // Organise always knows the layout: scoped aliases (`CDI`)
+            // resolve under it.
+            let back = db
+                .resolve_folder_in(Some(&p), &choice.folder)
+                .map(|r| r.id.clone());
             let want = choice.host.clone().unwrap_or_else(|| s.id.clone());
             assert_eq!(back, Some(want), "{} × {} → {}", p.id, s.id, choice.folder);
         }

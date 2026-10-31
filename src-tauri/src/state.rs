@@ -33,8 +33,8 @@ use coverly_core::organize::{
 };
 use coverly_core::plan::{Decision, Plan};
 use coverly_core::profiles::custom::{
-    all_profiles, preview_paths, validate_profile, PreviewExample, ProfileFile, ProfileStore,
-    PROFILES_DIR,
+    all_profiles, find_profile, preview_paths, validate_profile, PreviewExample, ProfileFile,
+    ProfileStore, PROFILES_DIR,
 };
 use coverly_core::profiles::{builtin_profiles, Media, Profile};
 use coverly_core::progress::NoProgress;
@@ -1379,7 +1379,14 @@ impl AppState {
     /// A quick, name-only look at `path` (no file is read).
     pub fn probe_folder(&self, path: &Path) -> Result<FolderProbeView, IpcError> {
         existing_folder(path)?;
-        probe_folder(path, &SystemDb::builtin(), &OsMetaProbe)
+        // The default layout, when set, is where the pile would go: its
+        // own folder names count as sorted.
+        let layout = self
+            .settings()
+            .library
+            .default_profile
+            .and_then(|id| find_profile(&self.custom_profiles(), &id));
+        probe_folder(path, &SystemDb::builtin(), layout.as_ref(), &OsMetaProbe)
             .map(FolderProbeView::from)
             .map_err(|_| IpcError::Unreadable(path.display().to_string()))
     }

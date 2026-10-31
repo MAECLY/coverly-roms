@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::{
     default_accepts_containers, default_container_overrides, DiscLayout, FolderNaming, ImageFormat,
-    Media, MediaSlot, Profile,
+    Media, MediaSlot, Profile, ProfileFolder,
 };
 use crate::archive::ContainerKind;
 
@@ -16,6 +16,25 @@ const HANDHELD_COVER: Option<(u32, u32)> = Some((250, 360));
 const DEFAULT_ARCADE: [&str; 2] = ["fbneo", "mame"];
 /// Systems the Anbernic family keeps in another system's folder.
 const ANBERNIC_HOSTS: [(&str, &str); 2] = [("ngpc", "ngp"), ("wonderswancolor", "wonderswan")];
+/// D23: sub-systems the stock card has only the parent's folder for
+/// (`PCE`, `SFC`, `MSX`, `A800` are in [`ANBERNIC_FOLDERS`]), so their
+/// games keep the destination they had before the batch.
+const ANBERNIC_STOCK_HOSTS: [(&str, &str); 4] = [
+    ("supergrafx", "pcengine"),
+    ("satellaview", "snes"),
+    ("msx2", "msx"),
+    ("atarixe", "a800"),
+];
+/// D23 on GarlicOS and Onion: Onion ships an `MSX` package and no `MSX2`
+/// (OnionUI/Onion 07505ea5, `Emu/MSX/config.json`, blueMSX, extlist
+/// `rom|mx1|mx2|dsk|cas|zip|7z|m3u`: every MSX2 extension).
+const ONION_HOSTS: [(&str, &str); 1] = [("msx2", "msx")];
+/// D23 on MinUI / NextUI: only a parent whose NextUI pak runs the
+/// sub-system (`SFC.pak` is Snes9x, which loads BS-X carts; `PCE.pak` is
+/// Beetle PCE Fast, which has no SuperGrafx, so SuperGrafx stays Absent;
+/// `MSX.pak` is blueMSX, which runs MSX2). NextUI has no Atari 8-bit pak,
+/// so Atari XE stays Absent.
+const MINUI_HOSTS: [(&str, &str); 2] = [("satellaview", "snes"), ("msx2", "msx")];
 /// Arcade order of the Anbernic family (its card has one folder each).
 const ANBERNIC_ARCADE: [&str; 6] = ["fbneo", "mame", "cps1", "cps2", "cps3", "neogeo"];
 /// Folder names of the stock Anbernic card (reference `~/Documents/ROMS`).
@@ -77,6 +96,377 @@ const ANBERNIC_FOLDERS: [&str; 55] = [
     "WS",
 ];
 
+/// Columns of [`SYSTEM_FOLDERS`].
+const ESDE: usize = 0;
+const BATOCERA: usize = 1;
+const MUOS: usize = 2;
+const ONION: usize = 3;
+const MINUI: usize = 4;
+
+/// Spec §6.1: each Tanda 1 system's folder per frontend (`None` = the
+/// frontend has none: [`ProfileFolder::Absent`]), columns `[esde,
+/// batocera, muos, onion, minui]`. GarlicOS reads the Onion column (D9);
+/// Anbernic stock is Absent for every row (D11); RetroArch keeps `Id` and
+/// has no entries. Pre-batch systems are not listed (no behaviour change).
+const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
+    // Disc family (Task 4).
+    ("ps2", [Some("ps2"), Some("ps2"), None, None, None]),
+    ("3do", [Some("3do"), Some("3do"), Some("3do"), None, None]),
+    (
+        "pcfx",
+        [Some("pcfx"), Some("pcfx"), Some("pcfx"), None, None],
+    ),
+    (
+        "cdi",
+        [Some("cdimono1"), Some("cdi"), Some("cdi"), None, None],
+    ),
+    (
+        "amigacd32",
+        [Some("amigacd32"), Some("amigacd32"), None, None, None],
+    ),
+    ("cdtv", [Some("cdtv"), Some("amigacdtv"), None, None, None]),
+    (
+        "jaguarcd",
+        [Some("atarijaguarcd"), Some("jaguarcd"), None, None, None],
+    ),
+    (
+        "fmtowns",
+        [Some("fmtowns"), Some("fmtowns"), None, None, None],
+    ),
+    // Early consoles (Task 5).
+    (
+        "colecovision",
+        [
+            Some("colecovision"),
+            Some("colecovision"),
+            Some("colecovision"),
+            Some("COLECO"),
+            Some("COLECO"),
+        ],
+    ),
+    (
+        "intellivision",
+        [
+            Some("intellivision"),
+            Some("intellivision"),
+            Some("intellivision"),
+            Some("INTELLIVISION"),
+            None,
+        ],
+    ),
+    (
+        "vectrex",
+        [
+            Some("vectrex"),
+            Some("vectrex"),
+            Some("vectrex"),
+            Some("VECTREX"),
+            None,
+        ],
+    ),
+    (
+        "odyssey2",
+        [
+            Some("odyssey2"),
+            Some("odyssey2"),
+            Some("odyssey2"),
+            Some("ODYSSEY"),
+            None,
+        ],
+    ),
+    (
+        "channelf",
+        [
+            Some("channelf"),
+            Some("channelf"),
+            Some("channelf"),
+            Some("FAIRCHILD"),
+            None,
+        ],
+    ),
+    (
+        "arcadia",
+        [Some("arcadia"), Some("arcadia"), None, None, None],
+    ),
+    ("scv", [Some("scv"), Some("scv"), Some("scv"), None, None]),
+    (
+        "jaguar",
+        [
+            Some("atarijaguar"),
+            Some("jaguar"),
+            Some("jaguar"),
+            None,
+            None,
+        ],
+    ),
+    // Sega, NEC and Nintendo add-ons (Task 6).
+    (
+        "sg1000",
+        [
+            Some("sg-1000"),
+            Some("sg1000"),
+            Some("sg1000"),
+            Some("SEGASGONE"),
+            Some("SG1000"),
+        ],
+    ),
+    ("pico", [None, Some("pico"), Some("segapico"), None, None]),
+    (
+        "supergrafx",
+        [
+            Some("supergrafx"),
+            Some("supergrafx"),
+            Some("supergrafx"),
+            Some("SGFX"),
+            None,
+        ],
+    ),
+    (
+        "n64dd",
+        [Some("n64dd"), Some("n64dd"), Some("n64dd"), None, None],
+    ),
+    (
+        "satellaview",
+        [
+            Some("satellaview"),
+            Some("satellaview"),
+            Some("satellaview"),
+            Some("SATELLAVIEW"),
+            None,
+        ],
+    ),
+    (
+        "sufami",
+        [
+            Some("sufami"),
+            Some("sufami"),
+            Some("sufami"),
+            Some("SUFAMI"),
+            None,
+        ],
+    ),
+    // Handhelds (Task 7).
+    (
+        "supervision",
+        [
+            Some("supervision"),
+            Some("supervision"),
+            Some("supervision"),
+            Some("SUPERVISION"),
+            None,
+        ],
+    ),
+    (
+        "gamecom",
+        [Some("gamecom"), Some("gamecom"), None, None, None],
+    ),
+    (
+        "megaduck",
+        [
+            Some("megaduck"),
+            Some("megaduck"),
+            Some("megaduck"),
+            Some("MEGADUCK"),
+            None,
+        ],
+    ),
+    // Computers I (Task 8).
+    (
+        "zxspectrum",
+        [
+            Some("zxspectrum"),
+            Some("zxspectrum"),
+            Some("spectrum"),
+            Some("ZXS"),
+            None,
+        ],
+    ),
+    (
+        "zx81",
+        [Some("zx81"), Some("zx81"), Some("zx81"), None, None],
+    ),
+    (
+        "amstradcpc",
+        [
+            Some("amstradcpc"),
+            Some("amstradcpc"),
+            Some("amstradcpc"),
+            Some("CPC"),
+            Some("CPC"),
+        ],
+    ),
+    (
+        "bbcmicro",
+        [Some("bbcmicro"), Some("bbcmicro"), None, None, None],
+    ),
+    (
+        "thomson",
+        [Some("moto"), Some("thomson"), Some("thomson"), None, None],
+    ),
+    (
+        "dragon",
+        [
+            Some("dragon32"),
+            Some("dragon64"),
+            Some("dragon"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "coco",
+        [Some("coco"), Some("coco"), Some("coco"), None, None],
+    ),
+    ("ti99", [Some("ti99"), Some("ti99"), None, None, None]),
+    // Computers II (Task 9).
+    (
+        "x68000",
+        [Some("x68000"), Some("x68000"), Some("x68000"), None, None],
+    ),
+    ("x1", [Some("x1"), Some("x1"), Some("x1"), None, None]),
+    (
+        "pc98",
+        [Some("pc98"), Some("pc98"), Some("pc98"), None, None],
+    ),
+    (
+        "pc88",
+        [Some("pc88"), Some("pc88"), Some("pc8000"), None, None],
+    ),
+    // Computers III (Task 10). MinUI is NextUI's `PLUS4`, `PET`, `C128`
+    // paks (LoveRetro/NextUI 5291344b, skeleton/EXTRAS/Emus).
+    (
+        "plus4",
+        [
+            Some("plus4"),
+            Some("cplus4"),
+            Some("plus4"),
+            None,
+            Some("PLUS4"),
+        ],
+    ),
+    ("pet", [None, Some("pet"), Some("pet"), None, Some("PET")]),
+    (
+        "c128",
+        [None, Some("c128"), Some("c128"), None, Some("C128")],
+    ),
+    ("atarixe", [Some("atarixe"), Some("xegs"), None, None, None]),
+    (
+        "msx2",
+        [Some("msx2"), Some("msx2"), Some("msx2"), None, None],
+    ),
+    (
+        "msxturbor",
+        [Some("msxturbor"), Some("msxturbor"), None, None, None],
+    ),
+    ("apple2", [Some("apple2"), Some("apple2"), None, None, None]),
+    // Fantasy consoles (Task 11). Onion's `TIC` package is TIC-80; its
+    // `extlist` names Thomson extensions (spec §6.1 note), kept as found.
+    (
+        "tic80",
+        [
+            Some("tic80"),
+            Some("tic80"),
+            Some("tic80"),
+            Some("TIC"),
+            None,
+        ],
+    ),
+    (
+        "wasm4",
+        [Some("wasm4"), Some("wasm4"), Some("wasm4"), None, None],
+    ),
+    (
+        "arduboy",
+        [
+            Some("arduboy"),
+            Some("arduboy"),
+            Some("arduboy"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "uzebox",
+        [Some("uzebox"), Some("uzebox"), Some("uzebox"), None, None],
+    ),
+    (
+        "lowresnx",
+        [
+            Some("lowresnx"),
+            Some("lowresnx"),
+            Some("lowresnx"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "vircon32",
+        [
+            Some("vircon32"),
+            Some("vircon32"),
+            Some("vircon32"),
+            None,
+            None,
+        ],
+    ),
+    // Ports and engines (Task 12). Onion and GarlicOS ship none of them;
+    // NextUI has only the PrBoom pak.
+    (
+        "doom",
+        [
+            Some("doom"),
+            Some("prboom"),
+            Some("doom"),
+            None,
+            Some("PRBOOM"),
+        ],
+    ),
+    (
+        "quake",
+        [Some("quake"), Some("quake"), Some("quake"), None, None],
+    ),
+    (
+        "cavestory",
+        [None, Some("cavestory"), Some("cavestory"), None, None],
+    ),
+    (
+        "wolf3d",
+        [None, Some("ecwolf"), Some("wolfenstein3d"), None, None],
+    ),
+    ("mrboom", [None, Some("mrboom"), None, None, None]),
+    ("dinothawr", [None, None, None, None, None]),
+    ("lutro", [Some("lutro"), Some("lutro"), None, None, None]),
+    (
+        "solarus",
+        [Some("solarus"), Some("solarus"), None, None, None],
+    ),
+    ("flashback", [None, Some("reminiscence"), None, None, None]),
+    ("xrick", [None, Some("xrick"), None, None, None]),
+    // Extra arcade (Task 13): ES-DE and Batocera only (D16).
+    ("model2", [Some("model2"), Some("model2"), None, None, None]),
+    ("model3", [Some("model3"), Some("model3"), None, None, None]),
+    ("naomi2", [Some("naomi2"), Some("naomi2"), None, None, None]),
+    (
+        "triforce",
+        [Some("triforce"), Some("triforce"), None, None, None],
+    ),
+];
+
+/// The folder table of one frontend column; `None` (Anbernic stock) marks
+/// every listed system Absent.
+fn folders(column: Option<usize>) -> BTreeMap<String, ProfileFolder> {
+    SYSTEM_FOLDERS
+        .iter()
+        .map(|(id, cells)| {
+            let folder = match column.and_then(|c| cells[c]) {
+                Some(name) => ProfileFolder::Named(name.to_string()),
+                None => ProfileFolder::Absent,
+            };
+            (id.to_string(), folder)
+        })
+        .collect()
+}
+
 /// Flat disc folders without `.m3u` (Onion and spruceOS hide `.bin`, R1-1).
 const FLAT: DiscLayout = DiscLayout::Flat {
     m3u_for_multi: false,
@@ -90,6 +480,13 @@ const GAME_FOLDER: DiscLayout = DiscLayout::GameFolder {
     m3u_for_multi: true,
 };
 
+fn hosts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|&(s, h)| (s.to_string(), h.to_string()))
+        .collect()
+}
+
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
@@ -100,31 +497,48 @@ fn strings(items: &[&str]) -> Vec<String> {
 /// `docs/02-research/layouts.md`); their templates are editable defaults.
 pub fn builtin_profiles() -> Vec<Profile> {
     vec![
-        Profile {
-            known_folders: strings(&ANBERNIC_FOLDERS),
-            ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS")
+        {
+            let mut p = Profile {
+                known_folders: strings(&ANBERNIC_FOLDERS),
+                ..imgs_profile("anbernic-stock", "Anbernic stock", "ROMS", None)
+            };
+            p.host_folders.extend(hosts(&ANBERNIC_STOCK_HOSTS));
+            p
         },
-        imgs_profile("garlicos", "GarlicOS", "Roms"),
-        imgs_profile("onion", "Onion OS", "Roms"),
-        profile(
-            "muos",
-            "muOS",
-            "ROMS",
-            &[],
-            false,
-            &[
-                (
-                    Media::Cover,
-                    "{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png",
-                ),
-                (
-                    Media::Screenshot,
-                    "{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png",
-                ),
-            ],
-            None,
-        ),
+        {
+            let mut p = imgs_profile("garlicos", "GarlicOS", "Roms", Some(ONION));
+            p.host_folders.extend(hosts(&ONION_HOSTS));
+            p
+        },
+        {
+            let mut p = imgs_profile("onion", "Onion OS", "Roms", Some(ONION));
+            p.host_folders.extend(hosts(&ONION_HOSTS));
+            p
+        },
         Profile {
+            folders: folders(Some(MUOS)),
+            ..profile(
+                "muos",
+                "muOS",
+                "ROMS",
+                &[],
+                false,
+                &[
+                    (
+                        Media::Cover,
+                        "{root}/MUOS/info/catalogue/{system_id}/box/{stem}.png",
+                    ),
+                    (
+                        Media::Screenshot,
+                        "{root}/MUOS/info/catalogue/{system_id}/preview/{stem}.png",
+                    ),
+                ],
+                None,
+            )
+        },
+        Profile {
+            folders: folders(Some(MINUI)),
+            host_folders: hosts(&MINUI_HOSTS),
             system_folder: FolderNaming::FirstAlias,
             disc_layout: GAME_FOLDER,
             // MinUI's launcher unpacks `.zip` only (R1-12).
@@ -140,6 +554,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
             )
         },
         Profile {
+            folders: folders(Some(ESDE)),
             disc_layout: GAME_FOLDER,
             ..profile(
                 "esde",
@@ -165,6 +580,7 @@ pub fn builtin_profiles() -> Vec<Profile> {
             )
         },
         Profile {
+            folders: folders(Some(BATOCERA)),
             gamelist: true,
             disc_layout: FLAT_M3U,
             ..profile(
@@ -217,13 +633,12 @@ pub fn builtin_profiles() -> Vec<Profile> {
 /// subfolders, capital `I` (Onion's folder is case sensitive). Folders are
 /// named like the Anbernic card (`GBA`, `SFC`…), colour handhelds share
 /// their host's folder.
-fn imgs_profile(id: &str, name: &str, roms_root: &str) -> Profile {
+/// `column` is the frontend's [`SYSTEM_FOLDERS`] column.
+fn imgs_profile(id: &str, name: &str, roms_root: &str, column: Option<usize>) -> Profile {
     Profile {
+        folders: folders(column),
         system_folder: FolderNaming::FirstAlias,
-        host_folders: ANBERNIC_HOSTS
-            .iter()
-            .map(|&(s, h)| (s.to_string(), h.to_string()))
-            .collect(),
+        host_folders: hosts(&ANBERNIC_HOSTS),
         arcade_order: strings(&ANBERNIC_ARCADE),
         ..profile(
             id,
@@ -273,6 +688,7 @@ fn profile(
         disc_layout: FLAT,
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
+        folders: BTreeMap::new(),
     }
 }
 

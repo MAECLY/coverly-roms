@@ -57,10 +57,18 @@ describe('mock backend', () => {
 
   it('lists the fixture systems by name', async () => {
     const systems = await createMockBackend({ delayMs: 0 }).listSystems();
-    expect(systems).toContainEqual({ id: 'gba', name: 'Game Boy Advance' });
+    expect(systems).toContainEqual({
+      id: 'gba',
+      name: 'Game Boy Advance',
+      family: 'handheld',
+    });
     // Systems only the organise piles have are listed too (Rust lists its
     // whole catalogue), so the UI never falls back to the id.
-    expect(systems).toContainEqual({ id: 'saturn', name: 'Sega Saturn' });
+    expect(systems).toContainEqual({
+      id: 'saturn',
+      name: 'Sega Saturn',
+      family: 'console',
+    });
     const names = systems.map((s) => s.name);
     expect(names).toEqual(
       [...names].sort((a, b) =>

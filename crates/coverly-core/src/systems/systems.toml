@@ -18,12 +18,20 @@
 #               metadat/redump/<libretro>.dat for disc systems)
 #   screenscraper  ScreenScraper system id (systemesListe.php); absent = the
 #               system is not available on ScreenScraper
+#   family      console (default), handheld, computer, arcade or engine;
+#               groups systems in pickers (arcade = true defaults to arcade)
+#   weak_extensions  extensions accepted inside the system's folder or with
+#               its header or hash, never evidence by themselves (they do not
+#               count for the extension class)
+#   scoped_aliases  aliases (a subset of aliases) that resolve only under a
+#               profile that names them, never as a global folder name
 #
 # Users can extend or override entries by id with a file in the same format.
 
 [[system]]
 id = "a2600"
 name = "Atari 2600"
+family = "console"
 aliases = ["A2600", "atari2600", "2600"]
 extensions = ["a26", "bin", "zip", "7z"]
 libretro = "Atari - 2600"
@@ -32,6 +40,7 @@ screenscraper = 26
 [[system]]
 id = "a5200"
 name = "Atari 5200"
+family = "console"
 aliases = ["A5200", "atari5200", "5200"]
 extensions = ["a52", "bin", "zip", "7z"]
 libretro = "Atari - 5200"
@@ -40,6 +49,7 @@ screenscraper = 40
 [[system]]
 id = "a7800"
 name = "Atari 7800"
+family = "console"
 aliases = ["A7800", "atari7800", "7800"]
 extensions = ["a78", "bin", "zip", "7z"]
 libretro = "Atari - 7800"
@@ -49,6 +59,7 @@ screenscraper = 41
 [[system]]
 id = "a800"
 name = "Atari 8-bit"
+family = "computer"
 aliases = ["A800", "atari800", "atari8bit"]
 extensions = ["atr", "atx", "xex", "xfd", "cas", "car", "com", "bas", "zip", "7z"]
 libretro = "Atari - 8-bit"
@@ -58,6 +69,7 @@ screenscraper = 43
 [[system]]
 id = "amiga"
 name = "Commodore Amiga"
+family = "computer"
 aliases = ["AMIGA"]
 extensions = ["adf", "adz", "dms", "fdi", "ipf", "hdf", "hdz", "lha", "lzh", "uae", "m3u", "zip", "7z"]
 libretro = "Commodore - Amiga"
@@ -66,6 +78,7 @@ screenscraper = 64
 [[system]]
 id = "atarist"
 name = "Atari ST"
+family = "computer"
 aliases = ["ATARIST", "atari st"]
 extensions = ["st", "msa", "stx", "dim", "ipf", "m3u", "zip", "7z"]
 libretro = "Atari - ST"
@@ -74,6 +87,7 @@ screenscraper = 42
 [[system]]
 id = "atomiswave"
 name = "Atomiswave"
+family = "arcade"
 aliases = ["ATOMISWAVE", "awave"]
 extensions = ["zip", "7z"]
 libretro = "Atomiswave"
@@ -82,6 +96,7 @@ arcade = true
 [[system]]
 id = "c64"
 name = "Commodore 64"
+family = "computer"
 aliases = ["C64", "commodore64"]
 extensions = ["d64", "d71", "d81", "g64", "t64", "tap", "prg", "p00", "crt", "m3u", "zip", "7z"]
 libretro = "Commodore - 64"
@@ -90,6 +105,7 @@ screenscraper = 66
 [[system]]
 id = "cps1"
 name = "Capcom Play System"
+family = "arcade"
 aliases = ["CPS1"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -100,6 +116,7 @@ screenscraper = 6
 [[system]]
 id = "cps2"
 name = "Capcom Play System II"
+family = "arcade"
 aliases = ["CPS2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -110,6 +127,7 @@ screenscraper = 7
 [[system]]
 id = "cps3"
 name = "Capcom Play System III"
+family = "arcade"
 aliases = ["CPS3"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -120,6 +138,7 @@ screenscraper = 8
 [[system]]
 id = "dos"
 name = "DOS"
+family = "computer"
 aliases = ["DOS", "msdos"]
 extensions = ["zip", "dosz", "exe", "com", "bat", "conf", "iso", "cue"]
 libretro = "DOS"
@@ -127,6 +146,7 @@ libretro = "DOS"
 [[system]]
 id = "dreamcast"
 name = "Sega Dreamcast"
+family = "console"
 aliases = ["DREAMCAST", "dc"]
 extensions = ["cdi", "gdi", "chd", "cue", "m3u", "iso"]
 libretro = "Sega - Dreamcast"
@@ -136,6 +156,7 @@ screenscraper = 23
 [[system]]
 id = "easyrpg"
 name = "EasyRPG"
+family = "engine"
 aliases = ["EASYRPG", "rpgmaker"]
 extensions = ["easyrpg", "zip"]
 libretro = "RPG Maker"
@@ -143,6 +164,7 @@ libretro = "RPG Maker"
 [[system]]
 id = "fbneo"
 name = "FinalBurn Neo"
+family = "arcade"
 aliases = ["FBNEO", "fba", "fbalpha", "finalburn"]
 extensions = ["zip", "7z"]
 libretro = "FBNeo - Arcade Games"
@@ -152,6 +174,7 @@ dats = ["metadat/fbneo-split/FBNeo - Arcade Games.dat"]
 [[system]]
 id = "nes"
 name = "Nintendo Entertainment System"
+family = "console"
 aliases = ["FC", "NES", "famicom"]
 extensions = ["nes", "unf", "unif", "zip", "7z"]
 libretro = "Nintendo - Nintendo Entertainment System"
@@ -161,6 +184,7 @@ screenscraper = 3
 [[system]]
 id = "fds"
 name = "Famicom Disk System"
+family = "console"
 aliases = ["FDS", "famicomdisk"]
 extensions = ["fds", "zip", "7z"]
 libretro = "Nintendo - Family Computer Disk System"
@@ -170,6 +194,7 @@ screenscraper = 106
 [[system]]
 id = "gb"
 name = "Game Boy"
+family = "handheld"
 aliases = ["GB", "gameboy"]
 extensions = ["gb", "zip", "7z"]
 libretro = "Nintendo - Game Boy"
@@ -178,6 +203,7 @@ screenscraper = 9
 [[system]]
 id = "gba"
 name = "Game Boy Advance"
+family = "handheld"
 aliases = ["GBA", "gameboyadvance"]
 extensions = ["gba", "zip", "7z"]
 libretro = "Nintendo - Game Boy Advance"
@@ -186,6 +212,7 @@ screenscraper = 12
 [[system]]
 id = "gbc"
 name = "Game Boy Color"
+family = "handheld"
 aliases = ["GBC", "gameboycolor"]
 extensions = ["gbc", "gb", "zip", "7z"]
 libretro = "Nintendo - Game Boy Color"
@@ -194,6 +221,7 @@ screenscraper = 10
 [[system]]
 id = "gamegear"
 name = "Sega Game Gear"
+family = "handheld"
 aliases = ["GG", "gamegear"]
 extensions = ["gg", "zip", "7z"]
 libretro = "Sega - Game Gear"
@@ -203,6 +231,7 @@ screenscraper = 21
 [[system]]
 id = "gw"
 name = "Game & Watch"
+family = "handheld"
 aliases = ["GW", "gameandwatch"]
 extensions = ["mgw", "zip", "7z"]
 libretro = "Handheld Electronic Game"
@@ -211,6 +240,7 @@ dats = ["dat/Handheld Electronic Game.dat"]
 [[system]]
 id = "hbmame"
 name = "HBMAME"
+family = "arcade"
 aliases = ["HBMAME"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -220,6 +250,7 @@ dats = ["dat/HBMAME.dat"]
 [[system]]
 id = "lynx"
 name = "Atari Lynx"
+family = "handheld"
 aliases = ["LYNX", "atarilynx"]
 extensions = ["lnx", "o", "zip", "7z"]
 libretro = "Atari - Lynx"
@@ -229,6 +260,7 @@ screenscraper = 28
 [[system]]
 id = "mame"
 name = "MAME"
+family = "arcade"
 aliases = ["MAME", "arcade", "mame2003", "mame2003plus", "mame2010"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -239,6 +271,7 @@ screenscraper = 75
 [[system]]
 id = "megadrive"
 name = "Sega Mega Drive / Genesis"
+family = "console"
 aliases = ["MD", "megadrive", "genesis", "Mega Drive"]
 extensions = ["md", "gen", "smd", "bin", "68k", "sgd", "zip", "7z"]
 libretro = "Sega - Mega Drive - Genesis"
@@ -247,6 +280,7 @@ screenscraper = 1
 [[system]]
 id = "segacd"
 name = "Sega CD / Mega-CD"
+family = "console"
 aliases = ["MDCD", "segacd", "megacd", "Mega CD"]
 extensions = ["cue", "chd", "iso", "m3u"]
 libretro = "Sega - Mega-CD - Sega CD"
@@ -256,7 +290,8 @@ screenscraper = 20
 [[system]]
 id = "msx"
 name = "MSX"
-aliases = ["MSX", "msx1", "msx2"]
+family = "computer"
+aliases = ["MSX", "msx1"]
 extensions = ["rom", "mx1", "mx2", "dsk", "cas", "zip", "7z"]
 libretro = "Microsoft - MSX"
 screenscraper = 113
@@ -264,6 +299,7 @@ screenscraper = 113
 [[system]]
 id = "n64"
 name = "Nintendo 64"
+family = "console"
 aliases = ["N64", "nintendo64"]
 extensions = ["n64", "v64", "z64", "zip", "7z"]
 libretro = "Nintendo - Nintendo 64"
@@ -273,6 +309,7 @@ screenscraper = 14
 [[system]]
 id = "naomi"
 name = "Sega NAOMI"
+family = "arcade"
 aliases = ["NAOMI"]
 extensions = ["zip", "7z"]
 libretro = "Sega - Naomi"
@@ -281,6 +318,7 @@ arcade = true
 [[system]]
 id = "nds"
 name = "Nintendo DS"
+family = "handheld"
 aliases = ["NDS", "nintendods"]
 extensions = ["nds", "zip", "7z"]
 libretro = "Nintendo - Nintendo DS"
@@ -289,6 +327,7 @@ screenscraper = 15
 [[system]]
 id = "neocd"
 name = "Neo Geo CD"
+family = "console"
 aliases = ["NEOCD", "neogeocd"]
 extensions = ["cue", "chd", "iso", "m3u"]
 libretro = "SNK - Neo Geo CD"
@@ -298,6 +337,7 @@ screenscraper = 70
 [[system]]
 id = "neogeo"
 name = "Neo Geo"
+family = "arcade"
 aliases = ["NEOGEO", "Neo Geo"]
 extensions = ["zip", "7z"]
 libretro = "SNK - Neo Geo"
@@ -308,6 +348,7 @@ screenscraper = 142
 [[system]]
 id = "ngp"
 name = "Neo Geo Pocket"
+family = "handheld"
 aliases = ["NGP", "neogeopocket"]
 # Like WS: Color games (.ngc) in NGP have art under "SNK - Neo Geo Pocket Color".
 extensions = ["ngp", "ngc", "zip", "7z"]
@@ -317,6 +358,7 @@ screenscraper = 25
 [[system]]
 id = "ngpc"
 name = "Neo Geo Pocket Color"
+family = "handheld"
 aliases = ["NGPC", "neogeopocketcolor"]
 extensions = ["ngc", "ngpc", "zip", "7z"]
 libretro = "SNK - Neo Geo Pocket Color"
@@ -325,27 +367,33 @@ screenscraper = 82
 [[system]]
 id = "ons"
 name = "ONScripter"
+family = "engine"
 aliases = ["ONS", "onscripter"]
 extensions = ["ons", "zip"]
 
 [[system]]
 id = "openbor"
 name = "OpenBOR"
+family = "engine"
 aliases = ["OPENBOR"]
 extensions = ["pak"]
 
 [[system]]
 id = "pcengine"
 name = "PC Engine / TurboGrafx-16"
+family = "console"
 aliases = ["PCE", "pcengine", "tg16", "turbografx16", "PC Engine"]
 # Anbernic stock also keeps CD images (chd, cue) in PCE.
-extensions = ["pce", "sgx", "chd", "cue", "zip", "7z"]
+extensions = ["pce", "chd", "cue", "zip", "7z"]
+# `.sgx` is SuperGrafx's own format (D3); the PCE folder still accepts it.
+weak_extensions = ["sgx"]
 libretro = "NEC - PC Engine - TurboGrafx 16"
 screenscraper = 31
 
 [[system]]
 id = "pcenginecd"
 name = "PC Engine CD / TurboGrafx-CD"
+family = "console"
 aliases = ["PCECD", "pcenginecd", "tgcd", "turbografxcd"]
 extensions = ["cue", "chd", "ccd", "m3u"]
 libretro = "NEC - PC Engine CD - TurboGrafx-CD"
@@ -355,6 +403,7 @@ screenscraper = 114
 [[system]]
 id = "pgm2"
 name = "IGS PGM2"
+family = "arcade"
 aliases = ["PGM2"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -363,6 +412,7 @@ arcade = true
 [[system]]
 id = "pico8"
 name = "PICO-8"
+family = "engine"
 aliases = ["PICO", "pico8", "pico-8"]
 # .p8.png carts: png is also in the scanner's default ignored_exts.
 # Open point for Task 7: system.extensions must win over ignored_exts here.
@@ -371,6 +421,7 @@ extensions = ["p8", "png"]
 [[system]]
 id = "pokemini"
 name = "Pokemon Mini"
+family = "handheld"
 aliases = ["POKE", "pokemini"]
 extensions = ["min", "zip", "7z"]
 libretro = "Nintendo - Pokemon Mini"
@@ -378,6 +429,7 @@ libretro = "Nintendo - Pokemon Mini"
 [[system]]
 id = "psx"
 name = "Sony PlayStation"
+family = "console"
 aliases = ["PS", "psx", "ps1", "playstation"]
 extensions = ["cue", "bin", "chd", "pbp", "m3u", "iso", "img", "ccd"]
 libretro = "Sony - PlayStation"
@@ -387,6 +439,7 @@ screenscraper = 57
 [[system]]
 id = "psp"
 name = "Sony PSP"
+family = "handheld"
 aliases = ["PSP"]
 extensions = ["iso", "cso", "pbp", "chd"]
 libretro = "Sony - PlayStation Portable"
@@ -395,6 +448,7 @@ screenscraper = 61
 [[system]]
 id = "saturn"
 name = "Sega Saturn"
+family = "console"
 aliases = ["SATURN", "segasaturn"]
 extensions = ["cue", "chd", "iso", "ccd", "m3u", "mds"]
 libretro = "Sega - Saturn"
@@ -404,6 +458,7 @@ screenscraper = 22
 [[system]]
 id = "scummvm"
 name = "ScummVM"
+family = "engine"
 aliases = ["SCUMMVM", "scumm"]
 extensions = ["scummvm", "svm"]
 libretro = "ScummVM"
@@ -411,6 +466,7 @@ libretro = "ScummVM"
 [[system]]
 id = "sega32x"
 name = "Sega 32X"
+family = "console"
 aliases = ["SEGA32X", "32x", "sega32"]
 extensions = ["32x", "zip", "7z"]
 libretro = "Sega - 32X"
@@ -419,8 +475,11 @@ screenscraper = 19
 [[system]]
 id = "snes"
 name = "Super Nintendo"
+family = "console"
 aliases = ["SFC", "snes", "Super Nintendo", "supernintendo"]
-extensions = ["sfc", "smc", "fig", "swc", "bs", "zip", "7z"]
+extensions = ["sfc", "smc", "fig", "swc", "zip", "7z"]
+# `.bs` is Satellaview's own format (D3); the SFC folder still accepts it.
+weak_extensions = ["bs"]
 libretro = "Nintendo - Super Nintendo Entertainment System"
 header = "snes-copier"
 screenscraper = 4
@@ -428,6 +487,7 @@ screenscraper = 4
 [[system]]
 id = "mastersystem"
 name = "Sega Master System"
+family = "console"
 aliases = ["SMS", "mastersystem", "Master System"]
 extensions = ["sms", "zip", "7z"]
 libretro = "Sega - Master System - Mark III"
@@ -437,6 +497,7 @@ screenscraper = 2
 [[system]]
 id = "varcade"
 name = "Arcade (various)"
+family = "arcade"
 aliases = ["VARCADE"]
 extensions = ["zip", "7z"]
 libretro = "MAME"
@@ -445,6 +506,7 @@ arcade = true
 [[system]]
 id = "virtualboy"
 name = "Virtual Boy"
+family = "handheld"
 aliases = ["VB", "virtualboy"]
 extensions = ["vb", "vboy", "zip", "7z"]
 libretro = "Nintendo - Virtual Boy"
@@ -453,6 +515,7 @@ screenscraper = 11
 [[system]]
 id = "vic20"
 name = "Commodore VIC-20"
+family = "computer"
 aliases = ["VIC20", "vic-20"]
 extensions = ["20", "40", "60", "a0", "b0", "d64", "prg", "crt", "tap", "t64", "zip", "7z"]
 libretro = "Commodore - VIC-20"
@@ -460,6 +523,7 @@ libretro = "Commodore - VIC-20"
 [[system]]
 id = "wonderswan"
 name = "WonderSwan"
+family = "handheld"
 aliases = ["WS", "wonderswan"]
 # Anbernic stock keeps mono and Color games together in WS, so wsc is accepted.
 # Art for .wsc files lives under "Bandai - WonderSwan Color", not this playlist:
@@ -471,7 +535,688 @@ screenscraper = 45
 [[system]]
 id = "wonderswancolor"
 name = "WonderSwan Color"
+family = "handheld"
 aliases = ["WSC", "wonderswancolor"]
 extensions = ["wsc", "zip", "7z"]
 libretro = "Bandai - WonderSwan Color"
 screenscraper = 46
+
+# Batch 1: disc systems (spec §7). Discs are never taken as-is from an
+# archive (`multi_file`), so `zip`/`7z` are not listed.
+
+[[system]]
+id = "ps2"
+name = "Sony PlayStation 2"
+family = "console"
+aliases = ["PS2", "playstation2"]
+# `.zso` has no reader (D14): extension and name only. `.cso` stays psp's;
+# a PS2 volume read through the CISO reader contradicts it (D24).
+extensions = ["zso", "iso", "chd", "cue", "bin", "m3u"]
+weak_extensions = ["cso"]
+libretro = "Sony - PlayStation 2"
+multi_file = true
+screenscraper = 58
+
+[[system]]
+id = "3do"
+name = "3DO Interactive Multiplayer"
+family = "console"
+aliases = ["3DO", "3d0"]
+extensions = ["iso", "cue", "bin", "chd"]
+libretro = "The 3DO Company - 3DO"
+multi_file = true
+screenscraper = 29
+
+[[system]]
+id = "pcfx"
+name = "NEC PC-FX"
+family = "console"
+aliases = ["PCFX", "pc-fx"]
+extensions = ["cue", "bin", "chd", "ccd"]
+libretro = "NEC - PC-FX"
+multi_file = true
+screenscraper = 72
+
+[[system]]
+id = "cdi"
+name = "Philips CD-i"
+family = "console"
+aliases = ["CDI", "cdimono1", "cd-i"]
+scoped_aliases = ["cdi"]
+extensions = ["chd", "cue", "bin", "iso"]
+libretro = "Philips - CD-i"
+multi_file = true
+screenscraper = 133
+
+[[system]]
+id = "amigacd32"
+name = "Commodore Amiga CD32"
+family = "console"
+aliases = ["CD32", "amigacd32"]
+extensions = ["cue", "bin", "iso", "chd"]
+libretro = "Commodore - CD32"
+multi_file = true
+screenscraper = 130
+
+[[system]]
+id = "cdtv"
+name = "Commodore CDTV"
+family = "console"
+aliases = ["CDTV", "amigacdtv"]
+extensions = ["cue", "bin", "iso", "chd"]
+libretro = "Commodore - CDTV"
+multi_file = true
+screenscraper = 129
+
+[[system]]
+id = "jaguarcd"
+name = "Atari Jaguar CD"
+family = "console"
+aliases = ["JAGUARCD", "atarijaguarcd"]
+# `.cdi` is Dreamcast's (DiscJuggler): weak here, never alone (§12).
+extensions = ["cue", "bin", "chd"]
+weak_extensions = ["cdi"]
+multi_file = true
+dats = ["metadat/redump/Atari - Jaguar CD.dat"]
+screenscraper = 171
+
+[[system]]
+id = "fmtowns"
+name = "Fujitsu FM Towns"
+family = "computer"
+aliases = ["FMTOWNS", "fm-towns"]
+# No disc signature and no DAT (§8.2): folder and name only.
+extensions = ["cue", "bin", "chd", "iso", "d88"]
+multi_file = true
+screenscraper = 253
+
+# Early consoles (systems batch 1, Task 5). `.bin` and `.rom` stay Generic:
+# a loose cart moves only by folder, header or DAT hash.
+
+[[system]]
+id = "colecovision"
+name = "ColecoVision"
+family = "console"
+aliases = ["COLECO", "colecovision"]
+extensions = ["col", "rom", "bin", "zip", "7z"]
+libretro = "Coleco - ColecoVision"
+screenscraper = 48
+
+[[system]]
+id = "intellivision"
+name = "Mattel Intellivision"
+family = "console"
+aliases = ["INTELLIVISION", "intv"]
+extensions = ["int", "bin", "rom", "zip", "7z"]
+libretro = "Mattel - Intellivision"
+dats = ["metadat/no-intro/Mattel - Intellivision.dat", "metadat/homebrew/Mattel - Intellivision.dat"]
+screenscraper = 115
+
+[[system]]
+id = "vectrex"
+name = "GCE Vectrex"
+family = "console"
+aliases = ["VECTREX", "gcevectrex"]
+extensions = ["vec", "bin", "zip", "7z"]
+weak_extensions = ["gam"]
+libretro = "GCE - Vectrex"
+dats = ["metadat/no-intro/GCE - Vectrex.dat", "metadat/homebrew/GCE - Vectrex.dat"]
+screenscraper = 102
+
+[[system]]
+id = "odyssey2"
+name = "Magnavox Odyssey² / Videopac"
+family = "console"
+# `o2em` is Knulli's folder (D7); `videopac` is ES-DE's G7000 folder.
+aliases = ["ODYSSEY", "odyssey2", "videopac", "o2em"]
+extensions = ["bin", "zip", "7z"]
+libretro = "Magnavox - Odyssey2"
+screenscraper = 104
+
+[[system]]
+id = "channelf"
+name = "Fairchild Channel F"
+family = "console"
+aliases = ["FAIRCHILD", "channelf"]
+extensions = ["chf", "bin", "zip", "7z"]
+libretro = "Fairchild - Channel F"
+screenscraper = 80
+
+[[system]]
+id = "arcadia"
+name = "Emerson Arcadia 2001"
+family = "console"
+# `arcadia` is an everyday word (D22): resolved only under a profile.
+aliases = ["ARCADIA", "arcadia2001"]
+scoped_aliases = ["arcadia"]
+extensions = ["bin", "zip", "7z"]
+libretro = "Emerson - Arcadia 2001"
+screenscraper = 94
+
+[[system]]
+id = "scv"
+name = "Epoch Super Cassette Vision"
+family = "console"
+aliases = ["SCV", "supercassettevision"]
+extensions = ["bin", "rom", "zip", "7z"]
+weak_extensions = ["0"]
+libretro = "Epoch - Super Cassette Vision"
+screenscraper = 67
+
+[[system]]
+id = "jaguar"
+name = "Atari Jaguar"
+family = "console"
+aliases = ["JAGUAR", "atarijaguar"]
+extensions = ["j64", "jag", "rom", "bin", "zip", "7z"]
+weak_extensions = ["abs", "cof"]
+libretro = "Atari - Jaguar"
+screenscraper = 27
+
+# Sega, NEC and Nintendo add-ons (systems batch 1, Task 6).
+
+[[system]]
+id = "sg1000"
+name = "Sega SG-1000 / SC-3000"
+family = "console"
+aliases = ["SEGASGONE", "sg1000", "sg-1000", "sc3000"]
+extensions = ["sg", "sc", "bin", "zip", "7z"]
+libretro = "Sega - SG-1000"
+screenscraper = 109
+
+[[system]]
+id = "pico"
+name = "Sega Pico"
+family = "console"
+# `pico` is PICO-8's global alias; Batocera's `pico` folder is Sega Pico
+# only under that profile (D6).
+aliases = ["SEGAPICO"]
+extensions = ["bin", "zip", "7z"]
+# `.md` is the Mega Drive's; a `SEGA PICO` header proves a Pico cart (D24).
+weak_extensions = ["md"]
+libretro = "Sega - PICO"
+screenscraper = 250
+
+[[system]]
+id = "supergrafx"
+name = "PC Engine SuperGrafx"
+family = "console"
+aliases = ["SGFX", "supergrafx"]
+extensions = ["sgx", "zip", "7z"]
+weak_extensions = ["pce"]
+libretro = "NEC - PC Engine SuperGrafx"
+screenscraper = 105
+
+[[system]]
+id = "n64dd"
+name = "Nintendo 64DD"
+family = "console"
+aliases = ["N64DD", "64dd"]
+extensions = ["ndd", "zip", "7z"]
+libretro = "Nintendo - Nintendo 64DD"
+screenscraper = 122
+
+[[system]]
+id = "satellaview"
+name = "Nintendo Satellaview"
+family = "console"
+# BS-X is the Satellaview (D17): no separate Famicom entry.
+aliases = ["SATELLAVIEW", "bsx", "bs-x"]
+extensions = ["bs", "zip", "7z"]
+weak_extensions = ["sfc", "smc"]
+libretro = "Nintendo - Satellaview"
+screenscraper = 107
+
+[[system]]
+id = "sufami"
+name = "Bandai Sufami Turbo"
+family = "console"
+aliases = ["SUFAMI", "sufamiturbo"]
+extensions = ["zip", "7z"]
+# `.st` is the Atari ST's; the `BANDAI SFC-ADX` header proves a cart.
+weak_extensions = ["st", "sfc", "smc"]
+libretro = "Nintendo - Sufami Turbo"
+screenscraper = 108
+
+# Handhelds (systems batch 1, Task 7). None has a header (spec §8.1):
+# folder or DAT hash only; `.bin` stays Generic.
+
+[[system]]
+id = "supervision"
+name = "Watara Supervision"
+family = "handheld"
+aliases = ["SUPERVISION"]
+extensions = ["sv", "bin", "zip", "7z"]
+libretro = "Watara - Supervision"
+screenscraper = 207
+
+[[system]]
+id = "gamecom"
+name = "Tiger Game.com"
+family = "handheld"
+aliases = ["GAMECOM"]
+extensions = ["tgc", "bin", "zip", "7z"]
+libretro = "Tiger - Game.com"
+screenscraper = 121
+
+[[system]]
+id = "megaduck"
+name = "Mega Duck / Cougar Boy"
+family = "handheld"
+aliases = ["MEGADUCK", "cougarboy"]
+# No libretro-thumbnails folder and no DAT: covers from ScreenScraper only.
+extensions = ["bin", "zip", "7z"]
+screenscraper = 90
+
+# Computers I (systems batch 1, Task 8). `.dsk` turns Shared on purpose
+# (D3); `.tap`, `.cas` already were and `.sna`, `.ccc` are new Shared ones:
+# a loose disk or tape goes to review unless its header or a DAT hash
+# decides. Headers: TZX (`.tzx`, `.cdt`), CPCEMU DSK (CPC or Spectrum +3,
+# review), UEF; an `.rpk` holding `layout.xml` is a TI-99/4A cartridge.
+
+[[system]]
+id = "zxspectrum"
+name = "Sinclair ZX Spectrum"
+family = "computer"
+aliases = ["ZXS", "zxspectrum", "spectrum"]
+extensions = ["tzx", "z80", "rzx", "scl", "trd", "szx", "tap", "dsk", "sna", "zip", "7z"]
+libretro = "Sinclair - ZX Spectrum"
+dats = ["metadat/tosec/Sinclair - ZX Spectrum.dat", "metadat/no-intro/Sinclair - ZX Spectrum +3.dat", "dat/Sinclair - ZX Spectrum.dat"]
+screenscraper = 76
+
+[[system]]
+id = "zx81"
+name = "Sinclair ZX81"
+family = "computer"
+aliases = ["ZX81"]
+extensions = ["81", "zip", "7z"]
+weak_extensions = ["p", "tzx"]
+libretro = "Sinclair - ZX 81"
+dats = ["dat/Sinclair - ZX 81.dat"]
+screenscraper = 77
+
+[[system]]
+id = "amstradcpc"
+name = "Amstrad CPC"
+family = "computer"
+aliases = ["CPC", "amstradcpc"]
+extensions = ["cdt", "cpr", "kcr", "dsk", "sna", "m3u", "zip", "7z"]
+libretro = "Amstrad - CPC"
+dats = ["metadat/tosec/Amstrad - CPC.dat", "dat/Amstrad - CPC.dat"]
+screenscraper = 65
+
+[[system]]
+id = "bbcmicro"
+name = "Acorn BBC Micro"
+family = "computer"
+# `bbc` is Knulli's folder (D7), scoped as an everyday word (D22).
+aliases = ["BBCMICRO", "bbc"]
+scoped_aliases = ["bbc"]
+# No libretro-thumbnails folder and no DAT: covers from ScreenScraper only.
+extensions = ["ssd", "dsd", "uef", "zip", "7z"]
+screenscraper = 37
+
+[[system]]
+id = "thomson"
+name = "Thomson MO/TO"
+family = "computer"
+aliases = ["THOMSON", "moto", "to8", "thomsonmoto", "theodore"]
+scoped_aliases = ["moto", "theodore"]
+extensions = ["k7", "m7", "sap", "rom", "zip", "7z"]
+weak_extensions = ["fd"]
+libretro = "Thomson - MOTO"
+dats = ["metadat/tosec/Thomson - MOTO.dat"]
+screenscraper = 141
+
+[[system]]
+id = "dragon"
+name = "Dragon 32/64"
+family = "computer"
+aliases = ["DRAGON", "dragon32", "dragon64"]
+scoped_aliases = ["dragon", "dragon32", "dragon64"]
+extensions = ["cas", "dsk", "ccc", "zip", "7z"]
+screenscraper = 91
+
+[[system]]
+id = "coco"
+name = "Tandy TRS-80 Color Computer"
+family = "computer"
+aliases = ["COCO", "trs80coco"]
+scoped_aliases = ["coco"]
+extensions = ["cas", "dsk", "ccc", "zip", "7z"]
+screenscraper = 144
+
+[[system]]
+id = "ti99"
+name = "Texas Instruments TI-99/4A"
+family = "computer"
+aliases = ["TI99", "ti994a"]
+# `.rpk` is a zip package kept whole (D25); `.bin` stays Generic.
+extensions = ["rpk", "ctg", "bin", "zip", "7z"]
+screenscraper = 205
+
+[[system]]
+id = "x68000"
+name = "Sharp X68000"
+family = "computer"
+aliases = ["X68000", "x68k"]
+extensions = ["xdf", "dim", "hdf", "hdm", "2hd", "m3u", "zip", "7z"]
+libretro = "Sharp - X68000"
+dats = ["metadat/no-intro/Sharp - X68000.dat", "metadat/tosec/Sharp - X68000.dat"]
+screenscraper = 79
+
+[[system]]
+id = "x1"
+name = "Sharp X1"
+family = "computer"
+aliases = ["X1"]
+scoped_aliases = ["x1"]
+extensions = ["dx1", "2hd", "tap", "d88", "zip", "7z"]
+weak_extensions = ["2d"]
+libretro = "Sharp - X1"
+dats = ["metadat/no-intro/Sharp - X1.dat", "metadat/tosec/Sharp - X1.dat"]
+screenscraper = 220
+
+[[system]]
+id = "pc98"
+name = "NEC PC-98"
+family = "computer"
+aliases = ["PC98", "pc9800"]
+extensions = ["hdi", "nhd", "d88", "fdi", "hdm", "m3u", "zip", "7z"]
+libretro = "NEC - PC-98"
+dats = ["metadat/tosec/NEC - PC-98.dat", "metadat/redump/NEC - PC-98.dat"]
+screenscraper = 208
+
+[[system]]
+id = "pc88"
+name = "NEC PC-88"
+family = "computer"
+aliases = ["PC88", "pc8800", "pc8000"]
+extensions = ["t88", "cmt", "d88", "zip", "7z"]
+libretro = "NEC - PC-88"
+dats = ["metadat/tosec/NEC - PC-88.dat"]
+screenscraper = 221
+
+# Computers III (plan Task 10). `atarixe` comes after `a800` so the shared
+# `Atari - 8-bit Family.dat` keeps mapping to `a800` (spec §8.3): an Atari
+# XE game is claimed by its folder, never by a hash. The Commodore and
+# Atari formats are weak (D3): their old owners keep them.
+[[system]]
+id = "plus4"
+name = "Commodore Plus/4"
+family = "computer"
+aliases = ["PLUS4", "cplus4", "commodoreplus4"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "t64", "tap", "crt"]
+libretro = "Commodore - Plus-4"
+screenscraper = 99
+
+[[system]]
+id = "pet"
+name = "Commodore PET"
+family = "computer"
+aliases = ["PET", "commodorepet"]
+scoped_aliases = ["pet"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "t64", "tap"]
+libretro = "Commodore - PET"
+dats = ["metadat/tosec/Commodore - PET.dat"]
+
+[[system]]
+id = "c128"
+name = "Commodore 128"
+family = "computer"
+aliases = ["C128", "commodore128"]
+extensions = ["zip", "7z"]
+weak_extensions = ["prg", "d64", "d71", "d81", "t64", "tap", "crt"]
+
+[[system]]
+id = "atarixe"
+name = "Atari XE / XEGS"
+family = "computer"
+aliases = ["ATARIXE", "xegs"]
+extensions = ["zip", "7z"]
+weak_extensions = ["atr", "xex", "xfd", "car", "rom", "bin"]
+libretro = "Atari - 8-bit"
+dats = ["metadat/no-intro/Atari - 8-bit Family.dat"]
+screenscraper = 43
+
+[[system]]
+id = "msx2"
+name = "MSX2"
+family = "computer"
+aliases = ["MSX2"]
+extensions = ["rom", "dsk", "cas", "zip", "7z"]
+weak_extensions = ["mx2"]
+libretro = "Microsoft - MSX2"
+screenscraper = 116
+
+[[system]]
+id = "msxturbor"
+name = "MSX turbo R"
+family = "computer"
+aliases = ["MSXTURBOR", "turbor"]
+scoped_aliases = ["turbor"]
+extensions = ["rom", "dsk", "zip", "7z"]
+screenscraper = 118
+
+[[system]]
+id = "apple2"
+name = "Apple II"
+family = "computer"
+aliases = ["APPLE2", "appleii"]
+extensions = ["woz", "2mg", "nib", "dsk", "zip", "7z"]
+weak_extensions = ["do", "po"]
+dats = ["metadat/tosec/Apple - II.dat"]
+screenscraper = 86
+
+# Fantasy consoles (spec §7, D4, D25, D26). `.wasm` and `.hex` are weak:
+# everyday developer files, never a system on their own. An `.arduboy` is
+# a zip package (`info.json` beside the `.hex`), moved as one raw file.
+# A `.uze` opens with `UZEBOX`, a `.v32` with `V32-CART`; TIC-80, WASM-4
+# and LowRes NX carry no header of their own (folder + hash only).
+[[system]]
+id = "tic80"
+name = "TIC-80"
+family = "engine"
+aliases = ["TIC", "tic80"]
+extensions = ["tic"]
+libretro = "TIC-80"
+dats = ["dat/TIC-80.dat"]
+screenscraper = 222
+
+[[system]]
+id = "wasm4"
+name = "WASM-4"
+family = "engine"
+aliases = ["WASM4"]
+weak_extensions = ["wasm"]
+libretro = "WASM-4"
+dats = ["dat/WASM-4.dat"]
+screenscraper = 262
+
+[[system]]
+id = "arduboy"
+name = "Arduboy"
+family = "handheld"
+aliases = ["ARDUBOY"]
+extensions = ["arduboy", "zip", "7z"]
+weak_extensions = ["hex"]
+libretro = "Arduboy Inc - Arduboy"
+screenscraper = 263
+
+[[system]]
+id = "uzebox"
+name = "Uzebox"
+family = "console"
+aliases = ["UZEBOX"]
+extensions = ["uze", "zip", "7z"]
+weak_extensions = ["hex"]
+dats = ["dat/Uzebox.dat"]
+screenscraper = 216
+
+[[system]]
+id = "lowresnx"
+name = "LowRes NX"
+family = "engine"
+aliases = ["LOWRESNX"]
+extensions = ["nx"]
+libretro = "LowRes NX"
+dats = ["dat/LowRes NX.dat"]
+screenscraper = 244
+
+[[system]]
+id = "vircon32"
+name = "Vircon32"
+family = "engine"
+aliases = ["VIRCON32"]
+extensions = ["v32"]
+libretro = "Vircon32"
+dats = ["dat/Vircon32.dat"]
+screenscraper = 272
+
+# Ports and engines (systems batch 1, Task 12; spec §7, D15). A game is a
+# folder: claimed by its folder alias, by `IWAD`/`PWAD` (Doom) and by the
+# `.solarus`/`.lutro` packages. `doom`, `quake`, `flashback`, `solarus`,
+# `lutro`, `mrboom` and `xrick` are everyday words: scoped (D22).
+[[system]]
+id = "doom"
+name = "Doom (PrBoom)"
+family = "engine"
+aliases = ["PRBOOM", "doom"]
+scoped_aliases = ["doom"]
+extensions = ["wad"]
+libretro = "DOOM"
+dats = ["dat/DOOM.dat"]
+screenscraper = 135
+
+[[system]]
+id = "quake"
+name = "Quake"
+family = "engine"
+aliases = ["QUAKE", "tyrquake"]
+scoped_aliases = ["quake"]
+weak_extensions = ["pak"]
+libretro = "Quake"
+dats = ["dat/Quake.dat"]
+screenscraper = 135
+
+[[system]]
+id = "cavestory"
+name = "Cave Story (NXEngine)"
+family = "engine"
+aliases = ["CAVESTORY", "nxengine"]
+libretro = "Cave Story"
+dats = ["dat/Cave Story.dat"]
+
+[[system]]
+id = "wolf3d"
+name = "Wolfenstein 3D (ECWolf)"
+family = "engine"
+aliases = ["ECWOLF", "wolf3d", "wolfenstein3d"]
+libretro = "Wolfenstein 3D"
+dats = ["dat/Wolfenstein 3D.dat"]
+
+[[system]]
+id = "mrboom"
+name = "Mr. Boom"
+family = "engine"
+aliases = ["MRBOOM"]
+scoped_aliases = ["mrboom"]
+libretro = "MrBoom"
+dats = ["dat/MrBoom.dat"]
+
+[[system]]
+id = "dinothawr"
+name = "Dinothawr"
+family = "engine"
+aliases = ["DINOTHAWR"]
+weak_extensions = ["game"]
+libretro = "Dinothawr"
+dats = ["dat/Dinothawr.dat"]
+
+[[system]]
+id = "lutro"
+name = "Lutro"
+family = "engine"
+aliases = ["LUTRO"]
+scoped_aliases = ["lutro"]
+extensions = ["lutro"]
+weak_extensions = ["lua"]
+libretro = "Lutro"
+dats = ["dat/Lutro.dat"]
+screenscraper = 206
+
+[[system]]
+id = "solarus"
+name = "Solarus"
+family = "engine"
+aliases = ["SOLARUS"]
+scoped_aliases = ["solarus"]
+extensions = ["solarus"]
+screenscraper = 223
+
+[[system]]
+id = "flashback"
+name = "Flashback (REminiscence)"
+family = "engine"
+aliases = ["REMINISCENCE", "flashback"]
+scoped_aliases = ["flashback"]
+libretro = "Flashback"
+dats = ["dat/Flashback.dat"]
+
+[[system]]
+id = "xrick"
+name = "Rick Dangerous (XRick)"
+family = "engine"
+aliases = ["XRICK", "rickdangerous"]
+scoped_aliases = ["xrick"]
+libretro = "Rick Dangerous"
+dats = ["dat/Rick Dangerous.dat"]
+
+# Extra arcade (systems batch 1, Task 13; spec §7, §8.3, D16). Model 2 and
+# Model 3 are MAME sets: they list only `MAME.dat` and come after `mame`,
+# so the DAT keeps mapping to `mame` and a loose set goes there; inside a
+# `model2/`/`model3/` folder a set stays. NAOMI 2 lists two DATs and never
+# wins `MAME.dat`. Triforce discs are `.iso` (Generic): folder only.
+# System 16/18/24/32, Konami and Cave get no system (D16).
+
+[[system]]
+id = "model2"
+name = "Sega Model 2"
+family = "arcade"
+aliases = ["MODEL2"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+dats = ["metadat/mame/MAME.dat"]
+screenscraper = 75
+
+[[system]]
+id = "model3"
+name = "Sega Model 3"
+family = "arcade"
+aliases = ["MODEL3"]
+extensions = ["zip", "7z"]
+libretro = "MAME"
+arcade = true
+dats = ["metadat/mame/MAME.dat"]
+screenscraper = 75
+
+[[system]]
+id = "naomi2"
+name = "Sega NAOMI 2"
+family = "arcade"
+aliases = ["NAOMI2"]
+extensions = ["zip", "7z", "chd"]
+libretro = "Sega - Naomi 2"
+arcade = true
+dats = ["metadat/redump/Sega - Naomi 2.dat", "metadat/mame/MAME.dat"]
+
+[[system]]
+id = "triforce"
+name = "Namco Sega Nintendo Triforce"
+family = "arcade"
+aliases = ["TRIFORCE"]
+weak_extensions = ["iso"]
+arcade = true

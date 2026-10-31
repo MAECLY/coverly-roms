@@ -637,10 +637,15 @@ export type ContainerKind =
 /** `profiles::FolderNaming`: `GBA`/`SFC` card names or system ids. */
 export type FolderNaming = 'first-alias' | 'id';
 
+/** `systems::Family`: the kind of machine, which groups the pickers. */
+export type SystemFamily =
+  'console' | 'handheld' | 'computer' | 'arcade' | 'engine';
+
 /** One system Coverly knows (`list_systems`), sorted by name. */
 export interface SystemInfo {
   id: string;
   name: string;
+  family: SystemFamily;
 }
 
 export interface ProfileInfo {
@@ -766,6 +771,10 @@ export type LeftReason =
   | { kind: 'duplicate'; of: string }
   | { kind: 'already-present'; at: string }
   | { kind: 'already-sorted'; folder: string }
+  /** A game that is a folder (Doom WAD, Solarus, Lutro, ScummVM): left as
+   * one item; `folder` is the system's folder under the target layout
+   * (spec D15). */
+  | { kind: 'folder-game'; system: string; folder: string }
   /** The game is already in the library (duplicates step). */
   | InLibraryReason
   | { kind: 'symlink' }
@@ -781,7 +790,9 @@ export type LeftReason =
 export type ItemNote =
   | { kind: 'multi-rom-zip'; count: number }
   | { kind: 'no-folder-on-device'; folder: string }
-  | { kind: 'extension-contradicted'; ext: string }
+  /** `system`: the extension's owner, whose header is missing or lost to
+   * another system's (spec D24); absent in plans made before it. */
+  | { kind: 'extension-contradicted'; ext: string; system?: string }
   | { kind: 'catalogue-missing'; system: string }
   | { kind: 'encrypted' }
   /** The magic says another container than the extension (`actual`: `7z`). */

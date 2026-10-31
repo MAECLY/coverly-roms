@@ -111,9 +111,9 @@ fn psx_licence_text_is_extra_evidence() {
 }
 
 #[test]
-fn ps2_boot2_unsupported_system() {
+fn ps2_boot2_is_ps2() {
     let disc = ps(dt::ps2_iso(), None).unwrap();
-    assert_eq!(disc.system, DiscSystem::Unsupported("PlayStation 2"));
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
     assert_eq!(disc.serial.as_deref(), Some("SLUS-20062"));
     assert_eq!(disc.detail, "SYSTEM.CNF BOOT2");
     assert!(disc.volume.is_some());
@@ -126,27 +126,27 @@ fn ps2_boot2_unsupported_system() {
         )
         .build();
     let disc = ps(both, None).unwrap();
-    assert_eq!(disc.system, DiscSystem::Unsupported("PlayStation 2"));
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
     assert_eq!(disc.serial.as_deref(), Some("SLES-50003"));
 
     // sniff's PS2 fixture agrees.
     let disc = ps(fx::psx_iso(false, true), None).unwrap();
-    assert_eq!(disc.system, DiscSystem::Unsupported("PlayStation 2"));
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
 }
 
 #[test]
-fn ps2_by_size_unsupported_system() {
+fn ps2_by_size_is_ps2() {
     // No SYSTEM.CNF found, but no CD holds this much: a PS2 DVD.
     let pvd_only = IsoBuilder::new("PLAYSTATION").build();
     let dvd_len = 4_700_000_000;
     let disc = ps(pvd_only.clone(), Some(dvd_len)).unwrap();
-    assert_eq!(disc.system, DiscSystem::Unsupported("PlayStation 2"));
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
     assert_eq!(disc.detail, "PLAYSTATION on a DVD-size image");
 
     // The volume itself may say so: a window over the head of a DVD.
     let big = IsoBuilder::new("PLAYSTATION").space_size(2_000_000).build();
     let disc = ps(big, None).unwrap();
-    assert_eq!(disc.system, DiscSystem::Unsupported("PlayStation 2"));
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
 
     // CD-sized stays PS1, and a found BOOT line beats the size.
     assert_eq!(
@@ -621,10 +621,10 @@ fn neocd_ipl_txt() {
 }
 
 #[test]
-fn three_do_unsupported() {
+fn opera_is_3do() {
     for raw in [false, true] {
         let disc = id(dt::opera_3do(raw)).unwrap();
-        assert_eq!(disc.system, DiscSystem::Unsupported("3DO"), "raw={raw}");
+        assert_eq!(disc.system, DiscSystem::Known("3do"), "raw={raw}");
         assert!(disc.serials.is_empty());
         assert_eq!(disc.source, DiscIdSource::Signature);
         assert_eq!(disc.detail, "Opera volume header");
@@ -774,4 +774,91 @@ fn disc_reader_fetches_a_pending_boot_file() {
     assert_eq!(kept, first);
     let mut broken = |_r: std::ops::Range<u64>| Err(std::io::Error::other("disk gone"));
     assert!(DiscReader::identify_with(&mut head, Some(len), Some(&mut broken)).is_err());
+}
+
+// ---- Systems batch 1: the disc family (plan Task 4, spec §8.2) ----
+
+#[test]
+fn disc_reader_names_ps2_with_its_serial() {
+    // `BOOT2 = cdrom0:\SLUS_200.62;1` reaches the DAT ladder as a serial.
+    let disc = id(dt::ps2_iso()).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("ps2"));
+    assert_eq!(disc.serials, ["SLUS-20062"]);
+    assert_eq!(disc.confidence, 0.95);
+    assert_eq!(disc.source, DiscIdSource::SystemCnf);
+}
+
+#[test]
+fn pcfx_wins_over_pc_engine_cd() {
+    // Some PC-FX discs also carry the PC Engine CD text at sector 1.
+    for pce_text in [false, true] {
+        let disc = id(dt::pcfx_track(pce_text)).unwrap();
+        assert_eq!(disc.system, DiscSystem::Known("pcfx"), "pce={pce_text}");
+        assert_eq!(disc.confidence, 0.95);
+        assert_eq!(disc.detail, "PC-FX:Hu_CD-ROM");
+        assert_eq!(disc.source, DiscIdSource::Signature);
+    }
+    // The PC Engine CD track alone stays PC Engine CD.
+    assert_eq!(
+        id(dt::pce_cd_track()).unwrap().system,
+        DiscSystem::Known("pcenginecd")
+    );
+}
+
+#[test]
+fn cdi_disc_label() {
+    let disc = id(dt::cdi_track(1)).unwrap();
+    assert_eq!(disc.system, DiscSystem::Known("cdi"));
+    assert_eq!(disc.confidence, 0.90);
+    assert_eq!(disc.detail, "CD-I disc label");
+    // Another record type or version is not a disc label.
+    assert_eq!(id(dt::cdi_track(2)), None);
+    let mut bad_version = dt::cdi_track(1);
+    let at = 16 * 2352 + 24 + 6;
+    bad_version[at] = 2;
+    assert_eq!(id(bad_version), None);
+}
+
+#[test]
+fn cd32_by_its_trademark_block_and_cdtv_by_root_file() {
+    let cd32 = id(dt::amiga_cd("CDTV", dt::AmigaTm::Cd32Block)).unwrap();
+    assert_eq!(cd32.system, DiscSystem::Known("amigacd32"));
+    assert_eq!((cd32.confidence, cd32.detail.as_str()), (0.90, "CD32.TM"));
+    let cdtv = id(dt::amiga_cd("CDTV", dt::AmigaTm::CdtvFile)).unwrap();
+    assert_eq!(cdtv.system, DiscSystem::Known("cdtv"));
+    assert_eq!((cdtv.confidence, cdtv.detail.as_str()), (0.90, "CDTV.TM"));
+    for system_id in ["CD32", "COMMODORE"] {
+        let disc = id(dt::amiga_cd(system_id, dt::AmigaTm::Cd32Block)).unwrap();
+        assert_eq!(disc.system, DiscSystem::Known("amigacd32"), "{system_id}");
+    }
+    // The Amiga volume without a trademark is not told apart: None.
+    assert_eq!(id(dt::amiga_cd("CDTV", dt::AmigaTm::None)), None);
+    // A trademark file on another volume says nothing.
+    assert_eq!(id(dt::amiga_cd("CDROM", dt::AmigaTm::CdtvFile)), None);
+    assert_eq!(id(dt::amiga_cd("CDROM", dt::AmigaTm::Cd32Block)), None);
+}
+
+#[test]
+fn jaguar_cd_session_two_header() {
+    use coverly_core::disc::signatures::is_jaguar_cd;
+    assert!(is_jaguar_cd(&dt::jaguar_cd_session2(false)));
+    assert!(is_jaguar_cd(&dt::jaguar_cd_session2(true)));
+    // Silence, or the header text inside its 64-byte preamble, is not one.
+    assert!(!is_jaguar_cd(&[0u8; 2352]));
+    let mut early = vec![0u8; 2352];
+    early[..32].copy_from_slice(b"ATARI APPROVED DATA HEADER ATRI ");
+    assert!(!is_jaguar_cd(&early));
+}
+
+#[test]
+fn new_disc_details_are_from_the_fixed_vocabulary() {
+    let all = [
+        (dt::pcfx_track(true), "PC-FX:Hu_CD-ROM"),
+        (dt::cdi_track(1), "CD-I disc label"),
+        (dt::amiga_cd("CDTV", dt::AmigaTm::Cd32Block), "CD32.TM"),
+        (dt::amiga_cd("CDTV", dt::AmigaTm::CdtvFile), "CDTV.TM"),
+    ];
+    for (bytes, want) in all {
+        assert_eq!(id(bytes).unwrap().detail, want);
+    }
 }

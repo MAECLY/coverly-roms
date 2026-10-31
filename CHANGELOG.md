@@ -11,6 +11,36 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 ### Added
 
 - Windows on ARM64 builds of the app and the command line.
+- 64 retro systems (118 in all), each with its folder names, extensions,
+  libretro thumbnails folder, libretro-database DATs and ScreenScraper id
+  where one exists, and the folder each built-in profile really uses:
+  - Disc consoles and computers: PlayStation 2, 3DO, PC-FX, CD-i, Amiga
+    CD32, CDTV, Jaguar CD, FM Towns.
+  - Early consoles: ColecoVision, Intellivision, Vectrex, Odyssey² /
+    Videopac, Channel F, Arcadia 2001, Super Cassette Vision, Jaguar.
+  - Add-ons: SG-1000 / SC-3000, Sega Pico, SuperGrafx, 64DD, Satellaview,
+    Sufami Turbo.
+  - Handhelds: Supervision, Game.com, Mega Duck / Cougar Boy.
+  - Computers: ZX Spectrum, ZX81, Amstrad CPC, BBC Micro, Thomson MO/TO,
+    Dragon 32/64, TRS-80 Color Computer, TI-99/4A, X68000, X1, PC-98,
+    PC-88, Plus/4, PET, C128, Atari XE / XEGS, MSX2, MSX turbo R,
+    Apple II.
+  - Fantasy consoles: TIC-80, WASM-4, Arduboy, Uzebox, LowRes NX,
+    Vircon32.
+  - Ports and engines: Doom, Quake, Cave Story, Wolfenstein 3D, Mr. Boom,
+    Dinothawr, Lutro, Solarus, Flashback, Rick Dangerous. A game that is
+    a folder (`Freedoom Phase 1/`) moves as one item.
+  - Arcade: Sega Model 2, Model 3, NAOMI 2, Triforce. A MAME set's CHD
+    folder moves with its `.zip`.
+- Headers and DAT hashes identify the new systems where they can. Shared
+  extensions such as `.bin`, `.rom`, `.dsk`, `.tap` or `.hex` never pick a
+  system on their own: only a system folder, a header or a hash does,
+  otherwise the file goes to review.
+- Organise: the «left in place» system picker groups systems by family
+  (consoles, handhelds, computers, arcade, engines). A profile with no
+  folder for a system says so and names the folder it creates.
+- System icons for the new systems: RetroArch silhouettes where a neutral
+  one exists, the short label mount otherwise.
 
 ### Changed
 
@@ -21,6 +51,20 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Settings: Organise and Duplicates have their own tabs; advanced options are
   folded; search with ⌘F / Ctrl+F; the Duplicates and Organise screens link
   to their settings and offer to look again after a change.
+- PlayStation 2, 3DO and Sega Pico games are organised; before they were
+  recognised and left in place.
+- Loose `.hdf`, `.fdi` and `.dim` files without an Amiga, Atari ST or
+  other known header go to review instead of being filed automatically.
+- `MSX2/` folders belong to MSX2, not MSX: covers come from the MSX2
+  thumbnails, so art paths for those games move once and the next fill
+  downloads them again. Old files are not deleted.
+- `.sgx` files go to SuperGrafx and `.bs` files to Satellaview. Anbernic
+  stock keeps them in `PCE` and `SFC`, and MinUI keeps `.bs` in `SFC`;
+  MSX2 and Atari XE games stay in `MSX` and `A800` where the device has
+  no folder of their own.
+- Custom profiles made before this version keep rule-based folder names
+  for the new systems; clone the built-in profile again to get the
+  frontend's real names.
 
 ## [0.2.0] - 2026-10-25
 

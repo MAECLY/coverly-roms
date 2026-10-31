@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { SystemGroups } from '@/components/organize/SystemGroups';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { groupBySystem } from '@/lib/organize';
-import type { TransferMode } from '@/ipc/types';
+import type { SystemInfo, TransferMode } from '@/ipc/types';
 import { autoItem, discItem, planOf } from '@/test/organizeFixtures';
 
 const NAMES: Record<string, string> = {
@@ -164,9 +164,9 @@ describe('SystemGroups', () => {
 });
 
 describe('SystemGroups — a system the user chose', () => {
-  const SYSTEMS = [
-    { id: 'gb', name: 'Game Boy' },
-    { id: 'gba', name: 'Game Boy Advance' },
+  const SYSTEMS: SystemInfo[] = [
+    { id: 'gb', name: 'Game Boy', family: 'handheld' },
+    { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
   ];
 
   function renderChosen(onDecide: (ids: number[], c: unknown) => void) {
@@ -212,6 +212,49 @@ describe('SystemGroups — a system the user chose', () => {
       [[0], { system: 'gba' }],
       [[0], 'leave'],
     ]);
+  });
+});
+
+describe('SystemGroups — the full picker of a chosen system', () => {
+  it('groups every system by family, sorted, with leave last', () => {
+    const systems: SystemInfo[] = [
+      { id: 'zxspectrum', name: 'ZX Spectrum', family: 'computer' },
+      { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
+      { id: 'gb', name: 'Game Boy', family: 'handheld' },
+      { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
+    ];
+    const items = [
+      autoItem(0, 'mystery.rom', 'gb', 'ROMS/GB', {
+        method: 'user',
+        why: [{ kind: 'user', system: 'gb', weight: 1, detail: '' }],
+      }),
+    ];
+    render(
+      <I18nProvider locale="es">
+        <SystemGroups
+          groups={groupBySystem(planOf(items))}
+          layoutName="Anbernic (stock)"
+          systemName={systemName}
+          systems={systems}
+          onDecide={() => {}}
+        />
+      </I18nProvider>,
+    );
+    const select = screen.getByRole('combobox');
+    const groups = [...select.querySelectorAll('optgroup')];
+    expect(groups.map((g) => g.label)).toEqual([
+      'Consolas',
+      'Portátiles',
+      'Ordenadores',
+    ]);
+    expect(
+      [...groups[0]!.querySelectorAll('option')].map((o) => o.textContent),
+    ).toEqual(['Atari Jaguar', 'Sony PlayStation 2']);
+    // «Dejar» stays the last option, outside every group.
+    const last = select.lastElementChild!;
+    expect(last.tagName).toBe('OPTION');
+    expect(last).toHaveValue('__leave__');
+    expect(select).toHaveValue('gb');
   });
 });
 

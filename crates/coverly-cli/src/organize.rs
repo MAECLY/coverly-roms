@@ -759,6 +759,9 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::AlreadySorted { folder } => {
             format!("already in the {folder} system folder")
         }
+        LeftReason::FolderGame { system, folder } => {
+            format!("{system} game in its own folder: move the whole folder to {folder}")
+        }
         LeftReason::Symlink => "link, not followed".into(),
         LeftReason::SetIncomplete { missing } => {
             format!("game files missing: {}", missing.join(", "))
@@ -800,7 +803,7 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::NoFolderOnDevice { folder } => {
             format!("the device has no {folder} folder yet")
         }
-        ItemNote::ExtensionContradicted { ext } => {
+        ItemNote::ExtensionContradicted { ext, .. } => {
             format!(
                 "the .{} extension says otherwise",
                 ext.trim_start_matches('.')
@@ -1290,6 +1293,10 @@ mod tests {
             LeftReason::AlreadySorted {
                 folder: forged.into(),
             },
+            LeftReason::FolderGame {
+                system: "doom".into(),
+                folder: forged.into(),
+            },
         ];
         for r in &reasons {
             let text = left_text(r);
@@ -1513,6 +1520,13 @@ mod tests {
         assert_eq!(
             left_text(&LeftReason::MultiVolumeArchive { parts: 3 }),
             "multi-part archive (3 parts); join them first"
+        );
+        assert_eq!(
+            left_text(&LeftReason::FolderGame {
+                system: "doom".into(),
+                folder: "prboom".into(),
+            }),
+            "doom game in its own folder: move the whole folder to prboom"
         );
         for ext in ["zip", ".zip"] {
             let note = ItemNote::ContainerMismatch {

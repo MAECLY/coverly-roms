@@ -1,9 +1,10 @@
 //! The read-only walk of a ROM pile (organise spec §7.1): which files are
 //! candidates, which stay where they are and why, which folders are
 //! already sorted by system and which are too deep to look into. Reads
-//! names and metadata only, never file contents.
+//! names and metadata only, plus the first 4 bytes of a `.wad` directly
+//! in a folder (the folder-game proof, spec D15).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -13,7 +14,10 @@ use walkdir::WalkDir;
 
 use super::plan::LeftReason;
 use crate::archive::detect::multi_volume_part;
+use crate::identify::sniff::is_doom_wad;
 use crate::organize::inspect::names_an_archive;
+use crate::profiles::naming::system_folder;
+use crate::profiles::Profile;
 use crate::scan::classify::{
     extension, is_appledouble, is_bios_name, is_hidden, is_junk_file, is_partial_download,
     is_zone_identifier, COMPANION_EXTS, PARTIAL_DOWNLOAD_EXTS,
@@ -23,6 +27,12 @@ use crate::systems::SystemDb;
 
 /// Default walk depth below the source (spec §7.1).
 pub const MAX_DEPTH: usize = 4;
+
+/// Systems whose games are folders (spec D15). A pile folder directly
+/// holding a file proven for one of them (an `IWAD`/`PWAD`, a `.solarus`
+/// or `.lutro` package, `main.lua` beside `conf.lua`, a `.scummvm`/`.svm`
+/// launcher) is left in place as one item.
+pub const FOLDER_GAME_SYSTEMS: [&str; 4] = ["doom", "solarus", "lutro", "scummvm"];
 
 /// Tells whether a file is a cloud placeholder whose bytes are not local
 /// (reading it would trigger a download).
@@ -82,6 +92,11 @@ pub struct Walked {
     pub companions: Vec<PathBuf>,
     /// Not ROM-like (plan O-D7): counted, listed on demand.
     pub other_files: Vec<PathBuf>,
+    /// MAME CHD folders (spec D16): a `<set>.zip` candidate and the `.chd`
+    /// files of the `<set>/` folder beside it, which holds nothing else.
+    /// The CHDs are not candidates; the planner attaches them to the set
+    /// when it moves as an arcade set and leaves them otherwise.
+    pub chd_folders: Vec<(PathBuf, Vec<PathBuf>)>,
     /// OS metadata, AppleDouble twins, hidden files, copied ADS streams.
     pub junk: usize,
 }
@@ -101,6 +116,9 @@ pub struct WalkOptions<'a> {
     pub probe: &'a dyn MetaProbe,
     /// [`MAX_DEPTH`] in practice.
     pub max_depth: usize,
+    /// The target layout: its own folder names count as sorted too
+    /// ([`SystemDb::resolve_folder_in`]); `None` = global aliases only.
+    pub profile: Option<&'a Profile>,
 }
 
 /// Walks `source` without following links or crossing volumes and sorts
@@ -113,6 +131,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
 
     let mut out = Walked::default();
     let mut sorted: Vec<(PathBuf, String)> = Vec::new();
+    let mut folder_games: Vec<(PathBuf, LeftReason)> = Vec::new();
     let mut refused_links: Vec<PathBuf> = Vec::new();
     let skip_keys: Vec<String> = opts.skip_dirs.iter().map(|p| dir_key(p)).collect();
     let roms_root_key = opts.roms_root.as_deref().map(dir_key);
@@ -158,9 +177,13 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
             if roms_root_key.as_deref() == Some(key.as_str()) {
                 return true;
             }
-            match db.resolve_folder(&name) {
-                Some(system) => {
-                    sorted.push((entry.path().to_path_buf(), system.id.clone()));
+            if let Some(system) = db.resolve_folder_in(opts.profile, &name) {
+                sorted.push((entry.path().to_path_buf(), system.id.clone()));
+                return false;
+            }
+            match folder_game_in(entry.path(), db, opts) {
+                Some(reason) => {
+                    folder_games.push((entry.path().to_path_buf(), reason));
                     false
                 }
                 None => true,
@@ -237,6 +260,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
 
     out.left
         .extend(refused_links.into_iter().map(|p| (p, LeftReason::Symlink)));
+    out.left.extend(folder_games);
     out.left.extend(
         partial_dirs
             .into_iter()
@@ -244,12 +268,150 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
     );
     out.sorted_folders = sorted;
     out.candidates.sort_by(|a, b| a.path.cmp(&b.path));
+    out.chd_folders = take_chd_folders(&mut out.candidates);
     out.left.sort_by(|a, b| a.0.cmp(&b.0));
     out.sorted_folders.sort();
     out.deep_folders.sort();
     out.companions.sort();
     out.other_files.sort();
     Ok(out)
+}
+
+/// The folder-game reason of `dir` when it directly holds a file proven
+/// for one of [`FOLDER_GAME_SYSTEMS`] (spec D15); `None` otherwise. Only a
+/// `.wad` is read (its first 4 bytes), never one in the cloud.
+fn folder_game_in(dir: &Path, db: &SystemDb, opts: &WalkOptions) -> Option<LeftReason> {
+    let mut files: Vec<(String, PathBuf)> = fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .filter(|(name, _)| {
+            !(is_hidden(name)
+                || is_appledouble(name)
+                || is_junk_file(name)
+                || is_zone_identifier(name))
+        })
+        .collect();
+    files.sort();
+    let has = |want: &str| files.iter().any(|(n, _)| n.eq_ignore_ascii_case(want));
+    let proven = files
+        .iter()
+        .find_map(|(name, path)| match extension(Path::new(name)).as_str() {
+            "solarus" => Some("solarus"),
+            "lutro" => Some("lutro"),
+            "scummvm" | "svm" => Some("scummvm"),
+            "wad" if starts_like_a_wad(path, opts.probe) => Some("doom"),
+            _ => None,
+        });
+    let proven = proven.or_else(|| (has("main.lua") && has("conf.lua")).then_some("lutro"))?;
+    let system = db.get(proven)?;
+    let folder = match opts.profile {
+        Some(profile) => system_folder(profile, system, db, &BTreeMap::new()).folder,
+        None => system
+            .aliases
+            .first()
+            .cloned()
+            .unwrap_or_else(|| system.id.clone()),
+    };
+    Some(LeftReason::FolderGame {
+        system: system.id.clone(),
+        folder,
+    })
+}
+
+/// Takes out of `candidates` the `.chd` files of every `<set>/` folder
+/// that sits beside a `<set>.zip` candidate (any case, a set name per
+/// [`is_set_name`]) and directly holds
+/// only `.chd` files (junk aside, no sub-folder): MAME's CHD-per-game
+/// layout (spec D16). Returns each set with its CHDs, sorted.
+fn take_chd_folders(candidates: &mut Vec<WalkCandidate>) -> Vec<(PathBuf, Vec<PathBuf>)> {
+    let zips: HashMap<(PathBuf, String), PathBuf> = candidates
+        .iter()
+        .filter(|c| c.ext == "zip")
+        .filter_map(|c| {
+            let stem = c.path.file_stem()?.to_string_lossy().to_lowercase();
+            is_set_name(&stem).then_some(())?;
+            Some(((c.path.parent()?.to_path_buf(), stem), c.path.clone()))
+        })
+        .collect();
+    if zips.is_empty() {
+        return Vec::new();
+    }
+    let mut sets: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    let mut checked: HashMap<PathBuf, bool> = HashMap::new();
+    for c in candidates.iter().filter(|c| c.ext == "chd") {
+        let Some(folder) = c.path.parent() else {
+            continue;
+        };
+        let (Some(beside), Some(name)) = (folder.parent(), folder.file_name()) else {
+            continue;
+        };
+        let key = (beside.to_path_buf(), name.to_string_lossy().to_lowercase());
+        let Some(zip) = zips.get(&key) else {
+            continue;
+        };
+        let only_chds = *checked
+            .entry(folder.to_path_buf())
+            .or_insert_with(|| holds_only_chds(folder));
+        if only_chds {
+            sets.entry(zip.clone()).or_default().push(c.path.clone());
+        }
+    }
+    let taken: HashSet<&PathBuf> = sets.values().flatten().collect();
+    candidates.retain(|c| !taken.contains(&c.path));
+    sets.into_iter()
+        .map(|(zip, mut chds)| {
+            chds.sort();
+            (zip, chds)
+        })
+        .collect()
+}
+
+/// Whether `stem` can be a MAME set name (`sfiii`, `kof98_2`): ASCII
+/// letters, digits and `_` only. A console game unpacked beside its zip
+/// (`Final Fantasy VII (USA)/`) is never one, so its CHDs stay candidates.
+fn is_set_name(stem: &str) -> bool {
+    !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Whether `dir` directly holds `.chd` files and nothing else but OS junk.
+fn holds_only_chds(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let mut any = false;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if is_hidden(&name)
+            || is_appledouble(&name)
+            || is_junk_file(&name)
+            || is_zone_identifier(&name)
+        {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|t| t.is_file()) || extension(Path::new(&name)) != "chd" {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
+/// Whether the local file at `path` opens with `IWAD`/`PWAD`; a cloud
+/// placeholder is never read (that would download it).
+fn starts_like_a_wad(path: &Path, probe: &dyn MetaProbe) -> bool {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || probe.cloud_only(path, &meta) {
+        return false;
+    }
+    let mut head = [0u8; 4];
+    fs::File::open(path)
+        .and_then(|mut f| io::Read::read_exact(&mut f, &mut head))
+        .is_ok()
+        && is_doom_wad(&head)
 }
 
 /// `name` is a part of a split 7z (`.7z.001`, `.7z.002`, …). Other

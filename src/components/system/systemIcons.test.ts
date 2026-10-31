@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import monochrome from '../../../crates/coverly-core/tests/fixtures/research/retroarch-assets-monochrome.txt?raw';
 import toml from '../../../crates/coverly-core/src/systems/systems.toml?raw';
 import { SYSTEM_ICON_SOURCES } from '../../../scripts/icons/systemIconsLib.mjs';
 import {
@@ -11,7 +12,7 @@ import { SYSTEM_ICONS } from './systemIcons.generated';
 const IDS = [...toml.matchAll(/^id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!);
 
 describe('system icon data', () => {
-  it('reads the 54 systems', () => expect(IDS).toHaveLength(54));
+  it('reads the 118 systems', () => expect(IDS).toHaveLength(118));
   it('every systems.toml id resolves to an icon or an abbreviation, not both', () => {
     for (const id of IDS) {
       const has = Number(id in SYSTEM_ICONS) + Number(id in FALLBACK_ABBR);
@@ -46,6 +47,18 @@ describe('system icon data', () => {
       expect(icon.aspect, id).toBeLessThanOrEqual(2.5);
     }
   });
+  it('every source entry names a known system and a file of the pinned set', () => {
+    const pinned = new Set(
+      monochrome
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
+    );
+    for (const [id, s] of Object.entries(SYSTEM_ICON_SOURCES)) {
+      expect(IDS, id).toContain(id);
+      expect(pinned.has(`src/xmb/monochrome/${s.file}`), s.file).toBe(true);
+    }
+  });
   it('every source entry is audited', () => {
     for (const [id, s] of Object.entries(SYSTEM_ICON_SOURCES)) {
       expect(s.depicts, id).toBeTruthy();
@@ -58,7 +71,7 @@ describe('system icon data', () => {
     expect(new Set(Object.values(FALLBACK_ABBR)).size).toBe(
       Object.keys(FALLBACK_ABBR).length,
     );
-    expect(abbreviationFor('x68000')).toBe('X680');
+    expect(abbreviationFor('pc6001')).toBe('PC60');
     expect(abbreviationFor('cps2')).toBe('CPS2');
     expect(abbreviationFor('my-pc_98')).toBe('MYPC');
     expect(abbreviationFor('---')).toBe('?');

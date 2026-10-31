@@ -1278,6 +1278,7 @@
       "extension": "Extensión .{ext}, propia de {system}",
       "extensionShared": "Extensión .{ext}, compartida por varios sistemas; probablemente {system}",
       "extensionContradicted": "Extensión .{ext} de {system}, pero la cabecera no coincide",
+      "extensionWeak": "Extensión .{ext}: cuenta para {system} solo dentro de su carpeta o con su cabecera",
       "name": "El nombre se parece a {name} ({system})",
       "online": "ScreenScraper lo conoce como {name} ({system})",
       "user": "Elegido por ti"
@@ -1288,6 +1289,7 @@
       "encryptedArchive": "Protegido con contraseña",
       "files": "Archivos que se quedan donde están",
       "folderFull": "La carpeta {folder} ya no admite más archivos en FAT32",
+      "folderGame": "Juego de {system} en su propia carpeta: muévela entera a {folder}",
       "multiVolume": "Archivo en varias partes ({parts}); únelas antes",
       "nestedArchive": "Archivo dentro de otro archivo; extráelo antes",
       "partialDownload": "Descarga sin terminar",
@@ -1506,6 +1508,13 @@
     "dismiss": "Descartar"
   },
   "systems": {
+    "family": {
+      "console": "Consolas",
+      "handheld": "Portátiles",
+      "computer": "Ordenadores",
+      "arcade": "Recreativas",
+      "engine": "Motores y consolas de fantasía"
+    },
     "unknown": "Carpeta sin sistema reconocido"
   },
   "progress": {

@@ -8,6 +8,7 @@ import {
   SYSTEM_ICON_SOURCES,
   toContactSheet,
   toGenerated,
+  toReadme,
   toSvgFile,
 } from '../../../scripts/icons/systemIconsLib.mjs';
 import { SYSTEM_ICONS } from './systemIcons.generated';
@@ -111,9 +112,9 @@ describe('assertClean', () => {
 });
 
 describe('SYSTEM_ICON_SOURCES', () => {
-  it('maps 41 ids, each audited', () => {
+  it('maps 77 ids, each audited', () => {
     const entries = Object.entries(SYSTEM_ICON_SOURCES);
-    expect(entries).toHaveLength(41);
+    expect(entries).toHaveLength(77);
     for (const [id, s] of entries) {
       expect(s.file, id).toMatch(/\.svg$/);
       expect(s.audit.trim(), id).not.toBe('');
@@ -174,5 +175,19 @@ describe('committed outputs', () => {
       expect(svgOf(id), id).toBe(toSvgFile(icon));
       expect(() => assertClean(id, icon.body)).not.toThrow();
     }
+  });
+});
+
+describe('toReadme', () => {
+  it('records the neutral drawings left on the Slot mount for their aspect', () => {
+    const readme = toReadme(SYSTEM_ICON_SOURCES);
+    for (const name of [
+      'Vectrex',
+      'CDTV',
+      'Amstrad CPC',
+      'Channel F',
+      'Intellivision',
+    ])
+      expect(readme, name).toContain(name);
   });
 });

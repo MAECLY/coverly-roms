@@ -216,6 +216,196 @@ export const SYSTEM_ICON_SOURCES = Object.freeze({
     depicts: 'handheld',
     audit: 'landscape handheld, blank screen, plain button clusters, no badge',
   },
+  // Systems batch 1 (spec §9.2), audited on the contact sheet (D20). The set
+  // icons of Uzebox, TIC-80, DOOM, Quake, Cave Story, MrBoom, Dinothawr,
+  // Lutro, Flashback and Rick Dangerous are logos, wordmarks or game art:
+  // not vendored, those systems use the Slot mount (WORDMARK_IDS). The
+  // Vectrex, CDTV and Amstrad CPC drawings (wider than 2.5:1) and the
+  // Channel F and Intellivision ones (narrower than 1:2) are neutral but
+  // unreadable in a 1.5x row box, so they keep the Slot mount too.
+  ps2: {
+    file: 'Sony - PlayStation 2.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips and two sticks, plain round face buttons, no face-button symbols',
+  },
+  '3do': {
+    file: 'The 3DO Company - 3DO.svg',
+    depicts: 'pad',
+    audit: 'crescent pad, d-pad and plain round buttons, no marks',
+  },
+  jaguar: {
+    file: 'Atari - Jaguar.svg',
+    depicts: 'pad',
+    audit: 'pad with plain buttons and blank keypad, no marks',
+  },
+  jaguarcd: {
+    file: 'Atari - Jaguar CD.svg',
+    depicts: 'pad',
+    audit: 'pad with plain buttons and blank keypad, no marks',
+  },
+  colecovision: {
+    file: 'Coleco - ColecoVision.svg',
+    depicts: 'pad',
+    audit: 'keypad controller with plain disc, blank keys, no marks',
+  },
+  odyssey2: {
+    file: 'Magnavox - Odyssey2.svg',
+    depicts: 'computer',
+    audit: 'console with flat membrane keyboard, blank keys, no marks',
+  },
+  arcadia: {
+    file: 'Emerson - Arcadia 2001.svg',
+    depicts: 'pad',
+    audit: 'keypad controller with plain disc, blank keys, no marks',
+  },
+  supervision: {
+    file: 'Watara - Supervision.svg',
+    depicts: 'handheld',
+    audit: 'portrait handheld, blank screen, plain buttons, no badge',
+  },
+  sg1000: {
+    file: 'Sega - SG-1000.svg',
+    depicts: 'pad',
+    audit: 'rectangular pad with plain d-pad and two plain buttons, no marks',
+  },
+  pico: {
+    file: 'Sega - PICO.svg',
+    depicts: 'console',
+    audit: 'console top with blank cartridge slot, no marks',
+  },
+  supergrafx: {
+    file: 'NEC - PC Engine SuperGrafx.svg',
+    depicts: 'pad',
+    audit: 'rectangular pad, d-pad and plain buttons, no marks',
+  },
+  pcfx: {
+    file: 'NEC - PC-FX.svg',
+    depicts: 'pad',
+    audit: 'rounded pad, plain buttons, no marks',
+  },
+  cdi: {
+    file: 'Non-Redump - Philips - CD-i.svg',
+    depicts: 'pad',
+    audit: 'rounded pad, plain cross pad and buttons, no marks',
+  },
+  amigacd32: {
+    file: 'Commodore - CD32.svg',
+    depicts: 'pad',
+    audit: 'curved pad, plain round buttons, no marks',
+  },
+  n64dd: {
+    file: 'Nintendo - Nintendo 64DD.svg',
+    depicts: 'pad',
+    audit: 'three-prong pad, plain buttons, no marks',
+  },
+  satellaview: {
+    file: 'Nintendo - Satellaview.svg',
+    depicts: 'pad',
+    audit: 'rounded pad, plain dots, no marks',
+  },
+  sufami: {
+    file: 'Nintendo - Sufami Turbo.svg',
+    depicts: 'pad',
+    audit: 'rounded pad, plain dots, no marks',
+  },
+  gamecom: {
+    file: 'Tiger - Game.com.svg',
+    depicts: 'handheld',
+    audit: 'landscape handheld, blank screen, plain buttons, no badge',
+  },
+  megaduck: {
+    file: 'Welback - Mega Duck.svg',
+    depicts: 'handheld',
+    audit: 'portrait handheld, blank screen, plain buttons, no badge',
+  },
+  scv: {
+    file: 'Epoch - Super Cassette Vision.svg',
+    depicts: 'pad',
+    audit: 'controller with plain disc, ribbed top, no marks',
+  },
+  zxspectrum: {
+    file: 'Sinclair - ZX Spectrum.svg',
+    depicts: 'computer',
+    audit:
+      'keyboard computer, plain keys, blank nameplate, plain corner stripe, no wordmark',
+  },
+  zx81: {
+    file: 'Sinclair - ZX 81.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer, plain keys, blank nameplate, no wordmark',
+  },
+  x68000: {
+    file: 'Sharp - X68000.svg',
+    depicts: 'computer',
+    audit: 'keyboard, plain keys, no marks',
+  },
+  x1: {
+    file: 'Sharp - X1.svg',
+    depicts: 'computer',
+    audit: 'keyboard, plain keys, no marks',
+  },
+  pc98: {
+    file: 'NEC - PC-98.svg',
+    depicts: 'computer',
+    audit: 'keyboard, plain keys, no marks',
+  },
+  pc88: {
+    file: 'NEC - PC-88.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer, plain keys, no marks',
+  },
+  fmtowns: {
+    file: 'Fujitsu - FM Towns.svg',
+    depicts: 'computer',
+    audit: 'keyboard, plain keys, no marks',
+  },
+  msx2: {
+    file: 'Microsoft - MSX2.svg',
+    depicts: 'computer',
+    audit:
+      'keyboard computer, plain keys, blank cartridge slot, boxed cursor key, no marks',
+  },
+  apple2: {
+    file: 'Apple - II.svg',
+    depicts: 'computer',
+    audit: 'computer with blank monitor and plain keyboard, no marks',
+  },
+  bbcmicro: {
+    file: 'Acorn - BBC Micro.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer, plain keys, no marks',
+  },
+  plus4: {
+    file: 'Commodore - Plus-4.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer, plain keys, no marks',
+  },
+  pet: {
+    file: 'Commodore - PET.svg',
+    depicts: 'computer',
+    audit: 'all-in-one computer, blank screen, plain keys, no marks',
+  },
+  atarixe: {
+    file: 'Atari - XEGS.svg',
+    depicts: 'pad',
+    audit: 'joystick base seen from above, plain knob, no marks',
+  },
+  ti99: {
+    file: 'Texas Instruments - TI-99-4A.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer with blank cartridge slot, plain keys, no marks',
+  },
+  thomson: {
+    file: 'Thomson - MOTO.svg',
+    depicts: 'computer',
+    audit: 'keyboard computer, plain keys, no marks',
+  },
+  arduboy: {
+    file: 'Arduboy Inc - Arduboy.svg',
+    depicts: 'handheld',
+    audit: 'card-sized handheld, blank screen, plain buttons, no badge',
+  },
   fbneo: { file: CABINET, depicts: 'cabinet', audit: CABINET_AUDIT },
   varcade: {
     file: CABINET,
@@ -627,7 +817,13 @@ these files by hand; change the source map in
 These are simplified silhouettes of compatible hardware, shown beside the
 system's name only to identify it. They imply no endorsement. Icons in the
 theme that are a maker's logo or wordmark (CP System, MAME, DOS, ScummVM,
-RPG Maker) are not vendored; those systems use the abbreviation fallback.
+RPG Maker, Uzebox, TIC-80, Lutro) or game title art (DOOM, Quake, Cave Story,
+MrBoom, Dinothawr, Flashback, Rick Dangerous) are not vendored; those systems
+use the abbreviation fallback.
+The neutral drawings for Vectrex, CDTV and Amstrad CPC (wider than 2.5:1) and
+for Channel F and Intellivision (narrower than 1:2) are not vendored either:
+they are unreadable in a box 1.5× the row height, so those systems use the
+abbreviation fallback too.
 The CC licence grants no trademark rights. See \`TRADEMARKS.md\`.
 
 ## Audit

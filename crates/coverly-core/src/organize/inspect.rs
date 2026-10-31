@@ -31,11 +31,12 @@ use crate::dedupe::source::DiscId;
 use crate::disc::sheets::MAX_SHEET_BYTES;
 use crate::disc::source::MAX_WINDOW;
 use crate::disc::{
-    infer_redump_set, parse_sheet, primary_track, DiscIdentity, DiscReader, DiscSystem, Sheet,
-    SheetKind, WindowSource,
+    first_of_session, infer_redump_set, parse_sheet, primary_track, signatures, DiscIdentity,
+    DiscReader, DiscSystem, Sheet, SheetKind, WindowSource,
 };
+use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{
-    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
+    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP, UEF_MAGIC,
 };
 use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
@@ -415,7 +416,7 @@ pub fn inspect_file_with(
             }
         }
         Container::Raw => {
-            if let Some(m) = magic {
+            if let Some(m) = magic.filter(|_| !PACKAGE_EXTS.contains(&ext.as_str())) {
                 // Recognised, never opened (cab, arj, lzh, compress, ECM).
                 out.issue = Some(ArchiveIssue::Unsupported {
                     format: Some(unopened_name(m).to_string()),
@@ -434,11 +435,14 @@ pub fn inspect_file_with(
                     return Ok(out);
                 }
             }
-            let sniffed = if len <= head.len() as u64 {
+            let mut sniffed = if len <= head.len() as u64 {
                 first
             } else {
                 sniff(&mut FileAt(file), len, &ext)
             };
+            if magic.is_some() && PACKAGE_EXTS.contains(&ext.as_str()) {
+                sniffed.hits.extend(package_hits(path, &ext, limits));
+            }
             out.head_crc = Some(format!("{:08X}", crc32fast::hash(&head)));
             if let Some(what) = sniffed.not_a_rom {
                 out.issue = Some(ArchiveIssue::NotARom { what });
@@ -501,10 +505,63 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Zip-based game packages (Arduboy, MAME/TI-99 cartridge packages,
+/// Solarus quests, Lutro games) and gzip BBC Micro tapes (spec D25): the
+/// item is one raw file whatever its magic, moved as-is and never
+/// extracted. A header check that needs the inner files reads them
+/// through the archive reader on the same bytes.
+pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"];
+
+/// Header evidence of a game package read through the archive layer
+/// (spec §8.1, D25): an `.rpk` whose zip holds `layout.xml` (a MAME
+/// cartridge package) is a TI-99/4A cartridge, an `.arduboy` whose zip
+/// holds `info.json` at its root (the Arduboy package manifest) is an
+/// Arduboy game, and a gzip `.uef` whose
+/// decoded head opens with `UEF File!` is a BBC Micro tape. Never runs a
+/// tool, charges the plan head budget and writes nothing; any archive
+/// problem simply names no system.
+fn package_hits(path: &Path, ext: &str, limits: &Limits) -> Vec<Evidence> {
+    let Ok(Some(mut reader)) = archive::open_archive_with(path, limits, Some(&[])) else {
+        return Vec::new();
+    };
+    let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
+    let header = |system: &str, weight: f32, detail: &str| {
+        vec![Evidence::new(IdLevel::Header, system, weight, detail)]
+    };
+    match ext {
+        "rpk"
+            if entries
+                .iter()
+                .any(|e| entry_name(e).eq_ignore_ascii_case("layout.xml")) =>
+        {
+            header("ti99", 0.90, "RPK layout.xml")
+        }
+        "arduboy"
+            if entries
+                .iter()
+                .any(|e| entry_name(e).eq_ignore_ascii_case("info.json")) =>
+        {
+            header("arduboy", 0.90, "Arduboy info.json")
+        }
+        "uef" if matches!(reader.format(), Format::Single(_)) && entries.len() == 1 => {
+            let mut budget = Budget::plan_head(limits);
+            let cap = UEF_MAGIC.len() as u64;
+            match read_entry(reader.as_mut(), entries[0].index, cap, &mut budget) {
+                Ok(bytes) if bytes.starts_with(UEF_MAGIC) => header("bbcmicro", 0.95, "UEF (gzip)"),
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Magic first (a 7z named `.zip` is a 7z; a zip named `.bin` is a zip),
 /// the extension only when the bytes carry no magic (archives spec §3.2
 /// rule 1): an HTML page named `.zip` is judged as a zip that is not one.
 fn container_for(ext: &str, magic: Option<ContainerMagic>) -> Container {
+    if PACKAGE_EXTS.contains(&ext) {
+        return Container::Raw;
+    }
     magic
         .or_else(|| by_extension(ext))
         .map_or(Container::Raw, Container::of_magic)
@@ -882,6 +939,9 @@ struct Disc {
     /// A `.cue` whose set was inferred: its track 01 of a GD-ROM is only
     /// the low-density area.
     deferred_cue: bool,
+    /// The first track of session 2 of a multi-session cue (a Jaguar CD's
+    /// boot track), when the sheet was read.
+    session2: Option<usize>,
     /// Title key without disc tags (`final game (usa)`).
     title: String,
     /// `N` of a `(Disc N)` tag.
@@ -1115,6 +1175,7 @@ fn sheet_disc(
         check: SheetCheck::Read,
         known: true,
         deferred_cue: false,
+        session2: None,
         title,
         number,
     };
@@ -1139,6 +1200,8 @@ fn sheet_disc(
             };
             disc.primary =
                 primary_track(&sheet).and_then(|t| found.get(sheet.tracks[t].file).copied());
+            disc.session2 =
+                first_of_session(&sheet, 2).and_then(|t| found.get(sheet.tracks[t].file).copied());
             let mut tracks = found;
             let mut seen = HashSet::new();
             tracks.retain(|i| seen.insert(*i));
@@ -1370,6 +1433,7 @@ fn disc_set(
             check: SheetCheck::Read,
             known: true,
             deferred_cue: false,
+            session2: None,
             title,
             number,
         });
@@ -1459,6 +1523,13 @@ fn disc_set(
             primary = Some(first.tracks[2]);
             out.payloads.clear();
             identity = identify_track(reader, entries, &files[first.tracks[2]], budget, out)?;
+        }
+    }
+    // A Jaguar CD keeps its boot header in session 2, in a track the
+    // sheet calls audio (spec §8.2).
+    if identity.is_none() {
+        if let Some(s2) = first.session2 {
+            identity = jaguar_cd(reader, entries, &files[s2], budget, out)?;
         }
     }
     let names = |v: &[usize]| v.iter().map(|&i| files[i].name.clone()).collect::<Vec<_>>();
@@ -1578,6 +1649,37 @@ fn identify_track(
     Ok(found.ok().flatten().map(DiscFound::of))
 }
 
+/// Raw sectors of a session-2 track read for the Jaguar CD header: its
+/// first sector and a two-second pregap before it.
+const JAGUAR_HEAD: u64 = 152 * 2352;
+
+/// The Jaguar CD verdict of the first track of session 2: its head (at
+/// most [`JAGUAR_HEAD`] bytes, when the budget reaches it) carries the
+/// boot header. `None` otherwise: folder and name decide.
+fn jaguar_cd(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    track: &Listed,
+    budget: &mut Budget,
+    out: &mut Inspection,
+) -> Result<Option<DiscFound>, ArchiveError> {
+    let entry = &entries[track.at];
+    let want = JAGUAR_HEAD.min(entry.size);
+    if entry.encrypted || !reachable(entries, track.at, want, budget) {
+        return Ok(None);
+    }
+    let Small::Bytes(bytes) = read_small(reader, entry.index, want, budget, out)? else {
+        return Ok(None);
+    };
+    Ok(signatures::is_jaguar_cd(&bytes).then(|| {
+        DiscFound::of(crate::disc::signature(
+            "jaguarcd",
+            0.95,
+            "ATARI APPROVED DATA HEADER",
+        ))
+    }))
+}
+
 /// A reader that hashes what passes through it and keeps the first error
 /// as an [`ArchiveError`] (the sniffer only sees "no more bytes").
 struct Tee<R> {
@@ -1686,6 +1788,9 @@ mod tests {
         assert_eq!(container_for("gba", None), Container::Raw);
         // Recognised, never opened: raw, reported unsupported.
         assert_eq!(container_for("bin", Some(M::Ecm)), Container::Raw);
+        // Game packages are raw whatever their magic (spec D25).
+        assert_eq!(container_for("arduboy", Some(M::Zip)), Container::Raw);
+        assert_eq!(container_for("uef", Some(M::Gzip)), Container::Raw);
     }
 
     #[test]

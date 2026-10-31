@@ -23,6 +23,24 @@ describe('SystemIcon', () => {
     expect(svg).toHaveAttribute('preserveAspectRatio', 'xMidYMid meet');
     expect(box(svg)).toEqual([24, 16]);
   });
+  it('renders a batch 1 silhouette for ps2', () => {
+    const { container } = render(<SystemIcon systemId="ps2" size={16} />);
+    expect(
+      container.querySelector('svg[data-system-icon="ps2"]'),
+    ).not.toBeNull();
+  });
+  it('mounts the batch 1 systems with no silhouette under their label', () => {
+    const { container, rerender } = render(
+      <SystemIcon systemId="wasm4" size={16} />,
+    );
+    const w4 = container.querySelector('[data-system-icon="wasm4"]')!;
+    expect(w4.tagName.toLowerCase()).not.toBe('svg');
+    expect(w4).toHaveTextContent('W4');
+    rerender(<SystemIcon systemId="model2" size={16} />);
+    expect(
+      container.querySelector('[data-system-icon="model2"]'),
+    ).toHaveTextContent('MDL2');
+  });
   it('is an image with a name when titled', () => {
     render(<SystemIcon systemId="gb" size={20} title="Game Boy" />);
     expect(screen.getByRole('img', { name: 'Game Boy' })).toHaveAttribute(
@@ -77,10 +95,10 @@ describe('SystemIcon', () => {
     expect(container.querySelectorAll('.system-mount__corner')).toHaveLength(4);
   });
   it('uses the first four letters of a user-defined id', () => {
-    const { container } = render(<SystemIcon systemId="x68000" size={16} />);
+    const { container } = render(<SystemIcon systemId="pc6001" size={16} />);
     expect(
-      container.querySelector('[data-system-icon="x68000"]'),
-    ).toHaveTextContent('X680');
+      container.querySelector('[data-system-icon="pc6001"]'),
+    ).toHaveTextContent('PC60');
   });
   it('names a titled mount as an image', () => {
     render(<SystemIcon systemId="mame" size={20} title="Arcade (MAME)" />);

@@ -1278,6 +1278,7 @@
       "extension": ".{ext} extension, used only by {system}",
       "extensionShared": ".{ext} extension, shared by several systems; {system} is likely",
       "extensionContradicted": ".{ext} extension of {system}, but the header doesn't match",
+      "extensionWeak": ".{ext} counts for {system} only inside its folder or with its header",
       "name": "The name resembles {name} ({system})",
       "online": "ScreenScraper knows it as {name} ({system})",
       "user": "Chosen by you"
@@ -1288,6 +1289,7 @@
       "encryptedArchive": "Password protected",
       "files": "Files staying where they are",
       "folderFull": "The folder {folder} can't hold more files on FAT32",
+      "folderGame": "{system} game in its own folder: move the whole folder to {folder}",
       "multiVolume": "Multi-part archive ({parts} parts); join them first",
       "nestedArchive": "Archive inside another archive; extract it first",
       "partialDownload": "Download not finished",
@@ -1506,6 +1508,13 @@
     "dismiss": "Dismiss"
   },
   "systems": {
+    "family": {
+      "console": "Consoles",
+      "handheld": "Handhelds",
+      "computer": "Computers",
+      "arcade": "Arcade",
+      "engine": "Engines and fantasy consoles"
+    },
     "unknown": "Folder with no known system"
   },
   "progress": {

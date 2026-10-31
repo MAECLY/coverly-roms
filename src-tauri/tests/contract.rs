@@ -1140,3 +1140,32 @@ fn organise_set_aside_views_match_the_shared_sample() {
         );
     }
 }
+
+#[test]
+fn system_families_and_folder_games_match_the_shared_sample() {
+    use coverly_core::organize::LeftReason;
+    use coverly_roms_lib::ipc::list_systems;
+
+    let systems = list_systems();
+    let pick: Vec<_> = ["ps2", "gba", "zxspectrum", "mame", "wasm4"]
+        .iter()
+        .map(|id| systems.iter().find(|s| s.id == *id).unwrap().clone())
+        .collect();
+    let actual = json!({
+        "system_infos": pick,
+        "organize_folder_game_reason": LeftReason::FolderGame {
+            system: "doom".into(),
+            folder: "prboom".into(),
+        },
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
+}

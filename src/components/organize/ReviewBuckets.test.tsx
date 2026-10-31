@@ -138,6 +138,28 @@ describe('ReviewBuckets', () => {
     expect(onDecide).toHaveBeenLastCalledWith([4], 'leave');
   });
 
+  it('keeps a flat candidate list, ungrouped, with leave last', async () => {
+    renderBuckets();
+    await openAll();
+    const one = screen.getByRole('combobox', {
+      name: 'System for Columns.bin',
+    });
+    expect(one.querySelector('optgroup')).toBeNull();
+    const values = [...one.querySelectorAll('option')].map((o) => o.value);
+    expect(values.slice(-3)).toEqual(['megadrive', 'mastersystem', 'leave']);
+  });
+
+  it('wraps the picker under a long title instead of squeezing it', () => {
+    renderBuckets();
+    const bucket = screen.getByRole('group', {
+      name: 'Game Boy / Game Boy Color: 2',
+    });
+    // Eight candidates make a long title: at 390 px the text keeps a
+    // readable width and the select drops to the next line (flex-wrap).
+    const text = bucket.querySelector('p[id]')!.parentElement!;
+    expect(text).toHaveClass('min-w-0', 'flex-1', 'basis-64');
+  });
+
   it('shows the evidence of each file', async () => {
     renderBuckets();
     await openAll();

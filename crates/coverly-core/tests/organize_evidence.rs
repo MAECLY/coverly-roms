@@ -1,7 +1,7 @@
 mod common;
 
 use coverly_core::identify::evidence::{Evidence, IdLevel::*};
-use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt};
+use coverly_core::identify::sniff::{fixtures as fx, sniff, SliceAt, Sniff};
 use coverly_core::organize::evidence::{
     combine, extension_evidence, CombineInput, Thresholds, Verdict,
 };
@@ -683,14 +683,18 @@ fn a_web_page_and_a_collection_are_left() {
 }
 
 #[test]
-fn an_unsupported_system_is_left_with_its_name() {
+fn a_zipped_pico_cart_is_no_longer_left_unsupported() {
+    // Sega Pico was the last cart `Unsupported` verdict (spec §8.1): its
+    // zip is now organised as Sega Pico.
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path().join("Pico Game.zip");
     zip_file(&p, &[("Pico Game.md", &fx::pico(), true)]);
-    assert!(matches!(
-        identify(&p, &FakeCatalogue::empty()).left,
-        Some(LeftReason::UnsupportedSystem { .. })
-    ));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.left, None);
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("pico"), Verdict::Auto)
+    );
 }
 
 #[test]
@@ -813,9 +817,10 @@ fn a_contradicted_extension_is_noted() {
     zip_file(&p, &[("Hack.gba", &fx::zeros(64 * 1024), true)]);
     let id = identify(&p, &FakeCatalogue::empty());
     assert_eq!(id.combined.verdict, Verdict::Review);
-    assert!(id
-        .notes
-        .contains(&ItemNote::ExtensionContradicted { ext: "gba".into() }));
+    assert!(id.notes.contains(&ItemNote::ExtensionContradicted {
+        ext: "gba".into(),
+        system: Some("gba".into()),
+    }));
 }
 
 #[test]
@@ -1034,5 +1039,627 @@ fn the_missing_catalogue_note_does_not_depend_on_the_order_of_files() {
     assert!(
         raw_after.notes.is_empty(),
         "the raw file never needed the DAT"
+    );
+}
+
+#[test]
+fn weak_extension_alone_is_never_evidence() {
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"zzq\"]\n")
+        .unwrap();
+    let ev = extension_evidence(
+        &db,
+        "zzq",
+        &Sniff {
+            read: 4096,
+            ..Sniff::default()
+        },
+    );
+    assert!(ev.is_empty());
+}
+
+#[test]
+fn weak_owner_header_contradicts_the_strong_extension() {
+    // D24: `.st` is atarist's; a ≥ 0.95 header for a system that lists
+    // `st` as weak drops atarist's claim to 0.60 with detail `st!`.
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"st\"]\n")
+        .unwrap();
+    let mut sniff = Sniff {
+        read: 4096,
+        ..Sniff::default()
+    };
+    sniff
+        .hits
+        .push(Evidence::new(Header, "zz", 0.95, "ZZ MAGIC"));
+    let ev = extension_evidence(&db, "st", &sniff);
+    let st = ev.iter().find(|e| e.system == "atarist").unwrap();
+    assert_eq!((st.weight, st.detail.as_str()), (0.60, "st!"));
+    assert!(
+        ev.iter().all(|e| e.system != "zz"),
+        "the weak owner adds nothing here"
+    );
+
+    // A weaker header, or one for a system that does not list `st`, does not.
+    let mut weak = sniff.clone();
+    weak.hits[0].weight = 0.90;
+    let st = extension_evidence(&db, "st", &weak);
+    assert_eq!((st[0].weight, st[0].detail.as_str()), (0.85, "st"));
+    let mut other = sniff.clone();
+    other.hits[0].system = "gba".into();
+    let st = extension_evidence(&db, "st", &other);
+    assert_eq!((st[0].weight, st[0].detail.as_str()), (0.85, "st"));
+}
+
+#[test]
+fn weak_extension_supports_a_header() {
+    use coverly_core::organize::evidence::weak_extension_support;
+    let db = SystemDb::builtin()
+        .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"zzq\"]\n")
+        .unwrap();
+    // Nothing names `zz`: the weak extension adds nothing.
+    let mut alone = vec![ev(Name, "zz", 0.80)];
+    weak_extension_support(&db, "zzq", &mut alone);
+    assert_eq!(alone.len(), 1);
+    // A header names it: `zzq~` at 0.50, once.
+    let mut with_header = vec![Evidence::new(Header, "zz", 0.95, "ZZ MAGIC")];
+    weak_extension_support(&db, "ZZQ", &mut with_header);
+    weak_extension_support(&db, "zzq", &mut with_header);
+    assert_eq!(with_header.len(), 2);
+    let e = &with_header[1];
+    assert_eq!(
+        (e.kind, e.system.as_str(), e.weight, e.detail.as_str()),
+        (Extension, "zz", 0.50, "zzq~")
+    );
+    // A strong extension is never weak support.
+    let mut gba = vec![Evidence::new(Header, "gba", 0.95, "logo")];
+    weak_extension_support(&db, "gba", &mut gba);
+    assert_eq!(gba.len(), 1);
+}
+
+#[test]
+fn ps2_cso_contradicts_psp() {
+    // Spec §12: a PS2 volume read through the CISO reader proves `ps2`,
+    // which lists `cso` as weak, so psp's strong `.cso` is contradicted.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.cso");
+    let bytes = coverly_core::disc::testing::cso_of(&coverly_core::disc::testing::ps2_iso());
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "cso");
+    let ev = extension_evidence(&SystemDb::builtin(), "cso", &s);
+    let psp = ev.iter().find(|e| e.system == "psp").unwrap();
+    assert_eq!((psp.weight, psp.detail.as_str()), (0.60, "cso!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps2"));
+    assert_eq!(id.combined.verdict, Verdict::Auto);
+}
+
+#[test]
+fn loose_bin_of_an_early_console_is_never_auto() {
+    // Task 5: `.bin` and `.rom` are Generic, so a loose cart with no header
+    // never moves on its own; `.col` is ColecoVision's alone.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut seed = 0x1234_5678u32;
+    let body: Vec<u8> = (0..16 * 1024)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8 | 1
+        })
+        .collect();
+    for name in ["Game.bin", "Game.rom", "Game.col"] {
+        std::fs::write(tmp.path().join(name), &body).unwrap();
+    }
+    let bin = identify(&tmp.path().join("Game.bin"), &FakeCatalogue::empty());
+    assert_ne!(bin.combined.verdict, Verdict::Auto, "{:?}", bin.combined);
+    let rom = identify(&tmp.path().join("Game.rom"), &FakeCatalogue::empty());
+    assert_eq!(rom.combined.system, None, "{:?}", rom.combined);
+    let col = identify(&tmp.path().join("Game.col"), &FakeCatalogue::empty());
+    assert_eq!(
+        (col.combined.system.as_deref(), col.combined.verdict),
+        (Some("colecovision"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn a_vec_without_the_gce_line_is_not_auto() {
+    // Vectrex is DECISIVE: a `.vec` whose bytes lack `g GCE` is
+    // contradicted (0.60, review); with the line it moves on its own.
+    let tmp = tempfile::tempdir().unwrap();
+    let good = coverly_core::identify::sniff::fixtures::vectrex();
+    let mut bare = good.clone();
+    bare[..5].copy_from_slice(b"xxxxx");
+    std::fs::write(tmp.path().join("Good.vec"), &good).unwrap();
+    std::fs::write(tmp.path().join("Bare.vec"), &bare).unwrap();
+    let g = identify(&tmp.path().join("Good.vec"), &FakeCatalogue::empty());
+    assert_eq!(
+        (g.combined.system.as_deref(), g.combined.verdict),
+        (Some("vectrex"), Verdict::Auto)
+    );
+    let b = identify(&tmp.path().join("Bare.vec"), &FakeCatalogue::empty());
+    assert_ne!(b.combined.verdict, Verdict::Auto, "{:?}", b.combined);
+}
+
+#[test]
+fn a_coleco_bin_with_test_bytes_is_only_a_candidate() {
+    // `AA 55` is 16 bits (0.60): a loose `.bin` carrying it is never Auto,
+    // but a `.col` with it still is.
+    let tmp = tempfile::tempdir().unwrap();
+    let cart = coverly_core::identify::sniff::fixtures::colecovision(false);
+    std::fs::write(tmp.path().join("Game.bin"), &cart).unwrap();
+    std::fs::write(tmp.path().join("Game.col"), &cart).unwrap();
+    let bin = identify(&tmp.path().join("Game.bin"), &FakeCatalogue::empty());
+    assert_ne!(bin.combined.verdict, Verdict::Auto, "{:?}", bin.combined);
+    let col = identify(&tmp.path().join("Game.col"), &FakeCatalogue::empty());
+    assert_eq!(
+        (col.combined.system.as_deref(), col.combined.verdict),
+        (Some("colecovision"), Verdict::Auto)
+    );
+}
+
+/// Pseudo-random bytes with no header any rule reads.
+fn opaque(len: usize) -> Vec<u8> {
+    let mut seed = 0x0bad_5eedu32;
+    (0..len)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8 | 1
+        })
+        .collect()
+}
+
+#[test]
+fn pico_md_beats_megadrive() {
+    // D24: `SEGA PICO` proves pico, which lists `md` as weak, so the Mega
+    // Drive's strong `.md` is contradicted.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Game.md");
+    let bytes = fx::pico();
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "md");
+    let ev = extension_evidence(&SystemDb::builtin(), "md", &s);
+    let md = ev.iter().find(|e| e.system == "megadrive").unwrap();
+    assert_eq!((md.weight, md.detail.as_str()), (0.60, "md!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("pico"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn sufami_st_beats_atarist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Sailor Moon (Japan).st");
+    let bytes = fx::sufami(false);
+    std::fs::write(&p, &bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "st");
+    let ev = extension_evidence(&SystemDb::builtin(), "st", &s);
+    let st = ev.iter().find(|e| e.system == "atarist").unwrap();
+    assert_eq!((st.weight, st.detail.as_str()), (0.60, "st!"));
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("sufami"), Verdict::Auto)
+    );
+    // The note names the extension's owner, not the proven system (D24).
+    assert_eq!(
+        id.notes,
+        vec![ItemNote::ExtensionContradicted {
+            ext: "st".into(),
+            system: Some("atarist".into()),
+        }]
+    );
+}
+
+#[test]
+fn plain_st_stays_atarist() {
+    // Without the magic a `.st` is an Atari ST disk, as before the batch.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Prince of Persia.st");
+    std::fs::write(&p, opaque(720 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("atarist"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn sgx_now_supergrafx() {
+    // D3: `.sgx` is SuperGrafx's own format; PC Engine keeps it as weak.
+    let empty = Sniff::default();
+    let ev = extension_evidence(&SystemDb::builtin(), "sgx", &empty);
+    assert_eq!(ev.len(), 1, "{ev:?}");
+    assert_eq!(
+        (ev[0].system.as_str(), ev[0].weight, ev[0].detail.as_str()),
+        ("supergrafx", 0.85, "sgx")
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Daimakaimura (Japan).sgx");
+    std::fs::write(&p, opaque(512 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("supergrafx"), Verdict::Auto)
+    );
+}
+
+#[test]
+fn mega_duck_bin_needs_its_folder() {
+    // Task 7: Mega Duck has no header and only `.bin`, which is Generic, so
+    // a loose cart is never assigned; inside `MEGADUCK/` (a sorted folder,
+    // never walked) the scan lists it under megaduck.
+    use coverly_core::scan::{scan_library, ScanOptions};
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Suleiman Treasure (Unknown).bin");
+    std::fs::write(&p, opaque(32 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system, None, "{:?}", id.combined);
+    assert_ne!(id.combined.verdict, Verdict::Auto);
+
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.resolve_folder("MEGADUCK").map(|s| s.id.as_str()),
+        Some("megaduck")
+    );
+    let card = tmp.path().join("card");
+    let rom = card
+        .join("Roms")
+        .join("MEGADUCK")
+        .join("Suleiman Treasure (Unknown).bin");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    std::fs::write(&rom, opaque(32 * 1024)).unwrap();
+    let scan = scan_library(
+        &card,
+        &common::profile("onion"),
+        &db,
+        &ScanOptions::default(),
+    );
+    let duck = scan
+        .systems
+        .iter()
+        .find(|s| s.folder_name == "MEGADUCK")
+        .unwrap();
+    assert_eq!(duck.system_id.as_deref(), Some("megaduck"));
+    let stems: Vec<&str> = duck.roms.iter().map(|r| r.stem.as_str()).collect();
+    assert_eq!(stems, ["Suleiman Treasure (Unknown)"]);
+}
+
+#[test]
+fn supervision_and_gamecom_unique_extensions_are_enough() {
+    // Task 7: `.sv` and `.tgc` are Unique and neither system has a header,
+    // so the extension alone decides (same rule as other headerless
+    // systems with a unique extension).
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, want) in [
+        ("Crystball (Europe).sv", "supervision"),
+        ("Lights Out (USA).tgc", "gamecom"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, opaque(64 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.verdict, id.combined.system.as_deref()),
+            (Verdict::Auto, Some(want)),
+            "{name}: {:?}",
+            id.combined
+        );
+    }
+}
+
+#[test]
+fn a_loose_handheld_bin_is_found_by_its_dat_hash() {
+    // Task 7: a Supervision or Game.com cart dumped as `.bin` (Generic, no
+    // header) is assigned only by its no-intro DAT hash.
+    let tmp = tempfile::tempdir().unwrap();
+    for (id_want, stem, seed) in [
+        ("supervision", "Crystball (Europe)", 0x11u8),
+        ("gamecom", "Lights Out (USA)", 0x22u8),
+    ] {
+        let rom: Vec<u8> = opaque(32 * 1024).iter().map(|b| b ^ seed).collect();
+        let crc = format!("{:08X}", crc32fast::hash(&rom));
+        let p = tmp.path().join(format!("{stem}.bin"));
+        std::fs::write(&p, &rom).unwrap();
+        let none = identify(&p, &FakeCatalogue::empty());
+        assert_ne!(none.combined.verdict, Verdict::Auto, "{id_want}");
+        let cat = FakeCatalogue {
+            rows: vec![(id_want, crc, rom.len() as u64, stem)],
+            stems: vec![],
+        };
+        let id = identify(&p, &cat);
+        assert_eq!(
+            (id.combined.verdict, id.combined.system.as_deref()),
+            (Verdict::Auto, Some(id_want)),
+            "{:?}",
+            id.combined
+        );
+        assert_eq!(id.combined.method, Some(Hash));
+    }
+}
+
+#[test]
+fn loose_dsk_goes_to_review() {
+    // Task 8 (D3): `.dsk` is Shared. With the CPCEMU magic the likely list
+    // is Amstrad CPC, then ZX Spectrum (+3); without it every `.dsk` owner
+    // is a candidate. Nothing is Auto, and size is never proof.
+    let tmp = tempfile::tempdir().unwrap();
+    let cpc = tmp.path().join("Arkanoid (1987).dsk");
+    std::fs::write(&cpc, fx::cpc_dsk(true)).unwrap();
+    let id = identify(&cpc, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review, "{:?}", id.combined);
+    assert_eq!(id.combined.system.as_deref(), Some("amstradcpc"));
+    assert_eq!(
+        id.combined.alternatives.first().map(|a| a.0.as_str()),
+        Some("zxspectrum"),
+        "{:?}",
+        id.combined.alternatives
+    );
+
+    let bare = tmp.path().join("Unknown Disk.dsk");
+    std::fs::write(&bare, opaque(180 * 1024)).unwrap();
+    let id = identify(&bare, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let db = SystemDb::builtin();
+    let owners: Vec<&str> = db
+        .systems_for_extension("dsk")
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    listed.sort_unstable();
+    let mut want = owners.clone();
+    want.sort_unstable();
+    assert_eq!(listed, want);
+    for id in ["msx", "zxspectrum", "amstradcpc", "dragon", "coco"] {
+        assert!(owners.contains(&id), "{id} owns .dsk");
+    }
+}
+
+#[test]
+fn loose_tap_stays_review() {
+    // `.tap` was already Shared (c64, vic20) and still is; the Spectrum
+    // joins its owners.
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.extension_class("tap"),
+        coverly_core::systems::ExtClass::Shared
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Manic Miner.tap");
+    std::fs::write(&p, opaque(48 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    for want in ["c64", "vic20", "zxspectrum"] {
+        assert!(listed.contains(&want), "{want}: {listed:?}");
+    }
+}
+
+#[test]
+fn tzx_and_uef_with_their_magic_are_auto() {
+    // Task 8: a header ≥ 0.85 plus an extension the system owns (`.sna`
+    // is Shared: the CPCEMU snapshot magic decides it).
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes, want) in [
+        ("Manic Miner (1983)(Bug-Byte).tzx", fx::tzx(), "zxspectrum"),
+        ("Roland in Time (1985)(Amsoft).cdt", fx::tzx(), "amstradcpc"),
+        ("Elite (1984)(Acornsoft).uef", fx::uef(), "bbcmicro"),
+        ("Gryzor (1987)(Ocean).sna", fx::cpc_sna(), "amstradcpc"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.system.as_deref(), id.combined.verdict),
+            (Some(want), Verdict::Auto),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn zx81_p_and_thomson_fd_are_weak() {
+    // D4: `.p` and `.fd` alone never assign a system.
+    let tmp = tempfile::tempdir().unwrap();
+    for name in ["3D Monster Maze.p", "Game.fd"] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, opaque(16 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(id.combined.system, None, "{name}: {:?}", id.combined);
+    }
+}
+
+#[test]
+fn loose_sna_without_magic_stays_review() {
+    // A Spectrum snapshot has no magic: `.sna` (zxspectrum, amstradcpc)
+    // alone never assigns a system.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Jet Set Willy.sna");
+    std::fs::write(&p, opaque(49_179)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    listed.sort_unstable();
+    assert_eq!(listed, ["amstradcpc", "zxspectrum"]);
+}
+
+#[test]
+fn loose_amiga_and_st_disks_stay_automatic() {
+    // P-2 / D3: `.hdf`, `.fdi` and `.dim` turn Shared when x68000 and pc98
+    // list them; the bytes that name Amiga or Atari ST keep those loose
+    // disks Auto. Without a recognised header they go to review.
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes, want) in [
+        ("Workbench.hdf", fx::amiga_rdb(), "amiga"),
+        ("Game.hdf", fx::amiga_dos(), "amiga"),
+        ("Partitioned.hdf", fx::amiga_rdb_at(1), "amiga"),
+        ("Game.fdi", fx::fdi2(), "amiga"),
+        ("Game.dim", fx::st_dim(), "atarist"),
+        ("Human68k.hdf", fx::x68k_scsi(), "x68000"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.system.as_deref(), id.combined.verdict),
+            (Some(want), Verdict::Auto),
+            "{name}: {:?}",
+            id.combined
+        );
+    }
+    for (ext, owners) in [
+        ("hdf", ["amiga", "x68000"]),
+        ("fdi", ["amiga", "pc98"]),
+        ("dim", ["atarist", "x68000"]),
+    ] {
+        let p = tmp.path().join(format!("Unknown Disk.{ext}"));
+        std::fs::write(&p, opaque(720 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            id.combined.verdict,
+            Verdict::Review,
+            "{ext}: {:?}",
+            id.combined
+        );
+        let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+        listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+        listed.sort_unstable();
+        assert_eq!(listed, owners, "{ext}");
+    }
+}
+
+#[test]
+fn a_prg_load_address_never_lifts_a_weak_owner() {
+    // Spec §8: the `.prg` load address is a 0.40 tie-break inside a shared
+    // folder only. Loose, a Plus/4 `$1001` is also an unexpanded VIC-20
+    // and a PET `$0401` a VIC-20 with 3K: the strong owners (c64, vic20)
+    // keep their tie and the weak owner gains no `prg~` support (D24: a
+    // weak owner wins only with a ≥ 0.95 header).
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, load, weak) in [
+        ("Plus.prg", [0x01, 0x10], "plus4"),
+        ("Pet.prg", [0x01, 0x04], "pet"),
+        ("C128.prg", [0x01, 0x1C], "c128"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, fx::prg(load)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        let c = &id.combined;
+        assert_ne!(c.system.as_deref(), Some(weak), "{name}: {c:?}");
+        assert_ne!(c.verdict, Verdict::Auto, "{name}: {c:?}");
+        // The weak owner stays under the review line: a candidate only.
+        assert!(
+            c.alternatives.iter().all(|(s, w)| s != weak || *w < 0.50),
+            "{name}: {c:?}"
+        );
+    }
+}
+
+#[test]
+fn loose_wasm_hex_lua_are_unknown() {
+    // D4: `.wasm`, `.hex` and `.lua` are everyday developer files. On a
+    // desktop pile they never name a system; inside `WASM4/` the scan
+    // lists a `.wasm` under WASM-4.
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes) in [
+        ("game.wasm", fx::wasm()),
+        ("firmware.hex", b":00000001FF\r\n".to_vec()),
+        ("main.lua", b"function love.draw() end\n".to_vec()),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(id.combined.system, None, "{name}: {:?}", id.combined);
+        assert!(id.combined.alternatives.is_empty(), "{name}");
+    }
+    let lib = tempfile::tempdir().unwrap();
+    common::write(lib.path(), "roms/WASM4/game.wasm", "\0asm");
+    common::write(lib.path(), "roms/WASM4/notes.lua", "-- notes");
+    let scan = coverly_core::scan::scan_library(
+        lib.path(),
+        &common::profile("esde"),
+        &SystemDb::builtin(),
+        &coverly_core::scan::ScanOptions::default(),
+    );
+    let s = scan
+        .systems
+        .iter()
+        .find(|s| s.folder_name == "WASM4")
+        .unwrap();
+    assert_eq!(s.system_id.as_deref(), Some("wasm4"));
+    let stems: Vec<&str> = s.roms.iter().map(|r| r.stem.as_str()).collect();
+    assert_eq!(stems, ["game"]);
+}
+
+#[test]
+fn fantasy_console_carts_move_only_with_their_signature() {
+    // Uzebox and Vircon32 are DECISIVE: a `.uze` without `UZEBOX` or a
+    // `.v32` without `V32-CART` is contradicted and never moves on its
+    // own; with the marker it does. `.tic` and `.nx` (LowRes NX source,
+    // text, D26) have no header and move on their unique extension.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut bare_uze = fx::uzebox();
+    bare_uze[..6].copy_from_slice(b"xxxxxx");
+    let mut bare_v32 = fx::vircon32();
+    bare_v32[..8].copy_from_slice(b"xxxxxxxx");
+    let mut tic = vec![0u8; 1024];
+    tic[0] = 0x05; // a TIC-80 code chunk
+    let nx = b"PRINT \"HELLO\"\nGOTO 1\n".repeat(32);
+    for (name, bytes, want) in [
+        ("Game.uze", fx::uzebox(), Some("uzebox")),
+        ("Bare.uze", bare_uze, None),
+        ("Game.v32", fx::vircon32(), Some("vircon32")),
+        ("Bare.v32", bare_v32, None),
+        ("Game.tic", tic, Some("tic80")),
+        ("Game.nx", nx, Some("lowresnx")),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        match want {
+            Some(sys) => assert_eq!(
+                (id.combined.system.as_deref(), id.combined.verdict),
+                (Some(sys), Verdict::Auto),
+                "{name}: {:?}",
+                id.combined
+            ),
+            None => assert_ne!(
+                id.combined.verdict,
+                Verdict::Auto,
+                "{name}: {:?}",
+                id.combined
+            ),
+        }
+    }
+}
+
+#[test]
+fn wad_without_magic_is_not_auto() {
+    // D15: doom is DECISIVE, so a `.wad` without `IWAD`/`PWAD` (a WiiWare
+    // WAD one day) is contradicted (0.60, `wad!`) and never moves alone;
+    // with the magic it does.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut bare = fx::wad(b"IWAD");
+    bare[..4].copy_from_slice(b"\0\0\0\x20");
+    let s = sniff(&mut SliceAt(&bare), bare.len() as u64, "wad");
+    let ev = extension_evidence(&SystemDb::builtin(), "wad", &s);
+    let doom = ev.iter().find(|e| e.system == "doom").unwrap();
+    assert_eq!((doom.weight, doom.detail.as_str()), (0.60, "wad!"));
+    let p = tmp.path().join("Bare.wad");
+    std::fs::write(&p, &bare).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+
+    let p = tmp.path().join("DOOM.WAD");
+    std::fs::write(&p, fx::wad(b"IWAD")).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.system.as_deref(), id.combined.verdict),
+        (Some("doom"), Verdict::Auto),
+        "{:?}",
+        id.combined
     );
 }

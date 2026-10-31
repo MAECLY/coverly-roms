@@ -243,12 +243,10 @@ fn redact(plan: &OrganizePlan) -> serde_json::Value {
     }
     value["created_at"] = serde_json::Value::String("<created_at>".into());
     value["fat32"] = serde_json::Value::Bool(false);
+    // One snapshot for every OS: every path uses `/` like on Unix.
+    forward_slashes(&mut value);
     if let Some(items) = value["items"].as_array_mut() {
         for item in items {
-            // One snapshot for every OS: targets use `/` like on Unix.
-            if let Some(target) = item["target"].as_str().map(|s| s.replace('\\', "/")) {
-                item["target"] = serde_json::Value::String(target);
-            }
             if let Some(fps) = item["fps"].as_array_mut() {
                 for fp in fps {
                     fp["mtime_ns"] = serde_json::Value::from(0);
@@ -257,6 +255,43 @@ fn redact(plan: &OrganizePlan) -> serde_json::Value {
         }
     }
     value
+}
+
+/// Rewrites `\` as `/` in every string of `value`. No plan string other
+/// than a path holds a backslash, so this touches paths only.
+fn forward_slashes(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(s) if s.contains('\\') => *s = s.replace('\\', "/"),
+        serde_json::Value::Array(values) => values.iter_mut().for_each(forward_slashes),
+        serde_json::Value::Object(map) => map.values_mut().for_each(forward_slashes),
+        _ => {}
+    }
+}
+
+#[test]
+fn redacted_plans_write_every_path_with_forward_slashes() {
+    // Windows serialises `PathBuf` with `\`: companions, other files and
+    // set members below a folder must snapshot like on Unix.
+    let mut value = serde_json::json!({
+        "items": [{
+            "target": "ROMs\\mame\\sfiii.zip",
+            "sources": ["sfiii.zip"],
+            "companions": [{ "source": "sfiii\\sfiii.chd", "target": "ROMs\\mame\\sfiii\\sfiii.chd" }],
+            "set_targets": ["ROMs\\psx\\Game\\Game (Track 2).bin"],
+            "reason": { "kind": "already-present", "at": "ROMs\\psx\\a.chd" }
+        }],
+        "other_files": ["Cave Story\\data\\Stage\\0.pxm"],
+        "sorted_folders": [["GBA\\Hacks", "gba"]]
+    });
+    forward_slashes(&mut value);
+    let text = value.to_string();
+    assert!(!text.contains('\\'), "{text}");
+    assert_eq!(
+        value["items"][0]["companions"][0]["source"],
+        "sfiii/sfiii.chd"
+    );
+    assert_eq!(value["other_files"][0], "Cave Story/data/Stage/0.pxm");
+    assert_eq!(value["sorted_folders"][0][0], "GBA/Hacks");
 }
 
 #[test]
@@ -767,7 +802,7 @@ fn probe_counts_names_only() {
         b"half a zip",
     );
     put(&dir.path().join("GBA/a.gba"), &fx::gba());
-    let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
+    let probe = probe_folder(dir.path(), &SystemDb::builtin(), None, &NoCloud).unwrap();
     assert_eq!(probe.rom_like, 17);
     assert_eq!(probe.partial_downloads, 1);
     assert_eq!(probe.cloud_only, 0);
@@ -989,7 +1024,7 @@ fn probe_skips_ignored_folders() {
     put(&dir.path().join("bios/scph1001.bin"), &[1u8; 512]);
     put(&dir.path().join("saves/x.gba"), &fx::gba());
     put(&dir.path().join("Game.gba"), &fx::gba());
-    let probe = probe_folder(dir.path(), &SystemDb::builtin(), &NoCloud).unwrap();
+    let probe = probe_folder(dir.path(), &SystemDb::builtin(), None, &NoCloud).unwrap();
     assert_eq!(probe.rom_like, 1);
 }
 
@@ -2854,4 +2889,437 @@ fn the_duplicates_step_follows_the_region_order_of_the_settings() {
     settings.matching.regions = vec!["Europe".into(), "USA".into()];
     let opts = OrganizeOptions::from_settings(&settings, None);
     assert_eq!(opts.regions, settings.matching.regions);
+}
+
+/// The memoised facts row of `path`, by its size and mtime.
+fn stored_facts(world: &World, path: &Path) -> Option<serde_json::Value> {
+    let meta = fs::metadata(path).unwrap();
+    let mtime = FileTime::from_last_modification_time(&meta);
+    let ns = mtime.unix_seconds() * 1_000_000_000 + i64::from(mtime.nanoseconds());
+    let json = world.cache.organize_facts(path, meta.len(), ns).unwrap()?;
+    Some(serde_json::from_str(&json).unwrap())
+}
+
+#[test]
+fn facts_of_version_5_are_read_again() {
+    // D27: version 5 facts call PS2, 3DO and Pico `Unsupported`.
+    let dir = TempDir::new().unwrap();
+    let rom = dir.path().join("Game.gba");
+    put(&rom, &fx::gba());
+    pin_mtime(&rom, 7);
+    let world = World::new();
+    let opts = OrganizeOptions {
+        offline: true,
+        ..defaults("anbernic-stock")
+    };
+    plan(&world, dir.path(), opts.clone());
+    let mut stored = stored_facts(&world, &rom).expect("facts memoised");
+    assert_eq!(stored["v"], 6);
+
+    // A version 5 row with a stale verdict is not trusted.
+    stored["v"] = 5.into();
+    stored["inspection"]["payloads"][0]["sniff"]["hits"] = serde_json::json!([]);
+    let meta = fs::metadata(&rom).unwrap();
+    let mtime = FileTime::from_last_modification_time(&meta);
+    let ns = mtime.unix_seconds() * 1_000_000_000 + i64::from(mtime.nanoseconds());
+    world
+        .cache
+        .put_organize_facts(&rom, meta.len(), ns, &stored.to_string())
+        .unwrap();
+    let again = plan(&world, dir.path(), opts);
+    let item = again
+        .items
+        .iter()
+        .find(|i| i.system_id.as_deref() == Some("gba"));
+    assert!(item.is_some(), "the header is read again");
+    let stored = stored_facts(&world, &rom).unwrap();
+    assert_eq!(stored["v"], 6);
+    assert_eq!(
+        stored["inspection"]["payloads"][0]["sniff"]["hits"][0]["system"],
+        "gba"
+    );
+}
+
+#[test]
+fn an_arduboy_package_moves_as_one_raw_file() {
+    // D25: an `.arduboy` is a zip holding `info.json` beside its `.hex`;
+    // it moves as-is into the Arduboy folder, never extracted. A loose
+    // Intel HEX beside it never moves (D4).
+    use coverly_core::organize::Transfer;
+    let dir = TempDir::new().unwrap();
+    let pkg = dir.path().join("Arduventure.arduboy");
+    common::roms::zip_file(
+        &pkg,
+        &[
+            ("info.json", b"{\"title\":\"Arduventure\"}", true),
+            ("Arduventure.hex", b":00000001FF\n", true),
+        ],
+    );
+    filetime::set_file_mtime(&pkg, hour_ago()).unwrap();
+    put(&dir.path().join("firmware.hex"), b":00000001FF\r\n");
+    let world = World::new();
+    let plan = plan(
+        &world,
+        dir.path(),
+        OrganizeOptions {
+            offline: true,
+            ..defaults("batocera")
+        },
+    );
+    let item = by_name(&plan, "Arduventure.arduboy");
+    assert_eq!(item.system_id.as_deref(), Some("arduboy"));
+    assert_eq!(item.action, OrganizeAction::Auto, "{:?}", item.why);
+    assert_eq!(item.transfer, Transfer::AsIs);
+    assert_eq!(item.sources.len(), 1);
+    let target: Vec<String> = item
+        .target
+        .as_ref()
+        .unwrap()
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        target.iter().rev().take(2).collect::<Vec<_>>(),
+        [&"Arduventure.arduboy".to_string(), &"arduboy".to_string()]
+    );
+    assert!(plan
+        .items
+        .iter()
+        .filter(|i| file_name(&i.sources[0]) == "firmware.hex")
+        .all(OrganizeItem::is_left));
+}
+
+#[test]
+fn a_folder_game_is_one_left_item_with_the_layout_folder() {
+    // D15: `Freedoom Phase 1/` holding an IWAD is one item left in place,
+    // naming the layout's Doom folder (the user's name when one is set);
+    // a loose `DOOM.WAD` moves on its own.
+    let dir = TempDir::new().unwrap();
+    let mut wad = fx::wad(b"IWAD");
+    put(&dir.path().join("Freedoom Phase 1/freedoom1.wad"), &wad);
+    put(
+        &dir.path().join("Freedoom Phase 1/README.txt"),
+        b"Freedoom\n",
+    );
+    wad[100] = 7;
+    put(&dir.path().join("DOOM.WAD"), &wad);
+    let world = World::new();
+    let plan_for = |names: BTreeMap<String, String>| {
+        plan(
+            &world,
+            dir.path(),
+            OrganizeOptions {
+                offline: true,
+                folder_names: names,
+                ..defaults("batocera")
+            },
+        )
+    };
+    let p = plan_for(BTreeMap::new());
+    assert_eq!(
+        left_reason(&p, "Freedoom Phase 1"),
+        Some(LeftReason::FolderGame {
+            system: "doom".into(),
+            folder: "prboom".into(),
+        })
+    );
+    assert!(p
+        .items
+        .iter()
+        .all(|i| file_name(&i.sources[0]) != "README.txt"
+            && file_name(&i.sources[0]) != "freedoom1.wad"));
+    let loose = by_name(&p, "DOOM.WAD").target.clone().unwrap();
+    assert_eq!(loose, Path::new("roms").join("prboom").join("DOOM.WAD"));
+
+    let p = plan_for(BTreeMap::from([("doom".to_string(), "doom".to_string())]));
+    assert_eq!(
+        left_reason(&p, "Freedoom Phase 1"),
+        Some(LeftReason::FolderGame {
+            system: "doom".into(),
+            folder: "doom".into(),
+        })
+    );
+}
+
+/// A MAME DAT in the cache listing `set` with one ROM per `(name, bytes)`.
+fn cache_mame_set(world: &World, set: &str, roms: &[(&str, &[u8])]) {
+    let rows: Vec<coverly_core::cache::DatRow> = roms
+        .iter()
+        .map(|(name, bytes)| coverly_core::cache::DatRow {
+            game: set.into(),
+            rom_name: (*name).into(),
+            size: Some(bytes.len() as u64),
+            crc32: Some(format!("{:08X}", crc32fast::hash(bytes))),
+            md5: None,
+            sha1: None,
+            serial: None,
+        })
+        .collect();
+    world
+        .cache
+        .replace_dat("metadat/mame/MAME.dat", &rows)
+        .unwrap();
+}
+
+#[test]
+fn loose_model2_set_goes_to_mame() {
+    // D16: MAME runs Model 2 and the libretro MAME DAT has no driver
+    // field, so a loose Model 2 set confirmed by the MAME DAT goes to
+    // `mame`, never to `model2`.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let roms: [(&str, &[u8]); 2] = [("epr-16722a.12", b"daytona one"), ("mpr-16528.10", b"two")];
+    cache_mame_set(&world, "daytona", &roms);
+    let path = s.path().join("daytona.zip");
+    common::roms::zip_file(
+        &path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&path, 1);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let item = by_name(&p, "daytona.zip");
+    assert_eq!(item.system_id.as_deref(), Some("mame"));
+    assert_eq!(item.action, OrganizeAction::Auto);
+    assert_eq!(item.method, Some(IdLevel::Hash));
+    // Inside a `model2/` folder a set is already sorted and stays.
+    put(&s.path().join("model2").join("vf2.zip"), b"PK\x05\x06");
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    assert!(p
+        .items
+        .iter()
+        .all(|i| file_name(&i.sources[0]) != "vf2.zip"));
+}
+
+#[test]
+fn mame_chd_folder_moves_with_its_set() {
+    // D16: a `<set>/` folder holding only `.chd` beside `<set>.zip` is a
+    // companion of the set: one item, and both land in the arcade folder.
+    use coverly_core::organize::{apply_organize, ApplyEnv};
+    use coverly_core::write::trash::FakeTrash;
+    let world = World::new();
+    let (s, t, data) = (
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(&world, "sfiii", &roms);
+    let zip_path = s.path().join("sfiii.zip");
+    common::roms::zip_file(
+        &zip_path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&zip_path, 1);
+    let chd = s.path().join("sfiii").join("sfiii.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("batocera")
+        },
+    );
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    let item = by_name(&p, "sfiii.zip");
+    assert_eq!(
+        (item.system_id.as_deref(), &item.action),
+        (Some("mame"), &OrganizeAction::Auto)
+    );
+    let target = item.target.clone().unwrap();
+    let folder = target.parent().unwrap().to_path_buf();
+    assert_eq!(folder.file_name().unwrap(), "mame");
+    assert_eq!(item.companions.len(), 1);
+    let comp = &item.companions[0];
+    assert_eq!(comp.source, Path::new("sfiii").join("sfiii.chd"));
+    assert_eq!(comp.target, folder.join("sfiii").join("sfiii.chd"));
+
+    let env = ApplyEnv {
+        data_dir: data.path(),
+        progress: &|_| {},
+        cancel: &AtomicBool::new(false),
+        trash: &FakeTrash::unavailable("no-trash"),
+        tools: Some(&[]),
+    };
+    let report = apply_organize(&p, &env).unwrap();
+    assert_eq!((report.moved, report.failed), (1, 0), "{report:?}");
+    let arcade = t.path().join(&folder);
+    assert_eq!(
+        fs::read(arcade.join("sfiii").join("sfiii.chd")).unwrap(),
+        b"MComprHD synthetic"
+    );
+    assert!(arcade.join("sfiii.zip").is_file());
+    assert!(!chd.exists() && !zip_path.exists());
+}
+
+#[test]
+fn chd_folder_beside_a_set_that_stays_is_left() {
+    // Without an arcade set to follow, the CHDs are left where they are.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    common::roms::zip_file(&s.path().join("mystery.zip"), &[("a.bin", b"aa", true)]);
+    pin_mtime(&s.path().join("mystery.zip"), 1);
+    let chd = s.path().join("mystery").join("disc.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("batocera")
+        },
+    );
+    assert_eq!(left_reason(&p, "disc.chd"), Some(LeftReason::Unknown));
+    assert!(by_name(&p, "mystery.zip").companions.is_empty());
+}
+
+#[test]
+fn chd_folder_of_a_set_already_in_the_library_is_already_present() {
+    // A second run (or a copy run) finds `<arcade>/sfiii.zip` and its
+    // `sfiii/sfiii.chd` already there: both are reported already present,
+    // the CHD never as unknown.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(&world, "sfiii", &roms);
+    let zip_path = s.path().join("sfiii.zip");
+    common::roms::zip_file(
+        &zip_path,
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    pin_mtime(&zip_path, 1);
+    let chd = s.path().join("sfiii").join("sfiii.chd");
+    put(&chd, b"MComprHD synthetic");
+    pin_mtime(&chd, 2);
+    let opts = || OrganizeOptions {
+        offline: true,
+        target: Some(t.path().to_path_buf()),
+        ..defaults("batocera")
+    };
+    let first = plan(&world, s.path(), opts());
+    let item = by_name(&first, "sfiii.zip");
+    let zip_at = item.target.clone().unwrap();
+    let chd_at = item.companions[0].target.clone();
+    fs::create_dir_all(t.path().join(&chd_at).parent().unwrap()).unwrap();
+    fs::copy(&zip_path, t.path().join(&zip_at)).unwrap();
+    fs::copy(&chd, t.path().join(&chd_at)).unwrap();
+
+    let again = plan(&world, s.path(), opts());
+    assert_eq!(
+        left_reason(&again, "sfiii.zip"),
+        Some(LeftReason::AlreadyPresent { at: zip_at })
+    );
+    assert_eq!(
+        left_reason(&again, "sfiii.chd"),
+        Some(LeftReason::AlreadyPresent { at: chd_at })
+    );
+}
+
+/// Every file below `dir`, depth first.
+fn files_below(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_below(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// The retro pile of spec §9.3 (synthetic bytes, real names), every
+/// mtime pinned in the past.
+fn retro_pile(world: &World, dir: &Path) {
+    use coverly_core::disc::testing as dt;
+    put(
+        &dir.join("Gran Turismo 4 (Europe).iso"),
+        &dt::ps2_iso_booting("SCES_517.19"),
+    );
+    put(&dir.join("Tempest 2000 (World).j64"), &fx::zeros(4096));
+    put(&dir.join("Manic Miner (1983)(Bug-Byte).tzx"), &fx::tzx());
+    put(&dir.join("Arkanoid (1987).dsk"), &fx::cpc_dsk(false));
+    put(&dir.join("Sailor Moon (Japan).st"), &fx::sufami(false));
+    put(&dir.join("Prince of Persia.st"), &fx::zeros(737_280));
+    put(&dir.join("DOOM.WAD"), &fx::wad(b"IWAD"));
+    put(
+        &dir.join("Freedoom Phase 1").join("freedoom1.wad"),
+        &fx::wad(b"IWAD"),
+    );
+    put(
+        &dir.join("Freedoom Phase 1").join("README.txt"),
+        b"Freedoom\n",
+    );
+    put(&dir.join("Cave Story").join("Doukutsu.exe"), b"MZ\x90\x00");
+    put(
+        &dir.join("Cave Story")
+            .join("data")
+            .join("Stage")
+            .join("0.pxm"),
+        &[1u8; 64],
+    );
+    let roms: [(&str, &[u8]); 2] = [("sfiii-simm1.0", b"simm one"), ("sfiii-simm1.1", b"simm 2")];
+    cache_mame_set(world, "sfiii", &roms);
+    common::roms::zip_file(
+        &dir.join("sfiii.zip"),
+        &[(roms[0].0, roms[0].1, true), (roms[1].0, roms[1].1, true)],
+    );
+    put(&dir.join("sfiii").join("sfiii.chd"), b"MComprHD synthetic");
+    put(&dir.join("game.bin"), &[3u8; 512]);
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+}
+
+#[test]
+fn systems_batch_1_pile_plans() {
+    // Spec §9.3 / §14.1: the retro pile of systems batch 1 under the three
+    // layouts whose folder stories differ most (Named, Named with scoped
+    // aliases, Absent with the `NoFolderOnDevice` note).
+    for layout in ["esde", "batocera", "onion"] {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        retro_pile(&world, s.path());
+        let p = plan(
+            &world,
+            s.path(),
+            OrganizeOptions {
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                ..defaults(layout)
+            },
+        );
+        insta::assert_json_snapshot!(format!("systems_batch_1__{layout}"), redact(&p));
+    }
+    // A loose image carries no `DiscId` (only archived disc sets do, as for
+    // PS1): the PS2 serial of the pile is the sniff's.
+    let bytes = coverly_core::disc::testing::ps2_iso_booting("SCES_517.19");
+    let s = coverly_core::identify::sniff::sniff(
+        &mut coverly_core::identify::sniff::SliceAt(&bytes),
+        bytes.len() as u64,
+        "iso",
+    );
+    assert_eq!(s.serial.as_deref(), Some("SCES-51719"));
 }

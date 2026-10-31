@@ -243,7 +243,10 @@ function formatLabel(format: string | null | undefined): string | null {
  * `organize.*` key (the `what` of `not-a-rom`) is a fragment to translate
  * first: `leftReasonText` does that.
  */
-export function leftReasonKey(r: LeftReason): KeyedText {
+export function leftReasonKey(
+  r: LeftReason,
+  systemName: (id: string) => string = (id) => id,
+): KeyedText {
   const k = (name: string, vars: TranslateVars = {}): KeyedText => ({
     key: `organize.left.${name}`,
     vars,
@@ -313,6 +316,11 @@ export function leftReasonKey(r: LeftReason): KeyedText {
       return k('alreadyPresent', { path: r.at });
     case 'already-sorted':
       return k('alreadySorted', { folder: r.folder });
+    case 'folder-game':
+      return k('folderGame', {
+        system: systemName(r.system),
+        folder: r.folder,
+      });
     case 'symlink':
       return k('symlink');
     case 'set-incomplete':
@@ -336,8 +344,9 @@ export function leftReasonKey(r: LeftReason): KeyedText {
 export function leftReasonText(
   t: (key: string, vars?: TranslateVars) => string,
   r: LeftReason,
+  systemName?: (id: string) => string,
 ): string {
-  const { key, vars } = leftReasonKey(r);
+  const { key, vars } = leftReasonKey(r, systemName);
   const resolved: TranslateVars = {};
   for (const [name, v] of Object.entries(vars)) {
     resolved[name] =
@@ -377,13 +386,17 @@ export function whyKey(
     case 'header':
       return { key: 'organize.why.header', vars: { system, detail: e.detail } };
     case 'extension': {
+      // Rust: `ext!` contradicted (D24), `ext~` a weak extension (D3, D4).
       const contradicted = e.detail.endsWith('!');
-      const ext = e.detail.replace(/!$/, '').replace(/^\./, '');
+      const weak = e.detail.endsWith('~');
+      const ext = e.detail.replace(/[!~]$/, '').replace(/^\./, '');
       const key = contradicted
         ? 'organize.why.extensionContradicted'
-        : e.weight >= UNIQUE_EXTENSION
-          ? 'organize.why.extension'
-          : 'organize.why.extensionShared';
+        : weak
+          ? 'organize.why.extensionWeak'
+          : e.weight >= UNIQUE_EXTENSION
+            ? 'organize.why.extension'
+            : 'organize.why.extensionShared';
       return { key, vars: { ext, system } };
     }
     case 'name':
@@ -416,7 +429,7 @@ export function itemNotes(
   if (item.rename) lines.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
   for (const n of item.notes) {
-    const line = noteText(t, n, system, layoutName, item);
+    const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) lines.push(line);
   }
   return lines;
@@ -448,7 +461,7 @@ export function rowNotes(
   if (item.rename) inline.push(renameText(t, item.rename));
   const system = item.system_id ? systemName(item.system_id) : '';
   for (const n of item.notes) {
-    const line = noteText(t, n, system, layoutName, item);
+    const line = noteText(t, n, system, layoutName, item, systemName);
     if (line !== null) (DETAIL_NOTES.has(n.kind) ? detail : inline).push(line);
   }
   return { inline, detail };
@@ -472,6 +485,7 @@ function noteText(
   system: string,
   layout: string,
   item: OrganizeItem,
+  systemName: (id: string) => string,
 ): string | null {
   switch (n.kind) {
     case 'multi-rom-zip':
@@ -483,9 +497,11 @@ function noteText(
         folder: n.folder,
       });
     case 'extension-contradicted':
+      // The extension's owner: under D24 a header proved another system
+      // (`.st` with the Sufami magic contradicts Atari ST).
       return t('organize.why.extensionContradicted', {
         ext: n.ext.replace(/^\./, ''),
-        system,
+        system: n.system ? systemName(n.system) : system,
       });
     case 'catalogue-missing':
       return t('organize.noCatalogue', {

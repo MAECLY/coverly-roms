@@ -27,57 +27,99 @@ these files by hand; change the source map in
 These are simplified silhouettes of compatible hardware, shown beside the
 system's name only to identify it. They imply no endorsement. Icons in the
 theme that are a maker's logo or wordmark (CP System, MAME, DOS, ScummVM,
-RPG Maker) are not vendored; those systems use the abbreviation fallback.
+RPG Maker, Uzebox, TIC-80, Lutro) or game title art (DOOM, Quake, Cave Story,
+MrBoom, Dinothawr, Flashback, Rick Dangerous) are not vendored; those systems
+use the abbreviation fallback.
+The neutral drawings for Vectrex, CDTV and Amstrad CPC (wider than 2.5:1) and
+for Channel F and Intellivision (narrower than 1:2) are not vendored either:
+they are unreadable in a box 1.5× the row height, so those systems use the
+abbreviation fallback too.
 The CC licence grants no trademark rights. See `TRADEMARKS.md`.
 
 ## Audit
 
-41 system ids, each checked against its source
+77 system ids, each checked against its source
 file for maker marks (logos, wordmarks, badges, registered button symbols).
 
 | id                | source file                                        | depicts  | audit                                                                                    |
 | ----------------- | -------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `3do`             | The 3DO Company - 3DO.svg                          | pad      | crescent pad, d-pad and plain round buttons, no marks                                    |
 | `a2600`           | Atari - 2600.svg                                   | pad      | joystick seen from above, plain knob, no marks                                           |
 | `a5200`           | Atari - 5200.svg                                   | pad      | keypad controller, plain keys, no marks                                                  |
 | `a7800`           | Atari - 7800.svg                                   | pad      | joystick base with plain knob and two plain buttons, no marks                            |
 | `a800`            | Atari - 8-bit Family.svg                           | computer | computer with keyboard, plain keys, no marks                                             |
 | `amiga`           | Commodore - Amiga.svg                              | computer | computer with keyboard, plain keys, no marks                                             |
+| `amigacd32`       | Commodore - CD32.svg                               | pad      | curved pad, plain round buttons, no marks                                                |
+| `apple2`          | Apple - II.svg                                     | computer | computer with blank monitor and plain keyboard, no marks                                 |
+| `arcadia`         | Emerson - Arcadia 2001.svg                         | pad      | keypad controller with plain disc, blank keys, no marks                                  |
+| `arduboy`         | Arduboy Inc - Arduboy.svg                          | handheld | card-sized handheld, blank screen, plain buttons, no badge                               |
 | `atarist`         | Atari - ST.svg                                     | computer | computer with keyboard, plain keys, no marks                                             |
+| `atarixe`         | Atari - XEGS.svg                                   | pad      | joystick base seen from above, plain knob, no marks                                      |
+| `bbcmicro`        | Acorn - BBC Micro.svg                              | computer | keyboard computer, plain keys, no marks                                                  |
 | `c64`             | Commodore - 64.svg                                 | computer | keyboard computer, plain keys, no marks                                                  |
+| `cdi`             | Non-Redump - Philips - CD-i.svg                    | pad      | rounded pad, plain cross pad and buttons, no marks                                       |
+| `colecovision`    | Coleco - ColecoVision.svg                          | pad      | keypad controller with plain disc, blank keys, no marks                                  |
 | `dreamcast`       | Sega - Dreamcast.svg                               | pad      | pad with plain round buttons, blank memory-card window, outline start triangle, no swirl |
 | `fbneo`           | FBNeo - Arcade Games.svg                           | cabinet  | arcade cabinet in side profile, no marquee art, no marks                                 |
 | `fds`             | Nintendo - Family Computer Disk System.svg         | pad      | rectangular pad, d-pad and plain round buttons, no marks                                 |
+| `fmtowns`         | Fujitsu - FM Towns.svg                             | computer | keyboard, plain keys, no marks                                                           |
+| `gamecom`         | Tiger - Game.com.svg                               | handheld | landscape handheld, blank screen, plain buttons, no badge                                |
 | `gamegear`        | Sega - Game Gear.svg                               | handheld | landscape handheld, blank screen, no badge                                               |
 | `gb`              | Nintendo - Game Boy.svg                            | handheld | portrait handheld, blank screen, no badge                                                |
 | `gba`             | Nintendo - Game Boy Advance.svg                    | handheld | landscape handheld, blank screen, no badge                                               |
 | `gbc`             | Nintendo - Game Boy Color.svg                      | handheld | portrait handheld, blank screen, no badge                                                |
 | `gw`              | Nintendo - Game & Watch.svg                        | handheld | landscape handheld, blank screen, plain buttons, no badge                                |
+| `jaguar`          | Atari - Jaguar.svg                                 | pad      | pad with plain buttons and blank keypad, no marks                                        |
+| `jaguarcd`        | Atari - Jaguar CD.svg                              | pad      | pad with plain buttons and blank keypad, no marks                                        |
 | `lynx`            | Atari - Lynx.svg                                   | handheld | landscape handheld, blank screen, no badge                                               |
 | `mastersystem`    | Sega - Master System - Mark III.svg                | console  | console top with plain dial and two plain buttons, no marks                              |
 | `megadrive`       | Sega - Mega Drive - Genesis.svg                    | pad      | crescent pad, plain dots, no marks                                                       |
+| `megaduck`        | Welback - Mega Duck.svg                            | handheld | portrait handheld, blank screen, plain buttons, no badge                                 |
 | `msx`             | Microsoft - MSX.svg                                | computer | keyboard computer, plain keys, boxed cursor key, no marks                                |
+| `msx2`            | Microsoft - MSX2.svg                               | computer | keyboard computer, plain keys, blank cartridge slot, boxed cursor key, no marks          |
 | `n64`             | Nintendo - Nintendo 64.svg                         | pad      | three-prong pad, plain buttons, no marks                                                 |
+| `n64dd`           | Nintendo - Nintendo 64DD.svg                       | pad      | three-prong pad, plain buttons, no marks                                                 |
 | `nds`             | Nintendo - Nintendo DS.svg                         | handheld | open clamshell handheld, two blank screens, no badge                                     |
 | `neocd`           | SNK - Neo Geo CD.svg                               | pad      | rounded pad, plain buttons, no marks                                                     |
 | `neogeo`          | SNK - Neo Geo.svg                                  | pad      | arcade stick box, plain ball top and buttons, no marks                                   |
 | `nes`             | Nintendo - Nintendo Entertainment System.svg       | pad      | rectangular pad, d-pad and plain round buttons, no marks                                 |
 | `ngp`             | SNK - Neo Geo Pocket.svg                           | handheld | landscape handheld, blank screen, no badge                                               |
 | `ngpc`            | SNK - Neo Geo Pocket Color.svg                     | handheld | landscape handheld, blank screen, no badge                                               |
+| `odyssey2`        | Magnavox - Odyssey2.svg                            | computer | console with flat membrane keyboard, blank keys, no marks                                |
+| `pc88`            | NEC - PC-88.svg                                    | computer | keyboard computer, plain keys, no marks                                                  |
+| `pc98`            | NEC - PC-98.svg                                    | computer | keyboard, plain keys, no marks                                                           |
 | `pcengine`        | NEC - PC Engine - TurboGrafx 16.svg                | pad      | rectangular pad, plain buttons, no marks                                                 |
 | `pcenginecd`      | NEC - PC Engine CD - TurboGrafx-CD.svg             | pad      | rectangular pad, plain buttons, no marks                                                 |
+| `pcfx`            | NEC - PC-FX.svg                                    | pad      | rounded pad, plain buttons, no marks                                                     |
+| `pet`             | Commodore - PET.svg                                | computer | all-in-one computer, blank screen, plain keys, no marks                                  |
 | `pgm2`            | FBNeo - Arcade Games.svg                           | cabinet  | arcade cabinet in side profile, no marquee art, no marks (shared cabinet proxy)          |
+| `pico`            | Sega - PICO.svg                                    | console  | console top with blank cartridge slot, no marks                                          |
+| `plus4`           | Commodore - Plus-4.svg                             | computer | keyboard computer, plain keys, no marks                                                  |
 | `pokemini`        | Nintendo - Pokemon Mini.svg                        | handheld | small handheld, blank screen, d-pad, no character art or badge                           |
+| `ps2`             | Sony - PlayStation 2.svg                           | pad      | pad with grips and two sticks, plain round face buttons, no face-button symbols          |
 | `psp`             | Sony - PlayStation Portable.svg                    | handheld | landscape handheld, blank screen, plain round buttons, no symbols                        |
 | `psx`             | Sony - PlayStation.svg                             | pad      | pad with grips, plain round face buttons, no face-button symbols                         |
+| `satellaview`     | Nintendo - Satellaview.svg                         | pad      | rounded pad, plain dots, no marks                                                        |
 | `saturn`          | Sega - Saturn.svg                                  | pad      | rounded pad, plain dots, no marks                                                        |
+| `scv`             | Epoch - Super Cassette Vision.svg                  | pad      | controller with plain disc, ribbed top, no marks                                         |
 | `sega32x`         | Sega - 32X.svg                                     | pad      | crescent pad, plain dots, no marks                                                       |
 | `segacd`          | Sega - Mega-CD - Sega CD.svg                       | pad      | crescent pad, plain dots, no marks                                                       |
+| `sg1000`          | Sega - SG-1000.svg                                 | pad      | rectangular pad with plain d-pad and two plain buttons, no marks                         |
 | `snes`            | Nintendo - Super Nintendo Entertainment System.svg | pad      | rounded pad, plain dots, no marks                                                        |
+| `sufami`          | Nintendo - Sufami Turbo.svg                        | pad      | rounded pad, plain dots, no marks                                                        |
+| `supergrafx`      | NEC - PC Engine SuperGrafx.svg                     | pad      | rectangular pad, d-pad and plain buttons, no marks                                       |
+| `supervision`     | Watara - Supervision.svg                           | handheld | portrait handheld, blank screen, plain buttons, no badge                                 |
+| `thomson`         | Thomson - MOTO.svg                                 | computer | keyboard computer, plain keys, no marks                                                  |
+| `ti99`            | Texas Instruments - TI-99-4A.svg                   | computer | keyboard computer with blank cartridge slot, plain keys, no marks                        |
 | `varcade`         | FBNeo - Arcade Games.svg                           | cabinet  | arcade cabinet in side profile, no marquee art, no marks (shared cabinet proxy)          |
 | `vic20`           | Commodore - VIC-20.svg                             | computer | keyboard computer, plain keys, no marks                                                  |
 | `virtualboy`      | Nintendo - Virtual Boy.svg                         | pad      | double-grip pad, two d-pads, plain buttons, no marks                                     |
 | `wonderswan`      | Bandai - WonderSwan.svg                            | handheld | landscape handheld, blank screen, plain button clusters, no badge                        |
 | `wonderswancolor` | Bandai - WonderSwan Color.svg                      | handheld | landscape handheld, blank screen, plain button clusters, no badge                        |
+| `x1`              | Sharp - X1.svg                                     | computer | keyboard, plain keys, no marks                                                           |
+| `x68000`          | Sharp - X68000.svg                                 | computer | keyboard, plain keys, no marks                                                           |
+| `zx81`            | Sinclair - ZX 81.svg                               | computer | keyboard computer, plain keys, blank nameplate, no wordmark                              |
+| `zxspectrum`      | Sinclair - ZX Spectrum.svg                         | computer | keyboard computer, plain keys, blank nameplate, plain corner stripe, no wordmark         |
 
 The contact sheet (`contact-sheet.html`) shows every icon at 14, 16, 20
 and 48 px in both themes.

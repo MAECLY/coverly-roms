@@ -191,9 +191,22 @@ fn has_content_support(system: &str, evs: &[&Evidence], content_read: bool) -> b
     })
 }
 
+/// Header evidence at or above this weight for a system that lists the
+/// extension as weak contradicts the extension's strong owner (spec D24).
+const WEAK_OWNER_PROOF: f32 = 0.95;
+
+/// Weight of a weak extension that agrees with another signal (`ext~`).
+const WEAK_SUPPORT: f32 = 0.50;
+/// A header names a weak owner only from the review line up: a tie-break
+/// hit under it (the 0.40 `.prg` load address, spec §8) never lifts a
+/// weak owner over the extension's strong owners (D24).
+const WEAK_NAMING_HEADER: f32 = 0.50;
+
 /// Extension evidence for `ext`: 0.85 when one system lists it, 0.50 when
 /// several do, and 0.60 (detail suffixed `!`) when the extension is unique
-/// to a system with a decisive signature that the sniffed bytes lack.
+/// to a system with a decisive signature that the sniffed bytes lack, or
+/// when a ≥ 0.95 header proves another system that lists `ext` as weak
+/// (spec D24). Weak owners add nothing here: see [`weak_extension_support`].
 pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Evidence> {
     let class = db.extension_class(ext);
     let weight = match class {
@@ -206,10 +219,11 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
     db.systems_for_extension(&ext)
         .into_iter()
         .map(|s| {
-            let contradicted = class == ExtClass::Unique
+            let lacks_signature = class == ExtClass::Unique
                 && read_enough
                 && DECISIVE.contains(&s.id.as_str())
                 && !sniff.hits.iter().any(|h| h.system == s.id);
+            let contradicted = lacks_signature || weak_owner_proven(db, &ext, &s.id, &sniff.hits);
             let w = if contradicted { 0.60 } else { weight };
             let detail = if contradicted {
                 format!("{ext}!")
@@ -219,6 +233,55 @@ pub fn extension_evidence(db: &SystemDb, ext: &str, sniff: &Sniff) -> Vec<Eviden
             Evidence::new(IdLevel::Extension, &s.id, w, detail)
         })
         .collect()
+}
+
+/// Whether `hits` hold a ≥ 0.95 header for a system other than `owner`
+/// that lists `ext` as weak (spec D24): `owner`'s extension is then
+/// contradicted.
+fn weak_owner_proven(db: &SystemDb, ext: &str, owner: &str, hits: &[Evidence]) -> bool {
+    hits.iter().any(|h| {
+        h.kind == IdLevel::Header
+            && h.weight + EPS >= WEAK_OWNER_PROOF
+            && h.system != owner
+            && db
+                .get(&h.system)
+                .is_some_and(|w| w.weak_extensions.iter().any(|x| x == ext))
+    })
+}
+
+/// Weak-extension support (spec D3, D4): a system that lists `ext` as
+/// weak gains 0.50 (detail `ext~`) only when a header of at least 0.50, a
+/// DAT hit or a user choice already names it. A weak extension alone never assigns a system.
+pub fn weak_extension_support(db: &SystemDb, ext: &str, evidence: &mut Vec<Evidence>) {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    if ext.is_empty() {
+        return;
+    }
+    let detail = format!("{ext}~");
+    for s in db.systems_accepting(&ext) {
+        if !s.weak_extensions.contains(&ext) {
+            continue;
+        }
+        let named = evidence.iter().any(|e| {
+            e.system == s.id
+                && match e.kind {
+                    IdLevel::Header => e.weight + EPS >= WEAK_NAMING_HEADER,
+                    IdLevel::Hash | IdLevel::User => true,
+                    IdLevel::Extension | IdLevel::Name | IdLevel::Online => false,
+                }
+        });
+        let known = evidence
+            .iter()
+            .any(|e| e.kind == IdLevel::Extension && e.system == s.id && e.detail == detail);
+        if named && !known {
+            evidence.push(Evidence::new(
+                IdLevel::Extension,
+                &s.id,
+                WEAK_SUPPORT,
+                detail.clone(),
+            ));
+        }
+    }
 }
 
 /// DATs one plan may download on demand; the rest of the missing
@@ -760,9 +823,10 @@ fn fuzzy_level(
 /// of the set's sheets and images (one system: 0.85, several: 0.50;
 /// generic ones none).
 fn disc_evidence(db: &SystemDb, set: &DiscSetInfo, evidence: &mut Vec<Evidence>) {
+    let mut header: Vec<Evidence> = Vec::new();
     if let Some(found) = &set.identity {
         if let FoundSystem::Known { id } = &found.system {
-            evidence.push(Evidence::new(
+            header.push(Evidence::new(
                 IdLevel::Header,
                 id,
                 found.confidence,
@@ -770,6 +834,7 @@ fn disc_evidence(db: &SystemDb, set: &DiscSetInfo, evidence: &mut Vec<Evidence>)
             ));
         }
     }
+    evidence.extend(header.iter().cloned());
     let mut exts: BTreeSet<String> = BTreeSet::new();
     for name in &set.members {
         let ext = crate::scan::classify::extension(Path::new(name));
@@ -786,11 +851,17 @@ fn disc_evidence(db: &SystemDb, set: &DiscSetInfo, evidence: &mut Vec<Evidence>)
             _ => continue,
         };
         for system in db.systems_for_extension(&ext) {
+            // D24: the disc verdict of a weak owner contradicts it.
+            let (weight, detail) = if weak_owner_proven(db, &ext, &system.id, &header) {
+                (0.60, format!("{ext}!"))
+            } else {
+                (weight, ext.clone())
+            };
             evidence.push(Evidence::new(
                 IdLevel::Extension,
                 &system.id,
                 weight,
-                ext.clone(),
+                detail,
             ));
         }
     }
@@ -1044,7 +1115,14 @@ pub fn identify_candidate(
             }
         }
     }
-    // 10. Combine.
+    // 10. Combine. A weak extension supports a system that a header, a
+    // DAT hit or a user choice already names.
+    let mut weak_exts: Vec<&str> = insp.payloads.iter().map(|p| p.ext.as_str()).collect();
+    weak_exts.sort_unstable();
+    weak_exts.dedup();
+    for ext in weak_exts {
+        weak_extension_support(env.db, ext, &mut evidence);
+    }
     let mut seen = HashSet::new();
     evidence.retain(|e| seen.insert((e.kind, e.system.clone(), e.detail.clone())));
     let mut combined = decide(&evidence, &excluded);
@@ -1095,6 +1173,7 @@ pub fn identify_candidate(
             if let Some(ext) = e.detail.strip_suffix('!') {
                 let note = ItemNote::ExtensionContradicted {
                     ext: ext.to_string(),
+                    system: Some(e.system.clone()),
                 };
                 if !id.notes.contains(&note) {
                     id.notes.push(note);
@@ -1104,4 +1183,48 @@ pub fn identify_candidate(
     }
     id.combined = combined;
     id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A disc set of `members` whose primary track names `system`.
+    fn disc_set(members: &[&str], system: &str, confidence: f32) -> DiscSetInfo {
+        serde_json::from_value(serde_json::json!({
+            "sheets": [],
+            "members": members,
+            "primary": members.first(),
+            "sheet_check": "read",
+            "identity": {
+                "system": { "kind": "known", "id": system },
+                "id": { "serials": [], "disc_no": null, "volume": null, "source": "ip-bin" },
+                "confidence": confidence,
+                "detail": "ZZ CD",
+            },
+            "multi_disc": false,
+            "twins": [],
+            "extractable": true,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_disc_header_of_a_weak_owner_contradicts_the_strong_extension() {
+        // D24 «sniff or disc verdict»: a zipped `.cdi` whose primary track
+        // names a system listing `cdi` as weak drops dreamcast to 0.60.
+        let db = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"zz\"\nname = \"ZZ\"\nweak_extensions = [\"cdi\"]\n")
+            .unwrap();
+        let mut evidence = Vec::new();
+        disc_evidence(&db, &disc_set(&["Game.cdi"], "zz", 0.95), &mut evidence);
+        let dc = evidence.iter().find(|e| e.system == "dreamcast").unwrap();
+        assert_eq!((dc.weight, dc.detail.as_str()), (0.60, "cdi!"));
+
+        // A weaker verdict leaves the strong owner alone.
+        let mut evidence = Vec::new();
+        disc_evidence(&db, &disc_set(&["Game.cdi"], "zz", 0.90), &mut evidence);
+        let dc = evidence.iter().find(|e| e.system == "dreamcast").unwrap();
+        assert_eq!((dc.weight, dc.detail.as_str()), (0.85, "cdi"));
+    }
 }

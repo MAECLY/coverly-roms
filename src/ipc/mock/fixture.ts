@@ -7,6 +7,7 @@ import type {
   EntryView,
   LibraryView,
   Region,
+  SystemFamily,
   SystemView,
 } from '../types';
 
@@ -30,6 +31,8 @@ interface FixtureSystem {
   folder: string;
   id: string;
   name: string;
+  /** Its `systems.toml` family (the picker group). */
+  family: SystemFamily;
   exts: readonly string[];
   weight: number;
 }
@@ -38,15 +41,31 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
   {
     folder: 'DREAMCAST',
     id: 'dreamcast',
+    family: 'console',
     name: 'Dreamcast',
     exts: ['chd', 'gdi'],
     weight: 2,
   },
-  { folder: 'FC', id: 'nes', name: 'NES / Famicom', exts: ['nes'], weight: 10 },
-  { folder: 'GB', id: 'gb', name: 'Game Boy', exts: ['gb'], weight: 6 },
+  {
+    folder: 'FC',
+    id: 'nes',
+    family: 'console',
+    name: 'NES / Famicom',
+    exts: ['nes'],
+    weight: 10,
+  },
+  {
+    folder: 'GB',
+    id: 'gb',
+    family: 'handheld',
+    name: 'Game Boy',
+    exts: ['gb'],
+    weight: 6,
+  },
   {
     folder: 'GBA',
     id: 'gba',
+    family: 'handheld',
     name: 'Game Boy Advance',
     exts: ['gba', 'zip'],
     weight: 9,
@@ -54,16 +73,39 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
   {
     folder: 'GBC',
     id: 'gbc',
+    family: 'handheld',
     name: 'Game Boy Color',
     exts: ['gbc'],
     weight: 5,
   },
-  { folder: 'GG', id: 'gamegear', name: 'Game Gear', exts: ['gg'], weight: 3 },
-  { folder: 'LYNX', id: 'lynx', name: 'Atari Lynx', exts: ['lnx'], weight: 1 },
-  { folder: 'MAME', id: 'mame', name: 'MAME', exts: ['zip'], weight: 8 },
+  {
+    folder: 'GG',
+    id: 'gamegear',
+    family: 'handheld',
+    name: 'Game Gear',
+    exts: ['gg'],
+    weight: 3,
+  },
+  {
+    folder: 'LYNX',
+    id: 'lynx',
+    family: 'handheld',
+    name: 'Atari Lynx',
+    exts: ['lnx'],
+    weight: 1,
+  },
+  {
+    folder: 'MAME',
+    id: 'mame',
+    family: 'arcade',
+    name: 'MAME',
+    exts: ['zip'],
+    weight: 8,
+  },
   {
     folder: 'MD',
     id: 'megadrive',
+    family: 'console',
     name: 'Mega Drive',
     exts: ['md', 'bin', 'gen'],
     weight: 8,
@@ -71,15 +113,31 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
   {
     folder: 'N64',
     id: 'n64',
+    family: 'console',
     name: 'Nintendo 64',
     exts: ['z64', 'n64'],
     weight: 4,
   },
-  { folder: 'NDS', id: 'nds', name: 'Nintendo DS', exts: ['nds'], weight: 5 },
-  { folder: 'NEOGEO', id: 'neogeo', name: 'Neo Geo', exts: ['zip'], weight: 2 },
+  {
+    folder: 'NDS',
+    id: 'nds',
+    family: 'handheld',
+    name: 'Nintendo DS',
+    exts: ['nds'],
+    weight: 5,
+  },
+  {
+    folder: 'NEOGEO',
+    id: 'neogeo',
+    family: 'arcade',
+    name: 'Neo Geo',
+    exts: ['zip'],
+    weight: 2,
+  },
   {
     folder: 'PCE',
     id: 'pcengine',
+    family: 'console',
     name: 'PC Engine',
     exts: ['pce'],
     weight: 3,
@@ -87,14 +145,32 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
   {
     folder: 'PS',
     id: 'psx',
+    family: 'console',
     name: 'PlayStation',
     exts: ['pbp', 'chd', 'm3u'],
     weight: 7,
   },
-  { folder: 'PSP', id: 'psp', name: 'PSP', exts: ['iso', 'cso'], weight: 3 },
+  {
+    // Batch 1: a RetroArch silhouette (PS2) beside a Slot mount (WASM-4).
+    folder: 'PS2',
+    id: 'ps2',
+    family: 'console',
+    name: 'Sony PlayStation 2',
+    exts: ['iso', 'chd'],
+    weight: 1,
+  },
+  {
+    folder: 'PSP',
+    id: 'psp',
+    family: 'handheld',
+    name: 'PSP',
+    exts: ['iso', 'cso'],
+    weight: 3,
+  },
   {
     folder: 'SFC',
     id: 'snes',
+    family: 'console',
     name: 'Super Nintendo',
     exts: ['sfc', 'smc'],
     weight: 10,
@@ -102,15 +178,33 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
   {
     folder: 'SMS',
     id: 'mastersystem',
+    family: 'console',
     name: 'Master System',
     exts: ['sms'],
     weight: 3,
   },
   {
+    folder: 'WASM4',
+    id: 'wasm4',
+    family: 'engine',
+    name: 'WASM-4',
+    exts: ['wasm'],
+    weight: 1,
+  },
+  {
     folder: 'WS',
     id: 'wonderswan',
+    family: 'handheld',
     name: 'WonderSwan',
     exts: ['ws'],
+    weight: 1,
+  },
+  {
+    folder: 'ZXS',
+    id: 'zxspectrum',
+    family: 'computer',
+    name: 'Sinclair ZX Spectrum',
+    exts: ['tzx', 'z80'],
     weight: 1,
   },
 ];

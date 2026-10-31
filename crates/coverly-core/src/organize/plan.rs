@@ -184,6 +184,13 @@ pub enum LeftReason {
     AlreadySorted {
         folder: String,
     },
+    /// A game that is a folder (Doom WAD, Solarus, Lutro, ScummVM): left
+    /// as one item; move the whole folder to `folder`, the system's folder
+    /// under the target layout (spec D15).
+    FolderGame {
+        system: String,
+        folder: String,
+    },
     /// Symlinks, junctions and other reparse points are never followed.
     Symlink,
     /// A disc set whose listed files are missing.
@@ -247,7 +254,14 @@ pub enum ItemNote {
     /// The target folder does not exist on the chosen device layout.
     NoFolderOnDevice { folder: String },
     /// The extension says one system, the contents do not look like it.
-    ExtensionContradicted { ext: String },
+    /// `system` is the extension's owner: the item's own system when its
+    /// header is missing, another one when a weak owner's header won
+    /// (spec D24). Absent in plans written before it.
+    ExtensionContradicted {
+        ext: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system: Option<String>,
+    },
     /// The system's DAT could not be consulted (offline, cap, none).
     CatalogueMissing { system: String },
     /// An archive entry is encrypted: its header was not read.
@@ -929,6 +943,24 @@ fn fp_of(path: &Path) -> SourceFp {
     )
 }
 
+/// [`fp_of`] for a left-in-place path. A folder game (`Freedoom Phase 1/`,
+/// a ScummVM game) counts the bytes of the files below it: a directory's
+/// own length is a filesystem detail (128 on APFS, 4096 on ext4).
+fn left_fp_of(path: &Path) -> SourceFp {
+    let mut fp = fp_of(path);
+    if fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()) {
+        fp.size = WalkDir::new(path)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum();
+    }
+    fp
+}
+
 /// Walks, groups disc sets and identifies every candidate of `source`.
 pub fn survey(
     source: &Path,
@@ -985,9 +1017,21 @@ pub fn survey(
             recent: Duration::from_secs(opts.recent_secs),
             probe: env.probe,
             max_depth: MAX_DEPTH,
+            profile: Some(&profile),
         },
     )
     .map_err(|e| OrganizeError::Unreadable(source_abs.clone(), e.to_string()))?;
+    // The walk names a folder game's target without the user's folder
+    // names; the survey knows them.
+    for (_, reason) in &mut walked.left {
+        if let LeftReason::FolderGame { system, folder } = reason {
+            if let Some(s) = env.db.get(system) {
+                *folder =
+                    crate::profiles::naming::system_folder(&profile, s, env.db, &opts.folder_names)
+                        .folder;
+            }
+        }
+    }
     progress(OrganizeProgress {
         phase: OrganizePhase::Walk,
         done: walked.candidates.len(),
@@ -1001,10 +1045,11 @@ pub fn survey(
     let candidates = std::mem::take(&mut walked.candidates);
     let mut entries = build_entries(&source_abs, candidates, &mut walked);
     for (path, reason) in std::mem::take(&mut walked.left) {
+        let fp = left_fp_of(&path);
         entries.push(Pending {
             entry: SurveyEntry {
-                fps: vec![fp_of(&path)],
-                size: fs::symlink_metadata(&path).map_or(0, |m| m.len()),
+                fps: vec![fp],
+                size: fp.size,
                 sources: vec![path],
                 kind: ItemKind::File,
                 left: Some(reason),
@@ -1468,7 +1513,9 @@ fn identify_one(
 /// lack the entry indices, the discs and the tool an extraction needs, so
 /// they are read again; facts of version 4 call a patch-only archive an
 /// unknown system.
-const FACTS_VERSION: u32 = 5;
+/// 6: PS2, 3DO and Pico verdicts became systems, and a loose 3DO, PC-FX,
+/// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
+const FACTS_VERSION: u32 = 6;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1780,7 +1827,7 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let left_companions = assign_targets_with_extracts(
+    let mut left_companions = assign_targets_with_extracts(
         &mut items,
         &shapes,
         &layout,
@@ -1790,6 +1837,14 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    left_companions.extend(attach_chd_folders(
+        &mut items,
+        &survey.walked.chd_folders,
+        src,
+        &target_root,
+        env.db,
+        fat32,
+    ));
     if fat32 {
         limit_fat_folders(&mut items, &target_root);
     }
@@ -2061,7 +2116,14 @@ fn duplicates_step(
     let groups = group_units(units, &opts.dedupe, &genv).unwrap_or_default();
 
     // Settle the pile extras.
-    let quarantine = pile_quarantine(src, target_root, roms_dir, &opts.quarantine_name, env.db);
+    let quarantine = pile_quarantine(
+        src,
+        target_root,
+        roms_dir,
+        &opts.quarantine_name,
+        env.db,
+        profile,
+    );
     let mut out = DupStep::default();
     for g in groups {
         if g.members.iter().all(|m| m.unit.in_library) {
@@ -2141,12 +2203,13 @@ fn pile_quarantine(
     roms_dir: &Path,
     name: &str,
     db: &SystemDb,
+    profile: &Profile,
 ) -> PathBuf {
     let in_system_folder = src.strip_prefix(roms_dir).ok().is_some_and(|rel| {
         rel.components().next().is_some_and(|c| match c {
-            std::path::Component::Normal(folder) => {
-                db.resolve_folder(&folder.to_string_lossy()).is_some()
-            }
+            std::path::Component::Normal(folder) => db
+                .resolve_folder_in(Some(profile), &folder.to_string_lossy())
+                .is_some(),
             _ => false,
         })
     });
@@ -2537,6 +2600,85 @@ fn count(items: &[OrganizeItem], walked: &Walked) -> Counts {
     counts
 }
 
+/// MAME CHD folders (spec D16): the `.chd` files of `<set>/` follow
+/// `<set>.zip` into `<arcade folder>/<set>/` when the zip moves in as an
+/// arcade set under its own name. Otherwise, or when a CHD cannot land
+/// (already there, a different file there, too big for FAT32), the CHD is
+/// returned to be left with its reason: a set already present in the
+/// library reports each CHD already present beside it when it is.
+fn attach_chd_folders(
+    items: &mut [OrganizeItem],
+    chd_folders: &[(PathBuf, Vec<PathBuf>)],
+    src: &Path,
+    target_root: &Path,
+    db: &SystemDb,
+    fat32: bool,
+) -> Vec<(PathBuf, LeftReason)> {
+    let mut left = Vec::new();
+    for (zip, chds) in chd_folders {
+        let zip_rel = rel(src, zip);
+        let set = items.iter_mut().find(|i| {
+            i.moves_in()
+                && i.sources.len() == 1
+                && i.sources[0] == zip_rel
+                && i.rename.is_none()
+                && i.target.is_some()
+                && i.system_id
+                    .as_deref()
+                    .and_then(|s| db.get(s))
+                    .is_some_and(|s| s.arcade)
+        });
+        let Some(set) = set else {
+            let present = items.iter().find_map(|i| match &i.action {
+                OrganizeAction::Left {
+                    reason: LeftReason::AlreadyPresent { at },
+                } if i.sources.len() == 1 && i.sources[0] == zip_rel => Some(at.clone()),
+                _ => None,
+            });
+            left.extend(chds.iter().map(|c| {
+                let reason = present
+                    .as_deref()
+                    .and_then(|at| Some(at.parent()?.join(at.file_stem()?).join(c.file_name()?)))
+                    .filter(|to| same_bytes(&target_root.join(to), c))
+                    .map_or(LeftReason::Unknown, |to| LeftReason::AlreadyPresent {
+                        at: to,
+                    });
+                (c.clone(), reason)
+            }));
+            continue;
+        };
+        let target = set.target.clone().expect("checked above");
+        let (Some(folder), Some(stem)) = (target.parent(), target.file_stem()) else {
+            left.extend(chds.iter().map(|c| (c.clone(), LeftReason::Unknown)));
+            continue;
+        };
+        let dir = folder.join(stem);
+        for chd in chds {
+            let Some(name) = chd.file_name() else {
+                continue;
+            };
+            let to = dir.join(name);
+            let at = target_root.join(&to);
+            if fat32 && fs::metadata(chd).is_ok_and(|m| m.len() >= 4 << 30) {
+                left.push((chd.clone(), LeftReason::TooBigForFat));
+            } else if fs::symlink_metadata(&at).is_ok() {
+                let reason = if same_bytes(&at, chd) {
+                    LeftReason::AlreadyPresent { at: to }
+                } else {
+                    LeftReason::CollisionSet
+                };
+                left.push((chd.clone(), reason));
+            } else {
+                set.companions.push(Companion {
+                    source: rel(src, chd),
+                    target: to,
+                });
+            }
+        }
+    }
+    left
+}
+
 /// Same length and same bytes (CRC32 of both, streamed).
 fn same_bytes(a: &Path, b: &Path) -> bool {
     let (Ok(ma), Ok(mb)) = (fs::metadata(a), fs::metadata(b)) else {
@@ -2662,8 +2804,14 @@ pub fn count_library_loose_roms(root: &Path, roms_root: &str, db: &SystemDb) -> 
 
 /// A quick look at `path` by names and metadata only (no file is read):
 /// what the start screen needs to offer organising. Stops after
-/// [`PROBE_LIMIT`] entries.
-pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Result<FolderProbe> {
+/// [`PROBE_LIMIT`] entries. `profile` is the layout the pile would go to,
+/// when known: its own folder names count as sorted.
+pub fn probe_folder(
+    path: &Path,
+    db: &SystemDb,
+    profile: Option<&Profile>,
+    probe: &dyn MetaProbe,
+) -> io::Result<FolderProbe> {
     fs::read_dir(path)?;
     let mut out = FolderProbe {
         writable: dir_writable(path),
@@ -2692,7 +2840,7 @@ pub fn probe_folder(path: &Path, db: &SystemDb, probe: &dyn MetaProbe) -> io::Re
                 partial_dirs += 1;
                 return false;
             }
-            match db.resolve_folder(&name) {
+            match db.resolve_folder_in(profile, &name) {
                 Some(_) => {
                     sorted.insert(name.into_owned());
                     false

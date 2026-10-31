@@ -154,20 +154,25 @@ pub(crate) fn extension(path: &Path) -> String {
 
 /// Whether a file with extension `ext` (lowercase) is a ROM of `system`.
 ///
-/// A system with an extension list accepts exactly those, even one that is
-/// also ignored (`md` is a Mega Drive ROM, not Markdown). A system with an
-/// empty list accepts any extension that is not ignored.
+/// A system with an extension list (strong or weak) accepts exactly those,
+/// even one that is also ignored (`md` is a Mega Drive ROM, not Markdown).
+/// A system with both lists empty accepts any extension that is not
+/// ignored, except an engine: a data-folder port (Cave Story, Wolfenstein
+/// 3D…, spec D15) is a game folder whose files are not games, so none is.
 pub(crate) fn is_rom_extension(ext: &str, system: &System, opts: &ScanOptions) -> bool {
     if ext.is_empty() {
         return false;
     }
-    if system.extensions.is_empty() {
+    if system.extensions.is_empty() && system.weak_extensions.is_empty() {
+        if system.family == crate::systems::Family::Engine {
+            return false;
+        }
         !opts
             .ignored_exts
             .iter()
             .any(|e| e.eq_ignore_ascii_case(ext))
     } else {
-        system.extensions.iter().any(|e| e == ext)
+        system.accepts_extension(ext)
     }
 }
 
@@ -187,6 +192,9 @@ mod tests {
             header: crate::identify::hash::HeaderRule::Plain,
             dats: Vec::new(),
             screenscraper: None,
+            family: crate::systems::Family::Console,
+            weak_extensions: Vec::new(),
+            scoped_aliases: Vec::new(),
         }
     }
 
@@ -246,6 +254,31 @@ mod tests {
         assert!(is_rom_extension("whatever", &any, &opts));
         assert!(!is_rom_extension("txt", &any, &opts));
         assert!(!is_rom_extension("png", &any, &opts));
+    }
+
+    #[test]
+    fn an_engine_with_no_extension_accepts_no_file() {
+        // A data-folder port (D15): its folder holds game data, not games.
+        let opts = ScanOptions::default();
+        let mut port = system(&[]);
+        port.family = crate::systems::Family::Engine;
+        assert!(!is_rom_extension("exe", &port, &opts));
+        assert!(!is_rom_extension("pxm", &port, &opts));
+        // A user system with no list still accepts any extension.
+        assert!(is_rom_extension("pxm", &system(&[]), &opts));
+    }
+
+    #[test]
+    fn weak_only_system_accepts_just_its_weak_extensions() {
+        // A system with no strong extension but weak ones (plus4, pet…)
+        // is not an "any extension" system: its folder holds only those.
+        let opts = ScanOptions::default();
+        let mut plus4 = system(&[]);
+        plus4.weak_extensions = vec!["prg".into(), "d64".into()];
+        assert!(is_rom_extension("prg", &plus4, &opts));
+        assert!(is_rom_extension("d64", &plus4, &opts));
+        assert!(!is_rom_extension("whatever", &plus4, &opts));
+        assert!(!is_rom_extension("exe", &plus4, &opts));
     }
 
     #[test]

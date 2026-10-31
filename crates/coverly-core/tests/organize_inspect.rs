@@ -1650,7 +1650,7 @@ mod discs {
     }
 
     #[test]
-    fn a_ps2_disc_in_an_archive_is_unsupported() {
+    fn a_ps2_disc_in_an_archive_is_placed_as_ps2() {
         let tmp = tempfile::tempdir().unwrap();
         let p = write(
             tmp.path(),
@@ -1661,16 +1661,94 @@ mod discs {
             ),
         );
         let i = inspect(&p);
-        assert!(matches!(
-            set_of(&i).identity.as_ref().unwrap().system,
-            FoundSystem::Unsupported { .. }
-        ));
-        assert_eq!(
-            identify_offline(&p, i).left,
-            Some(LeftReason::UnsupportedSystem {
-                name: "PlayStation 2".into()
-            })
+        assert_eq!(known(&i), ("ps2".into(), vec!["SLUS-20062".into()]));
+        let id = identify_offline(&p, i);
+        assert_eq!(id.left, None);
+        assert_eq!(id.combined.system.as_deref(), Some("ps2"));
+    }
+
+    /// A Redump-style Jaguar CD cue: an audio track in session 1, the
+    /// boot track first in session 2 (every track is `AUDIO`).
+    fn jaguar_cue(sessions: bool) -> Vec<u8> {
+        let mut s = String::new();
+        if sessions {
+            s.push_str("REM SESSION 01\r\n");
+        }
+        s.push_str(
+            "FILE \"Game (Track 01).bin\" BINARY\r\n  TRACK 01 AUDIO\r\n    INDEX 01 00:00:00\r\n",
         );
+        if sessions {
+            s.push_str("REM SESSION 02\r\n");
+        }
+        s.push_str("FILE \"Game (Track 02).bin\" BINARY\r\n  TRACK 02 AUDIO\r\n    INDEX 00 00:00:00\r\n    INDEX 01 00:02:00\r\n");
+        s.into_bytes()
+    }
+
+    fn jaguar_zip(dir: &std::path::Path, sessions: bool, swapped: bool) -> std::path::PathBuf {
+        // A 2-second pregap of silence precedes the boot sector.
+        let mut boot = vec![0u8; 150 * 2352];
+        boot.extend(dt::jaguar_cd_session2(swapped));
+        boot.resize(boot.len() + 4 * 2352, 0);
+        write(
+            dir,
+            "Game.7z",
+            sevenz(
+                &[
+                    ("Game.cue", &jaguar_cue(sessions)),
+                    ("Game (Track 01).bin", &[0u8; 2352 * 8]),
+                    ("Game (Track 02).bin", &boot),
+                ],
+                SevenZShape::non_solid_lzma(),
+            ),
+        )
+    }
+
+    #[test]
+    fn a_jaguar_cd_is_known_by_its_session_two_header() {
+        for swapped in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            let p = jaguar_zip(tmp.path(), true, swapped);
+            let i = inspect(&p);
+            assert_eq!(known(&i), ("jaguarcd".into(), vec![]), "swapped={swapped}");
+            let found = set_of(&i).identity.as_ref().unwrap();
+            assert_eq!(
+                (found.confidence, found.detail.as_str()),
+                (0.95, "ATARI APPROVED DATA HEADER")
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_session_jaguar_cue_is_not_checked() {
+        // Without `REM SESSION 02` the boot track cannot be found: folder
+        // and name decide.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = jaguar_zip(tmp.path(), false, false);
+        assert_eq!(set_of(&inspect(&p)).identity, None);
+    }
+
+    #[test]
+    fn a_cdi_disc_is_known_by_its_label_whatever_its_cue_mode() {
+        // `CDI/2352` is the cue mode of a CD-i data track (cdrdao, CDRWIN);
+        // Redump writes `MODE2/2352`. Both reach the disc label.
+        for mode in ["MODE2/2352", "CDI/2352"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let cue = format!(
+                "FILE \"Game.bin\" BINARY\r\n  TRACK 01 {mode}\r\n    INDEX 01 00:00:00\r\n"
+            );
+            let p = write(
+                tmp.path(),
+                "Game.7z",
+                sevenz(
+                    &[
+                        ("Game.cue", cue.as_bytes()),
+                        ("Game.bin", &dt::cdi_track(1)),
+                    ],
+                    SevenZShape::non_solid_lzma(),
+                ),
+            );
+            assert_eq!(known(&inspect(&p)), ("cdi".into(), vec![]), "{mode}");
+        }
     }
 
     #[test]
@@ -1689,4 +1767,120 @@ mod discs {
         assert_eq!(i.disc_set, None);
         assert!(i.payloads.iter().any(|p| p.ext == "adf"));
     }
+}
+
+#[test]
+fn package_exts_are_raw_items() {
+    // D25: zip-based game packages are one raw file, never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let arduboy = tmp.path().join("Game.arduboy");
+    zip_file(
+        &arduboy,
+        &[
+            ("info.json", b"{\"title\":\"Game\"}", true),
+            ("game.hex", b":00000001FF\n", true),
+        ],
+    );
+    let rpk = tmp.path().join("Game.rpk");
+    zip_file(
+        &rpk,
+        &[
+            ("layout.xml", b"<romset></romset>", true),
+            ("game.bin", &[0x55u8; 64], false),
+        ],
+    );
+    for (p, ext) in [(&arduboy, "arduboy"), (&rpk, "rpk")] {
+        let i = inspect(p);
+        assert_eq!(i.container, Container::Raw, "{ext}");
+        assert_eq!(i.issue, None, "{ext}");
+        assert!(i.entries.is_empty(), "{ext}: nothing listed");
+        assert_eq!(i.payloads.len(), 1, "{ext}");
+        assert_eq!(i.payloads[0].ext, ext);
+        assert!(i.disc_set.is_none());
+    }
+    assert!(coverly_core::organize::inspect::PACKAGE_EXTS.contains(&"uef"));
+}
+
+fn header_hits(i: &Inspection) -> Vec<(String, f32)> {
+    i.payloads
+        .iter()
+        .flat_map(|p| p.sniff.hits.iter())
+        .map(|h| (h.system.clone(), h.weight))
+        .collect()
+}
+
+#[test]
+fn rpk_with_layout_xml_is_ti99() {
+    // Spec §8.1 / D25: a MAME cartridge package (`.rpk`, a zip holding
+    // `layout.xml`) is one raw TI-99/4A item, read through the archive
+    // layer and never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let rpk = tmp.path().join("Parsec (1982)(Texas Instruments).rpk");
+    zip_file(
+        &rpk,
+        &[
+            ("layout.xml", b"<romset><resources/></romset>", true),
+            ("phm3112g.bin", &[0x55u8; 64], false),
+        ],
+    );
+    let i = inspect(&rpk);
+    assert_eq!(i.container, Container::Raw);
+    assert!(i.entries.is_empty(), "nothing listed");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("ti99".to_string(), 0.90)]);
+    // Without `layout.xml` the package names no system.
+    let bare = tmp.path().join("Bare.rpk");
+    zip_file(&bare, &[("phm3112g.bin", &[0x55u8; 64], false)]);
+    assert!(header_hits(&inspect(&bare)).is_empty());
+    // A zip that is not named `.rpk` is an archive as before.
+    let zip = tmp.path().join("Parsec.zip");
+    zip_file(&zip, &[("layout.xml", b"<romset/>", true)]);
+    assert_ne!(inspect(&zip).container, Container::Raw);
+}
+
+#[test]
+fn gzip_uef_is_bbc_micro_raw() {
+    // D25: a gzip `.uef` stays one raw file; its decoded head carries
+    // `UEF File!`.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Elite (1984)(Acornsoft).uef");
+    std::fs::write(&p, gz(&fx::uef(), None)).unwrap();
+    let i = inspect(&p);
+    assert_eq!(i.container, Container::Raw);
+    assert_eq!(i.issue, None);
+    assert_eq!(header_hits(&i), [("bbcmicro".to_string(), 0.95)]);
+    // A gzip `.uef` of anything else names nothing.
+    std::fs::write(&p, gz(&[0x42u8; 512], None)).unwrap();
+    assert!(header_hits(&inspect(&p)).is_empty());
+    // A plain UEF is sniffed directly.
+    std::fs::write(&p, fx::uef()).unwrap();
+    assert_eq!(header_hits(&inspect(&p)), [("bbcmicro".to_string(), 0.95)]);
+}
+
+#[test]
+fn arduboy_package_is_raw() {
+    // D25 / spec §8.1: an `.arduboy` package (a zip holding `info.json`
+    // beside its `.hex`) is one raw Arduboy item, never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg = tmp.path().join("Arduventure.arduboy");
+    zip_file(
+        &pkg,
+        &[
+            ("info.json", b"{\"title\":\"Arduventure\"}", true),
+            ("Arduventure.hex", b":00000001FF\n", true),
+        ],
+    );
+    let i = inspect(&pkg);
+    assert_eq!(i.container, Container::Raw);
+    assert!(i.entries.is_empty(), "nothing listed");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("arduboy".to_string(), 0.90)]);
+    // Without `info.json` the package names no system.
+    let bare = tmp.path().join("Bare.arduboy");
+    zip_file(&bare, &[("game.hex", b":00000001FF\n", true)]);
+    assert!(header_hits(&inspect(&bare)).is_empty());
+    // An `info.json` in a sub-folder is not the package's manifest.
+    let nested = tmp.path().join("Nested.arduboy");
+    zip_file(&nested, &[("sub/info.json", b"{}", true)]);
+    assert!(header_hits(&inspect(&nested)).is_empty());
 }
