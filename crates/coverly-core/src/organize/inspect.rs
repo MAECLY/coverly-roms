@@ -34,8 +34,9 @@ use crate::disc::{
     first_of_session, infer_redump_set, parse_sheet, primary_track, signatures, DiscIdentity,
     DiscReader, DiscSystem, Sheet, SheetKind, WindowSource,
 };
+use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{
-    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
+    sniff, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP, UEF_MAGIC,
 };
 use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
@@ -434,11 +435,14 @@ pub fn inspect_file_with(
                     return Ok(out);
                 }
             }
-            let sniffed = if len <= head.len() as u64 {
+            let mut sniffed = if len <= head.len() as u64 {
                 first
             } else {
                 sniff(&mut FileAt(file), len, &ext)
             };
+            if magic.is_some() && PACKAGE_EXTS.contains(&ext.as_str()) {
+                sniffed.hits.extend(package_hits(path, &ext, limits));
+            }
             out.head_crc = Some(format!("{:08X}", crc32fast::hash(&head)));
             if let Some(what) = sniffed.not_a_rom {
                 out.issue = Some(ArchiveIssue::NotARom { what });
@@ -507,6 +511,40 @@ fn file_name(path: &Path) -> String {
 /// extracted. A header check that needs the inner files reads them
 /// through the archive reader on the same bytes.
 pub const PACKAGE_EXTS: [&str; 5] = ["arduboy", "rpk", "solarus", "lutro", "uef"];
+
+/// Header evidence of a game package read through the archive layer
+/// (spec §8.1, D25): an `.rpk` whose zip holds `layout.xml` (a MAME
+/// cartridge package) is a TI-99/4A cartridge, and a gzip `.uef` whose
+/// decoded head opens with `UEF File!` is a BBC Micro tape. Never runs a
+/// tool, charges the plan head budget and writes nothing; any archive
+/// problem simply names no system.
+fn package_hits(path: &Path, ext: &str, limits: &Limits) -> Vec<Evidence> {
+    let Ok(Some(mut reader)) = archive::open_archive_with(path, limits, Some(&[])) else {
+        return Vec::new();
+    };
+    let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
+    let header = |system: &str, weight: f32, detail: &str| {
+        vec![Evidence::new(IdLevel::Header, system, weight, detail)]
+    };
+    match ext {
+        "rpk"
+            if entries
+                .iter()
+                .any(|e| entry_name(e).eq_ignore_ascii_case("layout.xml")) =>
+        {
+            header("ti99", 0.90, "RPK layout.xml")
+        }
+        "uef" if matches!(reader.format(), Format::Single(_)) && entries.len() == 1 => {
+            let mut budget = Budget::plan_head(limits);
+            let cap = UEF_MAGIC.len() as u64;
+            match read_entry(reader.as_mut(), entries[0].index, cap, &mut budget) {
+                Ok(bytes) if bytes.starts_with(UEF_MAGIC) => header("bbcmicro", 0.95, "UEF (gzip)"),
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    }
+}
 
 /// Magic first (a 7z named `.zip` is a 7z; a zip named `.bin` is a zip),
 /// the extension only when the bytes carry no magic (archives spec §3.2

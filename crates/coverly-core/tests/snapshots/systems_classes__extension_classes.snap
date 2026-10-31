@@ -69,6 +69,16 @@ expression: rows
   },
   {
     "accepting": [
+      "zx81"
+    ],
+    "class": "Unique",
+    "ext": "81",
+    "strong": [
+      "zx81"
+    ]
+  },
+  {
+    "accepting": [
       "vic20"
     ],
     "class": "Unique",
@@ -212,7 +222,8 @@ expression: rows
       "pico",
       "supervision",
       "gamecom",
-      "megaduck"
+      "megaduck",
+      "ti99"
     ],
     "class": "Generic",
     "ext": "bin",
@@ -242,7 +253,8 @@ expression: rows
       "pico",
       "supervision",
       "gamecom",
-      "megaduck"
+      "megaduck",
+      "ti99"
     ]
   },
   {
@@ -269,13 +281,29 @@ expression: rows
   {
     "accepting": [
       "a800",
-      "msx"
+      "msx",
+      "dragon",
+      "coco"
     ],
     "class": "Shared",
     "ext": "cas",
     "strong": [
       "a800",
-      "msx"
+      "msx",
+      "dragon",
+      "coco"
+    ]
+  },
+  {
+    "accepting": [
+      "dragon",
+      "coco"
+    ],
+    "class": "Shared",
+    "ext": "ccc",
+    "strong": [
+      "dragon",
+      "coco"
     ]
   },
   {
@@ -303,6 +331,16 @@ expression: rows
     "ext": "cdi",
     "strong": [
       "dreamcast"
+    ]
+  },
+  {
+    "accepting": [
+      "amstradcpc"
+    ],
+    "class": "Unique",
+    "ext": "cdt",
+    "strong": [
+      "amstradcpc"
     ]
   },
   {
@@ -397,6 +435,16 @@ expression: rows
   },
   {
     "accepting": [
+      "amstradcpc"
+    ],
+    "class": "Unique",
+    "ext": "cpr",
+    "strong": [
+      "amstradcpc"
+    ]
+  },
+  {
+    "accepting": [
       "c64",
       "vic20"
     ],
@@ -416,6 +464,16 @@ expression: rows
     "ext": "cso",
     "strong": [
       "psp"
+    ]
+  },
+  {
+    "accepting": [
+      "ti99"
+    ],
+    "class": "Unique",
+    "ext": "ctg",
+    "strong": [
+      "ti99"
     ]
   },
   {
@@ -532,12 +590,30 @@ expression: rows
   },
   {
     "accepting": [
-      "msx"
+      "bbcmicro"
     ],
     "class": "Unique",
+    "ext": "dsd",
+    "strong": [
+      "bbcmicro"
+    ]
+  },
+  {
+    "accepting": [
+      "msx",
+      "zxspectrum",
+      "amstradcpc",
+      "dragon",
+      "coco"
+    ],
+    "class": "Shared",
     "ext": "dsk",
     "strong": [
-      "msx"
+      "msx",
+      "zxspectrum",
+      "amstradcpc",
+      "dragon",
+      "coco"
     ]
   },
   {
@@ -559,6 +635,14 @@ expression: rows
     "strong": [
       "dos"
     ]
+  },
+  {
+    "accepting": [
+      "thomson"
+    ],
+    "class": "Unknown",
+    "ext": "fd",
+    "strong": []
   },
   {
     "accepting": [
@@ -778,6 +862,26 @@ expression: rows
   },
   {
     "accepting": [
+      "thomson"
+    ],
+    "class": "Unique",
+    "ext": "k7",
+    "strong": [
+      "thomson"
+    ]
+  },
+  {
+    "accepting": [
+      "amstradcpc"
+    ],
+    "class": "Unique",
+    "ext": "kcr",
+    "strong": [
+      "amstradcpc"
+    ]
+  },
+  {
+    "accepting": [
       "amiga"
     ],
     "class": "Unique",
@@ -817,7 +921,8 @@ expression: rows
       "pcenginecd",
       "psx",
       "saturn",
-      "ps2"
+      "ps2",
+      "amstradcpc"
     ],
     "class": "Shared",
     "ext": "m3u",
@@ -831,7 +936,18 @@ expression: rows
       "pcenginecd",
       "psx",
       "saturn",
-      "ps2"
+      "ps2",
+      "amstradcpc"
+    ]
+  },
+  {
+    "accepting": [
+      "thomson"
+    ],
+    "class": "Unique",
+    "ext": "m7",
+    "strong": [
+      "thomson"
     ]
   },
   {
@@ -999,6 +1115,14 @@ expression: rows
   },
   {
     "accepting": [
+      "zx81"
+    ],
+    "class": "Unknown",
+    "ext": "p",
+    "strong": []
+  },
+  {
+    "accepting": [
       "c64"
     ],
     "class": "Unique",
@@ -1078,7 +1202,8 @@ expression: rows
       "colecovision",
       "intellivision",
       "scv",
-      "jaguar"
+      "jaguar",
+      "thomson"
     ],
     "class": "Generic",
     "ext": "rom",
@@ -1087,7 +1212,38 @@ expression: rows
       "colecovision",
       "intellivision",
       "scv",
-      "jaguar"
+      "jaguar",
+      "thomson"
+    ]
+  },
+  {
+    "accepting": [
+      "ti99"
+    ],
+    "class": "Unique",
+    "ext": "rpk",
+    "strong": [
+      "ti99"
+    ]
+  },
+  {
+    "accepting": [
+      "zxspectrum"
+    ],
+    "class": "Unique",
+    "ext": "rzx",
+    "strong": [
+      "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
+      "thomson"
+    ],
+    "class": "Unique",
+    "ext": "sap",
+    "strong": [
+      "thomson"
     ]
   },
   {
@@ -1098,6 +1254,16 @@ expression: rows
     "ext": "sc",
     "strong": [
       "sg1000"
+    ]
+  },
+  {
+    "accepting": [
+      "zxspectrum"
+    ],
+    "class": "Unique",
+    "ext": "scl",
+    "strong": [
+      "zxspectrum"
     ]
   },
   {
@@ -1187,6 +1353,28 @@ expression: rows
   },
   {
     "accepting": [
+      "zxspectrum",
+      "amstradcpc"
+    ],
+    "class": "Shared",
+    "ext": "sna",
+    "strong": [
+      "zxspectrum",
+      "amstradcpc"
+    ]
+  },
+  {
+    "accepting": [
+      "bbcmicro"
+    ],
+    "class": "Unique",
+    "ext": "ssd",
+    "strong": [
+      "bbcmicro"
+    ]
+  },
+  {
+    "accepting": [
       "atarist",
       "sufami"
     ],
@@ -1238,6 +1426,16 @@ expression: rows
   },
   {
     "accepting": [
+      "zxspectrum"
+    ],
+    "class": "Unique",
+    "ext": "szx",
+    "strong": [
+      "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
       "c64",
       "vic20"
     ],
@@ -1251,13 +1449,15 @@ expression: rows
   {
     "accepting": [
       "c64",
-      "vic20"
+      "vic20",
+      "zxspectrum"
     ],
     "class": "Shared",
     "ext": "tap",
     "strong": [
       "c64",
-      "vic20"
+      "vic20",
+      "zxspectrum"
     ]
   },
   {
@@ -1272,12 +1472,43 @@ expression: rows
   },
   {
     "accepting": [
+      "zxspectrum"
+    ],
+    "class": "Unique",
+    "ext": "trd",
+    "strong": [
+      "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
+      "zxspectrum",
+      "zx81"
+    ],
+    "class": "Unique",
+    "ext": "tzx",
+    "strong": [
+      "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
       "amiga"
     ],
     "class": "Unique",
     "ext": "uae",
     "strong": [
       "amiga"
+    ]
+  },
+  {
+    "accepting": [
+      "bbcmicro"
+    ],
+    "class": "Unique",
+    "ext": "uef",
+    "strong": [
+      "bbcmicro"
     ]
   },
   {
@@ -1390,6 +1621,16 @@ expression: rows
     "ext": "z64",
     "strong": [
       "n64"
+    ]
+  },
+  {
+    "accepting": [
+      "zxspectrum"
+    ],
+    "class": "Unique",
+    "ext": "z80",
+    "strong": [
+      "zxspectrum"
     ]
   },
   {

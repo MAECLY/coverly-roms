@@ -345,3 +345,52 @@ fn a_folder_the_target_layout_names_counts_as_sorted() {
     assert!(w.sorted_folders.is_empty());
     assert_eq!(w.candidates.len(), 1);
 }
+
+#[test]
+fn dragon_folder_in_downloads_is_still_walked() {
+    // D22: with no profile a `Dragon/` folder is a pile folder (its game is
+    // a candidate); with the target profile set to Batocera, `dragon64/`
+    // (its Dragon folder) is «already sorted».
+    use coverly_core::profiles::builtin_profiles;
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Dragon/game.cas", b"x");
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.sorted_folders.is_empty(), "{:?}", w.sorted_folders);
+    assert_eq!(
+        w.candidates
+            .iter()
+            .map(|c| c.path.file_name().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        ["game.cas"]
+    );
+
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "dragon64/game.cas", b"x");
+    let p = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "batocera")
+        .unwrap();
+    let ignored: [String; 0] = [];
+    let opts = WalkOptions {
+        skip_dirs: vec![],
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &ignored,
+        now: SystemTime::now(),
+        recent: Duration::from_secs(60),
+        probe: &NoCloud,
+        max_depth: 4,
+        profile: Some(&p),
+    };
+    let w = walk(tmp.path(), &SystemDb::builtin(), &opts).unwrap();
+    assert!(w.candidates.is_empty());
+    assert_eq!(w.sorted_folders.len(), 1);
+    assert_eq!(
+        w.sorted_folders[0].0.file_name().unwrap(),
+        std::ffi::OsStr::new("dragon64")
+    );
+    assert_eq!(w.sorted_folders[0].1, "dragon");
+    // Without the profile `dragon64` is a pile folder too.
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.sorted_folders.is_empty());
+}

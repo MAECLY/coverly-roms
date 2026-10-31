@@ -1800,3 +1800,59 @@ fn package_exts_are_raw_items() {
     }
     assert!(coverly_core::organize::inspect::PACKAGE_EXTS.contains(&"uef"));
 }
+
+fn header_hits(i: &Inspection) -> Vec<(String, f32)> {
+    i.payloads
+        .iter()
+        .flat_map(|p| p.sniff.hits.iter())
+        .map(|h| (h.system.clone(), h.weight))
+        .collect()
+}
+
+#[test]
+fn rpk_with_layout_xml_is_ti99() {
+    // Spec §8.1 / D25: a MAME cartridge package (`.rpk`, a zip holding
+    // `layout.xml`) is one raw TI-99/4A item, read through the archive
+    // layer and never extracted.
+    let tmp = tempfile::tempdir().unwrap();
+    let rpk = tmp.path().join("Parsec (1982)(Texas Instruments).rpk");
+    zip_file(
+        &rpk,
+        &[
+            ("layout.xml", b"<romset><resources/></romset>", true),
+            ("phm3112g.bin", &[0x55u8; 64], false),
+        ],
+    );
+    let i = inspect(&rpk);
+    assert_eq!(i.container, Container::Raw);
+    assert!(i.entries.is_empty(), "nothing listed");
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("ti99".to_string(), 0.90)]);
+    // Without `layout.xml` the package names no system.
+    let bare = tmp.path().join("Bare.rpk");
+    zip_file(&bare, &[("phm3112g.bin", &[0x55u8; 64], false)]);
+    assert!(header_hits(&inspect(&bare)).is_empty());
+    // A zip that is not named `.rpk` is an archive as before.
+    let zip = tmp.path().join("Parsec.zip");
+    zip_file(&zip, &[("layout.xml", b"<romset/>", true)]);
+    assert_ne!(inspect(&zip).container, Container::Raw);
+}
+
+#[test]
+fn gzip_uef_is_bbc_micro_raw() {
+    // D25: a gzip `.uef` stays one raw file; its decoded head carries
+    // `UEF File!`.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Elite (1984)(Acornsoft).uef");
+    std::fs::write(&p, gz(&fx::uef(), None)).unwrap();
+    let i = inspect(&p);
+    assert_eq!(i.container, Container::Raw);
+    assert_eq!(i.issue, None);
+    assert_eq!(header_hits(&i), [("bbcmicro".to_string(), 0.95)]);
+    // A gzip `.uef` of anything else names nothing.
+    std::fs::write(&p, gz(&[0x42u8; 512], None)).unwrap();
+    assert!(header_hits(&inspect(&p)).is_empty());
+    // A plain UEF is sniffed directly.
+    std::fs::write(&p, fx::uef()).unwrap();
+    assert_eq!(header_hits(&inspect(&p)), [("bbcmicro".to_string(), 0.95)]);
+}

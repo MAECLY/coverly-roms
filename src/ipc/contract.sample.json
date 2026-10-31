@@ -538,6 +538,7 @@
       "profile": {
         "id": "garlicos",
         "folder_names": {
+          "amstradcpc": "CPC",
           "channelf": "FAIRCHILD",
           "colecovision": "COLECO",
           "intellivision": "INTELLIVISION",
@@ -548,7 +549,8 @@
           "sufami": "SUFAMI",
           "supergrafx": "SGFX",
           "supervision": "SUPERVISION",
-          "vectrex": "VECTREX"
+          "vectrex": "VECTREX",
+          "zxspectrum": "ZXS"
         },
         "name": "GarlicOS",
         "roms_root": "Roms",
@@ -571,6 +573,7 @@
       "profile": {
         "id": "onion",
         "folder_names": {
+          "amstradcpc": "CPC",
           "channelf": "FAIRCHILD",
           "colecovision": "COLECO",
           "intellivision": "INTELLIVISION",
@@ -581,7 +584,8 @@
           "sufami": "SUFAMI",
           "supergrafx": "SGFX",
           "supervision": "SUPERVISION",
-          "vectrex": "VECTREX"
+          "vectrex": "VECTREX",
+          "zxspectrum": "ZXS"
         },
         "name": "Onion OS",
         "roms_root": "Roms",
@@ -605,9 +609,12 @@
         "id": "muos",
         "folder_names": {
           "3do": "3do",
+          "amstradcpc": "amstradcpc",
           "cdi": "cdi",
           "channelf": "channelf",
+          "coco": "coco",
           "colecovision": "colecovision",
+          "dragon": "dragon",
           "intellivision": "intellivision",
           "jaguar": "jaguar",
           "megaduck": "megaduck",
@@ -621,7 +628,10 @@
           "sufami": "sufami",
           "supergrafx": "supergrafx",
           "supervision": "supervision",
-          "vectrex": "vectrex"
+          "thomson": "thomson",
+          "vectrex": "vectrex",
+          "zx81": "zx81",
+          "zxspectrum": "spectrum"
         },
         "name": "muOS",
         "roms_root": "ROMS",
@@ -652,6 +662,7 @@
         "accepts_containers": ["zip"],
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
         "folder_names": {
+          "amstradcpc": "CPC",
           "colecovision": "COLECO",
           "sg1000": "SG1000"
         },
@@ -679,11 +690,15 @@
         "folder_names": {
           "3do": "3do",
           "amigacd32": "amigacd32",
+          "amstradcpc": "amstradcpc",
           "arcadia": "arcadia",
+          "bbcmicro": "bbcmicro",
           "cdi": "cdimono1",
           "cdtv": "cdtv",
           "channelf": "channelf",
+          "coco": "coco",
           "colecovision": "colecovision",
+          "dragon": "dragon32",
           "fmtowns": "fmtowns",
           "gamecom": "gamecom",
           "intellivision": "intellivision",
@@ -700,7 +715,11 @@
           "sufami": "sufami",
           "supergrafx": "supergrafx",
           "supervision": "supervision",
-          "vectrex": "vectrex"
+          "thomson": "moto",
+          "ti99": "ti99",
+          "vectrex": "vectrex",
+          "zx81": "zx81",
+          "zxspectrum": "zxspectrum"
         },
         "name": "ES-DE",
         "roms_root": "ROMs",
@@ -738,11 +757,15 @@
         "folder_names": {
           "3do": "3do",
           "amigacd32": "amigacd32",
+          "amstradcpc": "amstradcpc",
           "arcadia": "arcadia",
+          "bbcmicro": "bbcmicro",
           "cdi": "cdi",
           "cdtv": "amigacdtv",
           "channelf": "channelf",
+          "coco": "coco",
           "colecovision": "colecovision",
+          "dragon": "dragon64",
           "fmtowns": "fmtowns",
           "gamecom": "gamecom",
           "intellivision": "intellivision",
@@ -760,7 +783,11 @@
           "sufami": "sufami",
           "supergrafx": "supergrafx",
           "supervision": "supervision",
-          "vectrex": "vectrex"
+          "thomson": "thomson",
+          "ti99": "ti99",
+          "vectrex": "vectrex",
+          "zx81": "zx81",
+          "zxspectrum": "zxspectrum"
         },
         "name": "Batocera / Knulli / EmulationStation",
         "roms_root": "roms",

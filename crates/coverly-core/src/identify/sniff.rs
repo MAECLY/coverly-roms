@@ -556,7 +556,7 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
     if sega(head, len, ext, s) {
         return;
     }
-    if early_consoles(head, ext, s) {
+    if early_consoles(head, ext, s) || computer_media(head, ext, s) {
         return;
     }
     // A GBA header carrying its logo too (48 bits) outranks the SNES
@@ -643,6 +643,38 @@ fn early_consoles(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
     }
     true
 }
+
+/// Tape and disk images of home computers (spec §8.1). TZX (format 1.20:
+/// `ZXTape!` + `0x1A`) is the Spectrum's tape format and also the CPC's
+/// under `.cdt`. A CPCEMU disk (`MV - CPC…` or `EXTENDED CPC DSK File`)
+/// opens CPC and Spectrum +3 disks alike, so it names both at 0.50 (a
+/// review), the CPC first. UEF (`UEF File!` + NUL) is the BBC Micro's
+/// tape format; a gzip UEF is read through the archive layer
+/// (`organize::inspect`).
+fn computer_media(head: &[u8], ext: &str, s: &mut Sniff) -> bool {
+    if starts(head, 0, b"ZXTape!\x1A") {
+        let system = if ext == "cdt" {
+            "amstradcpc"
+        } else {
+            "zxspectrum"
+        };
+        s.hit(system, 0.90, "TZX");
+        return true;
+    }
+    if ext == "dsk" && (starts(head, 0, b"MV - CPC") || starts(head, 0, b"EXTENDED CPC DSK File")) {
+        s.hit("amstradcpc", 0.50, "CPC DSK");
+        s.hit("zxspectrum", 0.50, "CPC DSK");
+        return true;
+    }
+    if starts(head, 0, UEF_MAGIC) {
+        s.hit("bbcmicro", 0.95, "UEF");
+        return true;
+    }
+    false
+}
+
+/// Opening bytes of an uncompressed UEF tape.
+pub const UEF_MAGIC: &[u8] = b"UEF File!\0";
 
 /// Whether the 16-byte console field at 0x100 names the Pico, matched as
 /// the cores match it: Genesis Plus GX looks for `SEGA PICO` anywhere in
@@ -1022,6 +1054,40 @@ pub mod fixtures {
     pub fn jaguar_cof() -> Vec<u8> {
         let mut b = zeros(4096);
         b[..2].copy_from_slice(&[0x01, 0x50]);
+        b
+    }
+
+    /// A TZX tape (ZX Spectrum `.tzx`, Amstrad CPC `.cdt`): `ZXTape!`,
+    /// `0x1A`, version 1.20, then one standard-speed data block (ID 0x10).
+    pub fn tzx() -> Vec<u8> {
+        let mut b = zeros(2048);
+        b[..10].copy_from_slice(b"ZXTape!\x1A\x01\x14");
+        b[10] = 0x10;
+        b
+    }
+
+    /// A CPCEMU disk image: the standard `MV - CPCEMU Disk-File` header or
+    /// the `EXTENDED CPC DSK File` one, 40 tracks, one side.
+    pub fn cpc_dsk(extended: bool) -> Vec<u8> {
+        let mut b = zeros(16 * 1024);
+        let line: &[u8] = if extended {
+            b"EXTENDED CPC DSK File\r\nDisk-Info\r\n"
+        } else {
+            b"MV - CPCEMU Disk-File\r\nDisk-Info\r\n"
+        };
+        b[..line.len()].copy_from_slice(line);
+        b[0x30] = 40;
+        b[0x31] = 1;
+        b
+    }
+
+    /// A BBC Micro UEF tape: `UEF File!`, NUL, version 0.10, then one
+    /// chunk header.
+    pub fn uef() -> Vec<u8> {
+        let mut b = zeros(1024);
+        b[..12].copy_from_slice(b"UEF File!\0\x0A\x00");
+        b[12] = 0x00;
+        b[13] = 0x01;
         b
     }
 

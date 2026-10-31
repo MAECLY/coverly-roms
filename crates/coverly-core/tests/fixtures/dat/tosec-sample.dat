@@ -1,0 +1,23 @@
+clrmamepro (
+	name "Amstrad - CPC"
+	description "Amstrad - CPC"
+	version "2026.10.07"
+	extensions "bin|cdt|cpr|dsk|hxcstream|mp3|raw|rom|sna|tzx|wav"
+	homepage "http://github.com/robloach/libretro-dats"
+)
+
+game (
+	name "Test Orbit"
+	releaseyear "1986"
+	rom ( name "Test Orbit (1986)(Coverly Test Soft).dsk" size 194816 crc 1A2B3C4D md5 00112233445566778899AABBCCDDEEFF sha1 00112233445566778899AABBCCDDEEFF00112233 )
+)
+game (
+	name "Test Orbit"
+	releaseyear "1986"
+	rom ( name "Test Orbit (1986)(Coverly Test Soft)[a].dsk" size 194816 crc 5E6F7A8B md5 FFEEDDCCBBAA99887766554433221100 sha1 FFEEDDCCBBAA99887766554433221100FFEEDDCC )
+)
+game (
+	name "Sample Tape Run"
+	releaseyear "1985"
+	rom ( name "Sample Tape Run (1985)(Coverly Test Soft).cdt" size 40210 crc 9C8D7E6F md5 0123456789ABCDEF0123456789ABCDEF sha1 0123456789ABCDEF0123456789ABCDEF01234567 )
+)

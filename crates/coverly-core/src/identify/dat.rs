@@ -259,6 +259,18 @@ fn parse_game(body: &[(Tok, usize)]) -> Result<DatGame, DatError> {
     })
 }
 
+/// A DAT CRC32 as eight upper-case hex digits: some `dat/` files (the
+/// clean-cpc-db Amstrad CPC file at libretro-database 2c93952f) drop the
+/// leading zero (`611E83F`), which would never match a computed CRC.
+fn crc_hex(v: &str) -> String {
+    let up = v.to_uppercase();
+    if up.len() < 8 && !up.is_empty() && up.bytes().all(|b| b.is_ascii_hexdigit()) {
+        format!("{up:0>8}")
+    } else {
+        up
+    }
+}
+
 fn parse_rom(body: &[(Tok, usize)]) -> DatRow {
     let mut row = DatRow {
         game: String::new(),
@@ -274,7 +286,7 @@ fn parse_rom(body: &[(Tok, usize)]) -> DatRow {
             match k.as_str() {
                 "name" if row.rom_name.is_empty() => row.rom_name = v.clone(),
                 "size" => row.size = v.parse().ok(),
-                "crc" => row.crc32 = Some(v.to_uppercase()),
+                "crc" => row.crc32 = Some(crc_hex(v)),
                 "md5" => row.md5 = Some(v.to_uppercase()),
                 "sha1" => row.sha1 = Some(v.to_uppercase()),
                 "serial" => row.serial = first_serial(v),

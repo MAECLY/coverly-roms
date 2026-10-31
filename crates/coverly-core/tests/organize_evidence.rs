@@ -1367,3 +1367,95 @@ fn a_loose_handheld_bin_is_found_by_its_dat_hash() {
         assert_eq!(id.combined.method, Some(Hash));
     }
 }
+
+#[test]
+fn loose_dsk_goes_to_review() {
+    // Task 8 (D3): `.dsk` is Shared. With the CPCEMU magic the likely list
+    // is Amstrad CPC, then ZX Spectrum (+3); without it every `.dsk` owner
+    // is a candidate. Nothing is Auto, and size is never proof.
+    let tmp = tempfile::tempdir().unwrap();
+    let cpc = tmp.path().join("Arkanoid (1987).dsk");
+    std::fs::write(&cpc, fx::cpc_dsk(true)).unwrap();
+    let id = identify(&cpc, &FakeCatalogue::empty());
+    assert_eq!(id.combined.verdict, Verdict::Review, "{:?}", id.combined);
+    assert_eq!(id.combined.system.as_deref(), Some("amstradcpc"));
+    assert_eq!(
+        id.combined.alternatives.first().map(|a| a.0.as_str()),
+        Some("zxspectrum"),
+        "{:?}",
+        id.combined.alternatives
+    );
+
+    let bare = tmp.path().join("Unknown Disk.dsk");
+    std::fs::write(&bare, opaque(180 * 1024)).unwrap();
+    let id = identify(&bare, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let db = SystemDb::builtin();
+    let owners: Vec<&str> = db
+        .systems_for_extension("dsk")
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    listed.sort_unstable();
+    let mut want = owners.clone();
+    want.sort_unstable();
+    assert_eq!(listed, want);
+    for id in ["msx", "zxspectrum", "amstradcpc", "dragon", "coco"] {
+        assert!(owners.contains(&id), "{id} owns .dsk");
+    }
+}
+
+#[test]
+fn loose_tap_stays_review() {
+    // `.tap` was already Shared (c64, vic20) and still is; the Spectrum
+    // joins its owners.
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.extension_class("tap"),
+        coverly_core::systems::ExtClass::Shared
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Manic Miner.tap");
+    std::fs::write(&p, opaque(48 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    let mut listed: Vec<&str> = id.combined.system.iter().map(String::as_str).collect();
+    listed.extend(id.combined.alternatives.iter().map(|a| a.0.as_str()));
+    for want in ["c64", "vic20", "zxspectrum"] {
+        assert!(listed.contains(&want), "{want}: {listed:?}");
+    }
+}
+
+#[test]
+fn tzx_and_uef_with_their_magic_are_auto() {
+    // Task 8: a header ≥ 0.85 plus the unique extension.
+    let tmp = tempfile::tempdir().unwrap();
+    for (name, bytes, want) in [
+        ("Manic Miner (1983)(Bug-Byte).tzx", fx::tzx(), "zxspectrum"),
+        ("Roland in Time (1985)(Amsoft).cdt", fx::tzx(), "amstradcpc"),
+        ("Elite (1984)(Acornsoft).uef", fx::uef(), "bbcmicro"),
+    ] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, &bytes).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(
+            (id.combined.system.as_deref(), id.combined.verdict),
+            (Some(want), Verdict::Auto),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn zx81_p_and_thomson_fd_are_weak() {
+    // D4: `.p` and `.fd` alone never assign a system.
+    let tmp = tempfile::tempdir().unwrap();
+    for name in ["3D Monster Maze.p", "Game.fd"] {
+        let p = tmp.path().join(name);
+        std::fs::write(&p, opaque(16 * 1024)).unwrap();
+        let id = identify(&p, &FakeCatalogue::empty());
+        assert_eq!(id.combined.system, None, "{name}: {:?}", id.combined);
+    }
+}

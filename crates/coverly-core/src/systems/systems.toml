@@ -807,3 +807,90 @@ aliases = ["MEGADUCK", "cougarboy"]
 # No libretro-thumbnails folder and no DAT: covers from ScreenScraper only.
 extensions = ["bin", "zip", "7z"]
 screenscraper = 90
+
+# Computers I (systems batch 1, Task 8). `.dsk` turns Shared on purpose
+# (D3); `.tap`, `.cas` already were and `.sna`, `.ccc` are new Shared ones:
+# a loose disk or tape goes to review unless its header or a DAT hash
+# decides. Headers: TZX (`.tzx`, `.cdt`), CPCEMU DSK (CPC or Spectrum +3,
+# review), UEF; an `.rpk` holding `layout.xml` is a TI-99/4A cartridge.
+
+[[system]]
+id = "zxspectrum"
+name = "Sinclair ZX Spectrum"
+family = "computer"
+aliases = ["ZXS", "zxspectrum", "spectrum"]
+extensions = ["tzx", "z80", "rzx", "scl", "trd", "szx", "tap", "dsk", "sna", "zip", "7z"]
+libretro = "Sinclair - ZX Spectrum"
+dats = ["metadat/tosec/Sinclair - ZX Spectrum.dat", "metadat/no-intro/Sinclair - ZX Spectrum +3.dat", "dat/Sinclair - ZX Spectrum.dat"]
+screenscraper = 76
+
+[[system]]
+id = "zx81"
+name = "Sinclair ZX81"
+family = "computer"
+aliases = ["ZX81"]
+extensions = ["81", "zip", "7z"]
+weak_extensions = ["p", "tzx"]
+libretro = "Sinclair - ZX 81"
+dats = ["dat/Sinclair - ZX 81.dat"]
+screenscraper = 77
+
+[[system]]
+id = "amstradcpc"
+name = "Amstrad CPC"
+family = "computer"
+aliases = ["CPC", "amstradcpc"]
+extensions = ["cdt", "cpr", "kcr", "dsk", "sna", "m3u", "zip", "7z"]
+libretro = "Amstrad - CPC"
+dats = ["metadat/tosec/Amstrad - CPC.dat", "dat/Amstrad - CPC.dat"]
+screenscraper = 65
+
+[[system]]
+id = "bbcmicro"
+name = "Acorn BBC Micro"
+family = "computer"
+# `bbc` is Knulli's folder (D7), scoped as an everyday word (D22).
+aliases = ["BBCMICRO", "bbc"]
+scoped_aliases = ["bbc"]
+# No libretro-thumbnails folder and no DAT: covers from ScreenScraper only.
+extensions = ["ssd", "dsd", "uef", "zip", "7z"]
+screenscraper = 37
+
+[[system]]
+id = "thomson"
+name = "Thomson MO/TO"
+family = "computer"
+aliases = ["THOMSON", "moto", "to8", "thomsonmoto", "theodore"]
+scoped_aliases = ["moto", "theodore"]
+extensions = ["k7", "m7", "sap", "rom", "zip", "7z"]
+weak_extensions = ["fd"]
+libretro = "Thomson - MOTO"
+dats = ["metadat/tosec/Thomson - MOTO.dat"]
+screenscraper = 141
+
+[[system]]
+id = "dragon"
+name = "Dragon 32/64"
+family = "computer"
+aliases = ["DRAGON", "dragon32", "dragon64"]
+scoped_aliases = ["dragon", "dragon32", "dragon64"]
+extensions = ["cas", "dsk", "ccc", "zip", "7z"]
+screenscraper = 91
+
+[[system]]
+id = "coco"
+name = "Tandy TRS-80 Color Computer"
+family = "computer"
+aliases = ["COCO", "trs80coco"]
+scoped_aliases = ["coco"]
+extensions = ["cas", "dsk", "ccc", "zip", "7z"]
+screenscraper = 144
+
+[[system]]
+id = "ti99"
+name = "Texas Instruments TI-99/4A"
+family = "computer"
+aliases = ["TI99", "ti994a"]
+# `.rpk` is a zip package kept whole (D25); `.bin` stays Generic.
+extensions = ["rpk", "ctg", "bin", "zip", "7z"]
+screenscraper = 205

@@ -233,3 +233,63 @@ fn pico_is_sega_pico_only_on_batocera() {
     let ids: Vec<String> = builtin_profiles().into_iter().map(|p| p.id).collect();
     assert!(validate_profile(&file, &ids).is_empty());
 }
+
+#[test]
+fn scoped_aliases_need_a_profile() {
+    // D22: everyday words (`Dragon`, `coco`, `moto`, `bbc`) resolve only
+    // under a profile, so a pile folder named so is still organised and
+    // profile detection never counts it. (`PET` joins with Task 10.)
+    let db = SystemDb::builtin();
+    for name in [
+        "Dragon", "dragon32", "dragon64", "coco", "moto", "theodore", "bbc",
+    ] {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    let batocera = builtin("batocera");
+    for (name, want) in [
+        ("dragon64", "dragon"),
+        ("Dragon", "dragon"),
+        ("coco", "coco"),
+        ("moto", "thomson"),
+        ("bbc", "bbcmicro"),
+    ] {
+        assert_eq!(
+            id(db.resolve_folder_in(Some(&batocera), name)),
+            Some(want.into()),
+            "{name}"
+        );
+    }
+    // Distinctive names stay global.
+    for (name, want) in [
+        ("zxspectrum", "zxspectrum"),
+        ("ZXS", "zxspectrum"),
+        ("amstradcpc", "amstradcpc"),
+        ("BBCMICRO", "bbcmicro"),
+        ("trs80coco", "coco"),
+        ("thomson", "thomson"),
+        ("to8", "thomson"),
+        ("ti99", "ti99"),
+        ("zx81", "zx81"),
+    ] {
+        assert_eq!(id(db.resolve_folder(name)), Some(want.into()), "{name}");
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    for dir in ["Dragon", "coco"] {
+        let d = tmp.path().join(dir);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("game.cas"), b"x").unwrap();
+    }
+    let detect = |root: &std::path::Path| {
+        coverly_core::profiles::detect_with_fallback(root, "batocera", &db)
+    };
+    assert!(detect(tmp.path()).is_empty());
+    // The same layout with distinctive names is a library.
+    let other = tempfile::tempdir().unwrap();
+    for dir in ["zxspectrum", "amstradcpc"] {
+        let d = other.path().join(dir);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("game.dsk"), b"x").unwrap();
+    }
+    assert_eq!(detect(other.path()).len(), 1);
+}

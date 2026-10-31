@@ -800,3 +800,57 @@ fn pico_and_sufami_are_decisive() {
         );
     }
 }
+
+#[test]
+fn tzx_magic() {
+    // TZX format 1.20: `ZXTape!` + 0x1A at 0. Amstrad CPC tapes (`.cdt`)
+    // are TZX files too, so the extension picks the machine.
+    assert_eq!(
+        best(&run(&fx::tzx(), "tzx")),
+        Some(("zxspectrum".into(), 0.90))
+    );
+    assert_eq!(
+        best(&run(&fx::tzx(), "cdt")),
+        Some(("amstradcpc".into(), 0.90))
+    );
+    let mut near = fx::tzx();
+    near[7] = 0x1B;
+    assert!(run(&near, "tzx").hits.is_empty());
+}
+
+#[test]
+fn cpc_dsk_magic_is_a_review() {
+    // CPCEMU DSK: the same header opens CPC and Spectrum +3 disks, so it
+    // names both at 0.50, Amstrad CPC first (the likelier one).
+    for extended in [false, true] {
+        let s = run(&fx::cpc_dsk(extended), "dsk");
+        let hits: Vec<(&str, f32, &str)> = s
+            .hits
+            .iter()
+            .map(|h| (h.system.as_str(), h.weight, h.detail.as_str()))
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                ("amstradcpc", 0.50, "CPC DSK"),
+                ("zxspectrum", 0.50, "CPC DSK")
+            ],
+            "extended {extended}"
+        );
+    }
+    // Only under `.dsk` (spec §8.1).
+    assert!(run(&fx::cpc_dsk(false), "bin").hits.is_empty());
+}
+
+#[test]
+fn uef_magic() {
+    // UEF: `UEF File!` + NUL at 0. A gzip `.uef` is a package (D25): its
+    // decoded head is read through the archive layer (organize_inspect).
+    assert_eq!(
+        best(&run(&fx::uef(), "uef")),
+        Some(("bbcmicro".into(), 0.95))
+    );
+    let mut near = fx::uef();
+    near[9] = b'?';
+    assert!(run(&near, "uef").hits.is_empty());
+}

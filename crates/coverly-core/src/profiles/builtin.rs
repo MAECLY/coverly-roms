@@ -260,6 +260,54 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
             None,
         ],
     ),
+    // Computers I (Task 8).
+    (
+        "zxspectrum",
+        [
+            Some("zxspectrum"),
+            Some("zxspectrum"),
+            Some("spectrum"),
+            Some("ZXS"),
+            None,
+        ],
+    ),
+    (
+        "zx81",
+        [Some("zx81"), Some("zx81"), Some("zx81"), None, None],
+    ),
+    (
+        "amstradcpc",
+        [
+            Some("amstradcpc"),
+            Some("amstradcpc"),
+            Some("amstradcpc"),
+            Some("CPC"),
+            Some("CPC"),
+        ],
+    ),
+    (
+        "bbcmicro",
+        [Some("bbcmicro"), Some("bbcmicro"), None, None, None],
+    ),
+    (
+        "thomson",
+        [Some("moto"), Some("thomson"), Some("thomson"), None, None],
+    ),
+    (
+        "dragon",
+        [
+            Some("dragon32"),
+            Some("dragon64"),
+            Some("dragon"),
+            None,
+            None,
+        ],
+    ),
+    (
+        "coco",
+        [Some("coco"), Some("coco"), Some("coco"), None, None],
+    ),
+    ("ti99", [Some("ti99"), Some("ti99"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks

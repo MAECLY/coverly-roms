@@ -1,0 +1,26 @@
+clrmamepro (
+	name "Sinclair - ZX 81"
+	description "Sinclair - ZX 81"
+	version "2021.9.6"
+	author "libretro"
+	comment "Converted from an invented test listing (TOSEC-style naming)"
+)
+
+game (
+	name "Test Maze (1981)(Coverly Test Soft)"
+	description "Test Maze (1981)(Coverly Test Soft)"
+	rom ( name "Test Maze (1981)(Coverly Test Soft).p" size 1378 crc 2468ACE0 md5 a0a1a2a3a4a5a6a7a8a9aaabacadaeaf sha1 b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3 )
+)
+
+game (
+	name "Test Maze (1981)(Coverly Test Soft)[a]"
+	description "Test Maze (1981)(Coverly Test Soft)[a]"
+	rom ( name "Test Maze (1981)(Coverly Test Soft)[a].p" size 1433 crc 7A1B2C3 md5 c0c1c2c3c4c5c6c7c8c9cacbcccdcecf sha1 d0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3 )
+)
+
+game (
+	name "Two Sided Sample (Coverly Test Soft)"
+	description "Two Sided Sample (Coverly Test Soft)"
+	rom ( name "Two Sided Sample (1990)(Coverly Test Soft)(Side A).p" size 8192 crc 13579BDF md5 e0e1e2e3e4e5e6e7e8e9eaebecedeeef sha1 f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff00010203 )
+	rom ( name "Two Sided Sample (1990)(Coverly Test Soft)(Side B).p" size 8192 crc FDB97531 md5 10111213141516171819 sha1 20212223242526272829 )
+)

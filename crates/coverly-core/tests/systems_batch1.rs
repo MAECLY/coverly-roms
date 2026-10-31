@@ -49,6 +49,15 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("supervision", Family::Handheld, false),
     ("gamecom", Family::Handheld, false),
     ("megaduck", Family::Handheld, false),
+    // Computers I (Task 8).
+    ("zxspectrum", Family::Computer, false),
+    ("zx81", Family::Computer, false),
+    ("amstradcpc", Family::Computer, false),
+    ("bbcmicro", Family::Computer, false),
+    ("thomson", Family::Computer, false),
+    ("dragon", Family::Computer, false),
+    ("coco", Family::Computer, false),
+    ("ti99", Family::Computer, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.1.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -93,6 +102,23 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("garlicos", "supervision", "SUPERVISION", None),
     ("anbernic-stock", "megaduck", "MEGADUCK", Some(false)),
     ("retroarch", "gamecom", "gamecom", None),
+    // Computers I (Task 8).
+    ("muos", "zxspectrum", "spectrum", None),
+    ("onion", "zxspectrum", "ZXS", None),
+    ("onion", "amstradcpc", "CPC", None),
+    ("minui", "amstradcpc", "CPC", None),
+    ("esde", "thomson", "moto", None),
+    ("esde", "dragon", "dragon32", None),
+    ("batocera", "dragon", "dragon64", None),
+    ("muos", "bbcmicro", "bbcmicro", Some(false)),
+    ("onion", "zx81", "ZX81", Some(false)),
+    ("onion", "thomson", "THOMSON", Some(false)),
+    ("minui", "zxspectrum", "ZXS", Some(false)),
+    ("batocera", "bbcmicro", "bbcmicro", None),
+    ("esde", "ti99", "ti99", None),
+    ("muos", "ti99", "ti99", Some(false)),
+    ("muos", "coco", "coco", None),
+    ("anbernic-stock", "amstradcpc", "CPC", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -118,6 +144,23 @@ const HEADERS: &[(&str, &str, Head, Option<&str>)] = &[
     // Sega, NEC and Nintendo add-ons (Task 6).
     ("pico", "md", fx::pico, Some("pico")),
     ("sufami", "st", || fx::sufami(false), Some("sufami")),
+    // Computers I (Task 8). A CPC DSK names both machines at 0.50, the
+    // CPC first.
+    ("zxspectrum", "tzx", fx::tzx, Some("zxspectrum")),
+    ("amstradcpc", "cdt", fx::tzx, Some("amstradcpc")),
+    (
+        "amstradcpc",
+        "dsk",
+        || fx::cpc_dsk(false),
+        Some("amstradcpc"),
+    ),
+    (
+        "amstradcpc",
+        "dsk",
+        || fx::cpc_dsk(true),
+        Some("amstradcpc"),
+    ),
+    ("bbcmicro", "uef", fx::uef, Some("bbcmicro")),
 ];
 
 fn research(name: &str) -> String {
@@ -200,10 +243,17 @@ fn header_rules() {
     for (id, ext, head, want) in HEADERS {
         let bytes = head();
         let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, ext);
+        // The strongest hit; on a tie the first listed (the likelier).
         let best = s
             .hits
             .iter()
-            .max_by(|a, b| a.weight.total_cmp(&b.weight))
+            .fold(
+                None,
+                |best: Option<&coverly_core::identify::evidence::Evidence>, h| match best {
+                    Some(b) if b.weight >= h.weight => Some(b),
+                    _ => Some(h),
+                },
+            )
             .map(|h| h.system.as_str());
         assert_eq!(best, *want, "{id} .{ext}");
     }
@@ -362,5 +412,61 @@ fn mega_duck_covers_come_from_screenscraper_only() {
             )],
             "{id}"
         );
+    }
+}
+
+#[test]
+fn computers_i_catalogues() {
+    // Spec §7: the TOSEC and `dat/` files are listed explicitly; BBC
+    // Micro, Dragon, CoCo and TI-99/4A have no libretro-thumbnails folder
+    // and no DAT, so their covers come from ScreenScraper only.
+    let db = SystemDb::builtin();
+    let dats = |id: &str| coverly_core::identify::dat::dat_sources(db.get(id).unwrap());
+    assert_eq!(
+        dats("zxspectrum"),
+        [
+            "metadat/tosec/Sinclair - ZX Spectrum.dat",
+            "metadat/no-intro/Sinclair - ZX Spectrum +3.dat",
+            "dat/Sinclair - ZX Spectrum.dat",
+        ]
+    );
+    assert_eq!(dats("zx81"), ["dat/Sinclair - ZX 81.dat"]);
+    assert_eq!(
+        dats("amstradcpc"),
+        ["metadat/tosec/Amstrad - CPC.dat", "dat/Amstrad - CPC.dat"]
+    );
+    assert_eq!(dats("thomson"), ["metadat/tosec/Thomson - MOTO.dat"]);
+    for (id, ss) in [
+        ("bbcmicro", 37),
+        ("dragon", 91),
+        ("coco", 144),
+        ("ti99", 205),
+    ] {
+        let s = db.get(id).unwrap();
+        assert_eq!(s.libretro, None, "{id}");
+        assert!(dats(id).is_empty(), "{id}");
+        assert_eq!(s.screenscraper, Some(ss), "{id}");
+    }
+    for (id, ss) in [
+        ("zxspectrum", 76),
+        ("zx81", 77),
+        ("amstradcpc", 65),
+        ("thomson", 141),
+    ] {
+        assert_eq!(db.get(id).unwrap().screenscraper, Some(ss), "{id}");
+    }
+}
+
+#[test]
+fn dsk_tap_sna_ccc_cas_are_shared() {
+    // D3: `.dsk` turns Shared on purpose; `.sna`, `.ccc` are new and
+    // Shared; `.tap` and `.cas` already were.
+    use coverly_core::systems::ExtClass;
+    let db = SystemDb::builtin();
+    for ext in ["dsk", "tap", "sna", "ccc", "cas"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Shared, "{ext}");
+    }
+    for ext in ["tzx", "cdt", "uef", "ssd", "rpk", "k7", "81"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
     }
 }

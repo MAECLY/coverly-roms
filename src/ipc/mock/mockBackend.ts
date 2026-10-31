@@ -174,6 +174,12 @@ const ADD_ONS = {
 /** Handhelds (Task 7) named alike on ES-DE, Batocera and muOS (muOS has
  * no Game.com folder). */
 const HANDHELDS = { megaduck: 'megaduck', supervision: 'supervision' };
+/** Computers I (Task 8) named alike on ES-DE, Batocera and muOS. */
+const COMPUTERS_I = {
+  amstradcpc: 'amstradcpc',
+  coco: 'coco',
+  zx81: 'zx81',
+};
 const ONION_FOLDERS = {
   channelf: 'FAIRCHILD',
   colecovision: 'COLECO',
@@ -186,8 +192,14 @@ const ONION_FOLDERS = {
   supergrafx: 'SGFX',
   megaduck: 'MEGADUCK',
   supervision: 'SUPERVISION',
+  amstradcpc: 'CPC',
+  zxspectrum: 'ZXS',
 };
-const MINUI_FOLDERS = { colecovision: 'COLECO', sg1000: 'SG1000' };
+const MINUI_FOLDERS = {
+  amstradcpc: 'CPC',
+  colecovision: 'COLECO',
+  sg1000: 'SG1000',
+};
 /** D23 hosts: a sub-system kept in its parent's folder. */
 const ANBERNIC_STOCK_HOSTS = { satellaview: 'snes', supergrafx: 'pcengine' };
 const MINUI_HOSTS = { satellaview: 'snes' };
@@ -201,6 +213,10 @@ const MUOS_FOLDERS = {
   pico: 'segapico',
   sg1000: 'sg1000',
   ...HANDHELDS,
+  ...COMPUTERS_I,
+  dragon: 'dragon',
+  thomson: 'thomson',
+  zxspectrum: 'spectrum',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -218,6 +234,12 @@ const ESDE_FOLDERS = {
   sg1000: 'sg-1000',
   ...HANDHELDS,
   gamecom: 'gamecom',
+  ...COMPUTERS_I,
+  bbcmicro: 'bbcmicro',
+  dragon: 'dragon32',
+  thomson: 'moto',
+  ti99: 'ti99',
+  zxspectrum: 'zxspectrum',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -236,6 +258,12 @@ const BATOCERA_FOLDERS = {
   sg1000: 'sg1000',
   ...HANDHELDS,
   gamecom: 'gamecom',
+  ...COMPUTERS_I,
+  bbcmicro: 'bbcmicro',
+  dragon: 'dragon64',
+  thomson: 'thomson',
+  ti99: 'ti99',
+  zxspectrum: 'zxspectrum',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

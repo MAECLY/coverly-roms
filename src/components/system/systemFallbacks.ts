@@ -43,6 +43,15 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   supervision: 'SV',
   gamecom: 'GCOM',
   megaduck: 'DUCK',
+  // Computers I (plan Task 8), same interim Slot mount.
+  zxspectrum: 'ZXS',
+  zx81: 'ZX81',
+  amstradcpc: 'CPC',
+  bbcmicro: 'BBC',
+  thomson: 'MOTO',
+  dragon: 'DRGN',
+  coco: 'COCO',
+  ti99: 'TI99',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */
