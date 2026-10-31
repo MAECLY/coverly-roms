@@ -196,6 +196,10 @@ pub struct Sniff {
     /// by `disc::`; `None` for carts and discs without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
+    /// What a console header reader found (`consoles::identify`): system,
+    /// title id, kind, embedded-art locators. Memoised with the facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<crate::consoles::ConsoleId>,
     /// Bytes of prefix actually read (0 = unreadable or empty).
     pub read: usize,
 }

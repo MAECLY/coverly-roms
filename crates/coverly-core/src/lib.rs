@@ -7,6 +7,7 @@ pub mod archive;
 pub mod art;
 pub mod audit;
 pub mod cache;
+pub mod consoles;
 pub mod credentials;
 mod csv_util;
 pub mod dedupe;
