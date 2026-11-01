@@ -1873,3 +1873,20 @@ fn a_ps4_cnt_package_is_noted_extract_first_and_a_ps3_package_install_first() {
     }));
     assert!(!id.notes.contains(&ItemNote::ExtractFirst));
 }
+
+/// Systems batch 3 D18: a GDK folder's confidence decides its verdict
+/// against the Auto threshold, like every folder game: a config whose
+/// families name the system (0.95) is Auto; a PC build beside one
+/// console family (0.60) and a config without families (0.50) are
+/// reviews, and a lone 0.60 header hit never reaches Auto either.
+#[test]
+fn gdk_folder_confidences_against_the_thresholds() {
+    let t = Thresholds::default();
+    assert!(0.95 >= t.auto);
+    assert!(0.60 < t.auto && 0.60 >= t.review);
+    assert!(0.50 < t.auto);
+    assert_eq!(
+        decide(&[ev(Header, "xboxone", 0.60)], &[]).0,
+        Verdict::Review
+    );
+}

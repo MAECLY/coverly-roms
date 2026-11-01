@@ -1,7 +1,8 @@
 //! Current-generation folder probes and file readers through the walk
 //! and the planner (systems batch 3 §8): PS4 app folders through the one
-//! `sce_sys` probe, the Vita beside them, a PSF contradiction, and the
-//! files that are never opened.
+//! `sce_sys` probe, the Vita beside them, a PSF contradiction, Xbox One
+//! and Series GDK and ERA folders (D18), and the files that are never
+//! opened.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,14 +12,15 @@ use std::time::SystemTime;
 
 use coverly_core::cache::Cache;
 use coverly_core::consoles::testing::{
-    cnt_pkg, exfat_image, fih_pkg, param_sfo_with, pkg, ps4_app, ps4_sfo, ps5_app, ps5_param_json,
-    put_file, ufs2_image, vita_app,
+    cnt_pkg, era_folder, era_manifest, exfat_image, fih_pkg, gdk_folder, param_sfo_with, pkg,
+    ps4_app, ps4_sfo, ps5_app, ps5_param_json, put_file, ufs2_image, vita_app, GdkSpec,
 };
 use coverly_core::consoles::{start_open_log, take_open_log, IdSource};
 use coverly_core::identify::evidence::IdLevel;
+use coverly_core::identify::sniff::NotARom;
 use coverly_core::organize::{
-    plan_organize, ItemKind, ItemNote, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeItem,
-    OrganizeOptions, OrganizePlan, Transfer,
+    plan_organize, ItemKind, ItemNote, LeftReason, MetaProbe, OrganizeAction, OrganizeEnv,
+    OrganizeItem, OrganizeOptions, OrganizePlan, Transfer,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::systems::SystemDb;
@@ -861,4 +863,268 @@ fn game_overlay_names_the_base_title_when_the_base_differs_in_case() {
             }
         }
     );
+}
+
+/// The item whose only source is `name`.
+fn item_of<'a>(p: &'a OrganizePlan, name: &str) -> &'a OrganizeItem {
+    p.items
+        .iter()
+        .find(|i| i.sources == [PathBuf::from(name)])
+        .unwrap_or_else(|| panic!("no item {name}: {:#?}", p.items))
+}
+
+/// Spec D18: the Scarlett rule, an Xbox One GDK folder and an ERA folder,
+/// each one item in its system folder.
+#[test]
+fn xbox_one_and_series_folders_go_to_their_systems() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    gdk_folder(
+        &pile.path().join("Forza Horizon 5"),
+        &GdkSpec {
+            families: &["Scarlett"],
+            display_name: "Forza Horizon 5",
+            store_id: "9NKX70BBCDRN",
+            ..Default::default()
+        },
+    );
+    gdk_folder(
+        &pile.path().join("Halo 5 Guardians"),
+        &GdkSpec {
+            families: &["XboxOne"],
+            display_name: "Halo 5: Guardians",
+            store_id: "BRRC2BP0G9P0",
+            // Backward compatibility is never read for the system.
+            compat: Some("Scarlett"),
+            ..Default::default()
+        },
+    );
+    era_folder(
+        &pile.path().join("Sunset Overdrive"),
+        &era_manifest(
+            "Microsoft.SunsetOverdrive",
+            "Sunset Overdrive",
+            "Sunset Overdrive",
+            true,
+        ),
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 3, "{:#?}", p.items);
+    for (name, system) in [
+        ("Forza Horizon 5", "xboxseries"),
+        ("Halo 5 Guardians", "xboxone"),
+        ("Sunset Overdrive", "xboxone"),
+    ] {
+        let item = item_of(&p, name);
+        assert_eq!(item.kind, ItemKind::Folder, "{name}");
+        assert_eq!(item.system_id.as_deref(), Some(system), "{name}");
+        assert_eq!(item.action, OrganizeAction::Auto, "{name}");
+        assert_eq!(placed(item), (system.to_string(), name.to_string()));
+        assert_eq!(item.method, Some(IdLevel::Header), "{name}");
+    }
+    let forza = item_of(&p, "Forza Horizon 5");
+    assert!(forza.why.iter().any(|e| e.detail == "MicrosoftGame.config"));
+    let tid = forza.title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("6B9D1A2C", IdSource::MicrosoftGameConfig)
+    );
+    let sunset = item_of(&p, "Sunset Overdrive");
+    assert!(sunset.why.iter().any(|e| e.detail == "AppxManifest.xml"));
+    assert_eq!(sunset.title_id, None);
+}
+
+/// Spec D18: a GDK `PC` build is never a console game; it is left as PC
+/// game data without descending, and only its config is opened.
+#[test]
+fn a_gdk_pc_build_is_left_as_pc_game_data() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let dir = pile.path().join("Microsoft Flight Simulator");
+    gdk_folder(
+        &dir,
+        &GdkSpec {
+            families: &["PC"],
+            display_name: "Microsoft Flight Simulator",
+            ..Default::default()
+        },
+    );
+    // Content that would be a candidate if the walk descended.
+    put_file(&dir, "Packages/fs-base/scenery.zip", b"PK\x03\x04");
+
+    start_open_log();
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let log = take_open_log();
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    let item = &p.items[0];
+    assert_eq!(item.sources, [PathBuf::from("Microsoft Flight Simulator")]);
+    assert_eq!(
+        item.action,
+        OrganizeAction::Left {
+            reason: LeftReason::NotARom {
+                what: NotARom::PcGameData
+            }
+        }
+    );
+    let ours: Vec<&PathBuf> = log.iter().filter(|o| o.starts_with(&dir)).collect();
+    assert_eq!(ours, [&dir.join("MicrosoftGame.config")]);
+}
+
+/// Spec D18: a PC build beside one console family is a single-choice
+/// review of that console, never Auto and never «PC».
+#[test]
+fn a_gdk_pc_and_xbox_one_build_is_a_single_choice_review() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    gdk_folder(
+        &pile.path().join("Grounded"),
+        &GdkSpec {
+            families: &["PC", "XboxOne"],
+            ..Default::default()
+        },
+    );
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let item = only_folder(&p);
+    assert_eq!(item.action, OrganizeAction::Review);
+    assert_eq!(item.system_id.as_deref(), Some("xboxone"));
+    assert!(
+        item.alternatives.iter().all(|(s, _)| s == "xboxone"),
+        "{:?}",
+        item.alternatives
+    );
+}
+
+/// Spec D18: executables for both consoles, or a config without any
+/// family, go to review between Xbox One and Series.
+#[test]
+fn gdk_conflicts_go_to_review_between_one_and_series() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    gdk_folder(
+        &pile.path().join("Both"),
+        &GdkSpec {
+            families: &["XboxOne", "Scarlett"],
+            ..Default::default()
+        },
+    );
+    gdk_folder(
+        &pile.path().join("None"),
+        &GdkSpec {
+            families: &[],
+            ..Default::default()
+        },
+    );
+    let p = world.plan(pile.path(), target.path(), "esde");
+    for name in ["Both", "None"] {
+        let item = item_of(&p, name);
+        assert_eq!(item.action, OrganizeAction::Review, "{name}");
+        let mut alts: Vec<&str> = item.alternatives.iter().map(|(s, _)| s.as_str()).collect();
+        alts.sort_unstable();
+        assert_eq!(alts, ["xboxone", "xboxseries"], "{name}");
+    }
+}
+
+/// Spec D15: a GDK DLC with one `AllowedProduct` follows the base whose
+/// `StoreId` it names.
+#[test]
+fn a_gdk_dlc_groups_under_its_base() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    gdk_folder(
+        &pile.path().join("Forza Horizon 5"),
+        &GdkSpec {
+            families: &["Scarlett"],
+            display_name: "Forza Horizon 5",
+            store_id: "9NKX70BBCDRN",
+            ..Default::default()
+        },
+    );
+    gdk_folder(
+        &pile.path().join("Forza Horizon 5 Rally Adventure"),
+        &GdkSpec {
+            families: &[],
+            dlc_family: Some("Scarlett"),
+            display_name: "Rally Adventure",
+            store_id: "9NDLCRALLY01",
+            allowed: &["9NKX70BBCDRN"],
+            ..Default::default()
+        },
+    );
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+    let dlc = item_of(&p, "Forza Horizon 5 Rally Adventure");
+    assert_eq!(dlc.system_id.as_deref(), Some("xboxseries"));
+    assert!(
+        dlc.notes.contains(&ItemNote::Dlc {
+            of: "Forza Horizon 5".into()
+        }),
+        "{:?}",
+        dlc.notes
+    );
+}
+
+/// Spec D18: a config the walk cannot read (Windows ACLs under
+/// `XboxGames`) leaves the folder `Unreadable`, not descended.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_gdk_config_leaves_the_folder() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let dir = pile.path().join("Halo Infinite");
+    gdk_folder(&dir, &GdkSpec::default());
+    let config = dir.join("MicrosoftGame.config");
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o000)).unwrap();
+    struct Restore<'a>(&'a Path);
+    impl Drop for Restore<'_> {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(self.0, fs::Permissions::from_mode(0o644));
+        }
+    }
+    let _restore = Restore(&config);
+    if fs::File::open(&config).is_ok() {
+        return; // Running as root: permissions do not apply.
+    }
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    assert_eq!(p.items[0].sources, [PathBuf::from("Halo Infinite")]);
+    assert_eq!(
+        p.items[0].action,
+        OrganizeAction::Left {
+            reason: LeftReason::Unreadable
+        }
+    );
+}
+
+/// Spec D24: an Xbox folder probe opens only its manifest; executables
+/// and `resources.pri` are never opened.
+#[test]
+fn xbox_folder_probes_open_only_the_manifest() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let gdk = pile.path().join("Halo 5 Guardians");
+    gdk_folder(&gdk, &GdkSpec::default());
+    let era = pile.path().join("Sunset Overdrive");
+    era_folder(
+        &era,
+        &era_manifest("A.B", "Sunset Overdrive", "Sunset", true),
+    );
+    start_open_log();
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let log = take_open_log();
+    assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+    for (dir, file) in [(&gdk, "MicrosoftGame.config"), (&era, "AppxManifest.xml")] {
+        let ours: Vec<&PathBuf> = log.iter().filter(|o| o.starts_with(dir)).collect();
+        assert_eq!(ours, [&dir.join(file)], "{}", dir.display());
+    }
 }

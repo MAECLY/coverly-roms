@@ -30,21 +30,35 @@
 //!   `0x000B0000` installer (title update), `0x00000002` marketplace
 //!   content (DLC).
 //!
+//! - Xbox One and Series folders (systems batch 3 D18): the GDK
+//!   `MicrosoftGame.config` (root `Game`; `Identity`, `ExecutableList/
+//!   Executable/@TargetDeviceFamily`, `ShellVisuals`, `TitleId`,
+//!   `StoreId`, `MSAAppId`, `AllowedProducts/AllowedProduct`, the
+//!   `TargetDeviceFamilyForDLC` element) as Microsoft's `Xbox-GDK-Samples`
+//!   configs write it, and the ERA `AppxManifest.xml` whose `Package`
+//!   declares `http://schemas.microsoft.com/appx/2013/xbox/manifest`
+//!   (Microsoft `Xbox-ATG-Samples` XDK manifests). Logos are MRT names
+//!   (`Logo.png` stored as `Logo.scale-200.png`), resolved here (D21).
+//!
 //! Only plaintext is read: the volume descriptor, the root table, the
 //! XBE header and certificate, the XEX header and its execution info,
-//! the STFS header block. An XEX's PE image (encrypted or compressed)
-//! and an STFS package's data blocks are never read.
+//! the STFS header block, the two manifests. An XEX's PE image
+//! (encrypted or compressed), an STFS package's data blocks, a GDK or
+//! ERA folder's executables and `resources.pri` are never read.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use super::wiiu::{find, list_child, plain_file};
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::Reader;
+
+use super::wiiu::{find, list_child, plain_file, read_head};
 use super::zarchive::{self, Archive, ZarKind};
 use super::{
-    ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, TitleKind,
-    MAX_META_FILE,
+    clean_title, ArtFormat, ArtLocator, Budgeted, ConsoleId, DirListing, FolderLeave, FolderMatch,
+    IdSource, TitleKind, MAX_META_FILE,
 };
-use crate::identify::sniff::FileAt;
+use crate::identify::sniff::{FileAt, NotARom};
 
 const XDVDFS_MAGIC: &[u8; 20] = b"MICROSOFT*XBOX*MEDIA";
 /// XISO, Redump XGD1, XGD2, XGD3 partition offsets (four reads at most).
@@ -567,6 +581,562 @@ pub fn probe_god(l: &DirListing) -> Option<FolderMatch> {
     })
 }
 
+/// The GDK probe file (D18).
+pub const GDK_CONFIG: &str = "MicrosoftGame.config";
+/// The ERA probe file (D18).
+pub const ERA_MANIFEST: &str = "AppxManifest.xml";
+/// The namespace an Xbox One ERA `Package` declares (D18).
+pub const XBOX_MANIFEST_NS: &str = "http://schemas.microsoft.com/appx/2013/xbox/manifest";
+/// Most components of a manifest-relative logo path (D21).
+const MAX_LOGO_COMPONENTS: usize = 8;
+/// Deepest element nesting a manifest may have.
+const MAX_XML_DEPTH: usize = 32;
+/// Confidence of a GDK folder whose executables add a `PC` build to one
+/// console family: a single-choice review, never Auto (D18).
+const GDK_WITH_PC: f32 = 0.60;
+/// Confidence of a GDK config whose families name the system.
+const GDK_PROVEN: f32 = 0.95;
+/// Confidence of a GDK config that names no family: review (D18).
+const GDK_NO_FAMILY: f32 = 0.50;
+
+/// A manifest's text: at most [`MAX_META_FILE`] bytes, UTF-8 (BOM
+/// stripped) or UTF-16 LE/BE with a BOM; anything else, or text with a
+/// NUL (UTF-16 without a BOM), is `None`.
+fn manifest_text(bytes: &[u8]) -> Option<String> {
+    if bytes.len() as u64 > MAX_META_FILE {
+        return None;
+    }
+    let utf16 = |rest: &[u8], unit: fn([u8; 2]) -> u16| -> Option<String> {
+        let (pairs, tail) = rest.as_chunks::<2>();
+        if !tail.is_empty() {
+            return None;
+        }
+        let units: Vec<u16> = pairs.iter().map(|&c| unit(c)).collect();
+        String::from_utf16(&units).ok()
+    };
+    let text = if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        utf16(rest, u16::from_le_bytes)?
+    } else if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        utf16(rest, u16::from_be_bytes)?
+    } else {
+        let body = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+        std::str::from_utf8(body).ok()?.to_owned()
+    };
+    (!text.contains('\0')).then_some(text)
+}
+
+/// One step of [`xml_walk`]: an element opens (its path of local names,
+/// root first) or text arrives inside the element at `path`.
+enum Node<'a, 'e> {
+    Open(&'a [String], &'a BytesStart<'e>),
+    Text(&'a [String], &'a str),
+}
+
+/// Walks a manifest's elements with quick-xml: no DTD (a DOCTYPE is
+/// refused), only the five XML entities and character references, end
+/// names checked, at most [`MAX_XML_DEPTH`] levels. `None` when the text
+/// is not well formed or `f` says stop.
+fn xml_walk(text: &str, mut f: impl FnMut(Node) -> Option<()>) -> Option<()> {
+    let mut reader = Reader::from_str(text);
+    let mut path: Vec<String> = Vec::new();
+    let local = |e: &BytesStart| -> Option<String> {
+        Some(
+            std::str::from_utf8(e.local_name().as_ref())
+                .ok()?
+                .to_owned(),
+        )
+    };
+    loop {
+        match reader.read_event().ok()? {
+            Event::DocType(_) => return None,
+            Event::Start(e) => {
+                path.push(local(&e)?);
+                if path.len() > MAX_XML_DEPTH {
+                    return None;
+                }
+                f(Node::Open(&path, &e))?;
+            }
+            Event::Empty(e) => {
+                path.push(local(&e)?);
+                if path.len() > MAX_XML_DEPTH {
+                    return None;
+                }
+                f(Node::Open(&path, &e))?;
+                path.pop();
+            }
+            Event::End(_) => {
+                path.pop()?;
+            }
+            Event::Text(t) => {
+                let s = t.decode().ok()?;
+                f(Node::Text(&path, &s))?;
+            }
+            Event::GeneralRef(r) => {
+                let c = if r.is_char_ref() {
+                    r.resolve_char_ref().ok()??
+                } else {
+                    match &*r {
+                        b"lt" => '<',
+                        b"gt" => '>',
+                        b"amp" => '&',
+                        b"apos" => '\'',
+                        b"quot" => '"',
+                        _ => return None,
+                    }
+                };
+                f(Node::Text(&path, c.encode_utf8(&mut [0u8; 4])))?;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    path.is_empty().then_some(())
+}
+
+/// The value of the unprefixed attribute `name` of `e`, trimmed; `None`
+/// when absent, empty or not decodable.
+fn attr(e: &BytesStart, name: &str) -> Option<String> {
+    e.attributes()
+        .flatten()
+        .find(|a| a.key.as_ref() == name.as_bytes())
+        .and_then(|a| a.unescape_value().ok().map(|v| v.trim().to_owned()))
+        .filter(|v| !v.is_empty())
+}
+
+/// Appends `s` to the text field opened last (`Some`), if any.
+fn push_text(field: &mut Option<String>, s: &str) {
+    if let Some(v) = field {
+        v.push_str(s);
+    }
+}
+
+/// A trimmed, non-empty element text.
+fn text_of(field: Option<String>) -> Option<String> {
+    field.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+}
+
+/// A store or package id as the manifests write it (`9NBLGGH4R2R6`,
+/// `Microsoft.SunsetOverdrive`): 1 to 64 ASCII letters, digits, `.`,
+/// `-` or `_`.
+fn clean_id(raw: &str) -> Option<String> {
+    let v = raw.trim();
+    (!v.is_empty()
+        && v.len() <= 64
+        && v.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_')))
+    .then(|| v.to_owned())
+}
+
+/// A display name unless it is an unresolved `ms-resource:` reference
+/// (no `resources.pri` parser in this batch, D18).
+fn plain_name(raw: Option<&str>) -> Option<String> {
+    raw.filter(|n| {
+        !n.trim_start()
+            .get(..12)
+            .is_some_and(|p| p.eq_ignore_ascii_case("ms-resource:"))
+    })
+    .and_then(clean_title)
+}
+
+/// The fields of a GDK `MicrosoftGame.config` (D18).
+#[derive(Debug, Default, PartialEq)]
+struct Gdk {
+    name: Option<String>,
+    version: Option<String>,
+    title_id: Option<String>,
+    store_id: Option<String>,
+    /// Read for the record; no [`ConsoleId`] field holds it yet.
+    #[allow(dead_code)]
+    msa_app_id: Option<String>,
+    display_name: Option<String>,
+    /// `Square480x480Logo`, `StoreLogo`, `Square150x150Logo`, in that
+    /// order, as written.
+    logos: Vec<String>,
+    /// Every `ExecutableList/Executable/@TargetDeviceFamily`.
+    families: Vec<String>,
+    /// The `TargetDeviceFamilyForDLC` element, else an attribute of that
+    /// name on any element.
+    dlc_family: Option<String>,
+    allowed_products: Vec<String>,
+}
+
+/// Parses a GDK config's text (root element `Game`). `XboxCompatibility`
+/// and `VirtualMachine/DlcCompatibility` are never read (D18).
+fn parse_gdk(text: &str) -> Option<Gdk> {
+    let mut g = Gdk::default();
+    let (mut title_id, mut store_id, mut msa, mut dlc_elem) = (None, None, None, None);
+    let mut dlc_attr: Option<String> = None;
+    let mut product: Option<String> = None;
+    let mut seen_root = false;
+    xml_walk(text, |node| {
+        match node {
+            Node::Open(path, e) => {
+                if path.len() == 1 {
+                    if seen_root || path[0] != "Game" {
+                        return None;
+                    }
+                    seen_root = true;
+                }
+                if let Some(p) = product.take() {
+                    g.allowed_products.push(p);
+                }
+                if dlc_attr.is_none() {
+                    dlc_attr = attr(e, "TargetDeviceFamilyForDLC");
+                }
+                let p: Vec<&str> = path.iter().map(String::as_str).collect();
+                match p.as_slice() {
+                    ["Game", "Identity"] => {
+                        g.name = attr(e, "Name");
+                        g.version = attr(e, "Version");
+                    }
+                    ["Game", "ShellVisuals"] => {
+                        g.display_name = attr(e, "DefaultDisplayName");
+                        g.logos = ["Square480x480Logo", "StoreLogo", "Square150x150Logo"]
+                            .iter()
+                            .filter_map(|k| attr(e, k))
+                            .collect();
+                    }
+                    ["Game", "ExecutableList", "Executable"] => {
+                        g.families.extend(attr(e, "TargetDeviceFamily"));
+                    }
+                    ["Game", "TitleId"] => title_id = Some(String::new()),
+                    ["Game", "StoreId"] => store_id = Some(String::new()),
+                    ["Game", "MSAAppId"] => msa = Some(String::new()),
+                    ["Game", "TargetDeviceFamilyForDLC"] => dlc_elem = Some(String::new()),
+                    ["Game", "AllowedProducts", "AllowedProduct"] => {
+                        product = Some(String::new());
+                    }
+                    _ => {}
+                }
+            }
+            Node::Text(path, s) => {
+                let p: Vec<&str> = path.iter().map(String::as_str).collect();
+                match p.as_slice() {
+                    ["Game", "TitleId"] => push_text(&mut title_id, s),
+                    ["Game", "StoreId"] => push_text(&mut store_id, s),
+                    ["Game", "MSAAppId"] => push_text(&mut msa, s),
+                    ["Game", "TargetDeviceFamilyForDLC"] => push_text(&mut dlc_elem, s),
+                    ["Game", "AllowedProducts", "AllowedProduct"] => push_text(&mut product, s),
+                    _ => {}
+                }
+            }
+        }
+        Some(())
+    })?;
+    if !seen_root {
+        return None;
+    }
+    g.allowed_products.extend(product);
+    g.allowed_products = g
+        .allowed_products
+        .iter()
+        .filter_map(|p| clean_id(p))
+        .collect();
+    g.title_id = text_of(title_id);
+    g.store_id = text_of(store_id);
+    g.msa_app_id = text_of(msa);
+    g.dlc_family = text_of(dlc_elem).or(dlc_attr);
+    Some(g)
+}
+
+/// The console systems and whether a PC build is named, from GDK device
+/// families; unknown families are ignored.
+fn gdk_families<'a>(families: impl Iterator<Item = &'a str>) -> (Vec<&'static str>, bool) {
+    let mut systems: Vec<&'static str> = Vec::new();
+    let mut pc = false;
+    for f in families {
+        let sys = if f.eq_ignore_ascii_case("XboxOne") {
+            "xboxone"
+        } else if f.eq_ignore_ascii_case("Scarlett") {
+            "xboxseries"
+        } else {
+            pc |= f.eq_ignore_ascii_case("PC");
+            continue;
+        };
+        if !systems.contains(&sys) {
+            systems.push(sys);
+        }
+    }
+    // Probe order: Xbox One first.
+    systems.sort_by_key(|s| *s != "xboxone");
+    (systems, pc)
+}
+
+/// The folder's own name, as a title fallback.
+fn folder_title(l: &DirListing) -> Option<String> {
+    clean_title(&l.dir.file_name()?.to_string_lossy())
+}
+
+/// The first of `rels` that resolves inside the folder (D21), at most
+/// one extra listing for all of them.
+fn first_logo<'a>(l: &DirListing, rels: impl Iterator<Item = &'a str>) -> Option<ArtLocator> {
+    let mut listed = false;
+    rels.into_iter()
+        .find_map(|rel| logo_locator(l, rel, &mut listed))
+}
+
+/// A manifest-relative logo path resolved inside the folder (D21):
+/// split on `\` and `/`; an empty, `.` or `..` component, a root or a
+/// drive prefix, more than [`MAX_LOGO_COMPONENTS`] components, a name
+/// that is not `.png` or a symlink anywhere on the way drops it. The
+/// exact name comes first, then the same name in another case, then the
+/// largest MRT `<stem>.scale-<n>.png` beside it. Names at the folder's
+/// root come from the walk's listing; a subfolder costs one listing, and
+/// `listed` allows one per probe.
+fn logo_locator(l: &DirListing, rel: &str, listed: &mut bool) -> Option<ArtLocator> {
+    let parts: Vec<&str> = rel.split(['\\', '/']).collect();
+    if parts.len() > MAX_LOGO_COMPONENTS
+        || parts
+            .iter()
+            .any(|c| c.is_empty() || *c == "." || *c == ".." || c.contains(':'))
+    {
+        return None;
+    }
+    let (file, parents) = parts.split_last()?;
+    let stem = file
+        .len()
+        .checked_sub(4)
+        .filter(|&n| {
+            file.get(n..)
+                .is_some_and(|e| e.eq_ignore_ascii_case(".png"))
+        })
+        .and_then(|n| file.get(..n))?;
+    let mut at = l.dir.to_path_buf();
+    let mut rel_dir = PathBuf::new();
+    for c in parents {
+        at.push(c);
+        rel_dir.push(c);
+        if !std::fs::symlink_metadata(&at).ok()?.file_type().is_dir() {
+            return None;
+        }
+    }
+    let found = |name: &str| -> Option<ArtLocator> {
+        let meta = std::fs::symlink_metadata(at.join(name)).ok()?;
+        meta.file_type().is_file().then(|| ArtLocator::File {
+            rel: rel_dir.join(name),
+            format: ArtFormat::Png,
+        })
+    };
+    if let Ok(meta) = std::fs::symlink_metadata(at.join(file)) {
+        return meta.file_type().is_file().then(|| ArtLocator::File {
+            rel: rel_dir.join(file),
+            format: ArtFormat::Png,
+        });
+    }
+    let listing: Vec<String>;
+    let names: &[String] = if parents.is_empty() {
+        l.names
+    } else {
+        if *listed {
+            return None;
+        }
+        *listed = true;
+        listing = list_child(&at)?;
+        &listing
+    };
+    if let Some(same) = names.iter().find(|n| n.eq_ignore_ascii_case(file)) {
+        return found(same);
+    }
+    let prefix = format!("{}.scale-", stem.to_ascii_lowercase());
+    let best = names
+        .iter()
+        .filter_map(|n| {
+            let lower = n.to_ascii_lowercase();
+            let scale = lower.strip_prefix(&prefix)?.strip_suffix(".png")?;
+            (!scale.is_empty() && scale.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| scale.parse::<u32>().ok())
+                .flatten()
+                .map(|s| (s, n))
+        })
+        .max_by_key(|(s, _)| *s)?;
+    found(best.1)
+}
+
+/// Reads a probe file of at most [`MAX_META_FILE`] bytes; `Err(())` when
+/// it is present but cannot be read (or is not a plain small file).
+fn read_probe(path: &Path) -> Result<Vec<u8>, ()> {
+    let len = plain_file(path, MAX_META_FILE).ok_or(())?;
+    read_head(path, len, MAX_META_FILE as usize).ok_or(())
+}
+
+/// An Xbox One or Series GDK game folder (D18): `MicrosoftGame.config`
+/// among its names (any case). A config that cannot be read leaves the
+/// folder `Unreadable`; a PC build leaves it as PC game data; executables
+/// for both consoles, or no family at all, give one match per console
+/// (a conflict: review); a PC build beside one console family is that
+/// system at [`GDK_WITH_PC`] (single-choice review). Executables make a
+/// base game, a DLC config's `TargetDeviceFamilyForDLC` a DLC.
+pub fn probe_gdk(l: &DirListing) -> Vec<FolderMatch> {
+    let Some(name) = find(l.names, GDK_CONFIG) else {
+        return Vec::new();
+    };
+    let probe = PathBuf::from(name);
+    let leave = |why: FolderLeave| {
+        vec![FolderMatch {
+            id: ConsoleId::magic("xboxone", GDK_CONFIG),
+            probe: probe.clone(),
+            leave: Some(why),
+        }]
+    };
+    let Ok(bytes) = read_probe(&l.dir.join(name)) else {
+        return leave(FolderLeave::Unreadable);
+    };
+    let Some(g) = manifest_text(&bytes).and_then(|t| parse_gdk(&t)) else {
+        return Vec::new();
+    };
+    let (mut systems, mut pc) = gdk_families(g.families.iter().map(String::as_str));
+    let mut kind = TitleKind::Base;
+    if systems.is_empty() && !pc {
+        (systems, pc) = gdk_families(g.dlc_family.as_deref().into_iter());
+        kind = TitleKind::Dlc;
+    }
+    let confidence = match (systems.len(), pc) {
+        (0, true) => return leave(FolderLeave::NotARom(NotARom::PcGameData)),
+        (0, false) => {
+            systems = vec!["xboxone", "xboxseries"];
+            kind = TitleKind::Unknown;
+            GDK_NO_FAMILY
+        }
+        (1, true) => GDK_WITH_PC,
+        _ => GDK_PROVEN,
+    };
+    let art = first_logo(l, g.logos.iter().map(String::as_str));
+    systems
+        .into_iter()
+        .map(|system| {
+            let mut id = ConsoleId::proven(system, GDK_CONFIG);
+            id.confidence = confidence;
+            id.kind = kind;
+            id.title_id = g
+                .title_id
+                .as_deref()
+                .filter(|t| is_hex(t, 8) && !t.eq_ignore_ascii_case("FFFFFFFF"))
+                .map(str::to_ascii_uppercase);
+            // The identity's source, also when it has no title id: the
+            // grouping key (D15) needs to know a GDK config gave it.
+            id.id_source = Some(IdSource::MicrosoftGameConfig);
+            id.product_id = g.store_id.as_deref().and_then(clean_id);
+            id.parent_id = match g.allowed_products.as_slice() {
+                [one] => Some(one.clone()),
+                _ => None,
+            };
+            id.version = g.version.clone();
+            id.title = plain_name(g.display_name.as_deref()).or_else(|| folder_title(l));
+            id.art.extend(art.clone());
+            FolderMatch {
+                id,
+                probe: probe.clone(),
+                leave: None,
+            }
+        })
+        .collect()
+}
+
+/// The fields of an ERA `AppxManifest.xml` (D18).
+#[derive(Debug, Default)]
+struct Era {
+    xbox: bool,
+    name: Option<String>,
+    version: Option<String>,
+    display_name: Option<String>,
+    logo: Option<String>,
+    visual_name: Option<String>,
+    visual_logo: Option<String>,
+}
+
+/// Parses an ERA manifest's text (root element `Package`, any prefix).
+fn parse_era(text: &str) -> Option<Era> {
+    let mut m = Era::default();
+    let (mut display, mut logo): (Option<String>, Option<String>) = (None, None);
+    let mut seen_root = false;
+    let mut in_app = false;
+    xml_walk(text, |node| {
+        match node {
+            Node::Open(path, e) => {
+                let p: Vec<&str> = path.iter().map(String::as_str).collect();
+                match p.as_slice() {
+                    ["Package"] => {
+                        if seen_root {
+                            return None;
+                        }
+                        seen_root = true;
+                        m.xbox = e.attributes().flatten().any(|a| {
+                            let k = a.key.as_ref();
+                            (k == b"xmlns" || k.starts_with(b"xmlns:"))
+                                && a.unescape_value()
+                                    .is_ok_and(|v| v.trim() == XBOX_MANIFEST_NS)
+                        });
+                    }
+                    [_] => return None,
+                    ["Package", "Identity"] => {
+                        m.name = attr(e, "Name");
+                        m.version = attr(e, "Version");
+                    }
+                    ["Package", "Properties", "DisplayName"] => display = Some(String::new()),
+                    ["Package", "Properties", "Logo"] => logo = Some(String::new()),
+                    ["Package", "Applications", "Application", "VisualElements"] if !in_app => {
+                        in_app = true;
+                        m.visual_name = attr(e, "DisplayName");
+                        m.visual_logo = attr(e, "Logo");
+                    }
+                    _ => {}
+                }
+            }
+            Node::Text(path, s) => {
+                let p: Vec<&str> = path.iter().map(String::as_str).collect();
+                match p.as_slice() {
+                    ["Package", "Properties", "DisplayName"] => push_text(&mut display, s),
+                    ["Package", "Properties", "Logo"] => push_text(&mut logo, s),
+                    _ => {}
+                }
+            }
+        }
+        Some(())
+    })?;
+    if !seen_root {
+        return None;
+    }
+    m.display_name = text_of(display);
+    m.logo = text_of(logo);
+    Some(m)
+}
+
+/// An Xbox One ERA game folder (D18): `AppxManifest.xml` among its names
+/// whose `Package` declares [`XBOX_MANIFEST_NS`]; without it the folder
+/// is a Windows app. A folder with a GDK config is left to
+/// [`probe_gdk`] (GDK PC builds carry an `AppxManifest.xml` too).
+pub fn probe_era(l: &DirListing) -> Option<FolderMatch> {
+    if find(l.names, GDK_CONFIG).is_some() {
+        return None;
+    }
+    let name = find(l.names, ERA_MANIFEST)?;
+    let bytes = read_probe(&l.dir.join(name)).ok()?;
+    let m = parse_era(&manifest_text(&bytes)?)?;
+    if !m.xbox {
+        return None;
+    }
+    let mut id = ConsoleId::proven("xboxone", ERA_MANIFEST);
+    id.kind = TitleKind::Base;
+    id.id_source = Some(IdSource::AppxManifest);
+    id.product_id = m.name.as_deref().and_then(clean_id);
+    id.version = m.version.clone();
+    id.title = plain_name(m.display_name.as_deref())
+        .or_else(|| plain_name(m.visual_name.as_deref()))
+        .or_else(|| folder_title(l));
+    id.art.extend(first_logo(
+        l,
+        m.visual_logo
+            .iter()
+            .chain(m.logo.iter())
+            .map(String::as_str),
+    ));
+    Some(FolderMatch {
+        id,
+        probe: PathBuf::from(name),
+        leave: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testing::{self as t, RangeLog, SparseAt};
@@ -1026,6 +1596,527 @@ mod tests {
             std::fs::create_dir_all(&linked).unwrap();
             std::os::unix::fs::symlink(top2.join("000D0000"), linked.join("000D0000")).unwrap();
             assert_eq!(probe(&linked, probe_god), None);
+        }
+
+        fn gdk(dir: &Path, spec: &t::GdkSpec) -> Vec<FolderMatch> {
+            t::gdk_folder(dir, spec);
+            let names = listing_of(dir);
+            probe_gdk(&DirListing { dir, names: &names })
+        }
+
+        fn systems(found: &[FolderMatch]) -> Vec<(&str, f32, TitleKind)> {
+            found
+                .iter()
+                .map(|m| (m.id.system.as_str(), m.id.confidence, m.id.kind))
+                .collect()
+        }
+
+        /// Every row of the D18 table (plan Task 10).
+        #[test]
+        fn gdk_families_table() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            type Row<'a> = (
+                &'a [&'a str],
+                Option<&'a str>,
+                &'a [(&'a str, f32, TitleKind)],
+            );
+            let rows: &[Row] = &[
+                (&["XboxOne"], None, &[("xboxone", 0.95, TitleKind::Base)]),
+                (
+                    &["Scarlett", "Scarlett"],
+                    None,
+                    &[("xboxseries", 0.95, TitleKind::Base)],
+                ),
+                (
+                    &["XboxOne", "Scarlett"],
+                    None,
+                    &[
+                        ("xboxone", 0.95, TitleKind::Base),
+                        ("xboxseries", 0.95, TitleKind::Base),
+                    ],
+                ),
+                (
+                    &["PC", "XboxOne"],
+                    None,
+                    &[("xboxone", 0.60, TitleKind::Base)],
+                ),
+                (
+                    &["Scarlett", "PC"],
+                    None,
+                    &[("xboxseries", 0.60, TitleKind::Base)],
+                ),
+                (&[], Some("XboxOne"), &[("xboxone", 0.95, TitleKind::Dlc)]),
+                (
+                    &[],
+                    Some("Scarlett"),
+                    &[("xboxseries", 0.95, TitleKind::Dlc)],
+                ),
+                (
+                    &[],
+                    None,
+                    &[
+                        ("xboxone", 0.50, TitleKind::Unknown),
+                        ("xboxseries", 0.50, TitleKind::Unknown),
+                    ],
+                ),
+            ];
+            for (i, (families, dlc, want)) in rows.iter().enumerate() {
+                let dir = tmp.path().join(format!("g{i}"));
+                let spec = t::GdkSpec {
+                    families,
+                    dlc_family: *dlc,
+                    ..Default::default()
+                };
+                let found = gdk(&dir, &spec);
+                assert_eq!(systems(&found), *want, "{families:?} {dlc:?}");
+                assert!(found.iter().all(|m| m.leave.is_none()));
+                assert!(found
+                    .iter()
+                    .all(|m| m.probe == Path::new("MicrosoftGame.config")));
+            }
+            // Every executable PC, or a PC DLC: a PC build, left.
+            for (i, (families, dlc)) in [(&["PC", "PC"][..], None), (&[][..], Some("PC"))]
+                .into_iter()
+                .enumerate()
+            {
+                let dir = tmp.path().join(format!("pc{i}"));
+                let spec = t::GdkSpec {
+                    families,
+                    dlc_family: dlc,
+                    ..Default::default()
+                };
+                let found = gdk(&dir, &spec);
+                assert_eq!(found.len(), 1);
+                assert_eq!(
+                    found[0].leave,
+                    Some(FolderLeave::NotARom(NotARom::PcGameData))
+                );
+            }
+        }
+
+        #[test]
+        fn gdk_fields() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let found = gdk(&tmp.path().join("Halo"), &t::GdkSpec::default());
+            let id = &found[0].id;
+            assert_eq!(id.title_id.as_deref(), Some("6B9D1A2C"));
+            assert_eq!(id.id_source, Some(IdSource::MicrosoftGameConfig));
+            assert_eq!(id.product_id.as_deref(), Some("9NSAMPLE0001"));
+            assert_eq!(id.parent_id, None);
+            assert_eq!(id.version.as_deref(), Some("1.2.3.0"));
+            assert_eq!(id.title.as_deref(), Some("Sample Game"));
+            assert_eq!(id.detail, "MicrosoftGame.config");
+            assert_eq!(
+                id.art,
+                [ArtLocator::File {
+                    rel: PathBuf::from("LargeLogo.png"),
+                    format: ArtFormat::Png
+                }]
+            );
+            // A lower-case title id is upper-cased; `FFFFFFFF` is no id.
+            let lower = gdk(
+                &tmp.path().join("lower"),
+                &t::GdkSpec {
+                    title_id: "6b9d1a2c",
+                    ..Default::default()
+                },
+            );
+            assert_eq!(lower[0].id.title_id.as_deref(), Some("6B9D1A2C"));
+            for none in ["FFFFFFFF", "ffffffff", "6B9D1A2", "XYZ"] {
+                let found = gdk(
+                    &tmp.path().join(format!("t{none}")),
+                    &t::GdkSpec {
+                        title_id: none,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(found[0].id.title_id, None, "{none}");
+            }
+        }
+
+        #[test]
+        fn gdk_dlc_parent_needs_exactly_one_allowed_product() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            for (i, attr) in [false, true].into_iter().enumerate() {
+                let one = gdk(
+                    &tmp.path().join(format!("one{i}")),
+                    &t::GdkSpec {
+                        families: &[],
+                        dlc_family: Some("Scarlett"),
+                        dlc_attr: attr,
+                        allowed: &["9NBASEGAME01"],
+                        store_id: "9NDLCPACK001",
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(systems(&one), [("xboxseries", 0.95, TitleKind::Dlc)]);
+                assert_eq!(one[0].id.parent_id.as_deref(), Some("9NBASEGAME01"));
+                assert_eq!(one[0].id.product_id.as_deref(), Some("9NDLCPACK001"));
+            }
+            let two = gdk(
+                &tmp.path().join("two"),
+                &t::GdkSpec {
+                    families: &[],
+                    dlc_family: Some("XboxOne"),
+                    allowed: &["9NBASEGAME01", "9NBASEGAME02"],
+                    ..Default::default()
+                },
+            );
+            assert_eq!(two[0].id.kind, TitleKind::Dlc);
+            assert_eq!(two[0].id.parent_id, None);
+        }
+
+        /// `XboxCompatibility` is never read for the system (D18).
+        #[test]
+        fn xbox_compatibility_scarlett_stays_xbox_one() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let found = gdk(
+                &tmp.path().join("bc"),
+                &t::GdkSpec {
+                    families: &["XboxOne"],
+                    compat: Some("Scarlett"),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(systems(&found), [("xboxone", 0.95, TitleKind::Base)]);
+        }
+
+        #[test]
+        fn gdk_ms_resource_name_falls_back_to_the_folder() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let found = gdk(
+                &tmp.path().join("Gears 5"),
+                &t::GdkSpec {
+                    display_name: "ms-resource:ApplicationDisplayName",
+                    ..Default::default()
+                },
+            );
+            assert_eq!(found[0].id.title.as_deref(), Some("Gears 5"));
+        }
+
+        #[test]
+        fn gdk_encodings() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let text = t::gdk_config(&t::GdkSpec::default());
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let le: Vec<u8> = [0xFF, 0xFE]
+                .into_iter()
+                .chain(units.iter().flat_map(|u| u.to_le_bytes()))
+                .collect();
+            let be: Vec<u8> = [0xFE, 0xFF]
+                .into_iter()
+                .chain(units.iter().flat_map(|u| u.to_be_bytes()))
+                .collect();
+            let bare: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+            let bom8: Vec<u8> = [0xEF, 0xBB, 0xBF].into_iter().chain(text.bytes()).collect();
+            let doctype = text.replacen("<Game ", "<!DOCTYPE Game [<!ENTITY e \"x\">]>\n<Game ", 1);
+            for (name, bytes, hit) in [
+                ("le", le, true),
+                ("be", be, true),
+                ("bom8", bom8, true),
+                ("bare16", bare, false),
+                ("doctype", doctype.into_bytes(), false),
+                (
+                    "other-root",
+                    text.replace("Game", "Gamex").into_bytes(),
+                    false,
+                ),
+            ] {
+                let dir = tmp.path().join(name);
+                std::fs::create_dir(&dir).unwrap();
+                std::fs::write(dir.join("MicrosoftGame.config"), bytes).unwrap();
+                let names = listing_of(&dir);
+                let found = probe_gdk(&DirListing {
+                    dir: &dir,
+                    names: &names,
+                });
+                assert_eq!(!found.is_empty(), hit, "{name}");
+                if hit {
+                    assert_eq!(found[0].id.system, "xboxone", "{name}");
+                }
+            }
+        }
+
+        /// A config over 64 KiB is never parsed (spec §8.4): the folder is
+        /// left as unreadable.
+        #[test]
+        fn oversized_gdk_config_is_not_parsed() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("big");
+            std::fs::create_dir(&dir).unwrap();
+            let mut text = t::gdk_config(&t::GdkSpec::default());
+            text.push_str(&format!("<!--{}-->", "x".repeat(MAX_META_FILE as usize)));
+            assert_eq!(manifest_text(text.as_bytes()), None);
+            std::fs::write(dir.join(GDK_CONFIG), text).unwrap();
+            let names = listing_of(&dir);
+            let found = probe_gdk(&DirListing {
+                dir: &dir,
+                names: &names,
+            });
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].leave, Some(FolderLeave::Unreadable));
+        }
+
+        #[test]
+        fn gdk_config_name_is_case_insensitive() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("lower");
+            std::fs::create_dir(&dir).unwrap();
+            let text = t::gdk_config(&t::GdkSpec::default());
+            std::fs::write(dir.join("microsoftgame.config"), text).unwrap();
+            let names = listing_of(&dir);
+            let found = probe_gdk(&DirListing {
+                dir: &dir,
+                names: &names,
+            });
+            assert_eq!(found[0].probe, Path::new("microsoftgame.config"));
+        }
+
+        /// A config the probe cannot open leaves the folder `Unreadable`.
+        #[cfg(unix)]
+        #[test]
+        fn unreadable_gdk_config_leaves_the_folder() {
+            use std::os::unix::fs::PermissionsExt;
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("XboxGames");
+            t::gdk_folder(&dir, &t::GdkSpec::default());
+            let config = dir.join("MicrosoftGame.config");
+            std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o000)).unwrap();
+            struct Restore<'a>(&'a Path);
+            impl Drop for Restore<'_> {
+                fn drop(&mut self) {
+                    let _ =
+                        std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o644));
+                }
+            }
+            let _restore = Restore(&config);
+            if std::fs::File::open(&config).is_ok() {
+                return; // Running as root: permissions do not apply.
+            }
+            let names = listing_of(&dir);
+            let found = probe_gdk(&DirListing {
+                dir: &dir,
+                names: &names,
+            });
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].leave, Some(FolderLeave::Unreadable));
+            assert_eq!(found[0].id.system, "xboxone");
+        }
+
+        fn era(dir: &Path, manifest: &str) -> Option<FolderMatch> {
+            t::era_folder(dir, manifest);
+            probe(dir, probe_era)
+        }
+
+        #[test]
+        fn era_needs_the_xbox_namespace() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let m = era(
+                &tmp.path().join("Sunset Overdrive"),
+                &t::era_manifest("Microsoft.Sunset", "Sunset Overdrive", "Sunset", true),
+            )
+            .unwrap();
+            assert_eq!(
+                (m.id.system.as_str(), m.id.kind, m.id.confidence),
+                ("xboxone", TitleKind::Base, 0.95)
+            );
+            assert_eq!(m.probe, Path::new("AppxManifest.xml"));
+            assert_eq!(m.id.product_id.as_deref(), Some("Microsoft.Sunset"));
+            assert_eq!(m.id.version.as_deref(), Some("1.0.4.0"));
+            assert_eq!(m.id.title.as_deref(), Some("Sunset Overdrive"));
+            assert_eq!(m.id.id_source, Some(IdSource::AppxManifest));
+            assert_eq!(m.id.detail, "AppxManifest.xml");
+            // VisualElements/@Logo first, then Properties/Logo.
+            assert_eq!(
+                m.id.art,
+                [ArtLocator::File {
+                    rel: PathBuf::from("Logo.png"),
+                    format: ArtFormat::Png
+                }]
+            );
+            // A Windows app manifest: no Xbox namespace, no game.
+            let windows = era(
+                &tmp.path().join("Calculator"),
+                &t::era_manifest("Microsoft.Calc", "Calculator", "Calculator", false),
+            );
+            assert_eq!(windows, None);
+            // The namespace under the default prefix counts too.
+            let default_ns = t::era_manifest("Microsoft.X", "X", "X", false).replace(
+                "http://schemas.microsoft.com/appx/2010/manifest",
+                XBOX_MANIFEST_NS,
+            );
+            assert!(era(&tmp.path().join("Default"), &default_ns).is_some());
+        }
+
+        #[test]
+        fn era_ms_resource_chain() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let visual = era(
+                &tmp.path().join("a"),
+                &t::era_manifest("A.B", "ms-resource:Name", "Visual Name", true),
+            )
+            .unwrap();
+            assert_eq!(visual.id.title.as_deref(), Some("Visual Name"));
+            let folder = era(
+                &tmp.path().join("Ryse Son of Rome"),
+                &t::era_manifest("A.B", "ms-resource:Name", "ms-resource:Other", true),
+            )
+            .unwrap();
+            assert_eq!(folder.id.title.as_deref(), Some("Ryse Son of Rome"));
+        }
+
+        /// A folder with a GDK config is the GDK probe's: the ERA probe
+        /// stays out so one folder never conflicts with itself.
+        #[test]
+        fn era_skips_a_gdk_folder() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("Both");
+            t::gdk_folder(
+                &dir,
+                &t::GdkSpec {
+                    families: &["Scarlett"],
+                    ..Default::default()
+                },
+            );
+            t::put_file(
+                &dir,
+                "AppxManifest.xml",
+                t::era_manifest("A.B", "Both", "Both", true).as_bytes(),
+            );
+            assert_eq!(probe(&dir, probe_era), None);
+        }
+
+        fn locate(dir: &Path, rel: &str) -> Option<PathBuf> {
+            let names = listing_of(dir);
+            let l = DirListing { dir, names: &names };
+            let mut listed = false;
+            match logo_locator(&l, rel, &mut listed)? {
+                ArtLocator::File { rel, format } => {
+                    assert_eq!(format, ArtFormat::Png);
+                    Some(rel)
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+
+        #[test]
+        fn logo_paths_stay_inside_the_folder() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("game");
+            t::put_file(&dir, "Assets/Logo.png", &t::png_8x8());
+            t::put_file(tmp.path(), "secret.png", &t::png_8x8());
+            assert_eq!(
+                locate(&dir, "Assets\\Logo.png"),
+                Some(Path::new("Assets").join("Logo.png"))
+            );
+            assert_eq!(
+                locate(&dir, "Assets/Logo.png"),
+                Some(Path::new("Assets").join("Logo.png"))
+            );
+            for bad in [
+                "..\\secret.png",
+                "..\\..\\secret.png",
+                "Assets\\..\\..\\secret.png",
+                "C:\\x.png",
+                "\\x.png",
+                "/x.png",
+                "",
+                ".\\Assets\\Logo.png",
+                "a\\b\\c\\d\\e\\f\\g\\h\\i.png",
+                "Assets\\Logo.jpg",
+            ] {
+                assert_eq!(locate(&dir, bad), None, "{bad}");
+            }
+        }
+
+        #[test]
+        fn logo_mrt_scale_picks_the_largest() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("game");
+            for name in [
+                "Logo.scale-100.png",
+                "Logo.scale-200.png",
+                "Logo.scale-150.png",
+                "Logo.scale-x.png",
+                "OtherLogo.scale-400.png",
+            ] {
+                t::put_file(&dir, &format!("Assets/{name}"), &t::png_8x8());
+            }
+            assert_eq!(
+                locate(&dir, "Assets\\Logo.png"),
+                Some(Path::new("Assets").join("Logo.scale-200.png"))
+            );
+            // At the root the folder's own names are used, no listing.
+            t::put_file(&dir, "Store.scale-125.png", &t::png_8x8());
+            let names = listing_of(&dir);
+            let l = DirListing {
+                dir: &dir,
+                names: &names,
+            };
+            let mut listed = true;
+            assert_eq!(
+                logo_locator(&l, "Store.png", &mut listed),
+                Some(ArtLocator::File {
+                    rel: PathBuf::from("Store.scale-125.png"),
+                    format: ArtFormat::Png
+                })
+            );
+            // One listing per probe: a second subfolder is not listed.
+            assert_eq!(logo_locator(&l, "Assets\\Logo.png", &mut listed), None);
+        }
+
+        /// A GDK folder whose first logo is missing takes the next one.
+        #[test]
+        fn gdk_logo_order() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("g");
+            let found = gdk(
+                &dir,
+                &t::GdkSpec {
+                    logos: ["Assets\\Big.png", "Assets\\Store.png", "Small.png"],
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                found[0].id.art,
+                [ArtLocator::File {
+                    rel: Path::new("Assets").join("Big.png"),
+                    format: ArtFormat::Png
+                }]
+            );
+            std::fs::remove_file(dir.join("Assets").join("Big.png")).unwrap();
+            std::fs::remove_file(dir.join("Assets").join("Store.png")).unwrap();
+            let names = listing_of(&dir);
+            let again = probe_gdk(&DirListing {
+                dir: &dir,
+                names: &names,
+            });
+            assert_eq!(
+                again[0].id.art,
+                [ArtLocator::File {
+                    rel: PathBuf::from("Small.png"),
+                    format: ArtFormat::Png
+                }]
+            );
+        }
+
+        /// A symlinked logo, or a logo behind a symlinked folder, is
+        /// dropped (spec §8.4).
+        #[cfg(unix)]
+        #[test]
+        fn symlinked_logos_are_dropped() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("game");
+            t::put_file(tmp.path(), "outside/Logo.png", &t::png_8x8());
+            std::fs::create_dir_all(&dir).unwrap();
+            std::os::unix::fs::symlink(tmp.path().join("outside"), dir.join("Assets")).unwrap();
+            std::os::unix::fs::symlink(
+                tmp.path().join("outside").join("Logo.png"),
+                dir.join("Logo.png"),
+            )
+            .unwrap();
+            assert_eq!(locate(&dir, "Assets\\Logo.png"), None);
+            assert_eq!(locate(&dir, "Logo.png"), None);
         }
 
         #[test]

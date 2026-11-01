@@ -497,7 +497,9 @@ enum ProbeFn {
 /// systems batch 3 §5.1: PS3 JB, PS3 HDD, the `sce_sys` app probe (PS4,
 /// PS5 and PS Vita, one listing of `sce_sys`; it replaces the Vita
 /// probe), Wii U loadiine then NUS, then Xbox (`default.xbe`), Xbox 360
-/// (`default.xex`, GOD/XBLA), then split Switch files.
+/// (`default.xex`, GOD/XBLA), Xbox One and Series (GDK
+/// `MicrosoftGame.config`, ERA `AppxManifest.xml`), then split Switch
+/// files.
 const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::One(sony::probe_ps3_jb),
     ProbeFn::One(sony::probe_ps3_hdd),
@@ -507,6 +509,8 @@ const DIR_PROBES: &[ProbeFn] = &[
     ProbeFn::One(xbox::probe_xbe),
     ProbeFn::One(xbox::probe_xex),
     ProbeFn::One(xbox::probe_god),
+    ProbeFn::Many(xbox::probe_gdk),
+    ProbeFn::One(xbox::probe_era),
     ProbeFn::One(nx::probe_split),
 ];
 
@@ -625,8 +629,22 @@ pub fn switch_base(title_id: u64) -> u64 {
 /// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
 /// and Wii U the base high word with the same low 32 bits, Sony (PS3,
 /// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id
-/// itself. `None` for other systems or without a title id.
+/// itself; Xbox One and Series GDK folders (systems batch 3 D15) the
+/// `StoreId` of a base and the one `AllowedProduct` of a DLC (ERA and
+/// XVC identities give no key). `None` for other systems or without a
+/// title id.
 pub fn base_title_id(id: &ConsoleId) -> Option<String> {
+    if matches!(id.system.as_str(), "xboxone" | "xboxseries") {
+        if id.id_source != Some(IdSource::MicrosoftGameConfig) {
+            return None;
+        }
+        let key = match id.kind {
+            TitleKind::Base => id.product_id.as_deref(),
+            TitleKind::Dlc => id.parent_id.as_deref(),
+            _ => None,
+        };
+        return key.map(str::to_ascii_uppercase);
+    }
     let tid = id.title_id.as_deref()?.trim();
     let hex = || {
         (tid.len() == 16)
@@ -821,6 +839,45 @@ mod tests {
         assert_eq!(with("ps4", " "), None);
         assert_eq!(with("switch", "nothex"), None);
         assert_eq!(with("gamecube", "0100000000010000"), None);
+    }
+
+    /// Systems batch 3 D15: a GDK base is keyed by its `StoreId`, a GDK
+    /// DLC by its one `AllowedProduct`; ERA and XVC give no key.
+    #[test]
+    fn xbox_grouping_keys() {
+        let gdk = |system: &str, kind: TitleKind, source: IdSource| {
+            let mut id = ConsoleId::proven(system, "MicrosoftGame.config");
+            id.kind = kind;
+            id.id_source = Some(source);
+            id.title_id = Some("6B9D1A2C".into());
+            id.product_id = Some("9nbase000001".into());
+            id.parent_id = Some("9NPARENT0001".into());
+            id
+        };
+        let gdk_source = IdSource::MicrosoftGameConfig;
+        assert_eq!(
+            base_title_id(&gdk("xboxone", TitleKind::Base, gdk_source)).as_deref(),
+            Some("9NBASE000001")
+        );
+        assert_eq!(
+            base_title_id(&gdk("xboxseries", TitleKind::Dlc, gdk_source)).as_deref(),
+            Some("9NPARENT0001")
+        );
+        let mut several = gdk("xboxseries", TitleKind::Dlc, gdk_source);
+        several.parent_id = None;
+        assert_eq!(base_title_id(&several), None);
+        assert_eq!(
+            base_title_id(&gdk("xboxone", TitleKind::Unknown, gdk_source)),
+            None
+        );
+        assert_eq!(
+            base_title_id(&gdk("xboxone", TitleKind::Base, IdSource::AppxManifest)),
+            None
+        );
+        assert_eq!(
+            base_title_id(&gdk("xboxseries", TitleKind::Base, IdSource::Header)),
+            None
+        );
     }
 
     #[test]

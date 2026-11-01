@@ -384,3 +384,73 @@ fn an_exfat_image_needs_a_ppsa_token() {
     let s = sniff_named(&mut f, len, "exfat", "backup.exfat");
     assert_eq!(best(&s.hits), None);
 }
+
+/// Builds one folder game under the given path.
+type FolderFixture = fn(&std::path::Path);
+/// (folder, fixture, expected systems: one = a match, two = a conflict,
+/// none = no game): the batch's folder probes through `identify_dir`.
+const FOLDERS: &[(&str, FolderFixture, &[&str])] = &[
+    // Task 10: the Scarlett rule (D18).
+    ("Forza Horizon 5", gdk_scarlett, &["xboxseries"]),
+    ("Halo 5 Guardians", gdk_xbox_one, &["xboxone"]),
+    ("Both", gdk_both, &["xboxone", "xboxseries"]),
+    ("Sunset Overdrive", era_xbox, &["xboxone"]),
+    ("Calculator", era_windows, &[]),
+];
+
+fn gdk_with(dir: &std::path::Path, families: &[&str]) {
+    use coverly_core::consoles::testing as t;
+    t::gdk_folder(
+        dir,
+        &t::GdkSpec {
+            families,
+            ..Default::default()
+        },
+    );
+}
+
+fn gdk_scarlett(dir: &std::path::Path) {
+    gdk_with(dir, &["Scarlett"]);
+}
+
+fn gdk_xbox_one(dir: &std::path::Path) {
+    gdk_with(dir, &["XboxOne"]);
+}
+
+fn gdk_both(dir: &std::path::Path) {
+    gdk_with(dir, &["XboxOne", "Scarlett"]);
+}
+
+fn era_xbox(dir: &std::path::Path) {
+    use coverly_core::consoles::testing as t;
+    t::era_folder(dir, &t::era_manifest("A.B", "Game", "Game", true));
+}
+
+fn era_windows(dir: &std::path::Path) {
+    use coverly_core::consoles::testing as t;
+    t::era_folder(dir, &t::era_manifest("A.B", "App", "App", false));
+}
+
+#[test]
+fn folder_probes() {
+    use coverly_core::consoles::{identify_dir, DirListing};
+    let tmp = tempfile::TempDir::new().unwrap();
+    for (name, build, want) in FOLDERS {
+        let dir = tmp.path().join(name);
+        build(&dir);
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        let got: Vec<String> = match identify_dir(&DirListing {
+            dir: &dir,
+            names: &names,
+        }) {
+            Ok(Some(m)) => vec![m.id.system],
+            Ok(None) => Vec::new(),
+            Err(conflict) => conflict.systems,
+        };
+        assert_eq!(got, *want, "{name}");
+    }
+}

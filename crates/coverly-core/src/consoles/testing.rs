@@ -1405,3 +1405,164 @@ pub fn xiso_at(partition: u64, files: &[(&str, Vec<u8>)]) -> SparseAt {
     }
     s
 }
+
+/// The fields of a synthetic GDK `MicrosoftGame.config` (systems batch 3
+/// D18; element and attribute names as in Microsoft's `Xbox-GDK-Samples`
+/// configs). `Default` is an Xbox One game with a title id, a store id
+/// and the three logos.
+#[derive(Clone, Debug)]
+pub struct GdkSpec<'a> {
+    pub name: &'a str,
+    pub version: &'a str,
+    pub title_id: &'a str,
+    pub store_id: &'a str,
+    pub display_name: &'a str,
+    /// One `Executable` per family (`XboxOne`, `Scarlett`, `PC`).
+    pub families: &'a [&'a str],
+    /// `TargetDeviceFamilyForDLC`, as an element unless `dlc_attr`.
+    pub dlc_family: Option<&'a str>,
+    pub dlc_attr: bool,
+    pub allowed: &'a [&'a str],
+    /// `XboxCompatibility` on the first executable (never read).
+    pub compat: Option<&'a str>,
+    /// `Square480x480Logo`, `StoreLogo`, `Square150x150Logo`.
+    pub logos: [&'a str; 3],
+}
+
+impl Default for GdkSpec<'_> {
+    fn default() -> Self {
+        GdkSpec {
+            name: "41336MicrosoftATG.SampleGame",
+            version: "1.2.3.0",
+            title_id: "6B9D1A2C",
+            store_id: "9NSAMPLE0001",
+            display_name: "Sample Game",
+            families: &["XboxOne"],
+            dlc_family: None,
+            dlc_attr: false,
+            allowed: &[],
+            compat: None,
+            logos: ["LargeLogo.png", "StoreLogo.png", "Logo.png"],
+        }
+    }
+}
+
+/// A synthetic `MicrosoftGame.config` from `spec` (UTF-8, no BOM).
+pub fn gdk_config(spec: &GdkSpec) -> String {
+    let mut x = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+    let root_attr = match (spec.dlc_family, spec.dlc_attr) {
+        (Some(f), true) => format!(" TargetDeviceFamilyForDLC=\"{f}\""),
+        _ => String::new(),
+    };
+    x.push_str(&format!("<Game configVersion=\"1\"{root_attr}>\n"));
+    x.push_str(&format!(
+        "  <Identity Name=\"{}\" Publisher=\"CN=Sample\" Version=\"{}\"/>\n",
+        spec.name, spec.version
+    ));
+    if !spec.families.is_empty() {
+        x.push_str("  <ExecutableList>\n");
+        for (i, f) in spec.families.iter().enumerate() {
+            let compat = match spec.compat {
+                Some(c) if i == 0 => format!(" XboxCompatibility=\"{c}\""),
+                _ => String::new(),
+            };
+            x.push_str(&format!(
+                "    <Executable Name=\"Game{i}.exe\" TargetDeviceFamily=\"{f}\" Id=\"Game\"{compat}/>\n"
+            ));
+        }
+        x.push_str("  </ExecutableList>\n");
+    }
+    let [l480, store, l150] = spec.logos;
+    x.push_str(&format!(
+        "  <ShellVisuals DefaultDisplayName=\"{}\" PublisherDisplayName=\"Sample\" \
+         Square480x480Logo=\"{l480}\" StoreLogo=\"{store}\" Square150x150Logo=\"{l150}\" \
+         Square44x44Logo=\"SmallLogo.png\" SplashScreenImage=\"SplashScreen.png\" \
+         Description=\"Sample\" ForegroundText=\"light\" BackgroundColor=\"#000040\"/>\n",
+        spec.display_name
+    ));
+    x.push_str(&format!(
+        "  <MSAAppId>0000000040ABCDEF</MSAAppId>\n  <TitleId>{}</TitleId>\n",
+        spec.title_id
+    ));
+    if !spec.store_id.is_empty() {
+        x.push_str(&format!("  <StoreId>{}</StoreId>\n", spec.store_id));
+    }
+    if !spec.allowed.is_empty() {
+        x.push_str("  <AllowedProducts>\n");
+        for p in spec.allowed {
+            x.push_str(&format!("    <AllowedProduct>{p}</AllowedProduct>\n"));
+        }
+        x.push_str("  </AllowedProducts>\n");
+    }
+    if let (Some(f), false) = (spec.dlc_family, spec.dlc_attr) {
+        x.push_str(&format!(
+            "  <TargetDeviceFamilyForDLC>{f}</TargetDeviceFamilyForDLC>\n"
+        ));
+    }
+    x.push_str("</Game>\n");
+    x
+}
+
+/// A GDK game folder: `MicrosoftGame.config` ([`gdk_config`]), one
+/// `GameN.exe` per family (64 zero bytes, never opened),
+/// `resources.pri` and the three logos as 8×8 PNGs; mtimes pinned.
+pub fn gdk_folder(dir: &std::path::Path, spec: &GdkSpec) {
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        ("MicrosoftGame.config".into(), gdk_config(spec).into_bytes()),
+        ("resources.pri".into(), b"mrm_pri2".to_vec()),
+    ];
+    for i in 0..spec.families.len() {
+        files.push((format!("Game{i}.exe"), vec![0u8; 64]));
+    }
+    for logo in spec.logos {
+        files.push((logo.replace('\\', "/"), png_8x8()));
+    }
+    let owned: Vec<(&str, Vec<u8>)> = files.iter().map(|(p, b)| (p.as_str(), b.clone())).collect();
+    write_tree(dir, &owned);
+}
+
+/// A synthetic ERA `AppxManifest.xml` (systems batch 3 D18; shape of the
+/// XDK manifests in Microsoft's `Xbox-ATG-Samples`): the Xbox manifest
+/// namespace under the `mx` prefix when `xbox`, `Properties/DisplayName`
+/// = `display`, `VisualElements/@DisplayName` = `visual`, logos
+/// `StoreLogo.png` (Properties) and `Logo.png` (VisualElements).
+pub fn era_manifest(name: &str, display: &str, visual: &str, xbox: bool) -> String {
+    let ns = if xbox {
+        " xmlns:mx=\"http://schemas.microsoft.com/appx/2013/xbox/manifest\" IgnorableNamespaces=\"mx\""
+    } else {
+        ""
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+         <Package xmlns=\"http://schemas.microsoft.com/appx/2010/manifest\"{ns}>\n\
+         \x20 <Identity Name=\"{name}\" Publisher=\"CN=Sample\" Version=\"1.0.4.0\" ProcessorArchitecture=\"x64\"/>\n\
+         \x20 <Properties>\n\
+         \x20   <DisplayName>{display}</DisplayName>\n\
+         \x20   <PublisherDisplayName>Sample</PublisherDisplayName>\n\
+         \x20   <Logo>StoreLogo.png</Logo>\n\
+         \x20 </Properties>\n\
+         \x20 <Applications>\n\
+         \x20   <Application Id=\"App\" Executable=\"Game.exe\" EntryPoint=\"Game.App\">\n\
+         \x20     <VisualElements DisplayName=\"{visual}\" Logo=\"Logo.png\" SmallLogo=\"SmallLogo.png\" \
+         Description=\"Sample\" ForegroundText=\"light\" BackgroundColor=\"#464646\">\n\
+         \x20       <SplashScreen Image=\"SplashScreen.png\"/>\n\
+         \x20     </VisualElements>\n\
+         \x20   </Application>\n\
+         \x20 </Applications>\n\
+         </Package>\n"
+    )
+}
+
+/// An ERA game folder: `AppxManifest.xml` = `manifest`, `Game.exe`
+/// (never opened), `StoreLogo.png` and `Logo.png`; mtimes pinned.
+pub fn era_folder(dir: &std::path::Path, manifest: &str) {
+    write_tree(
+        dir,
+        &[
+            ("AppxManifest.xml", manifest.as_bytes().to_vec()),
+            ("Game.exe", vec![0u8; 64]),
+            ("StoreLogo.png", png_8x8()),
+            ("Logo.png", png_8x8()),
+        ],
+    );
+}
