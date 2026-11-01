@@ -165,8 +165,13 @@ describe('SystemGroups', () => {
 
 describe('SystemGroups — a system the user chose', () => {
   const SYSTEMS: SystemInfo[] = [
-    { id: 'gb', name: 'Game Boy', family: 'handheld' },
-    { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
+    { id: 'gb', name: 'Game Boy', family: 'handheld', no_emulator: false },
+    {
+      id: 'gba',
+      name: 'Game Boy Advance',
+      family: 'handheld',
+      no_emulator: false,
+    },
   ];
 
   function renderChosen(onDecide: (ids: number[], c: unknown) => void) {
@@ -218,10 +223,25 @@ describe('SystemGroups — a system the user chose', () => {
 describe('SystemGroups — the full picker of a chosen system', () => {
   it('groups every system by family, sorted, with leave last', () => {
     const systems: SystemInfo[] = [
-      { id: 'zxspectrum', name: 'ZX Spectrum', family: 'computer' },
-      { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
-      { id: 'gb', name: 'Game Boy', family: 'handheld' },
-      { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
+      {
+        id: 'zxspectrum',
+        name: 'ZX Spectrum',
+        family: 'computer',
+        no_emulator: false,
+      },
+      {
+        id: 'ps2',
+        name: 'Sony PlayStation 2',
+        family: 'console',
+        no_emulator: false,
+      },
+      { id: 'gb', name: 'Game Boy', family: 'handheld', no_emulator: false },
+      {
+        id: 'jaguar',
+        name: 'Atari Jaguar',
+        family: 'console',
+        no_emulator: false,
+      },
     ];
     const items = [
       autoItem(0, 'mystery.rom', 'gb', 'ROMS/GB', {

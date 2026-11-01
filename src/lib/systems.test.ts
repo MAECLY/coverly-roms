@@ -13,10 +13,15 @@ describe('systemOptionGroups', () => {
   it('keeps the family order, sorts by locale and drops empty groups', () => {
     const g = systemOptionGroups(
       [
-        { id: 'b', name: 'Bravo', family: 'console' },
-        { id: 'a', name: 'Ámbar', family: 'console' },
-        { id: 'z', name: 'ZX Spectrum', family: 'computer' },
-        { id: 't', name: 'TIC-80', family: 'engine' },
+        { id: 'b', name: 'Bravo', family: 'console', no_emulator: false },
+        { id: 'a', name: 'Ámbar', family: 'console', no_emulator: false },
+        {
+          id: 'z',
+          name: 'ZX Spectrum',
+          family: 'computer',
+          no_emulator: false,
+        },
+        { id: 't', name: 'TIC-80', family: 'engine', no_emulator: false },
       ],
       t,
       'es',
@@ -38,8 +43,13 @@ describe('systemOptionGroups', () => {
 
   it('never reorders or mutates the input list', () => {
     const input = [
-      { id: 'b', name: 'Bravo', family: 'console' as const },
-      { id: 'a', name: 'Alfa', family: 'console' as const },
+      {
+        id: 'b',
+        name: 'Bravo',
+        family: 'console' as const,
+        no_emulator: false,
+      },
+      { id: 'a', name: 'Alfa', family: 'console' as const, no_emulator: false },
     ];
     systemOptionGroups(input, t, 'en');
     expect(input.map((s) => s.id)).toEqual(['b', 'a']);

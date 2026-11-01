@@ -1369,3 +1369,54 @@ libretro = "Microsoft - Xbox 360"
 dats = ["metadat/redump/Microsoft - Xbox 360.dat", "metadat/no-intro/Microsoft - Xbox 360.dat", "metadat/no-intro/Microsoft - Xbox 360 (Digital).dat"]
 multi_file = true
 screenscraper = 33
+
+[[system]]
+id = "ps4"
+name = "Sony PlayStation 4"
+family = "console"
+aliases = ["PS4", "playstation4"]
+# Decrypted `CUSAxxxxx/` app folders are folder games (D5); `.ps4` is the
+# ES-DE «game serial» file (D17); `.zar` is shared with Xbox 360 and PS5
+# (D12); `pkg` is weak: magic decides (D9). Covers: the game's own
+# `icon0.png` first (D21).
+extensions = ["ps4", "zar"]
+weak_extensions = ["pkg"]
+libretro = "Sony - PlayStation 4"
+screenscraper = 60
+embedded_first = true
+
+[[system]]
+id = "ps5"
+name = "Sony PlayStation 5"
+family = "console"
+aliases = ["PS5", "playstation5"]
+# `PPSAxxxxx/` app folders (D6); `.ffpkg` UFS2 images play, `.ffpfs`/
+# `.ffpfsc` are console-side images (D10); `.exfat` needs a `PPSA` token
+# or the folder (weak). No libretro-thumbnails folder (§16).
+extensions = ["ffpkg", "ffpfs", "ffpfsc", "zar"]
+weak_extensions = ["pkg", "exfat"]
+screenscraper = 284
+embedded_first = true
+
+[[system]]
+id = "xboxone"
+name = "Microsoft Xbox One"
+family = "console"
+aliases = ["XBOXONE", "xb1"]
+# GDK (`MicrosoftGame.config`) and ERA (`AppxManifest.xml`) folders (D18);
+# XVC packages are shared with Xbox Series: the plaintext header cannot
+# tell them apart (D19).
+extensions = ["xvc", "xvd", "msixvc"]
+screenscraper = 34
+embedded_first = true
+
+[[system]]
+id = "xboxseries"
+name = "Microsoft Xbox Series X|S"
+family = "console"
+aliases = ["XBOXSERIES", "xsx", "xboxseriesx"]
+# Only `Executable/@TargetDeviceFamily="Scarlett"` makes a Series game
+# (D18). No public emulator (D22). No ScreenScraper id found (§13).
+extensions = ["xvc", "xvd", "msixvc"]
+embedded_first = true
+no_emulator = true

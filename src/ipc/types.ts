@@ -653,6 +653,8 @@ export interface SystemInfo {
   id: string;
   name: string;
   family: SystemFamily;
+  /** No public emulator runs it (systems batch 3 D22). */
+  no_emulator: boolean;
 }
 
 export interface ProfileInfo {

@@ -45,6 +45,11 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   lutro: 'LUTR',
   tic80: 'TIC',
   uzebox: 'UZE',
+  // Systems batch 3: abbreviations until the icon audit (plan Task 17).
+  ps4: 'PS4',
+  ps5: 'PS5',
+  xboxone: 'XB1',
+  xboxseries: 'XBSX',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

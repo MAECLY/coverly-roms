@@ -61,6 +61,7 @@ describe('mock backend', () => {
       id: 'gba',
       name: 'Game Boy Advance',
       family: 'handheld',
+      no_emulator: false,
     });
     // Systems only the organise piles have are listed too (Rust lists its
     // whole catalogue), so the UI never falls back to the id.
@@ -68,7 +69,12 @@ describe('mock backend', () => {
       id: 'saturn',
       name: 'Sega Saturn',
       family: 'console',
+      no_emulator: false,
     });
+    // Like `systems.toml` (spec D22): only Xbox Series has no emulator.
+    expect(systems.filter((s) => s.no_emulator).map((s) => s.id)).toEqual([
+      'xboxseries',
+    ]);
     const names = systems.map((s) => s.name);
     expect(names).toEqual(
       [...names].sort((a, b) =>

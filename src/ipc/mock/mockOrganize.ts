@@ -906,6 +906,8 @@ export const ORGANIZE_SYSTEMS: readonly {
   name: string;
   folder: string;
   family: SystemFamily;
+  /** `systems.toml` `no_emulator` (systems batch 3 D22); absent = false. */
+  no_emulator?: boolean;
 }[] = [
   { id: 'saturn', name: 'Sega Saturn', folder: 'SATURN', family: 'console' },
   // The retro pile (spec §9.3): its systems and the review's runner-ups.
@@ -967,6 +969,14 @@ export const ORGANIZE_SYSTEMS: readonly {
     family: 'console',
   },
   { id: 'a800', name: 'Atari 8-bit', folder: 'A800', family: 'computer' },
+  // Systems batch 3 (spec §7): the only system with no public emulator.
+  {
+    id: 'xboxseries',
+    name: 'Microsoft Xbox Series X|S',
+    folder: 'XBOXSERIES',
+    family: 'console',
+    no_emulator: true,
+  },
 ];
 
 /**

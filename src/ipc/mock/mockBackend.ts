@@ -625,7 +625,12 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       Promise.resolve(
         // Like Rust, the whole catalogue: the organise piles' systems too.
         [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS]
-          .map(({ id, name, family }) => ({ id, name, family }))
+          .map((s) => ({
+            id: s.id,
+            name: s.name,
+            family: s.family,
+            no_emulator: 'no_emulator' in s && s.no_emulator === true,
+          }))
           .sort((a, b) =>
             a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }),
           ),

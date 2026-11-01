@@ -1,0 +1,191 @@
+//! Table-driven checks for the systems of batch 3 (plan P-1): the current
+//! generation (PS4, PS5, Xbox One, Xbox Series). Each system task appends
+//! rows; every check runs over every row. Names are checked against the
+//! research listings committed in `tests/fixtures/research`, so a typo
+//! fails offline.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use coverly_core::identify::evidence::Evidence;
+use coverly_core::identify::sniff::sniff;
+use coverly_core::profiles::builtin_profiles;
+use coverly_core::profiles::naming::system_folder;
+use coverly_core::sources::libretro::parse_apache_dirs;
+use coverly_core::systems::{Family, SystemDb};
+
+/// (id, family, multi_file)
+const SYSTEMS: &[(&str, Family, bool)] = &[
+    ("ps4", Family::Console, false),
+    ("ps5", Family::Console, false),
+    ("xboxone", Family::Console, false),
+    ("xboxseries", Family::Console, false),
+];
+/// (id, embedded_first, no_emulator): spec §7 flags.
+const FLAGS: &[(&str, bool, bool)] = &[
+    ("ps4", true, false),
+    ("ps5", true, false),
+    ("xboxone", true, false),
+    ("xboxseries", true, true),
+];
+/// (id, display name, ScreenScraper id): spec §7.
+const NAMES: &[(&str, &str, Option<u32>)] = &[
+    ("ps4", "Sony PlayStation 4", Some(60)),
+    ("ps5", "Sony PlayStation 5", Some(284)),
+    ("xboxone", "Microsoft Xbox One", Some(34)),
+    // No ScreenScraper id found (spec §13).
+    ("xboxseries", "Microsoft Xbox Series X|S", None),
+];
+/// (profile, id, expected folder, on device): spot checks of spec §6.
+const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[];
+/// Builds a sparse file whose far offsets matter.
+type Sparse = fn() -> coverly_core::consoles::testing::SparseAt;
+/// (id, ext, sparse file, expected system, expected serial): one
+/// raw-file header rule of the batch.
+type ConsoleHeader = (
+    &'static str,
+    &'static str,
+    Sparse,
+    Option<&'static str>,
+    Option<&'static str>,
+);
+/// The batch's raw-file header rules, through `sniff` like a real file.
+const CONSOLE_HEADERS: &[ConsoleHeader] = &[];
+
+fn research(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/research")
+            .join(name),
+    )
+    .unwrap()
+}
+
+/// The strongest hit; on a tie the first listed (the likelier).
+fn best(hits: &[Evidence]) -> Option<&str> {
+    hits.iter()
+        .fold(None, |best: Option<&Evidence>, h| match best {
+            Some(b) if b.weight >= h.weight => Some(b),
+            _ => Some(h),
+        })
+        .map(|h| h.system.as_str())
+}
+
+#[test]
+fn batch_systems_load_with_name_family_and_disc_flag() {
+    let db = SystemDb::builtin();
+    for (id, family, multi) in SYSTEMS {
+        let s = db.get(id).unwrap_or_else(|| panic!("missing {id}"));
+        assert_eq!((s.family, s.multi_file), (*family, *multi), "{id}");
+    }
+    for (id, name, ss) in NAMES {
+        let s = db.get(id).unwrap();
+        assert_eq!((s.name.as_str(), s.screenscraper), (*name, *ss), "{id}");
+    }
+}
+
+#[test]
+fn the_catalogue_has_131_systems() {
+    assert_eq!(SystemDb::builtin().all().len(), 131);
+}
+
+#[test]
+fn flags_match_the_research_table() {
+    let db = SystemDb::builtin();
+    for (id, embedded_first, no_emulator) in FLAGS {
+        let s = db.get(id).unwrap();
+        assert_eq!(
+            (s.embedded_first, s.no_emulator),
+            (*embedded_first, *no_emulator),
+            "{id}"
+        );
+    }
+    // Only this batch sets them (spec §7).
+    let flagged: BTreeSet<&str> = db
+        .all()
+        .iter()
+        .filter(|s| s.embedded_first || s.no_emulator)
+        .map(|s| s.id.as_str())
+        .collect();
+    let batch: BTreeSet<&str> = FLAGS.iter().map(|(id, _, _)| *id).collect();
+    assert_eq!(flagged, batch);
+}
+
+#[test]
+fn libretro_names_exist_on_the_thumbnail_server() {
+    let dirs: BTreeSet<String> = parse_apache_dirs(&research("thumbnails-root.html"))
+        .into_iter()
+        .collect();
+    let db = SystemDb::builtin();
+    let named: Vec<&str> = SYSTEMS
+        .iter()
+        .filter_map(|(id, _, _)| db.get(id).unwrap().libretro.as_deref())
+        .collect();
+    // Only PS4 has a libretro-thumbnails folder (spec §7).
+    assert_eq!(named, ["Sony - PlayStation 4"]);
+    for name in named {
+        assert!(
+            dirs.contains(name),
+            "`{name}` not on thumbnails.libretro.com"
+        );
+    }
+}
+
+#[test]
+fn every_alias_resolves_to_its_system() {
+    let db = SystemDb::builtin();
+    for (id, _, _) in SYSTEMS {
+        let s = db.get(id).unwrap();
+        assert!(!s.aliases.is_empty(), "{id}");
+        for alias in &s.aliases {
+            assert_eq!(
+                db.resolve_folder(alias).map(|s| s.id.as_str()),
+                Some(*id),
+                "{alias}"
+            );
+            assert_eq!(
+                db.resolve_folder(&alias.to_lowercase())
+                    .map(|s| s.id.as_str()),
+                Some(*id),
+                "{alias} lowercased"
+            );
+        }
+    }
+}
+
+/// `Microsoft Xbox Series X|S` is a display name only, never a folder.
+#[test]
+fn display_names_are_not_folders() {
+    let db = SystemDb::builtin();
+    for (_, name, _) in NAMES {
+        assert!(db.resolve_folder(name).is_none(), "{name}");
+    }
+}
+
+#[test]
+fn organise_targets_match_the_research_table() {
+    let db = SystemDb::builtin();
+    let ps = builtin_profiles();
+    let none = BTreeMap::new();
+    for (profile, id, folder, on_device) in TARGETS {
+        let p = ps.iter().find(|p| &p.id == profile).unwrap();
+        let c = system_folder(p, db.get(id).unwrap(), &db, &none);
+        assert_eq!(
+            (c.folder.as_str(), c.on_device),
+            (*folder, *on_device),
+            "{profile} {id}"
+        );
+    }
+}
+
+/// The batch's raw-file header rules go through `sniff` like a real file:
+/// the strongest hit names the system and the serial is read.
+#[test]
+fn console_header_rules() {
+    for (id, ext, file, want, serial) in CONSOLE_HEADERS {
+        let mut f = file();
+        let len = f.len;
+        let s = sniff(&mut f, len, ext);
+        assert_eq!(best(&s.hits), *want, "{id} .{ext}");
+        assert_eq!(s.serial.as_deref(), *serial, "{id} .{ext} serial");
+    }
+}

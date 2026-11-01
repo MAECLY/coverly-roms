@@ -24,10 +24,11 @@ pub const DECISIVE: [&str; 15] = [
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
 /// sources, Lua games and `.game` files (spec D26), and the Vita3K and
 /// RPCS3 launchers `.psvita` and `.psn` and the Xenia launcher `.xbox360`
-/// (systems batch 2 D14). Only a web page is "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 17] = [
+/// (systems batch 2 D14), and the ES-DE «game serial» file `.ps4`
+/// (systems batch 3 D17). Only a web page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 18] = [
     "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
-    "game", "psvita", "psn", "xbox360",
+    "game", "psvita", "psn", "xbox360", "ps4",
 ];
 
 /// Bounded reads at given offsets.

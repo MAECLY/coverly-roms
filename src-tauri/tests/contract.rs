@@ -1154,7 +1154,7 @@ fn system_families_and_folder_games_match_the_shared_sample() {
     use coverly_roms_lib::ipc::list_systems;
 
     let systems = list_systems();
-    let pick: Vec<_> = ["ps2", "gba", "zxspectrum", "mame", "wasm4"]
+    let pick: Vec<_> = ["ps2", "gba", "zxspectrum", "mame", "wasm4", "xboxseries"]
         .iter()
         .map(|id| systems.iter().find(|s| s.id == *id).unwrap().clone())
         .collect();

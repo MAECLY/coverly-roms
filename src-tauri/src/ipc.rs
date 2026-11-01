@@ -84,6 +84,9 @@ pub struct SystemInfo {
     /// `console`, `handheld`, `computer`, `arcade` or `engine`: the
     /// picker group (spec §9.1).
     pub family: String,
+    /// No public emulator runs it (systems batch 3 D22): the UI shows
+    /// «Sin emulador» and names no emulator.
+    pub no_emulator: bool,
 }
 
 /// The built-in systems, by display name (case-insensitive).
@@ -96,6 +99,7 @@ pub fn list_systems() -> Vec<SystemInfo> {
             id: s.id.clone(),
             name: s.name.clone(),
             family: s.family.as_str().into(),
+            no_emulator: s.no_emulator,
         })
         .collect();
     systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));

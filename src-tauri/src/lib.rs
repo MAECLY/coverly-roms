@@ -154,8 +154,19 @@ mod tests {
         let json = serde_json::to_value(gba).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "id": "gba", "name": "Game Boy Advance", "family": "handheld" })
+            serde_json::json!({
+                "id": "gba",
+                "name": "Game Boy Advance",
+                "family": "handheld",
+                "no_emulator": false
+            })
         );
+        let no_emulator: Vec<&str> = systems
+            .iter()
+            .filter(|s| s.no_emulator)
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(no_emulator, ["xboxseries"]);
         let family = |id: &str| systems.iter().find(|s| s.id == id).unwrap().family.clone();
         assert_eq!(family("ps2"), "console");
         assert_eq!(family("zxspectrum"), "computer");

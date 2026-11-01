@@ -1152,8 +1152,13 @@ describe('duplicates contract', () => {
       'computer',
       'arcade',
       'engine',
+      'console',
     ]);
     for (const s of systems) expect(s.family).toBeTruthy();
+    // Systems batch 3 (spec D22): only Xbox Series has no emulator.
+    expect(systems.filter((s) => s.no_emulator).map((s) => s.id)).toEqual([
+      'xboxseries',
+    ]);
     const reason = sample.organize_folder_game_reason as LeftReason;
     expect(reason).toEqual({
       kind: 'folder-game',

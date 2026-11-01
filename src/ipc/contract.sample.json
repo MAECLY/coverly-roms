@@ -1676,15 +1676,37 @@
     ]
   },
   "system_infos": [
-    { "id": "ps2", "name": "Sony PlayStation 2", "family": "console" },
-    { "id": "gba", "name": "Game Boy Advance", "family": "handheld" },
+    {
+      "id": "ps2",
+      "name": "Sony PlayStation 2",
+      "family": "console",
+      "no_emulator": false
+    },
+    {
+      "id": "gba",
+      "name": "Game Boy Advance",
+      "family": "handheld",
+      "no_emulator": false
+    },
     {
       "id": "zxspectrum",
       "name": "Sinclair ZX Spectrum",
-      "family": "computer"
+      "family": "computer",
+      "no_emulator": false
     },
-    { "id": "mame", "name": "MAME", "family": "arcade" },
-    { "id": "wasm4", "name": "WASM-4", "family": "engine" }
+    { "id": "mame", "name": "MAME", "family": "arcade", "no_emulator": false },
+    {
+      "id": "wasm4",
+      "name": "WASM-4",
+      "family": "engine",
+      "no_emulator": false
+    },
+    {
+      "id": "xboxseries",
+      "name": "Microsoft Xbox Series X|S",
+      "family": "console",
+      "no_emulator": true
+    }
   ],
   "organize_folder_item": {
     "id": 7,
