@@ -24,6 +24,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
    1.5. [Mejora de la interfaz de Duplicados](#15-mejora-de-la-interfaz-de-duplicados)
    1.6. [Reordenar los ajustes de Biblioteca](#16-reordenar-los-ajustes-de-biblioteca)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
+   2.1. [Actualizaciones, DLC, demos y revisiones dentro de su juego](#21-actualizaciones-dlc-demos-y-revisiones-dentro-de-su-juego)
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
@@ -208,6 +209,61 @@ Tareas:
 - [ ] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda.
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
+
+## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
+
+No entra en el loop de las tandas: se hace después, cuando Miguel lo diga.
+
+### Qué hay hoy (Tanda 2, `feat/systems-batch-2`)
+
+- Se distingue base / actualización / DLC / demo por el title ID en claro (3DS por la parte alta, `0004000E` actualización; Switch por los bits bajos, `…800` actualización y DLC = base + `0x1000`; Wii U igual que 3DS; PS3/Vita por `CATEGORY`; Xbox 360 por el title ID). Tipo `TitleKind { Base, Update, Dlc, Demo, Unknown }` en `crates/coverly-core/src/consoles/mod.rs`.
+- Se enlaza cada actualización o DLC con su juego base cuando los dos están en la pila, y Organizar los lista debajo del base con la nota «Actualización de…» / «Contenido descargable de…» y un recuento en el resumen.
+- Duplicados: una actualización nunca es copia de su base; de dos versiones del mismo juego se queda la mayor.
+- **Falta:** se mueven a la carpeta del sistema junto al juego (`3DS/Pokemon.cia`, `3DS/Pokemon update 1.cia`), no dentro de una carpeta del juego; las revisiones retro (`(Rev 1)`, `(v1.1)`) no se agrupan como versiones de un juego; las Tandas 1 y 3 no lo aplican aún (la 3 sí para PS4/PS5).
+
+### Estructura maestra de la biblioteca (decidida con Miguel, 2026-11-01)
+
+```
+ROMS/PS4/Hatsune Miku Project DIVA Future Tone/
+    Hatsune Miku Project DIVA Future Tone.pkg          ← juego base
+    DLC/
+        Hatsune Miku Project DIVA Future Tone - Song Pack 1.pkg
+    Updates/
+        Hatsune Miku Project DIVA Future Tone (v1.05).pkg
+ROMS/PS4/Hatsune Miku Project DIVA Future Tone (Demo)/  ← la demo es un juego aparte
+```
+
+Reglas:
+
+- **Una carpeta por juego** con el juego base en su raíz, y dentro `DLC/` y `Updates/` (nombres fijos en inglés para que emuladores y herramientas los reconozcan; la interfaz los muestra traducidos).
+- **Demos aparte**, como juego independiente, con el sufijo `(Demo)` de No-Intro/Redump (no `DEMO`) para que se ordenen junto al juego; relacionadas con el base en la ficha, pero no dentro de su carpeta.
+- **Versión en el nombre** de cada actualización (`… (v1.05)`), sacada de la cabecera, para saber cuál es la más nueva.
+- **Regiones:** si hay el mismo juego en varias regiones, una carpeta por región con la región en el nombre (`… (USA)`, `… (Japan)`); cada actualización y DLC va con la región de su title ID.
+- **Revisiones retro** (`(Rev 1)`, `(v1.1)`) como versiones del mismo juego en la ficha (no como juegos distintos); en disco siguen siendo archivos sueltos salvo que el perfil pida carpetas.
+- La misma carpeta del juego es la que usará `Saves/` del bloque 5.
+
+### Traducción por dispositivo (al organizar para un frontend o al sincronizar)
+
+La estructura maestra es la de la biblioteca. Cada perfil la traduce a lo que espera su emulador:
+
+- **shadPS4 (PS4):** no carga `.pkg`, solo carpetas extraídas `CUSAxxxxx`, y la actualización va **al lado**: `CUSAxxxxx-UPDATE` (o `-patch`), no dentro.
+- **RPCS3 (PS3), Azahar (3DS), Cemu (Wii U), Vita3K (Vita):** actualizaciones y DLC se **instalan** en el emulador (NAND / su carpeta de datos). Coverly los guarda en la biblioteca y muestra «Instálalo en el emulador» (nota `InstallFirst`, ya existe).
+- **Emuladores de Switch:** cargan el base y aceptan actualizaciones/DLC desde una carpeta aparte; la estructura maestra sirve casi tal cual.
+- **ES-DE y otros frontends:** una carpeta con subcarpetas puede verse como carpeta y no como juego; usar su modo «directorio como juego» (o la carpeta con el nombre del archivo, p. ej. `Juego.pkg/`) según el perfil.
+
+### Investigación por sistema
+
+La investigación detallada (cómo distinguir cada tipo, cómo encontrar el base, dónde está la versión, qué espera cada emulador, convenciones de nombre como `[v65536]`, `(Update)`, `(DLC)`, y qué se puede leer sin claves) está en curso y se añade aquí al terminar.
+
+### Tareas
+
+- [ ] Opción de perfil «carpeta por juego con `DLC/` y `Updates/`» para la biblioteca y los perfiles que la acepten.
+- [ ] Organizar: mover base, actualizaciones y DLC a la carpeta del juego con deshacer; demos a su carpeta `(Demo)`.
+- [ ] Nombres con versión y región sacadas de las cabeceras.
+- [ ] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4.
+- [ ] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
+- [ ] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
+- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible.
 
 ## 3. Biblioteca
 
