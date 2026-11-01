@@ -45,9 +45,9 @@ use crate::organize::inspect::{
     Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
-    assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
-    file_system_is_fat32, folder_gate, limit_fat_folders, windows_paths, DirIndex, ExtractShape,
-    TargetLayout,
+    assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
+    file_system_is_fat32, folder_gate, limit_fat_folders, overlay_pairs, sibling_targets,
+    siblings_follow, windows_paths, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -2164,6 +2164,31 @@ pub fn plan_from_survey(
         }
     }
 
+    // shadPS4 overlays follow their base's action, decisions included
+    // (systems batch 3 D11 e, plan P-4).
+    let pairs = overlay_pairs(&items, &|i| {
+        survey
+            .entries
+            .get(i)
+            .and_then(|e| e.console.as_ref())
+            .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
+    });
+    let titles: HashMap<usize, String> = pairs
+        .iter()
+        .map(|pair| {
+            let of = items[pair.base]
+                .sources
+                .first()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let base = survey.entries.get(pair.base).zip(items.get(pair.base));
+            (pair.base, base_title(base, &of))
+        })
+        .collect();
+    let title_of = |b: usize| titles.get(&b).cloned().unwrap_or_default();
+    siblings_follow(&mut items, &pairs, &title_of);
+
     // Mode: archives are kept in copy mode.
     let mut warnings: Vec<PlanWarning> = Vec::new();
     let move_allowed = dir_writable(src);
@@ -2231,9 +2256,33 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let mut left_companions = assign_targets_with_extracts(
+    // A frontend's DLC folder (Batocera `ps4/DLC/<TITLE_ID>/`, D16): DLC
+    // folders and `.zar` files only; a DLC PKG stays in the system folder.
+    let subdirs: Vec<Option<PathBuf>> = items
+        .iter()
+        .map(|item| {
+            let c = survey.entries.get(item.id)?.console.as_ref()?;
+            let zar = item.kind == ItemKind::File
+                && item
+                    .sources
+                    .first()
+                    .and_then(|p| p.extension())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zar"));
+            let placeable = item.kind == ItemKind::Folder || zar;
+            if c.kind != TitleKind::Dlc
+                || !placeable
+                || item.system_id.as_deref() != Some(c.system.as_str())
+                || !matches!(item.transfer, Transfer::AsIs)
+            {
+                return None;
+            }
+            dlc_target(&layout, &c.system, &base_title_id(c)?)
+        })
+        .collect();
+    let mut left_companions = assign_targets_in(
         &mut items,
         &shapes,
+        &subdirs,
         &layout,
         env.db,
         src,
@@ -2241,6 +2290,8 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    // Overlay names from the base's final name (D11 b).
+    sibling_targets(&mut items, &pairs, &layout);
     // A folder game's deepest member must fit below its target (D27).
     for item in items.iter_mut().filter(|i| i.moves_in()) {
         let (Some(target), Some(tree)) = (
@@ -2266,6 +2317,8 @@ pub fn plan_from_survey(
     if fat32 {
         limit_fat_folders(&mut items, &target_root);
     }
+    // A base a gate left after its targets holds its siblings too.
+    siblings_follow(&mut items, &pairs, &title_of);
     point_at_keepers(&mut items, &dups.keepers);
     attach_set_aside_companions(
         &mut items,

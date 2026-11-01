@@ -225,7 +225,7 @@ pub fn probe_ps3_hdd(l: &DirListing) -> Option<FolderMatch> {
 
 /// Folder-name suffixes of a shadPS4 update overlay (D7, D11), matched
 /// ignoring ASCII case.
-const UPDATE_SUFFIXES: [&str; 2] = ["-UPDATE", "-patch"];
+pub(crate) const UPDATE_SUFFIXES: [&str; 2] = ["-UPDATE", "-patch"];
 
 /// Whether a folder name ends with an update overlay suffix.
 fn update_overlay_name(name: &str) -> bool {
