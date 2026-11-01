@@ -210,6 +210,14 @@ Tareas:
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
 
+### Lanzadores para frontends (aparte, más adelante)
+
+Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» mediante un archivo lanzador en la carpeta de ROMs en vez del juego: `.psvita` (ES-DE/Batocera con Vita3K, contiene el title ID), `.psn`/`.ps3` (RPCS3 para juegos instalados en `dev_hdd0`), y equivalentes para Switch o Wii U según el frontend.
+
+- [ ] Investigar por frontend (ES-DE, Batocera, RetroBat, LaunchBox) qué lanzadores usa cada sistema, su contenido y su nombre.
+- [ ] Opción para crear el lanzador al organizar o sincronizar cuando el juego está instalado en el emulador y no hay archivo jugable en la carpeta.
+- [ ] Reconocer los lanzadores existentes en la biblioteca como entrada del juego (no como archivo raro).
+
 ## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
 
 > **Dependencias:** depende de 2 (la detección de base, actualización, DLC y demo que traen las tandas). **Lo usan 3, 4 y 5**, así que se hace antes que ellos o como primer paso del 3: la biblioteca guarda los juegos con esta estructura (3), la sincronización la compara y la traduce a cada emulador (4) y las partidas viven en la misma carpeta y se asocian por el mismo title ID (5, incluido 5.3.1).
