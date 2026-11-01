@@ -695,3 +695,69 @@ fn a_zar_is_classified_by_its_tree() {
         p.sorted_folders
     );
 }
+
+/// Spec D12 and D6: a PS4 DLC `.zar` (`param.sfo` without `eboot.bin`)
+/// is a `ps4` DLC listed under its base, and a PS5 `.zar` enhanced for
+/// the PS5 Pro carries `ProEnhanced` (and plays: no `NoEmulator`).
+#[test]
+fn a_dlc_zar_and_a_pro_zar_keep_their_kind_and_note() {
+    use coverly_core::consoles::testing::zarchive;
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let base = ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+    let dlc = ps4_sfo("CUSA04447", "", "EP0002-CUSA04447_00-GRAVITYRUSHDLC01", 1);
+    let pro = ps5_param_json("PPSA01284", "Returnal", true);
+    put_file(
+        pile.path(),
+        "Gravity Rush.zar",
+        &zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.sfo", &base)]).bytes(),
+    );
+    put_file(
+        pile.path(),
+        "Gravity Rush DLC.zar",
+        &zarchive(&[("sce_sys/param.sfo", &dlc)]).bytes(),
+    );
+    put_file(
+        pile.path(),
+        "Returnal.zar",
+        &zarchive(&[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &pro)]).bytes(),
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    let dlc = by("Gravity Rush DLC.zar");
+    assert_eq!(dlc.system_id.as_deref(), Some("ps4"));
+    assert_eq!(dlc.action, OrganizeAction::Auto, "{dlc:#?}");
+    assert!(
+        dlc.notes.contains(&ItemNote::Dlc {
+            of: "Test Game".into()
+        }),
+        "{:?}",
+        dlc.notes
+    );
+    assert_eq!(
+        dlc.content_id.as_deref(),
+        Some("EP0002-CUSA04447_00-GRAVITYRUSHDLC01")
+    );
+    let base = by("Gravity Rush.zar");
+    assert!(
+        !base.notes.iter().any(|n| matches!(n, ItemNote::Dlc { .. })),
+        "{:?}",
+        base.notes
+    );
+    let returnal = by("Returnal.zar");
+    assert_eq!(returnal.system_id.as_deref(), Some("ps5"));
+    assert_eq!(returnal.action, OrganizeAction::Auto);
+    assert!(
+        returnal.notes.contains(&ItemNote::ProEnhanced),
+        "{:?}",
+        returnal.notes
+    );
+    assert!(!returnal.notes.contains(&ItemNote::NoEmulator));
+}
