@@ -515,7 +515,8 @@ fn a_ps5_app_archive_is_taken_as_is() {
     let pile = TempDir::new().unwrap();
     let target = TempDir::new().unwrap();
     let param = ps5_param_json("PPSA01284", "Returnal", false);
-    let other = ps5_param_json("PPSA02000", "Other Game", false);
+    // Pro-enhanced: the archive item carries the note too (D6).
+    let other = ps5_param_json("PPSA02000", "Other Game", true);
     zip_of(
         &pile.path().join("PPSA01284.zip"),
         &[
@@ -565,6 +566,13 @@ fn a_ps5_app_archive_is_taken_as_is() {
         );
         let tid = item.title_id.as_ref().expect("a title id");
         assert_eq!((tid.id.as_str(), tid.source), (want, IdSource::ParamJson));
+        assert_eq!(
+            item.notes.contains(&ItemNote::ProEnhanced),
+            name == "Root.zip",
+            "{name}: {:?}",
+            item.notes
+        );
+        assert!(!item.notes.contains(&ItemNote::NoEmulator), "{name}");
     }
     for name in ["CUSA00900.zip", "Deep.zip"] {
         let item = by(name);
