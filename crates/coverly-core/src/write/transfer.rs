@@ -715,7 +715,19 @@ impl Writer {
         renamed: bool,
         progress: &mut dyn FnMut(u64),
     ) -> Result<DirOutcome, WriteError> {
-        let tree = list_tree(from)?;
+        let tree = match list_tree(from) {
+            Ok(tree) => tree,
+            Err(e) => {
+                // Refused before a byte was copied: the folder this item
+                // just made goes too (only while it is still empty).
+                let empty = Tree {
+                    dirs: Vec::new(),
+                    files: Vec::new(),
+                };
+                roll_back_tree(top, &empty, &[]);
+                return Err(e);
+            }
+        };
         let mut copied: Vec<(PathBuf, Fingerprint)> = Vec::new();
         let result = self.copy_files(from, top, &tree, mode, item, progress, &mut copied);
         if let Err(e) = result {

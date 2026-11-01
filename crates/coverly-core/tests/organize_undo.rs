@@ -776,3 +776,23 @@ fn undo_of_a_folder_copy_keeps_files_changed_since() {
     assert_eq!(fs::read(to.join("b.bin")).unwrap(), b"CHANGED");
     assert!(game.join("d").join("a.bin").is_file());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_refused_folder_copy_leaves_no_empty_folder_behind() {
+    let (_tmp, src, root, data) = setup();
+    let game = game_folder(&src);
+    std::os::unix::fs::symlink("/", game.join("d").join("root")).unwrap();
+    let to = root.join("GB").join("Zelda");
+    let mut w = organise_job(&root, &data, &src);
+    let err = w
+        .copy_dir(&game, &to, Collision::Rename, Some(0), &mut |_| {})
+        .unwrap_err();
+    assert!(matches!(err, WriteError::NotAFile(_)), "{err:?}");
+    assert!(!to.exists(), "the refused copy left its top folder");
+    assert!(game.join("d").join("a.bin").is_file());
+    // The folders it made are journaled: undo tidies the rest.
+    let job = w.finish().unwrap();
+    undo_job(&data, &job).unwrap();
+    assert!(!root.join("GB").exists());
+}
