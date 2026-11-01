@@ -20,11 +20,11 @@ use coverly_core::identify::sniff::NotARom;
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
-    apply_organize, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv, ApplyError,
-    Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode,
-    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
-    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
-    SkipReason, Survey, Transfer, TransferMode,
+    apply_organize, large_transfer, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv,
+    ApplyError, Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeTransfer,
+    LeftReason, NameMode, OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem,
+    OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe,
+    PlanWarning, RenameReason, SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -104,6 +104,11 @@ pub struct OrganizeArgs {
     /// Move or copy the files.
     #[arg(long)]
     apply: bool,
+    /// Confirm an apply that writes 10 GB or more to the target (copies,
+    /// moves across volumes, extractions); without it such a run stops
+    /// before writing anything.
+    #[arg(long, requires = "apply")]
+    yes_large: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = ReportArg::Table)]
     report: ReportArg,
@@ -210,6 +215,15 @@ fn apply_failure(e: ApplyError, plan_target: Option<&Path>) -> Failure {
         )),
         _ => fail(e),
     }
+}
+
+/// An apply writing 10 GB or more without `--yes-large` (systems batch 3
+/// D23): refused like the no-space refusal, before anything is written.
+fn large_failure(t: &LargeTransfer) -> Failure {
+    fail(format!(
+        "would write {} bytes (≥ 10 GB) to {}; re-run with --yes-large to confirm; nothing was written",
+        t.bytes, t.volume
+    ))
 }
 
 /// `FILE=SYSTEM_ID` split on the last `=` (names may contain `=`); a
@@ -491,6 +505,11 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
     warn_ignored_assigns(&plan, &assigned, &decisions);
     if !apply {
         return emit(args, Mode::DryRun, &plan, None, &db, &opts);
+    }
+    if !args.yes_large {
+        if let Some(t) = large_transfer(&plan) {
+            return Err(large_failure(&t));
+        }
     }
     std::fs::create_dir_all(&dirs.data).map_err(|e| {
         fail(format!(

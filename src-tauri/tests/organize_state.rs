@@ -452,7 +452,7 @@ fn apply_runs_behind_the_manual_guard_and_refuses_a_parallel_fill() {
         .unwrap();
     let (events, entered, release) = ApplyRecorder::holding();
     let started = st
-        .organize_apply(plan.plan_id, &[], events.clone())
+        .organize_apply(plan.plan_id, &[], None, events.clone())
         .unwrap();
     assert_eq!(started.state, OrganizeJobState::Applying);
     assert_eq!(started.plan_id, plan.plan_id);
@@ -483,7 +483,7 @@ fn apply_runs_behind_the_manual_guard_and_refuses_a_parallel_fill() {
         .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
         .unwrap();
     assert_eq!(
-        st.organize_apply(again.plan_id, &[], Arc::new(ApplyRecorder::default()))
+        st.organize_apply(again.plan_id, &[], None, Arc::new(ApplyRecorder::default()))
             .unwrap_err(),
         IpcError::JobRunning
     );
@@ -515,7 +515,7 @@ fn apply_runs_behind_the_manual_guard_and_refuses_a_parallel_fill() {
     st.start_fill(generation, &fill, Arc::new(NoJobEvents))
         .unwrap();
     assert_eq!(
-        st.organize_apply(plan.plan_id, &[], Arc::new(ApplyRecorder::default()))
+        st.organize_apply(plan.plan_id, &[], None, Arc::new(ApplyRecorder::default()))
             .unwrap_err(),
         IpcError::NoPlan
     );
@@ -537,6 +537,7 @@ fn apply_rechecks_decisions_against_the_stored_plan() {
         st.organize_apply(
             plan.plan_id,
             &unknown_item,
+            None,
             Arc::new(ApplyRecorder::default())
         ),
         Err(IpcError::BadRequest(_))
@@ -551,12 +552,13 @@ fn apply_rechecks_decisions_against_the_stored_plan() {
         st.organize_apply(
             plan.plan_id,
             &unknown_system,
+            None,
             Arc::new(ApplyRecorder::default())
         ),
         Err(IpcError::BadRequest(_))
     ));
     assert_eq!(
-        st.organize_apply(999, &[], Arc::new(ApplyRecorder::default()))
+        st.organize_apply(999, &[], None, Arc::new(ApplyRecorder::default()))
             .unwrap_err(),
         IpcError::NoPlan
     );
@@ -570,7 +572,7 @@ fn apply_rechecks_decisions_against_the_stored_plan() {
         choice: Choice::Leave,
     }];
     let events = Arc::new(ApplyRecorder::default());
-    st.organize_apply(plan.plan_id, &leave_first, events.clone())
+    st.organize_apply(plan.plan_id, &leave_first, None, events.clone())
         .unwrap();
     let end = events.wait_end();
     assert_eq!(end.state, OrganizeJobState::Done);
@@ -587,7 +589,7 @@ fn cancelling_an_apply_stops_before_the_next_item() {
         .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
         .unwrap();
     let (events, entered, release) = ApplyRecorder::holding();
-    st.organize_apply(plan.plan_id, &[], events.clone())
+    st.organize_apply(plan.plan_id, &[], None, events.clone())
         .unwrap();
     entered.recv_timeout(Duration::from_secs(10)).unwrap();
     st.organize_cancel_apply().unwrap();
@@ -618,7 +620,7 @@ fn apply_all(st: &AppState, pile: &Path) -> String {
         .organize_plan(&offline(pile), &[], Arc::new(Recorder::default()))
         .unwrap();
     let events = Arc::new(ApplyRecorder::default());
-    st.organize_apply(plan.plan_id, &[], events.clone())
+    st.organize_apply(plan.plan_id, &[], None, events.clone())
         .unwrap();
     let end = events.wait_end();
     assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
@@ -807,7 +809,7 @@ fn an_apply_that_finds_the_pile_gone_fails_instead_of_pausing_without_a_journal(
     fs::rename(&pile, parent.path().join("elsewhere")).unwrap();
 
     let events = Arc::new(ApplyRecorder::default());
-    st.organize_apply(plan.plan_id, &[], events.clone())
+    st.organize_apply(plan.plan_id, &[], None, events.clone())
         .unwrap();
     let end = events.wait_end();
     // Nothing was journaled, so there is nothing `organize_resume` could
@@ -837,7 +839,7 @@ fn apply_refuses_a_backup_folder_inside_the_pile() {
         .organize_plan(&offline(pile.path()), &[], Arc::new(Recorder::default()))
         .unwrap();
     assert!(matches!(
-        st.organize_apply(plan.plan_id, &[], Arc::new(ApplyRecorder::default())),
+        st.organize_apply(plan.plan_id, &[], None, Arc::new(ApplyRecorder::default())),
         Err(IpcError::BadRequest(_))
     ));
     assert!(st.organize_job().is_none(), "nothing started");
@@ -1039,7 +1041,7 @@ mod archives {
             .expect("the disc archive is planned")
             .id;
         let events = Arc::new(ApplyRecorder::default());
-        st.organize_apply(plan.plan_id, &[], events.clone())
+        st.organize_apply(plan.plan_id, &[], None, events.clone())
             .unwrap();
         let end = events.wait_end();
         assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
@@ -1172,4 +1174,164 @@ fn the_request_picks_the_duplicates_step_over_the_setting() {
             reason: LeftReason::InLibrary { .. }
         }
     )));
+}
+
+/// Sorted relative paths of every entry under `root` (compared by
+/// component, never by slash text).
+fn tree(root: &Path) -> Vec<Vec<String>> {
+    fn visit(root: &Path, dir: &Path, out: &mut Vec<Vec<String>>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            out.push(
+                path.strip_prefix(root)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect(),
+            );
+            if path.is_dir() {
+                visit(root, &path, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    visit(root, root, &mut out);
+    out.sort();
+    out
+}
+
+/// Clears the large-transfer and free-space hooks of this thread on drop.
+struct LargeHooks;
+
+impl LargeHooks {
+    /// Every copy counts as large (never writing 10 GB), and the target
+    /// has 412 100 000 000 bytes free.
+    fn new() -> LargeHooks {
+        coverly_core::organize::apply::set_large_transfer_override(Some(1));
+        coverly_core::organize::apply::set_free_space_override(Some(|_| Some(412_100_000_000)));
+        LargeHooks
+    }
+}
+
+impl Drop for LargeHooks {
+    fn drop(&mut self) {
+        coverly_core::organize::apply::set_large_transfer_override(None);
+        coverly_core::organize::apply::set_free_space_override(None);
+    }
+}
+
+#[test]
+fn a_large_apply_needs_the_decided_bytes_confirmed_and_resume_never_asks() {
+    let _hooks = LargeHooks::new();
+    let config = TempDir::new().unwrap();
+    let st = state(&config);
+    let pile = gba_pile();
+    let target = TempDir::new().unwrap();
+    let request = OrganizeRequest {
+        target: Some(target.path().display().to_string()),
+        mode: Some(coverly_core::organize::TransferMode::Copy),
+        ..offline(pile.path())
+    };
+    let plan = st
+        .organize_plan(&request, &[], Arc::new(Recorder::default()))
+        .unwrap();
+    // Leaving one item: the gate counts the decided plan, not the dry run.
+    let leave = [Decision {
+        item: plan
+            .plan
+            .items
+            .iter()
+            .find(|i| i.action == OrganizeAction::Auto)
+            .unwrap()
+            .id,
+        choice: Choice::Leave,
+    }];
+    let decided_bytes: u64 = plan
+        .plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto && i.id != leave[0].item)
+        .map(|i| i.size)
+        .sum();
+    let before = tree(target.path());
+
+    let refused = st
+        .organize_apply(
+            plan.plan_id,
+            &leave,
+            None,
+            Arc::new(ApplyRecorder::default()),
+        )
+        .unwrap_err();
+    let volume = target
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        refused,
+        IpcError::LargeTransfer {
+            bytes: decided_bytes,
+            items: 2,
+            copies: true,
+            free: Some(412_100_000_000),
+            volume: volume.clone(),
+        }
+    );
+    let json = serde_json::to_value(&refused).unwrap();
+    assert_eq!(json["code"], "large-transfer");
+    assert_eq!(json["detail"]["bytes"], decided_bytes);
+    assert_eq!(json["detail"]["items"], 2);
+    assert_eq!(json["detail"]["copies"], true);
+    assert_eq!(json["detail"]["free"], 412_100_000_000u64);
+    assert_eq!(json["detail"]["volume"], volume.as_str());
+    assert!(st.organize_job().is_none(), "nothing started");
+    assert_eq!(tree(target.path()), before, "nothing written");
+
+    // Fewer bytes than the decided plan writes: refused again.
+    assert!(matches!(
+        st.organize_apply(
+            plan.plan_id,
+            &leave,
+            Some(decided_bytes - 1),
+            Arc::new(ApplyRecorder::default())
+        ),
+        Err(IpcError::LargeTransfer { bytes, .. }) if bytes == decided_bytes
+    ));
+    assert!(st.organize_job().is_none(), "nothing started");
+    assert_eq!(tree(target.path()), before, "nothing written");
+
+    // The exact bytes: the job starts and copies.
+    let events = Arc::new(ApplyRecorder::default());
+    st.organize_apply(plan.plan_id, &leave, Some(decided_bytes), events.clone())
+        .unwrap();
+    let end = events.wait_end();
+    assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
+    assert_eq!(end.report.as_ref().unwrap().copied, 2);
+    let job = end.job.unwrap();
+    let copied: Vec<std::path::PathBuf> = fs::read_dir(target.path().join("ROMS").join("GBA"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(copied.len(), 2);
+
+    // As if the app stopped before the end: one copy is gone and the
+    // journal never got it. Resume continues without asking.
+    let gone = copied[0].clone();
+    let gone_name = gone.file_name().unwrap().to_string_lossy().into_owned();
+    let gone_stem = gone_name.trim_end_matches(".gba").to_string();
+    let journal = data_dir(&config).join("jobs").join(format!("{job}.jsonl"));
+    let text = fs::read_to_string(&journal).unwrap();
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.contains("\"done\"") && !l.contains(gone_stem.as_str()))
+        .collect();
+    fs::write(&journal, kept.join("\n") + "\n").unwrap();
+    fs::remove_file(&gone).unwrap();
+    let events = Arc::new(ApplyRecorder::default());
+    st.organize_resume(&job, events.clone()).unwrap();
+    let end = events.wait_end();
+    assert_eq!(end.state, OrganizeJobState::Done, "{end:?}");
+    assert!(gone.is_file(), "resumed without a confirmation");
 }

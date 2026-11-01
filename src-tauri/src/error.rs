@@ -93,6 +93,29 @@ pub enum IpcError {
     KeeperRequired(String),
     #[error("the duplicates folder is inside or around a system folder: {0}")]
     QuarantineInSystemFolder(String),
+    /// The decided plan writes at least 10 GB to the target and the
+    /// request did not confirm that many bytes (systems batch 3 D23):
+    /// the numbers the confirmation shows.
+    #[error("would write {bytes} bytes to {volume}")]
+    LargeTransfer {
+        bytes: u64,
+        items: usize,
+        copies: bool,
+        free: Option<u64>,
+        volume: String,
+    },
+}
+
+impl From<coverly_core::organize::LargeTransfer> for IpcError {
+    fn from(t: coverly_core::organize::LargeTransfer) -> Self {
+        IpcError::LargeTransfer {
+            bytes: t.bytes,
+            items: t.items,
+            copies: t.copies,
+            free: t.free,
+            volume: t.volume,
+        }
+    }
 }
 
 impl From<coverly_core::write::WriteError> for IpcError {
@@ -205,6 +228,30 @@ mod tests {
         assert_eq!(
             serde_json::to_value(IpcError::QuarantineInSystemFolder("/sd/ROMS/GB".into())).unwrap(),
             serde_json::json!({ "code": "quarantine-in-system-folder", "detail": "/sd/ROMS/GB" })
+        );
+        let large = IpcError::LargeTransfer {
+            bytes: 187_420_000_000,
+            items: 3,
+            copies: true,
+            free: None,
+            volume: "TinyExt".into(),
+        };
+        assert_eq!(
+            large.to_string(),
+            "would write 187420000000 bytes to TinyExt"
+        );
+        assert_eq!(
+            serde_json::to_value(large).unwrap(),
+            serde_json::json!({
+                "code": "large-transfer",
+                "detail": {
+                    "bytes": 187_420_000_000u64,
+                    "items": 3,
+                    "copies": true,
+                    "free": null,
+                    "volume": "TinyExt",
+                }
+            })
         );
     }
 }

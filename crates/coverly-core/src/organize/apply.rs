@@ -490,6 +490,112 @@ fn roots_gone(plan: &OrganizePlan) -> Option<ItemErrorKind> {
     (!plan.source_root.is_dir() || !plan.target_root.is_dir()).then_some(ItemErrorKind::VolumeGone)
 }
 
+/// Bytes from which Organizar asks before writing (systems batch 3 D23):
+/// 10 GB, decimal.
+pub const LARGE_TRANSFER: u64 = 10_000_000_000;
+
+/// What a plan writes to its target when that reaches [`LARGE_TRANSFER`]
+/// (systems batch 3 D23): the numbers the confirmation shows and the
+/// apply gate checks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LargeTransfer {
+    /// Bytes written to the target.
+    pub bytes: u64,
+    /// Items that write them.
+    pub items: usize,
+    /// Copy mode (a move across volumes copies, then removes: `false`).
+    pub copies: bool,
+    /// Bytes free for this user on the target volume; `None` when it
+    /// cannot be told (network shares).
+    pub free: Option<u64>,
+    /// The mounted volume holding the target (longest path prefix in
+    /// [`crate::volumes::mounted_volumes`]), else the target folder's own
+    /// name.
+    pub volume: String,
+}
+
+#[cfg(feature = "test-util")]
+thread_local! {
+    static LARGE_TRANSFER_AT: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test builds only: a threshold in this environment variable (decimal
+/// bytes) replaces [`LARGE_TRANSFER`], so end-to-end tests of the CLI
+/// never write 10 GB.
+#[cfg(feature = "test-util")]
+pub const LARGE_TRANSFER_ENV: &str = "COVERLY_TEST_LARGE_TRANSFER";
+
+/// Test hook: makes [`large_transfer`] on the calling thread use `bytes`
+/// as its threshold. `None` clears it.
+#[doc(hidden)]
+#[cfg(feature = "test-util")]
+pub fn set_large_transfer_override(bytes: Option<u64>) {
+    LARGE_TRANSFER_AT.with(|c| c.set(bytes));
+}
+
+fn large_transfer_threshold() -> u64 {
+    #[cfg(feature = "test-util")]
+    {
+        if let Some(bytes) = LARGE_TRANSFER_AT.with(std::cell::Cell::get) {
+            return bytes;
+        }
+        if let Some(bytes) = std::env::var(LARGE_TRANSFER_ENV)
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+        {
+            return bytes;
+        }
+    }
+    LARGE_TRANSFER
+}
+
+/// What `plan` writes to its target, when that reaches
+/// [`LARGE_TRANSFER`] (systems batch 3 D23, [`check_space`]'s rule): the
+/// items apply writes (automatic, with a target; an undecided review
+/// item is skipped, a duplicate set aside stays on the pile's volume), in
+/// copy mode or across volumes, plus the bytes extractions write in any
+/// mode. A same-volume move is a rename and counts nothing.
+pub fn large_transfer(plan: &OrganizePlan) -> Option<LargeTransfer> {
+    let crosses =
+        plan.mode == TransferMode::Copy || !same_volume(&plan.source_root, &plan.target_root);
+    let mut bytes: u64 = 0;
+    let mut items = 0usize;
+    for item in plan
+        .items
+        .iter()
+        .filter(|i| i.action == OrganizeAction::Auto && i.target.is_some())
+    {
+        let add = match &item.transfer {
+            Transfer::Extract { bytes, .. } => Some(*bytes),
+            Transfer::AsIs if crosses => Some(item.size),
+            Transfer::AsIs => None,
+        };
+        if let Some(add) = add {
+            bytes = bytes.saturating_add(add);
+            items += 1;
+        }
+    }
+    (bytes >= large_transfer_threshold()).then(|| LargeTransfer {
+        bytes,
+        items,
+        copies: plan.mode == TransferMode::Copy,
+        free: user_available(&plan.target_root),
+        volume: volume_name(&plan.target_root),
+    })
+}
+
+/// The name of the mounted volume holding `target` (the longest mount
+/// path it sits under, compared by component), else `target`'s own name.
+fn volume_name(target: &Path) -> String {
+    crate::volumes::mounted_volumes()
+        .into_iter()
+        .filter(|v| target.starts_with(Path::new(&v.path)))
+        .max_by_key(|v| Path::new(&v.path).components().count())
+        .map(|v| v.name)
+        .or_else(|| target.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| target.display().to_string())
+}
+
 /// A copy, or a move across volumes, needs the items' bytes plus 1 %
 /// free on the target volume. Unknown free space is not checked.
 fn check_space(plan: &OrganizePlan, items: &[&OrganizeItem]) -> Result<(), ApplyError> {

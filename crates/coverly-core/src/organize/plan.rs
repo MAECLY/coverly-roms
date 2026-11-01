@@ -34,7 +34,7 @@ use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
-use crate::organize::apply::{cluster_size, user_available};
+use crate::organize::apply::{cluster_size, large_transfer, user_available};
 use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
@@ -2402,7 +2402,7 @@ pub fn plan_from_survey(
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
-    Ok(OrganizePlan {
+    let mut plan = OrganizePlan {
         source_root: src.clone(),
         target_root,
         roms_dir,
@@ -2439,7 +2439,15 @@ pub fn plan_from_survey(
             && opts.dedupe.quarantine == QuarantineChoice::Trash,
         duplicates: dups.groups,
         updates,
-    })
+    };
+    // Informational: the gate runs on the decided plan at apply time.
+    if let Some(t) = large_transfer(&plan) {
+        plan.warnings.push(PlanWarning::LargeTransfer {
+            bytes: t.bytes,
+            items: t.items,
+        });
+    }
+    Ok(plan)
 }
 
 // --- The duplicates step (duplicates spec §4, §7.1) ---
