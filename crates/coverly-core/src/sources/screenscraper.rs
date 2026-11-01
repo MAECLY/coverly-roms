@@ -380,6 +380,7 @@ impl<'a> ScreenScraperSource<'a> {
             NetError::Offline(m) => NetError::Offline(self.scrub(&m)),
             NetError::Invalid(m) => NetError::Invalid(self.scrub(&m)),
             NetError::Insecure(_) => NetError::Insecure(self.cfg.base.clone()),
+            NetError::Unregistered(_) => NetError::Unregistered(self.scrub(&public)),
             other => other,
         })?;
         match resp.status {

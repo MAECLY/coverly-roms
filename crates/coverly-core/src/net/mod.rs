@@ -360,7 +360,10 @@ impl UreqHttp {
             UrlKind::Https => {
                 let user: Vec<&str> = self.user_urls.iter().map(String::as_str).collect();
                 if !hosts::allowed(url, &user) {
-                    return Err(NetError::Unregistered(url.to_string()));
+                    // Without query or fragment: they may carry credentials
+                    // (ScreenScraper) or catalogue data.
+                    let public = url.split(['?', '#']).next().unwrap_or_default();
+                    return Err(NetError::Unregistered(public.to_string()));
                 }
                 match &self.proxy_error {
                     Some(e) => Err(NetError::Offline(e.clone())),

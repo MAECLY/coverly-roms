@@ -545,6 +545,21 @@ fn an_unregistered_prefix_is_refused_before_any_connection() {
 }
 
 #[test]
+fn a_refused_url_is_reported_without_its_query_or_fragment() {
+    let http = UreqHttp::new(&cfg());
+    let err = http
+        .get(&HttpRequest::get(
+            "https://example.com/api/x?devpassword=hunter2#frag",
+        ))
+        .unwrap_err();
+    assert_eq!(
+        err,
+        NetError::Unregistered("https://example.com/api/x".into())
+    );
+    assert!(!format!("{err} {err:?}").contains("hunter2"));
+}
+
+#[test]
 fn a_registered_prefix_reaches_the_network() {
     let proxy = MockServer::start();
     let http = proxied(&proxy, Vec::new());
