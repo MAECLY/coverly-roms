@@ -110,6 +110,13 @@ fn user_prefix_matches(prefix: &str, url: &str) -> bool {
 fn has_dot_segment(url: &str) -> bool {
     let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
     let path = rest.split(['?', '#']).next().unwrap_or("");
+    // HTTP clients treat `\` as `/` and some servers decode `%2F`, `%5C`
+    // or a double-encoded `%252E` before resolving dot segments, so any of
+    // them could walk out of a prefix the plain split below never sees.
+    let lower = path.to_ascii_lowercase();
+    if path.contains('\\') || ["%2f", "%5c", "%25"].iter().any(|e| lower.contains(e)) {
+        return true;
+    }
     path.split('/').skip(1).any(|seg| {
         let seg = seg.to_ascii_lowercase().replace("%2e", ".");
         seg == "." || seg == ".."
@@ -128,6 +135,25 @@ pub fn https_origin(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_or_backslash_separators_cannot_walk_out_of_a_prefix() {
+        let base = LIBRETRO_THUMBNAILS_RAW;
+        assert!(allowed(
+            &format!("{base}Nintendo_-_SNES/master/Named_Boxarts/Dr.%20Mario.png"),
+            &[]
+        ));
+        for tail in [
+            "x/..%2f..%2fother/repo/a.png",
+            "x/..%2F..%2Fother/repo/a.png",
+            "x\\..\\..\\other/repo/a.png",
+            "x/..%5c..%5cother/repo/a.png",
+            "x/%252e%252e/other/a.png",
+            "x/%2e%2e/other/a.png",
+        ] {
+            assert!(!allowed(&format!("{base}{tail}"), &[]), "{tail}");
+        }
+    }
 
     #[test]
     fn prefixes_are_https_unique_and_end_with_a_slash() {
