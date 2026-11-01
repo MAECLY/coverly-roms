@@ -1842,3 +1842,34 @@ fn xex2_header_contradicts_atari_xex() {
     let id = identify(&p, &FakeCatalogue::empty());
     assert_eq!(id.combined.system.as_deref(), Some("a800"));
 }
+
+#[test]
+fn a_ps4_cnt_package_is_noted_extract_first_and_a_ps3_package_install_first() {
+    // Systems batch 3 D9: a PS4 PKG has to be extracted before it plays;
+    // its verdict has its own detail, so the batch 2 `InstallFirst` rule
+    // for PS3 and Vita packages never fires for it.
+    use coverly_core::consoles::orbis::CNT_DETAIL;
+    use coverly_core::consoles::testing::{cnt_pkg, pkg};
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("EP0002-CUSA04447_00-SAMPLEGAME000000.pkg");
+    let f = cnt_pkg("EP0002-CUSA04447_00-SAMPLEGAME000000", 0x1A, 0, &[]);
+    std::fs::write(&p, f.bytes()).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps4"));
+    assert!(id.combined.why.iter().any(|e| e.detail == CNT_DETAIL));
+    assert!(id.notes.contains(&ItemNote::ExtractFirst), "{:?}", id.notes);
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::InstallFirst { .. })));
+
+    let p = tmp.path().join("NPUB30024.pkg");
+    let f = pkg(1, "UP0001-NPUB30024_00-0000000000000001");
+    std::fs::write(&p, f.bytes()).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps3"));
+    assert!(id.notes.contains(&ItemNote::InstallFirst {
+        emulator: "RPCS3".into()
+    }));
+    assert!(!id.notes.contains(&ItemNote::ExtractFirst));
+}

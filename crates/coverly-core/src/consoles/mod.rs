@@ -25,6 +25,7 @@ use crate::identify::sniff::{NotARom, ReadAt};
 pub mod ctr;
 pub mod nintendo_disc;
 pub mod nx;
+pub mod orbis;
 pub mod psf;
 pub mod sony;
 #[cfg(any(test, feature = "test-util"))]

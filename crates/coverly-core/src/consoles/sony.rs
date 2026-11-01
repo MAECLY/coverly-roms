@@ -1,6 +1,7 @@
 //! PS3, PS Vita and PS4 (spec §8.4; systems batch 3 §8.1): JB, HDD/PSN
 //! and `sce_sys` app folders (Vita and PS4 through one probe), PS3 disc
-//! images, PKG packages (PS3 and Vita), VPK packages and the
+//! images, PKG packages (PS3 and Vita; PS4 CNT packages in
+//! [`super::orbis`]), VPK packages and the
 //! `.psvita`/`.psn`/`.ps4` launcher files of ES-DE and Batocera.
 //!
 //! Sources: psdevwiki «PARAM.SFO», «PKG files» (magic, revision and type
@@ -61,7 +62,7 @@ fn title_id(raw: &str) -> Option<String> {
 }
 
 /// A retail title id: four letters and five digits.
-fn retail_id(t: &str) -> bool {
+pub(super) fn retail_id(t: &str) -> bool {
     let b = t.as_bytes();
     b.len() == 9
         && b[..4].iter().all(u8::is_ascii_alphabetic)
@@ -106,7 +107,7 @@ const CONTENT_ID_LEN: usize = 36;
 
 /// A content id as stored: exactly [`CONTENT_ID_LEN`] printable ASCII
 /// characters.
-fn content_id(raw: &str) -> Option<String> {
+pub(super) fn content_id(raw: &str) -> Option<String> {
     let t = raw.trim_end_matches('\0').trim();
     (t.len() == CONTENT_ID_LEN && t.bytes().all(|b| b.is_ascii_graphic())).then(|| t.to_owned())
 }
@@ -363,8 +364,9 @@ pub fn launcher(head: &[u8], ext: &str) -> Option<ConsoleId> {
     Some(id)
 }
 
-/// A PS3 or Vita file by its own header: a PKG under any extension, a
-/// PS3 disc image under `.iso`.
+/// A PS3, Vita or PS4 file by its own header: a PKG (PS3/Vita `7F PKG`,
+/// PS4 `7F CNT`, systems batch 3 D9) under any extension, a PS3 disc
+/// image under `.iso`.
 pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     if b.len() < 8 {
         return None;
@@ -372,6 +374,9 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
     let magic = b.read(0, 4).ok()?;
     if magic == PKG_MAGIC {
         return pkg(b);
+    }
+    if magic == super::orbis::CNT_MAGIC {
+        return super::orbis::cnt_pkg(b);
     }
     if ext == "iso" {
         return ps3_iso(b);

@@ -10,7 +10,9 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 
 use coverly_core::cache::Cache;
-use coverly_core::consoles::testing::{param_sfo_with, ps4_app, put_file, vita_app};
+use coverly_core::consoles::testing::{
+    cnt_pkg, param_sfo_with, pkg, ps4_app, ps4_sfo, put_file, vita_app,
+};
 use coverly_core::consoles::{start_open_log, take_open_log, IdSource};
 use coverly_core::organize::{
     plan_organize, ItemKind, ItemNote, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeItem,
@@ -276,5 +278,88 @@ fn a_ps4_update_folder_groups_under_its_base_and_a_launcher_is_ps4() {
     assert_eq!(
         placed(launcher),
         ("ps4".to_string(), "CUSA07010.ps4".to_string())
+    );
+}
+
+/// Spec D9: a PS4 PKG in a pile moves to `ps4/` as it is, catalogued
+/// from its plaintext header and `param.sfo` entry, with `ExtractFirst`;
+/// a PS3 PKG keeps batch 2's `InstallFirst`; a macOS installer is still
+/// left as not a ROM.
+#[test]
+fn a_ps4_pkg_moves_as_is_with_the_extract_first_note() {
+    const EU: &str = "EP0002-CUSA04447_00-SAMPLEGAME000000";
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let ps4 = cnt_pkg(
+        EU,
+        0x1A,
+        0,
+        &[(0x1000, 0, ps4_sfo("CUSA04447", "gd", EU, 1))],
+    );
+    let ps4_name = format!("{EU}.pkg");
+    put_file(pile.path(), &ps4_name, &ps4.bytes());
+    let ps3 = pkg(1, "UP0001-NPUB30024_00-0000000000000001");
+    put_file(pile.path(), "NPUB30024.pkg", &ps3.bytes());
+    let mut xar = b"xar!\0\x1c\0\x01".to_vec();
+    xar.resize(4096, 0);
+    put_file(pile.path(), "Install Thing.pkg", &xar);
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    let item = by(&ps4_name);
+    assert_eq!(item.system_id.as_deref(), Some("ps4"));
+    assert_eq!(item.action, OrganizeAction::Auto);
+    assert_eq!(placed(item), ("ps4".to_string(), ps4_name.clone()));
+    assert_eq!(item.content_id.as_deref(), Some(EU));
+    let tid = item.title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("CUSA04447", IdSource::ParamSfo)
+    );
+    assert!(
+        item.notes.contains(&ItemNote::ExtractFirst),
+        "{:?}",
+        item.notes
+    );
+    assert!(!item
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::InstallFirst { .. })));
+
+    let item = by("NPUB30024.pkg");
+    assert_eq!(item.system_id.as_deref(), Some("ps3"));
+    assert!(item.notes.contains(&ItemNote::InstallFirst {
+        emulator: "RPCS3".into()
+    }));
+    assert!(!item.notes.contains(&ItemNote::ExtractFirst));
+
+    assert_eq!(
+        by("Install Thing.pkg").action,
+        OrganizeAction::Left {
+            reason: coverly_core::organize::LeftReason::NotARom {
+                what: coverly_core::identify::sniff::NotARom::Installer
+            }
+        }
+    );
+}
+
+/// The region a PKG's content id names rides on the console id (D8).
+#[test]
+fn a_ps4_pkg_header_gives_the_region() {
+    use coverly_core::identify::names::Region;
+    use coverly_core::identify::sniff::sniff;
+    let mut f = cnt_pkg("EP0002-CUSA04447_00-SAMPLEGAME000000", 0x1A, 0, &[]);
+    let len = f.len;
+    let s = sniff(&mut f, len, "pkg");
+    let con = s.console.expect("a console id");
+    assert_eq!(
+        (con.system.as_str(), con.region),
+        ("ps4", Some(Region::Europe))
     );
 }

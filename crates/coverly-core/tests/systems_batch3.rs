@@ -67,7 +67,15 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     // Task 4: the ES-DE «game serial» launcher (D17); PS4 has no DAT,
     // so no serial.
     ("ps4", "ps4", ps4_launcher, Some("ps4"), None),
+    // Task 5: a CNT package header names the PS4 (D9) under the weak
+    // `.pkg` extension.
+    ("ps4", "pkg", ps4_cnt_pkg, Some("ps4"), None),
 ];
+
+/// A PS4 CNT package head (content id `CUSA` title id, type GD).
+fn ps4_cnt_pkg() -> coverly_core::consoles::testing::SparseAt {
+    coverly_core::consoles::testing::cnt_pkg("EP0002-CUSA04447_00-SAMPLEGAME000000", 0x1A, 0, &[])
+}
 
 /// A `.ps4` launcher: one line with a title id.
 fn ps4_launcher() -> coverly_core::consoles::testing::SparseAt {

@@ -1215,6 +1215,18 @@ pub fn identify_candidate(
             });
         }
     }
+    // A PS4 PKG is catalogued from its plaintext header but has to be
+    // extracted before it plays (systems batch 3 D9); its verdict has its
+    // own detail, so the `InstallFirst` rule above never matches it.
+    if combined.system.as_deref() == Some("ps4")
+        && insp.payloads.iter().any(|p| {
+            p.sniff.console.as_ref().is_some_and(|c| {
+                c.system == "ps4" && c.detail == crate::consoles::orbis::CNT_DETAIL
+            })
+        })
+    {
+        id.notes.push(ItemNote::ExtractFirst);
+    }
     id.combined = combined;
     id
 }

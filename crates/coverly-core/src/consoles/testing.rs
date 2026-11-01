@@ -1098,6 +1098,59 @@ pub fn pkg(kind: u16, content_id: &str) -> SparseAt {
     s
 }
 
+/// Where [`cnt_pkg`] puts the entry table (a realistic offset).
+pub const CNT_ENTRY_TABLE: u64 = 0x2A80;
+
+/// A PS4 CNT package head (LibOrbisPkg `PkgReader.ReadHeader`, big-endian):
+/// magic `7F 43 4E 54`, `entry_count` at 0x10, the entry table offset
+/// ([`CNT_ENTRY_TABLE`]) at 0x18, `content_id` at 0x40, the content type at
+/// 0x74 and flags at 0x78. Each entry is `(id, flags1, data)` as a 32-byte
+/// `MetaEntry` (id, name offset, flags1, flags2, data offset, data size,
+/// 8 padding); the data follow the table, 16-byte aligned, and
+/// [`SparseAt::entries`] records each data range. The PFS body after
+/// them is filler.
+pub fn cnt_pkg(
+    content_id: &str,
+    ctype: u32,
+    flags: u32,
+    entries: &[(u32, u32, Vec<u8>)],
+) -> SparseAt {
+    let mut h = vec![0u8; 0x100];
+    h[..4].copy_from_slice(&[0x7F, b'C', b'N', b'T']);
+    h[0x10..0x14].copy_from_slice(&(entries.len() as u32).to_be_bytes());
+    h[0x18..0x1C].copy_from_slice(&(CNT_ENTRY_TABLE as u32).to_be_bytes());
+    let cid = content_id.as_bytes();
+    let n = cid.len().min(0x30);
+    h[0x40..0x40 + n].copy_from_slice(&cid[..n]);
+    h[0x74..0x78].copy_from_slice(&ctype.to_be_bytes());
+    h[0x78..0x7C].copy_from_slice(&flags.to_be_bytes());
+    let mut table = Vec::with_capacity(entries.len() * 32);
+    let mut at = CNT_ENTRY_TABLE + entries.len() as u64 * 32;
+    let mut data = Vec::new();
+    let mut ranges = Vec::new();
+    for (id, flags1, bytes) in entries {
+        at = at.next_multiple_of(16);
+        let mut e = [0u8; 32];
+        e[0..4].copy_from_slice(&id.to_be_bytes());
+        e[8..12].copy_from_slice(&flags1.to_be_bytes());
+        e[16..20].copy_from_slice(&(at as u32).to_be_bytes());
+        e[20..24].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        table.extend_from_slice(&e);
+        ranges.push(at..at + bytes.len() as u64);
+        data.push((at, bytes.clone()));
+        at += bytes.len() as u64;
+    }
+    let body = at.next_multiple_of(0x1000);
+    let mut s = SparseAt::new(body + 0x1_0000);
+    s.put(0, &h).put(CNT_ENTRY_TABLE, &table);
+    for (at, bytes) in &data {
+        s.put(*at, bytes);
+    }
+    s.put(body, &[0xE7; 0x400]);
+    s.entries = ranges;
+    s
+}
+
 /// A VPK at `path`: a zip with `eboot.bin`, `sce_sys/param.sfo` and
 /// `sce_sys/icon0.png`.
 pub fn vpk(path: &std::path::Path, title_id: &str) {
