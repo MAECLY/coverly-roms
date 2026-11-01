@@ -30,7 +30,7 @@ use super::wiiu::{find, get, plain_file, xml_fields};
 use super::{
     kind_switch, Budgeted, ConsoleId, DirListing, FolderMatch, IdSource, TitleKind, MAX_META_FILE,
 };
-use crate::identify::sniff::FileAt;
+use crate::identify::sniff::{FileAt, ReadAt};
 
 /// Most entries a PFS0/HFS0 table may declare before it is distrusted.
 const MAX_ENTRIES: u32 = 1024;
@@ -303,6 +303,25 @@ pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
     None
 }
 
+/// A Switch dump recognised before anything else reads the file (D4):
+/// the generic head read (128 KiB), the tail read and the head CRC would
+/// reach a small NSP's ticket and NCA bodies, an XCI's encrypted gamecard
+/// info and the key area some XCI dumps keep. Only this reader's own
+/// reads happen. `Some` with the bytes read when the file is a dump under
+/// a Switch extension, or a table that checks out (0.95) under any other;
+/// anything weaker is left to the usual order of readers.
+pub fn identify_first(
+    src: &mut dyn ReadAt,
+    len: u64,
+    ext: &str,
+    name: &str,
+) -> Option<(ConsoleId, u64)> {
+    let mut b = Budgeted::new(src, len);
+    let id = identify(&mut b, ext, name)?;
+    let own = matches!(ext, "xci" | "xcz" | "nsp" | "nsz");
+    (own || id.confidence >= 0.95).then(|| (id, b.used().read))
+}
+
 /// A split «archive bit» file (spec D12): a folder named `*.nsp`/`*.xci`
 /// (or `.nsz`/`.xcz`) holding `00`, `01`… The `00` part's head is read
 /// through [`identify`] with the folder's name; nothing else is opened.
@@ -524,6 +543,58 @@ mod tests {
                 "read {r:?}"
             );
         }
+    }
+
+    /// D4 through the real entry point: the sniff's own head read must
+    /// not reach a small NSP's ticket and NCA bodies, an XCI's encrypted
+    /// gamecard info or the key area of an XCI that keeps it.
+    #[test]
+    fn the_sniff_never_reads_tickets_ncas_or_the_gamecard_info() {
+        use crate::identify::sniff::sniff_named;
+        let tik = "01000000000100000000000000000000.tik";
+        let mut f = testing::nsp(&[
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 4096]),
+            (tik, &[0x66; 0x2C0]),
+        ]);
+        let len = f.len;
+        let (nca, tik_range) = (f.entry_range(0), f.entry_range(1));
+        for ext in ["nsp", "bin"] {
+            let mut log = RangeLog::new(&mut f);
+            let s = sniff_named(&mut log, len, ext, "Mario.nsp");
+            let id = s.console.expect("switch");
+            assert_eq!(id.title_id.as_deref(), Some("0100000000010000"));
+            assert!(s.read > 0);
+            for &(o, n) in &log.ranges {
+                let r = o..o + n as u64;
+                assert!(
+                    !overlaps(&r, &nca) && !overlaps(&r, &tik_range),
+                    "{ext}: read {r:?}"
+                );
+            }
+        }
+        let (info, n) = testing::XCI_CARD_INFO;
+        let mut f = testing::xci(&["update", "normal", "secure"]);
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        let s = sniff_named(&mut log, len, "xci", "Mario.xci");
+        assert_eq!(s.console.map(|c| c.system).as_deref(), Some("switch"));
+        assert!(!log.touched(info, n), "{:?}", log.ranges);
+        // With the key area kept, its key fields (the initial data's auth
+        // data, MAC and nonce at 0x10..0x3C, the title key area from
+        // 0x200) are not read; only the package id and the reserved bytes
+        // where an ordinary dump has `HEAD` are.
+        let inner = testing::xci(&["secure"]);
+        let mut f = SparseAt::new(inner.len + KEY_AREA);
+        for (o, bytes) in &inner.parts {
+            f.put(o + KEY_AREA, bytes);
+        }
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        let s = sniff_named(&mut log, len, "xci", "Mario.xci");
+        assert_eq!(s.console.map(|c| c.system).as_deref(), Some("switch"));
+        assert!(!log.touched(0x10, 0xF0), "{:?}", log.ranges);
+        assert!(!log.touched(0x200, KEY_AREA - 0x200), "{:?}", log.ranges);
+        assert!(!log.touched(KEY_AREA + info, n), "{:?}", log.ranges);
     }
 
     #[test]

@@ -11,7 +11,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, Metadata};
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -19,7 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::archive::detect::by_extension;
 use crate::identify::dat::DatGame;
-use crate::identify::sniff::{sniff, ContainerMagic, NotARom, SliceAt};
+use crate::identify::sniff::{
+    sniff, sniff_switch_first, ContainerMagic, FileAt, NotARom, ReadAt, SliceAt,
+};
 use crate::organize::evidence::Facts;
 use crate::organize::inspect::{ArchiveIssue, Container};
 use crate::organize::walk::FOLDER_GAME_SYSTEMS;
@@ -697,10 +698,23 @@ fn probe_magic(
     path: &Path,
     ext: &str,
 ) -> Result<(crate::identify::sniff::Sniff, Vec<u8>), Option<Exclusion>> {
-    let mut head = Vec::with_capacity(MAGIC_PROBE);
-    crate::consoles::open_rom(path)
-        .and_then(|f| f.take(MAGIC_PROBE as u64).read_to_end(&mut head))
+    let file = crate::consoles::open_rom(path).map_err(|_| Some(Exclusion::Unreadable))?;
+    let len = file
+        .metadata()
+        .map_err(|_| Some(Exclusion::Unreadable))?
+        .len();
+    // A Switch dump is read by its own reader only (systems batch 2 D4):
+    // 512 bytes would reach a small NSP's first NCA and an XCI's
+    // encrypted gamecard info.
+    let mut at = FileAt(file);
+    if let Some(s) = sniff_switch_first(&mut at, len, ext, "") {
+        return Ok((s, Vec::new()));
+    }
+    let mut head = vec![0u8; MAGIC_PROBE.min(usize::try_from(len).unwrap_or(MAGIC_PROBE))];
+    let n = at
+        .read_at(0, &mut head)
         .map_err(|_| Some(Exclusion::Unreadable))?;
+    head.truncate(n);
     let sniffed = sniff(&mut SliceAt(&head), head.len() as u64, ext);
     Ok((sniffed, head))
 }

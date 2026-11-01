@@ -238,6 +238,9 @@ pub fn sniff(src: &mut dyn ReadAt, len: u64, ext: &str) -> Sniff {
 /// readers may use (Switch title-id tokens, spec D10); `""` when unknown.
 pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sniff {
     let ext = ext.to_ascii_lowercase();
+    if let Some(s) = sniff_switch_first(src, len, &ext, name) {
+        return s;
+    }
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_exact_at(src, 0, &mut head);
     head.truncate(n);
@@ -290,6 +293,22 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         cartridges(src, &head, len, &ext, &mut s);
     }
     s
+}
+
+/// A Switch dump, recognised before any generic head read (spec D4): the
+/// 128 KiB prefix would reach a small NSP's ticket and NCA bodies and an
+/// XCI's encrypted gamecard info, so only `consoles::nx` reads it. `ext`
+/// is lowercase. `None` when it is not one (see `nx::identify_first`).
+pub fn sniff_switch_first(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Option<Sniff> {
+    let (id, read) = crate::consoles::nx::identify_first(src, len, ext, name)?;
+    let mut s = Sniff {
+        read: usize::try_from(read).unwrap_or(usize::MAX),
+        ..Sniff::default()
+    };
+    s.hit(&id.system, id.confidence, id.detail.clone());
+    s.serial = id.serial.clone();
+    s.console = Some(id);
+    Some(s)
 }
 
 /// Files that share an extension with a console format and are told

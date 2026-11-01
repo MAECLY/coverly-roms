@@ -36,8 +36,8 @@ use crate::disc::{
 };
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::sniff::{
-    sniff_named, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt, PREFIX, STREAM_CAP,
-    UEF_MAGIC,
+    sniff_named, sniff_switch_first, ContainerMagic, FileAt, NotARom, SliceAt, Sniff, StreamAt,
+    PREFIX, STREAM_CAP, UEF_MAGIC,
 };
 use crate::organize::plan::SheetCheck;
 use crate::scan::classify::{extension, is_appledouble, is_junk_file};
@@ -402,7 +402,23 @@ pub fn inspect_file_with(
     tools: Option<&ToolsOnDemand>,
 ) -> io::Result<Inspection> {
     let ext = extension(path);
-    let mut file = crate::consoles::open_rom(path)?;
+    let mut at = FileAt(crate::consoles::open_rom(path)?);
+    // A Switch dump is read by its own reader only: the prefix, the tail
+    // and the head CRC would reach its tickets, NCAs and the encrypted
+    // gamecard info (systems batch 2 D4).
+    if let Some(sniff) = sniff_switch_first(&mut at, len, &ext, &file_name(path)) {
+        let mut out = Inspection::new(Container::Raw);
+        out.payloads.push(Payload {
+            name: file_name(path),
+            ext,
+            size: len,
+            crc32: None,
+            sniff,
+        });
+        return Ok(out);
+    }
+    let mut file = at.0;
+    file.seek(SeekFrom::Start(0))?;
     let mut head = vec![0u8; PREFIX.min(usize::try_from(len).unwrap_or(PREFIX))];
     let n = read_prefix(&mut file, &mut head)?;
     head.truncate(n);
@@ -1792,6 +1808,31 @@ fn read_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Systems batch 2 D4: a Switch dump is inspected by its own reader
+    /// only, with no head CRC over its first bytes (its NCAs and tickets
+    /// in a small NSP), under its extension or as a checked table.
+    #[test]
+    fn a_switch_dump_gets_no_prefix_read_or_head_crc() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let nsp = crate::consoles::testing::nsp(&[
+            ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca", &[0x55; 64]),
+            ("01000000000100000000000000000000.tik", &[0x66; 0x2C0]),
+        ]);
+        let db = SystemDb::builtin();
+        for name in ["Mario.nsp", "Mario.bin"] {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, nsp.bytes()).unwrap();
+            let out = inspect_file(&path, nsp.len, &db).unwrap();
+            assert_eq!(out.container, Container::Raw, "{name}");
+            assert_eq!(out.head_crc, None, "{name}");
+            let sniff = &out.payloads[0].sniff;
+            let id = sniff.console.as_ref().expect(name);
+            assert_eq!(id.system, "switch");
+            assert_eq!(id.title_id.as_deref(), Some("0100000000010000"));
+            assert!(sniff.read < 0x100, "{name}: {}", sniff.read);
+        }
+    }
 
     #[test]
     fn magic_decides_before_extension() {
