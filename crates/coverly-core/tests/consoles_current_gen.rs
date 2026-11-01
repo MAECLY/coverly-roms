@@ -1,0 +1,225 @@
+//! Current-generation folder probes and file readers through the walk
+//! and the planner (systems batch 3 §8): PS4 app folders through the one
+//! `sce_sys` probe, the Vita beside them, a PSF contradiction, and the
+//! files that are never opened.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
+use std::time::SystemTime;
+
+use coverly_core::cache::Cache;
+use coverly_core::consoles::testing::{param_sfo_with, ps4_app, put_file, vita_app};
+use coverly_core::consoles::{start_open_log, take_open_log, IdSource};
+use coverly_core::organize::{
+    plan_organize, ItemKind, ItemNote, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeItem,
+    OrganizeOptions, OrganizePlan,
+};
+use coverly_core::profiles::{builtin_profiles, Profile};
+use coverly_core::systems::SystemDb;
+use tempfile::TempDir;
+
+/// The open log is process-wide: tests that read it take turns.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+const BLOODBORNE: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+
+struct NoCloud;
+
+impl MetaProbe for NoCloud {
+    fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+        false
+    }
+}
+
+struct World {
+    db: SystemDb,
+    profiles: Vec<Profile>,
+    cache: Cache,
+}
+
+impl World {
+    fn new() -> World {
+        World {
+            db: SystemDb::builtin(),
+            profiles: builtin_profiles(),
+            cache: Cache::in_memory().unwrap(),
+        }
+    }
+
+    fn plan(&self, pile: &Path, target: &Path, layout: &str) -> OrganizePlan {
+        let env = OrganizeEnv {
+            db: &self.db,
+            profiles: &self.profiles,
+            cache: &self.cache,
+            dats: None,
+            probe: &NoCloud,
+            online: None,
+            now: SystemTime::now(),
+        };
+        let opts = OrganizeOptions {
+            layout: layout.to_string(),
+            target: Some(target.to_path_buf()),
+            offline: true,
+            ..OrganizeOptions::default()
+        };
+        plan_organize(pile, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
+    }
+
+    fn profile_name(&self, id: &str) -> String {
+        self.profiles
+            .iter()
+            .find(|p| p.id == id)
+            .unwrap()
+            .name
+            .clone()
+    }
+}
+
+fn only_folder(p: &OrganizePlan) -> &OrganizeItem {
+    let all: Vec<&OrganizeItem> = p
+        .items
+        .iter()
+        .filter(|i| i.kind == ItemKind::Folder)
+        .collect();
+    assert_eq!(all.len(), 1, "{:#?}", p.items);
+    all[0]
+}
+
+/// The last component of a path, compared by component (Windows CI).
+fn last(path: &Path) -> String {
+    path.components()
+        .next_back()
+        .unwrap()
+        .as_os_str()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// `(system folder, game folder)` of an item's target.
+fn placed(item: &OrganizeItem) -> (String, String) {
+    let t = item.target.as_ref().expect("a target");
+    (t.parent().map(last).unwrap(), last(t))
+}
+
+#[test]
+fn a_ps4_app_folder_is_one_item_in_the_ps4_folder() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    ps4_app(
+        &pile.path().join("CUSA00900"),
+        "CUSA00900",
+        "gd",
+        BLOODBORNE,
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    let item = only_folder(&p);
+    assert_eq!(item.sources, [PathBuf::from("CUSA00900")]);
+    assert_eq!(item.system_id.as_deref(), Some("ps4"));
+    assert_eq!(item.action, OrganizeAction::Auto);
+    assert_eq!(placed(item), ("ps4".to_string(), "CUSA00900".to_string()));
+    let tid = item.title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("CUSA00900", IdSource::ParamSfo)
+    );
+    assert_eq!(item.content_id.as_deref(), Some(BLOODBORNE));
+    assert!(item.why.iter().any(|e| e.detail == "sce_sys/param.sfo"));
+    // The licence inside moves with the folder: no item of its own.
+    assert!(p
+        .items
+        .iter()
+        .all(|i| i.sources[0].file_name().is_none_or(|n| n != "license.dat")));
+
+    // Batocera wants the folder renamed to end with `.ps4` (D16).
+    let p = world.plan(pile.path(), target.path(), "batocera");
+    let item = only_folder(&p);
+    assert_eq!(
+        placed(item),
+        ("ps4".to_string(), "CUSA00900.ps4".to_string())
+    );
+    assert!(
+        item.notes.contains(&ItemNote::FolderSuffix {
+            name: "CUSA00900.ps4".into(),
+            layout: world.profile_name("batocera"),
+        }),
+        "{:?}",
+        item.notes
+    );
+}
+
+#[test]
+fn eboot_and_license_are_never_opened() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let dir = pile.path().join("CUSA00900");
+    ps4_app(&dir, "CUSA00900", "gd", BLOODBORNE);
+
+    start_open_log();
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let log = take_open_log();
+    assert_eq!(only_folder(&p).system_id.as_deref(), Some("ps4"));
+    let ours: Vec<&PathBuf> = log.iter().filter(|o| o.starts_with(&dir)).collect();
+    assert_eq!(
+        ours,
+        [&dir.join("sce_sys").join("param.sfo")],
+        "only the probe file is opened"
+    );
+}
+
+#[test]
+fn a_vita_app_beside_a_ps4_app_stays_vita() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    vita_app(&pile.path().join("PCSE00844"), "PCSE00844");
+    ps4_app(
+        &pile.path().join("CUSA00900"),
+        "CUSA00900",
+        "gd",
+        BLOODBORNE,
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+    let by_source = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap()
+    };
+    let vita = by_source("PCSE00844");
+    assert_eq!(vita.system_id.as_deref(), Some("psvita"));
+    assert_eq!(
+        placed(vita),
+        ("psvita".to_string(), "PCSE00844".to_string())
+    );
+    assert_eq!(by_source("CUSA00900").system_id.as_deref(), Some("ps4"));
+}
+
+#[test]
+fn a_cusa_id_with_a_vita_firmware_key_goes_to_review() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let dir = pile.path().join("CUSA00900");
+    let sfo = param_sfo_with(
+        &[("CATEGORY", "gd"), ("TITLE_ID", "CUSA00900")],
+        &[("PSP2_SYSTEM_VER", 0x0360_0000)],
+    );
+    put_file(&dir, "sce_sys/param.sfo", &sfo);
+    put_file(&dir, "eboot.bin", &[0u8; 64]);
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let item = only_folder(&p);
+    assert_eq!(item.action, OrganizeAction::Review);
+    assert_eq!(item.system_id, None);
+    let alts: Vec<&str> = item.alternatives.iter().map(|(s, _)| s.as_str()).collect();
+    assert_eq!(alts, ["ps4", "psvita"]);
+}

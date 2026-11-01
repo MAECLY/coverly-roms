@@ -2034,11 +2034,13 @@ pub fn plan_from_survey(
                 }
                 // The header's title id, for the «why» line (spec §10),
                 // when the header names the system the item goes to.
-                item.title_id = entry
+                let header = entry
                     .console
                     .as_ref()
-                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()))
-                    .and_then(crate::consoles::TitleIdRef::of);
+                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
+                item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                // The content id the same header read (systems batch 3 §10).
+                item.content_id = header.and_then(|con| con.content_id.clone());
             }
             (None, None) => {}
         }

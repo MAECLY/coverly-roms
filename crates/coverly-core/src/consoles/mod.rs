@@ -479,20 +479,33 @@ pub struct DirConflict {
     pub systems: Vec<String>,
 }
 
-/// The built-in folder probes, in the fixed order of spec D12: PS3 JB,
-/// PS3 HDD and PS Vita, Wii U loadiine then NUS, then Xbox
-/// (`default.xbe`), Xbox 360 (`default.xex`, GOD/XBLA), then split
-/// Switch files.
-const DIR_PROBES: &[DirProbe] = &[
-    sony::probe_ps3_jb,
-    sony::probe_ps3_hdd,
-    sony::probe_vita_app,
-    wiiu::probe_loadiine,
-    wiiu::probe_nus,
-    xbox::probe_xbe,
-    xbox::probe_xex,
-    xbox::probe_god,
-    nx::probe_split,
+/// A probe that may name several systems for one folder (the `sce_sys`
+/// probe sees a PSF contradiction itself, systems batch 3 D5): each
+/// match counts as if a separate probe had made it.
+pub type DirProbeMany = fn(&DirListing) -> Vec<FolderMatch>;
+
+/// One entry of the probe list.
+#[derive(Clone, Copy)]
+enum ProbeFn {
+    One(DirProbe),
+    Many(DirProbeMany),
+}
+
+/// The built-in folder probes, in the fixed order of spec D12 and
+/// systems batch 3 §5.1: PS3 JB, PS3 HDD, the `sce_sys` app probe (PS4,
+/// PS5 and PS Vita, one listing of `sce_sys`; it replaces the Vita
+/// probe), Wii U loadiine then NUS, then Xbox (`default.xbe`), Xbox 360
+/// (`default.xex`, GOD/XBLA), then split Switch files.
+const DIR_PROBES: &[ProbeFn] = &[
+    ProbeFn::One(sony::probe_ps3_jb),
+    ProbeFn::One(sony::probe_ps3_hdd),
+    ProbeFn::Many(sony::sce_matches),
+    ProbeFn::One(wiiu::probe_loadiine),
+    ProbeFn::One(wiiu::probe_nus),
+    ProbeFn::One(xbox::probe_xbe),
+    ProbeFn::One(xbox::probe_xex),
+    ProbeFn::One(xbox::probe_god),
+    ProbeFn::One(nx::probe_split),
 ];
 
 #[cfg(any(test, feature = "test-util"))]
@@ -516,11 +529,11 @@ pub fn add_extra_probe(p: DirProbe) {
     EXTRA_PROBES.with(|c| c.borrow_mut().push(p));
 }
 
-fn probes() -> Vec<DirProbe> {
+fn probes() -> Vec<ProbeFn> {
     #[allow(unused_mut)]
-    let mut all: Vec<DirProbe> = DIR_PROBES.to_vec();
+    let mut all: Vec<ProbeFn> = DIR_PROBES.to_vec();
     #[cfg(any(test, feature = "test-util"))]
-    EXTRA_PROBES.with(|c| all.extend(c.borrow().iter().copied()));
+    EXTRA_PROBES.with(|c| all.extend(c.borrow().iter().copied().map(ProbeFn::One)));
     all
 }
 
@@ -531,13 +544,16 @@ pub fn identify_dir(listing: &DirListing) -> Result<Option<FolderMatch>, DirConf
     let mut first: Option<FolderMatch> = None;
     let mut systems: Vec<String> = Vec::new();
     for probe in probes() {
-        let Some(found) = probe(listing) else {
-            continue;
+        let found = match probe {
+            ProbeFn::One(p) => p(listing).into_iter().collect(),
+            ProbeFn::Many(p) => p(listing),
         };
-        if !systems.contains(&found.id.system) {
-            systems.push(found.id.system.clone());
+        for found in found {
+            if !systems.contains(&found.id.system) {
+                systems.push(found.id.system.clone());
+            }
+            first.get_or_insert(found);
         }
-        first.get_or_insert(found);
     }
     if systems.len() > 1 {
         return Err(DirConflict { systems });
@@ -605,8 +621,8 @@ pub fn switch_base(title_id: u64) -> u64 {
 
 /// The title id of the base game `id` belongs to (spec D11), for
 /// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
-/// and Wii U the base high word with the same low 32 bits, Sony and
-/// Xbox 360 the title id itself. `None` for other systems or without a
+/// and Wii U the base high word with the same low 32 bits, Sony (PS3,
+/// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id itself. `None` for other systems or without a
 /// title id.
 pub fn base_title_id(id: &ConsoleId) -> Option<String> {
     let tid = id.title_id.as_deref()?.trim();
@@ -619,7 +635,9 @@ pub fn base_title_id(id: &ConsoleId) -> Option<String> {
         "switch" => Some(format!("{:016X}", switch_base(hex()?))),
         "3ds" => Some(format!("00040000{:08X}", hex()? as u32)),
         "wiiu" => Some(format!("00050000{:08X}", hex()? as u32)),
-        "ps3" | "psvita" | "xbox360" if !tid.is_empty() => Some(tid.to_ascii_uppercase()),
+        "ps3" | "psvita" | "xbox360" | "ps4" | "ps5" if !tid.is_empty() => {
+            Some(tid.to_ascii_uppercase())
+        }
         _ => None,
     }
 }
@@ -795,6 +813,10 @@ mod tests {
             Some("0005000010145D00")
         );
         assert_eq!(with("ps3", "blus30001").as_deref(), Some("BLUS30001"));
+        // Systems batch 3 D15: the PS4/PS5 title id itself, upper-cased.
+        assert_eq!(with("ps4", "cusa00900").as_deref(), Some("CUSA00900"));
+        assert_eq!(with("ps5", "PPSA01234").as_deref(), Some("PPSA01234"));
+        assert_eq!(with("ps4", " "), None);
         assert_eq!(with("switch", "nothex"), None);
         assert_eq!(with("gamecube", "0100000000010000"), None);
     }

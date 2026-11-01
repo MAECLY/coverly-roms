@@ -835,6 +835,12 @@ pub fn xci(names: &[&str]) -> SparseAt {
 /// (`fmt` 0x0204, NUL-terminated, padded to 4) in this order, then
 /// `PARENTAL_LEVEL` = 5 as a u32 (`fmt` 0x0404).
 pub fn param_sfo(texts: &[(&str, &str)]) -> Vec<u8> {
+    param_sfo_with(texts, &[])
+}
+
+/// [`param_sfo`] plus `ints` as u32 values (`fmt` 0x0404, stored bytes
+/// `04 04`) after the texts and before `PARENTAL_LEVEL`.
+pub fn param_sfo_with(texts: &[(&str, &str)], ints: &[(&str, u32)]) -> Vec<u8> {
     let mut keys = Vec::new();
     let mut data = Vec::new();
     // (key offset, fmt, len, max len, data offset)
@@ -849,6 +855,13 @@ pub fn param_sfo(texts: &[(&str, &str)]) -> Vec<u8> {
         data.extend_from_slice(value.as_bytes());
         data.resize(data.len() + (max - len + 1) as usize, 0);
         table.push((key_off, 0x0204, len, max, off));
+    }
+    for (key, value) in ints {
+        let key_off = keys.len() as u16;
+        keys.extend_from_slice(key.as_bytes());
+        keys.push(0);
+        table.push((key_off, 0x0404, 4, 4, data.len() as u32));
+        data.extend_from_slice(&value.to_le_bytes());
     }
     let key_off = keys.len() as u16;
     keys.extend_from_slice(b"PARENTAL_LEVEL\0");
@@ -948,6 +961,60 @@ pub fn vita_app(dir: &std::path::Path, title_id: &str) {
             ("sce_sys/package/work.bin", vec![0x77; 512]),
         ],
     );
+}
+
+/// An 8×8 opaque PNG (synthetic, a flat colour).
+pub fn png_8x8() -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([0x20, 0x40, 0x80, 0xFF]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png)
+        .expect("png fixture");
+    out.into_inner()
+}
+
+/// A PS4 `param.sfo` (systems batch 3 D5, D7): texts `APP_VER`,
+/// `CATEGORY`, `CONTENT_ID`, `TITLE`, `TITLE_ID`, `VERSION` and the
+/// integers `APP_TYPE` and `PUBTOOLVER`, the keys LibOrbisPkg writes.
+/// An empty `category` is left out.
+pub fn ps4_sfo(title_id: &str, category: &str, content_id: &str, app_type: u32) -> Vec<u8> {
+    let mut texts = vec![("APP_VER", "01.09")];
+    if !category.is_empty() {
+        texts.push(("CATEGORY", category));
+    }
+    texts.extend([
+        ("CONTENT_ID", content_id),
+        ("TITLE", "Test Game"),
+        ("TITLE_ID", title_id),
+        ("VERSION", "01.00"),
+    ]);
+    param_sfo_with(
+        &texts,
+        &[("APP_TYPE", app_type), ("PUBTOOLVER", 0x0289_0000)],
+    )
+}
+
+/// A decrypted PS4 app folder: `eboot.bin` (64 zero bytes: never
+/// opened), `sce_sys/param.sfo` ([`ps4_sfo`], `APP_TYPE` 1),
+/// `sce_sys/icon0.png` (8×8 PNG) and the licence `sce_sys/license.dat`
+/// (8 bytes); mtimes pinned.
+pub fn ps4_app(dir: &std::path::Path, title_id: &str, category: &str, content_id: &str) {
+    write_tree(
+        dir,
+        &[
+            ("eboot.bin", vec![0u8; 64]),
+            (
+                "sce_sys/param.sfo",
+                ps4_sfo(title_id, category, content_id, 1),
+            ),
+            ("sce_sys/icon0.png", png_8x8()),
+            ("sce_sys/license.dat", vec![0x4C; 8]),
+        ],
+    );
+}
+
+/// Writes one file of a folder fixture (`rel` with `/`), mtime pinned.
+pub fn put_file(dir: &std::path::Path, rel: &str, bytes: &[u8]) {
+    write_tree(dir, &[(rel, bytes.to_vec())]);
 }
 
 /// LBAs of [`ps3_iso`]: root, `PS3_GAME`, `PARAM.SFO`, `PS3_DISC.SFB`,

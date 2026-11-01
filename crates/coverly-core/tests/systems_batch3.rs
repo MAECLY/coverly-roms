@@ -63,7 +63,19 @@ type ConsoleHeader = (
     Option<&'static str>,
 );
 /// The batch's raw-file header rules, through `sniff` like a real file.
-const CONSOLE_HEADERS: &[ConsoleHeader] = &[];
+const CONSOLE_HEADERS: &[ConsoleHeader] = &[
+    // Task 4: the ES-DE «game serial» launcher (D17); PS4 has no DAT,
+    // so no serial.
+    ("ps4", "ps4", ps4_launcher, Some("ps4"), None),
+];
+
+/// A `.ps4` launcher: one line with a title id.
+fn ps4_launcher() -> coverly_core::consoles::testing::SparseAt {
+    let text = b"CUSA07010\n";
+    let mut f = coverly_core::consoles::testing::SparseAt::new(text.len() as u64);
+    f.put(0, text);
+    f
+}
 
 fn research(name: &str) -> String {
     std::fs::read_to_string(

@@ -237,6 +237,8 @@ pub(super) fn list_child(dir: &Path) -> Option<Vec<String>> {
     if !fs::symlink_metadata(dir).ok()?.file_type().is_dir() {
         return None;
     }
+    #[cfg(test)]
+    list_count::bump();
     Some(
         fs::read_dir(dir)
             .ok()?
@@ -245,6 +247,26 @@ pub(super) fn list_child(dir: &Path) -> Option<Vec<String>> {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect(),
     )
+}
+
+/// How many directories [`list_child`] listed on this thread (unit tests
+/// of the one-listing rule, systems batch 3 D5).
+#[cfg(test)]
+pub(super) mod list_count {
+    use std::cell::Cell;
+
+    thread_local! {
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(in super::super) fn bump() {
+        COUNT.with(|c| c.set(c.get() + 1));
+    }
+
+    /// The count since the last call, then zero.
+    pub(in super::super) fn take() -> usize {
+        COUNT.with(|c| c.replace(0))
+    }
 }
 
 /// A decrypted (loadiine) title folder (spec D12): `code` and `meta` or
