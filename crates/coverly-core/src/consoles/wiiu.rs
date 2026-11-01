@@ -190,7 +190,9 @@ pub fn parse_meta_xml(bytes: &[u8]) -> Option<ConsoleId> {
     Some(id)
 }
 
-/// `code/app.xml`: title id and version only.
+/// `code/app.xml`: title id and version only. Its `title_version` is
+/// `hexBinary` (`0010` is version 16), unlike meta.xml's decimal one, so
+/// it is given in decimal like every other Wii U version.
 pub fn parse_app_xml(bytes: &[u8]) -> Option<ConsoleId> {
     let f = xml_fields(bytes, &["title_id", "title_version"])?;
     let (tid, value) = title_id(get(&f, "title_id")?)?;
@@ -198,7 +200,10 @@ pub fn parse_app_xml(bytes: &[u8]) -> Option<ConsoleId> {
     id.title_id = Some(tid);
     id.kind = kind_wiiu(value);
     id.id_source = Some(IdSource::AppXml);
-    id.version = get(&f, "title_version").map(str::to_owned);
+    id.version = get(&f, "title_version")
+        .filter(|v| v.len() <= 8 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+        .and_then(|v| u32::from_str_radix(v, 16).ok())
+        .map(|v| v.to_string());
     Some(id)
 }
 
@@ -504,9 +509,13 @@ mod tests {
         let id = parse_app_xml(t::app_xml("0005000C10145D00").as_bytes()).unwrap();
         assert_eq!(id.title_id.as_deref(), Some("0005000C10145D00"));
         assert_eq!(id.kind, TitleKind::Dlc);
-        assert_eq!(id.version.as_deref(), Some("0010"));
+        // `title_version` is `hexBinary` in app.xml (decimal in meta.xml
+        // and the TMD): `0010` is version 16.
+        assert_eq!(id.version.as_deref(), Some("16"));
         assert_eq!(id.id_source, Some(IdSource::AppXml));
         assert_eq!(id.serial, None);
+        let odd = t::app_xml("0005000010145D00").replace(">0010<", ">00G0<");
+        assert_eq!(parse_app_xml(odd.as_bytes()).unwrap().version, None);
     }
 
     #[test]
