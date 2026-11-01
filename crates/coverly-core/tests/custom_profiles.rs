@@ -689,6 +689,15 @@ fn dlc_folders_load_round_trip_and_are_checked() {
         ("ps4", "DLC/{stem}"),
         ("ps4", "DLC/{title_id"),
         ("ps4", "DLC/a\u{7}"),
+        // Windows would drop the trailing dot or refuse the name, so the
+        // folder would not be the one the frontend reads.
+        ("ps4", "DLC./{title_id}"),
+        ("ps4", "DLC/{title_id}."),
+        ("ps4", "DLC?/{title_id}"),
+        ("ps4", "DLC/<{title_id}>"),
+        ("ps4", "D*C/{title_id}"),
+        ("ps4", "DLC|x/{title_id}"),
+        ("ps4", "\"DLC\"/{title_id}"),
         ("nope", "DLC/{title_id}"),
     ] {
         let mut p = sample();

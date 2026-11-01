@@ -256,7 +256,9 @@ pub const DLC_FOLDER_TOKEN: &str = "{title_id}";
 
 /// A DLC folder template: relative (no root, drive or `\`), every
 /// `/`-separated segment plain and never `.` or `..`, and `{title_id}` its
-/// only token, so it always stays inside the system's folder.
+/// only token, so it always stays inside the system's folder. A segment
+/// never ends in `.` nor holds a character Windows refuses in a name
+/// (`<>"|?*`): the folder made must be the one the frontend reads.
 fn valid_dlc_folder(t: &str) -> bool {
     !t.is_empty()
         && t.trim() == t
@@ -269,7 +271,8 @@ fn valid_dlc_folder(t: &str) -> bool {
                 && seg.trim() == seg
                 && seg != "."
                 && seg != ".."
-                && !literal.contains(['\\', ':', '{', '}'])
+                && !seg.ends_with('.')
+                && !literal.contains(['\\', ':', '{', '}', '<', '>', '"', '|', '?', '*'])
                 && !seg.chars().any(char::is_control)
         })
 }
