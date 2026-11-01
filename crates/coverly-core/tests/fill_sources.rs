@@ -380,6 +380,14 @@ mod embedded {
             zip.write_all(&bytes).unwrap();
         }
         zip.finish().unwrap();
+        coverly_core::dedupe::testing::pin_mtime(path, 1);
+    }
+
+    /// Writes `bytes` as the Wii U folder's `meta/iconTex.tga`, mtime pinned.
+    fn put_icon_tga(game: &Path, bytes: &[u8], n: u64) {
+        let icon = game.join("meta").join("iconTex.tga");
+        std::fs::write(&icon, bytes).unwrap();
+        coverly_core::dedupe::testing::pin_mtime(&icon, n);
     }
 
     fn tga_bytes(w: u32, h: u32) -> Vec<u8> {
@@ -417,12 +425,29 @@ mod embedded {
         let dir = TempDir::new().unwrap();
         let game = dir.path().join("Test Game [0005000010145D00]");
         wiiu_folder(&game, "0005000010145D00", "WUP-P-ARDP", "Test Game");
-        std::fs::write(game.join("meta").join("iconTex.tga"), tga_bytes(128, 128)).unwrap();
+        put_icon_tga(&game, &tga_bytes(128, 128), 1);
         let found = query_candidates("wiiu", Media::Cover, &game);
         assert_eq!(found.len(), 1, "{found:?}");
         let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
         assert_eq!((img.width(), img.height()), (128, 128));
         assert_eq!(img.to_rgba8().get_pixel(5, 5).0, [10, 120, 200, 255]);
+    }
+
+    /// The art store keeps a fetched icon by its URL: an icon replaced
+    /// inside a folder game (whose own size and mtime do not change) must
+    /// give a new URL, or the old icon would be served from the store.
+    #[test]
+    fn embedded_url_follows_the_icon_inside_a_folder() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("Test Game [0005000010145D00]");
+        wiiu_folder(&game, "0005000010145D00", "WUP-P-ARDP", "Test Game");
+        put_icon_tga(&game, &tga_bytes(128, 128), 1);
+        let before = query_candidates("wiiu", Media::Cover, &game).remove(0);
+        put_icon_tga(&game, &tga_bytes(64, 64), 2);
+        let after = query_candidates("wiiu", Media::Cover, &game).remove(0);
+        assert_ne!(before.url, after.url);
+        let img = decode(&EmbeddedSource.fetch(&after).unwrap());
+        assert_eq!((img.width(), img.height()), (64, 64));
     }
 
     #[test]

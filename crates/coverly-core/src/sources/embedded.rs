@@ -43,8 +43,9 @@ const MAX_ROOT_NAMES: usize = 4096;
 const SCHEME: &str = "embedded:";
 
 /// What a candidate URL carries: the ROM, the icon's locator and a stamp
-/// of the ROM (size and mtime) so a changed file is not served from the
-/// art store under an old URL.
+/// of the ROM (size and mtime; for a file inside a folder game, also the
+/// icon file's) so a changed icon is not served from the art store under
+/// an old URL.
 #[derive(Debug, Serialize, Deserialize)]
 struct Key {
     path: PathBuf,
@@ -71,7 +72,7 @@ impl ArtSource for EmbeddedSource {
         if q.media != Media::Cover || !SYSTEMS.contains(&q.system.id.as_str()) {
             return Ok(Vec::new());
         }
-        let Some(stamp) = stamp(path) else {
+        let Some(rom_stamp) = stamp(path) else {
             return Ok(Vec::new());
         };
         let mut out = Vec::new();
@@ -80,10 +81,19 @@ impl ArtSource for EmbeddedSource {
                 continue;
             }
             let origin = describe(&art);
+            // A folder's own metadata does not change when a file deep
+            // inside it is replaced: stamp the icon file too.
+            let stamp = match &art {
+                ArtLocator::File { rel, .. } => match stamp(&path.join(rel)) {
+                    Some(inner) => format!("{rom_stamp}/{inner}"),
+                    None => continue,
+                },
+                _ => rom_stamp.clone(),
+            };
             let key = Key {
                 path: path.to_path_buf(),
                 art,
-                stamp: stamp.clone(),
+                stamp,
             };
             let Ok(json) = serde_json::to_string(&key) else {
                 continue; // a path that is not UTF-8
@@ -129,7 +139,7 @@ impl ArtSource for EmbeddedSource {
     }
 }
 
-/// `<size>-<mtime seconds>` of the ROM (a folder's own metadata).
+/// `<size>-<mtime seconds>` of `path` (a folder's own metadata).
 fn stamp(path: &Path) -> Option<String> {
     let meta = fs::metadata(path).ok()?;
     let secs = meta
