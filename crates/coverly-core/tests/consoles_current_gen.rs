@@ -1212,3 +1212,52 @@ fn xvc_files_go_to_review_between_xbox_one_and_series() {
         .count();
     assert!(guid_opens <= 3, "{opened:?}");
 }
+
+/// A folder a probe recognises but leaves in place (a GDK PC build, an
+/// unreadable config: `FolderMatch::leave`) is no folder game of the
+/// library either: the scan walks it as a plain folder, as Organise
+/// never takes it for a console game.
+#[test]
+fn the_library_scan_lists_no_left_gdk_folder_as_a_game() {
+    use coverly_core::scan::{scan_library, ScanOptions};
+
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let world = World::new();
+    let lib = TempDir::new().unwrap();
+    let xbox = lib.path().join("roms").join("xboxone");
+    gdk_folder(
+        &xbox.join("Microsoft Flight Simulator"),
+        &GdkSpec {
+            families: &["PC"],
+            display_name: "Microsoft Flight Simulator",
+            ..Default::default()
+        },
+    );
+    gdk_folder(
+        &xbox.join("Sample One"),
+        &GdkSpec {
+            families: &["XboxOne"],
+            display_name: "Sample One",
+            ..Default::default()
+        },
+    );
+    let profile = world
+        .profiles
+        .iter()
+        .find(|p| p.id == "esde")
+        .unwrap()
+        .clone();
+    let scan = scan_library(lib.path(), &profile, &world.db, &ScanOptions::default());
+    let system = scan
+        .systems
+        .iter()
+        .find(|s| s.system_id.as_deref() == Some("xboxone"))
+        .unwrap_or_else(|| panic!("{:?}", scan.systems));
+    let games: Vec<String> = system
+        .roms
+        .iter()
+        .filter(|r| r.is_dir)
+        .map(|r| last(&r.path))
+        .collect();
+    assert_eq!(games, ["Sample One"], "{:?}", system.roms);
+}
