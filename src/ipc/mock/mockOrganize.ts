@@ -72,6 +72,7 @@ import {
   type NameMode,
   type OrganizeDecision,
   type ItemNote,
+  type LargeTransferDetail,
   type OrganizeItem,
   type OrganizeItemOutcome,
   type OrganizeJobView,
@@ -1035,6 +1036,52 @@ const TAG_REGIONS: [RegExp, Region][] = [
 const regionsOf = (name: string): Region[] =>
   TAG_REGIONS.filter(([re]) => re.test(name)).map(([, r]) => r);
 
+/** Bytes from which Organizar asks before writing (spec D23): 10 GB. */
+const LARGE_TRANSFER = 10_000_000_000;
+/** Free space the mock reports on any `/Volumes/<name>` target. */
+const MOCK_VOLUME_FREE = 412_100_000_000;
+
+/** The mount a path is on: `/Volumes/<name>`, else the system disk. */
+const volumeOf = (path: string): string =>
+  /^\/Volumes\/[^/]+/.exec(path)?.[0] ?? '/';
+
+/** Rust `large_transfer` over the mock's volumes: the automatic items
+ * with a target, by size in copy mode or across volumes, plus what
+ * extractions write; a same-volume move is a rename. */
+function largeTransfer(
+  r: Resolved,
+  items: readonly OrganizeItem[],
+): LargeTransferDetail | null {
+  const crosses =
+    r.mode === 'copy' || volumeOf(r.source) !== volumeOf(r.target);
+  let bytes = 0;
+  let count = 0;
+  for (const i of items) {
+    if (i.action !== 'auto' || i.target === null) continue;
+    const add =
+      i.transfer.kind === 'extract'
+        ? i.transfer.bytes
+        : crosses
+          ? i.size
+          : null;
+    if (add === null) continue;
+    bytes += add;
+    count += 1;
+  }
+  if (bytes < LARGE_TRANSFER) return null;
+  const volume = volumeOf(r.target);
+  return {
+    bytes,
+    items: count,
+    copies: r.mode === 'copy',
+    free: volume === '/' ? null : MOCK_VOLUME_FREE,
+    volume:
+      volume === '/'
+        ? (r.target.split('/').filter(Boolean).pop() ?? r.target)
+        : volume.slice('/Volumes/'.length),
+  };
+}
+
 /** Options of one plan, the request resolved against the settings. */
 interface Resolved {
   source: string;
@@ -1785,6 +1832,13 @@ export function createMockOrganize(
       : [];
     if (moving.length === 0 && sortedFolders.length > 0)
       warnings.push({ kind: 'sorted-only' });
+    const large = largeTransfer(r, items);
+    if (large)
+      warnings.push({
+        kind: 'large-transfer',
+        bytes: large.bytes,
+        items: large.items,
+      });
     const updates = items.filter((i) =>
       i.notes.some((n) => n.kind === 'update' || n.kind === 'dlc'),
     ).length;
@@ -2306,10 +2360,15 @@ export function createMockOrganize(
     async organizeCancel(planId) {
       cancelled.add(planId);
     },
-    async organizeApply(planId, decisions) {
+    async organizeApply(planId, decisions, confirmedBytes) {
       const r = stored(planId);
-      notApplying();
       const { plan, files } = planOf(r, decisions);
+      // Like Rust's gate: on the decided plan, before the job guard and
+      // before anything is written.
+      const large = largeTransfer(r, plan.items);
+      if (large && (confirmedBytes ?? -1) < large.bytes)
+        throw new BackendError('large-transfer', undefined, large);
+      notApplying();
       const fills = await host.fillHistory();
       notApplying();
       // Like Rust: the pile changes, so no kept plan stays valid.

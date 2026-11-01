@@ -1203,6 +1203,21 @@ export interface OrganizeReport {
 export type OrganizeJobState =
   'applying' | 'done' | 'paused' | 'cancelled' | 'failed';
 
+/** What `organize_apply` refused to write without a confirmation
+ * (`large-transfer`, spec D23): the decided plan's numbers. */
+export interface LargeTransferDetail {
+  /** Bytes written to the target (copies and extractions). */
+  bytes: number;
+  /** Items that write them (updates, DLC and archives count). */
+  items: number;
+  /** Copy mode; false: a move across volumes (copied, then removed). */
+  copies: boolean;
+  /** Free bytes on the target volume for this user; null when unknown. */
+  free: number | null;
+  /** The target volume's name, else the target folder's. */
+  volume: string;
+}
+
 /** An IPC error as data (inside a view). */
 export interface WireError {
   code: ErrorCode;

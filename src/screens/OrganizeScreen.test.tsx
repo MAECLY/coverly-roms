@@ -363,6 +363,64 @@ describe('OrganizeScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('asks to confirm a copy of 10 GB or more; Escape gives focus back to apply', async () => {
+    const user = userEvent.setup();
+    useNavStore
+      .getState()
+      .openOrganize(MOCK_MODERN, { mode: 'copy', layout: 'esde' });
+    render(
+      <I18nProvider locale="en">
+        <OrganizeScreen />
+      </I18nProvider>,
+    );
+    await ready();
+    const { plan } = useOrganizeStore.getState();
+    const large = plan!.warnings.find((w) => w.kind === 'large-transfer')!;
+    expect(large).toBeDefined();
+    const size = new Intl.NumberFormat('en', {
+      maximumFractionDigits: 2,
+    }).format(large.kind === 'large-transfer' ? large.bytes / 1e9 : 0);
+    expect(
+      screen.getByText(
+        `${size} GB will be written to the target; you will be asked to confirm before it starts`,
+      ),
+    ).toBeInTheDocument();
+    const apply = screen.getByRole('button', { name: /^Organise \d+ files$/ });
+    const sent = vi.spyOn(b, 'organizeApply');
+    apply.focus();
+    await user.keyboard('{Enter}');
+    const dialog = await screen.findByRole('alertdialog', {
+      name: `Copy ${size} GB?`,
+    });
+    expect(
+      within(dialog).getByRole('button', { name: 'Cancel' }),
+    ).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^Organise \d+ files$/ }),
+      ).toHaveFocus(),
+    );
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(useOrganizeStore.getState().job).toBeNull();
+
+    // Confirming applies with the size the dialog showed.
+    await user.keyboard('{Enter}');
+    const again = await screen.findByRole('alertdialog');
+    await user.click(
+      within(again).getByRole('button', { name: `Copy ${size} GB` }),
+    );
+    await waitFor(() => expect(sent).toHaveBeenCalledTimes(3));
+    expect(sent.mock.calls[2]![2]).toBe(
+      large.kind === 'large-transfer' ? large.bytes : -1,
+    );
+    await waitFor(
+      () => expect(useOrganizeStore.getState().status).toBe('done'),
+      APPLY_WAIT,
+    );
+  });
+
   it('hides the primary action when nothing would move and offers open library', async () => {
     tweakPlans(b, ({ plan }) => {
       plan.items = plan.items.map((i) => ({

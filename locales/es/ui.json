@@ -452,6 +452,7 @@
     "no-dedupe-plan": "Esa búsqueda de duplicados ya no se conserva. Vuelve a buscar duplicados.",
     "keeper-required": "Cada grupo necesita una copia que se quede. Elige la copia que conservas ({detail}).",
     "quarantine-in-system-folder": "La carpeta de duplicados no puede estar dentro de una carpeta de sistema ni contener una ({detail}). Elige otra carpeta.",
+    "large-transfer": "Hace falta confirmar el tamaño antes de escribir",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
@@ -1413,6 +1414,18 @@
     "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
     "noCatalogue": "Sin catálogo de {system}: decidido por {level}",
     "noSpace": "No hay espacio suficiente en el destino: hacen falta {needed} y quedan {free} libres.",
+    "largeTransfer": {
+      "warning": "Se van a escribir {bytes} en el destino; se pedirá confirmación antes de empezar",
+      "title": "¿Copiar {bytes}?",
+      "titleMove": "¿Mover {bytes} a otro disco?",
+      "body": "Organizar va a escribir {count} elementos en {volume}. Ahora hay {free} libres en ese disco.",
+      "bodyOne": "Organizar va a escribir 1 elemento en {volume}. Ahora hay {free} libres en ese disco.",
+      "bodyNoFree": "Organizar va a escribir {count} elementos en {volume}.",
+      "bodyNoFreeOne": "Organizar va a escribir 1 elemento en {volume}.",
+      "confirm": "Copiar {bytes}",
+      "confirmMove": "Mover {bytes}",
+      "cancel": "Cancelar"
+    },
     "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
     "level": {
       "hash": "catálogo",

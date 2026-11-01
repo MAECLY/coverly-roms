@@ -1525,3 +1525,96 @@ describe('mock organise: the systems batch 2 modern pile', () => {
     expect(view.report?.moved).toBe(18);
   });
 });
+
+describe('mock organise size gate (systems batch 3 D23)', () => {
+  /** What Rust's `large_transfer` sums: automatic items with a target. */
+  function written(items: readonly OrganizeItem[], crosses: boolean): number {
+    return items
+      .filter((i) => i.action === 'auto' && i.target !== null)
+      .reduce(
+        (n, i) =>
+          n +
+          (i.transfer.kind === 'extract'
+            ? i.transfer.bytes
+            : crosses
+              ? i.size
+              : 0),
+        0,
+      );
+  }
+
+  it('asks before a copy of 10 GB or more, then applies with the bytes', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+      mode: 'copy',
+    });
+    const bytes = written(plan.items, true);
+    expect(bytes).toBeGreaterThanOrEqual(10_000_000_000);
+    const items = plan.items.filter(
+      (i) => i.action === 'auto' && i.target !== null,
+    ).length;
+    expect(plan.warnings).toContainEqual({
+      kind: 'large-transfer',
+      bytes,
+      items,
+    });
+    const refused = {
+      code: 'large-transfer',
+      largeTransfer: {
+        bytes,
+        items,
+        copies: true,
+        free: null,
+        volume: 'Modern',
+      },
+    };
+    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
+    await expect(b.organizeApply(plan_id, [], bytes - 1)).rejects.toMatchObject(
+      refused,
+    );
+    // Nothing was written: no job, and the plan is still there to apply.
+    expect(await b.jobHistory()).toEqual([]);
+    const done = ended(b);
+    expect((await b.organizeApply(plan_id, [], bytes)).state).toBe('applying');
+    expect((await done).state).toBe('done');
+  });
+
+  it('names the target volume and its free space for a move to another drive', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+      target: '/Volumes/TinyExt',
+    });
+    expect(plan.mode).toBe('move');
+    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject({
+      code: 'large-transfer',
+      largeTransfer: {
+        bytes: written(plan.items, true),
+        copies: false,
+        free: 412_100_000_000,
+        volume: 'TinyExt',
+      },
+    });
+  });
+
+  it('never asks for a move on the same volume or a small copy', async () => {
+    const b = backend();
+    const moved = await b.organizePlan({ source: MOCK_MODERN, layout: 'esde' });
+    expect(moved.plan.warnings.map((w) => w.kind)).not.toContain(
+      'large-transfer',
+    );
+    const small = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      mode: 'copy',
+    });
+    expect(small.plan.warnings.map((w) => w.kind)).not.toContain(
+      'large-transfer',
+    );
+    const done = ended(b);
+    await b.organizeApply(small.plan_id, []);
+    expect((await done).state).toBe('done');
+  });
+});

@@ -1247,6 +1247,16 @@
     {
       "code": "no-space",
       "detail": "8473027/1000"
+    },
+    {
+      "code": "large-transfer",
+      "detail": {
+        "bytes": 187420000000,
+        "items": 3,
+        "copies": true,
+        "free": 412100000000,
+        "volume": "TinyExt"
+      }
     }
   ],
   "settings_external_tools_found": [

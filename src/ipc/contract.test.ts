@@ -4,11 +4,12 @@ import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
 import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
-import { ERROR_CODES } from './errors';
+import { ERROR_CODES, toBackendError } from './errors';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
   KEY_CHECKS,
+  type LargeTransferDetail,
   type PickReason,
   type SourceInfo,
   type CandidateView,
@@ -1057,6 +1058,18 @@ describe('organise contract', () => {
       expect(ERROR_CODES).toContain(e.code);
     }
     expect(ERROR_CODES).toContain('cancelled');
+    // The size gate's numbers travel as data (spec D23).
+    const large = toBackendError(
+      sample.organize_errors.find((e) => e.code === 'large-transfer'),
+    );
+    const detail: LargeTransferDetail | undefined = large.largeTransfer;
+    expect(detail).toEqual({
+      bytes: 187_420_000_000,
+      items: 3,
+      copies: true,
+      free: 412_100_000_000,
+      volume: 'TinyExt',
+    });
   });
 });
 

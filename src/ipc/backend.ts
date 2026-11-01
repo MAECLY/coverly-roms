@@ -136,10 +136,13 @@ export interface Backend {
   /** Stops planning `planId`; its `organizePlan` rejects with `cancelled`. */
   organizeCancel(planId: number): Promise<void>;
   /** Starts applying plan `planId`; the end arrives via `onOrganizeChanged`.
-   * `job-running` while a fill job runs or is paused (and fills refuse meanwhile). */
+   * `job-running` while a fill job runs or is paused (and fills refuse meanwhile).
+   * `large-transfer` (with the numbers) when the decided plan writes 10 GB or
+   * more and `confirmedBytes` is missing or below them (spec D23). */
   organizeApply(
     planId: number,
     decisions: OrganizeDecision[],
+    confirmedBytes?: number,
   ): Promise<OrganizeJobView>;
   /** Continues a paused or interrupted organise job into its journal. */
   organizeResume(job: string): Promise<OrganizeJobView>;

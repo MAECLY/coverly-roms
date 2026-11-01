@@ -13,10 +13,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from 'react';
 
 import { DupGroup } from '@/components/dedupe/DupGroup';
 import { ApplyProgress } from '@/components/organize/ApplyProgress';
+import { LargeTransferDialog } from '@/components/organize/LargeTransferDialog';
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
@@ -151,6 +153,13 @@ function warningLines(
           }),
         );
         break;
+      case 'large-transfer':
+        lines.push(
+          t('organize.largeTransfer.warning', {
+            bytes: formatDecimalSize(w.bytes, locale),
+          }),
+        );
+        break;
       case 'move-unavailable':
       case 'sorted-only':
         break;
@@ -176,6 +185,8 @@ export function OrganizeScreen() {
   const lastRefresh = useOrganizeStore((s) => s.lastRefresh);
   const refreshing = useOrganizeStore((s) => s.refreshing);
   const stamp = useOrganizeStore((s) => s.settingsStamp);
+  const pendingLarge = useOrganizeStore((s) => s.pendingLarge);
+  const submitting = useOrganizeStore((s) => s.submitting);
   const settings = useSettingsStore((s) => s.settings);
   const { profiles, systems, duplicates: defaultDuplicates } = useCatalogues();
   /** The change summary the user closed (the "New" marks stay). */
@@ -268,7 +279,9 @@ export function OrganizeScreen() {
       });
   }, []);
 
-  const applying = status === 'applying';
+  // While the apply call answers (the backend re-plans, and may ask to
+  // confirm the size), the proposal stays with its apply button busy.
+  const applying = status === 'applying' && !submitting;
   const showResult = job !== null && !applying;
   // The progress block unmounts when the job ends, taking keyboard focus
   // (Cancel, the track list) with it: hand it to the result's heading.
@@ -283,7 +296,10 @@ export function OrganizeScreen() {
   }, [applying, showResult]);
   const proposing =
     !showResult &&
-    (status === 'planning' || status === 'ready' || status === 'error');
+    (submitting ||
+      status === 'planning' ||
+      status === 'ready' ||
+      status === 'error');
   // The folder can be read again while a proposal (or its error) is shown.
   const canRefresh = proposing && request !== null;
   const planFailed = status === 'error' && job === null && error !== null;
@@ -321,7 +337,8 @@ export function OrganizeScreen() {
   }, [canRefresh, refresh]);
   // Options and decisions wait for the plan in flight; an apply or an
   // export only takes the plan made with the options on screen.
-  const busy = status === 'planning';
+  const busy = status === 'planning' || submitting;
+  const applyButton = useRef<HTMLButtonElement>(null);
   const stale = status !== 'ready';
   const shown = error ?? exportError;
 
@@ -475,6 +492,8 @@ export function OrganizeScreen() {
             systems={systems}
             busy={busy}
             stale={stale}
+            submitting={submitting}
+            applyRef={applyButton}
             detected={
               detected === plan.layout && plan.target_root !== plan.source_root
                 ? profileName(detected)
@@ -496,6 +515,16 @@ export function OrganizeScreen() {
             onCancel={back}
           />
         )}
+        {pendingLarge && (
+          <LargeTransferDialog
+            detail={pendingLarge}
+            returnFocus={applyButton}
+            onCancel={() => useOrganizeStore.getState().dismissLarge()}
+            onConfirm={(bytes) =>
+              void useOrganizeStore.getState().confirmApply(bytes)
+            }
+          />
+        )}
       </div>
     </main>
   );
@@ -512,6 +541,10 @@ interface ProposalProps {
   busy: boolean;
   /** The plan on screen is not the answer to the options on screen. */
   stale: boolean;
+  /** Its apply call has not answered yet. */
+  submitting: boolean;
+  /** The apply button (focus comes back to it from the size dialog). */
+  applyRef: RefObject<HTMLButtonElement | null>;
   /** Name of the layout taken from the target, when that happened. */
   detected: string | null;
   exported: string | null;
@@ -540,6 +573,8 @@ function Proposal({
   systems,
   busy,
   stale,
+  submitting,
+  applyRef,
   detected,
   exported,
   lastRefresh,
@@ -699,8 +734,21 @@ function Proposal({
           (brand §2), and lines up with the panels above it. */}
       <div className="sticky bottom-0 z-[1] flex flex-wrap items-center gap-2 border-t border-cr-border bg-background py-3">
         {counts.auto > 0 || counts.set_aside > 0 ? (
-          <Button variant="primary" disabled={stale} onClick={onApply}>
-            <FolderTree aria-hidden />
+          <Button
+            ref={applyRef}
+            variant="primary"
+            // Busy, not disabled, while its call answers: keyboard focus
+            // stays on it for the size dialog to give back.
+            disabled={stale && !submitting}
+            aria-disabled={submitting || undefined}
+            aria-busy={submitting || undefined}
+            onClick={submitting ? undefined : onApply}
+          >
+            {submitting ? (
+              <Spinner size="sm" decorative />
+            ) : (
+              <FolderTree aria-hidden />
+            )}
             {applyLabel(t, counts.auto, counts.set_aside, plan.set_aside_trash)}
           </Button>
         ) : (

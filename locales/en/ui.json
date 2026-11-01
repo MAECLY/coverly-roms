@@ -452,6 +452,7 @@
     "no-dedupe-plan": "That duplicates search is no longer kept. Look for duplicates again.",
     "keeper-required": "Every group needs one copy that stays. Pick the copy to keep ({detail}).",
     "quarantine-in-system-folder": "The duplicates folder cannot be inside a system folder, or hold one ({detail}). Choose another folder.",
+    "large-transfer": "The size has to be confirmed before writing",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",
@@ -1413,6 +1414,18 @@
     "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
     "noCatalogue": "No {system} catalogue: decided by {level}",
     "noSpace": "Not enough space on the target: {needed} needed, {free} free.",
+    "largeTransfer": {
+      "warning": "{bytes} will be written to the target; you will be asked to confirm before it starts",
+      "title": "Copy {bytes}?",
+      "titleMove": "Move {bytes} to another drive?",
+      "body": "Organize will write {count} items to {volume}. {free} is free on that drive now.",
+      "bodyOne": "Organize will write 1 item to {volume}. {free} is free on that drive now.",
+      "bodyNoFree": "Organize will write {count} items to {volume}.",
+      "bodyNoFreeOne": "Organize will write 1 item to {volume}.",
+      "confirm": "Copy {bytes}",
+      "confirmMove": "Move {bytes}",
+      "cancel": "Cancel"
+    },
     "encrypted": "Encrypted; some emulators can't load it",
     "level": {
       "hash": "catalogue",

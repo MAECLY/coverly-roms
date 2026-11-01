@@ -4,7 +4,11 @@ import { waitFor } from '@testing-library/react';
 import { setBackend, type Backend } from '@/ipc/backend';
 import { FIXTURE_NOW } from '@/ipc/mock/fixture';
 import { createMockBackend, type MockBackend } from '@/ipc/mock/mockBackend';
-import { MOCK_DOWNLOADS, MOCK_MIXED } from '@/ipc/mock/mockOrganize';
+import {
+  MOCK_DOWNLOADS,
+  MOCK_MIXED,
+  MOCK_MODERN,
+} from '@/ipc/mock/mockOrganize';
 import type {
   OrganizeDecision,
   OrganizePlanView,
@@ -538,5 +542,101 @@ describe('organise store', () => {
     });
     useNavStore.getState().closeOrganize();
     expect(useNavStore.getState().organizeLaunch).toBeNull();
+  });
+
+  describe('size confirmation (systems batch 3 D23)', () => {
+    /** The modern pile copied: its PS3 folder alone is over 10 GB. */
+    async function largeCopy() {
+      useNavStore.getState().openOrganize(MOCK_MODERN);
+      await store().start(MOCK_MODERN, { mode: 'copy', layout: 'esde' });
+      expect(store().status).toBe('ready');
+    }
+
+    it('a large-transfer refusal goes back to the plan and holds the numbers', async () => {
+      await largeCopy();
+      const seen: string[] = [];
+      const off = useOrganizeStore.subscribe((s) => {
+        if (seen.at(-1) !== s.status) seen.push(s.status);
+      });
+      await store().apply();
+      off();
+      const s = store();
+      expect(seen).toEqual(['applying', 'ready']);
+      expect(s.status).toBe('ready');
+      expect(s.error).toBeNull();
+      expect(s.job).toBeNull();
+      expect(s.submitting).toBe(false);
+      expect(s.pendingLarge).toMatchObject({
+        copies: true,
+        free: null,
+        volume: 'Modern',
+      });
+      expect(s.pendingLarge!.bytes).toBeGreaterThanOrEqual(10_000_000_000);
+      expect(await b.jobHistory()).toEqual([]);
+    });
+
+    it('confirmApply resends once with the confirmed bytes', async () => {
+      await largeCopy();
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      const { bytes } = store().pendingLarge!;
+      const planId = store().planId;
+      const first = store().confirmApply(bytes);
+      // A second click while the first call answers sends nothing.
+      const second = store().confirmApply(bytes);
+      expect(store().pendingLarge).toBeNull();
+      await Promise.all([first, second]);
+      expect(apply).toHaveBeenCalledTimes(2);
+      expect(apply).toHaveBeenLastCalledWith(planId, [], bytes);
+      await waitFor(() => expect(store().status).toBe('done'));
+      expect(store().job?.state).toBe('done');
+    });
+
+    it('the first apply call shows as submitting until it answers', async () => {
+      await largeCopy();
+      const real = b.organizeApply.bind(b);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const apply = vi
+        .spyOn(b, 'organizeApply')
+        .mockImplementation(async (...args) => {
+          await gate;
+          return real(...args);
+        });
+      const pending = store().apply();
+      await waitFor(() => expect(store().submitting).toBe(true));
+      // A second click while it answers sends nothing.
+      await store().apply();
+      expect(apply).toHaveBeenCalledTimes(1);
+      release();
+      await pending;
+      expect(store().submitting).toBe(false);
+      expect(store().pendingLarge).not.toBeNull();
+    });
+
+    it('dismissLarge cancels without applying; a new plan drops the pending one', async () => {
+      await largeCopy();
+      const apply = vi.spyOn(b, 'organizeApply');
+      await store().apply();
+      store().dismissLarge();
+      expect(store().pendingLarge).toBeNull();
+      expect(store().status).toBe('ready');
+      await store().confirmApply(1);
+      expect(apply).toHaveBeenCalledTimes(1);
+      await store().apply();
+      expect(store().pendingLarge).not.toBeNull();
+      await store().setOption({ names: 'catalogue' });
+      expect(store().pendingLarge).toBeNull();
+    });
+
+    it('a plan that grew after the confirmation is asked again', async () => {
+      await largeCopy();
+      await store().apply();
+      const { bytes } = store().pendingLarge!;
+      await store().confirmApply(bytes - 1);
+      expect(store().status).toBe('ready');
+      expect(store().pendingLarge?.bytes).toBe(bytes);
+      expect(store().job).toBeNull();
+    });
   });
 });

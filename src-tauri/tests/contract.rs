@@ -736,6 +736,13 @@ fn organise_views_match_the_shared_sample() {
             IpcError::NoPlan,
             IpcError::LaterJobs("20261017T104500Z-1bfb-0001".into()),
             IpcError::NoSpace("8473027/1000".into()),
+            IpcError::LargeTransfer {
+                bytes: 187_420_000_000,
+                items: 3,
+                copies: true,
+                free: Some(412_100_000_000),
+                volume: "TinyExt".into(),
+            },
         ],
     });
     let expected: Value =

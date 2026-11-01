@@ -185,11 +185,12 @@ export function createTauriBackend(): Backend {
         }),
       ),
     organizeCancel: (planId) => call<void>('organize_cancel', { planId }),
-    organizeApply: async (planId, decisions) =>
+    organizeApply: async (planId, decisions, confirmedBytes) =>
       normalizeOrganizeJob(
         await call<OrganizeJobViewWire>('organize_apply', {
           planId,
           decisions,
+          confirmedBytes: confirmedBytes ?? null,
         }),
       ),
     organizeResume: async (job) =>

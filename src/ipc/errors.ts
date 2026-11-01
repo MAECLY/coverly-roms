@@ -1,5 +1,7 @@
 /** Backend failures: the Rust `IpcError` wire shape, localised by code. */
 
+import type { LargeTransferDetail } from './types';
+
 export const ERROR_CODES = [
   'not-found',
   'not-a-folder',
@@ -43,6 +45,7 @@ export const ERROR_CODES = [
   'no-dedupe-plan',
   'keeper-required',
   'quarantine-in-system-folder',
+  'large-transfer',
   'unknown',
 ] as const;
 
@@ -51,13 +54,32 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 export class BackendError extends Error {
   readonly code: ErrorCode;
   readonly detail: string | undefined;
+  /** `large-transfer` only: what the decided plan would write (spec D23). */
+  readonly largeTransfer: LargeTransferDetail | undefined;
 
-  constructor(code: ErrorCode, detail?: string) {
+  constructor(
+    code: ErrorCode,
+    detail?: string,
+    largeTransfer?: LargeTransferDetail,
+  ) {
     super(detail ? `${code}: ${detail}` : code);
     this.name = 'BackendError';
     this.code = code;
     this.detail = detail;
+    this.largeTransfer = largeTransfer;
   }
+}
+
+function isLargeTransfer(value: unknown): value is LargeTransferDetail {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.bytes === 'number' &&
+    typeof v.items === 'number' &&
+    typeof v.copies === 'boolean' &&
+    (v.free === null || typeof v.free === 'number') &&
+    typeof v.volume === 'string'
+  );
 }
 
 function isErrorCode(value: unknown): value is ErrorCode {
@@ -71,6 +93,22 @@ export function toBackendError(e: unknown): BackendError {
   if (e instanceof BackendError) return e;
   if (typeof e === 'object' && e !== null && 'code' in e) {
     const { code, detail } = e as { code: unknown; detail?: unknown };
+    if (code === 'large-transfer') {
+      // A struct variant: its numbers stay data for the dialog.
+      return new BackendError(
+        code,
+        undefined,
+        isLargeTransfer(detail)
+          ? {
+              bytes: detail.bytes,
+              items: detail.items,
+              copies: detail.copies,
+              free: detail.free,
+              volume: detail.volume,
+            }
+          : undefined,
+      );
+    }
     if (isErrorCode(code)) {
       return new BackendError(
         code,
