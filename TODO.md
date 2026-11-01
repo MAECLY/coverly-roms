@@ -29,7 +29,8 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
-7. [Fuentes de nombres y arte por title ID](#7-fuentes-de-nombres-y-arte-por-title-id)
+7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
+   - 7.1. [Fuentes de nombres y arte por title ID](#71-fuentes-de-nombres-y-arte-por-title-id)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -583,7 +584,27 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 
 - [ ] «Exportar para…»: generar desde la biblioteca la estructura completa de un frontend (carpetas de sistema, ROMs, medios, listas de juegos, lanzadores) en una carpeta o tarjeta de destino, con vista previa y deshacer. Es la base de la sincronización del bloque 4.
 
-## 7. Fuentes de nombres y arte por title ID
+## 7. Agradecimientos y créditos
+
+Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimientos»**, que dé crédito con claridad a todo lo que no es nuestro y que Coverly usa. Incluye fuentes de portadas, APIs, bases de datos, DAT, documentación técnica, bibliotecas, tipografías e iconos. Por ejemplo, hoy: libretro-thumbnails, SteamGridDB y ScreenScraper.
+
+> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 7.1) añade aquí su entrada al integrarse. El inventario completo de lo que se usa hoy, con licencias y textos de crédito obligatorios, se está preparando y se añadirá aquí.
+
+- [ ] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
+  - fuentes de portadas y metadatos;
+  - bases de datos y DAT;
+  - documentación y wikis técnicos;
+  - convenciones de frontends y firmwares;
+  - bibliotecas;
+  - tipografías e iconos.
+- [ ] Cada entrada lleva el nombre, para qué la usa Coverly en una línea, un enlace a su web o repo oficial, su licencia y el texto de crédito exacto cuando la licencia o los términos lo exijan.
+  - Nunca enlaces a ROMs, claves ni emuladores.
+- [ ] Una fuente única de datos (un archivo de créditos en el repo) que alimenta la pestaña, el README y la landing, para no repetir la lista.
+- [ ] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
+- [ ] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
+- [ ] Buscable desde el buscador de Ajustes, como el resto de secciones.
+
+## 7.1. Fuentes de nombres y arte por title ID
 
 > **Dependencias:** usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
 
