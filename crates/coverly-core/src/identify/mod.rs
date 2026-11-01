@@ -125,13 +125,13 @@ impl<'a> Identifier<'a> {
                 hash: None,
             });
         }
-        let parsed = names::parse_name(&rom.stem, strip_numbering);
+        let parsed = names::parse_name(rom.title_stem(), strip_numbering);
         let dats = dat::dat_sources(system);
         if system.arcade {
             // Arcade sets are never hashed: the short-name lookup is their
             // DAT identification.
             if self.opts.arcade_translation {
-                if let Some(desc) = self.dats.arcade_description(&dats, &rom.stem)? {
+                if let Some(desc) = self.dats.arcade_description(&dats, rom.title_stem())? {
                     return Ok(Identity {
                         parsed: names::parse_name(&desc, false),
                         canonical: Some(desc),

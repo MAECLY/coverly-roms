@@ -50,6 +50,29 @@ pub struct RomEntry {
     pub is_dir: bool,
 }
 
+impl RomEntry {
+    /// The game's name: `stem`, without the folder-game suffix a profile
+    /// keeps in a folder entry's media stem (ES-DE names the media of
+    /// `Game.ps3/` `Game.ps3`, but the game is still `Game`).
+    pub fn title_stem(&self) -> &str {
+        if !self.is_dir || self.ext.is_empty() {
+            return &self.stem;
+        }
+        let cut = self.stem.len().checked_sub(self.ext.len() + 1);
+        match cut {
+            Some(c)
+                if c > 0
+                    && self.stem.is_char_boundary(c)
+                    && self.stem[c..].starts_with('.')
+                    && self.stem[c + 1..].eq_ignore_ascii_case(&self.ext) =>
+            {
+                &self.stem[..c]
+            }
+            _ => &self.stem,
+        }
+    }
+}
+
 /// One child folder of the ROMs root.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemScan {

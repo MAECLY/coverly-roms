@@ -156,11 +156,11 @@ pub fn open_session(
                 system: index,
                 rel_path,
                 dir,
-                name: rom.stem.clone(),
+                name: rom.title_stem().to_string(),
                 ext: rom.ext.clone(),
                 size: rom.size,
                 mtime: unix_secs(rom.modified),
-                regions: parse_name(&rom.stem, false).regions,
+                regions: parse_name(rom.title_stem(), false).regions,
                 art: ArtMarks::from_states(&rom_art.art),
             });
             entries.push(SessionEntry {

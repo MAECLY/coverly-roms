@@ -1261,3 +1261,51 @@ mod library {
         );
     }
 }
+
+/// ES-DE keeps the folder suffix in the media stem, but the game's title
+/// is still the name without it: `Mario.gbdir/` is looked up as `Mario`.
+mod library_title {
+    use coverly_core::cache::Cache;
+    use coverly_core::identify::dat::DatStore;
+    use coverly_core::identify::{Identifier, IdentifyOptions};
+    use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+    use coverly_core::scan::{scan_library, ScanOptions};
+
+    use super::*;
+
+    #[test]
+    fn an_es_de_suffixed_folder_is_identified_by_its_name_without_the_suffix() {
+        let _g = ProbeGuard::new();
+        let lib = TempDir::new().unwrap();
+        put_tree(lib.path(), &[("ROMs/gb/Mario (USA).gbdir/data/c.gb", 100)]);
+        let mut profile = builtin_profiles()
+            .into_iter()
+            .find(|p| p.id == "esde")
+            .unwrap();
+        profile
+            .folder_game_suffix
+            .insert("gb".into(), ".gbdir".into());
+        let db = SystemDb::builtin();
+        let scan = scan_library(lib.path(), &profile, &db, &ScanOptions::default());
+        let gb = scan
+            .systems
+            .iter()
+            .find(|s| s.system_id.as_deref() == Some("gb"))
+            .unwrap();
+        let mario = &gb.roms[0];
+        assert_eq!(mario.stem, "Mario (USA).gbdir", "media stem keeps it");
+        assert_eq!(mario.title_stem(), "Mario (USA)");
+
+        let cfg = NetConfig {
+            retries: 0,
+            ..NetConfig::default()
+        };
+        let http = PoliteHttp::new(UreqHttp::new(&cfg), &cfg);
+        let cache = Cache::in_memory().unwrap();
+        let dats = DatStore::new(&http, &cache, "http://127.0.0.1:9");
+        let id = Identifier::new(&cache, &dats, IdentifyOptions::default());
+        let identity = id.identify(mario, db.get("gb").unwrap(), false).unwrap();
+        assert_eq!(identity.parsed.title, "Mario");
+        assert_eq!(identity.parsed.regions.len(), 1, "{:?}", identity.parsed);
+    }
+}
