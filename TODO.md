@@ -378,6 +378,16 @@ Primera lista, a completar con una investigación por emulador y plataforma (esc
 - [ ] Copia de seguridad versionada en la biblioteca: varias versiones por partida, con fecha y dispositivo de origen; restaurar una versión anterior.
 - [ ] Distinguir partidas (`.srm`, `.sav`, memorias) de estados (`.state`, savestates): los estados dependen de la versión del emulador y se tratan aparte.
 
+### 5.3.1 Partidas de demos
+
+Algunas demos generan partidas, y en varios sistemas la partida (o lo desbloqueado en ella) pasa al juego completo: demos de PS4/PS5 con progreso transferible, demos de Switch y de 3DS cuyo avance o objetos se heredan en el juego final, demos de Xbox con «continúa tu progreso». La demo es un juego aparte en la biblioteca (2.1), pero su partida es del mismo juego.
+
+- [ ] Detectar las partidas de una demo y asociarlas a la demo y, a la vez, al juego completo relacionado (mismo título sin `(Demo)`, o el title ID base cuando el sistema lo enlaza).
+- [ ] Guardarlas en la carpeta de la demo (`… (Demo)/Saves/`) y mostrarlas también en la ficha del juego completo como «Partida de la demo».
+- [ ] No mezclarlas nunca con las del juego completo: son archivos distintos aunque el emulador las lea desde la misma carpeta o con el mismo id.
+- [ ] Al borrar o apartar una demo (duplicados, Organizar), avisar si tiene partida y conservarla en la copia de seguridad.
+- [ ] Investigar por sistema qué demos dejan heredar la partida y cómo (mismo id de partida, archivo de transferencia, desbloqueo por cuenta en línea que no se puede copiar) y anotarlo junto a la tabla de 5.2.
+
 ### 5.4 Sincronizar partidas
 
 - [ ] Llevar y traer partidas con cada dispositivo (bloque 4), traduciendo la ruta y el nombre según el emulador de cada lado (p. ej. RetroArch `saves/` en la Anbernic ↔ junto a la ROM en la Ayaneo).
