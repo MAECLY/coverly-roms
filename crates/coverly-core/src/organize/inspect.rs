@@ -840,6 +840,26 @@ fn inspect_archive(
         out.entries.push(info);
     }
     let mut budget = Budget::plan_head(limits);
+    // A PS5 app archive is the game itself, taken as is (systems batch 3
+    // D13): its `param.json` names it, and nothing else is read.
+    if let Some((at, id)) = ps5_app_archive(reader.as_mut(), &entries, &mut budget) {
+        let e = &entries[at];
+        let mut sniff = Sniff::default();
+        sniff.hit(&id.system, id.confidence, id.detail.clone());
+        sniff.console = Some(id);
+        out.payloads.push(Payload {
+            name: entry_name(e),
+            ext: extension(Path::new(e.name.as_str())),
+            size: e.size,
+            crc32: e.crc32.map(|c| format!("{c:08X}")),
+            sniff,
+        });
+        out.decoded = budget.spent();
+        if reader.is_poisoned() {
+            out.damaged();
+        }
+        return Ok(());
+    }
     let is_disc = inspect_discs(reader.as_mut(), &entries, &mut budget, out);
     out.decoded = budget.spent();
     if is_disc? {
@@ -932,6 +952,50 @@ fn inspect_archive(
         out.damaged();
     }
     Ok(())
+}
+
+/// The `param.json` entry and console id of a PS5 app archive (systems
+/// batch 3 D13): a zip, 7z or rar holding `eboot.bin` and
+/// `sce_sys/param.json` at its root or under one top folder (names
+/// compared ignoring ASCII case, unsafe names never matched). The
+/// `param.json` entry is read through the archive layer (at most
+/// [`crate::consoles::MAX_META_FILE`] bytes, the plan head budget);
+/// `eboot.bin` only by name. The same shape with `param.sfo` (a PS4 app)
+/// is not one: shadPS4 reads no archive.
+fn ps5_app_archive(
+    reader: &mut dyn ArchiveReader,
+    entries: &[Entry],
+    budget: &mut Budget,
+) -> Option<(usize, crate::consoles::ConsoleId)> {
+    const PARAM: &str = "sce_sys/param.json";
+    let safe = |e: &&Entry| e.unsafe_name.is_none();
+    let (at, prefix) = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| safe(e))
+        .find_map(|(i, e)| {
+            let name = e.name.as_str();
+            let cut = name.len().checked_sub(PARAM.len())?;
+            if !name.is_char_boundary(cut) || !name[cut..].eq_ignore_ascii_case(PARAM) {
+                return None;
+            }
+            let prefix = &name[..cut];
+            // The root, or one top folder (`PPSA01284/`).
+            let one_top = prefix.is_empty()
+                || (prefix.ends_with('/') && !prefix[..prefix.len() - 1].contains('/'));
+            one_top.then_some((i, prefix))
+        })?;
+    let eboot = format!("{prefix}eboot.bin");
+    entries
+        .iter()
+        .filter(safe)
+        .find(|e| e.name.as_str().eq_ignore_ascii_case(&eboot))?;
+    let param = &entries[at];
+    if param.size > crate::consoles::MAX_META_FILE || param.encrypted {
+        return None;
+    }
+    let bytes = read_entry(reader, param.index, crate::consoles::MAX_META_FILE, budget).ok()?;
+    Some((at, crate::consoles::orbis::param_json(&bytes, true)?))
 }
 
 // --- Disc archives (archives spec §6.2) ---

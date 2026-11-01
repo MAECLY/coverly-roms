@@ -1,5 +1,6 @@
-//! PS3, PS Vita and PS4 (spec §8.4; systems batch 3 §8.1): JB, HDD/PSN
-//! and `sce_sys` app folders (Vita and PS4 through one probe), PS3 disc
+//! PS3, PS Vita, PS4 and PS5 (spec §8.4; systems batch 3 §8.1): JB,
+//! HDD/PSN and `sce_sys` app folders (Vita, PS4 and PS5 through one
+//! probe; the PS5 `param.json` is parsed in [`super::orbis`]), PS3 disc
 //! images, PKG packages (PS3 and Vita; PS4 CNT packages in
 //! [`super::orbis`]), VPK packages and the
 //! `.psvita`/`.psn`/`.ps4` launcher files of ES-DE and Batocera.
@@ -56,7 +57,7 @@ const LAUNCHER_MAX: usize = 64;
 
 /// A Sony title id as stored: nine ASCII letters and digits, upper-cased
 /// (`BLUS30443`, `PCSE00844`; homebrew uses any nine).
-fn title_id(raw: &str) -> Option<String> {
+pub(super) fn title_id(raw: &str) -> Option<String> {
     let t = raw.trim();
     (t.len() == 9 && t.bytes().all(|b| b.is_ascii_alphanumeric())).then(|| t.to_ascii_uppercase())
 }
@@ -246,10 +247,12 @@ fn cusa_in_name(name: &str) -> Option<String> {
 /// Every system a decrypted `sce_sys` app folder names (spec D5, D6):
 /// `sce_sys` among its names, a real directory listed **once**;
 /// `param.sfo` → PS4 or Vita by [`psf_systems`] (a contradiction names
-/// both, so `identify_dir` makes it a `DirConflict`). `eboot.bin` is
-/// never opened; `sce_sys/license.dat` and `sce_sys/package/work.bin`
-/// (licences) move with the folder and are never read. Art:
-/// `sce_sys/icon0.png`. The PS5 `param.json` branch joins in Task 6.
+/// both, so `identify_dir` makes it a `DirConflict`); `param.json` → PS5
+/// through [`super::orbis::param_json`] (Dlc without `eboot.bin` at the
+/// folder root); both files → both systems (a conflict). An invalid or
+/// oversized file names nothing. `eboot.bin` is never opened;
+/// `sce_sys/license.dat` and `sce_sys/package/work.bin` (licences) move
+/// with the folder and are never read. Art: `sce_sys/icon0.png`.
 ///
 /// PS4 fallbacks (D7): with no `CATEGORY`, a folder name ending
 /// `-UPDATE`/`-patch` makes an update; with no `TITLE_ID`, a folder name
@@ -262,7 +265,41 @@ pub fn sce_matches(l: &DirListing) -> Vec<FolderMatch> {
     let Some(names) = list_child(&l.dir.join(sys)) else {
         return Vec::new();
     };
-    let Some(sfo) = find(&names, "param.sfo") else {
+    let art = icon(l, Some(sys), &names, "icon0.png");
+    let mut out = psf_matches(l, sys, &names, art.as_ref());
+    out.extend(json_match(l, sys, &names, art.as_ref()));
+    out
+}
+
+/// The PS5 match of an `sce_sys` folder: its `param.json` (a regular
+/// file of at most [`MAX_META_FILE`] bytes, never a link).
+fn json_match(
+    l: &DirListing,
+    sys: &str,
+    names: &[String],
+    art: Option<&ArtLocator>,
+) -> Option<FolderMatch> {
+    let probe = PathBuf::from(sys).join(find(names, "param.json")?);
+    let path = l.dir.join(&probe);
+    let len = plain_file(&path, MAX_META_FILE)?;
+    let bytes = read_head(&path, len, MAX_META_FILE as usize)?;
+    let mut id = super::orbis::param_json(&bytes, find(l.names, "eboot.bin").is_some())?;
+    id.art.extend(art.cloned());
+    Some(FolderMatch {
+        id,
+        probe,
+        leave: None,
+    })
+}
+
+/// The PS4 or Vita matches of an `sce_sys` folder: its `param.sfo`.
+fn psf_matches(
+    l: &DirListing,
+    sys: &str,
+    names: &[String],
+    art: Option<&ArtLocator>,
+) -> Vec<FolderMatch> {
+    let Some(sfo) = find(names, "param.sfo") else {
         return Vec::new();
     };
     let probe = PathBuf::from(sys).join(sfo);
@@ -290,7 +327,6 @@ pub fn sce_matches(l: &DirListing) -> Vec<FolderMatch> {
         }
         s => s,
     };
-    let art = icon(l, Some(sys), &names, "icon0.png");
     systems
         .iter()
         .map(|&system| {
@@ -306,7 +342,7 @@ pub fn sce_matches(l: &DirListing) -> Vec<FolderMatch> {
                     id.kind = TitleKind::Update;
                 }
             }
-            id.art.extend(art.clone());
+            id.art.extend(art.cloned());
             FolderMatch {
                 id,
                 probe: probe.clone(),
@@ -1041,6 +1077,79 @@ mod tests {
             std::fs::remove_file(dir.join("sce_sys").join("license.dat")).unwrap();
             std::fs::create_dir(dir.join("sce_sys").join("license.dat")).unwrap();
             assert_eq!(probe(&dir, probe_sce_app).unwrap().id.system, "ps4");
+        }
+
+        #[test]
+        fn ps5_folder_by_param_json() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("PPSA01284");
+            testing::ps5_app(
+                &dir,
+                &testing::ps5_param_json("PPSA01284", "Returnal", true),
+                true,
+            );
+            super::super::super::wiiu::list_count::take();
+            let m = probe(&dir, probe_sce_app).unwrap();
+            assert_eq!(super::super::super::wiiu::list_count::take(), 1);
+            assert_eq!(m.probe, Path::new("sce_sys").join("param.json"));
+            assert_eq!(m.id.system, "ps5");
+            assert_eq!(
+                m.id.detail,
+                super::super::super::orbis::PARAM_JSON_PRO_DETAIL
+            );
+            assert_eq!(m.id.title_id.as_deref(), Some("PPSA01284"));
+            assert_eq!(m.id.title.as_deref(), Some("Returnal"));
+            assert_eq!(m.id.kind, TitleKind::Base);
+            assert_eq!(
+                m.id.art,
+                [ArtLocator::File {
+                    rel: Path::new("sce_sys").join("icon0.png"),
+                    format: ArtFormat::Png
+                }]
+            );
+            // Without `eboot.bin` at the root: DLC (D6).
+            let dlc = tmp.path().join("PPSA01284 DLC");
+            testing::ps5_app(
+                &dlc,
+                &testing::ps5_param_json("PPSA01284", "Returnal", false),
+                false,
+            );
+            assert_eq!(probe(&dlc, probe_sce_app).unwrap().id.kind, TitleKind::Dlc);
+        }
+
+        #[test]
+        fn param_sfo_and_param_json_conflict() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("CUSA00900");
+            testing::ps4_app(&dir, "CUSA00900", "gd", CID);
+            testing::put_file(
+                &dir,
+                "sce_sys/param.json",
+                &testing::ps5_param_json("PPSA01284", "Returnal", false),
+            );
+            let names = listing_of(&dir);
+            let l = DirListing {
+                dir: &dir,
+                names: &names,
+            };
+            assert_eq!(
+                super::super::super::identify_dir(&l),
+                Err(super::super::super::DirConflict {
+                    systems: vec!["ps4".into(), "ps5".into()]
+                })
+            );
+        }
+
+        #[test]
+        fn an_invalid_or_oversized_param_json_is_no_match() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("PPSA01284");
+            testing::ps5_app(&dir, b"{not json", true);
+            assert_eq!(probe(&dir, probe_sce_app), None);
+            let mut big = testing::ps5_param_json("PPSA01284", "Returnal", false);
+            big.resize(MAX_META_FILE as usize + 1, b' ');
+            testing::put_file(&dir, "sce_sys/param.json", &big);
+            assert_eq!(probe(&dir, probe_sce_app), None);
         }
 
         #[test]

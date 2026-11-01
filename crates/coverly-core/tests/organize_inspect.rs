@@ -1936,3 +1936,64 @@ fn a_xar_pkg_is_still_an_installer() {
     );
     assert!(header_hits(&i).is_empty());
 }
+
+#[test]
+fn a_ps5_app_archive_is_read_through_its_param_json() {
+    use coverly_core::consoles::testing::{ps4_sfo, ps5_param_json};
+    use coverly_core::consoles::{orbis, IdSource, TitleKind};
+    // Systems batch 3 D13: `eboot.bin` + `sce_sys/param.json` under one
+    // top folder; only the `param.json` entry is read.
+    let tmp = tempfile::tempdir().unwrap();
+    let app = tmp.path().join("PPSA01284.zip");
+    let param = ps5_param_json("PPSA01284", "Returnal", true);
+    zip_file(
+        &app,
+        &[
+            ("PPSA01284/EBOOT.BIN", &[0u8; 64], false),
+            ("PPSA01284/sce_sys/param.json", &param, true),
+        ],
+    );
+    let i = inspect(&app);
+    assert_eq!(i.container, Container::Zip);
+    assert_eq!(i.issue, None);
+    assert_eq!(i.payloads.len(), 1);
+    assert_eq!(header_hits(&i), [("ps5".to_string(), 0.95)]);
+    assert_eq!(i.payloads[0].name, "PPSA01284/sce_sys/param.json");
+    let c = i.payloads[0].sniff.console.as_ref().unwrap();
+    assert_eq!(c.detail, orbis::PARAM_JSON_PRO_DETAIL);
+    assert_eq!(c.title_id.as_deref(), Some("PPSA01284"));
+    assert_eq!(c.id_source, Some(IdSource::ParamJson));
+    assert_eq!(c.kind, TitleKind::Base);
+    assert!(i.decoded <= param.len() as u64, "{}", i.decoded);
+
+    // Without `eboot.bin`, or with an oversized `param.json`: not one.
+    let no_eboot = tmp.path().join("NoEboot.zip");
+    zip_file(&no_eboot, &[("sce_sys/param.json", &param, false)]);
+    assert!(header_hits(&inspect(&no_eboot)).is_empty());
+    let mut big = param.clone();
+    big.resize(64 * 1024 + 1, b' ');
+    let oversized = tmp.path().join("Big.zip");
+    zip_file(
+        &oversized,
+        &[
+            ("eboot.bin", &[0u8; 64], false),
+            ("sce_sys/param.json", &big, true),
+        ],
+    );
+    assert!(header_hits(&inspect(&oversized)).is_empty());
+
+    // The same shape holding a PS4 app keeps batch 2's behaviour: no
+    // header, no payload.
+    let ps4 = tmp.path().join("CUSA00900.zip");
+    let sfo = ps4_sfo("CUSA00900", "gd", "UP9000-CUSA00900_00-BLOODBORNE000000", 1);
+    zip_file(
+        &ps4,
+        &[
+            ("CUSA00900/eboot.bin", &[0u8; 64], false),
+            ("CUSA00900/sce_sys/param.sfo", &sfo, false),
+        ],
+    );
+    let i = inspect(&ps4);
+    assert!(header_hits(&i).is_empty());
+    assert!(i.payloads.is_empty(), "{:?}", i.payloads);
+}

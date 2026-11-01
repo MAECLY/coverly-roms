@@ -435,6 +435,7 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
         .or_else(|| ctr::identify(src, ext))
         .or_else(|| wiiu::identify(src, ext))
         .or_else(|| sony::identify(src, ext))
+        .or_else(|| orbis::identify(src, ext, name))
         .or_else(|| xbox::identify(src, ext))
 }
 

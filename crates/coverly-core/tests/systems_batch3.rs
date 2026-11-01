@@ -70,7 +70,21 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     // Task 5: a CNT package header names the PS4 (D9) under the weak
     // `.pkg` extension.
     ("ps4", "pkg", ps4_cnt_pkg, Some("ps4"), None),
+    // Task 6: a PS5 store package names the PS5 through its embedded CNT
+    // header (D10), and an `.ffpkg` its UFS2 superblock.
+    ("ps5", "pkg", ps5_fih_pkg, Some("ps5"), None),
+    ("ps5", "ffpkg", ps5_ufs2, Some("ps5"), None),
 ];
+
+/// A PS5 store package head (FIH, then CNT with a `PPSA` content id).
+fn ps5_fih_pkg() -> coverly_core::consoles::testing::SparseAt {
+    coverly_core::consoles::testing::fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", 0x1A)
+}
+
+/// An `.ffpkg` head with the UFS2 superblock magic.
+fn ps5_ufs2() -> coverly_core::consoles::testing::SparseAt {
+    coverly_core::consoles::testing::ufs2_image(true)
+}
 
 /// A PS4 CNT package head (content id `CUSA` title id, type GD).
 fn ps4_cnt_pkg() -> coverly_core::consoles::testing::SparseAt {
@@ -331,4 +345,18 @@ fn current_generation_files_are_name_only() {
             "{ext}"
         );
     }
+}
+
+/// D10: an exFAT image names the PS5 only with a `PPSA` token in its
+/// file name; the sniff sees the name.
+#[test]
+fn an_exfat_image_needs_a_ppsa_token() {
+    use coverly_core::identify::sniff::sniff_named;
+    let mut f = coverly_core::consoles::testing::exfat_image();
+    let len = f.len;
+    let s = sniff_named(&mut f, len, "exfat", "PPSA09519.exfat");
+    assert_eq!(best(&s.hits), Some("ps5"));
+    let mut f = coverly_core::consoles::testing::exfat_image();
+    let s = sniff_named(&mut f, len, "exfat", "backup.exfat");
+    assert_eq!(best(&s.hits), None);
 }

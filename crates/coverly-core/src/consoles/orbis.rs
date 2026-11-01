@@ -1,8 +1,11 @@
-//! PS4 and PS5 package and image headers (systems batch 3 D9, D10). Only
-//! the CNT header, the entry table (PS4, at most [`MAX_ENTRIES`] entries)
-//! and the plaintext `param.sfo` entry are read; the `icon0.png` entry is
-//! only located. Encrypted entries, the PFS body, licences and the PS5
-//! entry table are never read (D4).
+//! PS4 and PS5 package and image headers and the PS5 `param.json`
+//! (systems batch 3 D6, D9, D10). Only the CNT header, the entry table
+//! (PS4, at most [`MAX_ENTRIES`] entries) and the plaintext `param.sfo`
+//! entry are read; the `icon0.png` entry is only located. A PS5 store
+//! package gives its FIH header and the CNT header it points to, an exFAT
+//! image 11 bytes, an `.ffpkg` the 4 bytes of its UFS2 magic. Encrypted
+//! entries, the PFS body, licences and the PS5 entry table are never read
+//! (D4).
 //!
 //! Layout checked against LibOrbisPkg at `643477263b2644e0803e0f58b8726ea4e3f3b7d4`:
 //! `LibOrbisPkg/PKG/PkgReader.cs` (`ReadHeader`: big-endian, `entry_count`
@@ -177,6 +180,216 @@ fn plain_entry(b: &mut Budgeted, e: &Entry, max: u64) -> Option<Vec<u8>> {
         return None;
     }
     b.read(e.offset.into(), usize::try_from(e.size).ok()?).ok()
+}
+
+// ---------------------------------------------------------------------
+// PS5 (systems batch 3 D6, D10)
+// ---------------------------------------------------------------------
+
+/// The `detail` of a PS5 `param.json` verdict.
+pub const PARAM_JSON_DETAIL: &str = "sce_sys/param.json";
+/// The `detail` of a PS5 `param.json` verdict whose `attribute3` says
+/// the title is enhanced for the PS5 Pro; the plan notes it `ProEnhanced`
+/// (the flag rides on the fixed `detail` vocabulary, so [`ConsoleId`]
+/// gains no field for it).
+pub const PARAM_JSON_PRO_DETAIL: &str = "sce_sys/param.json, PS5 Pro";
+/// `attribute3` bit 22 (KytyPS5 `title_supports_trinity`).
+const TRINITY: i64 = 1 << 22;
+
+/// A PS5 `param.json` (at most [`MAX_META_FILE`] bytes, UTF-8, BOM
+/// stripped; the size is checked before parsing). Fields, as KytyPS5
+/// `src/loader/systemContent.cpp` at `893b0355` reads them: `titleId`,
+/// `contentId`, `contentVersion` else `appVersion`, `attribute3` (an
+/// integer only), `localizedParameters.defaultLanguage` and
+/// `<lang>.titleName` (the default language, else `en-US`, else the first
+/// language object). Kind: `originContentVersion` or
+/// `targetContentVersion` → Update; else Base with `eboot.bin` at the
+/// folder root and Dlc without (D6). `applicationCategoryType` is not
+/// used (sources disagree).
+pub fn param_json(bytes: &[u8], has_eboot: bool) -> Option<ConsoleId> {
+    use serde_json::Value;
+    if bytes.len() as u64 > MAX_META_FILE {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes)
+        .ok()?
+        .trim_start_matches('\u{feff}');
+    let v: Value = serde_json::from_str(text).ok()?;
+    let tid = v.get("titleId")?.as_str().and_then(sony::title_id)?;
+    let s = |k: &str| v.get(k).and_then(Value::as_str);
+    let pro = v
+        .get("attribute3")
+        .and_then(Value::as_i64)
+        .is_some_and(|a| a & TRINITY != 0);
+    let detail = if pro {
+        PARAM_JSON_PRO_DETAIL
+    } else {
+        PARAM_JSON_DETAIL
+    };
+    let mut id = ConsoleId::proven("ps5", detail);
+    id.id_source = Some(IdSource::ParamJson);
+    id.content_id = s("contentId").and_then(sony::content_id);
+    id.region = id
+        .content_id
+        .as_deref()
+        .and_then(super::region_from_content_id);
+    id.version = s("contentVersion")
+        .or_else(|| s("appVersion"))
+        .and_then(super::clean_title);
+    let langs = v.get("localizedParameters").and_then(Value::as_object);
+    id.title = langs
+        .and_then(|l| {
+            let name = |lang: &str| l.get(lang)?.get("titleName")?.as_str();
+            l.get("defaultLanguage")
+                .and_then(Value::as_str)
+                .and_then(name)
+                .or_else(|| name("en-US"))
+                .or_else(|| l.values().find_map(|o| o.get("titleName")?.as_str()))
+        })
+        .and_then(super::clean_title);
+    id.kind = if v.get("originContentVersion").is_some() || v.get("targetContentVersion").is_some()
+    {
+        TitleKind::Update
+    } else if has_eboot {
+        TitleKind::Base
+    } else {
+        TitleKind::Dlc
+    };
+    id.title_id = Some(tid);
+    Some(id)
+}
+
+/// `7F 46 49 48` («\x7FFIH»), the PS5 store package magic.
+pub const FIH_MAGIC: [u8; 4] = [0x7F, b'F', b'I', b'H'];
+/// The `detail` of a PS5 store package verdict; the plan notes it
+/// `NoEmulator`.
+pub const FIH_DETAIL: &str = "PS5 PKG header";
+/// The FIH header bytes read: the magic and the CNT offset at 0x58.
+const FIH_HEADER: usize = 0x60;
+const FIH_CNT_OFFSET: usize = 0x58;
+
+fn le64(h: &[u8], o: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(
+        h.get(o..o.checked_add(8)?)?.try_into().ok()?,
+    ))
+}
+
+/// A PS5 store package (D10): the FIH header (0x60 bytes), then the CNT
+/// header (0x80 bytes) at the little-endian u64 at FIH+0x58, which must
+/// start with [`CNT_MAGIC`]. Only the content id (CNT+0x40, its title id
+/// and region) and the content type (CNT+0x74, kinds as for the PS4) are
+/// read: the entry table and the `param.json` entry are never read (their
+/// ids are not verified, and they may be encrypted, D4).
+pub fn fih_pkg(b: &mut Budgeted) -> Option<ConsoleId> {
+    let h = b.read(0, FIH_HEADER).ok()?;
+    if h[..4] != FIH_MAGIC {
+        return None;
+    }
+    let at = le64(&h, FIH_CNT_OFFSET)?;
+    if at < FIH_HEADER as u64 || at.checked_add(CNT_HEADER as u64)? > b.len() {
+        return None;
+    }
+    let cnt = b.read(at, CNT_HEADER).ok()?;
+    if cnt[..4] != CNT_MAGIC {
+        return None;
+    }
+    let raw_cid = cnt.get(CONTENT_ID_AT..CONTENT_ID_AT + CONTENT_ID_LEN)?;
+    let mut id = ConsoleId::proven("ps5", FIH_DETAIL);
+    id.content_id = std::str::from_utf8(raw_cid).ok().and_then(sony::content_id);
+    id.title_id = std::str::from_utf8(&raw_cid[7..16])
+        .ok()
+        .filter(|t| sony::retail_id(t))
+        .map(str::to_ascii_uppercase);
+    id.id_source = id.title_id.as_ref().map(|_| IdSource::Header);
+    id.region = id
+        .content_id
+        .as_deref()
+        .and_then(super::region_from_content_id);
+    id.kind = match be32(&cnt, 0x74)? {
+        CT_GD => TitleKind::Base,
+        CT_DP => TitleKind::Update,
+        CT_AC | CT_AL => TitleKind::Dlc,
+        _ => TitleKind::Unknown,
+    };
+    Some(id)
+}
+
+/// The `detail` of a PS5 exFAT image verdict; the plan notes it
+/// `NoEmulator`.
+pub const EXFAT_DETAIL: &str = "exFAT image";
+/// The exFAT boot sector's file system name, at byte 3.
+const EXFAT_OEM: &[u8; 8] = b"EXFAT   ";
+
+/// A `PPSA` + five digits token in a file name (`PPSA09519.exfat`,
+/// `Game [PPSA09519].exfat`), not inside a longer word or number;
+/// upper-cased.
+fn ppsa_token(name: &str) -> Option<String> {
+    let b = name.as_bytes();
+    (0..b.len().saturating_sub(8)).find_map(|i| {
+        let t = b.get(i..i + 9)?;
+        let before = i.checked_sub(1).and_then(|j| b.get(j));
+        let after = b.get(i + 9);
+        (t[..4].eq_ignore_ascii_case(b"PPSA")
+            && t[4..].iter().all(u8::is_ascii_digit)
+            && before.is_none_or(|c| !c.is_ascii_alphanumeric())
+            && after.is_none_or(|c| !c.is_ascii_digit()))
+        .then(|| String::from_utf8_lossy(t).to_ascii_uppercase())
+    })
+}
+
+/// A PS5 exFAT image (D10; ps5upload `client/src/api/fpkg.ts` at
+/// `21f40fd1`): `.exfat`, the file system name `EXFAT   ` at byte 3 **and**
+/// a `PPSA` token in the file name, which gives the title id. Without the
+/// token nothing is said (the `ps5` folder still accepts the weak
+/// extension).
+pub fn exfat_ps5(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    if ext != "exfat" {
+        return None;
+    }
+    let tid = ppsa_token(name)?;
+    let h = b.read(0, 3 + EXFAT_OEM.len()).ok()?;
+    if &h[3..] != EXFAT_OEM {
+        return None;
+    }
+    let mut id = ConsoleId::magic("ps5", EXFAT_DETAIL);
+    id.title_id = Some(tid);
+    id.id_source = Some(IdSource::FileName);
+    Some(id)
+}
+
+/// The `detail` of a `.ffpkg` verdict whose UFS2 superblock checked out.
+pub const UFS2_DETAIL: &str = "UFS2 superblock";
+/// `SBLOCK_UFS2` (65536) + the offset of `fs_magic` in `struct fs`
+/// (0x55C), FreeBSD `sys/ufs/ffs/fs.h` at `661ca921e8cd`; the offset was
+/// computed with `offsetof` over that header's `struct fs` (1376 bytes).
+const UFS2_MAGIC_AT: u64 = 0x1_0000 + 0x55C;
+/// `FS_UFS2_MAGIC`, stored in the host's (little-endian) byte order.
+const UFS2_MAGIC: u32 = 0x1954_0119;
+
+/// Whether the file holds a UFS2 superblock (4 bytes at 0x1055C).
+pub fn ufs2(b: &mut Budgeted) -> bool {
+    b.read(UFS2_MAGIC_AT, 4)
+        .ok()
+        .and_then(|m| m.try_into().ok())
+        .is_some_and(|m: [u8; 4]| u32::from_le_bytes(m) == UFS2_MAGIC)
+}
+
+/// A PS5 file by its own header (D10): a store package (FIH) under any
+/// extension, an `.exfat` image with a `PPSA` name token, an `.ffpkg`
+/// whose UFS2 superblock checks out. `.ffpfs`/`.ffpfsc` are never read
+/// here (extension evidence only).
+pub fn identify(b: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
+    if b.len() < 8 {
+        return None;
+    }
+    if b.read(0, 4).ok()? == FIH_MAGIC {
+        return fih_pkg(b);
+    }
+    match ext {
+        "exfat" => exfat_ps5(b, ext, name),
+        "ffpkg" if ufs2(b) => Some(ConsoleId::proven("ps5", UFS2_DETAIL)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -396,5 +609,238 @@ mod tests {
         let (id, used) = run(&mut f);
         assert_eq!(id.unwrap().id_source, Some(IdSource::ParamSfo));
         assert!(used.seeks <= 3, "{used:?}");
+    }
+
+    // --- PS5 (D6, D10) ---
+
+    fn json(v: serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&v).unwrap()
+    }
+
+    #[test]
+    fn param_json_fields() {
+        let id = param_json(
+            &testing::ps5_param_json("PPSA01284", "Returnal", false),
+            true,
+        )
+        .unwrap();
+        assert_eq!((id.system.as_str(), id.confidence), ("ps5", 0.95));
+        assert_eq!(id.detail, PARAM_JSON_DETAIL);
+        assert_eq!(id.title_id.as_deref(), Some("PPSA01284"));
+        assert_eq!(id.id_source, Some(IdSource::ParamJson));
+        assert_eq!(
+            id.content_id.as_deref(),
+            Some("UP9000-PPSA01284_00-SAMPLEGAME000000")
+        );
+        assert_eq!(id.region, Some(Region::Usa));
+        assert_eq!(id.version.as_deref(), Some("01.000.000"));
+        assert_eq!(id.title.as_deref(), Some("Returnal"));
+        assert_eq!(id.kind, TitleKind::Base);
+        // `appVersion` when there is no `contentVersion`; a bad content
+        // id is dropped.
+        let id = param_json(
+            &json(serde_json::json!({
+                "titleId": "ppsa01284", "appVersion": "01.002", "contentId": "short"
+            })),
+            true,
+        )
+        .unwrap();
+        assert_eq!(id.title_id.as_deref(), Some("PPSA01284"));
+        assert_eq!(id.version.as_deref(), Some("01.002"));
+        assert_eq!((id.content_id, id.region, id.title), (None, None, None));
+        // No title id: not a PS5 verdict.
+        assert_eq!(
+            param_json(&json(serde_json::json!({"contentVersion": "1"})), true),
+            None
+        );
+    }
+
+    #[test]
+    fn param_json_title_by_language() {
+        let names = |l: serde_json::Value| {
+            param_json(
+                &json(serde_json::json!({"titleId": "PPSA01284", "localizedParameters": l})),
+                true,
+            )
+            .unwrap()
+            .title
+        };
+        let default = names(serde_json::json!({
+            "defaultLanguage": "ja-JP",
+            "en-US": {"titleName": "English"},
+            "ja-JP": {"titleName": "Japanese"},
+        }));
+        assert_eq!(default.as_deref(), Some("Japanese"));
+        let en = names(serde_json::json!({
+            "defaultLanguage": "fr-FR",
+            "de-DE": {"titleName": "German"},
+            "en-US": {"titleName": "English"},
+        }));
+        assert_eq!(en.as_deref(), Some("English"));
+        let first = names(serde_json::json!({"de-DE": {"titleName": "German"}}));
+        assert_eq!(first.as_deref(), Some("German"));
+    }
+
+    #[test]
+    fn param_json_bom_invalid_and_oversize() {
+        let mut bom = "\u{feff}".as_bytes().to_vec();
+        bom.extend(testing::ps5_param_json("PPSA01284", "Returnal", false));
+        assert!(param_json(&bom, true).is_some());
+        assert_eq!(param_json(b"{\"titleId\": \"PPSA01284\"", true), None);
+        assert_eq!(param_json(&[0xFF, 0xFE, b'{', 0], true), None);
+        let mut big = testing::ps5_param_json("PPSA01284", "Returnal", false);
+        big.truncate(big.len() - 1);
+        big.resize(MAX_META_FILE as usize, b' ');
+        big.push(b'}');
+        assert_eq!(big.len() as u64, MAX_META_FILE + 1);
+        assert_eq!(param_json(&big, true), None);
+        big.retain(|&c| c != b' ');
+        assert!(param_json(&big, true).is_some());
+    }
+
+    #[test]
+    fn param_json_pro_kinds() {
+        let pro = param_json(&testing::ps5_param_json("PPSA01284", "R", true), true).unwrap();
+        assert_eq!(pro.detail, PARAM_JSON_PRO_DETAIL);
+        let text = param_json(
+            &json(serde_json::json!({"titleId": "PPSA01284", "attribute3": "4194304"})),
+            true,
+        )
+        .unwrap();
+        assert_eq!(text.detail, PARAM_JSON_DETAIL);
+        let patch = param_json(
+            &json(serde_json::json!({
+                "titleId": "PPSA01284", "targetContentVersion": "01.001.000"
+            })),
+            true,
+        )
+        .unwrap();
+        assert_eq!(patch.kind, TitleKind::Update);
+        let origin = param_json(
+            &json(serde_json::json!({
+                "titleId": "PPSA01284", "originContentVersion": "01.000.000"
+            })),
+            false,
+        )
+        .unwrap();
+        assert_eq!(origin.kind, TitleKind::Update);
+        let dlc = param_json(&testing::ps5_param_json("PPSA01284", "R", false), false).unwrap();
+        assert_eq!(dlc.kind, TitleKind::Dlc);
+    }
+
+    fn run_fih(f: &mut SparseAt) -> (Option<ConsoleId>, Used) {
+        let len = f.len;
+        let mut b = Budgeted::new(f, len);
+        let id = fih_pkg(&mut b);
+        (id, b.used())
+    }
+
+    #[test]
+    fn fih_pkg_reads_the_cnt_content_id_and_type() {
+        let mut f = testing::fih_pkg("EP9000-PPSA01284_00-SAMPLEGAME000000", CT_GD);
+        let (id, used) = run_fih(&mut f);
+        let id = id.unwrap();
+        assert_eq!((id.system.as_str(), id.confidence), ("ps5", 0.95));
+        assert_eq!(id.detail, FIH_DETAIL);
+        assert_eq!(id.title_id.as_deref(), Some("PPSA01284"));
+        assert_eq!(id.id_source, Some(IdSource::Header));
+        assert_eq!(id.region, Some(Region::Europe));
+        assert_eq!(id.kind, TitleKind::Base);
+        assert_eq!(used.read, (FIH_HEADER + CNT_HEADER) as u64);
+        let mut f = testing::fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", CT_AC);
+        assert_eq!(run_fih(&mut f).0.unwrap().kind, TitleKind::Dlc);
+    }
+
+    #[test]
+    fn fih_entry_table_is_never_read() {
+        let mut f = testing::fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", CT_GD);
+        let table = f.entry_range(0);
+        let len = f.len;
+        let mut log = RangeLog::new(&mut f);
+        {
+            let mut b = Budgeted::new(&mut log, len);
+            assert!(identify(&mut b, "pkg", "x.pkg").is_some());
+        }
+        assert!(!log.touched(table.start, table.end - table.start));
+        let cnt = testing::FIH_CNT;
+        for &(o, n) in &log.ranges {
+            let end = o + n as u64;
+            assert!(
+                end <= FIH_HEADER as u64 || (o >= cnt && end <= cnt + CNT_HEADER as u64),
+                "{:?}",
+                log.ranges
+            );
+        }
+    }
+
+    #[test]
+    fn a_cnt_offset_past_the_end_is_no_verdict() {
+        for at in [0xFFFF_FFFF_FFFF_FFF0u64, 0x10_0000 - 0x40, 0x10] {
+            let mut f = testing::fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", CT_GD);
+            f.put(0x58, &at.to_le_bytes());
+            assert_eq!(run_fih(&mut f).0, None, "{at:#x}");
+        }
+        // The CNT magic must be there.
+        let mut f = testing::fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", CT_GD);
+        f.put(testing::FIH_CNT, b"XXXX");
+        assert_eq!(run_fih(&mut f).0, None);
+    }
+
+    #[test]
+    fn ufs2_superblock_magic() {
+        for (magic, want) in [(true, true), (false, false)] {
+            let mut f = testing::ufs2_image(magic);
+            let len = f.len;
+            let mut b = Budgeted::new(&mut f, len);
+            assert_eq!(ufs2(&mut b), want);
+            assert_eq!(b.used().read, 4);
+        }
+        let mut f = testing::ufs2_image(true);
+        let len = f.len;
+        let mut b = Budgeted::new(&mut f, len);
+        let id = identify(&mut b, "ffpkg", "game.ffpkg").unwrap();
+        assert_eq!(
+            (id.system.as_str(), id.detail.as_str()),
+            ("ps5", UFS2_DETAIL)
+        );
+        // A short file has no superblock.
+        let mut tiny = SparseAt::new(0x1000);
+        let mut b = Budgeted::new(&mut tiny, 0x1000);
+        assert!(!ufs2(&mut b));
+    }
+
+    #[test]
+    fn exfat_needs_the_oem_name_and_a_ppsa_token() {
+        let check = |name: &str| {
+            let mut f = testing::exfat_image();
+            let len = f.len;
+            let mut b = Budgeted::new(&mut f, len);
+            identify(&mut b, "exfat", name)
+        };
+        let id = check("PPSA09519.exfat").unwrap();
+        assert_eq!((id.system.as_str(), id.confidence), ("ps5", 0.90));
+        assert_eq!(id.detail, EXFAT_DETAIL);
+        assert_eq!(id.title_id.as_deref(), Some("PPSA09519"));
+        assert_eq!(id.id_source, Some(IdSource::FileName));
+        assert_eq!(
+            check("Game [ppsa09519] v1.exfat")
+                .unwrap()
+                .title_id
+                .as_deref(),
+            Some("PPSA09519")
+        );
+        for name in [
+            "game.exfat",
+            "XPPSA09519.exfat",
+            "PPSA095190.exfat",
+            "PPSA0951.exfat",
+        ] {
+            assert_eq!(check(name), None, "{name}");
+        }
+        // Without the file system name, even a token says nothing.
+        let mut f = SparseAt::new(0x1_0000);
+        f.put(3, b"NTFS    ");
+        let mut b = Budgeted::new(&mut f, 0x1_0000);
+        assert_eq!(exfat_ps5(&mut b, "exfat", "PPSA09519.exfat"), None);
     }
 }

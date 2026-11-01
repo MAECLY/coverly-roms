@@ -1227,6 +1227,32 @@ pub fn identify_candidate(
     {
         id.notes.push(ItemNote::ExtractFirst);
     }
+    // PS5 files no emulator opens as they are (systems batch 3 D10): the
+    // store PKG, exFAT images and the console-side PFS images. They still
+    // go to `ps5/`; the note says they will not run. A PS5 `param.json`
+    // enhanced for the PS5 Pro is noted too (D6).
+    if combined.system.as_deref() == Some("ps5") {
+        use crate::consoles::orbis;
+        let ps5_detail = |p: &crate::organize::inspect::Payload, details: &[&str]| {
+            p.sniff
+                .console
+                .as_ref()
+                .is_some_and(|c| c.system == "ps5" && details.contains(&c.detail.as_str()))
+        };
+        if insp.payloads.iter().any(|p| {
+            matches!(p.ext.as_str(), "ffpfs" | "ffpfsc" | "exfat")
+                || ps5_detail(p, &[orbis::FIH_DETAIL, orbis::EXFAT_DETAIL])
+        }) {
+            id.notes.push(ItemNote::NoEmulator);
+        }
+        if insp
+            .payloads
+            .iter()
+            .any(|p| ps5_detail(p, &[orbis::PARAM_JSON_PRO_DETAIL]))
+        {
+            id.notes.push(ItemNote::ProEnhanced);
+        }
+    }
     id.combined = combined;
     id
 }

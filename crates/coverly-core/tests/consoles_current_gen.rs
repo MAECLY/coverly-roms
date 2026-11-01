@@ -11,12 +11,13 @@ use std::time::SystemTime;
 
 use coverly_core::cache::Cache;
 use coverly_core::consoles::testing::{
-    cnt_pkg, param_sfo_with, pkg, ps4_app, ps4_sfo, put_file, vita_app,
+    cnt_pkg, exfat_image, fih_pkg, param_sfo_with, pkg, ps4_app, ps4_sfo, ps5_app, ps5_param_json,
+    put_file, ufs2_image, vita_app,
 };
 use coverly_core::consoles::{start_open_log, take_open_log, IdSource};
 use coverly_core::organize::{
     plan_organize, ItemKind, ItemNote, MetaProbe, OrganizeAction, OrganizeEnv, OrganizeItem,
-    OrganizeOptions, OrganizePlan,
+    OrganizeOptions, OrganizePlan, Transfer,
 };
 use coverly_core::profiles::{builtin_profiles, Profile};
 use coverly_core::systems::SystemDb;
@@ -362,4 +363,219 @@ fn a_ps4_pkg_header_gives_the_region() {
         (con.system.as_str(), con.region),
         ("ps4", Some(Region::Europe))
     );
+}
+
+/// Spec D6: a PS5 app folder is one item in `ps5/`, Pro-enhanced by its
+/// `attribute3`; ES-DE has no PS5 folder on the device. A folder of the
+/// same title id without `eboot.bin` is its DLC, listed after it.
+#[test]
+fn a_ps5_app_folder_and_its_dlc() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    ps5_app(
+        &pile.path().join("PPSA01284"),
+        &ps5_param_json("PPSA01284", "Returnal", true),
+        true,
+    );
+    ps5_app(
+        &pile.path().join("PPSA01284 DLC"),
+        &ps5_param_json("PPSA01284", "Returnal Soundtrack", false),
+        false,
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 2, "{:#?}", p.items);
+    let base = &p.items[0];
+    assert_eq!(base.sources, [PathBuf::from("PPSA01284")]);
+    assert_eq!(base.kind, ItemKind::Folder);
+    assert_eq!(base.system_id.as_deref(), Some("ps5"));
+    assert_eq!(base.action, OrganizeAction::Auto);
+    assert_eq!(placed(base), ("ps5".to_string(), "PPSA01284".to_string()));
+    let tid = base.title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("PPSA01284", IdSource::ParamJson)
+    );
+    assert_eq!(
+        base.content_id.as_deref(),
+        Some("UP9000-PPSA01284_00-SAMPLEGAME000000")
+    );
+    assert!(
+        base.notes.contains(&ItemNote::ProEnhanced),
+        "{:?}",
+        base.notes
+    );
+    assert!(
+        base.notes
+            .iter()
+            .any(|n| matches!(n, ItemNote::NoFolderOnDevice { .. })),
+        "{:?}",
+        base.notes
+    );
+    assert!(!base.notes.contains(&ItemNote::NoEmulator));
+
+    let dlc = &p.items[1];
+    assert_eq!(dlc.sources, [PathBuf::from("PPSA01284 DLC")]);
+    assert_eq!(dlc.system_id.as_deref(), Some("ps5"));
+    assert_eq!(dlc.action, OrganizeAction::Auto);
+    assert!(
+        dlc.notes.contains(&ItemNote::Dlc {
+            of: "Returnal".into()
+        }),
+        "{:?}",
+        dlc.notes
+    );
+    assert!(!dlc.notes.contains(&ItemNote::ProEnhanced));
+}
+
+/// Spec D10: the PS5 files go to `ps5/`; the store PKG, the exFAT image
+/// and the PFS images carry `NoEmulator`, a UFS2 `.ffpkg` plays.
+#[test]
+fn ps5_files_and_the_no_emulator_note() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let store = "UP9000-PPSA01284_00-SAMPLEGAME000000.pkg";
+    put_file(
+        pile.path(),
+        store,
+        &fih_pkg("UP9000-PPSA01284_00-SAMPLEGAME000000", 0x1A).bytes(),
+    );
+    put_file(pile.path(), "PPSA09519.exfat", &exfat_image().bytes());
+    put_file(pile.path(), "game.ffpkg", &ufs2_image(true).bytes());
+    put_file(pile.path(), "x.ffpfs", &[0xE7u8; 4096]);
+    put_file(pile.path(), "y.ffpfsc", &[0xE8u8; 4096]);
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    for (name, no_emulator) in [
+        (store, true),
+        ("PPSA09519.exfat", true),
+        ("game.ffpkg", false),
+        ("x.ffpfs", true),
+        ("y.ffpfsc", true),
+    ] {
+        let item = by(name);
+        assert_eq!(item.system_id.as_deref(), Some("ps5"), "{name}");
+        assert_eq!(item.action, OrganizeAction::Auto, "{name}");
+        assert_eq!(
+            placed(item),
+            ("ps5".to_string(), name.to_string()),
+            "{name}"
+        );
+        assert_eq!(
+            item.notes.contains(&ItemNote::NoEmulator),
+            no_emulator,
+            "{name}: {:?}",
+            item.notes
+        );
+        assert!(!item.notes.contains(&ItemNote::ExtractFirst), "{name}");
+    }
+    let tid = by(store).title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("PPSA01284", IdSource::Header)
+    );
+    let tid = by("PPSA09519.exfat").title_id.as_ref().expect("a title id");
+    assert_eq!(
+        (tid.id.as_str(), tid.source),
+        ("PPSA09519", IdSource::FileName)
+    );
+    assert!(by("game.ffpkg")
+        .why
+        .iter()
+        .any(|e| e.detail == coverly_core::consoles::orbis::UFS2_DETAIL));
+}
+
+/// Writes a zip at `path` holding `files` (`(name, bytes)`).
+fn zip_of(path: &Path, files: &[(&str, &[u8])]) {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    for (name, bytes) in files {
+        zip.start_file(*name, opts).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap();
+    coverly_core::dedupe::testing::pin_mtime(path, 1);
+}
+
+/// Spec D13: a zip of a PS5 app folder is a `ps5` item taken as is; the
+/// same shape holding a PS4 app is unchanged from batch 2 (not a PS4
+/// item).
+#[test]
+fn a_ps5_app_archive_is_taken_as_is() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let param = ps5_param_json("PPSA01284", "Returnal", false);
+    let other = ps5_param_json("PPSA02000", "Other Game", false);
+    zip_of(
+        &pile.path().join("PPSA01284.zip"),
+        &[
+            ("PPSA01284/eboot.bin", &[0u8; 64]),
+            ("PPSA01284/sce_sys/param.json", &param),
+            ("PPSA01284/sce_sys/icon0.png", &[0x89, b'P', b'N', b'G']),
+        ],
+    );
+    zip_of(
+        &pile.path().join("Root.zip"),
+        &[("eboot.bin", &[0u8; 64]), ("sce_sys/param.json", &other)],
+    );
+    let sfo = ps4_sfo("CUSA00900", "gd", BLOODBORNE, 1);
+    zip_of(
+        &pile.path().join("CUSA00900.zip"),
+        &[
+            ("CUSA00900/eboot.bin", &[0u8; 64]),
+            ("CUSA00900/sce_sys/param.sfo", &sfo),
+        ],
+    );
+    // Two folders deep is not an app archive.
+    zip_of(
+        &pile.path().join("Deep.zip"),
+        &[
+            ("a/PPSA01284/eboot.bin", &[0u8; 64]),
+            ("a/PPSA01284/sce_sys/param.json", &param),
+        ],
+    );
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let by = |name: &str| {
+        p.items
+            .iter()
+            .find(|i| i.sources[0] == Path::new(name))
+            .unwrap_or_else(|| panic!("{name}: {:#?}", p.items))
+    };
+    for (name, want) in [("PPSA01284.zip", "PPSA01284"), ("Root.zip", "PPSA02000")] {
+        let item = by(name);
+        assert_eq!(item.kind, ItemKind::Archive, "{name}");
+        assert_eq!(item.system_id.as_deref(), Some("ps5"), "{name}");
+        assert_eq!(item.action, OrganizeAction::Auto, "{name}");
+        assert_eq!(item.transfer, Transfer::AsIs, "{name}");
+        assert_eq!(
+            placed(item),
+            ("ps5".to_string(), name.to_string()),
+            "{name}"
+        );
+        let tid = item.title_id.as_ref().expect("a title id");
+        assert_eq!((tid.id.as_str(), tid.source), (want, IdSource::ParamJson));
+    }
+    for name in ["CUSA00900.zip", "Deep.zip"] {
+        let item = by(name);
+        // Batch 2: no ROM inside, so the archive is left unknown.
+        assert_eq!(item.system_id, None, "{name}");
+        assert_eq!(
+            item.action,
+            OrganizeAction::Left {
+                reason: coverly_core::organize::LeftReason::Unknown
+            },
+            "{name}"
+        );
+    }
 }

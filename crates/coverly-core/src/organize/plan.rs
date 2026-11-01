@@ -1447,6 +1447,15 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                  tree: TreeSummary,
                  combined: Combined,
                  console: Option<crate::consoles::ConsoleId>| {
+        // A PS5 app folder enhanced for the PS5 Pro (systems batch 3 D6):
+        // the flag rides on the probe's fixed `detail`.
+        let notes = console
+            .as_ref()
+            .filter(|c| {
+                c.system == "ps5" && c.detail == crate::consoles::orbis::PARAM_JSON_PRO_DETAIL
+            })
+            .map(|_| vec![ItemNote::ProEnhanced])
+            .unwrap_or_default();
         let left = if tree.symlink {
             Some(LeftReason::Symlink)
         } else if tree.partial {
@@ -1474,7 +1483,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                 catalogue_name: None,
                 content_key: None,
                 rom_count: 1,
-                notes: Vec::new(),
+                notes,
                 disc: None,
             }),
             inspection: None,

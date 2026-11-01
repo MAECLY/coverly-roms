@@ -1151,6 +1151,91 @@ pub fn cnt_pkg(
     s
 }
 
+/// A PS5 `param.json` (KytyPS5 `systemContent.cpp` field names):
+/// `titleId`, `contentId` (`UP9000-<tid>_00-SAMPLEGAME000000`),
+/// `contentVersion`, `attribute3` (bit 22 with `pro`) and an `en-US`
+/// `titleName` under `localizedParameters` (default language `en-US`).
+pub fn ps5_param_json(title_id: &str, title: &str, pro: bool) -> Vec<u8> {
+    let attribute3: i64 = if pro { 1 << 22 } else { 0 };
+    serde_json::to_vec_pretty(&serde_json::json!({
+        "titleId": title_id,
+        "contentId": format!("UP9000-{title_id}_00-SAMPLEGAME000000"),
+        "contentVersion": "01.000.000",
+        "attribute3": attribute3,
+        "localizedParameters": {
+            "defaultLanguage": "en-US",
+            "en-US": { "titleName": title },
+        },
+    }))
+    .expect("param.json fixture")
+}
+
+/// A decrypted PS5 app folder: `eboot.bin` (never opened) when `eboot`,
+/// `sce_sys/param.json` = `param`, `sce_sys/icon0.png` and the licence
+/// `sce_sys/license.dat`; mtimes pinned.
+pub fn ps5_app(dir: &std::path::Path, param: &[u8], eboot: bool) {
+    let mut files = vec![
+        ("sce_sys/param.json", param.to_vec()),
+        ("sce_sys/icon0.png", png_8x8()),
+        ("sce_sys/license.dat", vec![0x4C; 8]),
+    ];
+    if eboot {
+        files.insert(0, ("eboot.bin", vec![0u8; 64]));
+    }
+    write_tree(dir, &files);
+}
+
+/// Where [`fih_pkg`] puts the CNT header (the LE u64 at 0x58).
+pub const FIH_CNT: u64 = 0x1000;
+
+/// A PS5 store package head: magic `7F 46 49 48`, the CNT offset
+/// ([`FIH_CNT`]) as a little-endian u64 at 0x58, and there a CNT header
+/// (content id at +0x40, content type at +0x74) followed by bytes where
+/// an entry table would be (recorded as entry 0 of [`SparseAt::entries`]:
+/// never read).
+pub fn fih_pkg(content_id: &str, ctype: u32) -> SparseAt {
+    let mut fih = vec![0u8; 0x60];
+    fih[..4].copy_from_slice(&[0x7F, b'F', b'I', b'H']);
+    fih[0x58..0x60].copy_from_slice(&FIH_CNT.to_le_bytes());
+    let mut cnt = vec![0u8; 0x80];
+    cnt[..4].copy_from_slice(&[0x7F, b'C', b'N', b'T']);
+    cnt[0x10..0x14].copy_from_slice(&4u32.to_be_bytes());
+    cnt[0x18..0x1C].copy_from_slice(&0x2A80u32.to_be_bytes());
+    let cid = content_id.as_bytes();
+    let n = cid.len().min(0x30);
+    cnt[0x40..0x40 + n].copy_from_slice(&cid[..n]);
+    cnt[0x74..0x78].copy_from_slice(&ctype.to_be_bytes());
+    let table = FIH_CNT + 0x2A80;
+    let mut s = SparseAt::new(0x10_0000);
+    s.put(0, &fih)
+        .put(FIH_CNT, &cnt)
+        .put(table, &[0x10; 4 * 32])
+        .put(0x8_0000, &[0xE7; 0x400]);
+    s.entries.push(table..table + 4 * 32);
+    s
+}
+
+/// A `.ffpkg` head: the UFS2 superblock magic `0x19540119` (little-endian)
+/// at 0x10000 + 0x55C (FreeBSD `fs.h`), or none.
+pub fn ufs2_image(magic: bool) -> SparseAt {
+    let mut s = SparseAt::new(0x2_0000);
+    s.put(0, &[0u8; 16]);
+    if magic {
+        s.put(0x1_055C, &0x1954_0119u32.to_le_bytes());
+    }
+    s
+}
+
+/// An exFAT boot sector head: jump `EB 76 90`, the file system name
+/// `EXFAT   ` at byte 3 and the `55 AA` signature at 510.
+pub fn exfat_image() -> SparseAt {
+    let mut s = SparseAt::new(0x1_0000);
+    s.put(0, &[0xEB, 0x76, 0x90])
+        .put(3, b"EXFAT   ")
+        .put(510, &[0x55, 0xAA]);
+    s
+}
+
 /// A VPK at `path`: a zip with `eboot.bin`, `sce_sys/param.sfo` and
 /// `sce_sys/icon0.png`.
 pub fn vpk(path: &std::path::Path, title_id: &str) {
