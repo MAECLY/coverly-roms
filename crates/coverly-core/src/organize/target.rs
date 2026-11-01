@@ -387,8 +387,15 @@ fn match_companions(
     let mut left = Vec::new();
     let mut by_stem: HashMap<(PathBuf, String), Vec<usize>> = HashMap::new();
     let mut sources: HashSet<&Path> = HashSet::new();
+    // Every `.wbfs` of the pile by stem, moving or not: a split part with
+    // none is an incomplete set, one whose image stays stays with it.
+    let mut wbfs_stems: HashSet<(PathBuf, String)> = HashSet::new();
     for (pos, item) in items.iter().enumerate() {
         sources.extend(item.sources.iter().map(PathBuf::as_path));
+        if let Some(primary) = item.sources.first().filter(|p| is_wbfs(p)) {
+            let name = file_name(primary);
+            wbfs_stems.insert((parent(primary), name_key(split_name(&name).0)));
+        }
         let (Some(_), Some(primary)) = (&dirs[pos], item.sources.first()) else {
             continue;
         };
@@ -412,6 +419,35 @@ fn match_companions(
         }
         let name = file_name(&rel);
         let folder = parent(&rel);
+        // A split WBFS part follows its `.wbfs` only, whatever the
+        // companion setting says (systems batch 2 §12).
+        let (stem, ext) = split_name(&name);
+        if let Some(ext) = ext.filter(|e| is_wbfs_part(e)) {
+            let key = (folder.clone(), name_key(stem));
+            if !wbfs_stems.contains(&key) {
+                left.push((
+                    given.clone(),
+                    LeftReason::SetIncomplete {
+                        missing: vec![format!("{stem}.wbfs")],
+                    },
+                ));
+                continue;
+            }
+            let image = by_stem.get(&key).and_then(|matches| {
+                matches
+                    .iter()
+                    .copied()
+                    .find(|&pos| items[pos].sources.first().is_some_and(|p| is_wbfs(p)))
+            });
+            if let Some(pos) = image {
+                attached[pos].push(Comp {
+                    rel,
+                    ext: ext.to_string(),
+                    file_name: name.clone(),
+                });
+            }
+            continue;
+        }
         // `Game.sav`, but also `Game.state.auto`: the stem may end at any
         // dot, the last one first.
         let found = name
@@ -503,8 +539,13 @@ pub(crate) fn attach_set_aside_companions(
                 .map(|(i, _)| i)
                 .filter(|&i| i > 0 && i + 1 < name.len())
                 .any(|i| {
+                    let ext = &name[i + 1..];
                     name_key(&name[..i]) == key.1
-                        && companion_ext_matches(companion_exts, &name[i + 1..])
+                        && if is_wbfs_part(ext) {
+                            is_wbfs(primary)
+                        } else {
+                            companion_ext_matches(companion_exts, ext)
+                        }
                 });
             if matches {
                 found.push(Companion {
@@ -518,6 +559,19 @@ pub(crate) fn attach_set_aside_companions(
             item.companions.push(c);
         }
     }
+}
+
+/// `wbf1`…`wbf3`: the parts a WBFS tool splits a 4 GiB image into for
+/// FAT32 (libwbfs `wbfs_split`), any case.
+pub(crate) fn is_wbfs_part(ext: &str) -> bool {
+    let e = ext.to_ascii_lowercase();
+    matches!(e.as_str(), "wbf1" | "wbf2" | "wbf3")
+}
+
+fn is_wbfs(path: &Path) -> bool {
+    split_name(&file_name(path))
+        .1
+        .is_some_and(|e| e.eq_ignore_ascii_case("wbfs"))
 }
 
 pub(crate) fn companion_ext_matches(patterns: &[String], ext: &str) -> bool {

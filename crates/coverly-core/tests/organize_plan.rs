@@ -3626,6 +3626,18 @@ fn systems_batch_2_pile_plans() {
                 by_name(&p, name).action
             );
         }
+        // §9.3: the split WBFS part is part of its image's item.
+        let galaxy = by_name(&p, "Super Mario Galaxy (Europe).wbfs");
+        assert_eq!(
+            galaxy
+                .companions
+                .iter()
+                .map(|c| file_name(&c.source))
+                .collect::<Vec<_>>(),
+            ["Super Mario Galaxy (Europe).wbf1"],
+            "{layout}"
+        );
+        assert!(p.other_files.is_empty(), "{layout}: {:?}", p.other_files);
         let souls = by_name(&p, "Demon's Souls (BLUS-30443)");
         assert_eq!(souls.kind, ItemKind::Folder, "{layout}");
         assert_eq!(souls.sources.len(), 1, "{layout}");

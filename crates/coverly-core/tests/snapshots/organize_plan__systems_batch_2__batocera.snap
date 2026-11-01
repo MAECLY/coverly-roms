@@ -10,7 +10,7 @@ expression: redact(&p)
     "deep_folders": 0,
     "junk": 0,
     "left": 6,
-    "other_files": 1,
+    "other_files": 0,
     "review": 0,
     "roms": 18,
     "systems": 9
@@ -737,7 +737,12 @@ expression: redact(&p)
       "action": "auto",
       "alternatives": [],
       "catalogue_name": null,
-      "companions": [],
+      "companions": [
+        {
+          "source": "Super Mario Galaxy (Europe).wbf1",
+          "target": "roms/wii/Super Mario Galaxy (Europe).wbf1"
+        }
+      ],
       "confidence": 0.9799999594688416,
       "disc": null,
       "folder": "wii",
@@ -1057,9 +1062,7 @@ expression: redact(&p)
   "mode": "move",
   "move_allowed": true,
   "names": "keep",
-  "other_files": [
-    "Super Mario Galaxy (Europe).wbf1"
-  ],
+  "other_files": [],
   "roms_dir": "<roms_dir>",
   "sorted_folders": [],
   "source_root": "<source_root>",

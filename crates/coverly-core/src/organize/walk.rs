@@ -416,7 +416,10 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
                 size: meta.len(),
                 mtime_ns: mtime_ns(mtime),
             });
-        } else if is_companion(&name, &ext) || ignored_exts.contains(&ext) {
+        } else if is_companion(&name, &ext)
+            || crate::organize::target::is_wbfs_part(&ext)
+            || ignored_exts.contains(&ext)
+        {
             out.companions.push(path.to_path_buf());
         } else {
             out.other_files.push(path.to_path_buf());
