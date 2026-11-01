@@ -260,6 +260,17 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
         }
         return s;
     }
+    // A Cemu WUA (ZArchive) starts with its first zstd block, so its
+    // footer is checked before the head is taken for a `.zst` file.
+    if ext == "wua" || head.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+        let mut b = crate::consoles::Budgeted::new(&mut *src, len);
+        if let Some(id) = crate::consoles::wiiu::wua(&mut b, &ext) {
+            s.hit(&id.system, id.confidence, id.detail.clone());
+            s.serial = id.serial.clone();
+            s.console = Some(id);
+            return s;
+        }
+    }
     if let Some(c) = container(&head, len) {
         s.container = Some(c);
         return s;

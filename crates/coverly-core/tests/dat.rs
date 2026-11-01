@@ -658,3 +658,28 @@ fn id6_finds_gametdb_and_redump_rows() {
     // The middle key is tried only for these two systems.
     assert!(games("psx", "RMGE01").is_empty());
 }
+
+#[test]
+fn wiiu_id6_finds_retail_rows_and_its_id4_eshop_rows() {
+    use coverly_core::dedupe::source::{CacheDats, DatLookup};
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let server = MockServer::start();
+    let wiiu = "dat/Nintendo - Wii U.dat";
+    server.serve_dat(wiiu, &fixture("gametdb-wiiu.dat"));
+    let http = http();
+    let store = DatStore::new(&http, &cache, server.base());
+    assert_eq!(store.ensure(wiiu).unwrap(), DatStatus::Ready);
+    let dats = CacheDats::new(&cache, &db);
+    let games = |serial: &str| -> Vec<String> {
+        dats.by_serial("wiiu", serial)
+            .into_iter()
+            .map(|h| h.game)
+            .collect()
+    };
+    // `meta.xml` gives `WUP-P-ATWE` and company `0001`: ID6 `ATWE01`.
+    assert_eq!(games("ATWE01"), ["Test Wii U Disc (USA)"]);
+    // GameTDB lists eShop titles by ID4 only.
+    assert_eq!(games("SNKP01"), ["Test Wii U eShop Game (Europe)"]);
+    assert_eq!(games("SNKP"), ["Test Wii U eShop Game (Europe)"]);
+}

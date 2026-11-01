@@ -26,6 +26,7 @@ pub mod nintendo_disc;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod wad;
+pub mod wiiu;
 pub mod zarchive;
 
 /// Most bytes read from one item (D24).
@@ -366,7 +367,8 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// title-id tokens, spec D10); `""` when unknown.
 ///
 /// The readers join this list, in this order, as their systems land:
-/// `nintendo_disc`, `wad`, `ctr`, `nx`, `wiiu`, `sony`, `xbox`. Each is
+/// `nintendo_disc`, `wad`, `ctr`, `nx`, `wiiu`, `sony`, `xbox` (`nx`
+/// will go before `wiiu`). Each is
 /// called only when its magic or extension can apply.
 pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
     let _ = name;
@@ -376,6 +378,7 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
     nintendo_disc::identify(src)
         .or_else(|| wad::identify(src))
         .or_else(|| ctr::identify(src, ext))
+        .or_else(|| wiiu::identify(src, ext))
 }
 
 /// The names the walk already listed for one directory (spec D12): every
@@ -407,10 +410,10 @@ pub struct DirConflict {
     pub systems: Vec<String>,
 }
 
-/// The built-in folder probes, in the fixed order of spec D12. The
-/// systems add theirs as they land (Wii U, Switch, PS3, Vita, Xbox, Xbox
-/// 360); empty until then.
-const DIR_PROBES: &[DirProbe] = &[];
+/// The built-in folder probes, in the fixed order of spec D12: PS3 and
+/// PS Vita (Task 11 puts theirs first), Wii U loadiine then NUS, then
+/// Xbox, Xbox 360 and split Switch files (Tasks 10 and 12, after these).
+const DIR_PROBES: &[DirProbe] = &[wiiu::probe_loadiine, wiiu::probe_nus];
 
 #[cfg(any(test, feature = "test-util"))]
 thread_local! {

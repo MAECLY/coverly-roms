@@ -497,10 +497,13 @@ fn nintendo_disc_key(serial: &str) -> Option<String> {
 
 /// The serial keys to look `serial` up by, best first: a GameCube or Wii
 /// ID6 is tried whole (GameTDB), then as its first four characters (the
-/// Redump middle key). Every other system has one key.
+/// Redump middle key). A Wii U ID6 (`ATWE01`, the product code plus the
+/// maker of `meta.xml`) is tried whole, then as its ID4: GameTDB's Wii U
+/// DAT lists retail discs by ID6 and eShop titles by ID4. Every other
+/// system has one key.
 pub fn serial_keys(system: &str, serial: &str) -> Vec<String> {
     let mut keys = vec![serial.to_owned()];
-    if matches!(system, "gamecube" | "wii") && serial.len() == 6 && serial.is_ascii() {
+    if matches!(system, "gamecube" | "wii" | "wiiu") && serial.len() == 6 && serial.is_ascii() {
         keys.push(serial[..4].to_owned());
     }
     keys

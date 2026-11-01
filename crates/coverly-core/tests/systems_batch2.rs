@@ -27,6 +27,8 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     ("wii", Family::Console, true),
     // Task 8.
     ("3ds", Family::Handheld, false),
+    // Task 9.
+    ("wiiu", Family::Console, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -44,6 +46,11 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("batocera", "3ds", "3ds", None),
     ("minui", "3ds", "3DS", Some(false)),
     ("onion", "3ds", "3DS", Some(false)),
+    // Task 9.
+    ("esde", "wiiu", "wiiu", None),
+    ("batocera", "wiiu", "wiiu", None),
+    ("muos", "wiiu", "wiiu", Some(false)),
+    ("minui", "wiiu", "WIIU", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -84,7 +91,34 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     ("3ds", "cia", ctr_cia_encrypted, Some("3ds"), None),
     ("3ds", "3dsx", ctr_3dsx, Some("3ds"), None),
     ("3ds", "zcci", ctr_zcci, Some("3ds"), Some("CTR-P-AMKP")),
+    // Task 9: Wii U images, archives and executables.
+    ("wiiu", "wux", wiiu_wux, Some("wiiu"), None),
+    ("wiiu", "wua", wiiu_wua, Some("wiiu"), Some("ARDP01")),
+    ("wiiu", "rpx", wiiu_rpx, Some("wiiu"), None),
+    ("wiiu", "wuhb", wiiu_wuhb, Some("wiiu"), None),
 ];
+
+mod wiiu {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    pub fn wiiu_wux() -> SparseAt {
+        t::wux()
+    }
+    pub fn wiiu_wua() -> SparseAt {
+        t::wua()
+    }
+    pub fn wiiu_rpx() -> SparseAt {
+        let mut s = SparseAt::new(0x10_0000);
+        s.put(0, &[0x7F, b'E', b'L', b'F', 1, 2, 1, 0xCA, 0xFE]);
+        s
+    }
+    pub fn wiiu_wuhb() -> SparseAt {
+        let mut s = SparseAt::new(0x10_0000);
+        s.put(0, b"WUHB");
+        s
+    }
+}
+use wiiu::*;
 
 mod gcwii {
     use coverly_core::consoles::testing::{self as t, SparseAt};

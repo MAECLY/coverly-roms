@@ -1309,3 +1309,116 @@ mod library_title {
         assert_eq!(identity.parsed.regions.len(), 1, "{:?}", identity.parsed);
     }
 }
+
+/// The first real folder probes (systems batch 2, Task 9): Wii U loadiine
+/// and NUS folders.
+mod wiiu {
+    use coverly_core::consoles::testing::{nus_folder, wiiu_folder};
+    use coverly_core::scan::{scan_library, ScanOptions};
+
+    use super::*;
+
+    const SM3DW: &str = "Super Mario 3D World [0005000010145D00]";
+
+    #[test]
+    fn a_loadiine_folder_is_one_item_named_by_its_meta_xml() {
+        let (world, pile, target) = setup();
+        wiiu_folder(
+            &pile.path().join(SM3DW),
+            "0005000010145D00",
+            "WUP-P-ARDP",
+            "Super Mario 3D World",
+        );
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        let item = only_folder(&p);
+        assert_eq!(item.sources, [PathBuf::from(SM3DW)]);
+        assert_eq!(item.system_id.as_deref(), Some("wiiu"));
+        assert_eq!(item.action, OrganizeAction::Auto);
+        assert!(
+            item.why.iter().any(|e| e.detail == "meta.xml"),
+            "{:?}",
+            item.why
+        );
+        let t = item.target.as_ref().unwrap();
+        assert_eq!(last(t), SM3DW);
+        assert_eq!(t.parent().map(last).as_deref(), Some("wiiu"));
+        // `code/game.rpx` has a Wii U header but stays inside the folder.
+        assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+        assert!(p.other_files.is_empty(), "{:?}", p.other_files);
+    }
+
+    #[test]
+    fn a_wiiu_nus_folder_is_one_item_and_a_3ds_one_is_not() {
+        let (world, pile, target) = setup();
+        nus_folder(&pile.path().join("Wii U Title"), 0x0005_0000_1010_ED00);
+        nus_folder(&pile.path().join("3DS Title"), 0x0004_0000_0003_0800);
+        let p = plan(&world, pile.path(), target.path(), "esde");
+        let item = only_folder(&p);
+        assert_eq!(item.sources, [PathBuf::from("Wii U Title")]);
+        assert_eq!(item.system_id.as_deref(), Some("wiiu"));
+        assert!(item.why.iter().any(|e| e.detail == "NUS title.tmd"));
+        // The 3DS download is walked file by file: its ticket is key
+        // material, never opened, and nothing of it is a folder item.
+        let three = pile.path().join("3DS Title");
+        assert!(p
+            .items
+            .iter()
+            .filter(|i| i.kind != ItemKind::Folder)
+            .all(|i| i
+                .sources
+                .iter()
+                .all(|s| pile.path().join(s).starts_with(&three))));
+        assert!(p.items.iter().any(|i| {
+            i.sources[0].file_name().is_some_and(|n| n == "title.tik")
+                && left_reason(i) == Some(&LeftReason::KeyMaterial)
+        }));
+    }
+
+    #[test]
+    fn a_moved_wiiu_folder_is_one_library_entry() {
+        let lib = TempDir::new().unwrap();
+        let dir = lib.path().join("roms").join("wiiu").join(SM3DW);
+        wiiu_folder(
+            &dir,
+            "0005000010145D00",
+            "WUP-P-ARDP",
+            "Super Mario 3D World",
+        );
+        let profile = builtin_profiles()
+            .into_iter()
+            .find(|p| p.id == "batocera")
+            .unwrap();
+        let scan = scan_library(
+            lib.path(),
+            &profile,
+            &SystemDb::builtin(),
+            &ScanOptions::default(),
+        );
+        let roms = &scan
+            .systems
+            .iter()
+            .find(|s| s.system_id.as_deref() == Some("wiiu"))
+            .unwrap()
+            .roms;
+        assert_eq!(roms.len(), 1, "{roms:?}");
+        assert!(roms[0].is_dir);
+        assert_eq!(roms[0].stem, SM3DW);
+        assert_eq!(roms[0].ext, "");
+    }
+}
+
+/// A Cemu `.wua` starts with a zstd block: it is a Wii U item, not a
+/// damaged `.zst` archive (seen on a real WUA).
+#[test]
+fn a_wua_is_a_wiiu_file_not_a_zstd_archive() {
+    let (world, pile, target) = setup();
+    let path = pile.path().join("Super Mario 3D World (USA).wua");
+    fs::write(&path, coverly_core::consoles::testing::wua().bytes()).unwrap();
+    pin_mtime(&path, 1);
+    let p = plan(&world, pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 1, "{:#?}", p.items);
+    let item = &p.items[0];
+    assert_eq!(item.kind, ItemKind::File, "{item:#?}");
+    assert_eq!(item.system_id.as_deref(), Some("wiiu"));
+    assert!(item.why.iter().any(|e| e.detail == "WUA: base, update"));
+}

@@ -1539,6 +1539,16 @@ expression: rows
   },
   {
     "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "rpx",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
       "gamecube",
       "wii"
     ],
@@ -1834,6 +1844,14 @@ expression: rows
   },
   {
     "accepting": [
+      "wiiu"
+    ],
+    "class": "Unknown",
+    "ext": "tmd",
+    "strong": []
+  },
+  {
+    "accepting": [
       "zxspectrum"
     ],
     "class": "Unique",
@@ -2024,6 +2042,46 @@ expression: rows
     "strong": [
       "wonderswan",
       "wonderswancolor"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wua",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wud",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wuhb",
+    "strong": [
+      "wiiu"
+    ]
+  },
+  {
+    "accepting": [
+      "wiiu"
+    ],
+    "class": "Unique",
+    "ext": "wux",
+    "strong": [
+      "wiiu"
     ]
   },
   {

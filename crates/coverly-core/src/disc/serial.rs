@@ -51,8 +51,8 @@ pub fn normalise_serial(raw: &str) -> Option<String> {
 ///
 /// - `gamecube`: ID6 (`GALE01`); `wii`: ID6 or the ID4 of a WAD (`WAAE`);
 ///   `nds`: the DSi game code (`KJUJ`).
-/// - `wiiu`: the 4-character code, also out of `WUP-P-ARPE` (GameTDB keys
-///   on it).
+/// - `wiiu`: the 4-character code, also out of `WUP-P-ARPE`, or the
+///   6-character code with the maker (`ARPE01`); GameTDB keys on both.
 /// - `3ds`: `CTR-` or `KTR-` (New 3DS), a `P`/`N`/`M`/`U` letter, four
 ///   characters (No-Intro's form).
 /// - `ps3`, `psvita`: four letters and five digits, `BLUS30443` →
@@ -84,7 +84,7 @@ pub fn normalise_console_serial(system: &str, raw: &str) -> Option<String> {
                 },
                 None => s.clone(),
             };
-            return alnum(&code, 4).then_some(code);
+            return (alnum(&code, 4) || alnum(&code, 6)).then_some(code);
         }
         "3ds" => {
             let b = s.as_bytes();
@@ -200,6 +200,8 @@ mod tests {
         assert_eq!(n("3ds", "KTR-N-AAAA").as_deref(), Some("KTR-N-AAAA"));
         assert_eq!(n("wiiu", "WUP-Q-ARPE"), None);
         assert_eq!(n("wiiu", "arpe").as_deref(), Some("ARPE"));
+        assert_eq!(n("wiiu", "ATWE01").as_deref(), Some("ATWE01"));
+        assert_eq!(n("wiiu", "ATWE0"), None);
         assert_eq!(n("xbox", "EA-01A"), None);
         assert_eq!(n("xbox360", "4D5307E"), None);
         assert_eq!(n("xbox360", "4D5307EG"), None);

@@ -303,6 +303,7 @@ const ESDE_FOLDERS = {
   gamecube: 'gc',
   wii: 'wii',
   '3ds': 'n3ds',
+  wiiu: 'wiiu',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -349,6 +350,7 @@ const BATOCERA_FOLDERS = {
   gamecube: 'gamecube',
   wii: 'wii',
   '3ds': '3ds',
+  wiiu: 'wiiu',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends

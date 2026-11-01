@@ -725,3 +725,25 @@ fn emulator_data_roots_are_left() {
         .count();
     assert_eq!(sdmc, 1, "only the root sdmc is left");
 }
+
+#[test]
+fn a_wiiu_folder_carries_its_title_id_from_meta_xml() {
+    use coverly_core::consoles::testing::wiiu_folder;
+    use coverly_core::consoles::IdSource;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Super Mario 3D World [0005000010145D00]");
+    wiiu_folder(
+        &dir,
+        "0005000010145D00",
+        "WUP-P-ARDP",
+        "Super Mario 3D World",
+    );
+    let w = run(tmp.path(), &NoCloud);
+    assert_eq!(w.folder_games.len(), 1, "{:?}", w.folder_games);
+    let game = &w.folder_games[0];
+    assert_eq!(game.path, dir);
+    assert_eq!(game.id.title_id.as_deref(), Some("0005000010145D00"));
+    assert_eq!(game.id.id_source, Some(IdSource::MetaXml));
+    assert_eq!(game.probe, Path::new("meta").join("meta.xml"));
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+}

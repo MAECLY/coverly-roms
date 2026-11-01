@@ -413,7 +413,12 @@ pub fn inspect_file_with(
         &ext,
         &file_name(path),
     );
-    let magic = detect_container(&head, len, Some(tail.as_deref().unwrap_or(&head)));
+    let end = tail.as_deref().unwrap_or(&head);
+    // A ZArchive (Cemu `.wua`) opens with its first zstd block: its
+    // footer says it is one file, read by the console readers.
+    let magic = detect_container(&head, len, Some(end)).filter(|m| {
+        *m != ContainerMagic::Zstd || !crate::consoles::zarchive::ends_with_footer(end)
+    });
     let mut out = Inspection::new(container_for(&ext, magic));
     match out.container {
         Container::Chd => {

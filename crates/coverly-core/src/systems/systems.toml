@@ -1272,3 +1272,16 @@ dats = [
   "metadat/no-intro/Nintendo - New Nintendo 3DS (Digital).dat",
 ]
 screenscraper = 17
+
+[[system]]
+id = "wiiu"
+name = "Nintendo Wii U"
+family = "console"
+aliases = ["WIIU"]
+# Loadiine and NUS folders are folder games (D12); `tmd` is weak: a lone
+# `title.tmd` is only a Wii U title with its TMD title id.
+extensions = ["wud", "wux", "wua", "rpx", "wuhb"]
+weak_extensions = ["tmd"]
+libretro = "Nintendo - Wii U"
+dats = ["dat/Nintendo - Wii U.dat", "metadat/no-intro/Nintendo - Wii U (Digital).dat"]
+screenscraper = 18

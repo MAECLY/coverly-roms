@@ -454,6 +454,7 @@ const SYSTEM_FOLDERS: &[(&str, [Option<&str>; 5])] = &[
     ("gamecube", [Some("gc"), Some("gamecube"), None, None, None]),
     ("wii", [Some("wii"), Some("wii"), None, None, None]),
     ("3ds", [Some("n3ds"), Some("3ds"), Some("3ds"), None, None]),
+    ("wiiu", [Some("wiiu"), Some("wiiu"), None, None, None]),
 ];
 
 /// The folder table of one frontend column; `None` (Anbernic stock) marks
