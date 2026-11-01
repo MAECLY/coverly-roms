@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::identify::sniff::ReadAt;
 
+pub mod ctr;
 pub mod nintendo_disc;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
@@ -367,10 +368,13 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// `nintendo_disc`, `wad`, `ctr`, `nx`, `wiiu`, `sony`, `xbox`. Each is
 /// called only when its magic or extension can apply.
 pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
-    let _ = (ext, name);
-    // The disc magics are specific enough for any extension, and so is
-    // the 8-byte WAD header.
-    nintendo_disc::identify(src).or_else(|| wad::identify(src))
+    let _ = name;
+    // The disc magics are specific enough for any extension, and so are
+    // the 8-byte WAD header and the 3DS magics (`NCSD`/`NCCH` at 0x100,
+    // `3DSX`, `Z3DS`); the CIA header only counts under `.cia`.
+    nintendo_disc::identify(src)
+        .or_else(|| wad::identify(src))
+        .or_else(|| ctr::identify(src, ext))
 }
 
 /// The names the walk already listed for one directory (spec D12): every
