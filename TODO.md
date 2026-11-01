@@ -211,6 +211,20 @@ Tareas:
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
 
+### Claves aportadas por el usuario (aparcado)
+
+Decidido con Miguel el 2026-11-01: por ahora Coverly identifica los juegos **solo sin claves**. Lee lo que está en claro (3DS descifrado y sección Meta de los CIA; en Switch, el title ID sacado del ticket, del nombre del archivo o del id del NCA) y busca el nombre en `blawar/titledb` (MIT) por title ID. Lo que no se resuelve queda marcado como «cifrado».
+
+El modo «usa tus propias claves» (`prod.keys`, `keys.txt`) queda como posible extra para más adelante, con estas condiciones:
+
+- Desactivado por defecto; el usuario elige el archivo.
+- Las claves solo se usan en memoria para leer el nombre y el icono.
+- Nunca se incluyen, descargan, enlazan, copian ni registran.
+- Nunca se ofrece descifrar ni exportar un juego.
+- Antes de hacerlo, una revisión legal.
+
+Contexto: el caso Nintendo contra Yuzu (2024), el bloqueo de Dolphin en Steam (2023) y que Azahar ya no carga juegos cifrados desde la versión 2120.
+
 ## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
 
 > **Dependencias:** depende de 2 (la detección de base, actualización, DLC y demo que traen las tandas). **Lo usan 3, 4 y 5**, así que se hace antes que ellos o como primer paso del 3: la biblioteca guarda los juegos con esta estructura (3), la sincronización la compara y la traduce a cada emulador (4) y las partidas viven en la misma carpeta y se asocian por el mismo title ID (5, incluido 5.3.1).
