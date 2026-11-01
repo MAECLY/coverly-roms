@@ -16,6 +16,7 @@ import {
 import {
   MOCK_DOWNLOADS,
   MOCK_MIXED,
+  MOCK_MODERN,
   MOCK_PICK_KEY,
   MOCK_RETRO,
   MOCK_SAMPLE,
@@ -692,6 +693,8 @@ describe('mock folder pick', () => {
     expect(readMockPick()).toBe(MOCK_MIXED);
     window.history.replaceState(null, '', '/?mockPick=retro');
     expect(readMockPick()).toBe(MOCK_RETRO);
+    window.history.replaceState(null, '', '/?mockPick=modern');
+    expect(readMockPick()).toBe(MOCK_MODERN);
     window.history.replaceState(null, '', '/?mockPick=relative/path');
     expect(readMockPick()).toBeNull();
     window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
@@ -1385,5 +1388,140 @@ describe('mock organise: the systems batch 1 retro pile', () => {
     ] as const)
       expect(systems.find((s) => s.id === id)?.family, id).toBe(family);
     expect(new Set(systems.map((s) => s.id)).size).toBe(systems.length);
+  });
+});
+
+describe('mock organise: the systems batch 2 modern pile', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+  const DEMONS = "Demon's Souls (BLUS-30443)";
+  const SMO = 'Super Mario Odyssey [0100000000010000][v0].nsp';
+  const SMO_UPDATE = 'Super Mario Odyssey [0100000000010800][v393216].nsp';
+
+  it('plans the spec 9.3 pile like the Rust snapshot on ES-DE', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+    });
+    const moving = plan.items.filter((i) => i.action === 'auto');
+    expect(new Set(moving.map((i) => i.system_id))).toEqual(
+      new Set([
+        'gamecube',
+        'wii',
+        'wiiu',
+        '3ds',
+        'switch',
+        'psvita',
+        'ps3',
+        'xbox',
+        'xbox360',
+      ]),
+    );
+    expect(plan.counts).toMatchObject({ auto: 18, review: 0, left: 6 });
+    expect(plan.counts.systems).toBe(9);
+    expect(plan.updates).toBe(1);
+
+    const demons = by(plan.items, DEMONS);
+    expect(demons).toMatchObject({
+      kind: 'folder',
+      size: 23_410_000_000,
+      system_id: 'ps3',
+      folder: 'ps3',
+      target: `ROMs/ps3/${DEMONS}.ps3`,
+      title_id: { id: 'BLUS30443', source: 'param-sfo' },
+    });
+    expect(demons.notes).toEqual([
+      { kind: 'folder-suffix', name: `${DEMONS}.ps3`, layout: 'ES-DE' },
+    ]);
+    expect(
+      by(plan.items, 'Super Mario 3D World [0005000010145D00]'),
+    ).toMatchObject({ kind: 'folder', size: 1_700_000_000, folder: 'wiiu' });
+    expect(by(plan.items, 'Metroid Prime (USA).rvz').folder).toBe('gc');
+    expect(by(plan.items, 'Mario Kart 7 (Europe).3ds').folder).toBe('n3ds');
+
+    // The update right after its base, with its note and the ids' sources.
+    const ids = plan.items.map((i) => i.sources[0]);
+    expect(ids.indexOf(SMO_UPDATE)).toBe(ids.indexOf(SMO) + 1);
+    expect(by(plan.items, SMO).title_id).toEqual({
+      id: '0100000000010000',
+      source: 'ticket-name',
+    });
+    expect(by(plan.items, SMO_UPDATE).notes).toEqual([
+      { kind: 'update', of: 'Super Mario Odyssey' },
+    ]);
+    expect(by(plan.items, 'Pokemon Y (Europe).cia').notes).toEqual([
+      { kind: 'encrypted-content', emulator: 'Azahar' },
+    ]);
+    expect(by(plan.items, 'NPUB30024.pkg').notes).toEqual([
+      { kind: 'install-first', emulator: 'RPCS3' },
+    ]);
+
+    const reasons = plan.items.flatMap((i) =>
+      i.action === 'left' ? [[i.sources[0], i.reason] as const] : [],
+    );
+    expect(Object.fromEntries(reasons)).toEqual({
+      'Foo.pkg': { kind: 'not-a-rom', what: 'installer' },
+      'NPUB30024.rap': { kind: 'key-material' },
+      'model.3ds': { kind: 'not-a-rom', what: 'model3d' },
+      'prod.keys': { kind: 'key-material' },
+      'title.keys': { kind: 'key-material' },
+      ux0: { kind: 'emulator-data', folder: 'ux0' },
+    });
+    expect(
+      plan.items.some((i) =>
+        i.notes.some((n) => n.kind === 'no-folder-on-device'),
+      ),
+    ).toBe(false);
+  });
+
+  it('Batocera has a Switch folder and keeps the .ps3 suffix', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_MODERN,
+      layout: 'batocera',
+    });
+    const smo = by(plan.items, SMO);
+    expect(smo.folder).toBe('switch');
+    expect(smo.target).toBe(`roms/switch/${SMO}`);
+    expect(smo.notes).toEqual([]);
+    expect(by(plan.items, 'Metroid Prime (USA).rvz').folder).toBe('gamecube');
+    expect(by(plan.items, DEMONS).notes).toEqual([
+      {
+        kind: 'folder-suffix',
+        name: `${DEMONS}.ps3`,
+        layout: 'Batocera / Knulli / EmulationStation',
+      },
+    ]);
+  });
+
+  it('muOS has no Wii folder: the core still makes it and says so', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_MODERN,
+      layout: 'muos',
+    });
+    const galaxy = by(plan.items, 'Super Mario Galaxy (Europe).wbfs');
+    expect(galaxy.notes).toEqual([
+      { kind: 'no-folder-on-device', folder: 'wii' },
+    ]);
+    // 3DS is the batch's only muOS folder; no suffix on muOS.
+    expect(by(plan.items, 'Mario Kart 7 (Europe).3ds').notes).toEqual([]);
+    expect(by(plan.items, DEMONS).target).toBe(`ROMS/ps3/${DEMONS}`);
+    // The update note follows the folder note, as the core writes them.
+    expect(by(plan.items, SMO_UPDATE).notes).toEqual([
+      { kind: 'no-folder-on-device', folder: 'switch' },
+      { kind: 'update', of: 'Super Mario Odyssey' },
+    ]);
+  });
+
+  it('applies a game folder as one item', async () => {
+    const b = backend();
+    const { plan_id } = await b.organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+    });
+    const done = ended(b);
+    await b.organizeApply(plan_id, []);
+    const view = await done;
+    expect(view.state).toBe('done');
+    expect(view.report?.moved).toBe(18);
   });
 });
