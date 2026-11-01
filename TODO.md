@@ -283,6 +283,21 @@ Tareas:
 - [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
 - [ ] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar.
 
+### Investigación de mods, trucos, licencias y extras por sistema
+
+Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, 30 sistemas). Detalle completo con rutas, formatos, claves de enlace y fuentes: [`docs/02-research/mods-cheats-extras-per-system.md`](docs/02-research/mods-cheats-extras-per-system.md). Lo más útil para `Mods/`, `Cheats/` y `Extras/`:
+
+- **Parches de traducción y hacks** (retro): el mejor para enlazar automáticamente es **BPS** (los últimos 12 bytes guardan el CRC32 de la ROM de origen, que se compara con el DAT de No-Intro); UPS también lleva CRC32. IPS no lleva nada: se enlaza por nombre de archivo y por el `readme`. RetroArch aplica solo el parche que se llama como la ROM (`rom.bps`, `rom.ips`, `rom.ips1`…). Ojo con las cabeceras: NES (iNES) y SNES (copier) cambian si el parche espera la ROM con o sin cabecera.
+- **Clave de enlace por emulador** (lo que hay que leer para saber de qué juego es un mod o un truco):
+  - **por serial del disco:** DuckStation (PS1) y PCSX2 (PS2) para texturas (`textures/<SERIAL>/replacements/`) y trucos (`.cht`, `SERIAL_CRC.pnach`);
+  - **por id de juego:** Dolphin (GameCube/Wii; `Load/Textures/<GAMEID>/`, `GameSettings/<GAMEID>.ini`, Riivolution por `<id game>`), Flycast (Dreamcast), PPSSPP (`PSP/TEXTURES/<GAMEID>/`, `PSP/Cheats/<GAMEID>.ini`);
+  - **por title ID:** Azahar (3DS; `load/mods/<TitleID>/`, trucos `<TitleID>.txt`), Cemu (Wii U; graphic packs con `titleIds` en `rules.txt`), Switch (`atmosphere/contents/<id>/romfs|exefs`; trucos `cheats/<build_id>.txt`), RPCS3 (`patches.yml`), Vita (rePatch `ux0:rePatch/<TITLEID>/`), shadPS4 (trucos `SERIAL_VERSION.json`), Xenia (`<TITLEID> - <Juego>.patch.toml`, plugins);
+  - **por nombre de archivo:** RetroArch (`.cht` con el nombre de No-Intro), Mesen HD Packs (`HdPacks/<nombre de la ROM>/hires.txt`), MSU-1 de SNES (`.msu` + `-N.pcm` con el nombre de la ROM).
+- **Extras oficiales:** solo existen en algunos sistemas: temas `.p3t` y PKG de tema/avatar en PS3, PKG de tema (`0x1F`) en Vita, temas `.PTF` en PSP, paquetes STFS de Xbox 360 (temas, imágenes de jugador, avatares; clasificables por su tipo de contenido sin claves). Los manuales electrónicos van **dentro** del juego en 3DS, Wii U, Switch y Vita (se muestran como parte del juego, no se separan). Cartucho y disco retro no tienen extras oficiales: ahí `Extras/` es del usuario, con sugerencias por las etiquetas de los rips de música (SPC ID666, NSF, GBS, VGM GD3, PSF).
+- **Licencias y claves, solo por nombre y nunca abiertas:** `.rap`/`.rif`/`.edat`/`act.dat` (PS3/PSP), zRIF/`work.bin`/`.rif` (Vita), `.tik`/`ticket.db`/`seeddb.bin` (3DS), `title.tik`/`keys.txt`/`otp.bin` (Wii U), `prod.keys`/`title.keys`/`*.tik` (Switch), BIOS y NAND de DS/DSi, `eeprom.bin` de Xbox.
+- **No son juegos:** BIOS y firmware de cada sistema, partidas y estados, opciones por juego de RetroArch (`.opt`, `.cfg`, `.rmp`, presets de shaders), cachés de texturas y shaders, VMU de Dreamcast (partidas o DLC, no juegos).
+- **Sin sistema de mods** (se modifican los archivos del juego o vienen como imagen ya parcheada): Saturn, Sega CD, PC Engine CD, Xbox, PS3, PS4 (salvo carpetas tipo `dvdroot_ps4/MODS`), PS5 y Xbox One; ahí `Mods/` guarda copias del usuario enlazadas por serial.
+
 ### Traducción por dispositivo (al organizar para un frontend o al sincronizar)
 
 La estructura maestra es la de la biblioteca. Cada perfil la traduce a lo que espera su emulador:
