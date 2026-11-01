@@ -132,7 +132,8 @@ fn ncch_at(b: &mut Budgeted, at: u64, detail: &str) -> Option<ConsoleId> {
     id.title_id = Some(format!("{program:016X}"));
     id.id_source = Some(IdSource::Header);
     id.kind = kind_3ds(program);
-    id.version = le16(&h, 0x112).map(|v| v.to_string());
+    // 0x112 is the NCCH format version (0 or 2), not the title version;
+    // only a CIA's TMD carries that in clear.
     let no_crypto = h[0x188 + 7] & NO_CRYPTO != 0;
     id.encrypted = Some(!no_crypto);
     if no_crypto {
@@ -269,7 +270,7 @@ fn dsx(b: &mut Budgeted, head: &[u8]) -> Option<ConsoleId> {
             if size as usize >= SMDH_LEN && fits(b, off, SMDH_LEN as u64) {
                 if let Ok(smdh) = b.read(off, SMDH_LEN) {
                     if smdh.starts_with(b"SMDH") {
-                        id.title = smdh_title(&smdh);
+                        id.title = smdh_short_title(&smdh);
                         id.art.push(ArtLocator::Range {
                             offset: off,
                             len: SMDH_LEN as u64,
@@ -382,10 +383,21 @@ fn z3ds(b: &mut Budgeted, head: &[u8]) -> Option<ConsoleId> {
     Some(id)
 }
 
-/// The title of an SMDH: English long, English short, then Japanese
-/// (UTF-16LE, 16 languages × short 0x80 / long 0x100 / publisher 0x80
-/// from 0x8). Line breaks become spaces.
+/// The title of a retail SMDH: English long, English short, then
+/// Japanese (UTF-16LE, 16 languages × short 0x80 / long 0x100 /
+/// publisher 0x80 from 0x8). Line breaks become spaces.
 pub fn smdh_title(smdh: &[u8]) -> Option<String> {
+    smdh_titles(smdh, false)
+}
+
+/// The title of a homebrew SMDH: the short field first, since devkitPro
+/// and bannertool write the app's name there and its description (by
+/// default «Built with devkitARM & libctru») in the long one.
+fn smdh_short_title(smdh: &[u8]) -> Option<String> {
+    smdh_titles(smdh, true)
+}
+
+fn smdh_titles(smdh: &[u8], short_first: bool) -> Option<String> {
     let field = |lang: usize, off: usize, len: usize| -> Option<String> {
         let at = 0x8 + lang * 0x200 + off;
         let raw = smdh.get(at..at + len)?;
@@ -400,10 +412,15 @@ pub fn smdh_title(smdh: &[u8]) -> Option<String> {
         let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
         super::clean_title(&text)
     };
-    field(1, 0x80, 0x100)
-        .or_else(|| field(1, 0, 0x80))
-        .or_else(|| field(0, 0x80, 0x100))
-        .or_else(|| field(0, 0, 0x80))
+    let (a, b) = if short_first {
+        ((0, 0x80), (0x80, 0x100))
+    } else {
+        ((0x80, 0x100), (0, 0x80))
+    };
+    field(1, a.0, a.1)
+        .or_else(|| field(1, b.0, b.1))
+        .or_else(|| field(0, a.0, a.1))
+        .or_else(|| field(0, b.0, b.1))
 }
 
 /// Spreads the low three bits of `v` to the even bit positions.
@@ -487,6 +504,19 @@ mod tests {
                 ..
             }] if len == SMDH_LEN as u64
         ));
+    }
+
+    #[test]
+    fn ncch_format_version_is_not_the_title_version() {
+        // 0x112 is the NCCH format version (makerom `formatVersion`: 0 or
+        // 2 on every retail image), not the title's version.
+        let mut src = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false);
+        src.put(t::NCSD_P0 + 0x112, &2u16.to_le_bytes());
+        let id = run(&mut src, "3ds").unwrap();
+        assert_eq!(id.version, None);
+        // A CIA still gives the TMD title version.
+        let id = run(&mut t::cia(0x0004_0000_0005_5D00, false, false), "cia").unwrap();
+        assert_eq!(id.version.as_deref(), Some("1040"));
     }
 
     #[test]
@@ -587,6 +617,23 @@ mod tests {
         bare.put(4, &0x20u16.to_le_bytes());
         let id = run(&mut bare, "3dsx").unwrap();
         assert_eq!((id.title, id.art.len()), (None, 0));
+    }
+
+    #[test]
+    fn dsx_title_is_the_short_title_not_the_description() {
+        // devkitPro writes APP_TITLE to the short field and APP_DESCRIPTION
+        // (default «Built with devkitARM & libctru») to the long one.
+        let mut src = t::dsx_with_smdh("FTPD");
+        let long = 0x100 + 0x8 + 0x200 + 0x80;
+        let mut field = vec![0u8; 0x100];
+        let d: Vec<u8> = "Built with devkitARM & libctru"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        field[..d.len()].copy_from_slice(&d);
+        src.put(long, &field);
+        let id = run(&mut src, "3dsx").unwrap();
+        assert_eq!(id.title.as_deref(), Some("FTPD"));
     }
 
     #[test]

@@ -322,7 +322,7 @@ pub fn smdh(title: &str) -> Vec<u8> {
 }
 
 /// The parts of an NCCH, relative to its start: the 0x200-byte header
-/// (`NCCH`, version 0, program id `tid`, product code `code`,
+/// (`NCCH`, format version 2, program id `tid`, product code `code`,
 /// `NoCrypto` when `no_crypto`) and, when `no_crypto`, an ExeFS whose
 /// `icon` is [`smdh`]`("Test Game")`.
 pub fn ncch_parts(code: &str, tid: u64, no_crypto: bool) -> Vec<(u64, Vec<u8>)> {
@@ -331,6 +331,7 @@ pub fn ncch_parts(code: &str, tid: u64, no_crypto: bool) -> Vec<(u64, Vec<u8>)> 
     h[0x104..0x108].copy_from_slice(&le32(0x10_0000));
     h[0x108..0x110].copy_from_slice(&tid.to_le_bytes());
     h[0x110..0x112].copy_from_slice(b"01");
+    h[0x112..0x114].copy_from_slice(&2u16.to_le_bytes()); // format version
     h[0x118..0x120].copy_from_slice(&tid.to_le_bytes());
     let c = code.as_bytes();
     h[0x150..0x150 + c.len().min(16)].copy_from_slice(&c[..c.len().min(16)]);
