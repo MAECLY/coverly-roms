@@ -12,11 +12,14 @@ pub(crate) mod multifile;
 
 use std::fs::{self, FileType};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 use walkdir::WalkDir;
 
+use crate::consoles::{identify_dir, DirListing};
+use crate::organize::target::strip_suffix_ignoring_case;
+use crate::organize::walk::{list_dir, tree_summary, OsMetaProbe, WalkOptions, MAX_DEPTH};
 use crate::profiles::Profile;
 use crate::systems::{System, SystemDb};
 
@@ -40,6 +43,11 @@ pub struct RomEntry {
     pub modified: SystemTime,
     /// Files the primary file names (tracks, discs), transitively.
     pub companions: Vec<PathBuf>,
+    /// The entry is a game folder (systems batch 2 D26): `path` is the
+    /// folder, `ext` the layout's folder-game suffix without the dot
+    /// (`ps3`) or empty, `size` the sum of the files inside and `modified`
+    /// the newest of them (metadata only). It is never opened as a file.
+    pub is_dir: bool,
 }
 
 /// One child folder of the ROMs root.
@@ -282,6 +290,11 @@ fn scan_system(
     opts: &ScanOptions,
     warnings: &mut Vec<ScanWarning>,
 ) -> Vec<RomEntry> {
+    let suffix = profile
+        .folder_game_suffix
+        .get(&system.id)
+        .filter(|s| !s.is_empty());
+    let mut folder_games: Vec<(PathBuf, Option<&String>)> = Vec::new();
     let walker = WalkDir::new(dir)
         .min_depth(1)
         .follow_links(opts.follow_symlinks)
@@ -289,10 +302,26 @@ fn scan_system(
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !is_skipped_entry(&name, opts)
-                && !(e.file_type().is_dir()
-                    && (is_skipped_dir(&name, &profile.art_dir_names, opts)
-                        || is_quarantine(&name, opts)))
+            if is_skipped_entry(&name, opts) {
+                return false;
+            }
+            if !e.file_type().is_dir() {
+                return true;
+            }
+            if is_skipped_dir(&name, &profile.art_dir_names, opts) || is_quarantine(&name, opts) {
+                return false;
+            }
+            // The system folder itself is never a game (filter_entry also
+            // sees entries below `min_depth`).
+            if e.depth() == 0 {
+                return true;
+            }
+            let suffixed = suffix.filter(|s| strip_suffix_ignoring_case(&name, s).is_some());
+            if suffixed.is_some() || is_console_folder(e.path()) {
+                folder_games.push((e.path().to_path_buf(), suffixed));
+                return false;
+            }
+            true
         });
 
     let mut candidates = Vec::new();
@@ -329,6 +358,11 @@ fn scan_system(
         .into_iter()
         .filter_map(|(path, companions)| rom_entry(dir, path, companions, warnings))
         .collect();
+    roms.extend(
+        folder_games
+            .into_iter()
+            .map(|(path, suffix)| folder_entry(dir, path, suffix, profile)),
+    );
     roms.sort_by(|a, b| {
         a.rel_dir
             .cmp(&b.rel_dir)
@@ -336,6 +370,84 @@ fn scan_system(
             .then_with(|| a.path.cmp(&b.path))
     });
     roms
+}
+
+/// Whether a console probe proves `dir` to be one game (spec D12; the
+/// same pure probes the organise walk runs). Two probes naming different
+/// systems are not one game here either: Organise sends those to review,
+/// and the scan keeps walking them as plain folders.
+fn is_console_folder(dir: &Path) -> bool {
+    let Some(listed) = list_dir(dir) else {
+        return false;
+    };
+    let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
+    matches!(
+        identify_dir(&DirListing { dir, names: &names }),
+        Ok(Some(_))
+    )
+}
+
+/// The entry of a folder game (spec D26): measured from metadata only
+/// (the D27 tree summary), never opened. `suffix` is the layout's suffix
+/// the folder name ends in, if any.
+fn folder_entry(
+    system_dir: &Path,
+    path: PathBuf,
+    suffix: Option<&String>,
+    profile: &Profile,
+) -> RomEntry {
+    let walk_opts = WalkOptions {
+        skip_dirs: Vec::new(),
+        roms_root: None,
+        art_dirs: &[],
+        ignored_dirs: &[],
+        now: SystemTime::UNIX_EPOCH,
+        recent: Duration::ZERO,
+        probe: &OsMetaProbe,
+        max_depth: MAX_DEPTH,
+        profile: Some(profile),
+    };
+    let tree = tree_summary(&path, &walk_opts);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (stem, ext) = match suffix.and_then(|s| strip_suffix_ignoring_case(&name, s)) {
+        Some(stem) => {
+            let ext = name[stem.len()..].trim_start_matches('.').to_lowercase();
+            let stem = if profile.folder_stem_keeps_suffix {
+                name.clone()
+            } else {
+                stem.to_string()
+            };
+            (stem, ext)
+        }
+        None => (name, String::new()),
+    };
+    let modified = if tree.files > 0 {
+        u64::try_from(tree.newest_mtime_ns)
+            .map(|ns| SystemTime::UNIX_EPOCH + Duration::from_nanos(ns))
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    } else {
+        fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    };
+    let rel_dir = path
+        .parent()
+        .and_then(|p| p.strip_prefix(system_dir).ok())
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    RomEntry {
+        path,
+        rel_dir,
+        stem,
+        ext,
+        size: tree.bytes,
+        modified,
+        companions: Vec::new(),
+        is_dir: true,
+    }
 }
 
 /// Builds the entry of a primary file, or warns if it cannot be read.
@@ -373,6 +485,7 @@ fn rom_entry(
         rel_dir,
         path,
         companions,
+        is_dir: false,
     })
 }
 

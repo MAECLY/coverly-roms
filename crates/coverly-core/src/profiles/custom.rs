@@ -95,6 +95,10 @@ pub struct ProfileFile {
     /// load with none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub folder_game_suffix: BTreeMap<String, String>,
+    /// Media of a folder game are named after its whole folder name
+    /// (ES-DE); files from before it load with `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folder_stem_keeps_suffix: bool,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -165,6 +169,7 @@ impl ProfileFile {
             accepts_containers: p.accepts_containers.clone(),
             container_overrides: p.container_overrides.clone(),
             folder_game_suffix: p.folder_game_suffix.clone(),
+            folder_stem_keeps_suffix: p.folder_stem_keeps_suffix,
         }
     }
 
@@ -217,6 +222,7 @@ impl ProfileFile {
                 .map(|(id, f)| (id.clone(), ProfileFolder::Named(f.trim().to_string())))
                 .collect(),
             folder_game_suffix: self.folder_game_suffix.clone(),
+            folder_stem_keeps_suffix: self.folder_stem_keeps_suffix,
         }
     }
 

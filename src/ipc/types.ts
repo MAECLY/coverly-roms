@@ -607,6 +607,9 @@ export interface ProfileFile {
   accepts_containers?: ContainerKind[];
   /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
   container_overrides?: Record<string, ContainerKind[]>;
+  /** Media of a folder game are named after its whole folder name, suffix
+   * included (ES-DE); absent = the suffix is dropped. */
+  folder_stem_keeps_suffix?: boolean;
 }
 
 /** `profiles::DiscLayout`. */

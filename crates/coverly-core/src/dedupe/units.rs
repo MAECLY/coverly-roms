@@ -457,6 +457,11 @@ fn draft_from_rom(
     dirs: &mut DirCache,
 ) -> Result<Draft, Option<Exclusion>> {
     let primary = &rom.path;
+    // A folder game (systems batch 2 D26) is never read as a file nor set
+    // aside: it is left out like a folder-game system's folder.
+    if rom.is_dir {
+        return Err(Some(Exclusion::Folder));
+    }
     common_checks(primary, Some(opts))?;
     if rom
         .rel_dir

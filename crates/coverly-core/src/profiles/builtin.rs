@@ -556,6 +556,11 @@ pub fn builtin_profiles() -> Vec<Profile> {
         Profile {
             folders: folders(Some(ESDE)),
             disc_layout: GAME_FOLDER,
+            // ES-DE `Utils::FileSystem::getStem` returns a directory's
+            // whole name (es-core/src/utils/FileSystemUtil.cpp at
+            // ef267ae6), and `getMediafilePath` and the scraper name
+            // media after it (systems batch 2 D26).
+            folder_stem_keeps_suffix: true,
             ..profile(
                 "esde",
                 "ES-DE",
@@ -690,6 +695,7 @@ fn profile(
         container_overrides: default_container_overrides(),
         folders: BTreeMap::new(),
         folder_game_suffix: BTreeMap::new(),
+        folder_stem_keeps_suffix: false,
     }
 }
 

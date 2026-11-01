@@ -957,3 +957,307 @@ fn a_target_taken_at_apply_time_gets_the_next_number() {
     assert_eq!(undo.restored, [pile.path().join("Zelda")]);
     assert!(at.is_dir(), "the other folder stays");
 }
+
+// ---------------------------------------------------------------------
+// Folder games in the library (spec D26): one `RomEntry` per folder game,
+// never descended into, never opened as a file.
+
+mod library {
+    use std::sync::atomic::AtomicBool;
+
+    use coverly_core::art::resolve_art;
+    use coverly_core::audit::build_report;
+    use coverly_core::consoles::{start_open_log, take_open_log};
+    use coverly_core::credentials::SourceKeys;
+    use coverly_core::fill::{Endpoints, FillEnv, FillSettings};
+    use coverly_core::identify::dat::DatStore;
+    use coverly_core::identify::{IdMethod, Identifier, IdentifyOptions};
+    use coverly_core::jobs::ApplyOptions;
+    use coverly_core::net::testing::{png_bytes, MockServer};
+    use coverly_core::net::{NetConfig, PoliteHttp, UreqHttp};
+    use coverly_core::profiles::Media;
+    use coverly_core::progress::NoProgress;
+    use coverly_core::scan::{scan_library, LibraryScan, RomEntry, ScanOptions};
+
+    use super::*;
+
+    const GB: &str = "Nintendo - Game Boy";
+    const GB_DAT: &str = "metadat/no-intro/Nintendo - Game Boy.dat";
+
+    fn profile(id: &str) -> Profile {
+        let mut p = builtin_profiles().into_iter().find(|p| p.id == id).unwrap();
+        p.folder_game_suffix.insert("gb".into(), ".gbdir".into());
+        p
+    }
+
+    /// `<roms>/gb/`: a probed folder, a suffixed folder with no probe
+    /// file, and a loose ROM.
+    fn library(roms: &str) -> TempDir {
+        let lib = TempDir::new().unwrap();
+        let gb = format!("{roms}/gb");
+        put_tree(
+            lib.path(),
+            &[
+                (&format!("{gb}/Zelda/GAME.PROBE"), 16),
+                (&format!("{gb}/Zelda/data/a.gb"), 32_768),
+                (&format!("{gb}/Zelda/data/b.bin"), 10),
+                (&format!("{gb}/Tetris.gb"), 64),
+                (&format!("{gb}/Mario.gbdir/data/c.gb"), 100),
+            ],
+        );
+        lib
+    }
+
+    fn scan(root: &Path, profile: &Profile) -> LibraryScan {
+        scan_library(root, profile, &SystemDb::builtin(), &ScanOptions::default())
+    }
+
+    fn gb_roms(scan: &LibraryScan) -> &[RomEntry] {
+        &scan
+            .systems
+            .iter()
+            .find(|s| s.system_id.as_deref() == Some("gb"))
+            .unwrap()
+            .roms
+    }
+
+    fn rom<'a>(roms: &'a [RomEntry], folder: &str) -> &'a RomEntry {
+        roms.iter()
+            .find(|r| r.path.file_name().is_some_and(|n| n == folder))
+            .unwrap_or_else(|| panic!("{folder} in {roms:?}"))
+    }
+
+    #[test]
+    fn a_folder_game_is_one_library_entry_and_its_contents_are_not_scanned() {
+        let _g = ProbeGuard::new();
+        let lib = library("roms");
+        let scan = scan(lib.path(), &profile("batocera"));
+        let roms = gb_roms(&scan);
+        let names: Vec<&str> = roms.iter().map(|r| r.stem.as_str()).collect();
+        assert_eq!(names, ["Mario", "Tetris", "Zelda"], "{roms:?}");
+
+        let zelda = rom(roms, "Zelda");
+        assert!(zelda.is_dir);
+        assert_eq!(zelda.ext, "");
+        assert_eq!(zelda.size, 16 + 32_768 + 10);
+        assert!(zelda.rel_dir.as_os_str().is_empty());
+        assert!(zelda.companions.is_empty());
+        assert!(zelda.path.is_dir());
+        let newest = fs::metadata(zelda.path.join("data/b.bin"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(zelda.modified, newest, "newest file inside");
+
+        let mario = rom(roms, "Mario.gbdir");
+        assert!(
+            mario.is_dir,
+            "the layout's suffix alone makes a folder game"
+        );
+        assert_eq!(
+            (mario.stem.as_str(), mario.ext.as_str()),
+            ("Mario", "gbdir")
+        );
+        assert_eq!(mario.size, 100);
+
+        let tetris = rom(roms, "Tetris.gb");
+        assert!(!tetris.is_dir);
+        assert_eq!(tetris.ext, "gb");
+    }
+
+    #[test]
+    fn without_the_probe_or_the_suffix_a_folder_is_walked_as_before() {
+        let lib = library("roms");
+        let scan = scan(
+            lib.path(),
+            &builtin_profiles()
+                .into_iter()
+                .find(|p| p.id == "batocera")
+                .unwrap(),
+        );
+        let roms = gb_roms(&scan);
+        let mut files: Vec<&str> = roms
+            .iter()
+            .map(|r| r.path.file_name().unwrap().to_str().unwrap())
+            .collect();
+        files.sort_unstable();
+        assert_eq!(files, ["Tetris.gb", "a.gb", "c.gb"]);
+        assert!(roms.iter().all(|r| !r.is_dir));
+    }
+
+    /// ES-DE keeps a directory's extension in its media name
+    /// (`Utils::FileSystem::getStem` returns a directory's whole name), so
+    /// on ES-DE the stem of `Mario.gbdir/` is `Mario.gbdir`; Batocera's
+    /// `getStem` cuts at the last dot for files and folders alike.
+    #[test]
+    fn es_de_names_the_media_of_a_suffixed_folder_after_its_whole_name() {
+        let _g = ProbeGuard::new();
+        let lib = library("ROMs");
+        let scan = scan(lib.path(), &profile("esde"));
+        let roms = gb_roms(&scan);
+        let mario = rom(roms, "Mario.gbdir");
+        assert!(mario.is_dir);
+        assert_eq!(
+            (mario.stem.as_str(), mario.ext.as_str()),
+            ("Mario.gbdir", "gbdir")
+        );
+        assert_eq!(rom(roms, "Zelda").stem, "Zelda");
+    }
+
+    fn dat_text() -> String {
+        let crc = format!("{:08X}", crc32fast::hash(&[0u8; 64]));
+        format!("clrmamepro (\n name \"GB\"\n)\ngame (\n name \"Tetris (World)\"\n rom ( name \"Tetris (World).gb\" size 64 crc {crc} )\n)\n")
+    }
+
+    fn net() -> (PoliteHttp<UreqHttp>, Cache) {
+        let cfg = NetConfig {
+            retries: 0,
+            ..NetConfig::default()
+        };
+        (
+            PoliteHttp::new(UreqHttp::new(&cfg), &cfg),
+            Cache::in_memory().unwrap(),
+        )
+    }
+
+    fn opened_inside(log: &[PathBuf], dir: &Path) -> Vec<PathBuf> {
+        log.iter().filter(|p| p.starts_with(dir)).cloned().collect()
+    }
+
+    #[test]
+    fn hashing_never_opens_a_folder_entry() {
+        let _g = ProbeGuard::new();
+        let lib = library("roms");
+        let scan = scan(lib.path(), &profile("batocera"));
+        let roms = gb_roms(&scan);
+        let server = MockServer::start();
+        server.serve_dat(GB_DAT, &dat_text());
+        let (http, cache) = net();
+        let dats = DatStore::new(&http, &cache, server.base());
+        let id = Identifier::new(&cache, &dats, IdentifyOptions::default());
+        let db = SystemDb::builtin();
+        let gb = db.get("gb").unwrap();
+
+        start_open_log();
+        let tetris = id.identify(rom(roms, "Tetris.gb"), gb, false).unwrap();
+        let zelda_rom = rom(roms, "Zelda");
+        let zelda = id.identify(zelda_rom, gb, false).unwrap();
+        let mario_rom = rom(roms, "Mario.gbdir");
+        let mario = id.identify(mario_rom, gb, false).unwrap();
+        let log = take_open_log();
+
+        assert_eq!(tetris.method, IdMethod::Hash, "files still hash");
+        assert_eq!((zelda.method, zelda.hash), (IdMethod::Name, None));
+        assert_eq!(zelda.parsed.title, "Zelda");
+        assert_eq!((mario.method, mario.hash), (IdMethod::Name, None));
+        for folder in [zelda_rom, mario_rom] {
+            assert_eq!(opened_inside(&log, &folder.path), Vec::<PathBuf>::new());
+            let mtime = coverly_core::cache::mtime_ns(folder.modified);
+            assert_eq!(
+                cache.quick_id(&folder.path, folder.size, mtime).unwrap(),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn a_gamelist_fill_writes_the_folder_as_the_game_path() {
+        let _g = ProbeGuard::new();
+        let lib = library("roms");
+        let r = lib.path();
+        let server = MockServer::start();
+        server.serve_libretro_root(&[GB]);
+        server.serve_libretro_index(GB, "Named_Boxarts", &["Zelda.png", "Mario.png"]);
+        for name in ["Zelda.png", "Mario.png"] {
+            server.serve_libretro_image(GB, "Named_Boxarts", name, png_bytes(400, 560));
+        }
+        let (http, cache) = net();
+        let endpoints = Endpoints {
+            libretro: server.base(),
+            libretro_raw: server.url("/raw"),
+            database: server.base(),
+            ..Endpoints::default()
+        };
+        let cache_dir = TempDir::new().unwrap();
+        let data = TempDir::new().unwrap();
+        let env = FillEnv {
+            cache: &cache,
+            http: &http,
+            endpoints: &endpoints,
+            cache_dir: cache_dir.path(),
+            data_dir: data.path(),
+            keys: &SourceKeys::default(),
+        };
+        let profile = profile("batocera");
+        let db = SystemDb::builtin();
+        let scan = scan(r, &profile);
+        let art = resolve_art(&scan, &profile, &db, &[Media::Cover]);
+        let report = build_report(r, &profile, &db, &ScanOptions::default(), &[Media::Cover]);
+        let gb_report = report
+            .systems
+            .iter()
+            .find(|s| s.system_id.as_deref() == Some("gb"))
+            .unwrap();
+        let mut rel: Vec<PathBuf> = gb_report
+            .entries
+            .iter()
+            .map(|e| e.rel_path.clone())
+            .collect();
+        rel.sort();
+        let want: Vec<PathBuf> = ["Mario.gbdir", "Tetris.gb", "Zelda"]
+            .map(PathBuf::from)
+            .to_vec();
+        assert_eq!(rel, want, "the audit lists each folder game once");
+        assert_eq!(gb_report.roms, 3);
+        let settings = FillSettings {
+            media: vec![Media::Cover],
+            ..FillSettings::default()
+        };
+        start_open_log();
+        let plan = env.plan(
+            r,
+            &profile,
+            &db,
+            &art,
+            &settings,
+            &NoProgress,
+            &AtomicBool::new(false),
+        );
+        let report = env
+            .apply(
+                &plan,
+                &profile,
+                &ApplyOptions::default(),
+                &NoProgress,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        let log = take_open_log();
+        assert_eq!(report.filled, 2, "{report:?}");
+        let gb = r.join("roms/gb");
+        let gamelist = fs::read_to_string(gb.join("gamelist.xml")).unwrap();
+        assert!(gamelist.contains("<path>./Zelda</path>"), "{gamelist}");
+        assert!(
+            gamelist.contains("<path>./Mario.gbdir</path>"),
+            "{gamelist}"
+        );
+        assert!(
+            gamelist.contains("<thumbnail>./images/Zelda-image.png</thumbnail>"),
+            "{gamelist}"
+        );
+        assert!(
+            gamelist.contains("<thumbnail>./images/Mario-image.png</thumbnail>"),
+            "{gamelist}"
+        );
+        assert!(gb.join("images/Zelda-image.png").is_file());
+        assert!(gb.join("images/Mario-image.png").is_file());
+        assert_eq!(
+            opened_inside(&log, &gb.join("Zelda")),
+            Vec::<PathBuf>::new()
+        );
+        assert_eq!(
+            opened_inside(&log, &gb.join("Mario.gbdir")),
+            Vec::<PathBuf>::new()
+        );
+    }
+}

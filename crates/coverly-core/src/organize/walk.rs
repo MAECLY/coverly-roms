@@ -450,7 +450,7 @@ pub fn walk(source: &Path, db: &SystemDb, opts: &WalkOptions) -> io::Result<Walk
 /// One `read_dir` of `dir`: each entry's name, path and whether it is a
 /// file, sorted by name, AppleDouble twins and OS junk left out; `None`
 /// when it cannot be listed.
-fn list_dir(dir: &Path) -> Option<Vec<(String, PathBuf, bool)>> {
+pub(crate) fn list_dir(dir: &Path) -> Option<Vec<(String, PathBuf, bool)>> {
     let mut out: Vec<(String, PathBuf, bool)> = fs::read_dir(dir)
         .ok()?
         .flatten()

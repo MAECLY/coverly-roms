@@ -882,7 +882,7 @@ fn plan_folder(
 
 /// `name` without `suffix` at its end (ASCII case-insensitive), when the
 /// rest is not empty.
-fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
+pub(crate) fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
     let cut = name.len().checked_sub(suffix.len()).filter(|&c| c > 0)?;
     (name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(suffix)).then(|| &name[..cut])
 }

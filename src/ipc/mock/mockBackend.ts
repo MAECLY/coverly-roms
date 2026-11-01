@@ -391,6 +391,7 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'esde',
+      folder_stem_keeps_suffix: true,
       disc_layout: { kind: 'game-folder', m3u_for_multi: true },
       folder_names: ESDE_FOLDERS,
       name: 'ES-DE',

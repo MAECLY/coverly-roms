@@ -141,7 +141,10 @@ impl<'a> Identifier<'a> {
                     });
                 }
             }
-        } else if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() {
+        } else if self.opts.method != MatchMethod::NameOnly && !dats.is_empty() && !rom.is_dir {
+            // A folder game (systems batch 2 D26) is never opened as a
+            // file: it is identified by name, so no hash reaches
+            // ScreenScraper either.
             let mtime = crate::cache::mtime_ns(rom.modified);
             let outcome = match self.cache.quick_id(&rom.path, rom.size, mtime)? {
                 Some(o) => o,

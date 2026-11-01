@@ -36,6 +36,7 @@ fn sample() -> ProfileFile {
         accepts_containers: default_accepts_containers(),
         container_overrides: default_container_overrides(),
         folder_game_suffix: BTreeMap::new(),
+        folder_stem_keeps_suffix: false,
     }
 }
 
