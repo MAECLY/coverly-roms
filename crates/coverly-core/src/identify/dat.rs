@@ -479,7 +479,31 @@ impl<'a> DatStore<'a> {
 /// The first serial of a DAT `serial` field, which may list several
 /// (`"SLUS-00543, SLUS-00544"`).
 fn first_serial(v: &str) -> Option<String> {
-    v.split(',').find_map(normalise_serial)
+    v.split(',')
+        .find_map(normalise_serial)
+        .map(|s| nintendo_disc_key(&s).unwrap_or(s))
+}
+
+/// The game code of a Redump GameCube or Wii serial: `RVL-RMGE-USA`,
+/// `RVL-SP3E-USA-B0` and `DL-DOL-GW7P-EUR` are indexed under `RMGE`,
+/// `SP3E` and `GW7P`, the first four characters of the disc header's ID6
+/// (spec §7: GameTDB DATs list the ID6 itself, Redump the middle key).
+fn nintendo_disc_key(serial: &str) -> Option<String> {
+    let parts: Vec<&str> = serial.split('-').collect();
+    let at = parts.iter().position(|p| *p == "RVL" || *p == "DOL")?;
+    let code = parts.get(at + 1)?;
+    (code.len() == 4 && code.bytes().all(|b| b.is_ascii_alphanumeric())).then(|| (*code).to_owned())
+}
+
+/// The serial keys to look `serial` up by, best first: a GameCube or Wii
+/// ID6 is tried whole (GameTDB), then as its first four characters (the
+/// Redump middle key). Every other system has one key.
+pub fn serial_keys(system: &str, serial: &str) -> Vec<String> {
+    let mut keys = vec![serial.to_owned()];
+    if matches!(system, "gamecube" | "wii") && serial.len() == 6 && serial.is_ascii() {
+        keys.push(serial[..4].to_owned());
+    }
+    keys
 }
 
 /// A disc or product serial in one canonical form, or `None` when `raw` is

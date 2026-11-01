@@ -602,3 +602,59 @@ fn naomi2_never_wins_mame_dat() {
     // Triforce has no DAT: its folder claims it.
     assert!(dat_sources(db.get("triforce").unwrap()).is_empty());
 }
+
+// --- GameCube and Wii serials (systems batch 2, Task 7) ---
+
+fn fixture(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/dat")
+            .join(name),
+    )
+    .unwrap()
+}
+
+#[test]
+fn redump_nintendo_serials_are_indexed_by_their_middle_key() {
+    // Redump writes `RVL-RMGE-USA` and `DL-DOL-GW7P-EUR`; the disc header
+    // names `RMGE01` and `GW7P69`, whose first four characters match.
+    let games = parse_clrmamepro(&fixture("redump-wii.dat")).unwrap();
+    assert_eq!(games[0].roms[0].serial.as_deref(), Some("RMGE"));
+    assert_eq!(games[1].roms[0].serial.as_deref(), Some("GW7P"));
+    // GameTDB keeps the ID6.
+    let games = parse_clrmamepro(&fixture("gametdb-gamecube.dat")).unwrap();
+    assert_eq!(games[0].roms[0].serial.as_deref(), Some("GM8E01"));
+    // Other serials are untouched.
+    let games = parse_clrmamepro(REDUMP_DAT).unwrap();
+    assert_eq!(games[0].roms[0].serial.as_deref(), Some("SCUS-94570"));
+}
+
+#[test]
+fn id6_finds_gametdb_and_redump_rows() {
+    use coverly_core::dedupe::source::{CacheDats, DatLookup};
+    let db = SystemDb::builtin();
+    let cache = Cache::in_memory().unwrap();
+    let server = MockServer::start();
+    let gc = "dat/Nintendo - GameCube.dat";
+    let wii = "metadat/redump/Nintendo - Wii.dat";
+    server.serve_dat(gc, &fixture("gametdb-gamecube.dat"));
+    server.serve_dat(wii, &fixture("redump-wii.dat"));
+    let http = http();
+    let store = DatStore::new(&http, &cache, server.base());
+    assert_eq!(store.ensure(gc).unwrap(), DatStatus::Ready);
+    assert_eq!(store.ensure(wii).unwrap(), DatStatus::Ready);
+    let dats = CacheDats::new(&cache, &db);
+    let games = |system: &str, serial: &str| -> Vec<String> {
+        dats.by_serial(system, serial)
+            .into_iter()
+            .map(|h| h.game)
+            .collect()
+    };
+    assert_eq!(
+        games("gamecube", "GM8E01"),
+        ["Test Game (USA)", "Test Game (USA) (Rev 1)"]
+    );
+    assert_eq!(games("wii", "RMGE01"), ["Test Wii Game (USA)"]);
+    // The middle key is tried only for these two systems.
+    assert!(games("psx", "RMGE01").is_empty());
+}

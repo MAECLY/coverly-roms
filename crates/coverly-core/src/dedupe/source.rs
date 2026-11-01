@@ -200,12 +200,21 @@ impl DatLookup for CacheDats<'_> {
             .collect()
     }
 
+    /// GameCube and Wii try the ID6, then its Redump middle key
+    /// ([`crate::identify::dat::serial_keys`]); the first key with rows
+    /// answers.
     fn by_serial(&self, system: &str, serial: &str) -> Vec<DatHit> {
-        self.dats(system)
+        let dats = self.dats(system);
+        crate::identify::dat::serial_keys(system, serial)
             .iter()
-            .flat_map(|dat| self.cache.dat_by_serial(dat, serial).unwrap_or_default())
-            .map(|r| hit(r.game))
-            .collect()
+            .map(|key| {
+                dats.iter()
+                    .flat_map(|dat| self.cache.dat_by_serial(dat, key).unwrap_or_default())
+                    .map(|r| hit(r.game))
+                    .collect::<Vec<_>>()
+            })
+            .find(|hits| !hits.is_empty())
+            .unwrap_or_default()
     }
 
     fn set_name(&self, system: &str, name: &str) -> Option<bool> {

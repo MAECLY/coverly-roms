@@ -1,0 +1,20 @@
+clrmamepro (
+	name "Nintendo - Wii"
+	description "Nintendo - Wii"
+	version "2026.10.07"
+	extensions "iso"
+	homepage "http://github.com/robloach/libretro-dats"
+)
+
+game (
+	name "Test Wii Game (USA)"
+	region "USA"
+	serial "RVL-RMGE-USA"
+	rom ( name "Test Wii Game (USA).iso" size 4699979776 crc 11111111 md5 AA sha1 BB serial "RVL-RMGE-USA" )
+)
+game (
+	name "Test Cube Game (Europe)"
+	region "Europe"
+	serial "DL-DOL-GW7P-EUR"
+	rom ( name "Test Cube Game (Europe).iso" size 1459978240 crc 22222222 md5 CC sha1 DD serial "DL-DOL-GW7P-EUR" )
+)
