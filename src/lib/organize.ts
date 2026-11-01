@@ -265,7 +265,9 @@ export function leftReasonKey(
             ? 'organize.left.webPage'
             : r.what === 'patch'
               ? 'organize.left.patch'
-              : 'organize.left.text',
+              : r.what === 'pc-game-data'
+                ? 'organize.left.pcGameData'
+                : 'organize.left.text',
       });
     case 'bios':
       return k('bios');

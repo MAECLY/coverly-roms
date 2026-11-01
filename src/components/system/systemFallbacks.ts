@@ -52,7 +52,7 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   '3ds': '3DS',
   wiiu: 'WIIU',
   switch: 'NSW',
-  psvita: 'PSV',
+  psvita: 'VITA',
   ps3: 'PS3',
 };
 

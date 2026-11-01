@@ -86,6 +86,7 @@ const ALL_REASONS: LeftReason[] = [
   { kind: 'not-a-rom', what: 'web-page' },
   { kind: 'not-a-rom', what: 'text' },
   { kind: 'not-a-rom', what: 'patch' },
+  { kind: 'not-a-rom', what: 'pc-game-data' },
   { kind: 'bios' },
   { kind: 'damaged-archive' },
   { kind: 'unsupported-archive' },
@@ -182,6 +183,9 @@ describe('organise plan helpers', () => {
     );
     expect(leftReasonText(t, { kind: 'not-a-rom', what: 'patch' })).toBe(
       'organize.left.notARom{"what":"organize.left.patch"}',
+    );
+    expect(leftReasonText(t, { kind: 'not-a-rom', what: 'pc-game-data' })).toBe(
+      'organize.left.notARom{"what":"organize.left.pcGameData"}',
     );
     expect(leftReasonText(t, { kind: 'duplicate', of: 'a.zip' })).toBe(
       'organize.left.duplicate{"name":"a.zip"}',
