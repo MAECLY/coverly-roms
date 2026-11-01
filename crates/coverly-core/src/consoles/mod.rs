@@ -52,8 +52,45 @@ pub enum TitleKind {
     Update,
     Dlc,
     Demo,
+    /// Made outside the console maker's programme (NRO, `.3dsx`, a loose
+    /// `.rpx`, a Vita homebrew SELF; spec D12).
+    Homebrew,
     #[default]
     Unknown,
+}
+
+/// A piece of a game that cannot play alone (spec D12, D13): left where
+/// it is with `LeftReason::GamePart`, never moved on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PartKind {
+    /// An executable of an unpacked game (`main`, `.nso`, `eboot.bin`).
+    ExeFs,
+    /// One content archive of a Switch title (`<32 hex>.nca`/`.ncz`).
+    Nca,
+    /// A shared library (`.rpl`).
+    Library,
+    /// Title metadata (`.tmd`).
+    TitleMeta,
+    /// A loadable module (`.xex` DLL, PSP `.prx`).
+    Module,
+    /// A content-manager backup (`.psvimg`).
+    Backup,
+}
+
+/// Where the shown title came from, for the «why» line (spec D7, plan
+/// P-4); [`IdSource`] says where the id came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TitleSource {
+    /// A plaintext header or metadata file (`cnmt.xml`, NRO NACP).
+    Header,
+    /// The optional `blawar/titledb` catalogue.
+    Titledb,
+    /// The optional `api.nlib.cc` fallback.
+    Nlib,
+    /// The file's own name.
+    FileName,
 }
 
 /// The encoding of an embedded icon.
@@ -101,6 +138,20 @@ pub enum IdSource {
     MicrosoftGameConfig,
     /// Xbox ERA `AppxManifest.xml` (systems batch 3 §8.3).
     AppxManifest,
+    /// A Switch NCA id looked up in the catalogue's `ncas.json` (spec D6).
+    NcaCatalog,
+    /// A title metadata file (`.tmd`, spec D14).
+    Tmd,
+    /// A Switch `main.npdm`.
+    Npdm,
+    /// A loose `.xbe` certificate.
+    Xbe,
+    /// A loose `.xex` execution info.
+    Xex,
+    /// A PS3/Vita SELF header (`SCE\0`); the spec's `Self_` (plan P-4).
+    SelfHeader,
+    /// A PSP `EBOOT.PBP`'s `PARAM.SFO`.
+    Pbp,
 }
 
 /// A title id and where it came from, as a plan row shows it (spec §10:
@@ -166,6 +217,20 @@ pub struct ConsoleId {
     /// GDK DLC: its single AllowedProduct (systems batch 3 D15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
+    /// A piece that cannot play alone (spec D12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<PartKind>,
+    /// Where `title` came from (spec D7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<TitleSource>,
+    /// Lower-case 32-hex NCA ids seen by name (loose, PFS0 table, XCI
+    /// secure HFS0; spec D6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nca_ids: Vec<String>,
+    /// The `m` of a disc `n/m` (Saturn, Dreamcast, XEX), when the header
+    /// says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disc_count: Option<u8>,
     /// Fixed vocabulary («RVZ disc header», «PFS0 ticket name»…).
     pub detail: String,
 }
@@ -188,6 +253,10 @@ impl ConsoleId {
             region: None,
             product_id: None,
             parent_id: None,
+            part: None,
+            title_source: None,
+            nca_ids: Vec::new(),
+            disc_count: None,
             detail: detail.to_owned(),
         }
     }
@@ -1065,6 +1134,85 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_string(&src).unwrap(), text);
         }
+    }
+
+    #[test]
+    fn adjustment_types_serde() {
+        use serde_json::{from_str, to_string};
+        assert_eq!(to_string(&TitleKind::Homebrew).unwrap(), "\"homebrew\"");
+        assert_eq!(
+            from_str::<TitleKind>("\"homebrew\"").unwrap(),
+            TitleKind::Homebrew
+        );
+        for (part, text) in [
+            (PartKind::ExeFs, "\"exe-fs\""),
+            (PartKind::Nca, "\"nca\""),
+            (PartKind::Library, "\"library\""),
+            (PartKind::TitleMeta, "\"title-meta\""),
+            (PartKind::Module, "\"module\""),
+            (PartKind::Backup, "\"backup\""),
+        ] {
+            assert_eq!(to_string(&part).unwrap(), text);
+            assert_eq!(from_str::<PartKind>(text).unwrap(), part);
+        }
+        for (src, text) in [
+            (TitleSource::Header, "\"header\""),
+            (TitleSource::Titledb, "\"titledb\""),
+            (TitleSource::Nlib, "\"nlib\""),
+            (TitleSource::FileName, "\"file-name\""),
+        ] {
+            assert_eq!(to_string(&src).unwrap(), text);
+            assert_eq!(from_str::<TitleSource>(text).unwrap(), src);
+        }
+        for (src, text) in [
+            (IdSource::NcaCatalog, "\"nca-catalog\""),
+            (IdSource::Tmd, "\"tmd\""),
+            (IdSource::Npdm, "\"npdm\""),
+            (IdSource::Xbe, "\"xbe\""),
+            (IdSource::Xex, "\"xex\""),
+            (IdSource::SelfHeader, "\"self-header\""),
+            (IdSource::Pbp, "\"pbp\""),
+        ] {
+            assert_eq!(to_string(&src).unwrap(), text);
+            assert_eq!(from_str::<IdSource>(text).unwrap(), src);
+        }
+    }
+
+    #[test]
+    fn console_id_adjustment_fields() {
+        // Absent fields stay out of the JSON and default on read, so facts
+        // and plans written before them still load.
+        let bare = ConsoleId::proven("switch", "NRO header");
+        assert_eq!(
+            (
+                bare.part,
+                bare.title_source,
+                bare.nca_ids.len(),
+                bare.disc_count
+            ),
+            (None, None, 0, None)
+        );
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"system":"switch","confidence":0.95,"kind":"unknown","detail":"NRO header"}"#
+        );
+        let mut full = bare.clone();
+        full.kind = TitleKind::Homebrew;
+        full.part = Some(PartKind::ExeFs);
+        full.title_source = Some(TitleSource::Titledb);
+        full.nca_ids = vec!["0123456789abcdef0123456789abcdef".into()];
+        full.disc_count = Some(2);
+        let json = serde_json::to_string(&full).unwrap();
+        for piece in [
+            r#""kind":"homebrew""#,
+            r#""part":"exe-fs""#,
+            r#""title_source":"titledb""#,
+            r#""nca_ids":["0123456789abcdef0123456789abcdef"]"#,
+            r#""disc_count":2"#,
+        ] {
+            assert!(json.contains(piece), "{piece} in {json}");
+        }
+        assert_eq!(serde_json::from_str::<ConsoleId>(&json).unwrap(), full);
     }
 
     #[test]

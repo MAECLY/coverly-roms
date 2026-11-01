@@ -18,7 +18,7 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
-use crate::consoles::{base_title_id, TitleKind};
+use crate::consoles::{base_title_id, PartKind, TitleKind};
 use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
@@ -232,6 +232,17 @@ pub enum LeftReason {
     GameOverlay {
         of: String,
     },
+    /// A piece of a game that cannot play alone (spec D13): an ExeFS
+    /// file, a loose NCA, a library, title metadata, a module or a
+    /// backup. `title_id` is the game's, when the piece or its path says.
+    GamePart {
+        part: PartKind,
+        system: String,
+        #[serde(default)]
+        title_id: Option<String>,
+    },
+    /// A huge item the user said «No» to (spec D16): it stays where it is.
+    NotConfirmed,
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -330,6 +341,16 @@ pub enum ItemNote {
     /// name), where it looks for downloadable content (systems batch 3
     /// D16).
     DlcFolder { layout: String },
+    /// Homebrew: goes to the system folder like any ROM (spec D13, §13 Q6).
+    Homebrew,
+    /// A Vita game kept in a 7z: Vita3K only installs `.zip`, `.vpk` or
+    /// `.vci` (spec D23).
+    Vita7z,
+    /// Disc `n` of a multi-disc set is not in the pile (spec D24).
+    MissingDisc { n: u8 },
+    /// The title could not be read without keys and the catalogue did not
+    /// name it: shown as «Cifrado» (spec D11).
+    EncryptedName,
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -766,6 +787,9 @@ pub enum Choice {
     Assign { system: String },
     /// Keep it where it is.
     Leave,
+    /// «No» to a huge item (spec D16): kept where it is with
+    /// [`LeftReason::NotConfirmed`]; never remembered by content.
+    Decline,
 }
 
 /// Totals of a plan.
@@ -1898,7 +1922,9 @@ fn identify_one(
 /// Studio models are no ROMs (systems batch 2 D23, D7).
 /// 8: content ids, regions and Xbox product ids on `Sniff.console`
 /// (systems batch 3 D28).
-const FACTS_VERSION: u32 = 8;
+/// 9: game parts, title sources, homebrew, NCA ids, archive folder games
+/// and disc counts (adjustments D33).
+const FACTS_VERSION: u32 = 9;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -2161,6 +2187,7 @@ pub fn plan_from_survey(
                 }
             }
             Choice::Leave => item.leave(LeftReason::Unknown),
+            Choice::Decline => item.leave(LeftReason::NotConfirmed),
         }
     }
 
@@ -3471,6 +3498,94 @@ mod tests {
             serde_json::from_value::<PlanWarning>(wire).unwrap(),
             warning
         );
+    }
+
+    #[test]
+    fn adjustment_variants_serde() {
+        use serde_json::{json, to_value};
+        for (reason, wire) in [
+            (
+                LeftReason::GamePart {
+                    part: PartKind::ExeFs,
+                    system: "switch".into(),
+                    title_id: None,
+                },
+                json!({"kind": "game-part", "part": "exe-fs", "system": "switch", "title_id": null}),
+            ),
+            (
+                LeftReason::GamePart {
+                    part: PartKind::Backup,
+                    system: "psvita".into(),
+                    title_id: Some("PCSE00120".into()),
+                },
+                json!({"kind": "game-part", "part": "backup", "system": "psvita", "title_id": "PCSE00120"}),
+            ),
+            (LeftReason::NotConfirmed, json!({"kind": "not-confirmed"})),
+        ] {
+            assert_eq!(to_value(&reason).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<LeftReason>(wire).unwrap(), reason);
+        }
+        // A game part written without its title id still loads.
+        assert_eq!(
+            serde_json::from_value::<LeftReason>(
+                json!({"kind": "game-part", "part": "nca", "system": "switch"})
+            )
+            .unwrap(),
+            LeftReason::GamePart {
+                part: PartKind::Nca,
+                system: "switch".into(),
+                title_id: None
+            }
+        );
+        for (note, wire) in [
+            (ItemNote::Homebrew, json!({"kind": "homebrew"})),
+            (ItemNote::Vita7z, json!({"kind": "vita7z"})),
+            (
+                ItemNote::MissingDisc { n: 2 },
+                json!({"kind": "missing-disc", "n": 2}),
+            ),
+            (ItemNote::EncryptedName, json!({"kind": "encrypted-name"})),
+        ] {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        let d = Decision {
+            item: 4,
+            choice: Choice::Decline,
+        };
+        assert_eq!(
+            to_value(&d).unwrap(),
+            json!({"item": 4, "choice": "decline"})
+        );
+        let back: Decision =
+            serde_json::from_value(json!({"item": 4, "choice": "decline"})).unwrap();
+        assert_eq!(back.choice, Choice::Decline);
+    }
+
+    #[test]
+    fn facts_of_an_older_version_are_discarded() {
+        let cache = Cache::in_memory().unwrap();
+        let c = WalkCandidate {
+            path: PathBuf::from("/pile/Game.zip"),
+            ext: "zip".into(),
+            size: 10,
+            mtime_ns: 1_700_000_000_000_000_000,
+            cloud_only: false,
+        };
+        let f = facts(Inspection::new(Container::Zip));
+        remember_facts(&cache, &c, &f);
+        assert!(memoised_facts(&cache, &c).is_some());
+        let mut old = serde_json::to_value(StoredFacts {
+            v: FACTS_VERSION,
+            facts: f,
+        })
+        .unwrap();
+        assert_eq!(FACTS_VERSION, 9);
+        old["v"] = 8.into();
+        cache
+            .put_organize_facts(&c.path, c.size, c.mtime_ns, &old.to_string())
+            .unwrap();
+        assert!(memoised_facts(&cache, &c).is_none());
     }
 
     #[test]

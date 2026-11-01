@@ -525,6 +525,7 @@ fn dreamcast_track03_t40214n_disc_1_of_1() {
     assert_eq!(disc.system, DiscSystem::Known("dreamcast"));
     assert_eq!(disc.serials, ["T-40214N"]);
     assert_eq!(disc.disc_no, Some(1));
+    assert_eq!(disc.count, Some(1));
     assert_eq!(disc.source, DiscIdSource::IpBin);
     assert_eq!(disc.confidence, 0.95);
     assert_eq!(disc.detail, "SEGA SEGAKATANA");
@@ -533,12 +534,15 @@ fn dreamcast_track03_t40214n_disc_1_of_1() {
     // Disc 2 of 2; a device field that makes no sense gives no number.
     let two = id(dt::dreamcast_track03("T-40214N  ", "2/2")).unwrap();
     assert_eq!(two.disc_no, Some(2));
+    // The `m` of `n/m` is kept for loose disc sets (adjustments D24).
+    assert_eq!(two.count, Some(2));
     assert_ne!(two.volume, disc.volume, "IP.BIN differs");
     // The field as the real disc writes it: no dash.
     let real = id(dt::dreamcast_track03("T40214N   ", "1/1")).unwrap();
     assert_eq!(real.serials, ["T-40214N"]);
     let odd = id(dt::dreamcast_track03("T-40214N  ", "3/2")).unwrap();
     assert_eq!(odd.disc_no, None);
+    assert_eq!(odd.count, None);
     assert_eq!(odd.serials, ["T-40214N"]);
 }
 

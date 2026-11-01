@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime};
 use clap::{Args, ValueEnum};
 use coverly_core::archive::{FoundTool, Tool};
 use coverly_core::cache::{Cache, CACHE_FILE};
+use coverly_core::consoles::PartKind;
 use coverly_core::credentials::SourceKeys;
 use coverly_core::identify::dat::{DatStore, DATABASE_BASE};
 use coverly_core::identify::evidence::{Evidence, IdLevel};
@@ -822,6 +823,12 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::GameOverlay { of } => {
             format!("mods or patch folder of {of}: left where it is")
         }
+        LeftReason::GamePart {
+            part: PartKind::Backup,
+            ..
+        } => "encrypted Vita backup; not moved on its own".into(),
+        LeftReason::GamePart { .. } => "part of a game; not moved on its own".into(),
+        LeftReason::NotConfirmed => "not confirmed; left where it is".into(),
     }
 }
 
@@ -894,6 +901,12 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::ProEnhanced => "enhanced for PS5 Pro".into(),
         ItemNote::DlcFolder { layout } => {
             format!("goes to the DLC folder, where {layout} looks for downloadable content")
+        }
+        ItemNote::Homebrew => "homebrew".into(),
+        ItemNote::Vita7z => "Vita3K only installs .zip, .vpk or .vci".into(),
+        ItemNote::MissingDisc { n } => format!("disc {n} is missing"),
+        ItemNote::EncryptedName => {
+            "encrypted: the name cannot be read without decrypting it".into()
         }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
@@ -1747,6 +1760,42 @@ mod tests {
             ),
         ];
         for (note, text) in cases {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
+    }
+
+    #[test]
+    fn adjustment_texts() {
+        for (reason, text) in [
+            (
+                LeftReason::GamePart {
+                    part: PartKind::ExeFs,
+                    system: "switch".into(),
+                    title_id: None,
+                },
+                "part of a game; not moved on its own",
+            ),
+            (
+                LeftReason::GamePart {
+                    part: PartKind::Backup,
+                    system: "psvita".into(),
+                    title_id: Some("PCSE00120".into()),
+                },
+                "encrypted Vita backup; not moved on its own",
+            ),
+            (LeftReason::NotConfirmed, "not confirmed; left where it is"),
+        ] {
+            assert_eq!(left_text(&reason), text);
+        }
+        for (note, text) in [
+            (ItemNote::Homebrew, "homebrew"),
+            (ItemNote::Vita7z, "Vita3K only installs .zip, .vpk or .vci"),
+            (ItemNote::MissingDisc { n: 2 }, "disc 2 is missing"),
+            (
+                ItemNote::EncryptedName,
+                "encrypted: the name cannot be read without decrypting it",
+            ),
+        ] {
             assert_eq!(note_text(&note).as_deref(), Some(text));
         }
     }
