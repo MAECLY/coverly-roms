@@ -26,6 +26,7 @@ pub mod nintendo_disc;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
 pub mod wad;
+pub mod zarchive;
 
 /// Most bytes read from one item (D24).
 pub const MAX_READ: u64 = 4 << 20;

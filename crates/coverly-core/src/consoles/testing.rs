@@ -463,3 +463,242 @@ pub fn z3ds(underlying: &[u8; 4], inner: &SparseAt) -> SparseAt {
     s.put(0, &h).put(0x30, &frame);
     s
 }
+
+// ---------------------------------------------------------------------
+// Nintendo Wii U and ZArchive (spec §8.2). Synthetic data only.
+// ---------------------------------------------------------------------
+
+/// A Wii U `meta.xml` (wiiubrew «meta.xml») with a BOM, the fields the
+/// reader uses and a two-line `longname_en`, as the console writes it.
+pub fn meta_xml(title_id: &str, product: &str, name: &str) -> String {
+    format!(
+        "\u{FEFF}<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+         <menu type=\"complex\" access=\"777\">\n  \
+         <version type=\"unsignedInt\" length=\"4\">32</version>\n  \
+         <product_code type=\"string\" length=\"32\">{product}</product_code>\n  \
+         <company_code type=\"string\" length=\"8\">0001</company_code>\n  \
+         <title_version type=\"unsignedInt\" length=\"4\">0</title_version>\n  \
+         <title_id type=\"hexBinary\" length=\"8\">{title_id}</title_id>\n  \
+         <longname_ja type=\"string\" length=\"512\">ゲーム</longname_ja>\n  \
+         <longname_en type=\"string\" length=\"512\">{name}\n(Test)</longname_en>\n  \
+         <shortname_en type=\"string\" length=\"256\">Short</shortname_en>\n\
+         </menu>\n"
+    )
+}
+
+/// A Wii U `code/app.xml` (wiiubrew «app.xml»).
+pub fn app_xml(title_id: &str) -> String {
+    format!(
+        "\u{FEFF}<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+         <app type=\"complex\" access=\"777\">\n  \
+         <version type=\"unsignedInt\" length=\"4\">14</version>\n  \
+         <title_id type=\"hexBinary\" length=\"8\">{title_id}</title_id>\n  \
+         <title_version type=\"hexBinary\" length=\"2\">0010</title_version>\n\
+         </app>\n"
+    )
+}
+
+/// A decrypted (loadiine) Wii U title folder in `dir`: `code/app.xml`,
+/// `code/game.rpx` (64 bytes), `content/x.bin`, `meta/meta.xml` and the
+/// 18-byte header of `meta/iconTex.tga`. Mtimes pinned.
+pub fn wiiu_folder(dir: &std::path::Path, title_id: &str, product: &str, name: &str) {
+    let mut rpx = vec![0u8; 64];
+    rpx[..9].copy_from_slice(&[0x7F, b'E', b'L', b'F', 1, 2, 1, 0xCA, 0xFE]);
+    let mut tga = vec![0u8; 18];
+    tga[2] = 2;
+    let files: [(&str, Vec<u8>); 5] = [
+        ("code/app.xml", app_xml(title_id).into_bytes()),
+        ("code/game.rpx", rpx),
+        ("content/x.bin", vec![0u8; 100]),
+        (
+            "meta/meta.xml",
+            meta_xml(title_id, product, name).into_bytes(),
+        ),
+        ("meta/iconTex.tga", tga),
+    ];
+    for (i, (rel, bytes)) in files.iter().enumerate() {
+        let path = rel.split('/').fold(dir.to_path_buf(), |p, c| p.join(c));
+        std::fs::create_dir_all(path.parent().expect("has a parent")).expect("fixture dir");
+        std::fs::write(&path, bytes).expect("fixture file");
+        crate::dedupe::testing::pin_mtime(&path, i as u64);
+    }
+}
+
+/// A TMD head (3dbrew/wiiubrew «Title metadata»): RSA-2048 signature type,
+/// title id `tid` at 0x18C, version 32 at 0x1DC, one content.
+pub fn tmd(tid: u64) -> Vec<u8> {
+    let mut t = vec![0u8; 0xB04 + 0x30];
+    t[..4].copy_from_slice(&be32(0x0001_0004));
+    t[0x140..0x14A].copy_from_slice(b"Root-CA000");
+    t[0x18C..0x194].copy_from_slice(&tid.to_be_bytes());
+    t[0x1DC..0x1DE].copy_from_slice(&32u16.to_be_bytes());
+    t[0x1DE..0x1E0].copy_from_slice(&1u16.to_be_bytes());
+    t
+}
+
+/// A NUS download folder in `dir`: `title.tmd` for `tid`, `title.tik`
+/// (filled with `0xEE`, never read) and one encrypted `00000000.app`.
+pub fn nus_folder(dir: &std::path::Path, tid: u64) {
+    std::fs::create_dir_all(dir).expect("fixture dir");
+    let files: [(&str, Vec<u8>); 3] = [
+        ("title.tmd", tmd(tid)),
+        ("title.tik", vec![0xEE; 0x350]),
+        ("00000000.app", vec![0xCD; 0x200]),
+    ];
+    for (i, (name, bytes)) in files.iter().enumerate() {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).expect("fixture file");
+        crate::dedupe::testing::pin_mtime(&path, i as u64);
+    }
+}
+
+/// A WUX image (Cemu `wud.h`): `WUX0`, `2E D0 99 10`, sector size 0x8000,
+/// uncompressed size 23 GiB, the index table at 0x20 (sector 0 is stored
+/// sector 0), the sector array at the next sector boundary.
+pub fn wux() -> SparseAt {
+    const SECTOR: u64 = 0x8000;
+    const SIZE: u64 = 0x5_D3A0_0000;
+    let sectors = SIZE.div_ceil(SECTOR);
+    let array = (0x20 + 4 * sectors).next_multiple_of(SECTOR);
+    let mut h = Vec::from(*b"WUX0");
+    h.extend([0x2E, 0xD0, 0x99, 0x10]);
+    h.extend(le32(SECTOR as u32));
+    h.extend([0u8; 4]);
+    h.extend(SIZE.to_le_bytes());
+    h.extend([0u8; 8]);
+    let mut s = SparseAt::new(array + 64 * SECTOR);
+    s.put(0, &h).put(0x20, &le32(0));
+    s
+}
+
+/// A ZArchive (Exzap/ZArchive layout, see `consoles::zarchive`) holding
+/// `files` (`/`-separated paths), written like `zarchivewriter.cpp`: data
+/// in 64 KiB blocks, each zstd-compressed (stored when that is not
+/// smaller), padding to 8, offset records, names, the breadth-first tree
+/// with children sorted case-insensitively, empty meta sections and the
+/// footer (zero hash).
+pub fn zarchive(files: &[(&str, &[u8])]) -> SparseAt {
+    use std::collections::BTreeMap as Map;
+    enum T {
+        Dir(Map<String, (String, T)>),
+        File(u64, u64),
+    }
+    const BLOCK: usize = 64 << 10;
+    let mut stream: Vec<u8> = Vec::new();
+    let mut root = T::Dir(Map::new());
+    for (path, bytes) in files {
+        let offset = stream.len() as u64;
+        stream.extend_from_slice(bytes);
+        let parts: Vec<&str> = path.split('/').collect();
+        let mut at = &mut root;
+        for (k, part) in parts.iter().enumerate() {
+            let T::Dir(children) = at else {
+                panic!("a file is used as a folder")
+            };
+            let leaf = k + 1 == parts.len();
+            at = &mut children
+                .entry(part.to_ascii_lowercase())
+                .or_insert_with(|| {
+                    let node = if leaf {
+                        T::File(offset, bytes.len() as u64)
+                    } else {
+                        T::Dir(Map::new())
+                    };
+                    ((*part).to_owned(), node)
+                })
+                .1;
+        }
+    }
+    stream.resize(stream.len().next_multiple_of(BLOCK).max(BLOCK), 0);
+    let mut out: Vec<u8> = Vec::new();
+    let mut records: Vec<u8> = Vec::new();
+    for (i, block) in stream.chunks(BLOCK).enumerate() {
+        let z =
+            ruzstd::encoding::compress_to_vec(block, ruzstd::encoding::CompressionLevel::Fastest);
+        let stored = if z.len() < BLOCK { z } else { block.to_vec() };
+        if i % 16 == 0 {
+            records.extend((out.len() as u64).to_be_bytes());
+            records.extend([0u8; 32]);
+        }
+        let at = records.len() - 32 + (i % 16) * 2;
+        records[at..at + 2].copy_from_slice(&((stored.len() - 1) as u16).to_be_bytes());
+        out.extend(stored);
+    }
+    let data = (0u64, out.len() as u64);
+    out.resize(out.len().next_multiple_of(8), 0);
+    let recs = (out.len() as u64, records.len() as u64);
+    out.extend(&records);
+    // Breadth-first order, root first.
+    let mut order: Vec<(&str, &T)> = vec![("", &root)];
+    let mut starts: Vec<u32> = Vec::new();
+    let mut i = 0;
+    while i < order.len() {
+        let node = order[i].1;
+        starts.push(order.len() as u32);
+        if let T::Dir(children) = node {
+            for (name, child) in children.values() {
+                order.push((name.as_str(), child));
+            }
+        }
+        i += 1;
+    }
+    let mut names: Vec<u8> = Vec::new();
+    let mut name_at: Vec<u32> = Vec::new();
+    for (name, _) in &order {
+        name_at.push(names.len() as u32);
+        assert!(name.len() < 0x80, "short names only");
+        names.push(name.len() as u8);
+        names.extend(name.as_bytes());
+    }
+    let names_sec = (out.len() as u64, names.len() as u64);
+    out.extend(&names);
+    let tree_at = out.len() as u64;
+    for (k, (_, node)) in order.iter().enumerate() {
+        let name = if k == 0 { 0x7FFF_FFFF } else { name_at[k] };
+        match node {
+            T::Dir(children) => {
+                out.extend(be32(name));
+                out.extend(be32(starts[k]));
+                out.extend(be32(children.len() as u32));
+                out.extend(be32(0));
+            }
+            T::File(off, size) => {
+                out.extend(be32(name | 0x8000_0000));
+                out.extend(be32(*off as u32));
+                out.extend(be32(*size as u32));
+                out.extend(be32(
+                    (((*size >> 32) as u32) << 16) | ((*off >> 32) as u32 & 0xFFFF),
+                ));
+            }
+        }
+    }
+    let tree = (tree_at, out.len() as u64 - tree_at);
+    let meta = out.len() as u64;
+    let total = meta + 0x90;
+    for (o, sz) in [data, recs, names_sec, tree, (meta, 0), (meta, 0)] {
+        out.extend(o.to_be_bytes());
+        out.extend(sz.to_be_bytes());
+    }
+    out.extend([0u8; 32]);
+    out.extend(total.to_be_bytes());
+    out.extend(be32(0x61BF_3A01));
+    out.extend(be32(0x169F_52D6));
+    let mut s = SparseAt::new(out.len() as u64);
+    s.put(0, &out);
+    s
+}
+
+/// A Cemu `.wua` holding a base game (`0005000010145d00_v0`) and its
+/// update (`0005000e10145d00_v32`), each with `meta/meta.xml`.
+pub fn wua() -> SparseAt {
+    let base = meta_xml("0005000010145D00", "WUP-P-ARDP", "Super Mario 3D World");
+    let update = meta_xml("0005000E10145D00", "WUP-P-ARDP", "Super Mario 3D World");
+    zarchive(&[
+        (
+            "0005000010145d00_v0/code/app.xml",
+            app_xml("0005000010145D00").as_bytes(),
+        ),
+        ("0005000010145d00_v0/meta/meta.xml", base.as_bytes()),
+        ("0005000e10145d00_v32/meta/meta.xml", update.as_bytes()),
+    ])
+}
