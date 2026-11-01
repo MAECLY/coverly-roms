@@ -588,7 +588,7 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 
 Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimientos»**, que dé crédito con claridad a todo lo que no es nuestro y que Coverly usa. Incluye fuentes de portadas, APIs, bases de datos, DAT, documentación técnica, bibliotecas, tipografías e iconos. Por ejemplo, hoy: libretro-thumbnails, SteamGridDB y ScreenScraper.
 
-> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 7.1) añade aquí su entrada al integrarse. El inventario completo de lo que se usa hoy, con licencias y textos de crédito obligatorios, se está preparando y se añadirá aquí.
+> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 7.1) añade aquí su entrada al integrarse. Inventario completo de lo que se usa hoy, con licencias, textos de crédito obligatorios y lo que falta verificar: [`docs/02-research/credits-inventory.md`](docs/02-research/credits-inventory.md). **Autorizado por Miguel dentro de la tanda de ajustes (ajuste 7).**
 
 - [ ] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
   - fuentes de portadas y metadatos;
@@ -603,6 +603,12 @@ Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimie
 - [ ] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
 - [ ] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
 - [ ] Buscable desde el buscador de Ajustes, como el resto de secciones.
+- [ ] Corregir a la vez los fallos de cumplimiento que encontró el inventario:
+  - el bundle no incluye `LICENSES/*.txt` ni los OFL de las tipografías;
+  - `THIRD-PARTY-NOTICES.md` cita TheGamesDB, que no se usa, y remite a términos en `docs/09-legal/` que no existen;
+  - faltan los avisos de las dependencias JS y de varios crates (MPL de option-ext, CDLA de webpki-roots, ISC/BoringSSL de ring, Unicode-3.0);
+  - falta el enlace que pide GameTDB;
+  - falta el crédito CC BY 4.0 de los iconos de RetroArch Assets en la interfaz.
 
 ## 7.1. Fuentes de nombres y arte por title ID
 
