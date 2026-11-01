@@ -369,6 +369,18 @@ describe('mock organise backend', () => {
       action: 'left',
       reason: { kind: 'unknown' },
     });
+
+    // «No» to a huge item: left as not confirmed, and the next plan
+    // without the decision proposes it again (never remembered).
+    const declined = await b.organizePlan({ source: MOCK_MIXED }, [
+      { item: first!.id, choice: 'decline' },
+    ]);
+    expect(declined.plan.items[first!.id]).toMatchObject({
+      action: 'left',
+      reason: { kind: 'not-confirmed' },
+    });
+    const again = await b.organizePlan({ source: MOCK_MIXED });
+    expect(again.plan.items[first!.id]!.action).not.toBe('left');
     await expect(
       b.organizePlan({ source: MOCK_MIXED }, [{ item: 99, choice: 'accept' }]),
     ).rejects.toMatchObject({ code: 'bad-request' });
