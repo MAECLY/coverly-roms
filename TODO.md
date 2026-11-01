@@ -439,7 +439,7 @@ Tareas:
 
 ## 3.1. Fuentes de nombres y arte por title ID
 
-> **Dependencias:** no depende de 3 para empezar: los huecos y las fuentes nuevas mejoran ya el relleno actual, y la biblioteca (3) los guardará por juego cuando exista. Cada fuente nueva añade su crédito en 7. usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
+> **Dependencias:** no depende de 3 para empezar: los huecos y las fuentes nuevas mejoran ya el relleno actual, y la biblioteca (3) los guardará por juego cuando exista. Cada fuente nueva añade su crédito en 7. Usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
 
 Reglas para todas las fuentes:
 
