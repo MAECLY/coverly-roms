@@ -154,16 +154,16 @@ Cartuchos, cintas y discos que ya entran en los lectores actuales.
 
 Hace falta un lector de su formato y una identificación propia.
 
-- [ ] Nintendo GameCube (`gamecube`). Formatos: ISO, GCM, CISO, GCZ, RVZ, WIA. Id de juego en la cabecera del disco (6 caracteres en el offset 0).
-- [ ] Nintendo Wii (`wii`). Formatos: ISO, WBFS, CISO, GCZ, RVZ, WIA, y WAD de WiiWare. Misma cabecera que GameCube con la magia Wii en 0x18.
-- [ ] Nintendo Wii U (`wiiu`). Formatos: WUD, WUX, WUA, RPX y las carpetas descifradas (`code/`, `content/`, `meta/`). Id en `meta/meta.xml`.
-- [ ] Nintendo 3DS (`3ds`). Formatos: 3DS, CCI, CIA, CXI, 3DSX, ZCCI, ZCIA. Product code en la cabecera NCSD/NCCH.
-- [ ] Nintendo Switch (`switch`). Formatos: XCI, NSP, NSZ, XCZ. Title ID en la cabecera; los NSP/XCI van cifrados y solo se puede leer lo que no lo está.
-- [ ] Sony PS Vita (`psvita`). Formatos: VPK, carpetas `app/` descifradas, `.psvimg`. Title ID en `sce_sys/param.sfo`.
-- [ ] Sony PS3 (`ps3`). Formatos: ISO, carpetas JB (`PS3_GAME/`), PKG. Title ID en `PS3_GAME/PARAM.SFO`.
-- [ ] Microsoft Xbox (`xbox`). Formatos: ISO XISO, carpetas con `default.xbe`. Title ID en la cabecera XBE.
-- [ ] Microsoft Xbox 360 (`xbox360`). Formatos: ISO, GOD, XEX, carpetas XBLA. Title ID en la cabecera XEX.
-- [ ] Nintendo DSi y DSiWare, si los perfiles los separan de `nds`.
+- [x] Nintendo GameCube (`gamecube`). Formatos: ISO, GCM, CISO, GCZ, RVZ, WIA. Id de juego en la cabecera del disco (6 caracteres en el offset 0).
+- [x] Nintendo Wii (`wii`). Formatos: ISO, WBFS, CISO, GCZ, RVZ, WIA, y WAD de WiiWare. Misma cabecera que GameCube con la magia Wii en 0x18.
+- [x] Nintendo Wii U (`wiiu`). Formatos: WUD, WUX, WUA, RPX y las carpetas descifradas (`code/`, `content/`, `meta/`). Id en `meta/meta.xml`.
+- [x] Nintendo 3DS (`3ds`). Formatos: 3DS, CCI, CIA, CXI, 3DSX, ZCCI, ZCIA. Product code en la cabecera NCSD/NCCH.
+- [x] Nintendo Switch (`switch`). Formatos: XCI, NSP, NSZ, XCZ. Title ID en la cabecera; los NSP/XCI van cifrados y solo se puede leer lo que no lo está.
+- [x] Sony PS Vita (`psvita`). Formatos: VPK, carpetas `app/` descifradas, `.psvimg`. Title ID en `sce_sys/param.sfo`.
+- [x] Sony PS3 (`ps3`). Formatos: ISO, carpetas JB (`PS3_GAME/`), PKG. Title ID en `PS3_GAME/PARAM.SFO`.
+- [x] Microsoft Xbox (`xbox`). Formatos: ISO XISO, carpetas con `default.xbe`. Title ID en la cabecera XBE.
+- [x] Microsoft Xbox 360 (`xbox360`). Formatos: ISO, GOD, XEX, carpetas XBLA. Title ID en la cabecera XEX.
+- [x] Nintendo DSi y DSiWare, si los perfiles los separan de `nds`.
 
 ### Tanda 3: generación actual (PS4, PS5, Xbox One, Xbox Series)
 
