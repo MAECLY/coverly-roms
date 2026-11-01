@@ -603,6 +603,74 @@ impl DedupeSettings {
     }
 }
 
+/// Default nlib API base (adjustments D9).
+pub const DEFAULT_NLIB_URL: &str = "https://api.nlib.cc";
+
+/// The optional Switch name catalogue (adjustments D2, D4, D8, D9):
+/// `blawar/titledb`, downloaded on demand only while `enabled`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SwitchCatalogSettings {
+    /// Download and use the catalogue (off by default).
+    pub enabled: bool,
+    /// Fetch eShop icons on demand (counts only while `enabled`).
+    pub icons: bool,
+    /// At most one refresh every this many days (7–90).
+    pub refresh_days: u16,
+    /// Ask `fallback_url` for ids the catalogue does not resolve (counts
+    /// only while `enabled`; sends title ids to a third party).
+    pub fallback: bool,
+    /// HTTPS base URL of the fallback API, without query or credentials.
+    pub fallback_url: String,
+}
+
+impl Default for SwitchCatalogSettings {
+    fn default() -> Self {
+        SwitchCatalogSettings {
+            enabled: false,
+            icons: false,
+            refresh_days: 7,
+            fallback: false,
+            fallback_url: DEFAULT_NLIB_URL.to_string(),
+        }
+    }
+}
+
+impl SwitchCatalogSettings {
+    /// Icons are fetched: the catalogue and its icons are on.
+    pub fn icons_on(&self) -> bool {
+        self.enabled && self.icons
+    }
+
+    /// The fallback API is asked: the catalogue and the fallback are on.
+    pub fn fallback_on(&self) -> bool {
+        self.enabled && self.fallback
+    }
+
+    /// `refresh_days` in seconds.
+    pub fn refresh_secs(&self) -> i64 {
+        i64::from(self.refresh_days) * 24 * 60 * 60
+    }
+
+    /// Icons and the fallback go off with the catalogue; the URL is
+    /// trimmed of spaces and trailing slashes.
+    fn normalise(&mut self) {
+        if !self.enabled {
+            self.icons = false;
+            self.fallback = false;
+        }
+        self.fallback_url = self.fallback_url.trim().trim_end_matches('/').to_string();
+    }
+}
+
+/// Optional, downloaded name catalogues (a new group: older files and
+/// rollback builds simply do not have it).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogSettings {
+    pub switch: SwitchCatalogSettings,
+}
+
 /// Every setting of spec §9.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -618,6 +686,7 @@ pub struct Settings {
     pub advanced: AdvancedSettings,
     pub organize: OrganizeSettings,
     pub dedupe: DedupeSettings,
+    pub catalogs: CatalogSettings,
 }
 
 impl Default for Settings {
@@ -634,6 +703,7 @@ impl Default for Settings {
             advanced: AdvancedSettings::default(),
             organize: OrganizeSettings::default(),
             dedupe: DedupeSettings::default(),
+            catalogs: CatalogSettings::default(),
         }
     }
 }
@@ -714,5 +784,6 @@ impl Settings {
         self.organize.companion_exts = companions;
         self.organize.default_layout = self.organize.default_layout.trim().to_string();
         self.dedupe.normalise();
+        self.catalogs.switch.normalise();
     }
 }

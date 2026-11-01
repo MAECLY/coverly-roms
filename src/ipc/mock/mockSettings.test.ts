@@ -330,4 +330,134 @@ describe('mock settings', () => {
       ],
     ).toBe(false);
   });
+  describe('Switch name catalogue (catalogs.switch)', () => {
+    it('is off by default with the core defaults', async () => {
+      const { settings } = await make().getSettings();
+      expect(settings.catalogs).toEqual({
+        switch: {
+          enabled: false,
+          icons: false,
+          refresh_days: 7,
+          fallback: false,
+          fallback_url: 'https://api.nlib.cc',
+        },
+      });
+    });
+
+    it('loads stored settings without the group, and keeps good leaves of a bad one', async () => {
+      const storage = new MemoryStorage();
+      storage.setItem(
+        'coverly.mock.settings',
+        JSON.stringify({ version: 3, general: { theme: 'dark' } }),
+      );
+      expect((await make(storage).getSettings()).settings.catalogs).toEqual(
+        DEFAULT_SETTINGS.catalogs,
+      );
+      storage.setItem(
+        'coverly.mock.settings',
+        JSON.stringify({
+          version: 3,
+          catalogs: {
+            other: { enabled: true },
+            switch: {
+              enabled: true,
+              refresh_days: 1,
+              fallback: 'yes',
+              fallback_url: 'http://x',
+            },
+          },
+        }),
+      );
+      const view = await make(storage).getSettings();
+      expect(view.settings.catalogs.switch).toEqual({
+        ...DEFAULT_SETTINGS.catalogs.switch,
+        enabled: true,
+      });
+      expect(view.fixed).toEqual(
+        expect.arrayContaining([
+          'catalogs.switch.refresh_days',
+          'catalogs.switch.fallback',
+          'catalogs.switch.fallback_url',
+        ]),
+      );
+      expect(Object.keys(view.settings.catalogs)).toEqual(['switch']);
+    });
+
+    it('validates refresh_days and the fallback URL like the core', async () => {
+      const m = make();
+      const errs = async (patch: unknown) =>
+        (await m.updateSettings(patch as never)).errors.map(
+          (e) => `${e.field}:${e.code}`,
+        );
+      expect(await errs({ catalogs: { switch: { refresh_days: 3 } } })).toEqual(
+        ['catalogs.switch.refresh_days:range'],
+      );
+      expect(
+        await errs({ catalogs: { switch: { refresh_days: 200 } } }),
+      ).toEqual(['catalogs.switch.refresh_days:range']);
+      for (const url of [
+        'http://x',
+        'https://',
+        'https://a b',
+        'https://a?x=1',
+        'https://u:p@a',
+      ])
+        expect(
+          await errs({ catalogs: { switch: { fallback_url: url } } }),
+        ).toEqual(['catalogs.switch.fallback_url:invalid']);
+      expect(
+        await errs({ catalogs: { switch: { fallback_url: ' ' } } }),
+      ).toEqual(['catalogs.switch.fallback_url:required']);
+      expect(await errs({ catalogs: { switch: { enabled: 'yes' } } })).toEqual([
+        'catalogs.switch.enabled:invalid',
+      ]);
+      expect(await errs({ catalogs: { switch: 5 } })).toEqual([
+        'catalogs.switch:invalid',
+      ]);
+    });
+
+    it('round-trips a patch, trims the URL and keeps icons and fallback off without the catalogue', async () => {
+      const storage = new MemoryStorage();
+      const m = make(storage);
+      const alone = await m.updateSettings({
+        catalogs: { switch: { icons: true, fallback: true } },
+      });
+      expect(alone.errors).toEqual([]);
+      expect(alone.settings.catalogs.switch.icons).toBe(false);
+      expect(alone.settings.catalogs.switch.fallback).toBe(false);
+      const on = await m.updateSettings({
+        catalogs: {
+          switch: {
+            enabled: true,
+            icons: true,
+            fallback: true,
+            refresh_days: 30,
+            fallback_url: ' https://mirror.example.org/ ',
+          },
+        },
+      });
+      expect(on.errors).toEqual([]);
+      expect(on.reopen).toBe(false);
+      expect(
+        (await make(storage).getSettings()).settings.catalogs.switch,
+      ).toEqual({
+        enabled: true,
+        icons: true,
+        refresh_days: 30,
+        fallback: true,
+        fallback_url: 'https://mirror.example.org',
+      });
+      const off = await m.updateSettings({
+        catalogs: { switch: { enabled: false } },
+      });
+      expect(off.settings.catalogs.switch).toMatchObject({
+        enabled: false,
+        icons: false,
+        fallback: false,
+        refresh_days: 30,
+      });
+      const reset = await m.updateSettings({ catalogs: null } as never);
+      expect(reset.settings.catalogs).toEqual(DEFAULT_SETTINGS.catalogs);
+    });
+  });
 });

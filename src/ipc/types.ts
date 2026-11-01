@@ -485,6 +485,25 @@ export interface Settings {
   };
   advanced: { log_level: LogLevel; custom_dir: string | null };
   organize: OrganizeSettings;
+  /** Optional, downloaded name catalogues (adjustments D2). */
+  catalogs: CatalogSettings;
+}
+
+/** Mirror of `coverly_core::settings::SwitchCatalogSettings`: the optional
+ * `blawar/titledb` name catalogue, off by default. `icons` and `fallback`
+ * count only while `enabled` (the core turns them off with it). */
+export interface SwitchCatalogSettings {
+  enabled: boolean;
+  icons: boolean;
+  /** 7–90. */
+  refresh_days: number;
+  fallback: boolean;
+  /** HTTPS base URL, no query or credentials. */
+  fallback_url: string;
+}
+
+export interface CatalogSettings {
+  switch: SwitchCatalogSettings;
 }
 
 export type SettingsGroup = Exclude<keyof Settings, 'version'>;
@@ -496,7 +515,9 @@ export type SettingsPatch = {
     ? Partial<Omit<Settings['art'], 'max_size'>> & {
         max_size?: Record<string, MaxSize | null>;
       }
-    : Partial<Settings[G]>;
+    : G extends 'catalogs'
+      ? { switch?: Partial<SwitchCatalogSettings> | null }
+      : Partial<Settings[G]>;
 };
 
 export type FieldErrorCode =

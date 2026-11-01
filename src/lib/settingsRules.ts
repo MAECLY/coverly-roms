@@ -188,6 +188,15 @@ export const DEFAULT_SETTINGS: Settings = {
     max_dat_downloads: 12,
     organize_step: 'set-aside',
   },
+  catalogs: {
+    switch: {
+      enabled: false,
+      icons: false,
+      refresh_days: 7,
+      fallback: false,
+      fallback_url: 'https://api.nlib.cc',
+    },
+  },
 };
 
 export const RANGES: readonly Range[] = [
@@ -208,6 +217,7 @@ export const RANGES: readonly Range[] = [
   { field: 'organize.recent_seconds', min: 0, max: 3600 },
   { field: 'organize.keep_organize_journals_days', min: 1, max: 3650 },
   { field: 'dedupe.max_dat_downloads', min: 0, max: 100 },
+  { field: 'catalogs.switch.refresh_days', min: 7, max: 90 },
 ];
 
 export const GROUPS: readonly SettingsGroup[] = [
@@ -221,6 +231,7 @@ export const GROUPS: readonly SettingsGroup[] = [
   'advanced',
   'organize',
   'dedupe',
+  'catalogs',
 ];
 
 export function cloneSettings(s: Settings): Settings {
@@ -300,6 +311,27 @@ const isContainerOrders: Kind = (v) =>
   isObject(v) &&
   Object.values(v).every(
     (m) => isObject(m) && Object.values(m).every(listOf(isStr)),
+  );
+
+/* `catalogs.<name>` is a group of its own: its leaves are shaped (and
+ * fall back) one by one, like `settings/load.rs` does. */
+const SWITCH_CATALOG_SHAPES: Record<
+  keyof Settings['catalogs']['switch'],
+  Kind
+> = {
+  enabled: isBool,
+  icons: isBool,
+  refresh_days: isUint(0xffff),
+  fallback: isBool,
+  fallback_url: isStr,
+};
+const NESTED: Record<string, Record<string, Record<string, Kind>>> = {
+  catalogs: { switch: SWITCH_CATALOG_SHAPES },
+};
+const isSwitchCatalog: Kind = (v) =>
+  isObject(v) &&
+  Object.entries(SWITCH_CATALOG_SHAPES).every(
+    ([k, ok]) => !Object.prototype.hasOwnProperty.call(v, k) || ok(v[k]),
   );
 
 const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
@@ -385,6 +417,7 @@ const SHAPES: { [G in SettingsGroup]: Record<keyof Settings[G], Kind> } = {
     max_dat_downloads: isUint(),
     organize_step: oneOf(ORGANIZE_DEDUPE_MODES),
   },
+  catalogs: { switch: isSwitchCatalog },
 };
 
 const fieldsOf = (g: SettingsGroup) =>
@@ -414,7 +447,15 @@ export function shapeSettings(raw: unknown): {
     for (const [k, ok] of Object.entries(fieldsOf(g))) {
       if (!Object.prototype.hasOwnProperty.call(user, k)) continue;
       const v = user[k];
-      if (ok(v)) group[k] = structuredClone(v);
+      const leaves = NESTED[g]?.[k];
+      if (leaves && isObject(v)) {
+        const sub = group[k] as Record<string, unknown>;
+        for (const [leaf, okLeaf] of Object.entries(leaves)) {
+          if (!Object.prototype.hasOwnProperty.call(v, leaf)) continue;
+          if (okLeaf(v[leaf])) sub[leaf] = structuredClone(v[leaf]);
+          else bad.push(`${g}.${k}.${leaf}`);
+        }
+      } else if (ok(v)) group[k] = structuredClone(v);
       else bad.push(`${g}.${k}`);
     }
   }
@@ -439,6 +480,15 @@ export function patchShapeErrors(patch: unknown): FieldError[] {
     for (const [k, value] of Object.entries(v)) {
       const ok = fields[k];
       if (!ok || value === null) continue;
+      const leaves = NESTED[g]?.[k];
+      if (leaves && isObject(value)) {
+        for (const [leaf, v2] of Object.entries(value)) {
+          const okLeaf = leaves[leaf];
+          if (okLeaf && v2 !== null && !okLeaf(v2))
+            out.push(err(`${g}.${k}.${leaf}`, 'invalid'));
+        }
+        continue;
+      }
       if (k === 'max_size' && isObject(value)) {
         for (const [id, size] of Object.entries(value)) {
           if (size !== null && !isMaxSizes({ [id]: size })) {
@@ -627,7 +677,23 @@ export function validateSettings(
   if (d.exclude_systems.some((e) => /[\\/]/.test(e)))
     out.push(err('dedupe.exclude_systems', 'invalid'));
   simple('dedupe.max_dat_downloads', d.max_dat_downloads);
+  // `catalogs` (Rust `validate_catalogs`): icons and the fallback without
+  // the catalogue are normalised off, not refused.
+  const c = s.catalogs.switch;
+  simple('catalogs.switch.refresh_days', c.refresh_days);
+  const nlib = c.fallback_url.trim();
+  if (!nlib) out.push(err('catalogs.switch.fallback_url', 'required'));
+  else if (!isPlainHttps(nlib))
+    out.push(err('catalogs.switch.fallback_url', 'invalid'));
   return out;
+}
+
+/** `https://host[/path]`: a host, no spaces, no query, fragment,
+ * credentials or backslashes (Rust `is_plain_https`). */
+function isPlainHttps(url: string): boolean {
+  if (!url.startsWith('https://')) return false;
+  const rest = url.slice('https://'.length);
+  return (rest.split('/')[0] ?? '') !== '' && !/[\s?#@\\]/.test(rest);
 }
 
 function uniq(list: string[]): string[] {
@@ -695,6 +761,12 @@ export function normaliseSettings(input: Settings): Settings {
   for (const rule of KEEP_RULES)
     if (!s.dedupe.keep_rules.some((t) => t.rule === rule))
       s.dedupe.keep_rules.push({ rule, on: true });
+  const sw = s.catalogs.switch;
+  if (!sw.enabled) {
+    sw.icons = false;
+    sw.fallback = false;
+  }
+  sw.fallback_url = sw.fallback_url.trim().replace(/\/+$/, '');
   return s;
 }
 
@@ -715,7 +787,22 @@ export function tolerantSettings(
   shaped.settings.version = typeof version === 'number' ? version : 0;
   let s = normaliseSettings(shaped.settings);
   for (const e of validateSettings(s, known)) {
-    const [g, f] = e.field.split('.') as [SettingsGroup, string];
+    const [g, f, leaf] = e.field.split('.') as [
+      SettingsGroup,
+      string,
+      string | undefined,
+    ];
+    if (g === 'catalogs' && f === 'switch' && leaf) {
+      // One level deeper (Rust `reset_path`): only the leaf falls back.
+      const def = DEFAULT_SETTINGS.catalogs.switch as unknown as Record<
+        string,
+        unknown
+      >;
+      (s.catalogs.switch as unknown as Record<string, unknown>)[leaf] =
+        structuredClone(def[leaf]);
+      if (!fixed.includes(e.field)) fixed.push(e.field);
+      continue;
+    }
     if (e.code === 'order' && g === 'organize') {
       s.organize.auto_threshold = DEFAULT_SETTINGS.organize.auto_threshold;
       s.organize.review_threshold = DEFAULT_SETTINGS.organize.review_threshold;

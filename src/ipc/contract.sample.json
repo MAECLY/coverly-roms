@@ -223,6 +223,15 @@
       "exclude_systems": ["ports", "bios", "apps"],
       "max_dat_downloads": 12,
       "organize_step": "set-aside"
+    },
+    "catalogs": {
+      "switch": {
+        "enabled": false,
+        "icons": false,
+        "refresh_days": 7,
+        "fallback": false,
+        "fallback_url": "https://api.nlib.cc"
+      }
     }
   },
   "identity": {
@@ -466,6 +475,11 @@
       "field": "dedupe.max_dat_downloads",
       "min": 0.0,
       "max": 100.0
+    },
+    {
+      "field": "catalogs.switch.refresh_days",
+      "min": 7.0,
+      "max": 90.0
     }
   ],
   "field_error": {

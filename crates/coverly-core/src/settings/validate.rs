@@ -63,7 +63,7 @@ const fn range(field: &'static str, min: f64, max: f64) -> Range {
     Range { field, min, max }
 }
 
-pub const RANGES: [Range; 17] = [
+pub const RANGES: [Range; 18] = [
     range("art.jpeg_quality", 1.0, 100.0),
     range("art.max_size.width", 16.0, 4096.0),
     range("art.max_size.height", 16.0, 4096.0),
@@ -81,6 +81,7 @@ pub const RANGES: [Range; 17] = [
     range("organize.recent_seconds", 0.0, 3600.0),
     range("organize.keep_organize_journals_days", 1.0, 3650.0),
     range("dedupe.max_dat_downloads", 0.0, 100.0),
+    range("catalogs.switch.refresh_days", 7.0, 90.0),
 ];
 
 fn check(out: &mut Vec<FieldError>, rule: &str, field: String, value: f64) {
@@ -221,7 +222,32 @@ impl Settings {
         }
         self.validate_organize(known_profiles, &mut out);
         self.validate_dedupe(known_profiles, &mut out);
+        self.validate_catalogs(&mut out);
         out
+    }
+
+    /// The `catalogs` group: the refresh range and a plain HTTPS fallback
+    /// URL (same codes as the manual proxy URL). Icons and the fallback
+    /// without the catalogue are not errors: `normalise` turns them off.
+    fn validate_catalogs(&self, out: &mut Vec<FieldError>) {
+        let c = &self.catalogs.switch;
+        simple(
+            out,
+            "catalogs.switch.refresh_days",
+            f64::from(c.refresh_days),
+        );
+        let url = c.fallback_url.trim();
+        if url.is_empty() {
+            out.push(FieldError::new(
+                "catalogs.switch.fallback_url",
+                FieldErrorCode::Required,
+            ));
+        } else if !is_plain_https(url) {
+            out.push(FieldError::new(
+                "catalogs.switch.fallback_url",
+                FieldErrorCode::Invalid,
+            ));
+        }
     }
 
     /// The `organize` group: ranges, threshold order, known layouts, and
@@ -414,6 +440,19 @@ fn mount_label_len<S: AsRef<str>>(names: &[S]) -> usize {
         _ => 0,
     };
     len.min(names.len())
+}
+
+/// `https://host[/path]`: a host, no spaces, no query, fragment,
+/// credentials or backslashes.
+fn is_plain_https(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    !host.is_empty()
+        && !rest
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '?' | '#' | '@' | '\\'))
 }
 
 fn has_repeat<T: PartialEq>(items: &[T]) -> bool {

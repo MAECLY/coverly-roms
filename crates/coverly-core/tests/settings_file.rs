@@ -1360,3 +1360,230 @@ fn an_unknown_source_in_a_v3_file_is_dropped() {
     );
     assert!(s.sources.order[0].enabled);
 }
+
+// ---- Switch name catalogue (adjustments D2, D4, D8, D9) -----------------
+
+#[test]
+fn the_switch_catalogue_is_off_by_default_and_a_file_without_it_loads() {
+    let s = Settings::default();
+    let c = &s.catalogs.switch;
+    assert!(!c.enabled && !c.icons && !c.fallback);
+    assert_eq!(c.refresh_days, 7);
+    assert_eq!(c.fallback_url, "https://api.nlib.cc");
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), r#"{"version":3,"general":{"theme":"dark"}}"#);
+    let (s, report) = load_settings(dir.path(), &known());
+    assert_eq!(s.general.theme, ThemeChoice::Dark);
+    assert_eq!(s.catalogs, CatalogSettings::default());
+    assert_eq!(report.notice, None);
+}
+
+#[test]
+fn an_unknown_catalogue_group_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"catalogs":{"other":{"enabled":true},
+            "switch":{"enabled":true,"refresh_days":14,"future_field":1}}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    assert!(s.catalogs.switch.enabled);
+    assert_eq!(s.catalogs.switch.refresh_days, 14);
+    assert_eq!(report.notice, None, "{:?}", report.fixed);
+}
+
+#[test]
+fn refresh_days_must_be_between_7_and_90() {
+    for (days, ok) in [
+        (3u16, false),
+        (6, false),
+        (7, true),
+        (90, true),
+        (91, false),
+        (200, false),
+    ] {
+        let mut s = Settings::default();
+        s.catalogs.switch.refresh_days = days;
+        let errors = s.validate(&known());
+        let bad = errors
+            .iter()
+            .find(|e| e.field == "catalogs.switch.refresh_days");
+        assert_eq!(bad.is_none(), ok, "{days}: {errors:?}");
+        if let Some(e) = bad {
+            assert_eq!(e.code, FieldErrorCode::Range);
+            assert_eq!((e.min, e.max), (Some(7.0), Some(90.0)));
+        }
+    }
+    let errors = Settings::default()
+        .with_patch(
+            &json!({"catalogs": {"switch": {"refresh_days": 200}}}),
+            &known(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        codes(&errors),
+        [(
+            "catalogs.switch.refresh_days".to_string(),
+            FieldErrorCode::Range
+        )]
+    );
+}
+
+#[test]
+fn the_fallback_url_must_be_plain_https() {
+    for (url, code) in [
+        ("http://x", Some(FieldErrorCode::Invalid)),
+        ("ftp://api.nlib.cc", Some(FieldErrorCode::Invalid)),
+        ("https://", Some(FieldErrorCode::Invalid)),
+        ("https://api nlib.cc", Some(FieldErrorCode::Invalid)),
+        ("https://api.nlib.cc?x=1", Some(FieldErrorCode::Invalid)),
+        ("https://api.nlib.cc#a", Some(FieldErrorCode::Invalid)),
+        ("https://user:pw@api.nlib.cc", Some(FieldErrorCode::Invalid)),
+        ("", Some(FieldErrorCode::Required)),
+        ("https://api.nlib.cc", None),
+        ("https://mirror.example.org/titles", None),
+    ] {
+        let mut s = Settings::default();
+        s.catalogs.switch.fallback_url = url.to_string();
+        let got = s
+            .validate(&known())
+            .into_iter()
+            .find(|e| e.field == "catalogs.switch.fallback_url")
+            .map(|e| e.code);
+        assert_eq!(got, code, "{url}");
+    }
+    // The same code the manual proxy URL uses, so the UI shows the same message.
+    let mut s = Settings::default();
+    s.network.proxy = ProxyChoice::Manual;
+    s.network.proxy_url = "nope".into();
+    s.catalogs.switch.fallback_url = "http://x".into();
+    let errors = s.validate(&known());
+    let code_of = |f: &str| errors.iter().find(|e| e.field == f).map(|e| e.code);
+    assert_eq!(
+        code_of("catalogs.switch.fallback_url"),
+        code_of("network.proxy_url")
+    );
+}
+
+#[test]
+fn icons_and_fallback_only_stay_on_while_the_catalogue_is_on() {
+    let s = Settings::default();
+    let next = s
+        .with_patch(
+            &json!({"catalogs": {"switch": {"icons": true, "fallback": true}}}),
+            &known(),
+        )
+        .unwrap();
+    assert!(!next.catalogs.switch.icons && !next.catalogs.switch.fallback);
+    let on = s
+        .with_patch(
+            &json!({"catalogs": {"switch": {"enabled": true, "icons": true, "fallback": true}}}),
+            &known(),
+        )
+        .unwrap();
+    assert!(on.catalogs.switch.enabled && on.catalogs.switch.icons && on.catalogs.switch.fallback);
+    // Turning the catalogue off turns both off with it.
+    let off = on
+        .with_patch(
+            &json!({"catalogs": {"switch": {"enabled": false}}}),
+            &known(),
+        )
+        .unwrap();
+    assert!(!off.catalogs.switch.icons && !off.catalogs.switch.fallback);
+    // A file with icons on and the catalogue off loads cleaned, not reset.
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"catalogs":{"switch":{"icons":true,"refresh_days":30}}}"#,
+    );
+    let (s, _) = load_settings(dir.path(), &known());
+    assert!(!s.catalogs.switch.icons);
+    assert_eq!(s.catalogs.switch.refresh_days, 30);
+}
+
+#[test]
+fn catalogue_patches_round_trip_and_trim_the_url() {
+    let s = Settings::default();
+    let next = s
+        .with_patch(
+            &json!({"catalogs": {"switch": {
+                "enabled": true,
+                "refresh_days": 30,
+                "fallback_url": "  https://mirror.example.org/  "
+            }}}),
+            &known(),
+        )
+        .unwrap();
+    assert!(next.catalogs.switch.enabled);
+    assert_eq!(next.catalogs.switch.refresh_days, 30);
+    assert_eq!(
+        next.catalogs.switch.fallback_url,
+        "https://mirror.example.org"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    save_settings(dir.path(), &next).unwrap();
+    let (back, report) = load_settings(dir.path(), &known());
+    assert_eq!(back.catalogs, next.catalogs);
+    assert_eq!(report.notice, None);
+    // `null` resets the group.
+    let reset = next
+        .with_patch(&json!({"catalogs": null}), &known())
+        .unwrap();
+    assert_eq!(reset.catalogs, CatalogSettings::default());
+    let errors = s
+        .with_patch(
+            &json!({"catalogs": {"switch": {"enabled": "yes"}}}),
+            &known(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        codes(&errors),
+        [(
+            "catalogs.switch.enabled".to_string(),
+            FieldErrorCode::Invalid
+        )]
+    );
+}
+
+#[test]
+fn a_bad_catalogue_field_resets_only_that_field() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        r#"{"version":3,"catalogs":{"switch":{"enabled":true,"refresh_days":1,
+            "fallback":true,"fallback_url":"http://x"}}}"#,
+    );
+    let (s, report) = load_settings(dir.path(), &known());
+    let c = &s.catalogs.switch;
+    assert!(c.enabled && c.fallback, "{c:?}");
+    assert_eq!(c.refresh_days, 7);
+    assert_eq!(c.fallback_url, "https://api.nlib.cc");
+    assert_eq!(report.notice, Some(LoadNotice::Fixed));
+    assert!(report
+        .fixed
+        .contains(&"catalogs.switch.refresh_days".to_string()));
+    assert!(report
+        .fixed
+        .contains(&"catalogs.switch.fallback_url".to_string()));
+}
+
+#[test]
+fn a_build_without_catalogues_ignores_the_group() {
+    // A rollback build knows every group but `catalogs`: the file it reads
+    // still parses, and what it writes back keeps the other groups.
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct OldSettings {
+        version: u32,
+        general: serde_json::Value,
+        network: serde_json::Value,
+    }
+    let mut s = Settings::default();
+    s.catalogs.switch.enabled = true;
+    let text = serde_json::to_string(&s).unwrap();
+    let old: OldSettings = serde_json::from_str(&text).unwrap();
+    assert_eq!(old.version, SETTINGS_VERSION);
+    assert_eq!(SETTINGS_VERSION, 3, "the group needs no new format version");
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["catalogs"]["switch"]["enabled"], json!(true));
+}

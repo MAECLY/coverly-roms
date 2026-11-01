@@ -510,3 +510,21 @@ fn organize_options_follow_the_organize_group() {
         Some(TransferMode::Move)
     );
 }
+
+#[test]
+fn switch_icons_and_the_fallback_only_count_while_the_catalogue_is_on() {
+    let mut s = Settings::default();
+    let c = &s.catalogs.switch;
+    assert!(!c.enabled && !c.icons_on() && !c.fallback_on());
+    // Set by hand (not through a patch, which would normalise them off).
+    s.catalogs.switch.icons = true;
+    s.catalogs.switch.fallback = true;
+    assert!(!s.catalogs.switch.icons_on() && !s.catalogs.switch.fallback_on());
+    s.catalogs.switch.enabled = true;
+    assert!(s.catalogs.switch.icons_on() && s.catalogs.switch.fallback_on());
+    assert_eq!(
+        s.catalogs.switch.refresh_secs(),
+        7 * 24 * 60 * 60,
+        "refresh_days in seconds"
+    );
+}
