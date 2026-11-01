@@ -615,6 +615,35 @@ mod tests {
         }
     }
 
+    /// A Redump image opens with its video partition (an ISO 9660 DVD
+    /// volume); the disc rules must leave it to this reader, and the
+    /// readers before it must leave the budget for the game partition.
+    #[test]
+    fn redump_images_behind_a_video_partition() {
+        let video = crate::disc::testing::IsoBuilder::new("")
+            .dir("VIDEO_TS")
+            .file("VIDEO_TS/VIDEO_TS.IFO", &[0u8; 64])
+            .build();
+        for (p, exe, system, serial) in [
+            (t::XGD1, "default.xbe", "xbox", "MS-004"),
+            (0x0FD9_0000, "default.xex", "xbox360", "4D5307E6"),
+            (0x0208_0000, "default.xex", "xbox360", "4D5307E6"),
+        ] {
+            let bytes = if exe == "default.xbe" {
+                t::xbe(0x4D53_0004, "Halo")
+            } else {
+                t::xex2(0x4D53_07E6)
+            };
+            let mut f = t::xiso_at(p, &[(exe, bytes)]);
+            f.put(0, &video);
+            let len = f.len;
+            let s = crate::identify::sniff::sniff_named(&mut f, len, "iso", "Game (USA).iso");
+            let hit = s.hits.first().unwrap_or_else(|| panic!("{p:#x}: {s:?}"));
+            assert_eq!(hit.system, system, "{p:#x}");
+            assert_eq!(s.serial.as_deref(), Some(serial), "{p:#x}");
+        }
+    }
+
     #[test]
     fn xdvdfs_default_xex_names_xbox360_even_beside_an_xbe() {
         let mut f = t::xiso_at(
@@ -875,6 +904,32 @@ mod tests {
             assert_eq!(m.id.kind, TitleKind::Base);
             let god = t::god_folder(tmp.path(), 0x4D53_07E6, CT_GOD, b"CON ");
             assert_eq!(probe(&god, probe_god).unwrap().id.detail, "GOD package");
+        }
+
+        /// A probe file that is a symlink is never followed (spec §8.6).
+        #[cfg(unix)]
+        #[test]
+        fn symlinked_probe_files_are_no_match() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let real = tmp.path().join("real.xbe");
+            std::fs::write(&real, t::xbe(0x4D53_0004, "Halo")).unwrap();
+            let halo = tmp.path().join("Halo");
+            std::fs::create_dir(&halo).unwrap();
+            std::os::unix::fs::symlink(&real, halo.join("default.xbe")).unwrap();
+            assert_eq!(probe(&halo, probe_xbe), None);
+            let top = t::god_folder(tmp.path(), 0x5841_0889, CT_XBLA, b"LIVE");
+            let hash = top.join("000D0000").join(t::STFS_HASH);
+            std::fs::rename(&hash, tmp.path().join("hash")).unwrap();
+            std::os::unix::fs::symlink(tmp.path().join("hash"), &hash).unwrap();
+            assert_eq!(probe(&top, probe_god), None);
+            // A symlinked content-type folder is not listed either.
+            let other = tmp.path().join("other");
+            std::fs::create_dir(&other).unwrap();
+            let top2 = t::god_folder(&other, 0x5841_0889, CT_XBLA, b"LIVE");
+            let linked = tmp.path().join("linked").join("58410889");
+            std::fs::create_dir_all(&linked).unwrap();
+            std::os::unix::fs::symlink(top2.join("000D0000"), linked.join("000D0000")).unwrap();
+            assert_eq!(probe(&linked, probe_god), None);
         }
 
         #[test]
