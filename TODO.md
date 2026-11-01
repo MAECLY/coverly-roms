@@ -525,18 +525,35 @@ Algunas demos generan partidas, y en varios sistemas la partida (o lo desbloquea
 
 > **Dependencias:** usa los perfiles de consola actuales (`crates/coverly-core/src/profiles/builtin.rs`) y las tablas de carpetas investigadas en las Tandas 1–3. Se coordina con 4 (sincronizar), que usará estos mismos traductores al llevar la biblioteca a cada dispositivo, y con 2.1 (carpetas maestras del juego).
 
-Hoy Coverly organiza y rellena portadas para varios perfiles (Anbernic stock, muOS, Knulli, Batocera, ES-DE, MinUI, Onion…), pero no todos los detalles de cada frontend están cubiertos. Es una tarea grande que necesita su propia investigación.
+Hoy Coverly organiza y rellena portadas para varios perfiles (Anbernic stock, muOS, Knulli, Batocera, ES-DE, MinUI, Onion…), sobre todo de consolas portátiles, y no todos los detalles de cada frontend están cubiertos. La idea es ampliarlo a los frontends populares de Windows, Linux, macOS, Android e iOS. Es una tarea grande que necesita su propia investigación.
+
+### Frontends a cubrir (Windows, Linux, macOS, Android e iOS)
+
+Objetivo: dar soporte a la mayor cantidad posible de frontends populares en cada plataforma, no solo a los de consolas portátiles. Antes de implementar hay que **investigar uno por uno**: carpeta de ROMs y nombre de cada sistema, dónde y con qué nombre espera cada medio, el formato de la lista de juegos o metadatos y cómo lanza los juegos. La lista es el punto de partida y hay que confirmarla y ampliarla con fuentes oficiales al empezar. Como siempre, Coverly no enlaza, recomienda ni descarga emuladores; solo escribe lo que cada frontend lee.
+
+- **Windows:** LaunchBox / Big Box, Playnite, RetroBat, ES-DE, Pegasus, RetroArch (playlists y thumbnails), Attract-Mode Plus, Steam ROM Manager (accesos y arte en Steam), HyperSpin y CoinOPS como legado.
+- **Linux:** ES-DE, Pegasus, RetroArch, Attract-Mode Plus, Steam ROM Manager, RetroDECK y EmuDeck (Steam Deck), y las distribuciones Batocera, Knulli, ROCKNIX, Recalbox, RetroPie, Lakka y AmberELEC.
+- **macOS:** OpenEmu (biblioteca propia con importación), ES-DE, Pegasus, RetroArch y Attract-Mode Plus.
+- **Android:** Daijishō, ES-DE para Android, LaunchBox para Android, Pegasus, Beacon, Reset Collection, Console Launcher, DIG y los lanzadores propios de las portátiles Android (Retroid, AYN, Anbernic).
+- **iOS / iPadOS:** no hay frontends separados porque las apps no pueden lanzar otras apps; cada app tiene su propia biblioteca (Delta, Provenance, RetroArch, Folium…). Aquí «soporte» significa exportar una carpeta lista para importar desde Archivos, con los nombres y las portadas que lee cada app.
+- **Portátiles Linux (ya soportadas en parte):** Anbernic stock, muOS, Knulli, Onion, MinUI / NextUI, SpruceOS, CrossMix, Allium y ArkOS. Revisar que cada una esté completa.
+
+Tareas:
+
+- [ ] Investigación por frontend con fuentes primarias: documentación oficial y código. Por cada uno, una ficha en `docs/02-research/frontends/` con carpetas de sistema, medios, formato de metadatos, lanzadores, plataformas y licencia.
+- [ ] Priorizar por uso real: primero ES-DE, RetroArch, LaunchBox, Playnite, Batocera/Knulli, Daijishō, Pegasus y RetroBat; después el resto.
+- [ ] Un perfil (o traductor) por frontend en `profiles/`, con pruebas que comparen la estructura generada con la que espera la documentación.
 
 ### Portadas y medios en la carpeta que espera cada frontend
 
 - **Problema detectado:** para ES-DE las portadas se escriben en `downloaded_media/{id de Coverly}/covers/` (`builtin.rs`), pero ES-DE las busca con **su** nombre de sistema (`gc`, `n3ds`, `atarijaguar`, `cdimono1`, `sg-1000`…), así que en esos sistemas no las muestra. Pasa también con la Atari 2600 desde antes y con los catálogos de muOS.
-- [ ] Investigar por frontend dónde espera cada tipo de medio (portada, captura, título, marquesina, caja 3D, vídeo, manual) y con qué nombre de carpeta de sistema: ES-DE, Batocera, Knulli, muOS, Onion, MinUI, RetroBat, LaunchBox, Pegasus, RetroArch (playlists y thumbnails), Anbernic stock.
+- [ ] Por cada frontend de la lista de arriba: dónde espera cada tipo de medio (portada, captura, título, marquesina, caja 3D, vídeo, manual) y con qué nombre de carpeta de sistema.
 - [ ] Sustituir `{system_id}` por un `{system_folder}` del frontend en las plantillas de rutas.
 - [ ] Migración para usuarios actuales: mover las portadas ya escritas a la carpeta nueva, con deshacer y sin duplicarlas.
 
 ### Metadatos y listas de juegos
 
-- [ ] Exportar `gamelist.xml` (ES-DE, Batocera, Knulli), playlists `.lpl` de RetroArch, `metadata.pegasus.txt`, y el formato de LaunchBox, con nombre, descripción, fecha, género, jugadores, valoración y rutas de medios.
+- [ ] Exportar `gamelist.xml` (ES-DE, Batocera, Knulli, RetroBat, Recalbox, RetroPie), playlists `.lpl` de RetroArch, `metadata.pegasus.txt`, los XML de LaunchBox, la biblioteca de Playnite, los `.json` de plataforma de Daijishō, las listas de Attract-Mode y los accesos de Steam ROM Manager, con nombre, descripción, fecha, género, jugadores, valoración y rutas de medios.
 - [ ] Respetar lo que ya haya escrito el usuario o el frontend (fusionar, no sobrescribir), como ya se hace con `gamelist.xml`.
 
 ### Lanzadores para juegos instalados
