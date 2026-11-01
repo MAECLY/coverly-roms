@@ -606,7 +606,8 @@ export interface ProfileFile {
   disc_layout?: DiscLayout;
   /** Containers whose cartridge ROMs move as they are; absent = zip, 7z. */
   accepts_containers?: ContainerKind[];
-  /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
+  /** Per-system replacements of `accepts_containers`; absent = `psp: []`
+   * and `ps5: [zip, 7z, rar]`. */
   container_overrides?: Record<string, ContainerKind[]>;
   /** Suffix a folder game of a system must end in (system id → suffix,
    * `ps3 → .ps3` on ES-DE and Batocera); absent = none. */
@@ -614,6 +615,10 @@ export interface ProfileFile {
   /** Media of a folder game are named after its whole folder name, suffix
    * included (ES-DE); absent = the suffix is dropped. */
   folder_stem_keeps_suffix?: boolean;
+  /** Folder, relative to a system's folder, where the frontend reads DLC
+   * (system id → template whose only token is `{title_id}`, `ps4 →
+   * DLC/{title_id}` on Batocera); absent = DLC sits beside its game. */
+  dlc_folder?: Record<string, string>;
 }
 
 /** `profiles::DiscLayout`. */

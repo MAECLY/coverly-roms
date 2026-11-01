@@ -309,6 +309,9 @@ const ESDE_FOLDERS = {
   ps3: 'ps3',
   xbox: 'xbox',
   xbox360: 'xbox360',
+  // Systems batch 3 (spec §6).
+  ps4: 'ps4',
+  xboxone: 'xboxone',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -361,6 +364,8 @@ const BATOCERA_FOLDERS = {
   ps3: 'ps3',
   xbox: 'xbox',
   xbox360: 'xbox360',
+  // Systems batch 3 (spec §6).
+  ps4: 'ps4',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
@@ -440,7 +445,8 @@ export const MOCK_BUILTIN_PROFILES: readonly ProfileInfo[] = [
   {
     profile: {
       id: 'batocera',
-      folder_game_suffix: { ps3: '.ps3' },
+      folder_game_suffix: { ps3: '.ps3', ps4: '.ps4' },
+      dlc_folder: { ps4: 'DLC/{title_id}' },
       disc_layout: { kind: 'flat', m3u_for_multi: true },
       folder_names: BATOCERA_FOLDERS,
       name: 'Batocera / Knulli / EmulationStation',
