@@ -688,12 +688,30 @@ export function validateSettings(
   return out;
 }
 
-/** `https://host[/path]`: a host, no spaces, no query, fragment,
- * credentials or backslashes (Rust `is_plain_https`). */
+/** A user base URL the core's network layer will fetch from (Rust
+ * `net::hosts::is_user_base`): `https://host[:port][/path]`, an ASCII host
+ * (or bracketed IPv6), no spaces, control characters, query, fragment,
+ * credentials, backslashes, dot segments or encoded separators. */
 function isPlainHttps(url: string): boolean {
   if (!url.startsWith('https://')) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001f\u007f-\u009f?#@\\]/.test(url)) return false;
   const rest = url.slice('https://'.length);
-  return (rest.split('/')[0] ?? '') !== '' && !/[\s?#@\\]/.test(rest);
+  const slash = rest.indexOf('/');
+  const authority = slash < 0 ? rest : rest.slice(0, slash);
+  const path = slash < 0 ? '' : rest.slice(slash);
+  const m = /^(?:\[([0-9A-Fa-f:.]+)\]|([A-Za-z0-9.-]+))(?::(\d{1,5}))?$/.exec(
+    authority,
+  );
+  if (!m || (m[3] !== undefined && Number(m[3]) > 65535)) return false;
+  if (/%(2f|5c|25)/i.test(path)) return false;
+  return !path
+    .split('/')
+    .slice(1)
+    .some((seg) => {
+      const s = seg.toLowerCase().replace(/%2e/g, '.');
+      return s === '.' || s === '..';
+    });
 }
 
 function uniq(list: string[]): string[] {

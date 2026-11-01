@@ -94,6 +94,19 @@ pub fn allowed(url: &str, user: &[&str]) -> bool {
         || user.iter().any(|u| user_prefix_matches(u.trim(), url))
 }
 
+/// A user base URL the settings may store (the nlib fallback): plain
+/// `https://host[:port][/path]` with no spaces, control characters, query,
+/// fragment, credentials, backslashes or dot / encoded separator segments,
+/// so every URL built on it passes [`allowed`].
+pub fn is_user_base(url: &str) -> bool {
+    url.starts_with("https://")
+        && super::plain_authority(url)
+        && !has_dot_segment(url)
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '?' | '#' | '@' | '\\'))
+}
+
 fn user_prefix_matches(prefix: &str, url: &str) -> bool {
     if !prefix.starts_with("https://")
         || !super::plain_authority(prefix)

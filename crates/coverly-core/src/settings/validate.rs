@@ -227,7 +227,8 @@ impl Settings {
     }
 
     /// The `catalogs` group: the refresh range and a plain HTTPS fallback
-    /// URL (same codes as the manual proxy URL). Icons and the fallback
+    /// URL the network layer will fetch from (`net::hosts::is_user_base`;
+    /// same codes as the manual proxy URL). Icons and the fallback
     /// without the catalogue are not errors: `normalise` turns them off.
     fn validate_catalogs(&self, out: &mut Vec<FieldError>) {
         let c = &self.catalogs.switch;
@@ -242,7 +243,7 @@ impl Settings {
                 "catalogs.switch.fallback_url",
                 FieldErrorCode::Required,
             ));
-        } else if !is_plain_https(url) {
+        } else if !crate::net::hosts::is_user_base(url) {
             out.push(FieldError::new(
                 "catalogs.switch.fallback_url",
                 FieldErrorCode::Invalid,
@@ -440,19 +441,6 @@ fn mount_label_len<S: AsRef<str>>(names: &[S]) -> usize {
         _ => 0,
     };
     len.min(names.len())
-}
-
-/// `https://host[/path]`: a host, no spaces, no query, fragment,
-/// credentials or backslashes.
-fn is_plain_https(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else {
-        return false;
-    };
-    let host = rest.split('/').next().unwrap_or_default();
-    !host.is_empty()
-        && !rest
-            .chars()
-            .any(|c| c.is_whitespace() || matches!(c, '?' | '#' | '@' | '\\'))
 }
 
 fn has_repeat<T: PartialEq>(items: &[T]) -> bool {

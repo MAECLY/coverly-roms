@@ -401,10 +401,28 @@ describe('mock settings', () => {
         'https://a b',
         'https://a?x=1',
         'https://u:p@a',
+        // Refused by the core's network allowlist too (`is_user_base`).
+        'https://api_nlib.cc',
+        'https://api.nlib.cc:99999',
+        'https://ñ.example',
+        'https://api.nlib.cc/a/../b',
+        'https://api.nlib.cc/%2e%2e/x',
+        'https://api.nlib.cc/a%2Fb',
+        'https://api.nlib.cc/a%5cb',
+        'https://api.nlib.cc/\u007f',
       ])
         expect(
           await errs({ catalogs: { switch: { fallback_url: url } } }),
         ).toEqual(['catalogs.switch.fallback_url:invalid']);
+      for (const url of [
+        'https://api.nlib.cc',
+        'https://mirror.example.org/titles',
+        'https://127.0.0.1:8443',
+        'https://[::1]:8443/v1',
+      ])
+        expect(
+          await errs({ catalogs: { switch: { fallback_url: url } } }),
+        ).toEqual([]);
       expect(
         await errs({ catalogs: { switch: { fallback_url: ' ' } } }),
       ).toEqual(['catalogs.switch.fallback_url:required']);

@@ -1452,6 +1452,43 @@ fn the_fallback_url_must_be_plain_https() {
             .map(|e| e.code);
         assert_eq!(got, code, "{url}");
     }
+    // A URL the settings accept must also be one the network layer will
+    // fetch from: anything `net::hosts::allowed` refuses is refused here,
+    // instead of every lookup failing silently later.
+    for url in [
+        "https://api_nlib.cc",
+        "https://api.nlib.cc:99999",
+        "https://ñ.example",
+        "https://api.nlib.cc/a/../b",
+        "https://api.nlib.cc/%2e%2e/x",
+        "https://api.nlib.cc/a%2Fb",
+        "https://api.nlib.cc/a%5cb",
+        "https://api.nlib.cc/\u{7f}",
+    ] {
+        let mut s = Settings::default();
+        s.catalogs.switch.fallback_url = url.to_string();
+        let got = s
+            .validate(&known())
+            .into_iter()
+            .find(|e| e.field == "catalogs.switch.fallback_url")
+            .map(|e| e.code);
+        assert_eq!(got, Some(FieldErrorCode::Invalid), "{url:?}");
+    }
+    for url in [
+        "https://api.nlib.cc",
+        "https://mirror.example.org/titles",
+        "https://127.0.0.1:8443",
+        "https://[::1]:8443/v1",
+    ] {
+        let mut s = Settings::default();
+        s.catalogs.switch.fallback_url = url.to_string();
+        assert!(s.validate(&known()).is_empty(), "{url}");
+        let lookup = format!("{url}/v1/0100000000010000");
+        assert!(
+            coverly_core::net::hosts::allowed(&lookup, &[url]),
+            "{lookup} must be fetchable"
+        );
+    }
     // The same code the manual proxy URL uses, so the UI shows the same message.
     let mut s = Settings::default();
     s.network.proxy = ProxyChoice::Manual;
