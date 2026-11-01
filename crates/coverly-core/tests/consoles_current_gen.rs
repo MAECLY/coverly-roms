@@ -810,3 +810,55 @@ fn game_overlay_names_the_base_title() {
     let base = only_folder(&p);
     assert_eq!(base.action, OrganizeAction::Auto);
 }
+
+/// Whether `dir` lies on a case-insensitive file system (APFS default,
+/// FAT, exFAT, NTFS).
+fn case_insensitive(dir: &Path) -> bool {
+    let probe = dir.join("CaseProbe");
+    fs::write(&probe, b"").unwrap();
+    let insensitive = dir.join("caseprobe").exists();
+    fs::remove_file(&probe).unwrap();
+    insensitive
+}
+
+#[test]
+fn game_overlay_names_the_base_title_when_the_base_differs_in_case() {
+    // On a case-insensitive volume shadPS4 finds `CUSA00900-mods` for the
+    // base `cusa00900` (base path + suffix); the row still names the
+    // base's title, not the spelling the overlay's name carries.
+    use coverly_core::organize::LeftReason;
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    if !case_insensitive(pile.path()) {
+        return;
+    }
+    let base = pile.path().join("cusa00900");
+    ps4_app(&base, "CUSA00900", "gd", BLOODBORNE);
+    let sfo = param_sfo_with(
+        &[
+            ("CATEGORY", "gd"),
+            ("CONTENT_ID", BLOODBORNE),
+            ("TITLE", "Bloodborne"),
+            ("TITLE_ID", "CUSA00900"),
+        ],
+        &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+    );
+    put_file(&base, "sce_sys/param.sfo", &sfo);
+    put_file(pile.path(), "CUSA00900-mods/x.bin", &[1u8; 64]);
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    let mods = p
+        .items
+        .iter()
+        .find(|i| i.sources[0] == Path::new("CUSA00900-mods"))
+        .expect("the -mods row");
+    assert_eq!(
+        mods.action,
+        OrganizeAction::Left {
+            reason: LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            }
+        }
+    );
+}

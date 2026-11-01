@@ -1408,10 +1408,25 @@ fn overlay_titles(items: &mut [OrganizeItem], survey: &Survey) {
             continue;
         };
         let base_path = parent.join(of);
-        let Some(b) = survey.entries.iter().position(|e| {
-            e.kind == ItemKind::Folder
-                && e.sources.first() == Some(&base_path)
-                && e.console.as_ref().is_some_and(|c| c.title.is_some())
+        let titled = |e: &SurveyEntry| {
+            e.kind == ItemKind::Folder && e.console.as_ref().is_some_and(|c| c.title.is_some())
+        };
+        // The exact name first; else, as on a case-insensitive volume
+        // where the walk found the base under the overlay's spelling,
+        // the folder beside it whose name differs only in ASCII case.
+        let exact = survey
+            .entries
+            .iter()
+            .position(|e| titled(e) && e.sources.first() == Some(&base_path));
+        let Some(b) = exact.or_else(|| {
+            survey.entries.iter().position(|e| {
+                titled(e)
+                    && e.sources.first().is_some_and(|p| {
+                        p.parent() == Some(parent)
+                            && p.file_name()
+                                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(of))
+                    })
+            })
         }) else {
             continue;
         };
