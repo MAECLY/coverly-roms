@@ -980,3 +980,110 @@ fn cli_organize_names_the_library_quarantine_for_a_pile_inside_a_system_folder()
             .display()
     )));
 }
+
+/// `coverly_core::organize::apply::LARGE_TRANSFER_ENV`: a test build's
+/// large-transfer threshold in bytes, so no test writes 10 GB.
+const LARGE_TRANSFER_ENV: &str = "COVERLY_TEST_LARGE_TRANSFER";
+
+fn copy_args(target: &Path) -> Vec<String> {
+    ["organize", "--offline", "--copy", "--apply", "--target"]
+        .iter()
+        .map(|s| s.to_string())
+        .chain([target.to_str().unwrap().to_string()])
+        .collect()
+}
+
+#[test]
+fn a_large_apply_without_yes_large_writes_nothing_and_fails_like_no_space() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let before = tree_digest(p.path());
+    let args = copy_args(other.path());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let volume = other.path().file_name().unwrap().to_string_lossy();
+    coverly(data.path(), cache.path(), &args)
+        .env(LARGE_TRANSFER_ENV, "1")
+        .arg(p.path())
+        .assert()
+        .code(1)
+        .stderr(contains("bytes (≥ 10 GB) to "))
+        .stderr(contains(volume.as_ref()))
+        .stderr(contains(
+            "re-run with --yes-large to confirm; nothing was written",
+        ));
+    assert_eq!(tree_digest(p.path()), before);
+    assert!(tree_digest(other.path()).is_empty(), "nothing written");
+    assert!(!data.path().join("jobs").exists(), "no job started");
+
+    // Confirmed: it copies.
+    let mut confirmed = args.clone();
+    confirmed.push("--yes-large");
+    coverly(data.path(), cache.path(), &confirmed)
+        .env(LARGE_TRANSFER_ENV, "1")
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("copied 2"));
+    assert!(other.path().join("ROMS/GBA/Game A.gba").is_file());
+    assert_eq!(tree_digest(p.path()), before);
+}
+
+#[test]
+fn yes_large_needs_apply() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    coverly(
+        data.path(),
+        cache.path(),
+        &["organize", "--offline", "--yes-large"],
+    )
+    .arg(p.path())
+    .assert()
+    .code(2);
+}
+
+#[test]
+fn a_small_apply_needs_no_yes_large() {
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let args = copy_args(other.path());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    coverly(data.path(), cache.path(), &args)
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("copied 2"));
+}
+
+#[cfg(unix)]
+#[test]
+fn resume_of_a_confirmed_large_job_needs_no_flag() {
+    use std::os::unix::fs::PermissionsExt;
+    let (p, data, cache) = (pile(), TempDir::new().unwrap(), TempDir::new().unwrap());
+    let other = TempDir::new().unwrap();
+    let set_mode = |mode| {
+        fs::set_permissions(other.path(), fs::Permissions::from_mode(mode)).unwrap();
+    };
+    set_mode(0o555);
+    let mut args = copy_args(other.path());
+    args.extend(["--yes-large", "--report", "json"].map(String::from));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = coverly(data.path(), cache.path(), &args)
+        .env(LARGE_TRANSFER_ENV, "1")
+        .arg(p.path())
+        .assert()
+        .code(5)
+        .get_output()
+        .clone();
+    set_mode(0o755);
+    let job = json_of(&out.stdout)["job"]["job"]
+        .as_str()
+        .expect("a paused job has an id")
+        .to_string();
+    coverly(data.path(), cache.path(), &["organize", "--resume", &job])
+        .env(LARGE_TRANSFER_ENV, "1")
+        .arg(p.path())
+        .assert()
+        .success()
+        .stdout(contains("copied 2"));
+    assert!(other.path().join("ROMS/GBA/Game A.gba").is_file());
+}

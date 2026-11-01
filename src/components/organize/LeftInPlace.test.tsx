@@ -25,14 +25,34 @@ const left = (id: number, name: string, reason: LeftReason): OrganizeItem =>
 
 /** One system of each family (names as in `systems.toml`), unsorted. */
 const SYSTEMS: SystemInfo[] = [
-  { id: 'wasm4', name: 'WASM-4', family: 'engine' },
-  { id: 'zxspectrum', name: 'Sinclair ZX Spectrum', family: 'computer' },
-  { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
-  { id: 'mame', name: 'MAME', family: 'arcade' },
-  { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
-  { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
-  { id: 'amstradcpc', name: 'Amstrad CPC', family: 'computer' },
-  { id: 'doom', name: 'Doom (PrBoom)', family: 'engine' },
+  { id: 'wasm4', name: 'WASM-4', family: 'engine', no_emulator: false },
+  {
+    id: 'zxspectrum',
+    name: 'Sinclair ZX Spectrum',
+    family: 'computer',
+    no_emulator: false,
+  },
+  {
+    id: 'ps2',
+    name: 'Sony PlayStation 2',
+    family: 'console',
+    no_emulator: false,
+  },
+  { id: 'mame', name: 'MAME', family: 'arcade', no_emulator: false },
+  {
+    id: 'gba',
+    name: 'Game Boy Advance',
+    family: 'handheld',
+    no_emulator: false,
+  },
+  { id: 'jaguar', name: 'Atari Jaguar', family: 'console', no_emulator: false },
+  {
+    id: 'amstradcpc',
+    name: 'Amstrad CPC',
+    family: 'computer',
+    no_emulator: false,
+  },
+  { id: 'doom', name: 'Doom (PrBoom)', family: 'engine', no_emulator: false },
 ];
 
 function show(
@@ -231,7 +251,14 @@ describe('LeftInPlace', () => {
       <I18nProvider locale="en">
         <LeftInPlace
           items={Array.from({ length: 450 }, (_, i) => unknown(i))}
-          systems={[{ id: 'gb', name: 'Game Boy', family: 'handheld' }]}
+          systems={[
+            {
+              id: 'gb',
+              name: 'Game Boy',
+              family: 'handheld',
+              no_emulator: false,
+            },
+          ]}
           otherFiles={0}
           deepFolders={0}
           onDecide={vi.fn()}

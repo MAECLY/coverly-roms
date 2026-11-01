@@ -41,6 +41,24 @@ describe('SystemIcon', () => {
       container.querySelector('[data-system-icon="model2"]'),
     ).toHaveTextContent('MDL2');
   });
+  it('renders systems batch 3 silhouettes for ps4, xboxone and xboxseries', () => {
+    for (const id of ['ps4', 'xboxone', 'xboxseries']) {
+      const { container, unmount } = render(
+        <SystemIcon systemId={id} size={16} />,
+      );
+      const svg = container.querySelector(`svg[data-system-icon="${id}"]`);
+      expect(svg, id).not.toBeNull();
+      expect(svg, id).toHaveAttribute('fill', 'currentColor');
+      unmount();
+    }
+  });
+  it('mounts ps5 under its PS5 label (no file in the pinned set)', () => {
+    const { container } = render(<SystemIcon systemId="ps5" size={24} />);
+    const m = container.querySelector('[data-system-icon="ps5"]')!;
+    expect(m.tagName.toLowerCase()).not.toBe('svg');
+    expect(m).toHaveTextContent('PS5');
+    expect(m).toHaveClass('system-mount--outline');
+  });
   it('is an image with a name when titled', () => {
     render(<SystemIcon systemId="gb" size={20} title="Game Boy" />);
     expect(screen.getByRole('img', { name: 'Game Boy' })).toHaveAttribute(

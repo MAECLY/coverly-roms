@@ -14,6 +14,8 @@ import {
   type MockOptions,
 } from './mockBackend';
 import {
+  MOCK_CURRENT,
+  MOCK_CURRENT_TARGET,
   MOCK_DOWNLOADS,
   MOCK_MIXED,
   MOCK_MODERN,
@@ -695,6 +697,8 @@ describe('mock folder pick', () => {
     expect(readMockPick()).toBe(MOCK_RETRO);
     window.history.replaceState(null, '', '/?mockPick=modern');
     expect(readMockPick()).toBe(MOCK_MODERN);
+    window.history.replaceState(null, '', '/?mockPick=current');
+    expect(readMockPick()).toBe(MOCK_CURRENT);
     window.history.replaceState(null, '', '/?mockPick=relative/path');
     expect(readMockPick()).toBeNull();
     window.localStorage.setItem(MOCK_PICK_KEY, '/Users/demo/Other');
@@ -1523,5 +1527,290 @@ describe('mock organise: the systems batch 2 modern pile', () => {
     const view = await done;
     expect(view.state).toBe('done');
     expect(view.report?.moved).toBe(18);
+  });
+});
+
+describe('mock organise size gate (systems batch 3 D23)', () => {
+  /** What Rust's `large_transfer` sums: automatic items with a target. */
+  function written(items: readonly OrganizeItem[], crosses: boolean): number {
+    return items
+      .filter((i) => i.action === 'auto' && i.target !== null)
+      .reduce(
+        (n, i) =>
+          n +
+          (i.transfer.kind === 'extract'
+            ? i.transfer.bytes
+            : crosses
+              ? i.size
+              : 0),
+        0,
+      );
+  }
+
+  it('asks before a copy of 10 GB or more, then applies with the bytes', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+      mode: 'copy',
+    });
+    const bytes = written(plan.items, true);
+    expect(bytes).toBeGreaterThanOrEqual(10_000_000_000);
+    const items = plan.items.filter(
+      (i) => i.action === 'auto' && i.target !== null,
+    ).length;
+    expect(plan.warnings).toContainEqual({
+      kind: 'large-transfer',
+      bytes,
+      items,
+    });
+    const refused = {
+      code: 'large-transfer',
+      largeTransfer: {
+        bytes,
+        items,
+        copies: true,
+        free: null,
+        volume: 'Modern',
+      },
+    };
+    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
+    await expect(b.organizeApply(plan_id, [], bytes - 1)).rejects.toMatchObject(
+      refused,
+    );
+    // Nothing was written: no job, and the plan is still there to apply.
+    expect(await b.jobHistory()).toEqual([]);
+    const done = ended(b);
+    expect((await b.organizeApply(plan_id, [], bytes)).state).toBe('applying');
+    expect((await done).state).toBe('done');
+  });
+
+  it('names the target volume and its free space for a move to another drive', async () => {
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_MODERN,
+      layout: 'esde',
+      target: '/Volumes/TinyExt',
+      mode: 'move',
+    });
+    expect(plan.mode).toBe('move');
+    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject({
+      code: 'large-transfer',
+      largeTransfer: {
+        bytes: written(plan.items, true),
+        copies: false,
+        free: 412_100_000_000,
+        volume: 'TinyExt',
+      },
+    });
+  });
+
+  it('never asks for a move on the same volume or a small copy', async () => {
+    const b = backend();
+    const moved = await b.organizePlan({ source: MOCK_MODERN, layout: 'esde' });
+    expect(moved.plan.warnings.map((w) => w.kind)).not.toContain(
+      'large-transfer',
+    );
+    const small = await b.organizePlan({
+      source: MOCK_DOWNLOADS,
+      mode: 'copy',
+    });
+    expect(small.plan.warnings.map((w) => w.kind)).not.toContain(
+      'large-transfer',
+    );
+    const done = ended(b);
+    await b.organizeApply(small.plan_id, []);
+    expect((await done).state).toBe('done');
+  });
+});
+
+describe('mock current-generation pile (systems batch 3 §9.3)', () => {
+  const by = (items: OrganizeItem[], name: string) =>
+    items.find((i) => i.sources[0] === name)!;
+  const BLOODBORNE = 'UP9000-CUSA00900_00-BLOODBORNE000000';
+  const XVC = '4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6';
+  const PS4_PKG = 'EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg';
+  const PS5_PKG = 'UP9000-PPSA01284_00-RATCHET000000000.pkg';
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('plans the pile like the Rust snapshot on ES-DE, onto TinyExt', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    // Another drive: the automatic mode copies, like Rust.
+    expect(plan.target_root).toBe(MOCK_CURRENT_TARGET);
+    expect(plan.mode).toBe('copy');
+    expect(plan.counts).toMatchObject({ auto: 12, review: 1, left: 5 });
+    expect(plan.counts.systems).toBe(4);
+    expect(plan.updates).toBe(3);
+
+    // The update and the DLC right after their base, then the mods folder.
+    const names = plan.items.map((i) => i.sources[0]);
+    expect(names.slice(0, 6)).toEqual([
+      XVC,
+      'CUSA00900',
+      'CUSA00900-UPDATE',
+      'CUSA00900-DLC-ABC',
+      'CUSA00900-mods',
+      PS4_PKG,
+    ]);
+    expect(names.indexOf('PPSA01284 DLC')).toBe(names.indexOf('PPSA01284') + 1);
+
+    expect(by(plan.items, 'CUSA00900')).toMatchObject({
+      kind: 'folder',
+      size: 48_120_000_000,
+      system_id: 'ps4',
+      target: 'ROMs/ps4/CUSA00900',
+      title_id: { id: 'CUSA00900', source: 'param-sfo' },
+      content_id: BLOODBORNE,
+      notes: [],
+    });
+    expect(by(plan.items, 'CUSA00900-UPDATE')).toMatchObject({
+      size: 14_800_000_000,
+      target: 'ROMs/ps4/CUSA00900-UPDATE',
+      notes: [{ kind: 'update', of: 'Bloodborne' }],
+    });
+    expect(by(plan.items, PS4_PKG)).toMatchObject({
+      size: 9_020_000_000,
+      notes: [{ kind: 'extract-first' }],
+      title_id: { id: 'CUSA04447', source: 'param-sfo' },
+    });
+    expect(by(plan.items, 'PPSA01284').notes).toEqual([
+      { kind: 'pro-enhanced' },
+      { kind: 'no-folder-on-device', folder: 'ps5' },
+    ]);
+    expect(by(plan.items, 'PPSA01284').title_id).toEqual({
+      id: 'PPSA01284',
+      source: 'param-json',
+    });
+    expect(by(plan.items, 'PPSA01284 DLC').notes).toEqual([
+      { kind: 'no-folder-on-device', folder: 'ps5' },
+      { kind: 'dlc', of: 'Returnal' },
+    ]);
+    for (const name of [PS5_PKG, 'PPSA09519.exfat'])
+      expect(by(plan.items, name).notes, name).toEqual([
+        { kind: 'no-emulator' },
+        { kind: 'no-folder-on-device', folder: 'ps5' },
+      ]);
+    expect(by(plan.items, 'Forza Horizon 5')).toMatchObject({
+      system_id: 'xboxseries',
+      target: 'ROMs/xboxseries/Forza Horizon 5',
+      size: 110_400_000_000,
+      title_id: { id: '2B3C4D5E', source: 'microsoft-game-config' },
+    });
+    expect(by(plan.items, 'Halo 5 Guardians').target).toBe(
+      'ROMs/xboxone/Halo 5 Guardians',
+    );
+    expect(by(plan.items, 'Sunset Overdrive').why[0]!.detail).toBe(
+      'AppxManifest.xml',
+    );
+    // The XVC waits for a choice between Xbox One and Xbox Series.
+    expect(by(plan.items, XVC)).toMatchObject({
+      action: 'review',
+      system_id: 'xboxone',
+      alternatives: [['xboxseries', 0.95]],
+      notes: [{ kind: 'no-emulator' }],
+      content_id: XVC,
+    });
+
+    const reasons = plan.items.flatMap((i) =>
+      i.action === 'left' ? [[i.sources[0], i.reason] as const] : [],
+    );
+    expect(Object.fromEntries(reasons)).toEqual({
+      'CUSA00900-mods': { kind: 'game-overlay', of: 'Bloodborne' },
+      'Microsoft Flight Simulator': { kind: 'not-a-rom', what: 'pc-game-data' },
+      'UP9000-CUSA00900_00.rif': { kind: 'key-material' },
+      shadPS4: { kind: 'emulator-data', folder: 'shadPS4' },
+      'x.cik': { kind: 'key-material' },
+    });
+    // 187,42 GB over 12 items: Organizar asks first.
+    expect(plan.warnings).toContainEqual({
+      kind: 'large-transfer',
+      bytes: 187_420_000_000,
+      items: 12,
+    });
+  });
+
+  it('Batocera renames the base, its update follows and the DLC goes to DLC/', async () => {
+    const { plan } = await backend().organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'batocera',
+    });
+    const layout = 'Batocera / Knulli / EmulationStation';
+    expect(by(plan.items, 'CUSA00900')).toMatchObject({
+      target: 'roms/ps4/CUSA00900.ps4',
+      notes: [{ kind: 'folder-suffix', name: 'CUSA00900.ps4', layout }],
+    });
+    expect(by(plan.items, 'CUSA00900-UPDATE')).toMatchObject({
+      target: 'roms/ps4/CUSA00900.ps4-UPDATE',
+      notes: [{ kind: 'update', of: 'Bloodborne' }],
+    });
+    expect(by(plan.items, 'CUSA00900-DLC-ABC')).toMatchObject({
+      target: 'roms/ps4/DLC/CUSA00900/CUSA00900-DLC-ABC',
+      notes: [
+        { kind: 'dlc-folder', layout },
+        { kind: 'dlc', of: 'Bloodborne' },
+      ],
+    });
+    expect(by(plan.items, 'Halo 5 Guardians').notes).toEqual([
+      { kind: 'no-folder-on-device', folder: 'xboxone' },
+    ]);
+    expect(by(plan.items, XVC).notes).toEqual([
+      { kind: 'no-emulator' },
+      { kind: 'no-folder-on-device', folder: 'xboxone' },
+    ]);
+    // ES-DE has no suffix and no DLC folder.
+    const esde = await backend().organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    expect(by(esde.plan.items, 'CUSA00900-DLC-ABC').target).toBe(
+      'ROMs/ps4/CUSA00900-DLC-ABC',
+    );
+  });
+
+  it('asks before copying 187,42 GB to TinyExt, then applies with the bytes', async () => {
+    const b = backend();
+    const { plan_id } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    const refused = {
+      code: 'large-transfer',
+      largeTransfer: {
+        bytes: 187_420_000_000,
+        items: 12,
+        copies: true,
+        free: 412_100_000_000,
+        volume: 'TinyExt',
+      },
+    };
+    await expect(b.organizeApply(plan_id, [])).rejects.toMatchObject(refused);
+    const done = ended(b);
+    await b.organizeApply(plan_id, [], 187_420_000_000);
+    expect((await done).state).toBe('done');
+  });
+
+  it('?mockSameVolume=1 keeps the pile on its drive: a move, no question', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?mockPick=current&mockSameVolume=1',
+    );
+    const b = backend();
+    const { plan_id, plan } = await b.organizePlan({
+      source: MOCK_CURRENT,
+      layout: 'esde',
+    });
+    expect(plan.target_root).toBe(MOCK_CURRENT);
+    expect(plan.mode).toBe('move');
+    expect(plan.warnings.map((w) => w.kind)).not.toContain('large-transfer');
+    const done = ended(b);
+    expect((await b.organizeApply(plan_id, [])).state).toBe('applying');
+    expect((await done).state).toBe('done');
   });
 });

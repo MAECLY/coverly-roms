@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -165,8 +165,13 @@ describe('SystemGroups', () => {
 
 describe('SystemGroups — a system the user chose', () => {
   const SYSTEMS: SystemInfo[] = [
-    { id: 'gb', name: 'Game Boy', family: 'handheld' },
-    { id: 'gba', name: 'Game Boy Advance', family: 'handheld' },
+    { id: 'gb', name: 'Game Boy', family: 'handheld', no_emulator: false },
+    {
+      id: 'gba',
+      name: 'Game Boy Advance',
+      family: 'handheld',
+      no_emulator: false,
+    },
   ];
 
   function renderChosen(onDecide: (ids: number[], c: unknown) => void) {
@@ -218,10 +223,25 @@ describe('SystemGroups — a system the user chose', () => {
 describe('SystemGroups — the full picker of a chosen system', () => {
   it('groups every system by family, sorted, with leave last', () => {
     const systems: SystemInfo[] = [
-      { id: 'zxspectrum', name: 'ZX Spectrum', family: 'computer' },
-      { id: 'ps2', name: 'Sony PlayStation 2', family: 'console' },
-      { id: 'gb', name: 'Game Boy', family: 'handheld' },
-      { id: 'jaguar', name: 'Atari Jaguar', family: 'console' },
+      {
+        id: 'zxspectrum',
+        name: 'ZX Spectrum',
+        family: 'computer',
+        no_emulator: false,
+      },
+      {
+        id: 'ps2',
+        name: 'Sony PlayStation 2',
+        family: 'console',
+        no_emulator: false,
+      },
+      { id: 'gb', name: 'Game Boy', family: 'handheld', no_emulator: false },
+      {
+        id: 'jaguar',
+        name: 'Atari Jaguar',
+        family: 'console',
+        no_emulator: false,
+      },
     ];
     const items = [
       autoItem(0, 'mystery.rom', 'gb', 'ROMS/GB', {
@@ -482,6 +502,138 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
         'Title ID 0100000000010000 en el nombre del ticket',
       );
       expect(rows[2]).toHaveTextContent('Actualización de Super Mario Odyssey');
+    });
+  });
+
+  describe('systems batch 3 (spec §9.1)', () => {
+    const SYSTEMS: SystemInfo[] = [
+      {
+        id: 'ps4',
+        name: 'Sony PlayStation 4',
+        family: 'console',
+        no_emulator: false,
+      },
+      {
+        id: 'xboxseries',
+        name: 'Microsoft Xbox Series X|S',
+        family: 'console',
+        no_emulator: true,
+      },
+    ];
+    const names = (id: string) => SYSTEMS.find((s) => s.id === id)?.name ?? id;
+    const bloodborne = autoItem(0, 'CUSA00900', 'ps4', 'ps4', {
+      kind: 'folder',
+      size: 48_120_000_000,
+      target: 'ps4/CUSA00900.ps4',
+      method: 'header',
+      confidence: 0.95,
+      why: [
+        {
+          kind: 'header',
+          system: 'ps4',
+          weight: 0.95,
+          detail: 'sce_sys/param.sfo',
+        },
+      ],
+      title_id: { id: 'CUSA00900', source: 'param-sfo' },
+      content_id: 'UP9000-CUSA00900_00-BLOODBORNE000000',
+    });
+    const forza = autoItem(1, 'Forza Horizon 5', 'xboxseries', 'xboxseries', {
+      kind: 'folder',
+      size: 110_400_000_000,
+      method: 'header',
+      confidence: 0.95,
+      why: [
+        {
+          kind: 'header',
+          system: 'xboxseries',
+          weight: 0.95,
+          detail: 'MicrosoftGame.config',
+        },
+      ],
+      title_id: { id: '2B3C4D5E', source: 'microsoft-game-config' },
+    });
+
+    function renderIn(locale: 'es' | 'en', systems?: SystemInfo[]) {
+      render(
+        <I18nProvider locale={locale}>
+          <SystemGroups
+            groups={groupBySystem(planOf([bloodborne, forza]))}
+            layoutName="Batocera / Knulli / EmulationStation"
+            systemName={names}
+            {...(systems ? { systems } : {})}
+            profile={null}
+          />
+        </I18nProvider>,
+      );
+    }
+
+    it('says «Sin emulador» once, in the Xbox Series heading only', () => {
+      renderIn('es', SYSTEMS);
+      expect(
+        screen.getByRole('button', {
+          name: 'xboxseries/ (1) Microsoft Xbox Series X|S Sin emulador',
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'ps4/ (1) Sony PlayStation 4' }),
+      ).toBeInTheDocument();
+      const labels = screen.getAllByText('Sin emulador');
+      expect(labels).toHaveLength(1);
+      // Secondary caption text, no badge; the dot between is not read.
+      expect(labels[0]!.parentElement).toHaveClass(
+        'text-caption',
+        'text-cr-text-secondary',
+      );
+      const dot = labels[0]!.previousElementSibling!;
+      expect(dot).toHaveTextContent('·');
+      expect(dot).toHaveAttribute('aria-hidden', 'true');
+      // Never on a row.
+      for (const row of screen.getAllByRole('listitem'))
+        expect(row).not.toHaveTextContent('Sin emulador');
+    });
+
+    it('keeps «Sin emulador» in one line with the system name at 390 px', () => {
+      renderIn('es', SYSTEMS);
+      const label = screen.getByText('Sin emulador');
+      // Never broken inside («Sin / emulador»), and set in the same text
+      // run as the system name, so a narrow window wraps the phrase as a
+      // sentence instead of stacking each part as its own flex column.
+      expect(label).toHaveClass('whitespace-nowrap');
+      expect(label.parentElement).toHaveTextContent(
+        'Microsoft Xbox Series X|S · Sin emulador',
+      );
+    });
+
+    it('reads «No emulator» in English and nothing without the catalogue', () => {
+      renderIn('en', SYSTEMS);
+      expect(
+        screen.getByRole('button', {
+          name: 'xboxseries/ (1) Microsoft Xbox Series X|S No emulator',
+        }),
+      ).toBeInTheDocument();
+      cleanup();
+      renderIn('en');
+      expect(screen.queryByText('No emulator')).toBeNull();
+    });
+
+    it('a PS4 folder tells its title id file and its content id in mono', () => {
+      renderIn('es', SYSTEMS);
+      const row = screen.getAllByRole('listitem')[0]!;
+      expect(row).toHaveTextContent('Title ID CUSA00900 en PARAM.SFO');
+      expect(row).toHaveTextContent(
+        'Content ID UP9000-CUSA00900_00-BLOODBORNE000000',
+      );
+      expect(
+        within(row)
+          .getByText('UP9000-CUSA00900_00-BLOODBORNE000000')
+          .closest('.mono'),
+      ).not.toBeNull();
+      const xbox = screen.getAllByRole('listitem')[1]!;
+      expect(xbox).toHaveTextContent(
+        'Title ID 2B3C4D5E en MicrosoftGame.config',
+      );
+      expect(xbox).not.toHaveTextContent('Content ID');
     });
   });
 });

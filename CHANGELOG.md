@@ -59,6 +59,18 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   version suggested as the one to keep.
 - Covers: the icon some games carry inside their files (PS3, PS Vita,
   Wii U, 3DS, Xbox 360) is used when no other source has a cover.
+- Four current-generation systems (131 in all): PS4, PS5, Xbox One and
+  Xbox Series. PS4 and PS5 game folders are identified from `sce_sys/`
+  (`param.sfo`, `param.json`) and PS4 packages from their plain header;
+  Xbox One and Xbox Series folders from `MicrosoftGame.config` or
+  `AppxManifest.xml`. Nothing encrypted, no key and no licence is ever
+  read. Xbox Series is catalogued only and marked «no emulator»; a game
+  counts as Xbox Series only when its configuration says it targets that
+  console. Updates, DLC and patch folders are listed under their game.
+- Covers for PS4, PS5, Xbox One and Xbox Series try the icon the game
+  carries first, then the other sources.
+- Organise asks for confirmation, with the exact size, before writing
+  10 GB or more.
 
 ### Changed
 
@@ -91,6 +103,13 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   ROMs instead of an unknown system.
 - Settings move to version 3: the new embedded-icon cover source is turned
   on once for existing users, after the other sources.
+- `.zar` files without a readable Xbox 360 executable go to review instead
+  of being filed as Xbox 360.
+- `coverly organize --apply` needs `--yes-large` to write 10 GB or more;
+  without it nothing is written.
+- Empty files no longer hold back PS4, PS5, Xbox One and Xbox Series
+  folder games.
+- `.cik` files are treated as key material and left untouched.
 
 ## [0.2.0] - 2026-10-25
 

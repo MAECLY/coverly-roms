@@ -84,6 +84,9 @@ pub struct SystemInfo {
     /// `console`, `handheld`, `computer`, `arcade` or `engine`: the
     /// picker group (spec §9.1).
     pub family: String,
+    /// No public emulator runs it (systems batch 3 D22): the UI shows
+    /// «Sin emulador» and names no emulator.
+    pub no_emulator: bool,
 }
 
 /// The built-in systems, by display name (case-insensitive).
@@ -96,6 +99,7 @@ pub fn list_systems() -> Vec<SystemInfo> {
             id: s.id.clone(),
             name: s.name.clone(),
             family: s.family.as_str().into(),
+            no_emulator: s.no_emulator,
         })
         .collect();
     systems.sort_by_cached_key(|s| (s.name.to_lowercase(), s.id.clone()));
@@ -811,17 +815,20 @@ pub async fn organize_export_plan(
 
 /// Applies plan `plan_id` with `decisions` (the backend re-plans from its
 /// own survey); progress arrives as `organize-progress`, the end as
-/// `organize-changed`.
+/// `organize-changed`. A decided plan writing 10 GB or more needs
+/// `confirmed_bytes` at least its bytes, else `large-transfer` (systems
+/// batch 3 D23).
 #[tauri::command]
 pub async fn organize_apply(
     app: AppHandle,
     plan_id: u64,
     decisions: Vec<coverly_core::organize::Decision>,
+    confirmed_bytes: Option<u64>,
 ) -> Result<OrganizeJobView, IpcError> {
     blocking(move || {
         let events: Arc<dyn OrganizeEvents> = Arc::new(TauriOrganizeEvents(app.clone()));
         app.state::<AppState>()
-            .organize_apply(plan_id, &decisions, events)
+            .organize_apply(plan_id, &decisions, confirmed_bytes, events)
     })
     .await
 }

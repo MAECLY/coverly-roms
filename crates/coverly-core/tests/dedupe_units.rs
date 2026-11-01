@@ -1224,3 +1224,120 @@ fn folder_games_are_units_and_never_set_aside() {
     }
     assert!(!plan.quarantine.join("ps3").exists());
 }
+
+// --- Current generation (systems batch 3 D8, D14) ---
+
+use coverly_core::consoles::testing::{cnt_pkg, ps4_app};
+use coverly_core::dedupe::{KeepReason, Relation};
+use coverly_core::identify::names::Region;
+
+/// Plans `root` under the Batocera profile (it has a `ps4` folder).
+fn plan_batocera(root: &Path) -> coverly_core::dedupe::DedupePlan {
+    let cache = Cache::in_memory().unwrap();
+    let db = SystemDb::builtin();
+    let profile = common::profile("batocera");
+    let settings = Settings::default();
+    let archives = listing();
+    let cancel = AtomicBool::new(false);
+    let env = DedupeEnv {
+        cache: &cache,
+        db: &db,
+        profile: &profile,
+        settings: &settings,
+        listing: &archives,
+        discs: &NoDiscProbe,
+        dats: None,
+        bytes: &DiskBytes,
+        progress: &|_| {},
+        cancel: &cancel,
+    };
+    let scan = scan_with(root, &profile, &ScanOptions::default());
+    let opts = DedupeOptions::from_settings(&settings.dedupe);
+    plan_dedupe(&scan, &opts, &env).unwrap()
+}
+
+#[test]
+fn ps4_folder_twins_by_content_id_are_reported_only() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let cid = "UP9000-CUSA00900_00-BLOODBORNE000000";
+    let a = root.join("roms/ps4/Bloodborne.ps4");
+    let b = root.join("roms/ps4/Bloodborne (2).ps4");
+    let dlc = root.join("roms/ps4/Bloodborne DLC.ps4");
+    ps4_app(&a, "CUSA00900", "gd", cid);
+    ps4_app(&b, "CUSA00900", "gd", cid);
+    ps4_app(
+        &dlc,
+        "CUSA00900",
+        "gd",
+        "UP9000-CUSA00900_00-BLOODBORNEDLC001",
+    );
+
+    let plan = plan_batocera(root);
+    let exact: Vec<_> = plan
+        .groups
+        .iter()
+        .filter(|g| g.members.iter().all(|m| m.relation != Relation::Version))
+        .collect();
+    assert_eq!(exact.len(), 1, "{:#?}", plan.groups);
+    let g = exact[0];
+    assert_eq!(g.system, "ps4");
+    assert_eq!(
+        g.action,
+        GroupAction::ReportOnly {
+            why: ReportWhy::FolderGame
+        }
+    );
+    let mut members: Vec<&Path> = g.members.iter().map(|m| m.unit.primary.as_path()).collect();
+    members.sort();
+    let mut want = vec![a.as_path(), b.as_path()];
+    want.sort();
+    assert_eq!(members, want, "another label is no copy");
+    assert!(g.members.iter().all(|m| m.dest.is_none()));
+    assert_eq!(plan.totals.extras, 0);
+}
+
+#[test]
+fn the_usa_package_stays_when_names_carry_no_region() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let pkg = |name: &str, cid: &str, pad: usize, n: u64| {
+        let mut bytes = cnt_pkg(cid, 0x1A, 0, &[]).bytes();
+        bytes.extend(std::iter::repeat_n(0xA5, pad));
+        let p = put(root, &format!("roms/ps4/{name}"), &bytes);
+        pin_mtime(&p, n);
+        p
+    };
+    // The European one is newer and listed first: only its region loses.
+    let eu = pkg(
+        "Bloodborne A.pkg",
+        "EP9000-CUSA00900_00-BLOODBORNE000000",
+        0,
+        2,
+    );
+    let us = pkg(
+        "Bloodborne B.pkg",
+        "UP9000-CUSA00900_00-BLOODBORNE000000",
+        16,
+        1,
+    );
+
+    let plan = plan_batocera(root);
+    assert_eq!(plan.groups.len(), 1, "{:#?}", plan.groups);
+    let g = &plan.groups[0];
+    let keeper = g.members.iter().find(|m| m.id == g.keeper).unwrap();
+    assert_eq!(keeper.unit.primary, us, "{g:#?}");
+    assert_eq!(
+        g.reason,
+        KeepReason::Region {
+            kept: Region::Usa,
+            other: Region::Europe
+        }
+    );
+    assert!(g.members.iter().any(|m| m.unit.primary == eu));
+    assert!(
+        matches!(g.action, GroupAction::ReportOnly { .. }),
+        "versions by title id are only reported: {:?}",
+        g.action
+    );
+}

@@ -1215,15 +1215,29 @@ pub fn parse_chd_header(head: &[u8]) -> Option<(u32, Option<String>, Option<Stri
 
 // --- Console title ids (systems batch 2 D11, plan P-6) ---
 
-/// The systems whose dumps carry a console title id (systems batch 2).
-/// Units of any other system keep the keys they had.
-pub const TITLE_ID_SYSTEMS: [&str; 9] = [
-    "gamecube", "wii", "wiiu", "3ds", "switch", "ps3", "psvita", "xbox", "xbox360",
+/// The systems whose dumps carry a console title id (systems batches 2
+/// and 3). Units of any other system keep the keys they had.
+pub const TITLE_ID_SYSTEMS: [&str; 13] = [
+    "gamecube",
+    "wii",
+    "wiiu",
+    "3ds",
+    "switch",
+    "ps3",
+    "psvita",
+    "xbox",
+    "xbox360",
+    "ps4",
+    "ps5",
+    "xboxone",
+    "xboxseries",
 ];
 
 /// `cache.json` namespace of the title keys read, by path, size and
-/// modification time: a warm run reads no header again.
-const TITLE_NS: &str = "dedupe-title-v1";
+/// modification time: a warm run reads no header again. `v2`: PS4/PS5
+/// keys are content ids and Xbox One/Series keys exist (systems batch 3
+/// D14), so `v1` entries are a miss.
+const TITLE_NS: &str = "dedupe-title-v2";
 
 /// Whether `system` is one of [`TITLE_ID_SYSTEMS`].
 pub fn has_title_ids(system: &str) -> bool {
@@ -1261,7 +1275,7 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
             .flatten()
             .map(|s| s.value)
     };
-    let key = format!("{}|{}|{}", u.primary.display(), u.size, u.mtime_ns);
+    let key = title_cache_key(u);
     if let Some(hit) = ctx.cache.and_then(|c| cached(c, &key)) {
         return hit;
     }
@@ -1279,11 +1293,15 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
             .flatten()
             .map(|m| m.id)
         }
+        // An XVC header gives one verdict per Xbox system (systems batch 3
+        // D19): the one of the unit's own system.
         UnitKind::Single | UnitKind::Image if u.files.len() == 1 => {
             let file = consoles::open_rom(&u.primary).ok()?;
             let mut at = crate::identify::sniff::FileAt(file);
             let mut src = Budgeted::new(&mut at, u.size);
-            consoles::identify(&mut src, &u.ext, &name)
+            consoles::identify_all(&mut src, &u.ext, &name)
+                .into_iter()
+                .find(|id| id.system == u.system)
         }
         _ => None,
     };
@@ -1295,12 +1313,50 @@ fn title_key(u: &Unit, ctx: &KeyCtx) -> Option<ExactKey> {
     found
 }
 
-/// The title key a reader's answer gives in `system`.
+fn title_cache_key(u: &Unit) -> String {
+    format!("{}|{}|{}", u.primary.display(), u.size, u.mtime_ns)
+}
+
+/// Stores the title key of `u` from `id`, a reader's answer the caller
+/// already has (an organise survey's), so level 1 does not open the
+/// header or folder probe a second time. Nothing is stored for a unit of
+/// a system without title ids, for a unit level 1 would not read (an
+/// archive, a disc set), or when `id` is another system's verdict (an
+/// XVC's other Xbox system): level 1 reads it then.
+pub fn remember_title_key(cache: &Cache, u: &Unit, id: &ConsoleId) {
+    let read = match u.kind {
+        UnitKind::Folder => true,
+        UnitKind::Single | UnitKind::Image => u.files.len() == 1,
+        _ => false,
+    };
+    if !read || !has_title_ids(&u.system) || id.system != u.system {
+        return;
+    }
+    let found = title_of(id, &u.system);
+    // The cache is an optimisation: a failed write costs a re-read.
+    let _ = cache.put_json(TITLE_NS, &title_cache_key(u), &found, None);
+}
+
+/// The title key a reader's answer gives in `system`. PS4/PS5: the full
+/// content id when there is one (`UP9000-CUSA00900_00-BLOODBORNE000000`),
+/// so another region or another DLC label is another key (systems batch 3
+/// D14). Xbox One/Series: the GDK `TitleId` (the reader drops
+/// `FFFFFFFF`), else an XVC's ContentId GUID, else the `StoreId` or ERA
+/// `Identity Name`.
 fn title_of(id: &ConsoleId, system: &str) -> Option<ExactKey> {
     if id.system != system {
         return None;
     }
-    let title_id = id.title_id.as_deref()?.trim();
+    let key_id = match system {
+        "ps4" | "ps5" => id.content_id.as_deref().or(id.title_id.as_deref()),
+        "xboxone" | "xboxseries" => id
+            .title_id
+            .as_deref()
+            .or(id.content_id.as_deref())
+            .or(id.product_id.as_deref()),
+        _ => id.title_id.as_deref(),
+    };
+    let title_id = key_id?.trim();
     if title_id.is_empty() {
         return None;
     }
@@ -1391,13 +1447,41 @@ fn title_version_key(unit: &Unit, k: &KeyedUnit) -> Option<VersionKey> {
     };
     Some(VersionKey {
         system: unit.system.clone(),
-        title_key: format!("{title_id}:{kind:?}"),
+        title_key: format!("{}:{kind:?}", version_title(&unit.system, title_id)),
         disc: *disc,
         game: unit.stem.clone(),
         tags: parse_tags(&unit.stem),
         console_version: version.clone(),
         by_title_id: true,
     })
+}
+
+/// The part of a title key that other versions of one game share. A
+/// PS4/PS5 content id without its region and publisher prefix
+/// (`UP9000-`): the same title id and label in another region is another
+/// version of the game (systems batch 3 D8, D14), never a copy.
+fn version_title<'t>(system: &str, title_id: &'t str) -> &'t str {
+    match system {
+        "ps4" | "ps5" => match title_id.split_once('-') {
+            Some((prefix, rest)) if prefix.len() == 6 && rest.len() == 29 => rest,
+            _ => title_id,
+        },
+        _ => title_id,
+    }
+}
+
+/// The region a PS4/PS5 title key's content id names (systems batch 3
+/// D8), for the keeper when the name has no region tag.
+pub fn title_region(
+    system: &str,
+    key: Option<&ExactKey>,
+) -> Option<crate::identify::names::Region> {
+    match (system, key?) {
+        ("ps4" | "ps5", ExactKey::Title { title_id, .. }) if title_id.len() == 36 => {
+            consoles::region_from_content_id(title_id)
+        }
+        _ => None,
+    }
 }
 
 fn catalogue_version_key(unit: &Unit, k: &KeyedUnit, dats: &dyn DatLookup) -> Option<VersionKey> {

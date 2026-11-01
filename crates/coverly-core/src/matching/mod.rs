@@ -43,6 +43,10 @@ pub struct RankContext<'a> {
     pub regions: &'a [RegionPref],
     /// Source ids, preferred first.
     pub sources: &'a [String],
+    /// Whether the icon inside the game ranks above every other candidate
+    /// (systems batch 3 D21: the system has `embedded_first` and the user
+    /// enabled `embedded`); otherwise it ranks below them (batch 2 D17).
+    pub embedded_first: bool,
 }
 
 /// Orders candidates for one ROM and media.
@@ -208,25 +212,32 @@ fn tail(a: &Candidate, b: &Candidate, ctx: &RankContext) -> Ordering {
         .then_with(|| a.url.cmp(&b.url))
 }
 
-/// Whether `c` is a last-resort candidate (an icon inside the game,
-/// systems batch 2 D17): it ranks below every other candidate, whatever
-/// its kind, score or the user's source order.
-fn is_last_resort(c: &Candidate) -> bool {
+/// Whether `c` is an icon inside the game (systems batch 2 D17, batch 3
+/// D21): it ranks below every other candidate, whatever its kind, score
+/// or the user's source order, or above all of them when the context says
+/// [`RankContext::embedded_first`].
+fn is_embedded(c: &Candidate) -> bool {
     c.source == crate::sources::embedded::ID
 }
 
-/// Ranks the ordinary candidates, then the last-resort ones (each group
-/// by [`rank_among`]).
+/// Ranks the ordinary candidates, then the embedded ones, or the other
+/// way round with [`RankContext::embedded_first`] (each group by
+/// [`rank_among`]).
 fn rank_with(
     ctx: &RankContext,
     cands: &[Candidate],
     merge_exact: bool,
     order: impl Fn(&Candidate, &Candidate) -> Ordering,
 ) -> Vec<usize> {
-    let (main, last): (Vec<usize>, Vec<usize>) =
-        (0..cands.len()).partition(|&i| !is_last_resort(&cands[i]));
-    let mut out = rank_among(ctx, cands, &main, merge_exact, &order);
-    out.extend(rank_among(ctx, cands, &last, merge_exact, &order));
+    let (icons, main): (Vec<usize>, Vec<usize>) =
+        (0..cands.len()).partition(|&i| is_embedded(&cands[i]));
+    let (first, then) = if ctx.embedded_first {
+        (icons, main)
+    } else {
+        (main, icons)
+    };
+    let mut out = rank_among(ctx, cands, &first, merge_exact, &order);
+    out.extend(rank_among(ctx, cands, &then, merge_exact, &order));
     out
 }
 
@@ -341,6 +352,9 @@ pub enum PickReason {
     Consensus { count: u8, next: u8 },
     /// Earlier in the user's source order.
     SourceOrder { source: String },
+    /// The icon inside the game, tried first on this system whatever the
+    /// user's source order (systems batch 3 D21).
+    EmbeddedFirst,
     /// Earlier in the region order; `rom` = it is the ROM's own region.
     Region { rom: bool },
     /// It carries the preferred language (D28).
@@ -363,6 +377,11 @@ pub fn explain(
     let Some(second) = second else {
         return PickReason::Only;
     };
+    // The icon inside the game wins because the system puts it first
+    // (D21), not by the user's order, which may list `embedded` last.
+    if ctx.embedded_first && is_embedded(first) && !is_embedded(second) {
+        return PickReason::EmbeddedFirst;
+    }
     if !is_unreleased_variant(&first.name) && is_unreleased_variant(&second.name) {
         return PickReason::Release;
     }

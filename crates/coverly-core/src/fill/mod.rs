@@ -243,6 +243,20 @@ impl Sources<'_> {
     }
 }
 
+/// The user's source order for `system` (systems batch 3 D21, plan P-5):
+/// `embedded` first when the system has `embedded_first` and the user
+/// enabled it; otherwise `ids` unchanged. Disabling `embedded` still
+/// disables it. Only the plan's ranking uses it: a manual search keeps
+/// the user's order.
+pub fn source_order(ids: &[String], system: &System) -> Vec<String> {
+    if !system.embedded_first || !ids.iter().any(|i| i == embedded::ID) {
+        return ids.to_vec();
+    }
+    std::iter::once(embedded::ID.to_string())
+        .chain(ids.iter().filter(|i| *i != embedded::ID).cloned())
+        .collect()
+}
+
 /// One ROM, for writes outside a plan.
 #[derive(Clone, Copy, Debug)]
 pub struct RomRef<'a> {
@@ -695,6 +709,34 @@ fn close(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn source_order_puts_embedded_first_for_flagged_systems() {
+        let db = SystemDb::builtin();
+        let user = ids(&["libretro", "screenscraper", embedded::ID]);
+        for id in ["ps4", "ps5", "xboxone", "xboxseries"] {
+            assert_eq!(
+                source_order(&user, db.get(id).unwrap()),
+                ids(&[embedded::ID, "libretro", "screenscraper"]),
+                "{id}"
+            );
+        }
+        // Other systems keep the user's order.
+        assert_eq!(source_order(&user, db.get("snes").unwrap()), user);
+        assert_eq!(source_order(&user, db.get("3ds").unwrap()), user);
+    }
+
+    #[test]
+    fn source_order_never_enables_embedded() {
+        let db = SystemDb::builtin();
+        let user = ids(&["libretro", "steamgriddb"]);
+        assert_eq!(source_order(&user, db.get("ps4").unwrap()), user);
+        assert!(source_order(&[], db.get("ps4").unwrap()).is_empty());
+    }
 
     #[test]
     fn the_write_error_wins_over_a_failed_close() {

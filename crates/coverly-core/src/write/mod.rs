@@ -102,6 +102,19 @@ const RESERVED: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
+/// Whether Windows takes `name` for a DOS device (`CON`, `nul.txt`,
+/// `LPT9 .x`): the part before the first dot, trailing spaces dropped,
+/// is one of the reserved names in any case.
+pub(crate) fn is_dos_device_name(name: &str) -> bool {
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
+    RESERVED.contains(&base.as_str())
+}
+
 /// A FAT/exFAT-safe version of `name`: control characters and
 /// `< > : " / \ | ? *` become `_`, trailing spaces and dots are dropped,
 /// DOS device names get a `_` prefix and the result fits in 255 bytes
@@ -123,13 +136,7 @@ pub fn safe_file_name(name: &str) -> Result<String, WriteError> {
     if s.is_empty() {
         return Err(WriteError::NameInvalid(name.to_string()));
     }
-    let base = s
-        .split('.')
-        .next()
-        .unwrap_or("")
-        .trim_end()
-        .to_ascii_uppercase();
-    if RESERVED.contains(&base.as_str()) {
+    if is_dos_device_name(&s) {
         s.insert(0, '_');
     }
     if s.len() > 255 {

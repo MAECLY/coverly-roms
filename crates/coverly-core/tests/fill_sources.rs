@@ -626,4 +626,255 @@ mod embedded {
             assert!(img.width() <= mw && img.height() <= mh);
         }
     }
+
+    // -----------------------------------------------------------------
+    // Systems batch 3 (D21): the current generation's embedded icons,
+    // tried first for the four systems with `embedded_first`.
+    // -----------------------------------------------------------------
+
+    use coverly_core::consoles::testing as t;
+
+    const PS4: &str = "Sony - PlayStation 4";
+
+    /// Writes `bytes` at `rel` (with `/`) inside `dir`, mtime pinned.
+    fn put(dir: &Path, rel: &str, bytes: &[u8]) {
+        t::put_file(dir, rel, bytes);
+    }
+
+    #[test]
+    fn embedded_ps4_folder_icon_is_a_cover() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("CUSA04447");
+        t::ps4_app(
+            &game,
+            "CUSA04447",
+            "gd",
+            "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+        );
+        put(&game, "sce_sys/icon0.png", &png_bytes(512, 512));
+        let found = query_candidates("ps4", Media::Cover, &game);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].origin.as_deref(), Some("sce_sys/icon0.png"));
+        let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((img.width(), img.height()), (512, 512));
+    }
+
+    /// `pic0.png` and `pic1.png` are backgrounds: no media slot holds
+    /// them, so the reader gives the icon only (D21).
+    #[test]
+    fn embedded_ps4_and_ps5_backgrounds_are_not_covers() {
+        let dir = TempDir::new().unwrap();
+        let ps4 = dir.path().join("CUSA04447");
+        t::ps4_app(
+            &ps4,
+            "CUSA04447",
+            "gd",
+            "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+        );
+        let ps5 = dir.path().join("PPSA01284");
+        t::ps5_app(
+            &ps5,
+            &t::ps5_param_json("PPSA01284", "Returnal", false),
+            true,
+        );
+        for game in [&ps4, &ps5] {
+            put(game, "sce_sys/pic0.png", &png_bytes(64, 36));
+            put(game, "sce_sys/pic1.png", &png_bytes(64, 36));
+        }
+        for (system, game) in [("ps4", &ps4), ("ps5", &ps5)] {
+            let found = query_candidates(system, Media::Cover, game);
+            let origins: Vec<_> = found.iter().map(|c| c.origin.as_deref()).collect();
+            assert_eq!(origins, [Some("sce_sys/icon0.png")], "{system}");
+        }
+    }
+
+    #[test]
+    fn embedded_ps5_folder_icon_is_a_cover() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("PPSA01284");
+        t::ps5_app(
+            &game,
+            &t::ps5_param_json("PPSA01284", "Returnal", false),
+            true,
+        );
+        let found = query_candidates("ps5", Media::Cover, &game);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((img.width(), img.height()), (8, 8));
+    }
+
+    #[test]
+    fn embedded_gdk_square480_logo_is_a_cover() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("Sample Game");
+        t::gdk_folder(&game, &t::GdkSpec::default());
+        put(&game, "LargeLogo.png", &png_bytes(480, 480));
+        for system in ["xboxone", "xboxseries"] {
+            let found = query_candidates(system, Media::Cover, &game);
+            assert_eq!(found.len(), 1, "{system}: {found:?}");
+            assert_eq!(found[0].origin.as_deref(), Some("LargeLogo.png"));
+            let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+            assert_eq!((img.width(), img.height()), (480, 480));
+        }
+    }
+
+    /// A manifest logo stored only as an MRT variant: the probe resolves
+    /// the largest `scale-*` into a plain file locator.
+    #[test]
+    fn embedded_gdk_mrt_logo_is_read_as_a_plain_file() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("Sample Game");
+        let spec = t::GdkSpec {
+            logos: [
+                "Assets\\LargeLogo.png",
+                "Assets\\StoreLogo.png",
+                "Assets\\Logo.png",
+            ],
+            ..Default::default()
+        };
+        put(
+            &game,
+            "MicrosoftGame.config",
+            t::gdk_config(&spec).as_bytes(),
+        );
+        put(&game, "Game0.exe", &[0u8; 64]);
+        put(&game, "Assets/LargeLogo.scale-100.png", &png_bytes(48, 48));
+        put(&game, "Assets/LargeLogo.scale-200.png", &png_bytes(96, 96));
+        let found = query_candidates("xboxone", Media::Cover, &game);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].origin.as_deref(),
+            Some("Assets/LargeLogo.scale-200.png")
+        );
+        let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((img.width(), img.height()), (96, 96));
+    }
+
+    #[test]
+    fn embedded_era_logo_is_a_cover() {
+        let dir = TempDir::new().unwrap();
+        let game = dir.path().join("Sample ERA");
+        t::era_folder(
+            &game,
+            &t::era_manifest("Sample.Game", "Sample Game", "Sample Game", true),
+        );
+        put(&game, "Logo.png", &png_bytes(150, 150));
+        let found = query_candidates("xboxone", Media::Cover, &game);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].origin.as_deref(), Some("Logo.png"));
+        let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((img.width(), img.height()), (150, 150));
+    }
+
+    /// Writes a PS4 CNT package whose entry `0x1200` holds `icon`.
+    fn write_ps4_pkg(path: &Path, icon: Vec<u8>) {
+        let sfo = t::ps4_sfo("CUSA04447", "gd", "EP0002-CUSA04447_00-GRAVITYRUSH00000", 1);
+        let pkg = t::cnt_pkg(
+            "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+            0x1A,
+            0,
+            &[(0x1000, 0, sfo), (0x1200, 0, icon)],
+        );
+        std::fs::write(path, pkg.bytes()).unwrap();
+        coverly_core::dedupe::testing::pin_mtime(path, 1);
+    }
+
+    #[test]
+    fn embedded_ps4_pkg_icon_entry_is_a_cover() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("Gravity Rush.pkg");
+        write_ps4_pkg(&path, png_bytes(512, 512));
+        let found = query_candidates("ps4", Media::Cover, &path);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].origin.as_deref(), Some("icon in the file header"));
+        let img = decode(&EmbeddedSource.fetch(&found[0]).unwrap());
+        assert_eq!((img.width(), img.height()), (512, 512));
+    }
+
+    #[test]
+    fn embedded_ps4_pkg_icon_that_is_not_a_png_has_no_candidate() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("Broken.pkg");
+        write_ps4_pkg(&path, vec![0xE7; 512]);
+        assert!(query_candidates("ps4", Media::Cover, &path).is_empty());
+    }
+
+    /// A Batocera card with a PS4 app folder (icon 64×64) and a 3DS CIA,
+    /// and a libretro mock that has both box arts.
+    fn world_current() -> World {
+        let (w, _, _) = world_3ds();
+        w.server.serve_libretro_root(&[GBA, N3DS, PS4]);
+        w.server
+            .serve_libretro_index(PS4, "Named_Boxarts", &["Test Game (Japan).png"]);
+        w.server.serve_libretro_image(
+            PS4,
+            "Named_Boxarts",
+            "Test Game (Japan).png",
+            png_bytes(500, 700),
+        );
+        let game = w
+            .lib
+            .path()
+            .join("roms")
+            .join("ps4")
+            .join("Test Game (Japan)");
+        t::ps4_app(
+            &game,
+            "CUSA04447",
+            "gd",
+            "JP0002-CUSA04447_00-GRAVITYRUSH00000",
+        );
+        put(&game, "sce_sys/icon0.png", &png_bytes(64, 64));
+        w
+    }
+
+    fn chosen_of<'p>(p: &'p Plan, system: &str) -> (&'p Candidate, &'p [Candidate]) {
+        let item = p
+            .items
+            .iter()
+            .find(|i| i.system_id == system)
+            .unwrap_or_else(|| panic!("{system}: {:?}", p.items));
+        match &item.action {
+            PlanAction::Auto {
+                chosen,
+                alternatives,
+                ..
+            }
+            | PlanAction::Review {
+                chosen,
+                alternatives,
+                ..
+            } => (chosen, alternatives),
+            other => panic!("{system}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedded_first_for_current_generation_only() {
+        let w = world_current();
+        let p = plan_with(&w, &["libretro", "screenscraper", ID]);
+        let (ps4, ps4_alts) = chosen_of(&p, "ps4");
+        assert_eq!(ps4.source, ID, "{ps4_alts:?}");
+        // The user's order puts `embedded` last: the «why» must not say
+        // «first source in your order».
+        let item = p.items.iter().find(|i| i.system_id == "ps4").unwrap();
+        assert_eq!(item.reason, Some(PickReason::EmbeddedFirst));
+        assert!(
+            ps4_alts.iter().any(|c| c.source == "libretro"),
+            "{ps4_alts:?}"
+        );
+        // A system without the flag keeps the user's order and the
+        // icon last.
+        let (n3ds, _) = chosen_of(&p, "3ds");
+        assert_eq!(n3ds.source, "libretro");
+    }
+
+    #[test]
+    fn embedded_first_needs_embedded_enabled() {
+        let w = world_current();
+        let p = plan_with(&w, &["libretro"]);
+        let (ps4, alts) = chosen_of(&p, "ps4");
+        assert_eq!(ps4.source, "libretro");
+        assert!(alts.iter().all(|c| c.source != ID), "{alts:?}");
+    }
 }

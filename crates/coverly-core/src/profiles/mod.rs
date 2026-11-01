@@ -90,12 +90,23 @@ pub fn default_accepts_containers() -> Vec<ContainerKind> {
 const NO_ARCHIVE_SYSTEMS: [&str; 1] = ["psp"];
 
 /// The per-system container overrides every profile starts from: the
-/// systems in [`NO_ARCHIVE_SYSTEMS`] always extract.
+/// systems in [`NO_ARCHIVE_SYSTEMS`] always extract, and a `ps5` app
+/// archive keeps its zip, 7z or rar (systems batch 3 D13: the archive is
+/// the app's distribution form, not a compressed ROM).
 pub fn default_container_overrides() -> BTreeMap<String, Vec<ContainerKind>> {
-    NO_ARCHIVE_SYSTEMS
+    let mut m: BTreeMap<String, Vec<ContainerKind>> = NO_ARCHIVE_SYSTEMS
         .iter()
         .map(|s| (s.to_string(), Vec::new()))
-        .collect()
+        .collect();
+    m.insert(
+        "ps5".to_string(),
+        vec![
+            ContainerKind::Zip,
+            ContainerKind::SevenZip,
+            ContainerKind::Rar,
+        ],
+    );
+    m
 }
 
 /// A built-in frontend's folder for one system (systems batch 1, spec D5
@@ -204,6 +215,11 @@ pub struct Profile {
     /// extension, so `Game.ps3/` has `Game.ps3.png`). Otherwise the stem
     /// drops the suffix (Batocera cuts at the last dot, folders too).
     pub folder_stem_keeps_suffix: bool,
+    /// Folder, relative to a system's folder, where the frontend reads a
+    /// system's DLC (system id → template whose only token is
+    /// `{title_id}`, the base game's id): Batocera `ps4 → DLC/{title_id}`
+    /// (systems batch 3 D16). Empty elsewhere: DLC sits beside its game.
+    pub dlc_folder: BTreeMap<String, String>,
 }
 
 impl Profile {

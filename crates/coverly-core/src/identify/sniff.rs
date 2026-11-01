@@ -24,10 +24,11 @@ pub const DECISIVE: [&str; 15] = [
 /// listings, cue sheets and playlists, Intel HEX (Arduboy), LowRes NX
 /// sources, Lua games and `.game` files (spec D26), and the Vita3K and
 /// RPCS3 launchers `.psvita` and `.psn` and the Xenia launcher `.xbox360`
-/// (systems batch 2 D14). Only a web page is "not a ROM" there.
-pub const TEXT_NATIVE_EXTS: [&str; 17] = [
+/// (systems batch 2 D14), and the ES-DE «game serial» file `.ps4`
+/// (systems batch 3 D17). Only a web page is "not a ROM" there.
+pub const TEXT_NATIVE_EXTS: [&str; 18] = [
     "p8", "scummvm", "svm", "conf", "bat", "bas", "cue", "m3u", "gdi", "ccd", "hex", "nx", "lua",
-    "game", "psvita", "psn", "xbox360",
+    "game", "psvita", "psn", "xbox360", "ps4",
 ];
 
 /// Bounded reads at given offsets.
@@ -130,6 +131,9 @@ pub enum NotARom {
     /// A PC game's data pack: a Valve VPK (`34 12 AA 55`) named `.vpk`,
     /// as Steam workshop folders hold by the hundred (systems batch 2).
     PcGameData,
+    /// A console's own system file or folder (firmware modules, a
+    /// console system package), never a game (systems batch 3).
+    ConsoleSystem,
 }
 
 /// Container formats recognised by their magic (contents not read here).
@@ -217,6 +221,26 @@ impl Sniff {
         self.hits
             .push(Evidence::new(IdLevel::Header, system, weight, detail));
     }
+
+    /// Records the verdicts of `consoles::identify_all`: one header hit
+    /// per verdict (an XVC header gives two of equal weight, systems batch
+    /// 3 D19), the first verdict as [`Sniff::console`]. A console's own
+    /// XVD (`xbox::XVD_SYSTEM_DETAIL`) is no ROM and no hit.
+    pub fn add_console(&mut self, ids: Vec<crate::consoles::ConsoleId>) {
+        if let [only] = ids.as_slice() {
+            if only.detail == crate::consoles::xbox::XVD_SYSTEM_DETAIL {
+                self.not_a_rom = Some(NotARom::ConsoleSystem);
+                return;
+            }
+        }
+        for id in &ids {
+            self.hit(&id.system, id.confidence, id.detail.clone());
+        }
+        if let Some(first) = ids.into_iter().next() {
+            self.serial = first.serial.clone();
+            self.console = Some(first);
+        }
+    }
 }
 
 /// Reads at `offset` until `buf` is full or the source ends.
@@ -301,11 +325,8 @@ pub fn sniff_named(src: &mut dyn ReadAt, len: u64, ext: &str, name: &str) -> Sni
     discs(src, &head, len, &ext, &mut s);
     if s.hits.is_empty() && s.unsupported.is_none() {
         let mut b = crate::consoles::Budgeted::new(&mut *src, len);
-        if let Some(id) = crate::consoles::identify(&mut b, &ext, name) {
-            s.hit(&id.system, id.confidence, id.detail.clone());
-            s.serial = id.serial.clone();
-            s.console = Some(id);
-        }
+        let ids = crate::consoles::identify_all(&mut b, &ext, name);
+        s.add_console(ids);
     }
     if s.hits.is_empty() && s.unsupported.is_none() {
         cartridges(src, &head, len, &ext, &mut s);

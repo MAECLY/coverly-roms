@@ -1842,3 +1842,74 @@ fn xex2_header_contradicts_atari_xex() {
     let id = identify(&p, &FakeCatalogue::empty());
     assert_eq!(id.combined.system.as_deref(), Some("a800"));
 }
+
+#[test]
+fn a_ps4_cnt_package_is_noted_extract_first_and_a_ps3_package_install_first() {
+    // Systems batch 3 D9: a PS4 PKG has to be extracted before it plays;
+    // its verdict has its own detail, so the batch 2 `InstallFirst` rule
+    // for PS3 and Vita packages never fires for it.
+    use coverly_core::consoles::orbis::CNT_DETAIL;
+    use coverly_core::consoles::testing::{cnt_pkg, pkg};
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("EP0002-CUSA04447_00-SAMPLEGAME000000.pkg");
+    let f = cnt_pkg("EP0002-CUSA04447_00-SAMPLEGAME000000", 0x1A, 0, &[]);
+    std::fs::write(&p, f.bytes()).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps4"));
+    assert!(id.combined.why.iter().any(|e| e.detail == CNT_DETAIL));
+    assert!(id.notes.contains(&ItemNote::ExtractFirst), "{:?}", id.notes);
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::InstallFirst { .. })));
+
+    let p = tmp.path().join("NPUB30024.pkg");
+    let f = pkg(1, "UP0001-NPUB30024_00-0000000000000001");
+    std::fs::write(&p, f.bytes()).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("ps3"));
+    assert!(id.notes.contains(&ItemNote::InstallFirst {
+        emulator: "RPCS3".into()
+    }));
+    assert!(!id.notes.contains(&ItemNote::ExtractFirst));
+}
+
+/// Systems batch 3 D18: a GDK folder's confidence decides its verdict
+/// against the Auto threshold, like every folder game: a config whose
+/// families name the system (0.95) is Auto; a PC build beside one
+/// console family (0.60) and a config without families (0.50) are
+/// reviews, and a lone 0.60 header hit never reaches Auto either.
+#[test]
+fn gdk_folder_confidences_against_the_thresholds() {
+    let t = Thresholds::default();
+    assert!(0.95 >= t.auto);
+    assert!(0.60 < t.auto && 0.60 >= t.review);
+    assert!(0.50 < t.auto);
+    assert_eq!(
+        decide(&[ev(Header, "xboxone", 0.60)], &[]).0,
+        Verdict::Review
+    );
+}
+
+/// Systems batch 3 D19: an XVC header's two equal hits plus the Shared
+/// `.xvc` extension cannot pass the margin: review between the Xboxes.
+#[test]
+fn an_xvc_header_ties_xbox_one_and_series() {
+    let db = SystemDb::builtin();
+    let bytes = coverly_core::consoles::testing::xvd_head(0x01).bytes();
+    let s = sniff(&mut SliceAt(&bytes), bytes.len() as u64, "xvc");
+    let mut evidence = extension_evidence(&db, "xvc", &s);
+    evidence.extend(s.hits.iter().cloned());
+    let c = combine(&CombineInput {
+        evidence: &evidence,
+        excluded: &[],
+        content_read: true,
+        broad_root: false,
+        thresholds: Thresholds::default(),
+    });
+    assert_eq!(c.verdict, Verdict::Review);
+    assert_eq!(c.system.as_deref(), Some("xboxone"));
+    let alts: Vec<&str> = c.alternatives.iter().map(|(s, _)| s.as_str()).collect();
+    assert_eq!(alts, ["xboxseries"]);
+    assert_eq!(c.alternatives[0].1, c.confidence);
+}

@@ -376,7 +376,7 @@ describe('settings sections', () => {
     });
     await waitFor(() =>
       expect(row).toHaveAccessibleDescription(
-        'Usa el icono que traen algunos juegos (PS3, PS Vita, Wii U, 3DS, Xbox 360) cuando no hay carátula en otra fuente',
+        'Usa el icono que traen algunos juegos: primero en PS4, PS5, Xbox One y Xbox Series; en PS3, PS Vita, Wii U, 3DS y Xbox 360, cuando no hay carátula en otra fuente',
       ),
     );
     expect(row).toBeEnabled();

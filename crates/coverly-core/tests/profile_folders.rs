@@ -462,3 +462,27 @@ fn nintendo_3ds_folders_resolve() {
         Some("3ds".into())
     );
 }
+
+#[test]
+fn ps4_folder_suffix_and_dlc_folder_are_on_batocera_only() {
+    // Systems batch 3 D16: Batocera lists a PS4 game folder only when it
+    // ends in `.ps4` and reads DLC from `roms/ps4/DLC/<TITLE_ID>/`. ES-DE's
+    // PS4 entries are `.ps4` serial files: no suffix, still `.ps3`.
+    for p in builtin_profiles() {
+        let batocera = p.id == "batocera";
+        assert_eq!(
+            p.folder_game_suffix.get("ps4").map(String::as_str),
+            batocera.then_some(".ps4"),
+            "{}",
+            p.id
+        );
+        let want =
+            batocera.then(|| BTreeMap::from([("ps4".to_string(), "DLC/{title_id}".to_string())]));
+        assert_eq!(p.dlc_folder, want.unwrap_or_default(), "{}", p.id);
+    }
+    let esde = builtin("esde");
+    assert_eq!(
+        esde.folder_game_suffix.get("ps3").map(String::as_str),
+        Some(".ps3")
+    );
+}

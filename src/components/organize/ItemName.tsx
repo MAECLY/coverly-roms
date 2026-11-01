@@ -6,7 +6,7 @@ import { useRichT } from '@/i18n/rich';
 import { useT } from '@/i18n/useT';
 import type { OrganizeItem } from '@/ipc/types';
 import { formatDecimalSize } from '@/lib/format';
-import { titleIdKey } from '@/lib/organize';
+import { contentIdKey, titleIdKey } from '@/lib/organize';
 
 import { hintText, pathText } from './styles';
 
@@ -53,10 +53,17 @@ export function ItemName({
   );
 }
 
-/** Where the row's console title id was read, codes in mono (§10). */
+/** Where the row's console title id was read, then its content id, each
+ * its own line with the codes in mono (§10). */
 export function TitleIdLine({ item }: { item: OrganizeItem }) {
   const tr = useRichT();
   const keyed = item.title_id ? titleIdKey(item.title_id) : null;
-  if (!keyed) return null;
-  return <p className={hintText}>{tr(keyed.key, keyed.vars)}</p>;
+  const content = contentIdKey(item);
+  if (!keyed && !content) return null;
+  return (
+    <>
+      {keyed && <p className={hintText}>{tr(keyed.key, keyed.vars)}</p>}
+      {content && <p className={hintText}>{tr(content.key, content.vars)}</p>}
+    </>
+  );
 }

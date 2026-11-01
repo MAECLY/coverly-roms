@@ -19,6 +19,28 @@ describe('backend errors', () => {
     expect(toBackendError({ code: 'no-library' }).detail).toBeUndefined();
   });
 
+  it('keeps the numbers of a large-transfer refusal as data', () => {
+    const detail = {
+      bytes: 187_420_000_000,
+      items: 3,
+      copies: true,
+      free: null,
+      volume: 'TinyExt',
+    };
+    const e = toBackendError({ code: 'large-transfer', detail });
+    expect(e.code).toBe('large-transfer');
+    expect(e.largeTransfer).toEqual(detail);
+    // Never "[object Object]" in a message.
+    expect(e.detail).toBeUndefined();
+    expect(toBackendError(e)).toBe(e);
+    expect(
+      toBackendError({ code: 'large-transfer', detail: 'x' }).largeTransfer,
+    ).toBeUndefined();
+    expect(
+      new BackendError('large-transfer', undefined, detail).largeTransfer,
+    ).toEqual(detail);
+  });
+
   it('turns anything else into an unknown error', () => {
     expect(toBackendError('boom').code).toBe('unknown');
     expect(toBackendError(new Error('bad')).detail).toBe('bad');

@@ -37,6 +37,7 @@ fn sample() -> ProfileFile {
         container_overrides: default_container_overrides(),
         folder_game_suffix: BTreeMap::new(),
         folder_stem_keeps_suffix: false,
+        dlc_folder: BTreeMap::new(),
     }
 }
 
@@ -651,4 +652,117 @@ fn custom_folder_names_resolve_under_the_custom_profile() {
     // not vouch for itself.
     p.folder_names.insert("snes".into(), "GBA".into());
     assert!(has(&p, "folder_names.snes", FieldErrorCode::Invalid));
+}
+
+#[test]
+fn dlc_folders_load_round_trip_and_are_checked() {
+    // Systems batch 3 D16: a file from before the field loads with none
+    // and writes none.
+    let old = sample().to_toml();
+    assert!(!old.contains("dlc_folder"), "{old}");
+    let back = ProfileFile::parse_toml(&old).unwrap();
+    assert!(back.dlc_folder.is_empty());
+    assert!(back.to_profile().dlc_folder.is_empty());
+
+    let mut p = sample();
+    p.dlc_folder.insert("ps4".into(), "DLC/{title_id}".into());
+    assert!(errors(&p).is_empty(), "{:?}", errors(&p));
+    let back = ProfileFile::parse_toml(&p.to_toml()).unwrap();
+    assert_eq!(back.dlc_folder, p.dlc_folder);
+    let profile = back.to_profile();
+    assert_eq!(
+        profile.dlc_folder.get("ps4").map(String::as_str),
+        Some("DLC/{title_id}")
+    );
+    assert_eq!(ProfileFile::from_profile(&profile).dlc_folder, p.dlc_folder);
+
+    for (system, value) in [
+        ("ps4", "../x"),
+        ("ps4", "/x"),
+        ("ps4", "DLC/../x"),
+        ("ps4", "DLC//{title_id}"),
+        ("ps4", "DLC/"),
+        ("ps4", ""),
+        ("ps4", " DLC"),
+        ("ps4", "C:\\x"),
+        ("ps4", "DLC\\{title_id}"),
+        ("ps4", "DLC/{stem}"),
+        ("ps4", "DLC/{title_id"),
+        ("ps4", "DLC/a\u{7}"),
+        // Windows would drop the trailing dot or refuse the name, so the
+        // folder would not be the one the frontend reads.
+        ("ps4", "DLC./{title_id}"),
+        ("ps4", "DLC/{title_id}."),
+        ("ps4", "DLC?/{title_id}"),
+        ("ps4", "DLC/<{title_id}>"),
+        ("ps4", "D*C/{title_id}"),
+        ("ps4", "DLC|x/{title_id}"),
+        ("ps4", "\"DLC\"/{title_id}"),
+        // A DOS device name (any case, any extension) is no folder on
+        // Windows: creating it fails or opens the device.
+        ("ps4", "CON/{title_id}"),
+        ("ps4", "nul/{title_id}"),
+        ("ps4", "DLC/Aux.{title_id}"),
+        ("ps4", "com1/{title_id}"),
+        ("ps4", "DLC/lpt9 .x/{title_id}"),
+        ("nope", "DLC/{title_id}"),
+    ] {
+        let mut p = sample();
+        p.dlc_folder.insert(system.into(), value.into());
+        assert!(
+            has(&p, &format!("dlc_folder.{system}"), FieldErrorCode::Invalid),
+            "{system} {value:?}: {:?}",
+            errors(&p)
+        );
+    }
+}
+
+#[test]
+fn a_copy_of_batocera_keeps_its_ps4_suffix_and_dlc_folder() {
+    let b = builtin_profiles()
+        .into_iter()
+        .find(|p| p.id == "batocera")
+        .unwrap();
+    let mut f = ProfileFile::from_profile(&b);
+    f.id = "my-batocera".into();
+    assert_eq!(
+        f.folder_game_suffix.get("ps4").map(String::as_str),
+        Some(".ps4")
+    );
+    assert_eq!(
+        f.dlc_folder.get("ps4").map(String::as_str),
+        Some("DLC/{title_id}")
+    );
+    assert!(errors(&f).is_empty(), "{:?}", errors(&f));
+    let back = ProfileFile::parse_toml(&f.to_toml()).unwrap();
+    assert_eq!(back, f);
+    assert_eq!(back.to_profile().dlc_folder, b.dlc_folder);
+}
+
+#[test]
+fn ps5_archives_are_taken_as_is_by_default() {
+    // Systems batch 3 D13: a PS5 app archive keeps its zip, 7z or rar;
+    // PSP still always extracts.
+    let o = default_container_overrides();
+    assert_eq!(
+        o.get("ps5"),
+        Some(&vec![
+            ContainerKind::Zip,
+            ContainerKind::SevenZip,
+            ContainerKind::Rar
+        ])
+    );
+    assert_eq!(o.get("psp"), Some(&Vec::new()));
+    let db = SystemDb::builtin();
+    for b in builtin_profiles() {
+        assert!(
+            b.accepts_as_is(db.get("ps5").unwrap(), ContainerKind::Rar),
+            "{}",
+            b.id
+        );
+    }
+    // A stored profile that never changed its overrides gets the entry.
+    let p = ProfileFile::parse_toml(&sample().to_toml()).unwrap();
+    assert!(p.to_profile().container_overrides.contains_key("ps5"));
+    assert!(errors(&sample()).is_empty());
 }

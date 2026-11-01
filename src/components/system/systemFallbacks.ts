@@ -45,6 +45,8 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   lutro: 'LUTR',
   tic80: 'TIC',
   uzebox: 'UZE',
+  // Systems batch 3 (D27): no PS5 file in the pinned set.
+  ps5: 'PS5',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

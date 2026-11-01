@@ -835,6 +835,12 @@ pub fn xci(names: &[&str]) -> SparseAt {
 /// (`fmt` 0x0204, NUL-terminated, padded to 4) in this order, then
 /// `PARENTAL_LEVEL` = 5 as a u32 (`fmt` 0x0404).
 pub fn param_sfo(texts: &[(&str, &str)]) -> Vec<u8> {
+    param_sfo_with(texts, &[])
+}
+
+/// [`param_sfo`] plus `ints` as u32 values (`fmt` 0x0404, stored bytes
+/// `04 04`) after the texts and before `PARENTAL_LEVEL`.
+pub fn param_sfo_with(texts: &[(&str, &str)], ints: &[(&str, u32)]) -> Vec<u8> {
     let mut keys = Vec::new();
     let mut data = Vec::new();
     // (key offset, fmt, len, max len, data offset)
@@ -849,6 +855,13 @@ pub fn param_sfo(texts: &[(&str, &str)]) -> Vec<u8> {
         data.extend_from_slice(value.as_bytes());
         data.resize(data.len() + (max - len + 1) as usize, 0);
         table.push((key_off, 0x0204, len, max, off));
+    }
+    for (key, value) in ints {
+        let key_off = keys.len() as u16;
+        keys.extend_from_slice(key.as_bytes());
+        keys.push(0);
+        table.push((key_off, 0x0404, 4, 4, data.len() as u32));
+        data.extend_from_slice(&value.to_le_bytes());
     }
     let key_off = keys.len() as u16;
     keys.extend_from_slice(b"PARENTAL_LEVEL\0");
@@ -950,6 +963,60 @@ pub fn vita_app(dir: &std::path::Path, title_id: &str) {
     );
 }
 
+/// An 8×8 opaque PNG (synthetic, a flat colour).
+pub fn png_8x8() -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(8, 8, image::Rgba([0x20, 0x40, 0x80, 0xFF]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png)
+        .expect("png fixture");
+    out.into_inner()
+}
+
+/// A PS4 `param.sfo` (systems batch 3 D5, D7): texts `APP_VER`,
+/// `CATEGORY`, `CONTENT_ID`, `TITLE`, `TITLE_ID`, `VERSION` and the
+/// integers `APP_TYPE` and `PUBTOOLVER`, the keys LibOrbisPkg writes.
+/// An empty `category` is left out.
+pub fn ps4_sfo(title_id: &str, category: &str, content_id: &str, app_type: u32) -> Vec<u8> {
+    let mut texts = vec![("APP_VER", "01.09")];
+    if !category.is_empty() {
+        texts.push(("CATEGORY", category));
+    }
+    texts.extend([
+        ("CONTENT_ID", content_id),
+        ("TITLE", "Test Game"),
+        ("TITLE_ID", title_id),
+        ("VERSION", "01.00"),
+    ]);
+    param_sfo_with(
+        &texts,
+        &[("APP_TYPE", app_type), ("PUBTOOLVER", 0x0289_0000)],
+    )
+}
+
+/// A decrypted PS4 app folder: `eboot.bin` (64 zero bytes: never
+/// opened), `sce_sys/param.sfo` ([`ps4_sfo`], `APP_TYPE` 1),
+/// `sce_sys/icon0.png` (8×8 PNG) and the licence `sce_sys/license.dat`
+/// (8 bytes); mtimes pinned.
+pub fn ps4_app(dir: &std::path::Path, title_id: &str, category: &str, content_id: &str) {
+    write_tree(
+        dir,
+        &[
+            ("eboot.bin", vec![0u8; 64]),
+            (
+                "sce_sys/param.sfo",
+                ps4_sfo(title_id, category, content_id, 1),
+            ),
+            ("sce_sys/icon0.png", png_8x8()),
+            ("sce_sys/license.dat", vec![0x4C; 8]),
+        ],
+    );
+}
+
+/// Writes one file of a folder fixture (`rel` with `/`), mtime pinned.
+pub fn put_file(dir: &std::path::Path, rel: &str, bytes: &[u8]) {
+    write_tree(dir, &[(rel, bytes.to_vec())]);
+}
+
 /// LBAs of [`ps3_iso`]: root, `PS3_GAME`, `PARAM.SFO`, `PS3_DISC.SFB`,
 /// `ICON0.PNG`.
 pub const PS3_ISO_LBAS: [u32; 5] = [20, 21, 22, 23, 24];
@@ -1028,6 +1095,144 @@ pub fn pkg(kind: u16, content_id: &str) -> SparseAt {
     h[0x30..0x30 + content_id.len()].copy_from_slice(content_id.as_bytes());
     let mut s = SparseAt::new(0x10_0000);
     s.put(0, &h).put(0xC0, &[0xE7; 0x400]);
+    s
+}
+
+/// Where [`cnt_pkg`] puts the entry table (a realistic offset).
+pub const CNT_ENTRY_TABLE: u64 = 0x2A80;
+
+/// A PS4 CNT package head (LibOrbisPkg `PkgReader.ReadHeader`, big-endian):
+/// magic `7F 43 4E 54`, `entry_count` at 0x10, the entry table offset
+/// ([`CNT_ENTRY_TABLE`]) at 0x18, `content_id` at 0x40, the content type at
+/// 0x74 and flags at 0x78. Each entry is `(id, flags1, data)` as a 32-byte
+/// `MetaEntry` (id, name offset, flags1, flags2, data offset, data size,
+/// 8 padding); the data follow the table, 16-byte aligned, and
+/// [`SparseAt::entries`] records each data range. The PFS body after
+/// them is filler.
+pub fn cnt_pkg(
+    content_id: &str,
+    ctype: u32,
+    flags: u32,
+    entries: &[(u32, u32, Vec<u8>)],
+) -> SparseAt {
+    let mut h = vec![0u8; 0x100];
+    h[..4].copy_from_slice(&[0x7F, b'C', b'N', b'T']);
+    h[0x10..0x14].copy_from_slice(&(entries.len() as u32).to_be_bytes());
+    h[0x18..0x1C].copy_from_slice(&(CNT_ENTRY_TABLE as u32).to_be_bytes());
+    let cid = content_id.as_bytes();
+    let n = cid.len().min(0x30);
+    h[0x40..0x40 + n].copy_from_slice(&cid[..n]);
+    h[0x74..0x78].copy_from_slice(&ctype.to_be_bytes());
+    h[0x78..0x7C].copy_from_slice(&flags.to_be_bytes());
+    let mut table = Vec::with_capacity(entries.len() * 32);
+    let mut at = CNT_ENTRY_TABLE + entries.len() as u64 * 32;
+    let mut data = Vec::new();
+    let mut ranges = Vec::new();
+    for (id, flags1, bytes) in entries {
+        at = at.next_multiple_of(16);
+        let mut e = [0u8; 32];
+        e[0..4].copy_from_slice(&id.to_be_bytes());
+        e[8..12].copy_from_slice(&flags1.to_be_bytes());
+        e[16..20].copy_from_slice(&(at as u32).to_be_bytes());
+        e[20..24].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+        table.extend_from_slice(&e);
+        ranges.push(at..at + bytes.len() as u64);
+        data.push((at, bytes.clone()));
+        at += bytes.len() as u64;
+    }
+    let body = at.next_multiple_of(0x1000);
+    let mut s = SparseAt::new(body + 0x1_0000);
+    s.put(0, &h).put(CNT_ENTRY_TABLE, &table);
+    for (at, bytes) in &data {
+        s.put(*at, bytes);
+    }
+    s.put(body, &[0xE7; 0x400]);
+    s.entries = ranges;
+    s
+}
+
+/// A PS5 `param.json` (KytyPS5 `systemContent.cpp` field names):
+/// `titleId`, `contentId` (`UP9000-<tid>_00-SAMPLEGAME000000`),
+/// `contentVersion`, `attribute3` (bit 22 with `pro`) and an `en-US`
+/// `titleName` under `localizedParameters` (default language `en-US`).
+pub fn ps5_param_json(title_id: &str, title: &str, pro: bool) -> Vec<u8> {
+    let attribute3: i64 = if pro { 1 << 22 } else { 0 };
+    serde_json::to_vec_pretty(&serde_json::json!({
+        "titleId": title_id,
+        "contentId": format!("UP9000-{title_id}_00-SAMPLEGAME000000"),
+        "contentVersion": "01.000.000",
+        "attribute3": attribute3,
+        "localizedParameters": {
+            "defaultLanguage": "en-US",
+            "en-US": { "titleName": title },
+        },
+    }))
+    .expect("param.json fixture")
+}
+
+/// A decrypted PS5 app folder: `eboot.bin` (never opened) when `eboot`,
+/// `sce_sys/param.json` = `param`, `sce_sys/icon0.png` and the licence
+/// `sce_sys/license.dat`; mtimes pinned.
+pub fn ps5_app(dir: &std::path::Path, param: &[u8], eboot: bool) {
+    let mut files = vec![
+        ("sce_sys/param.json", param.to_vec()),
+        ("sce_sys/icon0.png", png_8x8()),
+        ("sce_sys/license.dat", vec![0x4C; 8]),
+    ];
+    if eboot {
+        files.insert(0, ("eboot.bin", vec![0u8; 64]));
+    }
+    write_tree(dir, &files);
+}
+
+/// Where [`fih_pkg`] puts the CNT header (the LE u64 at 0x58).
+pub const FIH_CNT: u64 = 0x1000;
+
+/// A PS5 store package head: magic `7F 46 49 48`, the CNT offset
+/// ([`FIH_CNT`]) as a little-endian u64 at 0x58, and there a CNT header
+/// (content id at +0x40, content type at +0x74) followed by bytes where
+/// an entry table would be (recorded as entry 0 of [`SparseAt::entries`]:
+/// never read).
+pub fn fih_pkg(content_id: &str, ctype: u32) -> SparseAt {
+    let mut fih = vec![0u8; 0x60];
+    fih[..4].copy_from_slice(&[0x7F, b'F', b'I', b'H']);
+    fih[0x58..0x60].copy_from_slice(&FIH_CNT.to_le_bytes());
+    let mut cnt = vec![0u8; 0x80];
+    cnt[..4].copy_from_slice(&[0x7F, b'C', b'N', b'T']);
+    cnt[0x10..0x14].copy_from_slice(&4u32.to_be_bytes());
+    cnt[0x18..0x1C].copy_from_slice(&0x2A80u32.to_be_bytes());
+    let cid = content_id.as_bytes();
+    let n = cid.len().min(0x30);
+    cnt[0x40..0x40 + n].copy_from_slice(&cid[..n]);
+    cnt[0x74..0x78].copy_from_slice(&ctype.to_be_bytes());
+    let table = FIH_CNT + 0x2A80;
+    let mut s = SparseAt::new(0x10_0000);
+    s.put(0, &fih)
+        .put(FIH_CNT, &cnt)
+        .put(table, &[0x10; 4 * 32])
+        .put(0x8_0000, &[0xE7; 0x400]);
+    s.entries.push(table..table + 4 * 32);
+    s
+}
+
+/// A `.ffpkg` head: the UFS2 superblock magic `0x19540119` (little-endian)
+/// at 0x10000 + 0x55C (FreeBSD `fs.h`), or none.
+pub fn ufs2_image(magic: bool) -> SparseAt {
+    let mut s = SparseAt::new(0x2_0000);
+    s.put(0, &[0u8; 16]);
+    if magic {
+        s.put(0x1_055C, &0x1954_0119u32.to_le_bytes());
+    }
+    s
+}
+
+/// An exFAT boot sector head: jump `EB 76 90`, the file system name
+/// `EXFAT   ` at byte 3 and the `55 AA` signature at 510.
+pub fn exfat_image() -> SparseAt {
+    let mut s = SparseAt::new(0x1_0000);
+    s.put(0, &[0xEB, 0x76, 0x90])
+        .put(3, b"EXFAT   ")
+        .put(510, &[0x55, 0xAA]);
     s
 }
 
@@ -1199,4 +1404,232 @@ pub fn xiso_at(partition: u64, files: &[(&str, Vec<u8>)]) -> SparseAt {
         s.put(partition + u64::from(at) * SECTOR, bytes);
     }
     s
+}
+
+/// The fields of a synthetic GDK `MicrosoftGame.config` (systems batch 3
+/// D18; element and attribute names as in Microsoft's `Xbox-GDK-Samples`
+/// configs). `Default` is an Xbox One game with a title id, a store id
+/// and the three logos.
+#[derive(Clone, Debug)]
+pub struct GdkSpec<'a> {
+    pub name: &'a str,
+    pub version: &'a str,
+    pub title_id: &'a str,
+    pub store_id: &'a str,
+    pub display_name: &'a str,
+    /// One `Executable` per family (`XboxOne`, `Scarlett`, `PC`).
+    pub families: &'a [&'a str],
+    /// `TargetDeviceFamilyForDLC`, as an element unless `dlc_attr`.
+    pub dlc_family: Option<&'a str>,
+    pub dlc_attr: bool,
+    pub allowed: &'a [&'a str],
+    /// `XboxCompatibility` on the first executable (never read).
+    pub compat: Option<&'a str>,
+    /// `Square480x480Logo`, `StoreLogo`, `Square150x150Logo`.
+    pub logos: [&'a str; 3],
+}
+
+impl Default for GdkSpec<'_> {
+    fn default() -> Self {
+        GdkSpec {
+            name: "41336MicrosoftATG.SampleGame",
+            version: "1.2.3.0",
+            title_id: "6B9D1A2C",
+            store_id: "9NSAMPLE0001",
+            display_name: "Sample Game",
+            families: &["XboxOne"],
+            dlc_family: None,
+            dlc_attr: false,
+            allowed: &[],
+            compat: None,
+            logos: ["LargeLogo.png", "StoreLogo.png", "Logo.png"],
+        }
+    }
+}
+
+/// A synthetic `MicrosoftGame.config` from `spec` (UTF-8, no BOM).
+pub fn gdk_config(spec: &GdkSpec) -> String {
+    let mut x = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+    let root_attr = match (spec.dlc_family, spec.dlc_attr) {
+        (Some(f), true) => format!(" TargetDeviceFamilyForDLC=\"{f}\""),
+        _ => String::new(),
+    };
+    x.push_str(&format!("<Game configVersion=\"1\"{root_attr}>\n"));
+    x.push_str(&format!(
+        "  <Identity Name=\"{}\" Publisher=\"CN=Sample\" Version=\"{}\"/>\n",
+        spec.name, spec.version
+    ));
+    if !spec.families.is_empty() {
+        x.push_str("  <ExecutableList>\n");
+        for (i, f) in spec.families.iter().enumerate() {
+            let compat = match spec.compat {
+                Some(c) if i == 0 => format!(" XboxCompatibility=\"{c}\""),
+                _ => String::new(),
+            };
+            x.push_str(&format!(
+                "    <Executable Name=\"Game{i}.exe\" TargetDeviceFamily=\"{f}\" Id=\"Game\"{compat}/>\n"
+            ));
+        }
+        x.push_str("  </ExecutableList>\n");
+    }
+    let [l480, store, l150] = spec.logos;
+    x.push_str(&format!(
+        "  <ShellVisuals DefaultDisplayName=\"{}\" PublisherDisplayName=\"Sample\" \
+         Square480x480Logo=\"{l480}\" StoreLogo=\"{store}\" Square150x150Logo=\"{l150}\" \
+         Square44x44Logo=\"SmallLogo.png\" SplashScreenImage=\"SplashScreen.png\" \
+         Description=\"Sample\" ForegroundText=\"light\" BackgroundColor=\"#000040\"/>\n",
+        spec.display_name
+    ));
+    x.push_str(&format!(
+        "  <MSAAppId>0000000040ABCDEF</MSAAppId>\n  <TitleId>{}</TitleId>\n",
+        spec.title_id
+    ));
+    if !spec.store_id.is_empty() {
+        x.push_str(&format!("  <StoreId>{}</StoreId>\n", spec.store_id));
+    }
+    if !spec.allowed.is_empty() {
+        x.push_str("  <AllowedProducts>\n");
+        for p in spec.allowed {
+            x.push_str(&format!("    <AllowedProduct>{p}</AllowedProduct>\n"));
+        }
+        x.push_str("  </AllowedProducts>\n");
+    }
+    if let (Some(f), false) = (spec.dlc_family, spec.dlc_attr) {
+        x.push_str(&format!(
+            "  <TargetDeviceFamilyForDLC>{f}</TargetDeviceFamilyForDLC>\n"
+        ));
+    }
+    x.push_str("</Game>\n");
+    x
+}
+
+/// A GDK game folder: `MicrosoftGame.config` ([`gdk_config`]), one
+/// `GameN.exe` per family (64 zero bytes, never opened),
+/// `resources.pri` and the three logos as 8×8 PNGs; mtimes pinned.
+pub fn gdk_folder(dir: &std::path::Path, spec: &GdkSpec) {
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        ("MicrosoftGame.config".into(), gdk_config(spec).into_bytes()),
+        ("resources.pri".into(), b"mrm_pri2".to_vec()),
+    ];
+    for i in 0..spec.families.len() {
+        files.push((format!("Game{i}.exe"), vec![0u8; 64]));
+    }
+    for logo in spec.logos {
+        files.push((logo.replace('\\', "/"), png_8x8()));
+    }
+    let owned: Vec<(&str, Vec<u8>)> = files.iter().map(|(p, b)| (p.as_str(), b.clone())).collect();
+    write_tree(dir, &owned);
+}
+
+/// A synthetic ERA `AppxManifest.xml` (systems batch 3 D18; shape of the
+/// XDK manifests in Microsoft's `Xbox-ATG-Samples`): the Xbox manifest
+/// namespace under the `mx` prefix when `xbox`, `Properties/DisplayName`
+/// = `display`, `VisualElements/@DisplayName` = `visual`, logos
+/// `StoreLogo.png` (Properties) and `Logo.png` (VisualElements).
+pub fn era_manifest(name: &str, display: &str, visual: &str, xbox: bool) -> String {
+    let ns = if xbox {
+        " xmlns:mx=\"http://schemas.microsoft.com/appx/2013/xbox/manifest\" IgnorableNamespaces=\"mx\""
+    } else {
+        ""
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+         <Package xmlns=\"http://schemas.microsoft.com/appx/2010/manifest\"{ns}>\n\
+         \x20 <Identity Name=\"{name}\" Publisher=\"CN=Sample\" Version=\"1.0.4.0\" ProcessorArchitecture=\"x64\"/>\n\
+         \x20 <Properties>\n\
+         \x20   <DisplayName>{display}</DisplayName>\n\
+         \x20   <PublisherDisplayName>Sample</PublisherDisplayName>\n\
+         \x20   <Logo>StoreLogo.png</Logo>\n\
+         \x20 </Properties>\n\
+         \x20 <Applications>\n\
+         \x20   <Application Id=\"App\" Executable=\"Game.exe\" EntryPoint=\"Game.App\">\n\
+         \x20     <VisualElements DisplayName=\"{visual}\" Logo=\"Logo.png\" SmallLogo=\"SmallLogo.png\" \
+         Description=\"Sample\" ForegroundText=\"light\" BackgroundColor=\"#464646\">\n\
+         \x20       <SplashScreen Image=\"SplashScreen.png\"/>\n\
+         \x20     </VisualElements>\n\
+         \x20   </Application>\n\
+         \x20 </Applications>\n\
+         </Package>\n"
+    )
+}
+
+/// An ERA game folder: `AppxManifest.xml` = `manifest`, `Game.exe`
+/// (never opened), `StoreLogo.png` and `Logo.png`; mtimes pinned.
+pub fn era_folder(dir: &std::path::Path, manifest: &str) {
+    write_tree(
+        dir,
+        &[
+            ("AppxManifest.xml", manifest.as_bytes().to_vec()),
+            ("Game.exe", vec![0u8; 64]),
+            ("StoreLogo.png", png_8x8()),
+            ("Logo.png", png_8x8()),
+        ],
+    );
+}
+
+/// The ContentId (VDUID) of [`xvd_head`], as xvdtool prints it.
+pub const XVD_CONTENT_ID: &str = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+/// The ProductId of [`xvd_head`], as xvdtool prints it.
+pub const XVD_PRODUCT_ID: &str = "7d9a2c11-5b3e-4f60-9a8b-0123456789ab";
+
+/// The 16 bytes of a GUID written `8-4-4-4-12`, in the Windows `GUID`
+/// layout (first three groups little-endian), as `new Guid(bytes)` in
+/// xvdtool reads them back.
+pub fn guid_bytes(text: &str) -> [u8; 16] {
+    let hex: String = text.chars().filter(|c| *c != '-').collect();
+    assert_eq!(hex.len(), 32, "{text}");
+    let mut b = [0u8; 16];
+    for (i, out) in b.iter_mut().enumerate() {
+        *out = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hex");
+    }
+    b[0..4].reverse();
+    b[4..6].reverse();
+    b[6..8].reverse();
+    b
+}
+
+/// An XVC/XVD head (systems batch 3 D19, xvdtool `XVDStructs.cs`): 0x200
+/// bytes standing for the RSA signature, `msft-xvd` at 0x200, then at
+/// file offsets VolumeFlags 0x208, ContentId 0x220, ContentType 0x284,
+/// ProductId 0x39C and PackageVersion1..4 at 0x3BC. Bytes past the header
+/// stand for the encrypted data (recorded as entry 0 of
+/// [`SparseAt::entries`]: never read). `len` bytes in all.
+pub fn xvd_head_with(
+    content_id: &str,
+    product_id: &str,
+    ctype: u32,
+    flags: u32,
+    version: [u16; 4],
+    len: u64,
+) -> SparseAt {
+    let mut s = SparseAt::new(len);
+    s.put(0, &[0xA5; 0x200])
+        .put(0x200, b"msft-xvd")
+        .put(0x208, &flags.to_le_bytes())
+        .put(0x20C, &3u32.to_le_bytes())
+        .put(0x220, &guid_bytes(content_id))
+        .put(0x284, &ctype.to_le_bytes())
+        .put(0x39C, &guid_bytes(product_id));
+    for (i, v) in version.iter().enumerate() {
+        s.put(0x3BC + 2 * i as u64, &v.to_le_bytes());
+    }
+    if len > 0x1000 {
+        s.put(0x1000, &[0xE7; 0x100]);
+        s.entries.push(0x1000..0x1100);
+    }
+    s
+}
+
+/// [`xvd_head_with`] for an encrypted package of 64 KiB with the ids
+/// [`XVD_CONTENT_ID`] and [`XVD_PRODUCT_ID`] and version 1.2.3.4 (as
+/// xvdtool prints it).
+pub fn xvd_head(ctype: u32) -> SparseAt {
+    xvd_head_with(
+        XVD_CONTENT_ID,
+        XVD_PRODUCT_ID,
+        ctype,
+        0,
+        [4, 3, 2, 1],
+        0x1_0000,
+    )
 }

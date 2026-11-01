@@ -196,6 +196,8 @@ mod tests {
             weak_extensions: Vec::new(),
             scoped_aliases: Vec::new(),
             libretro_also: Vec::new(),
+            embedded_first: false,
+            no_emulator: false,
         }
     }
 

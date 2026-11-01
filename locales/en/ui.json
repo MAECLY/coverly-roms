@@ -175,7 +175,7 @@
         "embedded": "Image from the game files"
       },
       "hint": {
-        "embedded": "Uses the icon some games carry (PS3, PS Vita, Wii U, 3DS, Xbox 360) when no other source has a cover"
+        "embedded": "Uses the icon some games carry: first for PS4, PS5, Xbox One and Xbox Series; for PS3, PS Vita, Wii U, 3DS and Xbox 360, when no other source has a cover"
       },
       "notBuilt": "Not available in this build",
       "needsKey": "Store an API key below to turn it on",
@@ -452,6 +452,7 @@
     "no-dedupe-plan": "That duplicates search is no longer kept. Look for duplicates again.",
     "keeper-required": "Every group needs one copy that stays. Pick the copy to keep ({detail}).",
     "quarantine-in-system-folder": "The duplicates folder cannot be inside a system folder, or hold one ({detail}). Choose another folder.",
+    "large-transfer": "The size has to be confirmed before writing",
     "unknown": "Unexpected error: {detail}",
     "field": {
       "range": "Use a value from {min} to {max}.",
@@ -1174,6 +1175,7 @@
     "release": "a release beats betas, prototypes and hacks.",
     "votes": "most SteamGridDB votes ({score}; next {next}).",
     "consensus": "most sources and art types agree on it ({count}; next {next}).",
+    "embedded-first": "the image from the game files comes first for this system.",
     "source-order": "first source in your order ({source}).",
     "region": "preferred region in your order.",
     "region-rom": "same region as the ROM.",
@@ -1265,7 +1267,11 @@
       "dlc": "Downloadable content for {title}",
       "encryptedContent": "Encrypted copy: {emulator} only opens decrypted copies",
       "installFirst": "{emulator} installs it; it does not open from the folder",
-      "folderSuffix": "Renamed to {name} so {layout} shows it"
+      "folderSuffix": "Renamed to {name} so {layout} shows it",
+      "extractFirst": "This package does not open as is: it has to be extracted first",
+      "noEmulator": "No emulator opens it in this form",
+      "proEnhanced": "Enhanced for PS5 Pro",
+      "dlcFolder": "Goes to the DLC folder, where {layout} looks for downloadable content"
     },
     "pause": {
       "diskFull": "Disk full: {needed} more needed; the half-extracted game was undone"
@@ -1296,7 +1302,8 @@
       "user": "Chosen by you",
       "titleIdFile": "Title ID {id} in {file}",
       "titleIdName": "Title ID {id} taken from the file name",
-      "titleIdTicket": "Title ID {id} in the ticket name"
+      "titleIdTicket": "Title ID {id} in the ticket name",
+      "contentId": "Content ID {id}"
     },
     "left": {
       "archiveNeedsMemory": "Needs {mib} MB of memory to decompress",
@@ -1322,6 +1329,7 @@
       "text": "text",
       "patch": "a patch; apply it to the original ROM",
       "pcGameData": "PC game data",
+      "consoleSystem": "console system file",
       "installer": "software installer",
       "model3d": "3D model",
       "bios": "BIOS: belongs in the device's BIOS folder",
@@ -1343,6 +1351,7 @@
       "collisionSet": "Another game already uses those names in the target",
       "keyMaterial": "Key or licence file: Coverly never reads or moves it",
       "emulatorData": "Inside an emulator's data ({folder}); left as it is",
+      "gameOverlay": "Mods or patch folder of {title}: left where it is",
       "title": "Staying where they are",
       "inLibrary": "Already in your library as {path}"
     },
@@ -1405,6 +1414,18 @@
     "noFolderOnDevice": "{layout} has no folder for {system}; {folder} will be created.",
     "noCatalogue": "No {system} catalogue: decided by {level}",
     "noSpace": "Not enough space on the target: {needed} needed, {free} free.",
+    "largeTransfer": {
+      "warning": "{bytes} will be written to the target; you will be asked to confirm before it starts",
+      "title": "Copy {bytes}?",
+      "titleMove": "Move {bytes} to another drive?",
+      "body": "Organise will write {count} items to {volume}. {free} is free on that drive now.",
+      "bodyOne": "Organise will write 1 item to {volume}. {free} is free on that drive now.",
+      "bodyNoFree": "Organise will write {count} items to {volume}.",
+      "bodyNoFreeOne": "Organise will write 1 item to {volume}.",
+      "confirm": "Copy {bytes}",
+      "confirmMove": "Move {bytes}",
+      "cancel": "Cancel"
+    },
     "encrypted": "Encrypted; some emulators can't load it",
     "level": {
       "hash": "catalogue",
@@ -1540,6 +1561,7 @@
       "arcade": "Arcade",
       "engine": "Engines and fantasy consoles"
     },
+    "noEmulator": "No emulator",
     "unknown": "Folder with no known system"
   },
   "progress": {

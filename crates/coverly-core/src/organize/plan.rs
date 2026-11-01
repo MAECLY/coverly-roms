@@ -34,7 +34,7 @@ use crate::identify::dat::DatStore;
 use crate::identify::evidence::{Evidence, IdLevel};
 use crate::identify::hash::HeaderRule;
 use crate::identify::sniff::{NotARom, Sniff};
-use crate::organize::apply::{cluster_size, user_available};
+use crate::organize::apply::{cluster_size, large_transfer, user_available};
 use crate::organize::evidence::Combined;
 use crate::organize::evidence::{
     identify_candidate, DatCatalogue, Facts, Identification, LadderEnv, OnlineLookup, Thresholds,
@@ -45,9 +45,9 @@ use crate::organize::inspect::{
     Payload, ZipEntryInfo, NOTE_TOOL_FAILED,
 };
 use crate::organize::target::{
-    assign_targets_with_extracts, attach_set_aside_companions, default_companion_exts,
-    file_system_is_fat32, folder_gate, limit_fat_folders, windows_paths, DirIndex, ExtractShape,
-    TargetLayout,
+    assign_targets_in, attach_set_aside_companions, default_companion_exts, dlc_target,
+    file_system_is_fat32, folder_gate, limit_fat_folders, overlay_pairs, sibling_targets,
+    siblings_follow, windows_paths, DirIndex, ExtractShape, TargetLayout,
 };
 use crate::organize::walk::{
     is_broad_root, walk, MetaProbe, TreeSummary, WalkCandidate, WalkOptions, Walked, MAX_DEPTH,
@@ -226,6 +226,12 @@ pub enum LeftReason {
     EmulatorData {
         folder: String,
     },
+    /// A shadPS4 `-mods`/`-UPDATE`/`-patch` folder beside its base that
+    /// cannot move alone (systems batch 3 D11 d, e): `of` is the base's
+    /// title, or its folder name when the base is not an item (plan P-3).
+    GameOverlay {
+        of: String,
+    },
 }
 
 /// The reason an inspection issue leaves an item in place (archives spec
@@ -312,6 +318,18 @@ pub enum ItemNote {
     /// The folder is renamed to `name` so `layout` shows it (systems
     /// batch 2 D13).
     FolderSuffix { name: String, layout: String },
+    /// A PS4 PKG: catalogued, has to be extracted to play (systems
+    /// batch 3 D9).
+    ExtractFirst,
+    /// A PS5 store PKG, `.exfat`, `.ffpfs`, `.ffpfsc`, or an XVC (systems
+    /// batch 3 D10, D19): no emulator opens it in this form.
+    NoEmulator,
+    /// PS5 `attribute3` bit 22 (KytyPS5 `title_supports_trinity`).
+    ProEnhanced,
+    /// The item goes to the DLC folder of `layout` (the profile's display
+    /// name), where it looks for downloadable content (systems batch 3
+    /// D16).
+    DlcFolder { layout: String },
 }
 
 /// How an item reaches its target (archives spec §8.1).
@@ -481,6 +499,11 @@ pub struct OrganizeItem {
     /// for the row's «why» line; left out of the JSON when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_id: Option<crate::consoles::TitleIdRef>,
+    /// The console content id (PKG header, `param.sfo`, `param.json`,
+    /// XVC), for the row's «why» line (systems batch 3 §10); left out of
+    /// the JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_id: Option<String>,
     #[serde(flatten)]
     pub action: OrganizeAction,
 }
@@ -789,6 +812,10 @@ pub enum PlanWarning {
     /// (cluster-rounded bytes, 1 % and the reserve) against the bytes
     /// `free` for this user (archives spec §8.4).
     NoSpace { needed: u64, free: u64 },
+    /// The items that move by default write at least the large-transfer
+    /// threshold (`bytes` in `items` items) to the target (systems
+    /// batch 3 D23).
+    LargeTransfer { bytes: u64, items: usize },
 }
 
 /// A dry run: what would move where, and why.
@@ -1369,6 +1396,53 @@ fn base_title(base: Option<(&SurveyEntry, &OrganizeItem)>, id: &str) -> String {
     }
 }
 
+/// Names the base's title in every item the walk left
+/// `GameOverlay { of: <base folder name> }` (plan P-3): when the folder
+/// `of` beside it is a folder item whose header has a title.
+fn overlay_titles(items: &mut [OrganizeItem], survey: &Survey) {
+    for (i, entry) in survey.entries.iter().enumerate() {
+        let Some(LeftReason::GameOverlay { of }) = &entry.left else {
+            continue;
+        };
+        let Some(parent) = entry.sources.first().and_then(|p| p.parent()) else {
+            continue;
+        };
+        let base_path = parent.join(of);
+        let titled = |e: &SurveyEntry| {
+            e.kind == ItemKind::Folder && e.console.as_ref().is_some_and(|c| c.title.is_some())
+        };
+        // The exact name first; else, as on a case-insensitive volume
+        // where the walk found the base under the overlay's spelling,
+        // the folder beside it whose name differs only in ASCII case.
+        let exact = survey
+            .entries
+            .iter()
+            .position(|e| titled(e) && e.sources.first() == Some(&base_path));
+        let Some(b) = exact.or_else(|| {
+            survey.entries.iter().position(|e| {
+                titled(e)
+                    && e.sources.first().is_some_and(|p| {
+                        p.parent() == Some(parent)
+                            && p.file_name()
+                                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(of))
+                    })
+            })
+        }) else {
+            continue;
+        };
+        let (Some(base_entry), Some(base_item)) = (survey.entries.get(b), items.get(b)) else {
+            continue;
+        };
+        let title = base_title(Some((base_entry, base_item)), of);
+        if let Some(OrganizeAction::Left {
+            reason: LeftReason::GameOverlay { of },
+        }) = items.get_mut(i).map(|item| &mut item.action)
+        {
+            *of = title;
+        }
+    }
+}
+
 /// Notes every update and DLC with the base it belongs to (D11), when
 /// its header names the system the item goes to; returns how many rows
 /// carry such a note.
@@ -1414,15 +1488,27 @@ fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
 /// left by the first gate its tree fails (a symlink, a partial download,
 /// a recent file, a cloud placeholder, in that order). A tree past the
 /// caps stays in review. Folders two probes claimed for different
-/// systems go to review with both systems as alternatives.
+/// systems go to review with both systems as alternatives. A zero-byte
+/// file is a partial download except in a folder game of
+/// [`ZERO_BYTE_OK`] (systems batch 3 D24).
 fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntry> {
     let entry = |path: PathBuf,
                  tree: TreeSummary,
                  combined: Combined,
-                 console: Option<crate::consoles::ConsoleId>| {
+                 console: Option<crate::consoles::ConsoleId>,
+                 zero_ok: bool| {
+        // A PS5 app folder enhanced for the PS5 Pro (systems batch 3 D6):
+        // the flag rides on the probe's fixed `detail`.
+        let notes = console
+            .as_ref()
+            .filter(|c| {
+                c.system == "ps5" && c.detail == crate::consoles::orbis::PARAM_JSON_PRO_DETAIL
+            })
+            .map(|_| vec![ItemNote::ProEnhanced])
+            .unwrap_or_default();
         let left = if tree.symlink {
             Some(LeftReason::Symlink)
-        } else if tree.partial {
+        } else if tree.partial || (tree.zero_bytes && !zero_ok) {
             Some(LeftReason::PartialDownload)
         } else if tree.recent {
             Some(LeftReason::RecentlyModified)
@@ -1447,7 +1533,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                 catalogue_name: None,
                 content_key: None,
                 rom_count: 1,
-                notes: Vec::new(),
+                notes,
                 disc: None,
             }),
             inspection: None,
@@ -1477,9 +1563,18 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             )],
             alternatives: Vec::new(),
         };
-        out.push(entry(game.path, game.tree, combined, Some(game.id)));
+        let zero_ok = ZERO_BYTE_OK.contains(&game.id.system.as_str());
+        out.push(entry(
+            game.path,
+            game.tree,
+            combined,
+            Some(game.id),
+            zero_ok,
+        ));
     }
     for (path, systems, tree) in std::mem::take(&mut walked.folder_conflicts) {
+        // Every system it may go to keeps empty files in its dumps.
+        let zero_ok = systems.iter().all(|s| ZERO_BYTE_OK.contains(&s.as_str()));
         let combined = Combined {
             verdict: Verdict::Review,
             system: None,
@@ -1491,10 +1586,14 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                 .map(|s| (s, thresholds.review))
                 .collect(),
         };
-        out.push(entry(path, tree, combined, None));
+        out.push(entry(path, tree, combined, None, zero_ok));
     }
     out
 }
+
+/// Systems whose folder games may hold zero-byte files (systems batch 3
+/// D24): console dumps legitimately do, and the `.ps4` marker is one.
+const ZERO_BYTE_OK: [&str; 4] = ["ps4", "ps5", "xboxone", "xboxseries"];
 
 /// Turns every multi-volume set into one Left entry holding all its parts
 /// (archives spec §3.2 rule 6): the entry of the set's first part found
@@ -1797,7 +1896,9 @@ fn identify_one(
 /// CD-i, CD32 or CDTV image is told by its disc signature (systems batch 1).
 /// 7: Tanda 2 console ids on `Sniff.console`, and macOS installers and 3D
 /// Studio models are no ROMs (systems batch 2 D23, D7).
-const FACTS_VERSION: u32 = 7;
+/// 8: content ids, regions and Xbox product ids on `Sniff.console`
+/// (systems batch 3 D28).
+const FACTS_VERSION: u32 = 8;
 
 /// Facts as memoised, with their version.
 #[derive(Serialize, Deserialize)]
@@ -1971,6 +2072,7 @@ pub fn plan_from_survey(
                 reason: LeftReason::Unknown,
             },
             title_id: None,
+            content_id: None,
         };
         let mut key = None;
         match (&entry.left, &entry.identification) {
@@ -2004,17 +2106,20 @@ pub fn plan_from_survey(
                 }
                 // The header's title id, for the «why» line (spec §10),
                 // when the header names the system the item goes to.
-                item.title_id = entry
+                let header = entry
                     .console
                     .as_ref()
-                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()))
-                    .and_then(crate::consoles::TitleIdRef::of);
+                    .filter(|con| c.system.as_deref() == Some(con.system.as_str()));
+                item.title_id = header.and_then(crate::consoles::TitleIdRef::of);
+                // The content id the same header read (systems batch 3 §10).
+                item.content_id = header.and_then(|con| con.content_id.clone());
             }
             (None, None) => {}
         }
         items.push(item);
         keys.push(key);
     }
+    overlay_titles(&mut items, survey);
 
     // The user's decisions.
     for decision in decisions {
@@ -2058,6 +2163,31 @@ pub fn plan_from_survey(
             Choice::Leave => item.leave(LeftReason::Unknown),
         }
     }
+
+    // shadPS4 overlays follow their base's action, decisions included
+    // (systems batch 3 D11 e, plan P-4).
+    let pairs = overlay_pairs(&items, &|i| {
+        survey
+            .entries
+            .get(i)
+            .and_then(|e| e.console.as_ref())
+            .is_some_and(|c| c.system == "ps4" && c.kind == TitleKind::Update)
+    });
+    let titles: HashMap<usize, String> = pairs
+        .iter()
+        .map(|pair| {
+            let of = items[pair.base]
+                .sources
+                .first()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let base = survey.entries.get(pair.base).zip(items.get(pair.base));
+            (pair.base, base_title(base, &of))
+        })
+        .collect();
+    let title_of = |b: usize| titles.get(&b).cloned().unwrap_or_default();
+    siblings_follow(&mut items, &pairs, &title_of);
 
     // Mode: archives are kept in copy mode.
     let mut warnings: Vec<PlanWarning> = Vec::new();
@@ -2126,9 +2256,33 @@ pub fn plan_from_survey(
                 .first()
                 .is_some_and(|s| same_bytes(existing, &src.join(s)))
     };
-    let mut left_companions = assign_targets_with_extracts(
+    // A frontend's DLC folder (Batocera `ps4/DLC/<TITLE_ID>/`, D16): DLC
+    // folders and `.zar` files only; a DLC PKG stays in the system folder.
+    let subdirs: Vec<Option<PathBuf>> = items
+        .iter()
+        .map(|item| {
+            let c = survey.entries.get(item.id)?.console.as_ref()?;
+            let zar = item.kind == ItemKind::File
+                && item
+                    .sources
+                    .first()
+                    .and_then(|p| p.extension())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zar"));
+            let placeable = item.kind == ItemKind::Folder || zar;
+            if c.kind != TitleKind::Dlc
+                || !placeable
+                || item.system_id.as_deref() != Some(c.system.as_str())
+                || !matches!(item.transfer, Transfer::AsIs)
+            {
+                return None;
+            }
+            dlc_target(&layout, &c.system, &base_title_id(c)?)
+        })
+        .collect();
+    let mut left_companions = assign_targets_in(
         &mut items,
         &shapes,
+        &subdirs,
         &layout,
         env.db,
         src,
@@ -2136,6 +2290,8 @@ pub fn plan_from_survey(
         &mut DirIndex::new(),
         &same_content,
     );
+    // Overlay names from the base's final name (D11 b).
+    sibling_targets(&mut items, &pairs, &layout);
     // A folder game's deepest member must fit below its target (D27).
     for item in items.iter_mut().filter(|i| i.moves_in()) {
         let (Some(target), Some(tree)) = (
@@ -2161,6 +2317,8 @@ pub fn plan_from_survey(
     if fat32 {
         limit_fat_folders(&mut items, &target_root);
     }
+    // A base a gate left after its targets holds its siblings too.
+    siblings_follow(&mut items, &pairs, &title_of);
     point_at_keepers(&mut items, &dups.keepers);
     attach_set_aside_companions(
         &mut items,
@@ -2197,6 +2355,7 @@ pub fn plan_from_survey(
             disc: None,
             action: OrganizeAction::Left { reason },
             title_id: None,
+            content_id: None,
         });
     }
 
@@ -2243,7 +2402,7 @@ pub fn plan_from_survey(
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
-    Ok(OrganizePlan {
+    let mut plan = OrganizePlan {
         source_root: src.clone(),
         target_root,
         roms_dir,
@@ -2280,7 +2439,15 @@ pub fn plan_from_survey(
             && opts.dedupe.quarantine == QuarantineChoice::Trash,
         duplicates: dups.groups,
         updates,
-    })
+    };
+    // Informational: the gate runs on the decided plan at apply time.
+    if let Some(t) = large_transfer(&plan) {
+        plan.warnings.push(PlanWarning::LargeTransfer {
+            bytes: t.bytes,
+            items: t.items,
+        });
+    }
+    Ok(plan)
 }
 
 // --- The duplicates step (duplicates spec §4, §7.1) ---
@@ -2366,6 +2533,17 @@ fn duplicates_step(
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
     units.extend(units_from_folders(&folders).units);
+    // What the survey's readers found stands for level 1's title keys: a
+    // header or folder probe is opened once (systems batch 3 D24).
+    for u in &units {
+        let console = by_primary
+            .get(&u.primary)
+            .and_then(|&id| survey.entries.get(id))
+            .and_then(|e| e.console.as_ref());
+        if let Some(c) = console {
+            crate::dedupe::keys::remember_title_key(env.cache, u, c);
+        }
+    }
 
     // Library units: only the system folders the pile goes to.
     let listing = ArchiveEntryListing::with_tools(opts.limits.clone(), &[src, target_root]);
@@ -3246,5 +3424,88 @@ mod tests {
         let mut insp = Inspection::new(Container::Zip);
         insp.issue = Some(ArchiveIssue::Damaged);
         assert!(memoisable(&facts(insp)));
+    }
+
+    #[test]
+    fn new_variants_serde() {
+        use serde_json::{json, to_value};
+        assert_eq!(
+            to_value(LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            })
+            .unwrap(),
+            json!({"kind": "game-overlay", "of": "Bloodborne"})
+        );
+        assert_eq!(
+            to_value(NotARom::ConsoleSystem).unwrap(),
+            json!("console-system")
+        );
+        assert_eq!(
+            to_value(LeftReason::NotARom {
+                what: NotARom::ConsoleSystem
+            })
+            .unwrap(),
+            json!({"kind": "not-a-rom", "what": "console-system"})
+        );
+        for (note, wire) in [
+            (ItemNote::ExtractFirst, json!({"kind": "extract-first"})),
+            (ItemNote::NoEmulator, json!({"kind": "no-emulator"})),
+            (ItemNote::ProEnhanced, json!({"kind": "pro-enhanced"})),
+            (
+                ItemNote::DlcFolder {
+                    layout: "Batocera".into(),
+                },
+                json!({"kind": "dlc-folder", "layout": "Batocera"}),
+            ),
+        ] {
+            assert_eq!(to_value(&note).unwrap(), wire);
+            assert_eq!(serde_json::from_value::<ItemNote>(wire).unwrap(), note);
+        }
+        let warning = PlanWarning::LargeTransfer {
+            bytes: 12_000_000_000,
+            items: 3,
+        };
+        let wire = json!({"kind": "large-transfer", "bytes": 12_000_000_000u64, "items": 3});
+        assert_eq!(to_value(&warning).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<PlanWarning>(wire).unwrap(),
+            warning
+        );
+    }
+
+    #[test]
+    fn organize_item_content_id_is_optional() {
+        let mut item = OrganizeItem {
+            id: 0,
+            sources: vec!["Bloodborne (CUSA00900)".into()],
+            kind: ItemKind::Folder,
+            size: 1,
+            fps: Vec::new(),
+            target: None,
+            set_targets: Vec::new(),
+            system_id: Some("ps4".into()),
+            folder: None,
+            confidence: 0.95,
+            method: None,
+            why: Vec::new(),
+            alternatives: Vec::new(),
+            rename: None,
+            notes: Vec::new(),
+            companions: Vec::new(),
+            catalogue_name: None,
+            transfer: Transfer::AsIs,
+            disc: None,
+            title_id: None,
+            content_id: None,
+            action: OrganizeAction::Auto,
+        };
+        let bare = serde_json::to_value(&item).unwrap();
+        assert!(bare.get("content_id").is_none(), "{bare}");
+        let back: OrganizeItem = serde_json::from_value(bare).unwrap();
+        assert_eq!(back.content_id, None);
+        item.content_id = Some("UP9000-CUSA00900_00-BLOODBORNE000000".into());
+        let full = serde_json::to_value(&item).unwrap();
+        assert_eq!(full["content_id"], "UP9000-CUSA00900_00-BLOODBORNE000000");
+        assert_eq!(serde_json::from_value::<OrganizeItem>(full).unwrap(), item);
     }
 }

@@ -815,6 +815,14 @@ expression: rows
   },
   {
     "accepting": [
+      "ps5"
+    ],
+    "class": "Unknown",
+    "ext": "exfat",
+    "strong": []
+  },
+  {
+    "accepting": [
       "thomson"
     ],
     "class": "Unknown",
@@ -841,6 +849,36 @@ expression: rows
     "ext": "fds",
     "strong": [
       "fds"
+    ]
+  },
+  {
+    "accepting": [
+      "ps5"
+    ],
+    "class": "Unique",
+    "ext": "ffpfs",
+    "strong": [
+      "ps5"
+    ]
+  },
+  {
+    "accepting": [
+      "ps5"
+    ],
+    "class": "Unique",
+    "ext": "ffpfsc",
+    "strong": [
+      "ps5"
+    ]
+  },
+  {
+    "accepting": [
+      "ps5"
+    ],
+    "class": "Unique",
+    "ext": "ffpkg",
+    "strong": [
+      "ps5"
     ]
   },
   {
@@ -1288,6 +1326,18 @@ expression: rows
   },
   {
     "accepting": [
+      "xboxone",
+      "xboxseries"
+    ],
+    "class": "Shared",
+    "ext": "msixvc",
+    "strong": [
+      "xboxone",
+      "xboxseries"
+    ]
+  },
+  {
+    "accepting": [
       "msx"
     ],
     "class": "Unique",
@@ -1538,7 +1588,9 @@ expression: rows
   {
     "accepting": [
       "psvita",
-      "ps3"
+      "ps3",
+      "ps4",
+      "ps5"
     ],
     "class": "Unknown",
     "ext": "pkg",
@@ -1585,6 +1637,16 @@ expression: rows
     "ext": "ps3",
     "strong": [
       "ps3"
+    ]
+  },
+  {
+    "accepting": [
+      "ps4"
+    ],
+    "class": "Unique",
+    "ext": "ps4",
+    "strong": [
+      "ps4"
     ]
   },
   {
@@ -2290,6 +2352,30 @@ expression: rows
   },
   {
     "accepting": [
+      "xboxone",
+      "xboxseries"
+    ],
+    "class": "Shared",
+    "ext": "xvc",
+    "strong": [
+      "xboxone",
+      "xboxseries"
+    ]
+  },
+  {
+    "accepting": [
+      "xboxone",
+      "xboxseries"
+    ],
+    "class": "Shared",
+    "ext": "xvd",
+    "strong": [
+      "xboxone",
+      "xboxseries"
+    ]
+  },
+  {
+    "accepting": [
       "3ds"
     ],
     "class": "Unique",
@@ -2320,12 +2406,16 @@ expression: rows
   },
   {
     "accepting": [
-      "xbox360"
+      "xbox360",
+      "ps4",
+      "ps5"
     ],
-    "class": "Unique",
+    "class": "Shared",
     "ext": "zar",
     "strong": [
-      "xbox360"
+      "xbox360",
+      "ps4",
+      "ps5"
     ]
   },
   {

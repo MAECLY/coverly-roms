@@ -12,7 +12,7 @@ import { SYSTEM_ICONS } from './systemIcons.generated';
 const IDS = [...toml.matchAll(/^id\s*=\s*"([^"]+)"/gm)].map((m) => m[1]!);
 
 describe('system icon data', () => {
-  it('reads the 127 systems', () => expect(IDS).toHaveLength(127));
+  it('reads the 131 systems', () => expect(IDS).toHaveLength(131));
   it('every systems.toml id resolves to an icon or an abbreviation, not both', () => {
     for (const id of IDS) {
       const has = Number(id in SYSTEM_ICONS) + Number(id in FALLBACK_ABBR);
@@ -55,6 +55,16 @@ describe('system icon data', () => {
         expect(FALLBACK_ABBR[id], id).toMatch(/^[A-Z0-9]{1,4}$/);
       }
     }
+  });
+  it('systems batch 3: audited silhouettes, PS5 on the Slot mount', () => {
+    for (const id of ['ps4', 'xboxone', 'xboxseries']) {
+      expect(Object.hasOwn(SYSTEM_ICONS, id), id).toBe(true);
+      expect(Object.hasOwn(SYSTEM_ICON_SOURCES, id), id).toBe(true);
+      expect(WORDMARK_IDS, id).not.toContain(id);
+    }
+    expect(Object.hasOwn(SYSTEM_ICONS, 'ps5')).toBe(false);
+    expect(FALLBACK_ABBR.ps5).toBe('PS5');
+    expect(WORDMARK_IDS).not.toContain('ps5');
   });
   it('bodies are clean', () => {
     for (const [id, icon] of Object.entries(SYSTEM_ICONS)) {

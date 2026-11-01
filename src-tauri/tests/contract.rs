@@ -210,7 +210,7 @@ fn rust_serialises_the_shared_sample() {
         "update_progress": UpdateProgressEvent { downloaded: 512, total: Some(1024) },
         "update_install": UpdateInstallView { restart_required: true },
         "volume": Volume { path: "/Volumes/SD".into(), name: "SD".into() },
-        "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::Region { rom: true }, PickReason::User],
+        "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::EmbeddedFirst, PickReason::Region { rom: true }, PickReason::User],
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
@@ -409,6 +409,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         transfer: Default::default(),
         disc: None,
         title_id: None,
+        content_id: None,
         action,
     };
     let auto = OrganizeItem {
@@ -560,6 +561,7 @@ fn organize_extract_item_sample() -> coverly_core::organize::OrganizeItem {
             source: DiscIdSource::SystemCnf,
         }),
         title_id: None,
+        content_id: None,
         action: OrganizeAction::Auto,
     }
 }
@@ -734,6 +736,13 @@ fn organise_views_match_the_shared_sample() {
             IpcError::NoPlan,
             IpcError::LaterJobs("20261017T104500Z-1bfb-0001".into()),
             IpcError::NoSpace("8473027/1000".into()),
+            IpcError::LargeTransfer {
+                bytes: 187_420_000_000,
+                items: 3,
+                copies: true,
+                free: Some(412_100_000_000),
+                volume: "TinyExt".into(),
+            },
         ],
     });
     let expected: Value =
@@ -1093,6 +1102,7 @@ fn organise_set_aside_views_match_the_shared_sample() {
         transfer: Transfer::AsIs,
         disc: None,
         title_id: None,
+        content_id: None,
         action: OrganizeAction::SetAside {
             keeper: "ROMS/GB/Tetris (World) (Rev 1).gb".into(),
             relation: Relation::Exact,
@@ -1151,7 +1161,7 @@ fn system_families_and_folder_games_match_the_shared_sample() {
     use coverly_roms_lib::ipc::list_systems;
 
     let systems = list_systems();
-    let pick: Vec<_> = ["ps2", "gba", "zxspectrum", "mame", "wasm4"]
+    let pick: Vec<_> = ["ps2", "gba", "zxspectrum", "mame", "wasm4", "xboxseries"]
         .iter()
         .map(|id| systems.iter().find(|s| s.id == *id).unwrap().clone())
         .collect();
@@ -1229,6 +1239,7 @@ fn systems_batch_2_items_match_the_shared_sample() {
             id: "BLUS30443".into(),
             source: IdSource::ParamSfo,
         }),
+        content_id: None,
         action: OrganizeAction::Auto,
     };
     let sources: Vec<IdSource> = vec![
@@ -1241,6 +1252,9 @@ fn systems_batch_2_items_match_the_shared_sample() {
         IdSource::TicketName,
         IdSource::FileName,
         IdSource::Header,
+        IdSource::ParamJson,
+        IdSource::MicrosoftGameConfig,
+        IdSource::AppxManifest,
     ];
     let mut plan = organize_plan_sample();
     plan.updates = 2;
@@ -1270,4 +1284,76 @@ fn systems_batch_2_items_match_the_shared_sample() {
     }
     // Absent when there is none, as every older plan.
     assert!(serde_json::to_value(organize_plan_sample()).unwrap()["updates"].is_null());
+}
+
+/// Systems batch 3 (spec §10): a PS4 folder with its content id and the
+/// new notes, the new reasons and the large-transfer warning.
+#[test]
+fn systems_batch_3_items_match_the_shared_sample() {
+    use coverly_core::consoles::{IdSource, TitleIdRef};
+    use coverly_core::identify::evidence::{Evidence, IdLevel};
+    use coverly_core::identify::sniff::NotARom;
+    use coverly_core::organize::{
+        ItemKind, ItemNote, LeftReason, OrganizeAction, OrganizeItem, PlanWarning, SourceFp,
+        Transfer,
+    };
+
+    let folder = OrganizeItem {
+        id: 3,
+        sources: vec!["Bloodborne (CUSA00900)".into()],
+        kind: ItemKind::Folder,
+        size: 48_000_000_000,
+        fps: vec![SourceFp {
+            size: 48_000_000_000,
+            mtime_ns: 1_700_000_000_000_000_000,
+        }],
+        target: Some("ps4/DLC/CUSA00900/Bloodborne (CUSA00900)".into()),
+        set_targets: vec![],
+        system_id: Some("ps4".into()),
+        folder: Some("ps4".into()),
+        confidence: 0.95,
+        method: Some(IdLevel::Header),
+        why: vec![Evidence::new(IdLevel::Header, "ps4", 0.95, "param.sfo")],
+        alternatives: vec![],
+        rename: None,
+        notes: vec![
+            ItemNote::ExtractFirst,
+            ItemNote::NoEmulator,
+            ItemNote::ProEnhanced,
+            ItemNote::DlcFolder {
+                layout: "Batocera".into(),
+            },
+        ],
+        companions: vec![],
+        catalogue_name: None,
+        transfer: Transfer::AsIs,
+        disc: None,
+        title_id: Some(TitleIdRef {
+            id: "CUSA00900".into(),
+            source: IdSource::ParamSfo,
+        }),
+        content_id: Some("UP9000-CUSA00900_00-BLOODBORNE000000".into()),
+        action: OrganizeAction::Auto,
+    };
+    let folder: Value = serde_json::from_str(&serde_json::to_string(&folder).unwrap()).unwrap();
+    let actual = json!({
+        "organize_batch3_item": folder,
+        "organize_batch3_reasons": [
+            LeftReason::GameOverlay { of: "Bloodborne".into() },
+            LeftReason::NotARom { what: NotARom::ConsoleSystem },
+        ],
+        "organize_batch3_warnings": [
+            PlanWarning::LargeTransfer { bytes: 12_000_000_000, items: 2 },
+        ],
+    });
+    let expected: Value =
+        serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();
+    for (key, value) in actual.as_object().unwrap() {
+        assert_eq!(
+            value,
+            &expected[key.as_str()],
+            "sample `{key}`:\n{}",
+            serde_json::to_string_pretty(value).unwrap()
+        );
+    }
 }

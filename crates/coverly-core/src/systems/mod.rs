@@ -94,6 +94,13 @@ pub struct System {
     /// Aliases (lowercase) that resolve only under a profile that names
     /// them, never through the global [`SystemDb::resolve_folder`].
     pub scoped_aliases: Vec<String>,
+    /// Ask the embedded source first when filling covers: the game's own
+    /// icon (`icon0.png`, `StoreLogo.png`…) ranks before online sources
+    /// (systems batch 3 D21).
+    pub embedded_first: bool,
+    /// No public emulator runs this system's games (systems batch 3 D22):
+    /// the UI says so; nothing names or links an emulator.
+    pub no_emulator: bool,
 }
 
 impl System {
@@ -168,6 +175,12 @@ struct RawSystem {
     family: Option<String>,
     weak_extensions: Option<Vec<String>>,
     scoped_aliases: Option<Vec<String>>,
+    /// Systems batch 3: a user file using it is rejected by an older
+    /// Coverly (`deny_unknown_fields`), as spec §3 accepts.
+    embedded_first: Option<bool>,
+    /// Systems batch 3: a user file using it is rejected by an older
+    /// Coverly (`deny_unknown_fields`), as spec §3 accepts.
+    no_emulator: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,7 +208,7 @@ impl SystemDb {
     ///
     /// Ids are trimmed and lowercased, aliases are trimmed (empty ones are
     /// dropped). An entry whose `id` already exists overrides it: `name`, `libretro`,
-    /// `arcade`, `multi_file`, `header`, `dats` and `screenscraper` replace the current values when given;
+    /// `arcade`, `multi_file`, `header`, `dats`, `screenscraper`, `embedded_first` and `no_emulator` replace the current values when given;
     /// `aliases`, `extensions`, `weak_extensions`, `scoped_aliases` and
     /// `libretro_also` are added to the current lists (without repeats). An
     /// alias claimed by an override is removed from any other system (and from its scoped aliases), so the user file
@@ -304,6 +317,8 @@ impl SystemDb {
                     },
                     weak_extensions: Vec::new(),
                     scoped_aliases: Vec::new(),
+                    embedded_first: false,
+                    no_emulator: false,
                 });
                 self.systems.len() - 1
             }
@@ -329,6 +344,12 @@ impl SystemDb {
         }
         if raw.screenscraper.is_some() {
             system.screenscraper = raw.screenscraper;
+        }
+        if let Some(embedded_first) = raw.embedded_first {
+            system.embedded_first = embedded_first;
+        }
+        if let Some(no_emulator) = raw.no_emulator {
+            system.no_emulator = no_emulator;
         }
         // An unknown family is ignored silently (the crate has no logger):
         // the current value, or the default of a new system, is kept.
@@ -472,9 +493,12 @@ const LIST_EXTS: [&str; 3] = ["cue", "gdi", "m3u"];
 const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
 /// Weak-only extensions whose own header decides (systems batch 2 D7):
 /// a loose `.pkg` is an organise candidate so the PKG header (PS3, Vita)
-/// or the `xar!` magic of a macOS installer can name it. Its class stays
-/// [`ExtClass::Unknown`]: the extension alone is no evidence.
-const HEADER_DECIDED_EXTS: [&str; 1] = ["pkg"];
+/// or the `xar!` magic of a macOS installer can name it, and a loose
+/// `.exfat` is one so its boot sector and a `PPSA` token in its name can
+/// make it a PS5 image (systems batch 3 D10; without both it stays
+/// unknown). Their class stays [`ExtClass::Unknown`]: the extension alone
+/// is no evidence.
+const HEADER_DECIDED_EXTS: [&str; 2] = ["pkg", "exfat"];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1248,6 +1272,43 @@ mod tests {
             .with_overrides("[[system]]\nid = \"yy\"\nname = \"YY\"\narcade = true\n")
             .unwrap();
         assert_eq!(arcade.get("yy").unwrap().family, Family::Arcade);
+    }
+
+    #[test]
+    fn user_file_flags_are_lenient() {
+        // Without the keys a new system has both flags off; with them, on.
+        let db = SystemDb::builtin()
+            .with_overrides(
+                r#"
+                [[system]]
+                id = "zz"
+                name = "ZZ"
+                [[system]]
+                id = "yy"
+                name = "YY"
+                embedded_first = true
+                no_emulator = true
+                "#,
+            )
+            .unwrap();
+        let zz = db.get("zz").unwrap();
+        assert!(!zz.embedded_first && !zz.no_emulator);
+        let yy = db.get("yy").unwrap();
+        assert!(yy.embedded_first && yy.no_emulator);
+        // An override without the keys keeps the built-in values; one with
+        // them replaces them.
+        let db = SystemDb::builtin()
+            .with_overrides("[[system]]\nid = \"xboxseries\"\naliases = [\"XSS\"]\n")
+            .unwrap();
+        let xs = db.get("xboxseries").unwrap();
+        assert!(xs.embedded_first && xs.no_emulator);
+        let db = SystemDb::builtin()
+            .with_overrides(
+                "[[system]]\nid = \"snes\"\nembedded_first = true\n[[system]]\nid = \"xboxseries\"\nno_emulator = false\n",
+            )
+            .unwrap();
+        assert!(db.get("snes").unwrap().embedded_first);
+        assert!(!db.get("xboxseries").unwrap().no_emulator);
     }
 
     #[test]

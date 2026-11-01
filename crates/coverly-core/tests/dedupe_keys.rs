@@ -10,7 +10,7 @@ use coverly_core::archive::Limits;
 use coverly_core::cache::Cache;
 use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::{
-    level_one, parse_chd_header, track_layout, ExactKey, KeyCtx, KeyedUnit,
+    level_one, parse_chd_header, remember_title_key, track_layout, ExactKey, KeyCtx, KeyedUnit,
 };
 use coverly_core::dedupe::testing::{chd_header, nes_header, CountingBytes, CountingListing};
 use coverly_core::dedupe::units::Unit;
@@ -1418,4 +1418,328 @@ fn other_systems_never_get_a_title_key() {
     );
     let units = numbered(vec![raw("gba", &a)]);
     assert_eq!(keys_of(&units)[0].exact, None);
+}
+
+// --- Current generation (systems batch 3 D14) ---
+
+use coverly_core::consoles::testing::{
+    cnt_pkg, era_folder, era_manifest, gdk_folder, ps4_app, xvd_head_with, GdkSpec, XVD_CONTENT_ID,
+    XVD_PRODUCT_ID,
+};
+
+const BLOODBORNE: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+/// GD (game data), AC (additional content) and the FIRST patch flag.
+const GD: u32 = 0x1A;
+const AC: u32 = 0x1B;
+const PATCH: u32 = 0x0010_0000;
+
+/// A PS4 CNT package at `root/ps4/<name>` with `content_id`; `pad` extra
+/// bytes keep the sizes (and so the payloads) apart.
+fn ps4_pkg(root: &Path, name: &str, content_id: &str, ctype: u32, flags: u32, pad: usize) -> Unit {
+    let mut bytes = cnt_pkg(content_id, ctype, flags, &[]).bytes();
+    bytes.extend(std::iter::repeat_n(0xA5, pad));
+    let p = put(root, &format!("ps4/{name}"), &bytes);
+    raw("ps4", &p)
+}
+
+fn folder(system: &str, dir: &Path) -> Unit {
+    unit_of(system, UnitKind::Folder, &[dir.to_path_buf()], None)
+}
+
+fn title_id_of(k: &KeyedUnit) -> &str {
+    match exact(k) {
+        ExactKey::Title { title_id, .. } => title_id,
+        other => panic!("not a title key: {other:?}"),
+    }
+}
+
+#[test]
+fn ps4_packages_key_by_their_full_content_id() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let units = numbered(vec![
+        ps4_pkg(root, "Bloodborne.pkg", BLOODBORNE, GD, 0, 0),
+        ps4_pkg(root, "Bloodborne (copy).pkg", BLOODBORNE, GD, 0, 16),
+        ps4_pkg(
+            root,
+            "Bloodborne EU.pkg",
+            "EP9000-CUSA00900_00-BLOODBORNE000000",
+            GD,
+            0,
+            32,
+        ),
+        ps4_pkg(root, "Bloodborne patch.pkg", BLOODBORNE, GD, PATCH, 48),
+    ]);
+    let keys = keys_of(&units);
+    assert_eq!(title_id_of(&keys[0]), BLOODBORNE);
+    assert!(!keys[0].confirmed, "a content id is no byte proof");
+    let g = |i: usize| keys[i].group_key("ps4");
+    assert_eq!(g(0), g(1), "same content id, kind and version");
+    assert_ne!(g(0), g(2), "another region is another game");
+    assert_ne!(g(0), g(3), "an update is never a copy of its base");
+}
+
+#[test]
+fn two_dlc_labels_of_one_title_are_not_duplicates() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let units = numbered(vec![
+        ps4_pkg(
+            root,
+            "A.pkg",
+            "UP9000-CUSA00900_00-BLOODBORNEDLC001",
+            AC,
+            0,
+            0,
+        ),
+        ps4_pkg(
+            root,
+            "B.pkg",
+            "UP9000-CUSA00900_00-BLOODBORNEDLC002",
+            AC,
+            0,
+            16,
+        ),
+        ps4_pkg(
+            root,
+            "C.pkg",
+            "UP9000-CUSA00900_00-BLOODBORNEDLC002",
+            AC,
+            0,
+            32,
+        ),
+    ]);
+    let keys = keys_of(&units);
+    assert!(matches!(
+        exact(&keys[0]),
+        ExactKey::Title {
+            kind: TitleKind::Dlc,
+            ..
+        }
+    ));
+    assert_ne!(keys[0].group_key("ps4"), keys[1].group_key("ps4"));
+    assert_eq!(keys[1].group_key("ps4"), keys[2].group_key("ps4"));
+    // Nor are they versions of each other.
+    let v = level_two(&units, &keys, &NoDats);
+    assert_ne!(
+        v[0].as_ref().unwrap().key_string(),
+        v[1].as_ref().unwrap().key_string()
+    );
+}
+
+#[test]
+fn regions_of_one_label_are_versions_of_one_game() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let units = numbered(vec![
+        ps4_pkg(root, "A.pkg", BLOODBORNE, GD, 0, 0),
+        ps4_pkg(
+            root,
+            "B.pkg",
+            "EP9000-CUSA00900_00-BLOODBORNE000000",
+            GD,
+            0,
+            16,
+        ),
+        ps4_pkg(root, "C.pkg", BLOODBORNE, GD, PATCH, 32),
+    ]);
+    let keys = keys_of(&units);
+    let v = level_two(&units, &keys, &NoDats);
+    let k = |i: usize| v[i].as_ref().unwrap();
+    assert_eq!(
+        k(0).key_string(),
+        k(1).key_string(),
+        "UP and EP of one label"
+    );
+    assert!(k(0).by_title_id, "report-only");
+    assert_ne!(
+        k(0).key_string(),
+        k(2).key_string(),
+        "an update is no version"
+    );
+}
+
+#[test]
+fn ps4_folders_key_by_their_content_id() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let a = root.join("ps4/A");
+    let b = root.join("ps4/B");
+    let c = root.join("ps4/C");
+    ps4_app(&a, "CUSA00900", "gd", BLOODBORNE);
+    ps4_app(&b, "CUSA00900", "gd", BLOODBORNE);
+    ps4_app(
+        &c,
+        "CUSA00900",
+        "gd",
+        "EP9000-CUSA00900_00-BLOODBORNE000000",
+    );
+    let units = numbered(vec![
+        folder("ps4", &a),
+        folder("ps4", &b),
+        folder("ps4", &c),
+    ]);
+    let keys = keys_of(&units);
+    assert_eq!(title_id_of(&keys[0]), BLOODBORNE);
+    assert_eq!(keys[0].group_key("ps4"), keys[1].group_key("ps4"));
+    assert_ne!(keys[0].group_key("ps4"), keys[2].group_key("ps4"));
+}
+
+#[test]
+fn gdk_twins_without_a_title_id_key_by_their_store_id() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let spec = GdkSpec {
+        title_id: "FFFFFFFF",
+        ..GdkSpec::default()
+    };
+    let (a, b, c) = (
+        root.join("xboxone/A"),
+        root.join("xboxone/B"),
+        root.join("xboxone/C"),
+    );
+    gdk_folder(&a, &spec);
+    gdk_folder(&b, &spec);
+    gdk_folder(
+        &c,
+        &GdkSpec {
+            store_id: "9NSAMPLE0002",
+            ..spec.clone()
+        },
+    );
+    let units = numbered(vec![
+        folder("xboxone", &a),
+        folder("xboxone", &b),
+        folder("xboxone", &c),
+    ]);
+    let keys = keys_of(&units);
+    assert_eq!(title_id_of(&keys[0]), "9NSAMPLE0001");
+    assert_eq!(keys[0].group_key("xboxone"), keys[1].group_key("xboxone"));
+    assert_ne!(keys[0].group_key("xboxone"), keys[2].group_key("xboxone"));
+    assert!(matches!(
+        exact(&keys[0]),
+        ExactKey::Title { version: Some(v), .. } if v == "1.2.3.0"
+    ));
+
+    // A real title id wins over the store id.
+    let d = root.join("xboxone/D");
+    gdk_folder(&d, &GdkSpec::default());
+    let keys = keys_of(&numbered(vec![folder("xboxone", &d)]));
+    assert_eq!(title_id_of(&keys[0]), "6B9D1A2C");
+}
+
+#[test]
+fn era_folders_key_by_their_identity_name() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let manifest = era_manifest("Sample.Game", "Sample", "Sample", true);
+    let (a, b) = (root.join("xboxone/A"), root.join("xboxone/B"));
+    era_folder(&a, &manifest);
+    era_folder(&b, &manifest);
+    let keys = keys_of(&numbered(vec![
+        folder("xboxone", &a),
+        folder("xboxone", &b),
+    ]));
+    assert_eq!(title_id_of(&keys[0]).to_ascii_uppercase(), "SAMPLE.GAME");
+    assert_eq!(keys[0].group_key("xboxone"), keys[1].group_key("xboxone"));
+}
+
+#[test]
+fn xvcs_with_one_content_id_are_unconfirmed_duplicates() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let other = "11111111-2222-4333-8444-555555555555";
+    for system in ["xboxone", "xboxseries"] {
+        let xvc = |name: &str, content_id: &str, len: u64| {
+            let bytes =
+                xvd_head_with(content_id, XVD_PRODUCT_ID, 0x01, 0, [4, 3, 2, 1], len).bytes();
+            raw(system, &put(root, &format!("{system}/{name}"), &bytes))
+        };
+        let units = numbered(vec![
+            xvc("A.xvc", XVD_CONTENT_ID, 0x1_0000),
+            xvc("B.xvc", XVD_CONTENT_ID, 0x1_2000),
+            xvc("C.xvc", other, 0x1_4000),
+        ]);
+        let keys = keys_of(&units);
+        assert_eq!(
+            title_id_of(&keys[0]),
+            XVD_CONTENT_ID.to_ascii_uppercase(),
+            "{system}"
+        );
+        assert!(!keys[0].confirmed, "{system}: report-only");
+        assert_eq!(
+            keys[0].group_key(system),
+            keys[1].group_key(system),
+            "{system}"
+        );
+        assert_ne!(
+            keys[0].group_key(system),
+            keys[2].group_key(system),
+            "{system}"
+        );
+    }
+}
+
+/// A reader's answer as an organise survey hands it over.
+fn console_id(system: &str, content_id: &str) -> coverly_core::consoles::ConsoleId {
+    serde_json::from_value(serde_json::json!({
+        "system": system,
+        "confidence": 0.95,
+        "detail": "test",
+        "title_id": "CUSA00900",
+        "content_id": content_id,
+    }))
+    .unwrap()
+}
+
+fn keys_with_cache(units: &[Unit], cache: &Cache) -> Vec<KeyedUnit> {
+    let db = SystemDb::builtin();
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
+    ctx.cache = Some(cache);
+    run(units, &ctx)
+}
+
+#[test]
+fn a_remembered_survey_answer_stands_for_the_title_key() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    // Bytes no reader identifies: only the remembered answer can key it.
+    let p = put(root, "ps4/Seeded.pkg", &rom_bytes(41, 4096));
+    let units = numbered(vec![raw("ps4", &p)]);
+    let cache = Cache::in_memory().unwrap();
+    assert!(!matches!(
+        keys_with_cache(&units, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
+
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &units[0], &console_id("ps4", BLOODBORNE));
+    let keys = keys_with_cache(&units, &cache);
+    assert_eq!(title_id_of(&keys[0]), BLOODBORNE);
+}
+
+#[test]
+fn another_systems_answer_or_an_archive_is_never_remembered() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    // An XVC's other Xbox system: level 1 reads the unit itself.
+    let x = put(root, "xboxone/A.xvc", &rom_bytes(42, 4096));
+    let xvc = numbered(vec![raw("xboxone", &x)]);
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &xvc[0], &console_id("xboxseries", XVD_CONTENT_ID));
+    assert!(!matches!(
+        keys_with_cache(&xvc, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
+
+    // An archive is never read for a title key, so nothing stands for one.
+    let z = put_zip(root, "ps4/A.zip", &[("A.pkg", &rom_bytes(43, 4096))]);
+    let zip = numbered(vec![zipped("ps4", &z, 4096)]);
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &zip[0], &console_id("ps4", BLOODBORNE));
+    assert!(!matches!(
+        keys_with_cache(&zip, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
 }

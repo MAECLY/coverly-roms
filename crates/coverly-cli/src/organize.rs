@@ -20,11 +20,11 @@ use coverly_core::identify::sniff::NotARom;
 use coverly_core::net::{PoliteHttp, UreqHttp};
 use coverly_core::organize::online::ScreenScraperLookup;
 use coverly_core::organize::{
-    apply_organize, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv, ApplyError,
-    Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LeftReason, NameMode,
-    OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem, OrganizeOptions, OrganizePhase,
-    OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe, PlanWarning, RenameReason,
-    SkipReason, Survey, Transfer, TransferMode,
+    apply_organize, large_transfer, load_plan, plan_from_survey, resume_organize, survey, ApplyEnv,
+    ApplyError, Choice, Decision, ItemKind, ItemNote, ItemOutcome, ItemStatus, LargeTransfer,
+    LeftReason, NameMode, OrganizeAction, OrganizeEnv, OrganizeError, OrganizeItem,
+    OrganizeOptions, OrganizePhase, OrganizePlan, OrganizeProgress, OrganizeReport, OsMetaProbe,
+    PlanWarning, RenameReason, SkipReason, Survey, Transfer, TransferMode,
 };
 use coverly_core::paths::AppDirs;
 use coverly_core::profiles::custom::all_profiles;
@@ -104,6 +104,11 @@ pub struct OrganizeArgs {
     /// Move or copy the files.
     #[arg(long)]
     apply: bool,
+    /// Confirm an apply that writes 10 GB or more to the target (copies,
+    /// moves across volumes, extractions); without it such a run stops
+    /// before writing anything.
+    #[arg(long, requires = "apply")]
+    yes_large: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = ReportArg::Table)]
     report: ReportArg,
@@ -210,6 +215,15 @@ fn apply_failure(e: ApplyError, plan_target: Option<&Path>) -> Failure {
         )),
         _ => fail(e),
     }
+}
+
+/// An apply writing 10 GB or more without `--yes-large` (systems batch 3
+/// D23): refused like the no-space refusal, before anything is written.
+fn large_failure(t: &LargeTransfer) -> Failure {
+    fail(format!(
+        "would write {} bytes (≥ 10 GB) to {}; re-run with --yes-large to confirm; nothing was written",
+        t.bytes, t.volume
+    ))
 }
 
 /// `FILE=SYSTEM_ID` split on the last `=` (names may contain `=`); a
@@ -492,6 +506,11 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
     if !apply {
         return emit(args, Mode::DryRun, &plan, None, &db, &opts);
     }
+    if !args.yes_large {
+        if let Some(t) = large_transfer(&plan) {
+            return Err(large_failure(&t));
+        }
+    }
     std::fs::create_dir_all(&dirs.data).map_err(|e| {
         fail(format!(
             "cannot create the data folder {}: {e}",
@@ -737,6 +756,7 @@ fn left_reason_text(reason: &LeftReason) -> String {
             NotARom::Installer => "not a ROM (installer)".into(),
             NotARom::Model3d => "not a ROM (3D model)".into(),
             NotARom::PcGameData => "not a ROM (PC game data)".into(),
+            NotARom::ConsoleSystem => "not a ROM (console system file)".into(),
         },
         LeftReason::Bios => "BIOS or firmware".into(),
         LeftReason::DamagedArchive => "damaged archive".into(),
@@ -798,6 +818,9 @@ fn left_reason_text(reason: &LeftReason) -> String {
         LeftReason::KeyMaterial => "key or licence file: never read or moved".into(),
         LeftReason::EmulatorData { folder } => {
             format!("inside an emulator's data folder ({folder}): left as it is")
+        }
+        LeftReason::GameOverlay { of } => {
+            format!("mods or patch folder of {of}: left where it is")
         }
     }
 }
@@ -864,6 +887,14 @@ fn note_text(n: &ItemNote) -> Option<String> {
         ItemNote::FolderSuffix { name, layout } => {
             format!("renamed to {name} so {layout} shows it")
         }
+        ItemNote::ExtractFirst => {
+            "this package does not open as is: it has to be extracted first".into()
+        }
+        ItemNote::NoEmulator => "no emulator opens it in this form".into(),
+        ItemNote::ProEnhanced => "enhanced for PS5 Pro".into(),
+        ItemNote::DlcFolder { layout } => {
+            format!("goes to the DLC folder, where {layout} looks for downloadable content")
+        }
         // Listed once in the warnings.
         ItemNote::CatalogueMissing { .. } => return None,
     })
@@ -885,6 +916,10 @@ fn warning_text(w: &PlanWarning) -> String {
         }
         PlanWarning::NoSpace { needed, free } => format!(
             "not enough space on the target: {needed} bytes needed, {free} bytes free"
+        ),
+        PlanWarning::LargeTransfer { bytes, .. } => format!(
+            "{} will be written to the target; you will be asked to confirm",
+            table::human_bytes(*bytes)
         ),
     }
 }
@@ -1714,5 +1749,43 @@ mod tests {
         for (note, text) in cases {
             assert_eq!(note_text(&note).as_deref(), Some(text));
         }
+    }
+
+    #[test]
+    fn current_generation_texts() {
+        assert_eq!(
+            left_text(&LeftReason::GameOverlay {
+                of: "Bloodborne".into()
+            }),
+            "mods or patch folder of Bloodborne: left where it is"
+        );
+        assert!(left_text(&LeftReason::NotARom {
+            what: NotARom::ConsoleSystem
+        })
+        .contains("console system file"));
+        let notes = [
+            (
+                ItemNote::ExtractFirst,
+                "this package does not open as is: it has to be extracted first",
+            ),
+            (ItemNote::NoEmulator, "no emulator opens it in this form"),
+            (ItemNote::ProEnhanced, "enhanced for PS5 Pro"),
+            (
+                ItemNote::DlcFolder {
+                    layout: "Batocera".into(),
+                },
+                "goes to the DLC folder, where Batocera looks for downloadable content",
+            ),
+        ];
+        for (note, text) in notes {
+            assert_eq!(note_text(&note).as_deref(), Some(text));
+        }
+        assert_eq!(
+            warning_text(&PlanWarning::LargeTransfer {
+                bytes: 12_000_000_000,
+                items: 2
+            }),
+            "12.0 GB will be written to the target; you will be asked to confirm"
+        );
     }
 }

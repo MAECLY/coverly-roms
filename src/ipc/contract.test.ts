@@ -4,11 +4,12 @@ import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
 import { BUILTIN_LAYOUTS, DEFAULT_SETTINGS, RANGES } from '@/lib/settingsRules';
 
 import requests from './contract.requests.json';
-import { ERROR_CODES } from './errors';
+import { ERROR_CODES, toBackendError } from './errors';
 import sample from './contract.sample.json';
 import {
   CREDENTIAL_KEYS,
   KEY_CHECKS,
+  type LargeTransferDetail,
   type PickReason,
   type SourceInfo,
   type CandidateView,
@@ -61,6 +62,7 @@ import {
   type OrganizeJobViewWire,
   type OrganizePlan,
   type OrganizePlanWire,
+  type PlanWarning,
   type OrganizeReportWire,
   type OrganizeCountsWire,
   type OrganizePlanView,
@@ -273,6 +275,8 @@ const ORGANIZE_ITEM_KEYS = [
 ] as const;
 /** `title_id` is left out of an item with no console title id. */
 const CONSOLE_ITEM_KEYS = [...ORGANIZE_ITEM_KEYS, 'title_id'] as const;
+/** `content_id` is left out of an item with no console content id. */
+const CONTENT_ITEM_KEYS = [...CONSOLE_ITEM_KEYS, 'content_id'] as const;
 const COUNTS_KEYS = [
   'roms',
   'systems',
@@ -600,15 +604,23 @@ const checks: [string, readonly string[], object][] = [
   [
     'OrganizeItem',
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
-      Omit<OrganizeItem, 'title_id'>,
+      Omit<OrganizeItem, 'title_id' | 'content_id'>,
       typeof ORGANIZE_ITEM_KEYS
     >,
     sample.organize_plan_view.plan.items[0]!,
   ],
   [
     'OrganizeItem (game folder)',
-    CONSOLE_ITEM_KEYS satisfies AllKeys<OrganizeItem, typeof CONSOLE_ITEM_KEYS>,
+    CONSOLE_ITEM_KEYS satisfies AllKeys<
+      Omit<OrganizeItem, 'content_id'>,
+      typeof CONSOLE_ITEM_KEYS
+    >,
     sample.organize_folder_item,
+  ],
+  [
+    'OrganizeItem (content id)',
+    CONTENT_ITEM_KEYS satisfies AllKeys<OrganizeItem, typeof CONTENT_ITEM_KEYS>,
+    sample.organize_batch3_item,
   ],
   [
     'OrganizeCounts',
@@ -888,6 +900,7 @@ describe('settings contract', () => {
       'only',
       'consensus',
       'source-order',
+      'embedded-first',
       'region',
       'user',
     ]);
@@ -1045,6 +1058,18 @@ describe('organise contract', () => {
       expect(ERROR_CODES).toContain(e.code);
     }
     expect(ERROR_CODES).toContain('cancelled');
+    // The size gate's numbers travel as data (spec D23).
+    const large = toBackendError(
+      sample.organize_errors.find((e) => e.code === 'large-transfer'),
+    );
+    const detail: LargeTransferDetail | undefined = large.largeTransfer;
+    expect(detail).toEqual({
+      bytes: 187_420_000_000,
+      items: 3,
+      copies: true,
+      free: 412_100_000_000,
+      volume: 'TinyExt',
+    });
   });
 });
 
@@ -1141,8 +1166,13 @@ describe('duplicates contract', () => {
       'computer',
       'arcade',
       'engine',
+      'console',
     ]);
     for (const s of systems) expect(s.family).toBeTruthy();
+    // Systems batch 3 (spec D22): only Xbox Series has no emulator.
+    expect(systems.filter((s) => s.no_emulator).map((s) => s.id)).toEqual([
+      'xboxseries',
+    ]);
     const reason = sample.organize_folder_game_reason as LeftReason;
     expect(reason).toEqual({
       kind: 'folder-game',
@@ -1196,6 +1226,38 @@ describe('duplicates contract', () => {
       (sample.organize_plan_view.plan as OrganizePlanWire).updates,
     ).toBeUndefined();
   });
+
+  it('systems batch 3: content ids, the new notes, reasons and warning use the Rust spellings', () => {
+    const item = sample.organize_batch3_item as OrganizeItem;
+    expect(item.content_id).toBe('UP9000-CUSA00900_00-BLOODBORNE000000');
+    expect(item.title_id).toEqual({ id: 'CUSA00900', source: 'param-sfo' });
+    const notes: ItemNote['kind'][] = item.notes.map((n) => n.kind);
+    expect(notes).toEqual([
+      'extract-first',
+      'no-emulator',
+      'pro-enhanced',
+      'dlc-folder',
+    ]);
+    expect(item.notes[3]).toEqual({ kind: 'dlc-folder', layout: 'Batocera' });
+    const reasons = sample.organize_batch3_reasons as LeftReason[];
+    expect(reasons).toEqual([
+      { kind: 'game-overlay', of: 'Bloodborne' },
+      { kind: 'not-a-rom', what: 'console-system' },
+    ]);
+    const what: NotARom[] = reasons.flatMap((r) =>
+      r.kind === 'not-a-rom' ? [r.what] : [],
+    );
+    expect(what).toEqual(['console-system']);
+    const warnings = sample.organize_batch3_warnings as PlanWarning[];
+    expect(warnings).toEqual([
+      { kind: 'large-transfer', bytes: 12_000_000_000, items: 2 },
+    ]);
+    // An item without a content id leaves the key out, as Rust does.
+    expect('content_id' in (sample.organize_folder_item as object)).toBe(false);
+    expect(JSON.parse(JSON.stringify(item))).toEqual(
+      sample.organize_batch3_item,
+    );
+  });
 });
 
 /** Every `IdSource`, in Rust's declaration order. */
@@ -1209,6 +1271,9 @@ const ID_SOURCES = [
   'ticket-name',
   'file-name',
   'header',
+  'param-json',
+  'microsoft-game-config',
+  'appx-manifest',
 ] as const satisfies readonly IdSource[];
 // Compile-time: the list names every member.
 const _allSources: Exclude<IdSource, (typeof ID_SOURCES)[number]> extends never

@@ -398,7 +398,10 @@ fn scan_system(
 /// Whether a console probe proves `dir` to be one game (spec D12; the
 /// same pure probes the organise walk runs). Two probes naming different
 /// systems are not one game here either: Organise sends those to review,
-/// and the scan keeps walking them as plain folders.
+/// and the scan keeps walking them as plain folders. So does a folder a
+/// probe recognises but leaves in place (a GDK `PC` build, an unreadable
+/// config: systems batch 3 plan P-2), which Organise never takes for a
+/// console game.
 fn is_console_folder(dir: &Path) -> bool {
     let Some(listed) = list_dir(dir) else {
         return false;
@@ -406,7 +409,7 @@ fn is_console_folder(dir: &Path) -> bool {
     let names: Vec<String> = listed.into_iter().map(|(n, _, _)| n).collect();
     matches!(
         identify_dir(&DirListing { dir, names: &names }),
-        Ok(Some(_))
+        Ok(Some(found)) if found.leave.is_none()
     )
 }
 

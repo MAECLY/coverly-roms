@@ -146,6 +146,33 @@ fn root_listing_lists_system_folders() {
     assert_eq!(parse_apache_dirs(&html), ["Atari - 8-bit", "MAME"]);
 }
 
+/// The committed root listing (2026-10-31) holds the PS4 folder (systems
+/// batch 3 D21) and none for PS5, Xbox One or Xbox Series.
+#[test]
+fn committed_root_listing_has_ps4_only_of_the_current_generation() {
+    let html = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/research/thumbnails-root.html"
+    ))
+    .unwrap();
+    let dirs = parse_apache_dirs(&html);
+    assert!(dirs.iter().any(|d| d == "Sony - PlayStation 4"));
+    for missing in ["PlayStation 5", "Xbox One", "Xbox Series"] {
+        assert!(
+            !dirs.iter().any(|d| d.contains(missing)),
+            "{missing}: {dirs:?}"
+        );
+    }
+    let db = SystemDb::builtin();
+    assert_eq!(
+        db.get("ps4").unwrap().libretro.as_deref(),
+        Some("Sony - PlayStation 4")
+    );
+    for id in ["ps5", "xboxone", "xboxseries"] {
+        assert_eq!(db.get(id).unwrap().libretro, None, "{id}");
+    }
+}
+
 #[test]
 fn raw_repo_names_and_url_segments() {
     assert_eq!(raw_repo_name(GBA), "Nintendo_-_Game_Boy_Advance");

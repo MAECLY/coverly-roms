@@ -1215,6 +1215,58 @@ pub fn identify_candidate(
             });
         }
     }
+    // A PS4 PKG is catalogued from its plaintext header but has to be
+    // extracted before it plays (systems batch 3 D9); its verdict has its
+    // own detail, so the `InstallFirst` rule above never matches it.
+    if combined.system.as_deref() == Some("ps4")
+        && insp.payloads.iter().any(|p| {
+            p.sniff.console.as_ref().is_some_and(|c| {
+                c.system == "ps4" && c.detail == crate::consoles::orbis::CNT_DETAIL
+            })
+        })
+    {
+        id.notes.push(ItemNote::ExtractFirst);
+    }
+    // PS5 files no emulator opens as they are (systems batch 3 D10): the
+    // store PKG, exFAT images and the console-side PFS images. They still
+    // go to `ps5/`; the note says they will not run. A PS5 `param.json`
+    // enhanced for the PS5 Pro is noted too (D6).
+    if combined.system.as_deref() == Some("ps5") {
+        use crate::consoles::orbis;
+        let ps5_detail = |p: &crate::organize::inspect::Payload, details: &[&str]| {
+            p.sniff
+                .console
+                .as_ref()
+                .is_some_and(|c| c.system == "ps5" && details.contains(&c.detail.as_str()))
+        };
+        if insp.payloads.iter().any(|p| {
+            matches!(p.ext.as_str(), "ffpfs" | "ffpfsc" | "exfat")
+                || ps5_detail(p, &[orbis::FIH_DETAIL, orbis::EXFAT_DETAIL])
+        }) {
+            id.notes.push(ItemNote::NoEmulator);
+        }
+        if insp.payloads.iter().any(|p| {
+            ps5_detail(
+                p,
+                &[
+                    orbis::PARAM_JSON_PRO_DETAIL,
+                    orbis::ZAR_PARAM_JSON_PRO_DETAIL,
+                ],
+            )
+        }) {
+            id.notes.push(ItemNote::ProEnhanced);
+        }
+    }
+    // An XVC/XVD (systems batch 3 D19): its contents are encrypted and no
+    // emulator opens it, whichever Xbox the user picks in review.
+    if insp.payloads.iter().any(|p| {
+        p.sniff
+            .console
+            .as_ref()
+            .is_some_and(|c| c.detail == crate::consoles::xbox::XVD_DETAIL)
+    }) {
+        id.notes.push(ItemNote::NoEmulator);
+    }
     id.combined = combined;
     id
 }

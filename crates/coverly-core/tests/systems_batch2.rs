@@ -644,8 +644,11 @@ fn ps3_folder_suffix_is_on_es_de_and_batocera_only() {
             "{}",
             p.id
         );
+        // Batch 3 adds `ps4` on Batocera only (D16).
         assert!(
-            p.folder_game_suffix.keys().all(|k| k == "ps3"),
+            p.folder_game_suffix
+                .keys()
+                .all(|k| k == "ps3" || (k == "ps4" && p.id == "batocera")),
             "{}: {:?}",
             p.id,
             p.folder_game_suffix

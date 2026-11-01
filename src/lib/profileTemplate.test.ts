@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { MOCK_BUILTIN_PROFILES } from '@/ipc/mock/mockBackend';
 import type { ProfileFile } from '@/ipc/types';
 
 import {
   previewProfile,
+  profileFromBuiltin,
   renderTemplate,
   validateProfile,
 } from './profileTemplate';
@@ -61,5 +63,19 @@ describe('profile templates (mirror of profiles::custom)', () => {
       validateProfile(bad, builtins).map((e) => `${e.field}:${e.code}`),
     ).toEqual(['id:duplicate', 'slots.cover.template:invalid']);
     expect(validateProfile(mine, builtins)).toEqual([]);
+  });
+});
+
+describe('profileFromBuiltin', () => {
+  it('keeps the Batocera PS4 folder suffix and DLC folder', () => {
+    const batocera = MOCK_BUILTIN_PROFILES.find(
+      (p) => p.profile.id === 'batocera',
+    )!;
+    const copy = profileFromBuiltin(batocera, 'batocera-copy', 'Mine');
+    expect(copy.folder_game_suffix).toEqual({ ps3: '.ps3', ps4: '.ps4' });
+    expect(copy.dlc_folder).toEqual({ ps4: 'DLC/{title_id}' });
+    expect(copy.id).toBe('batocera-copy');
+    copy.dlc_folder!.ps4 = 'x';
+    expect(batocera.profile.dlc_folder).toEqual({ ps4: 'DLC/{title_id}' });
   });
 });

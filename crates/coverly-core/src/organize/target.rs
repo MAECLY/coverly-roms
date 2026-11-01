@@ -274,6 +274,36 @@ pub fn assign_targets_with_extracts(
     index: &mut DirIndex,
     same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
 ) -> Vec<(PathBuf, LeftReason)> {
+    assign_targets_in(
+        items,
+        shapes,
+        &[],
+        layout,
+        db,
+        source_root,
+        companions,
+        index,
+        same_content,
+    )
+}
+
+/// [`assign_targets_with_extracts`] where `subdirs[i]`, when set, is a
+/// folder below item `i`'s system folder that it goes into instead (the
+/// frontend's DLC folder, [`dlc_target`]): the item keeps its own name,
+/// takes no folder game suffix (only the base game is listed) and gets
+/// [`ItemNote::DlcFolder`]; `item.folder` still names the system folder.
+#[allow(clippy::too_many_arguments)]
+pub fn assign_targets_in(
+    items: &mut [OrganizeItem],
+    shapes: &[Option<ExtractShape>],
+    subdirs: &[Option<PathBuf>],
+    layout: &TargetLayout,
+    db: &SystemDb,
+    source_root: &Path,
+    companions: &[PathBuf],
+    index: &mut DirIndex,
+    same_content: &dyn Fn(&Path, &OrganizeItem) -> bool,
+) -> Vec<(PathBuf, LeftReason)> {
     let roms = resolved_roms_dir(layout);
     let mut folders: HashMap<String, (PathBuf, FolderChoice)> = HashMap::new();
     let mut dirs: Vec<Option<(PathBuf, FolderChoice)>> = Vec::with_capacity(items.len());
@@ -293,14 +323,19 @@ pub fn assign_targets_with_extracts(
     let (attached, left) = match_companions(items, &dirs, layout, source_root, companions);
 
     for (pos, item) in items.iter_mut().enumerate() {
-        let Some((dir, choice)) = &dirs[pos] else {
+        let Some((system_dir, choice)) = &dirs[pos] else {
             continue;
+        };
+        let subdir = subdirs.get(pos).and_then(Option::as_ref);
+        let dir = &match subdir {
+            Some(sub) => system_dir.join(sub),
+            None => system_dir.clone(),
         };
         item.target = None;
         item.set_targets.clear();
         item.companions.clear();
         item.rename = None;
-        item.folder = dir
+        item.folder = system_dir
             .file_name()
             .map(|f| f.to_string_lossy().into_owned())
             .or_else(|| Some(choice.folder.clone()));
@@ -324,7 +359,7 @@ pub fn assign_targets_with_extracts(
             }
             _ => match item.kind {
                 ItemKind::Set => plan_set(item, dir, &comps, index, same_content),
-                ItemKind::Folder => plan_folder(item, dir, layout, index),
+                ItemKind::Folder => plan_folder(item, dir, layout, subdir.is_none(), index),
                 ItemKind::File | ItemKind::Archive => {
                     let original = file_name(&item.sources[0]);
                     let stem = split_name(&original).0.to_string();
@@ -363,6 +398,13 @@ pub fn assign_targets_with_extracts(
                         target: rel(&target),
                     })
                     .collect();
+                item.notes
+                    .retain(|n| !matches!(n, ItemNote::DlcFolder { .. }));
+                if subdir.is_some() {
+                    item.notes.push(ItemNote::DlcFolder {
+                        layout: layout.profile.name.clone(),
+                    });
+                }
             }
             Planned::Left(LeftReason::AlreadyPresent { at }) => {
                 item.leave(LeftReason::AlreadyPresent {
@@ -879,6 +921,7 @@ fn plan_folder(
     item: &mut OrganizeItem,
     dir: &Path,
     layout: &TargetLayout,
+    with_suffix: bool,
     index: &mut DirIndex,
 ) -> Planned {
     let original = file_name(&item.sources[0]);
@@ -886,6 +929,7 @@ fn plan_folder(
     let suffix = item
         .system_id
         .as_deref()
+        .filter(|_| with_suffix)
         .and_then(|s| layout.profile.folder_game_suffix.get(s))
         .filter(|s| !s.is_empty());
     let (stem, suffix, appended) = match suffix {
@@ -939,6 +983,217 @@ fn plan_folder(
 pub(crate) fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
     let cut = name.len().checked_sub(suffix.len()).filter(|&c| c > 0)?;
     (name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(suffix)).then(|| &name[..cut])
+}
+
+/// The folder below `system`'s folder where `layout` reads DLC of the
+/// base game `title_id` (systems batch 3 D16): the profile's
+/// `dlc_folder` template with `{title_id}` replaced, one component per
+/// `/` segment. `None` when the profile has no such folder for the
+/// system, or the title id is not a plain code (ASCII letters and
+/// digits, at most 32): it never names a path of its own.
+pub fn dlc_target(layout: &TargetLayout, system: &str, title_id: &str) -> Option<PathBuf> {
+    let template = layout.profile.dlc_folder.get(system)?;
+    let plain = !title_id.is_empty()
+        && title_id.len() <= 32
+        && title_id.bytes().all(|b| b.is_ascii_alphanumeric());
+    if !plain {
+        return None;
+    }
+    let filled = template.replace(crate::profiles::custom::DLC_FOLDER_TOKEN, title_id);
+    let mut out = PathBuf::new();
+    for seg in filled.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            return None;
+        }
+        out.push(seg);
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// A shadPS4 overlay folder and its base, both items of the plan (D11):
+/// same parent directory, `sibling` named `<base name><suffix>` with
+/// `suffix` one of `-UPDATE`/`-patch` (ASCII case-insensitive, `suffix`
+/// keeps the source's spelling), the sibling's console kind `Update`.
+/// `base` and `sibling` are positions in the plan's items.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverlayPair {
+    pub base: usize,
+    pub sibling: usize,
+    pub suffix: String,
+}
+
+/// Every [`OverlayPair`] of `items`; `is_update(i)` says whether item `i`
+/// is a PS4 update by its header (the plan's survey knows). The base is
+/// the folder item beside the sibling named exactly like the sibling
+/// without its suffix, else one whose name differs only in ASCII case (a
+/// case-insensitive volume, where shadPS4 finds it the same way).
+pub fn overlay_pairs(
+    items: &[OrganizeItem],
+    is_update: &dyn Fn(usize) -> bool,
+) -> Vec<OverlayPair> {
+    let folder = |item: &OrganizeItem| item.kind == ItemKind::Folder && !item.sources.is_empty();
+    let mut by_name: HashMap<(PathBuf, String), Vec<usize>> = HashMap::new();
+    for (pos, item) in items.iter().enumerate().filter(|(_, i)| folder(i)) {
+        let name = file_name(&item.sources[0]).to_ascii_lowercase();
+        by_name
+            .entry((parent(&item.sources[0]), name))
+            .or_default()
+            .push(pos);
+    }
+    let mut pairs = Vec::new();
+    for (pos, item) in items.iter().enumerate() {
+        if !folder(item) || !is_update(pos) {
+            continue;
+        }
+        let name = file_name(&item.sources[0]);
+        let Some((stem, suffix)) = crate::consoles::sony::UPDATE_SUFFIXES.iter().find_map(|s| {
+            strip_suffix_ignoring_case(&name, s).map(|stem| (stem, &name[stem.len()..]))
+        }) else {
+            continue;
+        };
+        let key = (parent(&item.sources[0]), stem.to_ascii_lowercase());
+        let Some(found) = by_name.get(&key) else {
+            continue;
+        };
+        let candidates: Vec<usize> = found.iter().copied().filter(|&b| b != pos).collect();
+        let exact = candidates
+            .iter()
+            .copied()
+            .find(|&b| file_name(&items[b].sources[0]) == stem);
+        if let Some(base) = exact.or_else(|| candidates.first().copied()) {
+            pairs.push(OverlayPair {
+                base,
+                sibling: pos,
+                suffix: suffix.to_string(),
+            });
+        }
+    }
+    pairs
+}
+
+/// D11 (e): after the user's decisions, a sibling takes its base's action:
+/// base left (any reason) or set aside → sibling
+/// `Left(GameOverlay { of: <base title> })`; base in review → sibling in
+/// review with the base's system and alternatives; base moved → sibling
+/// keeps its own action (Auto or Review by its own evidence; a sibling
+/// Review never blocks the base). A sibling already left or set aside
+/// keeps that. `titles(base)` is the base's title for the row.
+pub fn siblings_follow(
+    items: &mut [OrganizeItem],
+    pairs: &[OverlayPair],
+    titles: &dyn Fn(usize) -> String,
+) {
+    for pair in pairs {
+        let Some(base) = items.get(pair.base) else {
+            continue;
+        };
+        let (action, system, alternatives) = (
+            base.action.clone(),
+            base.system_id.clone(),
+            base.alternatives.clone(),
+        );
+        let Some(sibling) = items.get_mut(pair.sibling) else {
+            continue;
+        };
+        if !sibling.moves_in() {
+            continue;
+        }
+        match action {
+            OrganizeAction::Auto => {}
+            OrganizeAction::Review => {
+                sibling.action = OrganizeAction::Review;
+                sibling.system_id = system;
+                sibling.alternatives = alternatives;
+            }
+            OrganizeAction::Left { .. } | OrganizeAction::SetAside { .. } => {
+                sibling.leave(LeftReason::GameOverlay {
+                    of: titles(pair.base),
+                });
+            }
+        }
+    }
+}
+
+/// D11 (b): after targets, each sibling's target is
+/// `<dir of base target>/<base final file name><suffix>`, so a collision
+/// rename or a frontend suffix of the base carries over
+/// (`CUSA00900 (2)-UPDATE`, `CUSA00900.ps4-UPDATE`). A sibling whose name
+/// is taken (on disk or by another item) leaves the base and all its
+/// siblings `CollisionSet`. A sibling with no base item, or one going to
+/// another system than its base, keeps its own target (c).
+pub fn sibling_targets(items: &mut [OrganizeItem], pairs: &[OverlayPair], layout: &TargetLayout) {
+    let mut groups: BTreeMap<usize, Vec<&OverlayPair>> = BTreeMap::new();
+    for pair in pairs {
+        groups.entry(pair.base).or_default().push(pair);
+    }
+    let mut on_disk = DirIndex::new();
+    for (base, group) in groups {
+        let Some(b) = items.get(base) else { continue };
+        let Some(base_target) = b.target.clone().filter(|_| b.moves_in()) else {
+            continue;
+        };
+        let (system, base_rename, base_folder) =
+            (b.system_id.clone(), b.rename.clone(), b.folder.clone());
+        let dir = parent(&base_target);
+        let base_name = file_name(&base_target);
+        let following: Vec<(usize, String)> = group
+            .iter()
+            .filter(|p| {
+                items
+                    .get(p.sibling)
+                    .is_some_and(|s| s.moves_in() && s.system_id == system)
+            })
+            .map(|p| (p.sibling, format!("{base_name}{}", p.suffix)))
+            .collect();
+        if following.is_empty() {
+            continue;
+        }
+        let taken = |sibling: usize, name: &str, on_disk: &mut DirIndex| {
+            let key = name_key(name);
+            name_too_long(name)
+                || on_disk.taken(&layout.target_root.join(&dir), name)
+                || following
+                    .iter()
+                    .any(|(other, n)| *other != sibling && name_key(n) == key)
+                || items.iter().enumerate().any(|(pos, other)| {
+                    pos != sibling
+                        && other
+                            .target
+                            .as_ref()
+                            .is_some_and(|t| parent(t) == dir && name_key(&file_name(t)) == key)
+                })
+        };
+        if following
+            .iter()
+            .any(|(sibling, name)| taken(*sibling, name, &mut on_disk))
+        {
+            items[base].leave(LeftReason::CollisionSet);
+            for (sibling, _) in &following {
+                items[*sibling].leave(LeftReason::CollisionSet);
+            }
+            continue;
+        }
+        for (sibling, name) in following {
+            let item = &mut items[sibling];
+            let original = file_name(&item.sources[0]);
+            let suffix = name[base_name.len()..].to_string();
+            item.rename = match &base_rename {
+                Some(RenameReason::Collision { name }) => Some(RenameReason::Collision {
+                    name: format!("{name}{suffix}"),
+                }),
+                Some(RenameReason::SafeName { .. }) => {
+                    Some(RenameReason::SafeName { from: original })
+                }
+                _ => None,
+            };
+            item.target = Some(dir.join(&name));
+            item.folder = base_folder.clone();
+            // Only the base is listed by the frontend: the sibling's own
+            // suffix note no longer applies.
+            item.notes
+                .retain(|n| !matches!(n, ItemNote::FolderSuffix { .. }));
+        }
+    }
 }
 
 /// A disc set keeps its member names and layout; any collision leaves the
@@ -1631,6 +1886,48 @@ fn split_name(name: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn layout_with_dlc(template: &str) -> TargetLayout {
+        let mut profile = crate::profiles::builtin_profiles()
+            .into_iter()
+            .find(|p| p.id == "batocera")
+            .expect("the Batocera profile");
+        profile
+            .dlc_folder
+            .insert("ps4".into(), template.to_string());
+        TargetLayout {
+            target_root: PathBuf::from("t"),
+            roms_dir: PathBuf::from("t").join("roms"),
+            profile,
+            overrides: BTreeMap::new(),
+            fat32: false,
+            windows_paths: false,
+            names: NameMode::Keep,
+            companion_exts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn dlc_target_fills_the_title_id_by_component() {
+        let layout = layout_with_dlc("DLC/{title_id}");
+        assert_eq!(
+            dlc_target(&layout, "ps4", "CUSA00900"),
+            Some(PathBuf::from("DLC").join("CUSA00900"))
+        );
+        assert_eq!(dlc_target(&layout, "ps5", "PPSA01284"), None);
+        for bad in [
+            "",
+            "../x",
+            "CUSA/00900",
+            "CUSA 00900",
+            "C:",
+            &"A".repeat(33),
+        ] {
+            assert_eq!(dlc_target(&layout, "ps4", bad), None, "{bad:?}");
+        }
+        let layout = layout_with_dlc("../{title_id}");
+        assert_eq!(dlc_target(&layout, "ps4", "CUSA00900"), None);
+    }
 
     #[test]
     fn split_name_keeps_dot_files_whole() {

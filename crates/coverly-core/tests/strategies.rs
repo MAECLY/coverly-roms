@@ -48,6 +48,7 @@ fn pick(kind: StrategyKind, rom: &[Region], cands: &[Candidate]) -> String {
         rom_regions: rom,
         regions: &regions,
         sources: &sources,
+        embedded_first: false,
     };
     cands[strategy_for(kind).rank(&ctx, cands)[0]].name.clone()
 }
@@ -130,6 +131,7 @@ fn source_order_breaks_ties_under_priority() {
         rom_regions: &[],
         regions: &regions,
         sources: &sources,
+        embedded_first: false,
     };
     assert_eq!(
         cands[strategy_for(StrategyKind::Priority).rank(&ctx, &cands)[0]].source,
@@ -206,6 +208,7 @@ fn every_candidate_is_ranked_once() {
         rom_regions: &[],
         regions: &regions,
         sources: &[],
+        embedded_first: false,
     };
     let mut idx = strategy_for(StrategyKind::RomRegion).rank(&ctx, &golden());
     idx.sort();
@@ -254,6 +257,7 @@ fn pick_with(
         rom_regions: rom,
         regions: &regions,
         sources: &sources,
+        embedded_first: false,
     };
     cands[strategy_for(kind).rank(&ctx, cands)[0]].clone()
 }
@@ -399,6 +403,7 @@ fn popularity_is_deterministic_for_any_input_order() {
             rom_regions: &[],
             regions: &regions,
             sources: &sources,
+            embedded_first: false,
         };
         strategy_for(StrategyKind::Popularity)
             .rank(&ctx, cands)
@@ -422,6 +427,7 @@ fn why(kind: StrategyKind, rom: &[Region], cands: &[Candidate], sources: &[&str]
         rom_regions: rom,
         regions: &regions,
         sources: &sources,
+        embedded_first: false,
     };
     let order = strategy_for(kind).rank(&ctx, cands);
     explain(
@@ -545,7 +551,67 @@ fn explain_names_the_deciding_rule() {
         PickReason::Tie
     );
     assert_eq!(
+        serde_json::to_value(PickReason::EmbeddedFirst).unwrap(),
+        serde_json::json!({ "why": "embedded-first" })
+    );
+    assert_eq!(
         serde_json::to_value(PickReason::Votes { score: 5, next: 0 }).unwrap(),
         serde_json::json!({"why":"votes","score":5,"next":0})
     );
+}
+
+/// Systems batch 3 D21: with `embedded_first` the icon inside the game
+/// beats a canonical box art of the ROM's own region in every strategy,
+/// and the «why» says so (not «first in your order»: the user's order may
+/// put `embedded` last); without it the icon is last.
+#[test]
+fn embedded_first_puts_the_icon_inside_the_game_on_top() {
+    use coverly_core::matching::{explain, PickReason};
+    let regions = default_region_order();
+    let sources = vec!["embedded".to_string(), "libretro".to_string()];
+    let cands = vec![
+        c(
+            "libretro",
+            "Test Game (Japan)",
+            &[Japan],
+            MatchKind::Canonical,
+            100,
+        ),
+        c(
+            "embedded",
+            "Test Game (Japan)",
+            &[],
+            MatchKind::Canonical,
+            100,
+        ),
+    ];
+    for kind in [
+        StrategyKind::Priority,
+        StrategyKind::RomRegion,
+        StrategyKind::Popularity,
+    ] {
+        for embedded_first in [true, false] {
+            let ctx = RankContext {
+                rom_regions: &[Japan],
+                regions: &regions,
+                sources: &sources,
+                embedded_first,
+            };
+            let order = strategy_for(kind).rank(&ctx, &cands);
+            let top = &cands[order[0]];
+            let want = if embedded_first {
+                "embedded"
+            } else {
+                "libretro"
+            };
+            assert_eq!(top.source, want, "{kind:?} {embedded_first}");
+            if embedded_first {
+                assert_eq!(
+                    explain(kind, &ctx, top, Some(&cands[order[1]]), &[]),
+                    PickReason::EmbeddedFirst,
+                    "{kind:?}"
+                );
+            }
+        }
+    }
 }

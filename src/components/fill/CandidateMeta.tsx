@@ -11,6 +11,7 @@ const SIMPLE_REASONS = [
   'only',
   'better-match',
   'release',
+  'embedded-first',
   'language',
   'tie',
   'user',

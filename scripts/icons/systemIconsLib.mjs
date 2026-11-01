@@ -463,6 +463,25 @@ export const SYSTEM_ICON_SOURCES = Object.freeze({
     audit:
       'pad with grips, plain sticks and round buttons, blank centre ring, no logo',
   },
+  // Systems batch 3 (D27). PS5 has no file in the pinned set: Slot mount.
+  ps4: {
+    file: 'Sony - PlayStation 4.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips, blank touch pad, plain cross pad and round buttons, no face-button symbols',
+  },
+  xboxone: {
+    file: 'Microsoft - Xbox One.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips, plain sticks, cross pad and round buttons, small plain dots, no logo',
+  },
+  xboxseries: {
+    file: 'Non-Redump - Microsoft - Xbox Series X.svg',
+    depicts: 'pad',
+    audit:
+      'pad with grips, plain sticks, ringed cross pad and round buttons, plain share pill, no logo',
+  },
   fbneo: { file: CABINET, depicts: 'cabinet', audit: CABINET_AUDIT },
   varcade: {
     file: CABINET,

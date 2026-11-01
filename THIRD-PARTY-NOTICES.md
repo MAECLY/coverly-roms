@@ -59,18 +59,18 @@ are not included. The licence grants no trademark rights; see `TRADEMARKS.md`.
 `src/assets/system-icons/README.md` maps each file to its source file and
 records its trademark audit.
 
-The 86 files, named by system id: `3do`, `3ds`, `a2600`, `a5200`, `a7800`,
+The 89 files, named by system id: `3do`, `3ds`, `a2600`, `a5200`, `a7800`,
 `a800`, `amiga`, `amigacd32`, `apple2`, `arcadia`, `arduboy`, `atarist`,
 `atarixe`, `bbcmicro`, `c64`, `cdi`, `colecovision`, `dreamcast`, `fbneo`,
 `fds`, `fmtowns`, `gamecom`, `gamecube`, `gamegear`, `gb`, `gba`, `gbc`, `gw`,
 `jaguar`, `jaguarcd`, `lynx`, `mastersystem`, `megadrive`, `megaduck`, `msx`,
 `msx2`, `n64`, `n64dd`, `nds`, `neocd`, `neogeo`, `nes`, `ngp`, `ngpc`,
 `odyssey2`, `pc88`, `pc98`, `pcengine`, `pcenginecd`, `pcfx`, `pet`, `pgm2`,
-`pico`, `plus4`, `pokemini`, `ps2`, `ps3`, `psp`, `psvita`, `psx`,
+`pico`, `plus4`, `pokemini`, `ps2`, `ps3`, `ps4`, `psp`, `psvita`, `psx`,
 `satellaview`, `saturn`, `scv`, `sega32x`, `segacd`, `sg1000`, `snes`,
 `sufami`, `supergrafx`, `supervision`, `switch`, `thomson`, `ti99`, `varcade`,
 `vic20`, `virtualboy`, `wii`, `wiiu`, `wonderswan`, `wonderswancolor`, `x1`,
-`x68000`, `xbox`, `xbox360`, `zx81`, `zxspectrum`.
+`x68000`, `xbox`, `xbox360`, `xboxone`, `xboxseries`, `zx81`, `zxspectrum`.
 
 ## Interface icons
 

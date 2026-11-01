@@ -1581,14 +1581,24 @@ impl AppState {
     /// backend re-plans from its own survey). Fills and other writes are
     /// refused until it ends; progress and the end arrive through
     /// `events`. The kept plans are dropped: the pile changes.
+    ///
+    /// When the decided plan writes 10 GB or more (systems batch 3 D23),
+    /// nothing starts unless `confirmed_bytes` reaches its bytes:
+    /// [`IpcError::LargeTransfer`] carries the numbers to confirm.
     pub fn organize_apply(
         &self,
         plan_id: u64,
         decisions: &[OrganizeDecision],
+        confirmed_bytes: Option<u64>,
         events: Arc<dyn OrganizeEvents>,
     ) -> Result<OrganizeJobView, IpcError> {
         let cfg = self.fill_config();
         let plan = self.decided_plan(plan_id, decisions, &cfg)?;
+        if let Some(t) = coverly_core::organize::large_transfer(&plan) {
+            if confirmed_bytes.is_none_or(|c| c < t.bytes) {
+                return Err(t.into());
+            }
+        }
         let external_tools = self.organize.get(plan_id)?.opts.limits.external_tools;
         check_organize_data_dir(&cfg, &[&plan.source_root, &plan.target_root])?;
         let guard = self.organize_guard()?;

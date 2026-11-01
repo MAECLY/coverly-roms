@@ -175,7 +175,7 @@
         "embedded": "Imagen incluida en el juego"
       },
       "hint": {
-        "embedded": "Usa el icono que traen algunos juegos (PS3, PS Vita, Wii U, 3DS, Xbox 360) cuando no hay carátula en otra fuente"
+        "embedded": "Usa el icono que traen algunos juegos: primero en PS4, PS5, Xbox One y Xbox Series; en PS3, PS Vita, Wii U, 3DS y Xbox 360, cuando no hay carátula en otra fuente"
       },
       "notBuilt": "No disponible en esta versión",
       "needsKey": "Guarda una clave de API abajo para activarla",
@@ -452,6 +452,7 @@
     "no-dedupe-plan": "Esa búsqueda de duplicados ya no se conserva. Vuelve a buscar duplicados.",
     "keeper-required": "Cada grupo necesita una copia que se quede. Elige la copia que conservas ({detail}).",
     "quarantine-in-system-folder": "La carpeta de duplicados no puede estar dentro de una carpeta de sistema ni contener una ({detail}). Elige otra carpeta.",
+    "large-transfer": "Hace falta confirmar el tamaño antes de escribir",
     "unknown": "Error inesperado: {detail}",
     "field": {
       "range": "Usa un valor entre {min} y {max}.",
@@ -1174,6 +1175,7 @@
     "release": "una versión comercial gana a betas, prototipos y hacks.",
     "votes": "más votos en SteamGridDB ({score}; siguiente {next}).",
     "consensus": "más fuentes y tipos de arte coinciden ({count}; siguiente {next}).",
+    "embedded-first": "la imagen incluida en el juego va primero en este sistema.",
     "source-order": "primera fuente en tu orden ({source}).",
     "region": "región preferida en tu orden.",
     "region-rom": "misma región que la ROM.",
@@ -1265,7 +1267,11 @@
       "dlc": "Contenido descargable de {title}",
       "encryptedContent": "Copia cifrada: {emulator} solo abre copias descifradas",
       "installFirst": "{emulator} lo instala; no se abre desde la carpeta",
-      "folderSuffix": "Se renombra a {name} para que {layout} lo muestre"
+      "folderSuffix": "Se renombra a {name} para que {layout} lo muestre",
+      "extractFirst": "Este paquete no se abre así: hay que extraerlo antes",
+      "noEmulator": "Ningún emulador lo abre así",
+      "proEnhanced": "Mejorado para PS5 Pro",
+      "dlcFolder": "Va a la carpeta DLC, donde {layout} busca el contenido descargable"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1296,7 +1302,8 @@
       "user": "Elegido por ti",
       "titleIdFile": "Title ID {id} en {file}",
       "titleIdName": "Title ID {id} tomado del nombre del archivo",
-      "titleIdTicket": "Title ID {id} en el nombre del ticket"
+      "titleIdTicket": "Title ID {id} en el nombre del ticket",
+      "contentId": "Content ID {id}"
     },
     "left": {
       "archiveNeedsMemory": "Necesita {mib} MB de memoria para descomprimirse",
@@ -1322,6 +1329,7 @@
       "text": "texto",
       "patch": "parche; aplícalo a la ROM original",
       "pcGameData": "datos de un juego de PC",
+      "consoleSystem": "archivo del sistema de una consola",
       "installer": "instalador de programas",
       "model3d": "modelo 3D",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
@@ -1343,6 +1351,7 @@
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
       "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee ni lo mueve",
       "emulatorData": "Está dentro de los datos de un emulador ({folder}); se deja tal cual",
+      "gameOverlay": "Carpeta de mods o parches de {title}: se deja donde está",
       "title": "Se quedan donde están",
       "inLibrary": "Ya está en tu biblioteca como {path}"
     },
@@ -1405,6 +1414,18 @@
     "noFolderOnDevice": "{layout} no tiene carpeta para {system}; se crea {folder}.",
     "noCatalogue": "Sin catálogo de {system}: decidido por {level}",
     "noSpace": "No hay espacio suficiente en el destino: hacen falta {needed} y quedan {free} libres.",
+    "largeTransfer": {
+      "warning": "Se van a escribir {bytes} en el destino; se pedirá confirmación antes de empezar",
+      "title": "¿Copiar {bytes}?",
+      "titleMove": "¿Mover {bytes} a otro disco?",
+      "body": "Organizar va a escribir {count} elementos en {volume}. Ahora hay {free} libres en ese disco.",
+      "bodyOne": "Organizar va a escribir 1 elemento en {volume}. Ahora hay {free} libres en ese disco.",
+      "bodyNoFree": "Organizar va a escribir {count} elementos en {volume}.",
+      "bodyNoFreeOne": "Organizar va a escribir 1 elemento en {volume}.",
+      "confirm": "Copiar {bytes}",
+      "confirmMove": "Mover {bytes}",
+      "cancel": "Cancelar"
+    },
     "encrypted": "Cifrado; algunos emuladores no pueden cargarlo",
     "level": {
       "hash": "catálogo",
@@ -1540,6 +1561,7 @@
       "arcade": "Recreativas",
       "engine": "Motores y consolas de fantasía"
     },
+    "noEmulator": "Sin emulador",
     "unknown": "Carpeta sin sistema reconocido"
   },
   "progress": {

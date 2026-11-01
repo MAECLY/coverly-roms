@@ -269,6 +269,7 @@ export type PickReason =
   | { why: 'votes'; score: number; next: number }
   | { why: 'consensus'; count: number; next: number }
   | { why: 'source-order'; source: string }
+  | { why: 'embedded-first' }
   | { why: 'region'; rom: boolean }
   | { why: 'language' }
   | { why: 'tie' }
@@ -606,7 +607,8 @@ export interface ProfileFile {
   disc_layout?: DiscLayout;
   /** Containers whose cartridge ROMs move as they are; absent = zip, 7z. */
   accepts_containers?: ContainerKind[];
-  /** Per-system replacements of `accepts_containers`; absent = `psp: []`. */
+  /** Per-system replacements of `accepts_containers`; absent = `psp: []`
+   * and `ps5: [zip, 7z, rar]`. */
   container_overrides?: Record<string, ContainerKind[]>;
   /** Suffix a folder game of a system must end in (system id → suffix,
    * `ps3 → .ps3` on ES-DE and Batocera); absent = none. */
@@ -614,6 +616,10 @@ export interface ProfileFile {
   /** Media of a folder game are named after its whole folder name, suffix
    * included (ES-DE); absent = the suffix is dropped. */
   folder_stem_keeps_suffix?: boolean;
+  /** Folder, relative to a system's folder, where the frontend reads DLC
+   * (system id → template whose only token is `{title_id}`, `ps4 →
+   * DLC/{title_id}` on Batocera); absent = DLC sits beside its game. */
+  dlc_folder?: Record<string, string>;
 }
 
 /** `profiles::DiscLayout`. */
@@ -653,6 +659,8 @@ export interface SystemInfo {
   id: string;
   name: string;
   family: SystemFamily;
+  /** No public emulator runs it (systems batch 3 D22). */
+  no_emulator: boolean;
 }
 
 export interface ProfileInfo {
@@ -749,7 +757,9 @@ export type NotARom =
   /** A macOS installer package named `.pkg`. */
   | 'installer'
   /** An Autodesk 3D Studio model named `.3ds`. */
-  | 'model3d';
+  | 'model3d'
+  /** A console's own system file or folder, never a game. */
+  | 'console-system';
 
 /** Why a file stays where it is. */
 export type LeftReason =
@@ -806,7 +816,10 @@ export type LeftReason =
   /** A console key or licence file: never read, never moved. */
   | { kind: 'key-material' }
   /** Inside an emulator's own data tree; `folder` is its root (`ux0`). */
-  | { kind: 'emulator-data'; folder: string };
+  | { kind: 'emulator-data'; folder: string }
+  /** A mods or patch folder beside its base that cannot move alone; `of`
+   * is the base's title (its folder name when the base is not an item). */
+  | { kind: 'game-overlay'; of: string };
 
 /** Something worth telling about an item that still moves. */
 export type ItemNote =
@@ -841,7 +854,15 @@ export type ItemNote =
   /** A package the emulator installs (PS3/Vita PKG). */
   | { kind: 'install-first'; emulator: string }
   /** The folder is renamed to `name` so `layout` shows it. */
-  | { kind: 'folder-suffix'; name: string; layout: string };
+  | { kind: 'folder-suffix'; name: string; layout: string }
+  /** A PS4 PKG: catalogued, has to be extracted to play. */
+  | { kind: 'extract-first' }
+  /** A PS5 store PKG, `.exfat`, `.ffpfs`, `.ffpfsc` or an XVC. */
+  | { kind: 'no-emulator' }
+  /** Enhanced for PS5 Pro (`attribute3` bit 22). */
+  | { kind: 'pro-enhanced' }
+  /** Goes to the DLC folder where `layout` looks for downloadable content. */
+  | { kind: 'dlc-folder'; layout: string };
 
 /** Why an item's target name differs from its source name. */
 export type RenameReason =
@@ -857,7 +878,9 @@ export type PlanWarning =
   | { kind: 'move-unavailable' }
   | { kind: 'sorted-only' }
   /** The target lacks room: cluster-rounded bytes needed vs free for this user. */
-  | { kind: 'no-space'; needed: number; free: number };
+  | { kind: 'no-space'; needed: number; free: number }
+  /** The items that move by default write at least 10 GB to the target. */
+  | { kind: 'large-transfer'; bytes: number; items: number };
 
 /** A save, patch or note that follows its ROM. */
 export interface Companion {
@@ -886,7 +909,10 @@ export type IdSource =
   | 'cnmt-xml'
   | 'ticket-name'
   | 'file-name'
-  | 'header';
+  | 'header'
+  | 'param-json'
+  | 'microsoft-game-config'
+  | 'appx-manifest';
 
 /** A console title id and where it came from. */
 export interface TitleIdRef {
@@ -992,6 +1018,9 @@ export type OrganizeItem = OrganizeAction & {
   disc: DiscId | null;
   /** The console title id and its source (Rust leaves it out when absent). */
   title_id?: TitleIdRef;
+  /** The console content id (PKG header, `param.sfo`, `param.json`, XVC);
+   * Rust leaves it out when absent. */
+  content_id?: string;
 };
 
 export interface OrganizeCounts {
@@ -1173,6 +1202,21 @@ export interface OrganizeReport {
 
 export type OrganizeJobState =
   'applying' | 'done' | 'paused' | 'cancelled' | 'failed';
+
+/** What `organize_apply` refused to write without a confirmation
+ * (`large-transfer`, spec D23): the decided plan's numbers. */
+export interface LargeTransferDetail {
+  /** Bytes written to the target (copies and extractions). */
+  bytes: number;
+  /** Items that write them (updates, DLC and archives count). */
+  items: number;
+  /** Copy mode; false: a move across volumes (copied, then removed). */
+  copies: boolean;
+  /** Free bytes on the target volume for this user; null when unknown. */
+  free: number | null;
+  /** The target volume's name, else the target folder's. */
+  volume: string;
+}
 
 /** An IPC error as data (inside a view). */
 export interface WireError {

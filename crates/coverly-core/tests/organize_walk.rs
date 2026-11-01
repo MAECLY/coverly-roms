@@ -747,3 +747,295 @@ fn a_wiiu_folder_carries_its_title_id_from_meta_xml() {
     assert_eq!(game.probe, Path::new("meta").join("meta.xml"));
     assert!(w.candidates.is_empty(), "{:?}", w.candidates);
 }
+
+/// Candidate file names of a walk.
+fn candidate_names(w: &Walked) -> Vec<String> {
+    file_names(
+        &w.candidates
+            .iter()
+            .map(|c| c.path.clone())
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Whether `path` lies below `dir`, compared by component (Windows CI).
+fn below(path: &Path, dir: &Path) -> bool {
+    path.starts_with(dir) && path != dir
+}
+
+const BLOODBORNE: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+
+#[test]
+fn shadps4_user_dir_is_emulator_data() {
+    // Systems batch 3 D25: a folder holding both `sys_modules/` and
+    // `game_data/` (any case) is shadPS4's user dir; its `addcont/` tree
+    // is never moved.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "shadPS4/sys_modules/libSceNgs2.sprx", &[1u8; 64]);
+    put(root, "shadPS4/Game_Data/CUSA00900/x.bin", &[1u8; 64]);
+    put(root, "shadPS4/addcont/CUSA00900/x/a.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        w.left,
+        vec![(
+            root.join("shadPS4"),
+            LeftReason::EmulatorData {
+                folder: "shadPS4".into()
+            }
+        )]
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    assert!(w.folder_games.is_empty(), "{:?}", w.folder_games);
+    assert!(w.other_files.is_empty(), "{:?}", w.other_files);
+
+    // `game_data/` alone is no user dir.
+    let tmp = tempfile::tempdir().unwrap();
+    put(tmp.path(), "Stuff/game_data/x.bin", &[1u8; 64]);
+    let w = run(tmp.path(), &NoCloud);
+    assert!(w.left.is_empty(), "{:?}", w.left);
+    assert_eq!(candidate_names(&w), ["x.bin"]);
+}
+
+#[test]
+fn loose_sys_modules_is_emulator_data() {
+    // D25: decrypted firmware modules are never Coverly's to move.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "Firmware/SYS_MODULES/libSceNgs2.sprx", &[1u8; 64]);
+    put(root, "Firmware/other.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        w.left,
+        vec![(
+            root.join("Firmware").join("SYS_MODULES"),
+            LeftReason::EmulatorData {
+                folder: "SYS_MODULES".into()
+            }
+        )]
+    );
+    assert_eq!(candidate_names(&w), ["other.bin"]);
+}
+
+#[test]
+fn mods_beside_base_is_left_not_descended() {
+    // D11 (d): a `-mods` folder beside its base stays where it is and its
+    // loose files are neither opened nor candidates.
+    use coverly_core::consoles::testing::ps4_app;
+    use coverly_core::consoles::{start_open_log, take_open_log};
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    ps4_app(&root.join("CUSA00900"), "CUSA00900", "gd", BLOODBORNE);
+    put(root, "CUSA00900-mods/eboot.bin", &[1u8; 64]);
+    put(root, "CUSA00900-mods/x.bin", &[1u8; 64]);
+    let mods = root.join("CUSA00900-mods");
+    start_open_log();
+    let w = run(root, &NoCloud);
+    let opened = take_open_log();
+    assert!(
+        !opened.iter().any(|p| below(p, &mods)),
+        "opened under -mods: {opened:?}"
+    );
+    assert_eq!(
+        w.left,
+        vec![(
+            mods.clone(),
+            LeftReason::GameOverlay {
+                of: "CUSA00900".into()
+            }
+        )]
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    assert!(!w.other_files.iter().any(|p| below(p, &mods)));
+    assert_eq!(w.folder_games.len(), 1, "{:?}", w.folder_games);
+    assert_eq!(w.folder_games[0].path, root.join("CUSA00900"));
+
+    // The suffix is matched in any case and the base keeps its spelling.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    ps4_app(&root.join("Bloodborne"), "CUSA00900", "gd", BLOODBORNE);
+    put(root, "Bloodborne-MODS/x.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        reason_of(&w, "Bloodborne-MODS"),
+        Some(LeftReason::GameOverlay {
+            of: "Bloodborne".into()
+        })
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+}
+
+#[test]
+fn update_without_param_sfo_beside_base_is_left() {
+    // D11 (d): an `-UPDATE`/`-patch` folder no probe proves, beside its
+    // base, is left as an overlay; one with its own `param.sfo` is an
+    // ordinary folder game (Task 9 pairs it).
+    use coverly_core::consoles::testing::ps4_app;
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    ps4_app(&root.join("CUSA00900"), "CUSA00900", "gd", BLOODBORNE);
+    put(root, "CUSA00900-UPDATE/eboot.bin", &[1u8; 64]);
+    put(root, "CUSA00900-UPDATE/sce_sys/icon0.png", &[1u8; 64]);
+    put(root, "CUSA00900-UPDATE/x.bin", &[1u8; 64]);
+    ps4_app(&root.join("CUSA00900-patch"), "CUSA00900", "gp", BLOODBORNE);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        w.left,
+        vec![(
+            root.join("CUSA00900-UPDATE"),
+            LeftReason::GameOverlay {
+                of: "CUSA00900".into()
+            }
+        )]
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    let games: Vec<String> = file_names(
+        &w.folder_games
+            .iter()
+            .map(|g| g.path.clone())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(games, ["CUSA00900", "CUSA00900-patch"]);
+}
+
+#[test]
+fn mods_without_base_is_walked() {
+    // D11: no base beside it (or a base without `sce_sys/`) → an ordinary
+    // folder.
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "CUSA00900-mods/x.bin", &[1u8; 64]);
+    put(root, "Zelda/readme.txt", b"notes");
+    put(root, "Zelda-mods/y.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert!(w.left.is_empty(), "{:?}", w.left);
+    assert_eq!(candidate_names(&w), ["x.bin", "y.bin"]);
+}
+
+fn leave_id() -> coverly_core::consoles::ConsoleId {
+    coverly_core::consoles::ConsoleId::proven("xboxone", "test probe")
+}
+
+fn not_a_rom_probe(
+    listing: &coverly_core::consoles::DirListing,
+) -> Option<coverly_core::consoles::FolderMatch> {
+    use coverly_core::consoles::{FolderLeave, FolderMatch};
+    use coverly_core::identify::sniff::NotARom;
+    let has = |want: &str| listing.names.iter().any(|n| n.eq_ignore_ascii_case(want));
+    if has("PC.PROBE") {
+        return Some(FolderMatch {
+            id: leave_id(),
+            probe: PathBuf::from("PC.PROBE"),
+            leave: Some(FolderLeave::NotARom(NotARom::PcGameData)),
+        });
+    }
+    has("ACL.PROBE").then(|| FolderMatch {
+        id: leave_id(),
+        probe: PathBuf::from("ACL.PROBE"),
+        leave: Some(FolderLeave::Unreadable),
+    })
+}
+
+/// Sets [`not_a_rom_probe`] on this thread and clears it on drop.
+struct LeaveProbe;
+
+impl LeaveProbe {
+    fn new() -> LeaveProbe {
+        coverly_core::consoles::set_extra_probe(Some(not_a_rom_probe));
+        LeaveProbe
+    }
+}
+
+impl Drop for LeaveProbe {
+    fn drop(&mut self) {
+        coverly_core::consoles::set_extra_probe(None);
+    }
+}
+
+#[test]
+fn probe_leave_not_a_rom_is_one_left_item() {
+    // Plan P-2: a probe that recognises a folder and leaves it makes one
+    // left item; the walk does not descend into it.
+    use coverly_core::identify::sniff::NotARom;
+    let _g = LeaveProbe::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "Halo PC/PC.PROBE", b"x");
+    put(root, "Halo PC/Content/x.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        w.left,
+        vec![(
+            root.join("Halo PC"),
+            LeftReason::NotARom {
+                what: NotARom::PcGameData
+            }
+        )]
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    assert!(w.folder_games.is_empty(), "{:?}", w.folder_games);
+    assert!(w.other_files.is_empty(), "{:?}", w.other_files);
+}
+
+#[test]
+fn probe_leave_unreadable() {
+    let _g = LeaveProbe::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    put(root, "XboxGames/Halo/ACL.PROBE", b"x");
+    put(root, "XboxGames/Halo/x.bin", &[1u8; 64]);
+    let w = run(root, &NoCloud);
+    assert_eq!(
+        w.left,
+        vec![(root.join("XboxGames").join("Halo"), LeftReason::Unreadable)]
+    );
+    assert!(w.candidates.is_empty(), "{:?}", w.candidates);
+    assert!(w.folder_games.is_empty(), "{:?}", w.folder_games);
+}
+
+/// Systems batch 3 D19: an extensionless file named like a GUID is an
+/// XVC candidate only with the `msft-xvd` magic at 0x200 and at least
+/// 4 KiB; a cache blob with a GUID name is another file, key material
+/// is left by name first, and a cloud placeholder is never peeked.
+#[test]
+fn guid_named_files_are_candidates_only_with_the_xvd_magic() {
+    use coverly_core::consoles::testing::xvd_head;
+    let tmp = tempfile::tempdir().unwrap();
+    let xvc = "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6";
+    let blob = "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9";
+    let small = "11111111-2222-3333-4444-555555555555";
+    let cloud = "99999999-8888-7777-6666-555555555555";
+    put(tmp.path(), xvc, &xvd_head(0x01).bytes());
+    put(tmp.path(), blob, &[0x42u8; 8192]);
+    put(tmp.path(), small, &xvd_head(0x01).bytes()[..2048]);
+    put(tmp.path(), cloud, &xvd_head(0x01).bytes());
+    put(
+        tmp.path(),
+        "abcdef01-2345-6789-abcd-ef0123456789.cik",
+        &[1u8; 0x30],
+    );
+
+    let w = run(
+        tmp.path(),
+        &CloudNamed("99999999-8888-7777-6666-555555555555"),
+    );
+    let names: Vec<String> = w
+        .candidates
+        .iter()
+        .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, [xvc], "{w:#?}");
+    assert_eq!(w.candidates[0].ext, "");
+    let others: Vec<String> = w
+        .other_files
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    for name in [blob, small, cloud] {
+        assert!(others.iter().any(|o| o == name), "{name}: {others:?}");
+    }
+    assert_eq!(
+        reason_of(&w, "abcdef01-2345-6789-abcd-ef0123456789.cik"),
+        Some(LeftReason::KeyMaterial)
+    );
+}

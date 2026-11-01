@@ -13,10 +13,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
+  type RefObject,
 } from 'react';
 
 import { DupGroup } from '@/components/dedupe/DupGroup';
 import { ApplyProgress } from '@/components/organize/ApplyProgress';
+import { LargeTransferDialog } from '@/components/organize/LargeTransferDialog';
 import { LeftInPlace } from '@/components/organize/LeftInPlace';
 import type { IsNew } from '@/components/organize/NewMarks';
 import { OptionsBar } from '@/components/organize/OptionsBar';
@@ -41,6 +44,7 @@ import { Kbd, KbdGroup } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
 import { SimpleTooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { LocaleContext } from '@/i18n/core';
+import { useRichT, type RichTFunction } from '@/i18n/rich';
 import { useT, type TFunction } from '@/i18n/useT';
 import { getBackend } from '@/ipc/backend';
 import { errorKey, toBackendError, type BackendError } from '@/ipc/errors';
@@ -107,15 +111,24 @@ function useCatalogues() {
   return { profiles, systems, duplicates };
 }
 
+/** A plan-wide warning: its text (the key), and nodes when data in it is
+ * set in mono. */
+interface WarningLine {
+  text: string;
+  node?: ReactNode;
+}
+
 /** Plan-wide warnings as text (data from the core, never prose). */
 function warningLines(
   t: TFunction,
+  tr: RichTFunction,
   locale: string,
   plan: OrganizePlan,
   systemName: (id: string) => string,
   profileName: (id: string) => string,
-): string[] {
-  const lines: string[] = [];
+): WarningLine[] {
+  const lines: WarningLine[] = [];
+  const push = (text: string) => lines.push({ text });
   for (const w of plan.warnings) {
     switch (w.kind) {
       case 'catalogue-missing': {
@@ -128,7 +141,7 @@ function warningLines(
             ),
           ),
         ];
-        lines.push(
+        push(
           t('organize.noCatalogue', {
             system: systemName(w.system),
             level: (levels.length > 0 ? levels : ['extension' as const])
@@ -139,24 +152,32 @@ function warningLines(
         break;
       }
       case 'target-layout-mismatch':
-        lines.push(
+        push(
           t('organize.target.mismatch', { profile: profileName(w.profile) }),
         );
         break;
       case 'no-space':
-        lines.push(
+        push(
           t('organize.noSpace', {
             needed: formatDecimalSize(w.needed, locale),
             free: formatDecimalSize(w.free, locale),
           }),
         );
         break;
+      case 'large-transfer': {
+        const vars = { bytes: formatDecimalSize(w.bytes, locale) };
+        lines.push({
+          text: t('organize.largeTransfer.warning', vars),
+          node: tr('organize.largeTransfer.warning', vars),
+        });
+        break;
+      }
       case 'move-unavailable':
       case 'sorted-only':
         break;
     }
   }
-  if (!plan.move_allowed) lines.push(t('organize.mode.moveDisabled'));
+  if (!plan.move_allowed) push(t('organize.mode.moveDisabled'));
   return lines;
 }
 
@@ -176,6 +197,8 @@ export function OrganizeScreen() {
   const lastRefresh = useOrganizeStore((s) => s.lastRefresh);
   const refreshing = useOrganizeStore((s) => s.refreshing);
   const stamp = useOrganizeStore((s) => s.settingsStamp);
+  const pendingLarge = useOrganizeStore((s) => s.pendingLarge);
+  const submitting = useOrganizeStore((s) => s.submitting);
   const settings = useSettingsStore((s) => s.settings);
   const { profiles, systems, duplicates: defaultDuplicates } = useCatalogues();
   /** The change summary the user closed (the "New" marks stay). */
@@ -268,7 +291,9 @@ export function OrganizeScreen() {
       });
   }, []);
 
-  const applying = status === 'applying';
+  // While the apply call answers (the backend re-plans, and may ask to
+  // confirm the size), the proposal stays with its apply button busy.
+  const applying = status === 'applying' && !submitting;
   const showResult = job !== null && !applying;
   // The progress block unmounts when the job ends, taking keyboard focus
   // (Cancel, the track list) with it: hand it to the result's heading.
@@ -283,7 +308,10 @@ export function OrganizeScreen() {
   }, [applying, showResult]);
   const proposing =
     !showResult &&
-    (status === 'planning' || status === 'ready' || status === 'error');
+    (submitting ||
+      status === 'planning' ||
+      status === 'ready' ||
+      status === 'error');
   // The folder can be read again while a proposal (or its error) is shown.
   const canRefresh = proposing && request !== null;
   const planFailed = status === 'error' && job === null && error !== null;
@@ -321,7 +349,8 @@ export function OrganizeScreen() {
   }, [canRefresh, refresh]);
   // Options and decisions wait for the plan in flight; an apply or an
   // export only takes the plan made with the options on screen.
-  const busy = status === 'planning';
+  const busy = status === 'planning' || submitting;
+  const applyButton = useRef<HTMLButtonElement>(null);
   const stale = status !== 'ready';
   const shown = error ?? exportError;
 
@@ -475,6 +504,8 @@ export function OrganizeScreen() {
             systems={systems}
             busy={busy}
             stale={stale}
+            submitting={submitting}
+            applyRef={applyButton}
             detected={
               detected === plan.layout && plan.target_root !== plan.source_root
                 ? profileName(detected)
@@ -496,6 +527,16 @@ export function OrganizeScreen() {
             onCancel={back}
           />
         )}
+        {pendingLarge && (
+          <LargeTransferDialog
+            detail={pendingLarge}
+            returnFocus={applyButton}
+            onCancel={() => useOrganizeStore.getState().dismissLarge()}
+            onConfirm={(bytes) =>
+              void useOrganizeStore.getState().confirmApply(bytes)
+            }
+          />
+        )}
       </div>
     </main>
   );
@@ -512,6 +553,10 @@ interface ProposalProps {
   busy: boolean;
   /** The plan on screen is not the answer to the options on screen. */
   stale: boolean;
+  /** Its apply call has not answered yet. */
+  submitting: boolean;
+  /** The apply button (focus comes back to it from the size dialog). */
+  applyRef: RefObject<HTMLButtonElement | null>;
   /** Name of the layout taken from the target, when that happened. */
   detected: string | null;
   exported: string | null;
@@ -540,6 +585,8 @@ function Proposal({
   systems,
   busy,
   stale,
+  submitting,
+  applyRef,
   detected,
   exported,
   lastRefresh,
@@ -557,6 +604,7 @@ function Proposal({
   onCancel,
 }: ProposalProps) {
   const t = useT();
+  const tr = useRichT();
   const locale = useContext(LocaleContext);
   const groups = useMemo(() => groupBySystem(plan), [plan]);
   const buckets = useMemo(() => reviewBuckets(plan), [plan]);
@@ -568,7 +616,7 @@ function Proposal({
   const layoutProfile =
     profiles.find((p) => p.profile.id === plan.layout)?.profile ?? null;
   const { counts } = plan;
-  const warnings = warningLines(t, locale, plan, systemName, profileName);
+  const warnings = warningLines(t, tr, locale, plan, systemName, profileName);
   const nothingToFile = groups.length === 0 && buckets.length === 0;
   const isNew = useMemo<IsNew | undefined>(() => {
     if (!lastRefresh || lastRefresh.added.length === 0) return undefined;
@@ -599,8 +647,8 @@ function Proposal({
       {warnings.length > 0 && (
         <Alert variant="warning">
           {warnings.map((line) => (
-            <p key={line} className="m-0">
-              {line}
+            <p key={line.text} className="m-0">
+              {line.node ?? line.text}
             </p>
           ))}
         </Alert>
@@ -699,8 +747,21 @@ function Proposal({
           (brand §2), and lines up with the panels above it. */}
       <div className="sticky bottom-0 z-[1] flex flex-wrap items-center gap-2 border-t border-cr-border bg-background py-3">
         {counts.auto > 0 || counts.set_aside > 0 ? (
-          <Button variant="primary" disabled={stale} onClick={onApply}>
-            <FolderTree aria-hidden />
+          <Button
+            ref={applyRef}
+            variant="primary"
+            // Busy, not disabled, while its call answers: keyboard focus
+            // stays on it for the size dialog to give back.
+            disabled={stale && !submitting}
+            aria-disabled={submitting || undefined}
+            aria-busy={submitting || undefined}
+            onClick={submitting ? undefined : onApply}
+          >
+            {submitting ? (
+              <Spinner size="sm" decorative />
+            ) : (
+              <FolderTree aria-hidden />
+            )}
             {applyLabel(t, counts.auto, counts.set_aside, plan.set_aside_trash)}
           </Button>
         ) : (

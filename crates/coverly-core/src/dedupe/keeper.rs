@@ -184,6 +184,10 @@ pub struct Candidate<'a> {
     /// The console version as the header or file name writes it
     /// (systems batch 2 D11): weighed first by the revision rule.
     pub console_version: Option<&'a str>,
+    /// The region the console header gives (a PS4/PS5 content id, systems
+    /// batch 3 D8): weighed by the region rule when the name has no region
+    /// tag.
+    pub region: Option<Region>,
 }
 
 impl Candidate<'_> {
@@ -231,9 +235,18 @@ fn norm_name(s: &str) -> String {
     s.nfc().collect::<String>().trim().to_lowercase()
 }
 
+/// The regions the region rule weighs for `c`: its name's region tags,
+/// else the console header's region; `None` when neither has one.
+fn regions_of<'c>(c: &'c Candidate) -> Option<&'c [Region]> {
+    match c.tags {
+        Some(t) if !t.regions.is_empty() => Some(&t.regions),
+        _ => c.region.as_ref().map(std::slice::from_ref),
+    }
+}
+
 /// Ranks of `regions` in the order; the best one and its region.
-fn best_region(tags: &NameTags, order: &[Region]) -> (usize, Region) {
-    tags.regions
+fn best_region(regions: &[Region], order: &[Region]) -> (usize, Region) {
+    regions
         .iter()
         .map(|r| (order.iter().position(|o| o == r).unwrap_or(order.len()), *r))
         .min_by_key(|(i, _)| *i)
@@ -276,12 +289,11 @@ fn rule(r: KeepRule, a: &Candidate, b: &Candidate, ctx: &Ctx) -> Option<Verdict>
         }
         // Level 1/3 copies share their regions; tags that differ there are
         // file names, and a name never chooses (spec §1).
+        // A name without a region tag falls back on the header's region
+        // (systems batch 3 D8).
         KeepRule::Region if versions => {
-            let (ta, tb) = (a.tags?, b.tags?);
-            if ta.regions.is_empty() || tb.regions.is_empty() {
-                return None;
-            }
-            let (ra, rb) = (best_region(ta, ctx.regions), best_region(tb, ctx.regions));
+            let (ga, gb) = (regions_of(a)?, regions_of(b)?);
+            let (ra, rb) = (best_region(ga, ctx.regions), best_region(gb, ctx.regions));
             prefer(rb.0, ra.0, |a_wins| {
                 let (k, o) = if a_wins { (ra.1, rb.1) } else { (rb.1, ra.1) };
                 KeepReason::Region { kept: k, other: o }

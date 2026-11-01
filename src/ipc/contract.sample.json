@@ -767,6 +767,7 @@
           "plus4": "plus4",
           "ps2": "ps2",
           "ps3": "ps3",
+          "ps4": "ps4",
           "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
@@ -791,6 +792,7 @@
           "x68000": "x68000",
           "xbox": "xbox",
           "xbox360": "xbox360",
+          "xboxone": "xboxone",
           "zx81": "zx81",
           "zxspectrum": "zxspectrum"
         },
@@ -826,7 +828,8 @@
     {
       "profile": {
         "id": "batocera",
-        "folder_game_suffix": { "ps3": ".ps3" },
+        "folder_game_suffix": { "ps3": ".ps3", "ps4": ".ps4" },
+        "dlc_folder": { "ps4": "DLC/{title_id}" },
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
@@ -873,6 +876,7 @@
           "plus4": "cplus4",
           "ps2": "ps2",
           "ps3": "ps3",
+          "ps4": "ps4",
           "psvita": "psvita",
           "quake": "quake",
           "satellaview": "satellaview",
@@ -983,6 +987,7 @@
     { "why": "only" },
     { "why": "consensus", "count": 3, "next": 1 },
     { "why": "source-order", "source": "libretro" },
+    { "why": "embedded-first" },
     { "why": "region", "rom": true },
     { "why": "user" }
   ],
@@ -1242,6 +1247,16 @@
     {
       "code": "no-space",
       "detail": "8473027/1000"
+    },
+    {
+      "code": "large-transfer",
+      "detail": {
+        "bytes": 187420000000,
+        "items": 3,
+        "copies": true,
+        "free": 412100000000,
+        "volume": "TinyExt"
+      }
     }
   ],
   "settings_external_tools_found": [
@@ -1676,15 +1691,37 @@
     ]
   },
   "system_infos": [
-    { "id": "ps2", "name": "Sony PlayStation 2", "family": "console" },
-    { "id": "gba", "name": "Game Boy Advance", "family": "handheld" },
+    {
+      "id": "ps2",
+      "name": "Sony PlayStation 2",
+      "family": "console",
+      "no_emulator": false
+    },
+    {
+      "id": "gba",
+      "name": "Game Boy Advance",
+      "family": "handheld",
+      "no_emulator": false
+    },
     {
       "id": "zxspectrum",
       "name": "Sinclair ZX Spectrum",
-      "family": "computer"
+      "family": "computer",
+      "no_emulator": false
     },
-    { "id": "mame", "name": "MAME", "family": "arcade" },
-    { "id": "wasm4", "name": "WASM-4", "family": "engine" }
+    { "id": "mame", "name": "MAME", "family": "arcade", "no_emulator": false },
+    {
+      "id": "wasm4",
+      "name": "WASM-4",
+      "family": "engine",
+      "no_emulator": false
+    },
+    {
+      "id": "xboxseries",
+      "name": "Microsoft Xbox Series X|S",
+      "family": "console",
+      "no_emulator": true
+    }
   ],
   "organize_folder_item": {
     "id": 7,
@@ -1757,7 +1794,10 @@
     "cnmt-xml",
     "ticket-name",
     "file-name",
-    "header"
+    "header",
+    "param-json",
+    "microsoft-game-config",
+    "appx-manifest"
   ],
   "organize_batch2_reasons": [
     {
@@ -1780,5 +1820,77 @@
       "what": "pc-game-data"
     }
   ],
-  "organize_plan_updates": 2
+  "organize_plan_updates": 2,
+  "organize_batch3_item": {
+    "id": 3,
+    "sources": ["Bloodborne (CUSA00900)"],
+    "kind": "folder",
+    "size": 48000000000,
+    "fps": [
+      {
+        "size": 48000000000,
+        "mtime_ns": 1700000000000000000
+      }
+    ],
+    "target": "ps4/DLC/CUSA00900/Bloodborne (CUSA00900)",
+    "set_targets": [],
+    "system_id": "ps4",
+    "folder": "ps4",
+    "confidence": 0.95,
+    "method": "header",
+    "why": [
+      {
+        "kind": "header",
+        "system": "ps4",
+        "weight": 0.95,
+        "detail": "param.sfo"
+      }
+    ],
+    "alternatives": [],
+    "rename": null,
+    "notes": [
+      {
+        "kind": "extract-first"
+      },
+      {
+        "kind": "no-emulator"
+      },
+      {
+        "kind": "pro-enhanced"
+      },
+      {
+        "kind": "dlc-folder",
+        "layout": "Batocera"
+      }
+    ],
+    "companions": [],
+    "catalogue_name": null,
+    "transfer": {
+      "kind": "as-is"
+    },
+    "disc": null,
+    "title_id": {
+      "id": "CUSA00900",
+      "source": "param-sfo"
+    },
+    "content_id": "UP9000-CUSA00900_00-BLOODBORNE000000",
+    "action": "auto"
+  },
+  "organize_batch3_reasons": [
+    {
+      "kind": "game-overlay",
+      "of": "Bloodborne"
+    },
+    {
+      "kind": "not-a-rom",
+      "what": "console-system"
+    }
+  ],
+  "organize_batch3_warnings": [
+    {
+      "kind": "large-transfer",
+      "bytes": 12000000000,
+      "items": 2
+    }
+  ]
 }

@@ -336,6 +336,55 @@ impl Archive {
     }
 }
 
+/// What a ZArchive's tree says (systems batch 3 D12), from names only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZarKind {
+    /// `default.xex` at the root (Xenia).
+    Xbox360,
+    /// `eboot.bin` and `sce_sys/param.sfo` (shadPS4).
+    Ps4,
+    /// `sce_sys/param.sfo` without `eboot.bin` (shadPS4 reads `.zar` DLC).
+    Ps4Dlc,
+    /// `eboot.bin` and `sce_sys/param.json`.
+    Ps5,
+    /// Names of two systems at once.
+    Ambiguous,
+    /// No decisive name.
+    Nothing,
+}
+
+/// Classifies `archive` by the names in its tree (case-insensitive, files
+/// only, nothing read): `default.xex` at the root → [`ZarKind::Xbox360`];
+/// `eboot.bin` + `sce_sys/param.sfo` → [`ZarKind::Ps4`]; `eboot.bin` +
+/// `sce_sys/param.json` → [`ZarKind::Ps5`]; `sce_sys/param.sfo` without
+/// `eboot.bin` → [`ZarKind::Ps4Dlc`]. A tree with names of two of them
+/// (`default.xex` beside any Sony name, `param.sfo` beside `param.json`)
+/// is [`ZarKind::Ambiguous`]; one with none is [`ZarKind::Nothing`].
+pub fn classify(archive: &Archive) -> ZarKind {
+    let file = |path: &[&str]| {
+        archive
+            .lookup(Archive::ROOT, path)
+            .and_then(|i| archive.node(i))
+            .is_some_and(|n| matches!(n, Node::File { .. }))
+    };
+    let xex = file(&["default.xex"]);
+    let eboot = file(&["eboot.bin"]);
+    let sfo = file(&["sce_sys", "param.sfo"]);
+    let json = file(&["sce_sys", "param.json"]);
+    let sony = eboot || sfo || json;
+    match (xex, sony) {
+        (true, true) => ZarKind::Ambiguous,
+        (true, false) => ZarKind::Xbox360,
+        (false, _) => match (eboot, sfo, json) {
+            (_, true, true) => ZarKind::Ambiguous,
+            (true, true, false) => ZarKind::Ps4,
+            (false, true, false) => ZarKind::Ps4Dlc,
+            (true, false, true) => ZarKind::Ps5,
+            _ => ZarKind::Nothing,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testing::{self as t, SparseAt};
@@ -371,6 +420,53 @@ mod tests {
         assert_eq!(a.read_file(&mut b, i, 1 << 20).unwrap(), big);
         assert_eq!(a.read_file(&mut b, i, 1024), None, "over the caller's max");
         assert!(b.used().decoded <= MAX_DECODED);
+    }
+
+    fn kind(files: &[(&str, &[u8])]) -> ZarKind {
+        let mut s = t::zarchive(files);
+        let mut b = budget(&mut s);
+        let f = footer(&mut b).unwrap().unwrap();
+        classify(&open(&mut b, f).unwrap())
+    }
+
+    #[test]
+    fn classify_reads_the_tree_by_name() {
+        let x: &[u8] = b"x";
+        assert_eq!(
+            kind(&[("default.xex", x), ("media/a.bin", x)]),
+            ZarKind::Xbox360
+        );
+        assert_eq!(
+            kind(&[("eboot.bin", x), ("sce_sys/param.sfo", x)]),
+            ZarKind::Ps4
+        );
+        // Names ignore ASCII case, like the folder probes.
+        assert_eq!(
+            kind(&[("EBOOT.BIN", x), ("SCE_SYS/PARAM.SFO", x)]),
+            ZarKind::Ps4
+        );
+        assert_eq!(kind(&[("sce_sys/param.sfo", x)]), ZarKind::Ps4Dlc);
+        assert_eq!(
+            kind(&[("eboot.bin", x), ("sce_sys/param.json", x)]),
+            ZarKind::Ps5
+        );
+        // Two systems at once: nothing is decided (spec §12).
+        assert_eq!(
+            kind(&[("default.xex", x), ("eboot.bin", x)]),
+            ZarKind::Ambiguous
+        );
+        assert_eq!(
+            kind(&[
+                ("eboot.bin", x),
+                ("sce_sys/param.json", x),
+                ("sce_sys/param.sfo", x)
+            ]),
+            ZarKind::Ambiguous
+        );
+        assert_eq!(kind(&[("media/a.bin", x)]), ZarKind::Nothing);
+        assert_eq!(kind(&[("eboot.bin", x)]), ZarKind::Nothing);
+        // A folder under a decisive name is not the file.
+        assert_eq!(kind(&[("default.xex/a.bin", x)]), ZarKind::Nothing);
     }
 
     #[test]

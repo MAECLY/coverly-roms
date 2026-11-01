@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { getBackend, type Backend } from '@/ipc/backend';
 import { toBackendError, type BackendError } from '@/ipc/errors';
 import type {
+  LargeTransferDetail,
   OrganizeDecision,
   OrganizeJobView,
   OrganizePlan,
@@ -58,6 +59,12 @@ interface OrganizeState {
   /** The plan-read settings when Settings was opened from this screen
    * (`organizeStamp`); null when not stamped or once a newer plan starts. */
   settingsStamp: string | null;
+  /** The backend refused the apply until its size is confirmed (spec
+   * D23): the decided plan's numbers, shown in the dialog. */
+  pendingLarge: LargeTransferDetail | null;
+  /** An apply call of the plan on screen has not answered yet (the
+   * backend re-plans first): the apply button shows it is busy. */
+  submitting: boolean;
   start(source: string, launch?: OrganizeLaunch): Promise<void>;
   setOption(patch: Partial<OrganizeRequest>): Promise<void>;
   decide(
@@ -68,6 +75,11 @@ interface OrganizeState {
    * by file. No-op while a plan runs or once an apply started. */
   refresh(): Promise<void>;
   apply(): Promise<void>;
+  /** Applies again with the size the dialog showed; one call however
+   * often it is clicked. No-op without a pending confirmation. */
+  confirmApply(bytes: number): Promise<void>;
+  /** Closes the size confirmation without applying. */
+  dismissLarge(): void;
   /** False when the backend refused or failed the cancel request. */
   cancel(): Promise<boolean>;
   resume(): Promise<void>;
@@ -97,6 +109,8 @@ const initial = {
   lastRefresh: null,
   refreshing: false,
   settingsStamp: null as string | null,
+  pendingLarge: null as LargeTransferDetail | null,
+  submitting: false,
 };
 
 /** Bumped by every plan request (and by cancel/reset): older answers are dropped. */
@@ -120,6 +134,8 @@ let shownWith: {
 let stampOfShown: string | null = null;
 /** A job of the history being resumed: its events are ours. */
 let ownJob: string | null = null;
+/** A confirmed apply is in flight: a second confirm sends nothing. */
+let confirming = false;
 /** Apply/resume event subscription. */
 let following: Promise<() => void> | null = null;
 
@@ -151,6 +167,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       error: null,
       refreshing,
       settingsStamp: null,
+      pendingLarge: null,
     });
     return { mine, previous };
   }
@@ -343,7 +360,15 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
   ): Promise<void> {
     const before = get().status;
     applyPlan = plan;
-    set({ status: 'applying', progress: null, error: null, undo: null });
+    set({
+      status: 'applying',
+      progress: null,
+      error: null,
+      undo: null,
+      pendingLarge: null,
+      // Only an apply of the plan on screen keeps the proposal shown.
+      submitting: plan !== null,
+    });
     const seen = jobEvents;
     try {
       const b = await getBackend();
@@ -353,8 +378,20 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       if (jobEvents === seen) accept(view);
     } catch (e) {
       unfollow();
-      // The plan (or the paused job) is still there to retry from.
-      set({ status: before, error: toBackendError(e), progress: null });
+      const err = toBackendError(e);
+      // The plan (or the paused job) is still there to retry from; a size
+      // refusal waits for the user's answer instead (spec D23).
+      if (err.code === 'large-transfer' && err.largeTransfer) {
+        set({
+          status: before,
+          pendingLarge: err.largeTransfer,
+          progress: null,
+        });
+      } else {
+        set({ status: before, error: err, progress: null });
+      }
+    } finally {
+      set({ submitting: false });
     }
   }
 
@@ -424,6 +461,24 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
         (b) => b.organizeApply(planId, Object.values(decisions)),
         planId,
       );
+    },
+    async confirmApply(bytes) {
+      const { planId, decisions, status, pendingLarge } = get();
+      if (confirming || !pendingLarge || planId === null || status !== 'ready')
+        return;
+      confirming = true;
+      set({ pendingLarge: null });
+      try {
+        await run(
+          (b) => b.organizeApply(planId, Object.values(decisions), bytes),
+          planId,
+        );
+      } finally {
+        confirming = false;
+      }
+    },
+    dismissLarge() {
+      set({ pendingLarge: null });
     },
     async cancel() {
       const { status } = get();
@@ -508,6 +563,7 @@ export const useOrganizeStore = create<OrganizeState>()((set, get) => {
       ownJob = null;
       shownWith = null;
       stampOfShown = null;
+      confirming = false;
       unfollow();
       set(initial);
     },

@@ -99,6 +99,12 @@ pub struct ProfileFile {
     /// (ES-DE); files from before it load with `false`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub folder_stem_keeps_suffix: bool,
+    /// Folder, relative to a system's folder, the frontend reads DLC from
+    /// (system id → template whose only token is `{title_id}`; Batocera
+    /// `ps4 → DLC/{title_id}`, systems batch 3 D16). Files from before it
+    /// load with none: their DLC stays beside its game.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dlc_folder: BTreeMap<String, String>,
 }
 
 fn is_default_layout(l: &DiscLayout) -> bool {
@@ -170,6 +176,7 @@ impl ProfileFile {
             container_overrides: p.container_overrides.clone(),
             folder_game_suffix: p.folder_game_suffix.clone(),
             folder_stem_keeps_suffix: p.folder_stem_keeps_suffix,
+            dlc_folder: p.dlc_folder.clone(),
         }
     }
 
@@ -223,6 +230,7 @@ impl ProfileFile {
                 .collect(),
             folder_game_suffix: self.folder_game_suffix.clone(),
             folder_stem_keeps_suffix: self.folder_stem_keeps_suffix,
+            dlc_folder: self.dlc_folder.clone(),
         }
     }
 
@@ -241,6 +249,34 @@ fn valid_folder_suffix(s: &str) -> bool {
     s.strip_prefix('.').is_some_and(|rest| {
         (1..=16).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric())
     })
+}
+
+/// The only token a DLC folder template takes (the base game's id).
+pub const DLC_FOLDER_TOKEN: &str = "{title_id}";
+
+/// A DLC folder template: relative (no root, drive or `\`), every
+/// `/`-separated segment plain and never `.` or `..`, and `{title_id}` its
+/// only token, so it always stays inside the system's folder. A segment
+/// never ends in `.` nor holds a character Windows refuses in a name
+/// (`<>"|?*`) nor is a DOS device name (`CON`, `nul.x`): the folder
+/// made must be the one the frontend reads.
+fn valid_dlc_folder(t: &str) -> bool {
+    !t.is_empty()
+        && t.trim() == t
+        && t.len() <= 128
+        && !t.starts_with('/')
+        && tokens(t).iter().all(|tok| *tok == DLC_FOLDER_TOKEN)
+        && t.split('/').all(|seg| {
+            let literal = seg.replace(DLC_FOLDER_TOKEN, "");
+            !seg.is_empty()
+                && seg.trim() == seg
+                && seg != "."
+                && seg != ".."
+                && !seg.ends_with('.')
+                && !literal.contains(['\\', ':', '{', '}', '<', '>', '"', '|', '?', '*'])
+                && !seg.chars().any(char::is_control)
+                && !crate::write::is_dos_device_name(seg)
+        })
 }
 
 fn plain_name(s: &str) -> bool {
@@ -433,6 +469,11 @@ pub fn validate_profile(p: &ProfileFile, builtin_ids: &[String]) -> Vec<FieldErr
                 format!("folder_game_suffix.{system_id}"),
                 Invalid,
             ));
+        }
+    }
+    for (system_id, template) in &p.dlc_folder {
+        if db.get(system_id).is_none_or(|s| s.id != *system_id) || !valid_dlc_folder(template) {
+            out.push(FieldError::new(format!("dlc_folder.{system_id}"), Invalid));
         }
     }
     if !p.folder_names.is_empty() {
