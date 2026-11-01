@@ -988,7 +988,7 @@ describe('systems batch 2 copy (spec §10)', () => {
     const row = autoItem(0, 'x.nsp', 'switch', 'switch', {
       rename: { kind: 'path-length' },
       notes: [
-        { kind: 'no-folder-on-device', system: 'switch' },
+        { kind: 'no-folder-on-device', folder: 'SWITCH' },
         { kind: 'dlc', of: 'Super Mario Odyssey' },
       ],
     });
