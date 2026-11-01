@@ -126,6 +126,7 @@ impl World {
             dats: None,
             probe: &Probe,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         }
     }

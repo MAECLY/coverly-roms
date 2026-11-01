@@ -69,6 +69,7 @@ fn key_material_is_never_opened() {
         dats: None,
         probe: &NoCloud,
         online: None,
+        titles: None,
         now: SystemTime::now(),
     };
     let opts = OrganizeOptions {
@@ -168,6 +169,7 @@ fn a_sheet_naming_a_key_file_never_opens_or_moves_it() {
         dats: None,
         probe: &NoCloud,
         online: None,
+        titles: None,
         now: SystemTime::now(),
     };
     let opts = OrganizeOptions {

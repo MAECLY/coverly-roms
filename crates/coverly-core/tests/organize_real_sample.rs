@@ -93,6 +93,7 @@ fn plan_offline_with_cached_dats(dir: &Path, cache: &Cache) -> OrganizePlan {
         dats: None,
         probe: &OsMetaProbe,
         online: None,
+        titles: None,
         now: SystemTime::now(),
     };
     let opts = OrganizeOptions {

@@ -707,6 +707,10 @@ pub struct OrganizeEnv<'a> {
     pub dats: Option<&'a DatStore<'a>>,
     pub probe: &'a dyn MetaProbe,
     pub online: Option<&'a dyn OnlineLookup>,
+    /// The optional Switch name catalogue (adjustments plan P-1): local,
+    /// synchronous lookups only. `None` = no catalogue (tests, `--offline`,
+    /// setting off); callers download it beforehand (P-2).
+    pub titles: Option<&'a dyn crate::catalog::TitleNames>,
     pub now: SystemTime,
 }
 

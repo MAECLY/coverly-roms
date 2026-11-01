@@ -1481,6 +1481,7 @@ impl AppState {
             dats: (!opts.offline && opts.download_dats).then_some(&store),
             probe: &OsMetaProbe,
             online: lookup.as_ref().map(|l| l as &dyn OnlineLookup),
+            titles: None,
             now: SystemTime::now(),
         };
 
@@ -1557,6 +1558,7 @@ impl AppState {
             dats: None,
             probe: &OsMetaProbe,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         Ok(plan_from_survey(

@@ -74,6 +74,7 @@ impl World {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: now(),
         };
         let opts = OrganizeOptions {

@@ -480,6 +480,7 @@ pub fn run(args: &OrganizeArgs) -> Result<(), Failure> {
         online: lookup
             .as_ref()
             .map(|l| l as &dyn coverly_core::organize::evidence::OnlineLookup),
+        titles: None,
         now: SystemTime::now(),
     };
 

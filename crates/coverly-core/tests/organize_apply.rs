@@ -520,6 +520,7 @@ mod plans {
                 dats: None,
                 probe: &NoCloud,
                 online: None,
+                titles: None,
                 now: SystemTime::now(),
             };
             plan_organize(dir, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
@@ -1281,6 +1282,7 @@ mod set_aside {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         plan_organize(dir, &opts, &env, &|_| {}, &AtomicBool::new(false)).unwrap()
@@ -1691,6 +1693,7 @@ mod set_aside_companion_resume {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         let opts = OrganizeOptions {

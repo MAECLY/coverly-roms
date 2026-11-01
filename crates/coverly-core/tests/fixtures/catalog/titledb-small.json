@@ -1,0 +1,58 @@
+{
+  "70010000000001": {
+    "id": "0100000000AA0000",
+    "name": "Synthetic Quest",
+    "publisher": "Example Works",
+    "releaseDate": 20200315,
+    "region": "US",
+    "iconUrl": "https://img-eshop.cdn.nintendo.net/i/0000000000000000000000000000000000000000000000000000000000000001.jpg",
+    "description": "Never stored.",
+    "screenshots": ["https://img-eshop.cdn.nintendo.net/i/shot.jpg"],
+    "languages": ["en"],
+    "key": null
+  },
+  "70010000000002": {
+    "name": "No Id At All",
+    "publisher": "Example Works",
+    "key": null
+  },
+  "70010000000003": {
+    "id": "0100XYZ",
+    "name": "Bad Id",
+    "key": null
+  },
+  "70010000000004": {
+    "id": "0100000000AA0000",
+    "name": "Duplicate Of Synthetic Quest",
+    "key": null
+  },
+  "70010000000005": {
+    "id": "0100000000BB0000",
+    "name": "",
+    "key": null
+  },
+  "70010000000006": {
+    "id": "0100000000CC0000",
+    "name": "Bidi‮Test\u0007 Game",
+    "publisher": null,
+    "releaseDate": 20211399,
+    "region": "EU",
+    "iconUrl": "https://example.com/not-the-eshop.jpg",
+    "rightsId": "0100000000CC00000000000000000000",
+    "description": "Synthetic description, never stored.",
+    "rating": 12,
+    "ratingContent": ["Violence"],
+    "key": null
+  },
+  "70010000000007": {
+    "id": "0100000000DD0000",
+    "name": "Café Tour",
+    "publisher": "Fictional Studio",
+    "releaseDate": 20190101,
+    "region": null,
+    "iconUrl": null,
+    "nsuId": 70010000000007,
+    "ids": ["0100000000DD0000"],
+    "key": null
+  }
+}

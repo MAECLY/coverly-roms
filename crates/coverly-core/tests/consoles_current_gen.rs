@@ -62,6 +62,7 @@ impl World {
             dats: None,
             probe: &NoCloud,
             online: None,
+            titles: None,
             now: SystemTime::now(),
         };
         let opts = OrganizeOptions {

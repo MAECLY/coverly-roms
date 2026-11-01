@@ -73,6 +73,8 @@ pub const LIBRETRO_BASE: &str = "https://thumbnails.libretro.com";
 pub const LIBRETRO_RAW_BASE: &str = "https://raw.githubusercontent.com/libretro-thumbnails";
 pub const DATABASE_BASE: &str =
     "https://raw.githubusercontent.com/libretro/libretro-database/master";
+/// The `blawar/titledb` files (region files and `ncas.json`, spec D3, D6).
+pub const TITLEDB_BASE: &str = "https://raw.githubusercontent.com/blawar/titledb/master";
 pub const STEAMGRIDDB_BASE: &str = "https://www.steamgriddb.com/api/v2";
 pub const SCREENSCRAPER_BASE: &str = "https://api.screenscraper.fr/api2";
 pub const UPDATE_STABLE: &str =
@@ -187,6 +189,7 @@ mod tests {
             LIBRETRO_BASE,
             LIBRETRO_RAW_BASE,
             DATABASE_BASE,
+            TITLEDB_BASE,
             STEAMGRIDDB_BASE,
             SCREENSCRAPER_BASE,
         ] {
