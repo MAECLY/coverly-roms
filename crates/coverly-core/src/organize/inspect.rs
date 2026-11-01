@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 use crate::archive::detect::{by_extension, detect_container, multi_volume_part, EOCD_TAIL};
 use crate::archive::names::{name_key, UnsafeWhy};
 use crate::archive::{
-    self, file_entries, ArchiveError, ArchiveReader, Budget, Compressor, Entry, Format, Limits,
-    Tool, ToolsOnDemand,
+    self, file_entries, ArchiveError, ArchiveReader, Budget, Compressor, Entry, EntryKind, Format,
+    Limits, Tool, ToolsOnDemand,
 };
 use crate::dedupe::source::DiscId;
 use crate::disc::sheets::MAX_SHEET_BYTES;
@@ -960,7 +960,8 @@ fn inspect_archive(
 /// compared ignoring ASCII case, unsafe names never matched). The
 /// `param.json` entry is read through the archive layer (at most
 /// [`crate::consoles::MAX_META_FILE`] bytes, the plan head budget);
-/// `eboot.bin` only by name. The same shape with `param.sfo` (a PS4 app)
+/// `eboot.bin` only by name; both must be files, and an archive of two
+/// such apps is not one. The same shape with `param.sfo` (a PS4 app)
 /// is not one: shadPS4 reads no archive.
 fn ps5_app_archive(
     reader: &mut dyn ArchiveReader,
@@ -968,12 +969,12 @@ fn ps5_app_archive(
     budget: &mut Budget,
 ) -> Option<(usize, crate::consoles::ConsoleId)> {
     const PARAM: &str = "sce_sys/param.json";
-    let safe = |e: &&Entry| e.unsafe_name.is_none();
-    let (at, prefix) = entries
+    let file = |e: &&Entry| e.unsafe_name.is_none() && e.kind == EntryKind::File;
+    let mut apps = entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| safe(e))
-        .find_map(|(i, e)| {
+        .filter(|(_, e)| file(e))
+        .filter_map(|(i, e)| {
             let name = e.name.as_str();
             let cut = name.len().checked_sub(PARAM.len())?;
             if !name.is_char_boundary(cut) || !name[cut..].eq_ignore_ascii_case(PARAM) {
@@ -983,13 +984,19 @@ fn ps5_app_archive(
             // The root, or one top folder (`PPSA01284/`).
             let one_top = prefix.is_empty()
                 || (prefix.ends_with('/') && !prefix[..prefix.len() - 1].contains('/'));
-            one_top.then_some((i, prefix))
-        })?;
-    let eboot = format!("{prefix}eboot.bin");
-    entries
-        .iter()
-        .filter(safe)
-        .find(|e| e.name.as_str().eq_ignore_ascii_case(&eboot))?;
+            let eboot = format!("{prefix}eboot.bin");
+            (one_top
+                && entries
+                    .iter()
+                    .filter(file)
+                    .any(|e| e.name.as_str().eq_ignore_ascii_case(&eboot)))
+            .then_some(i)
+        });
+    // One app per archive: two would name it after whichever came first.
+    let at = apps.next()?;
+    if apps.next().is_some() {
+        return None;
+    }
     let param = &entries[at];
     if param.size > crate::consoles::MAX_META_FILE || param.encrypted {
         return None;

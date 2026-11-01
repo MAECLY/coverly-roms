@@ -1997,3 +1997,39 @@ fn a_ps5_app_archive_is_read_through_its_param_json() {
     assert!(header_hits(&i).is_empty());
     assert!(i.payloads.is_empty(), "{:?}", i.payloads);
 }
+
+#[test]
+fn a_zip_of_two_ps5_apps_or_a_folder_named_eboot_is_not_an_app_archive() {
+    use coverly_core::consoles::testing::ps5_param_json;
+    use std::io::Write;
+    // Systems batch 3 D13: one app per archive. Two app folders would name
+    // the archive after whichever comes first (and dedupe it as that game),
+    // so the archive keeps batch 2's behaviour.
+    let tmp = tempfile::tempdir().unwrap();
+    let two = tmp.path().join("Two.zip");
+    let a = ps5_param_json("PPSA01284", "Returnal", false);
+    let b = ps5_param_json("PPSA02000", "Other Game", false);
+    zip_file(
+        &two,
+        &[
+            ("PPSA01284/eboot.bin", &[0u8; 64], false),
+            ("PPSA01284/sce_sys/param.json", &a, false),
+            ("PPSA02000/eboot.bin", &[0u8; 64], false),
+            ("PPSA02000/sce_sys/param.json", &b, false),
+        ],
+    );
+    let i = inspect(&two);
+    assert!(header_hits(&i).is_empty(), "{:?}", i.payloads);
+
+    // `eboot.bin` must be a file, not a folder of that name.
+    let dir = tmp.path().join("DirEboot.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&dir).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    zip.add_directory("PPSA01284/eboot.bin/", opts).unwrap();
+    zip.start_file("PPSA01284/sce_sys/param.json", opts)
+        .unwrap();
+    zip.write_all(&a).unwrap();
+    zip.finish().unwrap();
+    let i = inspect(&dir);
+    assert!(header_hits(&i).is_empty(), "{:?}", i.payloads);
+}
