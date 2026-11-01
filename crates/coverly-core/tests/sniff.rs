@@ -266,6 +266,30 @@ fn nds_by_two_crcs_and_never_as_gba() {
     assert_eq!(best(&run(&bad, "nds")), None);
 }
 
+/// D6: the unit code at 0x12 lands in the detail (DSi-only, DSi-enhanced),
+/// never in the system.
+#[test]
+fn nds_unit_code_in_detail() {
+    let detail = |b: &[u8]| {
+        let s = run(b, "nds");
+        assert_eq!(s.hits.len(), 1);
+        assert_eq!(s.hits[0].system, "nds");
+        s.hits[0].detail.clone()
+    };
+    let plain = detail(&fx::nds_with(|h| h[0x12] = 0x00));
+    assert_eq!(plain, "NDS header");
+    assert_eq!(
+        detail(&fx::nds_with(|h| h[0x12] = 0x03)),
+        format!("{plain} (DSi)")
+    );
+    assert_eq!(
+        detail(&fx::nds_with(|h| h[0x12] = 0x02)),
+        format!("{plain} (DSi-enhanced)")
+    );
+    let s = run(&fx::nds_with(|h| h[0x12] = 0x03), "dsi");
+    assert_eq!(best(&s).unwrap().0, "nds", "a .dsi dump");
+}
+
 /// Gives `b` a GBA-valid fixed byte and complement (a 16-bit signature).
 fn with_gba_area(b: &mut [u8]) {
     b[0xB2] = 0x96;

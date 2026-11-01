@@ -650,3 +650,84 @@ fn ps3_folder_suffix_is_on_es_de_and_batocera_only() {
         );
     }
 }
+
+/// D6: DSi and DSiWare stay inside `nds` (no researched profile separates
+/// them): `dsi` and `nintendodsi` folders name it everywhere.
+#[test]
+fn dsi_folder_resolves_to_nds() {
+    let db = SystemDb::builtin();
+    let id = |s: Option<&System>| s.map(|s| s.id.clone());
+    for name in ["dsi", "DSi", "nintendodsi"] {
+        assert_eq!(id(db.resolve_folder(name)), Some("nds".into()), "{name}");
+    }
+}
+
+#[test]
+fn dsi_extension_is_nds() {
+    let db = SystemDb::builtin();
+    let ids: Vec<&str> = db
+        .systems_for_extension("dsi")
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    assert_eq!(ids, ["nds"]);
+    let nds = db.get("nds").unwrap();
+    assert_eq!(
+        coverly_core::identify::dat::dat_sources(nds),
+        [
+            "metadat/no-intro/Nintendo - Nintendo DS.dat",
+            "metadat/no-intro/Nintendo - Nintendo DSi.dat",
+        ]
+    );
+    let paths: BTreeSet<String> = research("libretro-database-dats.txt")
+        .lines()
+        .map(String::from)
+        .collect();
+    for dat in coverly_core::identify::dat::dat_sources(nds) {
+        assert!(paths.contains(&dat), "{dat}");
+    }
+}
+
+/// D9: a DSiWare cover only the DSi thumbnails folder has is found.
+#[test]
+fn dsi_cover_folder_is_tried() {
+    let db = SystemDb::builtin();
+    let nds = db.get("nds").unwrap();
+    assert_eq!(nds.libretro.as_deref(), Some("Nintendo - Nintendo DS"));
+    assert_eq!(nds.libretro_also, ["Nintendo - Nintendo DSi"]);
+    let http = http();
+    let server = MockServer::start();
+    server.mock("/", MockResponse::ok(research("thumbnails-root.html")));
+    server.serve_libretro_index(
+        "Nintendo - Nintendo DS",
+        "Named_Boxarts",
+        &["Other (World).png"],
+    );
+    server.serve_libretro_index(
+        "Nintendo - Nintendo DSi",
+        "Named_Boxarts",
+        &["Flipnote Studio (World).png"],
+    );
+    let cache = Cache::in_memory().unwrap();
+    let src = LibretroSource::new(
+        &http,
+        &cache,
+        LibretroConfig {
+            base: server.base(),
+            raw_base: server.url("/raw"),
+            ..LibretroConfig::default()
+        },
+    );
+    let stem = "Flipnote Studio (World)";
+    let c = cover_by_name(&src, nds, stem);
+    assert_eq!(
+        (c[0].kind, c[0].name.as_str()),
+        (MatchKind::NameExact, stem)
+    );
+    assert!(
+        c[0].url
+            .contains(&encode_segment("Nintendo - Nintendo DSi")),
+        "{}",
+        c[0].url
+    );
+}

@@ -751,6 +751,16 @@ expression: rows
   },
   {
     "accepting": [
+      "nds"
+    ],
+    "class": "Unique",
+    "ext": "dsi",
+    "strong": [
+      "nds"
+    ]
+  },
+  {
+    "accepting": [
       "msx",
       "zxspectrum",
       "amstradcpc",

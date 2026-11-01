@@ -676,7 +676,14 @@ fn cartridges(src: &mut dyn ReadAt, head: &[u8], len: u64, ext: &str, s: &mut Sn
         let logo_crc = u16::from_le_bytes([h[0x15C], h[0x15D]]);
         let header_crc = u16::from_le_bytes([h[0x15E], h[0x15F]]);
         if logo_crc == 0xCF56 && crc16_modbus(&h[..0x15E]) == header_crc {
-            s.hit("nds", 0.95, "NDS header");
+            // Unit code (D6): DSi and DSiWare stay `nds`, only the detail
+            // says so.
+            let detail = match h[0x12] {
+                0x03 => "NDS header (DSi)",
+                0x02 => "NDS header (DSi-enhanced)",
+                _ => "NDS header",
+            };
+            s.hit("nds", 0.95, detail);
             return;
         }
     }

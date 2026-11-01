@@ -322,9 +322,13 @@ arcade = true
 id = "nds"
 name = "Nintendo DS"
 family = "handheld"
-aliases = ["NDS", "nintendods"]
-extensions = ["nds", "zip", "7z"]
+# DSi and DSiWare (D6): no researched profile separates them, so `.dsi`,
+# the DSi DAT and the DSi thumbnails live here; the unit code is detail.
+aliases = ["NDS", "nintendods", "dsi", "nintendodsi"]
+extensions = ["nds", "dsi", "zip", "7z"]
 libretro = "Nintendo - Nintendo DS"
+libretro_also = ["Nintendo - Nintendo DSi"]
+dats = ["metadat/no-intro/Nintendo - Nintendo DS.dat", "metadat/no-intro/Nintendo - Nintendo DSi.dat"]
 screenscraper = 15
 
 [[system]]
