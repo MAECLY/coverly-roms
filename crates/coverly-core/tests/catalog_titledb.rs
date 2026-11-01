@@ -1172,3 +1172,34 @@ fn an_icon_that_is_not_a_small_jpeg_or_png_is_never_cached() {
     assert_eq!(cat.icon(&http, &with_icons(), BIDI).unwrap(), None);
     assert!(http.seen().is_empty());
 }
+
+#[test]
+fn nlib_is_never_asked_for_an_update_or_dlc_whose_base_the_index_knows() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(US, TITLEDB);
+    ensure(&cat, &http, &on(), "en", day(0));
+    http.clear();
+    // QUEST's update (base | 0x800) and one of its DLC (base ^ 0x1000 + 1)
+    // are named from the base title (D7): no title id leaves the machine.
+    let update = QUEST | 0x800;
+    let dlc = (QUEST ^ 0x1000) + 1;
+    let out = ask(&cat, &http, &fallback(), "en", &[update, dlc], day(0));
+    assert_eq!(out.asked, 0);
+    assert!(http.seen().is_empty(), "{:?}", http.seen());
+}
+
+#[test]
+fn catalogue_fixtures_are_plain_ascii() {
+    // Bidi and combining characters are written as JSON escapes, so the
+    // bytes under test are visible in review and never reorder the source.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/catalog");
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = std::fs::read(&path).unwrap();
+        if let Some(at) = bytes.iter().position(|b| !b.is_ascii()) {
+            panic!("{} has a non-ASCII byte at {at}", path.display());
+        }
+    }
+}

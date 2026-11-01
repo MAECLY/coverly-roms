@@ -311,7 +311,9 @@ impl SwitchCatalog {
             if cancel.load(Ordering::Relaxed) || deadline.is_some_and(|d| Instant::now() >= d) {
                 break;
             }
-            if self.titledb_title(tid).is_some() {
+            // An update or DLC is named from its base title (D7), so its
+            // id is never sent when the index knows the base.
+            if self.titledb_title(tid).is_some() || self.titledb_title(base_id(tid)).is_some() {
                 continue;
             }
             if let Ok(Some(row)) = store::read_nlib(&writer, tid) {
@@ -959,6 +961,11 @@ fn region_file(locale: &str) -> &'static str {
     } else {
         US_FILE
     }
+}
+
+/// The base title of a Switch update or DLC id (D7): the low 13 bits off.
+fn base_id(tid: u64) -> u64 {
+    tid & 0xFFFF_FFFF_FFFF_E000
 }
 
 fn unix_secs(t: SystemTime) -> i64 {
