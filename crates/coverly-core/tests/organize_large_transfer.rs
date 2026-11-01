@@ -32,7 +32,8 @@ use tempfile::TempDir;
 const GB: u64 = 1_000_000_000;
 
 /// Answers a faked length for files named `<n>gb.bin` (`n` decimal GB,
-/// `9.99gb.bin` for 9.99 GB); the metadata length otherwise.
+/// `9.99gb.bin` for 9.99 GB, `10-16b.gb.bin` for 10 GB less the 16 bytes
+/// of the folder's probe file); the metadata length otherwise.
 struct Probe;
 
 impl MetaProbe for Probe {
@@ -44,6 +45,7 @@ impl MetaProbe for Probe {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         match name.strip_suffix("gb.bin") {
             Some("9.99") => 9_990_000_000,
+            Some("10-16b.") => 10 * GB - 16,
             Some(n) => n.parse::<u64>().map_or(meta.len(), |n| n * GB),
             None => meta.len(),
         }
@@ -255,6 +257,25 @@ fn just_under_ten_gigabytes_is_not_large() {
         .warnings
         .iter()
         .any(|w| matches!(w, PlanWarning::LargeTransfer { .. })));
+}
+
+#[test]
+fn exactly_ten_gigabytes_is_large() {
+    let _h = Hooks::new();
+    let (world, pile, target) = (
+        World::new(),
+        TempDir::new().unwrap(),
+        TempDir::new().unwrap(),
+    );
+    put_tree(pile.path(), &["Big/GAME.PROBE", "Big/10-16b.gb.bin"]);
+    let p = plan(&world, pile.path(), target.path(), TransferMode::Copy);
+    assert_eq!(folder_named(&p, "Big").size, LARGE_TRANSFER);
+    let t = large_transfer(&p).expect("10 GB on the dot is large");
+    assert_eq!((t.bytes, t.items), (LARGE_TRANSFER, 1));
+    assert!(p.warnings.contains(&PlanWarning::LargeTransfer {
+        bytes: LARGE_TRANSFER,
+        items: 1,
+    }));
 }
 
 #[test]
