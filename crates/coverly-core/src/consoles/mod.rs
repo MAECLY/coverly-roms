@@ -622,8 +622,8 @@ pub fn switch_base(title_id: u64) -> u64 {
 /// The title id of the base game `id` belongs to (spec D11), for
 /// grouping updates and DLC with their base: Switch `id & !0x1FFF`, 3DS
 /// and Wii U the base high word with the same low 32 bits, Sony (PS3,
-/// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id itself. `None` for other systems or without a
-/// title id.
+/// Vita, PS4, PS5: systems batch 3 D15) and Xbox 360 the title id
+/// itself. `None` for other systems or without a title id.
 pub fn base_title_id(id: &ConsoleId) -> Option<String> {
     let tid = id.title_id.as_deref()?.trim();
     let hex = || {

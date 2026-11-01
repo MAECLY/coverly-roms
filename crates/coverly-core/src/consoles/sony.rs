@@ -338,7 +338,8 @@ pub fn from_vpk(sfo: &[u8], icon_entry: Option<&str>) -> Option<ConsoleId> {
 
 /// A `.psvita` (Vita3K), `.psn` (RPCS3) or `.ps4` (ES-DE «game serial»,
 /// systems batch 3 D17) launcher file whose whole text is a retail title
-/// id (D14): at most [`LAUNCHER_MAX`] bytes, the system by the extension. Coverly reads these, it never writes them.
+/// id (D14): at most [`LAUNCHER_MAX`] bytes, the system by the
+/// extension. Coverly reads these, it never writes them.
 pub fn launcher(head: &[u8], ext: &str) -> Option<ConsoleId> {
     let system = match ext {
         "psvita" => "psvita",
