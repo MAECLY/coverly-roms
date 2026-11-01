@@ -125,7 +125,10 @@ pub fn probe_ps3_jb(l: &DirListing) -> Option<FolderMatch> {
 }
 
 /// A PS3 HDD/PSN title folder (spec D12): `PARAM.SFO` and a `USRDIR`
-/// directory at its root; the icon is `ICON0.PNG`.
+/// directory at its root; the icon is `ICON0.PNG`. The `PARAM.SFO` must
+/// carry a `TITLE_ID`: the `PSP_GAME/` folder of an extracted PSP UMD has
+/// the same two names, but its `PARAM.SFO` has `DISC_ID` instead
+/// (psdevwiki «PARAM.SFO»).
 pub fn probe_ps3_hdd(l: &DirListing) -> Option<FolderMatch> {
     let usrdir = find(l.names, "USRDIR")?;
     if !std::fs::symlink_metadata(l.dir.join(usrdir)).ok()?.is_dir() {
@@ -134,6 +137,7 @@ pub fn probe_ps3_hdd(l: &DirListing) -> Option<FolderMatch> {
     let probe = PathBuf::from(find(l.names, "PARAM.SFO")?);
     let psf = folder_psf(l, &probe)?;
     let mut id = from_psf(&psf, "ps3", "HDD PARAM.SFO");
+    id.title_id.as_ref()?;
     id.art.extend(icon(l, None, l.names, "ICON0.PNG"));
     Some(FolderMatch { id, probe })
 }
@@ -214,8 +218,9 @@ pub fn identify(b: &mut Budgeted, ext: &str) -> Option<ConsoleId> {
 
 /// A PKG (psdevwiki «PKG files»): type 1 PS3, type 2 PSP or Vita; the
 /// title id is `content_id[7..16]` (`UP0001-NPUB30001_00-…`). A type 2
-/// package whose title id is not a Vita one (`PCS…`, `NPXS…`) is a PSP
-/// or PS1 package, not this batch's. The body is never read.
+/// package whose title id is not a Vita one (`PCS…`, `NPXS…`), or has no
+/// readable title id at all, may be a PSP or PS1 package: it names no
+/// system. The body is never read.
 fn pkg(b: &mut Budgeted) -> Option<ConsoleId> {
     let h = b.read(0, PKG_CONTENT_ID + PKG_CONTENT_ID_LEN).ok()?;
     let kind = u16::from_be_bytes([h[6], h[7]]);
@@ -227,8 +232,8 @@ fn pkg(b: &mut Budgeted) -> Option<ConsoleId> {
     let system = match kind {
         1 => "ps3",
         2 => match &tid {
-            Some(t) if !(t.starts_with("PCS") || t.starts_with("NPXS")) => return None,
-            _ => "psvita",
+            Some(t) if t.starts_with("PCS") || t.starts_with("NPXS") => "psvita",
+            _ => return None,
         },
         _ => return None,
     };
@@ -381,6 +386,9 @@ mod tests {
         let mut odd = testing::pkg(1, "garbage");
         let id = run(&mut odd, "pkg").unwrap();
         assert_eq!((id.confidence, id.serial), (0.90, None));
+        // Type 2 is PSP or Vita: without a readable id it names neither.
+        let mut odd = testing::pkg(2, "garbage");
+        assert_eq!(run(&mut odd, "pkg"), None);
         // An unknown type is nothing.
         let mut other = testing::pkg(9, "UP0001-NPUB30024_00-0000000000000001");
         assert_eq!(run(&mut other, "pkg"), None);
@@ -529,6 +537,24 @@ mod tests {
             assert_eq!(m.id.art.len(), 1);
             // A PARAM.SFO without USRDIR is not a title folder.
             std::fs::remove_dir_all(dir.join("USRDIR")).unwrap();
+            assert_eq!(probe(&dir, probe_ps3_hdd), None);
+        }
+
+        #[test]
+        fn an_extracted_psp_umd_folder_is_not_a_ps3_hdd_title() {
+            // `PSP_GAME/` of an extracted UMD holds `PARAM.SFO` and
+            // `USRDIR/` too, but a PSP `PARAM.SFO` has `DISC_ID`, no
+            // `TITLE_ID` (psdevwiki «PARAM.SFO»): not a PS3 title.
+            let tmp = tempfile::TempDir::new().unwrap();
+            let dir = tmp.path().join("PSP_GAME");
+            std::fs::create_dir_all(dir.join("USRDIR")).unwrap();
+            let sfo = testing::param_sfo(&[
+                ("CATEGORY", "UG"),
+                ("DISC_ID", "ULUS10041"),
+                ("TITLE", "Test Game"),
+            ]);
+            std::fs::write(dir.join("PARAM.SFO"), sfo).unwrap();
+            std::fs::write(dir.join("USRDIR").join("DATA.BIN"), [0u8; 16]).unwrap();
             assert_eq!(probe(&dir, probe_ps3_hdd), None);
         }
 
