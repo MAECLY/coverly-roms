@@ -212,6 +212,8 @@ Tareas:
 
 ## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
 
+> **Dependencias:** depende de 2 (la detección de base, actualización, DLC y demo que traen las tandas). **Lo usan 3, 4 y 5**, así que se hace antes que ellos o como primer paso del 3: la biblioteca guarda los juegos con esta estructura (3), la sincronización la compara y la traduce a cada emulador (4) y las partidas viven en la misma carpeta y se asocian por el mismo title ID (5, incluido 5.3.1).
+
 No entra en el loop de las tandas: se hace después, cuando Miguel lo diga.
 
 ### Qué hay hoy (Tanda 2, `feat/systems-batch-2`)
@@ -267,6 +269,8 @@ La investigación detallada (cómo distinguir cada tipo, cómo encontrar el base
 
 ## 3. Biblioteca
 
+> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.**
+
 Hoy la app abre carpetas: en Inicio aparecen como «Unidades conectadas» y «Bibliotecas recientes», pero solo son rutas, y la «biblioteca» es lo que haya en esa ruta en ese momento. La idea es que exista **una biblioteca propia, la definitiva**, que vive en el ordenador y tiene identidad y funciones propias. Los dispositivos (la SD de la Anbernic, la Ayaneo…) pasan a ser destinos que se comparan y sincronizan con ella (bloque 4).
 
 ### Qué suele tener una biblioteca para considerarse como tal
@@ -314,6 +318,8 @@ Tareas:
 
 ## 4. Sincronizar con dispositivos
 
+> **Dependencias:** depende de 3 (la biblioteca que se compara) y de 2.1 (saber que una actualización o DLC pertenece a un juego, y los traductores por emulador). Se coordina con 5.4 (sincronizar partidas).
+
 Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder llevar la biblioteca a cada una, sabiendo qué juegos hay en la biblioteca, cuáles hay en el dispositivo y cuáles solo en uno de los dos.
 
 ### Cómo lo resuelve hoy la gente (investigación)
@@ -345,6 +351,8 @@ Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder lleva
 - [ ] Sincronizar varios dispositivos con la misma biblioteca y ver de un vistazo qué tiene cada uno.
 
 ## 5. Partidas guardadas (saves)
+
+> **Dependencias:** depende de 2.1 (la carpeta del juego donde va `Saves/`, el title ID para asociar la partida, la relación demo → juego completo para 5.3.1 y la versión del juego para restaurar) y de 3 (la ficha del juego). 5.4 depende además de 4.
 
 Rescatar, ordenar, respaldar y sincronizar las partidas del usuario. Es parte de lo que hace que la biblioteca sea mejor que una carpeta de ROMs. Ninguna herramienta revisada lo hace para emuladores junto con la biblioteca de juegos: [Ludusavi](https://github.com/mtkennerly/ludusavi) respalda partidas de juegos de PC con un manifiesto de rutas (YAML, sacado de PCGamingWiki) y entradas propias, pero no cubre emuladores; RetroArch, EmuDeck y Syncthing solo copian carpetas.
 
