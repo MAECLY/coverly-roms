@@ -3999,9 +3999,61 @@ fn systems_batch_3_pile_plans() {
             "{layout}: {names:?}"
         );
         assert_eq!(
+            at("CUSA00900-DLC-ABC"),
+            at("CUSA00900-UPDATE") + 1,
+            "{layout}: {names:?}"
+        );
+        assert_eq!(
             at("PPSA01284 DLC"),
             at("PPSA01284") + 1,
             "{layout}: {names:?}"
+        );
+        // The XVC is asked about between Xbox One and Xbox Series.
+        assert_eq!(guid.system_id.as_deref(), Some("xboxone"), "{layout}");
+        assert!(
+            guid.alternatives.iter().any(|(s, _)| s == "xboxseries"),
+            "{layout}: {:?}",
+            guid.alternatives
+        );
+        // Targets by component (Windows writes `\`): Batocera renames the
+        // PS4 folder game and its update, and files the DLC under
+        // `ps4/DLC/<title id>/`; ES-DE keeps every name.
+        let target = |name: &str| -> Vec<String> {
+            by_name(&p, name)
+                .target
+                .as_deref()
+                .unwrap_or_else(|| panic!("{layout}: no target for {name}"))
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect()
+        };
+        let (roms, base, update, dlc): (&str, &str, &str, &[&str]) = match layout {
+            "batocera" => (
+                "roms",
+                "CUSA00900.ps4",
+                "CUSA00900.ps4-UPDATE",
+                &["ps4", "DLC", "CUSA00900", "CUSA00900-DLC-ABC"],
+            ),
+            _ => (
+                "ROMs",
+                "CUSA00900",
+                "CUSA00900-UPDATE",
+                &["ps4", "CUSA00900-DLC-ABC"],
+            ),
+        };
+        assert_eq!(target("CUSA00900"), [roms, "ps4", base], "{layout}");
+        assert_eq!(
+            target("CUSA00900-UPDATE"),
+            [roms, "ps4", update],
+            "{layout}"
+        );
+        let mut want_dlc = vec![roms];
+        want_dlc.extend_from_slice(dlc);
+        assert_eq!(target("CUSA00900-DLC-ABC"), want_dlc, "{layout}");
+        assert_eq!(
+            target("Forza Horizon 5"),
+            [roms, "xboxseries", "Forza Horizon 5"],
+            "{layout}"
         );
         assert!(
             p.warnings
