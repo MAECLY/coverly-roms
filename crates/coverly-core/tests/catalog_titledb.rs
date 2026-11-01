@@ -791,3 +791,48 @@ fn status_serialises_with_a_kebab_case_state_tag() {
         "remove-failed"
     );
 }
+
+#[test]
+fn a_retry_after_a_failed_refresh_stays_conditional() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(US, TITLEDB);
+    ensure(&cat, &http, &on(), "en", day(0));
+    http.route(US, |_| Err(NetError::Offline("unreachable".into())));
+    ensure(&cat, &http, &on(), "en", day(8));
+
+    // The server still has the file the rows came from: a 304, not a
+    // second full download.
+    http.route(US, |req| {
+        if req.if_none_match.as_deref() == Some("\"v1\"")
+            && req.if_modified_since.as_deref() == Some("Mon, 14 Sep 2026 05:33:00 GMT")
+        {
+            Ok(answer(304))
+        } else {
+            Ok(ok(b"{}".to_vec()))
+        }
+    });
+    http.clear();
+    let status = ensure(&cat, &http, &on(), "en", day(9));
+    assert_eq!(http.seen().len(), 1);
+    assert_eq!(ready_count(&status), 3);
+    assert_eq!(cat.status(&on()), status, "the 304 clears the failure");
+    http.clear();
+    ensure(&cat, &http, &on(), "en", day(10));
+    assert!(http.seen().is_empty(), "fresh again after the 304");
+}
+
+#[test]
+fn a_refresh_cut_short_keeps_reporting_the_old_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = open(dir.path());
+    let http = Fake::new();
+    http.serve(US, TITLEDB);
+    let first = ensure(&cat, &http, &on(), "en", day(0));
+    assert_eq!(ready_count(&first), 3);
+    let cancel = AtomicBool::new(true);
+    let status = cat.ensure(&http, &on(), "en", day(8), &cancel, None, &|_, _| {});
+    assert_eq!(status, first, "pending is only for a first download");
+    assert!(cat.title(QUEST).is_some());
+}

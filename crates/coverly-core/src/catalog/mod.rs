@@ -168,7 +168,8 @@ impl SwitchCatalog {
     /// while the setting is off; no request while the rows are younger than
     /// `refresh_days`; a 304 only moves the check time; a failure keeps the
     /// old rows. `deadline` caps a first download inside a plan: past it,
-    /// or on `cancel`, nothing is kept and the result is `Pending`.
+    /// or on `cancel`, nothing is kept and the result is `Pending` (a
+    /// refresh cut short reports the rows it still has).
     #[allow(clippy::too_many_arguments)]
     pub fn ensure(
         &self,
@@ -286,8 +287,10 @@ impl SwitchCatalog {
         for (i, file) in files.iter().enumerate() {
             let last = i + 1 == files.len();
             let fallback = i > 0;
+            // A failed refresh keeps its validators: the retry is still a
+            // conditional GET for the rows on disk (D4).
             let conditional = !job.fresh
-                && prev.state == MetaState::Ok
+                && matches!(prev.state, MetaState::Ok | MetaState::Failed)
                 && prev.rows > 0
                 && prev.source_file.as_deref() == Some(*file);
             let outcome = self.fetch(http, job, file, prev, conditional, fallback);
@@ -301,6 +304,7 @@ impl SwitchCatalog {
                     }
                 }
                 Outcome::NotModified => {
+                    meta.state = MetaState::Ok;
                     meta.checked_at = job.now_s;
                     meta.fallback = fallback;
                     if self.write_meta(job.table, &meta).is_err() {
@@ -315,6 +319,9 @@ impl SwitchCatalog {
                     let _ = self.write_meta(job.table, &meta);
                     return CatalogStatus::Rejected;
                 }
+                // Only a first download is pending; a refresh cut short
+                // still has its rows.
+                Outcome::Pending if prev.rows > 0 => return status_of(prev),
                 Outcome::Pending => return CatalogStatus::Pending,
                 Outcome::NotFound | Outcome::Unreadable | Outcome::Failed => {
                     meta.state = MetaState::Failed;
