@@ -3720,3 +3720,334 @@ fn a_pile_folder_game_and_its_file_twin_are_reported_and_both_move() {
         }
     );
 }
+
+/// Faked folder sizes of the current-generation pile (systems batch 3
+/// §9.3): a file named `eboot.bin` (or `Game0.exe`) counts the size of
+/// its folder's game, never written; the metadata length otherwise. A
+/// loose file's size is its metadata length (the hook covers folder
+/// trees only), so the PS4 PKG is its synthetic head.
+struct CurrentGenSizes;
+
+impl MetaProbe for CurrentGenSizes {
+    fn cloud_only(&self, _: &Path, _: &fs::Metadata) -> bool {
+        false
+    }
+
+    fn file_len(&self, path: &Path, meta: &fs::Metadata) -> u64 {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let folder = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        match (folder, name) {
+            ("CUSA00900", "eboot.bin") => 48_120_000_000,
+            ("CUSA00900-UPDATE", "eboot.bin") => 14_800_000_000,
+            ("Forza Horizon 5", "Game0.exe") => 110_400_000_000,
+            _ => meta.len(),
+        }
+    }
+}
+
+/// The current-generation pile of systems batch 3 (spec §9.3): synthetic
+/// heads, manifests and `param` files built by the batch 3 builders, real
+/// names, every mtime pinned in the past.
+fn current_pile(dir: &Path) {
+    use coverly_core::consoles::testing as ct;
+    const BLOODBORNE: &str = "UP9000-CUSA00900_00-BLOODBORNE000000";
+    let sfo = |title_id: &str, category: &str, content_id: &str, title: &str| {
+        ct::param_sfo_with(
+            &[
+                ("APP_VER", "01.09"),
+                ("CATEGORY", category),
+                ("CONTENT_ID", content_id),
+                ("TITLE", title),
+                ("TITLE_ID", title_id),
+                ("VERSION", "01.00"),
+            ],
+            &[("APP_TYPE", 1), ("PUBTOOLVER", 0x0289_0000)],
+        )
+    };
+    // PS4: the game folder, its update and mods siblings, a DLC label folder.
+    let base = dir.join("CUSA00900");
+    ct::ps4_app(&base, "CUSA00900", "gd", BLOODBORNE);
+    ct::put_file(
+        &base,
+        "sce_sys/param.sfo",
+        &sfo("CUSA00900", "gd", BLOODBORNE, "Bloodborne"),
+    );
+    ct::ps4_app(&dir.join("CUSA00900-UPDATE"), "CUSA00900", "gp", BLOODBORNE);
+    ct::put_file(&dir.join("CUSA00900-mods"), "x.bin", &[1u8; 64]);
+    let dlc = dir.join("CUSA00900-DLC-ABC");
+    ct::put_file(
+        &dlc,
+        "sce_sys/param.sfo",
+        &sfo(
+            "CUSA00900",
+            "ac",
+            "UP9000-CUSA00900_00-OLDHUNTERS000000",
+            "The Old Hunters",
+        ),
+    );
+    ct::put_file(&dlc, "content.dat", &[7u8; 64]);
+    // PS4 files: a store package and a ZArchive.
+    let gravity = "EP0002-CUSA04447_00-GRAVITYRUSH00000";
+    let gravity_sfo = ct::ps4_sfo("CUSA04447", "gd", gravity, 1);
+    ct::put_file(
+        dir,
+        &format!("{gravity}.pkg"),
+        &ct::cnt_pkg(gravity, 0x1A, 0, &[(0x1000, 0, gravity_sfo.clone())]).bytes(),
+    );
+    ct::put_file(
+        dir,
+        "Gravity Rush.zar",
+        &ct::zarchive(&[
+            ("eboot.bin", &[0u8; 64]),
+            ("sce_sys/param.sfo", &gravity_sfo),
+        ])
+        .bytes(),
+    );
+    // PS5: a Pro-enhanced game folder, its DLC, a store package, an exFAT image.
+    ct::ps5_app(
+        &dir.join("PPSA01284"),
+        &ct::ps5_param_json("PPSA01284", "Returnal", true),
+        true,
+    );
+    ct::ps5_app(
+        &dir.join("PPSA01284 DLC"),
+        &ct::ps5_param_json("PPSA01284", "Returnal Soundtrack", false),
+        false,
+    );
+    let ratchet = "UP9000-PPSA01284_00-RATCHET000000000";
+    ct::put_file(
+        dir,
+        &format!("{ratchet}.pkg"),
+        &ct::fih_pkg(ratchet, 0x1A).bytes(),
+    );
+    ct::put_file(dir, "PPSA09519.exfat", &ct::exfat_image().bytes());
+    // Xbox: Scarlett, Xbox One (GDK and ERA), a PC build, a GUID-named XVC.
+    ct::gdk_folder(
+        &dir.join("Forza Horizon 5"),
+        &ct::GdkSpec {
+            families: &["Scarlett"],
+            display_name: "Forza Horizon 5",
+            title_id: "2B3C4D5E",
+            store_id: "9NKX70BBCDRN",
+            ..Default::default()
+        },
+    );
+    ct::gdk_folder(
+        &dir.join("Halo 5 Guardians"),
+        &ct::GdkSpec {
+            families: &["XboxOne"],
+            display_name: "Halo 5: Guardians",
+            title_id: "3C4D5E6F",
+            store_id: "BRRC2BP0G9P0",
+            ..Default::default()
+        },
+    );
+    ct::era_folder(
+        &dir.join("Sunset Overdrive"),
+        &ct::era_manifest(
+            "Microsoft.SunsetOverdrive",
+            "Sunset Overdrive",
+            "Sunset Overdrive",
+            true,
+        ),
+    );
+    ct::gdk_folder(
+        &dir.join("Microsoft Flight Simulator"),
+        &ct::GdkSpec {
+            families: &["PC"],
+            display_name: "Microsoft Flight Simulator",
+            title_id: "4D5E6F70",
+            store_id: "9NXVC0482QS5",
+            ..Default::default()
+        },
+    );
+    ct::put_file(
+        dir,
+        "4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6",
+        &ct::xvd_head_with(
+            "4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6",
+            ct::XVD_PRODUCT_ID,
+            0x01,
+            0,
+            [4, 3, 2, 1],
+            0x1_0000,
+        )
+        .bytes(),
+    );
+    // Emulator data and key material, left in place.
+    let shad = dir.join("shadPS4");
+    ct::put_file(&shad, "sys_modules/libSceNgs2.sprx", &[1u8; 64]);
+    ct::put_file(&shad, "game_data/CUSA00900/save.dat", &[2u8; 64]);
+    ct::put_file(&shad, "addcont/CUSA00900/DLC1/content.dat", &[3u8; 64]);
+    ct::put_file(dir, "UP9000-CUSA00900_00.rif", &[9u8; 128]);
+    ct::put_file(dir, "x.cik", &[9u8; 32]);
+    for path in files_below(dir) {
+        pin_mtime(&path, 1);
+    }
+}
+
+#[test]
+fn systems_batch_3_pile_plans() {
+    use coverly_core::organize::apply::set_free_space_override;
+    use coverly_core::organize::{ItemKind, ItemNote, TransferMode};
+    // Spec §9.3 / §14: the current-generation pile of systems batch 3 under
+    // the two layouts whose folder stories differ most (ES-DE plain names
+    // and no PS5 folder; Batocera `.ps4` names and its `DLC/` path), in
+    // copy mode so the plan carries the large-transfer warning.
+    struct Free;
+    impl Drop for Free {
+        fn drop(&mut self) {
+            set_free_space_override(None);
+        }
+    }
+    let _free = Free;
+    set_free_space_override(Some(|_| Some(412_100_000_000)));
+    for layout in ["esde", "batocera"] {
+        let world = World::new();
+        let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        current_pile(s.path());
+        let env = OrganizeEnv {
+            probe: &CurrentGenSizes,
+            ..world.env()
+        };
+        let p = plan_with(
+            &env,
+            s.path(),
+            &OrganizeOptions {
+                offline: true,
+                target: Some(t.path().to_path_buf()),
+                mode: Some(TransferMode::Copy),
+                ..defaults(layout)
+            },
+        );
+        // Asserts that hold whatever the snapshot says.
+        for key in ["UP9000-CUSA00900_00.rif", "x.cik"] {
+            assert_eq!(
+                left_reason(&p, key),
+                Some(LeftReason::KeyMaterial),
+                "{layout} {key}"
+            );
+        }
+        assert!(
+            matches!(
+                left_reason(&p, "shadPS4"),
+                Some(LeftReason::EmulatorData { .. })
+            ),
+            "{layout}: {:?}",
+            by_name(&p, "shadPS4").action
+        );
+        assert_eq!(
+            left_reason(&p, "Microsoft Flight Simulator"),
+            Some(LeftReason::NotARom {
+                what: NotARom::PcGameData
+            }),
+            "{layout}"
+        );
+        assert!(
+            matches!(
+                left_reason(&p, "CUSA00900-mods"),
+                Some(LeftReason::GameOverlay { .. })
+            ),
+            "{layout}: {:?}",
+            by_name(&p, "CUSA00900-mods").action
+        );
+        let forza = by_name(&p, "Forza Horizon 5");
+        assert_eq!(forza.kind, ItemKind::Folder, "{layout}");
+        assert_eq!(forza.system_id.as_deref(), Some("xboxseries"), "{layout}");
+        for name in ["Halo 5 Guardians", "Sunset Overdrive"] {
+            assert_eq!(
+                by_name(&p, name).system_id.as_deref(),
+                Some("xboxone"),
+                "{layout} {name}"
+            );
+        }
+        let guid = by_name(&p, "4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6");
+        assert_eq!(guid.action, OrganizeAction::Review, "{layout}");
+        assert!(guid.notes.contains(&ItemNote::NoEmulator), "{layout}");
+        assert!(
+            by_name(&p, "EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg")
+                .notes
+                .contains(&ItemNote::ExtractFirst),
+            "{layout}"
+        );
+        for name in [
+            "UP9000-PPSA01284_00-RATCHET000000000.pkg",
+            "PPSA09519.exfat",
+        ] {
+            assert!(
+                by_name(&p, name).notes.contains(&ItemNote::NoEmulator),
+                "{layout} {name}: {:?}",
+                by_name(&p, name).notes
+            );
+        }
+        assert!(
+            by_name(&p, "PPSA01284")
+                .notes
+                .contains(&ItemNote::ProEnhanced),
+            "{layout}"
+        );
+        // Updates and DLC right after their base.
+        let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+        let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+        assert_eq!(
+            at("CUSA00900-UPDATE"),
+            at("CUSA00900") + 1,
+            "{layout}: {names:?}"
+        );
+        assert_eq!(
+            at("PPSA01284 DLC"),
+            at("PPSA01284") + 1,
+            "{layout}: {names:?}"
+        );
+        assert!(
+            p.warnings
+                .iter()
+                .any(|w| matches!(w, PlanWarning::LargeTransfer { .. })),
+            "{layout}: {:?}",
+            p.warnings
+        );
+        assert!(
+            !p.warnings
+                .iter()
+                .any(|w| matches!(w, PlanWarning::NoSpace { .. })),
+            "{layout}: {:?}",
+            p.warnings
+        );
+        // The duplicates report names its units by absolute path.
+        let mut value = redact(&p);
+        under_source_root(&mut value, s.path());
+        insta::assert_json_snapshot!(format!("systems_batch_3__{layout}"), value);
+    }
+}
+
+/// Rewrites every string of `value` that starts with `root` (as given or
+/// canonical, `\\?\` dropped, after [`redact`] turned `\` into `/`) as
+/// `<source_root>` plus the rest.
+fn under_source_root(value: &mut serde_json::Value, root: &Path) {
+    fn slashed(path: &Path) -> String {
+        let s = path.to_string_lossy().replace('\\', "/");
+        s.strip_prefix("//?/").map(str::to_string).unwrap_or(s)
+    }
+    fn walk(value: &mut serde_json::Value, roots: &[String]) {
+        match value {
+            serde_json::Value::String(s) => {
+                let plain = s.strip_prefix("//?/").unwrap_or(s).to_string();
+                if let Some(rest) = roots.iter().find_map(|r| plain.strip_prefix(r.as_str())) {
+                    *s = format!("<source_root>{rest}");
+                }
+            }
+            serde_json::Value::Array(values) => values.iter_mut().for_each(|v| walk(v, roots)),
+            serde_json::Value::Object(map) => map.values_mut().for_each(|v| walk(v, roots)),
+            _ => {}
+        }
+    }
+    let mut roots = vec![slashed(root)];
+    if let Ok(canonical) = fs::canonicalize(root) {
+        roots.push(slashed(&canonical));
+    }
+    walk(value, &roots);
+}

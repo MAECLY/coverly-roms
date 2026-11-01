@@ -1,0 +1,954 @@
+---
+source: crates/coverly-core/tests/organize_plan.rs
+expression: value
+---
+{
+  "broad_root": false,
+  "counts": {
+    "auto": 12,
+    "bytes": 173321266573,
+    "deep_folders": 0,
+    "junk": 0,
+    "left": 5,
+    "other_files": 0,
+    "review": 1,
+    "roms": 13,
+    "systems": 4
+  },
+  "created_at": "<created_at>",
+  "deep_folders": [],
+  "duplicates": [
+    {
+      "action": {
+        "kind": "report-only",
+        "why": {
+          "kind": "title-id"
+        }
+      },
+      "choice_dropped": false,
+      "id": 2988954550338500,
+      "keeper": 0,
+      "members": [
+        {
+          "catalogue_name": null,
+          "confidence": 1.0,
+          "dest": null,
+          "id": 0,
+          "relation": "exact",
+          "serials": [],
+          "size": 77824,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "<source_root>/EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg"
+            ],
+            "in_library": false,
+            "kind": "single",
+            "mtime_ns": 1700000001000000000,
+            "primary": "<source_root>/EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg"
+          }
+        },
+        {
+          "catalogue_name": null,
+          "confidence": 0.8999999761581421,
+          "dest": null,
+          "id": 1,
+          "relation": "exact",
+          "serials": [],
+          "size": 3277,
+          "stays": [],
+          "travels": [],
+          "unit": {
+            "files": [
+              "<source_root>/Gravity Rush.zar"
+            ],
+            "in_library": false,
+            "kind": "single",
+            "mtime_ns": 1700000001000000000,
+            "primary": "<source_root>/Gravity Rush.zar"
+          }
+        }
+      ],
+      "reason": {
+        "kind": "tie"
+      },
+      "runner_up": [
+        1,
+        {
+          "kind": "tie"
+        }
+      ],
+      "system": "ps4",
+      "tie": true,
+      "title": "EP0002-CUSA04447_00-GRAVITYRUSH00000"
+    }
+  ],
+  "fat32": false,
+  "items": [
+    {
+      "action": "review",
+      "alternatives": [
+        [
+          "xboxseries",
+          0.949999988079071
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6",
+      "disc": null,
+      "folder": "xboxone",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 65536
+        }
+      ],
+      "id": 0,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "catalogue-missing",
+          "system": "xboxone"
+        },
+        {
+          "kind": "no-emulator"
+        },
+        {
+          "folder": "xboxone",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 65536,
+      "sources": [
+        "4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6"
+      ],
+      "system_id": "xboxone",
+      "target": "roms/xboxone/4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "XVD header",
+          "kind": "header",
+          "system": "xboxone",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "UP9000-CUSA00900_00-BLOODBORNE000000",
+      "disc": null,
+      "folder": "ps4",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 48120000499
+        }
+      ],
+      "id": 1,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "folder-suffix",
+          "layout": "Batocera / Knulli / EmulationStation",
+          "name": "CUSA00900.ps4"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 48120000499,
+      "sources": [
+        "CUSA00900"
+      ],
+      "system_id": "ps4",
+      "target": "roms/ps4/CUSA00900.ps4",
+      "title_id": {
+        "id": "CUSA00900",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.sfo",
+          "kind": "header",
+          "system": "ps4",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "UP9000-CUSA00900_00-BLOODBORNE000000",
+      "disc": null,
+      "folder": "ps4",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 14800000499
+        }
+      ],
+      "id": 2,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "update",
+          "of": "Bloodborne"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 14800000499,
+      "sources": [
+        "CUSA00900-UPDATE"
+      ],
+      "system_id": "ps4",
+      "target": "roms/ps4/CUSA00900.ps4-UPDATE",
+      "title_id": {
+        "id": "CUSA00900",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.sfo",
+          "kind": "header",
+          "system": "ps4",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "UP9000-CUSA00900_00-OLDHUNTERS000000",
+      "disc": null,
+      "folder": "ps4",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 416
+        }
+      ],
+      "id": 3,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "dlc-folder",
+          "layout": "Batocera / Knulli / EmulationStation"
+        },
+        {
+          "kind": "dlc",
+          "of": "Bloodborne"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 416,
+      "sources": [
+        "CUSA00900-DLC-ABC"
+      ],
+      "system_id": "ps4",
+      "target": "roms/ps4/DLC/CUSA00900/CUSA00900-DLC-ABC",
+      "title_id": {
+        "id": "CUSA00900",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.sfo",
+          "kind": "header",
+          "system": "ps4",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 64
+        }
+      ],
+      "id": 4,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "game-overlay",
+        "of": "Bloodborne"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 64,
+      "sources": [
+        "CUSA00900-mods"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "content_id": "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+      "disc": null,
+      "folder": "ps4",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 77824
+        }
+      ],
+      "id": 5,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "extract-first"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 77824,
+      "sources": [
+        "EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg"
+      ],
+      "system_id": "ps4",
+      "target": "roms/ps4/EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg",
+      "title_id": {
+        "id": "CUSA04447",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PS4 PKG header",
+          "kind": "header",
+          "system": "ps4",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "pkg~",
+          "kind": "extension",
+          "system": "ps4",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "xboxseries",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 110400001130
+        }
+      ],
+      "id": 6,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "xboxseries",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 110400001130,
+      "sources": [
+        "Forza Horizon 5"
+      ],
+      "system_id": "xboxseries",
+      "target": "roms/xboxseries/Forza Horizon 5",
+      "title_id": {
+        "id": "2B3C4D5E",
+        "source": "microsoft-game-config"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "MicrosoftGame.config",
+          "kind": "header",
+          "system": "xboxseries",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [
+        [
+          "ps5",
+          0.5
+        ],
+        [
+          "xbox360",
+          0.5
+        ]
+      ],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "content_id": "EP0002-CUSA04447_00-GRAVITYRUSH00000",
+      "disc": null,
+      "folder": "ps4",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 3277
+        }
+      ],
+      "id": 7,
+      "kind": "file",
+      "method": "header",
+      "notes": [],
+      "rename": null,
+      "set_targets": [],
+      "size": 3277,
+      "sources": [
+        "Gravity Rush.zar"
+      ],
+      "system_id": "ps4",
+      "target": "roms/ps4/Gravity Rush.zar",
+      "title_id": {
+        "id": "CUSA04447",
+        "source": "param-sfo"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "ZAR sce_sys/param.sfo",
+          "kind": "header",
+          "system": "ps4",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "zar",
+          "kind": "extension",
+          "system": "ps4",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "xboxone",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1195
+        }
+      ],
+      "id": 8,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "xboxone",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 1195,
+      "sources": [
+        "Halo 5 Guardians"
+      ],
+      "system_id": "xboxone",
+      "target": "roms/xboxone/Halo 5 Guardians",
+      "title_id": {
+        "id": "3C4D5E6F",
+        "source": "microsoft-game-config"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "MicrosoftGame.config",
+          "kind": "header",
+          "system": "xboxone",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1199
+        }
+      ],
+      "id": 9,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "not-a-rom",
+        "what": "pc-game-data"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 1199,
+      "sources": [
+        "Microsoft Flight Simulator"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "UP9000-PPSA01284_00-SAMPLEGAME000000",
+      "disc": null,
+      "folder": "ps5",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 472
+        }
+      ],
+      "id": 10,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "pro-enhanced"
+        },
+        {
+          "folder": "ps5",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 472,
+      "sources": [
+        "PPSA01284"
+      ],
+      "system_id": "ps5",
+      "target": "roms/ps5/PPSA01284",
+      "title_id": {
+        "id": "PPSA01284",
+        "source": "param-json"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.json, PS5 Pro",
+          "kind": "header",
+          "system": "ps5",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "content_id": "UP9000-PPSA01284_00-SAMPLEGAME000000",
+      "disc": null,
+      "folder": "ps5",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 413
+        }
+      ],
+      "id": 11,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "ps5",
+          "kind": "no-folder-on-device"
+        },
+        {
+          "kind": "dlc",
+          "of": "Returnal"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 413,
+      "sources": [
+        "PPSA01284 DLC"
+      ],
+      "system_id": "ps5",
+      "target": "roms/ps5/PPSA01284 DLC",
+      "title_id": {
+        "id": "PPSA01284",
+        "source": "param-json"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "sce_sys/param.json",
+          "kind": "header",
+          "system": "ps5",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9299999475479126,
+      "disc": null,
+      "folder": "ps5",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 65536
+        }
+      ],
+      "id": 12,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "no-emulator"
+        },
+        {
+          "folder": "ps5",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 65536,
+      "sources": [
+        "PPSA09519.exfat"
+      ],
+      "system_id": "ps5",
+      "target": "roms/ps5/PPSA09519.exfat",
+      "title_id": {
+        "id": "PPSA09519",
+        "source": "file-name"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "exFAT image",
+          "kind": "header",
+          "system": "ps5",
+          "weight": 0.8999999761581421
+        },
+        {
+          "detail": "exfat~",
+          "kind": "extension",
+          "system": "ps5",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.949999988079071,
+      "disc": null,
+      "folder": "xboxone",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1200
+        }
+      ],
+      "id": 13,
+      "kind": "folder",
+      "method": "header",
+      "notes": [
+        {
+          "folder": "xboxone",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 1200,
+      "sources": [
+        "Sunset Overdrive"
+      ],
+      "system_id": "xboxone",
+      "target": "roms/xboxone/Sunset Overdrive",
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "AppxManifest.xml",
+          "kind": "header",
+          "system": "xboxone",
+          "weight": 0.949999988079071
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 128
+        }
+      ],
+      "id": 14,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "key-material"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 128,
+      "sources": [
+        "UP9000-CUSA00900_00.rif"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "auto",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.9799999594688416,
+      "content_id": "UP9000-PPSA01284_00-RATCHET000000000",
+      "disc": null,
+      "folder": "ps5",
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 1048576
+        }
+      ],
+      "id": 15,
+      "kind": "file",
+      "method": "header",
+      "notes": [
+        {
+          "kind": "no-emulator"
+        },
+        {
+          "folder": "ps5",
+          "kind": "no-folder-on-device"
+        }
+      ],
+      "rename": null,
+      "set_targets": [],
+      "size": 1048576,
+      "sources": [
+        "UP9000-PPSA01284_00-RATCHET000000000.pkg"
+      ],
+      "system_id": "ps5",
+      "target": "roms/ps5/UP9000-PPSA01284_00-RATCHET000000000.pkg",
+      "title_id": {
+        "id": "PPSA01284",
+        "source": "header"
+      },
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": [
+        {
+          "detail": "PS5 PKG header",
+          "kind": "header",
+          "system": "ps5",
+          "weight": 0.949999988079071
+        },
+        {
+          "detail": "pkg~",
+          "kind": "extension",
+          "system": "ps5",
+          "weight": 0.5
+        }
+      ]
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 192
+        }
+      ],
+      "id": 16,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "folder": "shadPS4",
+        "kind": "emulator-data"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 192,
+      "sources": [
+        "shadPS4"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    },
+    {
+      "action": "left",
+      "alternatives": [],
+      "catalogue_name": null,
+      "companions": [],
+      "confidence": 0.0,
+      "disc": null,
+      "folder": null,
+      "fps": [
+        {
+          "mtime_ns": 0,
+          "size": 32
+        }
+      ],
+      "id": 17,
+      "kind": "file",
+      "method": null,
+      "notes": [],
+      "reason": {
+        "kind": "key-material"
+      },
+      "rename": null,
+      "set_targets": [],
+      "size": 32,
+      "sources": [
+        "x.cik"
+      ],
+      "system_id": null,
+      "target": null,
+      "transfer": {
+        "kind": "as-is"
+      },
+      "why": []
+    }
+  ],
+  "layout": "batocera",
+  "mode": "copy",
+  "move_allowed": true,
+  "names": "keep",
+  "other_files": [],
+  "roms_dir": "<roms_dir>",
+  "sorted_folders": [],
+  "source_root": "<source_root>",
+  "target_detected": null,
+  "target_root": "<target_root>",
+  "updates": 3,
+  "warnings": [
+    {
+      "kind": "catalogue-missing",
+      "system": "xboxone"
+    },
+    {
+      "bytes": 173321201037,
+      "items": 12,
+      "kind": "large-transfer"
+    }
+  ]
+}
