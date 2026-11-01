@@ -698,6 +698,13 @@ fn dlc_folders_load_round_trip_and_are_checked() {
         ("ps4", "D*C/{title_id}"),
         ("ps4", "DLC|x/{title_id}"),
         ("ps4", "\"DLC\"/{title_id}"),
+        // A DOS device name (any case, any extension) is no folder on
+        // Windows: creating it fails or opens the device.
+        ("ps4", "CON/{title_id}"),
+        ("ps4", "nul/{title_id}"),
+        ("ps4", "DLC/Aux.{title_id}"),
+        ("ps4", "com1/{title_id}"),
+        ("ps4", "DLC/lpt9 .x/{title_id}"),
         ("nope", "DLC/{title_id}"),
     ] {
         let mut p = sample();

@@ -258,7 +258,8 @@ pub const DLC_FOLDER_TOKEN: &str = "{title_id}";
 /// `/`-separated segment plain and never `.` or `..`, and `{title_id}` its
 /// only token, so it always stays inside the system's folder. A segment
 /// never ends in `.` nor holds a character Windows refuses in a name
-/// (`<>"|?*`): the folder made must be the one the frontend reads.
+/// (`<>"|?*`) nor is a DOS device name (`CON`, `nul.x`): the folder
+/// made must be the one the frontend reads.
 fn valid_dlc_folder(t: &str) -> bool {
     !t.is_empty()
         && t.trim() == t
@@ -274,6 +275,7 @@ fn valid_dlc_folder(t: &str) -> bool {
                 && !seg.ends_with('.')
                 && !literal.contains(['\\', ':', '{', '}', '<', '>', '"', '|', '?', '*'])
                 && !seg.chars().any(char::is_control)
+                && !crate::write::is_dos_device_name(seg)
         })
 }
 
