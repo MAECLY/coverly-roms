@@ -67,6 +67,7 @@ import {
   organizeDupGroups,
   reviewBuckets,
   ROWS_PER_GROUP,
+  updatesSummaryKey,
   type OrganizeDupGroup,
 } from '@/lib/organize';
 import { organizeStamp } from '@/lib/settingsStamp';
@@ -563,6 +564,7 @@ function Proposal({
   const extracting = useMemo(() => extractSummary(plan), [plan]);
   const dupGroups = useMemo(() => organizeDupGroups(plan), [plan]);
   const dupCounts = useMemo(() => duplicateCounts(plan), [plan]);
+  const updatesLine = updatesSummaryKey(plan);
   const layoutProfile =
     profiles.find((p) => p.profile.id === plan.layout)?.profile ?? null;
   const { counts } = plan;
@@ -612,6 +614,11 @@ function Proposal({
             left: counts.left,
           })}
         </p>
+        {updatesLine && (
+          <p className="m-0 text-dense tabular-nums text-cr-text">
+            {t(updatesLine.key, updatesLine.vars)}
+          </p>
+        )}
         {(dupCounts.extras > 0 || dupCounts.inLibrary > 0) && (
           <p className="m-0 text-dense tabular-nums text-cr-text">
             {[

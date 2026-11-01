@@ -235,7 +235,10 @@ export function SourcesSection() {
                 ? t('settings.sources.notBuilt')
                 : !ready(e.id)
                   ? t('settings.sources.needsKey')
-                  : null;
+                  : e.id === 'embedded'
+                    ? // A source with no key or account says what it uses.
+                      t('settings.sources.hint.embedded')
+                    : null;
           const sid = `source-${e.id}`;
           const up = t('settings.sources.up', { name: name(e.id) });
           const down = t('settings.sources.down', { name: name(e.id) });

@@ -365,6 +365,45 @@ describe('settings sections', () => {
     await waitFor(() => expect(sgdb).toBeDisabled());
   });
 
+  it('sources: the image from the game files says what it is, needs no key and can be moved', async () => {
+    await backend.updateSettings({ general: { language: 'es' } });
+    render(<Root />);
+    await screen.findByRole('button', { name: 'Configuración' });
+    act(() => useNavStore.getState().openSettings('sources'));
+    const panel = await screen.findByRole('tabpanel');
+    const row = await within(panel).findByRole('switch', {
+      name: 'Imagen incluida en el juego',
+    });
+    await waitFor(() =>
+      expect(row).toHaveAccessibleDescription(
+        'Usa el icono que traen algunos juegos (PS3, PS Vita, Wii U, 3DS, Xbox 360) cuando no hay carátula en otra fuente',
+      ),
+    );
+    expect(row).toBeEnabled();
+    // No key field: only SteamGridDB and ScreenScraper have credentials.
+    expect(
+      within(panel).queryByLabelText(/Imagen incluida en el juego/, {
+        selector: 'input:not([role="switch"])',
+      }),
+    ).toBeNull();
+    const order = (await saved()).sources.order.map((e) => e.id);
+    const at = order.indexOf('embedded');
+    expect(at).toBeGreaterThan(0);
+    await userEvent.click(
+      within(panel).getByRole('button', {
+        name: 'Subir Imagen incluida en el juego',
+      }),
+    );
+    await waitFor(async () =>
+      expect((await saved()).sources.order[at - 1]!.id).toBe('embedded'),
+    );
+    expect(
+      within(panel).getByText(
+        `Imagen incluida en el juego: posición ${at} de ${order.length}`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('sources: speaks Spanish', async () => {
     await backend.updateSettings({ general: { language: 'es' } });
     render(<Root />);

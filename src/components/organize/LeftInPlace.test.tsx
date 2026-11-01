@@ -251,4 +251,43 @@ describe('LeftInPlace', () => {
     );
     expect(screen.getAllByRole('listitem')).toHaveLength(400);
   });
+
+  it('key files and emulator data stay with their reason, names in mono', () => {
+    show([
+      left(0, 'prod.keys', { kind: 'key-material' }),
+      left(1, 'title.keys', { kind: 'key-material' }),
+      left(2, 'NPUB30024.rap', { kind: 'key-material' }),
+      left(3, 'ux0', { kind: 'emulator-data', folder: 'ux0' }),
+      left(4, 'model.3ds', { kind: 'not-a-rom', what: 'model3d' }),
+    ]);
+    const keys = screen.getAllByText(
+      'Archivo de claves o licencia: Coverly no lo lee ni lo mueve',
+    );
+    expect(keys).toHaveLength(3);
+    expect(screen.getByText('prod.keys')).toHaveClass('font-mono');
+    const data = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        (el.textContent ?? '').startsWith('Está dentro de los datos'),
+    );
+    expect(data).toHaveTextContent(
+      'Está dentro de los datos de un emulador (ux0); se deja tal cual',
+    );
+    expect(within(data).getByText('ux0').closest('.mono')).not.toBeNull();
+    expect(screen.getByText('No es una ROM (modelo 3D)')).toBeInTheDocument();
+    // None of them asks for a system.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('a game folder left in place keeps its hidden label and size', () => {
+    show([
+      {
+        ...left(0, 'PCSB00245', { kind: 'emulator-data', folder: 'ux0' }),
+        kind: 'folder',
+        size: 1_700_000_000,
+      } as OrganizeItem,
+    ]);
+    expect(screen.getByText('Carpeta de juego')).toHaveClass('sr-only');
+    expect(screen.getByText('1,7 GB')).toHaveClass('font-mono');
+  });
 });

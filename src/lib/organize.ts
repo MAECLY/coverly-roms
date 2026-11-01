@@ -9,12 +9,15 @@ import type {
   DiscId,
   Evidence,
   ItemNote,
+  IdSource,
   LeftReason,
+  NotARom,
   OrganizeItem,
   OrganizePlan,
   OrganizeReport,
   ProfileFile,
   RenameReason,
+  TitleIdRef,
   TransferMode,
 } from '@/ipc/types';
 
@@ -55,9 +58,56 @@ export function groupBySystem(plan: OrganizePlan): SystemGroup[] {
     }
     g.items.push(item);
   }
-  return [...groups.values()].sort((a, b) =>
-    collator.compare(a.folder, b.folder),
+  return [...groups.values()]
+    .map((g) => ({ ...g, items: updatesUnderBases(g.items) }))
+    .sort((a, b) => collator.compare(a.folder, b.folder));
+}
+
+/** The game an update or DLC row belongs to (`note.of`), if it is one. */
+function childOf(item: OrganizeItem): string | null {
+  const n = item.notes.find((x) => x.kind === 'update' || x.kind === 'dlc');
+  return n && (n.kind === 'update' || n.kind === 'dlc') ? n.of : null;
+}
+
+/** The names a base row answers to: its catalogue name, its file (or
+ * folder) name without extension and tags, and its title id. */
+function baseNames(item: OrganizeItem): string[] {
+  const path = item.sources[0] ?? '';
+  const file = path.slice(
+    Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1,
   );
+  const stem = item.kind === 'folder' ? file : file.replace(/\.[^.]+$/, '');
+  const title = stem.replace(/\s*[([].*$/, '').trim();
+  return [item.catalogue_name, title, item.title_id?.id]
+    .filter((x): x is string => !!x)
+    .map((x) => x.toLowerCase());
+}
+
+/**
+ * Puts every update and DLC row right under its base (spec §9.1), keeping
+ * the order of everything else; the core already sends them so, this only
+ * holds the rule when a group is built from another order. A row whose
+ * base is not in the group keeps its place.
+ */
+export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
+  const children = new Map<OrganizeItem, OrganizeItem[]>();
+  const placed = new Set<OrganizeItem>();
+  const bases = items.filter((i) => childOf(i) === null);
+  for (const item of items) {
+    const of = childOf(item)?.toLowerCase();
+    if (of === undefined) continue;
+    const base = bases.find((b) => baseNames(b).includes(of));
+    if (!base) continue;
+    children.set(base, [...(children.get(base) ?? []), item]);
+    placed.add(item);
+  }
+  if (placed.size === 0) return items;
+  const out: OrganizeItem[] = [];
+  for (const item of items) {
+    if (placed.has(item)) continue;
+    out.push(item, ...(children.get(item) ?? []));
+  }
+  return out;
 }
 
 export interface ReviewBucket {
@@ -259,16 +309,7 @@ export function leftReasonKey(
     case 'cloud-only':
       return k('cloudOnly');
     case 'not-a-rom':
-      return k('notARom', {
-        what:
-          r.what === 'web-page'
-            ? 'organize.left.webPage'
-            : r.what === 'patch'
-              ? 'organize.left.patch'
-              : r.what === 'pc-game-data'
-                ? 'organize.left.pcGameData'
-                : 'organize.left.text',
-      });
+      return k('notARom', { what: `organize.left.${NOT_A_ROM[r.what]}` });
     case 'bios':
       return k('bios');
     case 'damaged-archive':
@@ -339,8 +380,22 @@ export function leftReasonKey(
       return k('unreadable');
     case 'collision-set':
       return k('collisionSet');
+    case 'key-material':
+      return k('keyMaterial');
+    case 'emulator-data':
+      return k('emulatorData', { folder: r.folder });
   }
 }
+
+/** The fragment of `organize.left.notARom` for each kind of non-ROM. */
+const NOT_A_ROM: Record<NotARom, string> = {
+  'web-page': 'webPage',
+  text: 'text',
+  patch: 'patch',
+  'pc-game-data': 'pcGameData',
+  installer: 'installer',
+  model3d: 'model3d',
+};
 
 /** A left reason as text, nested fragments translated first. */
 export function leftReasonText(
@@ -408,6 +463,43 @@ export function whyKey(
     case 'user':
       return { key: 'organize.why.user', vars: { system } };
   }
+}
+
+/** The file a title id was read from: a fixed set, never a file's text. */
+const ID_FILES: Partial<Record<IdSource, string>> = {
+  'param-sfo': 'PARAM.SFO',
+  'meta-xml': 'meta.xml',
+  'app-xml': 'app.xml',
+  'default-xbe': 'default.xbe',
+  'default-xex': 'default.xex',
+  'cnmt-xml': 'cnmt.xml',
+};
+
+/**
+ * The «why» line of a console title id (spec §10): the file it was read
+ * from, the ticket's name or the file's name. `null` for an id read from
+ * the header, which the header line already tells.
+ */
+export function titleIdKey(r: TitleIdRef): KeyedText | null {
+  const file = ID_FILES[r.source];
+  if (file)
+    return { key: 'organize.why.titleIdFile', vars: { id: r.id, file } };
+  if (r.source === 'ticket-name')
+    return { key: 'organize.why.titleIdTicket', vars: { id: r.id } };
+  if (r.source === 'file-name')
+    return { key: 'organize.why.titleIdName', vars: { id: r.id } };
+  return null;
+}
+
+/** How many rows are an update or DLC of a game; `null` when none. */
+export function updatesSummaryKey(
+  plan: Pick<OrganizePlan, 'updates'>,
+): KeyedText | null {
+  const count = plan.updates ?? 0;
+  if (count <= 0) return null;
+  return count === 1
+    ? { key: 'organize.summaryUpdatesOne', vars: {} }
+    : { key: 'organize.summaryUpdates', vars: { count } };
 }
 
 /**
@@ -546,6 +638,16 @@ export function noteKey(n: ItemNote): KeyedText | null {
       return k('sheetNotReadYet');
     case 'multi-rom-extract':
       return k('multiRomExtract', { count: n.count });
+    case 'update':
+      return k('update', { title: n.of });
+    case 'dlc':
+      return k('dlc', { title: n.of });
+    case 'encrypted-content':
+      return k('encryptedContent', { emulator: n.emulator });
+    case 'install-first':
+      return k('installFirst', { emulator: n.emulator });
+    case 'folder-suffix':
+      return k('folderSuffix', { name: n.name, layout: n.layout });
     case 'multi-rom-zip':
     case 'no-folder-on-device':
     case 'extension-contradicted':

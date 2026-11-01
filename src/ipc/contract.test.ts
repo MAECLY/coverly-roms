@@ -36,6 +36,10 @@ import {
   type ExtractEntry,
   type FoundTool,
   type ItemNote,
+  type IdSource,
+  type NotARom,
+  type OrganizeItemKind,
+  type TitleIdRef,
   type Transfer,
   type EntriesUpdated,
   type EntryView,
@@ -241,9 +245,10 @@ const PLAN_KEYS = [
   'created_at',
   'duplicates',
   'set_aside_trash',
+  'updates',
 ] as const;
-/** Keys Rust leaves out of a plan with no duplicates step. */
-const PLAN_OMITTED = ['duplicates', 'set_aside_trash'] as const;
+/** Keys Rust leaves out of a plan with no duplicates step and no updates. */
+const PLAN_OMITTED = ['duplicates', 'set_aside_trash', 'updates'] as const;
 const ORGANIZE_ITEM_KEYS = [
   'id',
   'sources',
@@ -266,6 +271,8 @@ const ORGANIZE_ITEM_KEYS = [
   'disc',
   'action',
 ] as const;
+/** `title_id` is left out of an item with no console title id. */
+const CONSOLE_ITEM_KEYS = [...ORGANIZE_ITEM_KEYS, 'title_id'] as const;
 const COUNTS_KEYS = [
   'roms',
   'systems',
@@ -587,15 +594,21 @@ const checks: [string, readonly string[], object][] = [
       ...sample.organize_plan_view.plan,
       duplicates: [],
       set_aside_trash: true,
+      updates: sample.organize_plan_updates,
     },
   ],
   [
     'OrganizeItem',
     ORGANIZE_ITEM_KEYS satisfies AllKeys<
-      OrganizeItem,
+      Omit<OrganizeItem, 'title_id'>,
       typeof ORGANIZE_ITEM_KEYS
     >,
     sample.organize_plan_view.plan.items[0]!,
+  ],
+  [
+    'OrganizeItem (game folder)',
+    CONSOLE_ITEM_KEYS satisfies AllKeys<OrganizeItem, typeof CONSOLE_ITEM_KEYS>,
+    sample.organize_folder_item,
   ],
   [
     'OrganizeCounts',
@@ -1137,4 +1150,68 @@ describe('duplicates contract', () => {
       folder: 'prboom',
     });
   });
+
+  it('systems batch 2: game folders, title ids, the new notes and reasons use the Rust spellings', () => {
+    const item = sample.organize_folder_item as OrganizeItem;
+    const kind: OrganizeItemKind = item.kind;
+    expect(kind).toBe('folder');
+    expect(item.size).toBe(23_410_000_000);
+    const tid: TitleIdRef = item.title_id!;
+    expect(tid).toEqual({ id: 'BLUS30443', source: 'param-sfo' });
+    // Every note kind of the batch, in Rust's order.
+    const notes: ItemNote['kind'][] = item.notes.map((n) => n.kind);
+    expect(notes).toEqual([
+      'folder-suffix',
+      'update',
+      'dlc',
+      'encrypted-content',
+      'install-first',
+    ]);
+    expect(item.notes[0]).toEqual({
+      kind: 'folder-suffix',
+      name: "Demon's Souls (BLUS-30443).ps3",
+      layout: 'ES-DE',
+    });
+    const sources: IdSource[] = sample.organize_id_sources as IdSource[];
+    expect(sources).toEqual(ID_SOURCES);
+    const reasons = sample.organize_batch2_reasons as LeftReason[];
+    expect(reasons).toEqual([
+      { kind: 'key-material' },
+      { kind: 'emulator-data', folder: 'ux0' },
+      { kind: 'not-a-rom', what: 'installer' },
+      { kind: 'not-a-rom', what: 'model3d' },
+      { kind: 'not-a-rom', what: 'pc-game-data' },
+    ]);
+    const what: NotARom[] = reasons.flatMap((r) =>
+      r.kind === 'not-a-rom' ? [r.what] : [],
+    );
+    expect(what).toEqual(['installer', 'model3d', 'pc-game-data']);
+    // Round trip through the wire form.
+    expect(JSON.parse(JSON.stringify(item))).toEqual(
+      sample.organize_folder_item,
+    );
+    expect(sample.organize_plan_updates).toBe(2);
+    // An older plan has no `updates`; it reads as none.
+    expect(
+      (sample.organize_plan_view.plan as OrganizePlanWire).updates,
+    ).toBeUndefined();
+  });
 });
+
+/** Every `IdSource`, in Rust's declaration order. */
+const ID_SOURCES = [
+  'param-sfo',
+  'meta-xml',
+  'app-xml',
+  'default-xbe',
+  'default-xex',
+  'cnmt-xml',
+  'ticket-name',
+  'file-name',
+  'header',
+] as const satisfies readonly IdSource[];
+// Compile-time: the list names every member.
+const _allSources: Exclude<IdSource, (typeof ID_SOURCES)[number]> extends never
+  ? true
+  : never = true;
+void _allSources;

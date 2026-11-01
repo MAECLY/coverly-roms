@@ -174,6 +174,9 @@
         "screenscraper": "ScreenScraper",
         "embedded": "Imagen incluida en el juego"
       },
+      "hint": {
+        "embedded": "Usa el icono que traen algunos juegos (PS3, PS Vita, Wii U, 3DS, Xbox 360) cuando no hay carátula en otra fuente"
+      },
       "notBuilt": "No disponible en esta versión",
       "needsKey": "Guarda una clave de API abajo para activarla",
       "up": "Subir {name}",
@@ -1257,7 +1260,12 @@
       "noStoredChecksum": "Este formato no guarda suma de comprobación; se comprueba el tamaño",
       "notFullyRead": "No se pudo leer entero al simular; revísalo",
       "sheetNotReadYet": "La hoja .cue se comprueba al extraer",
-      "twinSheets": "Trae .gdi y .cue de las mismas pistas; algunos menús mostrarán el juego dos veces"
+      "twinSheets": "Trae .gdi y .cue de las mismas pistas; algunos menús mostrarán el juego dos veces",
+      "update": "Actualización de {title}",
+      "dlc": "Contenido descargable de {title}",
+      "encryptedContent": "Copia cifrada: {emulator} solo abre copias descifradas",
+      "installFirst": "{emulator} lo instala; no se abre desde la carpeta",
+      "folderSuffix": "Se renombra a {name} para que {layout} lo muestre"
     },
     "pause": {
       "diskFull": "Disco lleno: faltan {needed}; se ha deshecho el juego a medias"
@@ -1285,7 +1293,10 @@
       "extensionWeak": "Extensión .{ext}: cuenta para {system} solo dentro de su carpeta o con su cabecera",
       "name": "El nombre se parece a {name} ({system})",
       "online": "ScreenScraper lo conoce como {name} ({system})",
-      "user": "Elegido por ti"
+      "user": "Elegido por ti",
+      "titleIdFile": "Title ID {id} en {file}",
+      "titleIdName": "Title ID {id} tomado del nombre del archivo",
+      "titleIdTicket": "Title ID {id} en el nombre del ticket"
     },
     "left": {
       "archiveNeedsMemory": "Necesita {mib} MB de memoria para descomprimirse",
@@ -1311,6 +1322,8 @@
       "text": "texto",
       "patch": "parche; aplícalo a la ROM original",
       "pcGameData": "datos de un juego de PC",
+      "installer": "instalador de programas",
+      "model3d": "modelo 3D",
       "bios": "BIOS: va en la carpeta de BIOS del dispositivo",
       "damagedArchive": "Archivo comprimido dañado",
       "unsupportedArchive": "Formato comprimido no compatible",
@@ -1328,12 +1341,19 @@
       "tooBigForFat": "Demasiado grande para FAT32 (hace falta exFAT)",
       "unreadable": "No se puede leer",
       "collisionSet": "Otro juego ya usa esos nombres en el destino",
+      "keyMaterial": "Archivo de claves o licencia: Coverly no lo lee ni lo mueve",
+      "emulatorData": "Está dentro de los datos de un emulador ({folder}); se deja tal cual",
       "title": "Se quedan donde están",
       "inLibrary": "Ya está en tu biblioteca como {path}"
     },
     "planning": "Identificando {done} de {total}…",
     "walking": "Buscando archivos…",
     "summary": "ROMs: {roms} · Sistemas: {systems} · Por revisar: {review} · Se quedan: {left}",
+    "summaryUpdates": "Incluye {count} actualizaciones o contenidos descargables",
+    "summaryUpdatesOne": "Incluye 1 actualización o contenido descargable",
+    "item": {
+      "folder": "Carpeta de juego"
+    },
     "empty": {
       "title": "Nada que archivar",
       "body": "Ningún archivo de aquí necesita una carpeta de sistema."

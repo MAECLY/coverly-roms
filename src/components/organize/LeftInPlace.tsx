@@ -11,6 +11,7 @@ import type { LeftReason, OrganizeItem, SystemInfo } from '@/ipc/types';
 import { ROWS_PER_GROUP, leftReasonText } from '@/lib/organize';
 import { systemOptionGroups } from '@/lib/systems';
 
+import { ItemName } from './ItemName';
 import { NewBadge, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
@@ -19,7 +20,6 @@ import {
   hintText,
   listViewport,
   panel,
-  pathText,
   sectionTitle,
 } from './styles';
 
@@ -70,7 +70,7 @@ export function LeftInPlace({
     [systems],
   );
   const systemName = (id: string) => names.get(id) ?? id;
-  /** The reason line; a folder game sets its folder in mono, like a path. */
+  /** The reason line; a folder name is set in mono, like a path. */
   const reasonText = (reason: LeftReason): ReactNode =>
     reason.kind === 'folder-game'
       ? tr(
@@ -78,7 +78,11 @@ export function LeftInPlace({
           { system: systemName(reason.system), folder: reason.folder },
           ['folder'],
         )
-      : leftReasonText(t, reason, systemName);
+      : reason.kind === 'emulator-data'
+        ? tr('organize.left.emulatorData', { folder: reason.folder }, [
+            'folder',
+          ])
+        : leftReasonText(t, reason, systemName);
   const rest = Math.max(0, items.length - visible);
   if (items.length === 0 && otherFiles === 0 && deepFolders === 0) return null;
   return (
@@ -102,7 +106,7 @@ export function LeftInPlace({
                   className={fresh ? `${fileRow} ${newRow}` : fileRow}
                 >
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={`${pathText} min-w-0 flex-1`}>{name}</span>
+                    <ItemName item={item} className="min-w-0 flex-1" />
                     {fresh && <NewBadge />}
                     {item.action === 'left' &&
                       item.reason.kind === 'unknown' && (

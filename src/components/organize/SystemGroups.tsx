@@ -33,6 +33,7 @@ import {
 import { systemOptionGroups } from '@/lib/systems';
 
 import { ExtractDetail } from './ExtractDetail';
+import { ItemName, TitleIdLine } from './ItemName';
 import { NewBadge, NewCount, newRow, type IsNew } from './NewMarks';
 import type { OrganizeChoice } from './ReviewBuckets';
 import {
@@ -43,7 +44,6 @@ import {
   hintText,
   listViewport,
   panel,
-  pathText,
 } from './styles';
 
 const LEAVE = '__leave__';
@@ -188,7 +188,7 @@ function Row({
     <li className={fresh ? `${fileRow} ${newRow}` : fileRow}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="grid min-w-0 flex-[1_1_16rem] gap-0.5">
-          <span className={pathText}>{`${name} → ${item.target ?? ''}`}</span>
+          <ItemName item={item} target={item.target} />
           {serials && (
             <span className="font-mono text-caption tabular-nums text-cr-text-secondary">
               {serials}
@@ -236,6 +236,7 @@ function Row({
         )}
       </div>
       {reason && <p className={hintText}>{t(reason.key, reason.vars)}</p>}
+      <TitleIdLine item={item} />
       {notes.inline.map((line) => (
         <p key={line} className={hintText}>
           {line}
