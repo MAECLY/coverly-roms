@@ -2473,6 +2473,7 @@ mod tests {
             created_at: String::new(),
             duplicates: Vec::new(),
             set_aside_trash: false,
+            updates: 0,
         };
         let id = st.organize.next_id();
         st.organize.store(

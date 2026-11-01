@@ -481,6 +481,7 @@ fn organize_plan_sample() -> coverly_core::organize::OrganizePlan {
         created_at: "2026-10-17T10:32:00Z".into(),
         duplicates: vec![],
         set_aside_trash: false,
+        updates: 0,
     }
 }
 

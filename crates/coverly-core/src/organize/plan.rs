@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 use crate::archive::names::UnsafeWhy;
 use crate::archive::{ContainerKind, Limits, Tool, ToolsOnDemand};
 use crate::cache::Cache;
+use crate::consoles::{base_title_id, TitleKind};
 use crate::dedupe::archive::ArchiveEntryListing;
 use crate::dedupe::disc::ReaderDiscProbe;
 use crate::dedupe::source::DiscId;
@@ -820,6 +821,10 @@ pub struct OrganizePlan {
     /// (left out of the JSON when false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub set_aside_trash: bool,
+    /// Rows that are an update or DLC of a game (systems batch 2 D11),
+    /// for the summary sentence; left out of the JSON when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub updates: usize,
 }
 
 /// One future plan item as the survey found it.
@@ -842,6 +847,9 @@ pub struct SurveyEntry {
     /// A folder game's tree (systems batch 2 D27): the target gates
     /// (FAT32 member size, Windows path length) read it.
     pub tree: Option<TreeSummary>,
+    /// What a console header reader found (systems batch 2 §8): title id
+    /// and kind group updates and DLC with their base (D11).
+    pub console: Option<crate::consoles::ConsoleId>,
 }
 
 /// What a pile holds and what each candidate is: everything a plan needs
@@ -1097,6 +1105,7 @@ pub fn survey(
                 inspection: None,
                 facts: None,
                 tree: None,
+                console: None,
             },
             candidate: None,
             set_sniff: None,
@@ -1259,6 +1268,17 @@ pub fn survey(
     }
     let mut entries: Vec<SurveyEntry> = entries.into_iter().map(|p| p.entry).collect();
     gather_volume_sets(&mut entries, &volume_sets, &mut walked);
+    for entry in &mut entries {
+        if entry.console.is_none() {
+            entry.console = entry.facts.as_ref().and_then(|f| {
+                f.inspection
+                    .payloads
+                    .iter()
+                    .find_map(|p| p.sniff.console.clone())
+            });
+        }
+    }
+    let entries = updates_after_bases(entries);
 
     Ok(Survey {
         source_root: source_abs,
@@ -1269,6 +1289,120 @@ pub fn survey(
     })
 }
 
+/// The base title id and kind of an entry's console header (D11).
+fn title_group(entry: &SurveyEntry) -> Option<((String, String), TitleKind)> {
+    let c = entry.console.as_ref()?;
+    Some(((c.system.clone(), base_title_id(c)?), c.kind))
+}
+
+/// Puts every update and DLC right after its base (systems batch 2
+/// D11): updates first, then DLC, each in path order. One with no base in
+/// the pile keeps its place. Item ids are survey positions, so the plan
+/// lists them in this order too.
+fn updates_after_bases(entries: Vec<SurveyEntry>) -> Vec<SurveyEntry> {
+    let bases: BTreeSet<(String, String)> = entries
+        .iter()
+        .filter_map(title_group)
+        .filter(|(_, kind)| *kind == TitleKind::Base)
+        .map(|(group, _)| group)
+        .collect();
+    if bases.is_empty() {
+        return entries;
+    }
+    let mut rest: Vec<SurveyEntry> = Vec::with_capacity(entries.len());
+    let mut children: HashMap<(String, String), Vec<SurveyEntry>> = HashMap::new();
+    for entry in entries {
+        match title_group(&entry) {
+            Some((group, TitleKind::Update | TitleKind::Dlc)) if bases.contains(&group) => {
+                children.entry(group).or_default().push(entry);
+            }
+            _ => rest.push(entry),
+        }
+    }
+    let mut out = Vec::with_capacity(rest.len());
+    for entry in rest {
+        let group = title_group(&entry)
+            .filter(|(_, kind)| *kind == TitleKind::Base)
+            .map(|(group, _)| group);
+        out.push(entry);
+        if let Some(mut kids) = group.and_then(|g| children.remove(&g)) {
+            kids.sort_by_key(|e| title_group(e).map(|(_, k)| k == TitleKind::Dlc));
+            out.extend(kids);
+        }
+    }
+    out
+}
+
+/// The title of the base game an update or DLC belongs to, for its note:
+/// the header's title, else the base's file (or folder) name without its
+/// tags, else the base title id.
+fn base_title(base: Option<(&SurveyEntry, &OrganizeItem)>, id: &str) -> String {
+    let Some((entry, item)) = base else {
+        return id.to_string();
+    };
+    if let Some(title) = entry.console.as_ref().and_then(|c| c.title.clone()) {
+        return title;
+    }
+    let name = item
+        .sources
+        .first()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = match item.kind {
+        ItemKind::Folder => name.as_str(),
+        _ => name
+            .rsplit_once('.')
+            .map_or(name.as_str(), |(stem, _)| stem),
+    };
+    let title = crate::identify::names::parse_name(stem, false).title;
+    if title.trim().is_empty() {
+        id.to_string()
+    } else {
+        title.trim().to_string()
+    }
+}
+
+/// Notes every update and DLC with the base it belongs to (D11), when
+/// its header names the system the item goes to; returns how many rows
+/// carry such a note.
+fn note_updates(items: &mut [OrganizeItem], entries: &[SurveyEntry]) -> usize {
+    let mut bases: HashMap<(String, String), usize> = HashMap::new();
+    for (i, entry) in entries.iter().enumerate() {
+        if let Some((group, TitleKind::Base)) = title_group(entry) {
+            bases.entry(group).or_insert(i);
+        }
+    }
+    let mut notes: Vec<(usize, ItemNote)> = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let Some(((system, base_id), kind)) = title_group(entry) else {
+            continue;
+        };
+        let Some(item) = items.get(i) else { continue };
+        if item.system_id.as_deref() != Some(system.as_str()) {
+            continue;
+        }
+        let base = bases
+            .get(&(system.clone(), base_id.clone()))
+            .and_then(|&b| Some((entries.get(b)?, items.get(b)?)));
+        let note = match kind {
+            TitleKind::Update => ItemNote::Update {
+                of: base_title(base, &base_id),
+            },
+            TitleKind::Dlc => ItemNote::Dlc {
+                of: base_title(base, &base_id),
+            },
+            _ => continue,
+        };
+        notes.push((i, note));
+    }
+    let count = notes.len();
+    for (i, note) in notes {
+        items[i].notes.push(note);
+    }
+    count
+}
+
 /// One entry per folder game of the walk (systems batch 2 D12, D27),
 /// identified already by its probe: Auto or Review by its confidence, or
 /// left by the first gate its tree fails (a symlink, a partial download,
@@ -1276,7 +1410,10 @@ pub fn survey(
 /// caps stays in review. Folders two probes claimed for different
 /// systems go to review with both systems as alternatives.
 fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntry> {
-    let entry = |path: PathBuf, tree: TreeSummary, combined: Combined| {
+    let entry = |path: PathBuf,
+                 tree: TreeSummary,
+                 combined: Combined,
+                 console: Option<crate::consoles::ConsoleId>| {
         let left = if tree.symlink {
             Some(LeftReason::Symlink)
         } else if tree.partial {
@@ -1310,6 +1447,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             inspection: None,
             facts: None,
             tree: Some(tree),
+            console,
         }
     };
     let mut out = Vec::new();
@@ -1333,7 +1471,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
             )],
             alternatives: Vec::new(),
         };
-        out.push(entry(game.path, game.tree, combined));
+        out.push(entry(game.path, game.tree, combined, Some(game.id)));
     }
     for (path, systems, tree) in std::mem::take(&mut walked.folder_conflicts) {
         let combined = Combined {
@@ -1347,7 +1485,7 @@ fn folder_entries(walked: &mut Walked, thresholds: Thresholds) -> Vec<SurveyEntr
                 .map(|s| (s, thresholds.review))
                 .collect(),
         };
-        out.push(entry(path, tree, combined));
+        out.push(entry(path, tree, combined, None));
     }
     out
 }
@@ -1436,6 +1574,7 @@ fn build_entries(
             inspection: None,
             facts: None,
             tree: None,
+            console: None,
         };
         if !is_list {
             if candidate.ext == "zip" || candidate.ext == "7z" {
@@ -2085,6 +2224,7 @@ pub fn plan_from_survey(
     if let Some(free) = user_available(&target_root).filter(|&free| free < needed) {
         warnings.push(PlanWarning::NoSpace { needed, free });
     }
+    let updates = note_updates(&mut items, &survey.entries);
     let mut counts = count(&items, &survey.walked);
     counts.in_library = dups.in_library;
 
@@ -2124,6 +2264,7 @@ pub fn plan_from_survey(
         set_aside_trash: opts.duplicates == OrganizeDedupeMode::SetAside
             && opts.dedupe.quarantine == QuarantineChoice::Trash,
         duplicates: dups.groups,
+        updates,
     })
 }
 

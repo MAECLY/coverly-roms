@@ -3362,3 +3362,63 @@ fn an_encrypted_cia_moves_with_the_azahar_note() {
         .iter()
         .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
 }
+
+#[test]
+fn switch_update_is_listed_under_its_base() {
+    use coverly_core::organize::ItemNote;
+    // Systems batch 2 D11: an update follows its base in the plan with a
+    // note naming it; DLC whose base is not in the pile names the base id.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    // Different bytes per file: equal files would be duplicates.
+    let nsp = |fill: u8| {
+        coverly_core::consoles::testing::nsp(&[(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.nca",
+            &[fill; 64],
+        )])
+        .bytes()
+    };
+    let base = "Super Mario Odyssey [0100000000010000][v0].nsp";
+    // Sorts before its base by path: only the grouping puts it after.
+    let update = "Odyssey Patch [0100000000010800][v393216].nsp";
+    let dlc = "Other Game DLC [0100000000021001][v0].nsp";
+    let loose = "Another Game [0100000000030000][v0].nsp";
+    for (fill, name) in [base, update, dlc, loose].into_iter().enumerate() {
+        put(&s.path().join(name), &nsp(fill as u8 + 1));
+    }
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let names: Vec<String> = p.items.iter().map(|i| file_name(&i.sources[0])).collect();
+    let at = |n: &str| names.iter().position(|x| x == n).unwrap();
+    assert_eq!(at(update), at(base) + 1, "{names:?}");
+    for (i, item) in p.items.iter().enumerate() {
+        assert_eq!(item.id, i);
+    }
+    for name in [base, update, dlc, loose] {
+        let item = by_name(&p, name);
+        assert_eq!(item.system_id.as_deref(), Some("switch"), "{name}");
+        assert!(item.moves_in(), "{name}: {:?}", item.action);
+        assert_eq!(item.folder.as_deref(), Some("switch"), "{name}");
+    }
+    assert!(by_name(&p, update).notes.contains(&ItemNote::Update {
+        of: "Super Mario Odyssey".into()
+    }));
+    assert!(by_name(&p, dlc).notes.contains(&ItemNote::Dlc {
+        of: "0100000000020000".into()
+    }));
+    assert!(!by_name(&p, base)
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::Update { .. } | ItemNote::Dlc { .. })));
+    assert_eq!(p.updates, 2);
+    // The summary count is in the JSON only when there is one.
+    let json = serde_json::to_value(&p).unwrap();
+    assert_eq!(json["updates"], 2);
+}
