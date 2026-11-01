@@ -29,6 +29,8 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
+7. [Agradecimientos y créditos](#7-agradecimientos-y-créditos)
+   - 7.1. [Fuentes de nombres y arte por title ID](#71-fuentes-de-nombres-y-arte-por-title-id)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -581,3 +583,66 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 ### Exportar la biblioteca a un frontend
 
 - [ ] «Exportar para…»: generar desde la biblioteca la estructura completa de un frontend (carpetas de sistema, ROMs, medios, listas de juegos, lanzadores) en una carpeta o tarjeta de destino, con vista previa y deshacer. Es la base de la sincronización del bloque 4.
+
+## 7. Agradecimientos y créditos
+
+Petición de Miguel (2026-11-01): una pestaña nueva en Ajustes, **«Agradecimientos»**, que dé crédito con claridad a todo lo que no es nuestro y que Coverly usa. Incluye fuentes de portadas, APIs, bases de datos, DAT, documentación técnica, bibliotecas, tipografías e iconos. Por ejemplo, hoy: libretro-thumbnails, SteamGridDB y ScreenScraper.
+
+> **Dependencias:** ninguna para empezar. Cada fuente nueva (titledb en la tanda de ajustes, las del 7.1) añade aquí su entrada al integrarse. Inventario completo de lo que se usa hoy, con licencias, textos de crédito obligatorios y lo que falta verificar: [`docs/02-research/credits-inventory.md`](docs/02-research/credits-inventory.md). **Autorizado por Miguel dentro de la tanda de ajustes (ajuste 7).**
+
+- [ ] Pestaña «Agradecimientos» en Ajustes (es/en), con el lenguaje visual de la app, agrupada por tipo:
+  - fuentes de portadas y metadatos;
+  - bases de datos y DAT;
+  - documentación y wikis técnicos;
+  - convenciones de frontends y firmwares;
+  - bibliotecas;
+  - tipografías e iconos.
+- [ ] Cada entrada lleva el nombre, para qué la usa Coverly en una línea, un enlace a su web o repo oficial, su licencia y el texto de crédito exacto cuando la licencia o los términos lo exijan.
+  - Nunca enlaces a ROMs, claves ni emuladores.
+- [ ] Una fuente única de datos (un archivo de créditos en el repo) que alimenta la pestaña, el README y la landing, para no repetir la lista.
+- [ ] Un test que falle si un proveedor de red o un conjunto de datos nuevo no tiene su entrada de crédito.
+- [ ] Avisos de terceros de las dependencias (Rust y JS) generados al compilar, para cumplir con MIT, BSD, Apache y las demás. Se muestran desde la misma pestaña («Ver licencias de terceros»).
+- [ ] Buscable desde el buscador de Ajustes, como el resto de secciones.
+- [ ] Corregir a la vez los fallos de cumplimiento que encontró el inventario:
+  - el bundle no incluye `LICENSES/*.txt` ni los OFL de las tipografías;
+  - `THIRD-PARTY-NOTICES.md` cita TheGamesDB, que no se usa, y remite a términos en `docs/09-legal/` que no existen;
+  - faltan los avisos de las dependencias JS y de varios crates (MPL de option-ext, CDLA de webpki-roots, ISC/BoringSSL de ring, Unicode-3.0);
+  - falta el enlace que pide GameTDB;
+  - falta el crédito CC BY 4.0 de los iconos de RetroArch Assets en la interfaz.
+
+## 7.1. Fuentes de nombres y arte por title ID
+
+> **Dependencias:** usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
+
+Reglas para todas las fuentes:
+
+- Todo se descarga bajo demanda en el equipo del usuario y se guarda en caché (30 días para los volcados).
+- No se meten datos, derivados ni imágenes en el repo ni en el instalador.
+- Cada fuente lleva crédito visible con enlace.
+- Las peticiones van con user-agent propio y respetando los límites de cada fuente.
+- Las imágenes oficiales no las licencia nadie: se muestran solo en local para identificar el juego.
+
+Tareas:
+
+- [ ] **GameTDB** para 3DS, Wii U, Wii, GameCube, DS/DSiWare y PS3, con búsqueda por ID de producto o serial.
+  - Decidido con Miguel el 2026-11-01: basta con el permiso de su FAQ (_«anyone to use in any game-related project»_). Descarga del XML bajo demanda, caché de 30 días, `Crawl-Delay` para `art.gametdb.com` y crédito visible.
+  - En Wii U, los discos se buscan por el prefijo de `WUP-P-XXXX`.
+- [ ] **Wikidata (CC0)** como puente:
+  - del title ID de Switch y del content ID de PS3, PS4, PS5 y Vita al nombre, la editora y la fecha;
+  - de ahí, a los ids de SteamGridDB e IGDB, para que las carátulas salgan del proveedor de SteamGridDB que ya existe;
+  - es la única fuente libre para PS4 y PS5;
+  - en PS3 hay que filtrar los DLC por el sufijo del content ID.
+- [ ] **Xbox:**
+  - leer en local las cabeceras XBE y STFS/LIVE/CON/GoD (title ID, nombre, icono o miniatura);
+  - `xemu-project/xdb` para la Xbox original, solo para identificar;
+  - `x360db` para Xbox 360, sabiendo que sus carátulas solo responden por HTTP y pueden desaparecer;
+  - el catálogo de la Microsoft Store para One/Series, consultado en vivo por XboxTitleId y guardado solo en la caché local.
+- [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
+- [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
+- [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
+- [ ] **Descartadas** (no usar):
+  - 3dsdb.com, hax0kartik/3dsdb, nswdb y XboxUnity, por la scene o las claves;
+  - Tinfoil, por ser propietaria;
+  - el buscador y las imágenes de Nintendo Europa, que su página de copyright prohíbe usar;
+  - tmdb2 de Sony y el uso masivo de su web;
+  - MobyGames, por ser de pago, y LaunchBox, por no tener términos.
