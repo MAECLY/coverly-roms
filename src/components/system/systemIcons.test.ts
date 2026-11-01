@@ -33,6 +33,29 @@ describe('system icon data', () => {
       expect(FALLBACK_ABBR, id).toHaveProperty(id);
     }
   });
+  it('systems batch 2: each has an audited silhouette or a wordmark slot', () => {
+    const batch2 = [
+      'gamecube',
+      'wii',
+      'wiiu',
+      '3ds',
+      'switch',
+      'psvita',
+      'ps3',
+      'xbox',
+      'xbox360',
+    ];
+    for (const id of batch2) {
+      const silhouette = Object.hasOwn(SYSTEM_ICONS, id);
+      const wordmark = WORDMARK_IDS.includes(id);
+      expect(silhouette !== wordmark, id).toBe(true);
+      if (silhouette) {
+        expect(Object.hasOwn(SYSTEM_ICON_SOURCES, id), id).toBe(true);
+      } else {
+        expect(FALLBACK_ABBR[id], id).toMatch(/^[A-Z0-9]{1,4}$/);
+      }
+    }
+  });
   it('bodies are clean', () => {
     for (const [id, icon] of Object.entries(SYSTEM_ICONS)) {
       expect(icon.body, id).not.toMatch(/#fff|<text|<image|style=/i);
