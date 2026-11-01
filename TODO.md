@@ -642,7 +642,27 @@ Tareas:
   - Después, fuentes de la comunidad, como los «heroes» de SteamGridDB y los fanart de ScreenScraper.
   - Por último, los catálogos oficiales, consultados bajo demanda y guardados solo en la caché local.
   - Hace falta un hueco de «fondo» en el modelo de arte y mostrarlo en las vistas.
-  - La investigación está en curso y se añadirá en `docs/02-research/background-art-sources.md`.
+  - Investigación hecha: [`docs/02-research/background-art-sources.md`](docs/02-research/background-art-sources.md). Ninguna fuente tiene licencia abierta para estas imágenes (son de las editoras), así que se descargan bajo demanda, se guardan solo en local y nunca se empaquetan.
+  - Orden de búsqueda:
+    1. Lo incrustado:
+       - PS4: `pic1` del parche y luego del juego, y en un PKG sin cifrar sus entradas;
+       - PS5: `pic0` y luego `pic1`;
+       - Xbox: la imagen de carga de los GDK y ERA.
+    2. TheGamesDB `fanart` (16:9).
+    3. Heroes de SteamGridDB (`/heroes/game/{id}`, recortados de 3:1 a 16:9; también `/logos` e `/icons`).
+    4. ScreenScraper `fanart`.
+    5. Steam `library_hero`, solo para los juegos que también están en PC.
+    6. IGDB artworks, opcional.
+    7. El catálogo de la Microsoft Store, solo para Xbox: apagado por defecto, con aviso de copyright.
+    8. RAWG, como último recurso.
+  - Puente: Wikidata (CC0) con los ids de SteamGridDB (P12561), Microsoft Store (P5885), Steam (P1733) e IGDB (P5794).
+  - Descartadas:
+    - la PS Store, porque sus términos prohíben montar bases de datos y el scraping;
+    - tmdb2 de Sony, porque pide una clave del firmware;
+    - las herramientas de fPKG;
+    - LaunchBox, que no tiene términos.
+  - Tareas: hueco `Media::Background` con su propio límite de tamaño; leer lo incrustado; pedirlo a SteamGridDB y ScreenScraper; proveedores nuevos (TheGamesDB, Steam); escribirlo en cada frontend (`fanart` en ES-DE, `background` en Pegasus…); fondo en Detalles y Galería, columna «Fondo» en Huecos de arte y filtro «sin fondo».
+  - Comprobar antes: los términos de SteamGridDB, la cobertura real con una muestra de unos 20 juegos y el tamaño de `pic1` en PS4.
 - [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
 - [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
 - [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
