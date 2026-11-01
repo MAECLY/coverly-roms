@@ -6,3 +6,5 @@ src-tauri/target
 src-tauri/gen
 pnpm-lock.yaml
 docs/
+# Byte-exact synthetic catalogue fixtures (escaped bidi/combining characters).
+crates/coverly-core/tests/fixtures/catalog/

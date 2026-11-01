@@ -33,7 +33,7 @@
   },
   "70010000000006": {
     "id": "0100000000CC0000",
-    "name": "Bidi‮Test\u0007 Game",
+    "name": "Bidi\u202eTest\u0007 Game",
     "publisher": null,
     "releaseDate": 20211399,
     "region": "EU",
@@ -46,7 +46,7 @@
   },
   "70010000000007": {
     "id": "0100000000DD0000",
-    "name": "Café Tour",
+    "name": "Cafe\u0301 Tour",
     "publisher": "Fictional Studio",
     "releaseDate": 20190101,
     "region": null,
