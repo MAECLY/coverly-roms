@@ -29,6 +29,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
 6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
+7. [Fuentes de nombres y arte por title ID](#7-fuentes-de-nombres-y-arte-por-title-id)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -581,3 +582,40 @@ Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en 
 ### Exportar la biblioteca a un frontend
 
 - [ ] «Exportar para…»: generar desde la biblioteca la estructura completa de un frontend (carpetas de sistema, ROMs, medios, listas de juegos, lanzadores) en una carpeta o tarjeta de destino, con vista previa y deshacer. Es la base de la sincronización del bloque 4.
+
+## 7. Fuentes de nombres y arte por title ID
+
+> **Dependencias:** usa la identificación por cabecera de las Tandas 2 y 3 y de la tanda de ajustes, que es de donde salen el title ID, el serial o el content ID. La tanda de ajustes solo integra `blawar/titledb` para Switch; el resto va aquí. Investigación completa, con licencias y cifras: [`docs/02-research/metadata-sources-by-title-id.md`](docs/02-research/metadata-sources-by-title-id.md).
+
+Reglas para todas las fuentes:
+
+- Todo se descarga bajo demanda en el equipo del usuario y se guarda en caché (30 días para los volcados).
+- No se meten datos, derivados ni imágenes en el repo ni en el instalador.
+- Cada fuente lleva crédito visible con enlace.
+- Las peticiones van con user-agent propio y respetando los límites de cada fuente.
+- Las imágenes oficiales no las licencia nadie: se muestran solo en local para identificar el juego.
+
+Tareas:
+
+- [ ] **GameTDB** para 3DS, Wii U, Wii, GameCube, DS/DSiWare y PS3, con búsqueda por ID de producto o serial.
+  - Decidido con Miguel el 2026-11-01: basta con el permiso de su FAQ (_«anyone to use in any game-related project»_). Descarga del XML bajo demanda, caché de 30 días, `Crawl-Delay` para `art.gametdb.com` y crédito visible.
+  - En Wii U, los discos se buscan por el prefijo de `WUP-P-XXXX`.
+- [ ] **Wikidata (CC0)** como puente:
+  - del title ID de Switch y del content ID de PS3, PS4, PS5 y Vita al nombre, la editora y la fecha;
+  - de ahí, a los ids de SteamGridDB e IGDB, para que las carátulas salgan del proveedor de SteamGridDB que ya existe;
+  - es la única fuente libre para PS4 y PS5;
+  - en PS3 hay que filtrar los DLC por el sufijo del content ID.
+- [ ] **Xbox:**
+  - leer en local las cabeceras XBE y STFS/LIVE/CON/GoD (title ID, nombre, icono o miniatura);
+  - `xemu-project/xdb` para la Xbox original, solo para identificar;
+  - `x360db` para Xbox 360, sabiendo que sus carátulas solo responden por HTTP y pueden desaparecer;
+  - el catálogo de la Microsoft Store para One/Series, consultado en vivo por XboxTitleId y guardado solo en la caché local.
+- [ ] **Redump y No-Intro** para identificar por hash o serial. No tocar la sección de claves de disco de Redump.
+- [ ] **IGDB** como proveedor opcional con la clave del propio usuario, igual que SteamGridDB.
+- [ ] Pendiente de revisar antes de usarlas: SerialStation (operador y términos), DBox y los términos de No-Intro para los sistemas de Nintendo.
+- [ ] **Descartadas** (no usar):
+  - 3dsdb.com, hax0kartik/3dsdb, nswdb y XboxUnity, por la scene o las claves;
+  - Tinfoil, por ser propietaria;
+  - el buscador y las imágenes de Nintendo Europa, que su página de copyright prohíbe usar;
+  - tmdb2 de Sony y el uso masivo de su web;
+  - MobyGames, por ser de pago, y LaunchBox, por no tener términos.
