@@ -37,6 +37,7 @@ import {
   targetDir,
   titleIdKey,
   updatesSummaryKey,
+  updatesUnderBases,
   whyKey,
 } from './organize';
 
@@ -1065,5 +1066,71 @@ describe('systems batch 2 copy (spec §10)', () => {
         placeholders(lookup(es, key)),
       );
     }
+  });
+});
+
+describe('updatesUnderBases', () => {
+  const sw = (id: number, name: string, extra: Partial<OrganizeItem> = {}) =>
+    autoItem(id, name, 'switch', 'switch', extra);
+  const names = (items: OrganizeItem[]) => items.map((i) => i.sources[0]);
+
+  it('puts updates and DLC under the base they name, by title or title id', () => {
+    const dlc = sw(1, 'Odyssey DLC.nsp', {
+      notes: [{ kind: 'dlc', of: '0100000000010000' }],
+    });
+    const update = sw(2, 'SMO [v393216].nsp', {
+      notes: [{ kind: 'update', of: 'Super Mario Odyssey' }],
+    });
+    const other = sw(3, 'Mario Kart 8.nsp');
+    const base = sw(4, 'Super Mario Odyssey [0100000000010000][v0].nsp', {
+      title_id: { id: '0100000000010000', source: 'ticket-name' },
+    });
+    expect(names(updatesUnderBases([dlc, update, other, base]))).toEqual([
+      'Mario Kart 8.nsp',
+      'Super Mario Odyssey [0100000000010000][v0].nsp',
+      'Odyssey DLC.nsp',
+      'SMO [v393216].nsp',
+    ]);
+  });
+
+  it('an update whose base is not in the group keeps its place', () => {
+    const orphan = sw(1, 'Zelda [v2].nsp', {
+      notes: [{ kind: 'update', of: '01007EF00011E000' }],
+    });
+    const other = sw(2, 'Mario Kart 8.nsp');
+    const items = [orphan, other];
+    expect(updatesUnderBases(items)).toBe(items);
+  });
+
+  it('the first base with the name wins, and game folders keep their dots', () => {
+    const first = sw(1, 'Game. Part One', { kind: 'folder' });
+    const second = sw(2, 'Game. Part One (Rev 1).nsp');
+    const update = sw(3, 'patch.nsp', {
+      notes: [{ kind: 'update', of: 'Game. Part One' }],
+    });
+    expect(names(updatesUnderBases([update, first, second]))).toEqual([
+      'Game. Part One',
+      'patch.nsp',
+      'Game. Part One (Rev 1).nsp',
+    ]);
+  });
+
+  it('stays linear on a large library (one lookup per update)', () => {
+    const items: OrganizeItem[] = [];
+    const n = 8000;
+    for (let i = 0; i < n; i++) items.push(sw(i, `Game ${i} [v0].nsp`));
+    for (let i = 0; i < n; i++)
+      items.push(
+        sw(n + i, `Game ${i} [v1].nsp`, {
+          notes: [{ kind: 'update', of: `Game ${i}` }],
+        }),
+      );
+    const start = performance.now();
+    const out = updatesUnderBases(items);
+    const elapsed = performance.now() - start;
+    expect(out[1]!.sources[0]).toBe('Game 0 [v1].nsp');
+    expect(out[2 * n - 1]!.sources[0]).toBe(`Game ${n - 1} [v1].nsp`);
+    // Quadratic matching took seconds here; a map takes milliseconds.
+    expect(elapsed).toBeLessThan(1000);
   });
 });

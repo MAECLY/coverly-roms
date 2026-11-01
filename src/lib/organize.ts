@@ -92,11 +92,20 @@ function baseNames(item: OrganizeItem): string[] {
 export function updatesUnderBases(items: OrganizeItem[]): OrganizeItem[] {
   const children = new Map<OrganizeItem, OrganizeItem[]>();
   const placed = new Set<OrganizeItem>();
-  const bases = items.filter((i) => childOf(i) === null);
+  // One pass over the bases, then one lookup per update: a library with
+  // thousands of updates must not match every update against every base.
+  let byName: Map<string, OrganizeItem> | null = null;
   for (const item of items) {
     const of = childOf(item)?.toLowerCase();
     if (of === undefined) continue;
-    const base = bases.find((b) => baseNames(b).includes(of));
+    if (!byName) {
+      byName = new Map();
+      for (const b of items) {
+        if (childOf(b) !== null) continue;
+        for (const n of baseNames(b)) if (!byName.has(n)) byName.set(n, b);
+      }
+    }
+    const base = byName.get(of);
     if (!base) continue;
     children.set(base, [...(children.get(base) ?? []), item]);
     placed.add(item);
