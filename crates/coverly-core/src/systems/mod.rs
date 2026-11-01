@@ -493,9 +493,12 @@ const LIST_EXTS: [&str; 3] = ["cue", "gdi", "m3u"];
 const EVERYDAY_EXTS: [&str; 4] = ["png", "exe", "bat", "conf"];
 /// Weak-only extensions whose own header decides (systems batch 2 D7):
 /// a loose `.pkg` is an organise candidate so the PKG header (PS3, Vita)
-/// or the `xar!` magic of a macOS installer can name it. Its class stays
-/// [`ExtClass::Unknown`]: the extension alone is no evidence.
-const HEADER_DECIDED_EXTS: [&str; 1] = ["pkg"];
+/// or the `xar!` magic of a macOS installer can name it, and a loose
+/// `.exfat` is one so its boot sector and a `PPSA` token in its name can
+/// make it a PS5 image (systems batch 3 D10; without both it stays
+/// unknown). Their class stays [`ExtClass::Unknown`]: the extension alone
+/// is no evidence.
+const HEADER_DECIDED_EXTS: [&str; 2] = ["pkg", "exfat"];
 
 /// How much an extension says about the system (spec §6.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

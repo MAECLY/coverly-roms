@@ -7,11 +7,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use coverly_core::identify::evidence::Evidence;
-use coverly_core::identify::sniff::sniff;
+use coverly_core::identify::hash::{hash_rom, HashOutcome, HeaderRule, DEFAULT_HASH_MAX_BYTES};
+use coverly_core::identify::sniff::{sniff, SliceAt};
 use coverly_core::profiles::builtin_profiles;
 use coverly_core::profiles::naming::system_folder;
 use coverly_core::sources::libretro::parse_apache_dirs;
-use coverly_core::systems::{Family, SystemDb};
+use coverly_core::systems::{ExtClass, Family, SystemDb};
 
 /// (id, family, multi_file)
 const SYSTEMS: &[(&str, Family, bool)] = &[
@@ -187,5 +188,72 @@ fn console_header_rules() {
         let s = sniff(&mut f, len, ext);
         assert_eq!(best(&s.hits), *want, "{id} .{ext}");
         assert_eq!(s.serial.as_deref(), *serial, "{id} .{ext} serial");
+    }
+}
+
+/// Spec §7 and §12: `.zar` is Shared by three systems, the XVC family by
+/// the two Xbox systems; `pkg` and `exfat` are weak (Unknown class) but
+/// still organise candidates, so their header (or a `PPSA` token, D10)
+/// can name the system.
+#[test]
+fn extension_classes_and_candidates() {
+    let db = SystemDb::builtin();
+    let owners = |ext: &str| -> Vec<String> {
+        db.systems_for_extension(ext)
+            .iter()
+            .map(|s| s.id.clone())
+            .collect()
+    };
+    assert_eq!(owners("zar"), ["xbox360", "ps4", "ps5"]);
+    for ext in ["xvc", "xvd", "msixvc"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Shared, "{ext}");
+        assert_eq!(owners(ext), ["xboxone", "xboxseries"], "{ext}");
+    }
+    for (ext, id) in [
+        ("ps4", "ps4"),
+        ("ffpkg", "ps5"),
+        ("ffpfs", "ps5"),
+        ("ffpfsc", "ps5"),
+    ] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unique, "{ext}");
+        assert_eq!(owners(ext), [id], "{ext}");
+    }
+    for ext in ["pkg", "exfat", "EXFAT"] {
+        assert_eq!(db.extension_class(ext), ExtClass::Unknown, "{ext}");
+        assert!(db.is_rom_like_extension(ext), "{ext} is a candidate");
+    }
+    let accepting: Vec<String> = db
+        .systems_accepting("exfat")
+        .iter()
+        .map(|s| s.id.clone())
+        .collect();
+    assert_eq!(accepting, ["ps5"]);
+}
+
+/// D17: the ES-DE «game serial» `.ps4` file is text-native, so a one-line
+/// title id is not taken for a stray text file; a web page still is.
+#[test]
+fn a_ps4_serial_file_is_not_a_text_file() {
+    for body in [&b"CUSA07010\n"[..], b"CUSA07010"] {
+        let s = sniff(&mut SliceAt(body), body.len() as u64, "ps4");
+        assert!(s.not_a_rom.is_none(), "{body:?}");
+    }
+    let page = b"<!DOCTYPE html><html><body>404</body></html>";
+    let s = sniff(&mut SliceAt(page), page.len() as u64, "ps4");
+    assert!(s.not_a_rom.is_some());
+}
+
+/// §8.5: nothing of this batch is hashed; the file is never opened for it.
+#[test]
+fn current_generation_files_are_name_only() {
+    let missing = std::path::Path::new("does-not-exist");
+    for ext in [
+        "ps4", "ffpkg", "ffpfs", "ffpfsc", "exfat", "xvc", "xvd", "msixvc", "zar", "pkg", "XVC",
+    ] {
+        assert_eq!(
+            hash_rom(missing, ext, HeaderRule::Plain, DEFAULT_HASH_MAX_BYTES).unwrap(),
+            HashOutcome::NameOnly,
+            "{ext}"
+        );
     }
 }
