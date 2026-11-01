@@ -223,3 +223,58 @@ fn a_cusa_id_with_a_vita_firmware_key_goes_to_review() {
     let alts: Vec<&str> = item.alternatives.iter().map(|(s, _)| s.as_str()).collect();
     assert_eq!(alts, ["ps4", "psvita"]);
 }
+
+#[test]
+fn a_ps4_update_folder_groups_under_its_base_and_a_launcher_is_ps4() {
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    ps4_app(
+        &pile.path().join("CUSA00900"),
+        "CUSA00900",
+        "gd",
+        BLOODBORNE,
+    );
+    ps4_app(
+        &pile.path().join("CUSA00900-UPDATE"),
+        "CUSA00900",
+        "gp",
+        BLOODBORNE,
+    );
+    put_file(pile.path(), "CUSA07010.ps4", b"CUSA07010\n");
+
+    let p = world.plan(pile.path(), target.path(), "esde");
+    assert_eq!(p.items.len(), 3, "{:#?}", p.items);
+    let pos = |name: &str| {
+        p.items
+            .iter()
+            .position(|i| i.sources[0] == Path::new(name))
+            .unwrap()
+    };
+    let (base, update) = (pos("CUSA00900"), pos("CUSA00900-UPDATE"));
+    // D15: grouped by the title id, the update listed after its base.
+    assert!(base < update, "{:#?}", p.items);
+    let update = &p.items[update];
+    assert_eq!(update.action, OrganizeAction::Auto);
+    assert_eq!(
+        placed(update),
+        ("ps4".to_string(), "CUSA00900-UPDATE".to_string())
+    );
+    assert!(
+        update.notes.contains(&ItemNote::Update {
+            of: "Test Game".into()
+        }),
+        "{:?}",
+        update.notes
+    );
+    // D17: the ES-DE launcher text names the PS4.
+    let launcher = &p.items[pos("CUSA07010.ps4")];
+    assert_eq!(
+        (launcher.kind, launcher.system_id.as_deref()),
+        (ItemKind::File, Some("ps4"))
+    );
+    assert_eq!(
+        placed(launcher),
+        ("ps4".to_string(), "CUSA07010.ps4".to_string())
+    );
+}
