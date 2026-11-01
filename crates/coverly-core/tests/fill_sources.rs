@@ -855,6 +855,10 @@ mod embedded {
         let p = plan_with(&w, &["libretro", "screenscraper", ID]);
         let (ps4, ps4_alts) = chosen_of(&p, "ps4");
         assert_eq!(ps4.source, ID, "{ps4_alts:?}");
+        // The user's order puts `embedded` last: the «why» must not say
+        // «first source in your order».
+        let item = p.items.iter().find(|i| i.system_id == "ps4").unwrap();
+        assert_eq!(item.reason, Some(PickReason::EmbeddedFirst));
         assert!(
             ps4_alts.iter().any(|c| c.source == "libretro"),
             "{ps4_alts:?}"

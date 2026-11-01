@@ -210,7 +210,7 @@ fn rust_serialises_the_shared_sample() {
         "update_progress": UpdateProgressEvent { downloaded: 512, total: Some(1024) },
         "update_install": UpdateInstallView { restart_required: true },
         "volume": Volume { path: "/Volumes/SD".into(), name: "SD".into() },
-        "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::Region { rom: true }, PickReason::User],
+        "pick_reasons": [PickReason::Only, PickReason::Consensus { count: 3, next: 1 }, PickReason::SourceOrder { source: "libretro".into() }, PickReason::EmbeddedFirst, PickReason::Region { rom: true }, PickReason::User],
     });
     let expected: Value =
         serde_json::from_str(include_str!("../../src/ipc/contract.sample.json")).unwrap();

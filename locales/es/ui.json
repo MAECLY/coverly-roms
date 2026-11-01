@@ -175,7 +175,7 @@
         "embedded": "Imagen incluida en el juego"
       },
       "hint": {
-        "embedded": "Usa el icono que traen algunos juegos (PS3, PS Vita, Wii U, 3DS, Xbox 360) cuando no hay carátula en otra fuente"
+        "embedded": "Usa el icono que traen algunos juegos: primero en PS4, PS5, Xbox One y Xbox Series; en PS3, PS Vita, Wii U, 3DS y Xbox 360, cuando no hay carátula en otra fuente"
       },
       "notBuilt": "No disponible en esta versión",
       "needsKey": "Guarda una clave de API abajo para activarla",
@@ -1174,6 +1174,7 @@
     "release": "una versión comercial gana a betas, prototipos y hacks.",
     "votes": "más votos en SteamGridDB ({score}; siguiente {next}).",
     "consensus": "más fuentes y tipos de arte coinciden ({count}; siguiente {next}).",
+    "embedded-first": "la imagen incluida en el juego va primero en este sistema.",
     "source-order": "primera fuente en tu orden ({source}).",
     "region": "región preferida en tu orden.",
     "region-rom": "misma región que la ROM.",

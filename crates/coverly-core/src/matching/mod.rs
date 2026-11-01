@@ -352,6 +352,9 @@ pub enum PickReason {
     Consensus { count: u8, next: u8 },
     /// Earlier in the user's source order.
     SourceOrder { source: String },
+    /// The icon inside the game, tried first on this system whatever the
+    /// user's source order (systems batch 3 D21).
+    EmbeddedFirst,
     /// Earlier in the region order; `rom` = it is the ROM's own region.
     Region { rom: bool },
     /// It carries the preferred language (D28).
@@ -374,11 +377,10 @@ pub fn explain(
     let Some(second) = second else {
         return PickReason::Only;
     };
-    // The icon inside the game wins by the source order alone (D21).
+    // The icon inside the game wins because the system puts it first
+    // (D21), not by the user's order, which may list `embedded` last.
     if ctx.embedded_first && is_embedded(first) && !is_embedded(second) {
-        return PickReason::SourceOrder {
-            source: first.source.clone(),
-        };
+        return PickReason::EmbeddedFirst;
     }
     if !is_unreleased_variant(&first.name) && is_unreleased_variant(&second.name) {
         return PickReason::Release;

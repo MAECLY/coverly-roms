@@ -49,6 +49,10 @@ describe('CandidateMeta', () => {
         { why: 'source-order', source: 'libretro' },
         'primera fuente en tu orden (libretro-thumbnails).',
       ],
+      [
+        { why: 'embedded-first' },
+        'la imagen incluida en el juego va primero en este sistema.',
+      ],
       [{ why: 'region', rom: true }, 'misma región que la ROM.'],
       [{ why: 'region', rom: false }, 'región preferida en tu orden.'],
       [

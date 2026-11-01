@@ -551,6 +551,10 @@ fn explain_names_the_deciding_rule() {
         PickReason::Tie
     );
     assert_eq!(
+        serde_json::to_value(PickReason::EmbeddedFirst).unwrap(),
+        serde_json::json!({ "why": "embedded-first" })
+    );
+    assert_eq!(
         serde_json::to_value(PickReason::Votes { score: 5, next: 0 }).unwrap(),
         serde_json::json!({"why":"votes","score":5,"next":0})
     );
@@ -558,7 +562,8 @@ fn explain_names_the_deciding_rule() {
 
 /// Systems batch 3 D21: with `embedded_first` the icon inside the game
 /// beats a canonical box art of the ROM's own region in every strategy,
-/// and the «why» names the source order; without it the icon is last.
+/// and the «why» says so (not «first in your order»: the user's order may
+/// put `embedded` last); without it the icon is last.
 #[test]
 fn embedded_first_puts_the_icon_inside_the_game_on_top() {
     use coverly_core::matching::{explain, PickReason};
@@ -603,9 +608,7 @@ fn embedded_first_puts_the_icon_inside_the_game_on_top() {
             if embedded_first {
                 assert_eq!(
                     explain(kind, &ctx, top, Some(&cands[order[1]]), &[]),
-                    PickReason::SourceOrder {
-                        source: "embedded".into()
-                    },
+                    PickReason::EmbeddedFirst,
                     "{kind:?}"
                 );
             }

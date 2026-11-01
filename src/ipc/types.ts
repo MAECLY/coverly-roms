@@ -269,6 +269,7 @@ export type PickReason =
   | { why: 'votes'; score: number; next: number }
   | { why: 'consensus'; count: number; next: number }
   | { why: 'source-order'; source: string }
+  | { why: 'embedded-first' }
   | { why: 'region'; rom: boolean }
   | { why: 'language' }
   | { why: 'tie' }

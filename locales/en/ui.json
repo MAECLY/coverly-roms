@@ -175,7 +175,7 @@
         "embedded": "Image from the game files"
       },
       "hint": {
-        "embedded": "Uses the icon some games carry (PS3, PS Vita, Wii U, 3DS, Xbox 360) when no other source has a cover"
+        "embedded": "Uses the icon some games carry: first for PS4, PS5, Xbox One and Xbox Series; for PS3, PS Vita, Wii U, 3DS and Xbox 360, when no other source has a cover"
       },
       "notBuilt": "Not available in this build",
       "needsKey": "Store an API key below to turn it on",
@@ -1174,6 +1174,7 @@
     "release": "a release beats betas, prototypes and hacks.",
     "votes": "most SteamGridDB votes ({score}; next {next}).",
     "consensus": "most sources and art types agree on it ({count}; next {next}).",
+    "embedded-first": "the image from the game files comes first for this system.",
     "source-order": "first source in your order ({source}).",
     "region": "preferred region in your order.",
     "region-rom": "same region as the ROM.",

@@ -987,6 +987,7 @@
     { "why": "only" },
     { "why": "consensus", "count": 3, "next": 1 },
     { "why": "source-order", "source": "libretro" },
+    { "why": "embedded-first" },
     { "why": "region", "rom": true },
     { "why": "user" }
   ],

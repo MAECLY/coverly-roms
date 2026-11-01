@@ -899,6 +899,7 @@ describe('settings contract', () => {
       'only',
       'consensus',
       'source-order',
+      'embedded-first',
       'region',
       'user',
     ]);
