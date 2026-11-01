@@ -1,6 +1,6 @@
 # Coverly ROMs — Missing systems, batch 2: big discs and handhelds with their own format (Design Spec)
 
-> Status: **Design, ready to implement on `feat/systems-batch-2`** (self-reviewed §17, adversarial review against the code §18) · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
+> Status: **Implemented on `feat/systems-batch-2`** (self-reviewed §17, adversarial review against the code §18) · Date: 2026-10-26 (research run 2026-10-31) · Owner: Miguel Angel Esparza Calero (MAECLY)
 > Roadmap item: `TODO.md` §2 «Sistemas que faltan», **Tanda 2 only**. Tanda 1 is merged (PR #32, spec [`2026-10-26-systems-batch-1.md`](2026-10-26-systems-batch-1.md)); Tanda 3 (PS4, PS5, Xbox One, Xbox Series) is a separate later run and is not started here.
 > Branch: `feat/systems-batch-2`. `docs/TRACKER.md` and `TODO.md` are updated on `main` after merge, not on this branch.
 > Builds on: batch 1 (per-profile folder tables, `weak_extensions`, `scoped_aliases`, folder-game rule D15, D24 contradiction, D25 packages, D26 text-native), [`2026-10-23-organize-archives-and-discs.md`](2026-10-23-organize-archives-and-discs.md) (disc sets, budgets), [`2026-10-18-system-icons-and-views.md`](2026-10-18-system-icons-and-views.md) (SystemIcon), brand [`docs/08-brand/brand.md`](../../08-brand/brand.md).

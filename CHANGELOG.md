@@ -41,6 +41,24 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
   folder for a system says so and names the folder it creates.
 - System icons for the new systems: RetroArch silhouettes where a neutral
   one exists, the short label mount otherwise.
+- Nine more systems (127 in all): GameCube, Wii and WiiWare, Wii U, 3DS,
+  Switch, PS Vita, PS3, Xbox and Xbox 360. Each one is identified from the
+  plain header of its own format (disc header, NCSD/NCCH, XCI and PFS0
+  tables, PARAM.SFO, XBE, XEX, STFS), reading a few kilobytes and never the
+  whole game. Encrypted parts are never read: a Switch title id comes from
+  the file table or the file name.
+- Nintendo DS knows DSi-enhanced games and DSiWare from their header,
+  without a separate system.
+- A game that is a folder (PS3 game folders, PS Vita apps, Wii U game
+  folders, Xbox and Xbox 360 game folders, split Switch files) moves as one
+  item, shows its size in the plan, appears as one game in the library and
+  is never split. Moves across drives copy and check every file before the
+  original is removed, and can be undone.
+- Updates and downloadable content are listed right under their game, and
+  duplicates of the same game by title id are reported with the newer
+  version suggested as the one to keep.
+- Covers: the icon some games carry inside their files (PS3, PS Vita,
+  Wii U, 3DS, Xbox 360) is used when no other source has a cover.
 
 ### Changed
 
@@ -65,6 +83,14 @@ the notes below from `[Unreleased]` to a version heading (see RELEASING.md).
 - Custom profiles made before this version keep rule-based folder names
   for the new systems; clone the built-in profile again to get the
   frontend's real names.
+- Console key and licence files (`prod.keys`, `title.keys`, `.rap`,
+  `.rif`, loose tickets and similar) are left untouched: Coverly never opens,
+  moves or asks for them. Emulator data folders (for example `ux0`) are left
+  in place too.
+- macOS `.pkg` installers and 3D Studio `.3ds` models are reported as not
+  ROMs instead of an unknown system.
+- Settings move to version 3: the new embedded-icon cover source is turned
+  on once for existing users, after the other sources.
 
 ## [0.2.0] - 2026-10-25
 
