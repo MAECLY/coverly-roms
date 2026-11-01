@@ -524,3 +524,50 @@ fn derived_paths_are_relative_to_the_target_root() {
     let t: &PathBuf = by(&p, "CUSA00900-UPDATE").target.as_ref().unwrap();
     assert!(t.is_relative(), "{t:?}");
 }
+
+#[test]
+fn applying_a_batocera_plan_writes_the_sibling_and_dlc_paths() {
+    use coverly_core::organize::{apply_organize, ApplyEnv, ItemStatus};
+    use coverly_core::write::trash::FakeTrash;
+    let world = World::new();
+    let pile = TempDir::new().unwrap();
+    let target = TempDir::new().unwrap();
+    let data = TempDir::new().unwrap();
+    base_and_update(pile.path(), "-UPDATE");
+    dlc_folder(pile.path(), "The Old Hunters");
+
+    let p = world.plan(pile.path(), target.path(), "batocera");
+    let report = apply_organize(
+        &p,
+        &ApplyEnv {
+            data_dir: data.path(),
+            progress: &|_| {},
+            cancel: &AtomicBool::new(false),
+            trash: &FakeTrash::unavailable("no-trash"),
+            tools: Some(&[]),
+        },
+    )
+    .unwrap();
+    for name in ["CUSA00900", "CUSA00900-UPDATE", "The Old Hunters"] {
+        let id = by(&p, name).id;
+        let outcome = report.items.iter().find(|o| o.item == id).unwrap();
+        assert!(
+            matches!(outcome.status, ItemStatus::Moved | ItemStatus::Copied),
+            "{name}: {:?}",
+            outcome.status
+        );
+    }
+    let ps4 = p.roms_dir.join("ps4");
+    assert!(ps4.join("CUSA00900.ps4").join("eboot.bin").is_file());
+    assert!(ps4
+        .join("CUSA00900.ps4-UPDATE")
+        .join("sce_sys")
+        .join("param.sfo")
+        .is_file());
+    assert!(ps4
+        .join("DLC")
+        .join("CUSA00900")
+        .join("The Old Hunters")
+        .join("content.dat")
+        .is_file());
+}
