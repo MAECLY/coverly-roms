@@ -5,7 +5,8 @@ import { getBackend } from '@/ipc/backend';
 /**
  * The systems no emulator opens (`systems.toml` `no_emulator`, systems
  * batch 3 D22), read once from the catalogue and shared by every shelf
- * header. Empty until the backend answers, and if it fails.
+ * header. Empty until the backend answers; a failed read is retried by
+ * the next header that mounts.
  */
 let ids: ReadonlySet<string> = new Set();
 let loading: Promise<void> | null = null;
@@ -26,7 +27,10 @@ function load(): void {
         ids = next;
         listeners.forEach((l) => l());
       },
-      () => undefined,
+      () => {
+        // A failed read is not the answer: the next subscriber asks again.
+        loading = null;
+      },
     );
 }
 
