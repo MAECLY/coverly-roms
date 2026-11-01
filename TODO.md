@@ -232,6 +232,10 @@ ROMS/PS4/Hatsune Miku Project DIVA Future Tone/
         Hatsune Miku Project DIVA Future Tone - Song Pack 1.pkg
     Updates/
         Hatsune Miku Project DIVA Future Tone (v1.05).pkg
+    Mods/          ← mods, packs de texturas, parches de traducción
+    Cheats/        ← trucos y parches del emulador
+    Extras/        ← banda sonora, manuales, arte, vídeos, temas… (semiautomática, ver abajo)
+    Saves/         ← partidas (bloque 5)
 ROMS/PS4/Hatsune Miku Project DIVA Future Tone (Demo)/  ← la demo es un juego aparte
 ```
 
@@ -243,6 +247,41 @@ Reglas:
 - **Regiones:** si hay el mismo juego en varias regiones, una carpeta por región con la región en el nombre (`… (USA)`, `… (Japan)`); cada actualización y DLC va con la región de su title ID.
 - **Revisiones retro** (`(Rev 1)`, `(v1.1)`) como versiones del mismo juego en la ficha (no como juegos distintos); en disco siguen siendo archivos sueltos salvo que el perfil pida carpetas.
 - La misma carpeta del juego es la que usará `Saves/` del bloque 5.
+
+### Carpetas fijas y `Extras/` libre (decidido con Miguel, 2026-11-01)
+
+- **Carpetas fijas del juego:** `Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/` y `Saves/`. Siempre con ese nombre y en ese sitio, porque de ellas dependen la organización automática, la traducción a cada emulador (4) y las partidas (5). El usuario no crea carpetas nuevas a ese nivel; la interfaz las muestra traducidas.
+- **`Mods/`:** mods y packs de texturas (p. ej. carpeta `-mods` de shadPS4, `atmosphere/contents/<id>/romfs` de Switch, LayeredFS de Azahar, Riivolution de Dolphin, texturas HD de Dolphin/PCSX2) y parches de traducción o hacks (`.ips`, `.bps`, `.ups`, `.xdelta`, `.ppf`), hoy detectados como «no es una ROM (parche)» pero sin asociar a su juego.
+- **`Cheats/`:** trucos (`.cht`, Action Replay, Game Genie, `pnach`) y parches del emulador (`patches.yml` de RPCS3, parches de PCSX2 y Dolphin).
+- **Licencias** (`.rap`, zRIF, `work.bin`, DLC de solo licencia `AL`): se reconocen y se dejan junto al archivo al que pertenecen, sin leerlas nunca.
+- **No son juegos:** actualizaciones de sistema y firmware (particiones de actualización de cartuchos 3DS/Wii, `PS3UPDAT.PUP`, `0004001B…`), cachés de shaders y configuraciones por juego del emulador: se reconocen y se dejan donde están.
+- **Variantes relacionadas** (como las demos): `(Proto)`, `(Beta)`, `(Kiosk)`, `(Sample)`, ediciones (GOTY, Complete, remasterizaciones), recopilatorios con varios juegos e inyecciones de Virtual Console: juegos aparte enlazados al original en la ficha.
+
+**`Extras/`, semiautomática:**
+
+```
+Juego/Extras/
+    Soundtrack/   ← oficial detectado (p. ej. el .cia de banda sonora en 3DS) + canciones del usuario
+    Manuals/      ← manual electrónico oficial + escaneos
+    Artwork/      ← arte oficial, escaneos de caja y cartucho, fan art
+    Videos/       ← tráileres, partidas grabadas
+    Themes/       ← temas y avatares oficiales (PS3/Vita/PS4/3DS)
+    Guides/       ← guías, mapas, PDF
+    (del usuario) ← categorías que el usuario crea desde la app
+```
+
+- **Lo oficial se detecta y se coloca solo** (banda sonora, manual, temas y avatares distribuidos como paquete del sistema).
+- **Lo del usuario se gestiona desde la app (CRUD):** añadir, renombrar, mover y borrar con deshacer, arrastrar y soltar en la ficha del juego, crear categorías propias dentro de `Extras/` y etiquetar cada archivo («tema del jefe final», «versión orquestal»).
+- **`extras.json` junto a las carpetas:** tipo (audio, vídeo, imagen, documento), oficial o del usuario, origen y etiquetas, para buscar y filtrar aunque se muevan archivos; la app reproduce audio y vídeo y muestra imágenes y PDF.
+- **Sincronizar:** `Extras/` no se copia al dispositivo por defecto (casi ningún frontend la usa y ocupa espacio); se puede activar por categoría (p. ej. solo `Manuals/`).
+
+Tareas:
+
+- [ ] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer.
+- [ ] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo).
+- [ ] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer.
+- [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
+- [ ] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar.
 
 ### Traducción por dispositivo (al organizar para un frontend o al sincronizar)
 
