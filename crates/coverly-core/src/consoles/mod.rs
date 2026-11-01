@@ -21,8 +21,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::identify::sniff::ReadAt;
 
+pub mod nintendo_disc;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
+pub mod wad;
 
 /// Most bytes read from one item (D24).
 pub const MAX_READ: u64 = 4 << 20;
@@ -365,8 +367,10 @@ pub fn take_open_log() -> Vec<PathBuf> {
 /// `nintendo_disc`, `wad`, `ctr`, `nx`, `wiiu`, `sony`, `xbox`. Each is
 /// called only when its magic or extension can apply.
 pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> {
-    let _ = (src, ext, name);
-    None
+    let _ = (ext, name);
+    // The disc magics are specific enough for any extension, and so is
+    // the 8-byte WAD header.
+    nintendo_disc::identify(src).or_else(|| wad::identify(src))
 }
 
 /// The names the walk already listed for one directory (spec D12): every
@@ -514,14 +518,13 @@ pub fn switch_base(title_id: u64) -> u64 {
 /// A plaintext title from a header field: NULs and padding trimmed,
 /// controls and bidi overrides removed, at most 128 characters; `None`
 /// when nothing printable is left. Used by the readers as they land.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn clean_title(raw: &str) -> Option<String> {
     crate::sources::clean_text(raw.trim_end_matches('\0').trim(), 128)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::testing::{RangeLog, SparseAt};
+    use super::testing::{self, RangeLog, SparseAt};
     use super::*;
 
     #[test]
@@ -648,10 +651,27 @@ mod tests {
     }
 
     #[test]
-    fn identify_knows_nothing_yet() {
+    fn identify_zeros_is_nothing() {
         let mut src = SparseAt::new(0x8000);
         let mut b = Budgeted::new(&mut src, 0x8000);
         assert_eq!(identify(&mut b, "iso", "Game.iso"), None);
+    }
+
+    #[test]
+    fn identify_discs_and_wads() {
+        let mut disc = testing::gc_disc("GM8E01", false);
+        let len = disc.len;
+        let id = identify(&mut Budgeted::new(&mut disc, len), "iso", "").unwrap();
+        assert_eq!(id.system, "gamecube");
+        let mut wad = testing::wii_wad(0x0001_0001_5741_4145);
+        let len = wad.len;
+        let mut log = RangeLog::new(&mut wad);
+        let id = identify(&mut Budgeted::new(&mut log, len), "wad", "").unwrap();
+        assert_eq!(
+            (id.system.as_str(), id.serial.as_deref()),
+            ("wii", Some("WAAE"))
+        );
+        assert!(!log.touched(testing::WAD_TICKET.0, testing::WAD_TICKET.1));
     }
 
     fn probe_gb(l: &DirListing) -> Option<FolderMatch> {
