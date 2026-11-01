@@ -10,7 +10,7 @@ use coverly_core::archive::Limits;
 use coverly_core::cache::Cache;
 use coverly_core::dedupe::archive::ArchiveEntryListing;
 use coverly_core::dedupe::keys::{
-    level_one, parse_chd_header, track_layout, ExactKey, KeyCtx, KeyedUnit,
+    level_one, parse_chd_header, remember_title_key, track_layout, ExactKey, KeyCtx, KeyedUnit,
 };
 use coverly_core::dedupe::testing::{chd_header, nes_header, CountingBytes, CountingListing};
 use coverly_core::dedupe::units::Unit;
@@ -1678,4 +1678,68 @@ fn xvcs_with_one_content_id_are_unconfirmed_duplicates() {
             "{system}"
         );
     }
+}
+
+/// A reader's answer as an organise survey hands it over.
+fn console_id(system: &str, content_id: &str) -> coverly_core::consoles::ConsoleId {
+    serde_json::from_value(serde_json::json!({
+        "system": system,
+        "confidence": 0.95,
+        "detail": "test",
+        "title_id": "CUSA00900",
+        "content_id": content_id,
+    }))
+    .unwrap()
+}
+
+fn keys_with_cache(units: &[Unit], cache: &Cache) -> Vec<KeyedUnit> {
+    let db = SystemDb::builtin();
+    let archives = listing();
+    let mut ctx = KeyCtx::new(&db, &archives);
+    ctx.cache = Some(cache);
+    run(units, &ctx)
+}
+
+#[test]
+fn a_remembered_survey_answer_stands_for_the_title_key() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    // Bytes no reader identifies: only the remembered answer can key it.
+    let p = put(root, "ps4/Seeded.pkg", &rom_bytes(41, 4096));
+    let units = numbered(vec![raw("ps4", &p)]);
+    let cache = Cache::in_memory().unwrap();
+    assert!(!matches!(
+        keys_with_cache(&units, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
+
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &units[0], &console_id("ps4", BLOODBORNE));
+    let keys = keys_with_cache(&units, &cache);
+    assert_eq!(title_id_of(&keys[0]), BLOODBORNE);
+}
+
+#[test]
+fn another_systems_answer_or_an_archive_is_never_remembered() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    // An XVC's other Xbox system: level 1 reads the unit itself.
+    let x = put(root, "xboxone/A.xvc", &rom_bytes(42, 4096));
+    let xvc = numbered(vec![raw("xboxone", &x)]);
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &xvc[0], &console_id("xboxseries", XVD_CONTENT_ID));
+    assert!(!matches!(
+        keys_with_cache(&xvc, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
+
+    // An archive is never read for a title key, so nothing stands for one.
+    let z = put_zip(root, "ps4/A.zip", &[("A.pkg", &rom_bytes(43, 4096))]);
+    let zip = numbered(vec![zipped("ps4", &z, 4096)]);
+    let cache = Cache::in_memory().unwrap();
+    remember_title_key(&cache, &zip[0], &console_id("ps4", BLOODBORNE));
+    assert!(!matches!(
+        keys_with_cache(&zip, &cache)[0].exact,
+        Some(ExactKey::Title { .. })
+    ));
 }
