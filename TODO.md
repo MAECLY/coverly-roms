@@ -24,6 +24,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
    1.5. [Mejora de la interfaz de Duplicados](#15-mejora-de-la-interfaz-de-duplicados)
    1.6. [Reordenar los ajustes de Biblioteca](#16-reordenar-los-ajustes-de-biblioteca)
 2. [Sistemas que faltan](#2-sistemas-que-faltan)
+   2.1. [Actualizaciones, DLC, demos y revisiones dentro de su juego](#21-actualizaciones-dlc-demos-y-revisiones-dentro-de-su-juego)
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
@@ -209,7 +210,169 @@ Tareas:
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
 
+## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
+
+> **Dependencias:** depende de 2 (la detección de base, actualización, DLC y demo que traen las tandas). **Lo usan 3, 4 y 5**, así que se hace antes que ellos o como primer paso del 3: la biblioteca guarda los juegos con esta estructura (3), la sincronización la compara y la traduce a cada emulador (4) y las partidas viven en la misma carpeta y se asocian por el mismo title ID (5, incluido 5.3.1).
+
+No entra en el loop de las tandas: se hace después, cuando Miguel lo diga.
+
+### Qué hay hoy (Tanda 2, `feat/systems-batch-2`)
+
+- Se distingue base / actualización / DLC / demo por el title ID en claro (3DS por la parte alta, `0004000E` actualización; Switch por los bits bajos, `…800` actualización y DLC = base + `0x1000`; Wii U igual que 3DS; PS3/Vita por `CATEGORY`; Xbox 360 por el title ID). Tipo `TitleKind { Base, Update, Dlc, Demo, Unknown }` en `crates/coverly-core/src/consoles/mod.rs`.
+- Se enlaza cada actualización o DLC con su juego base cuando los dos están en la pila, y Organizar los lista debajo del base con la nota «Actualización de…» / «Contenido descargable de…» y un recuento en el resumen.
+- Duplicados: una actualización nunca es copia de su base; de dos versiones del mismo juego se queda la mayor.
+- **Falta:** se mueven a la carpeta del sistema junto al juego (`3DS/Pokemon.cia`, `3DS/Pokemon update 1.cia`), no dentro de una carpeta del juego; las revisiones retro (`(Rev 1)`, `(v1.1)`) no se agrupan como versiones de un juego; las Tandas 1 y 3 no lo aplican aún (la 3 sí para PS4/PS5).
+
+### Estructura maestra de la biblioteca (decidida con Miguel, 2026-11-01)
+
+```
+ROMS/PS4/Hatsune Miku Project DIVA Future Tone/
+    Hatsune Miku Project DIVA Future Tone.pkg          ← juego base
+    DLC/
+        Hatsune Miku Project DIVA Future Tone - Song Pack 1.pkg
+    Updates/
+        Hatsune Miku Project DIVA Future Tone (v1.05).pkg
+    Mods/          ← mods, packs de texturas, parches de traducción
+    Cheats/        ← trucos y parches del emulador
+    Extras/        ← banda sonora, manuales, arte, vídeos, temas… (semiautomática, ver abajo)
+    Saves/         ← partidas (bloque 5)
+ROMS/PS4/Hatsune Miku Project DIVA Future Tone (Demo)/  ← la demo es un juego aparte
+```
+
+Reglas:
+
+- **Una carpeta por juego** con el juego base en su raíz, y dentro `DLC/` y `Updates/` (nombres fijos en inglés para que emuladores y herramientas los reconozcan; la interfaz los muestra traducidos).
+- **Demos aparte**, como juego independiente, con el sufijo `(Demo)` de No-Intro/Redump (no `DEMO`) para que se ordenen junto al juego; relacionadas con el base en la ficha, pero no dentro de su carpeta.
+- **Versión en el nombre** de cada actualización (`… (v1.05)`), sacada de la cabecera, para saber cuál es la más nueva.
+- **Regiones:** si hay el mismo juego en varias regiones, una carpeta por región con la región en el nombre (`… (USA)`, `… (Japan)`); cada actualización y DLC va con la región de su title ID.
+- **Revisiones retro** (`(Rev 1)`, `(v1.1)`) como versiones del mismo juego en la ficha (no como juegos distintos); en disco siguen siendo archivos sueltos salvo que el perfil pida carpetas.
+- La misma carpeta del juego es la que usará `Saves/` del bloque 5.
+
+### Carpetas fijas y `Extras/` libre (decidido con Miguel, 2026-11-01)
+
+- **Carpetas fijas del juego:** `Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/` y `Saves/`. Siempre con ese nombre y en ese sitio, porque de ellas dependen la organización automática, la traducción a cada emulador (4) y las partidas (5). El usuario no crea carpetas nuevas a ese nivel; la interfaz las muestra traducidas.
+- **`Mods/`:** mods y packs de texturas (p. ej. carpeta `-mods` de shadPS4, `atmosphere/contents/<id>/romfs` de Switch, LayeredFS de Azahar, Riivolution de Dolphin, texturas HD de Dolphin/PCSX2) y parches de traducción o hacks (`.ips`, `.bps`, `.ups`, `.xdelta`, `.ppf`), hoy detectados como «no es una ROM (parche)» pero sin asociar a su juego.
+- **`Cheats/`:** trucos (`.cht`, Action Replay, Game Genie, `pnach`) y parches del emulador (`patches.yml` de RPCS3, parches de PCSX2 y Dolphin).
+- **Licencias** (`.rap`, zRIF, `work.bin`, DLC de solo licencia `AL`): se reconocen y se dejan junto al archivo al que pertenecen, sin leerlas nunca.
+- **No son juegos:** actualizaciones de sistema y firmware (particiones de actualización de cartuchos 3DS/Wii, `PS3UPDAT.PUP`, `0004001B…`), cachés de shaders y configuraciones por juego del emulador: se reconocen y se dejan donde están.
+- **Variantes relacionadas** (como las demos): `(Proto)`, `(Beta)`, `(Kiosk)`, `(Sample)`, ediciones (GOTY, Complete, remasterizaciones), recopilatorios con varios juegos e inyecciones de Virtual Console: juegos aparte enlazados al original en la ficha.
+
+**`Extras/`, semiautomática:**
+
+```
+Juego/Extras/
+    Soundtrack/   ← oficial detectado (p. ej. el .cia de banda sonora en 3DS) + canciones del usuario
+    Manuals/      ← manual electrónico oficial + escaneos
+    Artwork/      ← arte oficial, escaneos de caja y cartucho, fan art
+    Videos/       ← tráileres, partidas grabadas
+    Themes/       ← temas y avatares oficiales (PS3/Vita/PS4/3DS)
+    Guides/       ← guías, mapas, PDF
+    (del usuario) ← categorías que el usuario crea desde la app
+```
+
+- **Lo oficial se detecta y se coloca solo** (banda sonora, manual, temas y avatares distribuidos como paquete del sistema).
+- **Lo del usuario se gestiona desde la app (CRUD):** añadir, renombrar, mover y borrar con deshacer, arrastrar y soltar en la ficha del juego, crear categorías propias dentro de `Extras/` y etiquetar cada archivo («tema del jefe final», «versión orquestal»).
+- **`extras.json` junto a las carpetas:** tipo (audio, vídeo, imagen, documento), oficial o del usuario, origen y etiquetas, para buscar y filtrar aunque se muevan archivos; la app reproduce audio y vídeo y muestra imágenes y PDF.
+- **Sincronizar:** `Extras/` no se copia al dispositivo por defecto (casi ningún frontend la usa y ocupa espacio); se puede activar por categoría (p. ej. solo `Manuals/`).
+
+Tareas:
+
+- [ ] Crear y respetar las carpetas fijas en Organizar y en la biblioteca, con deshacer.
+- [ ] Detectar y colocar mods, parches de traducción, trucos, licencias y extras oficiales por sistema (según la investigación de abajo).
+- [ ] CRUD de `Extras/` en la ficha del juego: categorías sugeridas y propias, etiquetas, arrastrar y soltar, deshacer.
+- [ ] `extras.json` con tipo, origen y etiquetas; reproductor de audio y vídeo y visor de imágenes y PDF en la app.
+- [ ] Traducir `Mods/` y `Cheats/` a la ruta de cada emulador al organizar o sincronizar.
+
+### Investigación de mods, trucos, licencias y extras por sistema
+
+Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, 30 sistemas). Detalle completo con rutas, formatos, claves de enlace y fuentes: [`docs/02-research/mods-cheats-extras-per-system.md`](docs/02-research/mods-cheats-extras-per-system.md). Lo más útil para `Mods/`, `Cheats/` y `Extras/`:
+
+- **Parches de traducción y hacks** (retro): el mejor para enlazar automáticamente es **BPS** (los últimos 12 bytes guardan el CRC32 de la ROM de origen, que se compara con el DAT de No-Intro); UPS también lleva CRC32. IPS no lleva nada: se enlaza por nombre de archivo y por el `readme`. RetroArch aplica solo el parche que se llama como la ROM (`rom.bps`, `rom.ips`, `rom.ips1`…). Ojo con las cabeceras: NES (iNES) y SNES (copier) cambian si el parche espera la ROM con o sin cabecera.
+- **Clave de enlace por emulador** (lo que hay que leer para saber de qué juego es un mod o un truco):
+  - **por serial del disco:** DuckStation (PS1) y PCSX2 (PS2) para texturas (`textures/<SERIAL>/replacements/`) y trucos (`.cht`, `SERIAL_CRC.pnach`);
+  - **por id de juego:** Dolphin (GameCube/Wii; `Load/Textures/<GAMEID>/`, `GameSettings/<GAMEID>.ini`, Riivolution por `<id game>`), Flycast (Dreamcast), PPSSPP (`PSP/TEXTURES/<GAMEID>/`, `PSP/Cheats/<GAMEID>.ini`);
+  - **por title ID:** Azahar (3DS; `load/mods/<TitleID>/`, trucos `<TitleID>.txt`), Cemu (Wii U; graphic packs con `titleIds` en `rules.txt`), Switch (`atmosphere/contents/<id>/romfs|exefs`; trucos `cheats/<build_id>.txt`), RPCS3 (`patches.yml`), Vita (rePatch `ux0:rePatch/<TITLEID>/`), shadPS4 (trucos `SERIAL_VERSION.json`), Xenia (`<TITLEID> - <Juego>.patch.toml`, plugins);
+  - **por nombre de archivo:** RetroArch (`.cht` con el nombre de No-Intro), Mesen HD Packs (`HdPacks/<nombre de la ROM>/hires.txt`), MSU-1 de SNES (`.msu` + `-N.pcm` con el nombre de la ROM).
+- **Extras oficiales:** solo existen en algunos sistemas: temas `.p3t` y PKG de tema/avatar en PS3, PKG de tema (`0x1F`) en Vita, temas `.PTF` en PSP, paquetes STFS de Xbox 360 (temas, imágenes de jugador, avatares; clasificables por su tipo de contenido sin claves). Los manuales electrónicos van **dentro** del juego en 3DS, Wii U, Switch y Vita (se muestran como parte del juego, no se separan). Cartucho y disco retro no tienen extras oficiales: ahí `Extras/` es del usuario, con sugerencias por las etiquetas de los rips de música (SPC ID666, NSF, GBS, VGM GD3, PSF).
+- **Licencias y claves, solo por nombre y nunca abiertas:** `.rap`/`.rif`/`.edat`/`act.dat` (PS3/PSP), zRIF/`work.bin`/`.rif` (Vita), `.tik`/`ticket.db`/`seeddb.bin` (3DS), `title.tik`/`keys.txt`/`otp.bin` (Wii U), `prod.keys`/`title.keys`/`*.tik` (Switch), BIOS y NAND de DS/DSi, `eeprom.bin` de Xbox.
+- **No son juegos:** BIOS y firmware de cada sistema, partidas y estados, opciones por juego de RetroArch (`.opt`, `.cfg`, `.rmp`, presets de shaders), cachés de texturas y shaders, VMU de Dreamcast (partidas o DLC, no juegos).
+- **Sin sistema de mods** (se modifican los archivos del juego o vienen como imagen ya parcheada): Saturn, Sega CD, PC Engine CD, Xbox, PS3, PS4 (salvo carpetas tipo `dvdroot_ps4/MODS`), PS5 y Xbox One; ahí `Mods/` guarda copias del usuario enlazadas por serial.
+
+### Traducción por dispositivo (al organizar para un frontend o al sincronizar)
+
+La estructura maestra es la de la biblioteca. Cada perfil la traduce a lo que espera su emulador:
+
+- **shadPS4 (PS4):** no carga `.pkg`, solo carpetas extraídas `CUSAxxxxx`, y la actualización va **al lado**: `CUSAxxxxx-UPDATE` (o `-patch`), no dentro.
+- **RPCS3 (PS3), Azahar (3DS), Cemu (Wii U), Vita3K (Vita):** actualizaciones y DLC se **instalan** en el emulador (NAND / su carpeta de datos). Coverly los guarda en la biblioteca y muestra «Instálalo en el emulador» (nota `InstallFirst`, ya existe).
+- **Emuladores de Switch:** cargan el base y aceptan actualizaciones/DLC desde una carpeta aparte; la estructura maestra sirve casi tal cual.
+- **ES-DE y otros frontends:** una carpeta con subcarpetas puede verse como carpeta y no como juego; usar su modo «directorio como juego» (o la carpeta con el nombre del archivo, p. ej. `Juego.pkg/`) según el perfil.
+
+### Portadas y arte de actualizaciones, DLC y demos
+
+Muchas actualizaciones, DLC y demos traen su propia portada o arte, distinto del juego base (el icono de un pack de canciones, la portada de una demo, el banner de una expansión).
+
+- **Demos:** son juegos aparte, con su propia portada y arte. Se buscan como cualquier juego (libretro-thumbnails y ScreenScraper tienen entradas `(Demo)`), y si no hay, se usa el icono incluido o, como último recurso, la del juego completo marcada como «del juego completo».
+- **DLC:** usar el arte incluido en el propio paquete cuando está en claro (por ejemplo `icon0.png` de un `addcont` de PS4/PS5/Vita, `ICON0.PNG` de un PKG de PS3, el SMDH de un CIA de 3DS si lo trae; en Switch el icono va dentro de un NCA cifrado y no se lee). Si no trae, buscar por nombre en ScreenScraper o SteamGridDB, y si tampoco, mostrar la del base con la marca DLC.
+- **Actualizaciones:** casi siempre comparten la portada del base; si traen un icono propio (algunas cambian el icono o el banner), guardarlo como arte de esa versión sin pisar el del juego base.
+- **Dónde se guarda:** en la carpeta del juego, junto a cada archivo (`DLC/…`, `Updates/…`), con el mismo esquema de slots que el resto (portada, título, captura, banner) y su origen anotado («incluido en el paquete», «ScreenScraper»…).
+- **Frontends:** al organizar para un dispositivo, solo se copia el arte que su frontend sabe mostrar (la mayoría solo muestra el del juego base); el resto queda en la biblioteca.
+- **Interfaz:** en la ficha del juego, cada actualización y DLC con su miniatura; la demo con su propia portada y un enlace al juego completo.
+
+- [ ] Leer el arte incluido en actualizaciones, DLC y demos (sin claves, solo lo que va en claro) y buscar el que falte en las fuentes existentes.
+- [ ] Slots de arte por archivo hijo (actualización, DLC) además del del juego, con el origen anotado.
+- [ ] Mostrarlo en la ficha y en Organizar, y copiarlo al dispositivo solo cuando su frontend lo use.
+
+### Cómo se ve en las seis vistas (pendiente de diseñar)
+
+> **Nota:** todavía no está decidido cómo mostrar en cada vista que un juego tiene varias actualizaciones, DLC, una demo o varias revisiones. Antes de implementarlo:
+>
+> 1. **Investigar cómo lo resuelve la industria hoy**, con capturas y notas de cada una: Steam (DLC y «Gestionar» en la biblioteca), PlayStation 5 (centro del juego, complementos y versión), Xbox (Gestionar juego y complementos), Nintendo Switch (Gestionar software, versión y contenido adicional), GOG Galaxy, Epic, Playnite, LaunchBox / Big Box, ES-DE, RomM, Ryujinx/Citra/RPCS3 (cómo listan actualizaciones y DLC instalados) y gestores de música o fotos que agrupan versiones (Apple Music, Lightroom).
+> 2. **Diseñarlo con el skill `frontend-design:frontend-design` con mucho peso en UX y UI**: plan de jerarquía, densidad y movimiento revisado contra los diseños genéricos, y validado con capturas en las seis vistas, en claro y oscuro, a 1440 y 390 px.
+>
+> Debe resolver, como mínimo:
+>
+> - **Portadas y Galería:** un indicador discreto en la portada (p. ej. un recuento «+3 DLC · v1.05») que no tape el arte, y el detalle al abrir el juego.
+> - **Detalles (tabla):** columnas de versión y de complementos; la fila del juego que se despliega para listar actualizaciones y DLC (como un árbol), sin que cuenten como juegos en los totales.
+> - **Columnas:** sistema → juego → (base / Updates / DLC / Demo) → vista previa, aprovechando la carpeta maestra de 2.1.
+> - **Huecos de arte:** mostrar también los huecos de arte de cada DLC y actualización cuando tienen arte propio.
+> - **Estantes:** una caja por juego, con los DLC como «complementos» al lado o detrás, sin llenar la estantería de cajas sueltas.
+> - **Ficha del juego (panel lateral):** la versión instalada frente a la más nueva que hay en la biblioteca, la lista de DLC con su miniatura, la demo relacionada, las revisiones y las partidas (5).
+> - **Filtros:** «tiene actualizaciones», «le falta la última actualización», «tiene DLC», «solo demos».
+> - **Accesibilidad:** el recuento y el estado también en texto para lectores de pantalla, nunca solo con color o icono; navegación con teclado dentro del árbol.
+
+### Investigación por sistema
+
+Hecha el 2026-11-01 (4 investigadores y un verificador crítico por grupo, que abrió cada fuente). Detalle completo, con offsets, máscaras de id, capas de cada emulador, convenciones de nombre y fuentes: [`docs/02-research/updates-dlc-per-system.md`](docs/02-research/updates-dlc-per-system.md). Resumen:
+
+| Sistema                  | Cómo se distingue (sin claves)                                                                                                                                                  | Cómo se llega al base                                                                                          | Qué espera el emulador                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 3DS                      | Parte alta del title ID: `00040000` base, `00040002` demo, `0004000E` actualización, `0004008C` DLC (cabecera del CIA y TMD en claro)                                           | Mismos 32 bits bajos: `0x0004000000000000 \| (id & 0xFFFFFFFF)`; la demo tiene id propio, se enlaza por nombre | Azahar: el base se carga o instala; actualización y DLC se **instalan** (Install CIA)                                                 |
+| DS / DSi                 | No hay actualizaciones ni DLC; DSiWare es independiente                                                                                                                         | —                                                                                                              | —                                                                                                                                     |
+| Switch                   | Bits bajos del title ID: `…000` base, `…800` actualización, DLC = base + `0x1000` + n (nombre del ticket y del `cnmt`, en claro)                                                | `id & ~0x1FFF`                                                                                                 | El base se carga; actualizaciones y DLC se añaden desde una carpeta                                                                   |
+| Wii U                    | Parte alta: `00050000` base, `0005000E` actualización, `0005000C` DLC, `00050002` demo (`meta.xml`/`app.xml`)                                                                   | Mismos 32 bits bajos                                                                                           | Cemu: actualización y DLC se **instalan** en su `mlc`                                                                                 |
+| Wii / GameCube           | Disco: id de juego y revisión en la cabecera; WAD: id del canal; DLC de WiiWare aparte                                                                                          | Id de juego del disco                                                                                          | Dolphin: discos tal cual; WAD se instalan en su NAND                                                                                  |
+| PS3                      | `CATEGORY` del `PARAM.SFO` y tipo del PKG: `DG`/`HG` base, `GD` actualización, `AC` DLC (cabecera PKG en claro)                                                                 | Mismo title ID (`BLUS30001`)                                                                                   | RPCS3: PKG se **instalan**; licencias `.rap` fuera de alcance                                                                         |
+| PS Vita                  | `CATEGORY`: `gd` base, `gp` actualización, `ac` DLC (carpetas `app/`, `patch/`, `addcont/`)                                                                                     | Mismo title ID                                                                                                 | Vita3K: se **instalan**                                                                                                               |
+| PSP                      | `CATEGORY` `UG` disco, `PG` actualización (`PBOOT.PBP`)                                                                                                                         | `DISC_ID`                                                                                                      | PPSSPP: la actualización va en `PSP/GAME/<id>/`                                                                                       |
+| PS4                      | Tipo de contenido del PKG y `CATEGORY`: base, `gp` parche, `ac` DLC; carpetas `CUSAxxxxx`, `-patch`/`-UPDATE`, `addcont`                                                        | Mismo `CUSAxxxxx`                                                                                              | shadPS4: carpetas extraídas; actualización **al lado** (`CUSAxxxxx-UPDATE`, o `-patch` si no hay `-UPDATE`); DLC en `addcont/<CUSA>/` |
+| PS5                      | `param.json` en claro en las carpetas: un parche lleva `originContentVersion`/`targetContentVersion`; el DLC se reconoce por estar en `addcont/<PPSA>/<label>/` sin `eboot.bin` | Mismo `PPSAxxxxx`                                                                                              | KytyPS5/SharpEmu: carpeta descifrada; el `param.json` de los paquetes va cifrado, solo el de las carpetas está en claro               |
+| Xbox 360                 | Tipo de contenido STFS: `0x000B0000` actualización, `0x00000002` DLC; title ID y media ID en claro                                                                              | Mismo title ID                                                                                                 | Consola y Xenia: `Content/0000000000000000/<TitleID>/000B0000/` (actualización) y `…/00000002/` (DLC)                                 |
+| Xbox One / Series        | Tipo de contenido XVD y `MicrosoftGame.config`                                                                                                                                  | Identidad del paquete                                                                                          | Sin emulador jugable (WinDurango temprano)                                                                                            |
+| Retro (cartucho y disco) | Revisiones `(Rev 1)`, `(v1.1)` en No-Intro/Redump y el byte de versión de la cabecera                                                                                           | Mismo juego, otra versión                                                                                      | Se juegan sueltas; agruparlas solo en la ficha                                                                                        |
+
+### Tareas
+
+- [ ] Opción de perfil «carpeta por juego con `DLC/` y `Updates/`» para la biblioteca y los perfiles que la acepten.
+- [ ] Organizar: mover base, actualizaciones y DLC a la carpeta del juego con deshacer; demos a su carpeta `(Demo)`.
+- [ ] Nombres con versión y región sacadas de las cabeceras.
+- [ ] Traductores por emulador (shadPS4, RPCS3, Azahar, Cemu, Vita3K, Switch, ES-DE) usados por Organizar con perfil y por la sincronización del bloque 4.
+- [ ] Extender la detección a todos los sistemas con actualizaciones o DLC (Tandas 1–3 y PSP, Wii/WiiWare…).
+- [ ] Revisiones retro agrupadas como versiones de un juego en la biblioteca y en duplicados.
+- [ ] Interfaz: el juego con sus actualizaciones y DLC plegados debajo, versión instalada y la más nueva disponible.
+
 ## 3. Biblioteca
+
+> **Dependencias:** depende de 2.1 (el juego como entidad con sus actualizaciones, DLC, demo, versiones y revisiones, y la estructura de carpetas maestra). **Lo usan 4 y 5.**
 
 Hoy la app abre carpetas: en Inicio aparecen como «Unidades conectadas» y «Bibliotecas recientes», pero solo son rutas, y la «biblioteca» es lo que haya en esa ruta en ese momento. La idea es que exista **una biblioteca propia, la definitiva**, que vive en el ordenador y tiene identidad y funciones propias. Los dispositivos (la SD de la Anbernic, la Ayaneo…) pasan a ser destinos que se comparan y sincronizan con ella (bloque 4).
 
@@ -258,6 +421,8 @@ Tareas:
 
 ## 4. Sincronizar con dispositivos
 
+> **Dependencias:** depende de 3 (la biblioteca que se compara) y de 2.1 (saber que una actualización o DLC pertenece a un juego, las carpetas fijas del juego —cuyo contenido el usuario elige sincronizar— y los traductores por emulador). Se coordina con 5.4 (sincronizar partidas).
+
 Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder llevar la biblioteca a cada una, sabiendo qué juegos hay en la biblioteca, cuáles hay en el dispositivo y cuáles solo en uno de los dos.
 
 ### Cómo lo resuelve hoy la gente (investigación)
@@ -278,6 +443,21 @@ Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder lleva
 - [ ] **Android por USB (MTP)**: un dispositivo Android conectado por USB no aparece como disco en macOS, así que hace falta MTP. Opción en Rust puro: [`mtp-rs`](https://docs.rs/crate/mtp-rs/0.32.0) (sin dependencias de C, listar / subir / bajar / mover; no cubre Android anterior a 5.0). Alternativa: [libmtp](https://manpages.debian.org/bookworm/libmtp-doc/mtp_basic.3), que además lee el «friendly name» del dispositivo para proponerlo como nombre inicial. Investigar permisos en macOS (Android File Transfer bloquea el acceso exclusivo), Windows y Linux.
 - [ ] Alternativas a MTP para Android: carpeta compartida por red (SMB/WebDAV) o un modo «cable» con ADB, si MTP resulta poco fiable.
 
+### Qué se lleva a cada dispositivo (elección del usuario)
+
+Cada juego de la biblioteca tiene sus carpetas fijas (2.1): el juego base, `Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/` (y sus categorías) y `Saves/`. El usuario decide qué se sincroniza, con tres niveles que se heredan de arriba abajo:
+
+1. **Por dispositivo (valor por defecto):** p. ej. en la Anbernic RG SP «base + Updates + DLC + Saves», sin `Mods/` ni `Extras/`; en la Ayaneo «todo menos `Extras/Videos`».
+2. **Por sistema:** sobrescribe el del dispositivo (p. ej. en PS2 llevar también `Cheats/`).
+3. **Por juego:** sobrescribe los anteriores (p. ej. este juego con su pack de texturas de `Mods/` y su manual de `Extras/Manuals`, aquel sin DLC).
+
+- [ ] Matriz de selección en la interfaz: casillas por carpeta (y por categoría de `Extras/`), con el estado heredado visible («como el dispositivo», «como el sistema», «personalizado») y un botón para volver al heredado.
+- [ ] Selección por elementos sueltos dentro de una carpeta (este DLC sí, aquel no; esta actualización concreta, no todas).
+- [ ] Ver el espacio que ocupa cada elección antes de sincronizar y avisar si no cabe.
+- [ ] Respetar lo que el emulador del dispositivo puede usar: si su frontend no admite mods o extras, la opción aparece pero se explica que no se usará, en vez de copiar sin sentido.
+- [ ] Guardar la elección con el dispositivo (por su identidad, no por la ruta) para que se mantenga al volver a conectarlo.
+- [ ] Plantillas de selección reutilizables («mínimo: solo base y partidas», «completo», «para portátil con poca SD»).
+
 ### Comparar y sincronizar
 
 - [ ] Comparación juego a juego (por identidad de contenido, no por nombre): **en ambos**, **solo en la biblioteca**, **solo en el dispositivo**, **distinta versión** (región, revisión, formato: p. ej. CHD en la biblioteca y CUE/BIN en el dispositivo).
@@ -289,6 +469,8 @@ Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder lleva
 - [ ] Sincronizar varios dispositivos con la misma biblioteca y ver de un vistazo qué tiene cada uno.
 
 ## 5. Partidas guardadas (saves)
+
+> **Dependencias:** depende de 2.1 (la carpeta del juego donde va `Saves/`, el title ID para asociar la partida, la relación demo → juego completo para 5.3.1 y la versión del juego para restaurar) y de 3 (la ficha del juego). 5.4 depende además de 4.
 
 Rescatar, ordenar, respaldar y sincronizar las partidas del usuario. Es parte de lo que hace que la biblioteca sea mejor que una carpeta de ROMs. Ninguna herramienta revisada lo hace para emuladores junto con la biblioteca de juegos: [Ludusavi](https://github.com/mtkennerly/ludusavi) respalda partidas de juegos de PC con un manifiesto de rutas (YAML, sacado de PCGamingWiki) y entradas propias, pero no cubre emuladores; RetroArch, EmuDeck y Syncthing solo copian carpetas.
 
@@ -321,6 +503,16 @@ Primera lista, a completar con una investigación por emulador y plataforma (esc
 - [ ] Asociar cada partida a su juego de la biblioteca (por nombre de la ROM, id del juego o serial; memorias de PS1/PS2 compartidas como caso aparte).
 - [ ] Copia de seguridad versionada en la biblioteca: varias versiones por partida, con fecha y dispositivo de origen; restaurar una versión anterior.
 - [ ] Distinguir partidas (`.srm`, `.sav`, memorias) de estados (`.state`, savestates): los estados dependen de la versión del emulador y se tratan aparte.
+
+### 5.3.1 Partidas de demos
+
+Algunas demos generan partidas, y en varios sistemas la partida (o lo desbloqueado en ella) pasa al juego completo: demos de PS4/PS5 con progreso transferible, demos de Switch y de 3DS cuyo avance o objetos se heredan en el juego final, demos de Xbox con «continúa tu progreso». La demo es un juego aparte en la biblioteca (2.1), pero su partida es del mismo juego.
+
+- [ ] Detectar las partidas de una demo y asociarlas a la demo y, a la vez, al juego completo relacionado (mismo título sin `(Demo)`, o el title ID base cuando el sistema lo enlaza).
+- [ ] Guardarlas en la carpeta de la demo (`… (Demo)/Saves/`) y mostrarlas también en la ficha del juego completo como «Partida de la demo».
+- [ ] No mezclarlas nunca con las del juego completo: son archivos distintos aunque el emulador las lea desde la misma carpeta o con el mismo id.
+- [ ] Al borrar o apartar una demo (duplicados, Organizar), avisar si tiene partida y conservarla en la copia de seguridad.
+- [ ] Investigar por sistema qué demos dejan heredar la partida y cómo (mismo id de partida, archivo de transferencia, desbloqueo por cuenta en línea que no se puede copiar) y anotarlo junto a la tabla de 5.2.
 
 ### 5.4 Sincronizar partidas
 
