@@ -33,6 +33,8 @@ interface FixtureSystem {
   name: string;
   /** Its `systems.toml` family (the picker group). */
   family: SystemFamily;
+  /** `systems.toml` `no_emulator` (systems batch 3 D22); absent = false. */
+  no_emulator?: boolean;
   exts: readonly string[];
   weight: number;
 }
@@ -177,6 +179,16 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     weight: 1,
   },
   {
+    // Batch 3: a first-class current-generation system beside the only one
+    // with no emulator, whose shelf header says so (spec §9.1).
+    folder: 'PS4',
+    id: 'ps4',
+    family: 'console',
+    name: 'Sony PlayStation 4',
+    exts: ['ps4', 'pkg'],
+    weight: 1,
+  },
+  {
     folder: 'PSP',
     id: 'psp',
     family: 'handheld',
@@ -223,6 +235,15 @@ export const FIXTURE_SYSTEMS: readonly FixtureSystem[] = [
     name: 'WonderSwan',
     exts: ['ws'],
     weight: 1,
+  },
+  {
+    folder: 'XBOXSERIES',
+    id: 'xboxseries',
+    family: 'console',
+    name: 'Microsoft Xbox Series X|S',
+    exts: ['xvc'],
+    weight: 1,
+    no_emulator: true,
   },
   {
     folder: 'ZXS',

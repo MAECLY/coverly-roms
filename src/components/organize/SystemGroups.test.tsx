@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -502,6 +502,123 @@ describe('SystemGroups — extract rows keep warnings in sight', () => {
         'Title ID 0100000000010000 en el nombre del ticket',
       );
       expect(rows[2]).toHaveTextContent('Actualización de Super Mario Odyssey');
+    });
+  });
+
+  describe('systems batch 3 (spec §9.1)', () => {
+    const SYSTEMS: SystemInfo[] = [
+      {
+        id: 'ps4',
+        name: 'Sony PlayStation 4',
+        family: 'console',
+        no_emulator: false,
+      },
+      {
+        id: 'xboxseries',
+        name: 'Microsoft Xbox Series X|S',
+        family: 'console',
+        no_emulator: true,
+      },
+    ];
+    const names = (id: string) => SYSTEMS.find((s) => s.id === id)?.name ?? id;
+    const bloodborne = autoItem(0, 'CUSA00900', 'ps4', 'ps4', {
+      kind: 'folder',
+      size: 48_120_000_000,
+      target: 'ps4/CUSA00900.ps4',
+      method: 'header',
+      confidence: 0.95,
+      why: [
+        {
+          kind: 'header',
+          system: 'ps4',
+          weight: 0.95,
+          detail: 'sce_sys/param.sfo',
+        },
+      ],
+      title_id: { id: 'CUSA00900', source: 'param-sfo' },
+      content_id: 'UP9000-CUSA00900_00-BLOODBORNE000000',
+    });
+    const forza = autoItem(1, 'Forza Horizon 5', 'xboxseries', 'xboxseries', {
+      kind: 'folder',
+      size: 110_400_000_000,
+      method: 'header',
+      confidence: 0.95,
+      why: [
+        {
+          kind: 'header',
+          system: 'xboxseries',
+          weight: 0.95,
+          detail: 'MicrosoftGame.config',
+        },
+      ],
+      title_id: { id: '2B3C4D5E', source: 'microsoft-game-config' },
+    });
+
+    function renderIn(locale: 'es' | 'en', systems?: SystemInfo[]) {
+      render(
+        <I18nProvider locale={locale}>
+          <SystemGroups
+            groups={groupBySystem(planOf([bloodborne, forza]))}
+            layoutName="Batocera / Knulli / EmulationStation"
+            systemName={names}
+            {...(systems ? { systems } : {})}
+            profile={null}
+          />
+        </I18nProvider>,
+      );
+    }
+
+    it('says «Sin emulador» once, in the Xbox Series heading only', () => {
+      renderIn('es', SYSTEMS);
+      expect(
+        screen.getByRole('button', {
+          name: 'xboxseries/ (1) Microsoft Xbox Series X|S Sin emulador',
+        }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'ps4/ (1) Sony PlayStation 4' }),
+      ).toBeInTheDocument();
+      const labels = screen.getAllByText('Sin emulador');
+      expect(labels).toHaveLength(1);
+      // Secondary caption text, no badge; the dot between is not read.
+      expect(labels[0]).toHaveClass('text-caption', 'text-cr-text-secondary');
+      const dot = labels[0]!.previousElementSibling!;
+      expect(dot).toHaveTextContent('·');
+      expect(dot).toHaveAttribute('aria-hidden', 'true');
+      // Never on a row.
+      for (const row of screen.getAllByRole('listitem'))
+        expect(row).not.toHaveTextContent('Sin emulador');
+    });
+
+    it('reads «No emulator» in English and nothing without the catalogue', () => {
+      renderIn('en', SYSTEMS);
+      expect(
+        screen.getByRole('button', {
+          name: 'xboxseries/ (1) Microsoft Xbox Series X|S No emulator',
+        }),
+      ).toBeInTheDocument();
+      cleanup();
+      renderIn('en');
+      expect(screen.queryByText('No emulator')).toBeNull();
+    });
+
+    it('a PS4 folder tells its title id file and its content id in mono', () => {
+      renderIn('es', SYSTEMS);
+      const row = screen.getAllByRole('listitem')[0]!;
+      expect(row).toHaveTextContent('Title ID CUSA00900 en PARAM.SFO');
+      expect(row).toHaveTextContent(
+        'Content ID UP9000-CUSA00900_00-BLOODBORNE000000',
+      );
+      expect(
+        within(row)
+          .getByText('UP9000-CUSA00900_00-BLOODBORNE000000')
+          .closest('.mono'),
+      ).not.toBeNull();
+      const xbox = screen.getAllByRole('listitem')[1]!;
+      expect(xbox).toHaveTextContent(
+        'Title ID 2B3C4D5E en MicrosoftGame.config',
+      );
+      expect(xbox).not.toHaveTextContent('Content ID');
     });
   });
 });

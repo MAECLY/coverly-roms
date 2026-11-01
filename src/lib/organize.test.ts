@@ -19,6 +19,7 @@ import { autoItem } from '@/test/organizeFixtures';
 import {
   actionOf,
   confidenceKey,
+  contentIdKey,
   duplicateCounts,
   extractDetail,
   extractSummary,
@@ -1150,5 +1151,102 @@ describe('updatesUnderBases', () => {
     expect(out[2 * n - 1]!.sources[0]).toBe(`Game ${n - 1} [v1].nsp`);
     // Quadratic matching took seconds here; a map takes milliseconds.
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+describe('systems batch 3 copy (spec §10)', () => {
+  const t = (key: string, vars?: TranslateVars) =>
+    translate('es', key, vars ?? {});
+  const tEn = (key: string, vars?: TranslateVars) =>
+    translate('en', key, vars ?? {});
+
+  it('a mods folder and a console system file read as the spec says', () => {
+    const overlay: LeftReason = { kind: 'game-overlay', of: 'Bloodborne' };
+    expect(leftReasonKey(overlay)).toEqual({
+      key: 'organize.left.gameOverlay',
+      vars: { title: 'Bloodborne' },
+    });
+    expect(leftReasonText(t, overlay)).toBe(
+      'Carpeta de mods o parches de Bloodborne: se deja donde está',
+    );
+    expect(leftReasonText(tEn, overlay)).toBe(
+      'Mods or patch folder of Bloodborne: left where it is',
+    );
+    const system: LeftReason = { kind: 'not-a-rom', what: 'console-system' };
+    expect(leftReasonText(t, system)).toBe(
+      'No es una ROM (archivo del sistema de una consola)',
+    );
+    expect(leftReasonText(tEn, system)).toBe('Not a ROM (console system file)');
+  });
+
+  it('every new note has its sentence in both languages', () => {
+    const layout = 'Batocera / Knulli / EmulationStation';
+    const cases: [ItemNote, string, string][] = [
+      [
+        { kind: 'extract-first' },
+        'Este paquete no se abre así: hay que extraerlo antes',
+        'This package does not open as is: it has to be extracted first',
+      ],
+      [
+        { kind: 'no-emulator' },
+        'Ningún emulador lo abre así',
+        'No emulator opens it in this form',
+      ],
+      [
+        { kind: 'pro-enhanced' },
+        'Mejorado para PS5 Pro',
+        'Enhanced for PS5 Pro',
+      ],
+      [
+        { kind: 'dlc-folder', layout },
+        `Va a la carpeta DLC, donde ${layout} busca el contenido descargable`,
+        `Goes to the DLC folder, where ${layout} looks for downloadable content`,
+      ],
+    ];
+    for (const [note, esText, enText] of cases) {
+      const keyed = noteKey(note)!;
+      expect(t(keyed.key, keyed.vars), note.kind).toBe(esText);
+      expect(tEn(keyed.key, keyed.vars), note.kind).toBe(enText);
+      const row = autoItem(0, 'x', 'ps4', 'ps4', { notes: [note] });
+      expect(itemNotes(t, row, layout, (id) => id)).toEqual([esText]);
+    }
+  });
+
+  it('a title id names param.json, MicrosoftGame.config or AppxManifest.xml', () => {
+    const text = (source: Parameters<typeof titleIdKey>[0]['source']) => {
+      const k = titleIdKey({ id: 'PPSA01284', source })!;
+      return t(k.key, k.vars);
+    };
+    expect(text('param-json')).toBe('Title ID PPSA01284 en param.json');
+    expect(text('microsoft-game-config')).toBe(
+      'Title ID PPSA01284 en MicrosoftGame.config',
+    );
+    expect(text('appx-manifest')).toBe(
+      'Title ID PPSA01284 en AppxManifest.xml',
+    );
+    // A PKG entry's param.sfo is still PARAM.SFO.
+    expect(text('param-sfo')).toBe('Title ID PPSA01284 en PARAM.SFO');
+  });
+
+  it('a content id is its own why line, codes untouched', () => {
+    const row = autoItem(0, 'CUSA00900', 'ps4', 'ps4', {
+      content_id: 'UP9000-CUSA00900_00-BLOODBORNE000000',
+    });
+    const keyed = contentIdKey(row)!;
+    expect(keyed).toEqual({
+      key: 'organize.why.contentId',
+      vars: { id: 'UP9000-CUSA00900_00-BLOODBORNE000000' },
+    });
+    expect(t(keyed.key, keyed.vars)).toBe(
+      'Content ID UP9000-CUSA00900_00-BLOODBORNE000000',
+    );
+    expect(tEn(keyed.key, keyed.vars)).toBe(
+      'Content ID UP9000-CUSA00900_00-BLOODBORNE000000',
+    );
+    expect(contentIdKey(autoItem(1, 'x', 'ps4', 'ps4'))).toBeNull();
+    // An empty id is no id.
+    expect(
+      contentIdKey(autoItem(2, 'g', 'xboxone', 'xboxone', { content_id: '' })),
+    ).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
 } from 'react';
 
 import { SystemIcon } from '@/components/system/SystemIcon';
+import { useNoEmulator } from '@/hooks/useNoEmulator';
 import { LocaleContext } from '@/i18n/core';
 import { useT } from '@/i18n/useT';
 import { sectionLabel, type Section } from '@/lib/grouping';
@@ -43,6 +44,10 @@ export function SectionHeaderRow({
   const group = sectionLabel(section, t);
   // Spoken and shown the same way ("1,204", "1.204").
   const count = section.count.toLocaleString(locale);
+  // Once per shelf, after the name, as part of its name (systems batch 3
+  // §9.1): a fact about the world, so no box and no warning colour.
+  const noEmulator = useNoEmulator(section.systemId);
+  const note = noEmulator ? t('systems.noEmulator') : null;
   return (
     <div
       role="row"
@@ -53,13 +58,24 @@ export function SectionHeaderRow({
       <div
         role="rowheader"
         aria-colspan={colSpan}
-        aria-label={t('layouts.groupCount', { group, n: count })}
+        aria-label={t('layouts.groupCount', {
+          group: note ? `${group} ${note}` : group,
+          n: count,
+        })}
         className="section-row__label"
       >
         {section.systemId !== undefined && (
           <SystemIcon systemId={section.systemId} size={20} />
         )}
         <span className="section-row__name">{group}</span>
+        {note && (
+          <>
+            <span aria-hidden className="section-row__note">
+              ·
+            </span>
+            <span className="section-row__note">{note}</span>
+          </>
+        )}
         <span className="section-row__count">{count}</span>
         {children}
       </div>

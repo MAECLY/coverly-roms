@@ -380,11 +380,16 @@ describe('OrganizeScreen', () => {
     const size = new Intl.NumberFormat('en', {
       maximumFractionDigits: 2,
     }).format(large.kind === 'large-transfer' ? large.bytes / 1e9 : 0);
+    const line = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' &&
+        el.textContent ===
+          `${size} GB will be written to the target; you will be asked to confirm before it starts`,
+    );
+    // The size is data: mono, like every size (spec §9.1).
     expect(
-      screen.getByText(
-        `${size} GB will be written to the target; you will be asked to confirm before it starts`,
-      ),
-    ).toBeInTheDocument();
+      within(line).getByText(`${size} GB`).closest('.mono'),
+    ).not.toBeNull();
     const apply = screen.getByRole('button', { name: /^Organise \d+ files$/ });
     const sent = vi.spyOn(b, 'organizeApply');
     apply.focus();
@@ -549,7 +554,7 @@ describe('OrganizeScreen', () => {
     expect(screen.getByText('52 files · 591.9 MB')).toBeInTheDocument();
     // Saturn is named like the Rust catalogue, never by its id.
     expect(
-      screen.getByRole('button', { name: 'ROMS/SATURN/ (1)Sega Saturn' }),
+      screen.getByRole('button', { name: 'ROMS/SATURN/ (1) Sega Saturn' }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(

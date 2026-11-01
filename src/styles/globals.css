@@ -230,6 +230,13 @@ time {
   white-space: nowrap;
 }
 
+/* «Sin emulador» after a shelf's name: caption size, secondary text. */
+.section-row__note {
+  flex-shrink: 0;
+  color: var(--cr-text-secondary);
+  font: var(--cr-type-app-caption);
+}
+
 .section-row__count {
   flex-shrink: 0;
   color: var(--cr-text-secondary);

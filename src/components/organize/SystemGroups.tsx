@@ -107,6 +107,8 @@ function Group({
   const dir = targetDir(group.items[0]!);
   const isNew = row.isNew;
   const fresh = isNew ? group.items.filter(isNew).length : 0;
+  const noEmulator =
+    row.systems?.find((s) => s.id === group.systemId)?.no_emulator === true;
   return (
     <Collapsible
       open={open}
@@ -121,11 +123,28 @@ function Group({
           <Folder aria-hidden className="text-cr-text-secondary" />
           <span className="font-mono text-ui text-cr-text [overflow-wrap:anywhere]">
             {`${dir}/ (${group.items.length})`}
-          </span>
+          </span>{' '}
+          {/* The spaces keep the parts apart in the accessible name; a
+              flex row drops them from the layout. */}
           <SystemIcon systemId={group.systemId} size={16} />
           <span className="text-caption font-normal text-cr-text-secondary">
             {row.systemName(group.systemId)}
           </span>
+          {noEmulator && (
+            // A fact about the world, not a fault: no box, no warning
+            // colour; read as part of the group's name (spec §9.1).
+            <>
+              <span
+                aria-hidden
+                className="text-caption font-normal text-cr-text-secondary"
+              >
+                ·
+              </span>{' '}
+              <span className="text-caption font-normal text-cr-text-secondary">
+                {t('systems.noEmulator')}
+              </span>
+            </>
+          )}
           <NewCount count={fresh} />
         </Button>
       </CollapsibleTrigger>

@@ -1561,6 +1561,7 @@
       "arcade": "Arcade",
       "engine": "Engines and fantasy consoles"
     },
+    "noEmulator": "No emulator",
     "unknown": "Folder with no known system"
   },
   "progress": {

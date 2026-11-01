@@ -485,6 +485,9 @@ const ID_FILES: Partial<Record<IdSource, string>> = {
   'default-xbe': 'default.xbe',
   'default-xex': 'default.xex',
   'cnmt-xml': 'cnmt.xml',
+  'param-json': 'param.json',
+  'microsoft-game-config': 'MicrosoftGame.config',
+  'appx-manifest': 'AppxManifest.xml',
 };
 
 /**
@@ -501,6 +504,18 @@ export function titleIdKey(r: TitleIdRef): KeyedText | null {
   if (r.source === 'file-name')
     return { key: 'organize.why.titleIdName', vars: { id: r.id } };
   return null;
+}
+
+/**
+ * The «why» line of a row's content id (PKG header, `param.sfo`,
+ * `param.json`; spec §10), the code as the core read it. `null` without
+ * one; the header line beside it already says where it was read.
+ */
+export function contentIdKey(
+  item: Pick<OrganizeItem, 'content_id'>,
+): KeyedText | null {
+  const id = item.content_id;
+  return id ? { key: 'organize.why.contentId', vars: { id } } : null;
 }
 
 /** How many rows are an update or DLC of a game; `null` when none. */

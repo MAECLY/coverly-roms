@@ -32,6 +32,16 @@
  *   (PS3 JB, Vita app, Wii U loadiine, Xbox 360 XBLA) moved whole, a Switch
  *   update under its base, key files and an emulator's `ux0` left, a macOS
  *   installer and a 3D Studio model that are not ROMs.
+ * - `MOCK_CURRENT` is the systems batch 3 pile of spec §9.3 with the
+ *   verdicts of the core's plan snapshots (`organize_plan__systems_batch_3__*`)
+ *   and synthetic sizes: PS4 and PS5 folders with their update, DLC and a
+ *   mods folder left beside them, store packages, a ZArchive and an exFAT
+ *   image, Xbox One and Series folders, an XVC for review, a PC build, an
+ *   emulator's data and key files. Its target defaults to another drive
+ *   (`MOCK_CURRENT_TARGET`, «TinyExt», 412,10 GB free), so the automatic
+ *   mode copies and an apply asks before writing 187,42 GB;
+ *   `?mockSameVolume=1` keeps the target on the pile's drive (a move, no
+ *   question).
  *
  * Only these piles exist for organising; any other source is
  * `not-found`. Targets are not checked.
@@ -104,17 +114,21 @@ export const MOCK_MIXED = '/Users/demo/Mixed';
 export const MOCK_SAMPLE = '/Users/demo/ROMs-Downloaded';
 export const MOCK_RETRO = '/Users/demo/Retro';
 export const MOCK_MODERN = '/Users/demo/Modern';
+export const MOCK_CURRENT = '/Users/demo/Current';
+/** Where the current pile goes unless `?mockSameVolume=1`: another drive. */
+export const MOCK_CURRENT_TARGET = '/Volumes/TinyExt';
 export const MOCK_PLAN_EXPORT = 'coverly-organize-plan.json';
 export const MOCK_PICK_KEY = 'coverly.mock.pick';
 
 /**
  * What "Open folder…" picks in the browser mock, so the organise offer is
  * reachable from the start screen:
- * `?mockPick=downloads|loose|mixed|retro|modern|<absolute path>` (or
+ * `?mockPick=downloads|loose|mixed|retro|modern|current|<absolute path>` (or
  * localStorage `coverly.mock.pick`). `downloads` is the owner's pile as it
  * is now (`MOCK_SAMPLE`), `loose` the same pile before any of it was sorted
  * (`MOCK_DOWNLOADS`), `retro` the systems batch 1 pile (`MOCK_RETRO`),
- * `modern` the systems batch 2 pile (`MOCK_MODERN`).
+ * `modern` the systems batch 2 pile (`MOCK_MODERN`), `current` the systems
+ * batch 3 pile (`MOCK_CURRENT`).
  * Null: the first fixture library, as before.
  */
 export function readMockPick(): string | null {
@@ -124,6 +138,7 @@ export function readMockPick(): string | null {
     if (v === 'mixed') return MOCK_MIXED;
     if (v === 'retro') return MOCK_RETRO;
     if (v === 'modern') return MOCK_MODERN;
+    if (v === 'current') return MOCK_CURRENT;
     return v && v.startsWith('/') ? v : null;
   };
   try {
@@ -135,6 +150,18 @@ export function readMockPick(): string | null {
   } catch {
     /* no window or storage */
     return null;
+  }
+}
+
+/** `?mockSameVolume=1`: the current pile's target is the pile itself. */
+export function readMockSameVolume(): boolean {
+  try {
+    return (
+      new URLSearchParams(window.location.search).get('mockSameVolume') === '1'
+    );
+  } catch {
+    /* no window */
+    return false;
   }
 }
 
@@ -224,6 +251,13 @@ interface PileFile {
   folder?: true;
   /** The console title id the header reader found, and where. */
   titleId?: TitleIdRef;
+  /** The content id it was read with (PKG header, `param.sfo`/`.json`). */
+  contentId?: string;
+  /** An update or DLC: the name of the base it is listed right after. */
+  baseOf?: string;
+  /** A sibling overlay (`<base>-UPDATE`): its name follows the base's
+   * final name, suffix included (systems batch 3 D11). */
+  sibling?: true;
 }
 
 interface PileDef {
@@ -888,6 +922,186 @@ const PILES: readonly PileDef[] = [
       },
     ],
   },
+  {
+    // Systems batch 3, spec §9.3, as the core plans it (Task 16
+    // snapshots); names and sizes are synthetic.
+    path: MOCK_CURRENT,
+    junk: [],
+    files: [
+      {
+        // Its header alone cannot tell One from Series: review.
+        ...consoleFile(
+          '4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6',
+          28_640_000_000,
+          'xboxone',
+          'XVD header',
+          null,
+          { notes: [{ kind: 'no-emulator' }] },
+        ),
+        alternatives: [['xboxseries', 0.95]],
+        contentId: '4f0b3e0a-1a2b-4c3d-8e9f-c1d2e3f4a5b6',
+      },
+      consoleFile(
+        'CUSA00900',
+        48_120_000_000,
+        'ps4',
+        'sce_sys/param.sfo',
+        { id: 'CUSA00900', source: 'param-sfo' },
+        { folder: true, contentId: 'UP9000-CUSA00900_00-BLOODBORNE000000' },
+      ),
+      consoleFile(
+        'CUSA00900-DLC-ABC',
+        520_000_000,
+        'ps4',
+        'sce_sys/param.sfo',
+        { id: 'CUSA00900', source: 'param-sfo' },
+        {
+          folder: true,
+          contentId: 'UP9000-CUSA00900_00-OLDHUNTERS000000',
+          notes: [{ kind: 'dlc', of: 'Bloodborne' }],
+          baseOf: 'CUSA00900',
+        },
+      ),
+      {
+        name: 'CUSA00900-mods',
+        size: 64_000_000,
+        left: { kind: 'game-overlay', of: 'Bloodborne' },
+      },
+      consoleFile(
+        'CUSA00900-UPDATE',
+        14_800_000_000,
+        'ps4',
+        'sce_sys/param.sfo',
+        { id: 'CUSA00900', source: 'param-sfo' },
+        {
+          folder: true,
+          contentId: 'UP9000-CUSA00900_00-BLOODBORNE000000',
+          notes: [{ kind: 'update', of: 'Bloodborne' }],
+          baseOf: 'CUSA00900',
+          sibling: true,
+        },
+      ),
+      consoleFile(
+        'EP0002-CUSA04447_00-GRAVITYRUSH00000.pkg',
+        9_020_000_000,
+        'ps4',
+        'PS4 PKG header',
+        { id: 'CUSA04447', source: 'param-sfo' },
+        {
+          ext: [0.5, 'pkg~'],
+          contentId: 'EP0002-CUSA04447_00-GRAVITYRUSH00000',
+          notes: [{ kind: 'extract-first' }],
+        },
+      ),
+      consoleFile(
+        'Forza Horizon 5',
+        110_400_000_000,
+        'xboxseries',
+        'MicrosoftGame.config',
+        { id: '2B3C4D5E', source: 'microsoft-game-config' },
+        { folder: true },
+      ),
+      consoleFile(
+        'Gravity Rush.zar',
+        960_000_000,
+        'ps4',
+        'ZAR sce_sys/param.sfo',
+        { id: 'CUSA04447', source: 'param-sfo' },
+        {
+          ext: [0.5, 'zar'],
+          contentId: 'EP0002-CUSA04447_00-GRAVITYRUSH00000',
+          alternatives: [
+            ['ps5', 0.5],
+            ['xbox360', 0.5],
+          ],
+          sure: true,
+        },
+      ),
+      consoleFile(
+        'Halo 5 Guardians',
+        880_000_000,
+        'xboxone',
+        'MicrosoftGame.config',
+        { id: '3C4D5E6F', source: 'microsoft-game-config' },
+        { folder: true },
+      ),
+      {
+        // A GDK build for `PC` is no console's.
+        name: 'Microsoft Flight Simulator',
+        size: 97_300_000_000,
+        left: { kind: 'not-a-rom', what: 'pc-game-data' },
+      },
+      consoleFile(
+        'PPSA01284',
+        710_000_000,
+        'ps5',
+        'sce_sys/param.json, PS5 Pro',
+        { id: 'PPSA01284', source: 'param-json' },
+        {
+          folder: true,
+          contentId: 'UP9000-PPSA01284_00-SAMPLEGAME000000',
+          notes: [{ kind: 'pro-enhanced' }],
+        },
+      ),
+      consoleFile(
+        // No `eboot.bin`: a DLC.
+        'PPSA01284 DLC',
+        330_000_000,
+        'ps5',
+        'sce_sys/param.json',
+        { id: 'PPSA01284', source: 'param-json' },
+        {
+          folder: true,
+          contentId: 'UP9000-PPSA01284_00-SAMPLEGAME000000',
+          notes: [{ kind: 'dlc', of: 'Returnal' }],
+          baseOf: 'PPSA01284',
+        },
+      ),
+      {
+        ...consoleFile(
+          'PPSA09519.exfat',
+          640_000_000,
+          'ps5',
+          'exFAT image',
+          { id: 'PPSA09519', source: 'file-name' },
+          { notes: [{ kind: 'no-emulator' }] },
+        ),
+        confidence: 0.93,
+        why: [
+          ev('header', 'ps5', 0.9, 'exFAT image'),
+          ev('extension', 'ps5', 0.5, 'exfat~'),
+        ],
+      },
+      consoleFile(
+        'Sunset Overdrive',
+        620_000_000,
+        'xboxone',
+        'AppxManifest.xml',
+        null,
+        { folder: true },
+      ),
+      { name: 'UP9000-CUSA00900_00.rif', size: 2_048, left: KEYS },
+      consoleFile(
+        'UP9000-PPSA01284_00-RATCHET000000000.pkg',
+        420_000_000,
+        'ps5',
+        'PS5 PKG header',
+        { id: 'PPSA01284', source: 'header' },
+        {
+          ext: [0.5, 'pkg~'],
+          contentId: 'UP9000-PPSA01284_00-RATCHET000000000',
+          notes: [{ kind: 'no-emulator' }],
+        },
+      ),
+      {
+        // `sys_modules/`, `game_data/` and `addcont/` inside.
+        name: 'shadPS4',
+        size: 1_250_000_000,
+        left: { kind: 'emulator-data', folder: 'shadPS4' },
+      },
+      { name: 'x.cik', size: 32, left: KEYS },
+    ],
+  },
 ];
 
 const ARCHIVE_EXTS = ['.zip', '.7z', '.rar', '.gz', '.tgz'];
@@ -970,13 +1184,14 @@ export const ORGANIZE_SYSTEMS: readonly {
     family: 'console',
   },
   { id: 'a800', name: 'Atari 8-bit', folder: 'A800', family: 'computer' },
-  // Systems batch 3 (spec §7): the only system with no public emulator.
+  // The current pile (systems batch 3; PS4 and Xbox Series, the only
+  // system with no public emulator, are in the fixture libraries).
+  { id: 'ps5', name: 'Sony PlayStation 5', folder: 'PS5', family: 'console' },
   {
-    id: 'xboxseries',
-    name: 'Microsoft Xbox Series X|S',
-    folder: 'XBOXSERIES',
+    id: 'xboxone',
+    name: 'Microsoft Xbox One',
+    folder: 'XBOXONE',
     family: 'console',
-    no_emulator: true,
   },
 ];
 
@@ -1004,6 +1219,28 @@ const ABSENT_ON: Readonly<Record<string, readonly string[]>> = {
   ps3: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
   xbox: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
   xbox360: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  // Systems batch 3 (spec §6): ES-DE and Batocera name PS4, ES-DE Xbox
+  // One; no frontend has PS5 or Xbox Series.
+  ps4: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui'],
+  ps5: [
+    'anbernic-stock',
+    'garlicos',
+    'onion',
+    'muos',
+    'minui',
+    'esde',
+    'batocera',
+  ],
+  xboxone: ['anbernic-stock', 'garlicos', 'onion', 'muos', 'minui', 'batocera'],
+  xboxseries: [
+    'anbernic-stock',
+    'garlicos',
+    'onion',
+    'muos',
+    'minui',
+    'esde',
+    'batocera',
+  ],
 };
 const SYSTEMS = new Map<string, { id: string; name: string; folder: string }>(
   [...FIXTURE_SYSTEMS, ...ORGANIZE_SYSTEMS].map((s) => [s.id, s]),
@@ -1080,6 +1317,26 @@ function largeTransfer(
         ? (r.target.split('/').filter(Boolean).pop() ?? r.target)
         : volume.slice('/Volumes/'.length),
   };
+}
+
+/** Updates first, then DLC (like Rust's `updates_after_bases`). */
+const followerRank = (f: PileFile) =>
+  f.notes?.some((n) => n.kind === 'update') ? 0 : 1;
+
+/** Name-sorted files with each update or DLC whose base is in the pile
+ * right after that base, updates first (stable otherwise). */
+function afterBases(all: readonly PileFile[]): PileFile[] {
+  const names = new Set(all.map((f) => f.name));
+  return all.flatMap((file) =>
+    file.baseOf && names.has(file.baseOf)
+      ? []
+      : [
+          file,
+          ...all
+            .filter((f) => f.baseOf === file.name)
+            .sort((a, b) => followerRank(a) - followerRank(b)),
+        ],
+  );
 }
 
 /** Options of one plan, the request resolved against the settings. */
@@ -1374,12 +1631,20 @@ export function createMockOrganize(
     if (!layout) throw new BackendError('unknown-profile', id);
     const nest = req.flat == null ? s.nest_in_roms_root : !req.flat;
     const d = host.dedupe?.();
+    const target =
+      req.target ??
+      (req.source === MOCK_CURRENT && !readMockSameVolume()
+        ? MOCK_CURRENT_TARGET
+        : req.source);
+    // Like Rust, the automatic mode moves on one drive and copies across.
+    const auto: TransferMode =
+      volumeOf(req.source) === volumeOf(target) ? 'move' : 'copy';
     return {
       source: req.source,
       layout,
-      target: req.target ?? req.source,
+      target,
       romsRel: nest ? layout.profile.roms_root : '',
-      mode: req.mode ?? (s.mode === 'copy' ? 'copy' : 'move'),
+      mode: req.mode ?? (s.mode === 'auto' ? auto : s.mode),
       names: req.names ?? s.names,
       offline: req.offline ?? false,
       overrides: s.folder_names[id] ?? {},
@@ -1446,6 +1711,9 @@ export function createMockOrganize(
       ...(identified &&
         !file.left &&
         file.titleId && { title_id: { ...file.titleId } }),
+      ...(identified &&
+        !file.left &&
+        file.contentId && { content_id: file.contentId }),
     };
     if (file.left)
       return {
@@ -1534,7 +1802,7 @@ export function createMockOrganize(
   /** The loose files of a pile, in name order, with their item. */
   function looseFiles(r: Resolved): PileFile[] {
     const names = surveyed.get(r.source) ?? loose.get(r.source)!;
-    return (
+    return afterBases(
       allFiles(r.source)
         .filter((f) => names.has(f.name))
         // Like Rust, a copy whose original is gone is the only one left,
@@ -1544,7 +1812,7 @@ export function createMockOrganize(
           const { left: _copyOf, ...only } = f;
           return only;
         })
-        .sort((a, b) => collator.compare(a.name, b.name))
+        .sort((a, b) => collator.compare(a.name, b.name)),
     );
   }
 
@@ -1614,6 +1882,8 @@ export function createMockOrganize(
         ? existing.files.flatMap((p) => p.written.map((w) => w.toLowerCase()))
         : [],
     );
+    /** Each moving item's final name, for its sibling overlays. */
+    const finalNames = new Map<string, string>();
     for (const [i, item] of items.entries()) {
       if (item.action === 'left' && item.reason.kind === 'folder-game') {
         // Move the whole folder to the system's folder of this layout.
@@ -1664,13 +1934,34 @@ export function createMockOrganize(
         };
         continue;
       }
-      const source = files[i]!.name;
+      const file = files[i]!;
+      const source = file.name;
       let name = source;
       let rename: OrganizeItem['rename'] = null;
+      let dirOf = dir;
+      const follower = item.notes.some(
+        (n) => n.kind === 'update' || n.kind === 'dlc',
+      );
+      // A DLC goes where the layout looks for it (batch 3 D16: Batocera's
+      // `ps4/DLC/<TITLE_ID>/`), saying so before whose it is.
+      const dlcDir = r.layout.profile.dlc_folder?.[item.system_id];
+      if (dlcDir && item.title_id && item.notes.some((n) => n.kind === 'dlc')) {
+        dirOf = join(dir, dlcDir.replace('{title_id}', item.title_id.id));
+        const late = (n: ItemNote) => n.kind === 'update' || n.kind === 'dlc';
+        item.notes = [
+          ...item.notes.filter((n) => !late(n)),
+          { kind: 'dlc-folder', layout: r.layout.profile.name },
+          ...item.notes.filter(late),
+        ];
+      }
+      // A sibling overlay keeps its base's final name (batch 3 D11).
+      const base = file.sibling && file.baseOf && finalNames.get(file.baseOf);
+      if (base) name = `${base}${source.slice(file.baseOf!.length)}`;
       // A game folder the layout shows only with a suffix (D13: PS3 JB
-      // folders on ES-DE and Batocera) is renamed and says so.
+      // folders on ES-DE and Batocera, batch 3 PS4 on Batocera) is renamed
+      // and says so; its update and DLC are not games of their own.
       const suffix =
-        item.kind === 'folder'
+        item.kind === 'folder' && !follower
           ? r.layout.profile.folder_game_suffix?.[item.system_id]
           : undefined;
       if (suffix && !source.toLowerCase().endsWith(suffix)) {
@@ -1690,19 +1981,20 @@ export function createMockOrganize(
       }
       // Never overwrite: case-insensitive, like a FAT card or macOS.
       const wanted = name;
-      for (let n = 2; taken.has(join(dir, name).toLowerCase()); n += 1) {
+      for (let n = 2; taken.has(join(dirOf, name).toLowerCase()); n += 1) {
         name = `${stemOf(wanted)} (${n})${extOf(wanted)}`;
         rename = { kind: 'collision', name };
       }
-      taken.add(join(dir, name).toLowerCase());
-      const companions = (files[i]!.companions ?? []).map((c) => ({
+      taken.add(join(dirOf, name).toLowerCase());
+      finalNames.set(source, name);
+      const companions = (file.companions ?? []).map((c) => ({
         source: c,
-        target: join(dir, c),
+        target: join(dirOf, c),
       }));
       items[i] = {
         ...item,
         folder,
-        target: join(dir, name),
+        target: join(dirOf, name),
         rename,
         companions,
       };

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FIXTURE_NOW,
+  FIXTURE_SYSTEMS,
   generateLibrary,
   HOSTILE_NAMES,
   mulberry32,
@@ -65,6 +66,22 @@ describe('fixture generator', () => {
   it('includes the hostile names verbatim', () => {
     const names = make(240).entries.map((e) => e.name);
     for (const hostile of HOSTILE_NAMES) expect(names).toContain(hostile);
+  });
+
+  it('has PS4 and Xbox Series shelves, the second with no emulator', () => {
+    const view = make(12_000);
+    for (const [id, folder] of [
+      ['ps4', 'PS4'],
+      ['xboxseries', 'XBOXSERIES'],
+    ] as const) {
+      const sys = view.systems.find((s) => s.system_id === id)!;
+      expect(sys.folder).toBe(folder);
+      expect(sys.roms).toBeGreaterThan(0);
+      expect(view.entries.some((e) => e.system === sys.index)).toBe(true);
+    }
+    expect(
+      FIXTURE_SYSTEMS.filter((s) => s.no_emulator).map((s) => s.id),
+    ).toEqual(['xboxseries']);
   });
 
   it('can be empty', () => {
