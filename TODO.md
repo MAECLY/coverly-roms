@@ -406,7 +406,7 @@ Tareas:
 
 ## 4. Sincronizar con dispositivos
 
-> **Dependencias:** depende de 3 (la biblioteca que se compara) y de 2.1 (saber que una actualización o DLC pertenece a un juego, y los traductores por emulador). Se coordina con 5.4 (sincronizar partidas).
+> **Dependencias:** depende de 3 (la biblioteca que se compara) y de 2.1 (saber que una actualización o DLC pertenece a un juego, las carpetas fijas del juego —cuyo contenido el usuario elige sincronizar— y los traductores por emulador). Se coordina con 5.4 (sincronizar partidas).
 
 Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder llevar la biblioteca a cada una, sabiendo qué juegos hay en la biblioteca, cuáles hay en el dispositivo y cuáles solo en uno de los dos.
 
@@ -427,6 +427,21 @@ Origen de la idea: tener una Anbernic RG SP y una Ayaneo Pocket DS y poder lleva
 - [ ] Perfil por dispositivo: qué frontend usa (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch Android…), qué sistemas acepta y dónde guarda las partidas (bloque 5). Detección automática como la actual de perfiles, con corrección manual.
 - [ ] **Android por USB (MTP)**: un dispositivo Android conectado por USB no aparece como disco en macOS, así que hace falta MTP. Opción en Rust puro: [`mtp-rs`](https://docs.rs/crate/mtp-rs/0.32.0) (sin dependencias de C, listar / subir / bajar / mover; no cubre Android anterior a 5.0). Alternativa: [libmtp](https://manpages.debian.org/bookworm/libmtp-doc/mtp_basic.3), que además lee el «friendly name» del dispositivo para proponerlo como nombre inicial. Investigar permisos en macOS (Android File Transfer bloquea el acceso exclusivo), Windows y Linux.
 - [ ] Alternativas a MTP para Android: carpeta compartida por red (SMB/WebDAV) o un modo «cable» con ADB, si MTP resulta poco fiable.
+
+### Qué se lleva a cada dispositivo (elección del usuario)
+
+Cada juego de la biblioteca tiene sus carpetas fijas (2.1): el juego base, `Updates/`, `DLC/`, `Mods/`, `Cheats/`, `Extras/` (y sus categorías) y `Saves/`. El usuario decide qué se sincroniza, con tres niveles que se heredan de arriba abajo:
+
+1. **Por dispositivo (valor por defecto):** p. ej. en la Anbernic RG SP «base + Updates + DLC + Saves», sin `Mods/` ni `Extras/`; en la Ayaneo «todo menos `Extras/Videos`».
+2. **Por sistema:** sobrescribe el del dispositivo (p. ej. en PS2 llevar también `Cheats/`).
+3. **Por juego:** sobrescribe los anteriores (p. ej. este juego con su pack de texturas de `Mods/` y su manual de `Extras/Manuals`, aquel sin DLC).
+
+- [ ] Matriz de selección en la interfaz: casillas por carpeta (y por categoría de `Extras/`), con el estado heredado visible («como el dispositivo», «como el sistema», «personalizado») y un botón para volver al heredado.
+- [ ] Selección por elementos sueltos dentro de una carpeta (este DLC sí, aquel no; esta actualización concreta, no todas).
+- [ ] Ver el espacio que ocupa cada elección antes de sincronizar y avisar si no cabe.
+- [ ] Respetar lo que el emulador del dispositivo puede usar: si su frontend no admite mods o extras, la opción aparece pero se explica que no se usará, en vez de copiar sin sentido.
+- [ ] Guardar la elección con el dispositivo (por su identidad, no por la ruta) para que se mantenga al volver a conectarlo.
+- [ ] Plantillas de selección reutilizables («mínimo: solo base y partidas», «completo», «para portátil con poca SD»).
 
 ### Comparar y sincronizar
 
