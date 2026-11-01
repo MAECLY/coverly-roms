@@ -1758,3 +1758,61 @@ fn gcz_without_header_is_shared_review() {
         "{alts:?}"
     );
 }
+
+// --- Nintendo 3DS: `3ds` is DECISIVE (systems batch 2, Task 8) ---
+
+#[test]
+fn autodesk_3ds_never_auto() {
+    // D7: a 3D Studio model opens with the main chunk `4D 4D`.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut model = vec![0x4D, 0x4D, 0x10, 0x27, 0, 0, 0x02, 0];
+    model.resize(4096, 0);
+    let p = tmp.path().join("model.3ds");
+    std::fs::write(&p, &model).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        id.left,
+        Some(LeftReason::NotARom {
+            what: NotARom::Model3d
+        })
+    );
+    assert_ne!(id.combined.verdict, Verdict::Auto);
+}
+
+#[test]
+fn unknown_3ds_is_0_60() {
+    // No NCSD/NCCH and no `4D 4D`: the failed sniff weighs against 3ds.
+    let tmp = tempfile::tempdir().unwrap();
+    let p = tmp.path().join("Something.3ds");
+    std::fs::write(&p, fx::zeros(64 * 1024)).unwrap();
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_ne!(id.combined.verdict, Verdict::Auto, "{:?}", id.combined);
+    assert!(id.combined.confidence <= 0.60 + 1e-3, "{:?}", id.combined);
+}
+
+#[test]
+fn ncsd_3ds_is_auto_and_encrypted_noted() {
+    use coverly_core::consoles::testing as t;
+    let tmp = tempfile::tempdir().unwrap();
+    let mut img = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false);
+    img.len = 0x10_0000; // small enough to write; the header is at 0x4000
+    let p = write_sparse(tmp.path(), "Mario Kart 7 (Europe).3ds", &img);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(
+        (id.combined.verdict, id.combined.system.as_deref()),
+        (Verdict::Auto, Some("3ds"))
+    );
+    assert!(id.notes.contains(&ItemNote::EncryptedContent {
+        emulator: "Azahar".into()
+    }));
+    // A decrypted (NoCrypto) image carries no note.
+    let mut img = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true);
+    img.len = 0x10_0000;
+    let p = write_sparse(tmp.path(), "Mario Kart 7 (Europe) (Decrypted).3ds", &img);
+    let id = identify(&p, &FakeCatalogue::empty());
+    assert_eq!(id.combined.system.as_deref(), Some("3ds"));
+    assert!(!id
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
+}

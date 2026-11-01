@@ -621,6 +621,7 @@
         "id": "muos",
         "folder_names": {
           "3do": "3do",
+          "3ds": "3ds",
           "amstradcpc": "amstradcpc",
           "arduboy": "arduboy",
           "c128": "c128",
@@ -724,6 +725,7 @@
         "disc_layout": { "kind": "game-folder", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
+          "3ds": "n3ds",
           "amigacd32": "amigacd32",
           "amstradcpc": "amstradcpc",
           "apple2": "apple2",
@@ -816,6 +818,7 @@
         "disc_layout": { "kind": "flat", "m3u_for_multi": true },
         "folder_names": {
           "3do": "3do",
+          "3ds": "3ds",
           "amigacd32": "amigacd32",
           "amstradcpc": "amstradcpc",
           "apple2": "apple2",

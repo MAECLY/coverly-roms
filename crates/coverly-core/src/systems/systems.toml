@@ -1255,3 +1255,20 @@ libretro = "Nintendo - Wii"
 dats = ["dat/Nintendo - Wii.dat", "metadat/redump/Nintendo - Wii.dat", "metadat/no-intro/Nintendo - Wii (Digital).dat"]
 multi_file = true
 screenscraper = 16
+
+[[system]]
+id = "3ds"
+name = "Nintendo 3DS"
+family = "handheld"
+aliases = ["3DS", "n3ds", "nintendo3ds"]
+# `3ds` is DECISIVE: an Autodesk `.3ds` has no NCSD magic (D7).
+extensions = ["3ds", "cci", "cxi", "cia", "3dsx", "zcci", "zcxi", "zcia", "z3dsx"]
+libretro = "Nintendo - Nintendo 3DS"
+libretro_also = ["Nintendo - Nintendo 3DS (Digital)"]
+dats = [
+  "metadat/no-intro/Nintendo - Nintendo 3DS.dat",
+  "metadat/no-intro/Nintendo - Nintendo 3DS (Digital).dat",
+  "metadat/no-intro/Nintendo - New Nintendo 3DS.dat",
+  "metadat/no-intro/Nintendo - New Nintendo 3DS (Digital).dat",
+]
+screenscraper = 17

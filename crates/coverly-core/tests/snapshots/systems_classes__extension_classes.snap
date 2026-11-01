@@ -63,6 +63,26 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "3ds",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "3dsx",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "vic20"
     ],
     "class": "Unique",
@@ -369,6 +389,16 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cci",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "dreamcast",
       "jaguarcd"
     ],
@@ -438,6 +468,16 @@ expression: rows
     "ext": "chf",
     "strong": [
       "channelf"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cia",
+    "strong": [
+      "3ds"
     ]
   },
   {
@@ -585,6 +625,16 @@ expression: rows
       "cdtv",
       "jaguarcd",
       "fmtowns"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "cxi",
+    "strong": [
+      "3ds"
     ]
   },
   {
@@ -2010,6 +2060,16 @@ expression: rows
   },
   {
     "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "z3dsx",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
       "n64"
     ],
     "class": "Unique",
@@ -2026,6 +2086,36 @@ expression: rows
     "ext": "z80",
     "strong": [
       "zxspectrum"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcci",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcia",
+    "strong": [
+      "3ds"
+    ]
+  },
+  {
+    "accepting": [
+      "3ds"
+    ],
+    "class": "Unique",
+    "ext": "zcxi",
+    "strong": [
+      "3ds"
     ]
   },
   {

@@ -49,6 +49,7 @@ export const FALLBACK_ABBR: Readonly<Record<string, string>> = {
   // (plan Task 17).
   gamecube: 'GC',
   wii: 'WII',
+  '3ds': '3DS',
 };
 
 /** Ids whose set icon is a wordmark/logo: never mapped to a silhouette. */

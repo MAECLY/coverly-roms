@@ -447,3 +447,18 @@ fn gamecube_and_wii_folders_resolve() {
         Some("gamecube".into())
     );
 }
+
+#[test]
+fn nintendo_3ds_folders_resolve() {
+    // Systems batch 2 §6: ES-DE `n3ds`, Batocera and muOS `3ds`; muOS's
+    // friendly `nintendo3ds` is a global alias too.
+    let db = SystemDb::builtin();
+    let id = |s: Option<&coverly_core::systems::System>| s.map(|s| s.id.clone());
+    for name in ["3ds", "3DS", "n3ds", "nintendo3ds"] {
+        assert_eq!(id(db.resolve_folder(name)), Some("3ds".into()), "{name}");
+    }
+    assert_eq!(
+        id(db.resolve_folder_in(Some(&builtin("esde")), "n3ds")),
+        Some("3ds".into())
+    );
+}

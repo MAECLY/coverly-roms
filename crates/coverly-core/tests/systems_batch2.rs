@@ -25,6 +25,8 @@ const SYSTEMS: &[(&str, Family, bool)] = &[
     // Task 7.
     ("gamecube", Family::Console, true),
     ("wii", Family::Console, true),
+    // Task 8.
+    ("3ds", Family::Handheld, false),
 ];
 /// (profile, id, expected folder, on device): spot checks of spec §6.
 const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
@@ -36,6 +38,12 @@ const TARGETS: &[(&str, &str, &str, Option<bool>)] = &[
     ("muos", "wii", "wii", Some(false)),
     ("onion", "gamecube", "GAMECUBE", Some(false)),
     ("anbernic-stock", "wii", "WII", Some(false)),
+    // Task 8.
+    ("esde", "3ds", "n3ds", None),
+    ("muos", "3ds", "3ds", None),
+    ("batocera", "3ds", "3ds", None),
+    ("minui", "3ds", "3DS", Some(false)),
+    ("onion", "3ds", "3DS", Some(false)),
 ];
 /// Builds the synthetic head of a header fixture.
 type Head = fn() -> Vec<u8>;
@@ -68,6 +76,14 @@ const CONSOLE_HEADERS: &[ConsoleHeader] = &[
     ("wii", "wad", wiiware, Some("wii"), Some("WAAE")),
     // A PSP CSO shares the `CISO` magic and still answers as before.
     ("psp", "cso", psp_cso, Some("psp"), None),
+    // Task 8: 3DS cartridges, NCCH, CIA, homebrew and Z3DS.
+    ("3ds", "3ds", ctr_3ds, Some("3ds"), Some("CTR-P-AMKP")),
+    ("3ds", "cci", ctr_cci, Some("3ds"), Some("CTR-P-AMKP")),
+    ("3ds", "cxi", ctr_cxi, Some("3ds"), Some("CTR-P-BP4J")),
+    ("3ds", "cia", ctr_cia, Some("3ds"), Some("CTR-P-EKJA")),
+    ("3ds", "cia", ctr_cia_encrypted, Some("3ds"), None),
+    ("3ds", "3dsx", ctr_3dsx, Some("3ds"), None),
+    ("3ds", "zcci", ctr_zcci, Some("3ds"), Some("CTR-P-AMKP")),
 ];
 
 mod gcwii {
@@ -111,6 +127,33 @@ mod gcwii {
     }
 }
 use gcwii::*;
+
+mod ctr {
+    use coverly_core::consoles::testing::{self as t, SparseAt};
+
+    pub fn ctr_3ds() -> SparseAt {
+        t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false)
+    }
+    pub fn ctr_cci() -> SparseAt {
+        t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, true)
+    }
+    pub fn ctr_cxi() -> SparseAt {
+        t::ncch("CTR-P-BP4J", 0x0004_0000_0003_0800, false)
+    }
+    pub fn ctr_cia() -> SparseAt {
+        t::cia(0x0004_0000_0005_5D00, false, true)
+    }
+    pub fn ctr_cia_encrypted() -> SparseAt {
+        t::cia(0x0004_0000_0005_5D00, true, true)
+    }
+    pub fn ctr_3dsx() -> SparseAt {
+        t::dsx_with_smdh("Homebrew Launcher")
+    }
+    pub fn ctr_zcci() -> SparseAt {
+        t::z3ds(b"NCSD", &ctr_3ds())
+    }
+}
+use ctr::*;
 
 fn research(name: &str) -> String {
     std::fs::read_to_string(

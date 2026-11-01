@@ -1109,3 +1109,24 @@ fn gamecube_and_wii_heads_carry_the_console_id() {
     let s = sniff(&mut SliceAt(&zeros), zeros.len() as u64, "gcz");
     assert!(s.hits.is_empty() && s.console.is_none());
 }
+
+#[test]
+fn ncsd_head_carries_the_3ds_console_id() {
+    use coverly_core::consoles::testing as t;
+    // `NCSD` at 0x100 with partition 0 inside the 128 KiB head: a head
+    // alone (an archive entry) gives the product code.
+    let img = t::ncsd("CTR-P-AMKP", 0x0004_0000_0003_0800, false);
+    let mut bytes = vec![0u8; 64 * 1024];
+    let mut copy = img.clone();
+    coverly_core::identify::sniff::ReadAt::read_at(&mut copy, 0, &mut bytes).unwrap();
+    let s = sniff(&mut SliceAt(&bytes), img.len, "3ds");
+    assert_eq!(s.hits.len(), 1);
+    assert_eq!((s.hits[0].system.as_str(), s.hits[0].weight), ("3ds", 0.95));
+    assert_eq!(s.serial.as_deref(), Some("CTR-P-AMKP"));
+    assert_eq!(s.console.unwrap().encrypted, Some(true));
+    // An NCSD `.3ds` opening with `4D 4D` is still not a model.
+    bytes[..2].copy_from_slice(&[0x4D, 0x4D]);
+    let s = sniff(&mut SliceAt(&bytes), img.len, "3ds");
+    assert_eq!(s.not_a_rom, None);
+    assert_eq!(s.serial.as_deref(), Some("CTR-P-AMKP"));
+}

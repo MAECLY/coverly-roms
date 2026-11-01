@@ -15,9 +15,9 @@ pub const PREFIX: usize = 128 * 1024;
 pub const STREAM_CAP: u64 = 8 * 1024 * 1024;
 /// Systems every real dump of which carries the checked signature: a
 /// failed sniff is negative evidence for them (O-D5).
-pub const DECISIVE: [&str; 14] = [
+pub const DECISIVE: [&str; 15] = [
     "gb", "gbc", "gba", "nds", "n64", "nes", "fds", "sega32x", "vectrex", "pico", "sufami",
-    "uzebox", "vircon32", "doom",
+    "uzebox", "vircon32", "doom", "3ds",
 ];
 /// Extensions of games (and disc-set companions) that are text by nature:
 /// PICO-8 carts, ScummVM launchers, DOSBox configs and batch files, BASIC

@@ -3323,3 +3323,42 @@ fn systems_batch_1_pile_plans() {
     );
     assert_eq!(s.serial.as_deref(), Some("SCES-51719"));
 }
+
+#[test]
+fn an_encrypted_cia_moves_with_the_azahar_note() {
+    use coverly_core::organize::ItemNote;
+    // Systems batch 2 D4: an encrypted 3DS package is identified by its
+    // TMD title id and moved normally, with a note about the emulator.
+    let world = World::new();
+    let (s, t) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    let cia = coverly_core::consoles::testing::cia(0x0004_0000_0005_5D00, true, true);
+    put(&s.path().join("Pokemon Y (Europe).cia"), &cia.bytes());
+    // Homebrew is never encrypted: no note.
+    let dsx = coverly_core::consoles::testing::dsx_with_smdh("Homebrew Tool");
+    put(&s.path().join("Homebrew Tool.3dsx"), &dsx.bytes());
+    for path in files_below(s.path()) {
+        pin_mtime(&path, 1);
+    }
+    let p = plan(
+        &world,
+        s.path(),
+        OrganizeOptions {
+            offline: true,
+            target: Some(t.path().to_path_buf()),
+            ..defaults("esde")
+        },
+    );
+    let enc = by_name(&p, "Pokemon Y (Europe).cia");
+    assert_eq!(enc.system_id.as_deref(), Some("3ds"));
+    assert!(enc.moves_in(), "{:?}", enc.action);
+    assert!(enc.notes.contains(&ItemNote::EncryptedContent {
+        emulator: "Azahar".into()
+    }));
+    assert_eq!(enc.folder.as_deref(), Some("n3ds"));
+    let clear = by_name(&p, "Homebrew Tool.3dsx");
+    assert_eq!(clear.system_id.as_deref(), Some("3ds"));
+    assert!(!clear
+        .notes
+        .iter()
+        .any(|n| matches!(n, ItemNote::EncryptedContent { .. })));
+}

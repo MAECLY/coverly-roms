@@ -1181,6 +1181,20 @@ pub fn identify_candidate(
             }
         }
     }
+    // An encrypted 3DS image: a fact about the emulator (systems batch 2
+    // D4), the name a fixed string, never from a file.
+    if combined.system.as_deref() == Some("3ds")
+        && insp.payloads.iter().any(|p| {
+            p.sniff
+                .console
+                .as_ref()
+                .is_some_and(|c| c.system == "3ds" && c.encrypted == Some(true))
+        })
+    {
+        id.notes.push(ItemNote::EncryptedContent {
+            emulator: "Azahar".into(),
+        });
+    }
     id.combined = combined;
     id
 }

@@ -263,6 +263,8 @@ const MUOS_FOLDERS = {
   doom: 'doom',
   quake: 'quake',
   wolf3d: 'wolfenstein3d',
+  // Systems batch 2 (spec §6).
+  '3ds': '3ds',
 };
 const ESDE_FOLDERS = {
   '3do': '3do',
@@ -300,6 +302,7 @@ const ESDE_FOLDERS = {
   // Systems batch 2 (spec §6).
   gamecube: 'gc',
   wii: 'wii',
+  '3ds': 'n3ds',
 };
 const BATOCERA_FOLDERS = {
   '3do': '3do',
@@ -345,6 +348,7 @@ const BATOCERA_FOLDERS = {
   // Systems batch 2 (spec §6).
   gamecube: 'gamecube',
   wii: 'wii',
+  '3ds': '3ds',
 };
 
 /** The built-in profiles of `profiles/builtin.rs`, as `list_profiles` sends
