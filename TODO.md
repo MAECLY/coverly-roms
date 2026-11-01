@@ -28,6 +28,7 @@ Orden de prioridad. Cada bloque se empieza solo cuando Miguel lo diga; la lista 
 3. [Biblioteca](#3-biblioteca)
 4. [Sincronizar con dispositivos](#4-sincronizar-con-dispositivos)
 5. [Partidas guardadas (saves)](#5-partidas-guardadas-saves)
+6. [Organización y exportación para frontends](#6-organización-y-exportación-para-frontends)
 
 ## 0. Nombres de los archivos de cada release y Windows ARM
 
@@ -209,14 +210,6 @@ Tareas:
 - [ ] Nombres de las carpetas por perfil (Anbernic stock, muOS, Knulli, Batocera, ES-DE, RetroArch) para cada sistema nuevo. Investigarlo antes de cada tanda.
 - [ ] Qué sistemas aparecen por defecto y cuáles solo si el perfil los usa.
 - [ ] Licencias de los iconos que no estén en RetroArch Assets.
-
-### Lanzadores para frontends (aparte, más adelante)
-
-Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» mediante un archivo lanzador en la carpeta de ROMs en vez del juego: `.psvita` (ES-DE/Batocera con Vita3K, contiene el title ID), `.psn`/`.ps3` (RPCS3 para juegos instalados en `dev_hdd0`), y equivalentes para Switch o Wii U según el frontend.
-
-- [ ] Investigar por frontend (ES-DE, Batocera, RetroBat, LaunchBox) qué lanzadores usa cada sistema, su contenido y su nombre.
-- [ ] Opción para crear el lanzador al organizar o sincronizar cuando el juego está instalado en el emulador y no hay archivo jugable en la carpeta.
-- [ ] Reconocer los lanzadores existentes en la biblioteca como entrada del juego (no como archivo raro).
 
 ## 2.1. Actualizaciones, DLC, demos y revisiones dentro de su juego
 
@@ -527,3 +520,33 @@ Algunas demos generan partidas, y en varios sistemas la partida (o lo desbloquea
 - [ ] Llevar y traer partidas con cada dispositivo (bloque 4), traduciendo la ruta y el nombre según el emulador de cada lado (p. ej. RetroArch `saves/` en la Anbernic ↔ junto a la ROM en la Ayaneo).
 - [ ] Conflictos: si la partida cambió en los dos lados, quedarse con las dos versiones y preguntar; nunca sobrescribir sin copia.
 - [ ] Convertir formatos cuando haga falta y se pueda (p. ej. extensiones `.srm` ↔ `.sav`, tamaños de memoria distintos según el emulador).
+
+## 6. Organización y exportación para frontends
+
+> **Dependencias:** usa los perfiles de consola actuales (`crates/coverly-core/src/profiles/builtin.rs`) y las tablas de carpetas investigadas en las Tandas 1–3. Se coordina con 4 (sincronizar), que usará estos mismos traductores al llevar la biblioteca a cada dispositivo, y con 2.1 (carpetas maestras del juego).
+
+Hoy Coverly organiza y rellena portadas para varios perfiles (Anbernic stock, muOS, Knulli, Batocera, ES-DE, MinUI, Onion…), pero no todos los detalles de cada frontend están cubiertos. Es una tarea grande que necesita su propia investigación.
+
+### Portadas y medios en la carpeta que espera cada frontend
+
+- **Problema detectado:** para ES-DE las portadas se escriben en `downloaded_media/{id de Coverly}/covers/` (`builtin.rs`), pero ES-DE las busca con **su** nombre de sistema (`gc`, `n3ds`, `atarijaguar`, `cdimono1`, `sg-1000`…), así que en esos sistemas no las muestra. Pasa también con la Atari 2600 desde antes y con los catálogos de muOS.
+- [ ] Investigar por frontend dónde espera cada tipo de medio (portada, captura, título, marquesina, caja 3D, vídeo, manual) y con qué nombre de carpeta de sistema: ES-DE, Batocera, Knulli, muOS, Onion, MinUI, RetroBat, LaunchBox, Pegasus, RetroArch (playlists y thumbnails), Anbernic stock.
+- [ ] Sustituir `{system_id}` por un `{system_folder}` del frontend en las plantillas de rutas.
+- [ ] Migración para usuarios actuales: mover las portadas ya escritas a la carpeta nueva, con deshacer y sin duplicarlas.
+
+### Metadatos y listas de juegos
+
+- [ ] Exportar `gamelist.xml` (ES-DE, Batocera, Knulli), playlists `.lpl` de RetroArch, `metadata.pegasus.txt`, y el formato de LaunchBox, con nombre, descripción, fecha, género, jugadores, valoración y rutas de medios.
+- [ ] Respetar lo que ya haya escrito el usuario o el frontend (fusionar, no sobrescribir), como ya se hace con `gamelist.xml`.
+
+### Lanzadores para juegos instalados
+
+Algunos frontends lanzan juegos de PS3, Vita y otros sistemas «instalados» en el emulador mediante un archivo lanzador en la carpeta de ROMs en vez del juego: `.psvita` (ES-DE/Batocera con Vita3K, contiene el title ID), `.psn`/`.ps3` (RPCS3 para juegos instalados en `dev_hdd0`), y equivalentes para Switch o Wii U según el frontend.
+
+- [ ] Investigar por frontend qué lanzadores usa cada sistema, su contenido y su nombre.
+- [ ] Opción para crear el lanzador al organizar o sincronizar cuando el juego está instalado en el emulador y no hay archivo jugable en la carpeta.
+- [ ] Reconocer los lanzadores existentes en la biblioteca como entrada del juego (no como archivo raro).
+
+### Exportar la biblioteca a un frontend
+
+- [ ] «Exportar para…»: generar desde la biblioteca la estructura completa de un frontend (carpetas de sistema, ROMs, medios, listas de juegos, lanzadores) en una carpeta o tarjeta de destino, con vista previa y deshacer. Es la base de la sincronización del bloque 4.
