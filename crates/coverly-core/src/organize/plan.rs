@@ -2525,6 +2525,17 @@ fn duplicates_step(
     let mut units = units_from_facts(&facts, &|i| fact_systems.get(i).cloned()).units;
     units.extend(units_from_sets(&sets).units);
     units.extend(units_from_folders(&folders).units);
+    // What the survey's readers found stands for level 1's title keys: a
+    // header or folder probe is opened once (systems batch 3 D24).
+    for u in &units {
+        let console = by_primary
+            .get(&u.primary)
+            .and_then(|&id| survey.entries.get(id))
+            .and_then(|e| e.console.as_ref());
+        if let Some(c) = console {
+            crate::dedupe::keys::remember_title_key(env.cache, u, c);
+        }
+    }
 
     // Library units: only the system folders the pile goes to.
     let listing = ArchiveEntryListing::with_tools(opts.limits.clone(), &[src, target_root]);

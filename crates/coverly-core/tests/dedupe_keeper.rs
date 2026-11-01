@@ -60,6 +60,7 @@ fn cand<'a>(member: usize, unit: &'a Unit) -> Candidate<'a> {
         relation: Relation::Exact,
         headered_functional: None,
         console_version: None,
+        region: None,
     }
 }
 
@@ -208,6 +209,54 @@ fn region_rule() {
         reason,
         KeepReason::Region {
             kept: Region::Usa,
+            other: Region::Japan
+        }
+    );
+}
+
+#[test]
+fn region_rule_falls_back_on_the_content_id_region() {
+    // Systems batch 3 D8: two PS4 packages whose names carry no region
+    // tag; the content id says `UP` (Usa) and `EP` (Europe).
+    let a = unit(0, "ps4", "Bloodborne EP.pkg", UnitKind::Single, 5);
+    let b = unit(1, "ps4", "Bloodborne UP.pkg", UnitKind::Single, 10);
+    let untagged = parse_tags("Bloodborne");
+    assert!(untagged.regions.is_empty());
+    let mut ca = cand(0, &a);
+    ca.tags = Some(&untagged);
+    ca.relation = Relation::Version;
+    ca.region = Some(Region::Europe);
+    let mut cb = cand(1, &b);
+    cb.tags = Some(&untagged);
+    cb.relation = Relation::Version;
+    cb.region = Some(Region::Usa);
+    let usa_first = region_order(&["usa", "europe", "japan"].map(String::from));
+    let (k, reason, _, _) = choose(
+        &[ca.clone(), cb.clone()],
+        &all_rules(),
+        &usa_first,
+        &no_order(),
+        None,
+        None,
+    );
+    assert_eq!(k, 1);
+    assert_eq!(
+        reason,
+        KeepReason::Region {
+            kept: Region::Usa,
+            other: Region::Europe
+        }
+    );
+
+    // A region tag in the name still wins over the content id.
+    let jp = parse_tags("Bloodborne (Japan)");
+    cb.tags = Some(&jp);
+    let (k, reason, _, _) = choose(&[ca, cb], &all_rules(), &usa_first, &no_order(), None, None);
+    assert_eq!(k, 0);
+    assert_eq!(
+        reason,
+        KeepReason::Region {
+            kept: Region::Europe,
             other: Region::Japan
         }
     );

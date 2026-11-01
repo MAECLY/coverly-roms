@@ -36,8 +36,8 @@ use super::keeper::{
     saves_fingerprint, Candidate, ContainerOrder, Played,
 };
 use super::keys::{
-    catalogue_crcs, level_one, level_three, level_two, workers_for, ExactKey, FileBytes, FormatKey,
-    KeyCtx, KeyedUnit, VersionKey,
+    catalogue_crcs, level_one, level_three, level_two, title_region, workers_for, ExactKey,
+    FileBytes, FormatKey, KeyCtx, KeyedUnit, VersionKey,
 };
 use super::saves::{conflict, off_card, OffCard, SaveIndex, SaveInfo};
 use super::source::{CacheDats, DatHit, DatLookup, DiscProbe, EntryListing};
@@ -224,6 +224,8 @@ struct UnitFacts {
     headered_functional: Option<bool>,
     /// Systems batch 2 D11: the higher version stays.
     console_version: Option<String>,
+    /// Systems batch 3 D8: the content id's region, for a name without one.
+    region: Option<Region>,
 }
 
 impl UnitFacts {
@@ -757,6 +759,7 @@ impl Base {
                 .filter(|k| !k.by_title_id)
                 .map(|k| k.game.clone()),
             console_version: self.l2[i].as_ref().and_then(|k| k.console_version.clone()),
+            region: title_region(&u.system, self.l1[i].exact.as_ref()),
             headered_functional: headered(u, &self.l1[i]),
         }
     }
@@ -826,6 +829,7 @@ impl Base {
                 relation: *relation,
                 headered_functional: f.headered_functional,
                 console_version: f.console_version.as_deref(),
+                region: f.region,
             })
             .collect()
     }
