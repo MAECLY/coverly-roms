@@ -171,7 +171,8 @@
       "name": {
         "libretro": "libretro-thumbnails",
         "steamgriddb": "SteamGridDB",
-        "screenscraper": "ScreenScraper"
+        "screenscraper": "ScreenScraper",
+        "embedded": "Imagen incluida en el juego"
       },
       "notBuilt": "No disponible en esta versión",
       "needsKey": "Guarda una clave de API abajo para activarla",

@@ -557,7 +557,7 @@ pub const PACKAGE_EXTS: [&str; 6] = ["arduboy", "rpk", "solarus", "lutro", "uef"
 /// budget) read through the archive layer, and the `sce_sys/icon0.png`
 /// entry as the art locator. Nothing is extracted; any archive problem
 /// names no system.
-fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleId> {
+pub(crate) fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleId> {
     let mut reader = archive::open_archive_with(path, limits, Some(&[])).ok()??;
     let entries: Vec<Entry> = file_entries(reader.as_ref()).cloned().collect();
     let named = |want: &str| {
@@ -576,6 +576,24 @@ fn vpk_console(path: &Path, limits: &Limits) -> Option<crate::consoles::ConsoleI
     )
     .ok()?;
     crate::consoles::sony::from_vpk(&bytes, icon.as_deref())
+}
+
+/// The bytes of the file entry `name` (case-insensitive) of the VPK at
+/// `path`, read through the archive layer (never extracted), when it is
+/// at most `cap` bytes; the embedded cover source (systems batch 2 D17)
+/// reads `sce_sys/icon0.png` with it.
+pub(crate) fn vpk_entry(path: &Path, name: &str, cap: u64) -> Option<Vec<u8>> {
+    let limits = Limits {
+        plan_head_budget: cap,
+        ..Limits::default()
+    };
+    let mut reader = archive::open_archive_with(path, &limits, Some(&[])).ok()??;
+    let entry = file_entries(reader.as_ref())
+        .find(|e| e.unsafe_name.is_none() && e.name.as_str().eq_ignore_ascii_case(name))
+        .filter(|e| e.size <= cap)?
+        .index;
+    let mut budget = Budget::plan_head(&limits);
+    read_entry(reader.as_mut(), entry, cap, &mut budget).ok()
 }
 
 /// Header evidence of a game package read through the archive layer

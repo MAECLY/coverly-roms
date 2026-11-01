@@ -339,7 +339,10 @@ fn source_candidates(
     opts: &GatherOptions,
 ) -> Result<Vec<Candidate>, SourceError> {
     let key = cache_key(src.id(), system, media, identity, &t.rom.stem, opts);
-    if !opts.refresh {
+    // The embedded source reads the ROM itself (its path, not its name,
+    // decides), and costs a few local reads: never cached by name.
+    let cacheable = src.id() != crate::sources::embedded::ID;
+    if cacheable && !opts.refresh {
         // An unreadable cached value is a miss.
         if let Ok(Some(s)) = cache.get_json::<Vec<Candidate>>(NS, &key) {
             if now_unix() - s.fetched_at < opts.ttl_secs {
@@ -365,13 +368,16 @@ fn source_candidates(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&t.rom.stem),
+        rom_path: Some(&t.rom.path),
     };
     let mut found = src.candidates(&q)?;
     if opts.consensus {
         add_consensus(src, system, media, &mut found)?;
     }
     // The cache only saves work: failing to store is not an error.
-    let _ = cache.put_json(NS, &key, &found, None);
+    if cacheable {
+        let _ = cache.put_json(NS, &key, &found, None);
+    }
     Ok(found)
 }
 

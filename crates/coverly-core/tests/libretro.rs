@@ -64,6 +64,7 @@ fn query<'a>(
         hash: None,
         size: 0,
         file_name: stem,
+        rom_path: None,
     }
 }
 

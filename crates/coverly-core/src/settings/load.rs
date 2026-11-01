@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::model::{MaxSize, RecentLibrary, Settings, SETTINGS_VERSION};
+use super::model::{MaxSize, RecentLibrary, Settings, SourceEntry, SETTINGS_VERSION};
 use super::validate::FieldErrorCode;
 
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -224,6 +224,18 @@ fn parse_tolerant(text: &str, known: &[String]) -> Option<Parsed> {
         }
     }
     let mut settings: Settings = serde_json::from_value(merged).ok()?;
+    // Version 3 added the embedded source (systems batch 2 D17): a file
+    // written before it (or with no version at all) gets it on, once, at
+    // the end of the user's order; `normalise` would append it off. From
+    // version 3 on, the user's choice is kept.
+    let written_by = user.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let embedded = crate::sources::embedded::ID;
+    if written_by < 3 && !settings.sources.order.iter().any(|e| e.id == embedded) {
+        settings.sources.order.push(SourceEntry {
+            id: embedded.to_string(),
+            enabled: true,
+        });
+    }
     // What can be cleaned (spelling, duplicates, unknown sources) is
     // cleaned before validating, so it is not reset.
     settings.normalise();

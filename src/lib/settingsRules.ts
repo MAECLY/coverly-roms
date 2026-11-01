@@ -31,13 +31,19 @@ export const KNOWN_SOURCES: readonly SourceId[] = [
   'libretro',
   'steamgriddb',
   'screenscraper',
+  'embedded',
 ];
 /** Sources the mock build can use (mirrors Rust without ScreenScraper dev
- * credentials); the others are normalised off. */
+ * credentials; `embedded` needs no key and no network); the others are
+ * normalised off. */
 export const AVAILABLE_SOURCES: readonly SourceId[] = [
   'libretro',
   'steamgriddb',
+  'embedded',
 ];
+/** Version of the settings format (Rust `SETTINGS_VERSION`): 3 added the
+ * `embedded` source, turned on once for older settings. */
+export const SETTINGS_VERSION = 3;
 
 /** Built-in profile ids (`builtin_profiles` in Rust). */
 export const BUILTIN_LAYOUTS: readonly string[] = [
@@ -52,7 +58,7 @@ export const BUILTIN_LAYOUTS: readonly string[] = [
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
-  version: 2,
+  version: SETTINGS_VERSION,
   general: {
     language: 'auto',
     theme: 'system',
@@ -112,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
       { id: 'libretro', enabled: true },
       { id: 'steamgriddb', enabled: false },
       { id: 'screenscraper', enabled: false },
+      { id: 'embedded', enabled: true },
     ],
   },
   network: {
@@ -630,7 +637,14 @@ function uniq(list: string[]): string[] {
 /** Like `Settings::normalise`: cleans what can be cleaned without asking. */
 export function normaliseSettings(input: Settings): Settings {
   const s = cloneSettings(input);
-  s.version = 2;
+  // Settings older than version 3 get the embedded source on, once, at
+  // the end (like `settings/load.rs`); the loop below would append it off.
+  if (
+    (s.version ?? 0) < SETTINGS_VERSION &&
+    !s.sources.order.some((e) => e.id === 'embedded')
+  )
+    s.sources.order = [...s.sources.order, { id: 'embedded', enabled: true }];
+  s.version = SETTINGS_VERSION;
   const dirs: string[] = [];
   for (const raw of s.library.ignored_dirs) {
     const d = raw.trim();
@@ -696,6 +710,9 @@ export function tolerantSettings(
 ): { settings: Settings; fixed: string[] } {
   const shaped = shapeSettings(raw);
   const fixed = [...shaped.bad];
+  // The stored version decides the one-time migration in `normaliseSettings`.
+  const version = isObject(raw) ? raw.version : undefined;
+  shaped.settings.version = typeof version === 'number' ? version : 0;
   let s = normaliseSettings(shaped.settings);
   for (const e of validateSettings(s, known)) {
     const [g, f] = e.field.split('.') as [SettingsGroup, string];

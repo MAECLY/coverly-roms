@@ -84,7 +84,7 @@ fn fill_settings_map_the_matching_group() {
     assert_eq!(f.match_method, MatchMethod::NameOnly);
     assert_eq!(f.hash_max_bytes, 8 * 1024 * 1024);
     assert_eq!(f.media, [Media::Cover, Media::Title]);
-    assert_eq!(f.sources, ["libretro"]);
+    assert_eq!(f.sources, ["libretro", "embedded"]);
     assert_eq!(f.index_ttl_secs, 6 * 3600);
 }
 
@@ -415,7 +415,7 @@ fn steamgriddb_can_now_be_enabled_and_survives_normalise() {
             .filter(|e| e.enabled)
             .map(|e| e.id.as_str())
             .collect::<Vec<_>>(),
-        ["libretro"]
+        ["libretro", "embedded"]
     );
     s.sources.order.iter_mut().for_each(|e| e.enabled = true);
     s.normalise();
@@ -427,10 +427,13 @@ fn steamgriddb_can_now_be_enabled_and_survives_normalise() {
         .map(|e| e.id.as_str())
         .collect();
     assert!(on.contains(&"steamgriddb"));
-    assert_eq!(available_sources_with(false), ["libretro", "steamgriddb"]);
+    assert_eq!(
+        available_sources_with(false),
+        ["libretro", "steamgriddb", "embedded"]
+    );
     assert_eq!(
         available_sources_with(true),
-        ["libretro", "steamgriddb", "screenscraper"]
+        ["libretro", "steamgriddb", "screenscraper", "embedded"]
     );
 }
 

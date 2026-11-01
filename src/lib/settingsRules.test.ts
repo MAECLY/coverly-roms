@@ -135,7 +135,71 @@ describe('settings rules (mirror of coverly_core::settings)', () => {
       { id: 'screenscraper', enabled: false },
       { id: 'steamgriddb', enabled: true },
       { id: 'libretro', enabled: true },
+      { id: 'embedded', enabled: false },
     ]);
+  });
+
+  it('turns the embedded source on once for settings older than version 3', () => {
+    const old = cloneSettings(DEFAULT_SETTINGS);
+    old.version = 2;
+    old.sources.order = [
+      { id: 'steamgriddb', enabled: true },
+      { id: 'libretro', enabled: true },
+      { id: 'screenscraper', enabled: false },
+    ];
+    const n = normaliseSettings(old);
+    expect(n.version).toBe(3);
+    expect(n.sources.order).toEqual([
+      { id: 'steamgriddb', enabled: true },
+      { id: 'libretro', enabled: true },
+      { id: 'screenscraper', enabled: false },
+      { id: 'embedded', enabled: true },
+    ]);
+    // Stored version 2 settings read through the tolerant path too.
+    const stored = tolerantSettings(
+      {
+        version: 2,
+        sources: { order: [{ id: 'libretro', enabled: true }] },
+      },
+      known,
+    ).settings;
+    // After the user's own order; missing known sources follow, off.
+    expect(stored.sources.order).toEqual([
+      { id: 'libretro', enabled: true },
+      { id: 'embedded', enabled: true },
+      { id: 'steamgriddb', enabled: false },
+      { id: 'screenscraper', enabled: false },
+    ]);
+  });
+
+  it('keeps the embedded source off in version 3 settings', () => {
+    const s = cloneSettings(DEFAULT_SETTINGS);
+    expect(s.version).toBe(3);
+    expect(s.sources.order.at(-1)).toEqual({ id: 'embedded', enabled: true });
+    s.sources.order = [
+      { id: 'libretro', enabled: true },
+      { id: 'embedded', enabled: false },
+    ];
+    const n = normaliseSettings(s);
+    expect(n.sources.order).toEqual([
+      { id: 'libretro', enabled: true },
+      { id: 'embedded', enabled: false },
+      { id: 'steamgriddb', enabled: false },
+      { id: 'screenscraper', enabled: false },
+    ]);
+    const stored = tolerantSettings(
+      {
+        version: 3,
+        sources: {
+          order: [
+            { id: 'embedded', enabled: false },
+            { id: 'libretro', enabled: true },
+          ],
+        },
+      },
+      known,
+    ).settings;
+    expect(stored.sources.order[0]).toEqual({ id: 'embedded', enabled: false });
   });
 
   it('reads stored settings field by field', () => {

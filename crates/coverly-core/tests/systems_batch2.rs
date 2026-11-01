@@ -369,6 +369,7 @@ fn cover_by_name(
         hash: None,
         size: 0,
         file_name: stem,
+        rom_path: None,
     })
     .unwrap()
 }
@@ -597,6 +598,7 @@ fn switch_covers_skip_libretro_and_ask_screenscraper_by_name() {
         hash: None,
         size: 0,
         file_name: "Super Mario Odyssey [0100000000010000][v0].nsp",
+        rom_path: None,
     });
     let asked = server.requests();
     assert!(

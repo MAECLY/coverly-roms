@@ -48,7 +48,7 @@ percent-encoding = "2.3"
 quick-xml = "0.38"
 keyring = "4"
 log = "0.4"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp", "tga"] }
 semver = "1"
 base64 = "0.22"
 minisign-verify = "0.3"

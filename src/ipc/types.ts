@@ -408,7 +408,8 @@ export interface OrganizeSettings {
   external_tools: ExternalToolsSetting;
 }
 export type MatchMethod = 'hash-then-name' | 'hash-only' | 'name-only';
-export type SourceId = 'libretro' | 'steamgriddb' | 'screenscraper';
+export type SourceId =
+  'libretro' | 'steamgriddb' | 'screenscraper' | 'embedded';
 
 export interface RecentEntry {
   path: string;

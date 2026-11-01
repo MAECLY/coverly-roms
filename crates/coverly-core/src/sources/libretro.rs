@@ -593,6 +593,7 @@ mod tests {
                     hash: None,
                     size: 0,
                     file_name: stem,
+                    rom_path: None,
                 })
                 .unwrap();
             let has = src.has_name(nds, Media::Cover, stem).unwrap();

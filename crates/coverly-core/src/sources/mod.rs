@@ -3,6 +3,7 @@
 //! libretro-thumbnails; ScreenScraper, SteamGridDB and others arrive in M6
 //! behind the same trait.
 
+pub mod embedded;
 pub mod libretro;
 pub mod screenscraper;
 pub mod steamgriddb;
@@ -95,6 +96,9 @@ pub struct ArtQuery<'a> {
     pub size: u64,
     /// ROM file name with extension, no folders.
     pub file_name: &'a str,
+    /// The ROM (file or game folder) on disk; `None` when unknown. Only the
+    /// embedded source reads it, through the budgeted console readers.
+    pub rom_path: Option<&'a std::path::Path>,
 }
 
 /// Why a source could not answer.

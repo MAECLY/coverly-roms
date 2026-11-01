@@ -208,24 +208,49 @@ fn tail(a: &Candidate, b: &Candidate, ctx: &RankContext) -> Ordering {
         .then_with(|| a.url.cmp(&b.url))
 }
 
-/// Splits into (eligible, rest) and sorts both: releases before
-/// unreleased variants, then `order`, for eligible; kind/score/name for
-/// the rest.
+/// Whether `c` is a last-resort candidate (an icon inside the game,
+/// systems batch 2 D17): it ranks below every other candidate, whatever
+/// its kind, score or the user's source order.
+fn is_last_resort(c: &Candidate) -> bool {
+    c.source == crate::sources::embedded::ID
+}
+
+/// Ranks the ordinary candidates, then the last-resort ones (each group
+/// by [`rank_among`]).
 fn rank_with(
     ctx: &RankContext,
     cands: &[Candidate],
     merge_exact: bool,
     order: impl Fn(&Candidate, &Candidate) -> Ordering,
 ) -> Vec<usize> {
-    let Some(best) = cands.iter().max_by(|a, b| {
+    let (main, last): (Vec<usize>, Vec<usize>) =
+        (0..cands.len()).partition(|&i| !is_last_resort(&cands[i]));
+    let mut out = rank_among(ctx, cands, &main, merge_exact, &order);
+    out.extend(rank_among(ctx, cands, &last, merge_exact, &order));
+    out
+}
+
+/// Splits `among` into (eligible, rest) and sorts both: releases before
+/// unreleased variants, then `order`, for eligible; kind/score/name for
+/// the rest.
+fn rank_among(
+    ctx: &RankContext,
+    cands: &[Candidate],
+    among: &[usize],
+    merge_exact: bool,
+    order: &impl Fn(&Candidate, &Candidate) -> Ordering,
+) -> Vec<usize> {
+    let Some(best) = among.iter().map(|&i| &cands[i]).max_by(|a, b| {
         tier(a.kind, merge_exact)
             .cmp(&tier(b.kind, merge_exact))
             .then(a.score.cmp(&b.score))
     }) else {
         return Vec::new();
     };
-    let (mut good, mut rest): (Vec<usize>, Vec<usize>) =
-        (0..cands.len()).partition(|&i| eligible(best, &cands[i], merge_exact));
+    let (mut good, mut rest): (Vec<usize>, Vec<usize>) = among
+        .iter()
+        .copied()
+        .partition(|&i| eligible(best, &cands[i], merge_exact));
     // A release always beats a beta/proto/demo/hack of the same title, whatever the strategy.
     good.sort_by(|&a, &b| {
         is_unreleased_variant(&cands[a].name)
