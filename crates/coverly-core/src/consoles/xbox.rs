@@ -1167,6 +1167,16 @@ pub fn is_guid_name(name: &str) -> bool {
             .all(|(g, n)| is_hex(g, n))
 }
 
+/// The extensions an XVC/XVD/MSIXVC carries (systems batch 3 §7).
+pub const XVD_EXTS: [&str; 3] = ["xvc", "xvd", "msixvc"];
+
+/// Whether a file with extension `ext` (lowercase) and name `name` is
+/// read by the XVD reader alone, for its header only (D19, §8.3): an
+/// XVC extension, or no extension and a GUID name.
+pub fn is_xvd_candidate(ext: &str, name: &str) -> bool {
+    XVD_EXTS.contains(&ext) || (ext.is_empty() && is_guid_name(name))
+}
+
 /// A GUID as xvdtool prints it (`new Guid(bytes).ToString()`): the
 /// Windows `GUID` layout, first three groups little-endian, lower case.
 fn guid(b: &[u8; 16]) -> String {

@@ -403,9 +403,10 @@ pub fn inspect_file_with(
 ) -> io::Result<Inspection> {
     let ext = extension(path);
     let mut at = FileAt(crate::consoles::open_rom(path)?);
-    // A GUID-named Xbox package (systems batch 3 D19): its XVD header
-    // only, magic window first; no prefix, tail or head CRC.
-    if ext.is_empty() && crate::consoles::xbox::is_guid_name(&file_name(path)) {
+    // An Xbox package, under an XVC extension or a GUID name (systems
+    // batch 3 D19, §8.3): its XVD header only, magic window first; no
+    // prefix, tail or head CRC over its signature and encrypted data.
+    if crate::consoles::xbox::is_xvd_candidate(&ext, &file_name(path)) {
         let mut b = crate::consoles::Budgeted::new(&mut at, len);
         let ids = crate::consoles::identify_all(&mut b, &ext, &file_name(path));
         let mut sniff = Sniff {
@@ -1978,6 +1979,47 @@ mod tests {
             assert_eq!(id.title_id.as_deref(), Some("0100000000010000"));
             assert!(sniff.read < 0x100, "{name}: {}", sniff.read);
         }
+    }
+
+    /// Systems batch 3 D19 and §8.3: an XVC is read for its 0x3C4-byte
+    /// header only, under any of its extensions or a GUID name: no
+    /// prefix, tail or head CRC over its signature and encrypted data.
+    #[test]
+    fn an_xvc_gets_no_prefix_read_or_head_crc() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let xvc = crate::consoles::testing::xvd_head(0x01);
+        let db = SystemDb::builtin();
+        for name in [
+            "game.xvc",
+            "game.XVD",
+            "game.msixvc",
+            "4f0b3e0a-1c2d-4e5f-8a9b-c1d2e3f4a5b6",
+        ] {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, xvc.bytes()).unwrap();
+            let out = inspect_file(&path, xvc.len, &db).unwrap();
+            assert_eq!(out.container, Container::Raw, "{name}");
+            assert_eq!(out.head_crc, None, "{name}");
+            let sniff = &out.payloads[0].sniff;
+            let systems: Vec<&str> = sniff.hits.iter().map(|h| h.system.as_str()).collect();
+            assert_eq!(systems, ["xboxone", "xboxseries"], "{name}");
+            let header =
+                crate::consoles::xbox::XVD_HEADER_END - crate::consoles::xbox::XVD_MAGIC_AT;
+            assert!(sniff.read as u64 <= header, "{name}: {}", sniff.read);
+        }
+        // An `.xvc` without the magic: the magic window and nothing else.
+        let mut blob = crate::consoles::testing::xvd_head(0x01);
+        blob.put(0x200, b"not-xvd!");
+        let path = tmp.path().join("odd.xvc");
+        std::fs::write(&path, blob.bytes()).unwrap();
+        let out = inspect_file(&path, blob.len, &db).unwrap();
+        assert_eq!(out.head_crc, None);
+        assert!(out.payloads[0].sniff.hits.is_empty());
+        assert!(
+            out.payloads[0].sniff.read <= 8,
+            "{}",
+            out.payloads[0].sniff.read
+        );
     }
 
     #[test]

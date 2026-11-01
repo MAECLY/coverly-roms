@@ -433,11 +433,12 @@ pub fn identify(src: &mut Budgeted, ext: &str, name: &str) -> Option<ConsoleId> 
 /// of equal weight, so the file goes to review). Empty when nothing
 /// applies.
 ///
-/// A GUID-named extensionless file (an Xbox package as the console stores
-/// it) is read by the XVD reader only, from its magic window on: nothing
-/// below 0x200 (the signature) is read (D19, D24).
+/// An `.xvc`, `.xvd` or `.msixvc`, and a GUID-named extensionless file
+/// (an Xbox package as the console stores it), is read by the XVD reader
+/// only, from its magic window on: nothing below 0x200 (the signature)
+/// and nothing past the header is read (D19, D24, §8.3).
 pub fn identify_all(src: &mut Budgeted, ext: &str, name: &str) -> Vec<ConsoleId> {
-    if ext.is_empty() && xbox::is_guid_name(name) {
+    if xbox::is_xvd_candidate(ext, name) {
         return xbox::xvd(src).unwrap_or_default();
     }
     match identify_one(src, ext, name) {
